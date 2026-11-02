@@ -29,6 +29,7 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	"github.com/carverauto/serviceradar/go/pkg/sysmon"
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
+	metricpb "github.com/carverauto/serviceradar/proto/metric/v1"
 )
 
 const (
@@ -149,29 +150,28 @@ func (p *PushLoop) spoolSysmonSamples(drained []*sysmon.MetricSample, capability
 	ctx := p.metricEnvelopeContext()
 	appended := 0
 	for len(pending) > 0 {
-		taken, record, payload, err := nextSysmonEdgeRecord(pending, capability, ctx)
-		if err == nil {
-			var body []byte
-			if body, err = edgerecord.CanonicalRecordBytes(record); err == nil {
-				_, err = p.edgeMetricsSpool.Append(record.GetEventId(), body)
-				if err != nil && !permanentSpoolRefusal(err) {
-					p.logger.Warn().Err(err).Int("pending_samples", len(pending)).
-						Msg("Edge spool refused sysmon metrics; retrying on the next push")
-					break
-				}
-			}
-			if err != nil {
-				p.dropSysmonEdgeSamples(edgeDropRefused, taken, err)
-				pending = pending[taken:]
-				continue
-			}
-			p.publishAddonMetricFeed("sysmon", payload)
-			appended += taken
+		taken, built, droppedPoints, err := nextSysmonEdgeRecord(pending, capability, ctx)
+		if err != nil {
+			p.dropSysmonEdgeSamples(edgeDropInvalidRecord, taken, err)
 			pending = pending[taken:]
 			continue
 		}
-		p.dropSysmonEdgeSamples(edgeDropInvalidRecord, taken, err)
-		pending = pending[taken:]
+		if droppedPoints > 0 {
+			p.dropSysmonEdgeSamples(edgeDropInvalidRecord, droppedPoints, errEdgeMetricsRecordTooLarge)
+		}
+		wrote, retry, appendErr := p.appendSysmonEdgeRecords(built, len(pending))
+		if retry {
+			break
+		}
+		if appendErr != nil {
+			p.dropSysmonEdgeSamples(edgeDropRefused, taken, appendErr)
+			pending = pending[taken:]
+			continue
+		}
+		if wrote {
+			appended += taken
+			pending = pending[taken:]
+		}
 	}
 
 	if over := len(pending) - maxPendingSysmonEdgeSamples; over > 0 {
@@ -197,53 +197,280 @@ func permanentSpoolRefusal(err error) bool {
 	return errors.Is(err, spool.ErrPermanent) || errors.Is(err, spool.ErrBodyTooLarge)
 }
 
+// sysmonEdgeBuilt is one metrics batch record ready to spool.
+type sysmonEdgeBuilt struct {
+	record  *edgev1.EdgeRecordV1
+	payload []byte
+}
+
+// appendSysmonEdgeRecords writes built in order. A retryable refusal stops the
+// caller with the samples still pending. wrote is false when nothing was admitted.
+func (p *PushLoop) appendSysmonEdgeRecords(built []sysmonEdgeBuilt, pending int) (bool, bool, error) {
+	for _, piece := range built {
+		body, err := edgerecord.CanonicalRecordBytes(piece.record)
+		if err != nil {
+			return false, false, err
+		}
+		if _, err = p.edgeMetricsSpool.Append(piece.record.GetEventId(), body); err != nil {
+			if !permanentSpoolRefusal(err) {
+				p.logger.Warn().Err(err).Int("pending_samples", pending).
+					Msg("Edge spool refused sysmon metrics; retrying on the next push")
+				return false, true, err
+			}
+			return false, false, err
+		}
+		p.publishAddonMetricFeed("sysmon", piece.payload)
+	}
+	return true, false, nil
+}
+
 // nextSysmonEdgeRecord packs the longest prefix of pending that fits one metrics
-// batch record (payload and projected-row bounds) and returns how many samples it
-// took. On error the first `taken` samples cannot form a valid record.
+// batch record. A sample whose batch exceeds the payload cap or the grant's row
+// ceiling is split into records that keep resource, ingest identity, metric order,
+// and point order. A multi-sample prefix whose canonical record is over the record
+// ceiling is shortened. droppedPoints is the count of single points that cannot
+// form a valid record. On error the first taken samples cannot form one.
 func nextSysmonEdgeRecord(
 	pending []*sysmon.MetricSample,
 	capability *edgev1.EdgeSignedCapabilityV1,
 	ctx metricEnvelopeContext,
-) (int, *edgev1.EdgeRecordV1, []byte, error) {
+) (int, []sysmonEdgeBuilt, int, error) {
 	claims := capability.GetProduction()
 	maxRows := min(uint64(claims.GetMaxProjectedRowCount()), claims.GetMaxProjectedWriteBytes()/edgeMetricsProjectedRowBytes)
 
-	batch, err := buildSysmonMetricBatch(pending[:1], ctx)
+	head, err := buildSysmonMetricBatch(pending[:1], ctx)
 	if err != nil {
-		return 1, nil, nil, err
+		return 1, nil, 0, err
 	}
-	if uint64(len(batch.GetMetrics())) > maxRows || gproto.Size(batch) > edgeMetricsMaxPayloadBytes {
-		return 1, nil, nil, errEdgeMetricsRecordTooLarge
+	if metricBatchExceeds(head, maxRows) {
+		return splitSysmonSample(head, capability, maxRows)
+	}
+	headRecord, err := metricsEdgeRecord(head, capability, maxRows)
+	if metricsRecordTooLarge(err) {
+		return splitSysmonSample(head, capability, maxRows)
+	}
+	if err != nil {
+		return 1, nil, 0, err
 	}
 
+	batch := gproto.Clone(head).(*metricpb.MetricBatch)
 	taken := 1
 	for _, sample := range pending[1:] {
-		next, err := buildSysmonMetricBatch([]*sysmon.MetricSample{sample}, ctx)
-		if err != nil {
-			break // the sample is refused on its own as the head of the next record
+		next, buildErr := buildSysmonMetricBatch([]*sysmon.MetricSample{sample}, ctx)
+		if buildErr != nil {
+			break
 		}
 		kept := len(batch.Metrics)
 		batch.Metrics = append(batch.Metrics, next.GetMetrics()...)
-		if uint64(len(batch.Metrics)) > maxRows || gproto.Size(batch) > edgeMetricsMaxPayloadBytes {
+		if metricBatchExceeds(batch, maxRows) {
 			batch.Metrics = batch.Metrics[:kept]
 			break
 		}
 		taken++
 	}
+	if taken == 1 {
+		return 1, []sysmonEdgeBuilt{headRecord}, 0, nil
+	}
 
+	built, err := metricsEdgeRecord(batch, capability, maxRows)
+	if err == nil {
+		return taken, []sysmonEdgeBuilt{built}, 0, nil
+	}
+	if !metricsRecordTooLarge(err) {
+		return taken, nil, 0, err
+	}
+	fitted, fitTaken, fitErr := shortenSysmonPrefix(pending[:taken], capability, ctx, maxRows)
+	if fitErr != nil {
+		return taken, nil, 0, fitErr
+	}
+	if fitTaken == 0 {
+		return splitSysmonSample(head, capability, maxRows)
+	}
+	return fitTaken, fitted, 0, nil
+}
+
+func splitSysmonSample(
+	batch *metricpb.MetricBatch,
+	capability *edgev1.EdgeSignedCapabilityV1,
+	maxRows uint64,
+) (int, []sysmonEdgeBuilt, int, error) {
+	built, dropped, err := splitMetricBatch(batch, capability, maxRows)
+	if err != nil {
+		return 1, nil, 0, err
+	}
+	if len(built) == 0 {
+		return 1, nil, 0, errEdgeMetricsRecordTooLarge
+	}
+	return 1, built, dropped, nil
+}
+
+func shortenSysmonPrefix(
+	pending []*sysmon.MetricSample,
+	capability *edgev1.EdgeSignedCapabilityV1,
+	ctx metricEnvelopeContext,
+	maxRows uint64,
+) ([]sysmonEdgeBuilt, int, error) {
+	taken, built, err := longestPrefix(len(pending)-1, func(k int) (sysmonEdgeBuilt, error) {
+		batch, buildErr := buildSysmonMetricBatch(pending[:k], ctx)
+		if buildErr != nil {
+			return sysmonEdgeBuilt{}, buildErr
+		}
+		return metricsEdgeRecord(batch, capability, maxRows)
+	})
+	if err != nil || taken == 0 {
+		return nil, 0, err
+	}
+	return []sysmonEdgeBuilt{built}, taken, nil
+}
+
+func splitMetricBatch(
+	batch *metricpb.MetricBatch,
+	capability *edgev1.EdgeSignedCapabilityV1,
+	maxRows uint64,
+) ([]sysmonEdgeBuilt, int, error) {
+	envelope := metricBatchEnvelope(batch)
+	metrics := append([]*metricpb.Metric(nil), batch.GetMetrics()...)
+	var built []sysmonEdgeBuilt
+	dropped := 0
+	for len(metrics) > 0 {
+		n, piece, err := longestMetricPrefix(envelope, metrics, capability, maxRows)
+		if err != nil {
+			return nil, 0, err
+		}
+		if n > 0 {
+			built = append(built, piece)
+			metrics = metrics[n:]
+			continue
+		}
+		shards, pointsDropped, err := shardMetricPoints(envelope, metrics[0], capability, maxRows)
+		if err != nil {
+			return nil, 0, err
+		}
+		dropped += pointsDropped
+		built = append(built, shards...)
+		metrics = metrics[1:]
+	}
+	return built, dropped, nil
+}
+
+func longestMetricPrefix(
+	envelope *metricpb.MetricBatch,
+	metrics []*metricpb.Metric,
+	capability *edgev1.EdgeSignedCapabilityV1,
+	maxRows uint64,
+) (int, sysmonEdgeBuilt, error) {
+	limit := len(metrics)
+	if uint64(limit) > maxRows {
+		limit = int(maxRows)
+	}
+	return longestPrefix(limit, func(k int) (sysmonEdgeBuilt, error) {
+		return metricsEdgeRecord(batchWithMetrics(envelope, metrics[:k]), capability, maxRows)
+	})
+}
+
+func shardMetricPoints(
+	envelope *metricpb.MetricBatch,
+	metric *metricpb.Metric,
+	capability *edgev1.EdgeSignedCapabilityV1,
+	maxRows uint64,
+) ([]sysmonEdgeBuilt, int, error) {
+	points := append([]*metricpb.MetricPoint(nil), metric.GetPoints()...)
+	if len(points) == 0 {
+		return nil, 1, nil
+	}
+	var built []sysmonEdgeBuilt
+	dropped := 0
+	for len(points) > 0 {
+		n, piece, err := longestPrefix(len(points), func(k int) (sysmonEdgeBuilt, error) {
+			part := batchWithMetrics(envelope, []*metricpb.Metric{metricWithPoints(metric, points[:k])})
+			return metricsEdgeRecord(part, capability, maxRows)
+		})
+		if err != nil {
+			return nil, 0, err
+		}
+		if n == 0 {
+			dropped++
+			points = points[1:]
+			continue
+		}
+		built = append(built, piece)
+		points = points[n:]
+	}
+	return built, dropped, nil
+}
+
+func longestPrefix(limit int, fit func(int) (sysmonEdgeBuilt, error)) (int, sysmonEdgeBuilt, error) {
+	bestN := 0
+	var best sysmonEdgeBuilt
+	lo, hi := 1, limit
+	for lo <= hi {
+		mid := lo + (hi-lo)/2
+		built, err := fit(mid)
+		if err == nil {
+			bestN, best = mid, built
+			lo = mid + 1
+			continue
+		}
+		if !metricsRecordTooLarge(err) {
+			return 0, sysmonEdgeBuilt{}, err
+		}
+		hi = mid - 1
+	}
+	return bestN, best, nil
+}
+
+func metricsEdgeRecord(
+	batch *metricpb.MetricBatch,
+	capability *edgev1.EdgeSignedCapabilityV1,
+	maxRows uint64,
+) (sysmonEdgeBuilt, error) {
+	rows := len(batch.GetMetrics())
+	if rows == 0 || uint64(rows) > maxRows {
+		return sysmonEdgeBuilt{}, errEdgeMetricsRecordTooLarge
+	}
 	payload, err := gproto.MarshalOptions{Deterministic: true}.Marshal(batch)
 	if err != nil {
-		return taken, nil, nil, err
+		return sysmonEdgeBuilt{}, err
 	}
-	rows := uint32(len(batch.GetMetrics()))
-	record, err := newEdgeRecord(capability, nil, payload, rows, uint64(rows)*edgeMetricsProjectedRowBytes)
+	if len(payload) > edgeMetricsMaxPayloadBytes {
+		return sysmonEdgeBuilt{}, errEdgeMetricsRecordTooLarge
+	}
+	record, err := newEdgeRecord(capability, nil, payload, uint32(rows), uint64(rows)*edgeMetricsProjectedRowBytes)
 	if err != nil {
-		return taken, nil, nil, err
+		return sysmonEdgeBuilt{}, err
 	}
 	if err := edgerecord.ValidateMetricBatchRecord(record); err != nil {
-		return taken, nil, nil, err
+		return sysmonEdgeBuilt{}, err
 	}
-	return taken, record, payload, nil
+	return sysmonEdgeBuilt{record: record, payload: payload}, nil
+}
+
+func metricBatchExceeds(batch *metricpb.MetricBatch, maxRows uint64) bool {
+	return uint64(len(batch.GetMetrics())) > maxRows || gproto.Size(batch) > edgeMetricsMaxPayloadBytes
+}
+
+func metricsRecordTooLarge(err error) bool {
+	return errors.Is(err, errEdgeMetricsRecordTooLarge) ||
+		errors.Is(err, edgerecord.ErrRecordTooLarge) ||
+		errors.Is(err, edgerecord.ErrPayloadTooLarge)
+}
+
+func metricBatchEnvelope(batch *metricpb.MetricBatch) *metricpb.MetricBatch {
+	envelope := gproto.Clone(batch).(*metricpb.MetricBatch)
+	envelope.Metrics = nil
+	return envelope
+}
+
+func batchWithMetrics(envelope *metricpb.MetricBatch, metrics []*metricpb.Metric) *metricpb.MetricBatch {
+	out := gproto.Clone(envelope).(*metricpb.MetricBatch)
+	out.Metrics = metrics
+	return out
+}
+
+func metricWithPoints(metric *metricpb.Metric, points []*metricpb.MetricPoint) *metricpb.Metric {
+	out := gproto.Clone(metric).(*metricpb.Metric)
+	out.Points = points
+	return out
 }
 
 // metricEnvelopeContext is the agent identity the metric envelopes are stamped with.

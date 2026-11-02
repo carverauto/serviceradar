@@ -21,6 +21,7 @@ import (
 	"crypto/ed25519"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"strings"
@@ -49,6 +50,11 @@ const sysmonEdgeAgentID = "agent-test-01"
 // [notBefore, expires). All identity material is synthetic.
 func metricsGrant(t *testing.T, agentID string, notBefore, expires time.Time) *proto.EdgeOutputGrant {
 	t.Helper()
+	return metricsGrantRows(t, agentID, notBefore, expires, 10_000)
+}
+
+func metricsGrantRows(t *testing.T, agentID string, notBefore, expires time.Time, maxRows uint32) *proto.EdgeOutputGrant {
+	t.Helper()
 	_, key, err := ed25519.GenerateKey(nil)
 	require.NoError(t, err)
 	digest := sha256.Sum256([]byte("synthetic-metrics-contract"))
@@ -68,7 +74,7 @@ func metricsGrant(t *testing.T, agentID string, notBefore, expires time.Time) *p
 			RouteProfile: edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
 			TrafficClass: edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_BULK,
 			PackageId:    "serviceradar.agent.metrics", PackageSha256: digest[:], CostModelVersion: 1,
-			MaxProjectedRowCount: 10_000, MaxProjectedWriteBytes: 10_000 * edgeMetricsProjectedRowBytes,
+			MaxProjectedRowCount: maxRows, MaxProjectedWriteBytes: uint64(maxRows) * edgeMetricsProjectedRowBytes,
 		}},
 	}
 	edgerecord.SignCapability(capability, key)
@@ -302,4 +308,213 @@ func TestARefusedSysmonEdgeAppendRetainsSamplesAndCountsOverflow(t *testing.T) {
 	perSample, err := buildSysmonMetricBatch(syntheticSysmonSamples(1), loop.metricEnvelopeContext())
 	require.NoError(t, err)
 	require.Equal(t, maxPendingSysmonEdgeSamples*len(perSample.GetMetrics()), spooled)
+}
+
+func TestOversizedSysmonSampleIsSplitAcrossRecords(t *testing.T) {
+	sp := openTestEdgeSpool(t)
+	loop, gw, collector := sysmonEdgeLoop(t, sp)
+	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentMetricsGrant(t)}, time.Now())
+
+	sample, original := sysmonSampleOverPayloadCap(t, loop.metricEnvelopeContext())
+	collector.queued = []*sysmon.MetricSample{sample}
+
+	require.True(t, loop.pushSysmonStatus(context.Background(), nil))
+
+	require.Zero(t, gw.sysmonStatuses())
+	require.Empty(t, loop.sysmonEdgePending)
+	require.Zero(t, sysmonEdgeDrops(loop, edgeDropInvalidRecord))
+	batches := spooledMetricBatches(t, sp)
+	require.Greater(t, len(batches), 1)
+	require.Equal(t, flattenedMetricPoints([]*metricpb.MetricBatch{original}), flattenedMetricPoints(batches))
+	assertSysmonRecordsWithinCaps(t, sp, batches, 10_000)
+}
+
+func TestSysmonSampleOverRowCeilingIsSplitAcrossRecords(t *testing.T) {
+	sp := openTestEdgeSpool(t)
+	loop, gw, collector := sysmonEdgeLoop(t, sp)
+	now := time.Now()
+	grant := metricsGrantRows(t, sysmonEdgeAgentID, now.Add(-time.Hour), now.Add(8*24*time.Hour), 1)
+	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{grant}, now)
+
+	sample := syntheticSysmonSamples(1)[0]
+	collector.queued = []*sysmon.MetricSample{sample}
+	original, err := buildSysmonMetricBatch([]*sysmon.MetricSample{sample}, loop.metricEnvelopeContext())
+	require.NoError(t, err)
+	require.Greater(t, len(original.GetMetrics()), 1)
+
+	require.True(t, loop.pushSysmonStatus(context.Background(), nil))
+
+	require.Zero(t, gw.sysmonStatuses())
+	require.Empty(t, loop.sysmonEdgePending)
+	require.Zero(t, sysmonEdgeDrops(loop, edgeDropInvalidRecord))
+	batches := spooledMetricBatches(t, sp)
+	require.Greater(t, len(batches), 1)
+	require.Equal(t, flattenedMetricPoints([]*metricpb.MetricBatch{original}), flattenedMetricPoints(batches))
+	assertSysmonRecordsWithinCaps(t, sp, batches, 1)
+}
+
+func TestSysmonPrefixOverCanonicalRecordLimitIsShortened(t *testing.T) {
+	sp := openTestEdgeSpool(t)
+	loop, gw, collector := sysmonEdgeLoop(t, sp)
+	now := time.Now()
+	grant := currentMetricsGrant(t)
+	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{grant}, now)
+
+	first, second := sysmonSamplesAtCanonicalBoundary(t, grant, loop.metricEnvelopeContext())
+	original, err := buildSysmonMetricBatch([]*sysmon.MetricSample{first, second}, loop.metricEnvelopeContext())
+	require.NoError(t, err)
+	collector.queued = []*sysmon.MetricSample{first, second}
+
+	require.True(t, loop.pushSysmonStatus(context.Background(), nil))
+
+	require.Zero(t, gw.sysmonStatuses())
+	require.Empty(t, loop.sysmonEdgePending)
+	require.Zero(t, sysmonEdgeDrops(loop, edgeDropInvalidRecord))
+	batches := spooledMetricBatches(t, sp)
+	require.Greater(t, len(batches), 1, "the combined record does not fit, so the prefix is shortened")
+	require.Equal(t, flattenedMetricPoints([]*metricpb.MetricBatch{original}), flattenedMetricPoints(batches))
+	assertSysmonRecordsWithinCaps(t, sp, batches, 10_000)
+}
+
+func sysmonEdgeDrops(loop *PushLoop, reason edgeDropReason) uint64 {
+	return loop.server.edgeProducerDrops.dropped[edgeProducerSysmon][reason].Load()
+}
+
+func sysmonSampleOverPayloadCap(t *testing.T, ctx metricEnvelopeContext) (*sysmon.MetricSample, *metricpb.MetricBatch) {
+	t.Helper()
+	for n := 256; n <= 1<<16; n *= 2 {
+		sample := processHeavySample(n, func(i int) string { return fmt.Sprintf("process-%d", i) })
+		batch, err := buildSysmonMetricBatch([]*sysmon.MetricSample{sample}, ctx)
+		require.NoError(t, err)
+		if gproto.Size(batch) > edgeMetricsMaxPayloadBytes {
+			return sample, batch
+		}
+	}
+	t.Fatal("a process list never exceeded the metrics payload cap")
+	return nil, nil
+}
+
+func sysmonSamplesAtCanonicalBoundary(t *testing.T, grant *proto.EdgeOutputGrant, ctx metricEnvelopeContext) (*sysmon.MetricSample, *sysmon.MetricSample) {
+	t.Helper()
+	capability := &edgev1.EdgeSignedCapabilityV1{}
+	require.NoError(t, gproto.Unmarshal(grant.GetProductionCapability(), capability))
+	maxRows := min(uint64(capability.GetProduction().GetMaxProjectedRowCount()),
+		capability.GetProduction().GetMaxProjectedWriteBytes()/edgeMetricsProjectedRowBytes)
+
+	best := 0
+	lo, hi := 1, edgeMetricsMaxPayloadBytes
+	for lo <= hi {
+		mid := lo + (hi-lo)/2
+		if gproto.Size(twoDiskSamplesBatch(t, ctx, mid)) <= edgeMetricsMaxPayloadBytes {
+			best = mid
+			lo = mid + 1
+			continue
+		}
+		hi = mid - 1
+	}
+	require.Positive(t, best)
+
+	first := diskNoiseSample(best, 1)
+	second := diskNoiseSample(best, 2)
+	oneBatch, err := buildSysmonMetricBatch([]*sysmon.MetricSample{first}, ctx)
+	require.NoError(t, err)
+	both, err := buildSysmonMetricBatch([]*sysmon.MetricSample{first, second}, ctx)
+	require.NoError(t, err)
+	require.LessOrEqual(t, gproto.Size(both), edgeMetricsMaxPayloadBytes)
+	_, err = metricsEdgeRecord(oneBatch, capability, maxRows)
+	require.NoError(t, err)
+	_, err = metricsEdgeRecord(both, capability, maxRows)
+	require.ErrorIs(t, err, edgerecord.ErrRecordTooLarge)
+	return first, second
+}
+
+func twoDiskSamplesBatch(t *testing.T, ctx metricEnvelopeContext, noise int) *metricpb.MetricBatch {
+	t.Helper()
+	batch, err := buildSysmonMetricBatch([]*sysmon.MetricSample{diskNoiseSample(noise, 1), diskNoiseSample(noise, 2)}, ctx)
+	require.NoError(t, err)
+	return batch
+}
+
+func diskNoiseSample(noise int, seed byte) *sysmon.MetricSample {
+	sample := syntheticSysmonSamples(1)[0]
+	sample.Disks = []sysmon.DiskMetric{{
+		MountPoint: asciiNoise(noise, seed),
+		UsedBytes:  1,
+		TotalBytes: 2,
+	}}
+	return sample
+}
+
+func asciiNoise(n int, seed byte) string {
+	if n < 0 {
+		n = 0
+	}
+	out := make([]byte, n)
+	var counter uint32
+	filled := 0
+	for filled < n {
+		counter++
+		block := sha256.Sum256([]byte{seed, byte(counter), byte(counter >> 8), byte(counter >> 16), byte(counter >> 24)})
+		for _, by := range block {
+			if filled == n {
+				break
+			}
+			out[filled] = 0x21 + by%94
+			filled++
+		}
+	}
+	return string(out)
+}
+
+func processHeavySample(processes int, nameOf func(int) string) *sysmon.MetricSample {
+	sample := syntheticSysmonSamples(1)[0]
+	sample.Processes = make([]sysmon.ProcessMetric, processes)
+	for i := range sample.Processes {
+		sample.Processes[i] = sysmon.ProcessMetric{
+			PID:         uint32(i + 1),
+			Name:        nameOf(i),
+			CPUUsage:    1.25,
+			MemoryUsage: uint64(i + 1),
+			Status:      "running",
+			StartTime:   "2026-11-01T00:00:00Z",
+		}
+	}
+	return sample
+}
+
+func flattenedMetricPoints(batches []*metricpb.MetricBatch) []string {
+	var keys []string
+	for _, batch := range batches {
+		if batch == nil {
+			continue
+		}
+		for _, metric := range batch.GetMetrics() {
+			points := metric.GetPoints()
+			if len(points) == 0 {
+				keys = append(keys, metric.GetName())
+				continue
+			}
+			for _, point := range points {
+				keys = append(keys, metric.GetName()+"\t"+point.GetSeriesIdentityHint()+"\t"+point.GetRawValue())
+			}
+		}
+	}
+	return keys
+}
+
+func assertSysmonRecordsWithinCaps(t *testing.T, sp *spool.Spool, batches []*metricpb.MetricBatch, maxRows int) {
+	t.Helper()
+	stored, err := sp.Unresolved()
+	require.NoError(t, err)
+	require.Len(t, stored, len(batches))
+	for _, storedRecord := range stored {
+		require.LessOrEqual(t, len(storedRecord.Body), edgerecord.MaxRecordBytes)
+	}
+	for _, batch := range batches {
+		payload, err := gproto.MarshalOptions{Deterministic: true}.Marshal(batch)
+		require.NoError(t, err)
+		require.LessOrEqual(t, len(payload), edgeMetricsMaxPayloadBytes)
+		require.LessOrEqual(t, len(batch.GetMetrics()), maxRows)
+		require.NotEmpty(t, batch.GetMetrics())
+	}
 }
