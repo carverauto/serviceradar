@@ -309,6 +309,58 @@ func TestRunPlannedWithObserverOmitsDeviceTargets(t *testing.T) {
 	require.Equal(t, []string{planHost}, hosts)
 }
 
+// Stop can finish while a planned run is already inside the sweep lock, past
+// the closed-done check at the door. That run must return errSweeperStopped
+// and must not open scanners: Stop has already released the ones it found,
+// and a second Stop does not stop scanners created after it returned.
+func TestRunPlannedWithObserverRefusesAfterStopWithoutCreatingScanners(t *testing.T) {
+	sweeper := newPlannedRunSweeper(t, &models.Config{
+		Networks:   []string{"192.0.2.1/32"},
+		SweepModes: []models.SweepMode{models.ModeICMP},
+		Interval:   time.Minute,
+		Timeout:    time.Second,
+	})
+
+	holdingLock := make(chan struct{})
+	release := make(chan struct{})
+	// WithExecutionCheck runs after the sweep lock is held and before the
+	// stopped recheck, which is the window Stop can close.
+	ctx := WithExecutionCheck(context.Background(), func() error {
+		close(holdingLock)
+		<-release
+		return nil
+	})
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- sweeper.RunPlannedWithObserver(ctx, "exec-stopped",
+			RunSpec{Networks: []string{"192.0.2.10/32"}, Modes: []models.SweepMode{models.ModeICMP}},
+			func(context.Context, *models.Result) error { return nil })
+	}()
+
+	select {
+	case <-holdingLock:
+	case <-time.After(5 * time.Second):
+		t.Fatal("planned run did not take the sweep lock")
+	}
+
+	require.NoError(t, sweeper.Stop())
+	close(release)
+
+	select {
+	case err := <-errCh:
+		require.ErrorIs(t, err, errSweeperStopped)
+	case <-time.After(5 * time.Second):
+		t.Fatal("planned run did not return after stop")
+	}
+
+	sweeper.mu.Lock()
+	defer sweeper.mu.Unlock()
+	require.Nil(t, sweeper.icmpScanner)
+	require.Nil(t, sweeper.tcpScanner)
+	require.Nil(t, sweeper.tcpConnectScanner)
+}
+
 func TestRunPlannedWithObserverRefusesAnEmptySpecOrNoObserver(t *testing.T) {
 	sweeper := newPlannedRunSweeper(t, &models.Config{Interval: time.Minute})
 	observer := func(context.Context, *models.Result) error { return nil }
