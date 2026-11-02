@@ -15,12 +15,14 @@ defmodule ServiceRadar.Edge.ManagedComponentCertificateIssuer do
   def roles(_), do: []
 
   def issue(operation) do
-    with {:ok, gateway} <-
-           AgentCommandBus.resolve_control_gateway_node(
+    with {:ok, %{control_session_pid: session}} <-
+           AgentCommandBus.resolve_control_session_evidence(
              operation.partition_id,
              operation.host_agent_id,
              nil
            ) do
+      gateway = node(session)
+
       Enum.reduce_while(roles(operation.service), {:ok, %{}}, fn role, {:ok, bundles} ->
         case issue_role(operation, role, gateway) do
           {:ok, bundle} -> {:cont, {:ok, Map.put(bundles, role, bundle)}}

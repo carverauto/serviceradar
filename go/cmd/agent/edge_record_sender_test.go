@@ -137,6 +137,19 @@ func TestOpenEdgeRecordSpoolRejectsMissingDirectory(t *testing.T) {
 	}
 }
 
+// A producer opted into edge records cannot run without the sender that
+// drains its spool; the agent refuses to start rather than spool forever.
+func TestOpenEdgeRecordSpoolRefusesProducersWithoutTheSender(t *testing.T) {
+	for name, cfg := range map[string]*agent.EdgeRecordSenderConfig{
+		"sweep":   {SweepEnabled: true, SpoolDir: t.TempDir()},
+		"metrics": {MetricsEnabled: true, SpoolDir: t.TempDir()},
+	} {
+		if _, err := openEdgeRecordSpool(&agent.ServerConfig{EdgeRecordSender: cfg}); !errors.Is(err, errEdgeProducersRequireSender) {
+			t.Errorf("%s producer without the sender: err=%v, want errEdgeProducersRequireSender", name, err)
+		}
+	}
+}
+
 func TestOpenEdgeRecordSpoolRefusesAdmissionAtBudgetAfterRestart(t *testing.T) {
 	cfg := &agent.ServerConfig{EdgeRecordSender: &agent.EdgeRecordSenderConfig{Enabled: true, SweepEnabled: true, SpoolDir: t.TempDir(), MaxBytes: 4 << 20}}
 	sp, err := openEdgeRecordSpool(cfg)

@@ -70,7 +70,17 @@ as a working adapter. Per-service reload behavior still needs executable proof.
    omits leaves. `KICK` closes the leaf. The chart leaves callout disabled
    and does not open a leaf listener that would fall through to the global
    account. SPIRE is not part of this path.
-7. **Honest operational state.** UI shows desired revocation and enforcement
+7. **Bounded, jittered hub grants.** Configure core with
+   `SERVICERADAR_NATS_CERTIFICATE_GRANT_TTL_SECONDS` (positive integer, default
+   `43200`). Each grant adds uniform +/-20% jitter and is capped at certificate
+   expiry. The default fallback bound is 14 hours 24 minutes if all authorizers
+   disappear. This setting does not extend the freshness of admission policy.
+   Revocation and de-adoption send targeted system-account KICK requests and
+   deny reconnect immediately. Use stock NATS; no broker patch or application
+   session-expiry timer. Prove resubscription and durable consumer continuity
+   across scheduled expiry, and prompt targeted rejection. Local leaf policy
+   keeps its existing offline contract.
+8. **Honest operational state.** UI shows desired revocation and enforcement
    acknowledgements separately, including failures and offline enforcement points.
    Proposed online enforcement bound: 60 seconds from accepted revoke to rejection
    of reconnect/renewal and termination of affected sessions. Validate that bound
@@ -83,7 +93,7 @@ as a working adapter. Per-service reload behavior still needs executable proof.
    immediately, and the hub checks current policy when an edge reconnects.
    A compromised/offline agent cannot prevent hub-side revocation. Existing
    telemetry remains stored and queryable.
-7. **Rotation differs from revocation.** Rotation installs and confirms the successor
+9. **Rotation differs from revocation.** Rotation installs and confirms the successor
    before retiring the predecessor, retaining the existing lost-response recovery
    contract. Emergency revocation does not wait for successor installation. A
    revoked component cannot use automatic renewal to escape the block. Revoking a

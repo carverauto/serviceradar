@@ -430,7 +430,7 @@ core:
     consensusCohortRetentionMs: 300000
 ```
 
-### Durable sweep canary
+### Durable edge-record canary
 
 `edgeRecords.enabled` enables the gateway's durable bulk publisher and runtime
 trust refresh from core. Supply `edgeRecords.contractRegistry` with the
@@ -451,19 +451,25 @@ upgrade. Only core mounts this Ed25519 seed. If `secrets.autoGenerate=false`,
 the operator must supply the key in the configured existing Secret as a
 base64-encoded 32-byte seed (the Secret's data encoding wraps that text).
 
-`edgeRecords.agentSweepEnabled` also enables the bundled agent's sweep producer.
-It requires `agent.runtimeStorage.enabled=true`; the spool lives under that
-volume's base path and `edgeRecords.maxSpoolBytes` bounds it. Core's agent-scoped
+`edgeRecords.agentSweepEnabled` enables the bundled agent's sweep producer.
+`edgeRecords.agentMetricsEnabled` enables its sysmon, SNMP, ICMP, MTR scalar
+and periodic sweep summary metrics producers on the same spool. Either flag
+requires `edgeRecords.enabled` and `agent.runtimeStorage.enabled=true`. The spool lives under that volume's base
+path and `edgeRecords.maxSpoolBytes` bounds it. Core's agent-scoped
 sweep lease settings select which agent receives signed slots. Enable leasing
 only for the canary, and use an enabled static-target group without a target
-query. Other agents continue using the legacy results path.
+query. Other agents continue using the legacy results path. With
+`agentMetricsEnabled` set, those metrics stay on the status path until
+`contractRegistry` includes an active `serviceradar.metrics.batch` version 1
+contract and that agent's leasing switch is on.
 
 Use complete terminal ICMP/TCP host windows for this first canary. Partial-mode
 and MTR windows are not supported by this projection yet. Keep the issuer key
 and agent network scope fixed while records remain in the spool: historical
-key/scope trust and audit publication are later milestones. The sweep sender
-persists terminal resolutions. It reclaims a fully drained segment when durable
-dispositions cover every retained sequence. Permanently rejected records are
+key/scope trust and audit publication are later milestones. A sender with
+sweep or metrics producers enabled persists terminal resolutions. It reclaims
+a fully drained segment when durable dispositions cover every retained
+sequence. Permanently rejected records are
 copied into a bounded local quarantine in the lane directory before that
 reclaim; the policy, including eviction when the quarantine is full, is the
 interim local quarantine in
@@ -476,11 +482,11 @@ existing unresolved-byte and age gauges.
 An interrupted run remains incomplete and is not rescanned once the agent has
 durably claimed its first append attempt, even if that first append fails.
 
-Upgrade core and the gateways before the agent. The agent's sweep producer
-compresses each record payload as one Zstandard level 1 frame by default, and
-keeps `NONE` when compression saves nothing or exceeds the permitted expansion
-ratio. Core releases older than this
-change refuse compressed sweep records at ingest, and agents and gateways do
+Upgrade core and the gateways before the agent. The agent's edge-record builder
+compresses each sweep or sysmon metrics payload as one Zstandard level 1 frame
+by default, and keeps `NONE` when compression saves nothing or exceeds the
+permitted expansion ratio. Core releases older than this
+change refuse compressed edge records at ingest, and agents and gateways do
 not negotiate a codec yet. Upgrade core and every agent-gateway replica first,
 confirm each replica is ready on the new version, and only then upgrade the
 canary agent. To roll back, pause new leased production and keep the compatible

@@ -1,11 +1,11 @@
 import assert from "node:assert/strict"
-import {mkdtemp, readFile, readdir, rm, stat} from "node:fs/promises"
+import {chmod, chown, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile} from "node:fs/promises"
 import {tmpdir} from "node:os"
 import {join} from "node:path"
 import {createServer} from "node:http"
 import test from "node:test"
 import {parse as parseToml} from "smol-toml"
-import {atomicOwnedFile, decodePolicyPublicKey, managedConfigurationFiles, mergeManagedConfiguration, selectLeafAdvertiseURL, waitForManagedActivation} from "../managed-host.mjs"
+import {atomicOwnedFile, decodePolicyPublicKey, managedConfigurationFiles, mergeManagedConfiguration, readEnrolledAgentAt, selectLeafAdvertiseURL, waitForManagedActivation} from "../managed-host.mjs"
 
 test("managed configuration uses fixed destinations and binds offline access to a local leaf identity", () => {
   const component = {
@@ -70,6 +70,56 @@ test("atomic publication survives restrictive umask, refuses initial overwrite a
   } finally {
     process.umask(previousMask)
     await rm(dir, {recursive: true, force: true})
+  }
+})
+
+test("packaged host trust is the root-owned enrollment record, not the renewable runtime files", async () => {
+  const root = await mkdtemp(join(tmpdir(), "managed-host-trust-"))
+  const trust = join(root, "host-trust")
+  const certs = join(root, "certs")
+  try {
+    await mkdir(trust)
+    await mkdir(certs)
+    await writeFile(join(root, "agent.json"), JSON.stringify({agent_id: "runtime-agent", partition: "runtime-partition", host_ip: "203.0.113.9"}))
+    await writeFile(join(certs, "ca-chain.pem"), "runtime-ca\n")
+    await writeFile(join(certs, "root.pem"), "runtime-root\n")
+    await writeFile(join(certs, "component.pem"), "original-cert\n")
+    await writeFile(join(trust, "identity.json"), JSON.stringify({agent_id: "trust-agent", partition: "edge-a"}))
+    await writeFile(join(trust, "ca.pem"), "synthetic-ca\n")
+    await writeFile(join(certs, "component.pem"), "renewed-cert\n")
+    assert.equal(await readFile(join(certs, "component.pem"), "utf8"), "renewed-cert\n")
+    assert.equal(await readFile(join(trust, "ca.pem"), "utf8"), "synthetic-ca\n")
+    const uid = process.getuid()
+    if (uid !== 0) {
+      await assert.rejects(readEnrolledAgentAt(root, false, false), /host-trust/)
+      return
+    }
+    await chown(root, 0, 0)
+    await chmod(root, 0o755)
+    await chown(trust, 0, 0)
+    await chmod(trust, 0o755)
+    for (const name of ["identity.json", "ca.pem"]) {
+      await chown(join(trust, name), 0, 0)
+      await chmod(join(trust, name), 0o644)
+    }
+    assert.deepEqual(await readEnrolledAgentAt(root, false, false), {agent_id: "trust-agent", partition: "edge-a"})
+    await chmod(join(trust, "ca.pem"), 0o666)
+    await assert.rejects(readEnrolledAgentAt(root, false, false), /ca\.pem/)
+    await chmod(join(trust, "ca.pem"), 0o644)
+    await chown(join(trust, "identity.json"), 65534, 65534)
+    await assert.rejects(readEnrolledAgentAt(root, false, false), /identity\.json/)
+    await rm(trust, {recursive: true, force: true})
+    await assert.rejects(readEnrolledAgentAt(root, false, false), /host-trust/)
+    await mkdir(trust)
+    await chown(trust, 0, 0)
+    await chmod(trust, 0o755)
+    await symlink(join(root, "agent.json"), join(trust, "identity.json"))
+    await writeFile(join(trust, "ca.pem"), "synthetic-ca\n")
+    await chown(join(trust, "ca.pem"), 0, 0)
+    await chmod(join(trust, "ca.pem"), 0o644)
+    await assert.rejects(readEnrolledAgentAt(root, false, false), /identity\.json/)
+  } finally {
+    await rm(root, {recursive: true, force: true})
   }
 })
 

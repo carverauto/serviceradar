@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "included_through": 20260909150000,
+  "included_through": 20261031085513,
   "schema_file": "platform_schema.sql",
-  "schema_sha256": "039efeec5db3e7923f5a24cde7b78275051d44f4cedc7adc5395eecfe82539e8",
+  "schema_sha256": "12e38aefe315788ca96c0458e747c38ea4bcb29da7d55fc6c37870aa70607f4f",
   "postgres_major": 18,
   "generated_from": "migration-replayed empty database"
 }

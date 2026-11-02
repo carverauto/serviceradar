@@ -7,8 +7,10 @@ defmodule ServiceRadar.EventWriter.ExposureRecovery do
 
   alias ServiceRadar.NATS.Connection
   alias ServiceRadar.NATS.JetstreamConsumer
+  alias ServiceRadar.NATS.StateBucketSizing
 
   @stream "EXPOSURE_RECOVERY"
+  @default_replicas 3
   @max_records 500
   @max_bytes 512 * 1024
   @config %{
@@ -16,7 +18,7 @@ defmodule ServiceRadar.EventWriter.ExposureRecovery do
     "subjects" => ["exposure.delivery.recovery.>", "exposure.snapshots.>"],
     "retention" => "limits",
     "storage" => "file",
-    "num_replicas" => 1,
+    "num_replicas" => @default_replicas,
     "max_age" => 0,
     "max_bytes" => 64 * 1024 * 1024,
     "max_msg_size" => @max_bytes,
@@ -147,19 +149,30 @@ defmodule ServiceRadar.EventWriter.ExposureRecovery do
     end
   end
 
-  def ensure_stream do
-    case JetstreamConsumer.stream_info(&request/2, @stream) do
-      {:ok, config, _bytes} ->
-        validate_config(config)
+  def ensure_stream(opts \\ []) when is_list(opts) do
+    request = Keyword.get(opts, :request, &request/2)
+
+    desired_replicas =
+      StateBucketSizing.replicas_from_env!(
+        "SERVICERADAR_JS_EXPOSURE_RECOVERY_REPLICAS",
+        @default_replicas
+      )
+
+    case JetstreamConsumer.stream_info(request, @stream) do
+      {:ok, config, bytes} ->
+        reconcile_and_validate(request, config, bytes, desired_replicas)
 
       :absent ->
         # A concurrent creator is harmless only if its effective configuration
         # satisfies the same retention contract; never rewrite a conflicting one.
-        request("$JS.API.STREAM.CREATE.#{@stream}", Jason.encode!(@config))
+        create_stream(request, desired_replicas)
 
-        case JetstreamConsumer.stream_info(&request/2, @stream) do
-          {:ok, config, _bytes} -> validate_config(config)
-          other -> {:error, {:exposure_recovery_stream, other}}
+        case JetstreamConsumer.stream_info(request, @stream) do
+          {:ok, config, bytes} ->
+            reconcile_and_validate(request, config, bytes, desired_replicas)
+
+          other ->
+            {:error, {:exposure_recovery_stream, other}}
         end
 
       error ->
@@ -167,9 +180,40 @@ defmodule ServiceRadar.EventWriter.ExposureRecovery do
     end
   end
 
+  defp create_stream(request, replicas) do
+    payload = @config |> Map.put("num_replicas", replicas) |> Jason.encode!()
+
+    case request.("$JS.API.STREAM.CREATE.#{@stream}", payload) do
+      {:ok, %{"error" => error}} ->
+        if replicas > 1 and JetstreamConsumer.non_clustered_replicas_error?(error) do
+          create_stream(request, 1)
+        else
+          :ok
+        end
+
+      other ->
+        other
+    end
+  end
+
+  defp reconcile_and_validate(request, config, bytes, desired_replicas) do
+    with :ok <- validate_config(config) do
+      current_replicas = Map.get(config, "num_replicas", 1)
+
+      if desired_replicas > current_replicas do
+        updated = Map.put(config, "num_replicas", desired_replicas)
+        JetstreamConsumer.update_stream_if_changed(request, @stream, config, updated, bytes)
+      else
+        :ok
+      end
+    end
+  end
+
   defp validate_config(config) do
     mismatches =
-      Enum.flat_map(@config, fn {key, value} ->
+      @config
+      |> Map.delete("num_replicas")
+      |> Enum.flat_map(fn {key, value} ->
         actual = Map.get(config, key, if(is_boolean(value), do: false))
         if actual == value, do: [], else: [key]
       end)

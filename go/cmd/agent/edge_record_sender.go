@@ -32,7 +32,7 @@ import (
 )
 
 var (
-	errEdgeSweepRequiresSender    = errors.New("edge sweep requires enabled edge record sender")
+	errEdgeProducersRequireSender = errors.New("edge record producers require enabled edge record sender")
 	errEdgeRecordSpoolDirRequired = errors.New("edge record sender requires spool_dir")
 )
 
@@ -50,10 +50,10 @@ const (
 // explicitly enabled in config, since the gateway-side RPC server this
 // depends on (a separate, parallel task) may not exist in every deployment.
 //
-// Sweep-enabled senders persist validated terminal dispositions before advancing
-// their local resolved prefix, then reclaim a drained segment whose records are
-// accepted or permanently rejected. Permanently rejected records are quarantined
-// first, and each rejection code is logged once per run.
+// A sender with producers enabled (sweep or metrics) persists validated terminal
+// dispositions before advancing its local resolved prefix, then reclaims a drained
+// segment whose records are accepted or permanently rejected. Permanently rejected
+// records are quarantined first, and each rejection code is logged once per run.
 //
 // A missing gateway address or spool_dir is a configuration error and stops the
 // sender. Any other setup failure (spool id, security provider before its
@@ -147,7 +147,7 @@ func newEdgeRecordSender(
 		TrafficClass:            edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_BULK,
 		RequestedByteCredits:    edgeRecordSenderRequestedByteCredits,
 		RequestedFrameCredits:   edgeRecordSenderRequestedFrameCreds,
-		PersistAcknowledgements: esCfg.SweepEnabled,
+		PersistAcknowledgements: esCfg.ProducersEnabled(),
 	})
 	if err != nil {
 		closeAll()
@@ -269,8 +269,8 @@ func openEdgeRecordSpool(cfg *agent.ServerConfig) (*spool.Spool, error) {
 		return nil, nil
 	}
 	if !c.Enabled {
-		if c.SweepEnabled {
-			return nil, errEdgeSweepRequiresSender
+		if c.ProducersEnabled() {
+			return nil, errEdgeProducersRequireSender
 		}
 		return nil, nil
 	}

@@ -361,14 +361,11 @@ build off system libpq paths.
 
 ### Why it is pinned
 
-The patch is keyed to an **exact upstream version**, so the root `Cargo.toml` pins it:
+The patch is keyed to an **exact upstream version**, so the root `Cargo.toml` pins `pq-sys`
+and `openssl-sys` with `=`. `openssl-sys` is not patched; its build script is configured by
+hand. The versions live only in that file.
 
-```toml
-pq-sys      = "=0.7.5"
-openssl-sys = "=0.9.116"   # not patched; its build script is configured by hand
-```
-
-The pin does **not** reach the build dep -- `pq-sys` declares `pq-src ">=0.2, <0.4"` -- so
+The `pq-sys` pin does **not** reach the build dep -- `pq-sys` declares `pq-src ">=0.2, <0.4"` -- so
 `pq-src` can still slide on a `cargo update`. That is what the asserts are for.
 
 ### The asserts (do not weaken them)
@@ -379,8 +376,8 @@ work around that by dropping the patch:
 - A silently skipped patch is the worst outcome available here. `pq-src`'s fix is **macOS
   only**, so a skipped patch leaves Linux CI green and breaks a developer's machine later, far
   from the cause.
-- The pin (`pq-sys = "=0.7.5"`) is what stops a routine `cargo update` from moving `pq-src`
-  out from under its patch.
+- The `pq-sys` `=` pin in the root `Cargo.toml` is what stops a routine `cargo update` from
+  moving `pq-src` out from under its patch.
 
 ### Bumping a patched crate (deliberate, never accidental)
 

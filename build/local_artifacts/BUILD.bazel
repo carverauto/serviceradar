@@ -25,5 +25,6 @@ package(default_visibility = ["//visibility:public"])
         ("log_collector_rpm", "artifacts/log-collector.rpm", "//build/packaging/log-collector:log-collector_rpm"),
         ("cli_rpm", "artifacts/cli.rpm", "//build/packaging/cli:cli_rpm"),
         ("agent_release", "artifacts/agent-release.tar.gz", "//build/packaging/agent:agent_release_runtime_archive"),
+        ("edge_cli", "artifacts/edge-cli.mjs", "//elixir/web-ng/assets:plugin_config_cli.mjs"),
     ]
 ]

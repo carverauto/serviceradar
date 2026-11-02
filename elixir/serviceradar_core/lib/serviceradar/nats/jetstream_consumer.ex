@@ -388,6 +388,7 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
   defp create_stream(connection_ref, stream_name, subject, opts) do
     domain = Keyword.get(opts, :domain)
     topic = "#{js_api(domain)}.STREAM.CREATE.#{stream_name}"
+    replicas = Keyword.get(opts, :stream_replicas, 1)
 
     payload =
       %{
@@ -396,7 +397,7 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
         retention: Keyword.get(opts, :stream_retention, "limits"),
         storage: Keyword.get(opts, :stream_storage, "file"),
         discard: Keyword.get(opts, :stream_discard, "old"),
-        num_replicas: Keyword.get(opts, :stream_replicas, 1),
+        num_replicas: replicas,
         max_bytes: Keyword.get(opts, :stream_max_bytes),
         max_age: Keyword.get(opts, :stream_max_age),
         duplicate_window: Keyword.get(opts, :stream_duplicate_window),
@@ -408,27 +409,65 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
 
     case Util.request(connection_ref, topic, payload) do
       {:ok, %{"error" => %{"description" => description} = err}} when is_binary(description) ->
-        if stream_exists_error?(description) do
-          reconcile_stream(connection_ref, stream_name, subject, opts)
-        else
-          {:error, err}
+        cond do
+          stream_exists_error?(description) ->
+            reconcile_stream(connection_ref, stream_name, subject, opts)
+
+          replicas > 1 and non_clustered_replicas_error?(err) ->
+            create_stream(
+              connection_ref,
+              stream_name,
+              subject,
+              Keyword.put(opts, :stream_replicas, 1)
+            )
+
+          true ->
+            {:error, err}
         end
 
       {:ok, %{"error" => error}} ->
-        {:error, error}
+        if replicas > 1 and non_clustered_replicas_error?(error) do
+          create_stream(
+            connection_ref,
+            stream_name,
+            subject,
+            Keyword.put(opts, :stream_replicas, 1)
+          )
+        else
+          {:error, error}
+        end
 
       {:ok, _} ->
         :ok
 
       {:error, %{"description" => description} = err} when is_binary(description) ->
-        if stream_exists_error?(description) do
-          reconcile_stream(connection_ref, stream_name, subject, opts)
-        else
-          {:error, err}
+        cond do
+          stream_exists_error?(description) ->
+            reconcile_stream(connection_ref, stream_name, subject, opts)
+
+          replicas > 1 and non_clustered_replicas_error?(err) ->
+            create_stream(
+              connection_ref,
+              stream_name,
+              subject,
+              Keyword.put(opts, :stream_replicas, 1)
+            )
+
+          true ->
+            {:error, err}
         end
 
       {:error, reason} ->
-        {:error, reason}
+        if replicas > 1 and non_clustered_replicas_error?(reason) do
+          create_stream(
+            connection_ref,
+            stream_name,
+            subject,
+            Keyword.put(opts, :stream_replicas, 1)
+          )
+        else
+          {:error, reason}
+        end
     end
   end
 
@@ -510,16 +549,55 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
 
     case request.(topic, Jason.encode!(payload)) do
       {:ok, %{"error" => error}} ->
-        log_rejected_update(change, error)
-        {:error, error}
+        maybe_retry_update_single_replica(
+          request,
+          stream_name,
+          config,
+          payload,
+          stored,
+          domain,
+          change,
+          error
+        )
 
       {:ok, _} ->
         if change, do: Logger.info(change)
         :ok
 
       {:error, reason} ->
-        log_rejected_update(change, reason)
-        {:error, reason}
+        maybe_retry_update_single_replica(
+          request,
+          stream_name,
+          config,
+          payload,
+          stored,
+          domain,
+          change,
+          reason
+        )
+    end
+  end
+
+  defp maybe_retry_update_single_replica(
+         request,
+         stream_name,
+         config,
+         payload,
+         stored,
+         domain,
+         change,
+         reason
+       ) do
+    current_replicas = Map.get(config, "num_replicas", 1)
+    desired_replicas = Map.get(payload, "num_replicas", 1)
+
+    if is_integer(desired_replicas) and desired_replicas > 1 and
+         desired_replicas != current_replicas and non_clustered_replicas_error?(reason) do
+      fallback = Map.put(payload, "num_replicas", current_replicas)
+      update_stream_if_changed(request, stream_name, config, fallback, stored, domain)
+    else
+      log_rejected_update(change, reason)
+      {:error, reason}
     end
   end
 
@@ -1013,6 +1091,22 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
   end
 
   def subject_overlap_error?(_error), do: false
+
+  @doc false
+  # JetStream rejects num_replicas > 1 on a standalone (non-clustered) NATS
+  # server with err_code 10074 ("replicas > 1 not supported in non-clustered mode").
+  def non_clustered_replicas_error?(%{"err_code" => 10_074}), do: true
+
+  def non_clustered_replicas_error?(%{"description" => description})
+      when is_binary(description) do
+    non_clustered_replicas_error?(description)
+  end
+
+  def non_clustered_replicas_error?(description) when is_binary(description) do
+    String.contains?(String.downcase(description), "not supported in non-clustered mode")
+  end
+
+  def non_clustered_replicas_error?(_error), do: false
 
   defp stream_exists_error?(description) when is_binary(description) do
     String.contains?(description, "stream name already") or

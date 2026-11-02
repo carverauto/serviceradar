@@ -135,7 +135,7 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
 
     assert range_cidrs(before) == [["192.0.2.0/28", "198.51.100.7/32"]]
 
-    changed = %{group | static_targets: ["203.0.113.9", "203.0.113.0/25"]}
+    changed = %{group | static_targets: ["203.0.113.129", "203.0.113.0/25"]}
     count = length(before)
 
     assert %{dropped: ^count, scheduled: ^count, errors: 0} =
@@ -147,12 +147,52 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
     assert kept.authority_epoch == epoch
     assert length(slots) == count
     assert MapSet.disjoint?(MapSet.new(ids(slots)), MapSet.new(ids(before)))
-    assert range_cidrs(slots) == [["203.0.113.0/25", "203.0.113.9/32"]]
+    assert range_cidrs(slots) == [["203.0.113.0/25", "203.0.113.129/32"]]
     assert Enum.all?(slots, &(&1.lease_id == LeasePass.lease_id(kept)))
 
-    equivalent = %{changed | static_targets: ["203.0.113.9/32", "203.0.113.1/25"]}
+    equivalent = %{changed | static_targets: ["203.0.113.129/32", "203.0.113.1/25"]}
     assert %{dropped: 0, scheduled: 0, errors: 0} = LeasePass.reconcile_group(equivalent, now)
     assert ids(unrun!(kept, now)) == ids(slots)
+  end
+
+  test "contained static targets merge before planning and unmergeable ranges are refused on save",
+       ctx do
+    lease_on!(ctx, 3_600)
+
+    group =
+      leased_group!(ctx,
+        static_targets: ["198.51.100.5/32", "198.51.100.0/24"]
+      )
+
+    assert group.static_targets == ["198.51.100.0/24"]
+
+    now = DateTime.utc_now()
+
+    assert %{scheduled: scheduled, errors: 0} =
+             LeasePass.reconcile_group(
+               %{group | static_targets: ["198.51.100.0/24", "198.51.100.5/32"]},
+               now
+             )
+
+    assert scheduled > 0
+    assignment = assignment!(group, ctx.agent)
+    slots = unrun!(assignment, now)
+    assert length(slots) == scheduled
+    assert range_cidrs(slots) == [["198.51.100.0/24"]]
+
+    assert {:error, %Ash.Error.Invalid{errors: errors}} =
+             group
+             |> Ash.Changeset.for_update(
+               :update,
+               %{static_targets: ["198.51.100.10-198.51.100.50", "198.51.100.30-198.51.100.80"]},
+               actor: ctx.admin
+             )
+             |> Ash.update()
+
+    assert Enum.any?(errors, fn error ->
+             Map.get(error, :field) == :static_targets and
+               Exception.message(error) =~ "cannot be merged"
+           end)
   end
 
   test "a missing profile is no profile, and an unreadable profile leaves the lease untouched",

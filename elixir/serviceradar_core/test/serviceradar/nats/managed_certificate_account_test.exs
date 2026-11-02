@@ -11,8 +11,16 @@ defmodule ServiceRadar.NATS.ManagedCertificateAccountTest do
 
   setup do
     previous = Application.get_env(:serviceradar, :nats_account_name)
+    previous_ttl = Application.get_env(:serviceradar, :nats_certificate_grant_ttl_seconds)
+    Application.delete_env(:serviceradar, :nats_certificate_grant_ttl_seconds)
 
     on_exit(fn ->
+      if previous_ttl == nil do
+        Application.delete_env(:serviceradar, :nats_certificate_grant_ttl_seconds)
+      else
+        Application.put_env(:serviceradar, :nats_certificate_grant_ttl_seconds, previous_ttl)
+      end
+
       if previous == nil do
         Application.delete_env(:serviceradar, :nats_account_name)
       else
@@ -144,12 +152,43 @@ defmodule ServiceRadar.NATS.ManagedCertificateAccountTest do
     assert user["nats"]["type"] == "user"
     assert user["nats"]["pub"]["allow"] == ["metrics.example.>"]
     assert user["nats"]["sub"]["allow"] == ["events.example.>"]
-    assert user["exp"] == allowed.expires_at
+    assert user["exp"] == allowed.certificate_expires_at
 
     assert [{_key, session}] = Map.to_list(allowed.sessions)
     assert session.fingerprint == allowed.fingerprint
-    assert session.expires_at == allowed.expires_at
+    assert session.expires_at == user["exp"]
     assert Enum.sort(Map.keys(session)) == [:expires_at, :fingerprint]
+  end
+
+  test "default grants are jittered around twelve hours independently of policy freshness" do
+    Application.put_env(:serviceradar, :nats_account_name, "EDGE")
+    before = System.system_time(:second)
+
+    expiries =
+      for _ <- 1..12 do
+        allowed = authorize_request("EDGE", certificate_hours: 24)
+        verify_response(allowed.claims["nats"]["jwt"], allowed.issuer_nkey)["exp"]
+      end
+
+    after_requests = System.system_time(:second)
+    assert Enum.all?(expiries, &(&1 >= before + 34_560 and &1 <= after_requests + 51_840))
+    assert length(Enum.uniq(expiries)) > 1
+  end
+
+  test "configured grant lifetime does not allow admission with stale or revoked policy" do
+    Application.put_env(:serviceradar, :nats_account_name, "EDGE")
+    Application.put_env(:serviceradar, :nats_certificate_grant_ttl_seconds, 300)
+    before = System.system_time(:second)
+    allowed = authorize_request("EDGE")
+    expires = verify_response(allowed.claims["nats"]["jwt"], allowed.issuer_nkey)["exp"]
+    assert expires >= before + 240 and expires <= System.system_time(:second) + 360
+
+    for opts <- [[policy_seconds: -1], [blocked: true]] do
+      denied = authorize_request("EDGE", opts)
+      assert denied.claims["nats"]["error"] == "certificate not authorized"
+      refute Map.has_key?(denied.claims["nats"], "jwt")
+      assert denied.sessions == %{}
+    end
   end
 
   test "uses the shipped hub account and rejects the local leaf account name" do
@@ -172,7 +211,7 @@ defmodule ServiceRadar.NATS.ManagedCertificateAccountTest do
     status
   end
 
-  defp authorize_request(stored_account) do
+  defp authorize_request(stored_account, opts \\ []) do
     issuer = Token.new_key(:account)
     {:ok, signer} = NKEYS.Keypair.from_seed(issuer.seed)
     user = Token.new_key(:user)
@@ -180,7 +219,7 @@ defmodule ServiceRadar.NATS.ManagedCertificateAccountTest do
     leaf = leaf_certificate()
     request = authorization_request(server, issuer.public_key, user.public_key, leaf.pem)
     connection = publish_capture()
-    snapshot = allowing_snapshot(leaf.fingerprint)
+    snapshot = allowing_snapshot(leaf.fingerprint, opts)
 
     state = %{
       config: %{
@@ -214,7 +253,7 @@ defmodule ServiceRadar.NATS.ManagedCertificateAccountTest do
       issuer_nkey: issuer.public_key,
       user_nkey: user.public_key,
       fingerprint: leaf.fingerprint,
-      expires_at: DateTime.to_unix(snapshot.valid_until)
+      certificate_expires_at: DateTime.to_unix(hd(snapshot.certificates).not_after)
     }
   end
 
@@ -294,24 +333,26 @@ defmodule ServiceRadar.NATS.ManagedCertificateAccountTest do
     }
   end
 
-  defp allowing_snapshot(fingerprint) do
+  defp allowing_snapshot(fingerprint, opts) do
     now = DateTime.utc_now()
     generated = DateTime.shift(now, second: -1)
-    valid_until = DateTime.shift(now, second: 20)
+    valid_until = DateTime.shift(now, second: Keyword.get(opts, :policy_seconds, 20))
     component_id = "edge-component-01"
 
     %{
       version: 1,
       generated_at: generated,
       valid_until: valid_until,
-      components: [%{component_id: component_id, blocked: false, generation: 1}],
+      components: [
+        %{component_id: component_id, blocked: Keyword.get(opts, :blocked, false), generation: 1}
+      ],
       certificates: [
         %{
           fingerprint: fingerprint,
           component_id: component_id,
           generation: 1,
           not_before: DateTime.shift(now, minute: -1),
-          not_after: DateTime.shift(now, hour: 1)
+          not_after: DateTime.shift(now, hour: Keyword.get(opts, :certificate_hours, 1))
         }
       ],
       revocations: [],
