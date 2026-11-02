@@ -299,23 +299,33 @@ in `choices.md` and the chart README.
       one execution from a run-scoped copy of the config with networks, modes
       and ports replaced. The run path reads that copy instead of `s.config`,
       so `UpdateConfig` during the run cannot change it. No caller yet.
-    - [ ] M2.0i3 Core carrier. `LeaseDelivery` pushes `lease_version` 2 with
-      the pass's agent check set in `check_sets` (revocations stay version 1),
-      `LeaseAgents` candidates require `sweep_lease_plan_checks:v1`, and core
-      records `SweepLeaseSlotRefusal` as a `refused` slot that `LeaseMisses`
-      never relabels. Until agents advertise the capability, no agent is
-      leased, and each leased group runs on its local ticker. Release this
-      slice and M2.0i4 together, in either order, so that gap lasts only as
-      long as the agent rollout.
-    - [ ] M2.0i4 Agent execution. The agent installs only `lease_version` 2
-      for pushes that carry slots, discards stored leases of other versions,
-      executes from `sweepPlanChecks` through `RunPlannedWithObserver`,
-      refuses with a typed reason (persisted, and re-sent on reconnect),
-      reports `tcp_syn_ipv6.unavailable`, and advertises
+    - [ ] M2.0i3 Core carrier. Depends on
+      `fix/lease-plan-agent-capability-checks` (not yet on staging), which adds
+      `SweepCompiler.agent_scan_modes/3` and
+      `LeaseEligibility.agent_checks/3`. `icmp.unavailable` and
+      `mtr.unavailable` withhold those modes. An agent reporting
+      `tcp_syn_ipv6.unavailable` is not leased that group's IPv6 SYN checks.
+      `LeaseDelivery` pushes `lease_version` 2 with that agent's check set in
+      `check_sets` (revocations stay version 1), `LeaseAgents` candidates
+      require `sweep_lease_plan_checks:v1`, and
+      core records `SweepLeaseSlotRefusal` as a `refused` slot that
+      `LeaseMisses` never relabels. Until agents advertise the capability, no
+      agent is leased, and each leased group runs on its local ticker. Release
+      this slice and M2.0i4 together, in either order, so that gap lasts only
+      as long as the agent rollout.
+    - [ ] M2.0i4 Agent execution. The install gate accepts `lease_version` 1
+      for a revocation-only push and `lease_version` 2 for a push that carries
+      slots. It discards stored leases of other versions, executes from
+      `sweepPlanChecks` through `RunPlannedWithObserver`, and refuses with a
+      typed reason (persisted, and re-sent on reconnect). `UNSUPPORTED_PLAN`
+      covers an unknown `digest_version` or a set the scanner cannot express.
+      `INVALID_PLAN` covers an installed plan that fails to decode or validate.
+      `CHECK_UNAVAILABLE` names `icmp.unavailable`, `mtr.unavailable`, or
+      `tcp_syn_ipv6.unavailable`. The agent advertises
       `sweep_lease_plan_checks:v1` alongside `sweep_lease_v1`. The
       config-versus-plan check-set and network comparisons are deleted. The
-      planner gets the matching rule: a group with an IPv6 range and TCP SYN
-      is not leased to an agent that reports the marker.
+      planner does not lease the group's IPv6 SYN checks to an agent that
+      reports `tcp_syn_ipv6.unavailable`.
     - [x] M2.0i5 Batch check-set verification. Core rejects a leased batch whose
       `tested_checks` digest differs from the slot's signed `check_set_sha256`,
       as an authority refusal (`:sweep_check_set_mismatch`: rollback, no

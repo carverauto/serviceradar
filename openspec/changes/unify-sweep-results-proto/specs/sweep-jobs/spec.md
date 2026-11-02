@@ -124,7 +124,19 @@ slot's `plan_header.check_set_sha256`. Core SHALL lease a sweep group only to
 an agent that reports `sweep_lease_plan_checks:v1`, and SHALL send a revocation
 as `lease_version` 1. An agent that cannot run a carried check SHALL refuse the
 slot with a typed reason and SHALL NOT run a subset or a substitute of the
-signed checks.
+signed checks. `UNSUPPORTED_PLAN` SHALL be the slot refusal when a carried set
+is not ICMP once plus each TCP mode on one shared port list, or when its
+`digest_version` is one the agent does not know. `INVALID_PLAN` SHALL be the
+slot refusal when, after the lease is installed, the plan fails to decode or
+validate: the plan header or a plan page does not decode, the plan pages fail
+validation, a range digest does not recompute, or a source authorization is
+not bound to that slot's plan. A mismatched or unresolved carried-check digest
+SHALL refuse the push and SHALL NOT be `INVALID_PLAN`. `CHECK_UNAVAILABLE`
+SHALL name the capability marker of the missing check: `icmp.unavailable` or
+`mtr.unavailable` for that mode, and `tcp_syn_ipv6.unavailable` for IPv6 raw
+SYN. The next lease pass SHALL withhold `icmp` or `mtr` for an agent reporting
+that mode's marker, and SHALL NOT lease the group's IPv6 SYN checks to an
+agent reporting `tcp_syn_ipv6.unavailable`.
 
 #### Scenario: Config differs from the signed plan
 - **GIVEN** an installed slot whose carried checks digest to its header's
@@ -148,6 +160,14 @@ signed checks.
   list, or names a check-set `digest_version` the agent does not know
 - **THEN** the agent SHALL refuse the slot with reason `UNSUPPORTED_PLAN`
 
+#### Scenario: Installed plan fails to decode or validate
+- **GIVEN** a leased slot is already installed
+- **WHEN** the slot is due and its plan header or a plan page does not decode,
+  its plan pages fail validation, a range digest does not recompute, or a
+  source authorization is not bound to that slot's plan
+- **THEN** the agent SHALL refuse the slot with reason `INVALID_PLAN`
+- **AND** SHALL NOT run the slot
+
 #### Scenario: A carried mode becomes unavailable before the slot runs
 - **GIVEN** a slot carries ICMP
 - **AND** the agent can no longer open its ICMP sweep socket
@@ -163,8 +183,11 @@ signed checks.
 #### Scenario: A mode the agent would substitute
 - **WHEN** a carried mode would run as a different mode for a plan range, such
   as TCP SYN on an IPv6 range without raw IPv6 SYN
-- **THEN** the agent SHALL refuse the slot with reason `CHECK_UNAVAILABLE`
+- **THEN** the agent SHALL refuse the slot with reason `CHECK_UNAVAILABLE` and
+  the marker `tcp_syn_ipv6.unavailable`
 - **AND** SHALL NOT run the substitute mode under the signed plan
+- **AND** the next lease pass SHALL NOT lease that group's IPv6 SYN checks to
+  this agent
 
 #### Scenario: Refusal reported while disconnected
 - **GIVEN** the agent refused a slot while its control stream was down
@@ -349,3 +372,11 @@ alone.
   projected or explicitly terminally failed
 - **THEN** the execution SHALL record reconciled completion and exact unique
   totals
+
+#### Scenario: Execution retains attribution context
+- **GIVEN** a completed sweep execution
+- **WHEN** its results are inspected
+- **THEN** the execution SHALL identify the sweep group, the agent that ran it,
+  and the config version in force
+- **AND** each host result belonging to it SHALL carry the requested sweep modes
+  alongside the observed per-mode outcome
