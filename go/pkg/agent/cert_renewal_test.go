@@ -412,11 +412,21 @@ func TestCertRenewalNearExpiryRenewsHotReloadsAndKeepsConnection(t *testing.T) {
 		defer h.gwServer.mu.Unlock()
 		return h.gwServer.lastHelloSerial == 5001
 	}, 10*time.Second, 10*time.Millisecond)
+	// The gateway records the Hello before its reply reaches the agent, so wait
+	// for the re-enrollment to finish before cancelling its context.
+	require.Eventually(t, func() bool {
+		loop.enrollMu.Lock()
+		inFlight := loop.enrollInFlight
+		loop.enrollMu.Unlock()
+		return loop.isEnrolled() && !inFlight
+	}, 10*time.Second, 10*time.Millisecond)
 	stopRenewal()
 	<-done
 
 	// Provider was hot-reloaded in-memory with the new leaf certificate.
-	newLeaf := h.gwClient.MTLSProvider().ClientLeaf()
+	provider := h.gwClient.MTLSProvider()
+	require.NotNil(t, provider)
+	newLeaf := provider.ClientLeaf()
 	require.NotNil(t, newLeaf)
 	assert.Equal(t, int64(5001), newLeaf.SerialNumber.Int64())
 
