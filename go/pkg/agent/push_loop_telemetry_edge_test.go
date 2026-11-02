@@ -23,14 +23,17 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
+	"net"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 	gproto "google.golang.org/protobuf/proto"
 
+	agentgateway "github.com/carverauto/serviceradar/go/pkg/agentgateway"
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
 	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
@@ -501,6 +504,76 @@ func TestTelemetryEnqueueKeepsABatchOverTheQueuedRecordCeiling(t *testing.T) {
 	require.Equal(t, recordsInBatch, total)
 	require.Zero(t, edgeDrops(loop, edgeProducerAddonTelemetry, edgeDropRetryBufferFull))
 	require.Zero(t, loop.addonTelemetryEdge.queuedRecords())
+}
+
+func TestPluginSignalWithAGrantSpoolsTheAssignmentStamp(t *testing.T) {
+	sp := openTestEdgeSpool(t)
+	loop := telemetryLoop(t, sp)
+	telemetryCapability(t, loop)
+
+	// The batch source claims an add-on. The host stamp comes from the
+	// signal's assignment, so a guest cannot reattribute the record.
+	forged := &addonpb.TelemetryBatch{
+		Source: &addonpb.TelemetrySource{Metadata: map[string]string{
+			edgerecord.TelemetryProducerTypeMetadataKey: "addon",
+			edgerecord.TelemetryProducerIDMetadataKey:   "someone-else",
+		}},
+		Records: []*addonpb.TelemetryRecord{ocsfTelemetryRecord(`{"class_uid":4003}`)},
+	}
+	manager := &PluginManager{signals: make(chan PluginSignalTelemetry, 1)}
+	manager.signals <- PluginSignalTelemetry{
+		AssignmentID: "assignment-9",
+		PluginID:     "plugin-9",
+		Batch:        forged,
+	}
+	loop.server.pluginManager = manager
+
+	require.True(t, loop.pushPluginSignals(context.Background()))
+
+	batches := spooledTelemetryBatches(t, sp)
+	require.Len(t, batches, 1)
+	producerType, producerID, ok := edgerecord.TelemetryBatchProducer(batches[0])
+	require.True(t, ok)
+	require.Equal(t, "plugin", producerType)
+	require.Equal(t, "assignment-9", producerID)
+}
+
+func TestAddonTelemetryWithoutAGrantKeepsTheLegacyPath(t *testing.T) {
+	sp := openTestEdgeSpool(t)
+	loop, gw := telemetryLegacyLoop(t, sp)
+
+	loop.server.addonTelemetry.enqueue("powerdns", &addonpb.TelemetryBatch{
+		Records: []*addonpb.TelemetryRecord{ocsfTelemetryRecord(`{"class_uid":4003}`)},
+	})
+
+	require.True(t, loop.pushAddonTelemetry(context.Background()))
+	require.Equal(t, 1, gw.statusesFrom(addonTelemetrySource("powerdns")))
+	require.Empty(t, spooledTelemetryBatches(t, sp))
+}
+
+// telemetryLegacyLoop is a push loop with a real gateway client, so the
+// no-grant branch can deliver a status chunk. No telemetry grant is installed.
+func telemetryLegacyLoop(t *testing.T, sp *spool.Spool) (*PushLoop, *sysmonStatusGateway) {
+	t.Helper()
+	t.Setenv("SR_ALLOW_INSECURE", "true")
+
+	gw := &sysmonStatusGateway{}
+	lis, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	server := grpc.NewServer()
+	proto.RegisterAgentGatewayServiceServer(server, gw)
+	go func() { _ = server.Serve(lis) }()
+	t.Cleanup(func() {
+		server.Stop()
+		_ = lis.Close()
+	})
+	client := agentgateway.NewGatewayClient(lis.Addr().String(), nil, logger.NewTestLogger())
+	require.NoError(t, client.Connect(t.Context()))
+	t.Cleanup(func() { _ = client.Disconnect() })
+
+	loop := telemetryLoop(t, sp)
+	loop.gateway = client
+	return loop, gw
 }
 
 func incompressiblePayload(size int, seed byte) []byte {
