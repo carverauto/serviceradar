@@ -128,6 +128,71 @@ func TestSweepLeaseCheckSetsCorpusRefusals(t *testing.T) {
 	}
 }
 
+// SweepCheckSetRun refuses modes the edge scanner does not execute. UNSPECIFIED
+// and MTR are real enum values; a value outside the enum takes the same refusal.
+// ICMP and the two TCP modes still become a run shape, so a blanket refusal
+// fails this test too.
+func TestSweepCheckSetRunRefusesModesTheScannerDoesNotProduce(t *testing.T) {
+	for _, mode := range []edgev1.SweepMode{
+		edgev1.SweepMode_SWEEP_MODE_UNSPECIFIED,
+		edgev1.SweepMode_SWEEP_MODE_MTR,
+		edgev1.SweepMode(99),
+	} {
+		t.Run(mode.String(), func(t *testing.T) {
+			_, err := SweepCheckSetRun(&edgev1.SweepCheckSetV1{
+				DigestVersion: CheckSetDigestVersion,
+				Checks: []*edgev1.SweepTestV1{{
+					Mode:     mode,
+					Protocol: edgev1.TransportProtocol_TRANSPORT_PROTOCOL_ICMP,
+					Port:     0,
+				}},
+			})
+			if !errors.Is(err, ErrSweepCheckSetUnsupported) {
+				t.Fatalf("%s: %v, want %v", mode, err, ErrSweepCheckSetUnsupported)
+			}
+		})
+	}
+
+	icmp, err := SweepCheckSetRun(&edgev1.SweepCheckSetV1{
+		DigestVersion: CheckSetDigestVersion,
+		Checks: []*edgev1.SweepTestV1{{
+			Mode:     edgev1.SweepMode_SWEEP_MODE_ICMP,
+			Protocol: edgev1.TransportProtocol_TRANSPORT_PROTOCOL_ICMP,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("ICMP: %v", err)
+	}
+	if !slices.Equal(icmp.Modes, []edgev1.SweepMode{edgev1.SweepMode_SWEEP_MODE_ICMP}) || len(icmp.Ports) != 0 {
+		t.Fatalf("ICMP runs %+v, want ICMP and no ports", icmp)
+	}
+
+	tcp, err := SweepCheckSetRun(&edgev1.SweepCheckSetV1{
+		DigestVersion: CheckSetDigestVersion,
+		Checks: []*edgev1.SweepTestV1{
+			{
+				Mode:     edgev1.SweepMode_SWEEP_MODE_TCP_SYN,
+				Protocol: edgev1.TransportProtocol_TRANSPORT_PROTOCOL_TCP,
+				Port:     22,
+			},
+			{
+				Mode:     edgev1.SweepMode_SWEEP_MODE_TCP_CONNECT,
+				Protocol: edgev1.TransportProtocol_TRANSPORT_PROTOCOL_TCP,
+				Port:     22,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("TCP: %v", err)
+	}
+	if !slices.Equal(tcp.Modes, []edgev1.SweepMode{
+		edgev1.SweepMode_SWEEP_MODE_TCP_SYN,
+		edgev1.SweepMode_SWEEP_MODE_TCP_CONNECT,
+	}) || !slices.Equal(tcp.Ports, []uint32{22}) {
+		t.Fatalf("TCP runs %+v, want TCP_SYN and TCP_CONNECT on port 22", tcp)
+	}
+}
+
 // A push without slots carries nothing version-dependent: a revocation stays
 // lease_version 1 and is accepted, while check sets on it are unreferenced.
 func TestSweepLeaseCheckSetsWithoutSlots(t *testing.T) {
