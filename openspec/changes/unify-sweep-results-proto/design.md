@@ -362,9 +362,11 @@ planning hit any error this pass is left unmarked; the next clean pass marks
 it. Only a slot that closed within the last 24 hours is judged: a completed
 slot stays scheduled, and execution retention deletes its execution row after
 30 days by default, so an older slot can no longer show its commit and is
-never relabelled. A later projecting batch reopens a missed slot and projects.
-A dropped slot stays refused. `ServiceRadar.SweepJobs.LeaseMisses` owns the
-mark.
+never relabelled. A later projecting batch reopens a missed slot and projects. It does not
+reopen a refused slot. A refusal for the same assignment and lease moves
+`missed_offline` or `missed_exhausted` to `refused`, and `refused` is
+terminal. `ServiceRadar.SweepJobs.LeaseMisses` owns the miss mark and does
+not relabel `refused`.
 
 **Plan inputs.** The ABI defines how a scheduled plan is hashed but nothing
 builds one outside a test helper, and it leaves two digests undefined. Core builds
@@ -2480,9 +2482,13 @@ Otherwise a port-heavy profile would repeat thousands of checks across about
   repeated SweepTestV1 checks = 3; }` reuses the existing `(mode, protocol,
   port)` message. `checks` is in the check-set grammar's order: sorted
   ascending, de-duplicated, port 0 for ICMP. `digest_version` is the
-  check-set grammar version (1). A future grammar that covers more than
-  `(mode, protocol, port)` bumps it, and an agent that does not know the
-  version refuses that slot with `UNSUPPORTED_PLAN`.
+  check-set grammar version (1). `sweep_lease_plan_checks:v1` names that
+  grammar. Core does not send a check set whose `digest_version` the agent
+  did not advertise. A future grammar bumps the version and needs a capability
+  that names it. An unknown `digest_version`, a carried set whose digest does
+  not match its key, an unresolved key, or a set that does not decode fails
+  the whole push with a `SweepLeaseAck` error before install. The group stays
+  on the agent's local ticker until core re-pushes.
 - `SweepLeaseV1.check_sets = 11` (repeated) carries the check sets of the
   push's slots, keyed by digest. Every slot's `plan_header.check_set_sha256`
   resolves to exactly one carried set. Every carried set's key equals the
@@ -2515,7 +2521,7 @@ not leased. The orders are covered without new state:
 - Agent first: old core pushes slots at `lease_version` 1 and the new agent
   refuses that push, so the group runs on its ticker. A revocation-only push
   at `lease_version` 1 is installed. On load the new agent discards stored
-  leases whose `lease_version` is not 2. When core upgrades, the last
+  slot leases whose `lease_version` is not 2. When core upgrades, the last
   slot-carrying push has no successful acknowledgement, so the existing
   Carrier rule sends a full window.
 
@@ -2528,9 +2534,12 @@ following replace `sweepChecks(cfg)` and the config-network comparison in
    and a `sweeper.RunSpec{Networks, Modes, Ports}`. Networks are the plan
    ranges' CIDRs in plan order. The scanner runs every mode on every port, so
    the set MUST be the product of its modes and its TCP ports: ICMP once, and
-   each TCP mode on the same port list. Any other shape, and a
-   `digest_version` the agent does not know, is a slot refusal with
-   `UNSUPPORTED_PLAN`. Core's `SweepPlan.checks/2` only builds that shape.
+   each TCP mode on the same port list. Any other shape is an execution-time
+   slot refusal with `UNSUPPORTED_PLAN`: the executor cannot express it, for
+   example TCP modes that do not share one port list. An unknown
+   `digest_version` is not that refusal. With a digest mismatch, an unresolved
+   key, or a set that does not decode, it fails the push before install.
+   Core's `SweepPlan.checks/2` only builds the expressible shape.
 2. `newSweepEdgeProducer(lease, slot, spool, now)` no longer takes the config.
    The batches' `TestedChecks` are exactly the carried checks.
    `errEdgeSweepCheckSetMismatch`, `errEdgeSweepCIDRMismatch`,
@@ -2541,10 +2550,7 @@ following replace `sweepChecks(cfg)` and the config-network comparison in
    marker of the missing check: `icmp.unavailable` or `mtr.unavailable` for
    that mode, and `tcp_syn_ipv6.unavailable` when raw IPv6 SYN would run as
    connect. The agent never runs a subset or a substitute of the signed
-   checks. After install, a plan that fails to decode or validate refuses the
-   slot with `INVALID_PLAN`: the plan header or a plan page does not decode,
-   the plan pages fail validation, a range digest does not recompute, or a
-   source authorization is not bound to that slot's plan.
+   checks.
 4. It runs `NetworkSweeper.RunPlannedWithObserver(ctx, executionID, spec,
    observer)`, a new method. The scanner cannot run an override config for one
    execution today: `RunOnceWithObserver` reads `s.config`, which
@@ -2566,48 +2572,51 @@ gateway -> `AgentGatewaySync` -> `ServiceRadar.SweepJobs`):
 
 - `ControlStreamRequest.sweep_lease_slot_refusal = 8` carries
   `SweepLeaseSlotRefusal { sweep_group_id, lease_id, execution_id, reason,
-  unavailable_capabilities, detail, refused_at_unix_nano }`. `reason` is one
-  of `CHECK_UNAVAILABLE`, `UNSUPPORTED_PLAN` or `INVALID_PLAN`.
-  `UNSUPPORTED_PLAN` is a carried set the scanner cannot express (anything
-  other than ICMP once plus each TCP mode on one shared port list) or a
-  `digest_version` the agent does not know. `INVALID_PLAN` is a plan that
-  fails to decode or validate after the lease is installed: the plan header
-  or a plan page does not decode, the plan pages fail validation, a range
-  digest does not recompute, or a source authorization is not bound to that
-  slot's plan. A mismatched or unresolved carried-check digest refuses the
-  push with a `SweepLeaseAck` error before install, and is not `INVALID_PLAN`.
+  unavailable_capabilities, detail, refused_at_unix_nano }`. `reason` is
+  `CHECK_UNAVAILABLE` or `UNSUPPORTED_PLAN`. `CHECK_UNAVAILABLE` is a carried
+  mode the agent cannot run when the slot is due. It names `icmp.unavailable`
+  or `mtr.unavailable` for that mode, and `tcp_syn_ipv6.unavailable` for IPv6
+  raw SYN. `UNSUPPORTED_PLAN` is an installed carried set the executor cannot
+  express, such as TCP modes that do not share one port list. Check-set
+  validation runs before install and fails the whole push with a
+  `SweepLeaseAck` error: an unknown `digest_version`, a carried-set digest
+  mismatch, an unresolved check-set key, or a set that does not decode. The
+  group stays on the local ticker until core re-pushes.
 - The agent persists the refusal with the slot's executed mark. It re-sends
   every refusal it still holds on each control-stream connect, until the
   slot's collection window has passed by more than the missed-run judgement
   age. Core records it idempotently by execution id, so the re-sends need no
   acknowledgement. A gateway that predates the message drops it, and the
   re-send delivers it once the gateway is upgraded.
-- Core marks the slot `refused`, with the reason and markers. It does so only
-  for a scheduled slot of that agent's current assignment and lease.
-  `LeaseMisses` never relabels a refused slot.
-- The next pass excludes a check only through the agent's reported
-  capabilities. `SweepCompiler.agent_scan_modes/3` and
-  `LeaseEligibility.agent_checks/3` are not on staging. Both come from the
-  dependency change on branch `fix/lease-plan-agent-capability-checks`, and
-  M2.0i3 depends on that change. A `CHECK_UNAVAILABLE` refusal names the
-  capability marker of the missing check, and the agent reports that marker
-  before it refuses the slot. `icmp.unavailable` and `mtr.unavailable` withhold
-  that mode on the next pass. `tcp_syn_ipv6.unavailable` means the planner
-  does not lease the group's IPv6 SYN checks to that agent. The changed check
-  set re-plans the agent's unrun slots, and the drop-and-full-push rule
-  replaces them on the agent. Core does not turn refusals into exclusions of
-  its own. That would be a second writer of the same fact.
+- Core records the slot `refused`, with the reason and markers, for that
+  agent's current assignment and lease. A slot that is `scheduled`,
+  `missed_offline`, or `missed_exhausted` becomes `refused`. The refusal is
+  more specific evidence than the miss. `refused` is terminal:
+  `LeaseMisses` does not relabel it, and a later projecting batch does not
+  reopen it.
+- The next pass excludes a mode only through the agent's reported
+  capabilities. Core does not turn refusals into exclusions of its own.
+  Per-agent check sets are not on staging. They come from the dependency
+  change on branch `fix/lease-plan-agent-capability-checks`
+  (`SweepCompiler.agent_scan_modes/3` and `LeaseEligibility.agent_checks/3`).
+  Until that change lands, the planner uses one group-level check set.
+  M2.0i3 depends on that change. Once it has landed, the agent reports the
+  marker before it refuses the slot. `icmp.unavailable` and `mtr.unavailable`
+  withhold that mode on the next pass. `tcp_syn_ipv6.unavailable` means the
+  planner does not lease a group whose check set would need IPv6 SYN to that
+  agent. The changed check set then re-plans that agent's unrun slots, and
+  the drop-and-full-push rule replaces them on the agent.
 
-**Core planner changes.** The per-agent check set is
-`LeaseEligibility.agent_checks/3`, which reads modes from
-`SweepCompiler.agent_scan_modes/3`. Neither function is on staging. Both come
-from the dependency change on branch `fix/lease-plan-agent-capability-checks`,
-which M2.0i3 depends on. `LeaseDelivery.deliver` receives that agent's checks,
-carries them as the push's `check_sets` entry, and pushes only slots whose
-stored `check_set_sha256` equals their digest. `sync_slots` drops every other
-unrun slot of that agent in the same pass, so no slot column is added. A
-digest names its checks, so the set is the same whichever pass computed it.
-`LeaseAgents` candidates gate on `sweep_lease_plan_checks:v1`.
+**Core planner changes.** Until `fix/lease-plan-agent-capability-checks`
+lands, the lease pass plans one group-level check set and applies that digest
+to every candidate. That branch is not on staging. It adds
+`SweepCompiler.agent_scan_modes/3` and `LeaseEligibility.agent_checks/3`, and
+M2.0i3 depends on it. After it lands, `LeaseDelivery.deliver` receives that
+agent's checks, carries them as the push's `check_sets` entry, and pushes
+only slots whose stored `check_set_sha256` equals their digest. `sync_slots`
+then drops every other unrun slot of that agent in the same pass, so no slot
+column is added. `LeaseAgents` candidates gate on
+`sweep_lease_plan_checks:v1`.
 
 **Rejected.** Freezing the config to the slot: it keeps two sources. Repeating
 the checks inside every slot: it costs size, as above. Adding them to the plan
@@ -2617,10 +2626,11 @@ them. Running whatever subset the agent can: the records would claim checks
 the plan did not sign.
 
 **IPv6 raw SYN.** `CHECK_UNAVAILABLE` for missing raw IPv6 SYN names
-`tcp_syn_ipv6.unavailable`. The planner does not lease the group's IPv6 SYN
-checks to an agent that reports that marker. The agent refuses a carried TCP
-SYN on an IPv6 range when it would run as connect, and does not run that
-substitute.
+`tcp_syn_ipv6.unavailable`. The planner does not lease a group whose check
+set would need IPv6 SYN to an agent that reports that marker. The agent
+refuses a carried TCP SYN on an IPv6 range when it would run as connect, and
+does not run that substitute. An icmp or mtr refusal names
+`<mode>.unavailable`, and the next pass withholds that mode.
 
 **Core verifies what the batch claims.** EventWriter already checks each leased
 batch against its slot, inside the ledger transaction and before any domain

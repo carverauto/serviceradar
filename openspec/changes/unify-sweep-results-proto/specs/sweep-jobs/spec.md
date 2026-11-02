@@ -118,25 +118,30 @@ only for scanner settings that no record claims. Every `SweepLeaseV1` push that
 carries slots SHALL use `lease_version` 2 and SHALL carry, in `check_sets`, one
 `SweepCheckSetV1` per distinct `check_set_sha256` among its slots. The carried
 checks SHALL be the sorted, de-duplicated `(mode, protocol, port)` list whose
-check-set digest is that key. The only comparison the agent makes between a
-slot and its checks SHALL be that the digest of the carried checks equals the
-slot's `plan_header.check_set_sha256`. Core SHALL lease a sweep group only to
+check-set digest is that key. Core SHALL lease a sweep group only to
 an agent that reports `sweep_lease_plan_checks:v1`, and SHALL send a revocation
-as `lease_version` 1. An agent that cannot run a carried check SHALL refuse the
-slot with a typed reason and SHALL NOT run a subset or a substitute of the
-signed checks. `UNSUPPORTED_PLAN` SHALL be the slot refusal when a carried set
-is not ICMP once plus each TCP mode on one shared port list, or when its
-`digest_version` is one the agent does not know. `INVALID_PLAN` SHALL be the
-slot refusal when, after the lease is installed, the plan fails to decode or
-validate: the plan header or a plan page does not decode, the plan pages fail
-validation, a range digest does not recompute, or a source authorization is
-not bound to that slot's plan. A mismatched or unresolved carried-check digest
-SHALL refuse the push and SHALL NOT be `INVALID_PLAN`. `CHECK_UNAVAILABLE`
-SHALL name the capability marker of the missing check: `icmp.unavailable` or
-`mtr.unavailable` for that mode, and `tcp_syn_ipv6.unavailable` for IPv6 raw
-SYN. The next lease pass SHALL withhold `icmp` or `mtr` for an agent reporting
-that mode's marker, and SHALL NOT lease the group's IPv6 SYN checks to an
-agent reporting `tcp_syn_ipv6.unavailable`.
+as `lease_version` 1. `sweep_lease_plan_checks:v1` names digest grammar 1, and
+core SHALL NOT send a check set whose `digest_version` the agent did not
+advertise. Before install, the agent SHALL validate every carried check set.
+An unknown `digest_version`, a carried set whose checks digest to a different
+value, an unresolved check-set key, or a set that does not decode SHALL fail
+the whole push with a `SweepLeaseAck` error, and the group SHALL stay on the
+agent's local ticker until core re-pushes. For an installed slot, the only
+comparison the agent makes between the slot and its checks SHALL be that the
+digest of the carried checks equals the slot's `plan_header.check_set_sha256`.
+An agent that cannot run an installed carried check SHALL refuse the slot
+with a typed reason and SHALL NOT run a subset or a substitute of the signed
+checks. Slot refusals SHALL be execution-time only. `CHECK_UNAVAILABLE` SHALL
+name the marker of a carried mode the agent cannot run now: `icmp.unavailable`
+or `mtr.unavailable` for that mode, and `tcp_syn_ipv6.unavailable` for IPv6
+raw SYN. The next lease pass SHALL withhold `icmp` or `mtr` for an agent
+reporting that mode's marker. The planner SHALL NOT lease a group whose check
+set would need IPv6 SYN to an agent reporting `tcp_syn_ipv6.unavailable`.
+`UNSUPPORTED_PLAN` SHALL be the slot refusal when an installed carried set is
+one the executor cannot express, such as TCP modes that do not share one port
+list. A refusal for the same assignment and lease SHALL move a slot from
+`missed_offline` or `missed_exhausted` to `refused`, and `refused` SHALL be
+terminal.
 
 #### Scenario: Config differs from the signed plan
 - **GIVEN** an installed slot whose carried checks digest to its header's
@@ -149,24 +154,22 @@ agent reporting `tcp_syn_ipv6.unavailable`.
 - **AND** every batch's `tested_checks` SHALL equal the carried checks
 - **AND** a config update during the run SHALL NOT change that execution
 
-#### Scenario: Carried checks do not match the header digest
-- **WHEN** a push carries a slot whose header `check_set_sha256` resolves to no
-  carried set, or to a set whose checks digest to a different value
-- **THEN** the agent SHALL refuse the push with a `SweepLeaseAck` error
+#### Scenario: Carried checks fail validation before install
+- **WHEN** a push carries an unknown check-set `digest_version`, a set whose
+  checks digest to a different value than its key, a header
+  `check_set_sha256` that resolves to no carried set, or a set that does not
+  decode
+- **THEN** the agent SHALL refuse the whole push with a `SweepLeaseAck` error
+  before install
 - **AND** SHALL NOT fall back to checks derived from its config
+- **AND** the group SHALL stay on the agent's local ticker until core re-pushes
 
-#### Scenario: Check set the scanner cannot express
-- **WHEN** a carried set is not ICMP once plus each TCP mode on one shared port
-  list, or names a check-set `digest_version` the agent does not know
-- **THEN** the agent SHALL refuse the slot with reason `UNSUPPORTED_PLAN`
-
-#### Scenario: Installed plan fails to decode or validate
+#### Scenario: Check set the executor cannot express
 - **GIVEN** a leased slot is already installed
-- **WHEN** the slot is due and its plan header or a plan page does not decode,
-  its plan pages fail validation, a range digest does not recompute, or a
-  source authorization is not bound to that slot's plan
-- **THEN** the agent SHALL refuse the slot with reason `INVALID_PLAN`
-- **AND** SHALL NOT run the slot
+- **WHEN** its carried set is one the executor cannot express, such as TCP
+  modes that do not share one port list
+- **THEN** the agent SHALL refuse the slot with reason `UNSUPPORTED_PLAN`
+- **AND** SHALL NOT run a subset of the signed checks
 
 #### Scenario: A carried mode becomes unavailable before the slot runs
 - **GIVEN** a slot carries ICMP
@@ -186,14 +189,17 @@ agent reporting `tcp_syn_ipv6.unavailable`.
 - **THEN** the agent SHALL refuse the slot with reason `CHECK_UNAVAILABLE` and
   the marker `tcp_syn_ipv6.unavailable`
 - **AND** SHALL NOT run the substitute mode under the signed plan
-- **AND** the next lease pass SHALL NOT lease that group's IPv6 SYN checks to
-  this agent
+- **AND** the next lease pass SHALL NOT lease a group whose check set would
+  need IPv6 SYN to this agent
 
 #### Scenario: Refusal reported while disconnected
 - **GIVEN** the agent refused a slot while its control stream was down
 - **WHEN** the control stream reconnects
 - **THEN** the agent SHALL re-send every refusal it still holds
 - **AND** core SHALL record each one once per execution id
+- **AND** a slot that is `missed_offline` or `missed_exhausted` for that same
+  assignment and lease SHALL become `refused`
+- **AND** `refused` SHALL stay refused
 
 #### Scenario: Agent without plan-carried execution
 - **GIVEN** an agent that does not report `sweep_lease_plan_checks:v1`
@@ -376,7 +382,6 @@ alone.
 #### Scenario: Execution retains attribution context
 - **GIVEN** a completed sweep execution
 - **WHEN** its results are inspected
-- **THEN** the execution SHALL identify the sweep group, the agent that ran it,
-  and the config version in force
-- **AND** each host result belonging to it SHALL carry the requested sweep modes
-  alongside the observed per-mode outcome
+- **THEN** the execution SHALL identify the sweep group and the agent that ran it
+- **AND** each host result for a leased slot SHALL carry the checks the signed
+  plan carried, alongside the observed per-mode outcome

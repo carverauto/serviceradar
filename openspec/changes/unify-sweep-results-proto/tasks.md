@@ -300,32 +300,40 @@ in `choices.md` and the chart README.
       and ports replaced. The run path reads that copy instead of `s.config`,
       so `UpdateConfig` during the run cannot change it. No caller yet.
     - [ ] M2.0i3 Core carrier. Depends on
-      `fix/lease-plan-agent-capability-checks` (not yet on staging), which adds
-      `SweepCompiler.agent_scan_modes/3` and
-      `LeaseEligibility.agent_checks/3`. `icmp.unavailable` and
-      `mtr.unavailable` withhold those modes. An agent reporting
-      `tcp_syn_ipv6.unavailable` is not leased that group's IPv6 SYN checks.
-      `LeaseDelivery` pushes `lease_version` 2 with that agent's check set in
-      `check_sets` (revocations stay version 1), `LeaseAgents` candidates
-      require `sweep_lease_plan_checks:v1`, and
-      core records `SweepLeaseSlotRefusal` as a `refused` slot that
-      `LeaseMisses` never relabels. Until agents advertise the capability, no
-      agent is leased, and each leased group runs on its local ticker. Release
-      this slice and M2.0i4 together, in either order, so that gap lasts only
-      as long as the agent rollout.
+      `fix/lease-plan-agent-capability-checks` (not yet on staging). Until that
+      change lands, the planner uses one group-level check set. The branch
+      adds `SweepCompiler.agent_scan_modes/3` and
+      `LeaseEligibility.agent_checks/3`, which this task then uses for
+      per-agent check sets. `icmp.unavailable` and `mtr.unavailable` withhold
+      those modes. The planner does not lease a group whose check set would
+      need IPv6 SYN to an agent reporting `tcp_syn_ipv6.unavailable`.
+      `sweep_lease_plan_checks:v1` names digest grammar 1, and core does not
+      send a `digest_version` the agent did not advertise. `LeaseDelivery`
+      pushes `lease_version` 2 with the check set in `check_sets` (revocations
+      stay version 1). `LeaseAgents` candidates require
+      `sweep_lease_plan_checks:v1`. Core records `SweepLeaseSlotRefusal` as
+      `refused`. A refusal for the same assignment and lease moves
+      `missed_offline` or `missed_exhausted` to `refused`, and `refused` is
+      terminal, so `LeaseMisses` does not relabel it. Until agents advertise
+      the capability, no agent is leased, and each leased group runs on its
+      local ticker. Release this slice and M2.0i4 together, in either order,
+      so that gap lasts only as long as the agent rollout.
     - [ ] M2.0i4 Agent execution. The install gate accepts `lease_version` 1
       for a revocation-only push and `lease_version` 2 for a push that carries
-      slots. It discards stored leases of other versions, executes from
-      `sweepPlanChecks` through `RunPlannedWithObserver`, and refuses with a
-      typed reason (persisted, and re-sent on reconnect). `UNSUPPORTED_PLAN`
-      covers an unknown `digest_version` or a set the scanner cannot express.
-      `INVALID_PLAN` covers an installed plan that fails to decode or validate.
+      slots. On load it discards stored slot leases whose `lease_version` is
+      not 2 (Decision 12). Before install, an unknown `digest_version`, a
+      carried-set digest mismatch, an unresolved check-set key, or a set that
+      does not decode fails the whole push with a `SweepLeaseAck` error, and
+      the group stays on the local ticker until core re-pushes. It executes
+      from `sweepPlanChecks` through `RunPlannedWithObserver`. Execution-time
+      slot refusals are persisted and re-sent on reconnect.
       `CHECK_UNAVAILABLE` names `icmp.unavailable`, `mtr.unavailable`, or
-      `tcp_syn_ipv6.unavailable`. The agent advertises
+      `tcp_syn_ipv6.unavailable`. `UNSUPPORTED_PLAN` is a carried set the
+      executor cannot express. The agent advertises
       `sweep_lease_plan_checks:v1` alongside `sweep_lease_v1`. The
       config-versus-plan check-set and network comparisons are deleted. The
-      planner does not lease the group's IPv6 SYN checks to an agent that
-      reports `tcp_syn_ipv6.unavailable`.
+      planner does not lease a group whose check set would need IPv6 SYN to
+      an agent that reports `tcp_syn_ipv6.unavailable`.
     - [x] M2.0i5 Batch check-set verification. Core rejects a leased batch whose
       `tested_checks` digest differs from the slot's signed `check_set_sha256`,
       as an authority refusal (`:sweep_check_set_mismatch`: rollback, no
