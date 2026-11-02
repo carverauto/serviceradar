@@ -17,8 +17,10 @@
 -- partitions.
 --
 -- Text columns are sized so that no value the publisher writes is wider than
--- its column: StarRocks filters such a row out of a Stream Load batch. Rows
--- truncates comm, cmdline and workload_identity to these widths.
+-- its column: StarRocks filters such a row out of a Stream Load batch.
+-- Observations caps each of these text columns to its width and shortens
+-- nested JSON until it fits. A nested value that cannot be shortened fails
+-- the batch before any publish.
 CREATE DATABASE IF NOT EXISTS serviceradar;
 
 CREATE TABLE IF NOT EXISTS serviceradar.flow_process_attribution_observations (

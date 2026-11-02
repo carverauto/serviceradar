@@ -51,8 +51,8 @@ const MIN_REINDEX_INTERVAL: Duration = Duration::from_secs(30);
 const EXECUTE_BITS: u32 = 0o111;
 const DELETED_SUFFIX: &str = " (deleted)";
 /// `flow_process_attribution_observations.executable_ownership` is VARCHAR(65533).
-/// The readlink target is the uncapped field in that column; a longer path makes
-/// one observation exceed both the column and the 512 KiB edge-record cap.
+/// Cut the readlink target to that width so the path itself stays within the
+/// column and within the 512 KiB edge-record cap.
 const MAX_EXECUTABLE_PATH_BYTES: usize = 65_533;
 
 pub const DETAIL_PROCESS_EXITED: &str = "process_exited";
