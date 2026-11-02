@@ -430,7 +430,7 @@ core:
     consensusCohortRetentionMs: 300000
 ```
 
-### Durable sweep canary
+### Durable edge-record canary
 
 `edgeRecords.enabled` enables the gateway's durable bulk publisher and runtime
 trust refresh from core. Supply `edgeRecords.contractRegistry` with the
@@ -482,11 +482,11 @@ existing unresolved-byte and age gauges.
 An interrupted run remains incomplete and is not rescanned once the agent has
 durably claimed its first append attempt, even if that first append fails.
 
-Upgrade core and the gateways before the agent. The agent's sweep producer
-compresses each record payload as one Zstandard level 1 frame by default, and
-keeps `NONE` when compression saves nothing or exceeds the permitted expansion
-ratio. Core releases older than this
-change refuse compressed sweep records at ingest, and agents and gateways do
+Upgrade core and the gateways before the agent. The agent's edge-record builder
+compresses each sweep or sysmon metrics payload as one Zstandard level 1 frame
+by default, and keeps `NONE` when compression saves nothing or exceeds the
+permitted expansion ratio. Core releases older than this
+change refuse compressed edge records at ingest, and agents and gateways do
 not negotiate a codec yet. Upgrade core and every agent-gateway replica first,
 confirm each replica is ready on the new version, and only then upgrade the
 canary agent. To roll back, pause new leased production and keep the compatible

@@ -58,6 +58,8 @@ direct-to-DB metric writes.
                                                         │  └────────────────────┘       │
 ```
 
+Opted-in sysmon travels the durable edge-record lane. The grant conditions and the `metrics.sysmon.>` republish are in [Data Pipeline](../../docs/docs/data-pipeline.md).
+
 ---
 
 ## 2. Component inventory
