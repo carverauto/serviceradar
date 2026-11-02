@@ -21,12 +21,15 @@
 
 // Agent-scheduled and non-leased MTR trace output contract.
 //
-// `MtrTraceBatchV1` in `sweep.proto` binds leased sweep executions through
-// `MtrSweepContextV1` (`execution_plan_id` / `target_range_id`). Agent-scheduled
-// MTR checks, unleased sweep-triggered MTR runs, and on-demand/bulk MTR jobs
-// emit traces under a standing production grant without a leased plan/range
-// join, while reusing the frozen `MtrTraceEventV1`, `MtrTraceHopV1`, and
-// `MtrMplsLabelV1` structures from `sweep.proto`.
+// `MtrTraceBatchV1` already correlates leased sweeps, scheduled checks,
+// ad-hoc runs, and on-demand commands through a source-matching `correlation`
+// oneof. This contract reuses the frozen `MtrTraceEventV1`, `MtrTraceHopV1`,
+// and `MtrMplsLabelV1` shapes and adds the per-trace metadata those batches
+// do not carry: `check_id`, `check_name`, `device_id`, `command_id`,
+// `execution_source`, `error_message`, TCP probe fields (`tcp_port`,
+// `tcp_probe_mode`), handshake and hop-reply diagnostics, `probed_hops`,
+// `last_responding_hop`, and unleased `sweep_group_id` plus `execution_id`,
+// without a per-run source authorization join.
 
 package edgev1
 
