@@ -1,0 +1,76 @@
+/*
+ * Copyright 2026 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+syntax = "proto3";
+
+package serviceradar.edge.v1;
+
+option go_package = "github.com/carverauto/serviceradar/proto/edge/v1;edgev1";
+
+// BumblebeeScanPayloadV1 mirrors bumblebee.ScanPayload in
+// go/pkg/bumblebee/types.go, forwarded by
+// go/pkg/agent/bumblebee_spool_service.go (service_name "bumblebee_exposure",
+// service_type "bumblebee", source "results") and ingested by
+// ServiceRadar.Inventory.BumblebeeIngestor
+// (elixir/serviceradar_core/lib/serviceradar/inventory/bumblebee_ingestor.ex).
+message BumblebeeScanPayloadV1 {
+  string schema_version = 1;
+  string agent_id = 2;
+  string device_uid = 3;
+  string run_id = 4;
+  string scanner_version = 5;
+  string catalog_snapshot_ref = 6;
+  string state = 7;
+  string coverage_state = 8;
+  int32 attempted_root_count = 9;
+  int32 scanned_root_count = 10;
+  int32 skipped_root_count = 11;
+  bool root_covered = 12;
+  repeated string attempted_roots = 13;
+  repeated string scanned_roots = 14;
+  repeated BumblebeeSkippedRootV1 skipped_roots = 15;
+  string last_scan_at = 16;
+  string last_successful_scan_at = 17;
+  repeated BumblebeeFindingV1 findings = 18;
+  bytes metadata_json = 19;
+}
+
+// BumblebeeSkippedRootV1 mirrors bumblebee.SkippedRoot in
+// go/pkg/bumblebee/types.go.
+message BumblebeeSkippedRootV1 {
+  string path = 1;
+  string reason = 2;
+}
+
+// BumblebeeFindingV1 mirrors bumblebee.Finding in go/pkg/bumblebee/types.go
+// and BumblebeeIngestor.normalize_finding/2. Because normalize_finding/2 and
+// finding_risk_score/1 fall back to the severity default only when risk_score
+// is nil/unset while preserving explicit 0, has_risk_score distinguishes unset
+// from 0.
+message BumblebeeFindingV1 {
+  string id = 1;
+  string finding_id = 2;
+  string catalog_id = 3;
+  string severity = 4;
+  int32 risk_score = 5;
+  bool has_risk_score = 6;
+  string ecosystem = 7;
+  string package_name = 8;
+  string package_version = 9;
+  bytes evidence_json = 10;
+  string confidence = 11;
+  bytes metadata_json = 12;
+}

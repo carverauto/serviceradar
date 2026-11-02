@@ -895,6 +895,22 @@ ex_unit_tests(
     deps = [":erlang_app"],
 )
 
+# Database-free execution of the generated batch protobuf modules. The file is
+# also in ALL_TEST_SRCS, so the edge unit group runs it; this target is the
+# single-file entry that does not start the rest of that group.
+ex_unit_test(
+    name = "inventory_batch_protos_test",
+    size = "small",
+    srcs = ["test/serviceradar/edge/inventory_batch_protos_test.exs"],
+    data = ["test/serviceradar/edge/inventory_batch_protos_helper.exs"],
+    elixir_opts = [
+        "-r",
+        "test/serviceradar/edge/inventory_batch_protos_helper.exs",
+    ],
+    env = {"ELIXIR_ERL_OPTIONS": "+fnu"},
+    deps = [":erlang_app"],
+)
+
 # Runs the Elixir benches so they cannot rot -- the same defect //build:benchmarks.bzl fixes for
 # Go, arriving here by a different route. These benches are plain scripts that self-execute on
 # load, so nothing ever ran them: ALL_TEST_SRCS globs only `test/**/*_test.exs` and no glob in
