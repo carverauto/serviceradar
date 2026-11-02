@@ -120,13 +120,13 @@ jobs:
     runs-on: arc-runner-set
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Setup Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
           go-version-file: go.mod
       - name: Setup BEAM (Elixir/OTP)
-        uses: erlef/setup-beam@fc68ffb90438ef2936bbb3251622353b3dcb2f93
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124
         with:
           otp-version: '28.3'
           elixir-version: '1.19.4'

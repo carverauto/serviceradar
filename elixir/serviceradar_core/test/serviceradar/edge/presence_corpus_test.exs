@@ -33,9 +33,10 @@ defmodule ServiceRadar.Edge.PresenceCorpusTest do
 
   ## The inventory is descriptor-derived on BOTH sides
 
-  Go walks its generated descriptors for synthetic-oneof scalars; this suite walks
-  `__message_props__` for `proto3_optional?`. The two are compared against the shared manifest in
-  both directions, so a new optional field added to any edge message fails here as well.
+  Go walks its generated descriptors for synthetic-oneof scalars on `record.proto` and
+  `sweep.proto`; this suite walks `__message_props__` for `proto3_optional?` on the modules
+  compiled from those two files. The two are compared against the shared manifest in both
+  directions, so a new optional scalar on either file fails here as well.
   """
   use ExUnit.Case, async: true
 
@@ -118,7 +119,10 @@ defmodule ServiceRadar.Edge.PresenceCorpusTest do
     end)
     |> Enum.map(fn {name, _path, _loaded} -> List.to_atom(name) end)
     |> Enum.filter(fn m ->
-      Code.ensure_loaded?(m) and function_exported?(m, :__message_props__, 0)
+      # Same file set as Go's descriptorOptionalFields: File_edge_v1_record_proto and
+      # File_edge_v1_sweep_proto. Other Edge.V1 protos are outside this corpus.
+      Code.ensure_loaded?(m) and function_exported?(m, :__message_props__, 0) and
+        compiled_from_record_or_sweep?(m)
     end)
     |> Enum.flat_map(fn m ->
       props = m.__message_props__()
@@ -138,6 +142,36 @@ defmodule ServiceRadar.Edge.PresenceCorpusTest do
     end)
     |> Map.new()
   end
+
+  # Go walks only File_edge_v1_record_proto and File_edge_v1_sweep_proto. Compile
+  # `:source` is that path when the BEAM keeps it. The Bazel Mix action exports
+  # ERL_COMPILER_OPTIONS=deterministic, which omits the tuple, so the same path is
+  # then read from the Elixir debug_info map (`relative_file` / `file`).
+  defp compiled_from_record_or_sweep?(module) do
+    source =
+      case List.to_string(module.__info__(:compile)[:source] || ~c"") do
+        "" -> debug_info_source(module)
+        source -> source
+      end
+
+    String.ends_with?(source, ["/record.pb.ex", "/sweep.pb.ex"])
+  end
+
+  defp debug_info_source(module) do
+    case :beam_lib.chunks(:code.which(module), [:debug_info]) do
+      {:ok, {_, [{:debug_info, {:debug_info_v1, _, {:elixir_v1, map, _}}}]}} ->
+        map
+        |> then(fn info -> [Map.get(info, :relative_file), Map.get(info, :file)] end)
+        |> Enum.find_value("", &path_string/1)
+
+      _ ->
+        ""
+    end
+  end
+
+  defp path_string(path) when is_list(path) and path != [], do: List.to_string(path)
+  defp path_string(path) when is_binary(path) and path != "", do: path
+  defp path_string(_path), do: nil
 
   # ---- presence, read off the decoded struct ----------------------------------------------
 

@@ -523,7 +523,13 @@ spec:
         {{- $js := index $coreJs $id }}
         - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" $js.stream "suffix" "MAX_BYTES") }}
           value: {{ $js.maxBytes | quote }}
+        - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" $js.stream "suffix" "REPLICAS") }}
+          value: {{ $js.replicas | quote }}
         {{- end }}
+        - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" $coreJs.telemetry_edge_record_v1_bulk.stream "suffix" "MAX_BYTES") }}
+          value: {{ $coreJs.telemetry_edge_record_v1_bulk.maxBytes | quote }}
+        - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" $coreJs.telemetry_edge_record_v1_bulk.stream "suffix" "REPLICAS") }}
+          value: {{ $coreJs.telemetry_edge_record_v1_bulk.replicas | quote }}
         {{- range $pair := list (list "EVENTS" "events") (list "FLOWS" "flowsFallback") (list "ARANCINI_CAUSAL" "aranciniFallback") }}
         {{- $js := index $coreJs (index $pair 1) }}
         - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" (index $pair 0) "suffix" "FALLBACK_MAX_BYTES") }}
@@ -533,6 +539,10 @@ spec:
         {{- end }}
         - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" $coreJs.notifications.stream "suffix" "MAX_BYTES") }}
           value: {{ $coreJs.notifications.maxBytes | quote }}
+        - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" $coreJs.notifications.stream "suffix" "REPLICAS") }}
+          value: {{ $coreJs.notifications.replicas | quote }}
+        - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" $coreJs.exposureRecovery.stream "suffix" "REPLICAS") }}
+          value: {{ $coreJs.exposureRecovery.replicas | quote }}
         - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" $coreJs.exposureTransitions.stream "suffix" "MAX_BYTES") }}
           value: {{ $coreJs.exposureTransitions.maxBytes | quote }}
         - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" $coreJs.exposureDimensions.stream "suffix" "MAX_BYTES") }}

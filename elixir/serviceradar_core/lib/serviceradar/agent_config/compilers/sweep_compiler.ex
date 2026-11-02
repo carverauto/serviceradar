@@ -35,6 +35,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.ConfigCache
+  alias ServiceRadar.Edge.SweepPlan
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Observability.SRQLRunner
   alias ServiceRadar.Repo
@@ -253,10 +254,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   """
   @spec compiled_scan_settings(SweepGroup.t(), SweepProfile.t() | nil) :: map()
   def compiled_scan_settings(%SweepGroup{} = group, profile) do
-    ports = merge_ports(profile, group)
-    modes = merge_modes(profile, group)
-    {ports, modes} = enforce_tcp_ports(ports, modes, group)
-    modes = drop_unsupported_modes(modes, group)
+    {ports, modes} = effective_ports_and_modes(group, profile)
     settings = compile_settings(profile, group)
 
     %{
@@ -266,6 +264,39 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
       ports: ports,
       settings: settings
     }
+  end
+
+  @doc """
+  The modes and ports `compile/3` delivers for a group to an agent reporting `capabilities`.
+
+  This is the agent's own view of the group: the effective modes and ports of
+  `compiled_scan_settings/2`, less the modes the agent reports it cannot run (an
+  `icmp.unavailable` or `mtr.unavailable` marker). `withheld` lists the modes removed.
+  `nil` capabilities are unknown and withhold nothing, as for an agent predating the markers.
+
+  Returns `{:withheld, modes}` when the agent can run none of the group's modes; the group
+  is then not sent to that agent at all. Anything that must agree with the agent's delivered
+  sweep config, such as the check set of a sweep lease plan, is derived from this.
+  """
+  @spec agent_scan_modes(SweepGroup.t(), SweepProfile.t() | nil, [String.t() | atom()] | nil) ::
+          {:ok, %{modes: [String.t()], ports: [integer()], withheld: [String.t()]}}
+          | {:withheld, [String.t(), ...]}
+  def agent_scan_modes(%SweepGroup{} = group, profile, capabilities) do
+    {ports, modes} = effective_ports_and_modes(group, profile)
+
+    case withhold_unavailable_modes(modes, capabilities) do
+      {[], [_ | _] = withheld} -> {:withheld, withheld}
+      {kept, withheld} -> {:ok, %{modes: kept, ports: ports, withheld: withheld}}
+    end
+  end
+
+  # Profile as base, group overrides on top, TCP-without-ports dropped, and
+  # modes the Go sweeper does not implement (historically "arp") dropped.
+  defp effective_ports_and_modes(group, profile) do
+    ports = merge_ports(profile, group)
+    modes = merge_modes(profile, group)
+    {ports, modes} = enforce_tcp_ports(ports, modes, group)
+    {ports, drop_unsupported_modes(modes, group)}
   end
 
   @doc """
@@ -560,20 +591,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     # Build schedule
     schedule = compile_schedule(group)
 
-    # Merge ports from profile and group overrides
-    ports = merge_ports(profile, group)
-
-    # Merge sweep modes from profile and group overrides
-    modes = merge_modes(profile, group)
-
-    # Guard against TCP modes without ports
-    {ports, modes} = enforce_tcp_ports(ports, modes, group)
-
-    # Drop modes the agent sweeper does not implement (historically "arp").
-    modes = drop_unsupported_modes(modes, group)
-
     # Build targets from static CIDRs/IPs and device targets from SRQL rows.
-    with {:ok, modes} <- agent_modes(modes, group, agent),
+    with {:ok, %{modes: modes, ports: ports}} <- agent_modes(group, profile, agent),
          {:ok, targets, device_targets, query_memo} <-
            compile_targets(group, modes, query_memo, resolvers) do
       # Build settings from profile with overrides
@@ -607,12 +626,12 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   # The modes this agent can run. A group left with none is not sent to the
   # agent at all, and the warning is the diagnostic for a group whose only
   # agent cannot run it: such a group otherwise just never reports results.
-  defp agent_modes(modes, group, agent) do
-    case withhold_unavailable_modes(modes, agent.capabilities) do
-      {_modes, []} ->
-        {:ok, modes}
+  defp agent_modes(group, profile, agent) do
+    case agent_scan_modes(group, profile, agent.capabilities) do
+      {:ok, %{withheld: []} = scan} ->
+        {:ok, scan}
 
-      {[], withheld} ->
+      {:withheld, withheld} ->
         Logger.warning(
           "SweepCompiler: group #{inspect(group.name)} (#{group.id}) not sent to agent_id=#{inspect(agent.id)}: " <>
             "the agent reports #{Enum.map_join(withheld, ", ", &unavailable_marker/1)} " <>
@@ -621,13 +640,13 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
 
         :withheld
 
-      {kept, withheld} ->
+      {:ok, %{withheld: withheld} = scan} ->
         Logger.debug(
           "SweepCompiler: withholding modes #{inspect(withheld)} of group #{group.name} (#{group.id}) " <>
             "from agent_id=#{inspect(agent.id)}"
         )
 
-        {:ok, kept}
+        {:ok, scan}
     end
   end
 
@@ -653,7 +672,11 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   end
 
   defp compile_targets(group, modes, query_memo, resolvers) do
-    static_targets = Enum.uniq(group.static_targets || [])
+    static_targets =
+      case SweepPlan.merge_static_targets(group.static_targets || []) do
+        {:ok, merged} -> merged
+        {:error, _} -> Enum.uniq(group.static_targets || [])
+      end
 
     # Device targets from the SRQL query stay separate from static CIDRs so the
     # agent can preserve inventory context while scanning.

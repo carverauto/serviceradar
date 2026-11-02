@@ -20,6 +20,7 @@ defmodule ServiceRadar.Edge do
   - `ServiceRadar.Edge.EdgeSite` - Edge deployment locations
   - `ServiceRadar.Edge.NatsLeafServer` - NATS leaf server configurations
   - `ServiceRadar.Edge.AgentCommand` - On-demand agent command lifecycle records
+  - `ServiceRadar.Edge.OutputGrant` - Standing edge-record output grants per agent and contract
   - `ServiceRadar.Edge.AgentRelease` - Published agent release catalog
   - `ServiceRadar.Edge.AgentReleaseRollout` - Desired-version rollout plans
   - `ServiceRadar.Edge.AgentReleaseTarget` - Per-agent rollout state
@@ -86,6 +87,7 @@ defmodule ServiceRadar.Edge do
     resource ServiceRadar.Edge.RemoteAccessApplicationTarget
     resource ServiceRadar.Edge.RemoteAccessTcpTarget
     resource ServiceRadar.Edge.ProxmoxConsoleSession
+    resource ServiceRadar.Edge.OutputGrant
   end
 
   authorization do

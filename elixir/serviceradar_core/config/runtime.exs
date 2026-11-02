@@ -115,7 +115,15 @@ callback_deployment =
     response_policy_file: System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_RESPONSE_POLICY_FILE")
   })
 
+# Broker expiry is independent of the short-lived admission policy snapshot.
+nats_certificate_grant_ttl =
+  case Integer.parse(System.get_env("SERVICERADAR_NATS_CERTIFICATE_GRANT_TTL_SECONDS", "43200")) do
+    {seconds, ""} when seconds > 0 -> seconds
+    _ -> raise "SERVICERADAR_NATS_CERTIFICATE_GRANT_TTL_SECONDS must be a positive integer"
+  end
+
 config :serviceradar, :nats_account_name, nats_account_name
+config :serviceradar, :nats_certificate_grant_ttl_seconds, nats_certificate_grant_ttl
 
 config :serviceradar_core, ServiceRadar.Admission.FlowLane,
   max_bytes: ingestion_positive_env.("SERVICERADAR_FLOW_INGESTION_MAX_BYTES", 64 * 1_024 * 1_024)
@@ -1268,14 +1276,19 @@ if config_env() == :prod do
 
   config :serviceradar_core, ServiceRadar.Repo, repo_opts
 
-  # Notification firehose stream size (a discard-old buffer, reconciled on the
-  # first publish per node). Unset or blank means 1 GiB; an invalid value fails
-  # boot naming the variable.
+  # Notification firehose stream size and replica count (a discard-old buffer,
+  # reconciled on the first publish per node). Unset or blank means 1 GiB / R3;
+  # an invalid value fails boot naming the variable.
   config :serviceradar_core, StreamPublisher,
     max_bytes:
       StateBucketSizing.bytes_from_env!(
         "SERVICERADAR_JS_NOTIFICATIONS_MAX_BYTES",
         StreamPublisher.default_max_bytes()
+      ),
+    replicas:
+      StateBucketSizing.replicas_from_env!(
+        "SERVICERADAR_JS_NOTIFICATIONS_REPLICAS",
+        StreamPublisher.default_replicas()
       )
 
   config :serviceradar_core, ThreatIntelRawPayloadStore,
@@ -2051,6 +2064,7 @@ if config_env() == :prod do
           stream_retention: "limits",
           stream_storage: "file",
           stream_discard: "old",
+          stream_replicas: 3,
           stream_max_bytes: 1_073_741_824,
           stream_max_age: 1_800_000_000_000,
           consumer_pull_batch_size: 4,

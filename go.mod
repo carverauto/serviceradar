@@ -9,7 +9,7 @@ require (
 	github.com/atotto/clipboard v0.1.4
 	github.com/bazelbuild/rules_go v0.65.0
 	github.com/bluenviron/gortsplib/v5 v5.6.7
-	github.com/bluenviron/mediacommon/v2 v2.9.6
+	github.com/bluenviron/mediacommon/v2 v2.9.7
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
@@ -17,7 +17,7 @@ require (
 	github.com/google/osv-scalibr v0.5.3
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
-	github.com/gosnmp/gosnmp v1.45.0
+	github.com/gosnmp/gosnmp v1.47.0
 	github.com/hashicorp/go-hclog v1.6.3
 	github.com/hashicorp/go-plugin v1.8.0
 	github.com/hashicorp/terraform-plugin-framework v1.19.0
@@ -28,16 +28,16 @@ require (
 	github.com/nats-io/nats.go v1.54.0
 	github.com/pion/rtcp v1.2.20
 	github.com/pion/rtp v1.10.5
-	github.com/pkg/sftp v1.13.11
+	github.com/pkg/sftp v1.13.12
 	github.com/rs/zerolog v1.35.1
 	github.com/shirou/gopsutil/v3 v3.24.5
 	github.com/stretchr/testify v1.12.1
 	github.com/swaggo/swag v1.16.6
 	github.com/ulikunitz/xz v0.5.17
-	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.71.0
+	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.72.0
 	go.opentelemetry.io/otel v1.47.0
 	go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc v0.23.0
-	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc v1.46.0
+	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc v1.47.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.47.0
 	go.opentelemetry.io/otel/log v1.47.0
 	go.opentelemetry.io/otel/sdk v1.47.0
@@ -46,13 +46,13 @@ require (
 	go.opentelemetry.io/otel/trace v1.47.0
 	go.uber.org/mock v0.6.0
 	golang.org/x/crypto v0.58.0
-	golang.org/x/net v0.61.0
+	golang.org/x/net v0.62.0
 	golang.org/x/sys v0.49.0
 	google.golang.org/grpc v1.84.0
 	google.golang.org/protobuf v1.36.12
-	k8s.io/api v0.37.1
-	k8s.io/apimachinery v0.37.1
-	k8s.io/client-go v0.37.1
+	k8s.io/api v0.37.2
+	k8s.io/apimachinery v0.37.2
+	k8s.io/client-go v0.37.2
 	pgregory.net/rapid v1.3.0
 )
 
@@ -192,7 +192,7 @@ require (
 	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect
-	github.com/nats-io/nats-server/v2 v2.15.1
+	github.com/nats-io/nats-server/v2 v2.15.2
 	github.com/nats-io/nkeys v0.4.16
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect

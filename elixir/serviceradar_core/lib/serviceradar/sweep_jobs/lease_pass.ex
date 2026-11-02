@@ -7,11 +7,17 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
     * a group that is not eligible (`ServiceRadar.SweepJobs.LeaseEligibility`) holds no lease:
       every active assignment is revoked, which drops its unrun slots and returns the agents to
       their local ticker;
-    * an agent the group no longer runs on (`ServiceRadar.SweepJobs.LeaseAgents`), or for which
-      leasing is off (`ServiceRadar.SweepJobs.LeaseSettings`), is revoked the same way;
+    * an agent the group no longer runs on (`ServiceRadar.SweepJobs.LeaseAgents`), for which
+      leasing is off (`ServiceRadar.SweepJobs.LeaseSettings`), or whose reported capabilities
+      leave it no check it can lease (`LeaseEligibility.agent_checks/3`), is revoked the same
+      way;
     * every other agent holds an active assignment (`ProducerAssignments.ensure/3`) whose unrun
       slots are exactly the schedule's slots between now and the agent's horizon, planned under
-      the assignment's current epoch, check set and targets.
+      the assignment's current epoch, that agent's check set and the group's targets.
+
+  The check set is per agent: it is the check set of the sweep config that agent is delivered
+  for the group, which withholds the modes the agent reports it cannot run. A capability
+  change therefore changes the planned check set and re-plans the agent's unrun slots.
 
   An unrun slot that no longer matches (its epoch was bumped, its check set, network scope or
   planned targets changed, or the schedule or horizon moved) is dropped and planned again, so
@@ -266,17 +272,17 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
     end
   end
 
-  defp lease_group(group, inputs, now, delivery) do
+  defp lease_group(group, profile, inputs, now, delivery) do
     case LeaseAgents.candidates(group) do
-      {:ok, candidates} -> lease_candidates(group, inputs, candidates, now, delivery)
+      {:ok, candidates} -> lease_candidates(group, profile, inputs, candidates, now, delivery)
       {:error, reason} -> skip_group(group, reason)
     end
   end
 
-  defp lease_candidates(group, inputs, candidates, now, delivery) do
+  defp lease_candidates(group, profile, inputs, candidates, now, delivery) do
     candidates
     |> Enum.reduce_while([], fn candidate, acc ->
-      case leased_agent(candidate, inputs.schedule, now) do
+      case leased_agent(group, profile, inputs, candidate, now) do
         {:leased, agent} -> {:cont, [agent | acc]}
         :not_leased -> {:cont, acc}
         {:failed, reason} -> {:halt, {:failed, reason}}
@@ -293,7 +299,7 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
         withdrawn = withdraw(group, keep, now, delivery)
 
         Enum.reduce(leased, add(count_revoked(revoked, group), withdrawn), fn agent, acc ->
-          add(acc, lease_agent(group, inputs, agent, now, delivery))
+          add(acc, lease_agent(group, agent, now, delivery))
         end)
     end
   end
@@ -303,8 +309,8 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
     %{empty() | groups: 1, errors: 1}
   end
 
-  defp leased_agent(%{agent_id: agent_id, partition: partition}, schedule, now) do
-    scope = ProducerAssignments.network_scope_id_for_partition(partition)
+  defp leased_agent(group, profile, inputs, %{agent_id: agent_id} = candidate, now) do
+    scope = ProducerAssignments.network_scope_id_for_partition(candidate.partition)
 
     settings =
       case scope do
@@ -312,17 +318,35 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
         _ -> :unread
       end
 
-    case classify_lease(scope, settings, schedule, now) do
-      {:leased, window} -> {:leased, Map.put(window, :agent_id, agent_id)}
+    case classify_lease(scope, settings, inputs.schedule, now) do
+      {:leased, window} -> agent_window(group, profile, inputs, candidate, window)
       decision -> decision
     end
   end
 
-  defp lease_agent(group, inputs, agent, now, delivery) do
+  # The agent's own check set: what its delivered sweep config carries for the group.
+  defp agent_window(group, profile, inputs, candidate, window) do
+    case LeaseEligibility.agent_checks(group, profile, candidate.capabilities) do
+      {:ok, checks} ->
+        {:leased,
+         window
+         |> Map.put(:agent_id, candidate.agent_id)
+         |> Map.put(:inputs, Map.merge(inputs, checks))}
+
+      {:error, reason} ->
+        Logger.debug(
+          "Sweep lease pass: group #{group.id} is not leased to #{candidate.agent_id}: #{inspect(reason)}"
+        )
+
+        :not_leased
+    end
+  end
+
+  defp lease_agent(group, agent, now, delivery) do
     with {:ok, assignment} <- ProducerAssignments.ensure(group.id, agent.agent_id, agent.scope_id),
          {:ok, unrun} <- ExecutionSlots.list_unrun(assignment.id, now) do
       assignment
-      |> sync_slots(inputs, agent.slots, unrun)
+      |> sync_slots(agent.inputs, agent.slots, unrun)
       |> add(deliver(assignment, now, delivery))
     else
       {:error, reason} ->
@@ -335,9 +359,9 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   end
 
   defp lease_or_revoke(group, profile, now, delivery) do
-    case LeaseEligibility.evaluate(group, profile) do
+    case LeaseEligibility.evaluate_group(group, profile) do
       {:ok, inputs} ->
-        lease_group(group, inputs, now, delivery)
+        lease_group(group, profile, inputs, now, delivery)
 
       {:error, _reason} ->
         revoked = count_revoked(ProducerAssignments.revoke_all_except(group.id, []), group)
@@ -404,22 +428,9 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   defp same_window?(nil, _slot), do: false
 
   defp planned_cidrs(targets) when is_list(targets) do
-    targets
-    |> Enum.reduce_while([], fn target, acc ->
-      case SweepPlan.canonical_target(to_string(target)) do
-        {:ok, canonical} -> {:cont, [canonical | acc]}
-        {:error, _} -> {:halt, :error}
-      end
-    end)
-    |> case do
-      :error ->
-        :unplannable
-
-      canonical ->
-        canonical
-        |> Enum.uniq_by(& &1.cidr)
-        |> Enum.sort_by(& &1.order)
-        |> Enum.map(& &1.cidr)
+    case SweepPlan.canonical_targets(targets) do
+      {:ok, cidrs} -> cidrs
+      {:error, _} -> :unplannable
     end
   end
 

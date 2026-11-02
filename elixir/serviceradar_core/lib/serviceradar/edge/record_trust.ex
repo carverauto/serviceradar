@@ -1,15 +1,19 @@
 defmodule ServiceRadar.Edge.RecordTrust do
   @moduledoc """
-  Core's public trust document for scheduled sweep records.
+  Core's public trust document for edge records.
 
-  Gateways fetch this over the authenticated ERTS control plane. One bounded database read
-  supplies both the authority fences and the principal-to-scope bindings, including revoked
-  assignments: their advanced fence makes previously issued records stale. No issuer seed is
-  returned. An oversized snapshot fails closed instead of silently omitting authorities.
+  Gateways fetch this over the authenticated ERTS control plane. The authorities are the sweep
+  producer assignments and the standing output grants (`ServiceRadar.Edge.OutputGrant`); each
+  is a producer assignment to the gateway, fenced by its id, network scope, shard and epoch.
+  Bounded reads supply both the authority fences and the principal-to-scope bindings, including
+  revoked authorities: their advanced fence makes previously issued records stale. No issuer
+  seed is returned. An oversized snapshot fails closed instead of silently omitting
+  authorities.
   """
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.IssuerKey
+  alias ServiceRadar.Edge.OutputGrant
   alias ServiceRadar.SweepJobs.SweepProducerAssignment
 
   require Ash.Query
@@ -24,15 +28,10 @@ defmodule ServiceRadar.Edge.RecordTrust do
 
   @doc "Reads current assignment authority for the supplied issuer."
   def snapshot(%IssuerKey{} = key) do
-    actor = SystemActor.system(:edge_record_trust)
+    with {:ok, sweeps} <- read_authorities(SweepProducerAssignment),
+         {:ok, grants} <- read_authorities(OutputGrant) do
+      assignments = Enum.sort_by(sweeps ++ grants, & &1.id)
 
-    query =
-      SweepProducerAssignment
-      |> Ash.Query.select([:id, :agent_id, :network_scope_id, :run_shard, :authority_epoch])
-      |> Ash.Query.sort(:id)
-      |> Ash.Query.limit(@max_assignments + 1)
-
-    with {:ok, assignments} <- Ash.read(query, actor: actor) do
       if length(assignments) > @max_assignments do
         {:error, :trust_snapshot_too_large}
       else
@@ -45,6 +44,15 @@ defmodule ServiceRadar.Edge.RecordTrust do
          }}
       end
     end
+  end
+
+  # Each read stops one past the cap, so an oversized table is detected without reading all of it.
+  defp read_authorities(resource) do
+    resource
+    |> Ash.Query.select([:id, :agent_id, :network_scope_id, :run_shard, :authority_epoch])
+    |> Ash.Query.sort(:id)
+    |> Ash.Query.limit(@max_assignments + 1)
+    |> Ash.read(actor: SystemActor.system(:edge_record_trust))
   end
 
   defp fence(assignment) do

@@ -1,0 +1,202 @@
+/*
+ * Copyright 2026 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+syntax = "proto3";
+
+package serviceradar.edge.v1;
+
+option go_package = "github.com/carverauto/serviceradar/proto/edge/v1;edgev1";
+
+// EndpointInventoryScanPayloadV1 mirrors endpointinventory.ScanPayload in
+// go/pkg/endpointinventory/types.go, forwarded by
+// go/pkg/agent/endpoint_inventory_spool_service.go (service_name and
+// service_type "endpoint_inventory", source "results") and ingested by
+// ServiceRadar.Inventory.EndpointInventoryIngestor,
+// ServiceRadar.Inventory.EndpointInventoryPackageSet, and
+// ServiceRadar.Inventory.EndpointInventoryArtifactPersistence.
+message EndpointInventoryScanPayloadV1 {
+  string schema_version = 1;
+  string agent_id = 2;
+  string scan_id = 3;
+  string collector_version = 4;
+  string state = 5;
+  string coverage_state = 6;
+  string config_hash = 7;
+  string last_scan_at = 8;
+  string last_successful_scan_at = 9;
+  EndpointInventoryOSInfoV1 os = 10;
+  repeated string enabled_plugins = 11;
+  repeated string detected_plugins = 12;
+  repeated EndpointInventorySourceSummaryV1 diagnostics = 13;
+  int32 package_count = 14;
+  string package_set_hash = 15;
+  string artifact_hash = 16;
+  string hash_algorithm = 17;
+  string upload_reason = 18;
+  int64 duration_ms = 19;
+  bool truncated = 20;
+  repeated EndpointInventoryStandingQuestionResultCountV1 standing_question_result_counts = 21;
+  EndpointInventoryCycloneDXBOMV1 sbom = 22;
+  EndpointInventoryPackageSetDeltaV1 package_delta = 23;
+  bytes metadata_json = 24;
+}
+
+// EndpointInventoryOSInfoV1 mirrors endpointinventory.OSInfo in
+// go/pkg/endpointinventory/types.go.
+message EndpointInventoryOSInfoV1 {
+  string name = 1;
+  string id = 2;
+  string version = 3;
+  string version_id = 4;
+  string pretty_name = 5;
+}
+
+// EndpointInventorySourceSummaryV1 mirrors endpointinventory.SourceSummary in
+// go/pkg/endpointinventory/types.go and
+// EndpointInventoryPackageSet.normalize_diagnostics/1.
+// Because diagnostic_complete?/1 checks Map.get(diagnostic, "detected") != false
+// while diagnostic_unavailable?/1 checks Map.get(diagnostic, "detected") == false,
+// has_detected distinguishes unset/nil from explicit false.
+message EndpointInventorySourceSummaryV1 {
+  string name = 1;
+  string type = 2;
+  string state = 3;
+  int32 package_count = 4;
+  int32 finding_count = 5;
+  string reason = 6;
+  string error = 7;
+  string path = 8;
+  bool detected = 9;
+  bool has_detected = 10;
+  int64 duration_ms = 11;
+  bool truncated = 12;
+}
+
+// EndpointInventoryPackageV1 mirrors endpointinventory.Package in
+// go/pkg/endpointinventory/types.go and
+// EndpointInventoryPackageSet.normalize_delta_packages/1.
+message EndpointInventoryPackageV1 {
+  string name = 1;
+  string version = 2;
+  string architecture = 3;
+  string manager = 4;
+  string ecosystem = 5;
+  string purl = 6;
+  repeated string cpes = 7;
+}
+
+// EndpointInventoryPackageChangeV1 mirrors endpointinventory.PackageChange in
+// go/pkg/endpointinventory/delta.go.
+message EndpointInventoryPackageChangeV1 {
+  string name = 1;
+  string version = 2;
+  string architecture = 3;
+  string manager = 4;
+  string ecosystem = 5;
+  string purl = 6;
+  repeated string cpes = 7;
+  string previous_version = 8;
+}
+
+// EndpointInventoryPackageSetDeltaV1 mirrors endpointinventory.PackageSetDelta
+// in go/pkg/endpointinventory/delta.go and
+// EndpointInventoryIngestor.maybe_apply_package_delta/3.
+message EndpointInventoryPackageSetDeltaV1 {
+  string schema = 1;
+  string base_package_set_hash = 2;
+  string target_package_set_hash = 3;
+  string hash_algorithm = 4;
+  repeated EndpointInventoryPackageV1 added = 5;
+  repeated EndpointInventoryPackageV1 removed = 6;
+  repeated EndpointInventoryPackageChangeV1 changed = 7;
+}
+
+// EndpointInventoryStandingQuestionResultCountV1 mirrors
+// endpointinventory.StandingQuestionResultCount in
+// go/pkg/endpointinventory/types.go.
+message EndpointInventoryStandingQuestionResultCountV1 {
+  string schema = 1;
+  string question_id = 2;
+  string question_version = 3;
+  string predicate_hash = 4;
+  string mode = 5;
+  bool matched = 6;
+  int32 count = 7;
+  string package_set_hash = 8;
+  string hash_algorithm = 9;
+  string evaluated_at = 10;
+  EndpointInventoryFreshnessVerdictV1 freshness = 11;
+  map<string, string> labels = 12;
+  map<string, string> metadata = 13;
+}
+
+// EndpointInventoryFreshnessVerdictV1 mirrors endpointinventory.FreshnessVerdict
+// in go/pkg/endpointinventory/commands.go.
+message EndpointInventoryFreshnessVerdictV1 {
+  string verdict = 1;
+  int64 age_seconds = 2;
+  int64 stale_threshold_seconds = 3;
+  string last_successful_scan_at = 4;
+}
+
+// EndpointInventoryCycloneDXBOMV1 mirrors endpointinventory.CycloneDXBOM in
+// go/pkg/endpointinventory/types.go.
+message EndpointInventoryCycloneDXBOMV1 {
+  string bom_format = 1;
+  string spec_version = 2;
+  string serial_number = 3;
+  int32 version = 4;
+  EndpointInventoryCycloneDXMetadataV1 metadata = 5;
+  repeated EndpointInventoryCycloneDXComponentV1 components = 6;
+  repeated EndpointInventoryCycloneDXPropertyV1 properties = 7;
+}
+
+// EndpointInventoryCycloneDXMetadataV1 mirrors
+// endpointinventory.CycloneDXMetadata in go/pkg/endpointinventory/types.go.
+message EndpointInventoryCycloneDXMetadataV1 {
+  string timestamp = 1;
+  repeated EndpointInventoryCycloneDXToolV1 tools = 2;
+  EndpointInventoryCycloneDXComponentV1 component = 3;
+  repeated EndpointInventoryCycloneDXPropertyV1 properties = 4;
+}
+
+// EndpointInventoryCycloneDXToolV1 mirrors endpointinventory.CycloneDXTool in
+// go/pkg/endpointinventory/types.go.
+message EndpointInventoryCycloneDXToolV1 {
+  string vendor = 1;
+  string name = 2;
+  string version = 3;
+}
+
+// EndpointInventoryCycloneDXComponentV1 mirrors
+// endpointinventory.CycloneDXComponent in go/pkg/endpointinventory/types.go
+// and EndpointInventoryPackageSet.normalize_component/1.
+message EndpointInventoryCycloneDXComponentV1 {
+  string type = 1;
+  string name = 2;
+  string version = 3;
+  string group = 4;
+  string purl = 5;
+  string cpe = 6;
+  repeated EndpointInventoryCycloneDXPropertyV1 properties = 7;
+}
+
+// EndpointInventoryCycloneDXPropertyV1 mirrors
+// endpointinventory.CycloneDXProperty in go/pkg/endpointinventory/types.go.
+message EndpointInventoryCycloneDXPropertyV1 {
+  string name = 1;
+  string value = 2;
+}

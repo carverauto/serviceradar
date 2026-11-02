@@ -58,6 +58,8 @@ direct-to-DB metric writes.
                                                         │  └────────────────────┘       │
 ```
 
+Which opted-in agent metric producers use the durable edge-record lane is in [Data Pipeline](../../docs/docs/data-pipeline.md).
+
 ---
 
 ## 2. Component inventory

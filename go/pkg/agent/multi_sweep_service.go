@@ -223,6 +223,14 @@ func (s *MultiSweepService) SetGroupLeaseDriven(groupID string, driven bool) {
 	s.mu.Unlock()
 }
 
+// GroupLeaseDriven reports whether a group runs core-leased slots.
+func (s *MultiSweepService) GroupLeaseDriven(groupID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.leaseDriven[groupID]
+}
+
 func setGroupSchedule(svc *SweepService, driven, manual bool) {
 	if svc == nil {
 		return

@@ -71,6 +71,9 @@ func (p *PushLoop) managedCertificatePolicyLoop(ctx context.Context) {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 	for {
+		// Enrollment can install local broker metadata after the agent started.
+		// Share this existing discovery cadence instead of retrying an absent broker.
+		p.startManagedLocalNATS(ctx)
 		if err := p.refreshManagedCertificatePolicy(ctx); err != nil {
 			p.logger.Warn().Err(err).Msg("Managed certificate policy refresh failed")
 		}

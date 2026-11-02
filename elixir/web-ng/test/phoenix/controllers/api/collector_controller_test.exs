@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorControllerTest do
 
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.NatsCredential
+  alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNG.Edge.EnrollmentToken
 
   @moduletag :web_ng_shared_fixture_db
@@ -31,6 +32,22 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorControllerTest do
     def create_tarball(_package, _creds, _tls_key, _opts \\ []), do: {:error, %{secret: "collector-bundle-secret"}}
   end
 
+  test "GET /api/admin/collectors lists the caller's matching collector", %{conn: conn} do
+    {package, _token} = create_ready_collector_package(:trapd)
+
+    {:ok, token, _claims} =
+      Guardian.create_access_token(ServiceRadarWebNG.AshTestHelpers.admin_user_fixture())
+
+    rows =
+      conn
+      |> put_req_header("authorization", "Bearer #{token}")
+      |> get(~p"/api/admin/collectors", %{"collector_type" => "trapd", "status" => "ready", "limit" => "10000"})
+      |> json_response(200)
+
+    assert Enum.any?(rows, &(&1["id"] == package.id))
+    assert Enum.all?(rows, &(&1["collector_type"] == "trapd" && &1["status"] == "ready"))
+  end
+
   describe "POST /api/admin/collectors" do
     setup %{conn: conn} do
       seed = :crypto.strong_rand_bytes(32)
@@ -52,7 +69,7 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorControllerTest do
       end)
 
       {:ok, token, _claims} =
-        ServiceRadarWebNG.Auth.Guardian.create_access_token(ServiceRadarWebNG.AshTestHelpers.admin_user_fixture())
+        Guardian.create_access_token(ServiceRadarWebNG.AshTestHelpers.admin_user_fixture())
 
       %{conn: Plug.Conn.put_req_header(conn, "authorization", "Bearer #{token}")}
     end

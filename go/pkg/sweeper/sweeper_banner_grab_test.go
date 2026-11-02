@@ -90,7 +90,7 @@ func TestProcessResultsStreamSubmitsBannerGrabCandidates(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	phase := sweeper.startBannerGrabPhase(ctx)
+	phase := sweeper.startBannerGrabPhase(ctx, sweeper.config)
 	results := make(chan models.Result, 1)
 	results <- models.Result{
 		Target:    models.Target{Host: host, Port: port, Mode: models.ModeTCP},

@@ -37,6 +37,14 @@ CANARY = {
     "agent.runtimeStorage.enabled": True,
 }
 
+# Operator values for a metrics-only agent. Sweep stays at the chart default,
+# which is off. The rendered sender must mean these three flags.
+METRICS_ONLY = {
+    "edgeRecords.enabled": True,
+    "edgeRecords.contractRegistry": {"registry_epoch": 1},
+    "edgeRecords.agentMetricsEnabled": True,
+}
+
 
 def render_agent_config(overrides):
     """Consume helm-unittest's generated ConfigMap snapshot, without golden files."""
@@ -102,6 +110,12 @@ class EdgeRecordAgentConfigTest(unittest.TestCase):
         ]
         self.assertIs(type(sender["max_bytes"]), int)
         self.assertEqual(sender["max_bytes"], 256 * 1024 ** 2)
+
+    def test_metrics_only_sender_enables_metrics_and_leaves_sweep_off(self):
+        sender = render_agent_config(METRICS_ONLY)["edge_record_sender"]
+        self.assertIs(sender["enabled"], True)
+        self.assertIs(sender["sweep_enabled"], False)
+        self.assertIs(sender["metrics_enabled"], True)
 
 
 if __name__ == "__main__":
