@@ -804,6 +804,19 @@ defmodule Serviceradar.Edge.V1.SweepLeaseSlotV1 do
     json_name: "sourceAuthorizations"
 end
 
+defmodule Serviceradar.Edge.V1.SweepCheckSetV1 do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.edge.v1.SweepCheckSetV1",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :check_set_sha256, 1, type: :bytes, json_name: "checkSetSha256"
+  field :digest_version, 2, type: :uint32, json_name: "digestVersion"
+  field :checks, 3, repeated: true, type: Serviceradar.Edge.V1.SweepTestV1
+end
+
 defmodule Serviceradar.Edge.V1.SweepLeaseV1 do
   @moduledoc false
 
@@ -826,4 +839,9 @@ defmodule Serviceradar.Edge.V1.SweepLeaseV1 do
   field :window_end_unix_nano, 8, type: :int64, json_name: "windowEndUnixNano"
   field :slots, 9, repeated: true, type: Serviceradar.Edge.V1.SweepLeaseSlotV1
   field :revoked, 10, type: :bool
+
+  field :check_sets, 11,
+    repeated: true,
+    type: Serviceradar.Edge.V1.SweepCheckSetV1,
+    json_name: "checkSets"
 end

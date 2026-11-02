@@ -53,7 +53,7 @@ func edgeSweepFixture(t *testing.T) (*models.Config, *edgev1.SweepLeaseV1, *edge
 	r.Cidr = "192.0.2.0/30"
 	r.TargetCount = 4
 	slot.PlanHeader.TotalTargetCount = 4
-	resignSweepFixtureChecks(slot, sweepCheckSetDigest(checks))
+	resignSweepFixtureChecks(slot, edgerecord.CheckSetDigest(checks))
 	source := slot.SourceAuthorizations[0]
 	c := lease.ProductionCapability.GetProduction()
 	c.ScopeId = lease.SweepGroupId
@@ -270,7 +270,7 @@ func TestEdgeSweepRefusesSignedModeTheScannerWouldRemap(t *testing.T) {
 	cfg.SweepModes = []models.SweepMode{models.ModeICMP, models.ModeTCP}
 	checks, _, _, err := sweepChecks(cfg)
 	require.NoError(t, err)
-	resignSweepFixtureChecks(slot, sweepCheckSetDigest(checks))
+	resignSweepFixtureChecks(slot, edgerecord.CheckSetDigest(checks))
 	// The sweeper runs tcp as tcp_connect for IPv6 targets without raw SYN.
 	scanner := &observingSweep{mockSweeper: &mockSweeper{}, results: edgeSweepResults(), effective: []models.SweepMode{models.ModeICMP, models.ModeTCPConnect}}
 	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
@@ -324,7 +324,7 @@ func TestEdgeSweepMatchesSharedStaticPlanCheckDigest(t *testing.T) {
 	// independently computed by the Go and Elixir plan contract tests.
 	checks, _, _, err := sweepChecks(&models.Config{SweepModes: []models.SweepMode{models.ModeTCP, models.ModeICMP}, Ports: []int{443, 22, 443}})
 	require.NoError(t, err)
-	require.Equal(t, "e9449cfb0b14842f2f541b720e3be9ffa81c21da39d175330e2df72c270401f5", fmt.Sprintf("%x", sweepCheckSetDigest(checks)))
+	require.Equal(t, "e9449cfb0b14842f2f541b720e3be9ffa81c21da39d175330e2df72c270401f5", fmt.Sprintf("%x", edgerecord.CheckSetDigest(checks)))
 }
 
 func TestEdgeSweepSeparatesRangeAuthorityAndSharesBatchSequence(t *testing.T) {

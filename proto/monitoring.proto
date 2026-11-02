@@ -657,6 +657,8 @@ message ControlStreamRequest {
     ConsoleFrame console_frame = 6;
     // The agent's answer to one sweep lease push.
     SweepLeaseAck sweep_lease_ack = 7;
+    // The agent refused to run one installed lease slot.
+    SweepLeaseSlotRefusal sweep_lease_slot_refusal = 8;
   }
 }
 
@@ -702,6 +704,36 @@ message SweepLeaseAck {
   string error = 5;
   int64 installed_through_unix_nano = 6;
   uint32 installed_slot_count = 7;
+}
+
+// SweepLeaseSlotRefusalReason says why an agent refused to run a leased slot.
+enum SweepLeaseSlotRefusalReason {
+  SWEEP_LEASE_SLOT_REFUSAL_REASON_UNSPECIFIED = 0;
+  // A carried check cannot run on this agent, or would run as a different
+  // check. The refusal names the `<check>.unavailable` capability markers the
+  // agent now reports.
+  SWEEP_LEASE_SLOT_REFUSAL_REASON_CHECK_UNAVAILABLE = 1;
+  // The slot's check set is one the agent cannot execute: an unknown
+  // check-set digest_version, or a set that is not the product of its modes
+  // and one shared TCP port list.
+  SWEEP_LEASE_SLOT_REFUSAL_REASON_UNSUPPORTED_PLAN = 2;
+  // The installed slot's plan does not decode or validate when it runs.
+  SWEEP_LEASE_SLOT_REFUSAL_REASON_INVALID_PLAN = 3;
+}
+
+// SweepLeaseSlotRefusal reports that the agent will not run one installed
+// slot, identified by its execution id. The agent persists the refusal and
+// re-sends it on every control-stream connect until the slot's collection
+// window is past the missed-run judgement age; core records it idempotently by
+// execution id, so a re-send needs no acknowledgement.
+message SweepLeaseSlotRefusal {
+  string sweep_group_id = 1;
+  bytes lease_id = 2;
+  bytes execution_id = 3;
+  SweepLeaseSlotRefusalReason reason = 4;
+  repeated string unavailable_capabilities = 5;
+  string detail = 6;
+  int64 refused_at_unix_nano = 7;
 }
 
 // CredentialBrokerResolveRequest asks the gateway/control plane to resolve a

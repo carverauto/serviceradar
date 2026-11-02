@@ -3484,6 +3484,72 @@ func (x *SweepLeaseSlotV1) GetSourceAuthorizations() []*EdgeSourceAuthorizationV
 	return nil
 }
 
+// SweepCheckSetV1 is the explicit check list a leased slot executes, carried once
+// per distinct check set in a push. `check_set_sha256` is the check-set digest of
+// `checks` under grammar `digest_version` (1), and is the key a slot's
+// `plan_header.check_set_sha256` resolves to. `checks` is in that grammar's order:
+// ascending by (mode, protocol, port), de-duplicated, port 0 for ICMP. A grammar
+// that covers more than (mode, protocol, port) bumps `digest_version`.
+type SweepCheckSetV1 struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	CheckSetSha256 []byte                 `protobuf:"bytes,1,opt,name=check_set_sha256,json=checkSetSha256,proto3" json:"check_set_sha256,omitempty"` // 32 bytes
+	DigestVersion  uint32                 `protobuf:"varint,2,opt,name=digest_version,json=digestVersion,proto3" json:"digest_version,omitempty"`     // 1
+	Checks         []*SweepTestV1         `protobuf:"bytes,3,rep,name=checks,proto3" json:"checks,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *SweepCheckSetV1) Reset() {
+	*x = SweepCheckSetV1{}
+	mi := &file_edge_v1_sweep_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SweepCheckSetV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SweepCheckSetV1) ProtoMessage() {}
+
+func (x *SweepCheckSetV1) ProtoReflect() protoreflect.Message {
+	mi := &file_edge_v1_sweep_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SweepCheckSetV1.ProtoReflect.Descriptor instead.
+func (*SweepCheckSetV1) Descriptor() ([]byte, []int) {
+	return file_edge_v1_sweep_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *SweepCheckSetV1) GetCheckSetSha256() []byte {
+	if x != nil {
+		return x.CheckSetSha256
+	}
+	return nil
+}
+
+func (x *SweepCheckSetV1) GetDigestVersion() uint32 {
+	if x != nil {
+		return x.DigestVersion
+	}
+	return 0
+}
+
+func (x *SweepCheckSetV1) GetChecks() []*SweepTestV1 {
+	if x != nil {
+		return x.Checks
+	}
+	return nil
+}
+
 // SweepLeaseV1 is one push of a sweep group's lease to the agent that runs it.
 //
 // A push is a WINDOW REPLACEMENT, not a delta list: `slots` is the complete set of
@@ -3497,9 +3563,17 @@ func (x *SweepLeaseSlotV1) GetSourceAuthorizations() []*EdgeSourceAuthorizationV
 // `revoked` withdraws the group's lease: the agent drops every slot it has not
 // started and returns the group to its local schedule. A revocation carries no
 // capability; withdrawing authority needs none.
+//
+// A slot executes the checks, ports and targets of its signed plan, never the
+// agent's sweep config. `check_sets` carries one SweepCheckSetV1 per distinct
+// `plan_header.check_set_sha256` among `slots`: every slot resolves to exactly one
+// carried set, and no carried set goes unreferenced. A push that carries slots is
+// `lease_version` 2. A push without slots (a revocation, or a window that clears
+// every slot) carries no check sets and stays `lease_version` 1, which both agent
+// generations accept.
 type SweepLeaseV1 struct {
 	state                protoimpl.MessageState `protogen:"open.v1"`
-	LeaseVersion         uint32                 `protobuf:"varint,1,opt,name=lease_version,json=leaseVersion,proto3" json:"lease_version,omitempty"`                          // 1
+	LeaseVersion         uint32                 `protobuf:"varint,1,opt,name=lease_version,json=leaseVersion,proto3" json:"lease_version,omitempty"`                          // 2 with slots, else 1
 	SweepGroupId         []byte                 `protobuf:"bytes,2,opt,name=sweep_group_id,json=sweepGroupId,proto3" json:"sweep_group_id,omitempty"`                         // UUID
 	LeaseId              []byte                 `protobuf:"bytes,3,opt,name=lease_id,json=leaseId,proto3" json:"lease_id,omitempty"`                                          // == production claims run_id
 	ProducerAssignmentId []byte                 `protobuf:"bytes,4,opt,name=producer_assignment_id,json=producerAssignmentId,proto3" json:"producer_assignment_id,omitempty"` // UUID
@@ -3511,13 +3585,14 @@ type SweepLeaseV1 struct {
 	WindowEndUnixNano    int64                   `protobuf:"varint,8,opt,name=window_end_unix_nano,json=windowEndUnixNano,proto3" json:"window_end_unix_nano,omitempty"` // MUST be > window_start
 	Slots                []*SweepLeaseSlotV1     `protobuf:"bytes,9,rep,name=slots,proto3" json:"slots,omitempty"`                                                       // ascending slot_start, inside the window
 	Revoked              bool                    `protobuf:"varint,10,opt,name=revoked,proto3" json:"revoked,omitempty"`
+	CheckSets            []*SweepCheckSetV1      `protobuf:"bytes,11,rep,name=check_sets,json=checkSets,proto3" json:"check_sets,omitempty"` // keyed by check_set_sha256
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
 
 func (x *SweepLeaseV1) Reset() {
 	*x = SweepLeaseV1{}
-	mi := &file_edge_v1_sweep_proto_msgTypes[24]
+	mi := &file_edge_v1_sweep_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3529,7 +3604,7 @@ func (x *SweepLeaseV1) String() string {
 func (*SweepLeaseV1) ProtoMessage() {}
 
 func (x *SweepLeaseV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_sweep_proto_msgTypes[24]
+	mi := &file_edge_v1_sweep_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3542,7 +3617,7 @@ func (x *SweepLeaseV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SweepLeaseV1.ProtoReflect.Descriptor instead.
 func (*SweepLeaseV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_sweep_proto_rawDescGZIP(), []int{24}
+	return file_edge_v1_sweep_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *SweepLeaseV1) GetLeaseVersion() uint32 {
@@ -3613,6 +3688,13 @@ func (x *SweepLeaseV1) GetRevoked() bool {
 		return x.Revoked
 	}
 	return false
+}
+
+func (x *SweepLeaseV1) GetCheckSets() []*SweepCheckSetV1 {
+	if x != nil {
+		return x.CheckSets
+	}
+	return nil
 }
 
 var File_edge_v1_sweep_proto protoreflect.FileDescriptor
@@ -3911,7 +3993,11 @@ const file_edge_v1_sweep_proto_rawDesc = "" +
 	"planHeader\x12H\n" +
 	"\n" +
 	"plan_pages\x18\x05 \x03(\v2).serviceradar.edge.v1.ScheduledPlanPageV1R\tplanPages\x12d\n" +
-	"\x15source_authorizations\x18\x06 \x03(\v2/.serviceradar.edge.v1.EdgeSourceAuthorizationV1R\x14sourceAuthorizations\"\xf4\x03\n" +
+	"\x15source_authorizations\x18\x06 \x03(\v2/.serviceradar.edge.v1.EdgeSourceAuthorizationV1R\x14sourceAuthorizations\"\x9d\x01\n" +
+	"\x0fSweepCheckSetV1\x12(\n" +
+	"\x10check_set_sha256\x18\x01 \x01(\fR\x0echeckSetSha256\x12%\n" +
+	"\x0edigest_version\x18\x02 \x01(\rR\rdigestVersion\x129\n" +
+	"\x06checks\x18\x03 \x03(\v2!.serviceradar.edge.v1.SweepTestV1R\x06checks\"\xba\x04\n" +
 	"\fSweepLeaseV1\x12#\n" +
 	"\rlease_version\x18\x01 \x01(\rR\fleaseVersion\x12$\n" +
 	"\x0esweep_group_id\x18\x02 \x01(\fR\fsweepGroupId\x12\x19\n" +
@@ -3923,7 +4009,9 @@ const file_edge_v1_sweep_proto_rawDesc = "" +
 	"\x14window_end_unix_nano\x18\b \x01(\x03R\x11windowEndUnixNano\x12<\n" +
 	"\x05slots\x18\t \x03(\v2&.serviceradar.edge.v1.SweepLeaseSlotV1R\x05slots\x12\x18\n" +
 	"\arevoked\x18\n" +
-	" \x01(\bR\arevoked*\x84\x01\n" +
+	" \x01(\bR\arevoked\x12D\n" +
+	"\n" +
+	"check_sets\x18\v \x03(\v2%.serviceradar.edge.v1.SweepCheckSetV1R\tcheckSets*\x84\x01\n" +
 	"\tSweepMode\x12\x1a\n" +
 	"\x16SWEEP_MODE_UNSPECIFIED\x10\x00\x12\x13\n" +
 	"\x0fSWEEP_MODE_ICMP\x10\x01\x12\x16\n" +
@@ -4004,7 +4092,7 @@ func file_edge_v1_sweep_proto_rawDescGZIP() []byte {
 }
 
 var file_edge_v1_sweep_proto_enumTypes = make([]protoimpl.EnumInfo, 10)
-var file_edge_v1_sweep_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
+var file_edge_v1_sweep_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
 var file_edge_v1_sweep_proto_goTypes = []any{
 	(SweepMode)(0),                     // 0: serviceradar.edge.v1.SweepMode
 	(SweepModeBit)(0),                  // 1: serviceradar.edge.v1.SweepModeBit
@@ -4040,11 +4128,12 @@ var file_edge_v1_sweep_proto_goTypes = []any{
 	(*ScheduledPlanPageV1)(nil),        // 31: serviceradar.edge.v1.ScheduledPlanPageV1
 	(*ScheduledPlanHeaderV1)(nil),      // 32: serviceradar.edge.v1.ScheduledPlanHeaderV1
 	(*SweepLeaseSlotV1)(nil),           // 33: serviceradar.edge.v1.SweepLeaseSlotV1
-	(*SweepLeaseV1)(nil),               // 34: serviceradar.edge.v1.SweepLeaseV1
-	(*EdgeSourceSpanIdentityV1)(nil),   // 35: serviceradar.edge.v1.EdgeSourceSpanIdentityV1
-	(EdgeRecordTrafficClass)(0),        // 36: serviceradar.edge.v1.EdgeRecordTrafficClass
-	(*EdgeSignedCapabilityV1)(nil),     // 37: serviceradar.edge.v1.EdgeSignedCapabilityV1
-	(*EdgeSourceAuthorizationV1)(nil),  // 38: serviceradar.edge.v1.EdgeSourceAuthorizationV1
+	(*SweepCheckSetV1)(nil),            // 34: serviceradar.edge.v1.SweepCheckSetV1
+	(*SweepLeaseV1)(nil),               // 35: serviceradar.edge.v1.SweepLeaseV1
+	(*EdgeSourceSpanIdentityV1)(nil),   // 36: serviceradar.edge.v1.EdgeSourceSpanIdentityV1
+	(EdgeRecordTrafficClass)(0),        // 37: serviceradar.edge.v1.EdgeRecordTrafficClass
+	(*EdgeSignedCapabilityV1)(nil),     // 38: serviceradar.edge.v1.EdgeSignedCapabilityV1
+	(*EdgeSourceAuthorizationV1)(nil),  // 39: serviceradar.edge.v1.EdgeSourceAuthorizationV1
 }
 var file_edge_v1_sweep_proto_depIdxs = []int32{
 	0,  // 0: serviceradar.edge.v1.SweepTestV1.mode:type_name -> serviceradar.edge.v1.SweepMode
@@ -4073,21 +4162,23 @@ var file_edge_v1_sweep_proto_depIdxs = []int32{
 	8,  // 23: serviceradar.edge.v1.SweepExecutionEventV1.kind:type_name -> serviceradar.edge.v1.SweepExecutionEventKind
 	9,  // 24: serviceradar.edge.v1.SweepAssignmentRecordV1.state:type_name -> serviceradar.edge.v1.SweepAssignmentState
 	27, // 25: serviceradar.edge.v1.SweepAssignmentRecordV1.mtr_expectation:type_name -> serviceradar.edge.v1.SweepMtrExpectationV1
-	35, // 26: serviceradar.edge.v1.SweepAssignmentRecordV1.source_identity:type_name -> serviceradar.edge.v1.EdgeSourceSpanIdentityV1
+	36, // 26: serviceradar.edge.v1.SweepAssignmentRecordV1.source_identity:type_name -> serviceradar.edge.v1.EdgeSourceSpanIdentityV1
 	6,  // 27: serviceradar.edge.v1.CompiledSweepAssignmentV1.result_format:type_name -> serviceradar.edge.v1.SweepResultFormat
-	36, // 28: serviceradar.edge.v1.CompiledSweepAssignmentV1.traffic_class:type_name -> serviceradar.edge.v1.EdgeRecordTrafficClass
-	37, // 29: serviceradar.edge.v1.CompiledSweepAssignmentV1.collection_capability:type_name -> serviceradar.edge.v1.EdgeSignedCapabilityV1
+	37, // 28: serviceradar.edge.v1.CompiledSweepAssignmentV1.traffic_class:type_name -> serviceradar.edge.v1.EdgeRecordTrafficClass
+	38, // 29: serviceradar.edge.v1.CompiledSweepAssignmentV1.collection_capability:type_name -> serviceradar.edge.v1.EdgeSignedCapabilityV1
 	30, // 30: serviceradar.edge.v1.ScheduledPlanPageV1.ranges:type_name -> serviceradar.edge.v1.TargetRangeV1
 	32, // 31: serviceradar.edge.v1.SweepLeaseSlotV1.plan_header:type_name -> serviceradar.edge.v1.ScheduledPlanHeaderV1
 	31, // 32: serviceradar.edge.v1.SweepLeaseSlotV1.plan_pages:type_name -> serviceradar.edge.v1.ScheduledPlanPageV1
-	38, // 33: serviceradar.edge.v1.SweepLeaseSlotV1.source_authorizations:type_name -> serviceradar.edge.v1.EdgeSourceAuthorizationV1
-	37, // 34: serviceradar.edge.v1.SweepLeaseV1.production_capability:type_name -> serviceradar.edge.v1.EdgeSignedCapabilityV1
-	33, // 35: serviceradar.edge.v1.SweepLeaseV1.slots:type_name -> serviceradar.edge.v1.SweepLeaseSlotV1
-	36, // [36:36] is the sub-list for method output_type
-	36, // [36:36] is the sub-list for method input_type
-	36, // [36:36] is the sub-list for extension type_name
-	36, // [36:36] is the sub-list for extension extendee
-	0,  // [0:36] is the sub-list for field type_name
+	39, // 33: serviceradar.edge.v1.SweepLeaseSlotV1.source_authorizations:type_name -> serviceradar.edge.v1.EdgeSourceAuthorizationV1
+	10, // 34: serviceradar.edge.v1.SweepCheckSetV1.checks:type_name -> serviceradar.edge.v1.SweepTestV1
+	38, // 35: serviceradar.edge.v1.SweepLeaseV1.production_capability:type_name -> serviceradar.edge.v1.EdgeSignedCapabilityV1
+	33, // 36: serviceradar.edge.v1.SweepLeaseV1.slots:type_name -> serviceradar.edge.v1.SweepLeaseSlotV1
+	34, // 37: serviceradar.edge.v1.SweepLeaseV1.check_sets:type_name -> serviceradar.edge.v1.SweepCheckSetV1
+	38, // [38:38] is the sub-list for method output_type
+	38, // [38:38] is the sub-list for method input_type
+	38, // [38:38] is the sub-list for extension type_name
+	38, // [38:38] is the sub-list for extension extendee
+	0,  // [0:38] is the sub-list for field type_name
 }
 
 func init() { file_edge_v1_sweep_proto_init() }
@@ -4115,7 +4206,7 @@ func file_edge_v1_sweep_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_edge_v1_sweep_proto_rawDesc), len(file_edge_v1_sweep_proto_rawDesc)),
 			NumEnums:      10,
-			NumMessages:   25,
+			NumMessages:   26,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
