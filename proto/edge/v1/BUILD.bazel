@@ -95,12 +95,6 @@ go_test(
     ],
 )
 
-test_suite(
-    name = "edgev1_test",
-    tests = [":edgev1_golden_test"],
-    visibility = ["//visibility:public"],
-)
-
 go_test_inventory_test(
     name = "test_inventory_test",
     srcs = glob(["*_test.go"]),
