@@ -86,7 +86,7 @@ func (s *NetworkSweeper) runBatchedSweep(ctx context.Context, cfg *models.Config
 		Bool("tcpConnectIPv6Available", tcpConnectCaps.TCPConnectIPv6).
 		Msg("Starting batched sweep")
 
-	if err := s.generateTargetsBatched(cfg, runner.addTarget); err != nil {
+	if err := s.generateTargetsBatched(cfg, tcpCaps.RawSYNIPv6, runner.addTarget); err != nil {
 		runner.closeStreams()
 		return fmt.Errorf("failed to generate batched targets: %w", err)
 	}

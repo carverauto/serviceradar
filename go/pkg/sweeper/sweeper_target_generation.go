@@ -23,8 +23,8 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/scan"
 )
 
-func (s *NetworkSweeper) generateTargetsForNetwork(cfg *models.Config, network string) ([]models.Target, int, error) {
-	_, supported, err := s.effectiveSweepModesForCIDR(network, cfg.SweepModes)
+func (s *NetworkSweeper) generateTargetsForNetwork(cfg *models.Config, network string, rawSYNIPv6 bool) ([]models.Target, int, error) {
+	_, supported, err := effectiveSweepModesForCIDR(network, cfg.SweepModes, rawSYNIPv6)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -55,14 +55,14 @@ func (s *NetworkSweeper) generateTargetsForNetwork(cfg *models.Config, network s
 	}
 
 	for _, ip := range ips {
-		targets = append(targets, s.createTargetsForIP(ip, cfg.SweepModes, cfg.Ports, metadata)...)
+		targets = append(targets, s.createTargetsForIP(ip, cfg.SweepModes, cfg.Ports, metadata, rawSYNIPv6)...)
 	}
 
 	return targets, len(ips), nil
 }
 
 // generateTargetsForDeviceTarget creates targets for a device target configuration
-func (s *NetworkSweeper) generateTargetsForDeviceTarget(cfg *models.Config, deviceTarget *models.DeviceTarget) (targets []models.Target, hostCount int) {
+func (s *NetworkSweeper) generateTargetsForDeviceTarget(cfg *models.Config, deviceTarget *models.DeviceTarget, rawSYNIPv6 bool) (targets []models.Target, hostCount int) {
 	// Use device-specific sweep modes if available, otherwise fall back to global
 	sweepModes := deviceTarget.SweepModes
 	if len(sweepModes) == 0 {
@@ -73,7 +73,7 @@ func (s *NetworkSweeper) generateTargetsForDeviceTarget(cfg *models.Config, devi
 		sweepModes = cfg.SweepModes
 	}
 
-	effectiveModes, supported, err := s.effectiveSweepModesForCIDR(deviceTarget.Network, sweepModes)
+	effectiveModes, supported, err := effectiveSweepModesForCIDR(deviceTarget.Network, sweepModes, rawSYNIPv6)
 	if err != nil {
 		s.logger.Warn().
 			Err(err).
@@ -148,7 +148,7 @@ func (s *NetworkSweeper) generateTargetsForDeviceTarget(cfg *models.Config, devi
 		Msg("Generating targets for device")
 
 	for _, ip := range targetIPs {
-		targets = append(targets, s.createTargetsForIP(ip, sweepModes, cfg.Ports, metadata)...)
+		targets = append(targets, s.createTargetsForIP(ip, sweepModes, cfg.Ports, metadata, rawSYNIPv6)...)
 	}
 
 	hostCount = len(targetIPs)
@@ -156,11 +156,11 @@ func (s *NetworkSweeper) generateTargetsForDeviceTarget(cfg *models.Config, devi
 	return targets, hostCount
 }
 
-func (s *NetworkSweeper) generateTargetsBatched(cfg *models.Config, consume func(models.Target) error) error {
+func (s *NetworkSweeper) generateTargetsBatched(cfg *models.Config, rawSYNIPv6 bool, consume func(models.Target) error) error {
 	totalHostCount := 0
 
 	for _, network := range cfg.Networks {
-		_, supported, err := s.effectiveSweepModesForCIDR(network, cfg.SweepModes)
+		_, supported, err := effectiveSweepModesForCIDR(network, cfg.SweepModes, rawSYNIPv6)
 		if err != nil {
 			return fmt.Errorf("failed to parse CIDR %s: %w", network, err)
 		}
@@ -183,7 +183,7 @@ func (s *NetworkSweeper) generateTargetsBatched(cfg *models.Config, consume func
 		}
 
 		visited, err := s.forEachTargetCIDR(network, func(ip string) error {
-			return s.emitTargetsForIP(ip, cfg.SweepModes, cfg.Ports, metadata, consume)
+			return s.emitTargetsForIP(ip, cfg.SweepModes, cfg.Ports, metadata, rawSYNIPv6, consume)
 		})
 		if err != nil {
 			return fmt.Errorf("failed to generate targets for CIDR %s: %w", network, err)
@@ -224,7 +224,7 @@ func (s *NetworkSweeper) generateTargetsBatched(cfg *models.Config, consume func
 			sweepModes = cfg.SweepModes
 		}
 
-		_, supported, err := s.effectiveSweepModesForCIDR(deviceTarget.Network, sweepModes)
+		_, supported, err := effectiveSweepModesForCIDR(deviceTarget.Network, sweepModes, rawSYNIPv6)
 		if err != nil {
 			return fmt.Errorf("failed to parse device CIDR %s: %w", deviceTarget.Network, err)
 		}
@@ -236,7 +236,7 @@ func (s *NetworkSweeper) generateTargetsBatched(cfg *models.Config, consume func
 		}
 
 		visited, err := s.forEachTargetCIDR(deviceTarget.Network, func(ip string) error {
-			return s.emitTargetsForIP(ip, sweepModes, cfg.Ports, metadata, consume)
+			return s.emitTargetsForIP(ip, sweepModes, cfg.Ports, metadata, rawSYNIPv6, consume)
 		})
 		if err != nil {
 			return fmt.Errorf("failed to generate targets for device CIDR %s: %w", deviceTarget.Network, err)

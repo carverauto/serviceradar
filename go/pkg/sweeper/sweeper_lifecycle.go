@@ -200,9 +200,7 @@ func (s *NetworkSweeper) RunPlannedWithObserver(
 		return &cfg
 	}
 
-	// The plan's modes, not the config's, decide which scanners the run needs.
 	s.mu.Lock()
-	s.ensureScannersInitializedLocked(planned(s.config))
 	timeout := effectiveScanTimeout(s.config)
 	s.mu.Unlock()
 

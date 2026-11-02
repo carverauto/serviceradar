@@ -136,17 +136,13 @@ func scannerStatsPath(scanner scan.Scanner) string {
 	return addressFamilyUnknown
 }
 
-func (s *NetworkSweeper) rawSYNIPv6Available() bool {
-	return scannerCapabilities(s.tcpScanner).RawSYNIPv6
-}
-
-func (s *NetworkSweeper) effectiveSweepModesForCIDR(cidr string, sweepModes []models.SweepMode) ([]models.SweepMode, bool, error) {
+func effectiveSweepModesForCIDR(cidr string, sweepModes []models.SweepMode, rawSYNIPv6Available bool) ([]models.SweepMode, bool, error) {
 	baseIP, _, err := net.ParseCIDR(cidr)
 	if err != nil {
 		return nil, false, err
 	}
 
-	modes := effectiveSweepModes(baseIP.To4() == nil, sweepModes, s.rawSYNIPv6Available())
+	modes := effectiveSweepModes(baseIP.To4() == nil, sweepModes, rawSYNIPv6Available)
 
 	return modes, len(modes) > 0, nil
 }
@@ -154,7 +150,11 @@ func (s *NetworkSweeper) effectiveSweepModesForCIDR(cidr string, sweepModes []mo
 // EffectiveSweepModes returns the modes this sweeper actually runs for targets
 // in cidr when configured with sweepModes.
 func (s *NetworkSweeper) EffectiveSweepModes(cidr string, sweepModes []models.SweepMode) ([]models.SweepMode, error) {
-	modes, _, err := s.effectiveSweepModesForCIDR(cidr, sweepModes)
+	s.mu.RLock()
+	rawSYNIPv6 := scannerCapabilities(s.tcpScanner).RawSYNIPv6
+	s.mu.RUnlock()
+
+	modes, _, err := effectiveSweepModesForCIDR(cidr, sweepModes, rawSYNIPv6)
 	return modes, err
 }
 
@@ -202,14 +202,14 @@ func validateCIDRExpansion(cidr string, hostCount int) error {
 }
 
 // generateTargets creates scan targets from one run's configuration.
-func (s *NetworkSweeper) generateTargets(cfg *models.Config) ([]models.Target, error) {
+func (s *NetworkSweeper) generateTargets(cfg *models.Config, rawSYNIPv6 bool) ([]models.Target, error) {
 	var targets []models.Target
 
 	totalHostCount := 0
 
 	// Process legacy networks with global sweep modes (for backward compatibility)
 	for _, network := range cfg.Networks {
-		networkTargets, hostCount, err := s.generateTargetsForNetwork(cfg, network)
+		networkTargets, hostCount, err := s.generateTargetsForNetwork(cfg, network, rawSYNIPv6)
 		if err != nil {
 			return nil, err
 		}
@@ -220,7 +220,7 @@ func (s *NetworkSweeper) generateTargets(cfg *models.Config) ([]models.Target, e
 
 	// Process device targets with per-device sweep modes (from sync service)
 	for _, deviceTarget := range cfg.DeviceTargets {
-		deviceTargets, hostCount := s.generateTargetsForDeviceTarget(cfg, &deviceTarget)
+		deviceTargets, hostCount := s.generateTargetsForDeviceTarget(cfg, &deviceTarget, rawSYNIPv6)
 
 		targets = append(targets, deviceTargets...)
 		totalHostCount += hostCount

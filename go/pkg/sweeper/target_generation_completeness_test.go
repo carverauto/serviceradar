@@ -44,7 +44,7 @@ func TestTargetGeneration_AllPortsForEveryIP(t *testing.T) {
 	}
 
 	ip := "10.0.0.1"
-	targets := sweeper.createTargetsForIP(ip, config.SweepModes, sweeper.config.Ports, nil)
+	targets := sweeper.createTargetsForIP(ip, config.SweepModes, sweeper.config.Ports, nil, false)
 
 	// Should get: 1 ICMP + 5 TCP = 6 targets
 	assert.Len(t, targets, 6,
@@ -85,7 +85,7 @@ func TestTargetGeneration_TCPOnlyMode(t *testing.T) {
 		logger: logger.NewTestLogger(),
 	}
 
-	targets := sweeper.createTargetsForIP("10.0.0.1", config.SweepModes, sweeper.config.Ports, nil)
+	targets := sweeper.createTargetsForIP("10.0.0.1", config.SweepModes, sweeper.config.Ports, nil, false)
 
 	// Should get only TCP targets: 3 ports × 1 TCP = 3 targets
 	assert.Len(t, targets, 3, "TCP-only mode should generate one target per port")
@@ -112,7 +112,7 @@ func TestTargetGeneration_ICMPOnlyMode(t *testing.T) {
 		logger: logger.NewTestLogger(),
 	}
 
-	targets := sweeper.createTargetsForIP("10.0.0.1", config.SweepModes, sweeper.config.Ports, nil)
+	targets := sweeper.createTargetsForIP("10.0.0.1", config.SweepModes, sweeper.config.Ports, nil, false)
 
 	// ICMP only: 1 target
 	assert.Len(t, targets, 1, "ICMP-only mode should generate exactly 1 target per IP")
@@ -138,7 +138,7 @@ func TestTargetGeneration_AllModesIncludingTCPConnect(t *testing.T) {
 		logger: logger.NewTestLogger(),
 	}
 
-	targets := sweeper.createTargetsForIP("10.0.0.1", config.SweepModes, sweeper.config.Ports, nil)
+	targets := sweeper.createTargetsForIP("10.0.0.1", config.SweepModes, sweeper.config.Ports, nil, false)
 
 	// 1 ICMP + 2 TCP + 2 TCPConnect = 5 targets
 	assert.Len(t, targets, 5)
@@ -168,7 +168,7 @@ func TestTargetGeneration_IPv6KeepsICMPAndUsesTCPConnect(t *testing.T) {
 		logger: logger.NewTestLogger(),
 	}
 
-	targets := sweeper.createTargetsForIP("2001:470:c0b5:2::100", config.SweepModes, sweeper.config.Ports, nil)
+	targets := sweeper.createTargetsForIP("2001:470:c0b5:2::100", config.SweepModes, sweeper.config.Ports, nil, false)
 
 	assert.Len(t, targets, 3)
 	icmpTargets := filterByMode(targets, models.ModeICMP)
@@ -211,7 +211,7 @@ func TestTargetGeneration_IPv6UsesRawSYNWhenCapabilityAvailable(t *testing.T) {
 		},
 	}
 
-	targets := sweeper.createTargetsForIP("2001:470:c0b5:2::100", config.SweepModes, sweeper.config.Ports, nil)
+	targets := sweeper.createTargetsForIP("2001:470:c0b5:2::100", config.SweepModes, sweeper.config.Ports, nil, scannerCapabilities(sweeper.tcpScanner).RawSYNIPv6)
 
 	assert.Len(t, targets, 3)
 	tcpTargets := filterByMode(targets, models.ModeTCP)
@@ -240,7 +240,7 @@ func TestTargetGeneration_IPv6DoesNotDuplicateTCPConnect(t *testing.T) {
 		logger: logger.NewTestLogger(),
 	}
 
-	targets := sweeper.createTargetsForIP("2001:db8::42", config.SweepModes, sweeper.config.Ports, nil)
+	targets := sweeper.createTargetsForIP("2001:db8::42", config.SweepModes, sweeper.config.Ports, nil, false)
 
 	assert.Len(t, targets, 2)
 	assert.Empty(t, filterByMode(targets, models.ModeTCP))
@@ -261,7 +261,7 @@ func TestTargetGeneration_TargetMetadataIsPerTarget(t *testing.T) {
 	}
 
 	baseMetadata := map[string]interface{}{"source": "test"}
-	targets := sweeper.createTargetsForIP("2001:db8::42", config.SweepModes, sweeper.config.Ports, baseMetadata)
+	targets := sweeper.createTargetsForIP("2001:db8::42", config.SweepModes, sweeper.config.Ports, baseMetadata, false)
 
 	require.Len(t, targets, 2)
 
@@ -284,8 +284,8 @@ func TestTargetGeneration_RouteSummaryCountsIPv6Fallbacks(t *testing.T) {
 	}
 
 	targets := append(
-		sweeper.createTargetsForIP("192.0.2.10", config.SweepModes, sweeper.config.Ports, nil),
-		sweeper.createTargetsForIP("2001:db8::42", config.SweepModes, sweeper.config.Ports, nil)...,
+		sweeper.createTargetsForIP("192.0.2.10", config.SweepModes, sweeper.config.Ports, nil, false),
+		sweeper.createTargetsForIP("2001:db8::42", config.SweepModes, sweeper.config.Ports, nil, false)...,
 	)
 
 	summary := summarizeTargetRoutes(targets)
@@ -307,7 +307,7 @@ func TestTargetGeneration_BroadIPv6CIDRRejected(t *testing.T) {
 		logger: logger.NewTestLogger(),
 	}
 
-	targets, err := sweeper.generateTargets(sweeper.config)
+	targets, err := sweeper.generateTargets(sweeper.config, false)
 	require.Error(t, err)
 	assert.Nil(t, targets)
 	assert.Contains(t, err.Error(), "IPv6 CIDR")
@@ -348,7 +348,7 @@ func TestTargetGeneration_DeviceTargetsGetAllPorts(t *testing.T) {
 		logger: logger.NewTestLogger(),
 	}
 
-	targets, err := sweeper.generateTargets(sweeper.config)
+	targets, err := sweeper.generateTargets(sweeper.config, false)
 	require.NoError(t, err)
 
 	// Device 1 (192.168.1.10): 1 ICMP + 5 TCP = 6 targets
@@ -427,7 +427,7 @@ func TestTargetGeneration_MultiIPDevice(t *testing.T) {
 		logger: logger.NewTestLogger(),
 	}
 
-	targets, err := sweeper.generateTargets(sweeper.config)
+	targets, err := sweeper.generateTargets(sweeper.config, false)
 	require.NoError(t, err)
 
 	// 3 IPs × (1 ICMP + 3 TCP) = 3 × 4 = 12 targets

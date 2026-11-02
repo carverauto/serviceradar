@@ -119,16 +119,16 @@ func TestExecutionCheckRunsAfterSweeperLock(t *testing.T) {
 
 func TestLeasedSweepEnumeratesSignedCIDREndpoints(t *testing.T) {
 	s := &NetworkSweeper{config: &models.Config{Networks: []string{"192.0.2.0/30"}, SweepModes: []models.SweepMode{models.ModeICMP}}, logger: logger.NewTestLogger()}
-	legacy, err := s.generateTargets(s.config)
+	legacy, err := s.generateTargets(s.config, false)
 	require.NoError(t, err)
 	require.Len(t, legacy, 2)
 	s.resultObserver = func(context.Context, *models.Result) error { return nil }
-	targets, err := s.generateTargets(s.config)
+	targets, err := s.generateTargets(s.config, false)
 	require.NoError(t, err)
 	require.Len(t, targets, 4)
 	require.Equal(t, "192.0.2.0", targets[0].Host)
 	require.Equal(t, "192.0.2.3", targets[3].Host)
 	var batched []models.Target
-	require.NoError(t, s.generateTargetsBatched(s.config, func(target models.Target) error { batched = append(batched, target); return nil }))
+	require.NoError(t, s.generateTargetsBatched(s.config, false, func(target models.Target) error { batched = append(batched, target); return nil }))
 	require.Len(t, batched, 4)
 }

@@ -203,7 +203,7 @@ func TestNetworkSweeper_HighConcurrencyConfig(t *testing.T) {
 	assert.NotNil(t, sweeper)
 
 	// Generate targets and verify high concurrency handling
-	targets, err := sweeper.generateTargets(sweeper.config)
+	targets, err := sweeper.generateTargets(sweeper.config, false)
 	require.NoError(t, err)
 
 	// Should generate targets for TCP scanning
@@ -265,7 +265,7 @@ func TestNetworkSweeper_DeviceTargetsWithTCPOptimization(t *testing.T) {
 	sweeper, err := NewNetworkSweeper(config, mockStore, mockProcessor, nil, log)
 	require.NoError(t, err)
 
-	targets, err := sweeper.generateTargets(sweeper.config)
+	targets, err := sweeper.generateTargets(sweeper.config, false)
 	require.NoError(t, err)
 
 	// Count targets by mode and device

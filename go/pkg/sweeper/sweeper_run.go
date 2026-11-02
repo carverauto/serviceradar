@@ -172,14 +172,15 @@ func (s *NetworkSweeper) runSweepWithObserver(
 
 	s.mu.Lock()
 	cfg := s.config
+	if derive != nil {
+		cfg = derive(cfg)
+		// The plan's modes, not the config's, decide which scanners the run needs.
+		s.ensureScannersInitializedLocked(cfg)
+	}
 	s.activeRun = run
 	s.runExecutionID = executionID
 	s.resultObserver = observer
 	s.mu.Unlock()
-
-	if derive != nil {
-		cfg = derive(cfg)
-	}
 
 	err := s.runSweep(runCtx, cfg)
 
@@ -257,7 +258,16 @@ func (s *NetworkSweeper) runSweep(ctx context.Context, cfg *models.Config) error
 		return s.completeSuccessfulSweep(ctx, startedAt, false)
 	}
 
-	targets, err := s.generateTargets(cfg)
+	s.mu.RLock()
+	icmpScanner := s.icmpScanner
+	tcpScanner := s.tcpScanner
+	tcpConnectScanner := s.tcpConnectScanner
+	s.mu.RUnlock()
+	icmpCaps := scannerCapabilities(icmpScanner)
+	tcpCaps := scannerCapabilities(tcpScanner)
+	tcpConnectCaps := scannerCapabilities(tcpConnectScanner)
+
+	targets, err := s.generateTargets(cfg, tcpCaps.RawSYNIPv6)
 	if err != nil {
 		return fmt.Errorf("failed to generate targets: %w", err)
 	}
@@ -279,15 +289,6 @@ func (s *NetworkSweeper) runSweep(ctx context.Context, cfg *models.Config) error
 		case models.ModeMTR:
 		}
 	}
-
-	s.mu.RLock()
-	icmpScanner := s.icmpScanner
-	tcpScanner := s.tcpScanner
-	tcpConnectScanner := s.tcpConnectScanner
-	s.mu.RUnlock()
-	icmpCaps := scannerCapabilities(icmpScanner)
-	tcpCaps := scannerCapabilities(tcpScanner)
-	tcpConnectCaps := scannerCapabilities(tcpConnectScanner)
 
 	// An empty config still finishes the run so previous results are pruned.
 	// It must not claim that a scan started. A configured network that
