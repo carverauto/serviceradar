@@ -93,10 +93,17 @@ defmodule ServiceRadar.Edge.AgentCommandBusRPCRegistryTest do
     agent_id = "example-agent-#{suffix}"
     partition = "example-partition"
 
+    # Metadata stays text and is deliberately not the peer's node name. Turning
+    # that string into an atom would RPC to a node that is not running and
+    # could not return these bundles. Passing the binary itself raises badarg.
     name =
       ProcessRegistry.via(
         {:agent_control, partition, agent_id, gateway},
-        %{agent_id: agent_id, partition_id: partition, gateway_node: Atom.to_string(gateway)}
+        %{
+          agent_id: agent_id,
+          partition_id: partition,
+          gateway_node: "text-gateway-metadata"
+        }
       )
 
     assert {:ok, _session} = :erpc.call(gateway, Agent, :start, [Map, :new, [], [name: name]])
@@ -132,6 +139,14 @@ defmodule ServiceRadar.Edge.AgentCommandBusRPCRegistryTest do
 
     assert upstream_opts[:authorized_component_id] == "example-leaf"
     assert upstream_opts[:audit_actor] == %{id: "example-operator"}
+
+    missing_agent_id = "example-agent-missing-#{suffix}"
+    missing = %{operation | host_agent_id: missing_agent_id}
+
+    assert {:error, {:agent_offline, ^missing_agent_id}} =
+             :erpc.call(gateway, ManagedComponentCertificateIssuer, :issue, [missing])
+
+    refute_received {:issued, _, _, _, _, _}
   end
 
   defp ensure_distribution! do
