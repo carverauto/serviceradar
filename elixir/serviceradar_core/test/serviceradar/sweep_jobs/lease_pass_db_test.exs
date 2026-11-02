@@ -4,10 +4,6 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.Compilers.SweepCompiler
   alias Serviceradar.Edge.V1.ScheduledPlanHeaderV1
-
-  # Go sweepCheckSetDigest (domain serviceradar.edge.check_set.v1) for TCP SYN on
-  # ports 22 and 443. Not computed by SweepCompiler.
-  @tcp_22_443_check_set "ef27b5a15eb570030ffae530ef5e67d3af0e3b988f5f7c10f9f2bad9b2379ca1"
   alias Serviceradar.Edge.V1.ScheduledPlanPageV1
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Infrastructure.Partition
@@ -21,6 +17,9 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepLeaseSetting
 
+  # Go sweepCheckSetDigest (domain serviceradar.edge.check_set.v1) for TCP SYN on
+  # ports 22 and 443. Not computed by SweepCompiler.
+  @tcp_22_443_check_set "ef27b5a15eb570030ffae530ef5e67d3af0e3b988f5f7c10f9f2bad9b2379ca1"
   @moduletag :integration
 
   setup do
