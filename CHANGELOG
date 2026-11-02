@@ -39,6 +39,7 @@ enrollment.
   in the agent config; turning an agent off revokes it (#6214).
 - New payloads plug in through a contract catalog, and plugins never
   need their own contract (#6216, #6247).
+- Design notes plan agent telemetry on the edge-record pipeline (#6213).
 - Oversized or malformed metric batches are split or sanitized instead
   of dropped, and a refused write is retried without duplicates (#6214).
 - A sweep slot that never reports is marked missed instead of waiting
