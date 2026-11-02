@@ -118,16 +118,25 @@ function usableHostAddress(address: string): boolean {
 
 export async function readEnrolledAgent(dryRun: boolean): Promise<{agent_id: string; partition: string} | null> {
   if (dryRun && process.platform !== "linux") return null
+  return readEnrolledAgentAt("/etc/serviceradar", dryRun, true)
+}
+
+/** Read the root-owned host-trust record. walkParents is false only for a fixture whose parents are the test harness. */
+export async function readEnrolledAgentAt(root: string, dryRun: boolean, walkParents: boolean): Promise<{agent_id: string; partition: string} | null> {
+  const stopBefore = walkParents ? undefined : dirname(root)
   try {
-    await trustedDirectory("/etc/serviceradar", false)
-    const data = JSON.parse(await readRootOwnedFile("/etc/serviceradar/agent.json"))
-    await trustedDirectory("/etc/serviceradar/certs", false)
-    await readRootOwnedFile("/etc/serviceradar/certs/root.pem")
-    if (typeof data.agent_id !== "string" || !data.agent_id || typeof data.partition !== "string" || !data.partition) throw new Error("installed agent.json has no enrolled agent_id or partition")
+    await trustedDirectory(root, false, 0o755, false, stopBefore)
+    const trust = `${root}/host-trust`
+    await trustedDirectory(trust, false, 0o755, false, stopBefore)
+    const data = JSON.parse(await readRootOwnedFile(`${trust}/identity.json`))
+    const ca = await readRootOwnedFile(`${trust}/ca.pem`)
+    if (!ca.trim()) throw new Error("installed deployment CA is empty")
+    if (typeof data.agent_id !== "string" || !data.agent_id || typeof data.partition !== "string" || !data.partition) throw new Error("installed host trust has no enrolled agent_id or partition")
+    if (Object.keys(data).some((key) => key !== "agent_id" && key !== "partition")) throw new Error("installed host trust carries more than the enrolled agent identity")
     return {agent_id: data.agent_id, partition: data.partition}
   } catch (error: any) {
     if (dryRun && error?.code === "ENOENT") return null
-    throw new Error(`managed edge installation requires an enrolled host agent at /etc/serviceradar/agent.json: ${error.message}`)
+    throw new Error(`managed edge installation requires an enrolled host agent at ${root}/host-trust/identity.json: ${error.message}`)
   }
 }
 
@@ -241,9 +250,9 @@ async function readRootOwnedFile(path: string): Promise<string> {
   return readFile(path, "utf8")
 }
 
-async function trustedDirectory(path: string, create: boolean, mode = 0o755, setMode = true): Promise<void> {
-  if (path === "/") return
-  await trustedDirectory(dirname(path), create, 0o755, false)
+async function trustedDirectory(path: string, create: boolean, mode = 0o755, setMode = true, stopBefore?: string): Promise<void> {
+  if (path === "/" || (stopBefore !== undefined && path === stopBefore)) return
+  await trustedDirectory(dirname(path), create, 0o755, false, stopBefore)
   let info
   try { info = await lstat(path) } catch (error: any) {
     if (!create || error?.code !== "ENOENT") throw error

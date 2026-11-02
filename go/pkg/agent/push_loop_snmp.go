@@ -81,12 +81,25 @@ func (p *PushLoop) pushSNMPMetrics(ctx context.Context) bool {
 		return false
 	}
 
-	if len(metrics) == 0 {
-		return false
-	}
-
 	// 3. Build results for all drained points
 	results := p.buildSNMPDrainedResults(statuses, metrics, snmpSvc.GetProfileID())
+
+	// One path at a time: while the agent holds a metrics grant, SNMP readings go
+	// only to the edge spool. Without one, readings the spool never admitted take
+	// the legacy path with the new ones.
+	if capability := p.edgeMetricsCapability(time.Now()); capability != nil {
+		return spoolEdgeMetrics(p, snmpEdgeMetrics(), &p.snmpEdge, results, capability)
+	}
+	// Readings taken back from the edge queue return to it unless this send
+	// delivers them.
+	taken := p.snmpEdge.take()
+	delivered := false
+	defer func() {
+		if !delivered {
+			restoreEdgeMetrics(p, snmpEdgeMetrics(), &p.snmpEdge, taken)
+		}
+	}()
+	results = append(queuedItems(taken), results...)
 	if len(results) == 0 {
 		return false
 	}
@@ -143,6 +156,7 @@ func (p *PushLoop) pushSNMPMetrics(ctx context.Context) bool {
 	}
 
 	if resp.Received {
+		delivered = true
 		p.logger.Info().Int("result_count", len(results)).Msg("Successfully streamed SNMP metrics to gateway")
 		return true
 	}

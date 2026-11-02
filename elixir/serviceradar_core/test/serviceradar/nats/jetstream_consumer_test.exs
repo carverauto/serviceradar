@@ -69,7 +69,12 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
           {error(10_065, "subjects overlap with an existing stream"), streams}
 
         true ->
-          stream = %{"subjects" => config["subjects"], "messages" => 0}
+          stream = %{
+            "subjects" => config["subjects"],
+            "num_replicas" => Map.get(config, "num_replicas", 1),
+            "messages" => 0
+          }
+
           {info(name, stream), Map.put(streams, name, stream)}
       end
     end
@@ -80,7 +85,11 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
       if overlaps?(streams, name, config["subjects"]) do
         {error(10_065, "subjects overlap with an existing stream"), streams}
       else
-        streams = put_in(streams, [name, "subjects"], config["subjects"])
+        streams =
+          streams
+          |> put_in([name, "subjects"], config["subjects"])
+          |> put_in([name, "num_replicas"], Map.get(config, "num_replicas", 1))
+
         {info(name, streams[name]), streams}
       end
     end
@@ -109,9 +118,13 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
       end)
     end
 
-    defp info(name, %{"subjects" => subjects, "messages" => messages}) do
+    defp info(name, %{"subjects" => subjects, "messages" => messages} = stream) do
       %{
-        "config" => %{"name" => name, "subjects" => subjects},
+        "config" => %{
+          "name" => name,
+          "subjects" => subjects,
+          "num_replicas" => Map.get(stream, "num_replicas", 1)
+        },
         "state" => %{"messages" => messages, "bytes" => 0}
       }
     end
@@ -407,7 +420,30 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
     assert {:ok, %{stream_name: "TELEMETRY_EDGE_RECORD_V1_BULK"}} =
              ensure_edge_record_consumer(conn)
 
-    assert Map.has_key?(FakeJetStream.streams(conn), "TELEMETRY_EDGE_RECORD_V1_BULK")
+    streams = FakeJetStream.streams(conn)
+    assert Map.has_key?(streams, "TELEMETRY_EDGE_RECORD_V1_BULK")
+    assert streams["TELEMETRY_EDGE_RECORD_V1_BULK"]["num_replicas"] == 3
+  end
+
+  test "reconciles an existing R1 edge record stream to R3" do
+    conn =
+      start_supervised!(
+        {FakeJetStream,
+         %{
+           "TELEMETRY_EDGE_RECORD_V1_BULK" => %{
+             "subjects" => ["telemetry.edge-record.v1.bulk.>"],
+             "num_replicas" => 1,
+             "messages" => 52
+           }
+         }}
+      )
+
+    assert {:ok, %{stream_name: "TELEMETRY_EDGE_RECORD_V1_BULK"}} =
+             ensure_edge_record_consumer(conn)
+
+    streams = FakeJetStream.streams(conn)
+    assert streams["TELEMETRY_EDGE_RECORD_V1_BULK"]["num_replicas"] == 3
+    assert streams["TELEMETRY_EDGE_RECORD_V1_BULK"]["messages"] == 52
   end
 
   test "a discovered case-variant owner is not adopted in place of the configured stream" do
@@ -770,6 +806,7 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
       stream_name: Config.jetstream_stream_name(stream),
       filter_subject: stream.subject,
       consumer_name: "edge-record-bulk-test",
+      stream_replicas: stream.stream_replicas,
       allow_stream_fallback: ConsumerSetup.allow_stream_fallback?(stream)
     )
   end

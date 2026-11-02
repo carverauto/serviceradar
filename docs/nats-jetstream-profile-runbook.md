@@ -22,6 +22,22 @@ reservation ServiceRadar creates and checks them at render time:
 | `medium` | 100G (93.13 GiB) | 100Gi |
 | `large` | 500G (465.66 GiB) | 500Gi |
 
+`TELEMETRY_EDGE_RECORD_V1_BULK` is reserved in every profile (R3, 1 GiB except
+32 MiB on `tenant-2g`). Per-server need, with the chart's full/spread formula:
+
+| Profile | Servers | Need | Limit |
+| --- | --- | --- | --- |
+| `small` | 3 | 19.5625 + 6/3 + 2 = 23.56 GiB (25300041728 bytes) | 28.50 GiB |
+| `small` | 1 | 25.3125 GiB | 28.50 GiB |
+| `medium` | 3 | 57.5625 + 28/3 + 12 = 78.90 GiB | 79.16 GiB |
+| `medium` | 1 | 77.5625 GiB | 79.16 GiB |
+| `large` | 3 | 279.0625 + 128/3 + 64 = 385.73 GiB | 395.81 GiB |
+| `large` | 1 | 375.0625 GiB | 395.81 GiB |
+| `tenant-2g` | 3 | 1.125 + 0.1875 + 0.25 = 1.56 GiB (1677721600 bytes) | 1.58 GiB |
+
+`small` on three servers stays under a demo/farm01 `30G` store: 23.56 GiB is
+25300041728 bytes, and 85% of 30000000000 bytes is 25500000000 bytes (23.75 GiB).
+
 With `nats.replicas` of 1 or 2, `small`, `medium` and `large` use their
 single-server size table, the same sizes the Docker Compose presets ship (for
 example `flows` is 3 GiB instead of 8 GiB in `small`). On one server every
@@ -209,17 +225,22 @@ serviceradar-control repository):
   the same budget.
 
 `tenant-2g` is sized for three NATS servers and the replica counts
-`values-tenant.yaml` sets (KV, objects, `events`, plugins and `ARANCINI_CAUSAL`
-at R3, `flows` and the EventWriter streams at R1), plus the fixed 64 MiB
-`EXPOSURE_RECOVERY` reservation: the most loaded server needs 1.44 GiB against
-a 1.58 GiB limit. The per-profile arithmetic is in
+`values-tenant.yaml` sets (KV, objects, `events`, plugins, `ARANCINI_CAUSAL`,
+`metrics`, `scan_results`, `NOTIFICATIONS`, `TELEMETRY_EDGE_RECORD_V1_BULK` at
+32 MiB, and the fixed 64 MiB `EXPOSURE_RECOVERY` reservation at R3; `flows` and
+the remaining EventWriter and exposure streams at R1). Full reservations are
+1152 MiB, spread is 576 MiB, and the most loaded server needs
+1152 + ceil(576 / 3) + 256 = 1600 MiB (1677721600 bytes, 1.56 GiB) against a
+1.58 GiB limit. The per-profile arithmetic is in
 `helm/serviceradar/files/jetstream-profiles.yaml`.
 
 The chart checks the per-server limit only. If the control plane also enforces
 `js_disk_storage` as a JetStream account limit, NATS counts a stream with more
 than one replica at `max_bytes * replicas` against an un-tiered account limit,
-so the same streams need 3.5625 GiB of account storage, not 2G. An account
-limit for these plans must be at least that sum, or tiered per replica count.
+so the same streams need 1152 MiB * 3 + 576 MiB = 4032 MiB (3.9375 GiB) of
+account storage, not 2G. That sum includes `TELEMETRY_EDGE_RECORD_V1_BULK`.
+An account limit for these plans must be at least that sum, or tiered per
+replica count.
 
 ## Reclaiming a stream after disabling a collector
 

@@ -306,14 +306,14 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthorityIntegrationTest do
              |> Authority.enroll_component(ctx.opts)
   end
 
-  test "adopts a public certificate under the projected grant and rolls back a duplicate",
+  test "adopts a static NATS client under its projected grant and rolls back a duplicate",
        ctx do
     %{pem: pem, der: der} = self_signed_certificate()
     id = "example-gateway-#{System.unique_integer([:positive])}"
 
     attrs = %{
       component_id: id,
-      component_type: "agent-gateway",
+      component_type: "nats-client",
       partition_id: "example-partition",
       certificate_pem: pem,
       permissions: %{

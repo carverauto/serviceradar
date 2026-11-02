@@ -1268,14 +1268,19 @@ if config_env() == :prod do
 
   config :serviceradar_core, ServiceRadar.Repo, repo_opts
 
-  # Notification firehose stream size (a discard-old buffer, reconciled on the
-  # first publish per node). Unset or blank means 1 GiB; an invalid value fails
-  # boot naming the variable.
+  # Notification firehose stream size and replica count (a discard-old buffer,
+  # reconciled on the first publish per node). Unset or blank means 1 GiB / R3;
+  # an invalid value fails boot naming the variable.
   config :serviceradar_core, StreamPublisher,
     max_bytes:
       StateBucketSizing.bytes_from_env!(
         "SERVICERADAR_JS_NOTIFICATIONS_MAX_BYTES",
         StreamPublisher.default_max_bytes()
+      ),
+    replicas:
+      StateBucketSizing.replicas_from_env!(
+        "SERVICERADAR_JS_NOTIFICATIONS_REPLICAS",
+        StreamPublisher.default_replicas()
       )
 
   config :serviceradar_core, ThreatIntelRawPayloadStore,
@@ -2051,6 +2056,7 @@ if config_env() == :prod do
           stream_retention: "limits",
           stream_storage: "file",
           stream_discard: "old",
+          stream_replicas: 3,
           stream_max_bytes: 1_073_741_824,
           stream_max_age: 1_800_000_000_000,
           consumer_pull_batch_size: 4,

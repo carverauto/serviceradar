@@ -42,8 +42,9 @@ import (
 // An explicit `optional` scalar in proto3 is exactly a field whose containing oneof is
 // SYNTHETIC, so the complete set is derivable from the generated descriptors. The hand-written
 // tables below are compared against that walk in BOTH directions, which is what makes the
-// coverage claim self-maintaining: a new optional field added to any edge message fails this
-// test until it is placed in scope or explicitly excluded with a reason.
+// coverage claim self-maintaining: a new optional field added to record.proto or sweep.proto
+// fails this test until it is placed in scope or explicitly excluded with a reason.
+// json_producer_batches.proto is outside this corpus.
 //
 // A hand list alone cannot do that. This inventory was in fact drafted twice by hand, at 12
 // fields and then at 17; the descriptor says 18 scalars across 8 carriers, and both hand counts
@@ -103,7 +104,7 @@ var optionalMessageOutOfScope = map[string]string{
 	"SweepHostObservationV1.mtr":              "absence means the protocol was not run",
 }
 
-// descriptorOptionalFields walks the edge descriptors and returns every explicitly optional
+// descriptorOptionalFields walks record.proto and sweep.proto and returns every explicitly optional
 // field, split by whether it is a scalar. In proto3 the `optional` keyword is implemented as a
 // SYNTHETIC one-member oneof, so that -- not a naming convention -- is the test.
 func descriptorOptionalFields(t *testing.T) (scalars, messages map[string]string) {
@@ -149,9 +150,10 @@ func descriptorOptionalFields(t *testing.T) (scalars, messages map[string]string
 
 // TestOptionalInventoryMatchesDescriptor is what makes "every optional field" checkable.
 //
-// A new `optional` on any edge message lands in the descriptor walk immediately; if it is not
-// placed in the in-scope inventory or the recorded out-of-scope list, this fails. That is the
-// difference between an inventory that is complete today and one that STAYS complete.
+// A new `optional` on record.proto or sweep.proto lands in the descriptor walk immediately; if
+// it is not placed in the in-scope inventory or the recorded out-of-scope list, this fails.
+// That is the difference between an inventory that is complete today and one that STAYS complete.
+// Optional fields on json_producer_batches.proto are outside this walk.
 func TestOptionalInventoryMatchesDescriptor(t *testing.T) {
 	scalars, messages := descriptorOptionalFields(t)
 

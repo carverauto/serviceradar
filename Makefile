@@ -657,7 +657,11 @@ generate-proto: proto-tools ## Generate Go and Rust code from protobuf definitio
 	@PATH="$(PROTO_TOOLS_BIN):$$PATH" protoc -I=proto -I=. \
 		--go_out=proto --go_opt=paths=source_relative \
 		proto/edge/v1/sweep.proto \
-		proto/edge/v1/plugin_results.proto
+		proto/edge/v1/plugin_results.proto \
+		proto/edge/v1/unleased_sweep.proto
+	@PATH="$(PROTO_TOOLS_BIN):$$PATH" protoc -I=proto -I=. \
+		--go_out=proto --go_opt=paths=source_relative \
+		proto/edge/v1/json_producer_batches.proto
 	@# require_unimplemented_servers=false is the frozen protoc-gen-go-grpc setting for
 	@# the edge gRPC stub. protoc/Make is the single source for that checked-in stub
 	@# and Bazel compiles that file (no second generator for it), so this option
@@ -716,6 +720,8 @@ generate-proto-elixir: install-protoc-gen-elixir ## Generate Elixir code from pr
 		proto/metric/v1/metric.proto \
 		proto/edge/v1/sweep.proto \
 		proto/edge/v1/plugin_results.proto \
+		proto/edge/v1/unleased_sweep.proto \
+		proto/edge/v1/json_producer_batches.proto \
 		proto/edge/v1/record.proto
 	@elixir scripts/patch_edge_enum_negatives.exs $(ELIXIR_PROTO_OUT)
 	@cd elixir/serviceradar_core && \
@@ -767,7 +773,11 @@ verify-proto-edge-go: proto-tools ## Manifest+byte drift guard for the single-so
 	PATH="$(PROTO_TOOLS_BIN):$$PATH" protoc -I=proto -I=. \
 		--go_out="$$tmp" --go_opt=paths=source_relative \
 		proto/edge/v1/sweep.proto \
-		proto/edge/v1/plugin_results.proto; \
+		proto/edge/v1/plugin_results.proto \
+		proto/edge/v1/unleased_sweep.proto; \
+	PATH="$(PROTO_TOOLS_BIN):$$PATH" protoc -I=proto -I=. \
+		--go_out="$$tmp" --go_opt=paths=source_relative \
+		proto/edge/v1/json_producer_batches.proto; \
 	PATH="$(PROTO_TOOLS_BIN):$$PATH" protoc -I=proto -I=. \
 		--go_out="$$tmp" --go_opt=paths=source_relative \
 		--go-grpc_out="$$tmp" --go-grpc_opt=paths=source_relative \
@@ -792,6 +802,8 @@ verify-proto-edge-elixir: install-protoc-gen-elixir ## Manifest+byte drift guard
 		--elixir_out=plugins=grpc:"$$tmp" \
 		proto/edge/v1/sweep.proto \
 		proto/edge/v1/plugin_results.proto \
+		proto/edge/v1/unleased_sweep.proto \
+		proto/edge/v1/json_producer_batches.proto \
 		proto/edge/v1/record.proto; \
 	elixir scripts/patch_edge_enum_negatives.exs "$$tmp" || exit 1; \
 	( cd elixir/serviceradar_core && mix format --force "$$tmp/edge/v1/*.pb.ex" ); \

@@ -873,7 +873,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
              group
              |> Ash.Changeset.for_update(
                :update,
-               %{static_targets: ["203.0.113.9", "203.0.113.0/25"]},
+               %{static_targets: ["203.0.113.129", "203.0.113.0/25"]},
                actor: ctx.admin
              )
              |> Ash.update()
@@ -895,7 +895,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
     assert Enum.all?(new, &(&1.authority_epoch == fenced.authority_epoch))
     assert Enum.all?(new, &(&1.lease_id == LeasePass.lease_id(fenced)))
     refute LeasePass.lease_id(fenced) == LeasePass.lease_id(before)
-    assert range_cidrs(new) == [["203.0.113.0/25", "203.0.113.9/32"]]
+    assert range_cidrs(new) == [["203.0.113.0/25", "203.0.113.129/32"]]
 
     assert resent.lease_id == Ecto.UUID.dump!(LeasePass.lease_id(fenced))
     assert resent.authority_epoch == fenced.authority_epoch

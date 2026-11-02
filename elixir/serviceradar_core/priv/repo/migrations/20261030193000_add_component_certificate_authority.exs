@@ -150,7 +150,9 @@ defmodule ServiceRadar.Repo.Migrations.AddComponentCertificateAuthority do
           name: "revoked_component_certificates_component_id_fkey",
           type: :text,
           prefix: "platform"
-        ), null: false)
+        ),
+        null: false
+      )
     end
 
     create(
@@ -174,7 +176,9 @@ defmodule ServiceRadar.Repo.Migrations.AddComponentCertificateAuthority do
     drop(
       constraint(
         :revoked_component_certificates,
-        "revoked_component_certificates_component_id_fkey", prefix: "platform")
+        "revoked_component_certificates_component_id_fkey",
+        prefix: "platform"
+      )
     )
 
     drop_if_exists(

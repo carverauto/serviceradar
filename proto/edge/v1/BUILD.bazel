@@ -17,9 +17,11 @@ load("//build:go_test_inventory_test.bzl", "go_test_inventory_test")
 proto_library(
     name = "edgev1_proto",
     srcs = [
+        "json_producer_batches.proto",
         "plugin_results.proto",
         "record.proto",
         "sweep.proto",
+        "unleased_sweep.proto",
     ],
     # Match the Makefile's `protoc -I=proto`: the descriptor source path (and the
     # generated file-level registration symbols) must be `edge/v1/*.proto`, not
@@ -31,9 +33,11 @@ proto_library(
 filegroup(
     name = "edge_proto_src",
     srcs = [
+        "json_producer_batches.proto",
         "plugin_results.proto",
         "record.proto",
         "sweep.proto",
+        "unleased_sweep.proto",
     ],
     visibility = ["//visibility:public"],
 )
@@ -41,10 +45,12 @@ filegroup(
 go_library(
     name = "edgev1",
     srcs = [
+        "json_producer_batches.pb.go",
         "plugin_results.pb.go",
         "record.pb.go",
         "record_grpc.pb.go",
         "sweep.pb.go",
+        "unleased_sweep.pb.go",
     ],
     importpath = "github.com/carverauto/serviceradar/proto/edge/v1",
     visibility = ["//visibility:public"],
@@ -69,6 +75,7 @@ go_test(
     name = "edgev1_golden_test",
     srcs = [
         "golden_test.go",
+        "json_producer_batches_test.go",
         "mtr_bounds_test.go",
         "projection_corpus_test.go",
         "record_boundary_corpus_test.go",
@@ -83,6 +90,7 @@ go_test(
         "sweep_corpus_test.go",
         "family_corpus_test.go",
         "plugin_results_test.go",
+        "unleased_sweep_test.go",
     ],
     data = glob(["testdata/**"]),
     deps = [

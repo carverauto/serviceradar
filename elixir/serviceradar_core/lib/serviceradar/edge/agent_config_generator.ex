@@ -52,6 +52,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   alias ServiceRadar.Edge.AgentArtifacts
   alias ServiceRadar.Edge.DirectLeafEligibility
   alias ServiceRadar.Edge.DirectLeafScope
+  alias ServiceRadar.Edge.OutputGrants
   alias ServiceRadar.Edge.RemoteConsoleTargetResolver
   alias ServiceRadar.Edge.SNMPProtoMapper
   alias ServiceRadar.Infrastructure.Agent
@@ -320,7 +321,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       plugin_config: proto_plugins,
       bumblebee_config: Map.get(config, :bumblebee_config),
       endpoint_inventory_config: Map.get(config, :endpoint_inventory_config),
-      addons: to_proto_addons(Map.get(config, :addons, []), Map.get(config, :agent_id))
+      addons: to_proto_addons(Map.get(config, :addons, []), Map.get(config, :agent_id)),
+      edge_output_grants: Map.get(config, :edge_output_grants, [])
     }
   end
 
@@ -380,7 +382,24 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     # (fj#4383); deliberately not a version-hash input, so it cannot perturb
     # config-change detection.
     |> Map.put(:agent_id, agent_id)
+    |> put_edge_output_grants(OutputGrants.config_grants(agent_id, partition_id))
   end
+
+  # A standing grant is re-signed once a UTC day (see `ServiceRadar.Edge.OutputGrants`), so
+  # folding its bytes into the version re-pushes the config daily and on every epoch move. An
+  # agent with no grant keeps exactly the version it had before grants existed.
+  defp put_edge_output_grants(config, []), do: Map.put(config, :edge_output_grants, [])
+
+  defp put_edge_output_grants(config, grants) do
+    digests = Enum.map(grants, &(&1 |> Monitoring.EdgeOutputGrant.encode() |> sha256_hex()))
+
+    version =
+      "v" <> Compiler.content_hash(%{base: config.config_version, edge_output_grants: digests})
+
+    Map.put(%{config | config_version: version}, :edge_output_grants, grants)
+  end
+
+  defp sha256_hex(bytes), do: :sha256 |> :crypto.hash(bytes) |> Base.encode16(case: :lower)
 
   # Load service checks assigned to this agent from the database
   defp load_agent_checks!(agent_id) do

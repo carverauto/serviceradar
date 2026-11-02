@@ -150,6 +150,24 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].env
           content: {name: SERVICERADAR_JS_ARANCINI_CAUSAL_FALLBACK_REPLICAS, value: "1"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_METRICS_REPLICAS, value: "1"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_SCAN_RESULTS_REPLICAS, value: "1"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_TELEMETRY_EDGE_RECORD_V1_BULK_MAX_BYTES, value: "1073741824"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_TELEMETRY_EDGE_RECORD_V1_BULK_REPLICAS, value: "1"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_NOTIFICATIONS_REPLICAS, value: "1"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_EXPOSURE_RECOVERY_REPLICAS, value: "1"}
 
   # --- three NATS servers: the configured R3 is kept ---------------------------
   - it: keeps R3 on three servers for datasvc, trapd and the log collectors
