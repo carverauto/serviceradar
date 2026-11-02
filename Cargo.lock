@@ -4905,9 +4905,9 @@ dependencies = [
 
 [[package]]
 name = "pq-sys"
-version = "0.7.5"
+version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "574ddd6a267294433f140b02a726b0640c43cf7c6f717084684aaa3b285aba61"
+checksum = "9152654059e4fb5b66a4052acf3ee43a7a7132332e44cdb72a81ee93bd038950"
 dependencies = [
  "libc",
  "pkg-config",
