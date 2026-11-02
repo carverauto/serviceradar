@@ -1956,12 +1956,8 @@ type MapperTopologyEndpointV1 struct {
 	IfName string `protobuf:"bytes,6,opt,name=if_name,json=ifName,proto3" json:"if_name,omitempty"`
 	// SNMP ifIndex (`if_index`).
 	IfIndex int32 `protobuf:"varint,7,opt,name=if_index,json=ifIndex,proto3" json:"if_index,omitempty"`
-	// Endpoint hostname (`hostname`).
-	Hostname string `protobuf:"bytes,8,opt,name=hostname,proto3" json:"hostname,omitempty"`
-	// Site identifier (`site`).
-	Site string `protobuf:"bytes,9,opt,name=site,proto3" json:"site,omitempty"`
 	// SNMP system name (`sys_name`).
-	SysName       string `protobuf:"bytes,10,opt,name=sys_name,json=sysName,proto3" json:"sys_name,omitempty"`
+	SysName       string `protobuf:"bytes,8,opt,name=sys_name,json=sysName,proto3" json:"sys_name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2043,20 +2039,6 @@ func (x *MapperTopologyEndpointV1) GetIfIndex() int32 {
 		return x.IfIndex
 	}
 	return 0
-}
-
-func (x *MapperTopologyEndpointV1) GetHostname() string {
-	if x != nil {
-		return x.Hostname
-	}
-	return ""
-}
-
-func (x *MapperTopologyEndpointV1) GetSite() string {
-	if x != nil {
-		return x.Site
-	}
-	return ""
 }
 
 func (x *MapperTopologyEndpointV1) GetSysName() string {
@@ -3760,7 +3742,7 @@ type SyncDeviceRecordV1 struct {
 	Groups []*SyncDeviceGroupV1 `protobuf:"bytes,46,rep,name=groups,proto3" json:"groups,omitempty"`
 	// Installed endpoint/management agents (`agent_list`).
 	AgentList []*SyncDeviceAgentV1 `protobuf:"bytes,47,rep,name=agent_list,json=agentList,proto3" json:"agent_list,omitempty"`
-	// Switch port attachment attributes (`switch_port_attachment`).
+	// Switch port attachment (`switch_port_attachment`). Keys are `switch_hostname` and `port`.
 	SwitchPortAttachment map[string]string `protobuf:"bytes,48,rep,name=switch_port_attachment,json=switchPortAttachment,proto3" json:"switch_port_attachment,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// String metadata key-value pairs (`metadata`). Armis `buildMetadata` writes
 	// `armis_device_id`, `integration_id`, `integration_type`, `source_device_id`,
@@ -4474,9 +4456,7 @@ type SyncNetworkInterfaceV1 struct {
 	// Wireless channels (`channels`).
 	Channels []string `protobuf:"bytes,18,rep,name=channels,proto3" json:"channels,omitempty"`
 	// Assigned VLAN ID (`vlan`).
-	Vlan *int32 `protobuf:"varint,19,opt,name=vlan,proto3,oneof" json:"vlan,omitempty"`
-	// Additional interface metadata (`metadata`).
-	Metadata      map[string]string `protobuf:"bytes,20,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Vlan          *int32 `protobuf:"varint,19,opt,name=vlan,proto3,oneof" json:"vlan,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4642,13 +4622,6 @@ func (x *SyncNetworkInterfaceV1) GetVlan() int32 {
 		return *x.Vlan
 	}
 	return 0
-}
-
-func (x *SyncNetworkInterfaceV1) GetMetadata() map[string]string {
-	if x != nil {
-		return x.Metadata
-	}
-	return nil
 }
 
 // SyncDeviceUserV1 maps `models.OCSFUser` (`owner`).
@@ -5166,7 +5139,7 @@ const file_edge_v1_json_producer_batches_proto_rawDesc = "" +
 	"\x0frelation_family\x18\x0e \x01(\tR\x0erelationFamily\x1a@\n" +
 	"\x12RawAttributesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x83\x02\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xd3\x01\n" +
 	"\x18MapperTopologyEndpointV1\x12\x10\n" +
 	"\x03uid\x18\x01 \x01(\tR\x03uid\x12\x1b\n" +
 	"\tdevice_id\x18\x02 \x01(\tR\bdeviceId\x12\x0e\n" +
@@ -5174,11 +5147,8 @@ const file_edge_v1_json_producer_batches_proto_rawDesc = "" +
 	"\x03mac\x18\x04 \x01(\tR\x03mac\x12\x17\n" +
 	"\aport_id\x18\x05 \x01(\tR\x06portId\x12\x17\n" +
 	"\aif_name\x18\x06 \x01(\tR\x06ifName\x12\x19\n" +
-	"\bif_index\x18\a \x01(\x05R\aifIndex\x12\x1a\n" +
-	"\bhostname\x18\b \x01(\tR\bhostname\x12\x12\n" +
-	"\x04site\x18\t \x01(\tR\x04site\x12\x19\n" +
-	"\bsys_name\x18\n" +
-	" \x01(\tR\asysName\"\xdc\x02\n" +
+	"\bif_index\x18\a \x01(\x05R\aifIndex\x12\x19\n" +
+	"\bsys_name\x18\b \x01(\tR\asysName\"\xdc\x02\n" +
 	"\x14MapperResultsBatchV1\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x1d\n" +
 	"\n" +
@@ -5451,7 +5421,7 @@ const file_edge_v1_json_producer_batches_proto_rawDesc = "" +
 	"\n" +
 	"_cpu_countB\x10\n" +
 	"\x0e_cpu_speed_mhzB\v\n" +
-	"\t_ram_size\"\x99\x06\n" +
+	"\t_ram_size\"\x84\x05\n" +
 	"\x16SyncNetworkInterfaceV1\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x02 \x01(\tR\vdescription\x12\x14\n" +
@@ -5473,11 +5443,7 @@ const file_edge_v1_json_producer_batches_proto_rawDesc = "" +
 	"\x15hidden_broadcast_ssid\x18\x10 \x01(\bH\x01R\x13hiddenBroadcastSsid\x88\x01\x01\x12.\n" +
 	"\x13last_connected_ssid\x18\x11 \x01(\tR\x11lastConnectedSsid\x12\x1a\n" +
 	"\bchannels\x18\x12 \x03(\tR\bchannels\x12\x17\n" +
-	"\x04vlan\x18\x13 \x01(\x05H\x02R\x04vlan\x88\x01\x01\x12V\n" +
-	"\bmetadata\x18\x14 \x03(\v2:.serviceradar.edge.v1.SyncNetworkInterfaceV1.MetadataEntryR\bmetadata\x1a;\n" +
-	"\rMetadataEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\n" +
+	"\x04vlan\x18\x13 \x01(\x05H\x02R\x04vlan\x88\x01\x01B\n" +
 	"\n" +
 	"\b_type_idB\x18\n" +
 	"\x16_hidden_broadcast_ssidB\a\n" +
@@ -5523,7 +5489,7 @@ func file_edge_v1_json_producer_batches_proto_rawDescGZIP() []byte {
 	return file_edge_v1_json_producer_batches_proto_rawDescData
 }
 
-var file_edge_v1_json_producer_batches_proto_msgTypes = make([]protoimpl.MessageInfo, 54)
+var file_edge_v1_json_producer_batches_proto_msgTypes = make([]protoimpl.MessageInfo, 53)
 var file_edge_v1_json_producer_batches_proto_goTypes = []any{
 	(*MapperDeviceBatchV1)(nil),                  // 0: serviceradar.edge.v1.MapperDeviceBatchV1
 	(*MapperDeviceRecordV1)(nil),                 // 1: serviceradar.edge.v1.MapperDeviceRecordV1
@@ -5578,7 +5544,6 @@ var file_edge_v1_json_producer_batches_proto_goTypes = []any{
 	nil,                                          // 50: serviceradar.edge.v1.SyncDeviceRecordV1.MetadataEntry
 	nil,                                          // 51: serviceradar.edge.v1.SyncDeviceRecordV1.TagsEntry
 	nil,                                          // 52: serviceradar.edge.v1.SyncDeviceRecordV1.FactsEntry
-	nil,                                          // 53: serviceradar.edge.v1.SyncNetworkInterfaceV1.MetadataEntry
 }
 var file_edge_v1_json_producer_batches_proto_depIdxs = []int32{
 	1,  // 0: serviceradar.edge.v1.MapperDeviceBatchV1.devices:type_name -> serviceradar.edge.v1.MapperDeviceRecordV1
@@ -5641,12 +5606,11 @@ var file_edge_v1_json_producer_batches_proto_depIdxs = []int32{
 	51, // 57: serviceradar.edge.v1.SyncDeviceRecordV1.tags:type_name -> serviceradar.edge.v1.SyncDeviceRecordV1.TagsEntry
 	52, // 58: serviceradar.edge.v1.SyncDeviceRecordV1.facts:type_name -> serviceradar.edge.v1.SyncDeviceRecordV1.FactsEntry
 	31, // 59: serviceradar.edge.v1.SyncDeviceRecordV1.sync_meta:type_name -> serviceradar.edge.v1.SyncMetaV1
-	53, // 60: serviceradar.edge.v1.SyncNetworkInterfaceV1.metadata:type_name -> serviceradar.edge.v1.SyncNetworkInterfaceV1.MetadataEntry
-	61, // [61:61] is the sub-list for method output_type
-	61, // [61:61] is the sub-list for method input_type
-	61, // [61:61] is the sub-list for extension type_name
-	61, // [61:61] is the sub-list for extension extendee
-	0,  // [0:61] is the sub-list for field type_name
+	60, // [60:60] is the sub-list for method output_type
+	60, // [60:60] is the sub-list for method input_type
+	60, // [60:60] is the sub-list for extension type_name
+	60, // [60:60] is the sub-list for extension extendee
+	0,  // [0:60] is the sub-list for field type_name
 }
 
 func init() { file_edge_v1_json_producer_batches_proto_init() }
@@ -5673,7 +5637,7 @@ func file_edge_v1_json_producer_batches_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_edge_v1_json_producer_batches_proto_rawDesc), len(file_edge_v1_json_producer_batches_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   54,
+			NumMessages:   53,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

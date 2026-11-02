@@ -448,9 +448,7 @@ defmodule Serviceradar.Edge.V1.MapperTopologyEndpointV1 do
   field :port_id, 5, type: :string, json_name: "portId"
   field :if_name, 6, type: :string, json_name: "ifName"
   field :if_index, 7, type: :int32, json_name: "ifIndex"
-  field :hostname, 8, type: :string
-  field :site, 9, type: :string
-  field :sys_name, 10, type: :string, json_name: "sysName"
+  field :sys_name, 8, type: :string, json_name: "sysName"
 end
 
 defmodule Serviceradar.Edge.V1.MapperResultsBatchV1 do
@@ -969,19 +967,6 @@ defmodule Serviceradar.Edge.V1.SyncDeviceHwInfoV1 do
   field :uuid, 13, type: :string
 end
 
-defmodule Serviceradar.Edge.V1.SyncNetworkInterfaceV1.MetadataEntry do
-  @moduledoc false
-
-  use Protobuf,
-    full_name: "serviceradar.edge.v1.SyncNetworkInterfaceV1.MetadataEntry",
-    map: true,
-    protoc_gen_elixir_version: "0.16.0",
-    syntax: :proto3
-
-  field :key, 1, type: :string
-  field :value, 2, type: :string
-end
-
 defmodule Serviceradar.Edge.V1.SyncNetworkInterfaceV1 do
   @moduledoc false
 
@@ -1014,11 +999,6 @@ defmodule Serviceradar.Edge.V1.SyncNetworkInterfaceV1 do
   field :last_connected_ssid, 17, type: :string, json_name: "lastConnectedSsid"
   field :channels, 18, repeated: true, type: :string
   field :vlan, 19, proto3_optional: true, type: :int32
-
-  field :metadata, 20,
-    repeated: true,
-    type: Serviceradar.Edge.V1.SyncNetworkInterfaceV1.MetadataEntry,
-    map: true
 end
 
 defmodule Serviceradar.Edge.V1.SyncDeviceUserV1 do

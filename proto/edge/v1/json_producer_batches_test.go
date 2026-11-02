@@ -227,8 +227,6 @@ func TestMapperBatchProtosRoundTrip(t *testing.T) {
 				PortId:   "xe-0/0/0",
 				IfName:   "xe-0/0/0",
 				IfIndex:  1,
-				Hostname: "sw-core-01.example.com",
-				Site:     "example-site",
 				SysName:  "sw-core-01.example.com",
 			},
 			TargetEndpoint: &edgev1.MapperTopologyEndpointV1{
@@ -239,8 +237,6 @@ func TestMapperBatchProtosRoundTrip(t *testing.T) {
 				PortId:   "xe-0/0/1",
 				IfName:   "xe-0/0/1",
 				IfIndex:  2,
-				Hostname: "sw-dist-01.example.com",
-				Site:     "example-site",
 				SysName:  "sw-dist-01.example.com",
 			},
 			RawAttributes: map[string]string{
@@ -583,9 +579,6 @@ func TestSyncPageBatchProtoRoundTrip(t *testing.T) {
 						LastConnectedSsid:   "example-corp-wifi",
 						Channels:            []string{"36", "40"},
 						Vlan:                &vlan,
-						Metadata: map[string]string{
-							"port_mode": "access",
-						},
 					},
 				},
 				Owner: &edgev1.SyncDeviceUserV1{
@@ -620,8 +613,8 @@ func TestSyncPageBatchProtoRoundTrip(t *testing.T) {
 					},
 				},
 				SwitchPortAttachment: map[string]string{
-					"switch_name": "sw-core-01.example.com",
-					"port_name":   "xe-0/0/5",
+					"switch_hostname": "sw-core-01.example.com",
+					"port":            "xe-0/0/5",
 				},
 				Metadata: map[string]string{
 					"armis_device_id":  "1001",

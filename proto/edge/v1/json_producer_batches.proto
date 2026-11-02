@@ -422,12 +422,8 @@ message MapperTopologyEndpointV1 {
   string if_name = 6;
   // SNMP ifIndex (`if_index`).
   int32 if_index = 7;
-  // Endpoint hostname (`hostname`).
-  string hostname = 8;
-  // Site identifier (`site`).
-  string site = 9;
   // SNMP system name (`sys_name`).
-  string sys_name = 10;
+  string sys_name = 8;
 }
 
 // MapperResultsBatchV1 is a unified batch envelope capable of carrying device,
@@ -856,7 +852,7 @@ message SyncDeviceRecordV1 {
   repeated SyncDeviceGroupV1 groups = 46;
   // Installed endpoint/management agents (`agent_list`).
   repeated SyncDeviceAgentV1 agent_list = 47;
-  // Switch port attachment attributes (`switch_port_attachment`).
+  // Switch port attachment (`switch_port_attachment`). Keys are `switch_hostname` and `port`.
   map<string, string> switch_port_attachment = 48;
 
   // String metadata key-value pairs (`metadata`). Armis `buildMetadata` writes
@@ -976,8 +972,6 @@ message SyncNetworkInterfaceV1 {
   repeated string channels = 18;
   // Assigned VLAN ID (`vlan`).
   optional int32 vlan = 19;
-  // Additional interface metadata (`metadata`).
-  map<string, string> metadata = 20;
 }
 
 // SyncDeviceUserV1 maps `models.OCSFUser` (`owner`).
