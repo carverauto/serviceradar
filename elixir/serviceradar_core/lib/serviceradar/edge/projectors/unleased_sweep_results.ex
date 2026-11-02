@@ -88,9 +88,12 @@ defmodule ServiceRadar.Edge.Projectors.UnleasedSweepResults do
   commit as they do there: logged, with whatever the ingest recorded kept.
   """
   @impl true
-  def project(repo, %EdgeRecordV1{} = record, %UnleasedSweepResultsBatchV1{} = batch, %{
-        primary?: true
-      } = context) do
+  def project(
+        repo,
+        %EdgeRecordV1{} = record,
+        %UnleasedSweepResultsBatchV1{} = batch,
+        %{primary?: true} = context
+      ) do
     producer = record.producer_context
     network_scope_id = Ecto.UUID.load!(record.network_scope_id)
     agent_id = producer.origin_principal_id
