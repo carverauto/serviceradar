@@ -11,31 +11,19 @@
 
 ### Requirement: Results ingestion uses layered gRPC and JetStream routing
 The system SHALL choose result routing by workload semantics. Persistent
-agent-originated observations, telemetry, inventory, findings, traces, events,
-and plugin telemetry SHALL enter through an authenticated,
+agent-originated observations, telemetry, inventory, findings, traces, and
+events SHALL enter through an authenticated,
 flow-controlled gRPC stream at the agent-gateway and SHALL be durably published
-by the gateway to JetStream before edge delivery is acknowledged. The existing
-sync gRPC-to-core route MAY drain only already-accepted pre-cutover backlog; new
+by the gateway to JetStream before edge delivery is acknowledged. New
 or migrated persistent integration output SHALL use the durable record plane.
 ERTS SHALL remain an internal command/control and bounded status transport and
 SHALL NOT be a durable bulk-record boundary.
 
-#### Scenario: Pre-cutover legacy sync backlog drains
-- **GIVEN** bounded legacy sync chunks were accepted before a cohort's hard
-  edge-record cutover
-- **WHEN** the cohort begins v1 producer assignments
-- **THEN** the existing sync ingestor MAY drain only that identified backlog
-- **AND** rollback SHALL disable new affected work and retain compatible v1
-  consumers rather than generate new legacy output
-
 #### Scenario: Sync results ingestion via gRPC stream
 - **GIVEN** an agent emits sync results that exceed single-message limits
 - **WHEN** the agent streams the results via `StreamStatus`
-- **THEN** the agent-gateway MAY forward the chunked payload through the
-  existing sync gRPC-to-core route only when it is already-accepted pre-cutover
-  backlog, as described in "Pre-cutover legacy sync backlog drains"
-- **AND** new or migrated persistent integration output SHALL NOT use that route
-  and SHALL use the durable record plane
+- **THEN** new or migrated persistent integration output SHALL NOT use the
+  existing sync gRPC-to-core route and SHALL use the durable record plane
 
 #### Scenario: Sweep observations use layered delivery
 - **GIVEN** an authenticated agent produces a sweep observation frame
@@ -58,22 +46,13 @@ SHALL NOT be a durable bulk-record boundary.
   physical streams SHALL prevent trace backlog from monopolizing other records
 
 #### Scenario: Plugin or integration publishes persistent output
-- **GIVEN** a Wasm plugin, native add-on, or embedded integration emits through
-  the plugin telemetry contract under the agent's standing output grant
+- **GIVEN** a Wasm, native add-on, or embedded integration
 - **WHEN** its bounded record is fsynced in the common spool and reaches the
   gateway
 - **THEN** the gateway SHALL publish it through the fixed edge-record route and
   wait for authoritative PubAck
 - **AND** the output SHALL NOT use `plugin_result`, lossy telemetry, ERTS, or
   direct CNPG as an alternate persistent path
-
-#### Scenario: Agent is below the edge-record minimum
-- **WHEN** an agent or reachable gateway cannot send, retain, and drain the
-  required v1 edge-record protocol and pinned contract bundle
-- **THEN** the control plane SHALL assign no new affected durable producer run
-  through that path
-- **AND** SHALL require upgrade rather than provide a legacy JSON sender or
-  compatibility bridge
 
 #### Scenario: Control and small status remain direct
 - **GIVEN** an agent sends configuration, command response, heartbeat, or other
@@ -88,8 +67,6 @@ SHALL NOT be a durable bulk-record boundary.
 - **THEN** the agent-gateway MAY forward bounded non-persistent status through
   the existing gRPC/ERTS control route, as described in "Control and small
   status remain direct"
-- **AND** already-accepted pre-cutover sync backlog MAY stay on the sync
-  ingestor path, as described in "Pre-cutover legacy sync backlog drains"
 - **AND** new or migrated persistent output, other than `sweep`, SHALL NOT
   share that status routing and SHALL use the durable record plane as described
   in "Plugin or integration publishes persistent output"
@@ -122,8 +99,6 @@ package-selected subjects, or one generic status handler for persistent data.
 - **GIVEN** core receives a results payload tagged as `sync` or `sweep`
 - **WHEN** the result pipeline routes persistent data
 - **THEN** it SHALL NOT select a handler from the result-type tag alone
-- **AND** already-accepted pre-cutover sync backlog MAY stay on the sync
-  ingestor path, as described in "Pre-cutover legacy sync backlog drains"
 - **AND** new or migrated persistent output SHALL route by exact output
   contract, route profile, and schema version as described in "Versioned record
   selects its route and projector"

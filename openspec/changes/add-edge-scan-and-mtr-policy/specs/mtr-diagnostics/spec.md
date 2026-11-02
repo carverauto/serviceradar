@@ -17,8 +17,7 @@ immutable traffic class.
 - **AND** the command response SHALL report accepted/progress/terminal state and
   the trace ID
 - **AND** the complete ASN, DNS, MPLS, ECMP, hop, reachability, and timing result
-  SHALL be published through the agent-scheduled MTR trace contract
-  (`AgentScheduledMtrTraceBatchV1`)
+  SHALL be published through `MtrTraceBatchV1`
 - **AND** an on-demand trace classified as interactive SHALL use the shared
   interactive edge-record lane, physical stream, durable, and result credits
 
@@ -29,8 +28,7 @@ immutable traffic class.
   target, enriched with ASN, DNS, and MPLS data
 - **AND** the control stream response SHALL carry bounded command/progress state
   and the trace ID rather than the complete enriched result
-- **AND** the complete result SHALL be published through the agent-scheduled MTR
-  trace contract as
+- **AND** the complete result SHALL be published through `MtrTraceBatchV1` as
   described in "On-demand trace succeeds"
 
 #### Scenario: Caller waits for an interactive result

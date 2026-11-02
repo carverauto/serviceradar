@@ -108,3 +108,4 @@ operator-approved, benchmark-backed capacity override.
 - **THEN** the source SHALL stream it into a bounded trace microbatch and durable
   spool without waiting for the run or interval to end
 - **AND** SHALL NOT accumulate a run-wide or interval-wide trace slice
+

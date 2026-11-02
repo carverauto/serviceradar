@@ -232,9 +232,6 @@ publication obtains PubAck.
 - **THEN** the authorized deleter MAY remove that exact physical stream sequence
 - **AND** time alone, stream pressure, or an absent catalog entry SHALL NOT delete
   it
-
-## MODIFIED Requirements
-
 ### Requirement: Tenant Channel Prefixing
 
 Runtime NATS subjects SHALL be fixed, versioned, installation-local contracts;
@@ -508,3 +505,6 @@ installation-local contracts and SHALL NOT map unprefixed data to a synthetic
   only fixed installation-local contracts
 - **AND** non-prefixed messages SHALL NOT be associated with a synthetic
   "default" tenant
+
+## ADDED Requirements
+

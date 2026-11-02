@@ -11,7 +11,8 @@
 
 ### Requirement: Producer pressure and fairness are bounded
 Every grant SHALL bound record/frame/run bytes and counts, rate, concurrent
-runs, pages, checkpoints, terminal attempts, outstanding spool bytes, and contract-specific expansion/write cost. The agent SHALL
+runs, pages, checkpoints, terminal attempts, outstanding spool bytes, retained
+idempotency entries, and contract-specific expansion/write cost. The agent SHALL
 run an approved bounded validator/cost engine before spooling or charge the
 contract's fixed worst-case grant cost. Retryable pressure SHALL be distinct from
 permanent size, schema, capability, revocation, and quota errors and SHALL expose
@@ -29,16 +30,10 @@ or loss-audited and SHALL NOT be advertised as durable.
 - **AND** the interactive check and recovery lane SHALL continue within their
   reserved bounds
 
-#### Scenario: A producer busy-loops on backpressure
-- **WHEN** a producer repeatedly ignores a retryable refusal
-- **THEN** the agent SHALL pause, throttle, or terminate that producer
-- **AND** already accepted records and other producers' reserved capacity SHALL
-  remain intact
-
 ### Requirement: Projection is platform-owned and replay-safe
 EventWriter SHALL dispatch by exact trusted `(route profile, contract ID,
-version, complete contract digest)` and use only the compiled platform projector registered for that contract.
-Plugins and add-ons SHALL NOT have output contracts of their own, and packages SHALL NOT
+version, complete contract digest)` and use only a compiled platform projector or
+an approved bounded declarative processor contribution. Packages SHALL NOT
 execute BEAM/native/JavaScript code, SQL, DDL, or choose physical storage during
 ingestion. Deterministic validation/projection failures SHALL use the durable DLQ
 policy; deployment-not-ready versions SHALL pause rather than poison valid data.
@@ -272,9 +267,8 @@ using the trusted envelope/grant BEFORE side effects.
   validate decoded authoritative fields before projection
 
 #### Scenario: A scanner output lacks scan authority
-- **GIVEN** a producer holds a standing grant for a scan-result contract but no valid
-  target/range collection capability
-- **WHEN** it attempts to report or initiate a scan
+- **GIVEN** no valid target/range collection capability
+- **WHEN** a scanner attempts to report or initiate a scan
 - **THEN** output permission SHALL NOT authorize the probe or make the target
   claims authoritative
 - **AND** the record SHALL be rejected or retained as non-authoritative audit

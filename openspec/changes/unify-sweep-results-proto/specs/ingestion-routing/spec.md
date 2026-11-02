@@ -8,9 +8,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Large payload routing follows durability semantics
-Persistent records SHALL NOT use broker-free large-payload ingestion. The system
-MAY finish and drain already-accepted pre-cutover sync payloads through bounded
-streaming gRPC chunking. Durable
+Persistent records SHALL NOT use broker-free large-payload ingestion. Durable
 inventory, telemetry, findings, events, traces, observations, and other
 persistent records produced by an agent-side integration SHALL use bounded typed
 records through the durable producer plane and JetStream/EventWriter. The legacy
@@ -18,20 +16,10 @@ broker-free sync route SHALL NOT become a persistence path for a new or migrated
 durable output contract. Non-persistent command/configuration and coalescible
 status MAY remain broker-free.
 
-#### Scenario: Pre-cutover sync payload delivered via chunks
-- **GIVEN** a legacy sync source accepted bounded work before its hard cutover
-- **WHEN** that pre-cutover payload exceeds a single compatibility message
-- **THEN** it MAY be delivered as multiple gRPC chunks to the legacy sync
-  ingestor
-- **AND** no newly defined persistent dataset SHALL use that exception
-
 #### Scenario: Large sync payload delivered via chunks
 - **WHEN** a sync results payload exceeds single-message limits
-- **THEN** it MAY be delivered as multiple gRPC chunks without NATS involvement
-  only when it is already-accepted pre-cutover work, as described in
-  "Pre-cutover sync payload delivered via chunks"
-- **AND** any other persistent payload SHALL use bounded typed records through
-  the durable producer plane and JetStream/EventWriter rather than broker-free
+- **THEN** a persistent payload SHALL use bounded typed records through the
+  durable producer plane and JetStream/EventWriter rather than broker-free
   chunking
 
 #### Scenario: Agent integration emits durable inventory
@@ -46,7 +34,7 @@ status MAY remain broker-free.
 ### Requirement: Edge durable records use layered transport and durability
 Agent-originated durable records SHALL use layered transport and durability.
 Persistent observations, telemetry, inventory, findings, execution events,
-traces, and plugin telemetry SHALL use
+and traces SHALL use
 mTLS gRPC for the edge hop and installation-local JetStream for durable commit,
 replay, fan-out, and downstream backpressure. The gateway SHALL be the sole
 JetStream ingress publisher for these agent-originated durable record types.
@@ -592,8 +580,8 @@ consumer SHALL validate opaque-body membership before side effects.
 #### Scenario: Opaque records have mixed contract or authorization contexts
 - **GIVEN** a frame declares one output contract, producer run, and authorization
   context
-- **WHEN** decoding reveals a sweep, trace, inventory page, metric, or plugin
-  telemetry record from a different contract, producer assignment/run, traffic class,
+- **WHEN** decoding reveals a sweep, trace, inventory page, or metric
+  from a different contract, producer assignment/run, traffic class,
   authorization epoch, source scope, or target range
 - **THEN** the consumer SHALL reject the entire frame as poison before side
   effects
@@ -845,7 +833,7 @@ and SHALL reject an unknown version fail-closed.
 ### Requirement: Bounded durable outputs remain stream records
 Bounded durable outputs SHALL remain independently decodable JetStream records,
 including observations, traces, inventory pages/manifests, metrics, findings,
-events, and plugin telemetry. An oversize logical output SHALL be split only by its approved
+and events. An oversize logical output SHALL be split only by its approved
 canonical paging/batching contract or rejected/quarantined. This change SHALL
 NOT add an Object Store fallback for oversize record bytes; the record plane MAY
 carry only bounded artifact references and lifecycle metadata.
@@ -857,7 +845,7 @@ carry only bounded artifact references and lifecycle metadata.
 - **AND** consumers SHALL NOT fetch an object before processing it
 
 #### Scenario: Durable output exceeds the event contract
-- **WHEN** a sweep, trace, inventory, metric, finding, event, or plugin telemetry record
+- **WHEN** a sweep, trace, inventory, metric, finding, or event
   exceeds its byte or projected-row budget and has no valid paging boundary
 - **THEN** it SHALL be rejected or quarantined according to the record protocol
 - **AND** it SHALL NOT be silently diverted into Object Store

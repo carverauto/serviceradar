@@ -42,3 +42,4 @@ subject, stream, consumer, connection, process, or RAFT-group cardinality.
   AckWait, redelivery, repair, and rollback watermark
 - **AND** every immutable historical map version, publisher fence, subject
   authority, and consumer configuration SHALL be retained until that watermark
+

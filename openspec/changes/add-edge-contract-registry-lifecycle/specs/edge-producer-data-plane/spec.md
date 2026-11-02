@@ -47,8 +47,8 @@ retention/data classification, and error policy. Its exact digest and registry
 epoch SHALL be bound into every accepted record and retained through the maximum
 producer-retry, agent-offline, spool, JetStream replay, DLQ, and redrive horizon.
 
-Package metadata SHALL NOT define output contracts, because plugins emit the
-closed `TelemetryBatch` payload kinds and the plugin result contract, and SHALL NOT choose subjects, streams, consumers, traffic class,
+Package metadata MAY request approved outputs and declarative processor
+contributions, but SHALL NOT choose subjects, streams, consumers, traffic class,
 database tables/DDL, executable Core processors, or arbitrary subject filters.
 A producer grant SHALL become ready only when agent, gateway, route map, and
 required projector have compatible registry state.
@@ -67,9 +67,9 @@ delivery fail-closed until an approved safe replacement, redrive, or explicit
 waiver exists. Registry history SHALL be garbage-collected only after all of its
 declared horizons and correctness holds close.
 
-#### Scenario: Producer submits a contract without a grant
-- **WHEN** a producer submits a contract for which the agent holds no active
-  grant
+#### Scenario: Package requests an unapproved output
+- **WHEN** a package requests or submits a contract absent from its effective
+  assignment grant
 - **THEN** the agent SHALL reject it before local spool acceptance
 - **AND** no fallback generic JSON, subject, or dynamic database projection
   SHALL be created
@@ -108,3 +108,4 @@ declared horizons and correctness holds close.
 - **THEN** it SHALL be fenced from new production and authoritative projection
 - **AND** it SHALL NOT roll the deployment backward or reinterpret records under
   its local latest-known bundle
+

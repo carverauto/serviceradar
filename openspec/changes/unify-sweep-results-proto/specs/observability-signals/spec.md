@@ -5,13 +5,11 @@
 ### Requirement: Agent durable records are published before edge acknowledgement
 The agent-gateway SHALL be the defined JetStream ingress publisher for
 agent-originated persistent observations, metrics, inventory, findings,
-execution events, traces, and plugin telemetry. It SHALL
+execution events, and traces. It SHALL
 use a JetStream publish request and validate PubAck for the expected
 authoritative installation-local, traffic-class-specific stream before returning
 an accepted disposition for the corresponding edge spool sequence. Bulk and
 interactive records SHALL use disjoint physical streams and durable consumers.
-Agents below the required edge-record protocol version SHALL receive no new
-affected work; the installation SHALL NOT add a patched legacy JSON sender.
 
 #### Scenario: Core NATS handoff succeeds without PubAck
 - **GIVEN** a client connection accepts a Core NATS publish but no valid
@@ -72,8 +70,8 @@ downstream with stable source correlation.
 - **AND** it SHALL NOT become a second database writer for the same domain rows
 
 #### Scenario: Wasm or native producer emits persistent telemetry
-- **WHEN** a plugin or add-on emits a persistent metric, finding, or event
-  through the plugin telemetry contract
+- **WHEN** a plugin or add-on submits an approved persistent metric, finding, or
+  event contract
 - **THEN** the authoritative record SHALL become available to persistence and
   authorized real-time consumers through JetStream
 - **AND** the producer SHALL NOT duplicate it through `plugin_result`, base64/

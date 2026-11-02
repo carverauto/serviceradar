@@ -17,3 +17,4 @@ data and reserved for recovery/control and terminal evidence.
 - **THEN** the allocator SHALL refuse new ordinary producer reservations
 - **AND** SHALL preserve enough space to durably abort/terminalize work and report
   or recover already-committed spool state
+
