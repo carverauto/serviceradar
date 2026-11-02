@@ -46,6 +46,11 @@ var ErrInvalidAllocatorConfig = errors.New("spool: invalid allocator config")
 // nothing is written; the producer must defer, not fail the work.
 var ErrAdmissionRefused = errors.New("spool: admission refused")
 
+// ErrAdmissionPaused is returned when the admission gate (WithAdmissionGate)
+// holds producer admission paused. It matches ErrAdmissionRefused: nothing is
+// charged or written, and the producer defers.
+var ErrAdmissionPaused = fmt.Errorf("%w: producer admission paused", ErrAdmissionRefused)
+
 // ErrRecoveryConcurrencyExhausted is returned by AcquireRecovery when the
 // bounded number of concurrent recoveries is already running.
 var ErrRecoveryConcurrencyExhausted = errors.New("spool: concurrent recovery limit reached")

@@ -199,6 +199,7 @@ type Spool struct {
 	baseSeq  uint64
 	bindings BindingInspector
 	alloc    *Allocator
+	admitNew func() bool
 
 	mu      sync.Mutex
 	seg     segmentHandle
@@ -258,6 +259,17 @@ func WithBindings(b BindingInspector) Option {
 // allocator across every lane on the same filesystem.
 func WithAllocator(a *Allocator) Option {
 	return func(s *Spool) { s.alloc = a }
+}
+
+// WithAdmissionGate makes every commit ask admit first, after the commit is
+// validated and before allocator admission. A false answer refuses the commit
+// with an error matching ErrAdmissionPaused, and so ErrAdmissionRefused: nothing
+// is written or charged and no sequence is allocated, so the producer defers the
+// record unchanged. The gate does not apply to terminal evidence or reclaim, so a
+// paused spool still drains. The agent passes the bulk high/low-water hysteresis
+// of go/pkg/edge/admission here.
+func WithAdmissionGate(admit func() bool) Option {
+	return func(s *Spool) { s.admitNew = admit }
 }
 
 // Open opens (creating if needed) the spool at dir and resolves durable state.
@@ -445,6 +457,9 @@ func (s *Spool) Commit(eventID, body []byte, b Bindings) (CommitReceipt, error) 
 	// rotate the lane's generation and retry it unchanged.
 	if bound := s.segBounds.refusalFor(b.AttributionSHA256); bound != "" {
 		return CommitReceipt{}, rotationRefusal(bound, s.segBounds.stats())
+	}
+	if s.admitNew != nil && !s.admitNew() {
+		return CommitReceipt{}, ErrAdmissionPaused
 	}
 	var charged uint64
 	if s.alloc != nil {

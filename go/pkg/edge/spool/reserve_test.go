@@ -1157,6 +1157,37 @@ func TestSpoolAdmissionRefusalWritesNothing(t *testing.T) {
 	}
 }
 
+// A paused admission gate refuses a commit as a full allocator does: nothing is
+// written or charged and no sequence is allocated, so the same record is admitted
+// unchanged once the gate opens.
+func TestAdmissionGatePauseWritesNothing(t *testing.T) {
+	body := syntheticBody
+	a := newTestAllocator(t, 4*laneChargeLen(body), 1)
+	dir := t.TempDir()
+	admitting := true
+	s, err := Open(dir, WithAllocator(a), WithAdmissionGate(func() bool { return admitting }))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+	mustAppend(t, s, 1, body)
+	used := a.Usage().OrdinaryUsed
+
+	admitting = false
+	if _, err := s.Append(evid(2), []byte(body)); !errors.Is(err, ErrAdmissionPaused) || !errors.Is(err, ErrAdmissionRefused) {
+		t.Fatalf("append while paused = %v, want ErrAdmissionPaused matching ErrAdmissionRefused", err)
+	}
+	if s.NextSequence() != 2 || a.Usage().OrdinaryUsed != used {
+		t.Fatalf("paused append changed the spool: next %d, used %d; want 2, %d", s.NextSequence(), a.Usage().OrdinaryUsed, used)
+	}
+	if s.failErr != nil {
+		t.Fatalf("a paused append must not fail-stop the spool: %v", s.failErr)
+	}
+
+	admitting = true
+	mustAppend(t, s, 2, body)
+}
+
 // A closed lane's files are still on disk, so its charge survives Close and is
 // released only after they are deleted. Reopening re-measures instead of
 // adding, and releasing one lane can never spend another lane's charge.

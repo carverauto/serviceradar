@@ -77,6 +77,7 @@ func TestServerWritePrometheusMetricsIncludesEdgeSpoolSample(t *testing.T) {
 		return EdgeSpoolHealth{
 			UnresolvedBytes: 4096, OldestUnresolvedAge: 125 * time.Second, ReportAge: true,
 			QuarantinedRecords: 3, QuarantinedBytes: 2048, PermanentRejections: 5, QuarantineEvicted: 1, QuarantineDropped: 2,
+			AdmissionPaused: true,
 		}, true
 	})
 
@@ -93,6 +94,7 @@ func TestServerWritePrometheusMetricsIncludesEdgeSpoolSample(t *testing.T) {
 		"# TYPE agent_edge_spool_permanent_rejections_total counter\nagent_edge_spool_permanent_rejections_total 5\n",
 		"agent_edge_spool_dropped_records_total{reason=\"quarantine_evicted\"} 1\n",
 		"agent_edge_spool_dropped_records_total{reason=\"quarantine_full\"} 2\n",
+		"# TYPE agent_edge_spool_admission_paused gauge\nagent_edge_spool_admission_paused 1\n",
 	} {
 		if !strings.Contains(metrics, want) {
 			t.Fatalf("metrics missing %q in:\n%s", want, metrics)

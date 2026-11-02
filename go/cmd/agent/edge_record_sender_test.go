@@ -19,6 +19,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"io"
@@ -42,6 +43,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
+	"google.golang.org/protobuf/proto"
 )
 
 // runEdgeRecordSender must return promptly (not block on a ticker or dial)
@@ -131,7 +133,7 @@ func TestRunEdgeRecordSenderConfigurationGuards(t *testing.T) {
 }
 
 func TestOpenEdgeRecordSpoolRejectsMissingDirectory(t *testing.T) {
-	_, err := openEdgeRecordSpool(&agent.ServerConfig{EdgeRecordSender: &agent.EdgeRecordSenderConfig{Enabled: true}})
+	_, _, err := openEdgeRecordSpool(&agent.ServerConfig{EdgeRecordSender: &agent.EdgeRecordSenderConfig{Enabled: true}})
 	if err == nil {
 		t.Fatal("enabled sender accepted missing spool directory")
 	}
@@ -144,7 +146,7 @@ func TestOpenEdgeRecordSpoolRefusesProducersWithoutTheSender(t *testing.T) {
 		"sweep":   {SweepEnabled: true, SpoolDir: t.TempDir()},
 		"metrics": {MetricsEnabled: true, SpoolDir: t.TempDir()},
 	} {
-		if _, err := openEdgeRecordSpool(&agent.ServerConfig{EdgeRecordSender: cfg}); !errors.Is(err, errEdgeProducersRequireSender) {
+		if _, _, err := openEdgeRecordSpool(&agent.ServerConfig{EdgeRecordSender: cfg}); !errors.Is(err, errEdgeProducersRequireSender) {
 			t.Errorf("%s producer without the sender: err=%v, want errEdgeProducersRequireSender", name, err)
 		}
 	}
@@ -152,7 +154,7 @@ func TestOpenEdgeRecordSpoolRefusesProducersWithoutTheSender(t *testing.T) {
 
 func TestOpenEdgeRecordSpoolRefusesAdmissionAtBudgetAfterRestart(t *testing.T) {
 	cfg := &agent.ServerConfig{EdgeRecordSender: &agent.EdgeRecordSenderConfig{Enabled: true, SweepEnabled: true, SpoolDir: t.TempDir(), MaxBytes: 4 << 20}}
-	sp, err := openEdgeRecordSpool(cfg)
+	sp, _, err := openEdgeRecordSpool(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +164,7 @@ func TestOpenEdgeRecordSpoolRefusesAdmissionAtBudgetAfterRestart(t *testing.T) {
 	if err = sp.Close(); err != nil {
 		t.Fatal(err)
 	}
-	sp, err = openEdgeRecordSpool(cfg)
+	sp, _, err = openEdgeRecordSpool(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,6 +178,78 @@ func TestOpenEdgeRecordSpoolRefusesAdmissionAtBudgetAfterRestart(t *testing.T) {
 	}
 	if len(records) != 1 {
 		t.Fatalf("refused append changed spool: %d records", len(records))
+	}
+}
+
+// Producer admission pauses at the spool's high water, before the allocator's
+// hard ceiling refuses anything. A record refused while paused is not written,
+// however often it is retried, so its producer keeps it and retries it unchanged.
+// Once the sender's acknowledgement lets the spool reclaim, which brings its
+// bytes to the low water, the same record is admitted.
+func TestEdgeSpoolAdmissionPausesAtHighWaterAndResumesAfterReclaim(t *testing.T) {
+	cfg := &agent.ServerConfig{EdgeRecordSender: &agent.EdgeRecordSenderConfig{Enabled: true, SweepEnabled: true, SpoolDir: t.TempDir(), MaxBytes: 4 << 20}}
+	sp, gate, err := openEdgeRecordSpool(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = sp.Close() }()
+	eventID := func(i int) []byte {
+		id := make([]byte, 16)
+		binary.BigEndian.PutUint64(id[8:], uint64(i))
+		return id
+	}
+	body := make([]byte, 64<<10)
+
+	var admitted [][]byte
+	var refused error
+	for i := 1; refused == nil; i++ {
+		if i > 100 {
+			t.Fatal("the spool admitted 100 records without pausing")
+		}
+		if _, refused = sp.Append(eventID(i), body); refused == nil {
+			admitted = append(admitted, eventID(i))
+		}
+	}
+	if !errors.Is(refused, spool.ErrAdmissionPaused) {
+		t.Fatalf("first refusal after %d records = %v, want the high-water pause before the hard ceiling", len(admitted), refused)
+	}
+	if !gate.BulkPaused() {
+		t.Fatal("the gate does not report the pause")
+	}
+
+	held := eventID(len(admitted) + 1)
+	for range 3 {
+		if _, err = sp.Append(held, body); !errors.Is(err, spool.ErrAdmissionPaused) {
+			t.Fatalf("retry while paused = %v, want ErrAdmissionPaused", err)
+		}
+	}
+	records, err := sp.Unresolved()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != len(admitted) {
+		t.Fatalf("refused retries changed the spool: %d records, want %d", len(records), len(admitted))
+	}
+
+	through := uint64(len(admitted))
+	ack := &edgev1.EdgeDeliveryAckV1{ResolvedThroughSequence: through}
+	for i, id := range admitted {
+		ack.Dispositions = append(ack.Dispositions, &edgev1.EdgeRecordDisposition{
+			Sequence: uint64(i + 1), EventId: id, Kind: edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE,
+		})
+	}
+	evidence, err := proto.Marshal(ack)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = sp.ResolveWithEvidence(through, evidence); err != nil {
+		t.Fatal(err)
+	}
+	if gate.BulkPaused() {
+		t.Fatal("admission stayed paused after reclaim emptied the spool")
+	}
+	if _, err = sp.Append(held, body); err != nil {
+		t.Fatalf("the held record after reclaim = %v, want admitted", err)
 	}
 }
 

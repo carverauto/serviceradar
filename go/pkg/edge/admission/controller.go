@@ -778,7 +778,7 @@ func (c *Controller) restoreHysteresisLocked() {
 		total = c.lim.Capacity
 	}
 
-	c.bulkPaused = total > c.lim.LowWater
+	c.bulkPaused = c.watermarks().initial(total)
 }
 
 // Ready reports whether a snapshot has been installed. An unready controller
@@ -860,9 +860,9 @@ func (c *Controller) updateHysteresisLocked() {
 		total = c.lim.Capacity
 	}
 
-	if !c.bulkPaused && total >= c.lim.HighWater {
-		c.bulkPaused = true
-	} else if c.bulkPaused && total <= c.lim.LowWater {
-		c.bulkPaused = false
-	}
+	c.bulkPaused = c.watermarks().next(c.bulkPaused, total)
+}
+
+func (c *Controller) watermarks() watermarks {
+	return watermarks{high: c.lim.HighWater, low: c.lim.LowWater}
 }

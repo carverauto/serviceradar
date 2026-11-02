@@ -89,6 +89,9 @@ func TestRunningAgentExportsEdgeSpoolMetrics(t *testing.T) {
 	if age > 3600 {
 		t.Fatalf("oldest age = %g, the non-v7 id was treated as a timestamp", age)
 	}
+	if got := promGauge(t, body, "agent_edge_spool_admission_paused"); got != 0 {
+		t.Fatalf("admission paused = %g for a spool far below its low water, want 0\n%s", got, body)
+	}
 	t.Logf("scrape:\n%s", edgeSpoolLines(body))
 }
 
