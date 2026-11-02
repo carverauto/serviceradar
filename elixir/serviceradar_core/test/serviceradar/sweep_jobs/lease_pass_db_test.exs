@@ -190,11 +190,22 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
     assert running["modes"] == ["icmp", "tcp"]
     assert running["ports"] == [22, 443]
 
+    assert %{dropped: 0, errors: 0} = LeasePass.reconcile_group(group, now)
+    planned = unrun!(assignment!(group, ctx.agent), now)
+    assert planned != []
+    assert Enum.all?(planned, &(check_set_hex(&1) == @icmp_tcp_22_443_check_set))
+
     expire_slot!(slot, now)
+    later = DateTime.utc_now()
 
     finished = compiled_group!(ctx.partition.slug, ctx.agent, group.id)
     assert finished["modes"] == ["tcp"]
     assert finished["ports"] == [22, 443]
+
+    assert %{errors: 0} = LeasePass.reconcile_group(group, later)
+    reduced = unrun!(assignment!(group, ctx.agent), later)
+    assert reduced != []
+    assert Enum.all?(reduced, &(check_set_hex(&1) == @tcp_22_443_check_set))
   end
 
   test "changed targets re-plan every unrun slot onto the new ranges without an epoch bump",

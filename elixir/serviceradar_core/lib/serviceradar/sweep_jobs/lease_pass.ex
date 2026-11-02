@@ -15,18 +15,19 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
       slots are exactly the schedule's slots between now and the agent's horizon, planned under
       the assignment's current epoch, that agent's check set and the group's targets.
 
-  The check set is per agent: it is the check set of the sweep config that agent is delivered
-  for the group, which withholds the modes the agent reports it cannot run. A capability
-  change therefore changes the planned check set and re-plans the agent's unrun slots.
+  The check set is per agent: `SweepCompiler.effective_agent_checks/4`, the same checks the
+  sweep config compiles. A capability change re-plans unrun slots on the next pass. While a
+  delivered slot for that agent and group has started and is not completed, dropped, missed,
+  or expired, that function keeps the config and every newly planned slot on the running
+  slot's signed check set, so the pass does not deliver a next slot for a different set.
+  Once the slot is finished, the capability-adjusted set applies and the next pass re-plans
+  unrun slots onto it.
 
   An unrun slot that no longer matches (its epoch was bumped, its check set, network scope or
   planned targets changed, or the schedule or horizon moved) is dropped and planned again, so
   the next pass re-plans a lease rather than leaving it on the old targets. A slot that has
-  started is never touched. While a delivered slot for that agent and group is still in its
-  collection window and has not been completed, the sweep config keeps the modes of that
-  slot's signed plan header. Once the slot is completed, dropped, missed, or expired, the
-  capability-adjusted set applies and the next pass re-plans unrun slots onto it. Becoming
-  eligible again after a revoke reissues the assignment under a new epoch, which is a new lease.
+  started is never touched. Becoming eligible again after a revoke reissues the assignment
+  under a new epoch, which is a new lease.
 
   The lease id is derived from the assignment and its epoch, so every pass names the same lease
   without storing it, and a bump starts a new one.
@@ -51,6 +52,7 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
 
   alias Ash.Error.Query.NotFound
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.AgentConfig.Compilers.SweepCompiler
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Edge.SweepPlan
   alias Serviceradar.Edge.V1.ScheduledPlanPageV1
@@ -327,21 +329,34 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
     end
   end
 
-  # The agent's own check set: what its delivered sweep config carries for the group.
+  # The agent's own check set: the same `effective_agent_checks/4` the sweep config compiles.
+  # sync_slots compares each unrun slot to this digest, so a running slot keeps the next
+  # slot on its signed check set until that slot finishes.
   defp agent_window(group, profile, inputs, candidate, window) do
-    case LeaseEligibility.agent_checks(group, profile, candidate.capabilities) do
+    case SweepCompiler.effective_agent_checks(
+           group,
+           profile,
+           candidate.agent_id,
+           candidate.capabilities
+         ) do
       {:ok, checks} ->
         {:leased,
          window
          |> Map.put(:agent_id, candidate.agent_id)
          |> Map.put(:inputs, Map.merge(inputs, checks))}
 
-      {:error, reason} ->
+      {:withheld, _modes} ->
+        :not_leased
+
+      {:error, reason} when is_atom(reason) or is_tuple(reason) ->
         Logger.debug(
           "Sweep lease pass: group #{group.id} is not leased to #{candidate.agent_id}: #{inspect(reason)}"
         )
 
         :not_leased
+
+      {:error, reason} ->
+        {:failed, reason}
     end
   end
 
