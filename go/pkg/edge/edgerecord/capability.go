@@ -19,7 +19,6 @@ package edgerecord
 import (
 	"crypto/ed25519"
 	"errors"
-	"reflect"
 
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 	"google.golang.org/protobuf/proto"
@@ -31,18 +30,7 @@ import (
 // stored in the interface would slip past and panic inside ResolveKey. Every
 // authorization entry gates on this instead of a bare nil comparison.
 func isNilTrust(trust CapabilityTrust) bool {
-	if trust == nil {
-		return true
-	}
-	rv := reflect.ValueOf(trust)
-	//nolint:exhaustive // only the nil-able kinds can be a typed nil; every other kind is a
-	// non-nil concrete value, so the default arm correctly reports it as usable.
-	switch rv.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
-		return rv.IsNil()
-	default:
-		return false
-	}
+	return isNilIface(trust)
 }
 
 // CapabilitySigningDomain is the frozen protocol-domain tag prefixed into every
