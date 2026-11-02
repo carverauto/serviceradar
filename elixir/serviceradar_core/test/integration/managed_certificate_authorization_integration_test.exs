@@ -125,8 +125,7 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorizationIntegrationTest do
 
     assert user["nats"]["sub"] == %{"deny" => [">"]}
 
-    issued = System.system_time(:second)
-    assert user["exp"] > issued and user["exp"] < issued + 60
+    assert user["exp"] == DateTime.to_unix(DateTime.shift(now, hour: 1))
   end
 
   @tag timeout: 180_000
@@ -235,6 +234,8 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorizationIntegrationTest do
     :ok = Gnat.pub(bridge_left, "example.managed.leaf", "before")
     assert_receive {:msg, %{body: "before", topic: "example.managed.leaf"}}, 5_000
 
+    revoked_at = System.monotonic_time(:millisecond)
+
     assert {:ok, _} =
              Authority.revoke_certificate(left.fingerprint, "operator-revoke", opts)
 
@@ -246,6 +247,7 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorizationIntegrationTest do
              )
 
     assert await_leaf_members(sys, [right.fingerprint], log_path, [left.fingerprint])
+    assert System.monotonic_time(:millisecond) - revoked_at < 5_000
     assert stable_leaf_split(sys, left.fingerprint, right.fingerprint, log_path)
     :ok = Gnat.pub(bridge_left, "example.managed.leaf", "after")
     refute_receive {:msg, %{body: "after", topic: "example.managed.leaf"}}, 1_000

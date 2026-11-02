@@ -20,6 +20,7 @@ import (
 
 	"github.com/bazelbuild/rules_go/go/runfiles"
 	"github.com/nats-io/jwt/v2"
+	natsserver "github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nkeys"
 )
@@ -30,6 +31,40 @@ var certificateCodecBinary string
 // This proves a NATS enforcement primitive, not the control-plane lifecycle.
 // All certificates and brokers are disposable and generated inside the test.
 func TestNATSCertificateRevocation(t *testing.T) {
+	for _, version := range []string{"packaged", "module-2.15"} {
+		t.Run(version, func(t *testing.T) {
+			start := func(t *testing.T, config string, monitor int) { startRevocationBroker(t, config, monitor) }
+			if version == "module-2.15" {
+				start = startEmbeddedRevocationBroker
+			}
+			testNATSCertificateRevocation(t, start)
+		})
+	}
+}
+
+func startEmbeddedRevocationBroker(t *testing.T, config string, _ int) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "nats.conf")
+	if err := os.WriteFile(path, []byte(config), 0600); err != nil {
+		t.Fatal(err)
+	}
+	opts, err := natsserver.ProcessConfigFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	broker, err := natsserver.NewServer(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { broker.Shutdown(); broker.WaitForShutdown() })
+	go broker.Start()
+	if !broker.ReadyForConnections(5 * time.Second) {
+		t.Fatal("embedded broker not ready")
+	}
+	t.Logf("broker version: %s", natsserver.VERSION)
+}
+
+func testNATSCertificateRevocation(t *testing.T, startBroker func(*testing.T, string, int)) {
 	pki, err := GenerateCertSet(t.TempDir(), "127.0.0.1")
 	if err != nil {
 		t.Fatal(err)
@@ -91,10 +126,11 @@ func TestNATSCertificateRevocation(t *testing.T) {
 port: %d
 http: "127.0.0.1:%d"
 server_name: "synthetic-hub"
+jetstream: {store_dir: %q}
 accounts: {
-  APP: {}
-  AUTH: {users: [{nkey: %q}]}
-  SYS: {users: [{nkey: %q}]}
+  APP: {jetstream: enabled}
+  AUTH: {users: [{nkey: %q, permissions: {subscribe: ["$SYS.REQ.USER.AUTH"], publish: ["$SYS._INBOX.>"]}}]}
+  SYS: {users: [{nkey: %q, permissions: {publish: ["$SYS.REQ.SERVER.*.CONNZ", "$SYS.REQ.SERVER.*.KICK"], subscribe: ["_INBOX.>"]}}]}
 }
 system_account: SYS
 authorization: {auth_callout: {issuer: %q, account: AUTH, auth_users: [%q, %q]}}
@@ -104,16 +140,21 @@ leafnodes: {
   port: %d
   tls: {cert_file: %q, key_file: %q, ca_file: %q, verify: true}
 }
-`, clientPort, monitorPort, authPub, systemPub, issuer, authPub, systemPub, pki.GatewayCertPath, pki.GatewayKeyPath, pki.CACertPath,
+`, clientPort, monitorPort, t.TempDir(), authPub, systemPub, issuer, authPub, systemPub, pki.GatewayCertPath, pki.GatewayKeyPath, pki.CACertPath,
 		leafPort, pki.GatewayCertPath, pki.GatewayKeyPath, pki.CACertPath)
-	startRevocationBroker(t, config, monitorPort)
+	startBroker(t, config, monitorPort)
 	permissionErrors := make(chan string, 16)
 	connectAs := func(id identity, key nkeys.KeyPair) (*nats.Conn, error) {
 		cfg, err := pki.clientTLSConfig(id.cert, id.key, "127.0.0.1")
 		if err != nil {
 			return nil, err
 		}
-		opts := []nats.Option{nats.Secure(cfg), nats.NoReconnect(), nats.Timeout(time.Second)}
+		opts := []nats.Option{nats.Secure(cfg), nats.Timeout(time.Second)}
+		if key == nil && id.fingerprint == collectorB.fingerprint {
+			opts = append(opts, nats.MaxReconnects(-1), nats.ReconnectWait(50*time.Millisecond), nats.ReconnectJitter(0, 0))
+		} else {
+			opts = append(opts, nats.NoReconnect())
+		}
 		if id.fingerprint == collectorA.fingerprint {
 			opts = append(opts, nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, err error) {
 				permissionErrors <- err.Error()
@@ -182,7 +223,10 @@ leafnodes: {
 			sessions[fingerprint] = append(sessions[fingerprint], session{req.Server.ID, req.ClientInformation.ID})
 		}
 		mu.Unlock()
-		input := map[string]any{"request": string(m.Data), "issuer": issuer, "seed": string(seed), "allow": allow}
+		input := map[string]any{"request": string(m.Data), "issuer": issuer, "seed": string(seed), "allow": allow, "ttl_seconds": 3600, "not_after": cert.NotAfter.Unix()}
+		if fingerprint == collectorB.fingerprint || fingerprint == leafB.fingerprint {
+			input["ttl_seconds"] = 12
+		}
 		if fingerprint == collectorA.fingerprint {
 			input["permissions"] = map[string]any{"publish": []string{"synthetic.acl.>"}, "subscribe": []string{}, "publish_deny": []string{"synthetic.acl.denied"}}
 		}
@@ -236,8 +280,8 @@ leafnodes: {remotes: [{url: "tls://127.0.0.1:%d", tls: {cert_file: %q, key_file:
 `, monitor, name, leafPort, id.cert, id.key, pki.CACertPath)
 	}
 	ma, mb := revocationPort(t), revocationPort(t)
-	startRevocationBroker(t, leafConfig("synthetic-leaf-a", leafA, ma), ma)
-	startRevocationBroker(t, leafConfig("synthetic-leaf-b", leafB, mb), mb)
+	startBroker(t, leafConfig("synthetic-leaf-a", leafA, ma), ma)
+	startBroker(t, leafConfig("synthetic-leaf-b", leafB, mb), mb)
 	connect := func(id identity) (*nats.Conn, error) { return connectAs(id, nil) }
 	a, err := connect(collectorA)
 	if err != nil {
@@ -358,6 +402,9 @@ leafnodes: {remotes: [{url: "tls://127.0.0.1:%d", tls: {cert_file: %q, key_file:
 		t.Fatal("revoked collector reconnected")
 	}
 	awaitRevocation(t, "revoked collector existing session closed", a.IsClosed)
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("targeted kick took %s", elapsed)
+	}
 	if err := b.FlushTimeout(time.Second); err != nil {
 		t.Fatalf("unaffected collector: %v", err)
 	}
@@ -423,10 +470,119 @@ leafnodes: {remotes: [{url: "tls://127.0.0.1:%d", tls: {cert_file: %q, key_file:
 	}
 	t.Logf("targeted leaf and collector revocation enforced in %s; controls still connected", time.Since(start))
 
+	// Scheduled expiry must restore core subscriptions and a durable consumer.
+	// Publish through the leaf, receive through the hub, and use PubAck + MsgId
+	// on retries so a reconnect cannot silently lose or double-store a record.
+	hubJS, err := b.JetStream(nats.MaxWait(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := hubJS.AddStream(&nats.StreamConfig{Name: "SYNTHETIC", Subjects: []string{"synthetic.records"}, Storage: nats.MemoryStorage}); err != nil {
+		t.Fatal(err)
+	}
+	durable, err := hubJS.PullSubscribe("synthetic.records", "synthetic-durable", nats.ManualAck())
+	if err != nil {
+		t.Fatal(err)
+	}
+	leafJS, err := leafClient.JetStream(nats.MaxWait(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reconnects := b.Stats().Reconnects
+	mu.Lock()
+	leafSessions := len(sessions[leafB.fingerprint])
+	mu.Unlock()
+	deadline := time.Now().Add(45 * time.Second)
+	var count uint64
+	for {
+		count++
+		payload := fmt.Sprintf("synthetic-record-%d", count)
+		awaitRevocation(t, "leaf publish acknowledged across expiry", func() bool {
+			ack, err := leafJS.Publish("synthetic.records", []byte(payload), nats.MsgId(payload))
+			if err != nil {
+				return false
+			}
+			if ack.Sequence != count {
+				t.Fatalf("stream sequence %d, want %d", ack.Sequence, count)
+			}
+			return true
+		})
+		var message *nats.Msg
+		awaitRevocation(t, "durable consumer resumes across expiry", func() bool {
+			batch, err := durable.Fetch(1, nats.MaxWait(200*time.Millisecond))
+			if err != nil {
+				return false
+			}
+			if len(batch) != 1 || string(batch[0].Data) != payload {
+				t.Fatalf("lost, duplicate or reordered durable record: %v, want %s", batch, payload)
+			}
+			message = batch[0]
+			return true
+		})
+		awaitRevocation(t, "durable acknowledgement persisted", func() bool { return message.AckSync(nats.AckWait(200*time.Millisecond)) == nil })
+		// This subscription existed before the expiry and is not recreated here.
+		awaitRevocation(t, "core subscription restored", func() bool {
+			reply, err := b.Request("synthetic.probe", nil, 200*time.Millisecond)
+			return err == nil && string(reply.Data) == "alive"
+		})
+		mu.Lock()
+		renewedLeaf := len(sessions[leafB.fingerprint]) >= leafSessions+2
+		mu.Unlock()
+		if b.Stats().Reconnects >= reconnects+2 && renewedLeaf {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("client and leaf did not cross two scheduled expiries")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if err := leafClient.Publish("synthetic.after.revoke", []byte("after scheduled expiries")); err != nil {
+		t.Fatal(err)
+	}
+	if received, err := sub.NextMsg(time.Second); err != nil || string(received.Data) != "after scheduled expiries" {
+		t.Fatalf("pre-existing subscription did not resume: %v %v", received, err)
+	}
+	info, err := hubJS.StreamInfo("SYNTHETIC")
+	if err != nil || info.State.Msgs != count {
+		t.Fatalf("hub stream count: %v %v, want %d", info, err, count)
+	}
+	consumer, err := durable.ConsumerInfo()
+	if err != nil || consumer.AckFloor.Stream != count || consumer.NumAckPending != 0 || consumer.NumPending != 0 {
+		t.Fatalf("durable cursor did not resume without loss: %v %v", consumer, err)
+	}
+	if extra, err := durable.Fetch(1, nats.MaxWait(200*time.Millisecond)); err != nats.ErrTimeout || len(extra) != 0 {
+		t.Fatalf("duplicate delivery: %v %v", extra, err)
+	}
+	t.Logf("%d leaf-to-hub records stored and consumed once across two client and leaf expiries", count)
+
+	// De-adoption uses the same kick primitive as revocation. Removing a grant
+	// must reject a reconnect even though its certificate is still valid.
+	mu.Lock()
+	delete(allowed, collectorB.fingerprint)
+	current := sessions[collectorB.fingerprint][len(sessions[collectorB.fingerprint])-1]
+	mu.Unlock()
+	kickBody, _ := json.Marshal(map[string]uint64{"cid": current.cid})
+	kickedAt := time.Now()
+	if _, err := operator.Request("$SYS.REQ.SERVER."+current.server+".KICK", kickBody, time.Second); err != nil {
+		t.Fatal(err)
+	}
+	awaitRevocation(t, "de-adopted client disconnected", func() bool { return !b.IsConnected() })
+	if time.Since(kickedAt) > 5*time.Second {
+		t.Fatal("de-adoption waited for expiry")
+	}
+	if nc, err := connect(collectorB); err == nil {
+		nc.Close()
+		t.Fatal("unadopted client reconnected")
+	}
+
 	// Losing the entire authorizer also loses its in-memory session map. The
 	// broker itself must still expire issued client AND leaf grants.
+	mu.Lock()
+	allowed[collectorB.fingerprint] = true
+	mu.Unlock()
+	awaitRevocation(t, "re-adopted client connected", b.IsConnected)
 	auth.Close()
-	deadline := time.Now().Add(35 * time.Second)
+	deadline = time.Now().Add(20 * time.Second)
 	for b.IsConnected() || revocationLeafCount(monitorPort) != 0 {
 		if time.Now().After(deadline) {
 			t.Fatal("broker retained certificate authorization after the authorizer disappeared")
