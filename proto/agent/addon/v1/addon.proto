@@ -291,6 +291,37 @@ message TelemetryBatch {
 // one pre-chunked Export*ServiceRequest, so the agent can forward a frame
 // verbatim as the GatewayServiceStatus.message bytes for source ==
 // "otlp-relay" without re-chunking.
+//
+// Edge-record contract and payload rules (move-agent-telemetry-to-edge-records, task 4.1):
+//   * Contract ref: {"serviceradar.otlp.relay", 1}, authority: :standing_grant,
+//     package_id: "serviceradar.agent.otlp_relay", payload family:
+//     EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1, route profile:
+//     EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1, traffic class:
+//     EDGE_RECORD_TRAFFIC_CLASS_BULK.
+//   * EdgeRecordV1.source_authorization MUST be unset (nil).
+//   * Uncompressed inner payload is a single canonical protobuf-encoded OtlpRelayFrame
+//     of at most 966,656 bytes (900 * 1024 + 64 * 1024, otlpRelayMaxFrameMessageBytes).
+//   * relay_id MUST be > 0; batch MUST be present with non-empty records;
+//     length(batch.records) MUST equal EdgeRecordV1.projected_row_count
+//     (max_projected_rows: 64, write_bytes_per_row: 16,384, matching
+//     otlpRelayWindowMaxFrames).
+//   * Every TelemetryRecord in batch.records MUST have a routable OTLP payload_kind in
+//     {TELEMETRY_PAYLOAD_KIND_OTLP_TRACES (3), TELEMETRY_PAYLOAD_KIND_OTLP_LOGS (4),
+//     TELEMETRY_PAYLOAD_KIND_OTLP_METRICS (5),
+//     TELEMETRY_PAYLOAD_KIND_OTLP_DERIVED_METRIC (6)} and non-empty pre-chunked payload
+//     bytes. Any other payload_kind is refused by decode/1.
+//   * Agent identity and partition come exclusively from the attested EdgeRecordV1
+//     (origin_principal_id and network_scope_id), never from batch.source.metadata or
+//     TelemetryRecord.metadata.
+//   * The agent commits each OtlpRelayFrame record to its durable edge spool under the
+//     standing grant before advancing OtlpRelayAck.acked_relay_id to the add-on.
+//   * On a fresh primary delivery, the projector's publish/3 (before the EdgeRecord
+//     ledger transaction) re-checks OutputGrants.check_current/5, emits
+//     [:serviceradar, :otlp_relay, :spool] from batch.counters, and republishes each
+//     TelemetryRecord.payload verbatim to its canonical JetStream subject
+//     (otel.traces.raw, logs.otel, otel.metrics.raw, otel.metrics.derived) with
+//     attested Sr-Agent-Id, Sr-Partition, Sr-Ingest-Identity, and IngressId headers.
+//     Replays and late-fenced deliveries skip publish/3.
 message OtlpRelayFrame {
   uint64 relay_id = 1;
   TelemetryBatch batch = 2;
