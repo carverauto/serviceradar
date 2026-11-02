@@ -50,6 +50,10 @@ const MIN_REINDEX_INTERVAL: Duration = Duration::from_secs(30);
 
 const EXECUTE_BITS: u32 = 0o111;
 const DELETED_SUFFIX: &str = " (deleted)";
+/// `flow_process_attribution_observations.executable_ownership` is VARCHAR(65533).
+/// The readlink target is the uncapped field in that column; a longer path makes
+/// one observation exceed both the column and the 512 KiB edge-record cap.
+const MAX_EXECUTABLE_PATH_BYTES: usize = 65_533;
 
 pub const DETAIL_PROCESS_EXITED: &str = "process_exited";
 pub const DETAIL_PROCFS_DENIED: &str = "procfs_denied";
@@ -613,7 +617,18 @@ fn in_root_executable_path(link_target: &Path, root_link: &Path) -> (String, boo
         .and_then(|prefix| path.strip_prefix(prefix))
         .filter(|rest| rest.starts_with('/'))
         .map(str::to_string);
-    (in_root.unwrap_or(path), deleted)
+    (cap_executable_path(in_root.unwrap_or(path)), deleted)
+}
+
+fn cap_executable_path(path: String) -> String {
+    if path.len() <= MAX_EXECUTABLE_PATH_BYTES {
+        return path;
+    }
+    let mut cut = MAX_EXECUTABLE_PATH_BYTES;
+    while cut > 0 && !path.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    path[..cut].to_string()
 }
 
 fn procfs_error(err: &io::Error) -> ExecutableOwnershipRecord {
@@ -647,6 +662,42 @@ fn mode(metadata: &Metadata) -> u32 {
 #[cfg(not(unix))]
 fn mode(_metadata: &Metadata) -> u32 {
     0
+}
+
+#[cfg(test)]
+mod path_cap {
+    use std::path::Path;
+
+    use super::{MAX_EXECUTABLE_PATH_BYTES, in_root_executable_path};
+
+    #[test]
+    fn overlong_readlink_stays_within_one_observation() {
+        let link = format!("/usr/bin/{}", "a".repeat(MAX_EXECUTABLE_PATH_BYTES + 8_000));
+        let (path, deleted) =
+            in_root_executable_path(Path::new(&link), Path::new("/no-such-process-root"));
+        assert!(!deleted);
+        assert!(path.len() <= MAX_EXECUTABLE_PATH_BYTES);
+        assert!(path.len() > MAX_EXECUTABLE_PATH_BYTES - 4);
+        assert!(path.is_char_boundary(path.len()));
+
+        let multibyte = format!("/bin/{}", "é".repeat(40_000));
+        let (path, deleted) =
+            in_root_executable_path(Path::new(&multibyte), Path::new("/no-such-process-root"));
+        assert!(!deleted);
+        assert!(path.len() <= MAX_EXECUTABLE_PATH_BYTES);
+        assert!(path.is_char_boundary(path.len()));
+        assert!(std::str::from_utf8(path.as_bytes()).is_ok());
+    }
+
+    #[test]
+    fn short_path_and_deleted_suffix_are_unchanged() {
+        let (path, deleted) = in_root_executable_path(
+            Path::new("/usr/sbin/exampled (deleted)"),
+            Path::new("/no-such-process-root"),
+        );
+        assert_eq!(path, "/usr/sbin/exampled");
+        assert!(deleted);
+    }
 }
 
 #[cfg(all(test, unix))]

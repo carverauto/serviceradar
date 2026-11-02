@@ -3220,13 +3220,16 @@ func (x *FlowAttributionEvent) GetExecutableOwnership() *ExecutableOwnership {
 //   - Uncompressed inner payload is a single canonical protobuf-encoded
 //     FlowAttributionEventBatch. 6,291,456 bytes (6 * 1024 * 1024,
 //     flowAttributionMaxBatchMessageBytes) is an uncompressed ceiling only. The
-//     encoded payload must still fit MaxPayloadBytes (512 KiB) inside an
-//     EdgeRecordV1 of at most MaxRecordBytes (512 KiB). The producer splits
-//     further when it does not.
+//     encoded payload must be small enough that the canonical EdgeRecordV1 is at
+//     most MaxRecordBytes (512 KiB). That bound is stricter than payload length
+//     <= MaxPayloadBytes, and a payload at MaxPayloadBytes does not fit. The
+//     producer splits further when it does not.
 //   - events MUST be non-empty (1 <= length(events) <= 4,096,
 //     flowAttributionMaxEventsPerChunk), and length(events) MUST equal
-//     EdgeRecordV1.projected_row_count (max_projected_rows: 4,096,
-//     write_bytes_per_row: 1,536).
+//     EdgeRecordV1.projected_row_count. projected_write_bytes equals that record's
+//     actual uncompressed payload size, a true upper bound because the projector
+//     never writes more than the record carries. max_projected_write_bytes is the
+//     512 KiB record payload cap.
 //   - When both batch_start_unix_nano and batch_end_unix_nano are non-zero,
 //     batch_start_unix_nano <= batch_end_unix_nano.
 //   - Partition guard (B-4 defeater): the batch carries no partition or agent field.
@@ -3241,14 +3244,18 @@ func (x *FlowAttributionEvent) GetExecutableOwnership() *ExecutableOwnership {
 //     spool under the standing grant before acknowledging the drained sidecar prefix
 //     and dropped_since_last baseline.
 //   - On a fresh primary delivery, the projector's publish/3 (before the EdgeRecord
-//     ledger transaction) re-checks OutputGrants.check_current/5, forwards events to
-//     ServiceRadar.FlowAttribution.publish_observations/4 with the resolved partition
-//     slug and origin_principal_id as agent_id (loaded by EventWriter into StarRocks
-//     flow_process_attribution_observations, or acknowledged as :ok without publishing
-//     when StarRocks is disabled), and emits
-//     [:serviceradar, :event_writer, :attributed_flow, :batch_received] with
-//     measurements count: 1, event_count, and dropped_since_last. Replays and
-//     late-fenced deliveries skip publish/3.
+//     ledger transaction) re-checks OutputGrants.check_current/5 and forwards events
+//     to ServiceRadar.FlowAttribution.publish_observations/4 with the resolved
+//     partition slug and origin_principal_id as agent_id (loaded by EventWriter into
+//     StarRocks flow_process_attribution_observations, or acknowledged as :ok without
+//     publishing when StarRocks is disabled). Each observation split carries a stable
+//     Nats-Msg-Id derived from EdgeRecordV1.event_id and distinct across splits, so a
+//     ledger failure before commit stores each split once and does not drop a later
+//     split. publish/3 returns only after those PubAcks so the ledger can commit.
+//     [:serviceradar, :event_writer, :attributed_flow, :batch_received] is emitted
+//     only after that ledger commit, with measurements count: 1, event_count, and
+//     dropped_since_last and metadata partition_id and agent_id. A failed attempt
+//     does not emit it. Replays and late-fenced deliveries skip publish/3.
 type FlowAttributionEventBatch struct {
 	state              protoimpl.MessageState  `protogen:"open.v1"`
 	Events             []*FlowAttributionEvent `protobuf:"bytes,1,rep,name=events,proto3" json:"events,omitempty"`

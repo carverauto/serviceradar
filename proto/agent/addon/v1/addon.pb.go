@@ -1218,18 +1218,22 @@ func (x *TelemetryBatch) GetCounters() *TelemetryCounters {
 //   - EdgeRecordV1.source_authorization MUST be unset (nil).
 //   - Uncompressed inner payload is a single canonical protobuf-encoded OtlpRelayFrame.
 //     966,656 bytes (900 * 1024 + 64 * 1024, otlpRelayMaxFrameMessageBytes) is an
-//     uncompressed ceiling only. The encoded payload must still fit MaxPayloadBytes
-//     (512 KiB) inside an EdgeRecordV1 of at most MaxRecordBytes (512 KiB). The
-//     producer splits further when it does not.
+//     uncompressed ceiling only. The encoded payload must be small enough that the
+//     canonical EdgeRecordV1 is at most MaxRecordBytes (512 KiB). That bound is
+//     stricter than payload length <= MaxPayloadBytes, and a payload at
+//     MaxPayloadBytes does not fit. The producer splits further when it does not.
 //   - relay_id MUST be > 0; batch MUST be present with non-empty records;
-//     length(batch.records) MUST equal EdgeRecordV1.projected_row_count
-//     (max_projected_rows: 64, write_bytes_per_row: 16,384, matching
-//     otlpRelayWindowMaxFrames).
+//     length(batch.records) MUST equal EdgeRecordV1.projected_row_count.
+//     projected_write_bytes equals that record's actual uncompressed payload size,
+//     a true upper bound because the projector never writes more than the record
+//     carries. max_projected_write_bytes is the 512 KiB record payload cap.
 //   - Every TelemetryRecord in batch.records MUST have a routable OTLP payload_kind in
 //     {TELEMETRY_PAYLOAD_KIND_OTLP_TRACES (3), TELEMETRY_PAYLOAD_KIND_OTLP_LOGS (4),
 //     TELEMETRY_PAYLOAD_KIND_OTLP_METRICS (5),
 //     TELEMETRY_PAYLOAD_KIND_OTLP_DERIVED_METRIC (6)} and non-empty pre-chunked payload
-//     bytes. Any other payload_kind is refused by decode/1.
+//     bytes. An unroutable payload_kind is not a retryable edge-record failure: drop
+//     that record and emit [:serviceradar, :otlp_relay, :record_rejected] with
+//     measurement count: 1 and metadata agent_id (origin_principal_id).
 //   - Agent identity comes from the attested EdgeRecordV1.origin_principal_id (the
 //     agent component id). network_scope_id is the partition row's 16-byte UUID, not
 //     the warehouse partition or Sr-Partition. Resolve that row with
@@ -1255,10 +1259,10 @@ func (x *TelemetryBatch) GetCounters() *TelemetryCounters {
 //     Sr-Ingress-Id, Sr-Ingress-Time-Unix-Nano, and Nats-Msg-Id set to that
 //     TelemetryRecord's event_id so a retried primary delivery does not store a second
 //     copy of the chunk. The republish waits for a JetStream PubAck and only then
-//     returns so the ledger can commit. On that PubAck it emits
-//     [:serviceradar, :event_writer, :signal] with measurement count: 1 and metadata
-//     outcome: :relayed and signal :traces, :logs, :metric_points, or :metrics for
-//     traces, logs, OTLP metrics, and derived metrics.
+//     returns so the ledger can commit. It emits [:serviceradar, :event_writer, :signal]
+//     with measurement count: 1 and metadata outcome: :relayed and signal :traces,
+//     :logs, :metric_points, or :metrics for traces, logs, OTLP metrics, and derived
+//     metrics only when that PubAck is not a duplicate.
 //     Replays and late-fenced deliveries skip publish/3.
 type OtlpRelayFrame struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
