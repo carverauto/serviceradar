@@ -34,7 +34,7 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorController do
 
     query =
       CollectorPackage
-      |> Ash.Query.for_read(:list)
+      |> Ash.Query.for_read(:read)
       |> Ash.Query.load(edge_site: :nats_leaf_server)
       |> Ash.Query.limit(limit)
 

@@ -75,6 +75,14 @@ defmodule ServiceRadar.NATS.CertificateAuthorizationToken do
 
   def decode_request(_, _, _), do: {:error, :invalid_authorization_request}
 
+  @doc "Bound a hub session by its certificate and a jittered broker-enforced grant."
+  def grant_expiry(%DateTime{} = not_after) do
+    ttl = Application.get_env(:serviceradar, :nats_certificate_grant_ttl_seconds, 43_200)
+    jitter = div(ttl, 5)
+    seconds = ttl - jitter + :rand.uniform(2 * jitter + 1) - 1
+    min(System.system_time(:second) + seconds, DateTime.to_unix(not_after))
+  end
+
   @doc "Sign an allow or deny response for a previously verified request."
   def encode_response(
         request,
