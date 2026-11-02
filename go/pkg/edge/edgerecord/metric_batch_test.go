@@ -31,7 +31,7 @@ import (
 // batch of `metrics` gauges, with its projected row count equal to rows.
 func metricBatchRecord(t *testing.T, metrics int, rows uint32) *edgev1.EdgeRecordV1 {
 	t.Helper()
-	return metricBatchRecordSource(t, metrics, rows, MetricsBatchSource)
+	return metricBatchRecordSource(t, metrics, rows, "sysmon-metrics")
 }
 
 func metricBatchRecordSource(t *testing.T, metrics int, rows uint32, source string) *edgev1.EdgeRecordV1 {
@@ -60,8 +60,10 @@ func metricBatchRecordSource(t *testing.T, metrics int, rows uint32, source stri
 }
 
 func TestValidateMetricBatchRecord(t *testing.T) {
-	if err := ValidateMetricBatchRecord(metricBatchRecord(t, 3, 3)); err != nil {
-		t.Fatalf("valid metrics batch record: %v", err)
+	for _, source := range []string{"sysmon-metrics", "snmp-metrics", "icmp-metrics"} {
+		if err := ValidateMetricBatchRecord(metricBatchRecordSource(t, 3, 3, source)); err != nil {
+			t.Fatalf("valid %s metrics batch record: %v", source, err)
+		}
 	}
 
 	sweep := metricBatchRecord(t, 3, 3)
@@ -82,11 +84,11 @@ func TestValidateMetricBatchRecord(t *testing.T) {
 		record *edgev1.EdgeRecordV1
 		want   error
 	}{
-		"another contract":                 {sweep, ErrContractDispatch},
-		"a source authorization":           {sourced, ErrMetricBatchSourceAuthorization},
-		"a non-sysmon source":              {metricBatchRecordSource(t, 3, 3, "snmp-metrics"), ErrMetricBatch},
-		"rows that disagree with the body": {metricBatchRecord(t, 3, 2), ErrMetricBatch},
-		"an empty batch":                   {metricBatchRecord(t, 0, 1), ErrMetricBatch},
+		"another contract":                     {sweep, ErrContractDispatch},
+		"a source authorization":               {sourced, ErrMetricBatchSourceAuthorization},
+		"a source the contract does not admit": {metricBatchRecordSource(t, 3, 3, "rperf-metrics"), ErrMetricBatch},
+		"rows that disagree with the body":     {metricBatchRecord(t, 3, 2), ErrMetricBatch},
+		"an empty batch":                       {metricBatchRecord(t, 0, 1), ErrMetricBatch},
 	}
 	for name, tc := range cases {
 		if err := ValidateMetricBatchRecord(tc.record); !errors.Is(err, tc.want) {

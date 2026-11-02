@@ -34,6 +34,7 @@ import (
 	agentgateway "github.com/carverauto/serviceradar/go/pkg/agentgateway"
 	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
+	"github.com/carverauto/serviceradar/go/pkg/sysmon"
 	"github.com/carverauto/serviceradar/proto"
 )
 
@@ -148,15 +149,16 @@ type PushLoop struct {
 	// standing grant for that contract; nil keeps every metric on its legacy path.
 	edgeMetricsSpool edgeMetricsAppender
 	edgeOutputGrants edgeOutputGrants
-	sysmonEdgeMu     sync.Mutex
-	// sysmonEdgePending is the bounded retry queue, oldest first. An entry is
-	// either a sample no part of which has been admitted, or one built record
-	// from a sample that already has a part in the spool.
-	sysmonEdgePending []sysmonEdgeQueued
-	sweepLeaseMu      sync.Mutex
-	sweepLeases       *sweepLeaseStore // installed sweep schedule leases, opened lazily under sweepLeaseMu
-	sweepLeaseDir     string           // lease store dir override for tests; empty means defaultSweepLeaseDir()
-	sweepLeaseWake    chan struct{}    // wakes the lease executor on install; created under sweepLeaseMu at Start
+	// Each metric producer's bounded retry queue, oldest first. An entry is either
+	// an item no part of which the spool has admitted, or one built record of an
+	// item that already has a part in the spool.
+	sysmonEdge     edgeMetricsQueue[*sysmon.MetricSample]
+	snmpEdge       edgeMetricsQueue[snmpMetricResult]
+	icmpEdge       edgeMetricsQueue[icmpCheckResult]
+	sweepLeaseMu   sync.Mutex
+	sweepLeases    *sweepLeaseStore // installed sweep schedule leases, opened lazily under sweepLeaseMu
+	sweepLeaseDir  string           // lease store dir override for tests; empty means defaultSweepLeaseDir()
+	sweepLeaseWake chan struct{}    // wakes the lease executor on install; created under sweepLeaseMu at Start
 
 	hostNetworkVisibilitySupported func() bool
 	uninstallSystemdAddonUnits     func(context.Context, []string) error
