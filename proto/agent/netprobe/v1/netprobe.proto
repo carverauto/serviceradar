@@ -435,8 +435,11 @@ message FlowAttributionEvent {
 //     EDGE_RECORD_TRAFFIC_CLASS_BULK.
 //   * EdgeRecordV1.source_authorization MUST be unset (nil).
 //   * Uncompressed inner payload is a single canonical protobuf-encoded
-//     FlowAttributionEventBatch of at most 6,291,456 bytes (6 * 1024 * 1024,
-//     flowAttributionMaxBatchMessageBytes).
+//     FlowAttributionEventBatch. 6,291,456 bytes (6 * 1024 * 1024,
+//     flowAttributionMaxBatchMessageBytes) is an uncompressed ceiling only. The
+//     encoded payload must still fit MaxPayloadBytes (512 KiB) inside an
+//     EdgeRecordV1 of at most MaxRecordBytes (512 KiB). The producer splits
+//     further when it does not.
 //   * events MUST be non-empty (1 <= length(events) <= 4,096,
 //     flowAttributionMaxEventsPerChunk), and length(events) MUST equal
 //     EdgeRecordV1.projected_row_count (max_projected_rows: 4,096,

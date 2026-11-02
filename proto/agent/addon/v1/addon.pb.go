@@ -1216,8 +1216,11 @@ func (x *TelemetryBatch) GetCounters() *TelemetryCounters {
 //     EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1, traffic class:
 //     EDGE_RECORD_TRAFFIC_CLASS_BULK.
 //   - EdgeRecordV1.source_authorization MUST be unset (nil).
-//   - Uncompressed inner payload is a single canonical protobuf-encoded OtlpRelayFrame
-//     of at most 966,656 bytes (900 * 1024 + 64 * 1024, otlpRelayMaxFrameMessageBytes).
+//   - Uncompressed inner payload is a single canonical protobuf-encoded OtlpRelayFrame.
+//     966,656 bytes (900 * 1024 + 64 * 1024, otlpRelayMaxFrameMessageBytes) is an
+//     uncompressed ceiling only. The encoded payload must still fit MaxPayloadBytes
+//     (512 KiB) inside an EdgeRecordV1 of at most MaxRecordBytes (512 KiB). The
+//     producer splits further when it does not.
 //   - relay_id MUST be > 0; batch MUST be present with non-empty records;
 //     length(batch.records) MUST equal EdgeRecordV1.projected_row_count
 //     (max_projected_rows: 64, write_bytes_per_row: 16,384, matching
@@ -1251,7 +1254,11 @@ func (x *TelemetryBatch) GetCounters() *TelemetryCounters {
 //     (the resolved slug), Sr-Ingest-Identity ("agent:" <> origin_principal_id),
 //     Sr-Ingress-Id, Sr-Ingress-Time-Unix-Nano, and Nats-Msg-Id set to that
 //     TelemetryRecord's event_id so a retried primary delivery does not store a second
-//     copy of the chunk.
+//     copy of the chunk. The republish waits for a JetStream PubAck and only then
+//     returns so the ledger can commit. On that PubAck it emits
+//     [:serviceradar, :event_writer, :signal] with measurement count: 1 and metadata
+//     outcome: :relayed and signal :traces, :logs, :metric_points, or :metrics for
+//     traces, logs, OTLP metrics, and derived metrics.
 //     Replays and late-fenced deliveries skip publish/3.
 type OtlpRelayFrame struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
