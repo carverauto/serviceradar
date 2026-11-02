@@ -18,10 +18,13 @@ defmodule ServiceRadar.Edge.MetricsBatchProjection do
   a late-fenced delivery.
 
   The batch's ingest identity source selects the family from a closed list, the same one the
-  gateway routes for these producers: `sysmon-metrics`, `snmp-metrics` and `icmp-metrics`
-  publish on `metrics.sysmon.>`, `metrics.snmp.>` and `metrics.icmp.>`. Any other source is
-  refused, never published under a guessed subject. Adding an agent-scheduled metric producer
-  is one entry in that list plus core's NATS publish permission for its subject.
+  gateway routes for these producers, with the gateway's producer kinds: `sysmon-metrics`,
+  `snmp-metrics`, `icmp-metrics`, `rperf-metrics`, `mtr-metrics` (MTR scalar metrics, not
+  traces) and `sweep-metrics` (the periodic sweep summary) publish on `metrics.sysmon.>`,
+  `metrics.snmp.>`, `metrics.icmp.>`, `metrics.rperf.>`, `metrics.mtr.>` and
+  `metrics.sweep.>`. Any other source is refused, never published under a guessed subject.
+  Adding an agent-scheduled metric producer is one entry in that list plus core's NATS publish
+  permission for its subject.
   """
 
   @behaviour ServiceRadar.Edge.Projector
@@ -45,7 +48,10 @@ defmodule ServiceRadar.Edge.MetricsBatchProjection do
   @families %{
     "sysmon-metrics" => {"sysmon", "agent"},
     "snmp-metrics" => {"snmp", "agent"},
-    "icmp-metrics" => {"icmp", "agent"}
+    "icmp-metrics" => {"icmp", "agent"},
+    "rperf-metrics" => {"rperf", "rperf-checker"},
+    "mtr-metrics" => {"mtr", "mtr-checker"},
+    "sweep-metrics" => {"sweep", "sweep"}
   }
 
   @doc """

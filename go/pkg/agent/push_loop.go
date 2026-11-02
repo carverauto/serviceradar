@@ -152,13 +152,18 @@ type PushLoop struct {
 	// Each metric producer's bounded retry queue, oldest first. An entry is either
 	// an item no part of which the spool has admitted, or one built record of an
 	// item that already has a part in the spool.
-	sysmonEdge     edgeMetricsQueue[*sysmon.MetricSample]
-	snmpEdge       edgeMetricsQueue[snmpMetricResult]
-	icmpEdge       edgeMetricsQueue[icmpCheckResult]
-	sweepLeaseMu   sync.Mutex
-	sweepLeases    *sweepLeaseStore // installed sweep schedule leases, opened lazily under sweepLeaseMu
-	sweepLeaseDir  string           // lease store dir override for tests; empty means defaultSweepLeaseDir()
-	sweepLeaseWake chan struct{}    // wakes the lease executor on install; created under sweepLeaseMu at Start
+	sysmonEdge   edgeMetricsQueue[*sysmon.MetricSample]
+	snmpEdge     edgeMetricsQueue[snmpMetricResult]
+	icmpEdge     edgeMetricsQueue[icmpCheckResult]
+	mtrEdge      edgeMetricsQueue[mtrCheckResult]
+	sweepSummary edgeMetricsQueue[map[string]any]
+	// sweepSummaryInFlight is the queued sweep summary samples the current status
+	// push carries on the legacy path; only the push loop goroutine touches it.
+	sweepSummaryInFlight []edgeMetricsQueued[map[string]any]
+	sweepLeaseMu         sync.Mutex
+	sweepLeases          *sweepLeaseStore // installed sweep schedule leases, opened lazily under sweepLeaseMu
+	sweepLeaseDir        string           // lease store dir override for tests; empty means defaultSweepLeaseDir()
+	sweepLeaseWake       chan struct{}    // wakes the lease executor on install; created under sweepLeaseMu at Start
 
 	hostNetworkVisibilitySupported func() bool
 	uninstallSystemdAddonUnits     func(context.Context, []string) error
@@ -583,17 +588,20 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 	statuses, sysmonStatus := p.collectAllStatusesSeparated(ctx)
 
 	// Push regular statuses via StreamStatus
+	delivered := false
 	if len(statuses) > 0 {
 		now := time.Now()
 		decision := p.evaluateStatusPush(statuses, now)
 		if decision.shouldPush {
 			if p.pushRegularStatuses(ctx, statuses, decision.reason) {
 				p.recordStatusPush(decision.signature, now)
+				delivered = true
 			}
 		} else {
 			p.logger.Debug().Msg("Status unchanged; skipping status push")
 		}
 	}
+	p.settleSweepSummaryLegacy(delivered)
 
 	// Push sysmon via StreamStatus (it can have large payloads with all processes)
 	sentSysmonMetrics := false

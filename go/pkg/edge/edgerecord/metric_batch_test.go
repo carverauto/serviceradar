@@ -60,7 +60,7 @@ func metricBatchRecordSource(t *testing.T, metrics int, rows uint32, source stri
 }
 
 func TestValidateMetricBatchRecord(t *testing.T) {
-	for _, source := range []string{"sysmon-metrics", "snmp-metrics", "icmp-metrics"} {
+	for _, source := range []string{"sysmon-metrics", "snmp-metrics", "icmp-metrics", "rperf-metrics", "mtr-metrics", "sweep-metrics"} {
 		if err := ValidateMetricBatchRecord(metricBatchRecordSource(t, 3, 3, source)); err != nil {
 			t.Fatalf("valid %s metrics batch record: %v", source, err)
 		}
@@ -86,7 +86,7 @@ func TestValidateMetricBatchRecord(t *testing.T) {
 	}{
 		"another contract":                     {sweep, ErrContractDispatch},
 		"a source authorization":               {sourced, ErrMetricBatchSourceAuthorization},
-		"a source the contract does not admit": {metricBatchRecordSource(t, 3, 3, "rperf-metrics"), ErrMetricBatch},
+		"a source the contract does not admit": {metricBatchRecordSource(t, 3, 3, "plugin-metrics"), ErrMetricBatch},
 		"rows that disagree with the body":     {metricBatchRecord(t, 3, 2), ErrMetricBatch},
 		"an empty batch":                       {metricBatchRecord(t, 0, 1), ErrMetricBatch},
 	}

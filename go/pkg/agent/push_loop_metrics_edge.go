@@ -55,6 +55,8 @@ const (
 	edgeProducerSysmon edgeProducer = iota
 	edgeProducerSNMP
 	edgeProducerICMP
+	edgeProducerMTR
+	edgeProducerSweepSummary
 	edgeProducerCount
 )
 
@@ -63,6 +65,9 @@ func (p edgeProducer) label() string {
 		edgeProducerSysmon: "sysmon",
 		edgeProducerSNMP:   "snmp",
 		edgeProducerICMP:   "icmp",
+		edgeProducerMTR:    "mtr",
+		// The periodic sweep summary sample, not the batch carried with sweep results.
+		edgeProducerSweepSummary: "sweep",
 	}[p]
 }
 
@@ -146,11 +151,14 @@ func (p *PushLoop) edgeMetricsCapability(now time.Time) *edgev1.EdgeSignedCapabi
 // status push uses, so a record carries exactly the batch the legacy path sent.
 // nothing is the builder's error for items with nothing to record, which the
 // legacy path also skips: such an item is discarded without counting a drop.
+// single marks a producer whose items each make their own envelope, so no two
+// are packed into one record.
 type edgeMetricsProducer[T any] struct {
 	producer edgeProducer
 	feed     string
 	build    func([]T, metricEnvelopeContext) (*metricpb.MetricBatch, error)
 	nothing  error
+	single   bool
 }
 
 func sysmonEdgeMetrics() edgeMetricsProducer[*sysmon.MetricSample] {
@@ -169,6 +177,32 @@ func icmpEdgeMetrics() edgeMetricsProducer[icmpCheckResult] {
 	return edgeMetricsProducer[icmpCheckResult]{
 		producer: edgeProducerICMP, feed: "icmp", build: buildICMPMetricBatch, nothing: errICMPNoMetricPoints,
 	}
+}
+
+// mtrEdgeMetrics carries the MTR scalar metrics only; the traces themselves keep
+// their own results path.
+func mtrEdgeMetrics() edgeMetricsProducer[mtrCheckResult] {
+	return edgeMetricsProducer[mtrCheckResult]{
+		producer: edgeProducerMTR, feed: "mtr", build: buildMTRMetricBatch, nothing: errMTRNoMetricPoints,
+	}
+}
+
+// sweepSummaryEdgeMetrics carries the periodic sweep summary sample (the newest
+// group's status payload), one envelope per sample.
+func sweepSummaryEdgeMetrics() edgeMetricsProducer[map[string]any] {
+	return edgeMetricsProducer[map[string]any]{
+		producer: edgeProducerSweepSummary, feed: "sweep", build: buildSweepSummaryMetricBatch,
+		nothing: errSweepNoMetricPoints, single: true,
+	}
+}
+
+// buildSweepSummaryMetricBatch builds the envelope of one sweep summary sample.
+// An empty payload has nothing to record, as for the legacy path.
+func buildSweepSummaryMetricBatch(payloads []map[string]any, ctx metricEnvelopeContext) (*metricpb.MetricBatch, error) {
+	if len(payloads) != 1 || len(payloads[0]) == 0 {
+		return nil, errSweepNoMetricPoints
+	}
+	return buildSweepMetricBatchFromMap(payloads[0], ctx)
 }
 
 // edgeMetricsBuilt is one metrics batch record ready to spool. Its event id is
@@ -280,7 +314,11 @@ func spoolEdgeMetrics[T any](
 		if head.hasItem && len(head.ready) == 0 {
 			var dropped int
 			var err error
-			taken, parts, dropped, err = nextEdgeMetricsRecords(unbuiltItems(pending), m.build, capability, ctx)
+			items := unbuiltItems(pending)
+			if m.single {
+				items = items[:1]
+			}
+			taken, parts, dropped, err = nextEdgeMetricsRecords(items, m.build, capability, ctx)
 			if err != nil {
 				if !errors.Is(err, m.nothing) {
 					p.dropEdgeMetrics(m.producer, edgeDropInvalidRecord, taken, err)

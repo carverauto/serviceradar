@@ -380,6 +380,9 @@ spec:
                       "metrics.sysmon.>",
                       "metrics.snmp.>",
                       "metrics.icmp.>",
+                      "metrics.rperf.>",
+                      "metrics.mtr.>",
+                      "metrics.sweep.>",
                       # Exposure transitions and CVE/package dimensions, relayed
                       # from their outboxes into EXPOSURE_TRANSITIONS and
                       # EXPOSURE_DIMENSIONS, plus each relay's health metrics.

@@ -60,10 +60,14 @@ payload-budget and per-part deduplication contracts live in
 `ServiceRadarAgentGateway.MetricBatchSplit`.
 
 When the agent's metrics spool is enabled and it holds a current
-`serviceradar.metrics.batch` grant, its sysmon, SNMP and ICMP metrics leave the
-status path; each producer moves independently. The agent splits each record at
-512 KiB, and core republishes the edge records onto the same `metrics.sysmon.>`,
-`metrics.snmp.>` and `metrics.icmp.>` subjects.
+`serviceradar.metrics.batch` grant, its sysmon, SNMP, ICMP and MTR scalar metrics
+and its periodic sweep summary leave the status path; each producer moves
+independently. MTR traces and the metric batch carried with sweep results stay
+on the status path for now. The agent splits each record at 512 KiB, and core
+republishes the edge records onto the same `metrics.sysmon.>`, `metrics.snmp.>`,
+`metrics.icmp.>`, `metrics.mtr.>` and `metrics.sweep.>` subjects. Core also
+admits `rperf-metrics` batches onto `metrics.rperf.>`; the agent has no rperf
+producer of its own.
 The Helm chart README documents that opt-in
 (`edgeRecords.agentMetricsEnabled`). The publish rules are
 `ServiceRadar.Edge.MetricsBatchProjection`.

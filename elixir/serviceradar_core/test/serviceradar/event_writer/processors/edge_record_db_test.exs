@@ -460,7 +460,10 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
     for {source, family} <- [
           {"sysmon-metrics", "sysmon"},
           {"snmp-metrics", "snmp"},
-          {"icmp-metrics", "icmp"}
+          {"icmp-metrics", "icmp"},
+          {"rperf-metrics", "rperf"},
+          {"mtr-metrics", "mtr"},
+          {"sweep-metrics", "sweep"}
         ] do
       test "a fresh #{source} record is published once to metrics.#{family} under the authenticated agent" do
         frame = with_source(build_metrics_frame(), unquote(source))
@@ -539,7 +542,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
     end
 
     test "an unknown source is refused and not published" do
-      refused = with_source(build_metrics_frame(), "rperf-metrics")
+      refused = with_source(build_metrics_frame(), "plugin-metrics")
 
       assert {:error, :metrics_batch_source} =
                EdgeRecord.ingest(refused.record_bytes, refused.headers, Repo,

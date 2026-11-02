@@ -637,12 +637,7 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 					continue
 				}
 
-				metricStatus, err := p.sweepMetricStatusFromMap(metricPayload)
-				if err != nil {
-					p.logger.Warn().Err(err).Str("service", svc.Name()).Msg("Failed to marshal sweep status metric envelope")
-					continue
-				}
-				statuses = append(statuses, metricStatus)
+				statuses = append(statuses, p.sweepSummaryMetricStatuses(metricPayload, svc.Name())...)
 			}
 		}
 	}
@@ -664,6 +659,49 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 	}
 
 	return statuses, sysmonStatus
+}
+
+// sweepSummaryMetricStatuses routes the periodic sweep summary sample. One path
+// at a time: while the agent holds a metrics grant the sample goes only to the
+// edge spool and no status is returned. Without one, samples the spool never
+// admitted take the legacy status path with the new one; those taken samples are
+// held until settleSweepSummaryLegacy learns whether the status push delivered
+// them. A queued sample that cannot be marshalled is not held: it would fail the
+// same way on every retry.
+func (p *PushLoop) sweepSummaryMetricStatuses(payload map[string]any, service string) []*proto.GatewayServiceStatus {
+	if capability := p.edgeMetricsCapability(time.Now()); capability != nil {
+		spoolEdgeMetrics(p, sweepSummaryEdgeMetrics(), &p.sweepSummary, []map[string]any{payload}, capability)
+		return nil
+	}
+
+	taken := p.sweepSummary.take()
+	statuses := make([]*proto.GatewayServiceStatus, 0, len(taken)+1)
+	for _, entry := range taken {
+		metricStatus, err := p.sweepMetricStatusFromMap(entry.item)
+		if err != nil {
+			p.logger.Warn().Err(err).Str("service", service).Msg("Failed to marshal sweep status metric envelope")
+			continue
+		}
+		statuses = append(statuses, metricStatus)
+		p.sweepSummaryInFlight = append(p.sweepSummaryInFlight, entry)
+	}
+	metricStatus, err := p.sweepMetricStatusFromMap(payload)
+	if err != nil {
+		p.logger.Warn().Err(err).Str("service", service).Msg("Failed to marshal sweep status metric envelope")
+		return statuses
+	}
+	return append(statuses, metricStatus)
+}
+
+// settleSweepSummaryLegacy resolves the queued sweep summary samples the last
+// status collection put on the legacy path: dropped once delivered, otherwise
+// returned to the front of the queue.
+func (p *PushLoop) settleSweepSummaryLegacy(delivered bool) {
+	inFlight := p.sweepSummaryInFlight
+	p.sweepSummaryInFlight = nil
+	if !delivered {
+		restoreEdgeMetrics(p, sweepSummaryEdgeMetrics(), &p.sweepSummary, inFlight)
+	}
 }
 
 func (p *PushLoop) findSweepResultsProvider() SweepResultsProvider {

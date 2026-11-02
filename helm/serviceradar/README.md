@@ -452,8 +452,8 @@ the operator must supply the key in the configured existing Secret as a
 base64-encoded 32-byte seed (the Secret's data encoding wraps that text).
 
 `edgeRecords.agentSweepEnabled` enables the bundled agent's sweep producer.
-`edgeRecords.agentMetricsEnabled` enables its sysmon, SNMP and ICMP metrics
-producers on the same spool. Either flag requires `edgeRecords.enabled` and
+`edgeRecords.agentMetricsEnabled` enables its sysmon, SNMP, ICMP, MTR scalar
+and periodic sweep summary metrics producers on the same spool. Either flag requires `edgeRecords.enabled` and
 `agent.runtimeStorage.enabled=true`. The spool lives under that volume's base
 path and `edgeRecords.maxSpoolBytes` bounds it. Core's agent-scoped
 sweep lease settings select which agent receives signed slots. Enable leasing

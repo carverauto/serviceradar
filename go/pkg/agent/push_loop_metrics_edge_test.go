@@ -40,6 +40,8 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
 	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
+	"github.com/carverauto/serviceradar/go/pkg/models"
+	"github.com/carverauto/serviceradar/go/pkg/mtr"
 	"github.com/carverauto/serviceradar/go/pkg/sysmon"
 	"github.com/carverauto/serviceradar/proto"
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
@@ -179,10 +181,10 @@ var errSysmonStreamFailed = errors.New("stream failed")
 type sysmonStatusGateway struct {
 	proto.UnimplementedAgentGatewayServiceServer
 
-	mu     sync.Mutex
-	sysmon int
-	icmp   int
-	mode   sysmonStreamMode
+	mu      sync.Mutex
+	sysmon  int
+	sources map[string]int
+	mode    sysmonStreamMode
 }
 
 func (g *sysmonStatusGateway) setMode(mode sysmonStreamMode) {
@@ -192,9 +194,7 @@ func (g *sysmonStatusGateway) setMode(mode sysmonStreamMode) {
 }
 
 func (g *sysmonStatusGateway) icmpStatuses() int {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return g.icmp
+	return g.statusesFrom("icmp-metrics")
 }
 
 func (g *sysmonStatusGateway) StreamStatus(stream grpc.ClientStreamingServer[proto.GatewayStatusChunk, proto.GatewayStatusResponse]) error {
@@ -217,15 +217,22 @@ func (g *sysmonStatusGateway) StreamStatus(stream grpc.ClientStreamingServer[pro
 		}
 		for _, status := range chunk.GetServices() {
 			g.mu.Lock()
-			switch status.GetSource() {
-			case "sysmon-metrics":
+			if g.sources == nil {
+				g.sources = make(map[string]int)
+			}
+			g.sources[status.GetSource()]++
+			if status.GetSource() == "sysmon-metrics" {
 				g.sysmon++
-			case "icmp-metrics":
-				g.icmp++
 			}
 			g.mu.Unlock()
 		}
 	}
+}
+
+func (g *sysmonStatusGateway) statusesFrom(source string) int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.sources[source]
 }
 
 func (g *sysmonStatusGateway) sysmonStatuses() int {
@@ -706,12 +713,50 @@ func syntheticICMPResults(n int) []icmpCheckResult {
 	return results
 }
 
-// withoutEmitTime clears the envelope's emission time, the one field two builds of
-// the same items differ in.
+// withoutEmitTime clears the envelope's emission time, the one value two builds of
+// the same items differ in, including on points stamped with it (the sweep
+// summary times its summary points by emission).
 func withoutEmitTime(batch *metricpb.MetricBatch) *metricpb.MetricBatch {
 	clone := gproto.CloneOf(batch)
+	emitted := clone.GetEmittedAtUnixNano()
 	clone.EmittedAtUnixNano = 0
+	for _, metric := range clone.GetMetrics() {
+		for _, point := range metric.GetPoints() {
+			if point.GetObservedAtUnixNano() == emitted {
+				point.ObservedAtUnixNano = 0
+			}
+		}
+	}
 	return clone
+}
+
+func syntheticMTRResults(n int) []mtrCheckResult {
+	results := make([]mtrCheckResult, n)
+	for i := range results {
+		results[i] = mtrCheckResult{
+			CheckID: "mtr-check-" + strconv.Itoa(i), CheckName: "wan-path", Target: "path01.example.com",
+			Available: true, Timestamp: time.Now().UnixNano(),
+			Trace: &mtr.TraceResult{
+				Target: "path01.example.com", TargetIP: "192.0.2.40", TargetReached: true, TotalHops: 1,
+				Protocol: "icmp", IPVersion: 4, PacketSize: 64,
+				Hops: []mtr.HopSnapshot{{
+					HopNumber: 1, Addr: "192.0.2.1", Hostname: "hop01.example.com", Sent: 10, Received: 10,
+					LastUs: 1_200 + int64(i), AvgUs: 1_100, MinUs: 1_000, MaxUs: 1_300, StdDevUs: 20,
+				}},
+			},
+		}
+	}
+	return results
+}
+
+// syntheticSweepSummary is one periodic sweep summary payload, as a sweep
+// service's GetStatusWithMetricPayload returns it.
+func syntheticSweepSummary(sequence int) map[string]any {
+	return map[string]any{
+		"network": "lan01", "sweep_group_id": "group-01", "total_hosts": 4, "available_hosts": 3,
+		"last_sweep": int64(1_780_000_000), "sequence": sequence,
+		"ports": []any{map[string]any{"port": 443, "available": 2}},
+	}
 }
 
 // spoolOnce sends items through a producer's edge path under a current grant and
@@ -760,6 +805,20 @@ func TestEdgeMetricsRecordsCarryTheLegacyEnvelope(t *testing.T) {
 		legacy, err := buildICMPMetricBatch(items, loop.metricEnvelopeContext())
 		require.NoError(t, err)
 		check(t, batches, legacy, "icmp-metrics")
+	})
+	t.Run("mtr", func(t *testing.T) {
+		items := syntheticMTRResults(3)
+		loop, batches := spoolOnce(t, mtrEdgeMetrics(), items)
+		legacy, err := buildMTRMetricBatch(items, loop.metricEnvelopeContext())
+		require.NoError(t, err)
+		check(t, batches, legacy, "mtr-metrics")
+	})
+	t.Run("sweep summary", func(t *testing.T) {
+		item := syntheticSweepSummary(7)
+		loop, batches := spoolOnce(t, sweepSummaryEdgeMetrics(), []map[string]any{item})
+		legacy, err := buildSweepMetricBatchFromMap(item, loop.metricEnvelopeContext())
+		require.NoError(t, err)
+		check(t, batches, legacy, "sweep-metrics")
 	})
 }
 
@@ -1098,6 +1157,26 @@ func TestQueuedItemsSurviveAFailedLegacySend(t *testing.T) {
 				head:     func() bool { return loop.icmpEdge.pending[0].hasItem },
 			}
 		},
+		"mtr": func(t *testing.T, loop *PushLoop, gw *sysmonStatusGateway) legacyCase {
+			t.Helper()
+			loop.mtrState = newMtrCheckerState()
+			loop.mtrState.checks["mtr-check-01"] = &mtrCheckConfig{
+				ID: "mtr-check-01", Name: "wan-path", Target: "192.0.2.1", Enabled: true,
+				Interval: time.Nanosecond, Timeout: 200 * time.Millisecond, MaxHops: 2, ProbesPerHop: 1, Protocol: mtr.ProtocolICMP,
+			}
+			items := syntheticMTRResults(2)
+			loop.mtrEdge.pending = []edgeMetricsQueued[mtrCheckResult]{
+				{item: items[0], hasItem: true}, {ready: []edgeMetricsBuilt{{}}}, {item: items[1], hasItem: true},
+			}
+			return legacyCase{
+				push:     func() bool { return loop.pushMtrResults(context.Background()) },
+				queued:   func() int { return len(loop.mtrEdge.pending) },
+				items:    func() int { return len(queuedItemsOf(&loop.mtrEdge)) },
+				delivers: func() int { return gw.statusesFrom("mtr-metrics") },
+				drops:    func() uint64 { return edgeDrops(loop, edgeProducerMTR, edgeDropRetryBufferFull) },
+				head:     func() bool { return loop.mtrEdge.pending[0].hasItem },
+			}
+		},
 	}
 	for name, setup := range cases {
 		for _, mode := range []sysmonStreamMode{sysmonStreamError, sysmonStreamUnacked} {
@@ -1257,4 +1336,140 @@ func builtPayloads(t *testing.T, built []edgeMetricsBuilt) []*metricpb.MetricBat
 		batches = append(batches, batch)
 	}
 	return batches
+}
+
+// fakeSweepSummaryService is a sweep status service whose metric payload is the
+// periodic sweep summary sample.
+type fakeSweepSummaryService struct {
+	payload map[string]any
+}
+
+func (f *fakeSweepSummaryService) Start(context.Context) error       { return nil }
+func (f *fakeSweepSummaryService) Stop(context.Context) error        { return nil }
+func (f *fakeSweepSummaryService) Name() string                      { return networkSweepServiceName }
+func (f *fakeSweepSummaryService) UpdateConfig(*models.Config) error { return nil }
+func (f *fakeSweepSummaryService) GetStatus(context.Context) (*proto.StatusResponse, error) {
+	return &proto.StatusResponse{Available: true, Message: []byte(`{"status":"ok"}`)}, nil
+}
+
+func (f *fakeSweepSummaryService) GetStatusWithMetricPayload(ctx context.Context) (*proto.StatusResponse, map[string]any, error) {
+	status, err := f.GetStatus(ctx)
+	return status, f.payload, err
+}
+
+func sweepMetricStatuses(statuses []*proto.GatewayServiceStatus) int {
+	count := 0
+	for _, status := range statuses {
+		if status.GetSource() == "sweep-metrics" {
+			count++
+		}
+	}
+	return count
+}
+
+// The periodic sweep summary takes exactly one path: the edge spool while the
+// agent holds a metrics grant, the status push otherwise.
+func TestSweepSummaryTakesOnePath(t *testing.T) {
+	for name, granted := range map[string]bool{"with a grant": true, "without a grant": false} {
+		t.Run(name, func(t *testing.T) {
+			sp := openTestEdgeSpool(t)
+			loop, _, _ := sysmonEdgeLoop(t, sp)
+			loop.server.services = []Service{&fakeSweepSummaryService{payload: syntheticSweepSummary(1)}}
+			if granted {
+				loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentMetricsGrant(t)}, time.Now())
+			}
+
+			statuses, _ := loop.collectAllStatusesSeparated(context.Background())
+
+			batches := spooledMetricBatches(t, sp)
+			if granted {
+				require.Zero(t, sweepMetricStatuses(statuses), "no sweep summary status while the agent holds a grant")
+				require.Len(t, batches, 1)
+				require.Equal(t, "sweep-metrics", batches[0].GetIngestIdentity().GetSource())
+				return
+			}
+			require.Equal(t, 1, sweepMetricStatuses(statuses))
+			require.Empty(t, batches)
+		})
+	}
+}
+
+// Sweep summary samples each make their own envelope, so samples drained together
+// are spooled one record each, never packed into one.
+func TestSweepSummariesAreNeverPacked(t *testing.T) {
+	sp := openTestEdgeSpool(t)
+	loop, capability := scriptedMetricsLoop(t, sp, 10_000)
+	samples := []map[string]any{syntheticSweepSummary(1), syntheticSweepSummary(2)}
+
+	var queue edgeMetricsQueue[map[string]any]
+	require.True(t, spoolEdgeMetrics(loop, sweepSummaryEdgeMetrics(), &queue, samples, capability))
+
+	require.Empty(t, queue.pending)
+	batches := spooledMetricBatches(t, sp)
+	require.Len(t, batches, 2)
+	for i, batch := range batches {
+		legacy, err := buildSweepMetricBatchFromMap(samples[i], loop.metricEnvelopeContext())
+		require.NoError(t, err)
+		require.True(t, gproto.Equal(withoutEmitTime(legacy), withoutEmitTime(batch)), "sample %d", i)
+	}
+}
+
+// MTR scalar metrics take exactly one path while the traces keep theirs. The
+// check traces a TEST-NET address with a short timeout; a failed or timed-out
+// trace still records its availability metric.
+func TestMTRScalarMetricsTakeOnePathWhileTracesKeepTheirs(t *testing.T) {
+	for name, granted := range map[string]bool{"with a grant": true, "without a grant": false} {
+		t.Run(name, func(t *testing.T) {
+			sp := openTestEdgeSpool(t)
+			loop, gw, _ := sysmonEdgeLoop(t, sp)
+			loop.mtrState = newMtrCheckerState()
+			loop.mtrState.checks["mtr-check-01"] = &mtrCheckConfig{
+				ID: "mtr-check-01", Name: "wan-path", Target: "192.0.2.1", Enabled: true,
+				Interval: time.Hour, Timeout: 200 * time.Millisecond, MaxHops: 2, ProbesPerHop: 1, Protocol: mtr.ProtocolICMP,
+			}
+			if granted {
+				loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentMetricsGrant(t)}, time.Now())
+			}
+
+			loop.pushMtrResults(context.Background())
+
+			require.Equal(t, 1, gw.statusesFrom("results"), "the trace results keep the status path")
+			batches := spooledMetricBatches(t, sp)
+			if granted {
+				require.Zero(t, gw.statusesFrom("mtr-metrics"), "no MTR metric status while the agent holds a grant")
+				require.Len(t, batches, 1)
+				require.Equal(t, "mtr-metrics", batches[0].GetIngestIdentity().GetSource())
+				return
+			}
+			require.Equal(t, 1, gw.statusesFrom("mtr-metrics"))
+			require.Empty(t, batches)
+		})
+	}
+}
+
+// Queued sweep summary samples put on the legacy status push return to the front
+// of the queue unless that push delivers them.
+func TestQueuedSweepSummariesSurviveAnUndeliveredStatusPush(t *testing.T) {
+	loop, _, _ := sysmonEdgeLoop(t, openTestEdgeSpool(t))
+	loop.server.services = []Service{&fakeSweepSummaryService{payload: syntheticSweepSummary(9)}}
+	queued := syntheticSweepSummary(8)
+	loop.sweepSummary.pending = []edgeMetricsQueued[map[string]any]{
+		{item: queued, hasItem: true}, {ready: []edgeMetricsBuilt{{}}},
+	}
+
+	statuses, _ := loop.collectAllStatusesSeparated(context.Background())
+	require.Equal(t, 2, sweepMetricStatuses(statuses), "the queued and the new sample take the status push")
+	require.Len(t, loop.sweepSummary.pending, 1, "the partly admitted remainder stays queued")
+
+	loop.settleSweepSummaryLegacy(false)
+	require.Len(t, loop.sweepSummary.pending, 2)
+	require.True(t, loop.sweepSummary.pending[0].hasItem, "the undelivered sample returns to the front")
+	require.Equal(t, queued, loop.sweepSummary.pending[0].item)
+	require.Zero(t, edgeDrops(loop, edgeProducerSweepSummary, edgeDropRetryBufferFull))
+
+	statuses, _ = loop.collectAllStatusesSeparated(context.Background())
+	require.Equal(t, 2, sweepMetricStatuses(statuses))
+	loop.settleSweepSummaryLegacy(true)
+	require.Len(t, loop.sweepSummary.pending, 1, "a delivered push removes the sample")
+	require.False(t, loop.sweepSummary.pending[0].hasItem)
 }

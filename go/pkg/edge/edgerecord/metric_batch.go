@@ -38,7 +38,7 @@ const (
 // batch from source, its ingest identity source: a closed set of producers.
 func metricsBatchSourceAdmitted(source string) bool {
 	switch source {
-	case "sysmon-metrics", "snmp-metrics", "icmp-metrics":
+	case "sysmon-metrics", "snmp-metrics", "icmp-metrics", "rperf-metrics", "mtr-metrics", "sweep-metrics":
 		return true
 	default:
 		return false
