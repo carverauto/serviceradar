@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -26,11 +27,37 @@ type localNATSLogCapture struct {
 func (l *localNATSLogCapture) Warn() *zerolog.Event  { return l.output.Warn() }
 func (l *localNATSLogCapture) Debug() *zerolog.Event { return l.output.Debug() }
 
+// localNATSLogBuffer serializes the authorizer goroutine's log writes with the
+// test goroutine's snapshots. bytes.Buffer is not safe for that overlap, which
+// synctest.Wait can allow while a filesystem call is in progress.
+type localNATSLogBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *localNATSLogBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *localNATSLogBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+func (b *localNATSLogBuffer) Len() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Len()
+}
+
 func TestManagedLocalNATSLoopExitsInContainer(t *testing.T) {
 	t.Setenv("KUBERNETES_SERVICE_HOST", "192.0.2.1")
 	synctest.Test(t, func(t *testing.T) {
-		var output bytes.Buffer
-		p := &PushLoop{logger: &localNATSLogCapture{Logger: logger.NewTestLogger(), output: zerolog.New(&output)}}
+		output := &localNATSLogBuffer{}
+		p := &PushLoop{logger: &localNATSLogCapture{Logger: logger.NewTestLogger(), output: zerolog.New(output)}}
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
 		done := make(chan struct{})
@@ -58,8 +85,8 @@ func TestManagedLocalNATSUnconfiguredUnsafeRootDoesNotRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 	synctest.Test(t, func(t *testing.T) {
-		var output bytes.Buffer
-		p := &PushLoop{logger: &localNATSLogCapture{Logger: logger.NewTestLogger(), output: zerolog.New(&output)}}
+		output := &localNATSLogBuffer{}
+		p := &PushLoop{logger: &localNATSLogCapture{Logger: logger.NewTestLogger(), output: zerolog.New(output)}}
 		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 		defer cancel()
 		store := managedCertificateStore{root: root}
@@ -84,8 +111,8 @@ func TestManagedLocalNATSFailureLogsOnlyOnChangeAndStopsWhenUnconfigured(t *test
 		t.Fatal(err)
 	}
 	synctest.Test(t, func(t *testing.T) {
-		var output bytes.Buffer
-		p := &PushLoop{logger: &localNATSLogCapture{Logger: logger.NewTestLogger(), output: zerolog.New(&output)}}
+		output := &localNATSLogBuffer{}
+		p := &PushLoop{logger: &localNATSLogCapture{Logger: logger.NewTestLogger(), output: zerolog.New(output)}}
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
 		store := managedCertificateStore{root: root}
@@ -177,9 +204,9 @@ func TestManagedLocalNATSMissingClientCertificateRetries(t *testing.T) {
 	}
 
 	synctest.Test(t, func(t *testing.T) {
-		var output bytes.Buffer
+		output := &localNATSLogBuffer{}
 		p := &PushLoop{
-			logger: &localNATSLogCapture{Logger: logger.NewTestLogger(), output: zerolog.New(&output)},
+			logger: &localNATSLogCapture{Logger: logger.NewTestLogger(), output: zerolog.New(output)},
 			server: &Server{config: &ServerConfig{
 				AgentID:   "agent-under-test",
 				Partition: "partition-a",
