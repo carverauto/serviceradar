@@ -301,7 +301,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                     </div>
                     <label class="flex cursor-pointer items-center gap-2 gap-2">
                       <span class="text-sm font-medium text-sr-ink">Enabled</span>
-                      <input type="hidden" name="settings[sso_auto_provision]" value="false" />
                       <input
                         type="checkbox"
                         name="settings[sso_auto_provision]"
@@ -992,16 +991,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
   defp infer_idp_preset(settings) when is_map(settings) do
     mappings = Map.get(settings, :claim_mappings) || %{}
 
-    cond do
-      Map.get(mappings, "email") == "preferred_username" -> "entra"
-      Map.get(mappings, "sub") == "sub" and
-          String.contains?(Map.get(settings, :oidc_scopes) || "", "offline_access") ->
-        "authentik"
-      true -> "generic"
-    end
+    if Map.get(mappings, "email") == "preferred_username", do: "entra", else: "generic"
   end
-
-  defp infer_idp_preset(_), do: "generic"
 
   @impl true
   def mount(_params, _session, socket) do
