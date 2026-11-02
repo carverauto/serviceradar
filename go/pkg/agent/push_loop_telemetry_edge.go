@@ -244,8 +244,8 @@ func buildTelemetryItem(
 		// counted, and an empty batch is not an error worth retrying.
 		return &telemetryBuiltItem{item: item}, filtered, nil
 	}
-	if _, _, ok := edgerecord.TelemetryBatchProducer(stamped); !ok {
-		return nil, filtered, edgerecord.ErrTelemetryBatch
+	if err := edgerecord.ValidateTelemetryBatch(stamped); err != nil {
+		return nil, filtered, err
 	}
 
 	built = &telemetryBuiltItem{item: item}

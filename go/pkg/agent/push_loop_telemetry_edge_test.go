@@ -47,6 +47,11 @@ func telemetryGrant(t *testing.T, agentID string) *proto.EdgeOutputGrant {
 
 func telemetryGrantMaxRows(t *testing.T, agentID string, maxRows uint32) *proto.EdgeOutputGrant {
 	t.Helper()
+	return telemetryGrantLimits(t, agentID, maxRows, uint64(maxRows)*edgerecord.TelemetryProjectedWriteBytesPerRecord)
+}
+
+func telemetryGrantLimits(t *testing.T, agentID string, maxRows uint32, maxWriteBytes uint64) *proto.EdgeOutputGrant {
+	t.Helper()
 	_, key, err := ed25519.GenerateKey(nil)
 	require.NoError(t, err)
 	digest := sha256.Sum256([]byte("synthetic-telemetry-contract"))
@@ -67,7 +72,7 @@ func telemetryGrantMaxRows(t *testing.T, agentID string, maxRows uint32) *proto.
 			RouteProfile: edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
 			TrafficClass: edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_BULK,
 			PackageId:    "serviceradar.agent.telemetry", PackageSha256: digest[:], CostModelVersion: 1,
-			MaxProjectedRowCount: maxRows, MaxProjectedWriteBytes: uint64(maxRows) * edgerecord.TelemetryProjectedWriteBytesPerRecord,
+			MaxProjectedRowCount: maxRows, MaxProjectedWriteBytes: maxWriteBytes,
 		}},
 	}
 	edgerecord.SignCapability(capability, key)
@@ -87,7 +92,12 @@ func telemetryCapability(t *testing.T, loop *PushLoop) *edgev1.EdgeSignedCapabil
 
 func telemetryCapabilityMaxRows(t *testing.T, loop *PushLoop, maxRows uint32) *edgev1.EdgeSignedCapabilityV1 {
 	t.Helper()
-	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{telemetryGrantMaxRows(t, sysmonEdgeAgentID, maxRows)}, time.Now())
+	return telemetryCapabilityLimits(t, loop, maxRows, uint64(maxRows)*edgerecord.TelemetryProjectedWriteBytesPerRecord)
+}
+
+func telemetryCapabilityLimits(t *testing.T, loop *PushLoop, maxRows uint32, maxWriteBytes uint64) *edgev1.EdgeSignedCapabilityV1 {
+	t.Helper()
+	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{telemetryGrantLimits(t, sysmonEdgeAgentID, maxRows, maxWriteBytes)}, time.Now())
 	capability := loop.edgeTelemetryCapability(time.Now())
 	require.NotNil(t, capability)
 	return capability
@@ -371,6 +381,58 @@ func addonTelemetryDropReports(t *testing.T, logged string) []map[string]any {
 		}
 	}
 	return reports
+}
+
+func TestTelemetryBatchSkipsHeadThatFailsRecordValidation(t *testing.T) {
+	sp := openTestEdgeSpool(t)
+	loop := telemetryLoop(t, sp)
+	// 256 KiB admits one row (projected write is 8192). The middle record's
+	// batch stays under the 512 KiB payload cap and still cannot form a
+	// part: its encoded edge record exceeds the whole-record bound.
+	const writeCeiling = 256 * 1024
+	capability := telemetryCapabilityLimits(t, loop, 4096, writeCeiling)
+
+	smallA := ocsfTelemetryRecord(`{"class_uid":4003,"raw":"a"}`)
+	smallB := ocsfTelemetryRecord(`{"class_uid":4003,"raw":"b"}`)
+	head := &addonpb.TelemetryRecord{
+		PayloadKind: addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OCSF_EVENT,
+		Payload:     incompressiblePayload(edgeTelemetryMaxPayloadBytes-700, 5),
+	}
+	batch := &addonpb.TelemetryBatch{
+		Counters: &addonpb.TelemetryCounters{Received: 3},
+		Records:  []*addonpb.TelemetryRecord{smallA, head, smallB},
+	}
+	stamped := gproto.Clone(batch).(*addonpb.TelemetryBatch)
+	stamped.Source = &addonpb.TelemetrySource{Metadata: map[string]string{
+		edgerecord.TelemetryProducerTypeMetadataKey: "addon",
+		edgerecord.TelemetryProducerIDMetadataKey:   "powerdns",
+	}}
+	stamped.Records = []*addonpb.TelemetryRecord{head}
+	raw, err := gproto.Marshal(stamped)
+	require.NoError(t, err)
+	require.LessOrEqual(t, len(raw), edgeTelemetryMaxPayloadBytes, "the head is not refused by the payload cap")
+
+	loop.addonTelemetryEdge.enqueue([]telemetryEdgeItem{{
+		producerType: "addon", producerID: "powerdns", batch: batch,
+	}})
+
+	require.True(t, loop.spoolTelemetry(edgeProducerAddonTelemetry, &loop.addonTelemetryEdge, capability))
+
+	var spooled [][]byte
+	parts := spooledTelemetryBatches(t, sp)
+	require.GreaterOrEqual(t, len(parts), 1)
+	for i, part := range parts {
+		if i == 0 {
+			require.EqualValues(t, 3, part.GetCounters().GetReceived())
+		} else {
+			require.Nil(t, part.GetCounters())
+		}
+		for _, record := range part.GetRecords() {
+			spooled = append(spooled, record.GetPayload())
+		}
+	}
+	require.Equal(t, [][]byte{smallA.GetPayload(), smallB.GetPayload()}, spooled)
+	require.Equal(t, uint64(1), edgeDrops(loop, edgeProducerAddonTelemetry, edgeDropInvalidRecord))
 }
 
 func TestTelemetryBatchKeepsRecordsBesideOneThatCannotFormAPart(t *testing.T) {
