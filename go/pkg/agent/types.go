@@ -265,6 +265,10 @@ type EdgeRecordSenderConfig struct {
 	// grants this agent the metrics batch contract. Without a grant they keep the
 	// legacy status path.
 	MetricsEnabled bool `json:"metrics_enabled,omitempty"`
+	// TelemetryEnabled lets plugin and add-on telemetry producers emit
+	// telemetry batch records while core grants this agent the telemetry
+	// batch contract. Without a grant they keep the legacy status path.
+	TelemetryEnabled bool `json:"telemetry_enabled,omitempty"`
 	// MaxBytes bounds durable spool admission; zero uses 256 MiB.
 	MaxBytes uint64 `json:"max_bytes,omitempty"`
 	// SpoolDir is the directory holding the agent's edge-record spool segment
@@ -279,7 +283,7 @@ type EdgeRecordSenderConfig struct {
 // records. Such a sender must persist terminal acknowledgements so the spool
 // reclaims what the gateway accepted.
 func (c *EdgeRecordSenderConfig) ProducersEnabled() bool {
-	return c != nil && (c.SweepEnabled || c.MetricsEnabled)
+	return c != nil && (c.SweepEnabled || c.MetricsEnabled || c.TelemetryEnabled)
 }
 
 type BumblebeeStatusConfig struct {

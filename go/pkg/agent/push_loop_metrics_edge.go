@@ -59,6 +59,8 @@ const (
 	edgeProducerSweepSummary
 	edgeProducerSweepResults
 	edgeProducerSweepResultsMetrics
+	edgeProducerPluginTelemetry
+	edgeProducerAddonTelemetry
 	edgeProducerCount
 )
 
@@ -73,6 +75,8 @@ func (p edgeProducer) label() string {
 		// Unleased sweep results records, and the metric batch each results chunk carries.
 		edgeProducerSweepResults:        "sweep_results",
 		edgeProducerSweepResultsMetrics: "sweep_results_metrics",
+		edgeProducerPluginTelemetry:     "plugin_telemetry",
+		edgeProducerAddonTelemetry:      "addon_telemetry",
 	}[p]
 }
 

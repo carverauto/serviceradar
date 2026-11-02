@@ -118,6 +118,8 @@ ASYNC_ON_EXIT_ALLOWED_SOURCES = {
     "test/serviceradar/inventory/remediation/netprobe_alias_debris_test.exs",
     # Restores a process-global Application env flag; no database cleanup.
     "test/serviceradar/plugins/wasm_plugin_rollout_db_test.exs",
+    # Restores the process-global add-on telemetry publisher; no database cleanup.
+    "test/serviceradar/event_writer/processors/edge_record_db_test.exs",
 }
 DATABASE_BOOTSTRAP_SOURCE = (
     "test/serviceradar/cluster/database_bootstrap_integration_test.exs"
@@ -2446,6 +2448,9 @@ print(open(sys.argv[2]).read().strip())
                 "on_exit(fn -> File.rm(manifest_path) end)": 1,
             },
             "test/serviceradar/plugins/wasm_plugin_rollout_db_test.exs": {
+                "on_exit(fn ->": 1,
+            },
+            "test/serviceradar/event_writer/processors/edge_record_db_test.exs": {
                 "on_exit(fn ->": 1,
             },
         }

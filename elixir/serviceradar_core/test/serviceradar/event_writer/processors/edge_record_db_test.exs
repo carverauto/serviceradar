@@ -14,6 +14,9 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
   use ServiceRadar.DataCase, async: true
 
+  alias Serviceradar.Agent.Addon.V1.TelemetryBatch, as: AddonTelemetryBatch
+  alias Serviceradar.Agent.Addon.V1.TelemetryRecord
+  alias Serviceradar.Agent.Addon.V1.TelemetrySource
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.HashGrammar
   alias ServiceRadar.Edge.IssuerKey
@@ -63,6 +66,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
   @metrics_contract "serviceradar.metrics.batch"
   @unleased_sweep_contract "serviceradar.sweep.unleased_results"
+  @telemetry_contract "serviceradar.telemetry.batch"
 
   setup_all do
     ServiceRadar.TestSupport.start_core!()
@@ -604,6 +608,135 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       assert_received {:metrics_published, _subject, _body, _opts}
       refute_received {:metrics_published, _subject, _body, _opts}
       assert ledger_count(frame.record) == 1
+    end
+  end
+
+  describe "ingest/4 of telemetry batch records" do
+    setup do
+      original = Application.get_env(:serviceradar_core, ServiceRadar.StatusHandler, [])
+      test = self()
+
+      Application.put_env(:serviceradar_core, ServiceRadar.StatusHandler,
+        addon_telemetry_publisher: fn subject, payload ->
+          send(test, {:telemetry_routed, subject, payload})
+          :ok
+        end
+      )
+
+      on_exit(fn ->
+        if original == [] do
+          Application.delete_env(:serviceradar_core, ServiceRadar.StatusHandler)
+        else
+          Application.put_env(:serviceradar_core, ServiceRadar.StatusHandler, original)
+        end
+      end)
+
+      :ok
+    end
+
+    test "a fresh plugin batch publishes its metrics attested to the assignment and routes its OCSF record" do
+      frame =
+        build_telemetry_frame([
+          metrics_telemetry_record(),
+          %TelemetryRecord{
+            payload_kind: :TELEMETRY_PAYLOAD_KIND_OCSF_EVENT,
+            payload: ~s({"class_uid":4003,"message":"synthetic"})
+          }
+        ])
+
+      assert {:ok, :inserted} =
+               EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
+
+      assert_received {:metrics_published, subject, body, request_opts}
+      assert subject == "metrics.timeseries.dns.dns_rpz_hits_total"
+      assert {"Nats-Msg-Id", msg_id} = List.keyfind(request_opts[:headers], "Nats-Msg-Id", 0)
+      assert is_binary(msg_id)
+
+      published = MetricBatch.decode(body)
+      assert published.resource.agent_id == frame.agent_id
+      assert published.resource.gateway_id == ""
+      assert published.resource.service_name == "plugin-telemetry"
+      assert published.ingest_identity.source == "wasm-plugin"
+      assert published.ingest_identity.producer_id == "assignment-telemetry-1"
+      assert published.ingest_identity.producer_kind == "plugin"
+
+      assert_received {:telemetry_routed, "events.ocsf.processed", routed}
+      assert Jason.decode!(routed)["class_uid"] == 4003
+      assert ledger_count(frame.record) == 1
+
+      assert {:ok, :replay} =
+               EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
+
+      refute_received {:metrics_published, _subject, _body, _opts}
+      refute_received {:telemetry_routed, _subject, _payload}
+    end
+
+    test "an add-on OCSF record routes to the pdns subject" do
+      frame =
+        build_telemetry_frame(
+          [
+            %TelemetryRecord{
+              payload_kind: :TELEMETRY_PAYLOAD_KIND_OCSF_EVENT,
+              payload: ~s({"class_uid":4003,"message":"synthetic"})
+            }
+          ],
+          producer_type: "addon",
+          producer_id: "powerdns"
+        )
+
+      assert {:ok, :inserted} =
+               EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
+
+      assert_received {:telemetry_routed, "pdns.ocsf", _routed}
+      refute_received {:metrics_published, _subject, _body, _opts}
+    end
+
+    test "a metric record with another schema is dropped, not published" do
+      frame = build_telemetry_frame([metrics_telemetry_record("guest.metric.v9")])
+
+      assert {:ok, :inserted} =
+               EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
+
+      refute_received {:metrics_published, _subject, _body, _opts}
+      assert ledger_count(frame.record) == 1
+    end
+
+    test "a record whose grant was revoked is refused and routes nothing" do
+      frame = build_telemetry_frame([metrics_telemetry_record()])
+
+      {:ok, nil} =
+        OutputGrants.reconcile(frame.agent_id, @telemetry_contract, frame.partition_id, false)
+
+      assert {:error, :output_grant_not_current} =
+               EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
+
+      refute_received {:metrics_published, _subject, _body, _opts}
+      refute_received {:telemetry_routed, _subject, _payload}
+      assert ledger_count(frame.record) == 0
+    end
+
+    test "a discovery record stamped as a plugin is refused at decode" do
+      frame =
+        build_telemetry_frame([
+          %TelemetryRecord{
+            payload_kind: :TELEMETRY_PAYLOAD_KIND_DISCOVERY_V1,
+            payload: ~s({"devices":[]})
+          }
+        ])
+
+      assert {:error, :telemetry_batch_discovery_producer} =
+               EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
+
+      assert ledger_count(frame.record) == 0
+    end
+
+    test "a batch without a host producer stamp is refused at decode" do
+      frame = build_telemetry_frame([metrics_telemetry_record()], stamp: false)
+
+      assert {:error, :telemetry_batch_producer} =
+               EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
+
+      assert ledger_count(frame.record) == 0
     end
   end
 
@@ -1220,6 +1353,121 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       network_scope_id: Ecto.UUID.dump!(partition.id),
       projected_row_count: length(batch.metrics),
       projected_write_bytes: 0,
+      cost_model_version: 1,
+      payload: payload
+    }
+
+    slot = %{
+      network_scope_id: record.network_scope_id,
+      authenticated_agent_id: agent_id,
+      spool_id: random_uuid(7),
+      sequence: 1
+    }
+
+    record
+    |> encode_frame(batch, slot)
+    |> Map.merge(%{agent_id: agent_id, partition_id: partition.id})
+  end
+
+  defp metrics_telemetry_record(schema_version \\ "serviceradar.metric.v1") do
+    metric_batch = %MetricBatch{
+      schema_version: schema_version,
+      resource: %MetricResource{gateway_id: "guest-claimed-gateway"},
+      metrics: [
+        %Metric{
+          name: "dns_rpz_hits_total",
+          metric_type: "dns",
+          kind: :METRIC_KIND_SUM,
+          points: [%MetricPoint{value: 3.0, observed_at_unix_nano: 1_000}]
+        }
+      ]
+    }
+
+    %TelemetryRecord{
+      payload_kind: :TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS,
+      payload: MetricBatch.encode(metric_batch)
+    }
+  end
+
+  defp build_telemetry_frame(records, opts \\ []) do
+    actor = SystemActor.system(:edge_record_test)
+    partition = partition!(random_uuid(4), actor)
+    agent_id = "agent-#{System.unique_integer([:positive])}"
+    ensure_agent!(agent_id, partition, actor)
+
+    {:ok, grant} = OutputGrants.reconcile(agent_id, @telemetry_contract, partition.id, true)
+
+    metadata =
+      if Keyword.get(opts, :stamp, true) do
+        %{
+          "serviceradar.producer_type" => Keyword.get(opts, :producer_type, "plugin"),
+          "serviceradar.producer_id" => Keyword.get(opts, :producer_id, "assignment-telemetry-1")
+        }
+      else
+        %{}
+      end
+
+    batch = %AddonTelemetryBatch{
+      source: %TelemetrySource{metadata: metadata},
+      records: records
+    }
+
+    payload = AddonTelemetryBatch.encode(batch)
+    key = IssuerKey.from_seed(:binary.copy(<<0x5B>>, 32))
+    now = DateTime.shift(DateTime.utc_now(), second: 1)
+
+    contract = %{
+      contract_id: @telemetry_contract,
+      contract_version: 1,
+      contract_bundle_sha256: :crypto.hash(:sha256, "telemetry-bundle"),
+      registry_epoch: 1,
+      registry_snapshot_sha256: :crypto.hash(:sha256, "registry"),
+      cost_model_version: 1,
+      max_projected_row_count: 10_000,
+      max_projected_write_bytes: 81_920_000
+    }
+
+    production = OutputGrants.production_capability(grant, contract, key, now)
+    {:production, claims} = production.claims
+
+    record = %EdgeRecordV1{
+      event_id: Ecto.UUID.dump!(ExecutionSlots.mint_id(now)),
+      output_contract:
+        struct(
+          EdgeOutputContractRef,
+          Map.take(claims, [
+            :contract_id,
+            :contract_version,
+            :contract_bundle_sha256,
+            :registry_epoch,
+            :registry_snapshot_sha256,
+            :effective_grant_sha256
+          ])
+        ),
+      production_capability: production,
+      payload_family: :EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1,
+      compression: :EDGE_RECORD_COMPRESSION_NONE,
+      encoded_size: byte_size(payload),
+      uncompressed_size: byte_size(payload),
+      payload_sha256: :crypto.hash(:sha256, payload),
+      producer_context: %EdgeProducerContext{
+        origin_kind: :EDGE_ORIGIN_KIND_AGENT,
+        origin_principal_id: agent_id,
+        producer_instance_id: agent_id,
+        producer_assignment_id: claims.producer_assignment_id,
+        authority_epoch: claims.authority_epoch,
+        run_id: claims.run_id,
+        run_shard: 0,
+        scope_id: claims.scope_id,
+        scope_sha256: claims.scope_sha256,
+        package_id: claims.package_id,
+        package_sha256: claims.package_sha256
+      },
+      route_profile: :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
+      traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_BULK,
+      network_scope_id: Ecto.UUID.dump!(partition.id),
+      projected_row_count: length(records),
+      projected_write_bytes: length(records) * 8_192,
       cost_model_version: 1,
       payload: payload
     }

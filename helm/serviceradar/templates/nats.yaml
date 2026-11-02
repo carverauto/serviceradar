@@ -383,6 +383,12 @@ spec:
                       "metrics.rperf.>",
                       "metrics.mtr.>",
                       "metrics.sweep.>",
+                      # Plugin and add-on metric records republished from
+                      # telemetry batch edge records (Projectors.TelemetryBatch)
+                      # onto the subject the gateway's plugin metrics
+                      # publisher uses. The publish waits for a PubAck, so a
+                      # missing entry redelivers the telemetry batch forever.
+                      "metrics.timeseries.>",
                       # Exposure transitions and CVE/package dimensions, relayed
                       # from their outboxes into EXPOSURE_TRANSITIONS and
                       # EXPOSURE_DIMENSIONS, plus each relay's health metrics.

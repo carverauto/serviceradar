@@ -1846,11 +1846,14 @@ agent:
 # and the agent's leasing switch on); without a grant it keeps the status path. With it,
 # results of sweep groups the agent runs without a lease also move to edge records once
 # contractRegistry holds an active serviceradar.sweep.unleased_results contract as well.
+# agentTelemetryEnabled does the same for plugin and add-on telemetry under the
+# serviceradar.telemetry.batch contract.
 edgeRecords:
   enabled: false
   contractRegistry: {}
   agentSweepEnabled: false
   agentMetricsEnabled: false
+  agentTelemetryEnabled: false
   maxSpoolBytes: 1073741824
 
 agentGateway:
