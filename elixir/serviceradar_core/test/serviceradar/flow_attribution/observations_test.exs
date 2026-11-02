@@ -2,6 +2,7 @@ defmodule ServiceRadar.FlowAttribution.ObservationsTest do
   # Mutates the StarRocks application env, so not async.
   use ExUnit.Case, async: false
 
+  alias Serviceradar.Agent.Netprobe.V1.ExecutableOwnership
   alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEvent
   alias ServiceRadar.Analytics.StarRocks
   alias ServiceRadar.FlowAttribution
@@ -44,6 +45,14 @@ defmodule ServiceRadar.FlowAttribution.ObservationsTest do
   defp collect_published(acc) do
     receive do
       {:published, _subject, body} -> collect_published([body | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
+
+  defp collect_ids(acc) do
+    receive do
+      {:published, _subject, _body, msg_id} -> collect_ids([msg_id | acc])
     after
       0 -> Enum.reverse(acc)
     end
@@ -112,7 +121,8 @@ defmodule ServiceRadar.FlowAttribution.ObservationsTest do
 
     rows =
       Enum.flat_map(bodies, fn body ->
-        assert byte_size(body) <= 524_288
+        # NATS server default max_payload. A larger body is a Maximum Payload Violation.
+        assert byte_size(body) <= 1_048_576
         assert {:ok, decoded} = Observations.decode(body)
         decoded
       end)
@@ -138,6 +148,73 @@ defmodule ServiceRadar.FlowAttribution.ObservationsTest do
     assert {:ok, [row]} = Observations.decode(body)
     assert String.valid?(row["comm"])
     assert String.valid?(row["cmdline"])
+  end
+
+  # Column widths are the warehouse VARCHAR bounds. Filling them with quotes
+  # expands under JSON encoding; the published message still has to fit in one
+  # NATS payload (server default max_payload is 1_048_576 bytes).
+  test "a worst-case observation row fits in one NATS message" do
+    quotes = String.duplicate("\"", 1_200_000)
+
+    assert :ok =
+             FlowAttribution.publish_observations(
+               [
+                 event(
+                   local_ip: String.duplicate("a", 200),
+                   remote_ip: String.duplicate("b", 200),
+                   comm: String.duplicate("c", 2_000),
+                   redacted_cmdline: [quotes],
+                   container_id: String.duplicate("d", 2_000),
+                   workload_identity: %{labels: %{"k" => quotes}},
+                   executable_ownership: %ExecutableOwnership{
+                     resolution_state: :EXECUTABLE_OWNERSHIP_STATE_RESOLVED,
+                     source_scope: "container",
+                     executable_path: quotes,
+                     package_type: "apk",
+                     package_manager: "apk",
+                     binary_package: "example",
+                     installed_version: "1",
+                     resolver: :EXECUTABLE_OWNERSHIP_RESOLVER_APK
+                   }
+                 )
+               ],
+               String.duplicate("p", 400),
+               String.duplicate("g", 400),
+               enabled: true,
+               publish: capture(self())
+             )
+
+    assert_received {:published, "flows.attribution.observations", body}
+    refute_received {:published, _subject, _body}
+    assert byte_size(body) <= 1_048_576
+    assert {:ok, [row]} = Observations.decode(body)
+    assert byte_size(row["partition"]) <= 128
+    assert byte_size(row["agent_id"]) <= 256
+    assert byte_size(row["local_ip"]) <= 64
+    assert byte_size(row["remote_ip"]) <= 64
+    assert byte_size(row["comm"]) <= 256
+    assert byte_size(row["cmdline"]) <= 65_533
+    assert byte_size(row["container_id"]) <= 256
+    assert byte_size(row["attribution_key"]) <= 64
+  end
+
+  test "retries of one edge record reuse distinct per-split message ids" do
+    events = for port <- 1..501, do: event(local_port: port)
+
+    publish = fn subject, body, msg_id ->
+      send(self(), {:published, subject, body, msg_id})
+      :ok
+    end
+
+    opts = [enabled: true, event_id: "edge-record-1", publish: publish]
+    assert :ok = FlowAttribution.publish_observations(events, "site-a", "agent-a", opts)
+    first = collect_ids([])
+    assert :ok = FlowAttribution.publish_observations(events, "site-a", "agent-a", opts)
+    second = collect_ids([])
+
+    assert length(first) > 1
+    assert first == second
+    assert first == Enum.map(0..(length(first) - 1), &"edge-record-1:#{&1}")
   end
 
   # The admission lane reports the batch as failed to the gateway, which keeps

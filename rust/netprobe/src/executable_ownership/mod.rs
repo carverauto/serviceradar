@@ -668,23 +668,25 @@ fn mode(_metadata: &Metadata) -> u32 {
 mod path_cap {
     use std::path::Path;
 
-    use super::{MAX_EXECUTABLE_PATH_BYTES, in_root_executable_path};
+    use super::in_root_executable_path;
 
     #[test]
     fn overlong_readlink_stays_within_one_observation() {
-        let link = format!("/usr/bin/{}", "a".repeat(MAX_EXECUTABLE_PATH_BYTES + 8_000));
+        let link = format!("/usr/bin/{}", "a".repeat(80_000));
         let (path, deleted) =
             in_root_executable_path(Path::new(&link), Path::new("/no-such-process-root"));
         assert!(!deleted);
-        assert!(path.len() <= MAX_EXECUTABLE_PATH_BYTES);
-        assert!(path.len() > MAX_EXECUTABLE_PATH_BYTES - 4);
+        assert!(path.len() <= 65_533);
+        assert!(path.len() <= 512 * 1024);
+        assert!(path.len() > 65_533 - 4);
         assert!(path.is_char_boundary(path.len()));
 
         let multibyte = format!("/bin/{}", "é".repeat(40_000));
         let (path, deleted) =
             in_root_executable_path(Path::new(&multibyte), Path::new("/no-such-process-root"));
         assert!(!deleted);
-        assert!(path.len() <= MAX_EXECUTABLE_PATH_BYTES);
+        assert!(path.len() <= 65_533);
+        assert!(path.len() <= 512 * 1024);
         assert!(path.is_char_boundary(path.len()));
         assert!(std::str::from_utf8(path.as_bytes()).is_ok());
     }

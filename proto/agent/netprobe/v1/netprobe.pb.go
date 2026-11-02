@@ -3226,10 +3226,13 @@ func (x *FlowAttributionEvent) GetExecutableOwnership() *ExecutableOwnership {
 //     producer splits further when it does not.
 //   - events MUST be non-empty (1 <= length(events) <= 4,096,
 //     flowAttributionMaxEventsPerChunk), and length(events) MUST equal
-//     EdgeRecordV1.projected_row_count. projected_write_bytes equals that record's
-//     actual uncompressed payload size, a true upper bound because the projector
-//     never writes more than the record carries. max_projected_write_bytes is the
-//     512 KiB record payload cap.
+//     EdgeRecordV1.projected_row_count. max_projected_rows is 4,096.
+//     write_bytes_per_row is 983,029, the maximum JSON object size in bytes of
+//     one observation row as ServiceRadar.FlowAttribution.Observations.publish
+//     emits it: the flow_process_attribution_observations column bounds, shortened
+//     until that object fits in one NATS message. projected_write_bytes is
+//     projected_row_count * 983,029. max_projected_write_bytes is
+//     4,096 * 983,029 = 4,026,486,784.
 //   - When both batch_start_unix_nano and batch_end_unix_nano are non-zero,
 //     batch_start_unix_nano <= batch_end_unix_nano.
 //   - Partition guard (B-4 defeater): the batch carries no partition or agent field.
@@ -3246,12 +3249,15 @@ func (x *FlowAttributionEvent) GetExecutableOwnership() *ExecutableOwnership {
 //   - On a fresh primary delivery, the projector's publish/3 (before the EdgeRecord
 //     ledger transaction) re-checks OutputGrants.check_current/5 and forwards events
 //     to ServiceRadar.FlowAttribution.publish_observations/4 with the resolved
-//     partition slug and origin_principal_id as agent_id (loaded by EventWriter into
-//     StarRocks flow_process_attribution_observations, or acknowledged as :ok without
-//     publishing when StarRocks is disabled). Each observation split carries a stable
-//     Nats-Msg-Id derived from EdgeRecordV1.event_id and distinct across splits, so a
-//     ledger failure before commit stores each split once and does not drop a later
-//     split. publish/3 returns only after those PubAcks so the ledger can commit.
+//     partition slug, origin_principal_id as agent_id, and EdgeRecordV1.event_id
+//     (loaded by EventWriter into StarRocks flow_process_attribution_observations,
+//     or acknowledged as :ok without publishing when StarRocks is disabled).
+//     publish_observations/4 chunks the batch so every published message stays
+//     within the NATS server max payload (1,048,576 bytes) and never publishes
+//     one oversized message. Each observation split carries a stable Nats-Msg-Id
+//     derived from that event id and distinct across splits, so a ledger failure
+//     before commit stores each split once and does not drop a later split.
+//     publish/3 returns only after those PubAcks so the ledger can commit.
 //     [:serviceradar, :event_writer, :attributed_flow, :batch_received] is emitted
 //     only after that ledger commit, with measurements count: 1, event_count, and
 //     dropped_since_last and metadata partition_id and agent_id. A failed attempt

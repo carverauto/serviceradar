@@ -9,21 +9,41 @@ defmodule ServiceRadar.FlowAttribution.Observations do
   observations to a database itself.
 
   One message carries at most `@max_rows_per_message` rows and at most
-  `@max_message_bytes` bytes when encoded, so a large edge batch stays under
-  the NATS payload limit. Each row's `cmdline` is truncated UTF-8-safely to
-  the warehouse column width before encoding, so one row can never exceed the
-  budget on its own. The publish waits for the JetStream PubAck: a message
-  the server refused (for example a subject the NATS user may not publish)
-  fails the batch instead of vanishing.
+  `@max_message_bytes` bytes when encoded. That budget is the NATS server
+  default max payload minus the header margin, so the published frame stays
+  within max_payload. Text fields are truncated UTF-8-safely to the warehouse
+  column widths, then the row is shortened until its JSON fits in one message.
+  A row that still cannot fit fails the batch before any publish. The publish
+  waits for the JetStream PubAck: a message the server refused (for example a
+  subject the NATS user may not publish) fails the batch instead of vanishing.
   """
 
   alias ServiceRadar.NATS.JetStreamPublish
 
   @subject "flows.attribution.observations"
   @max_rows_per_message 500
-  @max_message_bytes 524_288
-  @max_cmdline_bytes 65_533
+  @nats_max_payload_bytes 1_048_576
+  @payload_margin_bytes 65_536
+  @max_message_bytes @nats_max_payload_bytes - @payload_margin_bytes
   @envelope_bytes 11
+  @max_row_bytes @max_message_bytes - @envelope_bytes
+
+  # flow_process_attribution_observations column widths (0026).
+  @scalar_limits [
+    {:partition, 128},
+    {:agent_id, 256},
+    {:local_ip, 64},
+    {:remote_ip, 64},
+    {:comm, 256},
+    {:cmdline, 65_533},
+    {:container_id, 256},
+    {:attribution_key, 64}
+  ]
+
+  @nested_limits [
+    {:workload_identity, 1_048_576},
+    {:executable_ownership, 65_533}
+  ]
 
   @spec subject() :: String.t()
   def subject, do: @subject
@@ -31,48 +51,121 @@ defmodule ServiceRadar.FlowAttribution.Observations do
   @doc """
   Publishes observation rows (as built by `EventRows.from_event/3`).
 
-  `:publish` replaces the JetStream publish, `(subject, body -> :ok | {:error, term})`.
+  `:publish` replaces the JetStream publish. An arity-3 callback is
+  `(subject, body, msg_id -> :ok | {:error, term})`; an arity-2 callback is
+  `(subject, body -> :ok | {:error, term})`.
+
+  `:event_id` is the EdgeRecordV1 event id. Each split's `Nats-Msg-Id` is that
+  id, a colon, and the split index, so a retry stores each split once and a
+  later split is not dropped.
   """
   @spec publish([map()], keyword()) :: :ok | {:error, term()}
   def publish(rows, opts \\ []) when is_list(rows) do
-    publish = Keyword.get(opts, :publish, &JetStreamPublish.publish/2)
+    publish = Keyword.get(opts, :publish, &default_publish/3)
+    event_id = Keyword.get(opts, :event_id)
 
-    rows
-    |> Enum.map(&bound_row/1)
-    |> Enum.map(&Jason.encode!/1)
-    |> split_messages()
-    |> Enum.reduce_while(:ok, fn body, :ok ->
-      case publish.(@subject, body) do
-        :ok -> {:cont, :ok}
-        {:error, _reason} = error -> {:halt, error}
-        other -> {:halt, {:error, {:unexpected_publish_result, other}}}
-      end
-    end)
-  end
-
-  defp split_messages([]), do: []
-
-  defp split_messages(encoded_rows) do
-    {bodies, current, _count, _size} =
-      Enum.reduce(encoded_rows, {[], [], 0, @envelope_bytes}, fn row,
-                                                                 {done, current, count, size} ->
-        size_with_row = size + byte_size(row) + if(count == 0, do: 0, else: 1)
-
-        if count > 0 and
-             (count + 1 > @max_rows_per_message or size_with_row > @max_message_bytes) do
-          {[encode_body(current) | done], [row], 1, @envelope_bytes + byte_size(row)}
-        else
-          {done, [row | current], count + 1, size_with_row}
+    with {:ok, encoded} <- encode_rows(rows),
+         {:ok, bodies} <- split_messages(encoded) do
+      bodies
+      |> Enum.with_index()
+      |> Enum.reduce_while(:ok, fn {body, index}, :ok ->
+        case deliver(publish, body, message_id(event_id, index)) do
+          :ok -> {:cont, :ok}
+          {:error, _reason} = error -> {:halt, error}
+          other -> {:halt, {:error, {:unexpected_publish_result, other}}}
         end
       end)
+    end
+  end
 
-    bodies =
-      case current do
-        [] -> bodies
-        _ -> [encode_body(current) | bodies]
+  defp default_publish(subject, body, msg_id) do
+    JetStreamPublish.publish(subject, body, msg_opts(msg_id))
+  end
+
+  defp msg_opts(id) when is_binary(id) and id != "", do: [msg_id: id]
+  defp msg_opts(_id), do: []
+
+  defp deliver(publish, body, msg_id) do
+    cond do
+      is_function(publish, 3) -> publish.(@subject, body, msg_id)
+      is_function(publish, 2) -> publish.(@subject, body)
+      true -> {:error, :invalid_publish}
+    end
+  end
+
+  defp message_id(event_id, index) when is_binary(event_id) and event_id != "" do
+    event_id <> ":" <> Integer.to_string(index)
+  end
+
+  defp message_id(_event_id, _index), do: nil
+
+  defp encode_rows(rows) do
+    rows
+    |> Enum.reduce_while({:ok, []}, fn row, {:ok, acc} ->
+      case encode_one(row) do
+        {:ok, encoded} -> {:cont, {:ok, [encoded | acc]}}
+        :error -> {:halt, {:error, :observation_exceeds_max_payload}}
       end
+    end)
+    |> case do
+      {:ok, encoded} -> {:ok, Enum.reverse(encoded)}
+      error -> error
+    end
+  end
 
-    Enum.reverse(bodies)
+  defp encode_one(row) when is_map(row) do
+    row = row |> scrub_binaries() |> cap_scalars() |> cap_nested()
+
+    case clamp_value(row, @max_row_bytes) do
+      {:ok, clamped} ->
+        encoded = Jason.encode!(clamped)
+
+        if byte_size(encoded) + @envelope_bytes <= @max_message_bytes do
+          {:ok, encoded}
+        else
+          :error
+        end
+
+      :error ->
+        :error
+    end
+  end
+
+  defp encode_one(_row), do: :error
+
+  defp split_messages([]), do: {:ok, []}
+
+  defp split_messages(encoded_rows) do
+    encoded_rows
+    |> Enum.reduce_while({:ok, [], [], 0, @envelope_bytes}, fn row,
+                                                               {:ok, done, current, count, size} ->
+      size_with_row = size + byte_size(row) + if(count == 0, do: 0, else: 1)
+
+      cond do
+        size_with_row > @max_message_bytes and count == 0 ->
+          {:halt, {:error, :observation_exceeds_max_payload}}
+
+        count > 0 and
+            (count + 1 > @max_rows_per_message or size_with_row > @max_message_bytes) ->
+          if @envelope_bytes + byte_size(row) > @max_message_bytes do
+            {:halt, {:error, :observation_exceeds_max_payload}}
+          else
+            {:cont,
+             {:ok, [encode_body(current) | done], [row], 1, @envelope_bytes + byte_size(row)}}
+          end
+
+        true ->
+          {:cont, {:ok, done, [row | current], count + 1, size_with_row}}
+      end
+    end)
+    |> finish_split()
+  end
+
+  defp finish_split({:error, _} = error), do: error
+  defp finish_split({:ok, done, [], _count, _size}), do: {:ok, Enum.reverse(done)}
+
+  defp finish_split({:ok, done, current, _count, _size}) do
+    {:ok, Enum.reverse([encode_body(current) | done])}
   end
 
   defp encode_body(reversed_rows) do
@@ -83,8 +176,127 @@ defmodule ServiceRadar.FlowAttribution.Observations do
     ])
   end
 
-  defp bound_row(row) when is_map(row) do
-    row |> scrub_binaries() |> truncate_cmdline()
+  defp cap_scalars(row) do
+    Enum.reduce(@scalar_limits, row, fn {key, max}, acc ->
+      case fetch_field(acc, key) do
+        {:ok, value} when is_binary(value) -> put_field(acc, key, truncate_binary(value, max))
+        _ -> acc
+      end
+    end)
+  end
+
+  defp cap_nested(row) do
+    Enum.reduce(@nested_limits, row, fn {key, max}, acc ->
+      case fetch_field(acc, key) do
+        {:ok, value} when is_map(value) and not is_struct(value) ->
+          case clamp_value(value, max) do
+            {:ok, clamped} -> put_field(acc, key, clamped)
+            :error -> put_field(acc, key, nil)
+          end
+
+        _ ->
+          acc
+      end
+    end)
+  end
+
+  defp fetch_field(row, key) when is_atom(key) do
+    string_key = Atom.to_string(key)
+
+    cond do
+      Map.has_key?(row, key) -> {:ok, Map.get(row, key)}
+      Map.has_key?(row, string_key) -> {:ok, Map.get(row, string_key)}
+      true -> :error
+    end
+  end
+
+  defp put_field(row, key, value) when is_atom(key) do
+    string_key = Atom.to_string(key)
+
+    cond do
+      Map.has_key?(row, key) -> Map.put(row, key, value)
+      Map.has_key?(row, string_key) -> Map.put(row, string_key, value)
+      true -> Map.put(row, key, value)
+    end
+  end
+
+  defp clamp_value(value, max_bytes, previous_size \\ nil) do
+    encoded = Jason.encode!(value)
+    size = byte_size(encoded)
+
+    cond do
+      size <= max_bytes ->
+        {:ok, value}
+
+      is_integer(previous_size) and size >= previous_size ->
+        :error
+
+      true ->
+        case longest_binary(value) do
+          nil ->
+            :error
+
+          {path, binary} ->
+            excess = size - max_bytes
+            keep = max(byte_size(binary) - excess, 0)
+            shortened = truncate_binary(binary, keep)
+
+            shortened =
+              if byte_size(shortened) >= byte_size(binary), do: "", else: shortened
+
+            clamp_value(put_path(value, path, shortened), max_bytes, size)
+        end
+    end
+  end
+
+  defp longest_binary(value) do
+    case walk_binaries(value, [], nil) do
+      nil -> nil
+      {_size, path, binary} -> {path, binary}
+    end
+  end
+
+  defp walk_binaries(value, path, best) when is_binary(value) do
+    if byte_size(value) > 0 and (best == nil or byte_size(value) > elem(best, 0)) do
+      {byte_size(value), Enum.reverse(path), value}
+    else
+      best
+    end
+  end
+
+  defp walk_binaries(value, path, best) when is_map(value) do
+    if is_struct(value) do
+      best
+    else
+      Enum.reduce(value, best, fn {key, inner}, acc ->
+        walk_binaries(inner, [key | path], acc)
+      end)
+    end
+  end
+
+  defp walk_binaries(value, path, best) when is_list(value) do
+    value
+    |> Enum.with_index()
+    |> Enum.reduce(best, fn {inner, index}, acc ->
+      walk_binaries(inner, [index | path], acc)
+    end)
+  end
+
+  defp walk_binaries(_value, _path, best), do: best
+
+  defp put_path(value, [key], replacement) when is_map(value),
+    do: Map.put(value, key, replacement)
+
+  defp put_path(value, [index], replacement) when is_list(value) do
+    List.replace_at(value, index, replacement)
+  end
+
+  defp put_path(value, [key | rest], replacement) when is_map(value) do
+    Map.put(value, key, put_path(Map.fetch!(value, key), rest, replacement))
+  end
+
+  defp put_path(value, [index | rest], replacement) when is_list(value) do
+    List.replace_at(value, index, put_path(Enum.at(value, index), rest, replacement))
   end
 
   defp scrub_binaries(row) do
@@ -106,16 +318,6 @@ defmodule ServiceRadar.FlowAttribution.Observations do
 
   defp scrub_key(key) when is_binary(key), do: String.replace_invalid(key)
   defp scrub_key(key), do: key
-
-  defp truncate_cmdline(%{cmdline: cmdline} = row) when is_binary(cmdline) do
-    %{row | cmdline: truncate_binary(cmdline, @max_cmdline_bytes)}
-  end
-
-  defp truncate_cmdline(%{"cmdline" => cmdline} = row) when is_binary(cmdline) do
-    %{row | "cmdline" => truncate_binary(cmdline, @max_cmdline_bytes)}
-  end
-
-  defp truncate_cmdline(row), do: row
 
   defp truncate_binary(value, max_bytes) do
     value |> binary_part(0, min(max_bytes, byte_size(value))) |> trim_incomplete_utf8()
