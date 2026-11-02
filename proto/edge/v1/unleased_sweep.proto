@@ -76,6 +76,42 @@ message UnleasedSweepResultsBatchV1 {
   // Active banner-grab phase counters and gauges (`banner_grab`), emitted as
   // `sweep.banner_grab.*` and persisted in `SweepGroupExecution.scanner_metrics`.
   UnleasedSweepBannerGrabSummaryV1 banner_grab_summary = 21;
+  // The legacy results JSON fields of each host that the frozen host observation
+  // does not carry, one entry per host and in the same order as `hosts`, so core
+  // ingests exactly what the legacy results path ingests.
+  repeated UnleasedSweepHostResultV1 host_results = 23;
+}
+
+// UnleasedSweepHostResultV1 carries the fields of one legacy results JSON host
+// (`models.HostResult`) beyond its frozen `SweepHostObservationV1`.
+message UnleasedSweepHostResultV1 {
+  // The agent's own availability verdict (`available`).
+  bool available = 1;
+  // The host response time in nanoseconds (`response_time`).
+  int64 response_time_nano = 2;
+  // The ICMP round trip in nanoseconds (`icmp_status.round_trip`); meaningful
+  // only when the host observation carries an ICMP summary.
+  int64 icmp_round_trip_nano = 3;
+  // Every tested port in the agent's order (`port_results`), open or not.
+  repeated UnleasedSweepPortResultV1 port_results = 4;
+  // `first_seen` and `last_seen` exactly as the agent encodes them (RFC 3339
+  // with the agent's zone offset), so the stored results status matches.
+  string first_seen = 5;
+  string last_seen = 6;
+  // The modes that ran against the host (`sweep_modes`), in the agent's order.
+  repeated string sweep_modes = 7;
+  // The MTR round trip in nanoseconds (`mtr_status.round_trip`); meaningful only
+  // when the host observation carries an MTR summary.
+  int64 mtr_round_trip_nano = 8;
+}
+
+// UnleasedSweepPortResultV1 is one legacy `port_results` entry (`models.PortResult`).
+message UnleasedSweepPortResultV1 {
+  int32 port = 1;
+  bool available = 2;
+  // The port response time in nanoseconds (`response_time`).
+  int64 response_time_nano = 3;
+  string service = 4;
 }
 
 // UnleasedSweepPortCountV1 carries the open-host count for a scanned port

@@ -115,7 +115,15 @@ callback_deployment =
     response_policy_file: System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_RESPONSE_POLICY_FILE")
   })
 
+# Broker expiry is independent of the short-lived admission policy snapshot.
+nats_certificate_grant_ttl =
+  case Integer.parse(System.get_env("SERVICERADAR_NATS_CERTIFICATE_GRANT_TTL_SECONDS", "43200")) do
+    {seconds, ""} when seconds > 0 -> seconds
+    _ -> raise "SERVICERADAR_NATS_CERTIFICATE_GRANT_TTL_SECONDS must be a positive integer"
+  end
+
 config :serviceradar, :nats_account_name, nats_account_name
+config :serviceradar, :nats_certificate_grant_ttl_seconds, nats_certificate_grant_ttl
 
 config :serviceradar_core, ServiceRadar.Admission.FlowLane,
   max_bytes: ingestion_positive_env.("SERVICERADAR_FLOW_INGESTION_MAX_BYTES", 64 * 1_024 * 1_024)

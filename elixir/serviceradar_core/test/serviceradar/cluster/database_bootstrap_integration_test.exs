@@ -476,11 +476,13 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
       migrations_path = Application.app_dir(:serviceradar_core, "priv/repo/migrations")
 
       :empty = ServiceRadar.Repo.SchemaBootstrap.classify(ServiceRadar.Repo)
-      :ok = ServiceRadar.Repo.SchemaBootstrap.apply_baseline!(ServiceRadar.Repo, migrations_path)
 
-      # Bring the schema up through the topology world migration. On a fresh database this is
-      # the create branch; every later step drives a repair branch.
-      Ecto.Migrator.run(ServiceRadar.Repo, :up, to: 20260928060000)
+      # Replay the migrations themselves up to the topology world migration, without the schema
+      # baseline. The repair branches need a schema from BEFORE that migration, and the committed
+      # baseline may already include it (it is regenerated as migrations accumulate), so applying
+      # it here would leave nothing for the create rollback below to remove. On a fresh database
+      # this is the create branch; every later step drives a repair branch.
+      Ecto.Migrator.run(ServiceRadar.Repo, migrations_path, :up, to: 20260928060000)
 
       %{rows: [[create_tables_present]]} =
         ServiceRadar.Repo.query!("""

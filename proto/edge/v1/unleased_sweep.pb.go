@@ -92,8 +92,12 @@ type UnleasedSweepResultsBatchV1 struct {
 	// Active banner-grab phase counters and gauges (`banner_grab`), emitted as
 	// `sweep.banner_grab.*` and persisted in `SweepGroupExecution.scanner_metrics`.
 	BannerGrabSummary *UnleasedSweepBannerGrabSummaryV1 `protobuf:"bytes,21,opt,name=banner_grab_summary,json=bannerGrabSummary,proto3" json:"banner_grab_summary,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// The legacy results JSON fields of each host that the frozen host observation
+	// does not carry, one entry per host and in the same order as `hosts`, so core
+	// ingests exactly what the legacy results path ingests.
+	HostResults   []*UnleasedSweepHostResultV1 `protobuf:"bytes,23,rep,name=host_results,json=hostResults,proto3" json:"host_results,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *UnleasedSweepResultsBatchV1) Reset() {
@@ -280,6 +284,195 @@ func (x *UnleasedSweepResultsBatchV1) GetBannerGrabSummary() *UnleasedSweepBanne
 	return nil
 }
 
+func (x *UnleasedSweepResultsBatchV1) GetHostResults() []*UnleasedSweepHostResultV1 {
+	if x != nil {
+		return x.HostResults
+	}
+	return nil
+}
+
+// UnleasedSweepHostResultV1 carries the fields of one legacy results JSON host
+// (`models.HostResult`) beyond its frozen `SweepHostObservationV1`.
+type UnleasedSweepHostResultV1 struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The agent's own availability verdict (`available`).
+	Available bool `protobuf:"varint,1,opt,name=available,proto3" json:"available,omitempty"`
+	// The host response time in nanoseconds (`response_time`).
+	ResponseTimeNano int64 `protobuf:"varint,2,opt,name=response_time_nano,json=responseTimeNano,proto3" json:"response_time_nano,omitempty"`
+	// The ICMP round trip in nanoseconds (`icmp_status.round_trip`); meaningful
+	// only when the host observation carries an ICMP summary.
+	IcmpRoundTripNano int64 `protobuf:"varint,3,opt,name=icmp_round_trip_nano,json=icmpRoundTripNano,proto3" json:"icmp_round_trip_nano,omitempty"`
+	// Every tested port in the agent's order (`port_results`), open or not.
+	PortResults []*UnleasedSweepPortResultV1 `protobuf:"bytes,4,rep,name=port_results,json=portResults,proto3" json:"port_results,omitempty"`
+	// `first_seen` and `last_seen` exactly as the agent encodes them (RFC 3339
+	// with the agent's zone offset), so the stored results status matches.
+	FirstSeen string `protobuf:"bytes,5,opt,name=first_seen,json=firstSeen,proto3" json:"first_seen,omitempty"`
+	LastSeen  string `protobuf:"bytes,6,opt,name=last_seen,json=lastSeen,proto3" json:"last_seen,omitempty"`
+	// The modes that ran against the host (`sweep_modes`), in the agent's order.
+	SweepModes []string `protobuf:"bytes,7,rep,name=sweep_modes,json=sweepModes,proto3" json:"sweep_modes,omitempty"`
+	// The MTR round trip in nanoseconds (`mtr_status.round_trip`); meaningful only
+	// when the host observation carries an MTR summary.
+	MtrRoundTripNano int64 `protobuf:"varint,8,opt,name=mtr_round_trip_nano,json=mtrRoundTripNano,proto3" json:"mtr_round_trip_nano,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *UnleasedSweepHostResultV1) Reset() {
+	*x = UnleasedSweepHostResultV1{}
+	mi := &file_edge_v1_unleased_sweep_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UnleasedSweepHostResultV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UnleasedSweepHostResultV1) ProtoMessage() {}
+
+func (x *UnleasedSweepHostResultV1) ProtoReflect() protoreflect.Message {
+	mi := &file_edge_v1_unleased_sweep_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UnleasedSweepHostResultV1.ProtoReflect.Descriptor instead.
+func (*UnleasedSweepHostResultV1) Descriptor() ([]byte, []int) {
+	return file_edge_v1_unleased_sweep_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *UnleasedSweepHostResultV1) GetAvailable() bool {
+	if x != nil {
+		return x.Available
+	}
+	return false
+}
+
+func (x *UnleasedSweepHostResultV1) GetResponseTimeNano() int64 {
+	if x != nil {
+		return x.ResponseTimeNano
+	}
+	return 0
+}
+
+func (x *UnleasedSweepHostResultV1) GetIcmpRoundTripNano() int64 {
+	if x != nil {
+		return x.IcmpRoundTripNano
+	}
+	return 0
+}
+
+func (x *UnleasedSweepHostResultV1) GetPortResults() []*UnleasedSweepPortResultV1 {
+	if x != nil {
+		return x.PortResults
+	}
+	return nil
+}
+
+func (x *UnleasedSweepHostResultV1) GetFirstSeen() string {
+	if x != nil {
+		return x.FirstSeen
+	}
+	return ""
+}
+
+func (x *UnleasedSweepHostResultV1) GetLastSeen() string {
+	if x != nil {
+		return x.LastSeen
+	}
+	return ""
+}
+
+func (x *UnleasedSweepHostResultV1) GetSweepModes() []string {
+	if x != nil {
+		return x.SweepModes
+	}
+	return nil
+}
+
+func (x *UnleasedSweepHostResultV1) GetMtrRoundTripNano() int64 {
+	if x != nil {
+		return x.MtrRoundTripNano
+	}
+	return 0
+}
+
+// UnleasedSweepPortResultV1 is one legacy `port_results` entry (`models.PortResult`).
+type UnleasedSweepPortResultV1 struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Port      int32                  `protobuf:"varint,1,opt,name=port,proto3" json:"port,omitempty"`
+	Available bool                   `protobuf:"varint,2,opt,name=available,proto3" json:"available,omitempty"`
+	// The port response time in nanoseconds (`response_time`).
+	ResponseTimeNano int64  `protobuf:"varint,3,opt,name=response_time_nano,json=responseTimeNano,proto3" json:"response_time_nano,omitempty"`
+	Service          string `protobuf:"bytes,4,opt,name=service,proto3" json:"service,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *UnleasedSweepPortResultV1) Reset() {
+	*x = UnleasedSweepPortResultV1{}
+	mi := &file_edge_v1_unleased_sweep_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UnleasedSweepPortResultV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UnleasedSweepPortResultV1) ProtoMessage() {}
+
+func (x *UnleasedSweepPortResultV1) ProtoReflect() protoreflect.Message {
+	mi := &file_edge_v1_unleased_sweep_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UnleasedSweepPortResultV1.ProtoReflect.Descriptor instead.
+func (*UnleasedSweepPortResultV1) Descriptor() ([]byte, []int) {
+	return file_edge_v1_unleased_sweep_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *UnleasedSweepPortResultV1) GetPort() int32 {
+	if x != nil {
+		return x.Port
+	}
+	return 0
+}
+
+func (x *UnleasedSweepPortResultV1) GetAvailable() bool {
+	if x != nil {
+		return x.Available
+	}
+	return false
+}
+
+func (x *UnleasedSweepPortResultV1) GetResponseTimeNano() int64 {
+	if x != nil {
+		return x.ResponseTimeNano
+	}
+	return 0
+}
+
+func (x *UnleasedSweepPortResultV1) GetService() string {
+	if x != nil {
+		return x.Service
+	}
+	return ""
+}
+
 // UnleasedSweepPortCountV1 carries the open-host count for a scanned port
 // (`models.PortCount` / `models.PortStatus`).
 type UnleasedSweepPortCountV1 struct {
@@ -292,7 +485,7 @@ type UnleasedSweepPortCountV1 struct {
 
 func (x *UnleasedSweepPortCountV1) Reset() {
 	*x = UnleasedSweepPortCountV1{}
-	mi := &file_edge_v1_unleased_sweep_proto_msgTypes[1]
+	mi := &file_edge_v1_unleased_sweep_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -304,7 +497,7 @@ func (x *UnleasedSweepPortCountV1) String() string {
 func (*UnleasedSweepPortCountV1) ProtoMessage() {}
 
 func (x *UnleasedSweepPortCountV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_unleased_sweep_proto_msgTypes[1]
+	mi := &file_edge_v1_unleased_sweep_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -317,7 +510,7 @@ func (x *UnleasedSweepPortCountV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnleasedSweepPortCountV1.ProtoReflect.Descriptor instead.
 func (*UnleasedSweepPortCountV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_unleased_sweep_proto_rawDescGZIP(), []int{1}
+	return file_edge_v1_unleased_sweep_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *UnleasedSweepPortCountV1) GetPort() uint32 {
@@ -374,7 +567,7 @@ type UnleasedSweepScannerStatsV1 struct {
 
 func (x *UnleasedSweepScannerStatsV1) Reset() {
 	*x = UnleasedSweepScannerStatsV1{}
-	mi := &file_edge_v1_unleased_sweep_proto_msgTypes[2]
+	mi := &file_edge_v1_unleased_sweep_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -386,7 +579,7 @@ func (x *UnleasedSweepScannerStatsV1) String() string {
 func (*UnleasedSweepScannerStatsV1) ProtoMessage() {}
 
 func (x *UnleasedSweepScannerStatsV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_unleased_sweep_proto_msgTypes[2]
+	mi := &file_edge_v1_unleased_sweep_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -399,7 +592,7 @@ func (x *UnleasedSweepScannerStatsV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnleasedSweepScannerStatsV1.ProtoReflect.Descriptor instead.
 func (*UnleasedSweepScannerStatsV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_unleased_sweep_proto_rawDescGZIP(), []int{2}
+	return file_edge_v1_unleased_sweep_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *UnleasedSweepScannerStatsV1) GetProtocol() string {
@@ -645,7 +838,7 @@ type UnleasedSweepBannerGrabSummaryV1 struct {
 
 func (x *UnleasedSweepBannerGrabSummaryV1) Reset() {
 	*x = UnleasedSweepBannerGrabSummaryV1{}
-	mi := &file_edge_v1_unleased_sweep_proto_msgTypes[3]
+	mi := &file_edge_v1_unleased_sweep_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -657,7 +850,7 @@ func (x *UnleasedSweepBannerGrabSummaryV1) String() string {
 func (*UnleasedSweepBannerGrabSummaryV1) ProtoMessage() {}
 
 func (x *UnleasedSweepBannerGrabSummaryV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_unleased_sweep_proto_msgTypes[3]
+	mi := &file_edge_v1_unleased_sweep_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -670,7 +863,7 @@ func (x *UnleasedSweepBannerGrabSummaryV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnleasedSweepBannerGrabSummaryV1.ProtoReflect.Descriptor instead.
 func (*UnleasedSweepBannerGrabSummaryV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_unleased_sweep_proto_rawDescGZIP(), []int{3}
+	return file_edge_v1_unleased_sweep_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *UnleasedSweepBannerGrabSummaryV1) GetCandidatesTotal() uint64 {
@@ -775,7 +968,8 @@ var File_edge_v1_unleased_sweep_proto protoreflect.FileDescriptor
 
 const file_edge_v1_unleased_sweep_proto_rawDesc = "" +
 	"\n" +
-	"\x1cedge/v1/unleased_sweep.proto\x12\x14serviceradar.edge.v1\x1a\x13edge/v1/sweep.proto\"\xaf\t\n" +
+	"\x1cedge/v1/unleased_sweep.proto\x12\x14serviceradar.edge.v1\x1a\x13edge/v1/sweep.proto\"\x83\n" +
+	"\n" +
 	"\x1bUnleasedSweepResultsBatchV1\x12!\n" +
 	"\fexecution_id\x18\x01 \x01(\fR\vexecutionId\x12$\n" +
 	"\x0esweep_group_id\x18\x02 \x01(\fR\fsweepGroupId\x12%\n" +
@@ -801,7 +995,24 @@ const file_edge_v1_unleased_sweep_proto_rawDesc = "" +
 	"\vport_counts\x18\x13 \x03(\v2..serviceradar.edge.v1.UnleasedSweepPortCountV1R\n" +
 	"portCounts\x12V\n" +
 	"\rscanner_stats\x18\x14 \x01(\v21.serviceradar.edge.v1.UnleasedSweepScannerStatsV1R\fscannerStats\x12f\n" +
-	"\x13banner_grab_summary\x18\x15 \x01(\v26.serviceradar.edge.v1.UnleasedSweepBannerGrabSummaryV1R\x11bannerGrabSummary\"L\n" +
+	"\x13banner_grab_summary\x18\x15 \x01(\v26.serviceradar.edge.v1.UnleasedSweepBannerGrabSummaryV1R\x11bannerGrabSummary\x12R\n" +
+	"\fhost_results\x18\x17 \x03(\v2/.serviceradar.edge.v1.UnleasedSweepHostResultV1R\vhostResults\"\xf8\x02\n" +
+	"\x19UnleasedSweepHostResultV1\x12\x1c\n" +
+	"\tavailable\x18\x01 \x01(\bR\tavailable\x12,\n" +
+	"\x12response_time_nano\x18\x02 \x01(\x03R\x10responseTimeNano\x12/\n" +
+	"\x14icmp_round_trip_nano\x18\x03 \x01(\x03R\x11icmpRoundTripNano\x12R\n" +
+	"\fport_results\x18\x04 \x03(\v2/.serviceradar.edge.v1.UnleasedSweepPortResultV1R\vportResults\x12\x1d\n" +
+	"\n" +
+	"first_seen\x18\x05 \x01(\tR\tfirstSeen\x12\x1b\n" +
+	"\tlast_seen\x18\x06 \x01(\tR\blastSeen\x12\x1f\n" +
+	"\vsweep_modes\x18\a \x03(\tR\n" +
+	"sweepModes\x12-\n" +
+	"\x13mtr_round_trip_nano\x18\b \x01(\x03R\x10mtrRoundTripNano\"\x95\x01\n" +
+	"\x19UnleasedSweepPortResultV1\x12\x12\n" +
+	"\x04port\x18\x01 \x01(\x05R\x04port\x12\x1c\n" +
+	"\tavailable\x18\x02 \x01(\bR\tavailable\x12,\n" +
+	"\x12response_time_nano\x18\x03 \x01(\x03R\x10responseTimeNano\x12\x18\n" +
+	"\aservice\x18\x04 \x01(\tR\aservice\"L\n" +
 	"\x18UnleasedSweepPortCountV1\x12\x12\n" +
 	"\x04port\x18\x01 \x01(\rR\x04port\x12\x1c\n" +
 	"\tavailable\x18\x02 \x01(\rR\tavailable\"\xe2\t\n" +
@@ -868,28 +1079,32 @@ func file_edge_v1_unleased_sweep_proto_rawDescGZIP() []byte {
 	return file_edge_v1_unleased_sweep_proto_rawDescData
 }
 
-var file_edge_v1_unleased_sweep_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_edge_v1_unleased_sweep_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_edge_v1_unleased_sweep_proto_goTypes = []any{
 	(*UnleasedSweepResultsBatchV1)(nil),      // 0: serviceradar.edge.v1.UnleasedSweepResultsBatchV1
-	(*UnleasedSweepPortCountV1)(nil),         // 1: serviceradar.edge.v1.UnleasedSweepPortCountV1
-	(*UnleasedSweepScannerStatsV1)(nil),      // 2: serviceradar.edge.v1.UnleasedSweepScannerStatsV1
-	(*UnleasedSweepBannerGrabSummaryV1)(nil), // 3: serviceradar.edge.v1.UnleasedSweepBannerGrabSummaryV1
-	(*SweepTestV1)(nil),                      // 4: serviceradar.edge.v1.SweepTestV1
-	(SweepExecutionSource)(0),                // 5: serviceradar.edge.v1.SweepExecutionSource
-	(*SweepHostObservationV1)(nil),           // 6: serviceradar.edge.v1.SweepHostObservationV1
+	(*UnleasedSweepHostResultV1)(nil),        // 1: serviceradar.edge.v1.UnleasedSweepHostResultV1
+	(*UnleasedSweepPortResultV1)(nil),        // 2: serviceradar.edge.v1.UnleasedSweepPortResultV1
+	(*UnleasedSweepPortCountV1)(nil),         // 3: serviceradar.edge.v1.UnleasedSweepPortCountV1
+	(*UnleasedSweepScannerStatsV1)(nil),      // 4: serviceradar.edge.v1.UnleasedSweepScannerStatsV1
+	(*UnleasedSweepBannerGrabSummaryV1)(nil), // 5: serviceradar.edge.v1.UnleasedSweepBannerGrabSummaryV1
+	(*SweepTestV1)(nil),                      // 6: serviceradar.edge.v1.SweepTestV1
+	(SweepExecutionSource)(0),                // 7: serviceradar.edge.v1.SweepExecutionSource
+	(*SweepHostObservationV1)(nil),           // 8: serviceradar.edge.v1.SweepHostObservationV1
 }
 var file_edge_v1_unleased_sweep_proto_depIdxs = []int32{
-	4, // 0: serviceradar.edge.v1.UnleasedSweepResultsBatchV1.tested_checks:type_name -> serviceradar.edge.v1.SweepTestV1
-	5, // 1: serviceradar.edge.v1.UnleasedSweepResultsBatchV1.execution_source:type_name -> serviceradar.edge.v1.SweepExecutionSource
-	6, // 2: serviceradar.edge.v1.UnleasedSweepResultsBatchV1.hosts:type_name -> serviceradar.edge.v1.SweepHostObservationV1
-	1, // 3: serviceradar.edge.v1.UnleasedSweepResultsBatchV1.port_counts:type_name -> serviceradar.edge.v1.UnleasedSweepPortCountV1
-	2, // 4: serviceradar.edge.v1.UnleasedSweepResultsBatchV1.scanner_stats:type_name -> serviceradar.edge.v1.UnleasedSweepScannerStatsV1
-	3, // 5: serviceradar.edge.v1.UnleasedSweepResultsBatchV1.banner_grab_summary:type_name -> serviceradar.edge.v1.UnleasedSweepBannerGrabSummaryV1
-	6, // [6:6] is the sub-list for method output_type
-	6, // [6:6] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	6, // 0: serviceradar.edge.v1.UnleasedSweepResultsBatchV1.tested_checks:type_name -> serviceradar.edge.v1.SweepTestV1
+	7, // 1: serviceradar.edge.v1.UnleasedSweepResultsBatchV1.execution_source:type_name -> serviceradar.edge.v1.SweepExecutionSource
+	8, // 2: serviceradar.edge.v1.UnleasedSweepResultsBatchV1.hosts:type_name -> serviceradar.edge.v1.SweepHostObservationV1
+	3, // 3: serviceradar.edge.v1.UnleasedSweepResultsBatchV1.port_counts:type_name -> serviceradar.edge.v1.UnleasedSweepPortCountV1
+	4, // 4: serviceradar.edge.v1.UnleasedSweepResultsBatchV1.scanner_stats:type_name -> serviceradar.edge.v1.UnleasedSweepScannerStatsV1
+	5, // 5: serviceradar.edge.v1.UnleasedSweepResultsBatchV1.banner_grab_summary:type_name -> serviceradar.edge.v1.UnleasedSweepBannerGrabSummaryV1
+	1, // 6: serviceradar.edge.v1.UnleasedSweepResultsBatchV1.host_results:type_name -> serviceradar.edge.v1.UnleasedSweepHostResultV1
+	2, // 7: serviceradar.edge.v1.UnleasedSweepHostResultV1.port_results:type_name -> serviceradar.edge.v1.UnleasedSweepPortResultV1
+	8, // [8:8] is the sub-list for method output_type
+	8, // [8:8] is the sub-list for method input_type
+	8, // [8:8] is the sub-list for extension type_name
+	8, // [8:8] is the sub-list for extension extendee
+	0, // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_edge_v1_unleased_sweep_proto_init() }
@@ -904,7 +1119,7 @@ func file_edge_v1_unleased_sweep_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_edge_v1_unleased_sweep_proto_rawDesc), len(file_edge_v1_unleased_sweep_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

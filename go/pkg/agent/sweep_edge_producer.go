@@ -520,26 +520,11 @@ func (p *sweepEdgeProducer) emit(scanCtx context.Context, batch *edgev1.SweepObs
 	if err != nil {
 		return err
 	}
-	eventID, err := edgerecord.NewUUIDv7()
-	if err != nil {
-		return err
-	}
-	compression, encoded, err := edgerecord.EncodeRecordPayload(payload)
-	if err != nil {
-		return err
-	}
-	c := p.lease.GetProductionCapability().GetProduction()
-	sum := sha256.Sum256(encoded)
 	rows := uint32(projection.SweepRows(batch))
-	record := &edgev1.EdgeRecordV1{
-		EventId: eventID, PayloadFamily: edgev1.EdgeRecordPayloadFamily_EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1,
-		Compression: compression, EncodedSize: uint32(len(encoded)), UncompressedSize: uint32(len(payload)), PayloadSha256: sum[:], Payload: encoded,
-		OutputContract:  &edgev1.EdgeOutputContractRef{ContractId: c.GetContractId(), ContractVersion: c.GetContractVersion(), ContractBundleSha256: c.GetContractBundleSha256(), RegistryEpoch: c.GetRegistryEpoch(), RegistrySnapshotSha256: c.GetRegistrySnapshotSha256(), EffectiveGrantSha256: c.GetEffectiveGrantSha256()},
-		ProducerContext: &edgev1.EdgeProducerContext{OriginKind: c.GetOriginKind(), OriginPrincipalId: c.GetOriginPrincipalId(), ProducerInstanceId: c.GetProducerInstanceId(), ProducerAssignmentId: c.GetProducerAssignmentId(), RunId: c.GetRunId(), RunShard: c.GetRunShard(), AuthorityEpoch: proto.Uint64(c.GetAuthorityEpoch()), ScopeId: c.GetScopeId(), ScopeSha256: c.GetScopeSha256(), PackageId: c.GetPackageId(), PackageSha256: c.GetPackageSha256()},
-		RouteProfile:    c.GetRouteProfile(), TrafficClass: c.GetTrafficClass(), NetworkScopeId: c.GetNetworkScopeId(), ProductionCapability: p.lease.GetProductionCapability(), SourceAuthorization: source,
-		ProjectedRowCount: rows, ProjectedWriteBytes: uint64(rows) * sweepProjectedRowBytes, CostModelVersion: c.GetCostModelVersion(),
+	record, err := newEdgeRecord(p.lease.GetProductionCapability(), source, payload, rows, uint64(rows)*sweepProjectedRowBytes)
+	if err != nil {
+		return err
 	}
-	record.SemanticEnvelopeSha256 = edgerecord.SemanticEnvelopeDigest(record)
 	if err := edgerecord.ValidateRecord(record); err != nil {
 		return fmt.Errorf("edge sweep record: %w", err)
 	}
@@ -553,7 +538,7 @@ func (p *sweepEdgeProducer) emit(scanCtx context.Context, batch *edgev1.SweepObs
 		}
 		p.claim = nil
 	}
-	return p.appendWithBackpressure(scanCtx, eventID, body)
+	return p.appendWithBackpressure(scanCtx, record.GetEventId(), body)
 }
 
 // appendWithBackpressure appends body, waiting out admission refusals until the

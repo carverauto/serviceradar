@@ -222,7 +222,15 @@ nats_account_name =
       if name != "" and Regex.match?(~r/\A[A-Za-z0-9_-]+\z/, name), do: name, else: ""
   end
 
+# Broker expiry is independent of the short-lived admission policy snapshot.
+nats_certificate_grant_ttl =
+  case Integer.parse(System.get_env("SERVICERADAR_NATS_CERTIFICATE_GRANT_TTL_SECONDS", "43200")) do
+    {seconds, ""} when seconds > 0 -> seconds
+    _ -> raise "SERVICERADAR_NATS_CERTIFICATE_GRANT_TTL_SECONDS must be a positive integer"
+  end
+
 config :serviceradar, :nats_account_name, nats_account_name
+config :serviceradar, :nats_certificate_grant_ttl_seconds, nats_certificate_grant_ttl
 
 # The installation's edge-record contract registry document: the same JSON the agent gateway
 # reads from AGENT_GATEWAY_EDGE_RECORD_CONTRACT_REGISTRY. Core signs sweep lease capabilities

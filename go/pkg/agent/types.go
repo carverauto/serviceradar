@@ -80,6 +80,8 @@ type Server struct {
 	// deliveryTelemetry counts retained-delivery outcomes for the Prometheus
 	// exporter.
 	deliveryTelemetry retainedDeliveryTelemetry
+	// edgeProducerDrops counts samples edge-record producers dropped, by reason.
+	edgeProducerDrops edgeProducerDropTelemetry
 	// edgeSpoolSampler reads unresolved edge-spool bytes and age for /metrics.
 	// It stays unset when the process has no edge spool.
 	edgeSpoolSampler atomic.Value // EdgeSpoolSampler
@@ -256,6 +258,10 @@ type EdgeRecordSenderConfig struct {
 	Enabled bool `json:"enabled"`
 	// SweepEnabled opts leased static sweeps into durable edge records.
 	SweepEnabled bool `json:"sweep_enabled,omitempty"`
+	// MetricsEnabled lets metric producers emit metrics batch records while core
+	// grants this agent the metrics batch contract. Without a grant they keep the
+	// legacy status path.
+	MetricsEnabled bool `json:"metrics_enabled,omitempty"`
 	// MaxBytes bounds durable spool admission; zero uses 256 MiB.
 	MaxBytes uint64 `json:"max_bytes,omitempty"`
 	// SpoolDir is the directory holding the agent's edge-record spool segment
@@ -264,6 +270,13 @@ type EdgeRecordSenderConfig struct {
 	GatewayAddr  string                 `json:"gateway_addr,omitempty"`
 	Security     *models.SecurityConfig `json:"security,omitempty"`
 	PollInterval Duration               `json:"poll_interval,omitempty"`
+}
+
+// ProducersEnabled reports whether any producer is opted into durable edge
+// records. Such a sender must persist terminal acknowledgements so the spool
+// reclaims what the gateway accepted.
+func (c *EdgeRecordSenderConfig) ProducersEnabled() bool {
+	return c != nil && (c.SweepEnabled || c.MetricsEnabled)
 }
 
 type BumblebeeStatusConfig struct {

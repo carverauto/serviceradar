@@ -91,8 +91,31 @@ func newMtrCheckerState() *mtrCheckerState {
 // pushMtrResults collects and pushes due MTR check results.
 func (p *PushLoop) pushMtrResults(ctx context.Context) bool {
 	results := p.collectDueMtrResults(ctx)
+
+	// One path at a time for the scalar metrics: while the agent holds a metrics
+	// grant they go only to the edge spool, and the traces alone take StreamStatus.
+	// Without one, results the spool never admitted take the legacy metric status
+	// with the new ones.
+	spooled := false
+	metricResults := results
+	capability := p.edgeMetricsCapability(time.Now())
+	// Results taken back from the edge queue return to it unless this send
+	// delivers them.
+	var taken []edgeMetricsQueued[mtrCheckResult]
+	delivered := false
+	defer func() {
+		if !delivered {
+			restoreEdgeMetrics(p, mtrEdgeMetrics(), &p.mtrEdge, taken)
+		}
+	}()
+	if capability != nil {
+		spooled = spoolEdgeMetrics(p, mtrEdgeMetrics(), &p.mtrEdge, results, capability)
+	} else {
+		taken = p.mtrEdge.take()
+		metricResults = append(queuedItems(taken), results...)
+	}
 	if len(results) == 0 {
-		return false
+		return spooled
 	}
 
 	payload := map[string]any{
@@ -102,7 +125,7 @@ func (p *PushLoop) pushMtrResults(ctx context.Context) bool {
 	data, err := json.Marshal(payload)
 	if err != nil {
 		p.logger.Error().Err(err).Msg("Failed to marshal MTR results payload")
-		return false
+		return spooled
 	}
 
 	chunk := &proto.ResultsChunk{
@@ -115,25 +138,33 @@ func (p *PushLoop) pushMtrResults(ctx context.Context) bool {
 
 	statusChunks := p.buildResultsStatusChunks([]*proto.ResultsChunk{chunk}, mtrServiceName, mtrServiceType)
 	if len(statusChunks) == 0 {
-		return false
+		return spooled
 	}
 
-	metricStatus, err := p.mtrMetricStatus(results)
-	if err != nil {
-		p.logger.Error().Err(err).Msg("Failed to marshal MTR metric envelope")
-		return false
-	}
+	if capability == nil {
+		metricStatus, err := p.mtrMetricStatus(metricResults)
+		if err != nil {
+			p.logger.Error().Err(err).Msg("Failed to marshal MTR metric envelope")
+			return false
+		}
 
-	statusChunks[0].Services = append(statusChunks[0].Services, metricStatus)
+		statusChunks[0].Services = append(statusChunks[0].Services, metricStatus)
+	}
 
 	pushCtx, cancel := context.WithTimeout(ctx, mtrResultsPushTimeout)
 	defer cancel()
 
-	if _, err := p.gateway.StreamStatus(pushCtx, statusChunks); err != nil {
+	resp, err := p.gateway.StreamStatus(pushCtx, statusChunks)
+	if err != nil {
 		p.logger.Error().Err(err).Msg("Failed to stream MTR results to gateway")
-		return false
+		return spooled
+	}
+	if !resp.GetReceived() {
+		p.logger.Warn().Msg("Gateway did not acknowledge MTR results stream")
+		return spooled
 	}
 
+	delivered = true
 	p.logger.Info().Int("result_count", len(results)).Msg("Streamed MTR results to gateway")
 
 	return true

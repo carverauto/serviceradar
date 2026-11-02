@@ -123,8 +123,8 @@ in `choices.md` and the chart README.
       target and every integration shard.
       A page holds at most 256 ranges, and the plan uses as many pages
       as it needs.
-      Checks are the compiled effective modes and ports (`SweepPlan.checks/2`),
-      ICMP and TCP only (`mtr_*` zero). Its digests (range, page,
+      The check set follows "Plan inputs" in `design.md` (ICMP and TCP only,
+      `mtr_*` zero). Its digests (range, page,
       root, header) are byte-identical to the Go implementation, shown by the
       cross-language golden vectors under `proto/edge/v1/testdata`.
       `check_set_sha256` and `availability_policy_id` follow "Plan inputs" in

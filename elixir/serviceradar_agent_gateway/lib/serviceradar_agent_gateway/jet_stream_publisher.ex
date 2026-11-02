@@ -51,6 +51,7 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
   alias ServiceRadar.Edge.PublishWindow
   alias ServiceRadar.Edge.StreamRoute
   alias ServiceRadar.NATS.Connection
+  alias ServiceRadarAgentGateway.Config
 
   require Logger
 
@@ -397,9 +398,16 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
          {"Nats-Expected-Stream", route.expected_stream},
          {"Sr-Edge-Delivery-Id", delivery_id},
          {"Sr-Edge-Transport-Provenance", provenance}
-       ]}
+       ] ++ gateway_header()}
     else
       {:error, reason} -> {:error, {:derivation, reason}}
+    end
+  end
+
+  defp gateway_header do
+    case Config.get(:gateway_id, nil) do
+      id when is_binary(id) and id != "" -> [{PublicationIdentity.header_gateway_id(), id}]
+      _ -> []
     end
   end
 
