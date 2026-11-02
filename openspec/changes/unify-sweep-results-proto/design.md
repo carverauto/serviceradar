@@ -362,11 +362,12 @@ planning hit any error this pass is left unmarked; the next clean pass marks
 it. Only a slot that closed within the last 24 hours is judged: a completed
 slot stays scheduled, and execution retention deletes its execution row after
 30 days by default, so an older slot can no longer show its commit and is
-never relabelled. A later projecting batch reopens a missed slot and projects. It does not
-reopen a refused slot. A refusal for the same assignment and lease moves
-`missed_offline` or `missed_exhausted` to `refused`, and `refused` is
-terminal. `ServiceRadar.SweepJobs.LeaseMisses` owns the miss mark and does
-not relabel `refused`.
+never relabelled. A later projecting batch reopens a missed slot and projects.
+It does not reopen a refused slot. A dropped slot stays refused: a `:dropped`
+slot is never committable and is not reopened. A refusal for the same
+assignment and lease moves `missed_offline` or `missed_exhausted` to
+`refused`, and `refused` is terminal. `ServiceRadar.SweepJobs.LeaseMisses`
+owns the miss mark and does not relabel `refused`.
 
 **Plan inputs.** The ABI defines how a scheduled plan is hashed but nothing
 builds one outside a test helper, and it leaves two digests undefined. Core builds
@@ -2487,8 +2488,12 @@ Otherwise a port-heavy profile would repeat thousands of checks across about
   did not advertise. A future grammar bumps the version and needs a capability
   that names it. An unknown `digest_version`, a carried set whose digest does
   not match its key, an unresolved key, or a set that does not decode fails
-  the whole push with a `SweepLeaseAck` error before install. The group stays
-  on the agent's local ticker until core re-pushes.
+  that push with a `SweepLeaseAck` error before install. The failure refuses
+  only that push. Any previously installed valid lease stays in force and
+  keeps the group's local ticker suppressed, and core retries the refused
+  push against the held window. The agent falls back to the local ticker only
+  when no valid installed lease covers the group (never installed, revoked,
+  or expired).
 - `SweepLeaseV1.check_sets = 11` (repeated) carries the check sets of the
   push's slots, keyed by digest. Every slot's `plan_header.check_set_sha256`
   resolves to exactly one carried set. Every carried set's key equals the
@@ -2519,9 +2524,10 @@ not leased. The orders are covered without new state:
   it upgrades, the assignment is reissued under a new epoch and therefore a
   new lease id, and a full window is pushed.
 - Agent first: old core pushes slots at `lease_version` 1 and the new agent
-  refuses that push, so the group runs on its ticker. A revocation-only push
-  at `lease_version` 1 is installed. On load the new agent discards stored
-  slot leases whose `lease_version` is not 2. When core upgrades, the last
+  refuses that push. On load the new agent discards stored slot leases whose
+  `lease_version` is not 2, so no valid installed lease covers the group and
+  the group runs on its ticker. A revocation-only push at `lease_version` 1
+  is installed. When core upgrades, the last
   slot-carrying push has no successful acknowledgement, so the existing
   Carrier rule sends a full window.
 
@@ -2538,8 +2544,11 @@ following replace `sweepChecks(cfg)` and the config-network comparison in
    slot refusal with `UNSUPPORTED_PLAN`: the executor cannot express it, for
    example TCP modes that do not share one port list. An unknown
    `digest_version` is not that refusal. With a digest mismatch, an unresolved
-   key, or a set that does not decode, it fails the push before install.
-   Core's `SweepPlan.checks/2` only builds the expressible shape.
+   key, or a set that does not decode, it fails that push before install and
+   leaves any previously installed valid lease in force, with the local ticker
+   suppressed. The ticker runs only when no valid installed lease covers the
+   group (never installed, revoked, or expired). Core's `SweepPlan.checks/2`
+   only builds the expressible shape.
 2. `newSweepEdgeProducer(lease, slot, spool, now)` no longer takes the config.
    The batches' `TestedChecks` are exactly the carried checks.
    `errEdgeSweepCheckSetMismatch`, `errEdgeSweepCIDRMismatch`,
@@ -2581,7 +2590,10 @@ gateway -> `AgentGatewaySync` -> `ServiceRadar.SweepJobs`):
   validation runs before install and fails the whole push with a
   `SweepLeaseAck` error: an unknown `digest_version`, a carried-set digest
   mismatch, an unresolved check-set key, or a set that does not decode. The
-  group stays on the local ticker until core re-pushes.
+  failure refuses only that push. A previously installed valid lease stays in
+  force and keeps the local ticker suppressed. The ticker runs only when no
+  valid installed lease covers the group (never installed, revoked, or
+  expired).
 - The agent persists the refusal with the slot's executed mark. It re-sends
   every refusal it still holds on each control-stream connect, until the
   slot's collection window has passed by more than the missed-run judgement

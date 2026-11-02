@@ -125,8 +125,11 @@ core SHALL NOT send a check set whose `digest_version` the agent did not
 advertise. Before install, the agent SHALL validate every carried check set.
 An unknown `digest_version`, a carried set whose checks digest to a different
 value, an unresolved check-set key, or a set that does not decode SHALL fail
-the whole push with a `SweepLeaseAck` error, and the group SHALL stay on the
-agent's local ticker until core re-pushes. For an installed slot, the only
+that push with a `SweepLeaseAck` error before install. The failure SHALL
+refuse only that push. Any previously installed valid lease SHALL stay in
+force and SHALL keep the group's local ticker suppressed. The agent SHALL
+fall back to the local ticker only when no valid installed lease covers the
+group (never installed, revoked, or expired). For an installed slot, the only
 comparison the agent makes between the slot and its checks SHALL be that the
 digest of the carried checks equals the slot's `plan_header.check_set_sha256`.
 An agent that cannot run an installed carried check SHALL refuse the slot
@@ -155,14 +158,16 @@ terminal.
 - **AND** a config update during the run SHALL NOT change that execution
 
 #### Scenario: Carried checks fail validation before install
-- **WHEN** a push carries an unknown check-set `digest_version`, a set whose
-  checks digest to a different value than its key, a header
+- **GIVEN** a valid lease for the group is already installed
+- **WHEN** a replacement push carries an unknown check-set `digest_version`,
+  a set whose checks digest to a different value than its key, a header
   `check_set_sha256` that resolves to no carried set, or a set that does not
   decode
-- **THEN** the agent SHALL refuse the whole push with a `SweepLeaseAck` error
+- **THEN** the agent SHALL refuse that push with a `SweepLeaseAck` error
   before install
 - **AND** SHALL NOT fall back to checks derived from its config
-- **AND** the group SHALL stay on the agent's local ticker until core re-pushes
+- **AND** the previously installed lease SHALL stay in force and SHALL keep
+  the group's local ticker suppressed
 
 #### Scenario: Check set the executor cannot express
 - **GIVEN** a leased slot is already installed
@@ -213,7 +218,8 @@ terminal.
 - **WHEN** an agent that executes from carried checks receives a push with slots
   and `lease_version` 1
 - **THEN** it SHALL refuse the push with a `SweepLeaseAck` error
-- **AND** the group SHALL keep running on the agent's local ticker
+- **AND** the group SHALL run on the agent's local ticker only when no valid
+  installed lease covers the group
 
 #### Scenario: Batch claims checks its slot did not sign
 - **WHEN** EventWriter receives a leased sweep batch whose `tested_checks`
@@ -378,10 +384,3 @@ alone.
   projected or explicitly terminally failed
 - **THEN** the execution SHALL record reconciled completion and exact unique
   totals
-
-#### Scenario: Execution retains attribution context
-- **GIVEN** a completed sweep execution
-- **WHEN** its results are inspected
-- **THEN** the execution SHALL identify the sweep group and the agent that ran it
-- **AND** each host result for a leased slot SHALL carry the checks the signed
-  plan carried, alongside the observed per-mode outcome

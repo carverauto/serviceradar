@@ -292,9 +292,9 @@ in `choices.md` and the chart README.
       and Elixir. Add a synthetic golden lease fixture under
       `proto/edge/v1/testdata/` that Elixir encodes and Go decodes and
       validates, with negative cases for a mismatched digest, an unresolved
-      set, a set no slot references, a set that is not a product of modes and
-      ports, and a slot-carrying `lease_version` 1 push. Nothing reads the new
-      fields yet.
+      set, a set no slot references, and a slot-carrying `lease_version` 1
+      push. A check set that is not a product of modes and ports is not a
+      decode failure. Nothing reads the new fields yet.
     - [ ] M2.0i2 Sweeper run spec. `NetworkSweeper.RunPlannedWithObserver` runs
       one execution from a run-scoped copy of the config with networks, modes
       and ports replaced. The run path reads that copy instead of `s.config`,
@@ -323,8 +323,12 @@ in `choices.md` and the chart README.
       slots. On load it discards stored slot leases whose `lease_version` is
       not 2 (Decision 12). Before install, an unknown `digest_version`, a
       carried-set digest mismatch, an unresolved check-set key, or a set that
-      does not decode fails the whole push with a `SweepLeaseAck` error, and
-      the group stays on the local ticker until core re-pushes. It executes
+      does not decode fails that push with a `SweepLeaseAck` error before
+      install. The failure refuses only that push. Any previously installed
+      valid lease stays in force and keeps the group's local ticker
+      suppressed. The agent falls back to the local ticker only when no valid
+      installed lease covers the group (never installed, revoked, or expired).
+      It executes
       from `sweepPlanChecks` through `RunPlannedWithObserver`. Execution-time
       slot refusals are persisted and re-sent on reconnect.
       `CHECK_UNAVAILABLE` names `icmp.unavailable`, `mtr.unavailable`, or
