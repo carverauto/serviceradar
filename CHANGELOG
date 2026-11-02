@@ -1,3 +1,77 @@
+# ServiceRadar v1.4.101
+
+This release adds the durable edge-record pipeline: agents can now
+spool sweep results and metrics to disk, deliver them as signed
+records, and core stores each record once, even across restarts of the
+gateway, core, NATS or the agent. It ships turned off. It also makes the
+agent spool safe under pressure, regenerates the schema baseline,
+replicates more JetStream streams, and fixes managed component
+enrollment.
+
+## Upgrade Notes
+
+- **The edge-record pipeline is off until you turn it on.** Nothing
+  changes for existing installs. To use it, register the contracts in
+  `edgeRecords.contractRegistry`, set `edgeRecords.enabled`, and opt in
+  each agent through its sweep leasing switch. Metrics also need
+  `edgeRecords.agentMetricsEnabled`. Agents that are not opted in keep
+  the current status path.
+- **New database table.** Migration `20261101130000` adds
+  `platform.edge_output_grants`; the chart's expected migration version
+  moves to it.
+- **The schema baseline was regenerated** through `20261031085513`, so a
+  fresh install applies far fewer migrations (#6218).
+- **More JetStream streams run with three replicas**, including the
+  edge-record stream and the metrics stream, and stream reconciliation
+  now raises the replica count of an existing stream. Check that your
+  NATS file store has room before upgrading (#6219).
+
+## Whats New
+
+**Durable edge records**
+
+- Agents spool scheduled static sweeps, sysmon, SNMP, ICMP and MTR
+  metrics and the periodic sweep summary to disk and deliver them as
+  signed edge records. Core stores each record once and republishes
+  metrics to the same `metrics.>` subjects, so dashboards and alerts are
+  unchanged (#3597, #6214, #6247).
+- Core issues each opted-in agent a daily-signed standing grant, carried
+  in the agent config; turning an agent off revokes it (#6214).
+- New payloads plug in through a contract catalog, and plugins never
+  need their own contract (#6216, #6247).
+- Oversized or malformed metric batches are split or sanitized instead
+  of dropped, and a refused write is retried without duplicates (#6214).
+- A sweep slot that never reports is marked missed instead of waiting
+  forever, and overlapping static targets are merged before planning
+  (#6196, #6222).
+- Protocol definitions for the next producers: unleased sweep results,
+  mapper, netprobe discovery and sync pages (#6215, #6220).
+
+**Agent spool**
+
+- A full spool now waits for room instead of failing the sweep, and a
+  permanently rejected record moves to a bounded quarantine so the rest
+  of the spool can still reclaim (#6206, #6208).
+- Acknowledgement evidence is prepaid, so a full spool can always record
+  the acknowledgement that frees it (#6198).
+- Agents keep only the current and previous release on disk (#6197).
+
+**Managed components**
+
+- A managed NATS leaf or collector can enroll for the first time, and
+  the collector list loads again (#6246).
+- Existing static collectors are adopted with their certificates, and
+  package installs refuse symlinked agent paths (#6217).
+
+**Operations**
+
+- Result-ingestion lanes have metrics, alerts, a dashboard and a Cluster
+  Status card (#6205).
+- Image builds fall back to the PostgreSQL apt archive when a pinned
+  package leaves the live pool (#6199).
+- Dependency updates for Go, Rust and the GitHub Actions toolchain, with
+  the vendored crate mirror refreshed (#6248).
+
 # ServiceRadar v1.4.100
 
 This release makes the Proxmox node-to-agent certificate link from
