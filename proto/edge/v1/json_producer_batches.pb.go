@@ -1489,20 +1489,18 @@ type MapperTopologyLinkRecordV1 struct {
 	Observation *MapperTopologyObservationV2 `protobuf:"bytes,13,opt,name=observation,proto3" json:"observation,omitempty"`
 	// Top-level confidence tier (`confidence_tier`, promoted from `observation.confidence_tier` or `metadata`).
 	ConfidenceTier string `protobuf:"bytes,14,opt,name=confidence_tier,json=confidenceTier,proto3" json:"confidence_tier,omitempty"`
-	// Top-level confidence score (`confidence_score`, promoted from `observation.confidence_score`).
-	ConfidenceScore int32 `protobuf:"varint,15,opt,name=confidence_score,json=confidenceScore,proto3" json:"confidence_score,omitempty"`
-	// Top-level confidence reason (`confidence_reason`, promoted from `observation.confidence_reason` or `metadata`).
-	ConfidenceReason string `protobuf:"bytes,16,opt,name=confidence_reason,json=confidenceReason,proto3" json:"confidence_reason,omitempty"`
+	// Top-level confidence reason (`metadata["confidence_reason"]`).
+	ConfidenceReason string `protobuf:"bytes,15,opt,name=confidence_reason,json=confidenceReason,proto3" json:"confidence_reason,omitempty"`
 	// Link metadata key-value pairs (`metadata`).
-	Metadata map[string]string `protobuf:"bytes,17,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Metadata map[string]string `protobuf:"bytes,16,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Observation timestamp in Unix epoch nanoseconds (`timestamp`).
-	TimestampUnixNano int64 `protobuf:"varint,18,opt,name=timestamp_unix_nano,json=timestampUnixNano,proto3" json:"timestamp_unix_nano,omitempty"`
+	TimestampUnixNano int64 `protobuf:"varint,17,opt,name=timestamp_unix_nano,json=timestampUnixNano,proto3" json:"timestamp_unix_nano,omitempty"`
 	// Originating agent identifier (`agent_id`).
-	AgentId string `protobuf:"bytes,19,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	AgentId string `protobuf:"bytes,18,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
 	// Originating gateway identifier (`gateway_id`).
-	GatewayId string `protobuf:"bytes,20,opt,name=gateway_id,json=gatewayId,proto3" json:"gateway_id,omitempty"`
+	GatewayId string `protobuf:"bytes,19,opt,name=gateway_id,json=gatewayId,proto3" json:"gateway_id,omitempty"`
 	// Network partition identifier (`partition`).
-	Partition     string `protobuf:"bytes,21,opt,name=partition,proto3" json:"partition,omitempty"`
+	Partition     string `protobuf:"bytes,20,opt,name=partition,proto3" json:"partition,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1633,13 +1631,6 @@ func (x *MapperTopologyLinkRecordV1) GetConfidenceTier() string {
 		return x.ConfidenceTier
 	}
 	return ""
-}
-
-func (x *MapperTopologyLinkRecordV1) GetConfidenceScore() int32 {
-	if x != nil {
-		return x.ConfidenceScore
-	}
-	return 0
 }
 
 func (x *MapperTopologyLinkRecordV1) GetConfidenceReason() string {
@@ -1790,24 +1781,18 @@ type MapperTopologyObservationV2 struct {
 	EvidenceClass string `protobuf:"bytes,5,opt,name=evidence_class,json=evidenceClass,proto3" json:"evidence_class,omitempty"`
 	// Confidence tier (`confidence_tier`, e.g. `"high"`, `"medium"`, `"low"`).
 	ConfidenceTier string `protobuf:"bytes,6,opt,name=confidence_tier,json=confidenceTier,proto3" json:"confidence_tier,omitempty"`
-	// Numeric confidence score (`confidence_score`).
-	ConfidenceScore int32 `protobuf:"varint,7,opt,name=confidence_score,json=confidenceScore,proto3" json:"confidence_score,omitempty"`
-	// Confidence classification reason (`confidence_reason`).
-	ConfidenceReason string `protobuf:"bytes,8,opt,name=confidence_reason,json=confidenceReason,proto3" json:"confidence_reason,omitempty"`
 	// Observation Unix epoch seconds (`observed_at_unix`).
-	ObservedAtUnix int64 `protobuf:"varint,9,opt,name=observed_at_unix,json=observedAtUnix,proto3" json:"observed_at_unix,omitempty"`
+	ObservedAtUnix int64 `protobuf:"varint,7,opt,name=observed_at_unix,json=observedAtUnix,proto3" json:"observed_at_unix,omitempty"`
 	// Discovery run/job identifier (`discovery_id`).
-	DiscoveryId string `protobuf:"bytes,10,opt,name=discovery_id,json=discoveryId,proto3" json:"discovery_id,omitempty"`
+	DiscoveryId string `protobuf:"bytes,8,opt,name=discovery_id,json=discoveryId,proto3" json:"discovery_id,omitempty"`
 	// Local/source endpoint identity (`source_endpoint`).
-	SourceEndpoint *MapperTopologyEndpointV1 `protobuf:"bytes,11,opt,name=source_endpoint,json=sourceEndpoint,proto3" json:"source_endpoint,omitempty"`
+	SourceEndpoint *MapperTopologyEndpointV1 `protobuf:"bytes,9,opt,name=source_endpoint,json=sourceEndpoint,proto3" json:"source_endpoint,omitempty"`
 	// Neighbor/target endpoint identity (`target_endpoint`).
-	TargetEndpoint *MapperTopologyEndpointV1 `protobuf:"bytes,12,opt,name=target_endpoint,json=targetEndpoint,proto3" json:"target_endpoint,omitempty"`
-	// Raw adapter attributes (`raw_attributes`).
-	RawAttributes map[string]string `protobuf:"bytes,13,rep,name=raw_attributes,json=rawAttributes,proto3" json:"raw_attributes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	// Ingestor relation family classification (`relation_family`, e.g. `"CONNECTS_TO"`, `"INFERRED_TO"`).
-	RelationFamily string `protobuf:"bytes,14,opt,name=relation_family,json=relationFamily,proto3" json:"relation_family,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	TargetEndpoint *MapperTopologyEndpointV1 `protobuf:"bytes,10,opt,name=target_endpoint,json=targetEndpoint,proto3" json:"target_endpoint,omitempty"`
+	// Raw adapter attributes (`raw_attributes`). `confidence_reason` is `raw_attributes["confidence_reason"]`.
+	RawAttributes map[string]string `protobuf:"bytes,11,rep,name=raw_attributes,json=rawAttributes,proto3" json:"raw_attributes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *MapperTopologyObservationV2) Reset() {
@@ -1882,20 +1867,6 @@ func (x *MapperTopologyObservationV2) GetConfidenceTier() string {
 	return ""
 }
 
-func (x *MapperTopologyObservationV2) GetConfidenceScore() int32 {
-	if x != nil {
-		return x.ConfidenceScore
-	}
-	return 0
-}
-
-func (x *MapperTopologyObservationV2) GetConfidenceReason() string {
-	if x != nil {
-		return x.ConfidenceReason
-	}
-	return ""
-}
-
 func (x *MapperTopologyObservationV2) GetObservedAtUnix() int64 {
 	if x != nil {
 		return x.ObservedAtUnix
@@ -1929,13 +1900,6 @@ func (x *MapperTopologyObservationV2) GetRawAttributes() map[string]string {
 		return x.RawAttributes
 	}
 	return nil
-}
-
-func (x *MapperTopologyObservationV2) GetRelationFamily() string {
-	if x != nil {
-		return x.RelationFamily
-	}
-	return ""
 }
 
 // MapperTopologyEndpointV1 maps `mapper.TopologyObservationEndpointV2`
@@ -5083,7 +5047,7 @@ const file_edge_v1_json_producer_batches_proto_rawDesc = "" +
 	"\n" +
 	"gateway_id\x18\x02 \x01(\tR\tgatewayId\x12\x1c\n" +
 	"\tpartition\x18\x03 \x01(\tR\tpartition\x12F\n" +
-	"\x05links\x18\x04 \x03(\v20.serviceradar.edge.v1.MapperTopologyLinkRecordV1R\x05links\"\xbe\b\n" +
+	"\x05links\x18\x04 \x03(\v20.serviceradar.edge.v1.MapperTopologyLinkRecordV1R\x05links\"\x93\b\n" +
 	"\x1aMapperTopologyLinkRecordV1\x12\x1a\n" +
 	"\bprotocol\x18\x01 \x01(\tR\bprotocol\x12&\n" +
 	"\x0flocal_device_ip\x18\x02 \x01(\tR\rlocalDeviceIp\x12&\n" +
@@ -5099,15 +5063,14 @@ const file_edge_v1_json_producer_batches_proto_rawDesc = "" +
 	"\x12neighbor_mgmt_addr\x18\v \x01(\tR\x10neighborMgmtAddr\x12[\n" +
 	"\x11neighbor_identity\x18\f \x01(\v2..serviceradar.edge.v1.MapperNeighborIdentityV1R\x10neighborIdentity\x12S\n" +
 	"\vobservation\x18\r \x01(\v21.serviceradar.edge.v1.MapperTopologyObservationV2R\vobservation\x12'\n" +
-	"\x0fconfidence_tier\x18\x0e \x01(\tR\x0econfidenceTier\x12)\n" +
-	"\x10confidence_score\x18\x0f \x01(\x05R\x0fconfidenceScore\x12+\n" +
-	"\x11confidence_reason\x18\x10 \x01(\tR\x10confidenceReason\x12Z\n" +
-	"\bmetadata\x18\x11 \x03(\v2>.serviceradar.edge.v1.MapperTopologyLinkRecordV1.MetadataEntryR\bmetadata\x12.\n" +
-	"\x13timestamp_unix_nano\x18\x12 \x01(\x03R\x11timestampUnixNano\x12\x19\n" +
-	"\bagent_id\x18\x13 \x01(\tR\aagentId\x12\x1d\n" +
+	"\x0fconfidence_tier\x18\x0e \x01(\tR\x0econfidenceTier\x12+\n" +
+	"\x11confidence_reason\x18\x0f \x01(\tR\x10confidenceReason\x12Z\n" +
+	"\bmetadata\x18\x10 \x03(\v2>.serviceradar.edge.v1.MapperTopologyLinkRecordV1.MetadataEntryR\bmetadata\x12.\n" +
+	"\x13timestamp_unix_nano\x18\x11 \x01(\x03R\x11timestampUnixNano\x12\x19\n" +
+	"\bagent_id\x18\x12 \x01(\tR\aagentId\x12\x1d\n" +
 	"\n" +
-	"gateway_id\x18\x14 \x01(\tR\tgatewayId\x12\x1c\n" +
-	"\tpartition\x18\x15 \x01(\tR\tpartition\x1a;\n" +
+	"gateway_id\x18\x13 \x01(\tR\tgatewayId\x12\x1c\n" +
+	"\tpartition\x18\x14 \x01(\tR\tpartition\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xd4\x01\n" +
@@ -5120,23 +5083,20 @@ const file_edge_v1_json_producer_batches_proto_rawDesc = "" +
 	"\n" +
 	"port_descr\x18\x05 \x01(\tR\tportDescr\x12\x1f\n" +
 	"\vsystem_name\x18\x06 \x01(\tR\n" +
-	"systemName\"\xc2\x06\n" +
+	"systemName\"\xc1\x05\n" +
 	"\x1bMapperTopologyObservationV2\x12)\n" +
 	"\x10contract_version\x18\x01 \x01(\tR\x0fcontractVersion\x12)\n" +
 	"\x10observation_type\x18\x02 \x01(\tR\x0fobservationType\x12'\n" +
 	"\x0fsource_protocol\x18\x03 \x01(\tR\x0esourceProtocol\x12%\n" +
 	"\x0esource_adapter\x18\x04 \x01(\tR\rsourceAdapter\x12%\n" +
 	"\x0eevidence_class\x18\x05 \x01(\tR\revidenceClass\x12'\n" +
-	"\x0fconfidence_tier\x18\x06 \x01(\tR\x0econfidenceTier\x12)\n" +
-	"\x10confidence_score\x18\a \x01(\x05R\x0fconfidenceScore\x12+\n" +
-	"\x11confidence_reason\x18\b \x01(\tR\x10confidenceReason\x12(\n" +
-	"\x10observed_at_unix\x18\t \x01(\x03R\x0eobservedAtUnix\x12!\n" +
-	"\fdiscovery_id\x18\n" +
-	" \x01(\tR\vdiscoveryId\x12W\n" +
-	"\x0fsource_endpoint\x18\v \x01(\v2..serviceradar.edge.v1.MapperTopologyEndpointV1R\x0esourceEndpoint\x12W\n" +
-	"\x0ftarget_endpoint\x18\f \x01(\v2..serviceradar.edge.v1.MapperTopologyEndpointV1R\x0etargetEndpoint\x12k\n" +
-	"\x0eraw_attributes\x18\r \x03(\v2D.serviceradar.edge.v1.MapperTopologyObservationV2.RawAttributesEntryR\rrawAttributes\x12'\n" +
-	"\x0frelation_family\x18\x0e \x01(\tR\x0erelationFamily\x1a@\n" +
+	"\x0fconfidence_tier\x18\x06 \x01(\tR\x0econfidenceTier\x12(\n" +
+	"\x10observed_at_unix\x18\a \x01(\x03R\x0eobservedAtUnix\x12!\n" +
+	"\fdiscovery_id\x18\b \x01(\tR\vdiscoveryId\x12W\n" +
+	"\x0fsource_endpoint\x18\t \x01(\v2..serviceradar.edge.v1.MapperTopologyEndpointV1R\x0esourceEndpoint\x12W\n" +
+	"\x0ftarget_endpoint\x18\n" +
+	" \x01(\v2..serviceradar.edge.v1.MapperTopologyEndpointV1R\x0etargetEndpoint\x12k\n" +
+	"\x0eraw_attributes\x18\v \x03(\v2D.serviceradar.edge.v1.MapperTopologyObservationV2.RawAttributesEntryR\rrawAttributes\x1a@\n" +
 	"\x12RawAttributesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xd3\x01\n" +

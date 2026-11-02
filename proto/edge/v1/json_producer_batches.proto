@@ -341,20 +341,18 @@ message MapperTopologyLinkRecordV1 {
   MapperTopologyObservationV2 observation = 13;
   // Top-level confidence tier (`confidence_tier`, promoted from `observation.confidence_tier` or `metadata`).
   string confidence_tier = 14;
-  // Top-level confidence score (`confidence_score`, promoted from `observation.confidence_score`).
-  int32 confidence_score = 15;
-  // Top-level confidence reason (`confidence_reason`, promoted from `observation.confidence_reason` or `metadata`).
-  string confidence_reason = 16;
+  // Top-level confidence reason (`metadata["confidence_reason"]`).
+  string confidence_reason = 15;
   // Link metadata key-value pairs (`metadata`).
-  map<string, string> metadata = 17;
+  map<string, string> metadata = 16;
   // Observation timestamp in Unix epoch nanoseconds (`timestamp`).
-  int64 timestamp_unix_nano = 18;
+  int64 timestamp_unix_nano = 17;
   // Originating agent identifier (`agent_id`).
-  string agent_id = 19;
+  string agent_id = 18;
   // Originating gateway identifier (`gateway_id`).
-  string gateway_id = 20;
+  string gateway_id = 19;
   // Network partition identifier (`partition`).
-  string partition = 21;
+  string partition = 20;
 }
 
 // MapperNeighborIdentityV1 maps `mapper.TopologyNeighborIdentity` (`neighbor_identity`).
@@ -387,22 +385,16 @@ message MapperTopologyObservationV2 {
   string evidence_class = 5;
   // Confidence tier (`confidence_tier`, e.g. `"high"`, `"medium"`, `"low"`).
   string confidence_tier = 6;
-  // Numeric confidence score (`confidence_score`).
-  int32 confidence_score = 7;
-  // Confidence classification reason (`confidence_reason`).
-  string confidence_reason = 8;
   // Observation Unix epoch seconds (`observed_at_unix`).
-  int64 observed_at_unix = 9;
+  int64 observed_at_unix = 7;
   // Discovery run/job identifier (`discovery_id`).
-  string discovery_id = 10;
+  string discovery_id = 8;
   // Local/source endpoint identity (`source_endpoint`).
-  MapperTopologyEndpointV1 source_endpoint = 11;
+  MapperTopologyEndpointV1 source_endpoint = 9;
   // Neighbor/target endpoint identity (`target_endpoint`).
-  MapperTopologyEndpointV1 target_endpoint = 12;
-  // Raw adapter attributes (`raw_attributes`).
-  map<string, string> raw_attributes = 13;
-  // Ingestor relation family classification (`relation_family`, e.g. `"CONNECTS_TO"`, `"INFERRED_TO"`).
-  string relation_family = 14;
+  MapperTopologyEndpointV1 target_endpoint = 10;
+  // Raw adapter attributes (`raw_attributes`). `confidence_reason` is `raw_attributes["confidence_reason"]`.
+  map<string, string> raw_attributes = 11;
 }
 
 // MapperTopologyEndpointV1 maps `mapper.TopologyObservationEndpointV2`

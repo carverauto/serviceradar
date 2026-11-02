@@ -352,18 +352,17 @@ defmodule Serviceradar.Edge.V1.MapperTopologyLinkRecordV1 do
 
   field :observation, 13, type: Serviceradar.Edge.V1.MapperTopologyObservationV2
   field :confidence_tier, 14, type: :string, json_name: "confidenceTier"
-  field :confidence_score, 15, type: :int32, json_name: "confidenceScore"
-  field :confidence_reason, 16, type: :string, json_name: "confidenceReason"
+  field :confidence_reason, 15, type: :string, json_name: "confidenceReason"
 
-  field :metadata, 17,
+  field :metadata, 16,
     repeated: true,
     type: Serviceradar.Edge.V1.MapperTopologyLinkRecordV1.MetadataEntry,
     map: true
 
-  field :timestamp_unix_nano, 18, type: :int64, json_name: "timestampUnixNano"
-  field :agent_id, 19, type: :string, json_name: "agentId"
-  field :gateway_id, 20, type: :string, json_name: "gatewayId"
-  field :partition, 21, type: :string
+  field :timestamp_unix_nano, 17, type: :int64, json_name: "timestampUnixNano"
+  field :agent_id, 18, type: :string, json_name: "agentId"
+  field :gateway_id, 19, type: :string, json_name: "gatewayId"
+  field :partition, 20, type: :string
 end
 
 defmodule Serviceradar.Edge.V1.MapperNeighborIdentityV1 do
@@ -411,26 +410,22 @@ defmodule Serviceradar.Edge.V1.MapperTopologyObservationV2 do
   field :source_adapter, 4, type: :string, json_name: "sourceAdapter"
   field :evidence_class, 5, type: :string, json_name: "evidenceClass"
   field :confidence_tier, 6, type: :string, json_name: "confidenceTier"
-  field :confidence_score, 7, type: :int32, json_name: "confidenceScore"
-  field :confidence_reason, 8, type: :string, json_name: "confidenceReason"
-  field :observed_at_unix, 9, type: :int64, json_name: "observedAtUnix"
-  field :discovery_id, 10, type: :string, json_name: "discoveryId"
+  field :observed_at_unix, 7, type: :int64, json_name: "observedAtUnix"
+  field :discovery_id, 8, type: :string, json_name: "discoveryId"
 
-  field :source_endpoint, 11,
+  field :source_endpoint, 9,
     type: MapperTopologyEndpointV1,
     json_name: "sourceEndpoint"
 
-  field :target_endpoint, 12,
+  field :target_endpoint, 10,
     type: MapperTopologyEndpointV1,
     json_name: "targetEndpoint"
 
-  field :raw_attributes, 13,
+  field :raw_attributes, 11,
     repeated: true,
     type: Serviceradar.Edge.V1.MapperTopologyObservationV2.RawAttributesEntry,
     json_name: "rawAttributes",
     map: true
-
-  field :relation_family, 14, type: :string, json_name: "relationFamily"
 end
 
 defmodule Serviceradar.Edge.V1.MapperTopologyEndpointV1 do
