@@ -115,6 +115,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                     <input
                       type="checkbox"
                       name="settings[is_enabled]"
+                      value="true"
                       checked={sso_enabled}
                       disabled={password_only_mode?(@form[:mode].value)}
                       class={ui_toggle_class()}
@@ -297,6 +298,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                       <input
                         type="checkbox"
                         name="settings[sso_auto_provision]"
+                        value="true"
                         checked={@form[:sso_auto_provision].value}
                         class={ui_toggle_class(class: "toggle-warning")}
                       />
@@ -978,6 +980,22 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
     }
   end
 
+  # Infer which IdP preset matches the persisted claim mappings so the correct
+  # preset button is highlighted when the page reloads.
+  defp infer_idp_preset(settings) when is_map(settings) do
+    mappings = Map.get(settings, :claim_mappings, %{})
+
+    cond do
+      Map.get(mappings, "email") == "preferred_username" -> "entra"
+      Map.get(mappings, "sub") == "sub" and
+          String.contains?(Map.get(settings, :oidc_scopes, ""), "offline_access") ->
+        "authentik"
+      true -> "generic"
+    end
+  end
+
+  defp infer_idp_preset(_), do: "generic"
+
   @impl true
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
@@ -1015,6 +1033,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
      socket
      |> assign(:loading, false)
      |> assign(:settings, settings)
+     |> assign(:idp_preset, infer_idp_preset(settings))
      |> assign(:form, to_form(form_data, as: :settings))}
   end
 
