@@ -43,8 +43,8 @@ var (
 )
 
 // ValidateUnleasedSweepResultsBatch enforces the payload rules: a 16-byte
-// execution id, a 4- or 16-byte address per host, and tested-check indexes that
-// name a check of the batch.
+// execution id, one legacy host result per host, a 4- or 16-byte address per
+// host, and tested-check indexes that name a check of the batch.
 func ValidateUnleasedSweepResultsBatch(batch *edgev1.UnleasedSweepResultsBatchV1) error {
 	if batch == nil {
 		return fmt.Errorf("%w: empty batch", ErrUnleasedSweepBatch)
@@ -54,6 +54,10 @@ func ValidateUnleasedSweepResultsBatch(batch *edgev1.UnleasedSweepResultsBatchV1
 	}
 	if id := batch.GetSweepGroupId(); len(id) != 0 && len(id) != 16 {
 		return fmt.Errorf("%w: sweep_group_id is %d bytes", ErrUnleasedSweepBatch, len(id))
+	}
+	if len(batch.GetHostResults()) != len(batch.GetHosts()) {
+		return fmt.Errorf("%w: %d host results for %d hosts",
+			ErrUnleasedSweepBatch, len(batch.GetHostResults()), len(batch.GetHosts()))
 	}
 	checks := uint32(len(batch.GetTestedChecks()))
 	for i, host := range batch.GetHosts() {

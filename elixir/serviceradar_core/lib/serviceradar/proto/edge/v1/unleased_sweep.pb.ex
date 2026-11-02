@@ -47,6 +47,48 @@ defmodule Serviceradar.Edge.V1.UnleasedSweepResultsBatchV1 do
   field :banner_grab_summary, 21,
     type: Serviceradar.Edge.V1.UnleasedSweepBannerGrabSummaryV1,
     json_name: "bannerGrabSummary"
+
+  field :host_results, 23,
+    repeated: true,
+    type: Serviceradar.Edge.V1.UnleasedSweepHostResultV1,
+    json_name: "hostResults"
+end
+
+defmodule Serviceradar.Edge.V1.UnleasedSweepHostResultV1 do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.edge.v1.UnleasedSweepHostResultV1",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :available, 1, type: :bool
+  field :response_time_nano, 2, type: :int64, json_name: "responseTimeNano"
+  field :icmp_round_trip_nano, 3, type: :int64, json_name: "icmpRoundTripNano"
+
+  field :port_results, 4,
+    repeated: true,
+    type: Serviceradar.Edge.V1.UnleasedSweepPortResultV1,
+    json_name: "portResults"
+
+  field :first_seen, 5, type: :string, json_name: "firstSeen"
+  field :last_seen, 6, type: :string, json_name: "lastSeen"
+  field :sweep_modes, 7, repeated: true, type: :string, json_name: "sweepModes"
+  field :mtr_round_trip_nano, 8, type: :int64, json_name: "mtrRoundTripNano"
+end
+
+defmodule Serviceradar.Edge.V1.UnleasedSweepPortResultV1 do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.edge.v1.UnleasedSweepPortResultV1",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :port, 1, type: :int32
+  field :available, 2, type: :bool
+  field :response_time_nano, 3, type: :int64, json_name: "responseTimeNano"
+  field :service, 4, type: :string
 end
 
 defmodule Serviceradar.Edge.V1.UnleasedSweepPortCountV1 do

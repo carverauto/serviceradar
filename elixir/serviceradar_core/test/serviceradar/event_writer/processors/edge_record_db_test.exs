@@ -19,6 +19,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
   alias ServiceRadar.Edge.IssuerKey
   alias ServiceRadar.Edge.OutputGrants
   alias ServiceRadar.Edge.ProjectionRows
+  alias ServiceRadar.Edge.Projectors.UnleasedSweepResults
   alias ServiceRadar.Edge.PublicationIdentity
   alias ServiceRadar.Edge.RecordValidate
   alias ServiceRadar.Edge.SemanticDigest
@@ -32,11 +33,14 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
   alias Serviceradar.Edge.V1.SweepPortErrorV1
   alias Serviceradar.Edge.V1.SweepTcpSummaryV1
   alias Serviceradar.Edge.V1.SweepTestV1
+  alias Serviceradar.Edge.V1.UnleasedSweepHostResultV1
   alias Serviceradar.Edge.V1.UnleasedSweepPortCountV1
+  alias Serviceradar.Edge.V1.UnleasedSweepPortResultV1
   alias Serviceradar.Edge.V1.UnleasedSweepResultsBatchV1
   alias ServiceRadar.EventWriter.Processors.EdgeRecord
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Infrastructure.Partition
+  alias ServiceRadar.Ingestion.ResultIngestor
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceAgentAvailability
   alias Serviceradar.Metric.V1.IngestIdentity
@@ -44,6 +48,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
   alias Serviceradar.Metric.V1.MetricBatch
   alias Serviceradar.Metric.V1.MetricPoint
   alias Serviceradar.Metric.V1.MetricResource
+  alias ServiceRadar.Observability.ServiceState
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ExecutionSlots
   alias ServiceRadar.SweepJobs.LeaseCapabilities
@@ -660,6 +665,169 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
     end
   end
 
+  describe "unleased sweep results fidelity" do
+    # The agent test TestUnleasedSweepFidelityFixture writes both fixtures: one legacy results
+    # response and the unleased batch the agent converts it to. Its hosts: one ICMP reached with
+    # an open and a closed port, one unreached, one TCP-only, and one the agent calls available
+    # although no check it reports reached it.
+    test "the legacy results JSON and its unleased batch write identical rows" do
+      json = File.read!(fidelity_fixture("unleased_sweep_fidelity_results.json"))
+
+      batch =
+        UnleasedSweepResultsBatchV1.decode(
+          File.read!(fidelity_fixture("unleased_sweep_fidelity_body.bin"))
+        )
+
+      assert UnleasedSweepResults.legacy_json(batch) == json
+
+      frame = build_unleased_sweep_frame(batch: batch, gateway?: true)
+
+      legacy =
+        fidelity_rows(frame, fn ->
+          assert :ok =
+                   ResultIngestor.process_and_publish(%{
+                     service_name: "network_sweep",
+                     service_type: "sweep",
+                     available: true,
+                     message: json,
+                     response_time: 0,
+                     agent_id: frame.agent_id,
+                     gateway_id: frame.gateway_id,
+                     partition: frame.partition_slug,
+                     authenticated_partition: frame.partition_slug,
+                     source: "results",
+                     kv_store_id: "",
+                     timestamp: System.os_time(:second),
+                     agent_timestamp: 1_780_000_000,
+                     chunk_index: 0,
+                     total_chunks: 1,
+                     is_final: true
+                   })
+        end)
+
+      edge =
+        fidelity_rows(frame, fn ->
+          assert {:ok, :inserted} = EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo)
+        end)
+
+      assert length(legacy.hosts) == 4
+      assert [_ | _] = legacy.service_states
+
+      assert %{"192.0.2.12" => :available, "192.0.2.13" => :available} =
+               Map.new(legacy.hosts, &{&1.ip, &1.status})
+
+      assert edge == legacy
+    end
+  end
+
+  defp fidelity_fixture(name),
+    do: Path.expand("../../../../../../proto/edge/v1/testdata/#{name}", __DIR__)
+
+  # Runs one path in a transaction it rolls back, returning the rows it wrote, so both paths
+  # start from the same database.
+  defp fidelity_rows(frame, ingest) do
+    {:error, {:rows, rows}} =
+      Repo.transaction(fn ->
+        ingest.()
+        Repo.rollback({:rows, fidelity_snapshot(frame)})
+      end)
+
+    rows
+  end
+
+  defp fidelity_snapshot(frame) do
+    execution_id = frame.execution_id
+    partition = frame.partition_slug
+    agent_id = frame.agent_id
+
+    %{
+      hosts:
+        Repo.all(
+          Ecto.Query.from(h in SweepHostResult,
+            where: h.execution_id == ^execution_id,
+            order_by: h.ip,
+            select:
+              map(h, [
+                :ip,
+                :hostname,
+                :status,
+                :response_time_ms,
+                :open_ports,
+                :scanned_ports,
+                :sweep_modes_results,
+                :agent_id,
+                :sweep_group_id,
+                :error_message
+              ])
+          )
+        ),
+      devices:
+        Repo.all(
+          Ecto.Query.from(d in Device,
+            where: d.partition == ^partition and d.ip != "198.51.100.254",
+            order_by: d.ip,
+            select: map(d, [:ip, :hostname, :is_available, :discovery_sources])
+          )
+        ),
+      availability:
+        Repo.all(
+          Ecto.Query.from(a in DeviceAgentAvailability,
+            join: d in Device,
+            on: d.uid == a.device_uid,
+            where: a.agent_id == ^agent_id,
+            order_by: d.ip,
+            select: %{
+              ip: d.ip,
+              is_available: a.is_available,
+              response_time_ms: a.response_time_ms,
+              open_ports: a.open_ports,
+              sweep_modes_results: a.sweep_modes_results,
+              sweep_group_id: a.sweep_group_id,
+              execution_id: a.execution_id
+            }
+          )
+        ),
+      execution:
+        Repo.one(
+          Ecto.Query.from(e in SweepGroupExecution,
+            where: e.id == ^execution_id,
+            select:
+              map(e, [
+                :status,
+                :hosts_total,
+                :hosts_available,
+                :hosts_failed,
+                :error_message,
+                :agent_id,
+                :sweep_group_id,
+                :scanner_metrics,
+                :banner_grab_summary
+              ])
+          )
+        ),
+      service_states:
+        Repo.all(
+          Ecto.Query.from(s in ServiceState,
+            where: s.agent_id == ^agent_id,
+            order_by: [s.service_type, s.service_name],
+            select:
+              map(s, [
+                :agent_id,
+                :gateway_id,
+                :partition,
+                :service_type,
+                :service_name,
+                :available,
+                :message,
+                :details,
+                :last_observed_at,
+                :state
+              ])
+          )
+        )
+    }
+  end
+
   defp unleased_host_results(execution_id) do
     Repo.all(
       Ecto.Query.from(h in SweepHostResult,
@@ -672,10 +840,14 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
   # An unleased group's results: one host reached by ICMP with SSH open and HTTPS closed, and one
   # host ICMP did not reach, both tested on the same two ports.
   defp build_unleased_sweep_frame(opts \\ []) do
+    {batch_override, opts} = Keyword.pop(opts, :batch)
+    {gateway?, opts} = Keyword.pop(opts, :gateway?, false)
     actor = SystemActor.system(:edge_record_test)
     partition = partition!(random_uuid(4), actor)
     agent_id = "agent-#{System.unique_integer([:positive])}"
     ensure_agent!(agent_id, partition, actor)
+
+    gateway_id = if gateway?, do: attach_gateway!(agent_id, actor)
 
     group =
       SweepGroup
@@ -687,12 +859,13 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
           enabled: false,
           interval: "15m",
           agent_ids: [agent_id],
-          static_targets: ["192.0.2.10", "192.0.2.11"],
+          static_targets: fixture_targets(batch_override),
           sweep_modes: ["icmp", "tcp_connect"],
           ports: [22, 443]
         },
         actor: actor
       )
+      |> fixture_group_id(batch_override)
       |> Ash.create!()
 
     {:ok, grant} =
@@ -756,9 +929,37 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
             %SweepPortErrorV1{tested_check_index: 2, error_code: "closed"}
           ]
         }
+      ],
+      host_results: [
+        %UnleasedSweepHostResultV1{
+          available: true,
+          response_time_nano: 1_500_000,
+          icmp_round_trip_nano: 1_500_000,
+          first_seen: "2026-06-01T11:00:00Z",
+          last_seen: "2026-06-01T12:00:00Z",
+          port_results: [
+            %UnleasedSweepPortResultV1{
+              port: 22,
+              available: true,
+              response_time_nano: 2_000_000,
+              service: "ssh"
+            },
+            %UnleasedSweepPortResultV1{port: 443, response_time_nano: 900_000}
+          ]
+        },
+        %UnleasedSweepHostResultV1{
+          first_seen: "2026-06-01T11:00:00Z",
+          last_seen: "2026-06-01T12:00:00Z",
+          port_results: [
+            %UnleasedSweepPortResultV1{port: 22},
+            %UnleasedSweepPortResultV1{port: 443}
+          ]
+        }
       ]
     }
 
+    batch = batch_override || batch
+    execution_id = Ecto.UUID.load!(batch.execution_id)
     payload = UnleasedSweepResultsBatchV1.encode(batch)
 
     record = %EdgeRecordV1{
@@ -815,10 +1016,40 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
     |> Map.merge(%{
       agent_id: agent_id,
       partition_id: partition.id,
+      partition_slug: partition.slug,
+      gateway_id: gateway_id,
       group_id: group.id,
       execution_id: execution_id
     })
   end
+
+  # Registers a gateway and connects the agent to it, as the legacy status names it.
+  defp attach_gateway!(agent_id, actor) do
+    gateway_id = "gateway-#{System.unique_integer([:positive])}"
+
+    ServiceRadar.Infrastructure.Gateway
+    |> Ash.Changeset.for_create(:register, %{id: gateway_id}, actor: actor)
+    |> Ash.create!(domain: ServiceRadar.Infrastructure)
+
+    Repo.query!("UPDATE platform.ocsf_agents SET gateway_id = $1 WHERE uid = $2", [
+      gateway_id,
+      agent_id
+    ])
+
+    gateway_id
+  end
+
+  defp fixture_targets(nil), do: ["192.0.2.10", "192.0.2.11"]
+
+  defp fixture_targets(batch),
+    do: Enum.map(batch.hosts, fn %{address: <<a, b, c, d>>} -> "#{a}.#{b}.#{c}.#{d}" end)
+
+  # A fixture batch names its sweep group, so the group is created under that id.
+  defp fixture_group_id(changeset, nil), do: changeset
+
+  defp fixture_group_id(changeset, batch),
+    do:
+      Ash.Changeset.force_change_attribute(changeset, :id, Ecto.UUID.load!(batch.sweep_group_id))
 
   # Re-encodes a metrics frame with another ingest identity source, keeping its slot.
   defp with_source(frame, source) do

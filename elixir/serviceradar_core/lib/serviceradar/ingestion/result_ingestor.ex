@@ -301,21 +301,8 @@ defmodule ServiceRadar.Ingestion.ResultIngestor do
 
   defp handle_sweep_results(status) do
     # In schema-agnostic mode, DB schema is set by CNPG search_path
-    with {:ok, payload} <- decode_payload(status[:message]) do
-      ingest_sweep_payload(payload, status)
-    end
-  end
-
-  @doc """
-  Ingests one decoded sweep-results payload (the agent's results JSON, already parsed) for the
-  status identity in `status` (`:agent_id`, `:authenticated_partition`, and the chunk fields
-  `:chunk_index`, `:total_chunks`, `:is_final`, `:request_id`). The legacy status path and the
-  unleased sweep results edge-record projector (`ServiceRadar.Edge.Projectors.UnleasedSweepResults`)
-  both ingest through here, so the two paths write the same sweep and inventory rows.
-  """
-  @spec ingest_sweep_payload(map(), map()) :: :ok | {:error, term()}
-  def ingest_sweep_payload(payload, status) when is_map(payload) and is_map(status) do
-    with {:ok, results, execution_id, sweep_group_id} <- sweep_results(payload) do
+    with {:ok, payload} <- decode_payload(status[:message]),
+         {:ok, results, execution_id, sweep_group_id} <- sweep_results(payload) do
       actor = SystemActor.system(:sweep_ingestor)
       expected_total_hosts = parse_total_hosts(payload)
       scanner_metrics = parse_scanner_metrics(payload)
@@ -349,8 +336,6 @@ defmodule ServiceRadar.Ingestion.ResultIngestor do
       end
     end
   end
-
-  def ingest_sweep_payload(_payload, _status), do: {:error, :unsupported_payload}
 
   defp handle_sysmon_metrics(status) do
     reject_gateway_metric_status(status)

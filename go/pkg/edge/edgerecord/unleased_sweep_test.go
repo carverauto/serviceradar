@@ -58,6 +58,7 @@ func unleasedSweepBatch() *edgev1.UnleasedSweepResultsBatchV1 {
 			{Address: []byte{192, 0, 2, 10}, OpenPorts: []*edgev1.SweepOpenPortV1{{TestedCheckIndex: 1}}},
 			{Address: []byte{192, 0, 2, 11}, PortErrors: []*edgev1.SweepPortErrorV1{{TestedCheckIndex: 1, ErrorCode: "closed"}}},
 		},
+		HostResults: []*edgev1.UnleasedSweepHostResultV1{{Available: true}, {}},
 	}
 }
 
@@ -88,6 +89,8 @@ func TestValidateUnleasedSweepResultsRecord(t *testing.T) {
 	badAddress.Hosts[0].Address = []byte{192, 0, 2}
 	openOutOfRange := unleasedSweepBatch()
 	openOutOfRange.Hosts[0].OpenPorts[0].TestedCheckIndex = 2
+	missingResult := unleasedSweepBatch()
+	missingResult.HostResults = missingResult.HostResults[:1]
 	errorOutOfRange := unleasedSweepBatch()
 	errorOutOfRange.Hosts[1].PortErrors[0].TestedCheckIndex = 2
 
@@ -101,6 +104,7 @@ func TestValidateUnleasedSweepResultsRecord(t *testing.T) {
 		"a 3-byte sweep group id":           {unleasedSweepRecord(t, badGroup, 2), ErrUnleasedSweepBatch},
 		"a 3-byte host address":             {unleasedSweepRecord(t, badAddress, 2), ErrUnleasedSweepBatch},
 		"an open port naming no check":      {unleasedSweepRecord(t, openOutOfRange, 2), ErrUnleasedSweepBatch},
+		"a host without its host result":    {unleasedSweepRecord(t, missingResult, 2), ErrUnleasedSweepBatch},
 		"a port error naming no check":      {unleasedSweepRecord(t, errorOutOfRange, 2), ErrUnleasedSweepBatch},
 		"rows that disagree with the hosts": {unleasedSweepRecord(t, unleasedSweepBatch(), 1), ErrUnleasedSweepBatch},
 	}

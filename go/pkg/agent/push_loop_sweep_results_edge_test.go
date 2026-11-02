@@ -23,6 +23,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/netip"
+	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"testing"
@@ -158,12 +160,13 @@ func reachableHost(addr string) models.HostResult {
 	seen := time.Unix(1_780_000_000, 0)
 	return models.HostResult{
 		Host: addr, Available: true, FirstSeen: seen.Add(-time.Hour), LastSeen: seen.Add(-2 * time.Second),
-		ICMPStatus:   &models.ICMPStatus{Available: true, RoundTrip: 1500 * time.Microsecond},
+		ICMPStatus:   &models.ICMPStatus{Available: true, RoundTrip: 1500*time.Microsecond + 3},
 		ResponseTime: 1500 * time.Microsecond,
 		PortResults: []*models.PortResult{
+			{Port: 443, Available: false, RespTime: 900*time.Microsecond + 7},
 			{Port: 22, Available: true, RespTime: 2 * time.Millisecond, Service: "ssh"},
-			{Port: 443, Available: false},
 		},
+		SweepModes: []models.SweepMode{models.ModeICMP, models.ModeTCP},
 	}
 }
 
@@ -210,13 +213,16 @@ func TestUnleasedSweepResultsBatchCarriesTheIngestedFields(t *testing.T) {
 	capability := loop.edgeOutputGrants.current(edgerecord.UnleasedSweepResultsContractID, time.Now())
 	require.NotNil(t, capability)
 
+	// The agent calls this host available although no check it reports reached
+	// it; core must keep that verdict rather than recompute one.
 	unreached := models.HostResult{
-		Host: "192.0.2.11", ICMPStatus: &models.ICMPStatus{PacketLoss: 100},
+		Host: "192.0.2.11", Available: true, ICMPStatus: &models.ICMPStatus{PacketLoss: 100},
 		PortResults: []*models.PortResult{{Port: 22}},
 	}
 	tcpOnly := models.HostResult{
-		Host: "2001:db8::12", Available: true,
-		PortResults: []*models.PortResult{{Port: 443, Available: true, RespTime: 3 * time.Millisecond}},
+		Host: "2001:db8::12", Available: true, ResponseTime: 3*time.Millisecond + 7,
+		PortResults: []*models.PortResult{{Port: 443, Available: true, RespTime: 3*time.Millisecond + 7}},
+		MTRStatus:   &models.MTRStatus{Reached: true, RoundTrip: 4*time.Millisecond + 3, PacketLoss: 12.5, TotalHops: 6},
 	}
 	response := sweepResultsResponse(t, unleasedTestGroupID, "7",
 		[]models.HostResult{reachableHost("192.0.2.10"), unreached, tcpOnly},
@@ -247,14 +253,14 @@ func TestUnleasedSweepResultsBatchCarriesTheIngestedFields(t *testing.T) {
 	require.Equal(t, uuid.MustParse(unleasedTestGroupID), uuid.UUID(batch.GetSweepGroupId()))
 	require.Equal(t, "192.0.2.0/24", batch.GetNetworkCidr())
 	require.EqualValues(t, 3, batch.GetExpectedTotalHosts())
-	require.EqualValues(t, 2, batch.GetAvailableHosts())
+	require.EqualValues(t, 3, batch.GetAvailableHosts())
 	require.EqualValues(t, 1_780_000_000*int64(time.Second), batch.GetLastSweepUnixNano())
 	require.True(t, batch.GetIsCancelled())
 	require.True(t, batch.GetIsFinal())
 	require.EqualValues(t, 1, batch.GetTotalChunks())
 	require.Len(t, batch.GetPortCounts(), 1)
 	require.EqualValues(t, 22, batch.GetPortCounts()[0].GetPort())
-	require.EqualValues(t, 2, batch.GetPortCounts()[0].GetAvailable())
+	require.EqualValues(t, 3, batch.GetPortCounts()[0].GetAvailable())
 	require.Equal(t, "tcp", batch.GetScannerStats().GetProtocol())
 	require.EqualValues(t, 40, batch.GetScannerStats().GetPacketsSent())
 	require.EqualValues(t, 6, batch.GetScannerStats().GetDialsStarted())
@@ -263,13 +269,14 @@ func TestUnleasedSweepResultsBatchCarriesTheIngestedFields(t *testing.T) {
 	require.EqualValues(t, 2, batch.GetBannerGrabSummary().GetMatchesTotal())
 	require.EqualValues(t, 512, batch.GetBannerGrabSummary().GetBytesReceivedTotal())
 
-	// Checks: ICMP, then each tested TCP port ascending.
+	// Checks: ICMP, MTR, then each tested TCP port ascending.
 	checks := batch.GetTestedChecks()
-	require.Len(t, checks, 3)
+	require.Len(t, checks, 4)
 	require.Equal(t, edgev1.SweepMode_SWEEP_MODE_ICMP, checks[0].GetMode())
-	require.Equal(t, edgev1.SweepMode_SWEEP_MODE_TCP_CONNECT, checks[1].GetMode())
-	require.EqualValues(t, 22, checks[1].GetPort())
-	require.EqualValues(t, 443, checks[2].GetPort())
+	require.Equal(t, edgev1.SweepMode_SWEEP_MODE_MTR, checks[1].GetMode())
+	require.Equal(t, edgev1.SweepMode_SWEEP_MODE_TCP_CONNECT, checks[2].GetMode())
+	require.EqualValues(t, 22, checks[2].GetPort())
+	require.EqualValues(t, 443, checks[3].GetPort())
 	port := func(index uint32) uint32 { return checks[index].GetPort() }
 
 	hosts := batch.GetHosts()
@@ -287,6 +294,17 @@ func TestUnleasedSweepResultsBatchCarriesTheIngestedFields(t *testing.T) {
 	require.Equal(t, -2*int64(time.Second), hosts[0].GetLastSeenDeltaNano())
 	require.Equal(t, -int64(time.Hour), hosts[0].GetFirstSeenDeltaNano())
 
+	// Every host's legacy JSON is recoverable from the batch byte for byte.
+	require.Len(t, batch.GetHostResults(), len(doc.Hosts))
+	for i := range doc.Hosts {
+		want, err := json.Marshal(doc.Hosts[i])
+		require.NoError(t, err)
+		got, err := json.Marshal(legacyHostFromBatch(t, batch, i))
+		require.NoError(t, err)
+		require.JSONEq(t, string(want), string(got))
+		require.Equal(t, string(want), string(got))
+	}
+
 	require.Equal(t, netip.MustParseAddr("192.0.2.11").AsSlice(), hosts[1].GetAddress())
 	require.False(t, hosts[1].GetIcmp().GetTargetReached())
 	require.InDelta(t, 100, hosts[1].GetIcmp().GetPacketLossPct(), 0)
@@ -296,12 +314,51 @@ func TestUnleasedSweepResultsBatchCarriesTheIngestedFields(t *testing.T) {
 	require.Equal(t, netip.MustParseAddr("2001:db8::12").AsSlice(), hosts[2].GetAddress())
 	require.Nil(t, hosts[2].GetIcmp())
 	require.EqualValues(t, 443, port(hosts[2].GetOpenPorts()[0].GetTestedCheckIndex()))
-	require.EqualValues(t, 3*time.Millisecond, hosts[2].GetOpenPorts()[0].GetResponseTimeNano())
+	require.EqualValues(t, 3*time.Millisecond+7, hosts[2].GetOpenPorts()[0].GetResponseTimeNano())
 
 	// The chunk's metric batch is the envelope the legacy push sends.
 	chunks, err := buildSweepResultsChunks(response)
 	require.NoError(t, err)
 	require.Equal(t, chunks[0].MetricPayload, metricPayloads[0])
+}
+
+// legacyHostFromBatch rebuilds host i of batch as the agent's results JSON host,
+// from the frozen observation and its legacy host result: what core rebuilds.
+func legacyHostFromBatch(t *testing.T, batch *edgev1.UnleasedSweepResultsBatchV1, i int) models.HostResult {
+	t.Helper()
+	host, result := batch.GetHosts()[i], batch.GetHostResults()[i]
+	addr, ok := netip.AddrFromSlice(host.GetAddress())
+	require.True(t, ok)
+	firstSeen, err := time.Parse(time.RFC3339Nano, result.GetFirstSeen())
+	require.NoError(t, err)
+	lastSeen, err := time.Parse(time.RFC3339Nano, result.GetLastSeen())
+	require.NoError(t, err)
+	out := models.HostResult{
+		Host: addr.String(), Available: result.GetAvailable(), FirstSeen: firstSeen, LastSeen: lastSeen,
+		ResponseTime: time.Duration(result.GetResponseTimeNano()),
+	}
+	for _, port := range result.GetPortResults() {
+		out.PortResults = append(out.PortResults, &models.PortResult{
+			Port: int(port.GetPort()), Available: port.GetAvailable(),
+			RespTime: time.Duration(port.GetResponseTimeNano()), Service: port.GetService(),
+		})
+	}
+	if icmp := host.GetIcmp(); icmp != nil {
+		out.ICMPStatus = &models.ICMPStatus{
+			Available: icmp.GetTargetReached(), RoundTrip: time.Duration(result.GetIcmpRoundTripNano()),
+			PacketLoss: icmp.GetPacketLossPct(),
+		}
+	}
+	if mtr := host.GetMtr(); mtr != nil {
+		out.MTRStatus = &models.MTRStatus{
+			Reached: mtr.GetTargetReached(), RoundTrip: time.Duration(result.GetMtrRoundTripNano()),
+			PacketLoss: mtr.GetPacketLossPct(), TotalHops: int(mtr.GetTotalHops()),
+		}
+	}
+	for _, mode := range result.GetSweepModes() {
+		out.SweepModes = append(out.SweepModes, models.SweepMode(mode))
+	}
+	return out
 }
 
 // A response larger than one record's row ceiling or payload cap is split
@@ -310,23 +367,26 @@ func TestUnleasedSweepResultsBatchCarriesTheIngestedFields(t *testing.T) {
 func TestUnleasedSweepResultsSplitAcrossRecordsWithinTheGrant(t *testing.T) {
 	const total = 20_001
 	cases := map[string]struct {
-		host func(addr string) models.HostResult
-		// largest is the host count of the largest record: the row ceiling when it
-		// decides the split, less when the payload cap does.
+		host    func(addr string) models.HostResult
+		maxRows uint32
+		// largest is the host count of the largest record: just under the row
+		// ceiling when halving stops at it, further under when the payload cap does.
 		check func(t *testing.T, largest uint32)
 	}{
 		"bare hosts split at the row ceiling": {
-			host: func(addr string) models.HostResult { return models.HostResult{Host: addr} },
+			host:    func(addr string) models.HostResult { return models.HostResult{Host: addr} },
+			maxRows: 2_000,
 			check: func(t *testing.T, largest uint32) {
 				t.Helper()
-				require.EqualValues(t, 10_000, largest)
+				require.Greater(t, largest, uint32(1_000))
 			},
 		},
 		"probed hosts split at the payload cap": {
-			host: reachableHost,
+			host:    reachableHost,
+			maxRows: 10_000,
 			check: func(t *testing.T, largest uint32) {
 				t.Helper()
-				require.Less(t, largest, uint32(10_000))
+				require.Less(t, largest, uint32(5_000))
 			},
 		},
 	}
@@ -334,7 +394,7 @@ func TestUnleasedSweepResultsSplitAcrossRecordsWithinTheGrant(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Setenv("SWEEP_RESULTS_MAX_HOSTS_PER_CHUNK", "50000")
 			t.Setenv("SWEEP_RESULTS_MAX_CHUNK_BYTES", strconv.Itoa(64<<20))
-			loop, _ := unleasedSweepLoop(t, openTestEdgeSpool(t), &scriptedSweepResults{}, unleasedSweepGrant(t, 10_000))
+			loop, _ := unleasedSweepLoop(t, openTestEdgeSpool(t), &scriptedSweepResults{}, unleasedSweepGrant(t, tc.maxRows))
 			capability := loop.edgeOutputGrants.current(edgerecord.UnleasedSweepResultsContractID, time.Now())
 
 			hosts := make([]models.HostResult, total)
@@ -351,7 +411,7 @@ func TestUnleasedSweepResultsSplitAcrossRecordsWithinTheGrant(t *testing.T) {
 			for i, part := range parts {
 				record := part.record
 				require.NoError(t, edgerecord.ValidateUnleasedSweepResultsRecord(record))
-				require.LessOrEqual(t, record.GetProjectedRowCount(), uint32(10_000))
+				require.LessOrEqual(t, record.GetProjectedRowCount(), tc.maxRows)
 				largest = max(largest, record.GetProjectedRowCount())
 				body := recordBody(t, record)
 				require.LessOrEqual(t, len(body), edgeMetricsMaxPayloadBytes)
@@ -435,6 +495,20 @@ func TestUnconvertibleSweepResultsKeepTheLegacyPath(t *testing.T) {
 			t.Helper()
 			return sweepResultsResponse(t, unleasedTestGroupID, "1", []models.HostResult{reachableHost("host01.example.com")}, nil)
 		},
+		"an address not in canonical form": func(t *testing.T) *proto.ResultsResponse {
+			t.Helper()
+			return sweepResultsResponse(t, unleasedTestGroupID, "1", []models.HostResult{reachableHost("2001:DB8::1")}, nil)
+		},
+		"an upper-case execution id": func(t *testing.T) *proto.ResultsResponse {
+			t.Helper()
+			return sweepResultsResponse(t, unleasedTestGroupID, "1", []models.HostResult{reachableHost("192.0.2.10")},
+				map[string]any{"execution_id": "00000000-0000-4000-8000-00000000ABCD"})
+		},
+		"a group id that is not a uuid": func(t *testing.T) *proto.ResultsResponse {
+			t.Helper()
+			return sweepResultsResponse(t, unleasedTestGroupID, "1", []models.HostResult{reachableHost("192.0.2.10")},
+				map[string]any{"sweep_group_id": "group-01"})
+		},
 		"no execution id": func(t *testing.T) *proto.ResultsResponse {
 			t.Helper()
 			return sweepResultsResponse(t, unleasedTestGroupID, "1", []models.HostResult{reachableHost("192.0.2.10")},
@@ -512,4 +586,77 @@ func TestARefusedUnleasedSweepAppendResumesWithTheUnsentRecords(t *testing.T) {
 			require.Equal(t, []string{unleasedTestGroupID + "/3"}, svc.acked())
 		})
 	}
+}
+
+// The fidelity fixture shared with core's EdgeRecord DB test: one legacy results
+// response and the unleased batch the agent converts it to. Core ingests the JSON
+// through the legacy results path and the batch through the projector and
+// requires identical rows. Regenerate with EDGE_GOLDEN_UPDATE=1.
+const (
+	fidelityResultsFixture = "unleased_sweep_fidelity_results.json"
+	fidelityBatchFixture   = "unleased_sweep_fidelity_body.bin"
+	fidelityGroupID        = "00000000-0000-4000-8000-0000000000f1"
+)
+
+func TestUnleasedSweepFidelityFixture(t *testing.T) {
+	seen := time.Date(2026, 6, 1, 12, 0, 0, 123_456_789, time.UTC)
+	icmp := models.HostResult{
+		Host: "192.0.2.10", Available: true, FirstSeen: seen.Add(-time.Hour), LastSeen: seen,
+		ICMPStatus:   &models.ICMPStatus{Available: true, RoundTrip: 1_234_567, PacketLoss: 0},
+		ResponseTime: 1_234_567,
+		PortResults: []*models.PortResult{
+			{Port: 443, Available: false, RespTime: 900_507},
+			{Port: 22, Available: true, RespTime: 2_000_123, Service: "ssh"},
+		},
+		SweepModes: []models.SweepMode{models.ModeICMP, models.ModeTCPConnect},
+	}
+	unreached := models.HostResult{
+		Host: "192.0.2.11", FirstSeen: seen.Add(-time.Hour), LastSeen: seen,
+		ICMPStatus:  &models.ICMPStatus{PacketLoss: 100},
+		PortResults: []*models.PortResult{{Port: 22, RespTime: 1_000_001}},
+		SweepModes:  []models.SweepMode{models.ModeICMP, models.ModeTCPConnect},
+	}
+	tcpOnly := models.HostResult{
+		Host: "192.0.2.12", Available: true, FirstSeen: seen.Add(-time.Hour), LastSeen: seen,
+		ResponseTime: 3_000_007,
+		PortResults:  []*models.PortResult{{Port: 443, Available: true, RespTime: 3_000_007}},
+		SweepModes:   []models.SweepMode{models.ModeTCPConnect},
+	}
+	// The agent's verdict is available although no check it reports reached the host.
+	verdict := models.HostResult{
+		Host: "192.0.2.13", Available: true, FirstSeen: seen.Add(-time.Hour), LastSeen: seen,
+		ICMPStatus: &models.ICMPStatus{PacketLoss: 100},
+		SweepModes: []models.SweepMode{models.ModeICMP},
+	}
+	response := sweepResultsResponse(t, fidelityGroupID, "4", []models.HostResult{icmp, unreached, tcpOnly, verdict},
+		map[string]any{
+			"scanner_stats": &models.ScannerStats{Protocol: "tcp", ScannerPath: "connect", PacketsSent: 8, DialsStarted: 3, RxDropRatePercent: 0.19},
+			"banner_grab":   &models.BannerGrabStats{CandidatesTotal: 2, MatchesTotal: 1, BannerBytesTotal: 64},
+		})
+
+	loop, _ := unleasedSweepLoop(t, openTestEdgeSpool(t), &scriptedSweepResults{}, unleasedSweepGrant(t, 10_000))
+	parts, _, err := buildSweepResultsEdgeRecords(response,
+		loop.edgeOutputGrants.current(edgerecord.UnleasedSweepResultsContractID, time.Now()))
+	require.NoError(t, err)
+	require.Len(t, parts, 1)
+
+	agentGolden(t, fidelityResultsFixture, response.Data)
+	agentGolden(t, fidelityBatchFixture, recordBody(t, parts[0].record))
+}
+
+// agentGolden writes or compares a fixture under proto/edge/v1/testdata, where
+// core's tests read it, under go test and under Bazel (edge_testdata data dep).
+func agentGolden(t *testing.T, name string, b []byte) {
+	t.Helper()
+	path := filepath.Join("..", "..", "..", "proto", "edge", "v1", "testdata", name)
+	if os.Getenv("EDGE_GOLDEN_UPDATE") == "1" {
+		require.NoError(t, os.WriteFile(path, b, 0o600))
+		return
+	}
+	if dir := os.Getenv("TEST_SRCDIR"); dir != "" {
+		path = filepath.Join(dir, "_main", "proto", "edge", "v1", "testdata", name)
+	}
+	want, err := os.ReadFile(path)
+	require.NoError(t, err, "regenerate with EDGE_GOLDEN_UPDATE=1")
+	require.Equal(t, want, b, "%s drifted; regenerate with EDGE_GOLDEN_UPDATE=1", name)
 }

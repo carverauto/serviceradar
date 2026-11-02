@@ -20,9 +20,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/netip"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -43,7 +45,9 @@ const unleasedSweepProjectedRowBytes = 2048
 const unleasedSweepClosedPort = "closed"
 
 var (
-	errSweepResultsExecutionID  = errors.New("sweep results have no execution id")
+	errSweepResultsExecutionID  = errors.New("sweep results have no canonical execution id")
+	errSweepResultsGroupID      = errors.New("sweep results group id is not a canonical uuid")
+	errSweepResultsHostForm     = errors.New("sweep host address is not in canonical form")
 	errSweepResultsHostTooLarge = errors.New("one sweep host does not fit an edge record")
 )
 
@@ -228,6 +232,9 @@ func buildSweepResultsEdgeRecords(
 		if err != nil {
 			return nil, nil, err
 		}
+		// The response time is the legacy results status time core records the
+		// sweep service as observed at.
+		batch.BatchCompletedAtUnixNano = uint64(max(response.Timestamp, 0)) * uint64(time.Second)
 		split, err := splitUnleasedSweepBatch(batch, uint64(maxRows))
 		if err != nil {
 			return nil, nil, err
@@ -261,8 +268,8 @@ func splitUnleasedSweepBatch(batch *edgev1.UnleasedSweepResultsBatchV1, maxRows 
 		return nil, errSweepResultsHostTooLarge
 	}
 	half := len(batch.GetHosts()) / 2
-	left := withHosts(batch, batch.GetHosts()[:half])
-	right := withHosts(batch, batch.GetHosts()[half:])
+	left := withHosts(batch, 0, half)
+	right := withHosts(batch, half, len(batch.GetHosts()))
 	a, err := splitUnleasedSweepBatch(left, maxRows)
 	if err != nil {
 		return nil, err
@@ -274,9 +281,13 @@ func splitUnleasedSweepBatch(batch *edgev1.UnleasedSweepResultsBatchV1, maxRows 
 	return append(a, b...), nil
 }
 
-func withHosts(batch *edgev1.UnleasedSweepResultsBatchV1, hosts []*edgev1.SweepHostObservationV1) *edgev1.UnleasedSweepResultsBatchV1 {
+// withHosts is batch carrying only hosts [lo, hi) and their legacy host results.
+func withHosts(batch *edgev1.UnleasedSweepResultsBatchV1, lo, hi int) *edgev1.UnleasedSweepResultsBatchV1 {
+	hosts, results := batch.Hosts, batch.HostResults
+	batch.Hosts, batch.HostResults = nil, nil
 	out := gproto.Clone(batch).(*edgev1.UnleasedSweepResultsBatchV1)
-	out.Hosts = hosts
+	batch.Hosts, batch.HostResults = hosts, results
+	out.Hosts, out.HostResults = hosts[lo:hi], results[lo:hi]
 	return out
 }
 
@@ -301,8 +312,11 @@ func unleasedSweepEdgeRecord(batch *edgev1.UnleasedSweepResultsBatchV1, capabili
 // times are deltas from the chunk's last sweep, the batch anchor. A host whose
 // address does not parse keeps the response on the legacy path.
 func unleasedSweepBatch(doc *sweepResultsJSON, sequence uint64) (*edgev1.UnleasedSweepResultsBatchV1, error) {
+	// Ids and addresses must be in the canonical form core writes back, or core
+	// could not rebuild the results JSON byte for byte; such a response keeps the
+	// legacy path.
 	executionID, err := uuid.Parse(doc.ExecutionID)
-	if err != nil {
+	if err != nil || executionID.String() != doc.ExecutionID {
 		return nil, fmt.Errorf("%w: %q", errSweepResultsExecutionID, doc.ExecutionID)
 	}
 	anchor := doc.LastSweep * int64(time.Second)
@@ -322,7 +336,11 @@ func unleasedSweepBatch(doc *sweepResultsJSON, sequence uint64) (*edgev1.Unlease
 		ScannerStats:       unleasedScannerStats(doc.ScannerStats),
 		BannerGrabSummary:  unleasedBannerGrab(doc.BannerGrab),
 	}
-	if groupID, err := uuid.Parse(doc.SweepGroupID); err == nil {
+	if doc.SweepGroupID != "" {
+		groupID, err := uuid.Parse(doc.SweepGroupID)
+		if err != nil || groupID.String() != doc.SweepGroupID {
+			return nil, fmt.Errorf("%w: %q", errSweepResultsGroupID, doc.SweepGroupID)
+		}
 		batch.SweepGroupId = groupID[:]
 	}
 	for _, port := range doc.Ports {
@@ -335,8 +353,13 @@ func unleasedSweepBatch(doc *sweepResultsJSON, sequence uint64) (*edgev1.Unlease
 		if err != nil {
 			return nil, err
 		}
+		result, err := unleasedSweepHostResult(&doc.Hosts[i])
+		if err != nil {
+			return nil, err
+		}
 		batch.ConfiguredModeBits |= bits
 		batch.Hosts = append(batch.Hosts, host)
+		batch.HostResults = append(batch.HostResults, result)
 	}
 	return batch, nil
 }
@@ -382,6 +405,9 @@ func unleasedSweepHost(h *models.HostResult, index map[int]uint32, anchor int64)
 	addr, err := netip.ParseAddr(h.Host)
 	if err != nil {
 		return nil, 0, fmt.Errorf("sweep host %q: %w", h.Host, err)
+	}
+	if addr.Unmap().String() != h.Host {
+		return nil, 0, fmt.Errorf("%w: %q", errSweepResultsHostForm, h.Host)
 	}
 	host := &edgev1.SweepHostObservationV1{Address: addr.Unmap().AsSlice(), ModeRevision: 1}
 	if !h.LastSeen.IsZero() {
@@ -436,6 +462,54 @@ func unleasedSweepHost(h *models.HostResult, index map[int]uint32, anchor int64)
 	}
 	host.ResultModeBits = bits
 	return host, bits, nil
+}
+
+// unleasedSweepHostResult is the host's legacy results JSON beyond its frozen
+// observation: the agent's own verdict, its times at full precision, every port
+// result in order, and the seen times exactly as the agent encodes them.
+func unleasedSweepHostResult(h *models.HostResult) (*edgev1.UnleasedSweepHostResultV1, error) {
+	firstSeen, err := jsonTime(h.FirstSeen)
+	if err != nil {
+		return nil, err
+	}
+	lastSeen, err := jsonTime(h.LastSeen)
+	if err != nil {
+		return nil, err
+	}
+	result := &edgev1.UnleasedSweepHostResultV1{
+		Available:        h.Available,
+		ResponseTimeNano: h.ResponseTime.Nanoseconds(),
+		FirstSeen:        firstSeen,
+		LastSeen:         lastSeen,
+	}
+	if h.ICMPStatus != nil {
+		result.IcmpRoundTripNano = h.ICMPStatus.RoundTrip.Nanoseconds()
+	}
+	if h.MTRStatus != nil {
+		result.MtrRoundTripNano = h.MTRStatus.RoundTrip.Nanoseconds()
+	}
+	for _, port := range h.PortResults {
+		if port == nil {
+			continue
+		}
+		result.PortResults = append(result.PortResults, &edgev1.UnleasedSweepPortResultV1{
+			Port: int32(max(min(port.Port, math.MaxInt32), math.MinInt32)), Available: port.Available,
+			ResponseTimeNano: port.RespTime.Nanoseconds(), Service: port.Service,
+		})
+	}
+	for _, mode := range h.SweepModes {
+		result.SweepModes = append(result.SweepModes, string(mode))
+	}
+	return result, nil
+}
+
+// jsonTime is t as the agent's results JSON encodes it, without the quotes.
+func jsonTime(t time.Time) (string, error) {
+	encoded, err := t.MarshalJSON()
+	if err != nil {
+		return "", err
+	}
+	return strings.Trim(string(encoded), `"`), nil
 }
 
 func outcome(ok bool) edgev1.SweepModeOutcome {
