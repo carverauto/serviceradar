@@ -35,19 +35,19 @@ tests:
           content: {name: SERVICERADAR_JS_METRICS_MAX_BYTES, value: "1073741824"}
       - contains:
           path: spec.template.spec.containers[0].env
-          content: {name: SERVICERADAR_JS_K8S_INVENTORY_MAX_BYTES, value: "1073741824"}
+          content: {name: SERVICERADAR_JS_K8S_INVENTORY_MAX_BYTES, value: "536870912"}
       - contains:
           path: spec.template.spec.containers[0].env
-          content: {name: SERVICERADAR_JS_ANALYTICS_PREDICTIONS_MAX_BYTES, value: "1073741824"}
+          content: {name: SERVICERADAR_JS_ANALYTICS_PREDICTIONS_MAX_BYTES, value: "536870912"}
       - contains:
           path: spec.template.spec.containers[0].env
-          content: {name: SERVICERADAR_JS_MTR_RESULTS_MAX_BYTES, value: "1073741824"}
+          content: {name: SERVICERADAR_JS_MTR_RESULTS_MAX_BYTES, value: "536870912"}
       - contains:
           path: spec.template.spec.containers[0].env
           content: {name: SERVICERADAR_JS_SCAN_RESULTS_MAX_BYTES, value: "268435456"}
       - contains:
           path: spec.template.spec.containers[0].env
-          content: {name: SERVICERADAR_JS_TRIVY_REPORTS_MAX_BYTES, value: "1073741824"}
+          content: {name: SERVICERADAR_JS_TRIVY_REPORTS_MAX_BYTES, value: "536870912"}
       - contains:
           path: spec.template.spec.containers[0].env
           content: {name: SERVICERADAR_JS_EVENTS_FALLBACK_MAX_BYTES, value: "2147483648"}
@@ -68,16 +68,34 @@ tests:
           content: {name: SERVICERADAR_JS_ARANCINI_CAUSAL_FALLBACK_REPLICAS, value: "1"}
       - contains:
           path: spec.template.spec.containers[0].env
-          content: {name: SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES, value: "1073741824"}
+          content: {name: SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES, value: "536870912"}
       - contains:
           path: spec.template.spec.containers[0].env
-          content: {name: SERVICERADAR_JS_NOTIFICATIONS_MAX_BYTES, value: "1073741824"}
+          content: {name: SERVICERADAR_JS_NOTIFICATIONS_MAX_BYTES, value: "268435456"}
       - contains:
           path: spec.template.spec.containers[0].env
-          content: {name: SERVICERADAR_JS_EXPOSURE_TRANSITIONS_MAX_BYTES, value: "1073741824"}
+          content: {name: SERVICERADAR_JS_NOTIFICATIONS_REPLICAS, value: "3"}
       - contains:
           path: spec.template.spec.containers[0].env
-          content: {name: SERVICERADAR_JS_EXPOSURE_DIMENSIONS_MAX_BYTES, value: "1073741824"}
+          content: {name: SERVICERADAR_JS_METRICS_REPLICAS, value: "3"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_SCAN_RESULTS_REPLICAS, value: "3"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_TELEMETRY_EDGE_RECORD_V1_BULK_MAX_BYTES, value: "1073741824"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_TELEMETRY_EDGE_RECORD_V1_BULK_REPLICAS, value: "3"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_EXPOSURE_RECOVERY_REPLICAS, value: "3"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_EXPOSURE_TRANSITIONS_MAX_BYTES, value: "536870912"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_EXPOSURE_DIMENSIONS_MAX_BYTES, value: "536870912"}
 
   - it: renders an explicit EXPOSURE_TRANSITIONS size into core
     set:
@@ -102,6 +120,22 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].env
           content: {name: SERVICERADAR_JS_EXPOSURE_DIMENSIONS_MAX_BYTES, value: "268435456"}
+
+  - it: renders an explicit TELEMETRY_EDGE_RECORD_V1_BULK size into core
+    set:
+      core.eventWriter.streams.telemetry_edge_record_v1_bulk.maxBytes: 32Mi
+      core.eventWriter.streams.telemetry_edge_record_v1_bulk.replicas: 3
+    template: templates/core.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_TELEMETRY_EDGE_RECORD_V1_BULK_MAX_BYTES, value: "33554432"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_TELEMETRY_EDGE_RECORD_V1_BULK_REPLICAS, value: "3"}
 
   - it: renders an explicit NOTIFICATIONS size into core
     set:
@@ -154,7 +188,7 @@ tests:
           content: {name: PLUGIN_STORAGE_JS_MAX_BUCKET_BYTES, value: "2147483648"}
       - contains:
           path: spec.template.spec.containers[0].env
-          content: {name: FIELD_SURVEY_JS_MAX_BUCKET_BYTES, value: "1073741824"}
+          content: {name: FIELD_SURVEY_JS_MAX_BUCKET_BYTES, value: "536870912"}
 
   - it: an explicit datasvc size wins and every other size keeps its profile value
     set:

@@ -347,6 +347,7 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     assert edge_record == EventWriterConfig.edge_record_stream()
     assert edge_record.stream_name == "TELEMETRY_EDGE_RECORD_V1_BULK"
     assert edge_record.subject == "telemetry.edge-record.v1.bulk.>"
+    assert edge_record.stream_replicas == 3
   end
 
   test "prod EventWriter Falco consumer targets the provisioned events stream" do

@@ -276,6 +276,27 @@ defmodule ServiceRadar.Notifications.StreamPublisherTest do
       # acked it, which defeats replay for a consumer that was absent.
       assert decoded["retention"] == "limits"
       assert decoded["storage"] == "file"
+      assert decoded["num_replicas"] == 3
+    end
+
+    test "falls back to num_replicas 1 on a non-clustered NATS server" do
+      responses =
+        responses([
+          {:error,
+           %{
+             "code" => 500,
+             "err_code" => 10_074,
+             "description" => "replicas > 1 not supported in non-clustered mode"
+           }},
+          {:ok, %{"created" => true}}
+        ])
+
+      assert :ok = StreamPublisher.ensure_stream(request: recording_request(responses))
+
+      assert_received {:request, "$JS.API.STREAM.CREATE.NOTIFICATIONS", first_payload}
+      assert_received {:request, "$JS.API.STREAM.CREATE.NOTIFICATIONS", second_payload}
+      assert Jason.decode!(first_payload)["num_replicas"] == 3
+      assert Jason.decode!(second_payload)["num_replicas"] == 1
     end
 
     test "treats a bare name collision as success so concurrent nodes can race" do
@@ -353,6 +374,13 @@ defmodule ServiceRadar.Notifications.StreamPublisherTest do
       assert updates == []
     end
 
+    test "raises num_replicas on an existing R1 stream" do
+      {log, updates} = reconcile(notifications_stream(536_870_912, replicas: 1), 536_870_912)
+
+      assert [%{"num_replicas" => 3, "max_bytes" => 536_870_912}] = updates
+      assert log =~ "num_replicas 1 -> 3"
+    end
+
     test "creates an absent stream with the configured size" do
       test = self()
 
@@ -407,7 +435,7 @@ defmodule ServiceRadar.Notifications.StreamPublisherTest do
         "retention" => "limits",
         "storage" => "file",
         "discard" => Keyword.get(opts, :discard, "old"),
-        "num_replicas" => 1,
+        "num_replicas" => Keyword.get(opts, :replicas, 3),
         "max_age" => 86_400_000_000_000,
         "max_bytes" => max_bytes
       },
