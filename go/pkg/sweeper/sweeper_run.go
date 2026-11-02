@@ -168,6 +168,10 @@ func (s *NetworkSweeper) runSweepWithObserver(
 	}
 
 	s.mu.Lock()
+	if s.stopped {
+		s.mu.Unlock()
+		return errSweeperStopped
+	}
 	cfg := s.config
 	if derive != nil {
 		cfg = derive(cfg)
