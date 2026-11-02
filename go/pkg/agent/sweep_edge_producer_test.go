@@ -176,7 +176,7 @@ func TestEdgeSweepPublishesCompleteWindowsWithoutLegacyOutput(t *testing.T) {
 	scanner := &observingSweep{mockSweeper: &mockSweeper{summary: &models.SweepSummary{LastSweep: 1, TotalHosts: 4, Hosts: []models.HostResult{{Host: "192.0.2.1", Available: true}}}}, results: edgeSweepResults()}
 	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
 	claims := 0
-	require.NoError(t, svc.runLeaseToSpool(context.Background(), lease, slot, sp, func() error { claims++; return nil }))
+	require.NoError(t, svc.runLeaseToSpool(context.Background(), lease, slot, sp, sweepSlotClaim{claim: func() error { claims++; return nil }}))
 	require.Equal(t, 1, claims)
 	records, err := sp.Unresolved()
 	require.NoError(t, err)
@@ -223,7 +223,7 @@ func TestEdgeSweepKeepsOtherExecutionsOnLegacyPath(t *testing.T) {
 	ctx := context.Background()
 
 	require.NoError(t, svc.RunOnceForExecution(ctx, "queued"))
-	require.NoError(t, svc.runLeaseToSpool(ctx, lease, slot, sp, func() error { return nil }))
+	require.NoError(t, svc.runLeaseToSpool(ctx, lease, slot, sp, sweepSlotClaim{}))
 
 	queued, err := svc.GetSweepResults(ctx, "")
 	require.NoError(t, err)
@@ -234,7 +234,7 @@ func TestEdgeSweepKeepsOtherExecutionsOnLegacyPath(t *testing.T) {
 	require.False(t, leased.HasNewData)
 
 	cfg.Ports = []int{8443}
-	require.ErrorContains(t, svc.runLeaseToSpool(ctx, lease, slot, sp, func() error { return nil }), "check set differs")
+	require.ErrorContains(t, svc.runLeaseToSpool(ctx, lease, slot, sp, sweepSlotClaim{}), "check set differs")
 	require.NoError(t, svc.RunOnceForExecution(ctx, "manual"))
 	manual, err := svc.GetSweepResults(ctx, leased.CurrentSequence)
 	require.NoError(t, err)
@@ -249,11 +249,11 @@ func TestEdgeSweepFailedLeaseKeepsEarlierLeasedCycleOffLegacyPath(t *testing.T) 
 	ctx := context.Background()
 
 	require.NoError(t, svc.RunOnceForExecution(ctx, "queued"))
-	require.NoError(t, svc.runLeaseToSpool(ctx, lease, slot, sp, func() error { return nil }))
+	require.NoError(t, svc.runLeaseToSpool(ctx, lease, slot, sp, sweepSlotClaim{}))
 	leasedAgain := proto.Clone(slot).(*edgev1.SweepLeaseSlotV1)
 	leasedAgain.ExecutionId = newUUIDBytes()
 	scanner.results = []models.Result{{Target: models.Target{Host: "not-an-address", Mode: models.ModeICMP}}}
-	require.ErrorContains(t, svc.runLeaseToSpool(ctx, lease, leasedAgain, sp, func() error { return nil }), "edge sweep result address")
+	require.ErrorContains(t, svc.runLeaseToSpool(ctx, lease, leasedAgain, sp, sweepSlotClaim{}), "edge sweep result address")
 
 	queued, err := svc.GetSweepResults(ctx, "")
 	require.NoError(t, err)
@@ -275,7 +275,7 @@ func TestEdgeSweepRefusesSignedModeTheScannerWouldRemap(t *testing.T) {
 	scanner := &observingSweep{mockSweeper: &mockSweeper{}, results: edgeSweepResults(), effective: []models.SweepMode{models.ModeICMP, models.ModeTCPConnect}}
 	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
 	claimed := false
-	err = svc.runLeaseToSpool(context.Background(), lease, slot, sp, func() error { claimed = true; return nil })
+	err = svc.runLeaseToSpool(context.Background(), lease, slot, sp, sweepSlotClaim{claim: func() error { claimed = true; return nil }})
 	require.ErrorIs(t, err, errEdgeSweepModeUnavailable)
 	require.False(t, claimed)
 	require.Zero(t, scanner.runCount)
@@ -290,7 +290,7 @@ func TestEdgeSweepIncompleteBeforePublicationRemainsRetryable(t *testing.T) {
 	scanner := &observingSweep{mockSweeper: &mockSweeper{}, results: edgeSweepResults()[:4], err: errTestScannerInterrupted}
 	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
 	claimed := false
-	require.ErrorContains(t, svc.runLeaseToSpool(context.Background(), lease, slot, sp, func() error { claimed = true; return nil }), "scanner interrupted")
+	require.ErrorContains(t, svc.runLeaseToSpool(context.Background(), lease, slot, sp, sweepSlotClaim{claim: func() error { claimed = true; return nil }}), "scanner interrupted")
 	require.False(t, claimed)
 	records, err := sp.Unresolved()
 	require.NoError(t, err)
@@ -312,7 +312,7 @@ func TestEdgeSweepInterruptedAfterPublicationConsumesAttempt(t *testing.T) {
 	scanner := &observingSweep{mockSweeper: &mockSweeper{}, results: edgeSweepResults()[:7], err: errTestScannerInterrupted}
 	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
 	claimed := false
-	require.ErrorContains(t, svc.runLeaseToSpool(context.Background(), lease, slot, sp, func() error { claimed = true; return nil }), "scanner interrupted")
+	require.ErrorContains(t, svc.runLeaseToSpool(context.Background(), lease, slot, sp, sweepSlotClaim{claim: func() error { claimed = true; return nil }}), "scanner interrupted")
 	require.True(t, claimed)
 	records, err := sp.Unresolved()
 	require.NoError(t, err)
@@ -413,7 +413,7 @@ func TestEdgeSweepWaitsForSpoolAdmissionInsteadOfFailing(t *testing.T) {
 	cfg, lease, slot, baseline := edgeSweepFixture(t)
 	scanner := &observingSweep{mockSweeper: &mockSweeper{}, results: edgeSweepResults()}
 	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
-	require.NoError(t, svc.runLeaseToSpool(context.Background(), lease, slot, baseline, func() error { return nil }))
+	require.NoError(t, svc.runLeaseToSpool(context.Background(), lease, slot, baseline, sweepSlotClaim{}))
 	want, err := baseline.Unresolved()
 	require.NoError(t, err)
 	require.NotEmpty(t, want)
@@ -425,7 +425,7 @@ func TestEdgeSweepWaitsForSpoolAdmissionInsteadOfFailing(t *testing.T) {
 	}()
 	scanner = &observingSweep{mockSweeper: &mockSweeper{}, results: edgeSweepResults()}
 	svc = &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
-	require.NoError(t, svc.runLeaseToSpool(context.Background(), lease, slot, sp, func() error { return nil }))
+	require.NoError(t, svc.runLeaseToSpool(context.Background(), lease, slot, sp, sweepSlotClaim{}))
 	got, err := sp.Unresolved()
 	require.NoError(t, err)
 	require.Len(t, got, len(want))
@@ -439,7 +439,7 @@ func TestEdgeSweepAdmissionWaitEndsWhenTheScanCancels(t *testing.T) {
 	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
 	done := make(chan error, 1)
 	go func() {
-		done <- svc.runLeaseToSpool(context.Background(), lease, slot, sp, func() error { return nil })
+		done <- svc.runLeaseToSpool(context.Background(), lease, slot, sp, sweepSlotClaim{})
 	}()
 	select {
 	case err := <-done:
@@ -483,7 +483,7 @@ func TestEdgeSweepAdmissionWaitEndsWithTheRun(t *testing.T) {
 	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
 	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
 	defer cancel()
-	err := svc.runLeaseToSpool(ctx, lease, slot, sp, func() error { return nil })
+	err := svc.runLeaseToSpool(ctx, lease, slot, sp, sweepSlotClaim{})
 	require.ErrorIs(t, err, spool.ErrAdmissionRefused)
 	records, readErr := sp.Unresolved()
 	require.NoError(t, readErr)
@@ -503,7 +503,7 @@ func TestEdgeSweepAdmissionWaitEndsAtCollectionExpiry(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	start := time.Now()
-	err := svc.runLeaseToSpool(ctx, lease, slot, sp, func() error { return nil })
+	err := svc.runLeaseToSpool(ctx, lease, slot, sp, sweepSlotClaim{})
 	elapsed := time.Since(start)
 	require.NoError(t, ctx.Err())
 	require.ErrorIs(t, err, spool.ErrAdmissionRefused)
@@ -523,10 +523,10 @@ func TestEdgeSweepReturnsOtherAppendErrorsWithoutWaiting(t *testing.T) {
 	scanner := &observingSweep{mockSweeper: &mockSweeper{}, results: edgeSweepResults()}
 	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
 	start := time.Now()
-	err := svc.runLeaseToSpool(context.Background(), lease, slot, sp, func() error {
+	err := svc.runLeaseToSpool(context.Background(), lease, slot, sp, sweepSlotClaim{claim: func() error {
 		claims++
 		return nil
-	})
+	}})
 	elapsed := time.Since(start)
 	t.Logf("closed-spool append returned in %s with %d claim(s): %v", elapsed, claims, err)
 	require.ErrorIs(t, err, os.ErrClosed)
