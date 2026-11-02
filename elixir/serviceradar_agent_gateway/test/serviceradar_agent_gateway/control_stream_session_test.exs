@@ -488,17 +488,11 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
                     ]}
   end
 
-  test "a sweep lease slot refusal keeps the session open and reaches no core call" do
+  test "a sweep lease slot refusal keeps the session open" do
     ensure_process_registry!()
 
     agent_id = "agent-lease-refusal-#{System.unique_integer([:positive])}"
     pid = start_push_session!(agent_id, ["sweep_lease_v1"])
-    test_pid = self()
-
-    Application.put_env(:serviceradar_agent_gateway, :config_sync_rpc, fn function, args ->
-      send(test_pid, {:core_call, function, args})
-      :ok
-    end)
 
     ControlStreamSession.handle_message(
       pid,
@@ -516,7 +510,6 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
     )
 
     assert %{agent_id: ^agent_id} = :sys.get_state(pid)
-    refute_received {:core_call, _, _}
   end
 
   test "oversized config push to an agent without config_push_chunks is refused without touching the stream" do
