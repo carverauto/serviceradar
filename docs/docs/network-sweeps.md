@@ -200,6 +200,12 @@ Each entry is a CIDR, a single IP, or a `first-last` range, IPv4 or IPv6:
 - Spaces around the dash are allowed.
 - An IPv6 range may hold at most 100,000 addresses, the same limit as an IPv6
   CIDR.
+- Saving a group, updating its static targets, or adding targets drops an
+  entry that lies entirely inside another and keeps the outer entry's text.
+  The saved list is ordered by address family, then starting address, then
+  wider entries before narrower ones. A pair that overlaps only in part is
+  refused, as is an entry that cannot be read and an IPv6 prefix shorter than
+  `/65`. The error is on the static targets field.
 - The agent skips an entry it cannot read and logs a warning that names the
   entry and the reason.
 

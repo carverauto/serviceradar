@@ -26,9 +26,10 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
   deleted or moved, not discovered.
 
   Compilation adds this group's device partition to a target query that does
-  not already name one. Static targets are left as written. A selected agent
-  that lives in another partition still runs the group, so an isolation scan
-  probes the group's device partition rather than the agent's home partition.
+  not already name one. It does not add that partition to static targets. A
+  selected agent that lives in another partition still runs the group, so an
+  isolation scan probes the group's device partition rather than the agent's
+  home partition.
 
   ## Profile Inheritance
 
@@ -58,6 +59,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
 
   alias AshPaperTrail.Resource.Changes.CreateNewVersion
   alias ServiceRadar.SweepJobs.Changes.NormalizeAgentAssignment
+  alias ServiceRadar.SweepJobs.Changes.NormalizeStaticTargets
   alias ServiceRadar.SweepJobs.Changes.ReconcileProducerAssignments
   alias ServiceRadar.SweepJobs.Changes.ScheduleSweepMonitor
   alias ServiceRadar.SweepJobs.Changes.ValidateSrqlQuery
@@ -131,6 +133,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
       accept @group_fields
 
       change NormalizeAgentAssignment
+      change NormalizeStaticTargets
       validate AgentAssignment
       change ScheduleSweepMonitor
       change ValidateSrqlQuery
@@ -143,6 +146,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
       accept @group_fields
 
       change NormalizeAgentAssignment
+      change NormalizeStaticTargets
       validate AgentAssignment
       change ScheduleSweepMonitor
       change ValidateSrqlQuery
@@ -196,6 +200,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
         Ash.Changeset.change_attribute(changeset, :static_targets, merged_targets)
       end
 
+      change NormalizeStaticTargets
       change ReconcileProducerAssignments
     end
 
