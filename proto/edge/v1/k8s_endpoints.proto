@@ -1,0 +1,111 @@
+/*
+ * Copyright 2026 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+syntax = "proto3";
+
+package serviceradar.edge.v1;
+
+option go_package = "github.com/carverauto/serviceradar/proto/edge/v1;edgev1";
+
+// K8sPublicEndpointsSnapshotV1 mirrors k8sinventory.Snapshot in
+// go/pkg/k8sinventory/types.go wrapped with the envelope fields stamped by
+// ensureK8sPublicEndpointsEnvelope in
+// go/pkg/agent/k8s_public_endpoints_spool_service.go (service_name
+// "k8s-public-endpoints", service_type "k8s_public_endpoints", source
+// "results"), published by
+// ServiceRadarAgentGateway.K8sPublicEndpointsPublisher, and ingested by
+// ServiceRadar.EventWriter.Processors.K8sPublicEndpoints.
+message K8sPublicEndpointsSnapshotV1 {
+  string schema_version = 1;
+  string agent_id = 2;
+  string cluster_id = 3;
+  string generated_at = 4;
+  string content_hash = 5;
+  repeated K8sPublicEndpointV1 endpoints = 6;
+  repeated K8sCorrelationHintV1 correlation_hints = 7;
+}
+
+// K8sPublicEndpointV1 mirrors k8sinventory.Endpoint in
+// go/pkg/k8sinventory/types.go and
+// Processors.K8sPublicEndpoints.normalize_endpoint/3.
+message K8sPublicEndpointV1 {
+  string cluster_id = 1;
+  string ip = 2;
+  string hostname = 3;
+  int32 port = 4;
+  string protocol = 5;
+  string exposure_class = 6;
+  string external_traffic_policy = 7;
+  string metallb_pool = 8;
+  string load_balancer_ip_mode = 9;
+  string namespace = 10;
+  string service_name = 11;
+  string service_uid = 12;
+  string gateway_name = 13;
+  string gateway_class = 14;
+  string listener_name = 15;
+  string route_kind = 16;
+  string route_name = 17;
+  repeated K8sBackendRefV1 backend_refs = 18;
+  repeated K8sEndpointTargetV1 endpoint_targets = 19;
+  int32 service_target_port = 20;
+  string service_target_name = 21;
+  map<string, string> annotations = 22;
+  string observed_at = 23;
+}
+
+// K8sBackendRefV1 mirrors k8sinventory.BackendRef in
+// go/pkg/k8sinventory/types.go.
+message K8sBackendRefV1 {
+  string group = 1;
+  string kind = 2;
+  string namespace = 3;
+  string name = 4;
+  int32 port = 5;
+  int32 weight = 6;
+}
+
+// K8sEndpointTargetV1 mirrors k8sinventory.EndpointTarget in
+// go/pkg/k8sinventory/types.go.
+message K8sEndpointTargetV1 {
+  string ip = 1;
+  int32 port = 2;
+  string protocol = 3;
+  string pod_namespace = 4;
+  string pod_name = 5;
+  string node_name = 6;
+  bool ready = 7;
+}
+
+// K8sCorrelationHintV1 mirrors k8sinventory.CorrelationHint in
+// go/pkg/k8sinventory/types.go.
+message K8sCorrelationHintV1 {
+  string public_ip = 1;
+  string public_hostname = 2;
+  int32 public_port = 3;
+  string protocol = 4;
+  string backend_ip = 5;
+  int32 backend_port = 6;
+  string pod_namespace = 7;
+  string pod_name = 8;
+  string node_name = 9;
+  string namespace = 10;
+  string service_name = 11;
+  string gateway_name = 12;
+  string route_kind = 13;
+  string route_name = 14;
+  string exposure_class = 15;
+}
