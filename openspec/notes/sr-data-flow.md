@@ -58,7 +58,7 @@ direct-to-DB metric writes.
                                                         │  └────────────────────┘       │
 ```
 
-Opted-in sysmon travels the durable edge-record lane. The grant conditions and the `metrics.sysmon.>` republish are in [Data Pipeline](../../docs/docs/data-pipeline.md).
+Which opted-in agent metric producers use the durable edge-record lane is in [Data Pipeline](../../docs/docs/data-pipeline.md).
 
 ---
 
