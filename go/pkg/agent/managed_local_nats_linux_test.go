@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,8 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/logger"
+	"github.com/carverauto/serviceradar/go/pkg/models"
+	"github.com/nats-io/nkeys"
 	"github.com/rs/zerolog"
 )
 
@@ -125,6 +128,95 @@ func TestManagedLocalNATSFailureLogsOnlyOnChangeAndStopsWhenUnconfigured(t *test
 		default:
 			t.Fatal("removed local authority kept the retry loop running")
 		}
+	})
+}
+
+func TestManagedLocalNATSMissingClientCertificateRetries(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Chown(root, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	account, err := nkeys.CreateAccount()
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err := nkeys.CreateUser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	issuer, err := account.PublicKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth, err := user.PublicKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata, err := json.Marshal(managedLocalNATSMetadata{
+		managedLocalNATSBinding: managedLocalNATSBinding{
+			ComponentID: "local-nats",
+			HostAgentID: "agent-under-test",
+			PartitionID: "partition-a",
+		},
+		IssuerPublicKey:   issuer,
+		AuthUserPublicKey: auth,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadataPath := filepath.Join(root, "local-nats.json")
+	if err := os.WriteFile(metadataPath, metadata, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chown(metadataPath, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	certFile := filepath.Join(root, "client.pem")
+	if _, err := os.Lstat(certFile); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("client certificate fixture must be absent, got %v", err)
+	}
+
+	synctest.Test(t, func(t *testing.T) {
+		var output bytes.Buffer
+		p := &PushLoop{
+			logger: &localNATSLogCapture{Logger: logger.NewTestLogger(), output: zerolog.New(&output)},
+			server: &Server{config: &ServerConfig{
+				AgentID:   "agent-under-test",
+				Partition: "partition-a",
+				GatewaySecurity: &models.SecurityConfig{
+					Mode: models.SecurityModeMTLS,
+					TLS: models.TLSConfig{
+						CertFile: certFile,
+						KeyFile:  filepath.Join(root, "client.key"),
+						CAFile:   filepath.Join(root, "ca.pem"),
+					},
+				},
+			}},
+		}
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		store := managedCertificateStore{root: root}
+		done := make(chan struct{})
+		go func() {
+			store.runLocalNATSLoop(ctx, p)
+			close(done)
+		}()
+		time.Sleep(16 * time.Second)
+		synctest.Wait()
+		select {
+		case <-done:
+			t.Fatal("configured local authority exited on a missing client certificate")
+		default:
+		}
+		levels := localNATSLogLevels(t, output.String())
+		if levels["warn"] != 1 || levels["debug"] != 3 {
+			t.Fatalf("missing client certificate did not stay at bounded debug retries: %v", levels)
+		}
+		if !strings.Contains(output.String(), certFile) {
+			t.Fatalf("missing client certificate was not reported: %s", output.String())
+		}
+		cancel()
+		<-done
 	})
 }
 

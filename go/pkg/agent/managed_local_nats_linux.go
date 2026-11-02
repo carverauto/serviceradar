@@ -415,11 +415,11 @@ func (s managedCertificateStore) runLocalNATSLoop(ctx context.Context, p *PushLo
 	lastError := ""
 	for ctx.Err() == nil {
 		metadata, err := s.readLocalNATSMetadata()
-		if err == nil {
-			err = p.serveManagedLocalNATS(ctx, metadata)
-		}
 		if errors.Is(err, os.ErrNotExist) {
 			return
+		}
+		if err == nil {
+			err = p.serveManagedLocalNATS(ctx, metadata)
 		}
 		if err != nil && ctx.Err() == nil {
 			if err.Error() != lastError {
