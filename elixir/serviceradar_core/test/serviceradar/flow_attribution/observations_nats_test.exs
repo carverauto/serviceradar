@@ -159,7 +159,7 @@ defmodule ServiceRadar.FlowAttribution.ObservationsNatsTest do
     assert Enum.map(second, &message_id!/1) == ids
 
     IO.puts(
-      "EVIDENCE splits=#{length(ids)} ids=#{inspect(ids)} max_message_bytes=#{Enum.max(Enum.map(first, &(byte_size(message_data(&1)))))}"
+      "EVIDENCE splits=#{length(ids)} ids=#{inspect(ids)} max_message_bytes=#{Enum.max(Enum.map(first, &byte_size(message_data(&1))))}"
     )
   end
 
@@ -283,7 +283,8 @@ defmodule ServiceRadar.FlowAttribution.ObservationsNatsTest do
     })
   end
 
-  defp js!(conn, subject, payload) when is_map(payload), do: js!(conn, subject, Jason.encode!(payload))
+  defp js!(conn, subject, payload) when is_map(payload),
+    do: js!(conn, subject, Jason.encode!(payload))
 
   defp js!(conn, subject, payload) when is_binary(payload) do
     {:ok, %{body: body}} = Gnat.request(conn, subject, payload, receive_timeout: 5_000)
@@ -319,7 +320,9 @@ defmodule ServiceRadar.FlowAttribution.ObservationsNatsTest do
   end
 
   defp message_id!(message) do
-    header = message["hdrs"] || flunk("stored message has no headers: #{inspect(Map.drop(message, ["data"]))}")
+    header =
+      message["hdrs"] ||
+        flunk("stored message has no headers: #{inspect(Map.delete(message, "data"))}")
 
     {:ok, raw} = Base.decode64(header)
 
