@@ -17,6 +17,7 @@ load("//build:go_test_inventory_test.bzl", "go_test_inventory_test")
 proto_library(
     name = "edgev1_proto",
     srcs = [
+        "json_producer_batches.proto",
         "record.proto",
         "sweep.proto",
         "unleased_sweep.proto",
@@ -31,6 +32,7 @@ proto_library(
 filegroup(
     name = "edge_proto_src",
     srcs = [
+        "json_producer_batches.proto",
         "record.proto",
         "sweep.proto",
         "unleased_sweep.proto",
@@ -41,6 +43,7 @@ filegroup(
 go_library(
     name = "edgev1",
     srcs = [
+        "json_producer_batches.pb.go",
         "record.pb.go",
         "record_grpc.pb.go",
         "sweep.pb.go",
@@ -69,6 +72,7 @@ go_test(
     name = "edgev1_golden_test",
     srcs = [
         "golden_test.go",
+        "json_producer_batches_test.go",
         "mtr_bounds_test.go",
         "projection_corpus_test.go",
         "record_boundary_corpus_test.go",
@@ -93,6 +97,12 @@ go_test(
         "@org_golang_google_protobuf//proto",
         "@org_golang_google_protobuf//reflect/protoreflect",
     ],
+)
+
+test_suite(
+    name = "edgev1_test",
+    tests = [":edgev1_golden_test"],
+    visibility = ["//visibility:public"],
 )
 
 go_test_inventory_test(
