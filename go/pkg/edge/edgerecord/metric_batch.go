@@ -24,16 +24,26 @@ import (
 	metricpb "github.com/carverauto/serviceradar/proto/metric/v1"
 )
 
-// The passive metrics batch output contract. Sysmon emits the canonical protobuf
-// metric envelope under a standing output grant and carries no source
-// authorization. Lease-run producers (SNMP, ICMP, MTR, rperf, and sweep) belong
-// on the scheduled metrics contract.
+// The agent metrics batch output contract. Producers the agent schedules from its
+// own config emit the canonical protobuf metric envelope under a standing output
+// grant, and their records carry no source authorization. The batch's ingest
+// identity source names the producer and must be one the contract admits.
 const (
 	MetricsBatchContractID             = "serviceradar.metrics.batch"
 	MetricsBatchContractVersion uint32 = 1
 	MetricBatchSchemaVersion           = "serviceradar.metric.v1"
-	MetricsBatchSource                 = "sysmon-metrics"
 )
+
+// metricsBatchSourceAdmitted reports whether the metrics batch contract admits a
+// batch from source, its ingest identity source: a closed set of producers.
+func metricsBatchSourceAdmitted(source string) bool {
+	switch source {
+	case "sysmon-metrics", "snmp-metrics", "icmp-metrics", "rperf-metrics", "mtr-metrics", "sweep-metrics":
+		return true
+	default:
+		return false
+	}
+}
 
 var (
 	// ErrMetricBatch is returned for a metrics batch body that breaks the
@@ -45,7 +55,7 @@ var (
 )
 
 // ValidateMetricBatch enforces the metrics batch payload rules: the canonical
-// metric envelope schema, the passive sysmon source, and at least one metric.
+// metric envelope schema, an admitted producer source, and at least one metric.
 func ValidateMetricBatch(batch *metricpb.MetricBatch) error {
 	if batch == nil {
 		return fmt.Errorf("%w: empty batch", ErrMetricBatch)
@@ -53,7 +63,7 @@ func ValidateMetricBatch(batch *metricpb.MetricBatch) error {
 	if batch.GetSchemaVersion() != MetricBatchSchemaVersion {
 		return fmt.Errorf("%w: schema_version %q", ErrMetricBatch, batch.GetSchemaVersion())
 	}
-	if batch.GetIngestIdentity().GetSource() != MetricsBatchSource {
+	if !metricsBatchSourceAdmitted(batch.GetIngestIdentity().GetSource()) {
 		return fmt.Errorf("%w: source %q", ErrMetricBatch, batch.GetIngestIdentity().GetSource())
 	}
 	if len(batch.GetMetrics()) == 0 {
@@ -65,7 +75,7 @@ func ValidateMetricBatch(batch *metricpb.MetricBatch) error {
 // ValidateMetricBatchRecord is the composed validator a producer runs before it
 // spools a metrics batch record: the whole record (ValidateRecord), the exact
 // metrics batch contract, RECORD_BATCH_V1 framing, no source authorization, the
-// decoded sysmon body, and a projected row count equal to the body's metric count.
+// decoded body, and a projected row count equal to the body's metric count.
 // Signatures are verified by the gateway, which holds the trust snapshot.
 func ValidateMetricBatchRecord(r *edgev1.EdgeRecordV1) error {
 	if err := ValidateRecord(r); err != nil {

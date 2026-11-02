@@ -457,21 +457,30 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
   end
 
   describe "ingest/4 of metrics batch records" do
-    test "a fresh record is published once to its metrics subject under the authenticated agent" do
-      frame = build_metrics_frame()
+    for {source, family} <- [
+          {"sysmon-metrics", "sysmon"},
+          {"snmp-metrics", "snmp"},
+          {"icmp-metrics", "icmp"},
+          {"rperf-metrics", "rperf"},
+          {"mtr-metrics", "mtr"},
+          {"sweep-metrics", "sweep"}
+        ] do
+      test "a fresh #{source} record is published once to metrics.#{family} under the authenticated agent" do
+        frame = with_source(build_metrics_frame(), unquote(source))
 
-      assert {:ok, :inserted} =
-               EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
+        assert {:ok, :inserted} =
+                 EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
 
-      assert_received {:metrics_published, subject, body, request_opts}
-      assert subject == "metrics.sysmon.cpu.cpu_usage_percent"
-      assert {"Nats-Msg-Id", Ecto.UUID.load!(frame.record.event_id)} in request_opts[:headers]
+        assert_received {:metrics_published, subject, body, request_opts}
+        assert subject == "metrics.#{unquote(family)}.cpu.cpu_usage_percent"
+        assert {"Nats-Msg-Id", Ecto.UUID.load!(frame.record.event_id)} in request_opts[:headers]
 
-      published = MetricBatch.decode(body)
-      assert published.resource.agent_id == frame.agent_id
-      assert published.ingest_identity.producer_id == frame.agent_id
-      assert length(published.metrics) == 2
-      assert ledger_count(frame.record) == 1
+        published = MetricBatch.decode(body)
+        assert published.resource.agent_id == frame.agent_id
+        assert published.ingest_identity.producer_id == frame.agent_id
+        assert length(published.metrics) == 2
+        assert ledger_count(frame.record) == 1
+      end
     end
 
     test "a redelivered record is a replay and is not published again" do
@@ -501,25 +510,39 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       assert ledger_count(frame.record) == 0
     end
 
-    test "a non-sysmon source is refused and not published" do
+    test "a record naming a contract the catalog does not know is refused" do
       frame = build_metrics_frame()
+      id = "serviceradar.example.uncataloged"
+      {:production, claims} = frame.record.production_capability.claims
 
-      snmp_batch = %{
-        frame.batch
-        | ingest_identity: %{frame.batch.ingest_identity | source: "snmp-metrics"}
-      }
-
-      payload = MetricBatch.encode(snmp_batch)
+      production =
+        IssuerKey.sign(
+          %{
+            frame.record.production_capability
+            | claims: {:production, %{claims | contract_id: id}}
+          },
+          IssuerKey.from_seed(:binary.copy(<<0x5A>>, 32))
+        )
 
       record = %{
         frame.record
-        | payload: payload,
-          encoded_size: byte_size(payload),
-          uncompressed_size: byte_size(payload),
-          payload_sha256: :crypto.hash(:sha256, payload)
+        | output_contract: %{frame.record.output_contract | contract_id: id},
+          production_capability: production
       }
 
-      refused = encode_frame(record, snmp_batch, frame.slot)
+      refused = encode_frame(record, frame.batch, frame.slot)
+
+      assert {:error, :unsupported_payload_family} =
+               EdgeRecord.ingest(refused.record_bytes, refused.headers, Repo,
+                 request: stored_ack()
+               )
+
+      refute_received {:metrics_published, _subject, _body, _opts}
+      assert ledger_count(refused.record) == 0
+    end
+
+    test "an unknown source is refused and not published" do
+      refused = with_source(build_metrics_frame(), "plugin-metrics")
 
       assert {:error, :metrics_batch_source} =
                EdgeRecord.ingest(refused.record_bytes, refused.headers, Repo,
@@ -534,7 +557,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       frame = build_metrics_frame()
       refused = fn _subject, _body, _opts -> {:error, :timeout} end
 
-      assert_raise RuntimeError, ~r/edge metrics publish failed/, fn ->
+      assert_raise RuntimeError, ~r/edge record publish failed/, fn ->
         EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: refused)
       end
 
@@ -548,6 +571,24 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       refute_received {:metrics_published, _subject, _body, _opts}
       assert ledger_count(frame.record) == 1
     end
+  end
+
+  # Re-encodes a metrics frame with another ingest identity source, keeping its slot.
+  defp with_source(frame, source) do
+    batch = %{frame.batch | ingest_identity: %{frame.batch.ingest_identity | source: source}}
+    payload = MetricBatch.encode(batch)
+
+    record = %{
+      frame.record
+      | payload: payload,
+        encoded_size: byte_size(payload),
+        uncompressed_size: byte_size(payload),
+        payload_sha256: :crypto.hash(:sha256, payload)
+    }
+
+    record
+    |> encode_frame(batch, frame.slot)
+    |> Map.merge(Map.take(frame, [:agent_id, :partition_id]))
   end
 
   defp stored_ack do

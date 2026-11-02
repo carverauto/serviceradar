@@ -203,16 +203,18 @@ defmodule ServiceRadar.Edge.OutputGrantsDbTest do
     {:ok,
      %{
        key: ctx.key,
-       contract: %{
-         contract_id: @contract,
-         contract_version: 1,
-         contract_bundle_sha256: :crypto.hash(:sha256, "metrics-bundle"),
-         registry_epoch: 1,
-         registry_snapshot_sha256: :crypto.hash(:sha256, "registry"),
-         cost_model_version: 1,
-         max_projected_row_count: 10_000,
-         max_projected_write_bytes: 10_240_000
-       }
+       contracts: [
+         %{
+           contract_id: @contract,
+           contract_version: 1,
+           contract_bundle_sha256: :crypto.hash(:sha256, "metrics-bundle"),
+           registry_epoch: 1,
+           registry_snapshot_sha256: :crypto.hash(:sha256, "registry"),
+           cost_model_version: 1,
+           max_projected_row_count: 10_000,
+           max_projected_write_bytes: 10_240_000
+         }
+       ]
      }}
   end
 end

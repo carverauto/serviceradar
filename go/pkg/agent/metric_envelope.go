@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -155,6 +156,17 @@ func firstSysmonMetricSample(samples []*sysmon.MetricSample) *sysmon.MetricSampl
 }
 
 func marshalSNMPMetricEnvelope(results []snmpMetricResult, ctx metricEnvelopeContext) ([]byte, error) {
+	batch, err := buildSNMPMetricBatch(results, ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return gproto.Marshal(batch)
+}
+
+// buildSNMPMetricBatch builds the SNMP metric envelope for results; the legacy
+// status push and the edge-record producer both send it.
+func buildSNMPMetricBatch(results []snmpMetricResult, ctx metricEnvelopeContext) (*metricpb.MetricBatch, error) {
 	batch := &metricpb.MetricBatch{
 		SchemaVersion: metricEnvelopeSchemaVersion,
 		Resource: metricResource(
@@ -235,10 +247,21 @@ func marshalSNMPMetricEnvelope(results []snmpMetricResult, ctx metricEnvelopeCon
 		return nil, errSnmpNoMetricPoints
 	}
 
-	return gproto.Marshal(batch)
+	return batch, nil
 }
 
 func marshalICMPMetricEnvelope(results []icmpCheckResult, ctx metricEnvelopeContext) ([]byte, error) {
+	batch, err := buildICMPMetricBatch(results, ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return gproto.Marshal(batch)
+}
+
+// buildICMPMetricBatch builds the ICMP check metric envelope for results; the
+// legacy status push and the edge-record producer both send it.
+func buildICMPMetricBatch(results []icmpCheckResult, ctx metricEnvelopeContext) (*metricpb.MetricBatch, error) {
 	batch := &metricpb.MetricBatch{
 		SchemaVersion: metricEnvelopeSchemaVersion,
 		Resource: metricResource(
@@ -317,10 +340,21 @@ func marshalICMPMetricEnvelope(results []icmpCheckResult, ctx metricEnvelopeCont
 		return nil, errICMPNoMetricPoints
 	}
 
-	return gproto.Marshal(batch)
+	return batch, nil
 }
 
 func marshalMTRMetricEnvelope(results []mtrCheckResult, ctx metricEnvelopeContext) ([]byte, error) {
+	batch, err := buildMTRMetricBatch(results, ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return gproto.Marshal(batch)
+}
+
+// buildMTRMetricBatch builds the MTR scalar metric envelope for results; the
+// legacy status push and the edge-record producer both send it.
+func buildMTRMetricBatch(results []mtrCheckResult, ctx metricEnvelopeContext) (*metricpb.MetricBatch, error) {
 	batch := &metricpb.MetricBatch{
 		SchemaVersion: metricEnvelopeSchemaVersion,
 		Resource: metricResource(
@@ -395,10 +429,21 @@ func marshalMTRMetricEnvelope(results []mtrCheckResult, ctx metricEnvelopeContex
 		return nil, errMTRNoMetricPoints
 	}
 
-	return gproto.Marshal(batch)
+	return batch, nil
 }
 
 func marshalSweepMetricEnvelopeFromMap(decoded map[string]any, ctx metricEnvelopeContext) ([]byte, error) {
+	batch, err := buildSweepMetricBatchFromMap(decoded, ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return gproto.Marshal(batch)
+}
+
+// buildSweepMetricBatchFromMap builds the sweep metric envelope for one sweep
+// status or results payload.
+func buildSweepMetricBatchFromMap(decoded map[string]any, ctx metricEnvelopeContext) (*metricpb.MetricBatch, error) {
 	if len(decoded) == 0 {
 		return nil, errSweepPayloadEmpty
 	}
@@ -486,7 +531,7 @@ func marshalSweepMetricEnvelopeFromMap(decoded map[string]any, ctx metricEnvelop
 		return nil, errSweepNoMetricPoints
 	}
 
-	return gproto.Marshal(builder.batch)
+	return builder.batch, nil
 }
 
 type sweepMetricBuilder struct {
@@ -1139,6 +1184,9 @@ func entries(values map[string]string) []*metricpb.StringMapEntry {
 
 		entries = append(entries, &metricpb.StringMapEntry{Key: metricUTF8(key), Value: metricUTF8(value)})
 	}
+	// Sorted, so the same values always encode to the same bytes: an edge record's
+	// payload is digest-bound, and map iteration order is random.
+	slices.SortFunc(entries, func(a, b *metricpb.StringMapEntry) int { return strings.Compare(a.GetKey(), b.GetKey()) })
 
 	return entries
 }
