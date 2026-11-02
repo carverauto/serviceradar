@@ -183,6 +183,7 @@ func TestWasmPluginResultBatchV1RoundTrip(t *testing.T) {
 					ErrorClass:            "",
 					ErrorMessage:          "",
 					MetadataJson:          []byte(`{"ticket":"SYN-1"}`),
+					RunOverridesJson:      []byte(`[{"op":"set","id":"ovr-00000000-0000-4000-8000-000000000009","kind":"maintenance","target":"sr:00000000-0000-4000-8000-000000000005","params":{"window":"lab"},"duration_seconds":600}]`),
 				},
 				ContractPayloads: []*edgev1.PluginContractPayloadV1{
 					{
@@ -233,6 +234,18 @@ func TestWasmPluginResultBatchV1RoundTrip(t *testing.T) {
 	location := decoded.GetResults()[0].GetDeviceDiscovery()[0].GetDevices()[0].GetLocation()
 	if location.GetHasLatitude() || location.GetHasLongitude() || location.GetLatitude() != 0 || location.GetLongitude() != 0 {
 		t.Fatalf("site-only location claimed coordinates: %+v", location)
+	}
+	var runOverrides []map[string]any
+	if err := json.Unmarshal(decoded.GetResults()[0].GetActionResult().GetRunOverridesJson(), &runOverrides); err != nil {
+		t.Fatalf("run_overrides_json: %v", err)
+	}
+	if len(runOverrides) != 1 ||
+		runOverrides[0]["op"] != "set" ||
+		runOverrides[0]["id"] != "ovr-00000000-0000-4000-8000-000000000009" ||
+		runOverrides[0]["kind"] != "maintenance" ||
+		runOverrides[0]["target"] != "sr:00000000-0000-4000-8000-000000000005" ||
+		runOverrides[0]["duration_seconds"] != float64(600) {
+		t.Fatalf("run_overrides = %#v", runOverrides)
 	}
 }
 

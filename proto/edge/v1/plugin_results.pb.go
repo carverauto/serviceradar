@@ -927,8 +927,13 @@ type PluginActionResultV1 struct {
 	ErrorClass            string                 `protobuf:"bytes,12,opt,name=error_class,json=errorClass,proto3" json:"error_class,omitempty"`
 	ErrorMessage          string                 `protobuf:"bytes,13,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
 	MetadataJson          []byte                 `protobuf:"bytes,14,opt,name=metadata_json,json=metadataJson,proto3" json:"metadata_json,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// JSON array of sdk.RunOverrideOperation, the `run_overrides` field on
+	// sdk.ActionResult. Decoders MUST surface this array as `run_overrides` for
+	// ServiceRadar.Plugins.RunOverrides.operations/1 and
+	// CommandResultHandler.apply_run_overrides. targets_json does not carry it.
+	RunOverridesJson []byte `protobuf:"bytes,15,opt,name=run_overrides_json,json=runOverridesJson,proto3" json:"run_overrides_json,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *PluginActionResultV1) Reset() {
@@ -1055,6 +1060,13 @@ func (x *PluginActionResultV1) GetErrorMessage() string {
 func (x *PluginActionResultV1) GetMetadataJson() []byte {
 	if x != nil {
 		return x.MetadataJson
+	}
+	return nil
+}
+
+func (x *PluginActionResultV1) GetRunOverridesJson() []byte {
+	if x != nil {
+		return x.RunOverridesJson
 	}
 	return nil
 }
@@ -1533,7 +1545,7 @@ const file_edge_v1_plugin_results_proto_rawDesc = "" +
 	"attributes\x1a=\n" +
 	"\x0fAttributesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xb9\x04\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xe7\x04\n" +
 	"\x14PluginActionResultV1\x12\x16\n" +
 	"\x06schema\x18\x01 \x01(\tR\x06schema\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12!\n" +
@@ -1551,7 +1563,8 @@ const file_edge_v1_plugin_results_proto_rawDesc = "" +
 	"\verror_class\x18\f \x01(\tR\n" +
 	"errorClass\x12#\n" +
 	"\rerror_message\x18\r \x01(\tR\ferrorMessage\x12#\n" +
-	"\rmetadata_json\x18\x0e \x01(\fR\fmetadataJson\"{\n" +
+	"\rmetadata_json\x18\x0e \x01(\fR\fmetadataJson\x12,\n" +
+	"\x12run_overrides_json\x18\x0f \x01(\fR\x10runOverridesJson\"{\n" +
 	"\x17PluginContractPayloadV1\x12\x16\n" +
 	"\x06schema\x18\x01 \x01(\tR\x06schema\x12%\n" +
 	"\x0eschema_version\x18\x02 \x01(\rR\rschemaVersion\x12!\n" +

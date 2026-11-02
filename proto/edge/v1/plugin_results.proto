@@ -171,6 +171,11 @@ message PluginActionResultV1 {
   string error_class = 12;
   string error_message = 13;
   bytes metadata_json = 14;
+  // JSON array of sdk.RunOverrideOperation, the `run_overrides` field on
+  // sdk.ActionResult. Decoders MUST surface this array as `run_overrides` for
+  // ServiceRadar.Plugins.RunOverrides.operations/1 and
+  // CommandResultHandler.apply_run_overrides. targets_json does not carry it.
+  bytes run_overrides_json = 15;
 }
 
 // PluginContractPayloadV1 is a schema-versioned envelope for declared SDK

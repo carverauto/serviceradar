@@ -222,6 +222,7 @@ defmodule Serviceradar.Edge.V1.PluginActionResultV1 do
   field :error_class, 12, type: :string, json_name: "errorClass"
   field :error_message, 13, type: :string, json_name: "errorMessage"
   field :metadata_json, 14, type: :bytes, json_name: "metadataJson"
+  field :run_overrides_json, 15, type: :bytes, json_name: "runOverridesJson"
 end
 
 defmodule Serviceradar.Edge.V1.PluginContractPayloadV1 do
