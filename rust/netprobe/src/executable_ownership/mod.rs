@@ -695,22 +695,19 @@ fn mode(_metadata: &Metadata) -> u32 {
 mod path_cap {
     use std::path::Path;
 
-    use super::{
-        DETAIL_EXECUTABLE_PATH_TOO_LONG, ExecutableOwnershipResolver, MAX_EXECUTABLE_PATH_BYTES,
-        OwnershipState, ResolverCounters,
-    };
+    use super::{ExecutableOwnershipResolver, OwnershipState, ResolverCounters};
 
     #[test]
     fn oversized_readlink_is_unknown_with_reason_and_increments_counter() {
         let mut resolver = ExecutableOwnershipResolver::new("/no-such-proc");
 
-        let just_over = format!("/{}", "a".repeat(MAX_EXECUTABLE_PATH_BYTES));
-        assert_eq!(just_over.len(), MAX_EXECUTABLE_PATH_BYTES + 1);
+        let just_over = format!("/{}", "a".repeat(4096));
+        assert_eq!(just_over.len(), 4097);
         let record = resolver
             .resolve_executable_path(Path::new(&just_over), Path::new("/no-such-process-root"))
             .expect_err("readlink target over PATH_MAX must be rejected");
         assert_eq!(record.state, OwnershipState::Unknown);
-        assert_eq!(record.detail, DETAIL_EXECUTABLE_PATH_TOO_LONG);
+        assert_eq!(record.detail, "executable_path_too_long");
         assert!(record.executable_path.is_empty());
         assert_eq!(record.package, None);
 
@@ -719,7 +716,7 @@ mod path_cap {
             .resolve_executable_path(Path::new(&huge), Path::new("/no-such-process-root"))
             .expect_err("huge readlink target must be rejected, never truncated");
         assert_eq!(record.state, OwnershipState::Unknown);
-        assert_eq!(record.detail, DETAIL_EXECUTABLE_PATH_TOO_LONG);
+        assert_eq!(record.detail, "executable_path_too_long");
         assert!(record.executable_path.is_empty());
         assert_eq!(record.package, None);
 
@@ -747,8 +744,8 @@ mod path_cap {
         assert_eq!(normal, "/usr/sbin/exampled");
         assert!(!deleted);
 
-        let at_limit = format!("/{}", "a".repeat(MAX_EXECUTABLE_PATH_BYTES - 1));
-        assert_eq!(at_limit.len(), MAX_EXECUTABLE_PATH_BYTES);
+        let at_limit = format!("/{}", "a".repeat(4095));
+        assert_eq!(at_limit.len(), 4096);
         let (exact, deleted) = resolver
             .resolve_executable_path(Path::new(&at_limit), Path::new("/no-such-process-root"))
             .expect("path of exactly PATH_MAX bytes must succeed");
