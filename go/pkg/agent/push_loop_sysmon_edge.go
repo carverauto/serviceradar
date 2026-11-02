@@ -362,11 +362,8 @@ func nextSysmonEdgeRecord(
 		return splitSysmonSample(head, capability, maxRows)
 	}
 	headRecord, err := metricsEdgeRecord(head, capability, maxRows)
-	if metricsRecordTooLarge(err) {
-		return splitSysmonSample(head, capability, maxRows)
-	}
 	if err != nil {
-		return 1, nil, 0, err
+		return splitSysmonSample(head, capability, maxRows)
 	}
 
 	batch := gproto.Clone(head).(*metricpb.MetricBatch)
@@ -392,13 +389,7 @@ func nextSysmonEdgeRecord(
 	if err == nil {
 		return taken, []sysmonEdgeBuilt{built}, 0, nil
 	}
-	if !metricsRecordTooLarge(err) {
-		return taken, nil, 0, err
-	}
-	fitted, fitTaken, fitErr := shortenSysmonPrefix(pending[:taken], capability, ctx, maxRows)
-	if fitErr != nil {
-		return taken, nil, 0, fitErr
-	}
+	fitted, fitTaken := shortenSysmonPrefix(pending[:taken], capability, ctx, maxRows)
 	if fitTaken == 0 {
 		return splitSysmonSample(head, capability, maxRows)
 	}
@@ -410,10 +401,7 @@ func splitSysmonSample(
 	capability *edgev1.EdgeSignedCapabilityV1,
 	maxRows uint64,
 ) (int, []sysmonEdgeBuilt, int, error) {
-	built, dropped, err := splitMetricBatch(batch, capability, maxRows)
-	if err != nil {
-		return 1, nil, 0, err
-	}
+	built, dropped := splitMetricBatch(batch, capability, maxRows)
 	if len(built) == 0 {
 		return 1, nil, 0, errEdgeMetricsRecordTooLarge
 	}
@@ -425,48 +413,42 @@ func shortenSysmonPrefix(
 	capability *edgev1.EdgeSignedCapabilityV1,
 	ctx metricEnvelopeContext,
 	maxRows uint64,
-) ([]sysmonEdgeBuilt, int, error) {
-	taken, built, err := longestPrefix(len(pending)-1, func(k int) (sysmonEdgeBuilt, error) {
+) ([]sysmonEdgeBuilt, int) {
+	taken, built := longestPrefix(len(pending)-1, func(k int) (sysmonEdgeBuilt, error) {
 		batch, buildErr := buildSysmonMetricBatch(pending[:k], ctx)
 		if buildErr != nil {
 			return sysmonEdgeBuilt{}, buildErr
 		}
 		return metricsEdgeRecord(batch, capability, maxRows)
 	})
-	if err != nil || taken == 0 {
-		return nil, 0, err
+	if taken == 0 {
+		return nil, 0
 	}
-	return []sysmonEdgeBuilt{built}, taken, nil
+	return []sysmonEdgeBuilt{built}, taken
 }
 
 func splitMetricBatch(
 	batch *metricpb.MetricBatch,
 	capability *edgev1.EdgeSignedCapabilityV1,
 	maxRows uint64,
-) ([]sysmonEdgeBuilt, int, error) {
+) ([]sysmonEdgeBuilt, int) {
 	envelope := metricBatchEnvelope(batch)
 	metrics := append([]*metricpb.Metric(nil), batch.GetMetrics()...)
 	var built []sysmonEdgeBuilt
 	dropped := 0
 	for len(metrics) > 0 {
-		n, piece, err := longestMetricPrefix(envelope, metrics, capability, maxRows)
-		if err != nil {
-			return nil, 0, err
-		}
+		n, piece := longestMetricPrefix(envelope, metrics, capability, maxRows)
 		if n > 0 {
 			built = append(built, piece)
 			metrics = metrics[n:]
 			continue
 		}
-		shards, pointsDropped, err := shardMetricPoints(envelope, metrics[0], capability, maxRows)
-		if err != nil {
-			return nil, 0, err
-		}
+		shards, pointsDropped := shardMetricPoints(envelope, metrics[0], capability, maxRows)
 		dropped += pointsDropped
 		built = append(built, shards...)
 		metrics = metrics[1:]
 	}
-	return built, dropped, nil
+	return built, dropped
 }
 
 func longestMetricPrefix(
@@ -474,7 +456,7 @@ func longestMetricPrefix(
 	metrics []*metricpb.Metric,
 	capability *edgev1.EdgeSignedCapabilityV1,
 	maxRows uint64,
-) (int, sysmonEdgeBuilt, error) {
+) (int, sysmonEdgeBuilt) {
 	limit := len(metrics)
 	if uint64(limit) > maxRows {
 		limit = int(maxRows)
@@ -489,21 +471,18 @@ func shardMetricPoints(
 	metric *metricpb.Metric,
 	capability *edgev1.EdgeSignedCapabilityV1,
 	maxRows uint64,
-) ([]sysmonEdgeBuilt, int, error) {
+) ([]sysmonEdgeBuilt, int) {
 	points := append([]*metricpb.MetricPoint(nil), metric.GetPoints()...)
 	if len(points) == 0 {
-		return nil, 1, nil
+		return nil, 1
 	}
 	var built []sysmonEdgeBuilt
 	dropped := 0
 	for len(points) > 0 {
-		n, piece, err := longestPrefix(len(points), func(k int) (sysmonEdgeBuilt, error) {
+		n, piece := longestPrefix(len(points), func(k int) (sysmonEdgeBuilt, error) {
 			part := batchWithMetrics(envelope, []*metricpb.Metric{metricWithPoints(metric, points[:k])})
 			return metricsEdgeRecord(part, capability, maxRows)
 		})
-		if err != nil {
-			return nil, 0, err
-		}
 		if n == 0 {
 			dropped++
 			points = points[1:]
@@ -512,10 +491,10 @@ func shardMetricPoints(
 		built = append(built, piece)
 		points = points[n:]
 	}
-	return built, dropped, nil
+	return built, dropped
 }
 
-func longestPrefix(limit int, fit func(int) (sysmonEdgeBuilt, error)) (int, sysmonEdgeBuilt, error) {
+func longestPrefix(limit int, fit func(int) (sysmonEdgeBuilt, error)) (int, sysmonEdgeBuilt) {
 	bestN := 0
 	var best sysmonEdgeBuilt
 	lo, hi := 1, limit
@@ -527,12 +506,9 @@ func longestPrefix(limit int, fit func(int) (sysmonEdgeBuilt, error)) (int, sysm
 			lo = mid + 1
 			continue
 		}
-		if !metricsRecordTooLarge(err) {
-			return 0, sysmonEdgeBuilt{}, err
-		}
 		hi = mid - 1
 	}
-	return bestN, best, nil
+	return bestN, best
 }
 
 func metricsEdgeRecord(
@@ -563,12 +539,6 @@ func metricsEdgeRecord(
 
 func metricBatchExceeds(batch *metricpb.MetricBatch, maxRows uint64) bool {
 	return uint64(len(batch.GetMetrics())) > maxRows || gproto.Size(batch) > edgeMetricsMaxPayloadBytes
-}
-
-func metricsRecordTooLarge(err error) bool {
-	return errors.Is(err, errEdgeMetricsRecordTooLarge) ||
-		errors.Is(err, edgerecord.ErrRecordTooLarge) ||
-		errors.Is(err, edgerecord.ErrPayloadTooLarge)
 }
 
 func metricBatchEnvelope(batch *metricpb.MetricBatch) *metricpb.MetricBatch {

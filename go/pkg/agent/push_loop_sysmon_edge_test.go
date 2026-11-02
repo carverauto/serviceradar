@@ -738,3 +738,120 @@ func assertSysmonRecordsWithinCaps(t *testing.T, sp *spool.Spool, batches []*met
 		require.NotEmpty(t, batch.GetMetrics())
 	}
 }
+
+func TestInvalidUTF8ProcessNameIsSpooledWithItsNeighbours(t *testing.T) {
+	sp := openTestEdgeSpool(t)
+	loop, gw, collector := sysmonEdgeLoop(t, sp)
+	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentMetricsGrant(t)}, time.Now())
+
+	neighbor := syntheticSysmonSamples(1)[0]
+	bad := syntheticSysmonSamples(1)[0]
+	const pid = 7
+	bad.Processes = []sysmon.ProcessMetric{{
+		PID: pid, Name: "\xff\xfe", CPUUsage: 1.5, MemoryUsage: 4096, Status: "running", StartTime: "2026-11-01T00:00:00Z",
+	}}
+	collector.queued = []*sysmon.MetricSample{neighbor, bad}
+
+	require.True(t, loop.pushSysmonStatus(context.Background(), nil))
+
+	require.Zero(t, gw.sysmonStatuses())
+	require.Empty(t, loop.sysmonEdgePending)
+	require.Zero(t, sysmonEdgeDrops(loop, edgeDropInvalidRecord))
+	batches := spooledMetricBatches(t, sp)
+	keys := flattenedMetricPoints(batches)
+	require.Equal(t, 4, namedPointCount(keys, "cpu.usage_percent"), "the valid sample and the process sample both spool")
+	replaced := strings.ToValidUTF8("\xff\xfe", "\uFFFD")
+	require.Equal(t, []string{replaced, replaced}, processAttributeValues(batches, "name"))
+	require.Contains(t, keys, "process.cpu_usage\tprocess:"+fmt.Sprint(pid)+":"+replaced+"\t1.5")
+
+	legacy, err := marshalSysmonMetricEnvelope(bad, loop.metricEnvelopeContext())
+	require.NoError(t, err)
+	legacyBatch := &metricpb.MetricBatch{}
+	require.NoError(t, gproto.Unmarshal(legacy, legacyBatch))
+	require.Equal(t, []string{replaced, replaced}, processAttributeValues([]*metricpb.MetricBatch{legacyBatch}, "name"))
+	legacyBoth, err := marshalSysmonMetricEnvelopeBatch([]*sysmon.MetricSample{neighbor, bad}, loop.metricEnvelopeContext())
+	require.NoError(t, err)
+	require.NotEmpty(t, legacyBoth)
+}
+
+func TestSysmonPackerKeepsNeighboursOfAnUnencodableMetric(t *testing.T) {
+	grant := currentMetricsGrant(t)
+	capability := &edgev1.EdgeSignedCapabilityV1{}
+	require.NoError(t, gproto.Unmarshal(grant.GetProductionCapability(), capability))
+	maxRows := min(uint64(capability.GetProduction().GetMaxProjectedRowCount()),
+		capability.GetProduction().GetMaxProjectedWriteBytes()/edgeMetricsProjectedRowBytes)
+
+	batch := &metricpb.MetricBatch{
+		SchemaVersion: metricEnvelopeSchemaVersion,
+		Resource: metricResource(
+			sysmonEdgeAgentID, "gw", "default", "sysmon", "sysmon", "host", "192.0.2.10", "kv",
+		),
+		IngestIdentity: metricIngest(
+			"sysmon-metrics", "agent-sysmon", sysmonEdgeAgentID, "gw",
+		),
+		Metrics: []*metricpb.Metric{
+			onePointMetric("cpu.usage_percent", "11"),
+			onePointMetric("\xff", "99"),
+			onePointMetric("memory.used_percent", "22"),
+		},
+	}
+	built, dropped := splitMetricBatch(batch, capability, maxRows)
+	require.Equal(t, 1, dropped)
+	got := flattenedMetricPoints(builtPayloads(t, built))
+	require.Equal(t, []string{
+		"cpu.usage_percent\t\t11",
+		"memory.used_percent\t\t22",
+	}, got)
+}
+
+func namedPointCount(keys []string, name string) int {
+	n := 0
+	prefix := name + "\t"
+	for _, key := range keys {
+		if key == name || strings.HasPrefix(key, prefix) {
+			n++
+		}
+	}
+	return n
+}
+
+func processAttributeValues(batches []*metricpb.MetricBatch, key string) []string {
+	var values []string
+	for _, batch := range batches {
+		for _, metric := range batch.GetMetrics() {
+			for _, point := range metric.GetPoints() {
+				for _, attr := range point.GetAttributes() {
+					if attr.GetKey() == key {
+						values = append(values, attr.GetValue())
+					}
+				}
+			}
+		}
+	}
+	return values
+}
+
+func onePointMetric(name, raw string) *metricpb.Metric {
+	return &metricpb.Metric{
+		Name:       name,
+		MetricType: "sysmon.cpu",
+		Unit:       "%",
+		Points: []*metricpb.MetricPoint{{
+			Value:              1,
+			RawValue:           raw,
+			RawValueType:       metricpb.MetricValueType_METRIC_VALUE_TYPE_DOUBLE,
+			ObservedAtUnixNano: 1,
+		}},
+	}
+}
+
+func builtPayloads(t *testing.T, built []sysmonEdgeBuilt) []*metricpb.MetricBatch {
+	t.Helper()
+	batches := make([]*metricpb.MetricBatch, 0, len(built))
+	for _, piece := range built {
+		batch := &metricpb.MetricBatch{}
+		require.NoError(t, gproto.Unmarshal(piece.payload, batch))
+		batches = append(batches, batch)
+	}
+	return batches
+}
