@@ -312,8 +312,9 @@ in `choices.md` and the chart README.
       a check set that no slot in the push references. `LeaseDelivery` pushes
       `lease_version` 2 when the push carries slots. A push with no slots
       stays `lease_version` 1: `revoked` true is a revocation, and `revoked`
-      false is the empty window replacement already sent when the last unrun
-      slot is dropped. `LeaseAgents` candidates require
+      false merges by lease id. The same lease id window-merges (the high-water
+      clear). A different lease id replaces the installed lease (the 1µs empty
+      window when nothing is unrun). `LeaseAgents` candidates require
       `sweep_lease_plan_checks:v1`. Core records `SweepLeaseSlotRefusal` as
       `refused`. A refusal for the same assignment and lease moves
       `missed_offline` or `missed_exhausted` to `refused`, and `refused` is
@@ -324,12 +325,16 @@ in `choices.md` and the chart README.
     - [ ] M2.0i4 Agent execution. The install gate accepts `lease_version` 2
       for a push that carries slots and `lease_version` 1 for every push with
       no slots. `revoked` true withdraws the lease and the ticker resumes.
-      `revoked` false installs the empty window replacement, drops installed
-      slots whose start lies in the window, and does not resume the ticker or
-      leave the previous window in place. A `lease_version` 1 push that
-      carries slots is refused. On load it discards stored slot leases whose
-      `lease_version` is not 2 (Decision 12). The empty window clear is applied
-      to the installed lease and is not stored as a version-1 slot lease. The
+      `revoked` false merges by lease id: the same lease id drops installed
+      slots whose start lies in the push window, keeps the installed production
+      capability when the push has none, normalizes the window to the slots
+      still held when any remain, and keeps the push window when none remain;
+      a different lease id replaces the installed lease outright.
+      The stored lease is that merge at `lease_version` 1, and the ticker stays
+      suppressed while it is held. A `lease_version` 1 push that carries slots
+      is refused. On load it discards stored slot leases whose `lease_version`
+      is not 2 (Decision 12) and keeps a held lease that has no slots so the
+      ticker stays suppressed. The
       agent keeps carried sets
       that retained slots still reference, and resolves those slots from the
       kept sets. Before install, an unknown `digest_version`, a carried-set

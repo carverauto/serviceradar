@@ -127,10 +127,17 @@ lease a sweep group only to an agent that reports
 `sweep_lease_plan_checks:v1`. A push with no slots SHALL use `lease_version`
 1. When that push has `revoked` true, the agent SHALL withdraw the lease and
 the group's local ticker SHALL resume. When `revoked` is false, the agent
-SHALL apply the push to the installed lease as an empty window replacement,
-SHALL drop installed slots whose start lies in that window, SHALL NOT store
-it as a version-1 slot lease, and SHALL NOT resume the ticker or leave the
-previous window in place. A push that carries slots at
+SHALL accept the push and merge it as `mergeSweepLease` does. The same lease
+id SHALL drop installed slots whose start lies in the push window, SHALL keep
+the installed production capability when the push carries none, SHALL
+normalize the window to the slots still held when any remain, and SHALL keep
+the push window when none remain. A different
+lease id SHALL replace the installed lease outright, so no previous-epoch
+slot keeps running. The stored lease SHALL be that merge, at the push's
+`lease_version` 1, and the ticker SHALL stay suppressed while it is held. On
+load, the agent SHALL discard a stored lease whose `lease_version` is not 2
+and that carries slots, and SHALL keep a held lease that has no slots so that
+group's ticker stays suppressed. A push that carries slots at
 `lease_version` 1 SHALL be refused. `sweep_lease_plan_checks:v1` names digest
 grammar 1, and core SHALL NOT send a check set whose `digest_version` the
 agent did not advertise. Before install, the agent SHALL validate the push's
@@ -182,14 +189,31 @@ terminal.
 - **AND** the previously installed lease SHALL stay in force and SHALL keep
   the group's local ticker suppressed
 
-#### Scenario: Empty window replacement
+#### Scenario: Same-lease empty push clears the window
 - **GIVEN** a valid lease for the group is already installed
-- **WHEN** core pushes `lease_version` 1 with no slots and `revoked` false
-- **THEN** the agent SHALL apply the push to the installed lease and drop
-  installed slots whose start lies in the push window
-- **AND** SHALL NOT store the push as a version-1 slot lease
+- **WHEN** core pushes `lease_version` 1 with no slots, `revoked` false, and
+  that same lease id
+- **THEN** the agent SHALL drop installed slots whose start lies in the push
+  window
+- **AND** SHALL keep the installed production capability
+- **AND** SHALL normalize the window to the slots still held when any remain
+- **AND** SHALL keep the push window when none remain
+- **AND** SHALL store that merge at `lease_version` 1
 - **AND** SHALL NOT resume the local ticker
-- **AND** SHALL NOT leave the previous window in place
+
+#### Scenario: A different lease id with no slots replaces the lease
+- **GIVEN** a valid lease for the group is already installed
+- **WHEN** core pushes `lease_version` 1 with no slots, `revoked` false, and
+  a different lease id
+- **THEN** the agent SHALL replace the installed lease with that push
+- **AND** no slot from the previous lease SHALL keep running
+- **AND** SHALL NOT resume the local ticker
+
+#### Scenario: A held empty lease survives reload
+- **GIVEN** the agent holds a lease with no slots
+- **WHEN** the agent loads its stored leases
+- **THEN** it SHALL keep that lease
+- **AND** SHALL NOT resume the group's local ticker
 
 #### Scenario: Tail push retains an earlier slot
 - **GIVEN** an installed slot whose start lies outside the tail window

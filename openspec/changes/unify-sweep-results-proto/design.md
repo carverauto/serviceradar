@@ -2505,15 +2505,18 @@ Otherwise a port-heavy profile would repeat thousands of checks across about
   the pages, the page and root digests and `sweep_static_plan_corpus.txt` do
   not change.
 - `SweepLeaseV1.lease_version` is 2 for a push that carries slots and 1 for
-  every push with no slots. The install gate follows that split and, when the
-  push has no slots, branches on `revoked`. `revoked` true withdraws the lease
-  and the ticker resumes. `revoked` false is the empty window replacement
-  `LeaseDelivery` already sends when the last unrun slot is dropped: the agent
-  installs it, drops installed slots whose start lies in the window, and does
-  not resume the ticker or leave the previous window in place. The clear is
-  applied to the installed lease and is not stored as a version-1 slot lease,
-  so the on-load discard of stored slot leases whose `lease_version` is not 2
-  does not drop that clear or resume the ticker. A
+  every push with no slots. `revoked` true withdraws the lease and the ticker
+  resumes. `revoked` false is installed by `mergeSweepLease`. The same lease
+  id drops installed slots whose start lies in the push window, keeps the
+  installed production capability when the push has none, normalizes the
+  window to the slots still held when any remain, and keeps the push window
+  when none remain. A different lease id, including the 1µs
+  empty window `LeaseDelivery` sends when the lease id changed and nothing is
+  unrun, replaces the installed lease outright, so no previous-epoch slot
+  keeps running. `mergeSweepLease` clones the push, so the stored lease stays
+  `lease_version` 1, and the ticker stays suppressed while that lease is held.
+  On load, discarding a stored slot lease whose `lease_version` is not 2 does
+  not delete a held lease that has no slots or resume its ticker. A
   slot-carrying push at `lease_version` 1 is refused with a `SweepLeaseAck`
   error, so an agent that cannot execute from carried checks does not run it
   from config. Both generations accept a `lease_version` 1 push that carries
@@ -2540,7 +2543,8 @@ not leased. The orders are covered without new state:
 - Agent first: old core pushes slots at `lease_version` 1 and the new agent
   refuses that push. On load the new agent discards stored slot leases whose
   `lease_version` is not 2, so no valid installed lease covers the group and
-  the group runs on its ticker. A revocation-only push at `lease_version` 1
+  the group runs on its ticker. A held lease with no slots stays installed
+  and its ticker stays suppressed. A revocation-only push at `lease_version` 1
   is installed. When core upgrades, the last
   slot-carrying push has no successful acknowledgement, so the existing
   Carrier rule sends a full window.
@@ -2557,9 +2561,10 @@ following replace `sweepChecks(cfg)` and the config-network comparison in
    each TCP mode on the same port list. Any other shape is an execution-time
    slot refusal with `UNSUPPORTED_PLAN`: the executor cannot express it, for
    example TCP modes that do not share one port list. An unknown
-   `digest_version` is not that refusal. A digest mismatch, a slot in the push
-   whose key matches no set in that push, a carried set no slot in the push
-   references, or a set that does not decode fails that push before install
+   `digest_version` is not that refusal. An unknown `digest_version`, a digest
+   mismatch, a slot in the push whose key matches no set in that push, a
+   carried set no slot in the push references, or a set that does not decode
+   fails that push before install
    and leaves any previously installed valid lease in force, with the local
    ticker suppressed. A retained slot resolves from the sets kept for it. The
    ticker runs only when no valid installed lease covers the
