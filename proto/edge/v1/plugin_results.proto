@@ -1,0 +1,232 @@
+/*
+ * Copyright 2026 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+syntax = "proto3";
+
+// Wasm plugin result domain output contract (`serviceradar.plugin_result.v1`).
+//
+// `WasmPluginResultBatchV1` is the canonical contract payload carried inside
+// `EdgeRecordV1.payload` for Wasm plugin results. One shared platform contract
+// covers all Wasm plugin result payloads (`PluginResultProvenanceV1` plus the
+// SDK's declared result kinds) so plugin authors never need custom core
+// contracts. Numeric plugin metrics are emitted through the shared
+// `serviceradar.metric.v1.MetricBatch` contract, never inside plugin results.
+// Every semantic, trust, and routing field (network scope, agent, source class,
+// authorization, execution context) is authoritative only in the enclosing
+// `EdgeRecordV1`.
+package serviceradar.edge.v1;
+
+option go_package = "github.com/carverauto/serviceradar/proto/edge/v1;edgev1";
+
+// PluginResultStatus is the normalized execution status of a Wasm plugin run
+// (`sdk.Status` in `serviceradar-sdk-go/v2/sdk/result.go`).
+enum PluginResultStatus {
+  PLUGIN_RESULT_STATUS_UNSPECIFIED = 0;
+  PLUGIN_RESULT_STATUS_OK = 1;
+  PLUGIN_RESULT_STATUS_WARNING = 2;
+  PLUGIN_RESULT_STATUS_CRITICAL = 3;
+  PLUGIN_RESULT_STATUS_UNKNOWN = 4;
+}
+
+// PluginResultProvenanceV1 carries the host-stamped provenance of a Wasm
+// plugin result (`ServiceRadar.Observability.PluginResultProvenance`): the
+// assignment, package, version, and SHA-256 module digest loaded by the agent
+// host runtime. The plugin guest payload never populates this message.
+message PluginResultProvenanceV1 {
+  string assignment_id = 1;
+  string plugin_id = 2;
+  string plugin_package_id = 3;
+  string plugin_version = 4;
+  string content_hash = 5;
+}
+
+// PluginDisplayInstructionV1 describes one declarative UI rendering instruction
+// (`sdk.DisplayWidget` in `serviceradar-sdk-go/v2/sdk/result.go`) attached to a
+// plugin result.
+message PluginDisplayInstructionV1 {
+  string widget = 1;
+  string label = 2;
+  string value = 3;
+  string tone = 4;
+  string layout = 5;
+  bytes data_json = 6;
+}
+
+// PluginEventEnvelopeV1 carries one OCSF Event Log Activity entry
+// (`sdk.OCSFEvent` in `serviceradar-sdk-go/v2/sdk/result.go`) emitted with a
+// plugin result. The typed fields are only the projection core routes on.
+// `payload_json` is the complete event.
+message PluginEventEnvelopeV1 {
+  string id = 1;
+  int64 time_unix_nano = 2;
+  uint32 class_uid = 3;
+  uint32 category_uid = 4;
+  uint32 type_uid = 5;
+  uint32 activity_id = 6;
+  string activity_name = 7;
+  uint32 severity_id = 8;
+  string severity = 9;
+  string message = 10;
+  // Complete `sdk.OCSFEvent` JSON the SDK already produces. Encoders MUST
+  // populate the whole event, including device, unmapped, metadata, log_name,
+  // and log_provider. Correlation and storage read this body.
+  bytes payload_json = 11;
+}
+
+// PluginDeviceLocationV1 carries mappable location metadata for a discovered
+// device (`sdk.DeviceLocation` in `serviceradar-sdk-go/v2/sdk/device_discovery.go`).
+// A site may be set with no coordinates. `latitude` is present only when
+// `has_latitude` is true, and `longitude` only when `has_longitude` is true.
+// A false flag means that coordinate was omitted, even when the double is 0.
+message PluginDeviceLocationV1 {
+  string site_code = 1;
+  string site_name = 2;
+  double latitude = 3;
+  double longitude = 4;
+  bool has_latitude = 5;
+  bool has_longitude = 6;
+}
+
+// PluginDiscoveredDeviceV1 describes one discovered or enriched inventory
+// device (`sdk.DiscoveredDevice` in `serviceradar-sdk-go/v2/sdk/device_discovery.go`).
+message PluginDiscoveredDeviceV1 {
+  string device_id = 1;
+  string hostname = 2;
+  string ip = 3;
+  string mac = 4;
+  string serial = 5;
+  string vendor_name = 6;
+  string model = 7;
+  string type = 8;
+  string role = 9;
+  string status = 10;
+  bool has_is_available = 11;
+  bool is_available = 12;
+  PluginDeviceLocationV1 location = 13;
+  map<string, string> labels = 14;
+  bytes metadata_json = 15;
+}
+
+// PluginDeviceDiscoveryItemV1 carries a plugin-emitted inventory discovery or
+// enrichment envelope (`sdk.DeviceDiscovery`, schema `serviceradar.device_discovery.v1`).
+message PluginDeviceDiscoveryItemV1 {
+  string schema = 1;
+  string collection_id = 2;
+  string source = 3;
+  string observed_at = 4;
+  string reference_hash = 5;
+  repeated PluginDiscoveredDeviceV1 devices = 6;
+  bytes metadata_json = 7;
+}
+
+// PluginAdvisoryFeedBatchV1 carries one normalized vulnerability advisory feed
+// batch (`sdk.AdvisoryFeedBatch`, schema `serviceradar.advisory_feed.contract.v1`).
+message PluginAdvisoryFeedBatchV1 {
+  string schema_version = 1;
+  string producer_id = 2;
+  bytes source_json = 3;
+  bytes snapshot_json = 4;
+  repeated bytes advisories_json = 5;
+  bytes metadata_json = 6;
+}
+
+// PluginStagedArtifactV1 references a gateway-brokered staged object artifact
+// (`sdk.ArtifactCommitResponse` / `ServiceRadar.NetworkConfig.PluginIngestor`)
+// committed before the result.
+message PluginStagedArtifactV1 {
+  string object_key = 1;
+  string content_type = 2;
+  string sha256 = 3;
+  int64 size_bytes = 4;
+  map<string, string> attributes = 5;
+}
+
+// PluginActionResultV1 carries the outcome of a northbound action invocation
+// (`sdk.ActionResult`, schema `serviceradar.northbound_action_result.v1`).
+message PluginActionResultV1 {
+  string schema = 1;
+  string status = 2;
+  bytes summary_json = 3;
+  string external_correlation_id = 4;
+  bytes continuation_state_json = 5;
+  string poll_mode = 6;
+  string next_poll_at = 7;
+  uint32 next_poll_delay_seconds = 8;
+  string poll_deadline_at = 9;
+  uint32 max_duration_seconds = 10;
+  bytes targets_json = 11;
+  string error_class = 12;
+  string error_message = 13;
+  bytes metadata_json = 14;
+  // JSON array of sdk.RunOverrideOperation, the `run_overrides` field on
+  // sdk.ActionResult. Decoders MUST surface this array as `run_overrides` for
+  // ServiceRadar.Plugins.RunOverrides.operations/1 and
+  // CommandResultHandler.apply_run_overrides. targets_json does not carry it.
+  bytes run_overrides_json = 15;
+}
+
+// PluginContractPayloadV1 is a schema-versioned envelope for declared SDK
+// domain result payloads carried inside a plugin result item (such as
+// interface config checks, hypervisor/Proxmox enrichment, Wi-Fi map batches,
+// threat-intel indicator pages, and camera source descriptors/events).
+message PluginContractPayloadV1 {
+  string schema = 1;
+  uint32 schema_version = 2;
+  bytes payload_json = 3;
+}
+
+// WasmPluginResultItemV1 is one plugin check execution result (`sdk.Result`)
+// and its attached SDK domain outputs consumed by `PluginResultIngestor` and
+// its registered `platform_contract_handlers`.
+message WasmPluginResultItemV1 {
+  uint32 schema_version = 1;
+  PluginResultStatus status = 2;
+  string summary = 3;
+  string details = 4;
+  string perfdata = 5;
+  map<string, string> labels = 6;
+  int64 observed_at_unix_nano = 7;
+  bool alert_hint = 8;
+  string condition_id = 9;
+  string check_instance_id = 10;
+  string monitored_service_id = 11;
+  string device_uid = 12;
+  string service_name = 13;
+  string service_type = 14;
+  // Host-authored `run_overrides_acknowledged` list populated from
+  // `PluginResult.AcknowledgedRunOverrides` (`RunOverrideAckIngestor`).
+  repeated string run_overrides_acknowledged = 15;
+  repeated PluginDisplayInstructionV1 display = 16;
+  repeated PluginEventEnvelopeV1 events = 17;
+  repeated PluginDeviceDiscoveryItemV1 device_discovery = 18;
+  repeated PluginAdvisoryFeedBatchV1 advisory_feeds = 19;
+  PluginStagedArtifactV1 staged_artifact = 20;
+  PluginContractPayloadV1 interface_config_checks = 21;
+  PluginContractPayloadV1 hypervisor_enrichment = 22;
+  PluginContractPayloadV1 proxmox_enrichment = 23;
+  PluginContractPayloadV1 wifi_map_batch = 24;
+  PluginContractPayloadV1 threat_intel_page = 25;
+  repeated PluginContractPayloadV1 camera_descriptors = 26;
+  PluginActionResultV1 action_result = 27;
+  repeated PluginContractPayloadV1 contract_payloads = 28;
+}
+
+// WasmPluginResultBatchV1 is the shared `serviceradar.plugin_result.v1` batch
+// payload carried inside `EdgeRecordV1.payload`.
+message WasmPluginResultBatchV1 {
+  PluginResultProvenanceV1 provenance = 1;
+  repeated WasmPluginResultItemV1 results = 2;
+}
