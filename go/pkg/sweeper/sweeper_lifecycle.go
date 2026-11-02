@@ -43,14 +43,11 @@ func (s *NetworkSweeper) Start(ctx context.Context) error {
 	if s.manualSchedule.Load() {
 		s.logger.Info().Msg("Manual schedule active, skipping initial sweep")
 	} else {
-		initialCtx, initialCancel := context.WithTimeout(ctx, effectiveScanTimeout(s.config))
-		if err := s.runSweepWithLock(initialCtx); err != nil {
+		if err := s.runSweepWithLock(ctx); err != nil {
 			s.logRunError(err, "Initial sweep failed")
 		} else {
 			s.logger.Info().Msg("Initial sweep completed successfully")
 		}
-
-		initialCancel()
 	}
 
 	ticker := time.NewTicker(s.config.Interval)
@@ -81,14 +78,11 @@ func (s *NetworkSweeper) Start(ctx context.Context) error {
 
 			s.logger.Debug().Time("tickTime", t).Msg("Ticker fired, starting periodic sweep")
 
-			sweepCtx, sweepCancel := context.WithTimeout(ctx, effectiveScanTimeout(s.config))
-			if err := s.runSweepWithLock(sweepCtx); err != nil {
+			if err := s.runSweepWithLock(ctx); err != nil {
 				s.logRunError(err, "Periodic sweep failed")
 			} else {
 				s.logger.Debug().Msg("Periodic sweep completed successfully")
 			}
-
-			sweepCancel()
 		}
 	}
 }
@@ -137,10 +131,7 @@ func (s *NetworkSweeper) RunOnceWithObserver(ctx context.Context, executionID st
 
 	s.ensureScannersInitialized()
 
-	sweepCtx, sweepCancel := context.WithTimeout(ctx, effectiveScanTimeout(s.config))
-	defer sweepCancel()
-
-	if err := s.runSweepWithObserver(sweepCtx, executionID, nil, observer); err != nil {
+	if err := s.runSweepWithObserver(ctx, executionID, nil, observer); err != nil {
 		s.logRunError(err, "Run-once sweep failed")
 		return err
 	}
@@ -200,14 +191,7 @@ func (s *NetworkSweeper) RunPlannedWithObserver(
 		return &cfg
 	}
 
-	s.mu.Lock()
-	timeout := effectiveScanTimeout(s.config)
-	s.mu.Unlock()
-
-	sweepCtx, sweepCancel := context.WithTimeout(ctx, timeout)
-	defer sweepCancel()
-
-	if err := s.runSweepWithObserver(sweepCtx, executionID, planned, observer); err != nil {
+	if err := s.runSweepWithObserver(ctx, executionID, planned, observer); err != nil {
 		s.logRunError(err, "Planned sweep failed")
 		return err
 	}

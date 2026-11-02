@@ -165,11 +165,6 @@ func (s *NetworkSweeper) runSweepWithObserver(
 		return err
 	}
 
-	runCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	run := &sweepRun{cancel: cancel}
-
 	s.mu.Lock()
 	cfg := s.config
 	if derive != nil {
@@ -177,6 +172,10 @@ func (s *NetworkSweeper) runSweepWithObserver(
 		// The plan's modes, not the config's, decide which scanners the run needs.
 		s.ensureScannersInitializedLocked(cfg)
 	}
+	runCtx, cancel := context.WithTimeout(ctx, effectiveScanTimeout(cfg))
+	defer cancel()
+
+	run := &sweepRun{cancel: cancel}
 	s.activeRun = run
 	s.runExecutionID = executionID
 	s.resultObserver = observer
