@@ -113,6 +113,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                   <label class="flex cursor-pointer items-center gap-2 gap-2">
                     <span class="text-sm font-medium text-sr-ink">Enabled</span>
                     <input
+                      type="hidden"
+                      name="settings[is_enabled]"
+                      value="false"
+                      disabled={password_only_mode?(@form[:mode].value)}
+                    />
+                    <input
                       type="checkbox"
                       name="settings[is_enabled]"
                       value="true"
@@ -295,6 +301,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                     </div>
                     <label class="flex cursor-pointer items-center gap-2 gap-2">
                       <span class="text-sm font-medium text-sr-ink">Enabled</span>
+                      <input type="hidden" name="settings[sso_auto_provision]" value="false" />
                       <input
                         type="checkbox"
                         name="settings[sso_auto_provision]"
@@ -983,12 +990,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
   # Infer which IdP preset matches the persisted claim mappings so the correct
   # preset button is highlighted when the page reloads.
   defp infer_idp_preset(settings) when is_map(settings) do
-    mappings = Map.get(settings, :claim_mappings, %{})
+    mappings = Map.get(settings, :claim_mappings) || %{}
 
     cond do
       Map.get(mappings, "email") == "preferred_username" -> "entra"
       Map.get(mappings, "sub") == "sub" and
-          String.contains?(Map.get(settings, :oidc_scopes, ""), "offline_access") ->
+          String.contains?(Map.get(settings, :oidc_scopes) || "", "offline_access") ->
         "authentik"
       true -> "generic"
     end
@@ -1082,7 +1089,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
     {:noreply,
      socket
      |> assign(:form, to_form(form_data, as: :settings))
-     |> assign(:idp_preset, "generic")
+     |> assign(:idp_preset, infer_idp_preset(settings))
      |> put_flash(:info, "Form reset to saved values.")}
   end
 
