@@ -584,7 +584,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
   describe "ingest/4 of unleased sweep results records" do
     test "a fresh record ingests its hosts through the sweep results ingest under the authenticated agent" do
-      frame = build_unleased_sweep_frame()
+      frame = build_unleased_sweep_frame(gateway_header: "gw-at-publish")
 
       assert {:ok, :inserted} =
                EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
@@ -612,7 +612,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
     end
 
     test "a redelivered record is a replay and ingests nothing again" do
-      frame = build_unleased_sweep_frame()
+      frame = build_unleased_sweep_frame(gateway_header: "gw-at-publish")
 
       assert {:ok, :inserted} = EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo)
       before = Repo.get!(SweepGroupExecution, frame.execution_id)
@@ -662,6 +662,37 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
       assert unleased_host_results(frame.execution_id) == []
       assert ledger_count(refused.record) == 0
+    end
+
+    test "the publishing gateway header is the service state gateway id" do
+      frame =
+        build_unleased_sweep_frame(gateway?: true, gateway_header: "gw-at-publish")
+
+      assert frame.gateway_id != "gw-at-publish"
+
+      assert {:ok, :inserted} = EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo)
+
+      assert network_sweep_gateway(frame.agent_id) == "gw-at-publish"
+    end
+
+    test "a record with no publishing gateway header uses the agent gateway column" do
+      frame = build_unleased_sweep_frame(gateway?: true)
+
+      assert {:ok, :inserted} = EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo)
+
+      assert network_sweep_gateway(frame.agent_id) == frame.gateway_id
+    end
+
+    test "a record with no gateway header and no agent gateway is refused" do
+      frame = build_unleased_sweep_frame()
+
+      assert {:error, {:refused, :gateway_unknown}} =
+               EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo)
+
+      assert network_sweep_gateway(frame.agent_id) == nil
+      assert unleased_host_results(frame.execution_id) == []
+      assert Repo.get(SweepGroupExecution, frame.execution_id) == nil
+      assert ledger_count(frame.record) == 0
     end
   end
 
@@ -826,6 +857,17 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
           )
         )
     }
+  end
+
+  defp network_sweep_gateway(agent_id) do
+    Repo.one(
+      Ecto.Query.from(s in ServiceState,
+        where:
+          s.agent_id == ^agent_id and s.service_type == "sweep" and
+            s.service_name == "network_sweep",
+        select: s.gateway_id
+      )
+    )
   end
 
   defp unleased_host_results(execution_id) do
@@ -1419,6 +1461,12 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       "Sr-Edge-Delivery-Id" => delivery_id,
       "Sr-Edge-Transport-Provenance" => provenance
     }
+
+    headers =
+      case Keyword.get(opts, :gateway_header) do
+        id when is_binary(id) and id != "" -> Map.put(headers, "Sr-Edge-Gateway-Id", id)
+        _ -> headers
+      end
 
     %{record_bytes: record_bytes, headers: headers, record: record, batch: batch, slot: slot}
   end

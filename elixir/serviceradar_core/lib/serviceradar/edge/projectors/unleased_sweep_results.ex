@@ -15,8 +15,9 @@ defmodule ServiceRadar.Edge.Projectors.UnleasedSweepResults do
 
   Before ingesting it re-checks the record's standing grant (`OutputGrants.check_current/5`); a
   grant that is not current refuses the record. The agent id is the authenticated record
-  principal, the partition is the record's network scope and the gateway is the agent's, never
-  values from the body.
+  principal and the partition is the record's network scope. The gateway id is the publishing
+  gateway's `Sr-Edge-Gateway-Id` header, or the agent's gateway when that header is absent.
+  Neither is taken from the body. A record with neither is refused.
 
   Each host's fields beyond its frozen observation travel in `host_results`: the agent's own
   availability verdict, its response and round-trip times in nanoseconds, every port result in
@@ -82,29 +83,30 @@ defmodule ServiceRadar.Edge.Projectors.UnleasedSweepResults do
 
   @doc """
   Ingests a primary delivery's results through the legacy results path. A replay or late-fenced
-  delivery writes nothing. A grant that is not current, or a network scope with no partition,
-  rolls the record back as refused. Results the legacy path declines commit as they do there:
-  logged, with whatever the ingest recorded kept.
+  delivery writes nothing. A grant that is not current, a network scope with no partition, or a
+  record with no gateway id rolls the record back as refused. Results the legacy path declines
+  commit as they do there: logged, with whatever the ingest recorded kept.
   """
   @impl true
   def project(repo, %EdgeRecordV1{} = record, %UnleasedSweepResultsBatchV1{} = batch, %{
         primary?: true
-      }) do
-    context = record.producer_context
+      } = context) do
+    producer = record.producer_context
     network_scope_id = Ecto.UUID.load!(record.network_scope_id)
-    agent_id = context.origin_principal_id
+    agent_id = producer.origin_principal_id
 
     with :ok <-
            OutputGrants.check_current(
-             Ecto.UUID.load!(context.producer_assignment_id),
+             Ecto.UUID.load!(producer.producer_assignment_id),
              agent_id,
              record.output_contract.contract_id,
              network_scope_id,
-             context.authority_epoch
+             producer.authority_epoch
            ),
-         %Partition{slug: partition} <- repo.get(Partition, network_scope_id) do
+         %Partition{slug: partition} <- repo.get(Partition, network_scope_id),
+         {:ok, gateway_id} <- sweep_gateway(repo, agent_id, context.gateway_id) do
       batch
-      |> status(agent_id, gateway_id(repo, agent_id), partition)
+      |> status(agent_id, gateway_id, partition)
       |> ResultIngestor.process_and_publish()
       |> case do
         :ok -> :ok
@@ -142,10 +144,16 @@ defmodule ServiceRadar.Edge.Projectors.UnleasedSweepResults do
     }
   end
 
-  defp gateway_id(repo, agent_id) do
+  defp sweep_gateway(_repo, _agent_id, header) when is_binary(header) and header != "",
+    do: {:ok, header}
+
+  defp sweep_gateway(repo, agent_id, _header) do
     case repo.get(Agent, agent_id) do
-      %Agent{gateway_id: gateway_id} when is_binary(gateway_id) and gateway_id != "" -> gateway_id
-      _ -> "unknown"
+      %Agent{gateway_id: gateway_id} when is_binary(gateway_id) and gateway_id != "" ->
+        {:ok, gateway_id}
+
+      _ ->
+        {:error, {:refused, :gateway_unknown}}
     end
   end
 

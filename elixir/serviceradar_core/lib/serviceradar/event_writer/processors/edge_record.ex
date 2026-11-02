@@ -107,9 +107,9 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
 
   Returns `{:ok, :inserted | :replay}` or `{:error, reason}`. `reason` is
   `{:delivery_slot_conflict, existing}`, `{:event_id_conflict, existing}`,
-  `{:sweep_batch_slot_conflict, existing}`, `:output_grant_not_current`, a
-  header/slot decode reason, or a wire-decode reason from
-  `ServiceRadar.Edge.WireDecode`. A metrics publish failure other than
+  `{:sweep_batch_slot_conflict, existing}`, `:output_grant_not_current`,
+  `{:refused, :gateway_unknown}`, a header/slot decode reason, or a wire-decode
+  reason from `ServiceRadar.Edge.WireDecode`. A metrics publish failure other than
   `:output_grant_not_current` raises before the ledger transaction, so no
   ledger row is written and `process_batch/1` fails the batch for JetStream
   redelivery. A domain projection failure that is not an authority refusal
@@ -138,6 +138,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
         record,
         {projector, body},
         record_sha256,
+        header_set.gateway_id,
         Keyword.get(opts, :test_hook)
       )
     else
@@ -198,7 +199,15 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
     end
   end
 
-  defp run_transaction(repo, provenance, record, {projector, body}, record_sha256, test_hook) do
+  defp run_transaction(
+         repo,
+         provenance,
+         record,
+         {projector, body},
+         record_sha256,
+         gateway_id,
+         test_hook
+       ) do
     network_scope_id = record.network_scope_id
     event_id = record.event_id
     semantic_digest = record.semantic_envelope_sha256
@@ -215,7 +224,8 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
                ),
              {:ok, ledger_outcome} <-
                upsert_ledger(repo, network_scope_id, event_id, semantic_digest, record_sha256),
-             :ok <- project(repo, provenance, record, projector, body, ledger_outcome) do
+             :ok <-
+               project(repo, provenance, record, projector, body, ledger_outcome, gateway_id) do
           run_test_hook(test_hook, :before_commit, event_id, {:ok, ledger_outcome})
           ledger_outcome
         else
@@ -231,11 +241,12 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
     end
   end
 
-  defp project(repo, provenance, record, projector, body, ledger_outcome) do
+  defp project(repo, provenance, record, projector, body, ledger_outcome, gateway_id) do
     if function_exported?(projector, :project, 4) do
       projector.project(repo, record, body, %{
         ledger: ledger_outcome,
-        primary?: primary?(provenance, ledger_outcome)
+        primary?: primary?(provenance, ledger_outcome),
+        gateway_id: gateway_id
       })
     else
       :ok

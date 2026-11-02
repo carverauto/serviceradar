@@ -16,7 +16,11 @@ defmodule ServiceRadar.Edge.Projector do
 
   alias Serviceradar.Edge.V1.EdgeRecordV1
 
-  @type context :: %{ledger: :inserted | :replay, primary?: boolean()}
+  @type context :: %{
+          ledger: :inserted | :replay,
+          primary?: boolean(),
+          gateway_id: String.t() | nil
+        }
 
   @callback decode(EdgeRecordV1.t()) :: {:ok, term()} | {:error, term()}
   @callback publish(EdgeRecordV1.t(), term(), keyword()) ::
