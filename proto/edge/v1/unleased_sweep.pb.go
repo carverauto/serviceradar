@@ -65,9 +65,13 @@ type UnleasedSweepResultsBatchV1 struct {
 	BatchCompletedAtUnixNano uint64 `protobuf:"varint,7,opt,name=batch_completed_at_unix_nano,json=batchCompletedAtUnixNano,proto3" json:"batch_completed_at_unix_nano,omitempty"`
 	// Completion timestamp (`last_sweep`) in Unix nanoseconds.
 	LastSweepUnixNano uint64 `protobuf:"varint,8,opt,name=last_sweep_unix_nano,json=lastSweepUnixNano,proto3" json:"last_sweep_unix_nano,omitempty"`
-	ChunkIndex        uint32 `protobuf:"varint,9,opt,name=chunk_index,json=chunkIndex,proto3" json:"chunk_index,omitempty"`
-	TotalChunks       uint32 `protobuf:"varint,10,opt,name=total_chunks,json=totalChunks,proto3" json:"total_chunks,omitempty"`
-	IsFinal           bool   `protobuf:"varint,11,opt,name=is_final,json=isFinal,proto3" json:"is_final,omitempty"`
+	// Anchor for `SweepHostObservationV1` deltas. Absolute host time is
+	// observed_at_unix_nano + delta, matching `SweepObservationBatchV1`.
+	// batch_started, batch_completed, and last_sweep stay summary clocks.
+	ObservedAtUnixNano int64  `protobuf:"varint,22,opt,name=observed_at_unix_nano,json=observedAtUnixNano,proto3" json:"observed_at_unix_nano,omitempty"`
+	ChunkIndex         uint32 `protobuf:"varint,9,opt,name=chunk_index,json=chunkIndex,proto3" json:"chunk_index,omitempty"`
+	TotalChunks        uint32 `protobuf:"varint,10,opt,name=total_chunks,json=totalChunks,proto3" json:"total_chunks,omitempty"`
+	IsFinal            bool   `protobuf:"varint,11,opt,name=is_final,json=isFinal,proto3" json:"is_final,omitempty"`
 	// True when the sweep cycle was cancelled due to wall-clock scan timeout (`cancelled`).
 	IsCancelled bool `protobuf:"varint,12,opt,name=is_cancelled,json=isCancelled,proto3" json:"is_cancelled,omitempty"`
 	// Total hosts in the sweep summary (`total_hosts`), emitted as `sweep.total_hosts`.
@@ -174,6 +178,13 @@ func (x *UnleasedSweepResultsBatchV1) GetBatchCompletedAtUnixNano() uint64 {
 func (x *UnleasedSweepResultsBatchV1) GetLastSweepUnixNano() uint64 {
 	if x != nil {
 		return x.LastSweepUnixNano
+	}
+	return 0
+}
+
+func (x *UnleasedSweepResultsBatchV1) GetObservedAtUnixNano() int64 {
+	if x != nil {
+		return x.ObservedAtUnixNano
 	}
 	return 0
 }
@@ -764,7 +775,7 @@ var File_edge_v1_unleased_sweep_proto protoreflect.FileDescriptor
 
 const file_edge_v1_unleased_sweep_proto_rawDesc = "" +
 	"\n" +
-	"\x1cedge/v1/unleased_sweep.proto\x12\x14serviceradar.edge.v1\x1a\x13edge/v1/sweep.proto\"\xfc\b\n" +
+	"\x1cedge/v1/unleased_sweep.proto\x12\x14serviceradar.edge.v1\x1a\x13edge/v1/sweep.proto\"\xaf\t\n" +
 	"\x1bUnleasedSweepResultsBatchV1\x12!\n" +
 	"\fexecution_id\x18\x01 \x01(\fR\vexecutionId\x12$\n" +
 	"\x0esweep_group_id\x18\x02 \x01(\fR\fsweepGroupId\x12%\n" +
@@ -773,7 +784,8 @@ const file_edge_v1_unleased_sweep_proto_rawDesc = "" +
 	"\bsequence\x18\x05 \x01(\x04R\bsequence\x12:\n" +
 	"\x1abatch_started_at_unix_nano\x18\x06 \x01(\x04R\x16batchStartedAtUnixNano\x12>\n" +
 	"\x1cbatch_completed_at_unix_nano\x18\a \x01(\x04R\x18batchCompletedAtUnixNano\x12/\n" +
-	"\x14last_sweep_unix_nano\x18\b \x01(\x04R\x11lastSweepUnixNano\x12\x1f\n" +
+	"\x14last_sweep_unix_nano\x18\b \x01(\x04R\x11lastSweepUnixNano\x121\n" +
+	"\x15observed_at_unix_nano\x18\x16 \x01(\x03R\x12observedAtUnixNano\x12\x1f\n" +
 	"\vchunk_index\x18\t \x01(\rR\n" +
 	"chunkIndex\x12!\n" +
 	"\ftotal_chunks\x18\n" +

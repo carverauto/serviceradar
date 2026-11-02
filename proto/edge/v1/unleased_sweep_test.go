@@ -39,6 +39,7 @@ func TestUnleasedSweepResultsBatchRoundTrip(t *testing.T) {
 		BatchStartedAtUnixNano:   uint64(fixedNanos),
 		BatchCompletedAtUnixNano: uint64(fixedNanos + 2_500_000_000),
 		LastSweepUnixNano:        uint64(fixedNanos + 2_500_000_000),
+		ObservedAtUnixNano:       fixedNanos + 1_000_000_000,
 		ChunkIndex:               0,
 		TotalChunks:              1,
 		IsFinal:                  true,
@@ -188,6 +189,21 @@ func TestUnleasedSweepResultsBatchRoundTrip(t *testing.T) {
 	}
 	if got := len(decoded.GetPortCounts()); got != 2 {
 		t.Fatalf("len(PortCounts) = %d, want 2", got)
+	}
+	const (
+		hostAInstant = fixedNanos + 1_000_000_000 + 125_000_000
+		hostBInstant = fixedNanos + 1_000_000_000 + 240_000_000
+	)
+	if got := decoded.GetObservedAtUnixNano() + decoded.GetHosts()[0].GetObservedAtDeltaNano(); got != hostAInstant {
+		t.Fatalf("host A instant = %d, want %d", got, hostAInstant)
+	}
+	if got := decoded.GetObservedAtUnixNano() + decoded.GetHosts()[1].GetObservedAtDeltaNano(); got != hostBInstant {
+		t.Fatalf("host B instant = %d, want %d", got, hostBInstant)
+	}
+	if int64(decoded.GetBatchStartedAtUnixNano())+125_000_000 == hostAInstant ||
+		int64(decoded.GetBatchCompletedAtUnixNano())+125_000_000 == hostAInstant ||
+		int64(decoded.GetLastSweepUnixNano())+125_000_000 == hostAInstant {
+		t.Fatal("host A instant is a summary clock plus delta")
 	}
 }
 

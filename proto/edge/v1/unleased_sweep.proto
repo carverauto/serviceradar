@@ -49,6 +49,10 @@ message UnleasedSweepResultsBatchV1 {
   uint64 batch_completed_at_unix_nano = 7;
   // Completion timestamp (`last_sweep`) in Unix nanoseconds.
   uint64 last_sweep_unix_nano = 8;
+  // Anchor for `SweepHostObservationV1` deltas. Absolute host time is
+  // observed_at_unix_nano + delta, matching `SweepObservationBatchV1`.
+  // batch_started, batch_completed, and last_sweep stay summary clocks.
+  int64 observed_at_unix_nano = 22;
   uint32 chunk_index = 9;
   uint32 total_chunks = 10;
   bool is_final = 11;

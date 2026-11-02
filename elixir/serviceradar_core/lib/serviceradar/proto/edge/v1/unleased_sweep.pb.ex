@@ -14,6 +14,7 @@ defmodule Serviceradar.Edge.V1.UnleasedSweepResultsBatchV1 do
   field :batch_started_at_unix_nano, 6, type: :uint64, json_name: "batchStartedAtUnixNano"
   field :batch_completed_at_unix_nano, 7, type: :uint64, json_name: "batchCompletedAtUnixNano"
   field :last_sweep_unix_nano, 8, type: :uint64, json_name: "lastSweepUnixNano"
+  field :observed_at_unix_nano, 22, type: :int64, json_name: "observedAtUnixNano"
   field :chunk_index, 9, type: :uint32, json_name: "chunkIndex"
   field :total_chunks, 10, type: :uint32, json_name: "totalChunks"
   field :is_final, 11, type: :bool, json_name: "isFinal"
