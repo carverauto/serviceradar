@@ -130,7 +130,7 @@ func TestRunPlannedWithObserverIgnoresConfigUpdateDuringRun(t *testing.T) {
 // The plan, not the config, decides which scanners a planned run needs: a
 // TCP-connect plan runs on a sweeper configured for ICMP only.
 func TestRunPlannedWithObserverRunsModesTheConfigLacks(t *testing.T) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = listener.Close() })
 	go func() {
