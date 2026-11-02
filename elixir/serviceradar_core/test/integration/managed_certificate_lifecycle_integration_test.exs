@@ -4,8 +4,12 @@ defmodule ServiceRadar.Edge.ManagedCertificateLifecycleIntegrationTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Edge.ComponentCertificateAuthority, as: Authority
+  alias ServiceRadar.Edge.EdgeSite
   alias ServiceRadar.Edge.ManagedCertificateLifecycle, as: Lifecycle
+  alias ServiceRadar.Edge.ManagedComponent
+  alias ServiceRadar.Edge.ManagedComponentRegistration
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.ProcessRegistry
 
   @moduletag :integration
 
@@ -29,6 +33,51 @@ defmodule ServiceRadar.Edge.ManagedCertificateLifecycleIntegrationTest do
       )
 
     %{opts: opts, component: component}
+  end
+
+  test "first registration creates a host-bound leaf and repeating it preserves the binding",
+       ctx do
+    host = ctx.component.host_agent_id
+    partition = "example-partition"
+    key = {:agent_control, partition, host, node()}
+
+    assert {:ok, _} =
+             ProcessRegistry.register(key, %{
+               agent_id: host,
+               partition_id: partition,
+               gateway_node: node(),
+               capabilities: []
+             })
+
+    site =
+      EdgeSite
+      |> Ash.Changeset.for_create(
+        :create,
+        %{name: "Example managed site", slug: "example-#{Ecto.UUID.generate()}"},
+        ctx.opts
+      )
+      |> Ash.create!(ctx.opts)
+
+    params = %{
+      "host_agent_id" => host,
+      "service" => "nats-leaf",
+      "edge_site_id" => site.id,
+      "advertise_url" => "tls://leaf.example.com:4222"
+    }
+
+    assert {:ok, first} = ManagedComponentRegistration.register(params, ctx.opts)
+    assert first.component_id == "leaf-#{site.slug}"
+    assert first.host_agent_id == host
+    assert first.partition_id == partition
+    assert first.generation == 1
+    assert {:ok, stored} = Ash.get(ManagedComponent, first.component_id, ctx.opts)
+    assert stored.edge_site_id == site.id
+
+    assert {:ok, repeated} = ManagedComponentRegistration.register(params, ctx.opts)
+    assert repeated.component_id == first.component_id
+    assert repeated.generation == first.generation
+
+    assert :ok = ProcessRegistry.unregister(key)
   end
 
   test "retries reuse the durable preparation request and revocation fences later work", ctx do
