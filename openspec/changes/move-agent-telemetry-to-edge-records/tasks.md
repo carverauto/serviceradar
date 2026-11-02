@@ -70,8 +70,11 @@
 
 ## 7. Inventory producers
 
-- [ ] 7.1 Typed batch contracts for mapper, netprobe discovery, sync pages, workload identity,
-  endpoint inventory, bumblebee and k8s endpoints.
+- [x] 7.1 Typed batch contracts for mapper, netprobe discovery, sync pages, workload identity,
+  endpoint inventory, bumblebee and k8s endpoints. Mapper, netprobe discovery, and sync pages
+  are `proto/edge/v1/json_producer_batches.proto`. Workload identity, endpoint inventory,
+  bumblebee, and k8s endpoints are `workload_identity.proto`, `endpoint_inventory.proto`,
+  `bumblebee.proto`, and `k8s_endpoints.proto`, with checked-in Go and Elixir bindings.
 - [ ] 7.2 Producers and projectors; parity soak.
 
 ## 8. Cutover
