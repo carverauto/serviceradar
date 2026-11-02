@@ -203,9 +203,11 @@ of the lease horizon: a UUIDv7 `execution_id` whose time is the slot start, the
 slot's collection window, and the plan and range digests of that execution's
 plan (see "Plan inputs"). A group is leased only when it is enabled, has
 non-empty `static_targets`, no `target_query`, every static target fits one
-`TargetRangeV1`, its effective banner grabbing is off, its effective checks are
-a plan check set (ICMP and TCP only; see "Plan inputs"), and its schedule is an
-interval of at least five minutes or a cron expression. Interval slots start
+`TargetRangeV1`, its effective banner grabbing is off, and its schedule is an
+interval of at least five minutes or a cron expression. An agent of that group
+is leased only when the checks in the sweep config delivered to that agent are
+a plan check set (ICMP and TCP only; see "Plan inputs"). An agent that can run
+none of the group's modes is not leased. Interval slots start
 on multiples of the interval counted from the Unix epoch, and cron slots are
 that expression's fires; each slot ends where the next starts. A group with a
 `target_query`, whether or not it also has static targets, stays entirely on
@@ -256,8 +258,8 @@ starts from a full lease.
 lease in step. It stores nothing of its own, so a crash part-way through is
 caught up by the next run, and it reads nothing more while no scope enables
 leasing and no assignment is active. It revokes every active assignment of a
-group that is not eligible, and of every agent the group no longer runs on or
-for which leasing is off. A group runs on its `agent_ids`, or, when that list
+group that is not eligible, and of every agent the group no longer runs on,
+for which leasing is off, or whose delivered checks are not a plan check set. A group runs on its `agent_ids`, or, when that list
 is empty, on every agent whose device is in the group's partition. An agent's
 network scope is the partition of its own device, and an agent with no device
 is not leased, because core has no partition it can vouch for. A missing
@@ -392,10 +394,14 @@ here:
   digest version 1, the count of checks and each `(mode, protocol, port)` check
   sorted ascending and de-duplicated, where `mode` and `protocol` are the
   `SweepMode` and `TransportProtocol` enum values and `port` is 0 for ICMP. The
-  checks are the group's compiled effective modes and ports, after profile and
-  override inheritance: ICMP once, and each TCP mode (SYN, connect) on every
-  port. `arp` and blank modes are ignored, as the agent ignores them, and `mtr`
-  makes the group ineligible. The encoding is pinned by
+  checks are the modes and ports in the sweep config delivered to that agent
+  (`SweepCompiler.agent_scan_modes/3`: profile as base, group overrides on top,
+  then `icmp` withheld when the agent reports `icmp.unavailable` and `mtr`
+  withheld when it reports `mtr.unavailable`): ICMP once, and each TCP mode
+  (SYN, connect) on every port. `arp` and blank modes are ignored, as the agent
+  ignores them. `mtr` still in that agent's modes makes that agent ineligible;
+  an agent that reports `mtr.unavailable` is leased the remaining ICMP and TCP
+  checks. The encoding is pinned by
   `proto/edge/v1/testdata/sweep_static_plan_corpus.txt`, which Go recomputes
   independently.
 - `availability_policy_id` is `any-success-v1`: a host is available when any of
