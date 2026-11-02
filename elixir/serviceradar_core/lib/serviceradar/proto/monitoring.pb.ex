@@ -33,6 +33,21 @@ defmodule Monitoring.MacProvenance do
   field :MAC_PROVENANCE_ASSIGNED, 4
 end
 
+defmodule Monitoring.SweepLeaseSlotRefusalReason do
+  @moduledoc false
+
+  use Protobuf,
+    enum: true,
+    full_name: "monitoring.SweepLeaseSlotRefusalReason",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :SWEEP_LEASE_SLOT_REFUSAL_REASON_UNSPECIFIED, 0
+  field :SWEEP_LEASE_SLOT_REFUSAL_REASON_CHECK_UNAVAILABLE, 1
+  field :SWEEP_LEASE_SLOT_REFUSAL_REASON_UNSUPPORTED_PLAN, 2
+  field :SWEEP_LEASE_SLOT_REFUSAL_REASON_INVALID_PLAN, 3
+end
+
 defmodule Monitoring.SNMPVersion do
   @moduledoc false
 
@@ -935,6 +950,11 @@ defmodule Monitoring.ControlStreamRequest do
   field :config_ack, 5, type: Monitoring.ConfigAck, json_name: "configAck", oneof: 0
   field :console_frame, 6, type: Monitoring.ConsoleFrame, json_name: "consoleFrame", oneof: 0
   field :sweep_lease_ack, 7, type: Monitoring.SweepLeaseAck, json_name: "sweepLeaseAck", oneof: 0
+
+  field :sweep_lease_slot_refusal, 8,
+    type: Monitoring.SweepLeaseSlotRefusal,
+    json_name: "sweepLeaseSlotRefusal",
+    oneof: 0
 end
 
 defmodule Monitoring.ControlStreamResponse do
@@ -989,6 +1009,28 @@ defmodule Monitoring.SweepLeaseAck do
   field :error, 5, type: :string
   field :installed_through_unix_nano, 6, type: :int64, json_name: "installedThroughUnixNano"
   field :installed_slot_count, 7, type: :uint32, json_name: "installedSlotCount"
+end
+
+defmodule Monitoring.SweepLeaseSlotRefusal do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.SweepLeaseSlotRefusal",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :sweep_group_id, 1, type: :string, json_name: "sweepGroupId"
+  field :lease_id, 2, type: :bytes, json_name: "leaseId"
+  field :execution_id, 3, type: :bytes, json_name: "executionId"
+  field :reason, 4, type: Monitoring.SweepLeaseSlotRefusalReason, enum: true
+
+  field :unavailable_capabilities, 5,
+    repeated: true,
+    type: :string,
+    json_name: "unavailableCapabilities"
+
+  field :detail, 6, type: :string
+  field :refused_at_unix_nano, 7, type: :int64, json_name: "refusedAtUnixNano"
 end
 
 defmodule Monitoring.CredentialBrokerResolveRequest do

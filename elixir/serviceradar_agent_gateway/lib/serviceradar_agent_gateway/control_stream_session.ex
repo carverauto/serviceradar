@@ -438,8 +438,8 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
         broadcast_console_frame(frame, state)
         {:noreply, state}
 
-      {:sweep_lease_ack, ack} ->
-        {:noreply, forward_sweep_lease_ack(state, ack)}
+      {kind, _message} = payload when kind in [:sweep_lease_ack, :sweep_lease_slot_refusal] ->
+        {:noreply, handle_sweep_lease_payload(payload, state)}
 
       {:hello, hello} ->
         state =
@@ -965,6 +965,13 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   # Record the agent's answer to a lease push on core. Fire-and-forget, like a config ack: a
   # core outage must not stall the control stream, and an unrecorded ack only makes core resend
   # the whole lease window later.
+  defp handle_sweep_lease_payload({:sweep_lease_ack, ack}, state), do: forward_sweep_lease_ack(state, ack)
+
+  # Nothing on core records a slot refusal yet, so it is dropped here exactly as a
+  # gateway without the message drops it. The agent re-sends every refusal it holds
+  # on each reconnect, so a later gateway still delivers it.
+  defp handle_sweep_lease_payload({:sweep_lease_slot_refusal, _refusal}, state), do: state
+
   defp forward_sweep_lease_ack(state, ack) do
     if registered_agent?(state) do
       agent_id = state.agent_id

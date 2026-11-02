@@ -19,8 +19,6 @@ package agent
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"net"
@@ -225,7 +223,7 @@ func newSweepEdgeProducer(cfg *models.Config, lease *edgev1.SweepLeaseV1, slot *
 	if len(cfg.DeviceTargets) != 0 || len(cfg.Networks) == 0 {
 		return nil, errEdgeSweepStaticCIDRRequired
 	}
-	if !bytes.Equal(sweepCheckSetDigest(checks), slot.GetPlanHeader().GetCheckSetSha256()) {
+	if !bytes.Equal(edgerecord.CheckSetDigest(checks), slot.GetPlanHeader().GetCheckSetSha256()) {
 		return nil, errEdgeSweepCheckSetMismatch
 	}
 	claims := lease.GetProductionCapability().GetProduction()
@@ -339,23 +337,6 @@ func sweepChecks(cfg *models.Config) ([]*edgev1.SweepTestV1, map[sweepCheck]uint
 		return nil, nil, 0, errEdgeSweepNoChecks
 	}
 	return checks, keys, bits, nil
-}
-
-// Matches the shared check_set_digest v1 grammar used by the plan compiler.
-func sweepCheckSetDigest(checks []*edgev1.SweepTestV1) []byte {
-	h := sha256.New()
-	write := func(v uint64) { var b [8]byte; binary.BigEndian.PutUint64(b[:], v); _, _ = h.Write(b[:]) }
-	const domain = "serviceradar.edge.check_set.v1"
-	write(uint64(len(domain)))
-	_, _ = h.Write([]byte(domain))
-	write(1)
-	write(uint64(len(checks)))
-	for _, check := range checks {
-		write(uint64(check.GetMode()))
-		write(uint64(check.GetProtocol()))
-		write(uint64(check.GetPort()))
-	}
-	return h.Sum(nil)
 }
 
 func (p *sweepEdgeProducer) observe(ctx context.Context, result *models.Result) error {

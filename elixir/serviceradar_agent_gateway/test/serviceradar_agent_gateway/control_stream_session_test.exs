@@ -488,6 +488,30 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
                     ]}
   end
 
+  test "a sweep lease slot refusal keeps the session open" do
+    ensure_process_registry!()
+
+    agent_id = "agent-lease-refusal-#{System.unique_integer([:positive])}"
+    pid = start_push_session!(agent_id, ["sweep_lease_v1"])
+
+    ControlStreamSession.handle_message(
+      pid,
+      %Monitoring.ControlStreamRequest{
+        payload:
+          {:sweep_lease_slot_refusal,
+           %Monitoring.SweepLeaseSlotRefusal{
+             sweep_group_id: "0192a4a0-0007-7000-8000-000000000007",
+             execution_id: <<1::128>>,
+             reason: :SWEEP_LEASE_SLOT_REFUSAL_REASON_CHECK_UNAVAILABLE,
+             unavailable_capabilities: ["icmp.unavailable"]
+           }}
+      },
+      identity_context(agent_id, "partition-a")
+    )
+
+    assert %{agent_id: ^agent_id} = :sys.get_state(pid)
+  end
+
   test "oversized config push to an agent without config_push_chunks is refused without touching the stream" do
     ensure_process_registry!()
 

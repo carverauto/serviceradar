@@ -733,6 +733,18 @@ message SweepLeaseSlotV1 {
   repeated EdgeSourceAuthorizationV1 source_authorizations = 6;
 }
 
+// SweepCheckSetV1 is the explicit check list a leased slot executes, carried once
+// per distinct check set in a push. `check_set_sha256` is the check-set digest of
+// `checks` under grammar `digest_version` (1), and is the key a slot's
+// `plan_header.check_set_sha256` resolves to. `checks` is in that grammar's order:
+// ascending by (mode, protocol, port), de-duplicated, port 0 for ICMP. A grammar
+// that covers more than (mode, protocol, port) bumps `digest_version`.
+message SweepCheckSetV1 {
+  bytes check_set_sha256 = 1;                        // 32 bytes
+  uint32 digest_version = 2;                         // 1
+  repeated SweepTestV1 checks = 3;
+}
+
 // SweepLeaseV1 is one push of a sweep group's lease to the agent that runs it.
 //
 // A push is a WINDOW REPLACEMENT, not a delta list: `slots` is the complete set of
@@ -746,8 +758,16 @@ message SweepLeaseSlotV1 {
 // `revoked` withdraws the group's lease: the agent drops every slot it has not
 // started and returns the group to its local schedule. A revocation carries no
 // capability; withdrawing authority needs none.
+//
+// A slot executes the checks, ports and targets of its signed plan, never the
+// agent's sweep config. `check_sets` carries one SweepCheckSetV1 per distinct
+// `plan_header.check_set_sha256` among `slots`: every slot resolves to exactly one
+// carried set, and no carried set goes unreferenced. A push that carries slots is
+// `lease_version` 2. A push without slots (a revocation, or a window that clears
+// every slot) carries no check sets and stays `lease_version` 1, which both agent
+// generations accept.
 message SweepLeaseV1 {
-  uint32 lease_version = 1;                          // 1
+  uint32 lease_version = 1;                          // 2 with slots, else 1
   bytes sweep_group_id = 2;                          // UUID
   bytes lease_id = 3;                                // == production claims run_id
   bytes producer_assignment_id = 4;                  // UUID
@@ -759,4 +779,5 @@ message SweepLeaseV1 {
   int64 window_end_unix_nano = 8;                    // MUST be > window_start
   repeated SweepLeaseSlotV1 slots = 9;               // ascending slot_start, inside the window
   bool revoked = 10;
+  repeated SweepCheckSetV1 check_sets = 11;          // keyed by check_set_sha256
 }

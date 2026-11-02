@@ -422,7 +422,11 @@ The carrier is `SweepLeaseV1`: the group, the lease id, the assignment, the
 epoch, the production capability (its `not_before` is the signed issuance
 time) and a window `[window_start, window_end)` with every `SweepLeaseSlotV1`
 of the lease starting inside it; a slot carries its execution id, its window,
-its plan header and pages and one source authorization per range. A push is a
+its plan header and pages and one source authorization per range. A push that
+carries slots also carries one `SweepCheckSetV1` per distinct
+`plan_header.check_set_sha256` and is `lease_version` 2; a push with no slots
+carries no check sets and stays `lease_version` 1 (Decision 12). Field comments
+on `SweepLeaseV1` in `proto/edge/v1/sweep.proto` own that list. A push is a
 window replacement rather than a list of changes: the agent keeps one lease per
 group, replaces it when the lease id changes, and otherwise swaps the slots
 inside the window for the pushed ones, so a dropped slot disappears without a
@@ -432,7 +436,11 @@ group's lease and carries no capability. A lease can reach megabytes (about
 it travels as `SweepLeaseChunk`s on the control stream, reassembled and checked
 by SHA-256 exactly like pushed config chunks, and only to agents advertising
 `sweep_lease_v1`; the agent answers every push with `SweepLeaseAck`, whose
-`installed_through_unix_nano` is how far it can run without core.
+`installed_through_unix_nano` is how far it can run without core. A push whose
+carried check sets do not bind its slots is that ack's error for the whole
+push. Refusing one installed slot is `SweepLeaseSlotRefusal` on
+`ControlStreamRequest` (`proto/monitoring.proto`). Decision 12 states which
+failures are which.
 
 Core records what it delivered per assignment (`sweep_lease_deliveries`: the
 lease, its issuance time, the cursor just after the last slot pushed, the
@@ -3162,3 +3170,27 @@ eligible for idempotent redelivery. A stale producer epoch presented under a val
 delivery grant is `audit_publication` + `late_fenced_delivery` + `ledger_only`
 (durable forensic record, no authoritative projection), never a permanent rejection
 and never an authoritative apply.
+
+## Decision 12: The signed plan carries the check set
+
+Maintainer decision, 2026-11-02: a leased slot runs the checks, ports, and
+targets of its signed plan. The push carries each distinct check set once, as
+`SweepCheckSetV1` on `SweepLeaseV1.check_sets`, keyed by the check-set digest
+the slot's plan header names. `lease_version` 2 is a push that carries slots.
+A revocation or any other push with no slots carries no check sets and stays
+`lease_version` 1, which both agent generations accept.
+
+Unknown `digest_version` is a slot refusal,
+`SWEEP_LEASE_SLOT_REFUSAL_REASON_UNSUPPORTED_PLAN`, as is a carried set the
+scanner cannot run (not the product of its modes and one shared TCP port
+list). A mismatched digest, an unresolved set, an unreferenced set, or slots
+on `lease_version` 1 refuses the whole push with a `SweepLeaseAck` error.
+`CHECK_UNAVAILABLE` and `INVALID_PLAN` are the other slot-refusal reasons.
+Field comments on `SweepLeaseV1` and `SweepLeaseSlotRefusal` are the wire
+contract. The Go check lives in `go/pkg/edge/edgerecord` (`CheckSetDigest`,
+`SweepLeaseCheckSets`, `SweepCheckSetRun`). Golden pushes under
+`proto/edge/v1/testdata/sweep_lease_check_sets_*.bin` are encoded by Elixir
+from `SweepPlan` and decoded by that Go check; regenerate with
+`EDGE_GOLDEN_UPDATE=1`. The agent calls the check when it runs a slot, and
+core records refusals, in later slices. Until core records them, the gateway
+decodes `SweepLeaseSlotRefusal` and drops it.
