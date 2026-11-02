@@ -80,11 +80,6 @@ func sweepResultsEdgeMetrics() edgeMetricsProducer[map[string]any] {
 	}
 }
 
-// sweepResultsEdgeRecords is the producer the results records are counted under.
-func sweepResultsEdgeRecords() edgeMetricsProducer[struct{}] {
-	return edgeMetricsProducer[struct{}]{producer: edgeProducerSweepResults}
-}
-
 // sweepResultsEdgeGrants is the results and metrics grants unleased sweep results
 // are emitted under at now, or nil when results take the legacy path. Both are
 // required, because a results chunk and its metric batch take one path together.
