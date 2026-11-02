@@ -330,17 +330,19 @@ in `choices.md` and the chart README.
       capability when the push has none, normalizes the window to the slots
       still held when any remain, and keeps the push window when none remain;
       a different lease id replaces the installed lease outright and takes the
-      push's `lease_version`. A same-lease merge keeps the installed lease's
-      `lease_version` and the check sets its retained slots reference, and
-      never lowers that version. `mergeSweepLease` currently clones the push's
-      version; this slice changes it. An installed `lease_version` 2 with a
+      push's `lease_version`. A slot-less same-lease merge keeps the installed
+      lease's `lease_version` and the check sets its retained slots reference,
+      and never lowers that version. A push that carries slots stores its own
+      `lease_version`, which is 2, as the current clone already does.
+      `mergeSweepLease` currently clones the push's version; this slice changes
+      the slot-less same-lease merge. An installed `lease_version` 2 with a
       started slot, after a same-lease empty `lease_version` 1 push, is stored
       at `lease_version` 2, survives reload with the ticker suppressed, and
       that slot resumes from the plan. The ticker stays suppressed while the
       merged lease is held. A `lease_version` 1 push that carries slots
       is refused. On load it discards stored slot leases whose `lease_version`
-      is not 2 (Decision 12). That discard does not drop a same-lease merge
-      that kept an installed `lease_version` 2. It keeps a held lease that has
+      is not 2 (Decision 12). That discard does not drop a slot-less same-lease
+      merge that kept an installed `lease_version` 2. It keeps a held lease that has
       no slots so the ticker stays suppressed. The
       agent keeps carried sets
       that retained slots still reference, and resolves those slots from the
