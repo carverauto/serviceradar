@@ -9,10 +9,11 @@ This directory is the published `tonic-0.14.6.crate` from crates.io (checksum
   `scripts/ci/rustsec-audit.sh` audits every tracked `Cargo.lock`, so the published one would
   report the zstd 0.13 advisories this patch exists to remove.
 
-The root `Cargo.toml` selects it with `[patch.crates-io]`. rules_rs reads the same `[patch]`
-entry and builds this source as `@crates//:tonic`, so Cargo and Bazel compile the same tonic.
-As a path dependency, it has no registry checksum in `Cargo.lock` and no archive in
-`third_party/crate_mirror`.
+The root `Cargo.toml` still lists this path under `[patch.crates-io]`. `Cargo.lock` records
+that entry as `[patch.unused]`: dependents resolve registry `tonic` 0.14.9, and this path
+crate is 0.14.6, so it does not replace them. Cargo and Bazel follow that lock, which
+vendored `third_party/crate_mirror/tonic-0.14.9.crate`. This 0.14.6 tree stays a path and
+has no mirror archive.
 
 ## Why
 
@@ -23,8 +24,9 @@ zstd 0.14.3, zstd-safe 8.2.0 and zstd-sys 2.1.2 are the first releases fixed for
   [RUSTSEC-2026-0406](https://rustsec.org/advisories/RUSTSEC-2026-0406.html) (zstd-safe)
 - [RUSTSEC-2026-0410](https://rustsec.org/advisories/RUSTSEC-2026-0410.html) (zstd-sys)
 
-No fixed release exists on the zstd 0.13 / zstd-safe 7 line, and tonic 0.14.6, the latest
-release, requires `zstd ^0.13`. `rust/addon-sdk` enables tonic's `zstd` feature, and the
+No fixed release exists on the zstd 0.13 / zstd-safe 7 line. tonic 0.14.6 required
+`zstd ^0.13`. Published tonic 0.14.9 depends on `zstd` 0.14.3, which is the crate
+`Cargo.lock` resolves. `rust/addon-sdk` enables tonic's `zstd` feature, and the
 OTLP collector (`rust/otel`) accepts zstd-compressed gRPC exports from the network.
 
 tonic only calls `zstd::stream::read::{Encoder, Decoder}::new`, whose signatures are the same
@@ -32,8 +34,8 @@ in 0.14, so no tonic source change is needed.
 
 ## When to delete it
 
-Delete this directory and the `[patch.crates-io]` entry once tonic publishes a release that
-depends on zstd 0.14 or later. Upstream is <https://github.com/grpc/grpc-rust> (formerly
-`hyperium/tonic`). Then bump `tonic` in the root `Cargo.toml` if needed, run
-`cargo update -p tonic`, and refresh the mirror using the platform-specific instructions
-in [sync.py](../../crate_mirror/sync.py).
+Delete this directory and the `[patch.crates-io]` entry. tonic 0.14.9 depends on zstd
+0.14.3, and `Cargo.lock` already resolves that registry crate. Upstream is
+<https://github.com/grpc/grpc-rust> (formerly `hyperium/tonic`). After deleting the unused
+patch, refresh the mirror using the platform-specific instructions in
+[sync.py](../../crate_mirror/sync.py).
