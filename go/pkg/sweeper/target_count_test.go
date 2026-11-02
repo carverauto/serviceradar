@@ -196,7 +196,7 @@ func TestGenerateTargetsBatchedStreamsOversizedSweep(t *testing.T) {
 	emitted := 0
 	targets := 0
 
-	err := sweeper.generateTargetsBatched(func(target models.Target) error {
+	err := sweeper.generateTargetsBatched(sweeper.config, false, func(target models.Target) error {
 		emitted++
 		targets++
 		return nil
@@ -257,7 +257,7 @@ func TestDeviceTargetMetadataDoesNotChangeGeneratedTargets(t *testing.T) {
 		sweeper := &NetworkSweeper{config: config, logger: logger.NewTestLogger()}
 
 		targets := make(map[scanKey]string)
-		err := sweeper.generateTargetsBatched(func(target models.Target) error {
+		err := sweeper.generateTargetsBatched(sweeper.config, false, func(target models.Target) error {
 			uid, _ := target.Metadata["device_uid"].(string)
 			targets[scanKey{Host: target.Host, Port: target.Port, Mode: target.Mode}] = uid
 			return nil

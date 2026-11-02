@@ -623,11 +623,18 @@ go_benchmark(
 go_test(
     name = "managed_certificates_test",
     srcs = [
-        "managed_certificates_linux_test.go",
-        "managed_certificate_policy_linux_test.go",
         "host_trust_linux_test.go",
+        "managed_certificate_policy_linux_test.go",
+        "managed_certificates_linux_test.go",
+        "managed_local_nats_linux_test.go",
     ],
     embed = [":agent"],
     exec_properties = {"test.dockerUser": "0"},
     target_compatible_with = ["@platforms//os:linux"],
+    deps = [
+        "//go/pkg/logger",
+        "//go/pkg/models",
+        "@com_github_nats_io_nkeys//:nkeys",
+        "@com_github_rs_zerolog//:zerolog",
+    ],
 )

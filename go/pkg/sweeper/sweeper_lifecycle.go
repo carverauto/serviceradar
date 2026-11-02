@@ -18,6 +18,8 @@ package sweeper
 
 import (
 	"context"
+	"errors"
+	"slices"
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/models"
@@ -41,14 +43,11 @@ func (s *NetworkSweeper) Start(ctx context.Context) error {
 	if s.manualSchedule.Load() {
 		s.logger.Info().Msg("Manual schedule active, skipping initial sweep")
 	} else {
-		initialCtx, initialCancel := context.WithTimeout(ctx, effectiveScanTimeout(s.config))
-		if err := s.runSweepWithLock(initialCtx); err != nil {
+		if err := s.runSweepWithLock(ctx); err != nil {
 			s.logRunError(err, "Initial sweep failed")
 		} else {
 			s.logger.Info().Msg("Initial sweep completed successfully")
 		}
-
-		initialCancel()
 	}
 
 	ticker := time.NewTicker(s.config.Interval)
@@ -79,14 +78,11 @@ func (s *NetworkSweeper) Start(ctx context.Context) error {
 
 			s.logger.Debug().Time("tickTime", t).Msg("Ticker fired, starting periodic sweep")
 
-			sweepCtx, sweepCancel := context.WithTimeout(ctx, effectiveScanTimeout(s.config))
-			if err := s.runSweepWithLock(sweepCtx); err != nil {
+			if err := s.runSweepWithLock(ctx); err != nil {
 				s.logRunError(err, "Periodic sweep failed")
 			} else {
 				s.logger.Debug().Msg("Periodic sweep completed successfully")
 			}
-
-			sweepCancel()
 		}
 	}
 }
@@ -135,11 +131,68 @@ func (s *NetworkSweeper) RunOnceWithObserver(ctx context.Context, executionID st
 
 	s.ensureScannersInitialized()
 
-	sweepCtx, sweepCancel := context.WithTimeout(ctx, effectiveScanTimeout(s.config))
-	defer sweepCancel()
-
-	if err := s.runSweepWithObserver(sweepCtx, executionID, observer); err != nil {
+	if err := s.runSweepWithObserver(ctx, executionID, nil, observer); err != nil {
 		s.logRunError(err, "Run-once sweep failed")
+		return err
+	}
+
+	return nil
+}
+
+// RunSpec is what one planned execution probes: the networks, modes and ports
+// a signed plan carries. Nothing else of the sweeper's config enters it.
+type RunSpec struct {
+	Networks []string
+	Modes    []models.SweepMode
+	Ports    []int
+}
+
+// errEmptyRunSpec refuses a planned run with nothing to probe.
+var errEmptyRunSpec = errors.New("planned sweep run has no networks or modes")
+
+// errPlannedRunObserver refuses a planned run nothing would observe.
+var errPlannedRunObserver = errors.New("planned sweep run requires a result observer")
+
+// RunPlannedWithObserver runs one execution of spec and delivers each final
+// result to observer, like RunOnceWithObserver. The run probes exactly spec's
+// networks, modes and ports: they replace the sweeper config's, and its device
+// targets are dropped. The rest of the config (timeouts, concurrency, rate
+// limits, interface, banner grab) is the one current when the run starts. A
+// config update during the run takes effect from the next run.
+func (s *NetworkSweeper) RunPlannedWithObserver(
+	ctx context.Context,
+	executionID string,
+	spec RunSpec,
+	observer func(context.Context, *models.Result) error,
+) error {
+	if len(spec.Networks) == 0 || len(spec.Modes) == 0 {
+		return errEmptyRunSpec
+	}
+	if observer == nil {
+		return errPlannedRunObserver
+	}
+
+	done := s.ensureControlChannels()
+
+	select {
+	case <-done:
+		s.logger.Info().Msg("Sweep already stopped, skipping planned run")
+		return errSweeperStopped
+	default:
+	}
+
+	planned := func(base *models.Config) *models.Config {
+		cfg := *base
+		cfg.Networks = slices.Clone(spec.Networks)
+		cfg.SweepModes = slices.Clone(spec.Modes)
+		cfg.Ports = slices.Clone(spec.Ports)
+		cfg.DeviceTargets = nil
+
+		return &cfg
+	}
+
+	if err := s.runSweepWithObserver(ctx, executionID, planned, observer); err != nil {
+		s.logRunError(err, "Planned sweep failed")
 		return err
 	}
 
@@ -216,21 +269,26 @@ func (s *NetworkSweeper) ensureScannersInitialized() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.ensureScannersInitializedLocked()
+	s.ensureScannersInitializedLocked(s.config)
 }
 
-// ensureScannersInitializedLocked initializes only scanners requested by the
-// active config. The caller must hold s.mu.
-func (s *NetworkSweeper) ensureScannersInitializedLocked() {
+// ensureScannersInitializedLocked creates any scanner cfg's modes still lack,
+// using cfg's scanner settings, and leaves an existing scanner in place. The
+// caller must hold s.mu.
+func (s *NetworkSweeper) ensureScannersInitializedLocked(cfg *models.Config) {
+	if s.stopped {
+		return
+	}
+
 	if s.icmpScanner == nil {
-		s.icmpScanner = initializeICMPScanner(s.config, s.logger)
+		s.icmpScanner = initializeICMPScanner(cfg, s.logger)
 	}
 
 	if s.tcpScanner == nil {
-		s.tcpScanner = initializeTCPScanner(s.config, s.synScanGate, s.logger)
+		s.tcpScanner = initializeTCPScanner(cfg, s.synScanGate, s.logger)
 	}
 
 	if s.tcpConnectScanner == nil {
-		s.tcpConnectScanner = initializeTCPConnectScanner(s.config, s.logger)
+		s.tcpConnectScanner = initializeTCPConnectScanner(cfg, s.logger)
 	}
 }

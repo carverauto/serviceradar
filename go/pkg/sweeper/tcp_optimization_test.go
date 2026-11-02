@@ -203,7 +203,7 @@ func TestNetworkSweeper_HighConcurrencyConfig(t *testing.T) {
 	assert.NotNil(t, sweeper)
 
 	// Generate targets and verify high concurrency handling
-	targets, err := sweeper.generateTargets()
+	targets, err := sweeper.generateTargets(sweeper.config, false)
 	require.NoError(t, err)
 
 	// Should generate targets for TCP scanning
@@ -265,7 +265,7 @@ func TestNetworkSweeper_DeviceTargetsWithTCPOptimization(t *testing.T) {
 	sweeper, err := NewNetworkSweeper(config, mockStore, mockProcessor, nil, log)
 	require.NoError(t, err)
 
-	targets, err := sweeper.generateTargets()
+	targets, err := sweeper.generateTargets(sweeper.config, false)
 	require.NoError(t, err)
 
 	// Count targets by mode and device
@@ -341,7 +341,7 @@ func TestNetworkSweeper_TimeoutOptimization(t *testing.T) {
 
 	// This should complete quickly since we're only scanning one host
 	start := time.Now()
-	err = sweeper.runSweep(ctx)
+	err = sweeper.runSweep(ctx, sweeper.config)
 	duration := time.Since(start)
 
 	// Should complete fast, not hit the 20-minute timeout
@@ -392,7 +392,7 @@ func TestNetworkSweeper_ProgressLogging(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	err = sweeper.runSweep(ctx)
+	err = sweeper.runSweep(ctx, sweeper.config)
 	require.NoError(t, err)
 
 	// Should have processed 5 TCP results (1 host * 5 ports)
@@ -457,7 +457,7 @@ func BenchmarkNetworkSweeper_OptimizedTCPScan(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 
-		err := sweeper.runSweep(ctx)
+		err := sweeper.runSweep(ctx, sweeper.config)
 		require.NoError(b, err)
 
 		cancel()

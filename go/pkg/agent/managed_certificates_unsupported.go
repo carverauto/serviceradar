@@ -12,4 +12,4 @@ func RunManagedCertificateUpdater(_ context.Context, _ string, _ io.Reader, _ io
 	return fmt.Errorf("%w: service installation currently requires Linux systemd", errManagedCertificates)
 }
 
-func (p *PushLoop) managedLocalNATSLoop(_ context.Context) {}
+func (p *PushLoop) startManagedLocalNATS(_ context.Context) {}

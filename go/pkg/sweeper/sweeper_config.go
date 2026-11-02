@@ -559,7 +559,7 @@ func (s *NetworkSweeper) UpdateConfig(config *models.Config) error {
 
 	// A group can gain a mode without being recreated. Initialize any newly
 	// required scanner while preserving existing scanner instances.
-	s.ensureScannersInitializedLocked()
+	s.ensureScannersInitializedLocked(s.config)
 
 	return nil
 }

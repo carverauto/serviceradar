@@ -97,7 +97,7 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGenerator do
     }
 
     #{direct_leaf_authorization}
-    #{if managed_root, do: "include /etc/serviceradar/managed-components/#{managed_root}/local-auth.conf", else: ""}
+    #{if managed_root, do: "include ../serviceradar/managed-components/#{managed_root}/local-auth.conf", else: ""}
 
     # Enable JetStream for local buffering during WAN outages
     jetstream {
