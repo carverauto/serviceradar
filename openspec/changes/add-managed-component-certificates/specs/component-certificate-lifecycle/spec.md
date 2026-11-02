@@ -43,6 +43,18 @@ The system SHALL persist certificate and component revocations and enforce them 
 - **AND** ordinary TLS validation and certificate expiry remain enforced
 - **AND** fresh policy applies revocations and the hub checks current policy on reconnect
 
+#### Scenario: Scheduled hub grant expiry
+- **WHEN** an authorized client or leaf reaches its broker-enforced grant expiry
+- **THEN** its client library reconnects and restores subscriptions using fresh authorization
+- **AND** acknowledged, deduplicated JetStream publications and a durable consumer retain their progress without lost or duplicate stored records
+- **AND** the nominal grant lifetime defaults to 12 hours, is configurable, receives +/-20% jitter, and never exceeds certificate expiry
+
+#### Scenario: All hub authorizers disappear
+- **WHEN** no hub authorizer remains available
+- **THEN** the broker still expires existing grants within the configured lifetime plus its maximum jitter
+- **AND** new connections cannot obtain authorization
+- **AND** ordinary revocation or de-adoption uses targeted disconnects without waiting for that expiry
+
 ### Requirement: Operator certificate lifecycle controls
 The UI SHALL expose certificate identity, host binding, expiry, renewal health, and scoped Revoke, Rotate, and Re-enroll actions with authorization, audit, and distinct requested/enforced/failed states.
 

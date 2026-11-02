@@ -5,8 +5,9 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
   The protected AUTH account is the trust boundary for server-signed requests.
   Each core replica subscribes in one queue group. Accepted sessions are tracked
   locally for prompt targeted KICKs; the broker's user-JWT expiry independently
-  limits every grant to the current snapshot lease, including after a core crash.
-  This implies periodic managed-client reconnects, which acceptance must measure.
+  bounds sessions even after every authorizer disappears. Grants default to 12
+  hours with +/-20% jitter, capped at certificate expiry. Policy freshness remains
+  short and independent: stale policy cannot admit a new connection.
   Local leaf authorization has a separate offline policy contract.
   A stored account other than the deployment account is answered with an
   authorization error and no user JWT.
@@ -238,12 +239,12 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
   defp decision(nil, _), do: {:deny, "certificate policy unavailable"}
 
   defp decision(snapshot, fingerprint) do
-    with %{component_id: id} <-
+    with %{component_id: id, not_after: not_after} <-
            Enum.find(snapshot.certificates, &(&1.fingerprint == fingerprint)),
          :ok <- Authority.authorize(snapshot, id, fingerprint),
          %{publish: _, subscribe: _} = permissions <-
            Map.get(snapshot.nats_permissions, fingerprint) do
-      {:allow, Map.put(permissions, :expires_at, DateTime.to_unix(snapshot.valid_until))}
+      {:allow, Map.put(permissions, :expires_at, Token.grant_expiry(not_after))}
     else
       _ -> {:deny, "certificate not authorized"}
     end

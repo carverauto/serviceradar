@@ -480,7 +480,8 @@ defmodule ServiceRadar.Edge.ManagedCertificateLifecycle do
     transaction(fn ->
       with {:ok, current} <- locked_current(operation),
            true <- current.status == operation.status,
-           {:ok, existing} <- Ash.get(AgentCommand, id, system()) do
+           {:ok, existing} <-
+             Ash.get(AgentCommand, id, Keyword.put(system(), :not_found_error?, false)) do
         if existing do
           if existing.agent_id == operation.host_agent_id &&
                existing.partition_id == operation.partition_id &&

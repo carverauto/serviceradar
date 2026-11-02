@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -87,6 +88,17 @@ func marshalSysmonMetricEnvelope(sample *sysmon.MetricSample, ctx metricEnvelope
 }
 
 func marshalSysmonMetricEnvelopeBatch(samples []*sysmon.MetricSample, ctx metricEnvelopeContext) ([]byte, error) {
+	batch, err := buildSysmonMetricBatch(samples, ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return gproto.Marshal(batch)
+}
+
+// buildSysmonMetricBatch is the canonical sysmon metric envelope of samples,
+// shared by the legacy status push and the edge-record producer.
+func buildSysmonMetricBatch(samples []*sysmon.MetricSample, ctx metricEnvelopeContext) (*metricpb.MetricBatch, error) {
 	sample := firstSysmonMetricSample(samples)
 	if sample == nil {
 		return nil, errSysmonSampleBatchEmpty
@@ -94,23 +106,22 @@ func marshalSysmonMetricEnvelopeBatch(samples []*sysmon.MetricSample, ctx metric
 
 	batch := &metricpb.MetricBatch{
 		SchemaVersion: metricEnvelopeSchemaVersion,
-		Resource: &metricpb.MetricResource{
-			AgentId:     firstMetricNonEmpty(sample.AgentID, ctx.AgentID),
-			GatewayId:   ctx.GatewayID,
-			Partition:   firstMetricNonEmpty(ptrString(sample.Partition), ctx.Partition),
-			ServiceName: "sysmon",
-			ServiceType: "sysmon",
-			HostId:      sample.HostID,
-			HostIp:      sample.HostIP,
-			KvStoreId:   ctx.KvStoreID,
-		},
-		IngestIdentity: &metricpb.IngestIdentity{
-			Source:       "sysmon-metrics",
-			PayloadKind:  "serviceradar.metric.v1",
-			ProducerKind: "agent-sysmon",
-			ProducerId:   firstMetricNonEmpty(sample.AgentID, ctx.AgentID),
-			AttestedBy:   ctx.GatewayID,
-		},
+		Resource: metricResource(
+			firstMetricNonEmpty(sample.AgentID, ctx.AgentID),
+			ctx.GatewayID,
+			firstMetricNonEmpty(ptrString(sample.Partition), ctx.Partition),
+			"sysmon",
+			"sysmon",
+			sample.HostID,
+			sample.HostIP,
+			ctx.KvStoreID,
+		),
+		IngestIdentity: metricIngest(
+			"sysmon-metrics",
+			"agent-sysmon",
+			firstMetricNonEmpty(sample.AgentID, ctx.AgentID),
+			ctx.GatewayID,
+		),
 		EmittedAtUnixNano: uint64(time.Now().UnixNano()),
 	}
 
@@ -131,7 +142,7 @@ func marshalSysmonMetricEnvelopeBatch(samples []*sysmon.MetricSample, ctx metric
 		return nil, errSysmonNoScalarMetrics
 	}
 
-	return gproto.Marshal(batch)
+	return batch, nil
 }
 
 func firstSysmonMetricSample(samples []*sysmon.MetricSample) *sysmon.MetricSample {
@@ -145,23 +156,25 @@ func firstSysmonMetricSample(samples []*sysmon.MetricSample) *sysmon.MetricSampl
 }
 
 func marshalSNMPMetricEnvelope(results []snmpMetricResult, ctx metricEnvelopeContext) ([]byte, error) {
+	batch, err := buildSNMPMetricBatch(results, ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return gproto.Marshal(batch)
+}
+
+// buildSNMPMetricBatch builds the SNMP metric envelope for results; the legacy
+// status push and the edge-record producer both send it.
+func buildSNMPMetricBatch(results []snmpMetricResult, ctx metricEnvelopeContext) (*metricpb.MetricBatch, error) {
 	batch := &metricpb.MetricBatch{
 		SchemaVersion: metricEnvelopeSchemaVersion,
-		Resource: &metricpb.MetricResource{
-			AgentId:     ctx.AgentID,
-			GatewayId:   ctx.GatewayID,
-			Partition:   ctx.Partition,
-			ServiceName: "snmp",
-			ServiceType: "snmp",
-			KvStoreId:   ctx.KvStoreID,
-		},
-		IngestIdentity: &metricpb.IngestIdentity{
-			Source:       "snmp-metrics",
-			PayloadKind:  "serviceradar.metric.v1",
-			ProducerKind: "agent-snmp",
-			ProducerId:   ctx.AgentID,
-			AttestedBy:   ctx.GatewayID,
-		},
+		Resource: metricResource(
+			ctx.AgentID, ctx.GatewayID, ctx.Partition, "snmp", "snmp", "", "", ctx.KvStoreID,
+		),
+		IngestIdentity: metricIngest(
+			"snmp-metrics", "agent-snmp", ctx.AgentID, ctx.GatewayID,
+		),
 		EmittedAtUnixNano: uint64(time.Now().UnixNano()),
 		Metrics:           make([]*metricpb.Metric, 0, len(results)),
 	}
@@ -187,11 +200,11 @@ func marshalSNMPMetricEnvelope(results []snmpMetricResult, ctx metricEnvelopeCon
 
 		point := &metricpb.MetricPoint{
 			Value:              value,
-			RawValue:           raw,
+			RawValue:           metricUTF8(raw),
 			RawValueType:       metricValueType(result.RawValue, result.Value),
 			ObservedAtUnixNano: observedAt,
 			IfIndex:            int32Value(result.IfIndex),
-			InterfaceUid:       result.InterfaceUID,
+			InterfaceUid:       metricUTF8(result.InterfaceUID),
 			// Attributes feed the consumer's series-key tags, so keep them limited to
 			// real series identity. The OID is metadata-only and must not fork the
 			// series per OID, so it lives in point.Metadata (excluded from the series
@@ -204,7 +217,7 @@ func marshalSNMPMetricEnvelope(results []snmpMetricResult, ctx metricEnvelopeCon
 		}
 
 		metric := &metricpb.Metric{
-			Name:         result.Metric,
+			Name:         metricUTF8(result.Metric),
 			MetricType:   "snmp",
 			Kind:         kind,
 			Temporality:  metricTemporality(result.Temporality, result.Delta, kind),
@@ -224,7 +237,7 @@ func marshalSNMPMetricEnvelope(results []snmpMetricResult, ctx metricEnvelopeCon
 		}
 
 		if result.Host != "" {
-			metric.Metadata = append(metric.Metadata, &metricpb.StringMapEntry{Key: "target_device_ip", Value: result.Host})
+			metric.Metadata = append(metric.Metadata, &metricpb.StringMapEntry{Key: "target_device_ip", Value: metricUTF8(result.Host)})
 		}
 
 		batch.Metrics = append(batch.Metrics, metric)
@@ -234,27 +247,29 @@ func marshalSNMPMetricEnvelope(results []snmpMetricResult, ctx metricEnvelopeCon
 		return nil, errSnmpNoMetricPoints
 	}
 
-	return gproto.Marshal(batch)
+	return batch, nil
 }
 
 func marshalICMPMetricEnvelope(results []icmpCheckResult, ctx metricEnvelopeContext) ([]byte, error) {
+	batch, err := buildICMPMetricBatch(results, ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return gproto.Marshal(batch)
+}
+
+// buildICMPMetricBatch builds the ICMP check metric envelope for results; the
+// legacy status push and the edge-record producer both send it.
+func buildICMPMetricBatch(results []icmpCheckResult, ctx metricEnvelopeContext) (*metricpb.MetricBatch, error) {
 	batch := &metricpb.MetricBatch{
 		SchemaVersion: metricEnvelopeSchemaVersion,
-		Resource: &metricpb.MetricResource{
-			AgentId:     ctx.AgentID,
-			GatewayId:   ctx.GatewayID,
-			Partition:   ctx.Partition,
-			ServiceName: "icmp_checks",
-			ServiceType: "icmp",
-			KvStoreId:   ctx.KvStoreID,
-		},
-		IngestIdentity: &metricpb.IngestIdentity{
-			Source:       "icmp-metrics",
-			PayloadKind:  metricEnvelopeSchemaVersion,
-			ProducerKind: "agent-icmp",
-			ProducerId:   ctx.AgentID,
-			AttestedBy:   ctx.GatewayID,
-		},
+		Resource: metricResource(
+			ctx.AgentID, ctx.GatewayID, ctx.Partition, "icmp_checks", "icmp", "", "", ctx.KvStoreID,
+		),
+		IngestIdentity: metricIngest(
+			"icmp-metrics", "agent-icmp", ctx.AgentID, ctx.GatewayID,
+		),
 		EmittedAtUnixNano: uint64(time.Now().UnixNano()),
 		Metrics: []*metricpb.Metric{
 			icmpMetric("icmp_response_time_ns", "ns"),
@@ -286,7 +301,7 @@ func marshalICMPMetricEnvelope(results []icmpCheckResult, ctx metricEnvelopeCont
 		if result.ResponseTimeNs >= 0 {
 			batch.Metrics[0].Points = append(batch.Metrics[0].Points, &metricpb.MetricPoint{
 				Value:              float64(result.ResponseTimeNs),
-				RawValue:           strconv.FormatInt(result.ResponseTimeNs, 10),
+				RawValue:           metricUTF8(strconv.FormatInt(result.ResponseTimeNs, 10)),
 				RawValueType:       metricpb.MetricValueType_METRIC_VALUE_TYPE_INT64,
 				ObservedAtUnixNano: observedAt,
 				Attributes:         entries(attrs),
@@ -296,7 +311,7 @@ func marshalICMPMetricEnvelope(results []icmpCheckResult, ctx metricEnvelopeCont
 
 		batch.Metrics[1].Points = append(batch.Metrics[1].Points, &metricpb.MetricPoint{
 			Value:              result.PacketLoss,
-			RawValue:           strconv.FormatFloat(result.PacketLoss, 'f', -1, 64),
+			RawValue:           metricUTF8(strconv.FormatFloat(result.PacketLoss, 'f', -1, 64)),
 			RawValueType:       metricpb.MetricValueType_METRIC_VALUE_TYPE_DOUBLE,
 			ObservedAtUnixNano: observedAt,
 			Attributes:         entries(attrs),
@@ -312,7 +327,7 @@ func marshalICMPMetricEnvelope(results []icmpCheckResult, ctx metricEnvelopeCont
 
 		batch.Metrics[2].Points = append(batch.Metrics[2].Points, &metricpb.MetricPoint{
 			Value:              availableValue,
-			RawValue:           rawAvailable,
+			RawValue:           metricUTF8(rawAvailable),
 			RawValueType:       metricpb.MetricValueType_METRIC_VALUE_TYPE_BOOL,
 			ObservedAtUnixNano: observedAt,
 			Attributes:         entries(attrs),
@@ -325,27 +340,29 @@ func marshalICMPMetricEnvelope(results []icmpCheckResult, ctx metricEnvelopeCont
 		return nil, errICMPNoMetricPoints
 	}
 
-	return gproto.Marshal(batch)
+	return batch, nil
 }
 
 func marshalMTRMetricEnvelope(results []mtrCheckResult, ctx metricEnvelopeContext) ([]byte, error) {
+	batch, err := buildMTRMetricBatch(results, ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return gproto.Marshal(batch)
+}
+
+// buildMTRMetricBatch builds the MTR scalar metric envelope for results; the
+// legacy status push and the edge-record producer both send it.
+func buildMTRMetricBatch(results []mtrCheckResult, ctx metricEnvelopeContext) (*metricpb.MetricBatch, error) {
 	batch := &metricpb.MetricBatch{
 		SchemaVersion: metricEnvelopeSchemaVersion,
-		Resource: &metricpb.MetricResource{
-			AgentId:     ctx.AgentID,
-			GatewayId:   ctx.GatewayID,
-			Partition:   ctx.Partition,
-			ServiceName: mtrServiceName,
-			ServiceType: mtrServiceType,
-			KvStoreId:   ctx.KvStoreID,
-		},
-		IngestIdentity: &metricpb.IngestIdentity{
-			Source:       "mtr-metrics",
-			PayloadKind:  metricEnvelopeSchemaVersion,
-			ProducerKind: "agent-mtr",
-			ProducerId:   ctx.AgentID,
-			AttestedBy:   ctx.GatewayID,
-		},
+		Resource: metricResource(
+			ctx.AgentID, ctx.GatewayID, ctx.Partition, mtrServiceName, mtrServiceType, "", "", ctx.KvStoreID,
+		),
+		IngestIdentity: metricIngest(
+			"mtr-metrics", "agent-mtr", ctx.AgentID, ctx.GatewayID,
+		),
 		EmittedAtUnixNano: uint64(time.Now().UnixNano()),
 		Metrics: []*metricpb.Metric{
 			mtrMetric("mtr.available", "1"),
@@ -412,10 +429,21 @@ func marshalMTRMetricEnvelope(results []mtrCheckResult, ctx metricEnvelopeContex
 		return nil, errMTRNoMetricPoints
 	}
 
-	return gproto.Marshal(batch)
+	return batch, nil
 }
 
 func marshalSweepMetricEnvelopeFromMap(decoded map[string]any, ctx metricEnvelopeContext) ([]byte, error) {
+	batch, err := buildSweepMetricBatchFromMap(decoded, ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return gproto.Marshal(batch)
+}
+
+// buildSweepMetricBatchFromMap builds the sweep metric envelope for one sweep
+// status or results payload.
+func buildSweepMetricBatchFromMap(decoded map[string]any, ctx metricEnvelopeContext) (*metricpb.MetricBatch, error) {
 	if len(decoded) == 0 {
 		return nil, errSweepPayloadEmpty
 	}
@@ -503,7 +531,7 @@ func marshalSweepMetricEnvelopeFromMap(decoded map[string]any, ctx metricEnvelop
 		return nil, errSweepNoMetricPoints
 	}
 
-	return gproto.Marshal(builder.batch)
+	return builder.batch, nil
 }
 
 type sweepMetricBuilder struct {
@@ -515,21 +543,12 @@ func newSweepMetricBuilder(ctx metricEnvelopeContext) *sweepMetricBuilder {
 	return &sweepMetricBuilder{
 		batch: &metricpb.MetricBatch{
 			SchemaVersion: metricEnvelopeSchemaVersion,
-			Resource: &metricpb.MetricResource{
-				AgentId:     ctx.AgentID,
-				GatewayId:   ctx.GatewayID,
-				Partition:   ctx.Partition,
-				ServiceName: networkSweepServiceName,
-				ServiceType: sweepType,
-				KvStoreId:   ctx.KvStoreID,
-			},
-			IngestIdentity: &metricpb.IngestIdentity{
-				Source:       "sweep-metrics",
-				PayloadKind:  metricEnvelopeSchemaVersion,
-				ProducerKind: "agent-sweep",
-				ProducerId:   ctx.AgentID,
-				AttestedBy:   ctx.GatewayID,
-			},
+			Resource: metricResource(
+				ctx.AgentID, ctx.GatewayID, ctx.Partition, networkSweepServiceName, sweepType, "", "", ctx.KvStoreID,
+			),
+			IngestIdentity: metricIngest(
+				"sweep-metrics", "agent-sweep", ctx.AgentID, ctx.GatewayID,
+			),
 			EmittedAtUnixNano: uint64(time.Now().UnixNano()),
 		},
 		metrics: make(map[string]*metricpb.Metric),
@@ -569,7 +588,7 @@ func (b *sweepMetricBuilder) boolGauge(name string, value *bool, observedAt uint
 	}
 	metric.Points = append(metric.Points, &metricpb.MetricPoint{
 		Value:              numeric,
-		RawValue:           raw,
+		RawValue:           metricUTF8(raw),
 		RawValueType:       metricpb.MetricValueType_METRIC_VALUE_TYPE_BOOL,
 		ObservedAtUnixNano: observedAt,
 		Attributes:         entries(attrs),
@@ -583,7 +602,7 @@ func (b *sweepMetricBuilder) counter(name, unit string, value *float64, observed
 	metric := b.metric(name, unit, metricpb.MetricKind_METRIC_KIND_SUM, metricpb.MetricTemporality_METRIC_TEMPORALITY_CUMULATIVE, true)
 	metric.Points = append(metric.Points, &metricpb.MetricPoint{
 		Value:              *value,
-		RawValue:           strconv.FormatFloat(*value, 'f', -1, 64),
+		RawValue:           metricUTF8(strconv.FormatFloat(*value, 'f', -1, 64)),
 		RawValueType:       metricpb.MetricValueType_METRIC_VALUE_TYPE_DOUBLE,
 		ObservedAtUnixNano: observedAt,
 		Attributes:         entries(attrs),
@@ -601,12 +620,12 @@ func (b *sweepMetricBuilder) metric(
 		return metric
 	}
 	metric := &metricpb.Metric{
-		Name:        name,
+		Name:        metricUTF8(name),
 		MetricType:  "sweep",
 		Kind:        kind,
 		Temporality: temporality,
 		IsMonotonic: monotonic,
-		Unit:        unit,
+		Unit:        metricUTF8(unit),
 		Tags: entries(map[string]string{
 			"metric_family": "sweep",
 		}),
@@ -690,11 +709,11 @@ func sweepBaseAttrs(payload map[string]any) map[string]string {
 
 func mtrMetric(name, unit string) *metricpb.Metric {
 	return &metricpb.Metric{
-		Name:        name,
+		Name:        metricUTF8(name),
 		MetricType:  "mtr",
 		Kind:        metricpb.MetricKind_METRIC_KIND_GAUGE,
 		Temporality: metricpb.MetricTemporality_METRIC_TEMPORALITY_UNSPECIFIED,
-		Unit:        unit,
+		Unit:        metricUTF8(unit),
 		Tags: entries(map[string]string{
 			"metric_family": "mtr",
 		}),
@@ -712,7 +731,7 @@ func pushNonZeroIntPoint(metric *metricpb.Metric, value int64, observedAt uint64
 func pushGaugePoint(metric *metricpb.Metric, value float64, observedAt uint64, attrs map[string]string) {
 	metric.Points = append(metric.Points, &metricpb.MetricPoint{
 		Value:              value,
-		RawValue:           strconv.FormatFloat(value, 'f', -1, 64),
+		RawValue:           metricUTF8(strconv.FormatFloat(value, 'f', -1, 64)),
 		RawValueType:       metricpb.MetricValueType_METRIC_VALUE_TYPE_DOUBLE,
 		ObservedAtUnixNano: observedAt,
 		Attributes:         entries(attrs),
@@ -751,11 +770,11 @@ func metricEnvelopePayload(data []byte) bool {
 
 func icmpMetric(name, unit string) *metricpb.Metric {
 	return &metricpb.Metric{
-		Name:        name,
+		Name:        metricUTF8(name),
 		MetricType:  "icmp",
 		Kind:        metricpb.MetricKind_METRIC_KIND_GAUGE,
 		Temporality: metricpb.MetricTemporality_METRIC_TEMPORALITY_UNSPECIFIED,
-		Unit:        unit,
+		Unit:        metricUTF8(unit),
 		Tags: entries(map[string]string{
 			"metric_family": "icmp_check",
 		}),
@@ -1031,18 +1050,18 @@ func sysmonProcessMetrics(sample *sysmon.MetricSample, observedAt uint64) []*met
 	}
 
 	cpu := &metricpb.Metric{
-		Name:       "process.cpu_usage",
-		MetricType: "sysmon.process",
+		Name:       metricUTF8("process.cpu_usage"),
+		MetricType: metricUTF8("sysmon.process"),
 		Kind:       metricpb.MetricKind_METRIC_KIND_GAUGE,
-		Unit:       "%",
+		Unit:       metricUTF8("%"),
 		Points:     make([]*metricpb.MetricPoint, 0, len(sample.Processes)),
 	}
 
 	memory := &metricpb.Metric{
-		Name:       "process.memory_usage",
-		MetricType: "sysmon.process",
+		Name:       metricUTF8("process.memory_usage"),
+		MetricType: metricUTF8("sysmon.process"),
 		Kind:       metricpb.MetricKind_METRIC_KIND_GAUGE,
-		Unit:       "By",
+		Unit:       metricUTF8("By"),
 		Points:     make([]*metricpb.MetricPoint, 0, len(sample.Processes)),
 	}
 
@@ -1052,7 +1071,7 @@ func sysmonProcessMetrics(sample *sysmon.MetricSample, observedAt uint64) []*met
 
 		cpu.Points = append(cpu.Points, &metricpb.MetricPoint{
 			Value:              float64(process.CPUUsage),
-			RawValue:           strconv.FormatFloat(float64(process.CPUUsage), 'f', -1, 64),
+			RawValue:           metricUTF8(strconv.FormatFloat(float64(process.CPUUsage), 'f', -1, 64)),
 			RawValueType:       metricpb.MetricValueType_METRIC_VALUE_TYPE_DOUBLE,
 			ObservedAtUnixNano: observedAt,
 			SeriesIdentityHint: seriesHint,
@@ -1061,7 +1080,7 @@ func sysmonProcessMetrics(sample *sysmon.MetricSample, observedAt uint64) []*met
 
 		memory.Points = append(memory.Points, &metricpb.MetricPoint{
 			Value:              float64(process.MemoryUsage),
-			RawValue:           strconv.FormatUint(process.MemoryUsage, 10),
+			RawValue:           metricUTF8(strconv.FormatUint(process.MemoryUsage, 10)),
 			RawValueType:       metricpb.MetricValueType_METRIC_VALUE_TYPE_UINT64,
 			ObservedAtUnixNano: observedAt,
 			SeriesIdentityHint: seriesHint,
@@ -1092,19 +1111,19 @@ func processAttributes(process sysmon.ProcessMetric) map[string]string {
 }
 
 func processSeriesHint(process sysmon.ProcessMetric) string {
-	return fmt.Sprintf("process:%d:%s", process.PID, strings.TrimSpace(process.Name))
+	return metricUTF8(fmt.Sprintf("process:%d:%s", process.PID, strings.TrimSpace(process.Name)))
 }
 
 func gaugeMetric(name, metricType, unit string, value float64, observedAt uint64, attrs map[string]string) *metricpb.Metric {
 	return &metricpb.Metric{
-		Name:        name,
-		MetricType:  metricType,
+		Name:        metricUTF8(name),
+		MetricType:  metricUTF8(metricType),
 		Kind:        metricpb.MetricKind_METRIC_KIND_GAUGE,
 		Temporality: metricpb.MetricTemporality_METRIC_TEMPORALITY_UNSPECIFIED,
-		Unit:        unit,
+		Unit:        metricUTF8(unit),
 		Points: []*metricpb.MetricPoint{{
 			Value:              value,
-			RawValue:           strconv.FormatFloat(value, 'f', -1, 64),
+			RawValue:           metricUTF8(strconv.FormatFloat(value, 'f', -1, 64)),
 			RawValueType:       metricpb.MetricValueType_METRIC_VALUE_TYPE_DOUBLE,
 			ObservedAtUnixNano: observedAt,
 			Attributes:         entries(attrs),
@@ -1114,16 +1133,16 @@ func gaugeMetric(name, metricType, unit string, value float64, observedAt uint64
 
 func cumulativeMetric(name, unit string, value uint64, observedAt uint64, attrs map[string]string) *metricpb.Metric {
 	return &metricpb.Metric{
-		Name:         name,
-		MetricType:   sysmonNetworkMetricType,
+		Name:         metricUTF8(name),
+		MetricType:   metricUTF8(sysmonNetworkMetricType),
 		Kind:         metricpb.MetricKind_METRIC_KIND_SUM,
 		Temporality:  metricpb.MetricTemporality_METRIC_TEMPORALITY_CUMULATIVE,
 		IsMonotonic:  true,
-		Unit:         unit,
+		Unit:         metricUTF8(unit),
 		CounterWidth: 64,
 		Points: []*metricpb.MetricPoint{{
 			Value:              float64(value),
-			RawValue:           strconv.FormatUint(value, 10),
+			RawValue:           metricUTF8(strconv.FormatUint(value, 10)),
 			RawValueType:       metricpb.MetricValueType_METRIC_VALUE_TYPE_UINT64,
 			ObservedAtUnixNano: observedAt,
 			Attributes:         entries(attrs),
@@ -1163,10 +1182,40 @@ func entries(values map[string]string) []*metricpb.StringMapEntry {
 			continue
 		}
 
-		entries = append(entries, &metricpb.StringMapEntry{Key: key, Value: value})
+		entries = append(entries, &metricpb.StringMapEntry{Key: metricUTF8(key), Value: metricUTF8(value)})
 	}
+	// Sorted, so the same values always encode to the same bytes: an edge record's
+	// payload is digest-bound, and map iteration order is random.
+	slices.SortFunc(entries, func(a, b *metricpb.StringMapEntry) int { return strings.Compare(a.GetKey(), b.GetKey()) })
 
 	return entries
+}
+
+func metricUTF8(s string) string {
+	return strings.ToValidUTF8(s, "\uFFFD")
+}
+
+func metricResource(agentID, gatewayID, partition, serviceName, serviceType, hostID, hostIP, kvStoreID string) *metricpb.MetricResource {
+	return &metricpb.MetricResource{
+		AgentId:     metricUTF8(agentID),
+		GatewayId:   metricUTF8(gatewayID),
+		Partition:   metricUTF8(partition),
+		ServiceName: metricUTF8(serviceName),
+		ServiceType: metricUTF8(serviceType),
+		HostId:      metricUTF8(hostID),
+		HostIp:      metricUTF8(hostIP),
+		KvStoreId:   metricUTF8(kvStoreID),
+	}
+}
+
+func metricIngest(source, producerKind, producerID, attestedBy string) *metricpb.IngestIdentity {
+	return &metricpb.IngestIdentity{
+		Source:       metricUTF8(source),
+		PayloadKind:  metricEnvelopeSchemaVersion,
+		ProducerKind: metricUTF8(producerKind),
+		ProducerId:   metricUTF8(producerID),
+		AttestedBy:   metricUTF8(attestedBy),
+	}
 }
 
 // snmpPointMetadata carries the per-point facts that must NOT fork the metric

@@ -64,6 +64,24 @@ an expired cached policy. Hub receivers enforce freshness. Trusted local edge
 configuration may continue with the last verified policy during WAN loss and must
 report that policy as stale.
 
+Hub authorization grants expire at the broker independently of the short admission
+policy snapshot. Set `SERVICERADAR_NATS_CERTIFICATE_GRANT_TTL_SECONDS` on core to a
+positive integer (default `43200`, or 12 hours). Each grant receives uniform +/-20%
+jitter and is capped at certificate expiry. At the default, the maximum fallback
+bound is 14 hours 24 minutes if every authorizer disappears. New admissions still
+require fresh policy. Revocation and de-adoption use targeted system-account KICK
+requests immediately, without waiting for expiry. The authorizer needs publish
+access to `$SYS.REQ.SERVER.*.KICK` and `$SYS.REQ.SERVER.*.CONNZ`, plus its reply inbox;
+the managed Helm authorization configuration supplies those permissions.
+
+Scheduled expiry reconnects the client or leaf. Publishers need acknowledged
+JetStream writes and stable message IDs when retrying; consumers need durable
+state and acknowledgements. A successful reconnect alone does not prove delivery.
+The stock-broker regression exercises repeated expiry, subscription recovery,
+leaf-to-hub publishing and durable consumer progress on both the packaged broker
+and the newer server module. Local leaf authorization retains its separate offline
+policy contract; this setting changes hub grants only.
+
 These interfaces do not themselves prove a deployment's active connection closure,
 local NATS authorization reload, or all collector listener enforcement. Those require
 the receiver and host acceptance checks in the managed-component OpenSpec proposal.

@@ -433,10 +433,11 @@ func validateStreamStatusChunks(chunks []*proto.GatewayStatusChunk) ([]*proto.Ga
 }
 
 // markDisconnectedOnTransportFailure tears down the gateway connection only
-// when err means the connection itself failed. Camera relay RPCs also fail for
-// reasons scoped to one relay -- the gateway closed it, its core side drained,
-// the caller cancelled -- and dropping the shared connection for those would
-// interrupt every other stream on it, including the relay's own close.
+// when err means the connection itself failed. Hello and the camera relay RPCs
+// also fail for reasons scoped to one call -- the gateway closed a relay, its
+// core side drained, the caller cancelled -- and dropping the shared connection
+// for those would interrupt every other stream on it and discard the security
+// provider a concurrent caller may be using.
 func (g *GatewayClient) markDisconnectedOnTransportFailure(err error) {
 	if isGatewayTransportFailure(err) {
 		g.markDisconnected()
@@ -547,7 +548,7 @@ func (g *GatewayClient) Hello(ctx context.Context, req *proto.AgentHelloRequest)
 	resp, err := client.Hello(helloCtx, req)
 	if err != nil {
 		g.logger.Error().Err(err).Msg("Failed to send Hello to gateway")
-		g.markDisconnected()
+		g.markDisconnectedOnTransportFailure(err)
 		return nil, fmt.Errorf("failed to send Hello: %w", err)
 	}
 

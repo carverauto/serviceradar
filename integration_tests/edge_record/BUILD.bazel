@@ -21,7 +21,7 @@ elixir_escript(
     entry_module = "CertificateCodecBridge",
 )
 
-# Protocol compatibility proof against the packaged daemon, not the newer Go module.
+# Protocol compatibility proof against both the packaged daemon and the newer Go module.
 go_test(
     name = "nats_certificate_revocation_test",
     size = "medium",
@@ -37,8 +37,9 @@ go_test(
     deps = [
         "//go/pkg/natsutil",
         "@com_github_nats_io_jwt_v2//:jwt",
-        "@com_github_nats_io_nkeys//:nkeys",
         "@com_github_nats_io_nats_go//:nats_go",
+        "@com_github_nats_io_nats_server_v2//server",
+        "@com_github_nats_io_nkeys//:nkeys",
         "@io_bazel_rules_go//go/runfiles",
     ],
 )

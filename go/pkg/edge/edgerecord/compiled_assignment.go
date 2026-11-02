@@ -709,14 +709,12 @@ func isNilIface(v any) bool {
 		return true
 	}
 	rv := reflect.ValueOf(v)
-	//nolint:exhaustive // only the nil-able kinds can be a typed nil; every other kind is a
-	// non-nil concrete value, so the default arm correctly reports it as usable.
-	switch rv.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
-		return rv.IsNil()
-	default:
-		return false
-	}
+	// Only these kinds can be a typed nil; a value of any other kind is a non-nil
+	// concrete value.
+	k := rv.Kind()
+	nilable := k == reflect.Chan || k == reflect.Func || k == reflect.Interface ||
+		k == reflect.Map || k == reflect.Pointer || k == reflect.Slice
+	return nilable && rv.IsNil()
 }
 
 // VerifyAssignmentExecutionGrant is the CURRENT PERMISSION check: is this host permitted to

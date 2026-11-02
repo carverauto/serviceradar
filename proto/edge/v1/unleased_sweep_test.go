@@ -111,6 +111,21 @@ func TestUnleasedSweepResultsBatchRoundTrip(t *testing.T) {
 				},
 			},
 		},
+		HostResults: []*edgev1.UnleasedSweepHostResultV1{
+			{
+				Available: true, ResponseTimeNano: 1_420_007, IcmpRoundTripNano: 1_420_007,
+				FirstSeen: "2026-06-01T11:00:00.5Z", LastSeen: "2026-06-01T12:00:00.5Z",
+				SweepModes: []string{"icmp", "tcp"},
+				PortResults: []*edgev1.UnleasedSweepPortResultV1{
+					{Port: 22, Available: true, ResponseTimeNano: 850_000, Service: "ssh"},
+					{Port: 443, Available: true, ResponseTimeNano: 850_000, Service: "https"},
+				},
+			},
+			{
+				Available: true, MtrRoundTripNano: 9_000_001,
+				PortResults: []*edgev1.UnleasedSweepPortResultV1{{Port: 22, ResponseTimeNano: 310_009}},
+			},
+		},
 		PortCounts: []*edgev1.UnleasedSweepPortCountV1{
 			{Port: 22, Available: 1},
 			{Port: 443, Available: 1},
@@ -186,6 +201,9 @@ func TestUnleasedSweepResultsBatchRoundTrip(t *testing.T) {
 	}
 	if got := len(decoded.GetHosts()); got != 2 {
 		t.Fatalf("len(Hosts) = %d, want 2", got)
+	}
+	if got := decoded.GetHostResults()[1].GetPortResults()[0].GetResponseTimeNano(); got != 310_009 {
+		t.Fatalf("HostResults[1] closed port response time = %d, want 310009", got)
 	}
 	if got := len(decoded.GetPortCounts()); got != 2 {
 		t.Fatalf("len(PortCounts) = %d, want 2", got)

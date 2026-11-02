@@ -37,8 +37,10 @@ are not receiver-confirmed certificate use.
 - Packaged NATS accepts the production Elixir authorization response. Targeted
   hub-side leaf/client revocation closes sessions and rejects reconnects while
   an unaffected leaf still delivers application messages. Invalid signatures,
-  wrong issuer audience and expired requests are rejected. Existing client and
-  leaf grants also expire when the authorization service disappears.
+  wrong issuer audience and expired requests are rejected. Hub grant lifetime
+  and authorizer-loss expiry are owned by
+  `docs/managed-component-certificates.md`. Local leaf authorization keeps its
+  separate contract.
 - Go real gRPC streams and Rust real NATS/TLS sockets close on revocation and
   policy expiry. Control peers with the same certificate serial survive.
 - Real Erlang TLS distribution tests close incoming and outgoing revoked links,

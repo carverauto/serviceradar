@@ -1,10 +1,18 @@
 defmodule ServiceRadar.SweepJobs.LeaseEligibilityTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.AgentConfig.Compilers.SweepCompiler
   alias ServiceRadar.Edge.SweepPlan
   alias ServiceRadar.SweepJobs.LeaseEligibility
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepProfile
+
+  # Go sweepCheckSetDigest (domain serviceradar.edge.check_set.v1), the same
+  # grammar proto/edge/v1/testdata/sweep_static_plan_corpus.txt pins for ICMP plus
+  # TCP 22/443. These two are that grammar with ICMP removed, and with only ICMP.
+  # Not computed by SweepCompiler or LeaseEligibility.
+  @tcp_22_443_check_set "ef27b5a15eb570030ffae530ef5e67d3af0e3b988f5f7c10f9f2bad9b2379ca1"
+  @icmp_check_set "5f6c98de96c9219b10bd509a42e23615a44ad939481c1dc4178f2650dfacfd13"
 
   defp group(overrides \\ %{}) do
     struct!(
@@ -43,6 +51,46 @@ defmodule ServiceRadar.SweepJobs.LeaseEligibilityTest do
     # TCP without ports is dropped by the compiler, leaving ICMP.
     assert {:ok, %{checks: [{1, 1, 0}]}} =
              LeaseEligibility.evaluate(group(%{sweep_modes: ["icmp", "tcp"], ports: []}))
+  end
+
+  test "an agent that can run none of the group's modes is not leased it, under a named reason" do
+    icmp_only = group(%{sweep_modes: ["icmp"], ports: []})
+
+    assert {:error, :all_modes_withheld} =
+             LeaseEligibility.evaluate(icmp_only, nil, ["sweep", "icmp.unavailable"])
+
+    assert {:ok, %{checks: [{1, 1, 0}]}} = LeaseEligibility.evaluate(icmp_only, nil, ["icmp"])
+  end
+
+  test "an agent that cannot run ICMP is planned the TCP checks its sweep config keeps" do
+    icmp_tcp = group(%{sweep_modes: ["icmp", "tcp"], ports: [22, 443]})
+    capabilities = ["sweep", "icmp.unavailable"]
+
+    assert {:ok, %{modes: ["tcp"], ports: [22, 443], withheld: ["icmp"]}} =
+             SweepCompiler.agent_scan_modes(icmp_tcp, nil, capabilities)
+
+    assert {:ok, %{checks: [{2, 2, 22}, {2, 2, 443}], check_set_sha256: digest}} =
+             LeaseEligibility.agent_checks(icmp_tcp, nil, capabilities)
+
+    assert Base.encode16(digest, case: :lower) == @tcp_22_443_check_set
+
+    # The bug: planning the group's modes with ICMP still included.
+    assert digest !=
+             SweepPlan.check_set_sha256([{1, 1, 0}, {2, 2, 22}, {2, 2, 443}])
+  end
+
+  test "an agent that cannot run MTR is planned the remaining ICMP checks" do
+    icmp_mtr = group(%{sweep_modes: ["icmp", "mtr"], ports: []})
+
+    assert {:error, :mtr_unsupported} = LeaseEligibility.agent_checks(icmp_mtr, nil, nil)
+
+    assert {:ok, %{modes: ["icmp"], ports: [], withheld: ["mtr"]}} =
+             SweepCompiler.agent_scan_modes(icmp_mtr, nil, ["mtr.unavailable"])
+
+    assert {:ok, %{checks: [{1, 1, 0}], check_set_sha256: digest}} =
+             LeaseEligibility.agent_checks(icmp_mtr, nil, ["mtr.unavailable"])
+
+    assert Base.encode16(digest, case: :lower) == @icmp_check_set
   end
 
   for {label, change, reason} <- [

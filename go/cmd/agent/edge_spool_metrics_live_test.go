@@ -230,28 +230,43 @@ func scrapeRunningAgent(t *testing.T, binaryPath string, records []spooledRecord
 		if ctx.Err() != nil {
 			break
 		}
-		reqCtx, reqCancel := context.WithTimeout(ctx, time.Second)
-		req, reqErr := http.NewRequestWithContext(reqCtx, http.MethodGet, url, nil)
-		if reqErr != nil {
-			reqCancel()
-			t.Fatal(reqErr)
+		payload, ok, detail := scrapeMetricsOnce(ctx, t, url)
+		if ok {
+			return payload
 		}
-		resp, getErr := http.DefaultClient.Do(req)
-		reqCancel()
-		if getErr == nil {
-			payload, readErr := io.ReadAll(resp.Body)
-			_ = resp.Body.Close()
-			if readErr == nil && resp.StatusCode == http.StatusOK && strings.Contains(string(payload), "sweep_banner_grab_candidates_total") {
-				return string(payload)
-			}
-			last = fmt.Sprintf("status %d body %s", resp.StatusCode, payload)
-		} else {
-			last = getErr.Error()
-		}
+		last = detail
 		time.Sleep(100 * time.Millisecond)
 	}
 	t.Fatalf("agent /metrics did not become ready: %s\nlog:\n%s", last, logs.snapshot())
 	return ""
+}
+
+// scrapeMetricsOnce fetches /metrics once. The per-request context stays live
+// until the body is fully read: cancelling it after Do returns would abort any
+// body larger than the transport's first read.
+func scrapeMetricsOnce(ctx context.Context, t *testing.T, url string) (string, bool, string) {
+	t.Helper()
+	reqCtx, reqCancel := context.WithTimeout(ctx, time.Second)
+	defer reqCancel()
+
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", false, err.Error()
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	payload, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", false, fmt.Sprintf("status %d read body: %v", resp.StatusCode, err)
+	}
+	if resp.StatusCode == http.StatusOK && strings.Contains(string(payload), "sweep_banner_grab_candidates_total") {
+		return string(payload), true, ""
+	}
+	return "", false, fmt.Sprintf("status %d body %s", resp.StatusCode, payload)
 }
 
 func commitSpool(t *testing.T, dir string, records []spooledRecord) {
