@@ -308,9 +308,12 @@ in `choices.md` and the chart README.
       those modes. The planner does not lease a group whose check set would
       need IPv6 SYN to an agent reporting `tcp_syn_ipv6.unavailable`.
       `sweep_lease_plan_checks:v1` names digest grammar 1, and core does not
-      send a `digest_version` the agent did not advertise. `LeaseDelivery`
-      pushes `lease_version` 2 with the check set in `check_sets` (revocations
-      stay version 1). `LeaseAgents` candidates require
+      send a `digest_version` the agent did not advertise. Core does not send
+      a check set that no slot in the push references. `LeaseDelivery` pushes
+      `lease_version` 2 when the push carries slots. A push with no slots
+      stays `lease_version` 1: `revoked` true is a revocation, and `revoked`
+      false is the empty window replacement already sent when the last unrun
+      slot is dropped. `LeaseAgents` candidates require
       `sweep_lease_plan_checks:v1`. Core records `SweepLeaseSlotRefusal` as
       `refused`. A refusal for the same assignment and lease moves
       `missed_offline` or `missed_exhausted` to `refused`, and `refused` is
@@ -318,17 +321,25 @@ in `choices.md` and the chart README.
       the capability, no agent is leased, and each leased group runs on its
       local ticker. Release this slice and M2.0i4 together, in either order,
       so that gap lasts only as long as the agent rollout.
-    - [ ] M2.0i4 Agent execution. The install gate accepts `lease_version` 1
-      for a revocation-only push and `lease_version` 2 for a push that carries
-      slots. On load it discards stored slot leases whose `lease_version` is
-      not 2 (Decision 12). Before install, an unknown `digest_version`, a
-      carried-set digest mismatch, an unresolved check-set key, or a set that
-      does not decode fails that push with a `SweepLeaseAck` error before
-      install. The failure refuses only that push. Any previously installed
-      valid lease stays in force and keeps the group's local ticker
-      suppressed. The agent falls back to the local ticker only when no valid
-      installed lease covers the group (never installed, revoked, or expired).
-      It executes
+    - [ ] M2.0i4 Agent execution. The install gate accepts `lease_version` 2
+      for a push that carries slots and `lease_version` 1 for every push with
+      no slots. `revoked` true withdraws the lease and the ticker resumes.
+      `revoked` false installs the empty window replacement, drops installed
+      slots whose start lies in the window, and does not resume the ticker or
+      leave the previous window in place. A `lease_version` 1 push that
+      carries slots is refused. On load it discards stored slot leases whose
+      `lease_version` is not 2 (Decision 12). The empty window clear is applied
+      to the installed lease and is not stored as a version-1 slot lease. The
+      agent keeps carried sets
+      that retained slots still reference, and resolves those slots from the
+      kept sets. Before install, an unknown `digest_version`, a carried-set
+      digest mismatch, a slot in the push whose key matches no set in that
+      push, a carried set no slot in the push references, or a set that does
+      not decode fails that push with a `SweepLeaseAck` error before install.
+      The failure refuses only that push. Any previously installed valid lease
+      stays in force and keeps the group's local ticker suppressed. The agent
+      falls back to the local ticker only when no valid installed lease covers
+      the group (never installed, revoked, or expired). It executes
       from `sweepPlanChecks` through `RunPlannedWithObserver`. Execution-time
       slot refusals are persisted and re-sent on reconnect.
       `CHECK_UNAVAILABLE` names `icmp.unavailable`, `mtr.unavailable`, or

@@ -2487,28 +2487,42 @@ Otherwise a port-heavy profile would repeat thousands of checks across about
   grammar. Core does not send a check set whose `digest_version` the agent
   did not advertise. A future grammar bumps the version and needs a capability
   that names it. An unknown `digest_version`, a carried set whose digest does
-  not match its key, an unresolved key, or a set that does not decode fails
-  that push with a `SweepLeaseAck` error before install. The failure refuses
+  not match its key, a slot in the push whose key matches no set in that
+  push, a carried set no slot in the push references, or a set that does not
+  decode fails that push with a `SweepLeaseAck` error before install. The
+  failure refuses
   only that push. Any previously installed valid lease stays in force and
   keeps the group's local ticker suppressed, and core retries the refused
   push against the held window. The agent falls back to the local ticker only
   when no valid installed lease covers the group (never installed, revoked,
   or expired).
 - `SweepLeaseV1.check_sets = 11` (repeated) carries the check sets of the
-  push's slots, keyed by digest. Every slot's `plan_header.check_set_sha256`
-  resolves to exactly one carried set. Every carried set's key equals the
-  digest of its checks, and no set goes unreferenced. The plan header,
+  slots in that push, keyed by digest. Every slot in the push has a
+  `plan_header.check_set_sha256` that resolves to exactly one carried set in
+  that push. Every carried set's key equals the digest of its checks. Core
+  does not send a set that no slot in the push references, and the agent
+  refuses that push before install when one is present. The plan header,
   the pages, the page and root digests and `sweep_static_plan_corpus.txt` do
   not change.
-- `SweepLeaseV1.lease_version` is 2 for a push that carries slots and 1 for a
-  revocation, which carries nothing version-dependent. The agent's install
-  gate accepts `lease_version` 1 for a revocation-only push and
-  `lease_version` 2 for a push that carries slots. A slot-carrying push at
-  `lease_version` 1 is refused with a `SweepLeaseAck` error, so an agent that
-  cannot execute from carried checks does not run it from config. A
-  revocation at `lease_version` 1 is accepted by both generations.
-- The agent keeps the carried sets that its installed slots reference, so a
-  window merge (tail push) keeps each retained slot resolvable.
+- `SweepLeaseV1.lease_version` is 2 for a push that carries slots and 1 for
+  every push with no slots. The install gate follows that split and, when the
+  push has no slots, branches on `revoked`. `revoked` true withdraws the lease
+  and the ticker resumes. `revoked` false is the empty window replacement
+  `LeaseDelivery` already sends when the last unrun slot is dropped: the agent
+  installs it, drops installed slots whose start lies in the window, and does
+  not resume the ticker or leave the previous window in place. The clear is
+  applied to the installed lease and is not stored as a version-1 slot lease,
+  so the on-load discard of stored slot leases whose `lease_version` is not 2
+  does not drop that clear or resume the ticker. A
+  slot-carrying push at `lease_version` 1 is refused with a `SweepLeaseAck`
+  error, so an agent that cannot execute from carried checks does not run it
+  from config. Both generations accept a `lease_version` 1 push that carries
+  no slots.
+- The agent keeps the carried sets that its installed slots still reference.
+  A tail carries check sets only for the slots in that push. A retained slot,
+  whose start lies outside the window, resolves from the sets kept for it.
+  An unresolved key is only a slot in the push whose header matches no set
+  in that push.
 
 **Compatibility.** Gateways are pass-through for lease chunks and gate on
 `sweep_lease_v1`, which names the chunked control-stream transport. Deployed
@@ -2543,10 +2557,12 @@ following replace `sweepChecks(cfg)` and the config-network comparison in
    each TCP mode on the same port list. Any other shape is an execution-time
    slot refusal with `UNSUPPORTED_PLAN`: the executor cannot express it, for
    example TCP modes that do not share one port list. An unknown
-   `digest_version` is not that refusal. With a digest mismatch, an unresolved
-   key, or a set that does not decode, it fails that push before install and
-   leaves any previously installed valid lease in force, with the local ticker
-   suppressed. The ticker runs only when no valid installed lease covers the
+   `digest_version` is not that refusal. A digest mismatch, a slot in the push
+   whose key matches no set in that push, a carried set no slot in the push
+   references, or a set that does not decode fails that push before install
+   and leaves any previously installed valid lease in force, with the local
+   ticker suppressed. A retained slot resolves from the sets kept for it. The
+   ticker runs only when no valid installed lease covers the
    group (never installed, revoked, or expired). Core's `SweepPlan.checks/2`
    only builds the expressible shape.
 2. `newSweepEdgeProducer(lease, slot, spool, now)` no longer takes the config.
@@ -2589,7 +2605,9 @@ gateway -> `AgentGatewaySync` -> `ServiceRadar.SweepJobs`):
   express, such as TCP modes that do not share one port list. Check-set
   validation runs before install and fails the whole push with a
   `SweepLeaseAck` error: an unknown `digest_version`, a carried-set digest
-  mismatch, an unresolved check-set key, or a set that does not decode. The
+  mismatch, a slot in the push whose key matches no set in that push, a
+  carried set no slot in the push references, or a set that does not decode.
+  The
   failure refuses only that push. A previously installed valid lease stays in
   force and keeps the local ticker suppressed. The ticker runs only when no
   valid installed lease covers the group (never installed, revoked, or

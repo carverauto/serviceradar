@@ -116,18 +116,31 @@ checks, ports or targets of a leased slot. That config SHALL remain
 authoritative only for unleased and legacy sweep groups, and for leased groups
 only for scanner settings that no record claims. Every `SweepLeaseV1` push that
 carries slots SHALL use `lease_version` 2 and SHALL carry, in `check_sets`, one
-`SweepCheckSetV1` per distinct `check_set_sha256` among its slots. The carried
-checks SHALL be the sorted, de-duplicated `(mode, protocol, port)` list whose
-check-set digest is that key. Core SHALL lease a sweep group only to
-an agent that reports `sweep_lease_plan_checks:v1`, and SHALL send a revocation
-as `lease_version` 1. `sweep_lease_plan_checks:v1` names digest grammar 1, and
-core SHALL NOT send a check set whose `digest_version` the agent did not
-advertise. Before install, the agent SHALL validate every carried check set.
-An unknown `digest_version`, a carried set whose checks digest to a different
-value, an unresolved check-set key, or a set that does not decode SHALL fail
-that push with a `SweepLeaseAck` error before install. The failure SHALL
-refuse only that push. Any previously installed valid lease SHALL stay in
-force and SHALL keep the group's local ticker suppressed. The agent SHALL
+`SweepCheckSetV1` per distinct `check_set_sha256` among the slots in that
+push. The carried checks SHALL be the sorted, de-duplicated `(mode, protocol,
+port)` list whose check-set digest is that key. Core SHALL NOT send a check
+set that no slot in the push references. The agent SHALL keep the carried
+sets its installed slots still reference. A tail push carries check sets only
+for the slots in that push, and a retained slot whose start lies outside the
+push window SHALL resolve its checks from the sets kept for it. Core SHALL
+lease a sweep group only to an agent that reports
+`sweep_lease_plan_checks:v1`. A push with no slots SHALL use `lease_version`
+1. When that push has `revoked` true, the agent SHALL withdraw the lease and
+the group's local ticker SHALL resume. When `revoked` is false, the agent
+SHALL apply the push to the installed lease as an empty window replacement,
+SHALL drop installed slots whose start lies in that window, SHALL NOT store
+it as a version-1 slot lease, and SHALL NOT resume the ticker or leave the
+previous window in place. A push that carries slots at
+`lease_version` 1 SHALL be refused. `sweep_lease_plan_checks:v1` names digest
+grammar 1, and core SHALL NOT send a check set whose `digest_version` the
+agent did not advertise. Before install, the agent SHALL validate the push's
+carried check sets against the slots in that push. An unknown
+`digest_version`, a carried set whose checks digest to a different value, a
+slot in the push whose `check_set_sha256` matches no set in that push, a
+carried set no slot in the push references, or a set that does not decode
+SHALL fail that push with a `SweepLeaseAck` error before install. The failure
+SHALL refuse only that push. Any previously installed valid lease SHALL stay
+in force and SHALL keep the group's local ticker suppressed. The agent SHALL
 fall back to the local ticker only when no valid installed lease covers the
 group (never installed, revoked, or expired). For an installed slot, the only
 comparison the agent makes between the slot and its checks SHALL be that the
@@ -160,14 +173,32 @@ terminal.
 #### Scenario: Carried checks fail validation before install
 - **GIVEN** a valid lease for the group is already installed
 - **WHEN** a replacement push carries an unknown check-set `digest_version`,
-  a set whose checks digest to a different value than its key, a header
-  `check_set_sha256` that resolves to no carried set, or a set that does not
-  decode
+  a set whose checks digest to a different value than its key, a slot in the
+  push whose `check_set_sha256` matches no set in that push, a carried set no
+  slot in the push references, or a set that does not decode
 - **THEN** the agent SHALL refuse that push with a `SweepLeaseAck` error
   before install
 - **AND** SHALL NOT fall back to checks derived from its config
 - **AND** the previously installed lease SHALL stay in force and SHALL keep
   the group's local ticker suppressed
+
+#### Scenario: Empty window replacement
+- **GIVEN** a valid lease for the group is already installed
+- **WHEN** core pushes `lease_version` 1 with no slots and `revoked` false
+- **THEN** the agent SHALL apply the push to the installed lease and drop
+  installed slots whose start lies in the push window
+- **AND** SHALL NOT store the push as a version-1 slot lease
+- **AND** SHALL NOT resume the local ticker
+- **AND** SHALL NOT leave the previous window in place
+
+#### Scenario: Tail push retains an earlier slot
+- **GIVEN** an installed slot whose start lies outside the tail window
+- **AND** the agent still holds the carried set that slot references
+- **WHEN** a tail push carries later slots and only the check sets those slots
+  use
+- **THEN** the agent SHALL install the tail
+- **AND** SHALL resolve the retained slot from the set it kept
+- **AND** SHALL NOT require that set to be repeated in the tail
 
 #### Scenario: Check set the executor cannot express
 - **GIVEN** a leased slot is already installed
