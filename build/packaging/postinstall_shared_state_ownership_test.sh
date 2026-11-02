@@ -276,3 +276,73 @@ if run_agent_postinstall "$service_owner" >/dev/null 2>&1; then
     echo "postinstall accepted symlinked host-trust" >&2
     exit 1
 fi
+
+# RPM spec %post must refuse a symlinked /etc/serviceradar or host-trust before
+# enable, start, try-restart, or the systemd transaction hook.
+run_agent_spec_post() {
+    local transaction="$1"
+    awk '
+        /^%post$/ { active=1; next }
+        /^%preun/ { active=0 }
+        active && /^%systemd_post/ { print "systemd_post_hook"; next }
+        active { print }
+    ' "$agent_spec" > "$test_root/body"
+    sed -e "s|/var/lib/serviceradar|$test_root/var/lib/serviceradar|g" \
+        -e "s|/etc/serviceradar|$test_root/etc/serviceradar|g" \
+        -e "s|/usr/local/bin/|$test_root/usr/local/bin/|g" \
+        -e "s|/usr/lib/serviceradar|$test_root/usr/lib/serviceradar|g" \
+        -e "s|serviceradar:serviceradar|$service_owner|g" \
+        -e "s|root:serviceradar|$runner_owner|g" \
+        -e "s|root:root|$runner_owner|g" \
+        "$test_root/body" > "$test_root/installer"
+    set +e
+    PATH="$test_root/bin:$PATH" sh "$test_root/installer" "$transaction" >"$test_root/install.log" 2>&1
+    status=$?
+    set -e
+}
+
+for trust_link in /etc/serviceradar /etc/serviceradar/host-trust; do
+    for transaction in 1 2; do
+        prepare_fixture
+        mkdir -p "$test_root/outside" "$test_root/usr/local/bin"
+        printf 'protected\n' > "$test_root/outside/sentinel"
+        chmod 0700 "$test_root/outside"
+        before="$(stat -c '%u:%g:%a' "$test_root/outside")"
+        if [[ "$trust_link" == /etc/serviceradar/host-trust ]]; then
+            mkdir -p "$test_root/etc/serviceradar"
+        else
+            mkdir -p "$test_root/etc"
+        fi
+        ln -s "$test_root/outside" "$test_root$trust_link"
+        cat > "$test_root/bin/systemctl" <<EOF
+#!/bin/sh
+printf 'systemctl %s\n' "\$*" >> "$test_root/service-actions.log"
+exit 0
+EOF
+        cat > "$test_root/bin/systemd_post_hook" <<EOF
+#!/bin/sh
+printf 'systemd_post %s\n' "\$*" >> "$test_root/service-actions.log"
+exit 0
+EOF
+        chmod +x "$test_root/bin/systemctl" "$test_root/bin/systemd_post_hook"
+        : > "$test_root/service-actions.log"
+        run_agent_spec_post "$transaction"
+        if [[ "$status" == 0 ]]; then
+            echo "spec postinstall accepted symlinked $trust_link during transaction $transaction" >&2
+            cat "$test_root/install.log" >&2
+            exit 1
+        fi
+        if [[ -s "$test_root/service-actions.log" ]]; then
+            echo "spec postinstall changed service state before refusing $trust_link during transaction $transaction" >&2
+            cat "$test_root/service-actions.log" >&2
+            exit 1
+        fi
+        [[ "$(stat -c '%u:%g:%a' "$test_root/outside")" == "$before" ]]
+        [[ "$(cat "$test_root/outside/sentinel")" == protected ]]
+        if [[ "$(cat "$test_root/install.log")" != *"refusing symlinked ${test_root}${trust_link}"* ]]; then
+            echo "spec postinstall did not refuse symlinked $trust_link during transaction $transaction" >&2
+            cat "$test_root/install.log" >&2
+            exit 1
+        fi
+    done
+done

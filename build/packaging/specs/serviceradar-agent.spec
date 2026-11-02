@@ -66,6 +66,14 @@ fi
 
 %post
 set -e
+if [ -L /etc/serviceradar ]; then
+    echo "Error: refusing symlinked /etc/serviceradar" >&2
+    exit 1
+fi
+if [ -L /etc/serviceradar/host-trust ]; then
+    echo "Error: refusing symlinked /etc/serviceradar/host-trust" >&2
+    exit 1
+fi
 for dir in /var/lib/serviceradar \
     /var/lib/serviceradar/agent \
     /var/lib/serviceradar/agent/tmp \
