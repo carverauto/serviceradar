@@ -28,9 +28,9 @@ defmodule ServiceRadar.Edge.SweepPlan do
 
   ## Checks
 
-  `checks/2` turns a group's effective modes and ports into the `(mode, protocol, port)`
-  set that `check_set_sha256` identifies. Callers pass the values the sweep compiler
-  emits, after profile and override inheritance, not the group's own fields.
+  `checks/2` turns modes and ports into the `(mode, protocol, port)` set that
+  `check_set_sha256` identifies. The lease caller passes what
+  `SweepCompiler.agent_scan_modes/3` returns for that agent, not the group's own fields.
   """
 
   import Bitwise
@@ -76,8 +76,8 @@ defmodule ServiceRadar.Edge.SweepPlan do
   def availability_policy_id, do: @availability_policy_id
 
   @doc """
-  The checks a group's effective modes and ports run: ICMP once, and each TCP mode on every
-  port. `arp` and blank modes are ignored, as the agent ignores them; `mtr` is refused because
+  The checks the given modes and ports run: ICMP once, and each TCP mode on every port.
+  `arp` and blank modes are ignored, as the agent ignores them; `mtr` is refused because
   a plan built here admits no MTR.
   """
   @spec checks([String.t()], [integer()]) :: {:ok, [check()]} | {:error, reason()}

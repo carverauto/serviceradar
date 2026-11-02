@@ -283,16 +283,18 @@ data:
 
   agent.json: |
       {
-        {{- if (default dict .Values.edgeRecords).agentSweepEnabled }}
+        {{- $edgeRecordVals := default dict .Values.edgeRecords }}
+        {{- if or $edgeRecordVals.agentSweepEnabled $edgeRecordVals.agentMetricsEnabled }}
         {{- if not .Values.edgeRecords.enabled }}
-          {{- fail "edgeRecords.agentSweepEnabled requires edgeRecords.enabled" }}
+          {{- fail "edgeRecords.agentSweepEnabled and agentMetricsEnabled require edgeRecords.enabled" }}
         {{- end }}
         {{- if not (default dict $agentVals.runtimeStorage).enabled }}
-          {{- fail "edgeRecords.agentSweepEnabled requires persistent agent.runtimeStorage" }}
+          {{- fail "edgeRecords.agentSweepEnabled and agentMetricsEnabled require persistent agent.runtimeStorage" }}
         {{- end }}
         "edge_record_sender": {
           "enabled": true,
-          "sweep_enabled": true,
+          "sweep_enabled": {{ $edgeRecordVals.agentSweepEnabled | default false }},
+          "metrics_enabled": {{ $edgeRecordVals.agentMetricsEnabled | default false }},
           "max_bytes": {{ .Values.edgeRecords.maxSpoolBytes | int64 }},
           "spool_dir": "{{ default "/var/lib/serviceradar/agent" (default dict $agentVals.runtimeStorage).basePath }}/edge-records"
         },

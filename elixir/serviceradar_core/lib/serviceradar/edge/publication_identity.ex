@@ -21,7 +21,8 @@ defmodule ServiceRadar.Edge.PublicationIdentity do
   headers; `validate_header_set/2` recomputes and cross-checks the whole header set against the
   record- and credential-derived trust context (scope, origin kind, publisher class, principal).
   There is NO separate `Sr-Edge-Route-Map-Version` header -- route_map_version travels only in
-  the provenance envelope.
+  the provenance envelope. `Sr-Edge-Gateway-Id` is not part of that grammar: the publishing
+  gateway stamps it, and `extract_header_set/1` returns it when one non-empty value is present.
   """
 
   alias ServiceRadar.Edge.CapabilitySigning
@@ -48,6 +49,7 @@ defmodule ServiceRadar.Edge.PublicationIdentity do
   @header_nats_msg_id "nats-msg-id"
   @header_delivery_id "sr-edge-delivery-id"
   @header_provenance "sr-edge-transport-provenance"
+  @header_gateway_id "sr-edge-gateway-id"
 
   # Slot-kind discriminant (0 is never emitted; a received 0 is rejected fail-closed).
   @slot_edge 1
@@ -59,6 +61,9 @@ defmodule ServiceRadar.Edge.PublicationIdentity do
   @mode_rollover 3
   @mode_late_fenced 4
   @modes [@mode_fresh, @mode_renewal, @mode_rollover, @mode_late_fenced]
+
+  @doc "Header the publishing gateway stamps with its own id. Not part of the identity grammar."
+  def header_gateway_id, do: "Sr-Edge-Gateway-Id"
 
   @doc "Delivery-mode constants for callers building provenance inputs."
   def mode_fresh, do: @mode_fresh
@@ -540,7 +545,9 @@ defmodule ServiceRadar.Edge.PublicationIdentity do
   CASE-INSENSITIVELY and requiring EXACTLY ONE non-empty value each. A missing, empty, or duplicate
   (repeated under one key OR under case-variant keys) header is rejected fail-closed -- the scalar
   validator cannot see duplicates, so this boundary catches them. There is NO
-  Sr-Edge-Route-Map-Version header. Returns `{:ok, %{nats_msg_id, delivery_id, provenance}}`.
+  Sr-Edge-Route-Map-Version header. `Sr-Edge-Gateway-Id` is optional: one non-empty value is
+  returned as `gateway_id`, and a missing or empty value is `nil`. A repeated non-empty value
+  is `:duplicate_header`. Returns `{:ok, %{nats_msg_id, delivery_id, provenance, gateway_id}}`.
   """
   @spec extract_header_set(map() | list()) :: {:ok, map()} | {:error, atom()}
   def extract_header_set(headers) when is_map(headers) or is_list(headers) do
@@ -553,8 +560,9 @@ defmodule ServiceRadar.Edge.PublicationIdentity do
 
       with {:ok, msg} <- one_header(by_lower, @header_nats_msg_id),
            {:ok, del} <- one_header(by_lower, @header_delivery_id),
-           {:ok, prov} <- one_header(by_lower, @header_provenance) do
-        {:ok, %{nats_msg_id: msg, delivery_id: del, provenance: prov}}
+           {:ok, prov} <- one_header(by_lower, @header_provenance),
+           {:ok, gateway_id} <- optional_header(by_lower, @header_gateway_id) do
+        {:ok, %{nats_msg_id: msg, delivery_id: del, provenance: prov, gateway_id: gateway_id}}
       end
     end
   end
@@ -593,6 +601,14 @@ defmodule ServiceRadar.Edge.PublicationIdentity do
     end
   end
 
+  defp optional_header(by_lower, name) do
+    case Enum.reject(Map.get(by_lower, name, []), &(&1 == "")) do
+      [] -> {:ok, nil}
+      [value] -> {:ok, value}
+      _ -> {:error, :duplicate_header}
+    end
+  end
+
   @doc """
   EventWriter's complete header-set validator. Strictly decodes the provenance envelope,
   recomputes Nats-Msg-Id and Sr-Edge-Delivery-Id from the decoded slot and the record's
@@ -602,7 +618,7 @@ defmodule ServiceRadar.Edge.PublicationIdentity do
   credential-derived publisher identity) is compared to the record principal ONLY on the
   SERVICE-INGRESS path; for edge records the publisher is the gateway, whose credential identity
   differs from the agent principal by design, so it is ignored. `header_set` is
-  `%{nats_msg_id, delivery_id, provenance}` (from `extract_header_set/1`); `ctx` carries
+  `%{nats_msg_id, delivery_id, provenance, gateway_id}` (from `extract_header_set/1`); `ctx` carries
   `:record_network_scope_id`, `:record_origin_kind`, `:record_principal`,
   `:expected_publisher_class` (`:edge`/`:service`), `:trusted_publisher_principal`,
   `:semantic_envelope_sha256`, `:record_sha256`. Any disagreement fails closed.

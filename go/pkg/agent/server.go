@@ -553,6 +553,10 @@ func (s *Server) WritePrometheusMetrics(w io.Writer) error {
 		}
 	}
 
+	if err := s.edgeProducerDrops.write(w); err != nil {
+		return err
+	}
+
 	return s.writeEdgeSpoolMetrics(w)
 }
 

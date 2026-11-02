@@ -387,3 +387,51 @@ func (s *configChunkStream) Recv() (*proto.AgentConfigChunk, error) {
 
 	return chunk, nil
 }
+
+// A caller that cancels its Hello (an enrollment whose owner shut down) must not
+// tear down the shared connection and its security provider; a transport
+// failure still must.
+func TestHelloDropsConnectionOnlyOnTransportFailure(t *testing.T) {
+	tests := []struct {
+		name          string
+		callerCancels bool
+		rpcErr        error
+		wantConnected bool
+	}{
+		{name: "caller cancelled", callerCancels: true, wantConnected: true},
+		{name: "transport unavailable", rpcErr: status.Error(codes.Unavailable, "connection lost"), wantConnected: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockClient := proto.NewMockAgentGatewayServiceClient(ctrl)
+			client := NewGatewayClient("gateway:50052", nil, logger.NewTestLogger())
+			client.client = mockClient
+			client.connected = true
+
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			if tt.callerCancels {
+				cancel()
+			}
+
+			mockClient.EXPECT().
+				Hello(gomock.Any(), gomock.Any()).
+				DoAndReturn(func(rpcCtx context.Context, _ *proto.AgentHelloRequest, _ ...grpc.CallOption) (*proto.AgentHelloResponse, error) {
+					if tt.rpcErr != nil {
+						return nil, tt.rpcErr
+					}
+					return nil, status.FromContextError(rpcCtx.Err()).Err()
+				})
+
+			_, err := client.Hello(ctx, &proto.AgentHelloRequest{AgentId: "agent-1"})
+			if err == nil {
+				t.Fatal("Hello returned nil error")
+			}
+			if connected := client.connected && client.client != nil; connected != tt.wantConnected {
+				t.Fatalf("connected after Hello error = %v, want %v", connected, tt.wantConnected)
+			}
+		})
+	}
+}

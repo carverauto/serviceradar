@@ -42,13 +42,13 @@ defmodule ServiceRadar.Edge.SweepContractTest do
   end
 
   test "a sweep entry that is not active, or not registered, gives no contract" do
-    assert {:error, {:sweep_contract_not_active, :draining}} =
+    assert {:error, {:contract_not_active, :draining}} =
              SweepContract.from_document(document(%{"state" => "draining"}))
 
-    assert {:error, :sweep_contract_not_registered} =
+    assert {:error, :contract_not_registered} =
              SweepContract.from_document(document(%{"contract_version" => 2}))
 
-    assert {:error, :sweep_contract_lane} =
+    assert {:error, :contract_lane} =
              SweepContract.from_document(
                document(%{"traffic_class" => "EDGE_RECORD_TRAFFIC_CLASS_INTERACTIVE"})
              )

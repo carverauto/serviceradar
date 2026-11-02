@@ -45,7 +45,9 @@ defmodule ServiceRadar.Repo.Migrations.AddManagedCertificateLifecycle do
           name: "managed_certificate_operations_component_id_fkey",
           type: :text,
           prefix: "platform"
-        ), null: false)
+        ),
+        null: false
+      )
     end
 
     create(
@@ -152,7 +154,9 @@ defmodule ServiceRadar.Repo.Migrations.AddManagedCertificateLifecycle do
     drop(
       constraint(
         :managed_certificate_operations,
-        "managed_certificate_operations_component_id_fkey", prefix: "platform")
+        "managed_certificate_operations_component_id_fkey",
+        prefix: "platform"
+      )
     )
 
     drop_if_exists(
