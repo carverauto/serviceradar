@@ -20,6 +20,8 @@ import (
 	"errors"
 	"fmt"
 
+	"google.golang.org/protobuf/proto"
+
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 	metricpb "github.com/carverauto/serviceradar/proto/metric/v1"
 )
@@ -78,28 +80,9 @@ func ValidateMetricBatch(batch *metricpb.MetricBatch) error {
 // decoded body, and a projected row count equal to the body's metric count.
 // Signatures are verified by the gateway, which holds the trust snapshot.
 func ValidateMetricBatchRecord(r *edgev1.EdgeRecordV1) error {
-	if err := ValidateRecord(r); err != nil {
-		return err
-	}
-	contract := r.GetOutputContract()
-	if contract.GetContractId() != MetricsBatchContractID ||
-		contract.GetContractVersion() != MetricsBatchContractVersion {
-		return fmt.Errorf("%w: %s v%d", ErrContractDispatch, contract.GetContractId(), contract.GetContractVersion())
-	}
-	if err := requireFramingFamily(r,
-		edgev1.EdgeRecordPayloadFamily_EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1,
-		ErrPayloadFraming); err != nil {
-		return err
-	}
-	if r.GetSourceAuthorization() != nil {
-		return ErrMetricBatchSourceAuthorization
-	}
-	inner, err := innerPayload(r)
-	if err != nil {
-		return err
-	}
 	var batch metricpb.MetricBatch
-	if err := unmarshalPayload(inner, &batch); err != nil {
+	if err := decodeStandingGrantRecord(r, MetricsBatchContractID, MetricsBatchContractVersion,
+		ErrMetricBatchSourceAuthorization, &batch); err != nil {
 		return err
 	}
 	if err := ValidateMetricBatch(&batch); err != nil {
@@ -110,4 +93,41 @@ func ValidateMetricBatchRecord(r *edgev1.EdgeRecordV1) error {
 			ErrMetricBatch, r.GetProjectedRowCount(), len(batch.GetMetrics()))
 	}
 	return nil
+}
+
+// decodeStandingGrantRecord is the shared front half of a standing-grant
+// contract's record validator: the whole record (ValidateRecord), the exact
+// contract, RECORD_BATCH_V1 framing, no source authorization (a standing grant
+// never issues one; sourceAuthorization is the contract's error for it), and the
+// canonical decode of the body into body.
+func decodeStandingGrantRecord(
+	r *edgev1.EdgeRecordV1,
+	contractID string,
+	contractVersion uint32,
+	sourceAuthorization error,
+	body interface {
+		Reset()
+		proto.Message
+	},
+) error {
+	if err := ValidateRecord(r); err != nil {
+		return err
+	}
+	contract := r.GetOutputContract()
+	if contract.GetContractId() != contractID || contract.GetContractVersion() != contractVersion {
+		return fmt.Errorf("%w: %s v%d", ErrContractDispatch, contract.GetContractId(), contract.GetContractVersion())
+	}
+	if err := requireFramingFamily(r,
+		edgev1.EdgeRecordPayloadFamily_EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1,
+		ErrPayloadFraming); err != nil {
+		return err
+	}
+	if r.GetSourceAuthorization() != nil {
+		return sourceAuthorization
+	}
+	inner, err := innerPayload(r)
+	if err != nil {
+		return err
+	}
+	return unmarshalPayload(inner, body)
 }

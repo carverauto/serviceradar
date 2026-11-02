@@ -12,9 +12,9 @@ defmodule ServiceRadar.Edge.WireDecode do
   The ONLY public entries are a FINITE set of stage decoders -- `decode_client_message/1`,
   `decode_frame/1`, `decode_record/1`, `decode_manifest_page/1`, `decode_assignment_record/1`,
   `decode_plan_header/1`, `decode_plan_page/1`, `decode_compiled_assignment/1`,
-  `decode_execution_grant/1`, `decode_sweep_batch/1` and `decode_metric_batch/1` -- each bound to
-  exactly one generated message module. The recovery, assignment, plan, and sweep-body stages
-  EXTEND this set rather than standing up
+  `decode_execution_grant/1`, `decode_sweep_batch/1`, `decode_metric_batch/1` and
+  `decode_unleased_sweep_batch/1` -- each bound to exactly one generated message module. The
+  recovery, assignment, plan, and sweep-body stages EXTEND this set rather than standing up
   separate raw-bytes ingresses, so each gets the same bound-before-decode discipline and the same
   typed outcomes as the transport stages. The plan entries matter especially: protobuf-elixir ERASES
   an unknown GROUP, so plan wire hygiene is only observable on the raw path.
@@ -327,6 +327,15 @@ defmodule ServiceRadar.Edge.WireDecode do
   @spec decode_metric_batch(term()) :: outcome()
   def decode_metric_batch(bytes),
     do: run(Serviceradar.Metric.V1.MetricBatch, @max_extracted_body_bytes, bytes)
+
+  @doc """
+  Decodes the ALREADY-EXTRACTED body of a `serviceradar.sweep.unleased_results` record as an
+  `UnleasedSweepResultsBatchV1`, under the same extracted-body work ceiling as
+  `decode_sweep_batch/1`.
+  """
+  @spec decode_unleased_sweep_batch(term()) :: outcome()
+  def decode_unleased_sweep_batch(bytes),
+    do: run(Serviceradar.Edge.V1.UnleasedSweepResultsBatchV1, @max_extracted_body_bytes, bytes)
 
   @doc """
   Decodes ONE raw `EdgeLossManifestPageV1` -- the recovery-page ingress stage.

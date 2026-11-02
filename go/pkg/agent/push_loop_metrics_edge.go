@@ -57,6 +57,8 @@ const (
 	edgeProducerICMP
 	edgeProducerMTR
 	edgeProducerSweepSummary
+	edgeProducerSweepResults
+	edgeProducerSweepResultsMetrics
 	edgeProducerCount
 )
 
@@ -68,6 +70,9 @@ func (p edgeProducer) label() string {
 		edgeProducerMTR:    "mtr",
 		// The periodic sweep summary sample, not the batch carried with sweep results.
 		edgeProducerSweepSummary: "sweep",
+		// Unleased sweep results records, and the metric batch each results chunk carries.
+		edgeProducerSweepResults:        "sweep_results",
+		edgeProducerSweepResultsMetrics: "sweep_results_metrics",
 	}[p]
 }
 
@@ -403,7 +408,9 @@ func appendEdgeMetricsParts[T any](
 				Msg("Edge spool refused metrics; retrying on the next push")
 			return admitted, parts[i:]
 		}
-		p.publishAddonMetricFeed(m.feed, part.payload)
+		if m.feed != "" {
+			p.publishAddonMetricFeed(m.feed, part.payload)
+		}
 		admitted++
 	}
 	return admitted, nil

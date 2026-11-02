@@ -1843,7 +1843,9 @@ agent:
 # contractRegistry is the installation-static document consumed by core and gateway.
 # agentMetricsEnabled lets the in-cluster agent emit metric batches as edge records once
 # core grants it the serviceradar.metrics.batch contract (registered in contractRegistry
-# and the agent's leasing switch on); without a grant it keeps the status path.
+# and the agent's leasing switch on); without a grant it keeps the status path. With it,
+# results of sweep groups the agent runs without a lease also move to edge records once
+# contractRegistry holds an active serviceradar.sweep.unleased_results contract as well.
 edgeRecords:
   enabled: false
   contractRegistry: {}
