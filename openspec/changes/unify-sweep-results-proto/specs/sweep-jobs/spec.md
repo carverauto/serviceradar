@@ -109,6 +109,83 @@ operator-approved, benchmark-backed capacity override.
   spool without waiting for the run or interval to end
 - **AND** SHALL NOT accumulate a run-wide or interval-wide trace slice
 
+### Requirement: Leased sweep slots execute their signed plan
+A leased sweep slot SHALL execute exactly the checks, ports and targets its
+signed plan carries. The agent's sweep config SHALL NOT determine or veto the
+checks, ports or targets of a leased slot. That config SHALL remain
+authoritative only for unleased and legacy sweep groups, and for leased groups
+only for scanner settings that no record claims. Every `SweepLeaseV1` push that
+carries slots SHALL use `lease_version` 2 and SHALL carry, in `check_sets`, one
+`SweepCheckSetV1` per distinct `check_set_sha256` among its slots. The carried
+checks SHALL be the sorted, de-duplicated `(mode, protocol, port)` list whose
+check-set digest is that key. The only comparison the agent makes between a
+slot and its checks SHALL be that the digest of the carried checks equals the
+slot's `plan_header.check_set_sha256`. Core SHALL lease a sweep group only to
+an agent that reports `sweep_lease_plan_checks:v1`, and SHALL send a revocation
+as `lease_version` 1. An agent that cannot run a carried check SHALL refuse the
+slot with a typed reason and SHALL NOT run a subset or a substitute of the
+signed checks.
+
+#### Scenario: Config differs from the signed plan
+- **GIVEN** an installed slot whose carried checks digest to its header's
+  `check_set_sha256`
+- **AND** the agent's sweep config for the group now lists different modes,
+  ports or networks
+- **WHEN** the slot runs
+- **THEN** the scanner SHALL probe the plan ranges' CIDRs with the carried modes
+  and ports
+- **AND** every batch's `tested_checks` SHALL equal the carried checks
+- **AND** a config update during the run SHALL NOT change that execution
+
+#### Scenario: Carried checks do not match the header digest
+- **WHEN** a push carries a slot whose header `check_set_sha256` resolves to no
+  carried set, or to a set whose checks digest to a different value
+- **THEN** the agent SHALL refuse the push with a `SweepLeaseAck` error
+- **AND** SHALL NOT fall back to checks derived from its config
+
+#### Scenario: Check set the scanner cannot express
+- **WHEN** a carried set is not ICMP once plus each TCP mode on one shared port
+  list, or names a check-set `digest_version` the agent does not know
+- **THEN** the agent SHALL refuse the slot with reason `UNSUPPORTED_PLAN`
+
+#### Scenario: A carried mode becomes unavailable before the slot runs
+- **GIVEN** a slot carries ICMP
+- **AND** the agent can no longer open its ICMP sweep socket
+- **WHEN** the slot is due
+- **THEN** the agent SHALL report `icmp.unavailable` in its capabilities
+- **AND** SHALL refuse the slot before its first append, reporting
+  `SweepLeaseSlotRefusal` with reason `CHECK_UNAVAILABLE` and that marker
+- **AND** core SHALL record the slot as refused with that reason, and SHALL
+  NOT later mark it missed
+- **AND** the next lease pass SHALL plan that agent's unrun slots from its
+  capabilities without ICMP and push them as a window replacement
+
+#### Scenario: A mode the agent would substitute
+- **WHEN** a carried mode would run as a different mode for a plan range, such
+  as TCP SYN on an IPv6 range without raw IPv6 SYN
+- **THEN** the agent SHALL refuse the slot with reason `CHECK_UNAVAILABLE`
+- **AND** SHALL NOT run the substitute mode under the signed plan
+
+#### Scenario: Refusal reported while disconnected
+- **GIVEN** the agent refused a slot while its control stream was down
+- **WHEN** the control stream reconnects
+- **THEN** the agent SHALL re-send every refusal it still holds
+- **AND** core SHALL record each one once per execution id
+
+#### Scenario: Agent without plan-carried execution
+- **GIVEN** an agent that does not report `sweep_lease_plan_checks:v1`
+- **WHEN** the lease pass runs
+- **THEN** core SHALL NOT lease it any group, and SHALL revoke any assignment
+  it holds
+- **AND** the agent SHALL run those groups on its local ticker and the legacy
+  path
+
+#### Scenario: Push from a core that predates carried checks
+- **WHEN** an agent that executes from carried checks receives a push with slots
+  and `lease_version` 1
+- **THEN** it SHALL refuse the push with a `SweepLeaseAck` error
+- **AND** the group SHALL keep running on the agent's local ticker
+
 ## MODIFIED Requirements
 
 ### Requirement: Sweep Job Compiled Config Output

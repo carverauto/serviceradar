@@ -283,6 +283,39 @@ in `choices.md` and the chart README.
     `SweepCorrelate.ingest_own_payload/1` already gates EventWriter sweep ingest.
     `ServiceRadar.SweepJobs.LeaseMisses` owns the mark, and
     `ServiceRadar.Edge.SweepProjection` reopens a later projecting batch.
+  - [ ] M2.0i Plan-carried checks. A leased slot executes the checks, ports and
+    targets its signed plan carries, never its sweep config (Decision 12 in
+    `design.md`). Each slice lands on its own, in this order:
+    - [ ] M2.0i1 Proto. `SweepCheckSetV1`, `SweepLeaseV1.check_sets = 11`,
+      `SweepLeaseSlotRefusal` with its reason enum, and
+      `ControlStreamRequest.sweep_lease_slot_refusal = 8`, regenerated for Go
+      and Elixir. Add a synthetic golden lease fixture under
+      `proto/edge/v1/testdata/` that Elixir encodes and Go decodes and
+      validates, with negative cases for a mismatched digest, an unresolved
+      set, a set no slot references, a set that is not a product of modes and
+      ports, and a slot-carrying `lease_version` 1 push. Nothing reads the new
+      fields yet.
+    - [ ] M2.0i2 Sweeper run spec. `NetworkSweeper.RunPlannedWithObserver` runs
+      one execution from a run-scoped copy of the config with networks, modes
+      and ports replaced. The run path reads that copy instead of `s.config`,
+      so `UpdateConfig` during the run cannot change it. No caller yet.
+    - [ ] M2.0i3 Core carrier. `LeaseDelivery` pushes `lease_version` 2 with
+      the pass's agent check set in `check_sets` (revocations stay version 1),
+      `LeaseAgents` candidates require `sweep_lease_plan_checks:v1`, and core
+      records `SweepLeaseSlotRefusal` as a `refused` slot that `LeaseMisses`
+      never relabels. Until agents advertise the capability, no agent is
+      leased, and each leased group runs on its local ticker. Release this
+      slice and M2.0i4 together, in either order, so that gap lasts only as
+      long as the agent rollout.
+    - [ ] M2.0i4 Agent execution. The agent installs only `lease_version` 2
+      for pushes that carry slots, discards stored leases of other versions,
+      executes from `sweepPlanChecks` through `RunPlannedWithObserver`,
+      refuses with a typed reason (persisted, and re-sent on reconnect),
+      reports `tcp_syn_ipv6.unavailable`, and advertises
+      `sweep_lease_plan_checks:v1` alongside `sweep_lease_v1`. The
+      config-versus-plan check-set and network comparisons are deleted. The
+      planner gets the matching rule: a group with an IPv6 range and TCP SYN
+      is not leased to an agent that reports the marker.
 - [ ] M2.1 Sweep producer. Completed host windows from the agent's sweep become
   byte-bounded `SweepObservationBatchV1` records appended to the existing agent
   spool and sent by the existing sender, while the scan continues (narrows 2.1,
