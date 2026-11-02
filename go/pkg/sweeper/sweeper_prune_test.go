@@ -53,7 +53,7 @@ func TestRunSweep_PrunesPreviousResultsAfterSuccessfulSweep(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := sweeper.runSweep(ctx); err != nil {
+	if err := sweeper.runSweep(ctx, sweeper.config); err != nil {
 		t.Fatalf("runSweep returned error: %v", err)
 	}
 
@@ -159,7 +159,7 @@ func runSweepCapturingInfo(t *testing.T, cfg *models.Config) []capturedInfoEvent
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := sweeper.runSweep(ctx); err != nil {
+	if err := sweeper.runSweep(ctx, sweeper.config); err != nil {
 		t.Fatalf("runSweep returned error: %v", err)
 	}
 

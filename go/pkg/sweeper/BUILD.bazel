@@ -50,6 +50,7 @@ go_test(
         "sweeper_banner_grab_test.go",
         "sweeper_cancel_test.go",
         "sweeper_execution_test.go",
+        "sweeper_planned_run_test.go",
         "sweeper_prune_test.go",
         "sweeper_test.go",
         "target_count_test.go",
