@@ -83,6 +83,9 @@ words end-to-end or throughput attach to it.
 - **Available dependency:** a real NATS JetStream instance exists in `sr-testing`, so neither the
   vertical slice nor the throughput benchmark needs to mock the PubAck hop. A measurement taken
   against a real broker describes the system; one taken against a mock describes the harness.
+- **Update 2026-11-02:** the vertical slice is green and merged to `staging`, so the capacity
+  baseline and scale-benchmark tasks of `unify-sweep-results-proto` (0.1-0.4, 0.7 and 8.4) moved
+  here as section 7 of `tasks.md`. They measure the production entrypoint the slice now owns.
 
 ## Risk
 

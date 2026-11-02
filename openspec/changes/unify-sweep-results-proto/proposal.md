@@ -464,10 +464,20 @@ class.
 ## Impact
 
 - **Affected specs**: `edge-architecture`, `ingestion-routing`,
-  `observability-signals`, `sweeper`, `mtr-diagnostics`, `sweep-jobs`, `cnpg`,
-  `agent-connectivity`, `agent-config`, `nats-tenant-isolation`,
-  `nats-cross-account-consumption`, `age-graph`, `build-web-ui`, and
-  `wasm-plugin-system`, plus the new `edge-producer-data-plane` capability.
+  `observability-signals`, `sweeper`, `sweep-jobs`, `cnpg`,
+  `agent-connectivity`, and `agent-config`, plus `edge-producer-data-plane`.
+- **Scope update (2026-11-02):** the deltas for the Wasm host ABI, extension
+  records, package output requests and grants, the cohort-barrier cutover, the
+  sweep-lease MTR trace and the native OTLP relay were removed; their
+  replacements are owned by `move-agent-telemetry-to-edge-records`. The
+  `nats-tenant-isolation`, `nats-cross-account-consumption`, `age-graph`,
+  `build-web-ui` and `mtr-diagnostics` deltas, and the recovery, registry,
+  stream-partitioning, transport-hardening, inventory-completeness and MTR
+  policy requirements, moved to the follow-up changes
+  `add-edge-spool-recovery-coordinator`, `add-edge-contract-registry-lifecycle`,
+  `add-edge-record-stream-partitioning`, `harden-edge-record-transport`,
+  `add-edge-inventory-run-completeness` and `add-edge-scan-and-mtr-policy`. The
+  sections above keep the original rationale as history.
 - **Affected code**:
   - protobuf definitions and generated Go/Elixir modules;
   - Go sweeper result lifecycle, streaming batch builder, disk spool, and gateway

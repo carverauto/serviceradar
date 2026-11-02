@@ -17,7 +17,8 @@ immutable traffic class.
 - **AND** the command response SHALL report accepted/progress/terminal state and
   the trace ID
 - **AND** the complete ASN, DNS, MPLS, ECMP, hop, reachability, and timing result
-  SHALL be published through `MtrTraceBatchV1`
+  SHALL be published through the agent-scheduled MTR trace contract
+  (`AgentScheduledMtrTraceBatchV1`)
 - **AND** an on-demand trace classified as interactive SHALL use the shared
   interactive edge-record lane, physical stream, durable, and result credits
 
@@ -28,7 +29,8 @@ immutable traffic class.
   target, enriched with ASN, DNS, and MPLS data
 - **AND** the control stream response SHALL carry bounded command/progress state
   and the trace ID rather than the complete enriched result
-- **AND** the complete result SHALL be published through `MtrTraceBatchV1` as
+- **AND** the complete result SHALL be published through the agent-scheduled MTR
+  trace contract as
   described in "On-demand trace succeeds"
 
 #### Scenario: Caller waits for an interactive result
@@ -37,79 +39,6 @@ immutable traffic class.
 - **THEN** it MAY contain a bounded display summary
 - **AND** durable persistence and downstream processing SHALL still use the
   canonical MTR event rather than a direct core/database write
-
-### Requirement: Result Reporting
-All MTR producers SHALL report complete traces as versioned, lossless,
-byte-bounded `MtrTraceBatchV1` protobuf events through the edge record stream.
-The sweep host observation MAY carry only a small reachability summary and
-stable trace ID. The gateway SHALL publish complete traces to the fixed shared
-JetStream edge-record route selected by platform profile and immutable signed
-`traffic_class` before
-acknowledging them. Every batch SHALL have one authoritative
-`network_scope_id`, authenticated agent, source/authorization context, and
-traffic class; every decoded trace SHALL match that envelope before side effects.
-Every producer SHALL feed each completed trace directly into a bounded byte/row/
-write-cost/timer builder and durable spool, then release the completed trace
-object. Scheduled, sweep-profile, ad-hoc, and on-demand paths SHALL NOT retain a
-run-wide or interval-wide collection of completed traces before encoding.
-
-#### Scenario: Scheduled result is reported
-- **WHEN** a scheduled MTR check completes a probe cycle
-- **THEN** the agent SHALL spool and send a typed trace event containing all
-  bounded hop, ECMP, MPLS, ASN, DNS, outcome, timing, and source context
-- **AND** the gateway SHALL stamp authoritative network-scope/agent/traffic-class
-  context and wait for PubAck from the mapped edge-record physical stream
-- **AND** the producer SHALL release that completed trace after durable spooling
-  while later due checks continue
-
-#### Scenario: Periodic result push
-- **WHEN** a scheduled MTR check completes a probe cycle
-- **THEN** the agent SHALL NOT marshal the trace to JSON or push it via
-  `PushStatus` as a `GatewayServiceStatus` message
-- **AND** the complete trace, including hop data with ASN, MPLS, hostname,
-  target reachability, and timing metadata, SHALL be reported as a typed
-  `MtrTraceBatchV1` event as described in "Scheduled result is reported"
-
-#### Scenario: Sweep profile reports MTR
-- **WHEN** MTR runs as part of a sweep profile
-- **THEN** the sweep host observation SHALL carry summary status and `trace_id`
-- **AND** the complete correlated trace SHALL be independently published to the
-  shared edge-record route selected by the same immutable source traffic class
-- **AND** neither event SHALL require the other to be decoded or committed in
-  the same transaction
-
-#### Scenario: MTR result is too large
-- **WHEN** a collected trace would exceed configured field or `MaxFrameBytes`
-  bounds
-- **THEN** collection SHALL enforce bounded hops, variants, labels, strings, and
-  metadata or quarantine the invalid trace
-- **AND** the system SHALL NOT embed it in a whole-sweep payload or retry an
-  impossible message indefinitely
-
-#### Scenario: Agent is not ready for v1 traces
-- **GIVEN** an agent or reachable gateway cannot send, retain, and drain the
-  required v1 trace contract and spool version
-- **WHEN** the scheduler considers new MTR work for that path
-- **THEN** it SHALL defer the work until upgrade and complete downstream
-  readiness
-- **AND** SHALL NOT emit a patched legacy trace or infer a fallback format
-
-#### Scenario: Correlated trace is delayed or missing
-- **GIVEN** a sweep or ad-hoc summary references a stable trace ID
-- **WHEN** its full trace has not committed
-- **THEN** the system SHALL expose that trace as pending until its reconciliation
-  deadline
-- **AND** later expose projected, failed, missing, or quarantined state rather
-  than treating an absent trace as an empty successful path
-
-#### Scenario: Trace ID is reused for another expected binding
-- **GIVEN** a summary and trace arrive in either order
-- **WHEN** the network-scope trace ID already binds a different authenticated
-  agent, traffic class, source/authorization context, execution/check/command,
-  or canonical target
-- **THEN** the new correlation SHALL become integrity-failed/quarantined
-- **AND** it SHALL NOT become projected or satisfy the execution terminal trace
-  binding digest merely because the trace ID exists
 
 ### Requirement: TimescaleDB Storage
 The MTR event-writer consumer SHALL persist canonical trace events into

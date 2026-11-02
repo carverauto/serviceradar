@@ -54,3 +54,55 @@
 - [x] 6.3 Record the naming boundary: until gRPC, JetStream, EventWriter and CNPG are in the
       measurement it is a COMPOSED INGRESS CPU BENCHMARK -- never "end-to-end", never
       "deployment throughput".
+
+## 7. Capacity baselines and scale benchmarks (moved from `unify-sweep-results-proto`)
+
+These moved here on 2026-11-02 when `unify-sweep-results-proto` was reconciled against `staging`; they keep their
+original text and number. They are measurements, so the no-threshold rule of section 5 applies
+until a baseline and its variance exist.
+
+- [ ] 7.1 (was `unify-sweep-results-proto` 0.1) Capture 1k, 10k, 100k, and 1M target fixtures for ICMP plus zero,
+  five, ten, and fifty TCP ports, including realistic sparse open ports and
+  failures.
+  Remaining as of the move (2026-11-02): follow-up change (`add-edge-pipeline-benchmarks`
+  owns fixture-driven throughput).
+- [ ] 7.2 (was `unify-sweep-results-proto` 0.2) Capture scheduled, sweep-profile, ad-hoc, and on-demand MTR fixtures
+  with ECMP, MPLS, ASN, DNS, unreachable targets, partial hops, and maximum
+  configured bounds.
+  Remaining as of the move (2026-11-02): follow-up; MTR fixtures now serve
+  `move-agent-telemetry-to-edge-records` task 3.1.
+- [ ] 7.3 (was `unify-sweep-results-proto` 0.3) Measure current end-to-end JSON and duplicate `MetricBatch` bytes,
+  CPU, allocations, peak RSS, BEAM mailbox/queue bytes, gateway loss behavior,
+  NATS traffic, database rows, index/WAL bytes, and query latency.
+  Remaining as of the move (2026-11-02): follow-up (`add-edge-pipeline-benchmarks`).
+- [ ] 7.4 (was `unify-sweep-results-proto` 0.4) Produce and approve a capacity plan for burst rate, supported outage,
+  agent spool bytes, JetStream logical and replica bytes per physical stream
+  shard, stream/consumer RAFT and connection cardinality, consumer drain rate,
+  shared CNPG transaction credits/ingest rate, raw retention, and MTR probe
+  budget. Include correctness-metadata retirement bucket width, live partition
+  count, row/index-byte ceiling, partition-retirement throughput, exceptional
+  hold capacity, and accepted domain-replay horizon.
+  Remaining as of the move (2026-11-02): follow-up capacity plan; no approved figures
+  exist.
+- [ ] 7.5 (was `unify-sweep-results-proto` 0.7) Capture representative Wasm metric/event/inventory output, native
+  add-on telemetry and OTLP relay, and embedded Armis discovery fixtures.
+  Measure producer-to-agent copies, JSON/base64 amplification, queue-loss
+  windows, peak memory, records/bytes per run, and downstream row/write cost.
+  Remaining as of the move (2026-11-02): follow-up; the plugin, OTLP and flow contracts
+  (#6245, #6262, #6264) carry synthetic fixtures only.
+- [ ] 7.6 (was `unify-sweep-results-proto` 8.4) Benchmark the full matrix through 1M hosts and a 72-hour soak; require
+  at least 10,000 host observations/second aggregate on a fully documented
+  reference topology, a 1M-host ten-port drain within 6 minutes, bounded result
+  RSS below 256 MiB independent of scan size, measured domain-row/WAL rates, no
+  hot reconcile tuple/index page, AGE edge drain above live-plus-catch-up with
+  bounded lag/lock/WAL cost, and an approved MTR throughput/storage budget. Add
+  an accelerated long-horizon churn/capacity test for delivery/ingest/batch/
+  terminal/sweep/MTR identity, outbox, work, recovery, DLQ catalog, stream-map,
+  plan/fence/key metadata, and watermark GC. Include worst-case timer-fragmented
+  frames from 1,000 low-rate agents and record messages/second, transactions/
+  second, rows/transaction, commit fsyncs, and WAL per observation for adaptive
+  grouping versus one-message transactions; fail if fragmentation breaks the
+  ingest or interactive-latency gate. Prove correctness rows/index bytes converge
+  to a bounded sawtooth/plateau under partition retirement plus configured holds;
+  linear steady-state growth or bulk row-delete/vacuum cleanup fails the gate.
+  Remaining as of the move (2026-11-02): follow-up (`add-edge-pipeline-benchmarks`).
