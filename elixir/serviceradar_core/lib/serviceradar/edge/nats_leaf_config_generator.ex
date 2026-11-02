@@ -59,6 +59,22 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGenerator do
       |> render_direct_leaf_authorization()
 
     server_name = "nats-#{edge_site.slug}"
+    managed_root = Keyword.get(opts, :managed_component_id)
+
+    domain =
+      if managed_root,
+        do: ServiceRadar.Edge.ManagedComponentNatsPermissions.jetstream_domain(edge_site.id),
+        else: "edge"
+
+    local_listen = if managed_root, do: "0.0.0.0:4222", else: local_listen
+
+    local_tls =
+      if managed_root,
+        do: "/etc/serviceradar/managed-components/#{managed_root}/current/local_server"
+
+    upstream_tls =
+      if managed_root,
+        do: "/etc/serviceradar/managed-components/#{managed_root}/current/upstream_client"
 
     """
     # NATS Leaf Server Configuration
@@ -74,20 +90,21 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGenerator do
 
     # Enable mTLS for local client communication
     tls {
-        cert_file: "/etc/nats/certs/nats-server.pem"
-        key_file: "/etc/nats/certs/nats-server-key.pem"
-        ca_file: "/etc/nats/certs/ca-chain.pem"
-        verify_and_map: true
+        cert_file: #{nats_string(if local_tls, do: local_tls <> "/component.pem", else: "/etc/nats/certs/nats-server.pem")}
+        key_file: #{nats_string(if local_tls, do: local_tls <> "/component-key.pem", else: "/etc/nats/certs/nats-server-key.pem")}
+        ca_file: #{nats_string(if local_tls, do: local_tls <> "/root.pem", else: "/etc/nats/certs/ca-chain.pem")}
+        #{if managed_root, do: "verify: true", else: "verify_and_map: true"}
     }
 
     #{direct_leaf_authorization}
+    #{if managed_root, do: "include /etc/serviceradar/managed-components/#{managed_root}/local-auth.conf", else: ""}
 
     # Enable JetStream for local buffering during WAN outages
     jetstream {
         store_dir: /var/lib/nats/jetstream
         max_memory_store: #{jetstream_max_memory}
         max_file_store: #{jetstream_max_file}
-        domain: edge
+        domain: #{domain}
     }
 
     # Leaf Node configuration to connect to the SaaS NATS cluster
@@ -95,13 +112,14 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGenerator do
         remotes = [
             {
                 url: "#{leaf_server.upstream_url}"
+                #{if managed_root, do: "account: \"EDGE\"", else: ""}
     #{credentials_line}
 
                 # mTLS configuration for leaf-to-SaaS connection
                 tls {
-                    cert_file: "/etc/nats/certs/nats-leaf.pem"
-                    key_file: "/etc/nats/certs/nats-leaf-key.pem"
-                    ca_file: "/etc/nats/certs/ca-chain.pem"
+                    cert_file: #{nats_string(if upstream_tls, do: upstream_tls <> "/component.pem", else: "/etc/nats/certs/nats-leaf.pem")}
+                    key_file: #{nats_string(if upstream_tls, do: upstream_tls <> "/component-key.pem", else: "/etc/nats/certs/nats-leaf-key.pem")}
+                    ca_file: #{nats_string(if upstream_tls, do: upstream_tls <> "/root.pem", else: "/etc/nats/certs/ca-chain.pem")}
                 }
             }
         ]

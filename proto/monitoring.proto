@@ -55,6 +55,8 @@ service AgentGatewayService {
   // RenewCertificate renews the caller's mTLS client certificate from a PKCS#10 CSR
   // authenticated by the currently valid peer certificate on the gRPC stream.
   rpc RenewCertificate(CertificateRenewalRequest) returns (CertificateRenewalResponse) {}
+  // Fetch the short-lived deployment policy over the authenticated agent channel.
+  rpc GetCertificatePolicy(CertificatePolicyRequest) returns (CertificatePolicyResponse) {}
 }
 
 message DeviceStatusRequest {
@@ -444,6 +446,23 @@ message AgentConfigResponse {
 
   // Endpoint software inventory and SBOM collector configuration.
   EndpointInventoryConfig endpoint_inventory_config = 14;
+
+  // Standing edge-record output grants: the core-signed authority under which the
+  // agent may emit records of a passive output contract (one entry per contract).
+  // The agent emits that family only as edge records when its local metrics sender
+  // is enabled and it holds a current grant. Without a grant it keeps the legacy
+  // status path. An empty list withdraws every grant.
+  repeated EdgeOutputGrant edge_output_grants = 15;
+}
+
+// EdgeOutputGrant is one standing output grant. `production_capability` is an
+// encoded serviceradar.edge.v1.EdgeSignedCapabilityV1 whose production claims
+// name this contract; the agent copies its fields into every record it emits.
+// Records under a standing grant carry no source authorization.
+message EdgeOutputGrant {
+  string contract_id = 1;
+  uint32 contract_version = 2;
+  bytes production_capability = 3;
 }
 
 // AddonAssignmentConfig is one native add-on (feature set) assignment delivered
@@ -1280,4 +1299,11 @@ message MtrCheckResult {
   MtrTraceResult trace = 6;          // Full trace result
   int64 timestamp = 7;               // Result timestamp (unix nanos)
   string error = 8;                  // Error message if trace failed
+}
+
+message CertificatePolicyRequest {}
+
+message CertificatePolicyResponse {
+  bytes payload = 1;   // Exact UTF-8 policy JSON bytes covered by the signature.
+  bytes signature = 2; // Ed25519 over "serviceradar.certificate-policy.v1\0" + payload.
 }

@@ -1,6 +1,47 @@
 load("@io_bazel_rules_go//go:def.bzl", "go_test")
+load("@rules_elixir//:elixir_library.bzl", "elixir_library")
+load("@rules_elixir//:elixir_escript.bzl", "elixir_escript")
 load("//build:integration_shards.bzl", "EDGE_RECORD_DB_SHARD")
 load("//build:integration_tests.bzl", "requires_shared_fixture")
+
+# Test-only stdio bridge to the production codec. NATS itself validates its output.
+elixir_library(
+    name = "certificate_codec_bridge_lib",
+    srcs = [
+        "certificate_codec_bridge.ex",
+        "//elixir/serviceradar_core:lib/serviceradar/nats/certificate_authorization_token.ex",
+    ],
+    extra_apps = ["crypto", "public_key"],
+    deps = ["@hexpm//:jason", "@hexpm//:nkeys"],
+)
+
+elixir_escript(
+    name = "certificate_codec_bridge",
+    app = ":certificate_codec_bridge_lib",
+    entry_module = "CertificateCodecBridge",
+)
+
+# Protocol compatibility proof against the packaged daemon, not the newer Go module.
+go_test(
+    name = "nats_certificate_revocation_test",
+    size = "medium",
+    srcs = ["certs.go", "nats_certificate_revocation_test.go", "nats_local_authorization_test.go"],
+    args = ["-test.v"],
+    data = [":certificate_codec_bridge", "@nats_server_linux_amd64//:nats_server"],
+    importpath = "github.com/carverauto/serviceradar/integration_tests/edge_record",
+    target_compatible_with = ["@platforms//os:linux", "@platforms//cpu:x86_64"],
+    x_defs = {
+        "github.com/carverauto/serviceradar/integration_tests/edge_record.revocationNATSBinary": "$(rlocationpath @nats_server_linux_amd64//:nats_server)",
+        "github.com/carverauto/serviceradar/integration_tests/edge_record.certificateCodecBinary": "$(rlocationpath :certificate_codec_bridge)",
+    },
+    deps = [
+        "//go/pkg/natsutil",
+        "@com_github_nats_io_jwt_v2//:jwt",
+        "@com_github_nats_io_nkeys//:nkeys",
+        "@com_github_nats_io_nats_go//:nats_go",
+        "@io_bazel_rules_go//go/runfiles",
+    ],
+)
 
 _HARNESS_SRCS = [
     "agentproc.go",

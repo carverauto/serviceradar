@@ -83,13 +83,12 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
       %{opts: [ca_cert_file: ca_cert, ca_key_file: ca_key, temp_parent_dir: parent_dir]}
     end
 
-    test "leaf client certificates carry the partition role URI the hub maps", %{opts: opts} do
+    test "leaf client certificates name the component and carry no URI SAN", %{opts: opts} do
       assert {:ok, bundle} = CertIssuer.issue_agent_bundle("leaf-nyc", "acme", :nats_leaf, opts)
 
+      assert bundle.spiffe_id == nil
       sans = subject_alt_names(bundle.certificate_pem)
-      assert {:uniformResourceIdentifier, ~c"spiffe://serviceradar.local/nats-leaf/acme"} in sans
-      assert {:uniformResourceIdentifier, ~c"spiffe://serviceradar.local/nats_leaf/acme/leaf-nyc"} in sans
-      assert CertIssuer.nats_leaf_role_uri("acme") == "spiffe://serviceradar.local/nats-leaf/acme"
+      assert sans == [{:dNSName, ~c"leaf-nyc.acme.serviceradar"}]
     end
 
     test "agent certificates never carry the leaf role URI", %{opts: opts} do
@@ -114,7 +113,7 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
       assert {:dNSName, ~c"nats.nyc.example.com"} in sans
       assert {:iPAddress, <<127, 0, 0, 1>>} in sans
       assert {:iPAddress, <<10, 0, 1, 50>>} in sans
-      refute {:uniformResourceIdentifier, ~c"spiffe://serviceradar.local/nats-leaf/acme"} in sans
+      refute Enum.any?(sans, &match?({:uniformResourceIdentifier, _}, &1))
     end
 
     test "rejects a server host that is neither an IP nor a DNS name", %{opts: opts} do
@@ -417,6 +416,121 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
     assert issued.issuance_audit[:resource_id] == "agent-1"
   end
 
+  test "managed collector CSR signs only approved server names and reports the actual issuer fingerprint" do
+    parent_dir = unique_tmp_dir!("managed-collector-csr")
+    on_exit(fn -> File.rm_rf(parent_dir) end)
+    ca_cert = Path.join(parent_dir, "root.pem")
+    ca_key = Path.join(parent_dir, "root-key.pem")
+    assert :ok = generate_ca_bundle(ca_cert, ca_key)
+    [{:Certificate, issuer_der, _}] = :public_key.pem_decode(File.read!(ca_cert))
+
+    for type <- [:log_collector, :flow_collector, :bmp_collector, :trapd] do
+      csr =
+        generate_csr_der!(
+          ["req", "-new", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes", "-keyout", "/dev/null"],
+          "/CN=example-collector.example.serviceradar",
+          "DNS:example-collector.example.serviceradar,DNS:collector.example.test"
+        )
+
+      options = [
+        ca_cert_file: ca_cert,
+        ca_key_file: ca_key,
+        temp_parent_dir: parent_dir,
+        server_hosts: ["collector.example.test"],
+        authorized_component_id: "example-collector",
+        authorized_partition_id: "example"
+      ]
+
+      assert {:ok, issued} = CertIssuer.issue_from_csr(csr, "example-collector", "example", type, options)
+      assert issued.issuer_fingerprint == Base.encode16(:crypto.hash(:sha256, issuer_der), case: :lower)
+
+      assert issued.spiffe_id == nil
+
+      assert normalized_sans(issued.certificate_pem) ==
+               Enum.sort([
+                 {:dns, "collector.example.test"},
+                 {:dns, "example-collector.example.serviceradar"}
+               ])
+
+      refute Map.has_key?(issued, :private_key_pem)
+
+      extra_uri =
+        generate_csr_der!(
+          ["req", "-new", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes", "-keyout", "/dev/null"],
+          "/CN=example-collector.example.serviceradar",
+          "DNS:example-collector.example.serviceradar,URI:spiffe://serviceradar.local/#{type}/example/example-collector"
+        )
+
+      assert {:error, :csr_identity_mismatch} =
+               CertIssuer.issue_from_csr(extra_uri, "example-collector", "example", type, options)
+
+      assert {:error, :csr_identity_mismatch} =
+               CertIssuer.issue_from_csr(
+                 csr,
+                 "example-collector",
+                 "example",
+                 type,
+                 Keyword.put(options, :server_hosts, ["different.example.test"])
+               )
+    end
+  end
+
+  test "managed leaf certificates contain only the issuer extfile names" do
+    parent_dir = unique_tmp_dir!("managed-leaf-csr")
+    on_exit(fn -> File.rm_rf(parent_dir) end)
+    ca_cert = Path.join(parent_dir, "root.pem")
+    ca_key = Path.join(parent_dir, "root-key.pem")
+    assert :ok = generate_ca_bundle(ca_cert, ca_key)
+
+    upstream =
+      generate_csr_der!(
+        ["req", "-new", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes", "-keyout", "/dev/null"],
+        "/CN=example-leaf.example.serviceradar",
+        "DNS:example-leaf.example.serviceradar"
+      )
+
+    assert {:ok, client} =
+             CertIssuer.issue_from_csr(upstream, "example-leaf", "example", :nats_leaf,
+               ca_cert_file: ca_cert,
+               ca_key_file: ca_key,
+               temp_parent_dir: parent_dir,
+               authorized_component_id: "example-leaf",
+               authorized_partition_id: "example"
+             )
+
+    assert client.spiffe_id == nil
+
+    assert normalized_sans(client.certificate_pem) == [
+             {:dns, "example-leaf.example.serviceradar"}
+           ]
+
+    server =
+      generate_csr_der!(
+        ["req", "-new", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes", "-keyout", "/dev/null"],
+        "/CN=example-leaf-server.example.serviceradar",
+        "DNS:example-leaf-server.example.serviceradar,DNS:leaf.example.test,IP:192.0.2.10"
+      )
+
+    assert {:ok, listening} =
+             CertIssuer.issue_from_csr(server, "example-leaf-server", "example", :nats_leaf_server,
+               ca_cert_file: ca_cert,
+               ca_key_file: ca_key,
+               temp_parent_dir: parent_dir,
+               server_hosts: ["leaf.example.test", "192.0.2.10"],
+               authorized_component_id: "example-leaf-server",
+               authorized_partition_id: "example"
+             )
+
+    assert normalized_sans(listening.certificate_pem) ==
+             Enum.sort([
+               {:dns, "example-leaf-server.example.serviceradar"},
+               {:dns, "leaf.example.test"},
+               {:dns, "localhost"},
+               {:ip, "127.0.0.1"},
+               {:ip, "192.0.2.10"}
+             ])
+  end
+
   test "rejects CSR with forged signature or weak key or mismatched CN/SAN" do
     parent_dir = unique_tmp_dir!("gateway-cert-issuer-csr-reject-test")
     on_exit(fn -> File.rm_rf(parent_dir) end)
@@ -525,6 +639,22 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
         flunk("openssl CSR generation failed (#{status}): #{output}")
     end
   end
+
+  defp normalized_sans(cert_pem) do
+    cert_pem
+    |> subject_alt_names()
+    |> Enum.map(&normalize_san/1)
+    |> Enum.sort()
+  end
+
+  defp normalize_san({:dNSName, name}), do: {:dns, to_string(name)}
+  defp normalize_san({:uniformResourceIdentifier, uri}), do: {:uri, to_string(uri)}
+
+  defp normalize_san({:iPAddress, <<a, b, c, d>>}), do: {:ip, ip_string({a, b, c, d})}
+  defp normalize_san({:iPAddress, {_, _, _, _} = address}), do: {:ip, ip_string(address)}
+  defp normalize_san({:iPAddress, {_, _, _, _, _, _, _, _} = address}), do: {:ip, ip_string(address)}
+
+  defp ip_string(address), do: address |> :inet.ntoa() |> to_string()
 
   defp subject_alt_names(cert_pem) do
     [{:Certificate, der, _}] = :public_key.pem_decode(cert_pem)

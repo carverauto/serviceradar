@@ -68,7 +68,7 @@ defmodule ServiceRadar.ResultsRouter do
       when is_map(headers) and is_integer(bytes) and bytes > 0 do
     if :erlang.external_size(descriptor) > 4_096 or
          map_size(state.reservations) >= max_items() or state.bytes + bytes > max_bytes() do
-      RuntimeMetrics.record(:service_state, :rejected, %{reason: :service_state_queue_full})
+      emit(:rejected, %{count: 1, payload_bytes: bytes}, %{reason: :service_state_queue_full})
       {:reply, {:error, :service_state_queue_full}, state}
     else
       id = make_ref()
@@ -83,7 +83,7 @@ defmodule ServiceRadar.ResultsRouter do
         observation: validated_observation(descriptor[:observation])
       }
 
-      RuntimeMetrics.record(:service_state, :admitted, %{})
+      emit(:admitted, %{count: 1, payload_bytes: bytes})
 
       {:reply, {:ok, id},
        record_state(%{
@@ -141,9 +141,10 @@ defmodule ServiceRadar.ResultsRouter do
     {:noreply, %{state | active: Map.put(active, :result, result)}}
   end
 
-  def handle_info({:service_batch_timeout, pid}, %{active: %{pid: pid}} = state) do
+  def handle_info({:service_batch_timeout, pid}, %{active: %{pid: pid} = active} = state) do
+    emit(:timeout, %{count: 1}, %{reason: :execution_timeout})
     Process.exit(pid, :kill)
-    {:noreply, state}
+    {:noreply, %{state | active: Map.put(active, :timed_out, true)}}
   end
 
   def handle_info({:service_batch_timeout, _}, state), do: {:noreply, state}
@@ -152,17 +153,38 @@ defmodule ServiceRadar.ResultsRouter do
     Process.cancel_timer(active.timer)
     state = %{state | active: nil}
 
-    if reason == :normal and active.result == :ok do
-      ids = Enum.map(active.items, &elem(&1, 0))
-      {:noreply, state |> release(ids) |> maybe_flush()}
-    else
-      Logger.warning("Service-state batch failed; retaining bounded batch for retry",
-        reason: inspect(reason),
-        result: inspect(active.result)
-      )
+    cond do
+      reason == :normal and active.result == :ok ->
+        ids = Enum.map(active.items, &elem(&1, 0))
 
-      buffer = :queue.join(:queue.from_list(active.items), state.buffer)
-      {:noreply, arm(%{state | buffer: buffer})}
+        emit(
+          :completion,
+          %{count: length(ids), outcome: :accepted},
+          %{result: :committed, outcome: :accepted}
+        )
+
+        {:noreply, state |> release(ids) |> maybe_flush()}
+
+      reason == :normal and active.result != nil ->
+        emit(
+          :completion,
+          %{count: length(active.items), outcome: :not_accepted},
+          %{result: result_label(active.result), outcome: :not_accepted}
+        )
+
+        {:noreply, requeue_batch(state, active, reason)}
+
+      reason != :normal and Map.get(active, :timed_out) != true ->
+        emit(
+          :crash,
+          %{count: 1},
+          %{reason: :worker_crash, exit_reason: bounded_reason(reason)}
+        )
+
+        {:noreply, requeue_batch(state, active, reason)}
+
+      true ->
+        {:noreply, requeue_batch(state, active, reason)}
     end
   end
 
@@ -311,7 +333,7 @@ defmodule ServiceRadar.ResultsRouter do
         acc + (state.reservations[id] || %{bytes: 0}).bytes
       end)
 
-    RuntimeMetrics.record(:service_state, :state, %{
+    emit(:state, %{
       pending_count: map_size(state.reservations) - length(active_ids),
       pending_bytes: state.bytes - active_bytes,
       in_flight_count: length(active_ids),
@@ -319,6 +341,20 @@ defmodule ServiceRadar.ResultsRouter do
     })
 
     state
+  end
+
+  defp emit(event, measurements, metadata \\ %{}) do
+    RuntimeMetrics.record(
+      :service_state,
+      event,
+      Map.put(measurements, :reason, metadata[:reason])
+    )
+
+    :telemetry.execute(
+      [:serviceradar, :admission_lane, event],
+      measurements,
+      Map.put(metadata, :lane, :service_state)
+    )
   end
 
   defp validated_observation({key, %DateTime{} = observed_at})
@@ -331,6 +367,22 @@ defmodule ServiceRadar.ResultsRouter do
 
   defp flush_interval_ms,
     do: Application.get_env(:serviceradar_core, :results_router_flush_interval_ms, 250)
+
+  defp requeue_batch(state, active, reason) do
+    Logger.warning("Service-state batch failed; retaining bounded batch for retry",
+      reason: inspect(reason),
+      result: inspect(active.result)
+    )
+
+    buffer = :queue.join(:queue.from_list(active.items), state.buffer)
+    arm(%{state | buffer: buffer})
+  end
+
+  defp result_label({:error, _}), do: :failed
+  defp result_label(_result), do: :unexpected
+
+  defp bounded_reason(reason) when reason in [:normal, :shutdown, :killed, :noproc], do: reason
+  defp bounded_reason(_reason), do: :unexpected
 
   defp max_bytes,
     do: Application.get_env(:serviceradar_core, :results_router_max_bytes, @max_bytes)

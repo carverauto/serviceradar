@@ -238,11 +238,12 @@ defmodule ServiceRadarWebNG.Dashboards.DefinitionTest do
       assert SystemReports.definition_errors() == []
     end
 
-    test "the shipped set includes both built-in dashboards" do
+    test "the shipped set includes all built-in dashboards" do
       slugs = Enum.map(SystemReports.dashboard_specs(), & &1.slug)
 
       assert SystemReports.new_devices_slug() in slugs
       assert SystemReports.mtr_path_analytics_slug() in slugs
+      assert SystemReports.result_ingestion_lanes_slug() in slugs
     end
 
     test "the new-devices query is still derived from its definition" do

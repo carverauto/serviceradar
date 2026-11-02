@@ -1083,6 +1083,7 @@ mod tests {
         let mut config = Config::default();
         config.server.http.tls_enabled = false;
         config.grpc_tls = Some(crate::config::GRPCTLSConfig {
+            cert_policy_file: None,
             cert_file: "/nonexistent/server.pem".to_string(),
             key_file: "/nonexistent/server-key.pem".to_string(),
             ca_file: None,

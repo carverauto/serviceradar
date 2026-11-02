@@ -404,22 +404,9 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   defp same_window?(nil, _slot), do: false
 
   defp planned_cidrs(targets) when is_list(targets) do
-    targets
-    |> Enum.reduce_while([], fn target, acc ->
-      case SweepPlan.canonical_target(to_string(target)) do
-        {:ok, canonical} -> {:cont, [canonical | acc]}
-        {:error, _} -> {:halt, :error}
-      end
-    end)
-    |> case do
-      :error ->
-        :unplannable
-
-      canonical ->
-        canonical
-        |> Enum.uniq_by(& &1.cidr)
-        |> Enum.sort_by(& &1.order)
-        |> Enum.map(& &1.cidr)
+    case SweepPlan.canonical_targets(targets) do
+      {:ok, cidrs} -> cidrs
+      {:error, _} -> :unplannable
     end
   end
 

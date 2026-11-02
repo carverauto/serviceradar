@@ -45,6 +45,10 @@ defmodule ServiceRadar.Edge.AgentCommand do
       transition :expire, from: [:queued, :sent, :acknowledged, :running], to: :expired
       transition :cancel, from: [:queued, :sent, :acknowledged, :running], to: :canceled
       transition :mark_offline, from: [:queued, :sent], to: :offline
+
+      transition :retry_certificate_delivery,
+        from: [:queued, :sent, :acknowledged, :running, :offline, :expired],
+        to: :queued
     end
   end
 
@@ -112,6 +116,13 @@ defmodule ServiceRadar.Edge.AgentCommand do
         )
         |> Ash.Changeset.change_attribute(:expires_at, expires_at)
       end
+    end
+
+    update :retry_certificate_delivery do
+      accept [:expires_at]
+      change transition_state(:queued)
+      change set_attribute(:completed_at, nil)
+      change set_attribute(:failure_reason, nil)
     end
 
     update :mark_sent do
@@ -203,6 +214,7 @@ defmodule ServiceRadar.Edge.AgentCommand do
     policy action([
              :create,
              :create_with_id,
+             :retry_certificate_delivery,
              :mark_sent,
              :acknowledge,
              :start,

@@ -23,6 +23,7 @@ use tokio::time::timeout;
 
 #[derive(Clone)]
 pub struct Publisher {
+    cert_policy: Option<Arc<serviceradar_cert_policy::nats::Guard>>,
     config: Arc<Config>,
     js: jetstream::Context,
     budget: Arc<Mutex<PublishBudget>>,
@@ -58,10 +59,21 @@ impl Publisher {
             options = options.add_client_certificate(cert.clone().into(), key.clone().into());
         }
 
-        let client = options
-            .connect(&config.nats_url)
-            .await
-            .with_context(|| format!("failed connecting to NATS {}", config.nats_url))?;
+        let pair = resolved_client_cert_pair(&config);
+        let (client, cert_policy) = serviceradar_cert_policy::nats::connect(
+            options,
+            &config.nats_url,
+            config.nats_cert_policy_file.as_deref().map(Path::new),
+            config
+                .nats_cert_policy_local_leaf_file
+                .as_deref()
+                .map(Path::new),
+            config.nats_tls_ca_cert_path.as_deref().map(Path::new),
+            pair.as_ref().map(|pair| Path::new(&pair.0)),
+            pair.as_ref().map(|pair| Path::new(&pair.1)),
+        )
+        .await
+        .map_err(anyhow::Error::from_boxed)?;
 
         let js = if let Some(domain) = &config.nats_domain {
             jetstream::with_domain(client, domain)
@@ -72,6 +84,7 @@ impl Publisher {
         ensure_stream(&config, &js).await?;
 
         Ok(Self {
+            cert_policy: cert_policy.map(Arc::new),
             config,
             js,
             budget: Arc::new(Mutex::new(PublishBudget::default())),
@@ -106,6 +119,11 @@ impl Publisher {
             }
             crate::metrics::THROTTLED_PUBLISHES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             tokio::time::sleep(wait).await;
+        }
+        if let Some(guard) = &self.cert_policy {
+            guard
+                .ensure_authorized()
+                .map_err(anyhow::Error::from_boxed)?;
         }
         timeout(
             Duration::from_millis(self.config.publish_timeout_ms),
@@ -541,6 +559,7 @@ mod tests {
         config.publish_messages_per_second = 1;
         let config = Arc::new(config);
         let publisher = Publisher {
+            cert_policy: None,
             config: config.clone(),
             js: jetstream::new(client),
             budget: Arc::new(Mutex::new(PublishBudget::default())),
@@ -580,6 +599,7 @@ mod tests {
             .unwrap()
             .len() as u64;
         let bytes_publisher = Publisher {
+            cert_policy: None,
             config: Arc::new(byte_config),
             js: publisher.js.clone(),
             budget: Arc::new(Mutex::new(PublishBudget::default())),

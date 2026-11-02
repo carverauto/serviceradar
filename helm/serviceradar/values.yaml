@@ -254,7 +254,7 @@ nats:
     # exceeds 85% of max_file_store (the rest is headroom for streams a later
     # release adds). The failure lists every stream with its size, replicas and
     # whether it lands on every server (replicas >= nats.replicas) or is spread.
-    # The small profile needs 23.10 GiB of its 28.50 GiB limit on three servers,
+    # The small profile needs 23.56 GiB of its 28.50 GiB limit on three servers,
     # with flow-collector, bmp-collector and the trivy sidecar all counted.
     # allowOvercommit: true skips that check (not the persistence.size ceiling).
     allowOvercommit: false
@@ -263,14 +263,14 @@ nats:
     # before changing it on a live install.
     size: 36Gi
     storageClassName: ""
-  # Edge-site NATS leaf servers dial this listener. When enabled, nats.conf
-  # gets a leafnodes {} block and the serviceradar-nats Service exposes `port`.
-  # TLS terminates in nats-server using the runtime NATS certificate (nats.pem).
-  # Leaf client certificates are verified against the internal CA (root.pem),
-  # and a leaf is bound to the SERVICERADAR platform account only when its
-  # certificate carries the role URI SAN
-  # spiffe://serviceradar.local/nats-leaf/<partitionId>, which the agent-gateway
-  # CA issues to provisioned edge-site leaves.
+  # Edge-site NATS leaf servers dial this listener. When enabled, the
+  # serviceradar-nats Service exposes `port`. TLS terminates in nats-server
+  # using the runtime NATS certificate (nats.pem). Leaf client certificates
+  # are ordinary PKIX certificates verified against the internal CA
+  # (root.pem). NATS 2.14 places a leaf that has no authorization block in
+  # the global account, so nats.conf opens the listener only when
+  # certificateAuthorization is also enabled. That callout stays disabled
+  # until operator adoption and admits a leaf from its presented certificate.
   #
   # The certificate the leaf dials must name the public host. The chart's
   # certificate generator adds hostedRuntime.publicEndpoints.natsLeafHost and
@@ -281,6 +281,18 @@ nats:
     port: 7422
     tls:
       extraDnsNames: []
+  # Hub authorization callout for managed component certificates. Leave this
+  # disabled. Turning it on before every existing infrastructure client has an
+  # explicit stored grant denies those clients. A static empty allow list is
+  # unrestricted and must be adopted as [">"] plus the same deny list. These
+  # flags do not check that adoption. Paste public nkeys only; signing seeds
+  # stay in the certificate configuration record.
+  certificateAuthorization:
+    enabled: false
+    infrastructureAdopted: false
+    issuerPublicKey: ""
+    authUserPublicKey: ""
+    systemUserPublicKey: ""
   # Do not set resources.limits.cpu by default: a CFS quota on nats-server can
   # freeze JetStream RAFT heartbeats and readloops across multiple periods after
   # a brief host/hypervisor vCPU pause (#5635).
@@ -372,6 +384,12 @@ observability:
         restartWarning: 1
       core:
         scrapeDownFor: 5m
+        admissionLaneNotAcceptedMax: 0
+        admissionLaneNotAcceptedWindow: 5m
+        admissionLaneNotAcceptedFor: 1m
+        syncIncompleteRunMax: 0
+        syncIncompleteRunWindow: 15m
+        syncIncompleteRunFor: 1m
       agentGateway:
         scrapeDownFor: 5m
         resultsBufferDroppedWindow: 5m
@@ -683,9 +701,11 @@ core:
   # and alerts surface; set enabled=false only to disable verdict persistence.
   eventWriter:
     enabled: true
-    # JetStream streams EventWriter creates, one replica each. Every maxBytes is
-    # unset so nats.jetstream.profile supplies it; set one to override. Rendered
-    # into the core environment as SERVICERADAR_JS_<STREAM>_MAX_BYTES.
+    # JetStream streams EventWriter creates. Every maxBytes and replicas is
+    # unset so nats.jetstream.profile supplies it (metrics and scan_results at
+    # R3; k8s_inventory, analytics_predictions, mtr_results and trivy_reports
+    # at R1); set one to override. Rendered into the core environment as
+    # SERVICERADAR_JS_<STREAM>_MAX_BYTES and SERVICERADAR_JS_<STREAM>_REPLICAS.
     #
     # flows and ARANCINI_CAUSAL are EventWriter fallbacks: the size and replicas
     # EventWriter creates the stream with when flow-collector or bmp-collector
@@ -696,10 +716,12 @@ core:
     # fallback comes from logCollector.streamMaxBytes / streamReplicas.
     #
     # notifications is the NOTIFICATIONS stream core's notification publisher
-    # creates (one replica), rendered as SERVICERADAR_JS_NOTIFICATIONS_MAX_BYTES.
+    # creates (three replicas by default), rendered as
+    # SERVICERADAR_JS_NOTIFICATIONS_MAX_BYTES / _REPLICAS.
     #
     # exposure_transitions is the EXPOSURE_TRANSITIONS stream core's exposure
-    # transition relay creates (one replica, 7 days), rendered as
+    # transition relay creates (one replica, 7 days, backed by the CNPG
+    # transactional outbox), rendered as
     # SERVICERADAR_JS_EXPOSURE_TRANSITIONS_MAX_BYTES.
     # exposure_dimensions is the corresponding CVE/package dictionary stream,
     # rendered as SERVICERADAR_JS_EXPOSURE_DIMENSIONS_MAX_BYTES.
@@ -940,7 +962,7 @@ core:
     #
     # Set to "" to fall back to the old existence-only check (for operators
     # running the chart against a deliberately pinned schema).
-    expectedVersion: "20261031085513"
+    expectedVersion: "20261101130000"
   # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
   reaper:
     # How often to run the reaper job
@@ -1817,12 +1839,16 @@ agent:
     requests:
       cpu: 200m
       memory: 512Mi
-# Durable sweep canary. Core lease settings select participating agents/groups.
+# Durable edge-record pipeline. Core lease settings select participating agents/groups.
 # contractRegistry is the installation-static document consumed by core and gateway.
+# agentMetricsEnabled lets the in-cluster agent emit metric batches as edge records once
+# core grants it the serviceradar.metrics.batch contract (registered in contractRegistry
+# and the agent's leasing switch on); without a grant it keeps the status path.
 edgeRecords:
   enabled: false
   contractRegistry: {}
   agentSweepEnabled: false
+  agentMetricsEnabled: false
   maxSpoolBytes: 1073741824
 
 agentGateway:

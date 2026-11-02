@@ -14,7 +14,7 @@ rust_binary(
     deps = all_crate_deps(
         cargo_only = True,
         normal = True,
-    ),
+    ) + ["//rust/cert-policy:cert_policy"],
 )
 
 # Back-compat alias: docker/images + build/packaging reference

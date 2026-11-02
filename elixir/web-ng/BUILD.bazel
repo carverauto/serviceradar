@@ -535,6 +535,7 @@ NETWORKS_LIVE_DB_SHARD_SRCS = [
         "test/phoenix/controllers/api/device_source_fact_controller_test.exs",
         "test/phoenix/controllers/api/edge_controller_test.exs",
         "test/phoenix/controllers/api/identity_controller_test.exs",
+        "test/phoenix/controllers/api/managed_component_adoption_db_test.exs",
         "test/phoenix/controllers/api/oauth_scope_authorization_db_test.exs",
         "test/phoenix/controllers/api/proxmox_console_session_controller_test.exs",
         "test/phoenix/controllers/api/remote_access_desktop_target_controller_test.exs",

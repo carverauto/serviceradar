@@ -61,6 +61,7 @@ fn clamp_duplicate_window(desired: Duration, max_age: Duration) -> Duration {
 }
 
 pub struct Publisher {
+    cert_policy: Option<Arc<serviceradar_cert_policy::nats::Guard>>,
     config: Arc<Config>,
     rx: mpsc::Receiver<OutboundFlow>,
     host_slice_metrics: Arc<HostSliceMetricsRegistry>,
@@ -97,6 +98,7 @@ impl Publisher {
             rx,
             host_slice_metrics,
             pending_rehome: Vec::new(),
+            cert_policy: None,
         }
     }
 
@@ -196,10 +198,15 @@ impl Publisher {
 
             // Clear readiness while disconnected so kube endpoints stop sending
             // UDP to a collector that cannot publish; re-ensure after reconnect.
-            let connected = matches!(
-                client.connection_state(),
-                async_nats::connection::State::Connected
-            );
+            let policy_ready = self
+                .cert_policy
+                .as_ref()
+                .is_none_or(|guard| guard.ensure_authorized().is_ok());
+            let connected = policy_ready
+                && matches!(
+                    client.connection_state(),
+                    async_nats::connection::State::Connected
+                );
             if !connected {
                 if publisher_ready {
                     warn!("NATS disconnected; clearing readiness marker");
@@ -729,6 +736,13 @@ impl Publisher {
         pending: &mut VecDeque<PendingPublish>,
         max_retry_age: Duration,
     ) -> Result<PublishPassResult> {
+        if self
+            .cert_policy
+            .as_ref()
+            .is_some_and(|guard| guard.ensure_authorized().is_err())
+        {
+            return Ok(PublishPassResult::Disconnected);
+        }
         // Never enqueue publishes while disconnected — async-nats buffers
         // Command::Request across reconnect and cannot cancel timed-out futures.
         if !matches!(
@@ -764,6 +778,7 @@ impl Publisher {
             let client = client.clone();
             let sem = semaphore.clone();
             let metrics = self.host_slice_metrics.clone();
+            let cert_policy = self.cert_policy.clone();
             set.spawn(async move {
                 if past_retry_horizon(&item, max_retry_age) {
                     error!(
@@ -792,6 +807,9 @@ impl Publisher {
                     .payload(item.payload.clone().into())
                     .message_id(item.msg_id.clone());
 
+                if cert_policy.as_ref().is_some_and(|guard| guard.ensure_authorized().is_err()) {
+                    return TaskOutcome::Retry(item);
+                }
                 // Refuse to buffer publishes while disconnected.
                 if !matches!(
                     client.connection_state(),
@@ -998,7 +1016,12 @@ impl Publisher {
                         options = options.add_client_certificate(cert_path, key_path);
                     }
                 }
-                SecurityMode::None => {}
+                SecurityMode::None => {
+                    anyhow::ensure!(
+                        sec.cert_policy_file.is_none() && sec.cert_policy_local_leaf_file.is_none(),
+                        "managed certificate policy requires mTLS mode"
+                    );
+                }
             }
         }
 
@@ -1009,12 +1032,35 @@ impl Publisher {
                 .with_context(|| format!("Failed to load NATS creds file {}", creds_file))?;
         }
 
-        let client = options.connect(&self.config.nats_url).await?;
+        let security = self.config.security.as_ref();
+        let policy_file = security
+            .and_then(|sec| sec.cert_policy_file.as_deref())
+            .map(std::path::Path::new);
+        let ca = security.and_then(|sec| sec.ca_file_path());
+        let cert = security.and_then(|sec| sec.cert_file_path());
+        let key = security.and_then(|sec| sec.key_file_path());
+        let (client, guard) = serviceradar_cert_policy::nats::connect(
+            options,
+            &self.config.nats_url,
+            policy_file,
+            security
+                .and_then(|sec| sec.cert_policy_local_leaf_file.as_deref())
+                .map(std::path::Path::new),
+            ca.as_deref(),
+            cert.as_deref(),
+            key.as_deref(),
+        )
+        .await
+        .map_err(anyhow::Error::from_boxed)?;
+        self.cert_policy = guard.map(Arc::new);
         // Control-plane context keeps the library default API timeout so a low
         // publish_timeout_ms cannot spuriously fail stream INFO/CREATE/UPDATE.
-        let admin_js = jetstream::new(client.clone());
-        // Data-path context: PublishAckFuture timeout only.
-        let mut publish_js = jetstream::new(client.clone());
+        let admin_js = match &self.config.nats_domain {
+            Some(domain) => jetstream::with_domain(client.clone(), domain),
+            None => jetstream::new(client.clone()),
+        };
+        // Data-path context retains the selected domain, with a shorter ACK timeout.
+        let mut publish_js = admin_js.clone();
         let ack_timeout = Duration::from_millis(self.config.publish_timeout_ms.max(1_000));
         publish_js.set_timeout(ack_timeout);
 

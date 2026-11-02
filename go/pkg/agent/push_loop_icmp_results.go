@@ -27,6 +27,23 @@ import (
 
 func (p *PushLoop) pushICMPResults(ctx context.Context) bool {
 	results := p.collectDueICMPResults(ctx)
+
+	// One path at a time: while the agent holds a metrics grant, ICMP check results
+	// go only to the edge spool. Without one, results the spool never admitted take
+	// the legacy path with the new ones.
+	if capability := p.edgeMetricsCapability(time.Now()); capability != nil {
+		return spoolEdgeMetrics(p, icmpEdgeMetrics(), &p.icmpEdge, results, capability)
+	}
+	// Results taken back from the edge queue return to it unless this send
+	// delivers them.
+	taken := p.icmpEdge.take()
+	delivered := false
+	defer func() {
+		if !delivered {
+			restoreEdgeMetrics(p, icmpEdgeMetrics(), &p.icmpEdge, taken)
+		}
+	}()
+	results = append(queuedItems(taken), results...)
 	if len(results) == 0 {
 		return false
 	}
@@ -91,6 +108,7 @@ func (p *PushLoop) pushICMPResults(ctx context.Context) bool {
 	}
 
 	if resp.Received {
+		delivered = true
 		p.logger.Info().Int("result_count", len(results)).Msg("Streamed ICMP results to gateway")
 		return true
 	}

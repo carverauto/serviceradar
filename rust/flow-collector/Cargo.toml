@@ -8,6 +8,7 @@ name = "serviceradar-flow-collector"
 path = "src/main.rs"
 
 [dependencies]
+serviceradar-cert-policy = { path = "../cert-policy" }
 anyhow = { workspace = true }
 async-nats = { workspace = true }
 bytes = { workspace = true }

@@ -4,6 +4,9 @@ go_library(
     name = "edgeonboarding",
     srcs = [
         "agent_enroll.go",
+        "host_trust.go",
+        "host_trust_unix.go",
+        "host_trust_windows.go",
         "bundle_request.go",
         "collector_enroll.go",
         "http_client.go",
@@ -22,6 +25,7 @@ go_test(
     name = "edgeonboarding_test",
     srcs = [
         "agent_enroll_test.go",
+        "host_trust_unix_test.go",
         "token_test.go",
     ],
     embed = [":edgeonboarding"],

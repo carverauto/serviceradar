@@ -148,10 +148,20 @@ impl RPerfTestOrchestrator {
             .build_v1()?;
 
         let mut server_builder = Server::builder();
+        let mut managed_incoming = None;
 
         if let Some(security) = &self.config.security {
             match security.mode {
-                SecurityMode::None => {}
+                SecurityMode::None => {
+                    anyhow::ensure!(
+                        security
+                            .tls
+                            .as_ref()
+                            .and_then(|tls| tls.cert_policy_file.as_ref())
+                            .is_none(),
+                        "certificate policy requires mTLS mode"
+                    );
+                }
                 SecurityMode::Mtls => {
                     let tls = security
                         .tls
@@ -174,38 +184,58 @@ impl RPerfTestOrchestrator {
                             .context("security.tls.ca_file is required for mTLS mode")?,
                     );
 
-                    let cert = fs::read(&cert_path).with_context(|| {
-                        format!("Failed to read certificate file at {cert_path:?}")
-                    })?;
-                    let key = fs::read(&key_path)
-                        .with_context(|| format!("Failed to read key file at {key_path:?}"))?;
-                    let ca = fs::read(&ca_path).with_context(|| {
-                        format!("Failed to read CA certificate file at {ca_path:?}")
-                    })?;
+                    if let Some(policy_file) = &tls.cert_policy_file {
+                        managed_incoming = Some(
+                            serviceradar_cert_policy::server::Config {
+                                policy_file: policy_file.into(),
+                                ca_file: tls
+                                    .client_ca_file
+                                    .as_deref()
+                                    .map(|path| security.resolve_path(path))
+                                    .unwrap_or(ca_path),
+                                cert_file: cert_path,
+                                key_file: key_path,
+                            }
+                            .bind(addr)
+                            .await
+                            .map_err(anyhow::Error::from_boxed)?,
+                        );
+                    } else {
+                        let cert = fs::read(&cert_path).with_context(|| {
+                            format!("Failed to read certificate file at {cert_path:?}")
+                        })?;
+                        let key = fs::read(&key_path)
+                            .with_context(|| format!("Failed to read key file at {key_path:?}"))?;
+                        let ca = fs::read(&ca_path).with_context(|| {
+                            format!("Failed to read CA certificate file at {ca_path:?}")
+                        })?;
 
-                    let identity = tonic::transport::Identity::from_pem(cert, key);
-                    let ca = tonic::transport::Certificate::from_pem(ca);
+                        let identity = tonic::transport::Identity::from_pem(cert, key);
+                        let ca = tonic::transport::Certificate::from_pem(ca);
 
-                    let tls_config = tonic::transport::ServerTlsConfig::new()
-                        .identity(identity)
-                        .client_ca_root(ca);
-                    debug!("TLS config created");
-                    server_builder = server_builder.tls_config(tls_config)?;
-                    info!("TLS configured with mTLS enabled");
+                        let tls_config = tonic::transport::ServerTlsConfig::new()
+                            .identity(identity)
+                            .client_ca_root(ca);
+                        debug!("TLS config created");
+                        server_builder = server_builder.tls_config(tls_config)?;
+                        info!("TLS configured with mTLS enabled");
+                    }
                 }
             }
         }
 
         let server_handle = tokio::spawn(async move {
             debug!("Registering services: health, RPerfService, AgentService, reflection");
-            let result = server_builder
+            let router = server_builder
                 .add_service(health_service)
                 .add_service(RPerfServiceServer::new(Arc::clone(&service)))
                 .add_service(AgentServiceServer::new(Arc::clone(&service)))
-                .add_service(reflection_service)
-                .serve(addr)
-                .await
-                .context("gRPC server error");
+                .add_service(reflection_service);
+            let result = match managed_incoming {
+                Some(incoming) => router.serve_with_incoming(incoming).await,
+                None => router.serve(addr).await,
+            }
+            .context("gRPC server error");
             debug!("Service registration completed: {result:?}");
             result?;
             info!("gRPC server started successfully on {addr}");

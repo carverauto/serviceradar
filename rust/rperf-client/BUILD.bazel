@@ -43,6 +43,7 @@ rust_library(
     ) + [
         ":build_script",
         "//rust/metric-proto:serviceradar_metric_proto",
+        "//rust/cert-policy:cert_policy",
     ],
 )
 

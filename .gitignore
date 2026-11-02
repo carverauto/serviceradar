@@ -232,6 +232,7 @@ serviceradar-web_*
 
 # Ash resource snapshots (generated)
 elixir/serviceradar_core/priv/resource_snapshots/
+/elixir/serviceradar_core/tmp/
 !build/hex_cache.tar.gz
 
 # Ko build system for Go

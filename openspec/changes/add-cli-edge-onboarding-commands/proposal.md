@@ -41,9 +41,11 @@ is `/usr/local`, so the agent package and this npm package overwrite each other'
 - Edge-host install helpers `edge install agent|leaf|collector`. They need root, print every
   action before taking it, and support `--dry-run`. Each one downloads the matching release
   RPM/deb for `--version` from GitHub releases, installs it with dnf (or apt-get), then runs
-  `srctl enroll --core-url <instance> --token <t>` for an agent, or applies the leaf bundle
-  (`setup.sh`) or collector bundle (`update.sh`). The server exposes no version endpoint, so
-  `--version` is required.
+  `srctl enroll --core-url <instance> --token <t>` for an agent. This change
+  applied the leaf bundle (`setup.sh`) or collector bundle (`update.sh`).
+  Managed install replaced that path; see `js/cli/README.md`. The server
+  exposes no version endpoint, so `--version` is required for the agent. Leaf
+  and collector packages can omit it.
 - New `srcloud` bin alias. The README documents the `serviceradar-cli` collision and adds an
   end-to-end edge onboarding walkthrough.
 - Package version 0.1.10 → 0.2.0. Publishing to npm stays with the owner.

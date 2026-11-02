@@ -49,11 +49,12 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReportsTest do
   end
 
   describe "dashboard_specs/0" do
-    test "ships the new-devices definition unchanged alongside MTR path analytics" do
+    test "ships the new-devices definition unchanged alongside MTR path analytics and result ingestion lanes" do
       slugs = Enum.map(SystemReports.dashboard_specs(), & &1.slug)
 
       assert SystemReports.new_devices_slug() in slugs
       assert SystemReports.mtr_path_analytics_slug() in slugs
+      assert SystemReports.result_ingestion_lanes_slug() in slugs
       assert length(Enum.uniq(slugs)) == length(slugs), "slugs must be unique"
     end
 
@@ -205,6 +206,69 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReportsTest do
       refute asn_panel,
              "the MTR dashboard must not ship a GeoLite2-dependent AS panel: #{inspect(asn_panel && asn_panel.title)}"
     end
+
+    test "the result-ingestion-lanes dashboard charts each published lane metric as its own series" do
+      ingestion =
+        Enum.find(
+          SystemReports.dashboard_specs(),
+          &(&1.slug == SystemReports.result_ingestion_lanes_slug())
+        )
+
+      assert ingestion.enabled_by_default
+
+      assert Enum.all?(ingestion.panels, &(&1.visual_type != :table))
+      charts = ingestion.panels
+
+      # Names RuntimeMetrics publishes on metrics.ingestion_lanes. One metric per
+      # chart with series:tags.lane, because a metric_name series averages every
+      # lane into a single line. Occupancy uses max so one full core stays
+      # visible. Latency gauges stay averages. Counter deltas are summed.
+      # SRQL keeps the oldest grouped rows unless the sort is descending, and a
+      # last-hour 1m chart is one row per lane: 11 result lanes plus the 4 alert
+      # lanes that share core.result_ingestion.
+      occupancy = [
+        "result_ingestion_pending_count",
+        "result_ingestion_in_flight_count",
+        "result_ingestion_pending_bytes",
+        "result_ingestion_in_flight_bytes"
+      ]
+
+      latency = [
+        "result_ingestion_queue_wait_ms",
+        "result_ingestion_duration_ms",
+        "result_ingestion_acknowledgement_ms"
+      ]
+
+      counters = [
+        "result_ingestion_events_admitted",
+        "result_ingestion_events_rejected",
+        "result_ingestion_terminals_accepted",
+        "result_ingestion_terminals_not_accepted",
+        "result_ingestion_events_crash",
+        "result_ingestion_events_incomplete_run"
+      ]
+
+      by_metric =
+        Map.new(charts, fn panel ->
+          query = srql_clauses(panel.srql_query)
+
+          assert query[:entity] == "timeseries_metrics"
+          assert query[:metric_type] == "core.result_ingestion"
+          assert query[:series] == "tags.lane"
+          assert query[:time] == "last_1h"
+          assert query[:bucket] == "1m"
+          assert String.ends_with?(query[:sort], ":desc")
+          assert String.to_integer(query[:limit]) >= (11 + 4) * 60
+          assert is_binary(query[:metric_name])
+
+          {query[:metric_name], query[:agg]}
+        end)
+
+      assert Enum.sort(Map.keys(by_metric)) == Enum.sort(occupancy ++ latency ++ counters)
+      assert Enum.all?(occupancy, &(by_metric[&1] == "max"))
+      assert Enum.all?(latency, &(by_metric[&1] == "avg"))
+      assert Enum.all?(counters, &(by_metric[&1] == "sum"))
+    end
   end
 
   describe "edit authority on a built-in dashboard" do
@@ -259,4 +323,23 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReportsTest do
       refute AccessControls.can_manage?(nil, %{can_edit?: true})
     end
   end
+
+  defp srql_clauses(query) do
+    query
+    |> String.split(~r/\s+/, trim: true)
+    |> Map.new(fn token ->
+      case String.split(token, ":", parts: 2) do
+        ["in", entity] -> {:entity, entity}
+        ["metric_name", value] -> {:metric_name, metric_name_clause(value)}
+        [key, value] -> {String.to_atom(key), value}
+        [bare] -> {String.to_atom(bare), true}
+      end
+    end)
+  end
+
+  defp metric_name_clause("(" <> rest) do
+    rest |> String.trim_trailing(")") |> String.split(",", trim: true)
+  end
+
+  defp metric_name_clause(name), do: name
 end

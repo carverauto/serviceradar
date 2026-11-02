@@ -3,6 +3,8 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   Dispatches on-demand agent commands over the control stream.
   """
 
+  import Ash.Expr
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentCommands.PubSub, as: AgentCommandPubSub
   alias ServiceRadar.Automation.LaunchEnvelopes.CommandPayload
@@ -18,6 +20,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   alias ServiceRadar.Security.RateLimiter
   alias ServiceRadar.SweepJobs.AgentAssignment
 
+  require Ash.Query
   require Logger
 
   @default_ttl_seconds 60
@@ -76,6 +79,47 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
            ),
          :ok <- validate_preallocated_transmit_payload(command_type, payload_map, opts) do
       do_dispatch(agent_id, command_type, payload, opts, command_id)
+    end
+  end
+
+  @doc "Redispatches a persisted, idempotent managed-certificate command with its original UUID."
+  def dispatch_certificate_command(command_id, opts) do
+    if SystemActor.system_actor?(opts[:actor]) do
+      with {:ok, %AgentCommand{} = command} <- Ash.get(AgentCommand, command_id, opts),
+           true <- command.command_type in ["certificates.prepare", "certificates.install"],
+           {:ok, queued} <-
+             command
+             |> Ash.Changeset.for_update(
+               :retry_certificate_delivery,
+               %{expires_at: DateTime.shift(DateTime.utc_now(), minute: 2)},
+               opts
+             )
+             |> Ash.Changeset.filter(
+               expr(
+                 is_nil(result_payload) and
+                   status in [:queued, :sent, :acknowledged, :running, :offline, :expired]
+               )
+             )
+             |> Ash.update(opts) do
+        dispatch_created_command(queued, %{
+          agent_id: queued.agent_id,
+          command_type: queued.command_type,
+          payload_json: Jason.encode!(queued.payload),
+          ttl_seconds: 120,
+          created_at: System.system_time(:second),
+          required_partition: queued.partition_id,
+          required_capability: nil,
+          required_gateway_node: nil,
+          context: queued.context || %{},
+          ash_opts: opts
+        })
+      else
+        false -> {:error, :unsupported_command}
+        {:ok, nil} -> {:error, :not_found}
+        error -> error
+      end
+    else
+      {:error, :forbidden}
     end
   end
 
@@ -733,6 +777,10 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   the agent sends before it stops cannot reopen the run.
   """
   @spec cancel_sweep_execution(map(), keyword()) :: {:ok, String.t()} | {:error, term()}
+
+  # The command context is merged into the agent's ack and result events.
+  # Leave `sweep_group_id` out of it so run-now status tracking, which keys on
+  # that field, does not count this command as a sweep member.
   def cancel_sweep_execution(execution, opts \\ [])
 
   def cancel_sweep_execution(
@@ -746,9 +794,6 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     listing_opts =
       Keyword.take(opts, [:registry_present?, :local_registry_reader, :registry_rpc])
 
-    # The command context is merged into the agent's ack and result events.
-    # Leave `sweep_group_id` out of it so run-now status tracking, which keys on
-    # that field, does not count this command as a sweep member.
     opts = add_context(opts, %{sweep_execution_id: execution_id})
 
     sessions_by_agent =
@@ -1544,6 +1589,10 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
       :ok -> :ok
       {:error, reason} -> {:error, {:pubsub_subscribe_failed, reason}}
     end
+
+    # A dispatch that outlives its bound is reported as failed for that target.
+    # Without :kill_task the timeout exits the caller instead, which crashed the
+    # LiveView that runs cohort queries.
   rescue
     exception -> {:error, {:pubsub_subscribe_failed, Exception.message(exception)}}
   end
@@ -1566,9 +1615,6 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
       ),
       max_concurrency: endpoint_inventory_cohort_concurrency(opts),
       timeout: endpoint_inventory_cohort_dispatch_timeout_ms(opts),
-      # A dispatch that outlives its bound is reported as failed for that target.
-      # Without :kill_task the timeout exits the caller instead, which crashed the
-      # LiveView that runs cohort queries.
       on_timeout: :kill_task,
       zip_input_on_exit: true,
       ordered: false

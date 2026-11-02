@@ -105,6 +105,9 @@ func EnrollAgentFromToken(ctx context.Context, opts EnrollOptions) error {
 	if err := installAgentBundle(opts.ConfigPath, certDir, updatedConfig, bundle); err != nil {
 		return err
 	}
+	if err := installHostTrust(filepath.Dir(opts.ConfigPath), updatedConfig, bundle.CAChain); err != nil {
+		return err
+	}
 
 	if len(overrideUpdates) > 0 {
 		if err := writeAgentOverrides(overridesPath, overrideUpdates); err != nil {

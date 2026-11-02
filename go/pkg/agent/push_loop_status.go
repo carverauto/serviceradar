@@ -138,22 +138,38 @@ func (p *PushLoop) pushSysmonStatus(ctx context.Context, _ *proto.GatewayService
 	gatewayID := p.gateway.GetGatewayID()
 	runtimeMetadata := currentRuntimeMetadata()
 
-	var statuses []*proto.GatewayServiceStatus
-	sampleCount := 0
-
-	// If service is available, drain buffered metrics for transmission
+	var samples []*sysmon.MetricSample
 	if sysmonSvc != nil {
-		if samples := sysmonSvc.DrainMetrics(); len(samples) > 0 {
-			statuses = p.convertToSysmonGatewayStatusesFromSamples(samples)
-			for _, sample := range samples {
-				if sample != nil {
-					sampleCount++
-				}
+		for _, sample := range sysmonSvc.DrainMetrics() {
+			if sample != nil {
+				samples = append(samples, sample)
+			}
+		}
+	}
+
+	// One path at a time: while the agent holds a metrics grant, sysmon samples go
+	// only to the edge spool. Without one, samples the spool never admitted take
+	// the legacy path with the new ones.
+	if capability := p.edgeMetricsCapability(time.Now()); capability != nil {
+		return spoolEdgeMetrics(p, sysmonEdgeMetrics(), &p.sysmonEdge, samples, capability)
+	}
+	taken := p.sysmonEdge.take()
+	samples = append(queuedItems(taken), samples...)
+
+	var statuses []*proto.GatewayServiceStatus
+	var included []*sysmon.MetricSample
+	sampleCount := 0
+	if len(samples) > 0 {
+		statuses, included = p.convertToSysmonGatewayStatusesFromSamples(samples)
+		for _, sample := range samples {
+			if sample != nil {
+				sampleCount++
 			}
 		}
 	}
 
 	if len(statuses) == 0 {
+		restoreEdgeMetrics(p, sysmonEdgeMetrics(), &p.sysmonEdge, taken)
 		return false
 	}
 
@@ -187,43 +203,58 @@ func (p *PushLoop) pushSysmonStatus(ctx context.Context, _ *proto.GatewayService
 	resp, err := p.gateway.StreamStatus(pushCtx, chunks)
 	if err != nil {
 		p.logger.Error().Err(err).Msg("Failed to stream sysmon metrics to gateway")
+		restoreEdgeMetrics(p, sysmonEdgeMetrics(), &p.sysmonEdge, taken)
 		return false
 	}
 
 	if resp.Received {
+		restoreEdgeMetrics(p, sysmonEdgeMetrics(), &p.sysmonEdge, sysmonEdgeNotIncluded(taken, included))
 		p.logger.Info().
 			Int("sample_count", sampleCount).
 			Int("batch_count", len(statuses)).
 			Msg("Successfully streamed sysmon metrics to gateway")
 		return true
-	} else {
-		p.logger.Warn().Msg("Gateway did not acknowledge sysmon metrics stream")
-		return false
 	}
+	p.logger.Warn().Msg("Gateway did not acknowledge sysmon metrics stream")
+	restoreEdgeMetrics(p, sysmonEdgeMetrics(), &p.sysmonEdge, taken)
+	return false
 }
 
-func (p *PushLoop) convertToSysmonGatewayStatusesFromSamples(samples []*sysmon.MetricSample) []*proto.GatewayServiceStatus {
-	if len(samples) == 0 {
+// sysmonEdgeNotIncluded is the taken entries whose samples the legacy statuses did
+// not carry, so they go back to the queue.
+func sysmonEdgeNotIncluded(
+	taken []edgeMetricsQueued[*sysmon.MetricSample],
+	included []*sysmon.MetricSample,
+) []edgeMetricsQueued[*sysmon.MetricSample] {
+	if len(taken) == 0 {
 		return nil
 	}
-
-	p.server.mu.RLock()
-	agentID := p.server.config.AgentID
-	partition := p.server.config.Partition
-	kvStoreID := p.server.config.KVAddress
-	p.server.mu.RUnlock()
-	gatewayID := p.gateway.GetGatewayID()
-
-	ctx := metricEnvelopeContext{
-		AgentID:   agentID,
-		GatewayID: gatewayID,
-		Partition: partition,
-		KvStoreID: kvStoreID,
+	in := make(map[*sysmon.MetricSample]struct{}, len(included))
+	for _, sample := range included {
+		in[sample] = struct{}{}
 	}
+	var pending []edgeMetricsQueued[*sysmon.MetricSample]
+	for _, item := range taken {
+		if _, ok := in[item.item]; ok {
+			continue
+		}
+		pending = append(pending, item)
+	}
+	return pending
+}
+
+func (p *PushLoop) convertToSysmonGatewayStatusesFromSamples(samples []*sysmon.MetricSample) ([]*proto.GatewayServiceStatus, []*sysmon.MetricSample) {
+	if len(samples) == 0 {
+		return nil, nil
+	}
+
+	ctx := p.metricEnvelopeContext()
+	agentID, gatewayID, partition, kvStoreID := ctx.AgentID, ctx.GatewayID, ctx.Partition, ctx.KvStoreID
 
 	current := make([]*sysmon.MetricSample, 0, len(samples))
 	var currentPayload []byte
 	statuses := make([]*proto.GatewayServiceStatus, 0, 1)
+	var included []*sysmon.MetricSample
 
 	for _, sample := range samples {
 		if sample == nil {
@@ -240,6 +271,7 @@ func (p *PushLoop) convertToSysmonGatewayStatusesFromSamples(samples []*sysmon.M
 
 		if len(current) > 0 && len(payload) > sysmonMetricTargetBatchMessageBytes {
 			statuses = append(statuses, p.sysmonGatewayStatusFromPayload(currentPayload, agentID, gatewayID, partition, kvStoreID))
+			included = append(included, current...)
 			current = []*sysmon.MetricSample{sample}
 			currentPayload, err = marshalSysmonMetricEnvelopeBatch(current, ctx)
 			if err != nil {
@@ -257,9 +289,10 @@ func (p *PushLoop) convertToSysmonGatewayStatusesFromSamples(samples []*sysmon.M
 
 	if len(currentPayload) > 0 {
 		statuses = append(statuses, p.sysmonGatewayStatusFromPayload(currentPayload, agentID, gatewayID, partition, kvStoreID))
+		included = append(included, current...)
 	}
 
-	return statuses
+	return statuses, included
 }
 
 func (p *PushLoop) sysmonGatewayStatusFromPayload(
@@ -604,12 +637,7 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 					continue
 				}
 
-				metricStatus, err := p.sweepMetricStatusFromMap(metricPayload)
-				if err != nil {
-					p.logger.Warn().Err(err).Str("service", svc.Name()).Msg("Failed to marshal sweep status metric envelope")
-					continue
-				}
-				statuses = append(statuses, metricStatus)
+				statuses = append(statuses, p.sweepSummaryMetricStatuses(metricPayload, svc.Name())...)
 			}
 		}
 	}
@@ -631,6 +659,49 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 	}
 
 	return statuses, sysmonStatus
+}
+
+// sweepSummaryMetricStatuses routes the periodic sweep summary sample. One path
+// at a time: while the agent holds a metrics grant the sample goes only to the
+// edge spool and no status is returned. Without one, samples the spool never
+// admitted take the legacy status path with the new one; those taken samples are
+// held until settleSweepSummaryLegacy learns whether the status push delivered
+// them. A queued sample that cannot be marshalled is not held: it would fail the
+// same way on every retry.
+func (p *PushLoop) sweepSummaryMetricStatuses(payload map[string]any, service string) []*proto.GatewayServiceStatus {
+	if capability := p.edgeMetricsCapability(time.Now()); capability != nil {
+		spoolEdgeMetrics(p, sweepSummaryEdgeMetrics(), &p.sweepSummary, []map[string]any{payload}, capability)
+		return nil
+	}
+
+	taken := p.sweepSummary.take()
+	statuses := make([]*proto.GatewayServiceStatus, 0, len(taken)+1)
+	for _, entry := range taken {
+		metricStatus, err := p.sweepMetricStatusFromMap(entry.item)
+		if err != nil {
+			p.logger.Warn().Err(err).Str("service", service).Msg("Failed to marshal sweep status metric envelope")
+			continue
+		}
+		statuses = append(statuses, metricStatus)
+		p.sweepSummaryInFlight = append(p.sweepSummaryInFlight, entry)
+	}
+	metricStatus, err := p.sweepMetricStatusFromMap(payload)
+	if err != nil {
+		p.logger.Warn().Err(err).Str("service", service).Msg("Failed to marshal sweep status metric envelope")
+		return statuses
+	}
+	return append(statuses, metricStatus)
+}
+
+// settleSweepSummaryLegacy resolves the queued sweep summary samples the last
+// status collection put on the legacy path: dropped once delivered, otherwise
+// returned to the front of the queue.
+func (p *PushLoop) settleSweepSummaryLegacy(delivered bool) {
+	inFlight := p.sweepSummaryInFlight
+	p.sweepSummaryInFlight = nil
+	if !delivered {
+		restoreEdgeMetrics(p, sweepSummaryEdgeMetrics(), &p.sweepSummary, inFlight)
+	}
 }
 
 func (p *PushLoop) findSweepResultsProvider() SweepResultsProvider {

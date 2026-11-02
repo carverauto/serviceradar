@@ -1,0 +1,156 @@
+/*
+ * Copyright 2026 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+syntax = "proto3";
+
+// Unleased sweep results output contract (`serviceradar.sweep.unleased_results.v1`)
+// for discovery and unleased sweep groups. Carried inside `EdgeRecordV1.payload`
+// under the standing output grant without requiring a per-run sweep schedule
+// lease or plan/range join, while reusing the frozen `SweepHostObservationV1`
+// host observation messages from `edge/v1/sweep.proto` and preserving the full
+// metric set emitted by the legacy sweep-results chunk (`sweep.total_hosts`,
+// `sweep.available_hosts`, `sweep.sequence`, `sweep.port.available_hosts`,
+// `sweep.host.*`, `sweep.scanner.*`, and `sweep.banner_grab.*`).
+package serviceradar.edge.v1;
+
+option go_package = "github.com/carverauto/serviceradar/proto/edge/v1;edgev1";
+
+import "edge/v1/sweep.proto";
+
+// UnleasedSweepResultsBatchV1 carries one chunk of unleased sweep results
+// (host observations, per-port open counts, scanner counters/gauges, and
+// banner-grab summary counters/gauges).
+message UnleasedSweepResultsBatchV1 {
+  // 16-byte UUID for the sweep execution (`execution_id`).
+  bytes execution_id = 1;
+  // 16-byte UUID when run for an unleased sweep group (`sweep_group_id`);
+  // empty for ad-hoc or discovery sweeps.
+  bytes sweep_group_id = 2;
+  // Config hash / version string (`config_hash` / `config_version`).
+  string config_version = 3;
+  // Configured target network CIDR summary (`network`).
+  string network_cidr = 4;
+  // Agent sweep sequence number (`sequence`), emitted as `sweep.sequence`.
+  uint64 sequence = 5;
+  uint64 batch_started_at_unix_nano = 6;
+  uint64 batch_completed_at_unix_nano = 7;
+  // Completion timestamp (`last_sweep`) in Unix nanoseconds.
+  uint64 last_sweep_unix_nano = 8;
+  // Anchor for `SweepHostObservationV1` deltas. Absolute host time is
+  // observed_at_unix_nano + delta, matching `SweepObservationBatchV1`.
+  // batch_started, batch_completed, and last_sweep stay summary clocks.
+  int64 observed_at_unix_nano = 22;
+  uint32 chunk_index = 9;
+  uint32 total_chunks = 10;
+  bool is_final = 11;
+  // True when the sweep cycle was cancelled due to wall-clock scan timeout (`cancelled`).
+  bool is_cancelled = 12;
+  // Total hosts in the sweep summary (`total_hosts`), emitted as `sweep.total_hosts`.
+  uint32 expected_total_hosts = 13;
+  // Responding hosts in the sweep summary (`available_hosts`), emitted as `sweep.available_hosts`.
+  uint32 available_hosts = 14;
+  // Bitmask of `SweepModeBit` from `edge/v1/sweep.proto`.
+  uint32 configured_mode_bits = 15;
+  repeated SweepTestV1 tested_checks = 16;
+  SweepExecutionSource execution_source = 17;
+  // Per-host observations reusing frozen `SweepHostObservationV1` from `edge/v1/sweep.proto`.
+  repeated SweepHostObservationV1 hosts = 18;
+  // Per-port open host counts (`ports`), emitted as `sweep.port.available_hosts`.
+  repeated UnleasedSweepPortCountV1 port_counts = 19;
+  // Scanner performance counters and gauges (`scanner_stats`), emitted as `sweep.scanner.*`
+  // and persisted in `SweepGroupExecution.scanner_metrics`.
+  UnleasedSweepScannerStatsV1 scanner_stats = 20;
+  // Active banner-grab phase counters and gauges (`banner_grab`), emitted as
+  // `sweep.banner_grab.*` and persisted in `SweepGroupExecution.scanner_metrics`.
+  UnleasedSweepBannerGrabSummaryV1 banner_grab_summary = 21;
+}
+
+// UnleasedSweepPortCountV1 carries the open-host count for a scanned port
+// (`models.PortCount` / `models.PortStatus`).
+message UnleasedSweepPortCountV1 {
+  uint32 port = 1;
+  uint32 available = 2;
+}
+
+// UnleasedSweepScannerStatsV1 carries the scanner labels, counters, and gauges
+// from `models.ScannerStats` (`go/pkg/models/sweep.go`) and `proto.SweepScannerStats`,
+// emitted as `sweep.scanner.*` by `go/pkg/agent/metric_envelope.go`.
+message UnleasedSweepScannerStatsV1 {
+  string protocol = 1;
+  string address_family = 2;
+  string scanner_path = 3;
+  uint64 packets_sent = 4;
+  uint64 packets_recv = 5;
+  uint64 packets_dropped = 6;
+  uint64 ring_blocks_processed = 7;
+  uint64 ring_blocks_dropped = 8;
+  uint64 retries_attempted = 9;
+  uint64 retries_successful = 10;
+  uint64 retries_dropped = 11;
+  uint64 ports_allocated = 12;
+  uint64 ports_released = 13;
+  uint64 port_exhaustion_count = 14;
+  uint64 rate_limit_deferrals = 15;
+  uint64 rate_limit_waits = 16;
+  uint64 source_port_waits = 17;
+  uint64 rate_limit_wait_time_ms = 18;
+  uint64 source_port_wait_time_ms = 19;
+  double rx_drop_rate_percent = 20;
+  uint64 dials_started = 21;
+  uint64 dials_succeeded = 22;
+  uint64 dial_timeouts = 23;
+  uint64 dial_resets = 24;
+  uint64 dial_resource_errors = 25;
+  uint64 active_dials = 26;
+  uint64 max_active_dials = 27;
+  uint64 queue_depth = 28;
+  uint64 max_queue_depth = 29;
+}
+
+// UnleasedSweepBannerGrabSummaryV1 carries the active banner-grab phase counters
+// and gauges from `models.BannerGrabStats` (`go/pkg/models/sweep.go`), emitted as
+// `sweep.banner_grab.*` by `go/pkg/agent/metric_envelope.go` and persisted via
+// `@banner_grab_counter_keys` in `SweepResultsIngestor`.
+message UnleasedSweepBannerGrabSummaryV1 {
+  // `sweep_banner_grab_candidates_total` / `sweep.banner_grab.candidates_total`
+  uint64 candidates_total = 1;
+  // `sweep_banner_grab_probes_total` / `sweep.banner_grab.probes_total`
+  uint64 probes_total = 2;
+  // `sweep_banner_grab_inflight` / `sweep.banner_grab.inflight`
+  uint64 inflight = 3;
+  // `sweep_banner_grab_queue_depth` / `sweep.banner_grab.queue_depth`
+  uint64 queue_depth = 4;
+  // `sweep_banner_grab_match_batches_total` / `sweep.banner_grab.match_batches_total`
+  uint64 match_batches_total = 5;
+  // `sweep_banner_grab_match_batch_bytes_total` / `sweep.banner_grab.match_batch_bytes_total`
+  uint64 match_batch_bytes_total = 6;
+  // `sweep_banner_grab_bytes_received_total` / `sweep.banner_grab.bytes_received_total`
+  uint64 bytes_received_total = 7;
+  // `sweep_banner_grab_skipped_fresh_total` / `sweep.banner_grab.skipped_fresh_total`
+  uint64 skipped_fresh_total = 8;
+  // `sweep_banner_grab_skipped_backoff_total` / `sweep.banner_grab.skipped_backoff_total`
+  uint64 skipped_backoff_total = 9;
+  // `sweep_banner_grab_matches_total` / `sweep.banner_grab.matches_total`
+  uint64 matches_total = 10;
+  // `sweep_banner_grab_empty_response_total` / `sweep.banner_grab.empty_response_total`
+  uint64 empty_response_total = 11;
+  // `sweep_banner_grab_connection_reset_total` / `sweep.banner_grab.connection_reset_total`
+  uint64 connection_reset_total = 12;
+  // `sweep_banner_grab_timeout_total` / `sweep.banner_grab.timeout_total`
+  uint64 timeout_total = 13;
+  // `sweep_banner_grab_errors_total` / `sweep.banner_grab.errors_total`
+  uint64 errors_total = 14;
+}

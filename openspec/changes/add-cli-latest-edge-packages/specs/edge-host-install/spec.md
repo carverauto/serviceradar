@@ -17,13 +17,14 @@ An explicit `--version` MUST select that release instead. `edge install agent` M
 - **THEN** the command fails and says that `--version` is required
 
 ### Requirement: Collectors Follow a Working Local Leaf
-The CLI MUST NOT apply an edge-site collector bundle until the local `serviceradar-nats` service is active.
-An edge-site collector whose `nats_leaf_url` is blank MUST be configured with the leaf's local TLS client URL, derived from `local_listen`, and a wildcard bind MUST become `127.0.0.1`.
+Managed `edge install collector` MUST NOT apply a collector bundle and MUST NOT wait for `serviceradar-nats` to be active. A collector assigned to an edge site MUST require that site's managed leaf. The install procedure is the CLI README, and the certificate lifecycle is `docs/managed-component-certificates.md`.
+
+An edge-site collector bundle whose `nats_leaf_url` is blank MUST be configured with the leaf's local TLS client URL, derived from `local_listen`, and a wildcard bind MUST become `127.0.0.1`.
 An explicit `nats_leaf_url` MUST remain the collector URL.
 
-#### Scenario: Collector install waits for the leaf
-- **WHEN** the operator runs `edge install collector` for a collector bound to an edge site and `serviceradar-nats` is not active
-- **THEN** the command fails before applying the collector bundle and tells the operator to install the leaf first
+#### Scenario: Managed collector install requires the site leaf
+- **WHEN** the operator runs `edge install collector` for a collector bound to an edge site before that site has a managed leaf
+- **THEN** registration fails with `managed_leaf_required` and the command does not apply a collector bundle
 
 #### Scenario: Blank leaf URL uses the local client address
 - **WHEN** a collector package is assigned to an edge site whose `nats_leaf_url` is blank and whose leaf listens on `0.0.0.0:4222`

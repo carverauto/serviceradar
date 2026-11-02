@@ -1,0 +1,39 @@
+suite: managed certificate hub account
+templates:
+  - templates/core.yaml
+tests:
+  - it: sets the core hub account to the chart account SERVICERADAR
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_NATS_ACCOUNT_NAME
+            value: "SERVICERADAR"
+          count: 1
+        template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+  - it: lets extraEnv replace the hub account without duplicating it
+    set:
+      core.extraEnv.SERVICERADAR_NATS_ACCOUNT_NAME: "OTHER"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_NATS_ACCOUNT_NAME
+            value: "OTHER"
+          count: 1
+        template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_NATS_ACCOUNT_NAME
+            value: "SERVICERADAR"
+        template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment

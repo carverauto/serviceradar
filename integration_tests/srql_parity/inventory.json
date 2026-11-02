@@ -288,6 +288,27 @@
       "query": "in:timeseries_metrics {window_cpu} metric_type:\"sysmon.cpu\" bucket:10m agg:min series:tags.core_id limit:200"
     },
     {
+      "id": "metrics.ingestion.max_by_lane",
+      "query": "in:timeseries_metrics {window_main} metric_type:\"sysmon.cpu\" bucket:5m agg:max series:tags.lane sort:timestamp:desc limit:900",
+      "sources": [
+        "elixir/web-ng/priv/dashboards/result-ingestion-lanes.json"
+      ]
+    },
+    {
+      "id": "metrics.ingestion.sum_by_lane",
+      "query": "in:timeseries_metrics {window_main} metric_type:\"sysmon.cpu\" bucket:5m agg:sum series:tags.lane sort:timestamp:desc limit:900",
+      "sources": [
+        "elixir/web-ng/priv/dashboards/result-ingestion-lanes.json"
+      ]
+    },
+    {
+      "id": "metrics.ingestion.avg_by_lane",
+      "query": "in:timeseries_metrics {window_main} metric_type:\"sysmon.cpu\" bucket:5m agg:avg series:tags.lane sort:timestamp:desc limit:900",
+      "sources": [
+        "elixir/web-ng/priv/dashboards/result-ingestion-lanes.json"
+      ]
+    },
+    {
       "id": "metrics.capacity.avg_1h_by_uid_long_window",
       "query": "in:timeseries_metrics {window_long} metric_type:\"sysmon.cpu\" metric_name:\"cpu.usage_percent\" bucket:1h agg:avg series:uid sort:timestamp:desc window_scan:true limit:500",
       "sources": [

@@ -1035,16 +1035,67 @@ defmodule ServiceRadar.AdmissionLaneTest do
   end
 
   test "bounded admission telemetry is exported by the core reporter" do
-    metric_names = Enum.map(ServiceRadar.Telemetry.admission_lane_metrics(), & &1.name)
+    metrics = ServiceRadar.Telemetry.admission_lane_metrics()
+    metric_names = Enum.map(metrics, & &1.name)
 
     assert [:serviceradar, :admission_lane, :pending, :count] in metric_names
     assert [:serviceradar, :admission_lane, :pending, :bytes] in metric_names
     assert [:serviceradar, :admission_lane, :in_flight, :count] in metric_names
     assert [:serviceradar, :admission_lane, :in_flight, :bytes] in metric_names
+    assert [:serviceradar, :admission_lane, :admitted, :count] in metric_names
     assert [:serviceradar, :admission_lane, :execution, :event, :count] in metric_names
     assert [:serviceradar, :admission_lane, :rejected, :count] in metric_names
+    assert [:serviceradar, :admission_lane, :completion, :count] in metric_names
+    assert [:serviceradar, :admission_lane, :incomplete_run, :count] in metric_names
     assert [:serviceradar, :admission_lane, :timeout, :count] in metric_names
     assert [:serviceradar, :admission_lane, :crash, :count] in metric_names
+
+    for metric <- metrics do
+      assert Enum.all?(metric.tags, &(&1 in [:lane, :result, :outcome, :reason, :exit_reason]))
+    end
+  end
+
+  test "RuntimeMetrics.lane_stats/0 returns unavailable when stopped and non-blocking ETS snapshots when active" do
+    if Process.whereis(RuntimeMetrics), do: stop_supervised!(RuntimeMetrics)
+    assert {:error, :unavailable} = RuntimeMetrics.lane_stats()
+
+    start_supervised!(
+      {RuntimeMetrics, interval_ms: 60_000, publish_opts: [request: fn _, _, _ -> :ok end]}
+    )
+
+    RuntimeMetrics.record(:retained_plugin_result, :state, %{
+      pending_count: 3,
+      pending_bytes: 6_144,
+      in_flight_count: 1,
+      in_flight_bytes: 2_048
+    })
+
+    RuntimeMetrics.record(:retained_plugin_result, :admitted, %{count: 4})
+    RuntimeMetrics.record(:retained_plugin_result, :rejected, %{count: 2, reason: :count_full})
+
+    RuntimeMetrics.record(:retained_plugin_result, :completion, %{
+      count: 1,
+      outcome: :not_accepted
+    })
+
+    RuntimeMetrics.record(:sync, :incomplete_run, %{count: 1})
+
+    assert {:ok, %{node: node_name, lanes: lanes}} = RuntimeMetrics.lane_stats()
+    assert is_binary(node_name)
+
+    retained = Enum.find(lanes, &(&1.lane == :retained_plugin_result))
+    assert retained.pending_count == 3
+    assert retained.pending_bytes == 6_144
+    assert retained.in_flight_count == 1
+    assert retained.in_flight_bytes == 2_048
+    assert retained.max_items == 32
+    assert retained.max_bytes == 64 * 1_024 * 1_024
+    assert retained.admitted_total == 4
+    assert retained.rejected_total == 2
+    assert retained.not_accepted_total == 1
+
+    sync = Enum.find(lanes, &(&1.lane == :sync))
+    assert sync.incomplete_run_total == 1
   end
 
   test "invalid deadline and non-positive configurations fail startup" do

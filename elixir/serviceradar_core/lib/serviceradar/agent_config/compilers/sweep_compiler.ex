@@ -35,6 +35,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.ConfigCache
+  alias ServiceRadar.Edge.SweepPlan
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Observability.SRQLRunner
   alias ServiceRadar.Repo
@@ -653,7 +654,11 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   end
 
   defp compile_targets(group, modes, query_memo, resolvers) do
-    static_targets = Enum.uniq(group.static_targets || [])
+    static_targets =
+      case SweepPlan.merge_static_targets(group.static_targets || []) do
+        {:ok, merged} -> merged
+        {:error, _} -> Enum.uniq(group.static_targets || [])
+      end
 
     # Device targets from the SRQL query stay separate from static CIDRs so the
     # agent can preserve inventory context while scanning.

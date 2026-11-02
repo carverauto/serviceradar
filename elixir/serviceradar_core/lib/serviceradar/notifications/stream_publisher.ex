@@ -87,6 +87,7 @@ defmodule ServiceRadar.Notifications.StreamPublisher do
   # come back and replay, and an absent consumer registers no interest.
   @default_max_age_ns 86_400_000_000_000
   @default_max_bytes 1_073_741_824
+  @default_replicas 3
 
   # Cache entries include the configured size so a changed cap invalidates
   # either outcome: `{:ok, configured}` or `{:error, configured, retry_at}`.
@@ -202,6 +203,8 @@ defmodule ServiceRadar.Notifications.StreamPublisher do
   """
   @spec ensure_stream(seam_opts()) :: :ok | {:error, term()}
   def ensure_stream(opts \\ []) do
+    desired_replicas = replicas(opts)
+
     payload =
       Jason.encode!(%{
         name: @stream_name,
@@ -209,7 +212,7 @@ defmodule ServiceRadar.Notifications.StreamPublisher do
         retention: "limits",
         storage: "file",
         discard: "old",
-        num_replicas: Keyword.get(opts, :replicas, 1),
+        num_replicas: desired_replicas,
         max_age: Keyword.get(opts, :max_age, @default_max_age_ns),
         max_bytes: max_bytes(opts)
       })
@@ -218,17 +221,25 @@ defmodule ServiceRadar.Notifications.StreamPublisher do
       {:ok, _ack} ->
         :ok
 
-      {:error, %{"description" => description}} when is_binary(description) ->
-        classify_create_error(description)
+      {:error, error} ->
+        if desired_replicas > 1 and JetstreamConsumer.non_clustered_replicas_error?(error) do
+          ensure_stream(Keyword.put(opts, :replicas, 1))
+        else
+          case error do
+            %{"description" => description} when is_binary(description) ->
+              classify_create_error(description)
 
-      {:error, reason} ->
-        {:error, reason}
+            reason ->
+              {:error, reason}
+          end
+        end
     end
   end
 
   @doc """
   Creates the firehose stream when it is absent, or reconciles the `max_bytes`
-  of the existing stream to the configured size by its discard policy.
+  and `num_replicas` of the existing stream to the configured shape by its
+  discard policy.
 
   The firehose is created discard-old, and a discard-old stream is reconciled to
   the configured `max_bytes` even when that evicts its oldest envelopes. A
@@ -237,7 +248,7 @@ defmodule ServiceRadar.Notifications.StreamPublisher do
   values before and after are logged. A stream of this name that does not
   capture `notifications.>` is reported as `{:stream_config_conflict, _}`.
 
-  Takes the same seams as `publish/3`, plus `:max_bytes`.
+  Takes the same seams as `publish/3`, plus `:max_bytes` and `:replicas`.
   """
   @spec reconcile_stream(seam_opts()) :: :ok | {:error, term()}
   def reconcile_stream(opts \\ []) do
@@ -258,7 +269,13 @@ defmodule ServiceRadar.Notifications.StreamPublisher do
 
   defp reconcile_existing(request, config, stored, opts) do
     if @subject_wildcard in List.wrap(Map.get(config, "subjects")) do
-      configured = Map.put(config, "max_bytes", max_bytes(opts))
+      current_replicas = Map.get(config, "num_replicas", 1)
+      desired_replicas = max(current_replicas, replicas(opts))
+
+      configured =
+        config
+        |> Map.put("max_bytes", max_bytes(opts))
+        |> Map.put("num_replicas", desired_replicas)
 
       payload =
         JetstreamConsumer.hold_discard_new_max_bytes(@stream_name, config, configured, stored)
@@ -282,7 +299,7 @@ defmodule ServiceRadar.Notifications.StreamPublisher do
   end
 
   defp ensure_reconciled(opts) do
-    configured = max_bytes(opts)
+    configured = {max_bytes(opts), replicas(opts)}
 
     if Keyword.get(opts, :reconcile_stream, true) != false and
          not reconciled?(:persistent_term.get(@reconciled_key, nil), configured, opts) do
@@ -330,9 +347,21 @@ defmodule ServiceRadar.Notifications.StreamPublisher do
     end)
   end
 
+  defp replicas(opts) do
+    Keyword.get_lazy(opts, :replicas, fn ->
+      :serviceradar_core
+      |> Application.get_env(__MODULE__, [])
+      |> Keyword.get(:replicas, @default_replicas)
+    end)
+  end
+
   @doc "The `max_bytes` used when `SERVICERADAR_JS_NOTIFICATIONS_MAX_BYTES` is unset (1 GiB)."
   @spec default_max_bytes() :: pos_integer()
   def default_max_bytes, do: @default_max_bytes
+
+  @doc "The `num_replicas` used when `SERVICERADAR_JS_NOTIFICATIONS_REPLICAS` is unset (3)."
+  @spec default_replicas() :: pos_integer()
+  def default_replicas, do: @default_replicas
 
   @doc """
   The durable consumer options a firehose subscriber passes to

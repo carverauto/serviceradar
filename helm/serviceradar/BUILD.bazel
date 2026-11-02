@@ -37,6 +37,13 @@ filegroup(
     ],
 )
 
+# Read by serviceradar_core telemetry_test, which checks each admission-lane
+# gauge and counter is charted per lane.
+filegroup(
+    name = "ingestion_edge_dashboard",
+    srcs = ["dashboards/serviceradar-ingestion-edge.json"],
+)
+
 # Keeps core.migrations.expectedVersion in step with the migrations the repo
 # actually ships. The value is what the `wait-migrations` init container compares
 # the database's high-water mark against, so a stale value silently restores the

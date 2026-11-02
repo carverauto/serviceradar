@@ -28,7 +28,7 @@ tests:
           path: kind
           value: StatefulSet
 
-  - it: exposes the leafnode port and binds partition-role leaves to the platform account
+  - it: exposes the leafnode port and does not open a listener without callout
     template: templates/nats.yaml
     set:
       partitionId: acme
@@ -51,15 +51,45 @@ tests:
         documentSelector:
           path: kind
           value: StatefulSet
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: 'leafnodes \{'
+        documentSelector:
+          path: kind
+          value: StatefulSet
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: 'spiffe://serviceradar.local/nats-leaf/'
+        documentSelector:
+          path: kind
+          value: StatefulSet
+
+  - it: verifies presented leaf certificates when callout is enabled
+    template: templates/nats.yaml
+    set:
+      partitionId: acme
+      nats.leafnodes.enabled: true
+      nats.certificateAuthorization.enabled: true
+      nats.certificateAuthorization.infrastructureAdopted: true
+      nats.certificateAuthorization.issuerPublicKey: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+      nats.certificateAuthorization.authUserPublicKey: UBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB
+      nats.certificateAuthorization.systemUserPublicKey: UCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
+    asserts:
       - matchRegex:
           path: spec.template.spec.containers[0].args[0]
-          pattern: 'leafnodes \{\s+port: 7422\s+tls \{[^}]*ca_file: "/etc/serviceradar/certs/root.pem"\s+verify_and_map: true'
+          pattern: 'leafnodes \{\s+port: 7422\s+tls \{[^}]*ca_file: "/etc/serviceradar/certs/root.pem"\s+verify: true'
         documentSelector:
           path: kind
           value: StatefulSet
       - matchRegex:
           path: spec.template.spec.containers[0].args[0]
-          pattern: '\{ user: "spiffe://serviceradar.local/nats-leaf/acme", account: SERVICERADAR \}'
+          pattern: 'authorization: \{auth_callout:'
+        documentSelector:
+          path: kind
+          value: StatefulSet
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: 'spiffe://serviceradar.local/nats-leaf/'
         documentSelector:
           path: kind
           value: StatefulSet

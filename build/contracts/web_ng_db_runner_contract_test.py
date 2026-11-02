@@ -90,6 +90,7 @@ SHARED_FIXTURE_SOURCES = {
     "test/phoenix/controllers/api/edge_site_controller_test.exs",
     "test/phoenix/controllers/api/field_survey_stream_controller_test.exs",
     "test/phoenix/controllers/api/identity_controller_test.exs",
+    "test/phoenix/controllers/api/managed_component_adoption_db_test.exs",
     "test/phoenix/controllers/api/network_credential_rule_controller_test.exs",
     "test/phoenix/controllers/api/network_credential_secret_controller_test.exs",
     "test/phoenix/controllers/api/notification_action_controller_test.exs",

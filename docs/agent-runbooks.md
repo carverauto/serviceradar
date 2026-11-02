@@ -9,6 +9,9 @@ documentation.
 
 Related runbooks in this directory:
 
+- [Managed component certificates](managed-component-certificates.md): enrollment,
+  durable rotation, signed policy distribution, and receiver-proof boundaries.
+
 - [Isolated archive storage](archive-init-storage.md): infrastructure file
   custody and private HTTPS deployment for one init or media authority. The
   protocol contracts are the VMS docs that page links.

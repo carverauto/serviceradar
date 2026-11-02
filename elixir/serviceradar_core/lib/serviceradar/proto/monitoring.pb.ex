@@ -634,6 +634,24 @@ defmodule Monitoring.AgentConfigResponse do
   field :endpoint_inventory_config, 14,
     type: Monitoring.EndpointInventoryConfig,
     json_name: "endpointInventoryConfig"
+
+  field :edge_output_grants, 15,
+    repeated: true,
+    type: Monitoring.EdgeOutputGrant,
+    json_name: "edgeOutputGrants"
+end
+
+defmodule Monitoring.EdgeOutputGrant do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.EdgeOutputGrant",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :contract_id, 1, type: :string, json_name: "contractId"
+  field :contract_version, 2, type: :uint32, json_name: "contractVersion"
+  field :production_capability, 3, type: :bytes, json_name: "productionCapability"
 end
 
 defmodule Monitoring.AddonAssignmentConfig do
@@ -1864,6 +1882,27 @@ defmodule Monitoring.MtrCheckResult do
   field :error, 8, type: :string
 end
 
+defmodule Monitoring.CertificatePolicyRequest do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.CertificatePolicyRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+end
+
+defmodule Monitoring.CertificatePolicyResponse do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.CertificatePolicyResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :payload, 1, type: :bytes
+  field :signature, 2, type: :bytes
+end
+
 defmodule Monitoring.AgentService.Service do
   @moduledoc false
 
@@ -1919,6 +1958,12 @@ defmodule Monitoring.AgentGatewayService.Service do
     :RenewCertificate,
     Monitoring.CertificateRenewalRequest,
     Monitoring.CertificateRenewalResponse
+  )
+
+  rpc(
+    :GetCertificatePolicy,
+    Monitoring.CertificatePolicyRequest,
+    Monitoring.CertificatePolicyResponse
   )
 end
 

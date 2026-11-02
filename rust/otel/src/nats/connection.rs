@@ -2,6 +2,13 @@
 //! JetStream context, and generation-counted recovery behind a narrow lock.
 
 use anyhow::Result;
+use std::sync::Arc;
+
+type ConnectionLease = (
+    jetstream::Context,
+    u64,
+    Option<Arc<serviceradar_cert_policy::nats::Guard>>,
+);
 use async_nats::{Client, ConnectOptions, jetstream};
 use log::{debug, error, info, warn};
 
@@ -11,6 +18,7 @@ use super::{NATSConfig, NATSOutput};
 #[derive(Default)]
 pub(super) struct ConnectionState {
     pub(super) jetstream: Option<jetstream::Context>,
+    pub(super) cert_policy: Option<Arc<serviceradar_cert_policy::nats::Guard>>,
     /// Bumped after every recovery attempt (success or failure) so
     /// concurrent publishers can tell whether another task already
     /// reconnected while they waited.
@@ -18,7 +26,13 @@ pub(super) struct ConnectionState {
 }
 
 impl NATSOutput {
-    pub(super) async fn connect(config: &NATSConfig) -> Result<(Client, jetstream::Context)> {
+    pub(super) async fn connect(
+        config: &NATSConfig,
+    ) -> Result<(
+        Client,
+        jetstream::Context,
+        Option<serviceradar_cert_policy::nats::Guard>,
+    )> {
         debug!("Connecting to NATS server: {}", config.url);
         let mut options = ConnectOptions::new();
 
@@ -39,31 +53,39 @@ impl NATSOutput {
             options = options.add_client_certificate(cert_file.clone(), key_file.clone());
         }
 
-        let client = match options.connect(&config.url).await {
-            Ok(c) => {
-                info!("Connected to NATS server successfully");
-                c
-            }
-            Err(e) => {
-                error!("Failed to connect to NATS server: {e}");
-                return Err(e.into());
-            }
+        let (client, cert_policy) = serviceradar_cert_policy::nats::connect(
+            options,
+            &config.url,
+            config.cert_policy_file.as_deref(),
+            config.cert_policy_local_leaf_file.as_deref(),
+            config.tls_ca.as_deref(),
+            config.tls_cert.as_deref(),
+            config.tls_key.as_deref(),
+        )
+        .await
+        .map_err(anyhow::Error::from_boxed)?;
+        debug!("Creating JetStream context");
+        let jetstream = match &config.domain {
+            Some(domain) => jetstream::with_domain(client.clone(), domain),
+            None => jetstream::new(client.clone()),
         };
 
-        debug!("Creating JetStream context");
-        let jetstream = jetstream::new(client.clone());
-
-        Ok((client, jetstream))
+        Ok((client, jetstream, cert_policy))
     }
 
     /// Returns the current JetStream context (cloned; `jetstream::Context`
     /// is internally synchronized), reconnecting first if absent. No lock is
     /// held when this returns.
-    pub(super) async fn current_jetstream(&self) -> Result<(jetstream::Context, u64)> {
+    pub(super) async fn current_jetstream(&self) -> Result<ConnectionLease> {
         let observed_generation = {
             let state = self.state.read().await;
+            if let Some(guard) = &state.cert_policy {
+                guard
+                    .ensure_authorized()
+                    .map_err(anyhow::Error::from_boxed)?;
+            }
             if let Some(js) = &state.jetstream {
-                return Ok((js.clone(), state.generation));
+                return Ok((js.clone(), state.generation, state.cert_policy.clone()));
             }
             state.generation
         };
@@ -79,7 +101,7 @@ impl NATSOutput {
     /// lock. Publishers that lost the recovery race reuse the fresh context
     /// instead of reconnecting again; if the racing recovery failed, this
     /// attempt proceeds with its own reconnect.
-    async fn recover(&self, observed_generation: u64) -> Result<(jetstream::Context, u64)> {
+    async fn recover(&self, observed_generation: u64) -> Result<ConnectionLease> {
         let _guard = self.recovery.lock().await;
 
         {
@@ -91,7 +113,7 @@ impl NATSOutput {
             if state.generation != observed_generation
                 && let Some(js) = &state.jetstream
             {
-                return Ok((js.clone(), state.generation));
+                return Ok((js.clone(), state.generation, state.cert_policy.clone()));
             }
         }
 
@@ -100,18 +122,20 @@ impl NATSOutput {
             self.config.stream
         );
         match Self::connect(&self.config).await {
-            Ok((_client, jetstream)) => {
+            Ok((_client, jetstream, cert_policy)) => {
                 ensure_stream(&jetstream, &self.config).await?;
                 let mut state = self.state.write().await;
                 state.jetstream = Some(jetstream.clone());
+                state.cert_policy = cert_policy.map(Arc::new);
                 state.generation += 1;
                 let generation = state.generation;
+                let cert_policy = state.cert_policy.clone();
                 drop(state);
                 info!(
                     "Successfully recovered JetStream stream '{}'",
                     self.config.stream
                 );
-                Ok((jetstream, generation))
+                Ok((jetstream, generation, cert_policy))
             }
             Err(e) => {
                 error!(
@@ -120,6 +144,7 @@ impl NATSOutput {
                 );
                 let mut state = self.state.write().await;
                 state.jetstream = None;
+                state.cert_policy = None;
                 state.generation += 1;
                 Err(e)
             }

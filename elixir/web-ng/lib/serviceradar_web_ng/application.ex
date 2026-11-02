@@ -26,6 +26,7 @@ defmodule ServiceRadarWebNG.Application do
     # (serviceradar_core may have already started these)
     base_children =
       [
+        ServiceRadarWebNG.CertificatePolicyCache,
         # Web telemetry
         ServiceRadarWebNG.Topology.WorldSupervisor,
         # Runtime topology link cache served to the dashboard and God View streams.

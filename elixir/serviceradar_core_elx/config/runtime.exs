@@ -208,6 +208,22 @@ read_secret_env = fn env_name, file_env_name ->
   end
 end
 
+# Keep in sync with elixir/serviceradar_core/config/runtime.exs. Unset selects
+# the chart hub account. An empty or illegal value stays unusable so bootstrap
+# returns nats_account_unconfigured. This release does not load the library runtime.
+nats_account_name =
+  case System.get_env("SERVICERADAR_NATS_ACCOUNT_NAME") do
+    nil ->
+      "SERVICERADAR"
+
+    value ->
+      name = String.trim(value)
+
+      if name != "" and Regex.match?(~r/\A[A-Za-z0-9_-]+\z/, name), do: name, else: ""
+  end
+
+config :serviceradar, :nats_account_name, nats_account_name
+
 # The installation's edge-record contract registry document: the same JSON the agent gateway
 # reads from AGENT_GATEWAY_EDGE_RECORD_CONTRACT_REGISTRY. Core signs sweep lease capabilities
 # against its sweep contract entry (ServiceRadar.Edge.SweepContract).
@@ -648,13 +664,19 @@ config :serviceradar_core, ServiceRadar.WorkloadIdentity,
   skip_guard_enabled: System.get_env("SERVICERADAR_WORKLOAD_IDENTITY_SKIP_GUARD", "1") != "0",
   skip_guard_heartbeat_ms: parse_int_env.("SERVICERADAR_WORKLOAD_IDENTITY_SKIP_GUARD_HEARTBEAT_MS", 1_800_000)
 
-# Notification firehose stream size (a discard-old buffer, reconciled on the
-# first publish per node). Unset or blank means 1 GiB; an invalid value fails boot.
+# Notification firehose stream size and replica count (a discard-old buffer,
+# reconciled on the first publish per node). Unset or blank means 1 GiB / R3;
+# an invalid value fails boot.
 config :serviceradar_core, StreamPublisher,
   max_bytes:
     StateBucketSizing.bytes_from_env!(
       "SERVICERADAR_JS_NOTIFICATIONS_MAX_BYTES",
       StreamPublisher.default_max_bytes()
+    ),
+  replicas:
+    StateBucketSizing.replicas_from_env!(
+      "SERVICERADAR_JS_NOTIFICATIONS_REPLICAS",
+      StreamPublisher.default_replicas()
     )
 
 config :serviceradar_core, ThreatIntelRawPayloadStore,
@@ -1354,6 +1376,7 @@ if config_env() == :prod do
       # serviceradar_core's runtime.exs and config.exs.
       {"* * * * *", ServiceRadar.Inventory.Availability.ResolverWorker, queue: :maintenance},
       {"* * * * *", ServiceRadar.Inventory.Availability.ExpiryWorker, queue: :maintenance},
+      {"* * * * *", ServiceRadar.Edge.ManagedCertificateReconcileWorker, queue: :maintenance},
       # Composite checks' only scheduler: one evaluation job per enabled check per
       # minute; each job runs the full pass when it is due and the incremental
       # pass otherwise. Kept in step with serviceradar_core's runtime.exs.
@@ -1761,6 +1784,7 @@ if config_env() == :prod do
           stream_retention: "limits",
           stream_storage: "file",
           stream_discard: "old",
+          stream_replicas: 3,
           stream_max_bytes: 1_073_741_824,
           stream_max_age: 1_800_000_000_000,
           consumer_pull_batch_size: 4,

@@ -6,8 +6,10 @@ projection.
 ASYNC_INTEGRATION_SRCS = [
     "test/integration/armis_northbound_credential_resolution_integration_test.exs",
     "test/integration/camera_relay_session_reaper_integration_test.exs",
+    "test/integration/component_certificate_authority_integration_test.exs",
     "test/integration/credential_broker_grant_lifecycle_integration_test.exs",
     "test/integration/device_upsert_bind_parameter_limit_integration_test.exs",
+    "test/integration/managed_certificate_lifecycle_integration_test.exs",
     "test/integration/secret_broker_audit_integration_test.exs",
     "test/integration/sweep_execution_reaper_integration_test.exs",
     "test/serviceradar/agent_commands/status_handler_result_gate_db_test.exs",
@@ -34,6 +36,7 @@ ASYNC_INTEGRATION_SRCS = [
     "test/serviceradar/edge/addon_config_contract_fixtures_test.exs",
     "test/serviceradar/edge/agent_control_session_push_isolation_test.exs",
     "test/serviceradar/edge/agent_gateway_sync_config_ack_test.exs",
+    "test/serviceradar/edge/output_grants_db_test.exs",
     "test/serviceradar/edge/remote_access_file_transfers_test.exs",
     "test/serviceradar/edge/remote_access_host_keys_test.exs",
     "test/serviceradar/edge/remote_access_session_policy_test.exs",
@@ -202,6 +205,7 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/integration/advisory_ordinal_backfill_worker_integration_test.exs": 1,
     "test/integration/credential_event_writer_resolution_integration_test.exs": 1,
     "test/integration/audit_history_retention_integration_test.exs": 1,
+    "test/integration/managed_certificate_authorization_integration_test.exs": 1,
     "test/integration/netflow_ingestion_integration_test.exs": 1,
     "test/serviceradar/actors/device_test.exs": 1,
     "test/serviceradar/agent_commands/status_handler_cleanup_test.exs": 1,
@@ -447,6 +451,7 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/serviceradar/sweep_jobs/sweep_targeting_integration_test.exs": 1,
     "test/serviceradar/test_support_sandbox_test.exs": 1,
     "test/serviceradar/workload_identity_test.exs": 1,
+    "test/serviceradar/nats/managed_certificate_account_write_test.exs": 1,
 }
 
 FIXED_EXTERNAL_INTEGRATION_SRCS = [

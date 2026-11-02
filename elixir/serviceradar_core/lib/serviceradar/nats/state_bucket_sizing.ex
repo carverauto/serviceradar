@@ -116,6 +116,43 @@ defmodule ServiceRadar.NATS.StateBucketSizing do
     end
   end
 
+  @doc """
+  Reads a positive replica count from the environment variable `env_name`.
+
+  See `parse_replicas!/3`.
+  """
+  @spec replicas_from_env!(String.t(), pos_integer()) :: pos_integer()
+  def replicas_from_env!(env_name, default) when is_binary(env_name) do
+    env_name |> System.get_env() |> parse_replicas!(env_name, default)
+  end
+
+  @doc """
+  Parses a stream replica count. A missing, empty or whitespace-only value means
+  unset and yields `default`; any other value must be a positive integer, or
+  this raises an `ArgumentError` naming `env_name` so boot fails.
+  """
+  @spec parse_replicas!(String.t() | nil, String.t(), pos_integer()) :: pos_integer()
+  def parse_replicas!(nil, _env_name, default) when is_integer(default) and default > 0,
+    do: default
+
+  def parse_replicas!(value, env_name, default)
+      when is_binary(value) and is_integer(default) and default > 0 do
+    case String.trim(value) do
+      "" ->
+        default
+
+      trimmed ->
+        case Integer.parse(trimmed) do
+          {replicas, ""} when replicas > 0 ->
+            replicas
+
+          _ ->
+            raise ArgumentError,
+                  "#{env_name} must be a positive integer replica count, got: #{inspect(value)}"
+        end
+    end
+  end
+
   defp reconcile(request, stream_name, create_config, configured) do
     case stream_info(request, stream_name) do
       {:ok, config, stored} ->

@@ -32,6 +32,11 @@ config :ash_oban,
 # those contexts the SDK's default localhost HTTP exporter is unintended.
 config :opentelemetry, traces_exporter: :none
 
+# Hub account for managed certificate bootstrap. The chart account is
+# SERVICERADAR. The local leaf account EDGE is a different name. Release
+# runtime replaces this from SERVICERADAR_NATS_ACCOUNT_NAME.
+config :serviceradar, :nats_account_name, "SERVICERADAR"
+
 # Default Oban configuration (can be overridden by host app)
 config :serviceradar_core, Oban,
   engine: Oban.Engines.Basic,
@@ -99,6 +104,7 @@ config :serviceradar_core, Oban,
        # serviceradar_core's runtime.exs and serviceradar_core_elx's runtime.exs.
        {"* * * * *", ServiceRadar.Inventory.Availability.ResolverWorker, queue: :maintenance},
        {"* * * * *", ServiceRadar.Inventory.Availability.ExpiryWorker, queue: :maintenance},
+       {"* * * * *", ServiceRadar.Edge.ManagedCertificateReconcileWorker, queue: :maintenance},
        {"*/30 * * * *", ServiceRadar.Observability.ResolveStaleAnomaliesWorker,
         queue: :maintenance}
      ]}

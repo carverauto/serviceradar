@@ -3,6 +3,7 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "natsutil",
     srcs = [
+        "certificate_authorization.go",
         "events.go",
         "tls.go",
     ],
@@ -13,6 +14,8 @@ go_library(
         "//go/pkg/logger",
         "//go/pkg/models",
         "@com_github_google_uuid//:uuid",
+        "@com_github_nats_io_jwt_v2//:jwt",
+        "@com_github_nats_io_nkeys//:nkeys",
         "@com_github_nats_io_nats_go//:nats_go",
         "@com_github_nats_io_nats_go//jetstream",
         "@com_github_rs_zerolog//:zerolog",

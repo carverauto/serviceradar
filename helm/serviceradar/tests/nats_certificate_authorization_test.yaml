@@ -1,0 +1,62 @@
+suite: managed certificate callout stays off until infrastructure grants exist
+templates:
+  - templates/nats.yaml
+release:
+  namespace: sr-nats-callout
+tests:
+  - it: does not install authorization callout by default
+    template: templates/nats.yaml
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: auth_callout
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: '(?s)user: "CN=serviceradar-agent-gateway,[^"]+"\s+permissions: \{.*?subscribe: \{\s+allow: \[\]\s+deny: \["\\\$SYS\.>", "flow\.attributed\.>", "flow\.host-slice\.>"\]'
+
+  - it: refuses callout before infrastructure adoption
+    template: templates/nats.yaml
+    set:
+      nats.certificateAuthorization.enabled: true
+    asserts:
+      - failedTemplate:
+          errorMessage: "nats.certificateAuthorization.enabled requires infrastructureAdopted true after existing clients have explicit grants"
+
+  - it: refuses callout without an account issuer public nkey
+    template: templates/nats.yaml
+    set:
+      nats.certificateAuthorization.enabled: true
+      nats.certificateAuthorization.infrastructureAdopted: true
+      nats.certificateAuthorization.authUserPublicKey: UBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB
+      nats.certificateAuthorization.systemUserPublicKey: UCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
+    asserts:
+      - failedTemplate:
+          errorMessage: "nats.certificateAuthorization.issuerPublicKey must be an account public nkey"
+
+  - it: renders the auth and system users only after adoption is declared
+    template: templates/nats.yaml
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    set:
+      nats.certificateAuthorization.enabled: true
+      nats.certificateAuthorization.infrastructureAdopted: true
+      nats.certificateAuthorization.issuerPublicKey: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+      nats.certificateAuthorization.authUserPublicKey: UBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB
+      nats.certificateAuthorization.systemUserPublicKey: UCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: 'authorization: \{auth_callout: \{issuer: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", account: AUTH, auth_users: \["UBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB", "UCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"\]\}\}'
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: 'nkey: "UBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB", permissions: \{subscribe: \["\\\$SYS\.REQ\.USER\.AUTH"\], publish: \["\\\$SYS\._INBOX\.>"\]\}'
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: 'nkey: "UCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC", permissions: \{publish: \{allow: \["\\\$SYS\.REQ\.SERVER\.\*\.CONNZ", "\\\$SYS\.REQ\.SERVER\.\*\.KICK"\]\}, subscribe: \{allow: \["_INBOX\.>"\]\}\}'
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: 'BEGIN (NKEY|PRIVATE)|seed:'

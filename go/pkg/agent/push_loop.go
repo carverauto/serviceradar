@@ -34,6 +34,7 @@ import (
 	agentgateway "github.com/carverauto/serviceradar/go/pkg/agentgateway"
 	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
+	"github.com/carverauto/serviceradar/go/pkg/sysmon"
 	"github.com/carverauto/serviceradar/proto"
 )
 
@@ -144,10 +145,25 @@ type PushLoop struct {
 	configSectionFailures map[string]configSectionFailure // persistent config-section apply failure, by section name (drives skip + escalate-once + per-section ack)
 
 	edgeSweepSpool *spool.Spool
-	sweepLeaseMu   sync.Mutex
-	sweepLeases    *sweepLeaseStore // installed sweep schedule leases, opened lazily under sweepLeaseMu
-	sweepLeaseDir  string           // lease store dir override for tests; empty means defaultSweepLeaseDir()
-	sweepLeaseWake chan struct{}    // wakes the lease executor on install; created under sweepLeaseMu at Start
+	// edgeMetricsSpool receives metrics batch records while the agent holds a
+	// standing grant for that contract; nil keeps every metric on its legacy path.
+	edgeMetricsSpool edgeMetricsAppender
+	edgeOutputGrants edgeOutputGrants
+	// Each metric producer's bounded retry queue, oldest first. An entry is either
+	// an item no part of which the spool has admitted, or one built record of an
+	// item that already has a part in the spool.
+	sysmonEdge   edgeMetricsQueue[*sysmon.MetricSample]
+	snmpEdge     edgeMetricsQueue[snmpMetricResult]
+	icmpEdge     edgeMetricsQueue[icmpCheckResult]
+	mtrEdge      edgeMetricsQueue[mtrCheckResult]
+	sweepSummary edgeMetricsQueue[map[string]any]
+	// sweepSummaryInFlight is the queued sweep summary samples the current status
+	// push carries on the legacy path; only the push loop goroutine touches it.
+	sweepSummaryInFlight []edgeMetricsQueued[map[string]any]
+	sweepLeaseMu         sync.Mutex
+	sweepLeases          *sweepLeaseStore // installed sweep schedule leases, opened lazily under sweepLeaseMu
+	sweepLeaseDir        string           // lease store dir override for tests; empty means defaultSweepLeaseDir()
+	sweepLeaseWake       chan struct{}    // wakes the lease executor on install; created under sweepLeaseMu at Start
 
 	hostNetworkVisibilitySupported func() bool
 	uninstallSystemdAddonUnits     func(context.Context, []string) error
@@ -490,6 +506,8 @@ func (p *PushLoop) Start(ctx context.Context) error {
 	go p.superviseControlStreamLoop(runCtx)
 	go p.monitorReleaseActivation(runCtx)
 	go p.certificateRenewalLoop(runCtx)
+	go p.managedCertificatePolicyLoop(runCtx)
+	go p.managedLocalNATSLoop(runCtx)
 
 	// Use a resettable timer so updated intervals take effect
 	timer := time.NewTimer(0) // fire immediately for first tick
@@ -570,17 +588,20 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 	statuses, sysmonStatus := p.collectAllStatusesSeparated(ctx)
 
 	// Push regular statuses via StreamStatus
+	delivered := false
 	if len(statuses) > 0 {
 		now := time.Now()
 		decision := p.evaluateStatusPush(statuses, now)
 		if decision.shouldPush {
 			if p.pushRegularStatuses(ctx, statuses, decision.reason) {
 				p.recordStatusPush(decision.signature, now)
+				delivered = true
 			}
 		} else {
 			p.logger.Debug().Msg("Status unchanged; skipping status push")
 		}
 	}
+	p.settleSweepSummaryLegacy(delivered)
 
 	// Push sysmon via StreamStatus (it can have large payloads with all processes)
 	sentSysmonMetrics := false

@@ -34,6 +34,34 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGeneratorTest do
     refute config =~ "account_seed"
   end
 
+  test "managed sites use independent JetStream domains while keeping the local authorizer include" do
+    site = %{
+      id: "00000000-0000-4000-8000-000000000123",
+      name: "Example site",
+      slug: "example-site"
+    }
+
+    leaf = %{upstream_url: "tls://hub.example.test:7422", local_listen: "0.0.0.0:4222"}
+
+    config =
+      NatsLeafConfigGenerator.generate_config(site, leaf, managed_component_id: "example-leaf")
+
+    assert config =~ "domain: edge_00000000000040008000000000000123"
+    assert config =~ "include /etc/serviceradar/managed-components/example-leaf/local-auth.conf"
+    assert config =~ ~s(account: "EDGE")
+    refute config =~ "verify_and_map"
+
+    other =
+      NatsLeafConfigGenerator.generate_config(
+        %{site | id: "00000000-0000-4000-8000-000000000124"},
+        leaf,
+        managed_component_id: "example-other-leaf"
+      )
+
+    assert other =~ "domain: edge_00000000000040008000000000000124"
+    refute other =~ "domain: edge_00000000000040008000000000000123"
+  end
+
   describe "client_url/1" do
     test "a wildcard bind becomes the loopback TLS URL collectors dial" do
       assert NatsLeafConfigGenerator.client_url("0.0.0.0:4222") == "tls://127.0.0.1:4222"

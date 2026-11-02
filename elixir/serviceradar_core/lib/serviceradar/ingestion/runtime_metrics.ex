@@ -11,6 +11,11 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
   """
   use GenServer
 
+  alias ServiceRadar.Admission.FlowLane
+  alias ServiceRadar.Admission.RetainedPluginLane
+  alias ServiceRadar.Ingestion.LaneSupervisor
+  alias ServiceRadar.Ingestion.SweepQueue
+  alias ServiceRadar.Inventory.SyncIngestorQueue
   alias Serviceradar.Metric.V1.IngestIdentity
   alias Serviceradar.Metric.V1.Metric
   alias Serviceradar.Metric.V1.MetricBatch
@@ -38,7 +43,7 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
     :retrying_count,
     :failed_count
   ]
-  @lanes [
+  @result_ingestion_lanes [
     :flow_attribution,
     :retained_plugin_result,
     :sweep,
@@ -49,12 +54,9 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
     :other_results,
     :status,
     :sync,
-    :service_state,
-    :alert_log,
-    :alert_event,
-    :alert_metric,
-    :alert_maintenance
+    :service_state
   ]
+  @lanes @result_ingestion_lanes ++ @alert_lanes
   @events [
     :state,
     :admission,
@@ -125,6 +127,30 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
 
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
+  @doc """
+  Returns the ordered list of result-ingestion lanes tracked by `RuntimeMetrics`.
+  """
+  def result_ingestion_lanes, do: @result_ingestion_lanes
+
+  @doc """
+  Returns a cheap, non-blocking snapshot of all result-ingestion lanes on this node
+  directly from ETS without calling any lane GenServer or touching the database.
+  """
+  @spec lane_stats() :: {:ok, map()} | {:error, :unavailable}
+  def lane_stats do
+    if is_pid(Process.whereis(__MODULE__)) and :ets.whereis(@table) != :undefined do
+      {:ok,
+       %{
+         node: to_string(node()),
+         lanes: Enum.map(@result_ingestion_lanes, &lane_snapshot/1)
+       }}
+    else
+      {:error, :unavailable}
+    end
+  rescue
+    ArgumentError -> {:error, :unavailable}
+  end
+
   def record(lane, event, measurements) when lane in @lanes and is_map(measurements) do
     event = if event in @events, do: event, else: :other
 
@@ -182,7 +208,13 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
 
   @impl true
   def init(opts) do
-    :ets.new(@table, [:named_table, :public, :set, write_concurrency: true])
+    :ets.new(@table, [
+      :named_table,
+      :public,
+      :set,
+      read_concurrency: true,
+      write_concurrency: true
+    ])
 
     configured =
       :serviceradar_core
@@ -393,4 +425,74 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
        do: "entries"
 
   defp unit(:gauge, _name), do: "ms"
+
+  defp lane_snapshot(lane) do
+    {max_items, max_bytes} = lane_capacity(lane)
+
+    %{
+      lane: lane,
+      pending_count: lookup_int(:gauge, lane, :pending_count),
+      pending_bytes: lookup_int(:gauge, lane, :pending_bytes),
+      in_flight_count: lookup_int(:gauge, lane, :in_flight_count),
+      in_flight_bytes: lookup_int(:gauge, lane, :in_flight_bytes),
+      max_items: max_items,
+      max_bytes: max_bytes,
+      admitted_total: lookup_int(:events, lane, :admitted),
+      rejected_total: lookup_int(:events, lane, :rejected),
+      accepted_total: lookup_int(:outcome, lane, :accepted),
+      not_accepted_total: lookup_int(:outcome, lane, :not_accepted),
+      timeout_total:
+        lookup_int(:events, lane, :timeout) +
+          lookup_int(:events, lane, :worker_timeout) +
+          lookup_int(:events, lane, :queue_timeout),
+      crash_total:
+        lookup_int(:events, lane, :crash) +
+          lookup_int(:events, lane, :worker_crash),
+      incomplete_run_total: lookup_int(:events, lane, :incomplete_run),
+      queue_wait_ms: lookup_int(:gauge, lane, :queue_wait_ms),
+      execution_ms:
+        max(lookup_int(:gauge, lane, :duration_ms), lookup_int(:gauge, lane, :execution_ms)),
+      acknowledgement_ms: lookup_int(:gauge, lane, :acknowledgement_ms)
+    }
+  end
+
+  defp lane_capacity(:flow_attribution) do
+    limits = FlowLane.limits()
+    {Keyword.fetch!(limits, :max_items), Keyword.fetch!(limits, :max_bytes)}
+  end
+
+  defp lane_capacity(:retained_plugin_result) do
+    limits = RetainedPluginLane.limits()
+    {Keyword.fetch!(limits, :max_items), Keyword.fetch!(limits, :max_bytes)}
+  end
+
+  defp lane_capacity(:sweep) do
+    limits = SweepQueue.limits()
+    {Keyword.fetch!(limits, :max_items), Keyword.fetch!(limits, :max_bytes)}
+  end
+
+  defp lane_capacity(:sync) do
+    opts = Application.get_env(:serviceradar_core, SyncIngestorQueue, [])
+    {Keyword.get(opts, :max_items, 64), Keyword.get(opts, :max_bytes, 64 * 1_024 * 1_024)}
+  end
+
+  defp lane_capacity(:service_state) do
+    {
+      Application.get_env(:serviceradar_core, :results_router_max_buffer, 200),
+      Application.get_env(:serviceradar_core, :results_router_max_bytes, 32 * 1_024 * 1_024)
+    }
+  end
+
+  defp lane_capacity(lane) do
+    limits = LaneSupervisor.limits(lane)
+    {Keyword.fetch!(limits, :max_items), Keyword.fetch!(limits, :max_bytes)}
+  end
+
+  defp lookup_int(kind, lane, name) do
+    case :ets.lookup(@table, {kind, lane, name}) do
+      [{_key, {value, _sampled_at}}] when is_number(value) -> trunc(value)
+      [{_key, value}] when is_number(value) -> trunc(value)
+      _ -> 0
+    end
+  end
 end

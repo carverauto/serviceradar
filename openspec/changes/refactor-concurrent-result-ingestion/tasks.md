@@ -86,9 +86,9 @@
   transport failures. `ResultsRouterTest` "ingestion metric envelopes persist
   through exactly the configured EventWriter backend" decodes that frame with
   the Metrics processor and reads the rows back from `platform.timeseries_metrics`.
-- [ ] 7.3 Register the lane `:telemetry` events as `Telemetry.Metrics` in core-elx's metrics (depth last_value; admitted, rejected, NACK, incomplete-run counters; lane/class tags only) and add Grafana panels to the chart's ingestion dashboards, validated as parsed dashboard JSON. (`ServiceRadar.Telemetry.admission_lane_metrics/0` is registered and tested; Grafana dashboard panels tracked in #6160)
-- [ ] 7.4 Seed a ServiceRadar dashboard in web-ng charting the persisted lane metrics from `timeseries_metrics` via SRQL (depth, reject and NACK rates). (Tracked in #6160)
-- [ ] 7.5 Add an Ingestion card and table to Settings -> Cluster Status fed by a lane-stats call on the page's existing refresh timer (no query or RPC in the disconnected mount), with LiveView tests for lane values and the unavailable state. (Tracked in #6160)
+- [x] 7.3 Register the lane `:telemetry` events as `Telemetry.Metrics` in core-elx's metrics (depth last_value; admitted, rejected, not-accepted completion, and incomplete-run counters; lane/class tags only) and add Grafana panels to the chart's ingestion dashboards, validated as parsed dashboard JSON. (`ServiceRadar.Telemetry.admission_lane_metrics/0` is registered and tested; Grafana panels are in `helm/serviceradar/dashboards/serviceradar-ingestion-edge.json`.)
+- [x] 7.4 Seed a ServiceRadar dashboard in web-ng charting the persisted lane metrics from `timeseries_metrics` via SRQL (depth, rejections, and not-accepted completions).
+- [x] 7.5 Add an Ingestion card and table to Settings -> Cluster Status fed by a lane-stats call on the page's existing refresh timer (no query or RPC in the disconnected mount), with LiveView tests for lane values and the unavailable state.
 
 ## Evidence status
 
@@ -96,11 +96,13 @@ The 2026-10-28 reconciliation against staging and demo records tasks 5.3 and
 6.1-6.4 as complete, including published synthetic measurements and the
 identical-input comparison, persistence verification, implementation CI, and
 the coordinated rollout. Task 4.4 (#6159) is covered in
-`sync_ingestor_queue_db_test.exs`. The earlier failures below are historical
-evidence, not pending gates for those completed tasks. Remaining evidence work
-is synthetic-fleet load evidence in task 6.7 (#5642 and #6129).
-Tasks 7.3-7.5 (#6160) remain open; this change stays open until the
-"Ingestion lane metrics are visible to operators" requirement lands.
+`sync_ingestor_queue_db_test.exs`, and tasks 7.3-7.5 (#6160) are implemented
+with Prometheus metrics/alerts, Grafana panels, the built-in
+`result-ingestion-lanes` SRQL dashboard, and the non-blocking
+`Settings -> Cluster Status` ingestion lane table. The earlier failures below
+are historical evidence, not pending gates for those completed tasks. Remaining
+evidence work before archiving is synthetic-fleet load evidence in task 6.7
+(#5642 and #6129).
 
 The per-key baseline regression
 failed at the intended scheduling assertion in invocation

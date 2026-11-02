@@ -130,7 +130,7 @@ impl Runtime {
 struct PreparedRuntime {
     collector: ServiceRadarCollector,
     grpc_addr: SocketAddr,
-    grpc_tls: Option<tonic::transport::ServerTlsConfig>,
+    grpc_tls: Option<otel::tls::GrpcTlsConfig>,
     max_request_bytes: usize,
     ingest_auth: Arc<otel::auth::IngestAuth>,
     http_options: Option<otel::http_server::HttpServerOptions>,

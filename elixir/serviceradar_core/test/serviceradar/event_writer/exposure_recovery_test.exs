@@ -154,6 +154,109 @@ defmodule ServiceRadar.EventWriter.ExposureRecoveryTest do
              ExposureRecovery.split([entry(1, String.duplicate("x", 524_288))])
   end
 
+  test "raises EXPOSURE_RECOVERY replicas when the update is accepted" do
+    with_recovery_replicas("3", fn ->
+      assert :ok = ExposureRecovery.ensure_stream(request: recovery_request(1, :accepted))
+    end)
+
+    assert_received {:recovery_update, %{"num_replicas" => 3}}
+  end
+
+  test "returns :ok when a standalone server cannot place more than one EXPOSURE_RECOVERY replica" do
+    with_recovery_replicas("3", fn ->
+      assert :ok =
+               ExposureRecovery.ensure_stream(request: recovery_request(1, :standalone))
+    end)
+
+    assert_received {:recovery_update, %{"num_replicas" => 3}}
+  end
+
+  test "returns the stream update error when raising EXPOSURE_RECOVERY replicas fails" do
+    with_recovery_replicas("3", fn ->
+      assert {:error, %{"err_code" => 10_023, "description" => "insufficient storage"}} =
+               ExposureRecovery.ensure_stream(request: recovery_request(1, :rejected))
+    end)
+
+    assert_received {:recovery_update, %{"num_replicas" => 3}}
+  end
+
+  test "leaves an EXPOSURE_RECOVERY stream that already has the desired replicas" do
+    with_recovery_replicas("3", fn ->
+      assert :ok = ExposureRecovery.ensure_stream(request: recovery_request(3, :rejected))
+    end)
+
+    refute_received {:recovery_update, _}
+  end
+
   defp entry(seq, data),
     do: {seq, %{data: data, metadata: %{subject: "vulnerability.assessment.transitions.3"}}}
+
+  defp with_recovery_replicas(value, fun) do
+    key = "SERVICERADAR_JS_EXPOSURE_RECOVERY_REPLICAS"
+    previous = System.get_env(key)
+    System.put_env(key, value)
+
+    try do
+      fun.()
+    after
+      if previous, do: System.put_env(key, previous), else: System.delete_env(key)
+    end
+  end
+
+  defp recovery_request(current_replicas, update_result) do
+    parent = self()
+
+    fn subject, body ->
+      cond do
+        String.contains?(subject, "STREAM.INFO.EXPOSURE_RECOVERY") ->
+          {:ok,
+           %{"config" => recovery_stream_config(current_replicas), "state" => %{"bytes" => 0}}}
+
+        String.contains?(subject, "STREAM.UPDATE.EXPOSURE_RECOVERY") ->
+          send(parent, {:recovery_update, Jason.decode!(body)})
+
+          case update_result do
+            :accepted ->
+              {:ok, %{"did_update" => true}}
+
+            :standalone ->
+              {:ok,
+               %{
+                 "error" => %{
+                   "err_code" => 10_074,
+                   "description" => "replicas > 1 not supported in non-clustered mode"
+                 }
+               }}
+
+            :rejected ->
+              {:ok,
+               %{
+                 "error" => %{
+                   "err_code" => 10_023,
+                   "description" => "insufficient storage"
+                 }
+               }}
+          end
+      end
+    end
+  end
+
+  defp recovery_stream_config(replicas) do
+    %{
+      "name" => "EXPOSURE_RECOVERY",
+      "subjects" => ["exposure.delivery.recovery.>", "exposure.snapshots.>"],
+      "retention" => "limits",
+      "storage" => "file",
+      "num_replicas" => replicas,
+      "max_age" => 0,
+      "max_bytes" => 64 * 1024 * 1024,
+      "max_msg_size" => 512 * 1024,
+      "max_msgs_per_subject" => 1,
+      "discard" => "new",
+      "discard_new_per_subject" => true,
+      "deny_purge" => true,
+      "deny_delete" => false,
+      "allow_rollup_hdrs" => false
+    }
+  end
 end
