@@ -16,6 +16,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias Serviceradar.Agent.Addon.V1.TelemetryBatch, as: AddonTelemetryBatch
+  alias Serviceradar.Agent.Addon.V1.TelemetryCounters
   alias Serviceradar.Agent.Addon.V1.TelemetryRecord
   alias Serviceradar.Agent.Addon.V1.TelemetrySource
   alias ServiceRadar.Edge.HashGrammar
@@ -730,6 +731,106 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       assert ledger_count(frame.record) == 0
     end
 
+    test "a failed OCSF publish leaves no ledger row and the redelivery commits" do
+      frame =
+        build_telemetry_frame(
+          [
+            %TelemetryRecord{
+              payload_kind: :TELEMETRY_PAYLOAD_KIND_OCSF_EVENT,
+              payload: ~s({"class_uid":4003,"message":"synthetic"})
+            }
+          ],
+          counters: %TelemetryCounters{received: 1, emitted: 1}
+        )
+
+      handler = "telemetry-ocsf-spool-#{System.unique_integer([:positive])}"
+      parent = self()
+
+      :telemetry.attach(
+        handler,
+        [:serviceradar, :plugin_metrics, :spool],
+        fn _event, measurements, metadata, _config ->
+          send(parent, {:plugin_metrics_spool, measurements, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler) end)
+
+      Application.put_env(:serviceradar_core, ServiceRadar.StatusHandler,
+        addon_telemetry_publisher: fn _subject, _payload -> {:error, :not_connected} end
+      )
+
+      assert_raise RuntimeError, ~r/telemetry_route_failed/, fn ->
+        EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
+      end
+
+      refute_received {:telemetry_routed, _subject, _payload}
+      refute_received {:plugin_metrics_spool, _measurements, _metadata}
+      assert ledger_count(frame.record) == 0
+
+      test = self()
+
+      Application.put_env(:serviceradar_core, ServiceRadar.StatusHandler,
+        addon_telemetry_publisher: fn subject, payload ->
+          send(test, {:telemetry_routed, subject, payload})
+          :ok
+        end
+      )
+
+      assert {:ok, :inserted} =
+               EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
+
+      assert_received {:telemetry_routed, "events.ocsf.processed", _routed}
+      assert_received {:plugin_metrics_spool, %{received: 1, emitted: 1}, _metadata}
+      assert ledger_count(frame.record) == 1
+    end
+
+    test "a failed metric publish counts no spool sample and keeps its message id" do
+      frame =
+        build_telemetry_frame(
+          [metrics_telemetry_record()],
+          counters: %TelemetryCounters{received: 4, emitted: 4}
+        )
+
+      handler = "telemetry-metric-spool-#{System.unique_integer([:positive])}"
+      parent = self()
+
+      :telemetry.attach(
+        handler,
+        [:serviceradar, :plugin_metrics, :spool],
+        fn _event, measurements, metadata, _config ->
+          send(parent, {:plugin_metrics_spool, measurements, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler) end)
+
+      failing = fn subject, body, request_opts ->
+        send(parent, {:metrics_published, subject, body, request_opts})
+        {:error, :not_connected}
+      end
+
+      assert_raise RuntimeError, ~r/telemetry_metrics_publish_failed/, fn ->
+        EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: failing)
+      end
+
+      assert_received {:metrics_published, _subject, _body, failed_opts}
+      refute_received {:plugin_metrics_spool, _measurements, _metadata}
+      assert ledger_count(frame.record) == 0
+
+      assert {:ok, :inserted} =
+               EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
+
+      assert_received {:metrics_published, _subject, _body, recovered_opts}
+      assert_received {:plugin_metrics_spool, %{received: 4, emitted: 4}, _metadata}
+      assert ledger_count(frame.record) == 1
+
+      assert {"Nats-Msg-Id", msg_id} = List.keyfind(failed_opts[:headers], "Nats-Msg-Id", 0)
+      assert {"Nats-Msg-Id", ^msg_id} = List.keyfind(recovered_opts[:headers], "Nats-Msg-Id", 0)
+    end
+
     test "a batch without a host producer stamp is refused at decode" do
       frame = build_telemetry_frame([metrics_telemetry_record()], stamp: false)
 
@@ -1409,7 +1510,8 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
     batch = %AddonTelemetryBatch{
       source: %TelemetrySource{metadata: metadata},
-      records: records
+      records: records,
+      counters: Keyword.get(opts, :counters)
     }
 
     payload = AddonTelemetryBatch.encode(batch)

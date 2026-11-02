@@ -97,7 +97,10 @@ defmodule ServiceRadar.Edge.Projectors.TelemetryBatch do
   Routes the batch of a fresh primary record after checking its grant is
   still current. Metric records publish first (their deterministic message
   ids make a redelivery after a later failure store once); a failed publish
-  is an error so the batch is redelivered.
+  is an error so the batch is redelivered. An OCSF, OTel, or discovery
+  publish that fails its transport is the same kind of error. Guest spool
+  counters are emitted only after the metric publish and that route both
+  succeed, so a redelivery does not count the batch twice.
   """
   @impl true
   def publish(%EdgeRecordV1{} = record, {%Batch{} = batch, body, producer}, opts) do
@@ -113,8 +116,9 @@ defmodule ServiceRadar.Edge.Projectors.TelemetryBatch do
              context.authority_epoch
            ),
          {:ok, partition} <- partition(record.network_scope_id),
-         :ok <- publish_metrics(record, batch, producer, agent_id, partition, opts) do
-      route_via_status_ingestor(body, producer, agent_id, partition)
+         :ok <- publish_metrics(record, batch, producer, agent_id, partition, opts),
+         :ok <- route_via_status_ingestor(body, producer, agent_id, partition) do
+      emit_spool_counters(batch, producer, agent_id)
     else
       {:error, :output_grant_not_current} -> {:refused, :output_grant_not_current}
       {:error, reason} -> {:error, reason}
@@ -124,32 +128,28 @@ defmodule ServiceRadar.Edge.Projectors.TelemetryBatch do
   defp publish_metrics(record, batch, producer, agent_id, partition, opts) do
     event_id = Ecto.UUID.load!(record.event_id)
 
-    result =
-      batch.records
-      |> Enum.with_index()
-      |> Enum.filter(
-        &match?(
-          {%TelemetryRecord{payload_kind: :TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS}, _},
-          &1
-        )
+    batch.records
+    |> Enum.with_index()
+    |> Enum.filter(
+      &match?(
+        {%TelemetryRecord{payload_kind: :TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS}, _},
+        &1
       )
-      |> Enum.reduce_while(:ok, fn {telemetry_record, index}, :ok ->
-        case publish_metric_record(
-               telemetry_record,
-               producer,
-               agent_id,
-               partition,
-               event_id,
-               index,
-               opts
-             ) do
-          :ok -> {:cont, :ok}
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
-      end)
-
-    emit_spool_counters(batch, producer, agent_id)
-    result
+    )
+    |> Enum.reduce_while(:ok, fn {telemetry_record, index}, :ok ->
+      case publish_metric_record(
+             telemetry_record,
+             producer,
+             agent_id,
+             partition,
+             event_id,
+             index,
+             opts
+           ) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
   end
 
   defp publish_metric_record(
@@ -236,7 +236,7 @@ defmodule ServiceRadar.Edge.Projectors.TelemetryBatch do
       available: true
     }
 
-    case StatusIngestor.ingest(status) do
+    case StatusIngestor.ingest(status, return_transport_errors: true) do
       :ok -> :ok
       {:error, reason} -> {:error, {:telemetry_route_failed, reason}}
     end
