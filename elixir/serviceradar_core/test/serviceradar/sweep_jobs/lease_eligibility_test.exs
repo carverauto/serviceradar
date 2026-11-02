@@ -45,6 +45,15 @@ defmodule ServiceRadar.SweepJobs.LeaseEligibilityTest do
              LeaseEligibility.evaluate(group(%{sweep_modes: ["icmp", "tcp"], ports: []}))
   end
 
+  test "an agent that can run none of the group's modes is not leased it, under a named reason" do
+    icmp_only = group(%{sweep_modes: ["icmp"], ports: []})
+
+    assert {:error, :all_modes_withheld} =
+             LeaseEligibility.evaluate(icmp_only, nil, ["sweep", "icmp.unavailable"])
+
+    assert {:ok, %{checks: [{1, 1, 0}]}} = LeaseEligibility.evaluate(icmp_only, nil, ["icmp"])
+  end
+
   for {label, change, reason} <- [
         {"disabled", %{enabled: false}, :disabled},
         {"an SRQL target query", %{target_query: "in:devices tags:web"}, :has_target_query},
