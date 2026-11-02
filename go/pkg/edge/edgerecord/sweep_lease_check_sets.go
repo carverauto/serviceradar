@@ -181,6 +181,10 @@ func SweepCheckSetRun(set *edgev1.SweepCheckSetV1) (SweepCheckSetRunSpec, error)
 			if check.GetProtocol() != edgev1.TransportProtocol_TRANSPORT_PROTOCOL_TCP || check.GetPort() == 0 || check.GetPort() > 65535 {
 				return SweepCheckSetRunSpec{}, fmt.Errorf("%w: %s check is not protocol TCP on a port", ErrSweepCheckSetUnsupported, mode)
 			}
+		case edgev1.SweepMode_SWEEP_MODE_UNSPECIFIED:
+			return SweepCheckSetRunSpec{}, fmt.Errorf("%w: mode %s", ErrSweepCheckSetUnsupported, mode)
+		case edgev1.SweepMode_SWEEP_MODE_MTR:
+			return SweepCheckSetRunSpec{}, fmt.Errorf("%w: mode %s", ErrSweepCheckSetUnsupported, mode)
 		default:
 			return SweepCheckSetRunSpec{}, fmt.Errorf("%w: mode %s", ErrSweepCheckSetUnsupported, mode)
 		}
