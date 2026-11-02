@@ -986,8 +986,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
     }
   end
 
-  # Infer which IdP preset matches the persisted claim mappings so the correct
-  # preset button is highlighted when the page reloads.
+  # Entra has a distinct email mapping; other persisted mappings remain generic
+  # because Authentik shares the generic email mapping.
   defp infer_idp_preset(settings) when is_map(settings) do
     mappings = Map.get(settings, :claim_mappings) || %{}
 
