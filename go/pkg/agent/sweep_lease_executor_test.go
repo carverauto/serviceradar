@@ -37,6 +37,7 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
+	"github.com/carverauto/serviceradar/go/pkg/sweeper"
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 )
 
@@ -72,10 +73,7 @@ func buildExecutableLease(t *testing.T, issuedAt time.Time, slotStart time.Time,
 	_, issuerKey, err := ed25519.GenerateKey(nil)
 	require.NoError(t, err)
 
-	checkSet := make([]byte, 32)
-	for i := range checkSet {
-		checkSet[i] = 0x5a
-	}
+	checkSet := testLeaseCheckSet().GetCheckSetSha256()
 
 	targetRange := &edgev1.TargetRangeV1{
 		RangeId:              newUUIDBytes(),
@@ -179,7 +177,8 @@ func buildExecutableLease(t *testing.T, issuedAt time.Time, slotStart time.Time,
 	})
 
 	lease := &edgev1.SweepLeaseV1{
-		LeaseVersion:         sweepLeaseVersion,
+		LeaseVersion:         edgerecord.SweepLeaseCheckSetsVersion,
+		CheckSets:            []*edgev1.SweepCheckSetV1{testLeaseCheckSet()},
 		SweepGroupId:         testLeaseGroup[:],
 		LeaseId:              testLeaseID[:],
 		ProducerAssignmentId: testAssignmentID[:],
@@ -943,7 +942,7 @@ func (*snapshotBlockingSweeper) EffectiveSweepModes(_ string, modes []models.Swe
 	return modes, nil
 }
 
-func (s *snapshotBlockingSweeper) RunOnceWithObserver(ctx context.Context, id string, observe func(context.Context, *models.Result) error) error {
+func (s *snapshotBlockingSweeper) RunPlannedWithObserver(ctx context.Context, id string, _ sweeper.RunSpec, observe func(context.Context, *models.Result) error) error {
 	if err := s.RunOnceWithExecution(ctx, id); err != nil {
 		return err
 	}

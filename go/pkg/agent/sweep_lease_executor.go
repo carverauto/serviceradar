@@ -97,6 +97,15 @@ type sweepLeaseExecutor struct {
 	// driven tracks the groups this executor has taken off their local
 	// ticker, so a group whose lease disappears (revoked) is handed back.
 	driven map[string]bool
+
+	// icmpUnavailable is the startup socket probe's verdict: this agent
+	// advertises icmp.unavailable and refuses a slot that carries ICMP.
+	icmpUnavailable bool
+	// noteUnavailable records the capability markers a refusal names before
+	// the refusal is persisted and reported, and says whether that changed the
+	// agent's capabilities. reportRefusal sends the refusal to core.
+	noteUnavailable func(markers []string) bool
+	reportRefusal   sweepSlotRefusalReporter
 }
 
 func newSweepLeaseExecutor(store *sweepLeaseStore, runnerFor func() sweepLeaseRunner, wake <-chan struct{}, log logger.Logger) *sweepLeaseExecutor {
@@ -301,6 +310,22 @@ func (e *sweepLeaseExecutor) runSlot(ctx context.Context, runner sweepLeaseRunne
 		return
 	}
 
+	if err := e.preflightSlot(lease, slot); err != nil {
+		var refusal *sweepSlotRefusal
+		if errors.As(err, &refusal) {
+			e.refuse(groupID, lease, slot, executionID, refusal, now)
+			return
+		}
+
+		e.logger.Error().Err(err).
+			Str("sweep_group_id", groupID).
+			Str("execution_id", executionID).
+			Msg("Refusing leased sweep slot without a usable carried check set")
+		e.markExecuted(groupID, executionID, slot, now)
+
+		return
+	}
+
 	runCtx, cancel := context.WithTimeout(ctx, time.Duration(slot.GetCollectionExpiresUnixNano()-clock().UnixNano()))
 	defer cancel()
 	runCtx = sweeper.WithExecutionCheck(runCtx, func() error {
@@ -338,6 +363,12 @@ func (e *sweepLeaseExecutor) runSlot(ctx context.Context, runner sweepLeaseRunne
 			Str("execution_id", executionID).
 			Msg("Leased sweep slot waiting for its group service")
 
+		return
+	}
+
+	var refusal *sweepSlotRefusal
+	if errors.As(err, &refusal) {
+		e.refuse(groupID, lease, slot, executionID, refusal, now)
 		return
 	}
 
@@ -523,6 +554,16 @@ func (p *PushLoop) startSweepLeaseExecutor(ctx context.Context) {
 
 	executor := newSweepLeaseExecutor(store, p.sweepLeaseRunner, wake, p.logger)
 	executor.edgeSpool = p.edgeSweepSpool
+	executor.icmpUnavailable = !p.socketProbe().icmp.Available()
+	executor.noteUnavailable = p.noteUnavailableChecks
+	executor.reportRefusal = p.reportSweepLeaseSlotRefusal
+
+	// A refusal held from before a restart still names markers the agent
+	// must keep reporting.
+	for _, refusal := range store.Refusals(time.Now()) {
+		p.noteUnavailableChecks(refusal.GetUnavailableCapabilities())
+	}
+
 	go executor.run(ctx)
 }
 

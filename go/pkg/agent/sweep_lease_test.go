@@ -28,6 +28,7 @@ import (
 	"github.com/google/uuid"
 	goproto "google.golang.org/protobuf/proto"
 
+	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
@@ -46,17 +47,32 @@ func newUUIDBytes() []byte {
 	return id[:]
 }
 
+// testLeaseCheckSet is the ICMP-only check set test slots run.
+func testLeaseCheckSet() *edgev1.SweepCheckSetV1 {
+	checks := []*edgev1.SweepTestV1{{
+		Mode:     edgev1.SweepMode_SWEEP_MODE_ICMP,
+		Protocol: edgev1.TransportProtocol_TRANSPORT_PROTOCOL_ICMP,
+	}}
+
+	return &edgev1.SweepCheckSetV1{
+		CheckSetSha256: edgerecord.CheckSetDigest(checks),
+		DigestVersion:  edgerecord.CheckSetDigestVersion,
+		Checks:         checks,
+	}
+}
+
 func testLeaseSlot(startSec int64) *edgev1.SweepLeaseSlotV1 {
 	return &edgev1.SweepLeaseSlotV1{
 		ExecutionId:               newUUIDBytes(),
 		SlotStartUnixNano:         startSec * 1_000_000_000,
 		CollectionExpiresUnixNano: (startSec + 900) * 1_000_000_000,
+		PlanHeader:                &edgev1.ScheduledPlanHeaderV1{CheckSetSha256: testLeaseCheckSet().GetCheckSetSha256()},
 	}
 }
 
 func testLeasePush(windowStartSec, windowEndSec int64, slots ...*edgev1.SweepLeaseSlotV1) *edgev1.SweepLeaseV1 {
 	push := &edgev1.SweepLeaseV1{
-		LeaseVersion:         sweepLeaseVersion,
+		LeaseVersion:         sweepLeaseSlotlessVersion,
 		SweepGroupId:         testLeaseGroup[:],
 		LeaseId:              testLeaseID[:],
 		ProducerAssignmentId: testAssignmentID[:],
@@ -67,7 +83,9 @@ func testLeasePush(windowStartSec, windowEndSec int64, slots ...*edgev1.SweepLea
 	}
 
 	if len(slots) > 0 {
+		push.LeaseVersion = edgerecord.SweepLeaseCheckSetsVersion
 		push.ProductionCapability = &edgev1.EdgeSignedCapabilityV1{}
+		push.CheckSets = []*edgev1.SweepCheckSetV1{testLeaseCheckSet()}
 	}
 
 	return push
@@ -313,7 +331,14 @@ func TestSweepLeaseInstallRefusals(t *testing.T) {
 		name   string
 		mutate func(*edgev1.SweepLeaseV1)
 	}{
-		{"wrong version", func(p *edgev1.SweepLeaseV1) { p.LeaseVersion = 2 }},
+		{"slots at lease_version 1", func(p *edgev1.SweepLeaseV1) { p.LeaseVersion = 1 }},
+		{"unknown lease_version", func(p *edgev1.SweepLeaseV1) { p.LeaseVersion = 3 }},
+		{"slot-less push at lease_version 2", func(p *edgev1.SweepLeaseV1) {
+			p.Slots, p.CheckSets, p.ProductionCapability = nil, nil, nil
+		}},
+		{"slot check set not carried", func(p *edgev1.SweepLeaseV1) { p.CheckSets = nil }},
+		{"unknown check-set digest_version", func(p *edgev1.SweepLeaseV1) { p.CheckSets[0].DigestVersion = 2 }},
+		{"carried checks do not match the slot digest", func(p *edgev1.SweepLeaseV1) { p.CheckSets[0].Checks[0].Port = 7 }},
 		{"wrong group", func(p *edgev1.SweepLeaseV1) { p.SweepGroupId = newUUIDBytes() }},
 		{"empty window", func(p *edgev1.SweepLeaseV1) { p.WindowEndUnixNano = p.WindowStartUnixNano }},
 		{"slots without capability", func(p *edgev1.SweepLeaseV1) { p.ProductionCapability = nil }},
@@ -331,6 +356,12 @@ func TestSweepLeaseInstallRefusals(t *testing.T) {
 				t.Fatalf("open store: %v", err)
 			}
 
+			// A refused push refuses only itself: the lease already installed
+			// stays in force, so the group stays off its local ticker.
+			if _, err := store.Install(testLeasePush(500, 600, testLeaseSlot(500)), group); err != nil {
+				t.Fatalf("install valid lease: %v", err)
+			}
+
 			push := testLeasePush(100, 400, testLeaseSlot(100), testLeaseSlot(200), testLeaseSlot(300))
 			tc.mutate(push)
 
@@ -338,8 +369,8 @@ func TestSweepLeaseInstallRefusals(t *testing.T) {
 				t.Fatalf("Install error = %v, want errInvalidSweepLease", err)
 			}
 
-			if held := store.Get(group); held != nil {
-				t.Fatalf("refused push left a lease installed: %v", heldStarts(held))
+			if held := store.Get(group); held == nil || !equalStarts(heldStarts(held), 500) {
+				t.Fatalf("refused push changed the installed lease: %v, want [500]", held)
 			}
 		})
 	}

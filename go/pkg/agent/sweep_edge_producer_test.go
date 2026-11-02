@@ -32,6 +32,8 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
+	"github.com/carverauto/serviceradar/go/pkg/sweeper"
+	monitoringpb "github.com/carverauto/serviceradar/proto"
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 )
 
@@ -47,13 +49,11 @@ func edgeSweepFixture(t *testing.T) (*models.Config, *edgev1.SweepLeaseV1, *edge
 	lease.SweepGroupId = newUUIDBytes()
 	slot := lease.Slots[0]
 	cfg := &models.Config{Networks: []string{"192.0.2.0/30"}, SweepModes: []models.SweepMode{models.ModeICMP, models.ModeTCPConnect}, Ports: []int{443}, SweepGroupID: testLeaseGroup.String()}
-	checks, _, _, err := sweepChecks(cfg)
-	require.NoError(t, err)
 	r := slot.PlanPages[0].Ranges[0]
 	r.Cidr = "192.0.2.0/30"
 	r.TargetCount = 4
 	slot.PlanHeader.TotalTargetCount = 4
-	resignSweepFixtureChecks(slot, edgerecord.CheckSetDigest(checks))
+	carrySweepChecks(lease, slot, sweepTestChecks(edgev1.SweepMode_SWEEP_MODE_ICMP, 0), sweepTestChecks(edgev1.SweepMode_SWEEP_MODE_TCP_CONNECT, 443))
 	source := slot.SourceAuthorizations[0]
 	c := lease.ProductionCapability.GetProduction()
 	c.ScopeId = lease.SweepGroupId
@@ -86,6 +86,32 @@ func edgeSweepFixture(t *testing.T) (*models.Config, *edgev1.SweepLeaseV1, *edge
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = sp.Close() })
 	return cfg, lease, slot, sp
+}
+
+// sweepTestChecks is mode on each port, as the check-set grammar spells it.
+func sweepTestChecks(mode edgev1.SweepMode, ports ...uint32) []*edgev1.SweepTestV1 {
+	protocol := edgev1.TransportProtocol_TRANSPORT_PROTOCOL_TCP
+	if mode == edgev1.SweepMode_SWEEP_MODE_ICMP {
+		protocol = edgev1.TransportProtocol_TRANSPORT_PROTOCOL_ICMP
+	}
+	checks := make([]*edgev1.SweepTestV1, 0, len(ports))
+	for _, port := range ports {
+		checks = append(checks, &edgev1.SweepTestV1{Mode: mode, Protocol: protocol, Port: port})
+	}
+	return checks
+}
+
+// carrySweepChecks makes the lease carry groups (in grammar order) as the one
+// check set its slot runs, and rebinds the slot's signed plan to it.
+func carrySweepChecks(lease *edgev1.SweepLeaseV1, slot *edgev1.SweepLeaseSlotV1, groups ...[]*edgev1.SweepTestV1) {
+	var checks []*edgev1.SweepTestV1
+	for _, group := range groups {
+		checks = append(checks, group...)
+	}
+	key := edgerecord.CheckSetDigest(checks)
+	lease.LeaseVersion = edgerecord.SweepLeaseCheckSetsVersion
+	lease.CheckSets = []*edgev1.SweepCheckSetV1{{CheckSetSha256: key, DigestVersion: edgerecord.CheckSetDigestVersion, Checks: checks}}
+	resignSweepFixtureChecks(slot, key)
 }
 
 // resignSweepFixtureChecks rebinds the fixture's single-range plan and source
@@ -150,6 +176,7 @@ type observingSweep struct {
 	results   []models.Result
 	err       error
 	effective []models.SweepMode
+	specs     []sweeper.RunSpec
 }
 
 func (s *observingSweep) EffectiveSweepModes(_ string, modes []models.SweepMode) ([]models.SweepMode, error) {
@@ -159,7 +186,8 @@ func (s *observingSweep) EffectiveSweepModes(_ string, modes []models.SweepMode)
 	return modes, nil
 }
 
-func (s *observingSweep) RunOnceWithObserver(ctx context.Context, executionID string, observe func(context.Context, *models.Result) error) error {
+func (s *observingSweep) RunPlannedWithObserver(ctx context.Context, executionID string, spec sweeper.RunSpec, observe func(context.Context, *models.Result) error) error {
+	s.specs = append(s.specs, spec)
 	for i := range s.results {
 		if err := observe(ctx, &s.results[i]); err != nil {
 			return err
@@ -233,8 +261,6 @@ func TestEdgeSweepKeepsOtherExecutionsOnLegacyPath(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, leased.HasNewData)
 
-	cfg.Ports = []int{8443}
-	require.ErrorContains(t, svc.runLeaseToSpool(ctx, lease, slot, sp, sweepSlotClaim{}), "check set differs")
 	require.NoError(t, svc.RunOnceForExecution(ctx, "manual"))
 	manual, err := svc.GetSweepResults(ctx, leased.CurrentSequence)
 	require.NoError(t, err)
@@ -265,23 +291,41 @@ func TestEdgeSweepFailedLeaseKeepsEarlierLeasedCycleOffLegacyPath(t *testing.T) 
 	require.Equal(t, queued.CurrentSequence, after.CurrentSequence)
 }
 
+// TCP SYN on an IPv6 range without raw IPv6 SYN would run as connect. The
+// slot is refused with the marker the planner reacts to, before it claims or
+// scans anything, instead of running the substitute under the signed plan.
 func TestEdgeSweepRefusesSignedModeTheScannerWouldRemap(t *testing.T) {
 	cfg, lease, slot, sp := edgeSweepFixture(t)
-	cfg.SweepModes = []models.SweepMode{models.ModeICMP, models.ModeTCP}
-	checks, _, _, err := sweepChecks(cfg)
-	require.NoError(t, err)
-	resignSweepFixtureChecks(slot, edgerecord.CheckSetDigest(checks))
-	// The sweeper runs tcp as tcp_connect for IPv6 targets without raw SYN.
+	carrySweepChecks(lease, slot, sweepTestChecks(edgev1.SweepMode_SWEEP_MODE_ICMP, 0), sweepTestChecks(edgev1.SweepMode_SWEEP_MODE_TCP_SYN, 443))
 	scanner := &observingSweep{mockSweeper: &mockSweeper{}, results: edgeSweepResults(), effective: []models.SweepMode{models.ModeICMP, models.ModeTCPConnect}}
 	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
 	claimed := false
-	err = svc.runLeaseToSpool(context.Background(), lease, slot, sp, sweepSlotClaim{claim: func() error { claimed = true; return nil }})
-	require.ErrorIs(t, err, errEdgeSweepModeUnavailable)
+	err := svc.runLeaseToSpool(context.Background(), lease, slot, sp, sweepSlotClaim{claim: func() error { claimed = true; return nil }})
+	var refusal *sweepSlotRefusal
+	require.ErrorAs(t, err, &refusal)
+	require.Equal(t, monitoringpb.SweepLeaseSlotRefusalReason_SWEEP_LEASE_SLOT_REFUSAL_REASON_CHECK_UNAVAILABLE, refusal.reason)
+	require.Equal(t, []string{capabilityTCPSynIPv6Unavailable}, refusal.markers)
 	require.False(t, claimed)
-	require.Zero(t, scanner.runCount)
+	require.Empty(t, scanner.specs)
 	records, err := sp.Unresolved()
 	require.NoError(t, err)
 	require.Empty(t, records)
+}
+
+// The scanner runs every TCP mode on every port, so a carried set that probes
+// different ports per TCP mode cannot run as signed and is refused unsupported.
+func TestEdgeSweepRefusesACheckSetTheScannerCannotExpress(t *testing.T) {
+	cfg, lease, slot, sp := edgeSweepFixture(t)
+	carrySweepChecks(lease, slot, sweepTestChecks(edgev1.SweepMode_SWEEP_MODE_TCP_SYN, 22, 443), sweepTestChecks(edgev1.SweepMode_SWEEP_MODE_TCP_CONNECT, 80))
+	scanner := &observingSweep{mockSweeper: &mockSweeper{}, results: edgeSweepResults()}
+	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
+	claimed := false
+	err := svc.runLeaseToSpool(context.Background(), lease, slot, sp, sweepSlotClaim{claim: func() error { claimed = true; return nil }})
+	var refusal *sweepSlotRefusal
+	require.ErrorAs(t, err, &refusal)
+	require.Equal(t, monitoringpb.SweepLeaseSlotRefusalReason_SWEEP_LEASE_SLOT_REFUSAL_REASON_UNSUPPORTED_PLAN, refusal.reason)
+	require.False(t, claimed)
+	require.Empty(t, scanner.specs)
 }
 
 func TestEdgeSweepIncompleteBeforePublicationRemainsRetryable(t *testing.T) {
@@ -297,14 +341,35 @@ func TestEdgeSweepIncompleteBeforePublicationRemainsRetryable(t *testing.T) {
 	require.Empty(t, records)
 }
 
-func TestEdgeSweepRefusesMismatchedPlanBeforeScanning(t *testing.T) {
+// The group config and the signed plan travel separately. A slot runs its
+// plan's CIDRs, modes and ports however far the config has drifted, and every
+// batch claims exactly the carried checks.
+func TestEdgeSweepRunsThePlanWhenTheConfigDiffers(t *testing.T) {
 	cfg, lease, slot, sp := edgeSweepFixture(t)
+	cfg.Networks = []string{"198.51.100.0/24"}
+	cfg.SweepModes = []models.SweepMode{models.ModeTCP}
 	cfg.Ports = []int{8443}
-	_, err := newSweepEdgeProducer(cfg, lease, slot, sp, time.Now())
-	require.ErrorContains(t, err, "check set differs")
+	scanner := &observingSweep{mockSweeper: &mockSweeper{}, results: edgeSweepResults()}
+	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
+	require.NoError(t, svc.runLeaseToSpool(context.Background(), lease, slot, sp, sweepSlotClaim{}))
+	require.Equal(t, []sweeper.RunSpec{{
+		Networks: []string{"192.0.2.0/30"},
+		Modes:    []models.SweepMode{models.ModeICMP, models.ModeTCPConnect},
+		Ports:    []int{443},
+	}}, scanner.specs)
 	records, err := sp.Unresolved()
 	require.NoError(t, err)
-	require.Empty(t, records)
+	require.Len(t, records, 4)
+	for _, stored := range records {
+		record := &edgev1.EdgeRecordV1{}
+		require.NoError(t, proto.Unmarshal(stored.Body, record))
+		batch := &edgev1.SweepObservationBatchV1{}
+		require.NoError(t, proto.Unmarshal(recordBody(t, record), batch))
+		require.Len(t, batch.TestedChecks, len(lease.CheckSets[0].Checks))
+		for i, check := range lease.CheckSets[0].Checks {
+			require.True(t, proto.Equal(check, batch.TestedChecks[i]))
+		}
+	}
 }
 
 func TestEdgeSweepInterruptedAfterPublicationConsumesAttempt(t *testing.T) {
@@ -324,24 +389,16 @@ func TestEdgeSweepInterruptedAfterPublicationConsumesAttempt(t *testing.T) {
 	require.Len(t, records, 2)
 }
 
-func TestEdgeSweepMatchesSharedStaticPlanCheckDigest(t *testing.T) {
-	// Frozen vector from proto/edge/v1/testdata/sweep_static_plan_corpus.txt,
-	// independently computed by the Go and Elixir plan contract tests.
-	checks, _, _, err := sweepChecks(&models.Config{SweepModes: []models.SweepMode{models.ModeTCP, models.ModeICMP}, Ports: []int{443, 22, 443}})
-	require.NoError(t, err)
-	require.Equal(t, "e9449cfb0b14842f2f541b720e3be9ffa81c21da39d175330e2df72c270401f5", fmt.Sprintf("%x", edgerecord.CheckSetDigest(checks)))
-}
-
 func TestEdgeSweepSeparatesRangeAuthorityAndSharesBatchSequence(t *testing.T) {
-	cfg, lease, slot, sp := edgeSweepFixture(t)
-	cfg.Networks = []string{"192.0.2.0/31", "192.0.2.2/31"}
+	_, lease, slot, sp := edgeSweepFixture(t)
+	networks := []string{"192.0.2.0/31", "192.0.2.2/31"}
 	first := slot.PlanPages[0].Ranges[0]
-	first.Cidr = cfg.Networks[0]
+	first.Cidr = networks[0]
 	first.TargetCount = 2
 	first.RangeSha256 = edgerecord.RangeDigest(first)
 	second := proto.Clone(first).(*edgev1.TargetRangeV1)
 	second.RangeId = newUUIDBytes()
-	second.Cidr = cfg.Networks[1]
+	second.Cidr = networks[1]
 	second.RangeSha256 = edgerecord.RangeDigest(second)
 	slot.PlanPages[0].Ranges = append(slot.PlanPages[0].Ranges, second)
 	firstSource := slot.SourceAuthorizations[0]
@@ -355,7 +412,7 @@ func TestEdgeSweepSeparatesRangeAuthorityAndSharesBatchSequence(t *testing.T) {
 	secondSource.Capability.GetSource().ScopeSha256 = second.RangeSha256
 	secondSource.Capability.GetSource().TargetRangeSha256 = second.RangeSha256
 	slot.SourceAuthorizations = append(slot.SourceAuthorizations, secondSource)
-	producer, err := newSweepEdgeProducer(cfg, lease, slot, sp, time.Now())
+	producer, err := newSweepEdgeProducer(lease, slot, sp, time.Now())
 	require.NoError(t, err)
 	for _, result := range edgeSweepResults() {
 		require.NoError(t, producer.observe(context.Background(), &result))
@@ -469,7 +526,7 @@ func (*scanCancelSweep) EffectiveSweepModes(_ string, modes []models.SweepMode) 
 	return modes, nil
 }
 
-func (s *scanCancelSweep) RunOnceWithObserver(ctx context.Context, _ string, observe func(context.Context, *models.Result) error) error {
+func (s *scanCancelSweep) RunPlannedWithObserver(ctx context.Context, _ string, _ sweeper.RunSpec, observe func(context.Context, *models.Result) error) error {
 	scanCtx, cancel := context.WithCancel(ctx)
 	cancel()
 	for i := range s.results {

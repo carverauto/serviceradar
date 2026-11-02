@@ -35,6 +35,7 @@ import (
 	goproto "google.golang.org/protobuf/proto"
 
 	"github.com/carverauto/serviceradar/go/pkg/durablefs"
+	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
 	"github.com/carverauto/serviceradar/proto"
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 )
@@ -50,8 +51,10 @@ import (
 const (
 	// sweepLeaseDirName is the per-group lease store under the agent runtime root.
 	sweepLeaseDirName = "sweep-leases"
-	// sweepLeaseVersion is the only SweepLeaseV1 lease_version this agent installs.
-	sweepLeaseVersion = 1
+	// sweepLeaseSlotlessVersion is the lease_version of a push that carries no
+	// slots (a revocation or a window clear). A push that carries slots is
+	// edgerecord.SweepLeaseCheckSetsVersion and carries its check sets.
+	sweepLeaseSlotlessVersion = 1
 	// maxSweepLeasePayloadBytes bounds one reassembled push, matching the
 	// gateway's stream window budget for lease chunks.
 	maxSweepLeasePayloadBytes = 64 << 20
@@ -159,6 +162,9 @@ type sweepLeaseStore struct {
 	mu       sync.Mutex
 	leases   map[string]*edgev1.SweepLeaseV1
 	executed map[string]map[string]int64
+	// refusals holds each group's slot refusals until core can no longer
+	// judge the slot (sweep_lease_refusal.go), keyed by execution id.
+	refusals map[string]map[string]sweepLeaseRefusalRecord
 }
 
 const sweepLeaseExecutedSuffix = ".executed.json"
@@ -185,6 +191,7 @@ func newSweepLeaseStore(dir string) (*sweepLeaseStore, error) {
 		dir:      dir,
 		leases:   make(map[string]*edgev1.SweepLeaseV1),
 		executed: make(map[string]map[string]int64),
+		refusals: make(map[string]map[string]sweepLeaseRefusalRecord),
 	}
 
 	entries, err := os.ReadDir(dir)
@@ -193,10 +200,25 @@ func newSweepLeaseStore(dir string) (*sweepLeaseStore, error) {
 	}
 
 	var firstErr error
+	var discarded []string
 
 	for _, entry := range entries {
 		name := entry.Name()
 		if entry.IsDir() {
+			continue
+		}
+
+		if strings.HasSuffix(name, sweepLeaseRefusalsSuffix) {
+			groupID := strings.TrimSuffix(name, sweepLeaseRefusalsSuffix)
+
+			data, readErr := os.ReadFile(filepath.Join(dir, name))
+			if readErr == nil {
+				readErr = store.loadRefusals(groupID, data, time.Now().UnixNano())
+			}
+			if readErr != nil && firstErr == nil {
+				firstErr = fmt.Errorf("read sweep lease refusals %s: %w", groupID, readErr)
+			}
+
 			continue
 		}
 
@@ -251,7 +273,34 @@ func newSweepLeaseStore(dir string) (*sweepLeaseStore, error) {
 			continue
 		}
 
+		// A stored lease whose slots do not run from carried check sets was
+		// installed before this agent executed from the plan. It is discarded,
+		// so the group runs on its local ticker until core pushes a full
+		// window. A held lease without slots stays and keeps the ticker off.
+		if len(lease.GetSlots()) > 0 {
+			if _, checkErr := edgerecord.SweepLeaseCheckSets(&lease); checkErr != nil {
+				discarded = append(discarded, groupID)
+				continue
+			}
+		}
+
 		store.leases[groupID] = &lease
+	}
+
+	for _, groupID := range discarded {
+		delete(store.executed, groupID)
+		delete(store.refusals, groupID)
+		for _, path := range []string{store.path(groupID), store.executedPath(groupID), store.refusalsPath(groupID)} {
+			if removeErr := os.Remove(path); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) && firstErr == nil {
+				firstErr = fmt.Errorf("discard sweep lease %s: %w", groupID, removeErr)
+			}
+		}
+	}
+
+	if len(discarded) > 0 {
+		if syncErr := durablefs.Sync(dir); syncErr != nil && firstErr == nil {
+			firstErr = fmt.Errorf("sync discarded sweep leases: %w", syncErr)
+		}
 	}
 
 	return store, firstErr
@@ -308,6 +357,10 @@ func (s *sweepLeaseStore) MarkExecuted(groupID string, executionID string, colle
 		return nil
 	}
 
+	return s.markExecutedLocked(groupID, executionID, collectionExpiresUnixNano, now)
+}
+
+func (s *sweepLeaseStore) markExecutedLocked(groupID string, executionID string, collectionExpiresUnixNano int64, now time.Time) error {
 	executed := maps.Clone(s.executed[groupID])
 	if executed == nil {
 		executed = make(map[string]int64)
@@ -391,6 +444,10 @@ func (s *sweepLeaseStore) Install(push *edgev1.SweepLeaseV1, wantGroup string) (
 			return nil, fmt.Errorf("remove revoked sweep lease executions: %w", err)
 		}
 
+		if err := s.forgetRefusalsLocked(wantGroup); err != nil {
+			return nil, err
+		}
+
 		return nil, durablefs.Sync(s.dir)
 	}
 
@@ -424,8 +481,15 @@ func validateSweepLease(push *edgev1.SweepLeaseV1, wantGroup string) error {
 		return fmt.Errorf("%w: empty push", errInvalidSweepLease)
 	}
 
-	if push.GetLeaseVersion() != sweepLeaseVersion {
-		return fmt.Errorf("%w: lease_version %d", errInvalidSweepLease, push.GetLeaseVersion())
+	if len(push.GetSlots()) == 0 && push.GetLeaseVersion() != sweepLeaseSlotlessVersion {
+		return fmt.Errorf("%w: lease_version %d without slots", errInvalidSweepLease, push.GetLeaseVersion())
+	}
+
+	// A slot runs the checks its push carries; a push whose check sets do not
+	// bind its slots (or that carries slots at lease_version 1, from a core
+	// that cannot carry them) is refused whole, before install.
+	if _, err := edgerecord.SweepLeaseCheckSets(push); err != nil {
+		return fmt.Errorf("%w: %w", errInvalidSweepLease, err)
 	}
 
 	group, err := uuid.FromBytes(push.GetSweepGroupId())
@@ -471,11 +535,18 @@ func validateSweepLease(push *edgev1.SweepLeaseV1, wantGroup string) error {
 }
 
 // mergeSweepLease applies push as a window replacement over installed: a new
-// lease id replaces the installed lease outright; otherwise every installed
-// slot starting inside the push window is removed and the pushed slots are
-// inserted, so a slot core dropped disappears without a delete message. The
-// newest production capability wins, since core signs each push's capability
-// to cover every slot the agent then holds.
+// lease id replaces the installed lease outright, taking the push's
+// lease_version; otherwise every installed slot starting inside the push
+// window is removed and the pushed slots are inserted, so a slot core dropped
+// disappears without a delete message. The newest production capability wins,
+// since core signs each push's capability to cover every slot the agent then
+// holds.
+//
+// The merged lease keeps exactly the check sets its slots reference: a tail
+// carries sets only for its own slots, so a retained slot keeps the set it was
+// installed with. A slot-less push (lease_version 1) never lowers the installed
+// lease_version, so a lease still holding slots stays version 2 and survives
+// the on-load discard.
 func mergeSweepLease(installed, push *edgev1.SweepLeaseV1) *edgev1.SweepLeaseV1 {
 	merged := goproto.Clone(push).(*edgev1.SweepLeaseV1)
 
@@ -496,6 +567,8 @@ func mergeSweepLease(installed, push *edgev1.SweepLeaseV1) *edgev1.SweepLeaseV1 
 		return slots[i].GetSlotStartUnixNano() < slots[j].GetSlotStartUnixNano()
 	})
 	merged.Slots = slots
+	merged.CheckSets = referencedCheckSets(slots, push.GetCheckSets(), installed.GetCheckSets())
+	merged.LeaseVersion = max(installed.GetLeaseVersion(), push.GetLeaseVersion())
 
 	if merged.GetProductionCapability() == nil {
 		merged.ProductionCapability = installed.GetProductionCapability()
@@ -507,6 +580,31 @@ func mergeSweepLease(installed, push *edgev1.SweepLeaseV1) *edgev1.SweepLeaseV1 
 	}
 
 	return merged
+}
+
+// referencedCheckSets returns the check sets slots reference, once each in
+// first-reference order, taking a set from the first source that carries it.
+func referencedCheckSets(slots []*edgev1.SweepLeaseSlotV1, sources ...[]*edgev1.SweepCheckSetV1) []*edgev1.SweepCheckSetV1 {
+	available := make(map[string]*edgev1.SweepCheckSetV1)
+	for _, source := range sources {
+		for _, set := range source {
+			if _, ok := available[string(set.GetCheckSetSha256())]; !ok {
+				available[string(set.GetCheckSetSha256())] = set
+			}
+		}
+	}
+
+	var kept []*edgev1.SweepCheckSetV1
+	seen := make(map[string]bool, len(available))
+	for _, slot := range slots {
+		key := string(slot.GetPlanHeader().GetCheckSetSha256())
+		if set, ok := available[key]; ok && !seen[key] {
+			kept = append(kept, set)
+			seen[key] = true
+		}
+	}
+
+	return kept
 }
 
 // sweepLeaseAckInstalled answers a push core can record as installed: how far
@@ -571,6 +669,14 @@ func (p *PushLoop) sweepLeaseStore() (*sweepLeaseStore, error) {
 	p.sweepLeases = store
 
 	return store, nil
+}
+
+// loadedSweepLeaseStore returns the lease store when it is already open.
+func (p *PushLoop) loadedSweepLeaseStore() *sweepLeaseStore {
+	p.sweepLeaseMu.Lock()
+	defer p.sweepLeaseMu.Unlock()
+
+	return p.sweepLeases
 }
 
 // handleSweepLeaseChunk reassembles one lease push, installs it, and answers

@@ -354,7 +354,7 @@ in `choices.md` and the chart README.
       `lease_version` 2 when the push carries slots. A push with no slots
       stays `lease_version` 1: `revoked` true is a revocation, and `revoked`
       false merges by lease id. The same lease id window-merges (the high-water
-      clear). A different lease id replaces the installed lease (the 1µs empty
+      clear). A different lease id replaces the installed lease (the 1-microsecond empty
       window when nothing is unrun). `LeaseAgents` candidates require
       `sweep_lease_plan_checks:v1`. Core records `SweepLeaseSlotRefusal` as
       `refused`. A refusal for the same assignment and lease moves

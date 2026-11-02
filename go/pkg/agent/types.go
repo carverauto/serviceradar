@@ -71,6 +71,10 @@ type Server struct {
 	// sockets is the ICMP sweep and MTR socket probe taken when the server is
 	// built. The startup log and every capability report read it.
 	sockets socketProbe
+	// tcpSynIPv6Unavailable latches once a leased slot was refused because
+	// raw IPv6 SYN would run as connect; capability reports then carry
+	// tcp_syn_ipv6.unavailable.
+	tcpSynIPv6Unavailable atomic.Bool
 	// synScanGate is shared by the raw SYN scanner of every sweep group, so the
 	// agent runs one raw SYN scan at a time.
 	synScanGate *scan.SYNScanGate
