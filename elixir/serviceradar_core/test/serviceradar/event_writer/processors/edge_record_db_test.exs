@@ -14,10 +14,10 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
   use ServiceRadar.DataCase, async: true
 
+  alias ServiceRadar.Actors.SystemActor
   alias Serviceradar.Agent.Addon.V1.TelemetryBatch, as: AddonTelemetryBatch
   alias Serviceradar.Agent.Addon.V1.TelemetryRecord
   alias Serviceradar.Agent.Addon.V1.TelemetrySource
-  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.HashGrammar
   alias ServiceRadar.Edge.IssuerKey
   alias ServiceRadar.Edge.OutputGrants
