@@ -261,7 +261,8 @@ message MapperInterfaceRecordV1 {
   string source = 16;
   // Interface metadata key-value pairs (`metadata`). UniFi writes `source`,
   // `controller_url`, `controller_name`, `site_id`, `site_name`, `connector`,
-  // `port_state`, and `max_speed_mbps`. SNMP and MikroTik write `ip_cidrs`.
+  // `port_state`, `max_speed_mbps`, `poe_standard`, `poe_type`, `poe_state`,
+  // and `poe_enabled`. SNMP and MikroTik write `ip_cidrs`.
   map<string, string> metadata = 17;
   // Telemetry metrics discovered as supported on this interface (`available_metrics`).
   repeated MapperInterfaceMetricV1 available_metrics = 18;
@@ -461,24 +462,10 @@ message MapperResultsBatchV1 {
 // Replaces the legacy JSON array payload carried on `StatusResponse` with
 // `service_name: "passive-netprobe"` and `service_type: "passive-netprobe"`.
 
-// NetprobeDiscoveryBatchV1 carries a batch of netprobe discovery records.
+// NetprobeDiscoveryBatchV1 carries the JSON array of netprobe discovery records.
 message NetprobeDiscoveryBatchV1 {
-  // Agent identifier (`agent_id`).
-  string agent_id = 1;
-  // Gateway identifier (`gateway_id`).
-  string gateway_id = 2;
-  // Network partition identifier (`partition`).
-  string partition = 3;
-  // Collector IP address (`collector_ip`).
-  string collector_ip = 4;
-  // Batch window start in Unix epoch nanoseconds (`batch_start_unix_nano`).
-  int64 batch_start_unix_nano = 5;
-  // Batch window end in Unix epoch nanoseconds (`batch_end_unix_nano`).
-  int64 batch_end_unix_nano = 6;
-  // Count of observations dropped since the previous batch (`dropped_since_last`).
-  uint32 dropped_since_last = 7;
   // Discovery records in this batch.
-  repeated NetprobeDiscoveryRecordV1 records = 8;
+  repeated NetprobeDiscoveryRecordV1 records = 1;
 }
 
 // NetprobeDiscoveryRecordV1 maps a single netprobe discovery update emitted by
@@ -597,87 +584,30 @@ message NetprobeHttpFingerprintV1 {
   string accept_language = 3;
 }
 
-// NetprobeLicenseCleanFingerprintV1 maps `licenseCleanFingerprintMetadata` (`license_clean`).
+// NetprobeLicenseCleanFingerprintV1 maps `addLicenseCleanMetadata` (`license_clean`).
 message NetprobeLicenseCleanFingerprintV1 {
-  // Raw p0f signature string (`p0f_signature`).
-  string p0f_signature = 1;
-  // Matched p0f corpus entry (`p0f_match`).
-  NetprobeP0fMatchV1 p0f_match = 2;
-  // Raw JA4 signature string (`ja4`).
-  string ja4 = 3;
-  // Matched JA4 corpus entry (`ja4_match`).
-  NetprobeFingerprintMatchV1 ja4_match = 4;
-  // Raw client HASSH signature (`hassh`).
-  string hassh = 5;
-  // Raw server HASSH signature (`hassh_server`).
-  string hassh_server = 6;
-  // Matched HASSH corpus entry (`hassh_match`).
-  NetprobeFingerprintMatchV1 hassh_match = 7;
   // License-clean OS match. JSON keys are `<base>.os.name`, `<base>.os.version_range`,
   // `<base>.os.family`, and `<base>.os.confidence`, where `<base>` is
   // `passive_fingerprint` or `active_fingerprint`.
-  NetprobeOsMatchV1 os_match = 8;
-  // Number of agreeing fingerprint signals (`agreement_count`).
-  uint32 agreement_count = 9;
-  // MuonFP TCP fingerprint match (`muonfp`).
-  NetprobeMuonFpMatchV1 muonfp = 10;
+  NetprobeOsMatchV1 os_match = 1;
   // Recog HTTP banner match (`<base>.recog.http.product`, `.version`, `.os_family`).
-  NetprobeRecogMatchV1 recog_http = 11;
+  NetprobeRecogMatchV1 recog_http = 2;
   // Recog SSH banner match (`<base>.recog.ssh.product`, `.version`, `.os_family`).
-  NetprobeRecogMatchV1 recog_ssh = 12;
+  NetprobeRecogMatchV1 recog_ssh = 3;
   // Recog SMB match (`<base>.recog.smb.product`, `.version`, `.os_family`).
-  NetprobeRecogMatchV1 recog_smb = 13;
+  NetprobeRecogMatchV1 recog_smb = 4;
   // Recog FTP banner match (`<base>.recog.ftp.product`, `.version`, `.os_family`).
-  NetprobeRecogMatchV1 recog_ftp = 14;
+  NetprobeRecogMatchV1 recog_ftp = 5;
   // Recog Telnet banner match (`<base>.recog.telnet.product`, `.version`, `.os_family`).
-  NetprobeRecogMatchV1 recog_telnet = 15;
-  // Recog SNMP sysDescr match. `addLicenseCleanMetadata` does not write this protocol.
-  NetprobeRecogMatchV1 recog_snmp = 16;
-  // Recog SIP banner match. `addLicenseCleanMetadata` does not write this protocol.
-  NetprobeRecogMatchV1 recog_sip = 17;
-  // Recog RDP match (`<base>.recog.rdp.product`, `.version`, `.os_family`).
-  NetprobeRecogMatchV1 recog_rdp = 18;
-  // Recog DNS version.bind match (`<base>.recog.dns.product`, `.version`, `.os_family`).
-  NetprobeRecogMatchV1 recog_dns = 19;
+  NetprobeRecogMatchV1 recog_telnet = 6;
   // Recog SMTP banner match (`<base>.recog.smtp.product`, `.version`, `.os_family`).
-  NetprobeRecogMatchV1 recog_smtp = 20;
+  NetprobeRecogMatchV1 recog_smtp = 7;
+  // Recog RDP match (`<base>.recog.rdp.product`, `.version`, `.os_family`).
+  NetprobeRecogMatchV1 recog_rdp = 8;
+  // Recog DNS version.bind match (`<base>.recog.dns.product`, `.version`, `.os_family`).
+  NetprobeRecogMatchV1 recog_dns = 9;
   // Recog NTP match (`<base>.recog.ntp.product`, `.version`, `.os_family`).
-  NetprobeRecogMatchV1 recog_ntp = 21;
-  // Satori passive fingerprint matches across axes (`satori_matches`).
-  repeated NetprobeSatoriMatchV1 satori_matches = 22;
-  // Signal observation flags (`*_observed`).
-  bool tcp_observed = 23;
-  bool ja4_observed = 24;
-  bool hassh_observed = 25;
-  bool dhcp_observed = 26;
-  bool dhcpv6_observed = 27;
-  bool http_observed = 28;
-  bool ssh_observed = 29;
-  bool smb_observed = 30;
-  bool dns_observed = 31;
-  bool icmp_observed = 32;
-  bool ntp_observed = 33;
-  bool sip_observed = 34;
-}
-
-// NetprobeP0fMatchV1 maps `p0fMatchMetadata` (`p0f_match`).
-message NetprobeP0fMatchV1 {
-  // Full p0f label (`label`).
-  string label = 1;
-  // OS/application name (`name`).
-  string name = 2;
-  // Version or flavor (`version_flavor`).
-  string version_flavor = 3;
-  // Normalized OS family (`os_family`).
-  string os_family = 4;
-}
-
-// NetprobeMuonFpMatchV1 maps `muonfpMatchMetadata` (`muonfp`).
-message NetprobeMuonFpMatchV1 {
-  // MuonFP signature string (`signature`).
-  string signature = 1;
-  // Matched label (`label`).
-  string label = 2;
+  NetprobeRecogMatchV1 recog_ntp = 10;
 }
 
 // NetprobeRecogMatchV1 maps `recogMatchMetadata` (`recog_*`).
@@ -686,30 +616,6 @@ message NetprobeRecogMatchV1 {
   string product = 1;
   // Matched software version (`version`).
   string version = 2;
-  // Matched OS family (`os_family`).
-  string os_family = 3;
-}
-
-// NetprobeSatoriMatchV1 maps `satoriMatchMetadata` (`satori_matches[]`).
-message NetprobeSatoriMatchV1 {
-  // Satori protocol axis (`axis`, e.g. `"dhcp"`, `"http"`, `"smb"`, `"tcp"`).
-  string axis = 1;
-  // Raw axis signature (`signature`).
-  string signature = 2;
-  // Satori corpus label (`label`).
-  string label = 3;
-  // Inferred device class (`device_class`).
-  string device_class = 4;
-  // Inferred OS family (`os_family`).
-  string os_family = 5;
-}
-
-// NetprobeFingerprintMatchV1 maps `fingerprintMatchMetadata` (`ja4_match`, `hassh_match`).
-message NetprobeFingerprintMatchV1 {
-  // Matched client/server name (`name`).
-  string name = 1;
-  // Matched version range (`version_range`).
-  string version_range = 2;
   // Matched OS family (`os_family`).
   string os_family = 3;
 }
@@ -724,22 +630,6 @@ message NetprobeOsMatchV1 {
   string os_family = 3;
   // Aggregate match confidence in [0.0, 1.0] (`confidence`).
   float confidence = 4;
-  // Disagreements recorded across fingerprint signals (`disagreements`).
-  repeated NetprobeFingerprintDisagreementV1 disagreements = 5;
-}
-
-// NetprobeFingerprintDisagreementV1 maps `fingerprintDisagreementMetadata` (`disagreements[]`).
-message NetprobeFingerprintDisagreementV1 {
-  // Disagreement signal source (`signal`, e.g. `"ja4"`, `"hassh"`, `"p0f"`).
-  string signal = 1;
-  // Raw signature from the disagreeing signal (`signature`).
-  string signature = 2;
-  // OS family reported by the disagreeing signal (`observed_family`).
-  string observed_family = 3;
-  // OS/client name reported by the disagreeing signal (`observed_name`).
-  string observed_name = 4;
-  // Version range reported by the disagreeing signal (`version_range`).
-  string version_range = 5;
 }
 
 // NetprobeDpiObservationV1 maps `dpiObservationMetadata` in
@@ -763,20 +653,6 @@ message NetprobeDpiObservationV1 {
   int64 observed_at_unix_nano = 8;
   // Most recent observation time (`dpi.<protocol>.last_observed_at`, RFC3339Nano).
   int64 last_observed_at_unix_nano = 9;
-  // Flow source IP address (`source_ip`).
-  string source_ip = 10;
-  // Flow destination IP address (`destination_ip`).
-  string destination_ip = 11;
-  // Flow source port (`source_port`).
-  uint32 source_port = 12;
-  // Flow destination port (`destination_port`).
-  uint32 destination_port = 13;
-  // Transport protocol (`transport_protocol`, e.g. `"tcp"`, `"udp"`).
-  string transport_protocol = 14;
-  // Dissector identifier (`dissector_id`).
-  string dissector_id = 15;
-  // Subject host IP address (`subject_ip`).
-  string subject_ip = 16;
 }
 
 // NetprobeProcessSnapshotObservationV1 maps `processSnapshotMetadata` in
@@ -800,106 +676,6 @@ message NetprobeProcessSnapshotObservationV1 {
   repeated string protocols = 8;
   // Per-protocol listening port counts. JSON keys are `local_processes.<protocol>_port_count` strings.
   map<string, uint32> protocol_port_counts = 9;
-  // Listening socket / process entries (`entries`).
-  repeated NetprobeProcessEntryV1 entries = 10;
-}
-
-// NetprobeProcessEntryV1 maps `processSnapshotEntryMetadata` (`entries[]`).
-message NetprobeProcessEntryV1 {
-  // Bound local IP address (`local_ip`).
-  string local_ip = 1;
-  // Bound local port (`local_port`).
-  uint32 local_port = 2;
-  // Transport protocol (`transport_protocol`, `"tcp"` or `"udp"`).
-  string transport_protocol = 3;
-  // Process ID (`pid`).
-  uint32 pid = 4;
-  // Thread group ID (`tgid`).
-  uint32 tgid = 5;
-  // Effective user ID (`uid`).
-  uint32 uid = 6;
-  // Effective group ID (`gid`).
-  uint32 gid = 7;
-  // Process command name (`comm`).
-  string comm = 8;
-  // Redacted command-line argv vector (`redacted_cmdline`).
-  repeated string redacted_cmdline = 9;
-  // Container identifier when running inside a container (`container_id`).
-  string container_id = 10;
-  // Container/pod workload identity (`workload_identity`).
-  NetprobeWorkloadIdentityV1 workload_identity = 11;
-  // Package manager executable ownership (`executable_ownership`).
-  NetprobeExecutableOwnershipV1 executable_ownership = 12;
-}
-
-// NetprobeWorkloadIdentityV1 maps `workloadIdentityMetadata` (`workload_identity`).
-message NetprobeWorkloadIdentityV1 {
-  // CRI pod sandbox ID (`pod_sandbox_id`).
-  string pod_sandbox_id = 1;
-  // Kubernetes pod name (`pod_name`).
-  string pod_name = 2;
-  // Kubernetes pod namespace (`pod_namespace`).
-  string pod_namespace = 3;
-  // Kubernetes pod UID (`pod_uid`).
-  string pod_uid = 4;
-  // Container ID (`container_id`).
-  string container_id = 5;
-  // Container name (`container_name`).
-  string container_name = 6;
-  // Container image name (`image`).
-  string image = 7;
-  // Immutable container image digest/reference (`image_ref`).
-  string image_ref = 8;
-  // Host PID reported by the container runtime (`runtime_pid`).
-  uint32 runtime_pid = 9;
-  // Linux cgroup path (`cgroup_path`).
-  string cgroup_path = 10;
-  // Container runtime source (`runtime_source`, e.g. `"containerd"`, `"crio"`, `"docker"`).
-  string runtime_source = 11;
-  // Attribution confidence (`confidence`).
-  string confidence = 12;
-  // Degradation reason when runtime enrichment is partial (`degradation_reason`).
-  string degradation_reason = 13;
-  // Workload labels (`labels`).
-  map<string, string> labels = 14;
-  // Workload annotations (`annotations`).
-  map<string, string> annotations = 15;
-}
-
-// NetprobeExecutableOwnershipV1 maps `executableOwnershipMetadata` (`executable_ownership`).
-message NetprobeExecutableOwnershipV1 {
-  // Ownership resolution state (`resolution_state`: `"unspecified"`, `"resolved"`, `"unknown"`, `"not_permitted"`, `"not_found"`, `"unsupported_db"`).
-  string resolution_state = 1;
-  // Resolution detail or error code (`detail`).
-  string detail = 2;
-  // Filesystem scope (`source_scope`: `"host"` or `"container"`).
-  string source_scope = 3;
-  // Package type (`package_type`, e.g. `"deb"`, `"rpm"`, `"apk"`).
-  string package_type = 4;
-  // Package manager (`package_manager`, e.g. `"dpkg"`, `"rpm"`, `"apk"`).
-  string package_manager = 5;
-  // Distribution namespace (`namespace`, e.g. `"debian"`, `"ubuntu"`, `"alpine"`, `"rhel"`).
-  string namespace = 6;
-  // Distribution release (`release`).
-  string release = 7;
-  // OSV/PURL ecosystem (`ecosystem`).
-  string ecosystem = 8;
-  // Owning binary package name (`binary_package`).
-  string binary_package = 9;
-  // Owning source package name (`source_package`).
-  string source_package = 10;
-  // Package architecture (`architecture`).
-  string architecture = 11;
-  // Installed package version (`installed_version`).
-  string installed_version = 12;
-  // Resolver identifier (`resolver`).
-  string resolver = 13;
-  // Resolved executable path (`executable_path`).
-  string executable_path = 14;
-  // Executable filesystem device ID (`executable_dev`).
-  uint64 executable_dev = 15;
-  // Executable inode number (`executable_inode`).
-  uint64 executable_inode = 16;
 }
 
 // =============================================================================

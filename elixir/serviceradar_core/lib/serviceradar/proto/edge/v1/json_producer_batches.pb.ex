@@ -481,14 +481,7 @@ defmodule Serviceradar.Edge.V1.NetprobeDiscoveryBatchV1 do
     protoc_gen_elixir_version: "0.16.0",
     syntax: :proto3
 
-  field :agent_id, 1, type: :string, json_name: "agentId"
-  field :gateway_id, 2, type: :string, json_name: "gatewayId"
-  field :partition, 3, type: :string
-  field :collector_ip, 4, type: :string, json_name: "collectorIp"
-  field :batch_start_unix_nano, 5, type: :int64, json_name: "batchStartUnixNano"
-  field :batch_end_unix_nano, 6, type: :int64, json_name: "batchEndUnixNano"
-  field :dropped_since_last, 7, type: :uint32, json_name: "droppedSinceLast"
-  field :records, 8, repeated: true, type: Serviceradar.Edge.V1.NetprobeDiscoveryRecordV1
+  field :records, 1, repeated: true, type: Serviceradar.Edge.V1.NetprobeDiscoveryRecordV1
 end
 
 defmodule Serviceradar.Edge.V1.NetprobeDiscoveryRecordV1.MetadataEntry do
@@ -618,86 +611,22 @@ defmodule Serviceradar.Edge.V1.NetprobeLicenseCleanFingerprintV1 do
     protoc_gen_elixir_version: "0.16.0",
     syntax: :proto3
 
-  alias Serviceradar.Edge.V1.NetprobeFingerprintMatchV1
   alias Serviceradar.Edge.V1.NetprobeRecogMatchV1
 
-  field :p0f_signature, 1, type: :string, json_name: "p0fSignature"
-  field :p0f_match, 2, type: Serviceradar.Edge.V1.NetprobeP0fMatchV1, json_name: "p0fMatch"
-  field :ja4, 3, type: :string
+  field :os_match, 1, type: Serviceradar.Edge.V1.NetprobeOsMatchV1, json_name: "osMatch"
+  field :recog_http, 2, type: NetprobeRecogMatchV1, json_name: "recogHttp"
+  field :recog_ssh, 3, type: NetprobeRecogMatchV1, json_name: "recogSsh"
+  field :recog_smb, 4, type: NetprobeRecogMatchV1, json_name: "recogSmb"
+  field :recog_ftp, 5, type: NetprobeRecogMatchV1, json_name: "recogFtp"
 
-  field :ja4_match, 4,
-    type: NetprobeFingerprintMatchV1,
-    json_name: "ja4Match"
-
-  field :hassh, 5, type: :string
-  field :hassh_server, 6, type: :string, json_name: "hasshServer"
-
-  field :hassh_match, 7,
-    type: NetprobeFingerprintMatchV1,
-    json_name: "hasshMatch"
-
-  field :os_match, 8, type: Serviceradar.Edge.V1.NetprobeOsMatchV1, json_name: "osMatch"
-  field :agreement_count, 9, type: :uint32, json_name: "agreementCount"
-  field :muonfp, 10, type: Serviceradar.Edge.V1.NetprobeMuonFpMatchV1
-  field :recog_http, 11, type: NetprobeRecogMatchV1, json_name: "recogHttp"
-  field :recog_ssh, 12, type: NetprobeRecogMatchV1, json_name: "recogSsh"
-  field :recog_smb, 13, type: NetprobeRecogMatchV1, json_name: "recogSmb"
-  field :recog_ftp, 14, type: NetprobeRecogMatchV1, json_name: "recogFtp"
-
-  field :recog_telnet, 15,
+  field :recog_telnet, 6,
     type: NetprobeRecogMatchV1,
     json_name: "recogTelnet"
 
-  field :recog_snmp, 16, type: NetprobeRecogMatchV1, json_name: "recogSnmp"
-  field :recog_sip, 17, type: NetprobeRecogMatchV1, json_name: "recogSip"
-  field :recog_rdp, 18, type: NetprobeRecogMatchV1, json_name: "recogRdp"
-  field :recog_dns, 19, type: NetprobeRecogMatchV1, json_name: "recogDns"
-  field :recog_smtp, 20, type: NetprobeRecogMatchV1, json_name: "recogSmtp"
-  field :recog_ntp, 21, type: NetprobeRecogMatchV1, json_name: "recogNtp"
-
-  field :satori_matches, 22,
-    repeated: true,
-    type: Serviceradar.Edge.V1.NetprobeSatoriMatchV1,
-    json_name: "satoriMatches"
-
-  field :tcp_observed, 23, type: :bool, json_name: "tcpObserved"
-  field :ja4_observed, 24, type: :bool, json_name: "ja4Observed"
-  field :hassh_observed, 25, type: :bool, json_name: "hasshObserved"
-  field :dhcp_observed, 26, type: :bool, json_name: "dhcpObserved"
-  field :dhcpv6_observed, 27, type: :bool, json_name: "dhcpv6Observed"
-  field :http_observed, 28, type: :bool, json_name: "httpObserved"
-  field :ssh_observed, 29, type: :bool, json_name: "sshObserved"
-  field :smb_observed, 30, type: :bool, json_name: "smbObserved"
-  field :dns_observed, 31, type: :bool, json_name: "dnsObserved"
-  field :icmp_observed, 32, type: :bool, json_name: "icmpObserved"
-  field :ntp_observed, 33, type: :bool, json_name: "ntpObserved"
-  field :sip_observed, 34, type: :bool, json_name: "sipObserved"
-end
-
-defmodule Serviceradar.Edge.V1.NetprobeP0fMatchV1 do
-  @moduledoc false
-
-  use Protobuf,
-    full_name: "serviceradar.edge.v1.NetprobeP0fMatchV1",
-    protoc_gen_elixir_version: "0.16.0",
-    syntax: :proto3
-
-  field :label, 1, type: :string
-  field :name, 2, type: :string
-  field :version_flavor, 3, type: :string, json_name: "versionFlavor"
-  field :os_family, 4, type: :string, json_name: "osFamily"
-end
-
-defmodule Serviceradar.Edge.V1.NetprobeMuonFpMatchV1 do
-  @moduledoc false
-
-  use Protobuf,
-    full_name: "serviceradar.edge.v1.NetprobeMuonFpMatchV1",
-    protoc_gen_elixir_version: "0.16.0",
-    syntax: :proto3
-
-  field :signature, 1, type: :string
-  field :label, 2, type: :string
+  field :recog_smtp, 7, type: NetprobeRecogMatchV1, json_name: "recogSmtp"
+  field :recog_rdp, 8, type: NetprobeRecogMatchV1, json_name: "recogRdp"
+  field :recog_dns, 9, type: NetprobeRecogMatchV1, json_name: "recogDns"
+  field :recog_ntp, 10, type: NetprobeRecogMatchV1, json_name: "recogNtp"
 end
 
 defmodule Serviceradar.Edge.V1.NetprobeRecogMatchV1 do
@@ -713,34 +642,6 @@ defmodule Serviceradar.Edge.V1.NetprobeRecogMatchV1 do
   field :os_family, 3, type: :string, json_name: "osFamily"
 end
 
-defmodule Serviceradar.Edge.V1.NetprobeSatoriMatchV1 do
-  @moduledoc false
-
-  use Protobuf,
-    full_name: "serviceradar.edge.v1.NetprobeSatoriMatchV1",
-    protoc_gen_elixir_version: "0.16.0",
-    syntax: :proto3
-
-  field :axis, 1, type: :string
-  field :signature, 2, type: :string
-  field :label, 3, type: :string
-  field :device_class, 4, type: :string, json_name: "deviceClass"
-  field :os_family, 5, type: :string, json_name: "osFamily"
-end
-
-defmodule Serviceradar.Edge.V1.NetprobeFingerprintMatchV1 do
-  @moduledoc false
-
-  use Protobuf,
-    full_name: "serviceradar.edge.v1.NetprobeFingerprintMatchV1",
-    protoc_gen_elixir_version: "0.16.0",
-    syntax: :proto3
-
-  field :name, 1, type: :string
-  field :version_range, 2, type: :string, json_name: "versionRange"
-  field :os_family, 3, type: :string, json_name: "osFamily"
-end
-
 defmodule Serviceradar.Edge.V1.NetprobeOsMatchV1 do
   @moduledoc false
 
@@ -753,25 +654,6 @@ defmodule Serviceradar.Edge.V1.NetprobeOsMatchV1 do
   field :version_range, 2, type: :string, json_name: "versionRange"
   field :os_family, 3, type: :string, json_name: "osFamily"
   field :confidence, 4, type: :float
-
-  field :disagreements, 5,
-    repeated: true,
-    type: Serviceradar.Edge.V1.NetprobeFingerprintDisagreementV1
-end
-
-defmodule Serviceradar.Edge.V1.NetprobeFingerprintDisagreementV1 do
-  @moduledoc false
-
-  use Protobuf,
-    full_name: "serviceradar.edge.v1.NetprobeFingerprintDisagreementV1",
-    protoc_gen_elixir_version: "0.16.0",
-    syntax: :proto3
-
-  field :signal, 1, type: :string
-  field :signature, 2, type: :string
-  field :observed_family, 3, type: :string, json_name: "observedFamily"
-  field :observed_name, 4, type: :string, json_name: "observedName"
-  field :version_range, 5, type: :string, json_name: "versionRange"
 end
 
 defmodule Serviceradar.Edge.V1.NetprobeDpiObservationV1 do
@@ -791,13 +673,6 @@ defmodule Serviceradar.Edge.V1.NetprobeDpiObservationV1 do
   field :confidence, 7, type: :float
   field :observed_at_unix_nano, 8, type: :int64, json_name: "observedAtUnixNano"
   field :last_observed_at_unix_nano, 9, type: :int64, json_name: "lastObservedAtUnixNano"
-  field :source_ip, 10, type: :string, json_name: "sourceIp"
-  field :destination_ip, 11, type: :string, json_name: "destinationIp"
-  field :source_port, 12, type: :uint32, json_name: "sourcePort"
-  field :destination_port, 13, type: :uint32, json_name: "destinationPort"
-  field :transport_protocol, 14, type: :string, json_name: "transportProtocol"
-  field :dissector_id, 15, type: :string, json_name: "dissectorId"
-  field :subject_ip, 16, type: :string, json_name: "subjectIp"
 end
 
 defmodule Serviceradar.Edge.V1.NetprobeProcessSnapshotObservationV1.ProtocolPortCountsEntry do
@@ -836,121 +711,6 @@ defmodule Serviceradar.Edge.V1.NetprobeProcessSnapshotObservationV1 do
     type: Serviceradar.Edge.V1.NetprobeProcessSnapshotObservationV1.ProtocolPortCountsEntry,
     json_name: "protocolPortCounts",
     map: true
-
-  field :entries, 10, repeated: true, type: Serviceradar.Edge.V1.NetprobeProcessEntryV1
-end
-
-defmodule Serviceradar.Edge.V1.NetprobeProcessEntryV1 do
-  @moduledoc false
-
-  use Protobuf,
-    full_name: "serviceradar.edge.v1.NetprobeProcessEntryV1",
-    protoc_gen_elixir_version: "0.16.0",
-    syntax: :proto3
-
-  field :local_ip, 1, type: :string, json_name: "localIp"
-  field :local_port, 2, type: :uint32, json_name: "localPort"
-  field :transport_protocol, 3, type: :string, json_name: "transportProtocol"
-  field :pid, 4, type: :uint32
-  field :tgid, 5, type: :uint32
-  field :uid, 6, type: :uint32
-  field :gid, 7, type: :uint32
-  field :comm, 8, type: :string
-  field :redacted_cmdline, 9, repeated: true, type: :string, json_name: "redactedCmdline"
-  field :container_id, 10, type: :string, json_name: "containerId"
-
-  field :workload_identity, 11,
-    type: Serviceradar.Edge.V1.NetprobeWorkloadIdentityV1,
-    json_name: "workloadIdentity"
-
-  field :executable_ownership, 12,
-    type: Serviceradar.Edge.V1.NetprobeExecutableOwnershipV1,
-    json_name: "executableOwnership"
-end
-
-defmodule Serviceradar.Edge.V1.NetprobeWorkloadIdentityV1.LabelsEntry do
-  @moduledoc false
-
-  use Protobuf,
-    full_name: "serviceradar.edge.v1.NetprobeWorkloadIdentityV1.LabelsEntry",
-    map: true,
-    protoc_gen_elixir_version: "0.16.0",
-    syntax: :proto3
-
-  field :key, 1, type: :string
-  field :value, 2, type: :string
-end
-
-defmodule Serviceradar.Edge.V1.NetprobeWorkloadIdentityV1.AnnotationsEntry do
-  @moduledoc false
-
-  use Protobuf,
-    full_name: "serviceradar.edge.v1.NetprobeWorkloadIdentityV1.AnnotationsEntry",
-    map: true,
-    protoc_gen_elixir_version: "0.16.0",
-    syntax: :proto3
-
-  field :key, 1, type: :string
-  field :value, 2, type: :string
-end
-
-defmodule Serviceradar.Edge.V1.NetprobeWorkloadIdentityV1 do
-  @moduledoc false
-
-  use Protobuf,
-    full_name: "serviceradar.edge.v1.NetprobeWorkloadIdentityV1",
-    protoc_gen_elixir_version: "0.16.0",
-    syntax: :proto3
-
-  field :pod_sandbox_id, 1, type: :string, json_name: "podSandboxId"
-  field :pod_name, 2, type: :string, json_name: "podName"
-  field :pod_namespace, 3, type: :string, json_name: "podNamespace"
-  field :pod_uid, 4, type: :string, json_name: "podUid"
-  field :container_id, 5, type: :string, json_name: "containerId"
-  field :container_name, 6, type: :string, json_name: "containerName"
-  field :image, 7, type: :string
-  field :image_ref, 8, type: :string, json_name: "imageRef"
-  field :runtime_pid, 9, type: :uint32, json_name: "runtimePid"
-  field :cgroup_path, 10, type: :string, json_name: "cgroupPath"
-  field :runtime_source, 11, type: :string, json_name: "runtimeSource"
-  field :confidence, 12, type: :string
-  field :degradation_reason, 13, type: :string, json_name: "degradationReason"
-
-  field :labels, 14,
-    repeated: true,
-    type: Serviceradar.Edge.V1.NetprobeWorkloadIdentityV1.LabelsEntry,
-    map: true
-
-  field :annotations, 15,
-    repeated: true,
-    type: Serviceradar.Edge.V1.NetprobeWorkloadIdentityV1.AnnotationsEntry,
-    map: true
-end
-
-defmodule Serviceradar.Edge.V1.NetprobeExecutableOwnershipV1 do
-  @moduledoc false
-
-  use Protobuf,
-    full_name: "serviceradar.edge.v1.NetprobeExecutableOwnershipV1",
-    protoc_gen_elixir_version: "0.16.0",
-    syntax: :proto3
-
-  field :resolution_state, 1, type: :string, json_name: "resolutionState"
-  field :detail, 2, type: :string
-  field :source_scope, 3, type: :string, json_name: "sourceScope"
-  field :package_type, 4, type: :string, json_name: "packageType"
-  field :package_manager, 5, type: :string, json_name: "packageManager"
-  field :namespace, 6, type: :string
-  field :release, 7, type: :string
-  field :ecosystem, 8, type: :string
-  field :binary_package, 9, type: :string, json_name: "binaryPackage"
-  field :source_package, 10, type: :string, json_name: "sourcePackage"
-  field :architecture, 11, type: :string
-  field :installed_version, 12, type: :string, json_name: "installedVersion"
-  field :resolver, 13, type: :string
-  field :executable_path, 14, type: :string, json_name: "executablePath"
-  field :executable_dev, 15, type: :uint64, json_name: "executableDev"
-  field :executable_inode, 16, type: :uint64, json_name: "executableInode"
 end
 
 defmodule Serviceradar.Edge.V1.SyncPageBatchV1 do

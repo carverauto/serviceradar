@@ -1079,7 +1079,8 @@ type MapperInterfaceRecordV1 struct {
 	Source string `protobuf:"bytes,16,opt,name=source,proto3" json:"source,omitempty"`
 	// Interface metadata key-value pairs (`metadata`). UniFi writes `source`,
 	// `controller_url`, `controller_name`, `site_id`, `site_name`, `connector`,
-	// `port_state`, and `max_speed_mbps`. SNMP and MikroTik write `ip_cidrs`.
+	// `port_state`, `max_speed_mbps`, `poe_standard`, `poe_type`, `poe_state`,
+	// and `poe_enabled`. SNMP and MikroTik write `ip_cidrs`.
 	Metadata map[string]string `protobuf:"bytes,17,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Telemetry metrics discovered as supported on this interface (`available_metrics`).
 	AvailableMetrics []*MapperInterfaceMetricV1 `protobuf:"bytes,18,rep,name=available_metrics,json=availableMetrics,proto3" json:"available_metrics,omitempty"`
@@ -2157,25 +2158,11 @@ func (x *MapperResultsBatchV1) GetTopologyLinks() []*MapperTopologyLinkRecordV1 
 	return nil
 }
 
-// NetprobeDiscoveryBatchV1 carries a batch of netprobe discovery records.
+// NetprobeDiscoveryBatchV1 carries the JSON array of netprobe discovery records.
 type NetprobeDiscoveryBatchV1 struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Agent identifier (`agent_id`).
-	AgentId string `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
-	// Gateway identifier (`gateway_id`).
-	GatewayId string `protobuf:"bytes,2,opt,name=gateway_id,json=gatewayId,proto3" json:"gateway_id,omitempty"`
-	// Network partition identifier (`partition`).
-	Partition string `protobuf:"bytes,3,opt,name=partition,proto3" json:"partition,omitempty"`
-	// Collector IP address (`collector_ip`).
-	CollectorIp string `protobuf:"bytes,4,opt,name=collector_ip,json=collectorIp,proto3" json:"collector_ip,omitempty"`
-	// Batch window start in Unix epoch nanoseconds (`batch_start_unix_nano`).
-	BatchStartUnixNano int64 `protobuf:"varint,5,opt,name=batch_start_unix_nano,json=batchStartUnixNano,proto3" json:"batch_start_unix_nano,omitempty"`
-	// Batch window end in Unix epoch nanoseconds (`batch_end_unix_nano`).
-	BatchEndUnixNano int64 `protobuf:"varint,6,opt,name=batch_end_unix_nano,json=batchEndUnixNano,proto3" json:"batch_end_unix_nano,omitempty"`
-	// Count of observations dropped since the previous batch (`dropped_since_last`).
-	DroppedSinceLast uint32 `protobuf:"varint,7,opt,name=dropped_since_last,json=droppedSinceLast,proto3" json:"dropped_since_last,omitempty"`
 	// Discovery records in this batch.
-	Records       []*NetprobeDiscoveryRecordV1 `protobuf:"bytes,8,rep,name=records,proto3" json:"records,omitempty"`
+	Records       []*NetprobeDiscoveryRecordV1 `protobuf:"bytes,1,rep,name=records,proto3" json:"records,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2208,55 +2195,6 @@ func (x *NetprobeDiscoveryBatchV1) ProtoReflect() protoreflect.Message {
 // Deprecated: Use NetprobeDiscoveryBatchV1.ProtoReflect.Descriptor instead.
 func (*NetprobeDiscoveryBatchV1) Descriptor() ([]byte, []int) {
 	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{19}
-}
-
-func (x *NetprobeDiscoveryBatchV1) GetAgentId() string {
-	if x != nil {
-		return x.AgentId
-	}
-	return ""
-}
-
-func (x *NetprobeDiscoveryBatchV1) GetGatewayId() string {
-	if x != nil {
-		return x.GatewayId
-	}
-	return ""
-}
-
-func (x *NetprobeDiscoveryBatchV1) GetPartition() string {
-	if x != nil {
-		return x.Partition
-	}
-	return ""
-}
-
-func (x *NetprobeDiscoveryBatchV1) GetCollectorIp() string {
-	if x != nil {
-		return x.CollectorIp
-	}
-	return ""
-}
-
-func (x *NetprobeDiscoveryBatchV1) GetBatchStartUnixNano() int64 {
-	if x != nil {
-		return x.BatchStartUnixNano
-	}
-	return 0
-}
-
-func (x *NetprobeDiscoveryBatchV1) GetBatchEndUnixNano() int64 {
-	if x != nil {
-		return x.BatchEndUnixNano
-	}
-	return 0
-}
-
-func (x *NetprobeDiscoveryBatchV1) GetDroppedSinceLast() uint32 {
-	if x != nil {
-		return x.DroppedSinceLast
-	}
-	return 0
 }
 
 func (x *NetprobeDiscoveryBatchV1) GetRecords() []*NetprobeDiscoveryRecordV1 {
@@ -2877,70 +2815,33 @@ func (x *NetprobeHttpFingerprintV1) GetAcceptLanguage() string {
 	return ""
 }
 
-// NetprobeLicenseCleanFingerprintV1 maps `licenseCleanFingerprintMetadata` (`license_clean`).
+// NetprobeLicenseCleanFingerprintV1 maps `addLicenseCleanMetadata` (`license_clean`).
 type NetprobeLicenseCleanFingerprintV1 struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Raw p0f signature string (`p0f_signature`).
-	P0FSignature string `protobuf:"bytes,1,opt,name=p0f_signature,json=p0fSignature,proto3" json:"p0f_signature,omitempty"`
-	// Matched p0f corpus entry (`p0f_match`).
-	P0FMatch *NetprobeP0FMatchV1 `protobuf:"bytes,2,opt,name=p0f_match,json=p0fMatch,proto3" json:"p0f_match,omitempty"`
-	// Raw JA4 signature string (`ja4`).
-	Ja4 string `protobuf:"bytes,3,opt,name=ja4,proto3" json:"ja4,omitempty"`
-	// Matched JA4 corpus entry (`ja4_match`).
-	Ja4Match *NetprobeFingerprintMatchV1 `protobuf:"bytes,4,opt,name=ja4_match,json=ja4Match,proto3" json:"ja4_match,omitempty"`
-	// Raw client HASSH signature (`hassh`).
-	Hassh string `protobuf:"bytes,5,opt,name=hassh,proto3" json:"hassh,omitempty"`
-	// Raw server HASSH signature (`hassh_server`).
-	HasshServer string `protobuf:"bytes,6,opt,name=hassh_server,json=hasshServer,proto3" json:"hassh_server,omitempty"`
-	// Matched HASSH corpus entry (`hassh_match`).
-	HasshMatch *NetprobeFingerprintMatchV1 `protobuf:"bytes,7,opt,name=hassh_match,json=hasshMatch,proto3" json:"hassh_match,omitempty"`
 	// License-clean OS match. JSON keys are `<base>.os.name`, `<base>.os.version_range`,
 	// `<base>.os.family`, and `<base>.os.confidence`, where `<base>` is
 	// `passive_fingerprint` or `active_fingerprint`.
-	OsMatch *NetprobeOsMatchV1 `protobuf:"bytes,8,opt,name=os_match,json=osMatch,proto3" json:"os_match,omitempty"`
-	// Number of agreeing fingerprint signals (`agreement_count`).
-	AgreementCount uint32 `protobuf:"varint,9,opt,name=agreement_count,json=agreementCount,proto3" json:"agreement_count,omitempty"`
-	// MuonFP TCP fingerprint match (`muonfp`).
-	Muonfp *NetprobeMuonFpMatchV1 `protobuf:"bytes,10,opt,name=muonfp,proto3" json:"muonfp,omitempty"`
+	OsMatch *NetprobeOsMatchV1 `protobuf:"bytes,1,opt,name=os_match,json=osMatch,proto3" json:"os_match,omitempty"`
 	// Recog HTTP banner match (`<base>.recog.http.product`, `.version`, `.os_family`).
-	RecogHttp *NetprobeRecogMatchV1 `protobuf:"bytes,11,opt,name=recog_http,json=recogHttp,proto3" json:"recog_http,omitempty"`
+	RecogHttp *NetprobeRecogMatchV1 `protobuf:"bytes,2,opt,name=recog_http,json=recogHttp,proto3" json:"recog_http,omitempty"`
 	// Recog SSH banner match (`<base>.recog.ssh.product`, `.version`, `.os_family`).
-	RecogSsh *NetprobeRecogMatchV1 `protobuf:"bytes,12,opt,name=recog_ssh,json=recogSsh,proto3" json:"recog_ssh,omitempty"`
+	RecogSsh *NetprobeRecogMatchV1 `protobuf:"bytes,3,opt,name=recog_ssh,json=recogSsh,proto3" json:"recog_ssh,omitempty"`
 	// Recog SMB match (`<base>.recog.smb.product`, `.version`, `.os_family`).
-	RecogSmb *NetprobeRecogMatchV1 `protobuf:"bytes,13,opt,name=recog_smb,json=recogSmb,proto3" json:"recog_smb,omitempty"`
+	RecogSmb *NetprobeRecogMatchV1 `protobuf:"bytes,4,opt,name=recog_smb,json=recogSmb,proto3" json:"recog_smb,omitempty"`
 	// Recog FTP banner match (`<base>.recog.ftp.product`, `.version`, `.os_family`).
-	RecogFtp *NetprobeRecogMatchV1 `protobuf:"bytes,14,opt,name=recog_ftp,json=recogFtp,proto3" json:"recog_ftp,omitempty"`
+	RecogFtp *NetprobeRecogMatchV1 `protobuf:"bytes,5,opt,name=recog_ftp,json=recogFtp,proto3" json:"recog_ftp,omitempty"`
 	// Recog Telnet banner match (`<base>.recog.telnet.product`, `.version`, `.os_family`).
-	RecogTelnet *NetprobeRecogMatchV1 `protobuf:"bytes,15,opt,name=recog_telnet,json=recogTelnet,proto3" json:"recog_telnet,omitempty"`
-	// Recog SNMP sysDescr match. `addLicenseCleanMetadata` does not write this protocol.
-	RecogSnmp *NetprobeRecogMatchV1 `protobuf:"bytes,16,opt,name=recog_snmp,json=recogSnmp,proto3" json:"recog_snmp,omitempty"`
-	// Recog SIP banner match. `addLicenseCleanMetadata` does not write this protocol.
-	RecogSip *NetprobeRecogMatchV1 `protobuf:"bytes,17,opt,name=recog_sip,json=recogSip,proto3" json:"recog_sip,omitempty"`
-	// Recog RDP match (`<base>.recog.rdp.product`, `.version`, `.os_family`).
-	RecogRdp *NetprobeRecogMatchV1 `protobuf:"bytes,18,opt,name=recog_rdp,json=recogRdp,proto3" json:"recog_rdp,omitempty"`
-	// Recog DNS version.bind match (`<base>.recog.dns.product`, `.version`, `.os_family`).
-	RecogDns *NetprobeRecogMatchV1 `protobuf:"bytes,19,opt,name=recog_dns,json=recogDns,proto3" json:"recog_dns,omitempty"`
+	RecogTelnet *NetprobeRecogMatchV1 `protobuf:"bytes,6,opt,name=recog_telnet,json=recogTelnet,proto3" json:"recog_telnet,omitempty"`
 	// Recog SMTP banner match (`<base>.recog.smtp.product`, `.version`, `.os_family`).
-	RecogSmtp *NetprobeRecogMatchV1 `protobuf:"bytes,20,opt,name=recog_smtp,json=recogSmtp,proto3" json:"recog_smtp,omitempty"`
+	RecogSmtp *NetprobeRecogMatchV1 `protobuf:"bytes,7,opt,name=recog_smtp,json=recogSmtp,proto3" json:"recog_smtp,omitempty"`
+	// Recog RDP match (`<base>.recog.rdp.product`, `.version`, `.os_family`).
+	RecogRdp *NetprobeRecogMatchV1 `protobuf:"bytes,8,opt,name=recog_rdp,json=recogRdp,proto3" json:"recog_rdp,omitempty"`
+	// Recog DNS version.bind match (`<base>.recog.dns.product`, `.version`, `.os_family`).
+	RecogDns *NetprobeRecogMatchV1 `protobuf:"bytes,9,opt,name=recog_dns,json=recogDns,proto3" json:"recog_dns,omitempty"`
 	// Recog NTP match (`<base>.recog.ntp.product`, `.version`, `.os_family`).
-	RecogNtp *NetprobeRecogMatchV1 `protobuf:"bytes,21,opt,name=recog_ntp,json=recogNtp,proto3" json:"recog_ntp,omitempty"`
-	// Satori passive fingerprint matches across axes (`satori_matches`).
-	SatoriMatches []*NetprobeSatoriMatchV1 `protobuf:"bytes,22,rep,name=satori_matches,json=satoriMatches,proto3" json:"satori_matches,omitempty"`
-	// Signal observation flags (`*_observed`).
-	TcpObserved    bool `protobuf:"varint,23,opt,name=tcp_observed,json=tcpObserved,proto3" json:"tcp_observed,omitempty"`
-	Ja4Observed    bool `protobuf:"varint,24,opt,name=ja4_observed,json=ja4Observed,proto3" json:"ja4_observed,omitempty"`
-	HasshObserved  bool `protobuf:"varint,25,opt,name=hassh_observed,json=hasshObserved,proto3" json:"hassh_observed,omitempty"`
-	DhcpObserved   bool `protobuf:"varint,26,opt,name=dhcp_observed,json=dhcpObserved,proto3" json:"dhcp_observed,omitempty"`
-	Dhcpv6Observed bool `protobuf:"varint,27,opt,name=dhcpv6_observed,json=dhcpv6Observed,proto3" json:"dhcpv6_observed,omitempty"`
-	HttpObserved   bool `protobuf:"varint,28,opt,name=http_observed,json=httpObserved,proto3" json:"http_observed,omitempty"`
-	SshObserved    bool `protobuf:"varint,29,opt,name=ssh_observed,json=sshObserved,proto3" json:"ssh_observed,omitempty"`
-	SmbObserved    bool `protobuf:"varint,30,opt,name=smb_observed,json=smbObserved,proto3" json:"smb_observed,omitempty"`
-	DnsObserved    bool `protobuf:"varint,31,opt,name=dns_observed,json=dnsObserved,proto3" json:"dns_observed,omitempty"`
-	IcmpObserved   bool `protobuf:"varint,32,opt,name=icmp_observed,json=icmpObserved,proto3" json:"icmp_observed,omitempty"`
-	NtpObserved    bool `protobuf:"varint,33,opt,name=ntp_observed,json=ntpObserved,proto3" json:"ntp_observed,omitempty"`
-	SipObserved    bool `protobuf:"varint,34,opt,name=sip_observed,json=sipObserved,proto3" json:"sip_observed,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	RecogNtp      *NetprobeRecogMatchV1 `protobuf:"bytes,10,opt,name=recog_ntp,json=recogNtp,proto3" json:"recog_ntp,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *NetprobeLicenseCleanFingerprintV1) Reset() {
@@ -2973,72 +2874,9 @@ func (*NetprobeLicenseCleanFingerprintV1) Descriptor() ([]byte, []int) {
 	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{25}
 }
 
-func (x *NetprobeLicenseCleanFingerprintV1) GetP0FSignature() string {
-	if x != nil {
-		return x.P0FSignature
-	}
-	return ""
-}
-
-func (x *NetprobeLicenseCleanFingerprintV1) GetP0FMatch() *NetprobeP0FMatchV1 {
-	if x != nil {
-		return x.P0FMatch
-	}
-	return nil
-}
-
-func (x *NetprobeLicenseCleanFingerprintV1) GetJa4() string {
-	if x != nil {
-		return x.Ja4
-	}
-	return ""
-}
-
-func (x *NetprobeLicenseCleanFingerprintV1) GetJa4Match() *NetprobeFingerprintMatchV1 {
-	if x != nil {
-		return x.Ja4Match
-	}
-	return nil
-}
-
-func (x *NetprobeLicenseCleanFingerprintV1) GetHassh() string {
-	if x != nil {
-		return x.Hassh
-	}
-	return ""
-}
-
-func (x *NetprobeLicenseCleanFingerprintV1) GetHasshServer() string {
-	if x != nil {
-		return x.HasshServer
-	}
-	return ""
-}
-
-func (x *NetprobeLicenseCleanFingerprintV1) GetHasshMatch() *NetprobeFingerprintMatchV1 {
-	if x != nil {
-		return x.HasshMatch
-	}
-	return nil
-}
-
 func (x *NetprobeLicenseCleanFingerprintV1) GetOsMatch() *NetprobeOsMatchV1 {
 	if x != nil {
 		return x.OsMatch
-	}
-	return nil
-}
-
-func (x *NetprobeLicenseCleanFingerprintV1) GetAgreementCount() uint32 {
-	if x != nil {
-		return x.AgreementCount
-	}
-	return 0
-}
-
-func (x *NetprobeLicenseCleanFingerprintV1) GetMuonfp() *NetprobeMuonFpMatchV1 {
-	if x != nil {
-		return x.Muonfp
 	}
 	return nil
 }
@@ -3078,16 +2916,9 @@ func (x *NetprobeLicenseCleanFingerprintV1) GetRecogTelnet() *NetprobeRecogMatch
 	return nil
 }
 
-func (x *NetprobeLicenseCleanFingerprintV1) GetRecogSnmp() *NetprobeRecogMatchV1 {
+func (x *NetprobeLicenseCleanFingerprintV1) GetRecogSmtp() *NetprobeRecogMatchV1 {
 	if x != nil {
-		return x.RecogSnmp
-	}
-	return nil
-}
-
-func (x *NetprobeLicenseCleanFingerprintV1) GetRecogSip() *NetprobeRecogMatchV1 {
-	if x != nil {
-		return x.RecogSip
+		return x.RecogSmtp
 	}
 	return nil
 }
@@ -3106,237 +2937,11 @@ func (x *NetprobeLicenseCleanFingerprintV1) GetRecogDns() *NetprobeRecogMatchV1 
 	return nil
 }
 
-func (x *NetprobeLicenseCleanFingerprintV1) GetRecogSmtp() *NetprobeRecogMatchV1 {
-	if x != nil {
-		return x.RecogSmtp
-	}
-	return nil
-}
-
 func (x *NetprobeLicenseCleanFingerprintV1) GetRecogNtp() *NetprobeRecogMatchV1 {
 	if x != nil {
 		return x.RecogNtp
 	}
 	return nil
-}
-
-func (x *NetprobeLicenseCleanFingerprintV1) GetSatoriMatches() []*NetprobeSatoriMatchV1 {
-	if x != nil {
-		return x.SatoriMatches
-	}
-	return nil
-}
-
-func (x *NetprobeLicenseCleanFingerprintV1) GetTcpObserved() bool {
-	if x != nil {
-		return x.TcpObserved
-	}
-	return false
-}
-
-func (x *NetprobeLicenseCleanFingerprintV1) GetJa4Observed() bool {
-	if x != nil {
-		return x.Ja4Observed
-	}
-	return false
-}
-
-func (x *NetprobeLicenseCleanFingerprintV1) GetHasshObserved() bool {
-	if x != nil {
-		return x.HasshObserved
-	}
-	return false
-}
-
-func (x *NetprobeLicenseCleanFingerprintV1) GetDhcpObserved() bool {
-	if x != nil {
-		return x.DhcpObserved
-	}
-	return false
-}
-
-func (x *NetprobeLicenseCleanFingerprintV1) GetDhcpv6Observed() bool {
-	if x != nil {
-		return x.Dhcpv6Observed
-	}
-	return false
-}
-
-func (x *NetprobeLicenseCleanFingerprintV1) GetHttpObserved() bool {
-	if x != nil {
-		return x.HttpObserved
-	}
-	return false
-}
-
-func (x *NetprobeLicenseCleanFingerprintV1) GetSshObserved() bool {
-	if x != nil {
-		return x.SshObserved
-	}
-	return false
-}
-
-func (x *NetprobeLicenseCleanFingerprintV1) GetSmbObserved() bool {
-	if x != nil {
-		return x.SmbObserved
-	}
-	return false
-}
-
-func (x *NetprobeLicenseCleanFingerprintV1) GetDnsObserved() bool {
-	if x != nil {
-		return x.DnsObserved
-	}
-	return false
-}
-
-func (x *NetprobeLicenseCleanFingerprintV1) GetIcmpObserved() bool {
-	if x != nil {
-		return x.IcmpObserved
-	}
-	return false
-}
-
-func (x *NetprobeLicenseCleanFingerprintV1) GetNtpObserved() bool {
-	if x != nil {
-		return x.NtpObserved
-	}
-	return false
-}
-
-func (x *NetprobeLicenseCleanFingerprintV1) GetSipObserved() bool {
-	if x != nil {
-		return x.SipObserved
-	}
-	return false
-}
-
-// NetprobeP0fMatchV1 maps `p0fMatchMetadata` (`p0f_match`).
-type NetprobeP0FMatchV1 struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Full p0f label (`label`).
-	Label string `protobuf:"bytes,1,opt,name=label,proto3" json:"label,omitempty"`
-	// OS/application name (`name`).
-	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	// Version or flavor (`version_flavor`).
-	VersionFlavor string `protobuf:"bytes,3,opt,name=version_flavor,json=versionFlavor,proto3" json:"version_flavor,omitempty"`
-	// Normalized OS family (`os_family`).
-	OsFamily      string `protobuf:"bytes,4,opt,name=os_family,json=osFamily,proto3" json:"os_family,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *NetprobeP0FMatchV1) Reset() {
-	*x = NetprobeP0FMatchV1{}
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[26]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *NetprobeP0FMatchV1) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*NetprobeP0FMatchV1) ProtoMessage() {}
-
-func (x *NetprobeP0FMatchV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[26]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use NetprobeP0FMatchV1.ProtoReflect.Descriptor instead.
-func (*NetprobeP0FMatchV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{26}
-}
-
-func (x *NetprobeP0FMatchV1) GetLabel() string {
-	if x != nil {
-		return x.Label
-	}
-	return ""
-}
-
-func (x *NetprobeP0FMatchV1) GetName() string {
-	if x != nil {
-		return x.Name
-	}
-	return ""
-}
-
-func (x *NetprobeP0FMatchV1) GetVersionFlavor() string {
-	if x != nil {
-		return x.VersionFlavor
-	}
-	return ""
-}
-
-func (x *NetprobeP0FMatchV1) GetOsFamily() string {
-	if x != nil {
-		return x.OsFamily
-	}
-	return ""
-}
-
-// NetprobeMuonFpMatchV1 maps `muonfpMatchMetadata` (`muonfp`).
-type NetprobeMuonFpMatchV1 struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// MuonFP signature string (`signature`).
-	Signature string `protobuf:"bytes,1,opt,name=signature,proto3" json:"signature,omitempty"`
-	// Matched label (`label`).
-	Label         string `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *NetprobeMuonFpMatchV1) Reset() {
-	*x = NetprobeMuonFpMatchV1{}
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[27]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *NetprobeMuonFpMatchV1) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*NetprobeMuonFpMatchV1) ProtoMessage() {}
-
-func (x *NetprobeMuonFpMatchV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[27]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use NetprobeMuonFpMatchV1.ProtoReflect.Descriptor instead.
-func (*NetprobeMuonFpMatchV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{27}
-}
-
-func (x *NetprobeMuonFpMatchV1) GetSignature() string {
-	if x != nil {
-		return x.Signature
-	}
-	return ""
-}
-
-func (x *NetprobeMuonFpMatchV1) GetLabel() string {
-	if x != nil {
-		return x.Label
-	}
-	return ""
 }
 
 // NetprobeRecogMatchV1 maps `recogMatchMetadata` (`recog_*`).
@@ -3354,7 +2959,7 @@ type NetprobeRecogMatchV1 struct {
 
 func (x *NetprobeRecogMatchV1) Reset() {
 	*x = NetprobeRecogMatchV1{}
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[28]
+	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3366,7 +2971,7 @@ func (x *NetprobeRecogMatchV1) String() string {
 func (*NetprobeRecogMatchV1) ProtoMessage() {}
 
 func (x *NetprobeRecogMatchV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[28]
+	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3379,7 +2984,7 @@ func (x *NetprobeRecogMatchV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NetprobeRecogMatchV1.ProtoReflect.Descriptor instead.
 func (*NetprobeRecogMatchV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{28}
+	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *NetprobeRecogMatchV1) GetProduct() string {
@@ -3403,152 +3008,6 @@ func (x *NetprobeRecogMatchV1) GetOsFamily() string {
 	return ""
 }
 
-// NetprobeSatoriMatchV1 maps `satoriMatchMetadata` (`satori_matches[]`).
-type NetprobeSatoriMatchV1 struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Satori protocol axis (`axis`, e.g. `"dhcp"`, `"http"`, `"smb"`, `"tcp"`).
-	Axis string `protobuf:"bytes,1,opt,name=axis,proto3" json:"axis,omitempty"`
-	// Raw axis signature (`signature`).
-	Signature string `protobuf:"bytes,2,opt,name=signature,proto3" json:"signature,omitempty"`
-	// Satori corpus label (`label`).
-	Label string `protobuf:"bytes,3,opt,name=label,proto3" json:"label,omitempty"`
-	// Inferred device class (`device_class`).
-	DeviceClass string `protobuf:"bytes,4,opt,name=device_class,json=deviceClass,proto3" json:"device_class,omitempty"`
-	// Inferred OS family (`os_family`).
-	OsFamily      string `protobuf:"bytes,5,opt,name=os_family,json=osFamily,proto3" json:"os_family,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *NetprobeSatoriMatchV1) Reset() {
-	*x = NetprobeSatoriMatchV1{}
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[29]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *NetprobeSatoriMatchV1) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*NetprobeSatoriMatchV1) ProtoMessage() {}
-
-func (x *NetprobeSatoriMatchV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[29]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use NetprobeSatoriMatchV1.ProtoReflect.Descriptor instead.
-func (*NetprobeSatoriMatchV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{29}
-}
-
-func (x *NetprobeSatoriMatchV1) GetAxis() string {
-	if x != nil {
-		return x.Axis
-	}
-	return ""
-}
-
-func (x *NetprobeSatoriMatchV1) GetSignature() string {
-	if x != nil {
-		return x.Signature
-	}
-	return ""
-}
-
-func (x *NetprobeSatoriMatchV1) GetLabel() string {
-	if x != nil {
-		return x.Label
-	}
-	return ""
-}
-
-func (x *NetprobeSatoriMatchV1) GetDeviceClass() string {
-	if x != nil {
-		return x.DeviceClass
-	}
-	return ""
-}
-
-func (x *NetprobeSatoriMatchV1) GetOsFamily() string {
-	if x != nil {
-		return x.OsFamily
-	}
-	return ""
-}
-
-// NetprobeFingerprintMatchV1 maps `fingerprintMatchMetadata` (`ja4_match`, `hassh_match`).
-type NetprobeFingerprintMatchV1 struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Matched client/server name (`name`).
-	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	// Matched version range (`version_range`).
-	VersionRange string `protobuf:"bytes,2,opt,name=version_range,json=versionRange,proto3" json:"version_range,omitempty"`
-	// Matched OS family (`os_family`).
-	OsFamily      string `protobuf:"bytes,3,opt,name=os_family,json=osFamily,proto3" json:"os_family,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *NetprobeFingerprintMatchV1) Reset() {
-	*x = NetprobeFingerprintMatchV1{}
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[30]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *NetprobeFingerprintMatchV1) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*NetprobeFingerprintMatchV1) ProtoMessage() {}
-
-func (x *NetprobeFingerprintMatchV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[30]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use NetprobeFingerprintMatchV1.ProtoReflect.Descriptor instead.
-func (*NetprobeFingerprintMatchV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{30}
-}
-
-func (x *NetprobeFingerprintMatchV1) GetName() string {
-	if x != nil {
-		return x.Name
-	}
-	return ""
-}
-
-func (x *NetprobeFingerprintMatchV1) GetVersionRange() string {
-	if x != nil {
-		return x.VersionRange
-	}
-	return ""
-}
-
-func (x *NetprobeFingerprintMatchV1) GetOsFamily() string {
-	if x != nil {
-		return x.OsFamily
-	}
-	return ""
-}
-
 // NetprobeOsMatchV1 maps license-clean OS fields under `<base>.os`.
 type NetprobeOsMatchV1 struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -3559,16 +3018,14 @@ type NetprobeOsMatchV1 struct {
 	// Synthesized OS family (`os_family`).
 	OsFamily string `protobuf:"bytes,3,opt,name=os_family,json=osFamily,proto3" json:"os_family,omitempty"`
 	// Aggregate match confidence in [0.0, 1.0] (`confidence`).
-	Confidence float32 `protobuf:"fixed32,4,opt,name=confidence,proto3" json:"confidence,omitempty"`
-	// Disagreements recorded across fingerprint signals (`disagreements`).
-	Disagreements []*NetprobeFingerprintDisagreementV1 `protobuf:"bytes,5,rep,name=disagreements,proto3" json:"disagreements,omitempty"`
+	Confidence    float32 `protobuf:"fixed32,4,opt,name=confidence,proto3" json:"confidence,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *NetprobeOsMatchV1) Reset() {
 	*x = NetprobeOsMatchV1{}
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[31]
+	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3580,7 +3037,7 @@ func (x *NetprobeOsMatchV1) String() string {
 func (*NetprobeOsMatchV1) ProtoMessage() {}
 
 func (x *NetprobeOsMatchV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[31]
+	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3593,7 +3050,7 @@ func (x *NetprobeOsMatchV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NetprobeOsMatchV1.ProtoReflect.Descriptor instead.
 func (*NetprobeOsMatchV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{31}
+	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *NetprobeOsMatchV1) GetName() string {
@@ -3624,95 +3081,6 @@ func (x *NetprobeOsMatchV1) GetConfidence() float32 {
 	return 0
 }
 
-func (x *NetprobeOsMatchV1) GetDisagreements() []*NetprobeFingerprintDisagreementV1 {
-	if x != nil {
-		return x.Disagreements
-	}
-	return nil
-}
-
-// NetprobeFingerprintDisagreementV1 maps `fingerprintDisagreementMetadata` (`disagreements[]`).
-type NetprobeFingerprintDisagreementV1 struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Disagreement signal source (`signal`, e.g. `"ja4"`, `"hassh"`, `"p0f"`).
-	Signal string `protobuf:"bytes,1,opt,name=signal,proto3" json:"signal,omitempty"`
-	// Raw signature from the disagreeing signal (`signature`).
-	Signature string `protobuf:"bytes,2,opt,name=signature,proto3" json:"signature,omitempty"`
-	// OS family reported by the disagreeing signal (`observed_family`).
-	ObservedFamily string `protobuf:"bytes,3,opt,name=observed_family,json=observedFamily,proto3" json:"observed_family,omitempty"`
-	// OS/client name reported by the disagreeing signal (`observed_name`).
-	ObservedName string `protobuf:"bytes,4,opt,name=observed_name,json=observedName,proto3" json:"observed_name,omitempty"`
-	// Version range reported by the disagreeing signal (`version_range`).
-	VersionRange  string `protobuf:"bytes,5,opt,name=version_range,json=versionRange,proto3" json:"version_range,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *NetprobeFingerprintDisagreementV1) Reset() {
-	*x = NetprobeFingerprintDisagreementV1{}
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[32]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *NetprobeFingerprintDisagreementV1) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*NetprobeFingerprintDisagreementV1) ProtoMessage() {}
-
-func (x *NetprobeFingerprintDisagreementV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[32]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use NetprobeFingerprintDisagreementV1.ProtoReflect.Descriptor instead.
-func (*NetprobeFingerprintDisagreementV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{32}
-}
-
-func (x *NetprobeFingerprintDisagreementV1) GetSignal() string {
-	if x != nil {
-		return x.Signal
-	}
-	return ""
-}
-
-func (x *NetprobeFingerprintDisagreementV1) GetSignature() string {
-	if x != nil {
-		return x.Signature
-	}
-	return ""
-}
-
-func (x *NetprobeFingerprintDisagreementV1) GetObservedFamily() string {
-	if x != nil {
-		return x.ObservedFamily
-	}
-	return ""
-}
-
-func (x *NetprobeFingerprintDisagreementV1) GetObservedName() string {
-	if x != nil {
-		return x.ObservedName
-	}
-	return ""
-}
-
-func (x *NetprobeFingerprintDisagreementV1) GetVersionRange() string {
-	if x != nil {
-		return x.VersionRange
-	}
-	return ""
-}
-
 // NetprobeDpiObservationV1 maps `dpiObservationMetadata` in
 // `go/pkg/agent/netprobe/translator.go` and `ServiceRadar.Inventory.DpiPayload`.
 type NetprobeDpiObservationV1 struct {
@@ -3735,27 +3103,13 @@ type NetprobeDpiObservationV1 struct {
 	ObservedAtUnixNano int64 `protobuf:"varint,8,opt,name=observed_at_unix_nano,json=observedAtUnixNano,proto3" json:"observed_at_unix_nano,omitempty"`
 	// Most recent observation time (`dpi.<protocol>.last_observed_at`, RFC3339Nano).
 	LastObservedAtUnixNano int64 `protobuf:"varint,9,opt,name=last_observed_at_unix_nano,json=lastObservedAtUnixNano,proto3" json:"last_observed_at_unix_nano,omitempty"`
-	// Flow source IP address (`source_ip`).
-	SourceIp string `protobuf:"bytes,10,opt,name=source_ip,json=sourceIp,proto3" json:"source_ip,omitempty"`
-	// Flow destination IP address (`destination_ip`).
-	DestinationIp string `protobuf:"bytes,11,opt,name=destination_ip,json=destinationIp,proto3" json:"destination_ip,omitempty"`
-	// Flow source port (`source_port`).
-	SourcePort uint32 `protobuf:"varint,12,opt,name=source_port,json=sourcePort,proto3" json:"source_port,omitempty"`
-	// Flow destination port (`destination_port`).
-	DestinationPort uint32 `protobuf:"varint,13,opt,name=destination_port,json=destinationPort,proto3" json:"destination_port,omitempty"`
-	// Transport protocol (`transport_protocol`, e.g. `"tcp"`, `"udp"`).
-	TransportProtocol string `protobuf:"bytes,14,opt,name=transport_protocol,json=transportProtocol,proto3" json:"transport_protocol,omitempty"`
-	// Dissector identifier (`dissector_id`).
-	DissectorId string `protobuf:"bytes,15,opt,name=dissector_id,json=dissectorId,proto3" json:"dissector_id,omitempty"`
-	// Subject host IP address (`subject_ip`).
-	SubjectIp     string `protobuf:"bytes,16,opt,name=subject_ip,json=subjectIp,proto3" json:"subject_ip,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *NetprobeDpiObservationV1) Reset() {
 	*x = NetprobeDpiObservationV1{}
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[33]
+	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3767,7 +3121,7 @@ func (x *NetprobeDpiObservationV1) String() string {
 func (*NetprobeDpiObservationV1) ProtoMessage() {}
 
 func (x *NetprobeDpiObservationV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[33]
+	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3780,7 +3134,7 @@ func (x *NetprobeDpiObservationV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NetprobeDpiObservationV1.ProtoReflect.Descriptor instead.
 func (*NetprobeDpiObservationV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{33}
+	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *NetprobeDpiObservationV1) GetSource() string {
@@ -3846,55 +3200,6 @@ func (x *NetprobeDpiObservationV1) GetLastObservedAtUnixNano() int64 {
 	return 0
 }
 
-func (x *NetprobeDpiObservationV1) GetSourceIp() string {
-	if x != nil {
-		return x.SourceIp
-	}
-	return ""
-}
-
-func (x *NetprobeDpiObservationV1) GetDestinationIp() string {
-	if x != nil {
-		return x.DestinationIp
-	}
-	return ""
-}
-
-func (x *NetprobeDpiObservationV1) GetSourcePort() uint32 {
-	if x != nil {
-		return x.SourcePort
-	}
-	return 0
-}
-
-func (x *NetprobeDpiObservationV1) GetDestinationPort() uint32 {
-	if x != nil {
-		return x.DestinationPort
-	}
-	return 0
-}
-
-func (x *NetprobeDpiObservationV1) GetTransportProtocol() string {
-	if x != nil {
-		return x.TransportProtocol
-	}
-	return ""
-}
-
-func (x *NetprobeDpiObservationV1) GetDissectorId() string {
-	if x != nil {
-		return x.DissectorId
-	}
-	return ""
-}
-
-func (x *NetprobeDpiObservationV1) GetSubjectIp() string {
-	if x != nil {
-		return x.SubjectIp
-	}
-	return ""
-}
-
 // NetprobeProcessSnapshotObservationV1 maps `processSnapshotMetadata` in
 // `go/pkg/agent/netprobe/translator.go` and `SyncIngestor` process snapshot ingestion.
 type NetprobeProcessSnapshotObservationV1 struct {
@@ -3917,15 +3222,13 @@ type NetprobeProcessSnapshotObservationV1 struct {
 	Protocols []string `protobuf:"bytes,8,rep,name=protocols,proto3" json:"protocols,omitempty"`
 	// Per-protocol listening port counts. JSON keys are `local_processes.<protocol>_port_count` strings.
 	ProtocolPortCounts map[string]uint32 `protobuf:"bytes,9,rep,name=protocol_port_counts,json=protocolPortCounts,proto3" json:"protocol_port_counts,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
-	// Listening socket / process entries (`entries`).
-	Entries       []*NetprobeProcessEntryV1 `protobuf:"bytes,10,rep,name=entries,proto3" json:"entries,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *NetprobeProcessSnapshotObservationV1) Reset() {
 	*x = NetprobeProcessSnapshotObservationV1{}
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[34]
+	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3937,7 +3240,7 @@ func (x *NetprobeProcessSnapshotObservationV1) String() string {
 func (*NetprobeProcessSnapshotObservationV1) ProtoMessage() {}
 
 func (x *NetprobeProcessSnapshotObservationV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[34]
+	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3950,7 +3253,7 @@ func (x *NetprobeProcessSnapshotObservationV1) ProtoReflect() protoreflect.Messa
 
 // Deprecated: Use NetprobeProcessSnapshotObservationV1.ProtoReflect.Descriptor instead.
 func (*NetprobeProcessSnapshotObservationV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{34}
+	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *NetprobeProcessSnapshotObservationV1) GetSchema() string {
@@ -4016,511 +3319,6 @@ func (x *NetprobeProcessSnapshotObservationV1) GetProtocolPortCounts() map[strin
 	return nil
 }
 
-func (x *NetprobeProcessSnapshotObservationV1) GetEntries() []*NetprobeProcessEntryV1 {
-	if x != nil {
-		return x.Entries
-	}
-	return nil
-}
-
-// NetprobeProcessEntryV1 maps `processSnapshotEntryMetadata` (`entries[]`).
-type NetprobeProcessEntryV1 struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Bound local IP address (`local_ip`).
-	LocalIp string `protobuf:"bytes,1,opt,name=local_ip,json=localIp,proto3" json:"local_ip,omitempty"`
-	// Bound local port (`local_port`).
-	LocalPort uint32 `protobuf:"varint,2,opt,name=local_port,json=localPort,proto3" json:"local_port,omitempty"`
-	// Transport protocol (`transport_protocol`, `"tcp"` or `"udp"`).
-	TransportProtocol string `protobuf:"bytes,3,opt,name=transport_protocol,json=transportProtocol,proto3" json:"transport_protocol,omitempty"`
-	// Process ID (`pid`).
-	Pid uint32 `protobuf:"varint,4,opt,name=pid,proto3" json:"pid,omitempty"`
-	// Thread group ID (`tgid`).
-	Tgid uint32 `protobuf:"varint,5,opt,name=tgid,proto3" json:"tgid,omitempty"`
-	// Effective user ID (`uid`).
-	Uid uint32 `protobuf:"varint,6,opt,name=uid,proto3" json:"uid,omitempty"`
-	// Effective group ID (`gid`).
-	Gid uint32 `protobuf:"varint,7,opt,name=gid,proto3" json:"gid,omitempty"`
-	// Process command name (`comm`).
-	Comm string `protobuf:"bytes,8,opt,name=comm,proto3" json:"comm,omitempty"`
-	// Redacted command-line argv vector (`redacted_cmdline`).
-	RedactedCmdline []string `protobuf:"bytes,9,rep,name=redacted_cmdline,json=redactedCmdline,proto3" json:"redacted_cmdline,omitempty"`
-	// Container identifier when running inside a container (`container_id`).
-	ContainerId string `protobuf:"bytes,10,opt,name=container_id,json=containerId,proto3" json:"container_id,omitempty"`
-	// Container/pod workload identity (`workload_identity`).
-	WorkloadIdentity *NetprobeWorkloadIdentityV1 `protobuf:"bytes,11,opt,name=workload_identity,json=workloadIdentity,proto3" json:"workload_identity,omitempty"`
-	// Package manager executable ownership (`executable_ownership`).
-	ExecutableOwnership *NetprobeExecutableOwnershipV1 `protobuf:"bytes,12,opt,name=executable_ownership,json=executableOwnership,proto3" json:"executable_ownership,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
-}
-
-func (x *NetprobeProcessEntryV1) Reset() {
-	*x = NetprobeProcessEntryV1{}
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[35]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *NetprobeProcessEntryV1) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*NetprobeProcessEntryV1) ProtoMessage() {}
-
-func (x *NetprobeProcessEntryV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[35]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use NetprobeProcessEntryV1.ProtoReflect.Descriptor instead.
-func (*NetprobeProcessEntryV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{35}
-}
-
-func (x *NetprobeProcessEntryV1) GetLocalIp() string {
-	if x != nil {
-		return x.LocalIp
-	}
-	return ""
-}
-
-func (x *NetprobeProcessEntryV1) GetLocalPort() uint32 {
-	if x != nil {
-		return x.LocalPort
-	}
-	return 0
-}
-
-func (x *NetprobeProcessEntryV1) GetTransportProtocol() string {
-	if x != nil {
-		return x.TransportProtocol
-	}
-	return ""
-}
-
-func (x *NetprobeProcessEntryV1) GetPid() uint32 {
-	if x != nil {
-		return x.Pid
-	}
-	return 0
-}
-
-func (x *NetprobeProcessEntryV1) GetTgid() uint32 {
-	if x != nil {
-		return x.Tgid
-	}
-	return 0
-}
-
-func (x *NetprobeProcessEntryV1) GetUid() uint32 {
-	if x != nil {
-		return x.Uid
-	}
-	return 0
-}
-
-func (x *NetprobeProcessEntryV1) GetGid() uint32 {
-	if x != nil {
-		return x.Gid
-	}
-	return 0
-}
-
-func (x *NetprobeProcessEntryV1) GetComm() string {
-	if x != nil {
-		return x.Comm
-	}
-	return ""
-}
-
-func (x *NetprobeProcessEntryV1) GetRedactedCmdline() []string {
-	if x != nil {
-		return x.RedactedCmdline
-	}
-	return nil
-}
-
-func (x *NetprobeProcessEntryV1) GetContainerId() string {
-	if x != nil {
-		return x.ContainerId
-	}
-	return ""
-}
-
-func (x *NetprobeProcessEntryV1) GetWorkloadIdentity() *NetprobeWorkloadIdentityV1 {
-	if x != nil {
-		return x.WorkloadIdentity
-	}
-	return nil
-}
-
-func (x *NetprobeProcessEntryV1) GetExecutableOwnership() *NetprobeExecutableOwnershipV1 {
-	if x != nil {
-		return x.ExecutableOwnership
-	}
-	return nil
-}
-
-// NetprobeWorkloadIdentityV1 maps `workloadIdentityMetadata` (`workload_identity`).
-type NetprobeWorkloadIdentityV1 struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// CRI pod sandbox ID (`pod_sandbox_id`).
-	PodSandboxId string `protobuf:"bytes,1,opt,name=pod_sandbox_id,json=podSandboxId,proto3" json:"pod_sandbox_id,omitempty"`
-	// Kubernetes pod name (`pod_name`).
-	PodName string `protobuf:"bytes,2,opt,name=pod_name,json=podName,proto3" json:"pod_name,omitempty"`
-	// Kubernetes pod namespace (`pod_namespace`).
-	PodNamespace string `protobuf:"bytes,3,opt,name=pod_namespace,json=podNamespace,proto3" json:"pod_namespace,omitempty"`
-	// Kubernetes pod UID (`pod_uid`).
-	PodUid string `protobuf:"bytes,4,opt,name=pod_uid,json=podUid,proto3" json:"pod_uid,omitempty"`
-	// Container ID (`container_id`).
-	ContainerId string `protobuf:"bytes,5,opt,name=container_id,json=containerId,proto3" json:"container_id,omitempty"`
-	// Container name (`container_name`).
-	ContainerName string `protobuf:"bytes,6,opt,name=container_name,json=containerName,proto3" json:"container_name,omitempty"`
-	// Container image name (`image`).
-	Image string `protobuf:"bytes,7,opt,name=image,proto3" json:"image,omitempty"`
-	// Immutable container image digest/reference (`image_ref`).
-	ImageRef string `protobuf:"bytes,8,opt,name=image_ref,json=imageRef,proto3" json:"image_ref,omitempty"`
-	// Host PID reported by the container runtime (`runtime_pid`).
-	RuntimePid uint32 `protobuf:"varint,9,opt,name=runtime_pid,json=runtimePid,proto3" json:"runtime_pid,omitempty"`
-	// Linux cgroup path (`cgroup_path`).
-	CgroupPath string `protobuf:"bytes,10,opt,name=cgroup_path,json=cgroupPath,proto3" json:"cgroup_path,omitempty"`
-	// Container runtime source (`runtime_source`, e.g. `"containerd"`, `"crio"`, `"docker"`).
-	RuntimeSource string `protobuf:"bytes,11,opt,name=runtime_source,json=runtimeSource,proto3" json:"runtime_source,omitempty"`
-	// Attribution confidence (`confidence`).
-	Confidence string `protobuf:"bytes,12,opt,name=confidence,proto3" json:"confidence,omitempty"`
-	// Degradation reason when runtime enrichment is partial (`degradation_reason`).
-	DegradationReason string `protobuf:"bytes,13,opt,name=degradation_reason,json=degradationReason,proto3" json:"degradation_reason,omitempty"`
-	// Workload labels (`labels`).
-	Labels map[string]string `protobuf:"bytes,14,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	// Workload annotations (`annotations`).
-	Annotations   map[string]string `protobuf:"bytes,15,rep,name=annotations,proto3" json:"annotations,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *NetprobeWorkloadIdentityV1) Reset() {
-	*x = NetprobeWorkloadIdentityV1{}
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[36]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *NetprobeWorkloadIdentityV1) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*NetprobeWorkloadIdentityV1) ProtoMessage() {}
-
-func (x *NetprobeWorkloadIdentityV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[36]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use NetprobeWorkloadIdentityV1.ProtoReflect.Descriptor instead.
-func (*NetprobeWorkloadIdentityV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{36}
-}
-
-func (x *NetprobeWorkloadIdentityV1) GetPodSandboxId() string {
-	if x != nil {
-		return x.PodSandboxId
-	}
-	return ""
-}
-
-func (x *NetprobeWorkloadIdentityV1) GetPodName() string {
-	if x != nil {
-		return x.PodName
-	}
-	return ""
-}
-
-func (x *NetprobeWorkloadIdentityV1) GetPodNamespace() string {
-	if x != nil {
-		return x.PodNamespace
-	}
-	return ""
-}
-
-func (x *NetprobeWorkloadIdentityV1) GetPodUid() string {
-	if x != nil {
-		return x.PodUid
-	}
-	return ""
-}
-
-func (x *NetprobeWorkloadIdentityV1) GetContainerId() string {
-	if x != nil {
-		return x.ContainerId
-	}
-	return ""
-}
-
-func (x *NetprobeWorkloadIdentityV1) GetContainerName() string {
-	if x != nil {
-		return x.ContainerName
-	}
-	return ""
-}
-
-func (x *NetprobeWorkloadIdentityV1) GetImage() string {
-	if x != nil {
-		return x.Image
-	}
-	return ""
-}
-
-func (x *NetprobeWorkloadIdentityV1) GetImageRef() string {
-	if x != nil {
-		return x.ImageRef
-	}
-	return ""
-}
-
-func (x *NetprobeWorkloadIdentityV1) GetRuntimePid() uint32 {
-	if x != nil {
-		return x.RuntimePid
-	}
-	return 0
-}
-
-func (x *NetprobeWorkloadIdentityV1) GetCgroupPath() string {
-	if x != nil {
-		return x.CgroupPath
-	}
-	return ""
-}
-
-func (x *NetprobeWorkloadIdentityV1) GetRuntimeSource() string {
-	if x != nil {
-		return x.RuntimeSource
-	}
-	return ""
-}
-
-func (x *NetprobeWorkloadIdentityV1) GetConfidence() string {
-	if x != nil {
-		return x.Confidence
-	}
-	return ""
-}
-
-func (x *NetprobeWorkloadIdentityV1) GetDegradationReason() string {
-	if x != nil {
-		return x.DegradationReason
-	}
-	return ""
-}
-
-func (x *NetprobeWorkloadIdentityV1) GetLabels() map[string]string {
-	if x != nil {
-		return x.Labels
-	}
-	return nil
-}
-
-func (x *NetprobeWorkloadIdentityV1) GetAnnotations() map[string]string {
-	if x != nil {
-		return x.Annotations
-	}
-	return nil
-}
-
-// NetprobeExecutableOwnershipV1 maps `executableOwnershipMetadata` (`executable_ownership`).
-type NetprobeExecutableOwnershipV1 struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Ownership resolution state (`resolution_state`: `"unspecified"`, `"resolved"`, `"unknown"`, `"not_permitted"`, `"not_found"`, `"unsupported_db"`).
-	ResolutionState string `protobuf:"bytes,1,opt,name=resolution_state,json=resolutionState,proto3" json:"resolution_state,omitempty"`
-	// Resolution detail or error code (`detail`).
-	Detail string `protobuf:"bytes,2,opt,name=detail,proto3" json:"detail,omitempty"`
-	// Filesystem scope (`source_scope`: `"host"` or `"container"`).
-	SourceScope string `protobuf:"bytes,3,opt,name=source_scope,json=sourceScope,proto3" json:"source_scope,omitempty"`
-	// Package type (`package_type`, e.g. `"deb"`, `"rpm"`, `"apk"`).
-	PackageType string `protobuf:"bytes,4,opt,name=package_type,json=packageType,proto3" json:"package_type,omitempty"`
-	// Package manager (`package_manager`, e.g. `"dpkg"`, `"rpm"`, `"apk"`).
-	PackageManager string `protobuf:"bytes,5,opt,name=package_manager,json=packageManager,proto3" json:"package_manager,omitempty"`
-	// Distribution namespace (`namespace`, e.g. `"debian"`, `"ubuntu"`, `"alpine"`, `"rhel"`).
-	Namespace string `protobuf:"bytes,6,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	// Distribution release (`release`).
-	Release string `protobuf:"bytes,7,opt,name=release,proto3" json:"release,omitempty"`
-	// OSV/PURL ecosystem (`ecosystem`).
-	Ecosystem string `protobuf:"bytes,8,opt,name=ecosystem,proto3" json:"ecosystem,omitempty"`
-	// Owning binary package name (`binary_package`).
-	BinaryPackage string `protobuf:"bytes,9,opt,name=binary_package,json=binaryPackage,proto3" json:"binary_package,omitempty"`
-	// Owning source package name (`source_package`).
-	SourcePackage string `protobuf:"bytes,10,opt,name=source_package,json=sourcePackage,proto3" json:"source_package,omitempty"`
-	// Package architecture (`architecture`).
-	Architecture string `protobuf:"bytes,11,opt,name=architecture,proto3" json:"architecture,omitempty"`
-	// Installed package version (`installed_version`).
-	InstalledVersion string `protobuf:"bytes,12,opt,name=installed_version,json=installedVersion,proto3" json:"installed_version,omitempty"`
-	// Resolver identifier (`resolver`).
-	Resolver string `protobuf:"bytes,13,opt,name=resolver,proto3" json:"resolver,omitempty"`
-	// Resolved executable path (`executable_path`).
-	ExecutablePath string `protobuf:"bytes,14,opt,name=executable_path,json=executablePath,proto3" json:"executable_path,omitempty"`
-	// Executable filesystem device ID (`executable_dev`).
-	ExecutableDev uint64 `protobuf:"varint,15,opt,name=executable_dev,json=executableDev,proto3" json:"executable_dev,omitempty"`
-	// Executable inode number (`executable_inode`).
-	ExecutableInode uint64 `protobuf:"varint,16,opt,name=executable_inode,json=executableInode,proto3" json:"executable_inode,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
-}
-
-func (x *NetprobeExecutableOwnershipV1) Reset() {
-	*x = NetprobeExecutableOwnershipV1{}
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[37]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *NetprobeExecutableOwnershipV1) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*NetprobeExecutableOwnershipV1) ProtoMessage() {}
-
-func (x *NetprobeExecutableOwnershipV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[37]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use NetprobeExecutableOwnershipV1.ProtoReflect.Descriptor instead.
-func (*NetprobeExecutableOwnershipV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{37}
-}
-
-func (x *NetprobeExecutableOwnershipV1) GetResolutionState() string {
-	if x != nil {
-		return x.ResolutionState
-	}
-	return ""
-}
-
-func (x *NetprobeExecutableOwnershipV1) GetDetail() string {
-	if x != nil {
-		return x.Detail
-	}
-	return ""
-}
-
-func (x *NetprobeExecutableOwnershipV1) GetSourceScope() string {
-	if x != nil {
-		return x.SourceScope
-	}
-	return ""
-}
-
-func (x *NetprobeExecutableOwnershipV1) GetPackageType() string {
-	if x != nil {
-		return x.PackageType
-	}
-	return ""
-}
-
-func (x *NetprobeExecutableOwnershipV1) GetPackageManager() string {
-	if x != nil {
-		return x.PackageManager
-	}
-	return ""
-}
-
-func (x *NetprobeExecutableOwnershipV1) GetNamespace() string {
-	if x != nil {
-		return x.Namespace
-	}
-	return ""
-}
-
-func (x *NetprobeExecutableOwnershipV1) GetRelease() string {
-	if x != nil {
-		return x.Release
-	}
-	return ""
-}
-
-func (x *NetprobeExecutableOwnershipV1) GetEcosystem() string {
-	if x != nil {
-		return x.Ecosystem
-	}
-	return ""
-}
-
-func (x *NetprobeExecutableOwnershipV1) GetBinaryPackage() string {
-	if x != nil {
-		return x.BinaryPackage
-	}
-	return ""
-}
-
-func (x *NetprobeExecutableOwnershipV1) GetSourcePackage() string {
-	if x != nil {
-		return x.SourcePackage
-	}
-	return ""
-}
-
-func (x *NetprobeExecutableOwnershipV1) GetArchitecture() string {
-	if x != nil {
-		return x.Architecture
-	}
-	return ""
-}
-
-func (x *NetprobeExecutableOwnershipV1) GetInstalledVersion() string {
-	if x != nil {
-		return x.InstalledVersion
-	}
-	return ""
-}
-
-func (x *NetprobeExecutableOwnershipV1) GetResolver() string {
-	if x != nil {
-		return x.Resolver
-	}
-	return ""
-}
-
-func (x *NetprobeExecutableOwnershipV1) GetExecutablePath() string {
-	if x != nil {
-		return x.ExecutablePath
-	}
-	return ""
-}
-
-func (x *NetprobeExecutableOwnershipV1) GetExecutableDev() uint64 {
-	if x != nil {
-		return x.ExecutableDev
-	}
-	return 0
-}
-
-func (x *NetprobeExecutableOwnershipV1) GetExecutableInode() uint64 {
-	if x != nil {
-		return x.ExecutableInode
-	}
-	return 0
-}
-
 // SyncPageBatchV1 carries a single page/chunk of sync device records or a
 // completion control marker for a sync run.
 type SyncPageBatchV1 struct {
@@ -4537,7 +3335,7 @@ type SyncPageBatchV1 struct {
 
 func (x *SyncPageBatchV1) Reset() {
 	*x = SyncPageBatchV1{}
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[38]
+	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4549,7 +3347,7 @@ func (x *SyncPageBatchV1) String() string {
 func (*SyncPageBatchV1) ProtoMessage() {}
 
 func (x *SyncPageBatchV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[38]
+	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4562,7 +3360,7 @@ func (x *SyncPageBatchV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyncPageBatchV1.ProtoReflect.Descriptor instead.
 func (*SyncPageBatchV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{38}
+	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *SyncPageBatchV1) GetSyncMeta() *SyncMetaV1 {
@@ -4610,7 +3408,7 @@ type SyncMetaV1 struct {
 
 func (x *SyncMetaV1) Reset() {
 	*x = SyncMetaV1{}
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[39]
+	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4622,7 +3420,7 @@ func (x *SyncMetaV1) String() string {
 func (*SyncMetaV1) ProtoMessage() {}
 
 func (x *SyncMetaV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[39]
+	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4635,7 +3433,7 @@ func (x *SyncMetaV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyncMetaV1.ProtoReflect.Descriptor instead.
 func (*SyncMetaV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{39}
+	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *SyncMetaV1) GetSyncServiceId() string {
@@ -4718,7 +3516,7 @@ type SyncPopulationReportV1 struct {
 
 func (x *SyncPopulationReportV1) Reset() {
 	*x = SyncPopulationReportV1{}
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[40]
+	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4730,7 +3528,7 @@ func (x *SyncPopulationReportV1) String() string {
 func (*SyncPopulationReportV1) ProtoMessage() {}
 
 func (x *SyncPopulationReportV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[40]
+	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4743,7 +3541,7 @@ func (x *SyncPopulationReportV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyncPopulationReportV1.ProtoReflect.Descriptor instead.
 func (*SyncPopulationReportV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{40}
+	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *SyncPopulationReportV1) GetRawRows() int64 {
@@ -4830,7 +3628,7 @@ type SyncControlMarkerV1 struct {
 
 func (x *SyncControlMarkerV1) Reset() {
 	*x = SyncControlMarkerV1{}
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[41]
+	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4842,7 +3640,7 @@ func (x *SyncControlMarkerV1) String() string {
 func (*SyncControlMarkerV1) ProtoMessage() {}
 
 func (x *SyncControlMarkerV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[41]
+	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4855,7 +3653,7 @@ func (x *SyncControlMarkerV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyncControlMarkerV1.ProtoReflect.Descriptor instead.
 func (*SyncControlMarkerV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{41}
+	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *SyncControlMarkerV1) GetControlType() string {
@@ -4986,7 +3784,7 @@ type SyncDeviceRecordV1 struct {
 
 func (x *SyncDeviceRecordV1) Reset() {
 	*x = SyncDeviceRecordV1{}
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[42]
+	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4998,7 +3796,7 @@ func (x *SyncDeviceRecordV1) String() string {
 func (*SyncDeviceRecordV1) ProtoMessage() {}
 
 func (x *SyncDeviceRecordV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[42]
+	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5011,7 +3809,7 @@ func (x *SyncDeviceRecordV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyncDeviceRecordV1.ProtoReflect.Descriptor instead.
 func (*SyncDeviceRecordV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{42}
+	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *SyncDeviceRecordV1) GetDeviceId() string {
@@ -5375,7 +4173,7 @@ type SyncDeviceOsV1 struct {
 
 func (x *SyncDeviceOsV1) Reset() {
 	*x = SyncDeviceOsV1{}
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[43]
+	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5387,7 +4185,7 @@ func (x *SyncDeviceOsV1) String() string {
 func (*SyncDeviceOsV1) ProtoMessage() {}
 
 func (x *SyncDeviceOsV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[43]
+	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5400,7 +4198,7 @@ func (x *SyncDeviceOsV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyncDeviceOsV1.ProtoReflect.Descriptor instead.
 func (*SyncDeviceOsV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{43}
+	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *SyncDeviceOsV1) GetName() string {
@@ -5516,7 +4314,7 @@ type SyncDeviceHwInfoV1 struct {
 
 func (x *SyncDeviceHwInfoV1) Reset() {
 	*x = SyncDeviceHwInfoV1{}
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[44]
+	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5528,7 +4326,7 @@ func (x *SyncDeviceHwInfoV1) String() string {
 func (*SyncDeviceHwInfoV1) ProtoMessage() {}
 
 func (x *SyncDeviceHwInfoV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[44]
+	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5541,7 +4339,7 @@ func (x *SyncDeviceHwInfoV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyncDeviceHwInfoV1.ProtoReflect.Descriptor instead.
 func (*SyncDeviceHwInfoV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{44}
+	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *SyncDeviceHwInfoV1) GetCpuArchitecture() string {
@@ -5685,7 +4483,7 @@ type SyncNetworkInterfaceV1 struct {
 
 func (x *SyncNetworkInterfaceV1) Reset() {
 	*x = SyncNetworkInterfaceV1{}
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[45]
+	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5697,7 +4495,7 @@ func (x *SyncNetworkInterfaceV1) String() string {
 func (*SyncNetworkInterfaceV1) ProtoMessage() {}
 
 func (x *SyncNetworkInterfaceV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[45]
+	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5710,7 +4508,7 @@ func (x *SyncNetworkInterfaceV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyncNetworkInterfaceV1.ProtoReflect.Descriptor instead.
 func (*SyncNetworkInterfaceV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{45}
+	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *SyncNetworkInterfaceV1) GetName() string {
@@ -5872,7 +4670,7 @@ type SyncDeviceUserV1 struct {
 
 func (x *SyncDeviceUserV1) Reset() {
 	*x = SyncDeviceUserV1{}
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[46]
+	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5884,7 +4682,7 @@ func (x *SyncDeviceUserV1) String() string {
 func (*SyncDeviceUserV1) ProtoMessage() {}
 
 func (x *SyncDeviceUserV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[46]
+	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5897,7 +4695,7 @@ func (x *SyncDeviceUserV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyncDeviceUserV1.ProtoReflect.Descriptor instead.
 func (*SyncDeviceUserV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{46}
+	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *SyncDeviceUserV1) GetUid() string {
@@ -5952,7 +4750,7 @@ type SyncDeviceOrganizationV1 struct {
 
 func (x *SyncDeviceOrganizationV1) Reset() {
 	*x = SyncDeviceOrganizationV1{}
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[47]
+	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5964,7 +4762,7 @@ func (x *SyncDeviceOrganizationV1) String() string {
 func (*SyncDeviceOrganizationV1) ProtoMessage() {}
 
 func (x *SyncDeviceOrganizationV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[47]
+	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5977,7 +4775,7 @@ func (x *SyncDeviceOrganizationV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyncDeviceOrganizationV1.ProtoReflect.Descriptor instead.
 func (*SyncDeviceOrganizationV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{47}
+	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *SyncDeviceOrganizationV1) GetUid() string {
@@ -6025,7 +4823,7 @@ type SyncDeviceGroupV1 struct {
 
 func (x *SyncDeviceGroupV1) Reset() {
 	*x = SyncDeviceGroupV1{}
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[48]
+	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6037,7 +4835,7 @@ func (x *SyncDeviceGroupV1) String() string {
 func (*SyncDeviceGroupV1) ProtoMessage() {}
 
 func (x *SyncDeviceGroupV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[48]
+	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6050,7 +4848,7 @@ func (x *SyncDeviceGroupV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyncDeviceGroupV1.ProtoReflect.Descriptor instead.
 func (*SyncDeviceGroupV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{48}
+	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *SyncDeviceGroupV1) GetUid() string {
@@ -6102,7 +4900,7 @@ type SyncDeviceAgentV1 struct {
 
 func (x *SyncDeviceAgentV1) Reset() {
 	*x = SyncDeviceAgentV1{}
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[49]
+	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6114,7 +4912,7 @@ func (x *SyncDeviceAgentV1) String() string {
 func (*SyncDeviceAgentV1) ProtoMessage() {}
 
 func (x *SyncDeviceAgentV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[49]
+	mi := &file_edge_v1_json_producer_batches_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6127,7 +4925,7 @@ func (x *SyncDeviceAgentV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyncDeviceAgentV1.ProtoReflect.Descriptor instead.
 func (*SyncDeviceAgentV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{49}
+	return file_edge_v1_json_producer_batches_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *SyncDeviceAgentV1) GetUid() string {
@@ -6390,17 +5188,9 @@ const file_edge_v1_json_producer_batches_proto_rawDesc = "" +
 	"\n" +
 	"interfaces\x18\x05 \x03(\v2-.serviceradar.edge.v1.MapperInterfaceRecordV1R\n" +
 	"interfaces\x12W\n" +
-	"\x0etopology_links\x18\x06 \x03(\v20.serviceradar.edge.v1.MapperTopologyLinkRecordV1R\rtopologyLinks\"\xf0\x02\n" +
-	"\x18NetprobeDiscoveryBatchV1\x12\x19\n" +
-	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x1d\n" +
-	"\n" +
-	"gateway_id\x18\x02 \x01(\tR\tgatewayId\x12\x1c\n" +
-	"\tpartition\x18\x03 \x01(\tR\tpartition\x12!\n" +
-	"\fcollector_ip\x18\x04 \x01(\tR\vcollectorIp\x121\n" +
-	"\x15batch_start_unix_nano\x18\x05 \x01(\x03R\x12batchStartUnixNano\x12-\n" +
-	"\x13batch_end_unix_nano\x18\x06 \x01(\x03R\x10batchEndUnixNano\x12,\n" +
-	"\x12dropped_since_last\x18\a \x01(\rR\x10droppedSinceLast\x12I\n" +
-	"\arecords\x18\b \x03(\v2/.serviceradar.edge.v1.NetprobeDiscoveryRecordV1R\arecords\"\xb5\x06\n" +
+	"\x0etopology_links\x18\x06 \x03(\v20.serviceradar.edge.v1.MapperTopologyLinkRecordV1R\rtopologyLinks\"e\n" +
+	"\x18NetprobeDiscoveryBatchV1\x12I\n" +
+	"\arecords\x18\x01 \x03(\v2/.serviceradar.edge.v1.NetprobeDiscoveryRecordV1R\arecords\"\xb5\x06\n" +
 	"\x19NetprobeDiscoveryRecordV1\x12\x0e\n" +
 	"\x02ip\x18\x01 \x01(\tR\x02ip\x12\x19\n" +
 	"\bagent_id\x18\x02 \x01(\tR\aagentId\x12\x1d\n" +
@@ -6461,83 +5251,32 @@ const file_edge_v1_json_producer_batches_proto_rawDesc = "" +
 	"\n" +
 	"user_agent\x18\x01 \x01(\tR\tuserAgent\x12\x16\n" +
 	"\x06server\x18\x02 \x01(\tR\x06server\x12'\n" +
-	"\x0faccept_language\x18\x03 \x01(\tR\x0eacceptLanguage\"\xe5\x0e\n" +
-	"!NetprobeLicenseCleanFingerprintV1\x12#\n" +
-	"\rp0f_signature\x18\x01 \x01(\tR\fp0fSignature\x12E\n" +
-	"\tp0f_match\x18\x02 \x01(\v2(.serviceradar.edge.v1.NetprobeP0fMatchV1R\bp0fMatch\x12\x10\n" +
-	"\x03ja4\x18\x03 \x01(\tR\x03ja4\x12M\n" +
-	"\tja4_match\x18\x04 \x01(\v20.serviceradar.edge.v1.NetprobeFingerprintMatchV1R\bja4Match\x12\x14\n" +
-	"\x05hassh\x18\x05 \x01(\tR\x05hassh\x12!\n" +
-	"\fhassh_server\x18\x06 \x01(\tR\vhasshServer\x12Q\n" +
-	"\vhassh_match\x18\a \x01(\v20.serviceradar.edge.v1.NetprobeFingerprintMatchV1R\n" +
-	"hasshMatch\x12B\n" +
-	"\bos_match\x18\b \x01(\v2'.serviceradar.edge.v1.NetprobeOsMatchV1R\aosMatch\x12'\n" +
-	"\x0fagreement_count\x18\t \x01(\rR\x0eagreementCount\x12C\n" +
-	"\x06muonfp\x18\n" +
-	" \x01(\v2+.serviceradar.edge.v1.NetprobeMuonFpMatchV1R\x06muonfp\x12I\n" +
+	"\x0faccept_language\x18\x03 \x01(\tR\x0eacceptLanguage\"\x82\x06\n" +
+	"!NetprobeLicenseCleanFingerprintV1\x12B\n" +
+	"\bos_match\x18\x01 \x01(\v2'.serviceradar.edge.v1.NetprobeOsMatchV1R\aosMatch\x12I\n" +
 	"\n" +
-	"recog_http\x18\v \x01(\v2*.serviceradar.edge.v1.NetprobeRecogMatchV1R\trecogHttp\x12G\n" +
-	"\trecog_ssh\x18\f \x01(\v2*.serviceradar.edge.v1.NetprobeRecogMatchV1R\brecogSsh\x12G\n" +
-	"\trecog_smb\x18\r \x01(\v2*.serviceradar.edge.v1.NetprobeRecogMatchV1R\brecogSmb\x12G\n" +
-	"\trecog_ftp\x18\x0e \x01(\v2*.serviceradar.edge.v1.NetprobeRecogMatchV1R\brecogFtp\x12M\n" +
-	"\frecog_telnet\x18\x0f \x01(\v2*.serviceradar.edge.v1.NetprobeRecogMatchV1R\vrecogTelnet\x12I\n" +
+	"recog_http\x18\x02 \x01(\v2*.serviceradar.edge.v1.NetprobeRecogMatchV1R\trecogHttp\x12G\n" +
+	"\trecog_ssh\x18\x03 \x01(\v2*.serviceradar.edge.v1.NetprobeRecogMatchV1R\brecogSsh\x12G\n" +
+	"\trecog_smb\x18\x04 \x01(\v2*.serviceradar.edge.v1.NetprobeRecogMatchV1R\brecogSmb\x12G\n" +
+	"\trecog_ftp\x18\x05 \x01(\v2*.serviceradar.edge.v1.NetprobeRecogMatchV1R\brecogFtp\x12M\n" +
+	"\frecog_telnet\x18\x06 \x01(\v2*.serviceradar.edge.v1.NetprobeRecogMatchV1R\vrecogTelnet\x12I\n" +
 	"\n" +
-	"recog_snmp\x18\x10 \x01(\v2*.serviceradar.edge.v1.NetprobeRecogMatchV1R\trecogSnmp\x12G\n" +
-	"\trecog_sip\x18\x11 \x01(\v2*.serviceradar.edge.v1.NetprobeRecogMatchV1R\brecogSip\x12G\n" +
-	"\trecog_rdp\x18\x12 \x01(\v2*.serviceradar.edge.v1.NetprobeRecogMatchV1R\brecogRdp\x12G\n" +
-	"\trecog_dns\x18\x13 \x01(\v2*.serviceradar.edge.v1.NetprobeRecogMatchV1R\brecogDns\x12I\n" +
-	"\n" +
-	"recog_smtp\x18\x14 \x01(\v2*.serviceradar.edge.v1.NetprobeRecogMatchV1R\trecogSmtp\x12G\n" +
-	"\trecog_ntp\x18\x15 \x01(\v2*.serviceradar.edge.v1.NetprobeRecogMatchV1R\brecogNtp\x12R\n" +
-	"\x0esatori_matches\x18\x16 \x03(\v2+.serviceradar.edge.v1.NetprobeSatoriMatchV1R\rsatoriMatches\x12!\n" +
-	"\ftcp_observed\x18\x17 \x01(\bR\vtcpObserved\x12!\n" +
-	"\fja4_observed\x18\x18 \x01(\bR\vja4Observed\x12%\n" +
-	"\x0ehassh_observed\x18\x19 \x01(\bR\rhasshObserved\x12#\n" +
-	"\rdhcp_observed\x18\x1a \x01(\bR\fdhcpObserved\x12'\n" +
-	"\x0fdhcpv6_observed\x18\x1b \x01(\bR\x0edhcpv6Observed\x12#\n" +
-	"\rhttp_observed\x18\x1c \x01(\bR\fhttpObserved\x12!\n" +
-	"\fssh_observed\x18\x1d \x01(\bR\vsshObserved\x12!\n" +
-	"\fsmb_observed\x18\x1e \x01(\bR\vsmbObserved\x12!\n" +
-	"\fdns_observed\x18\x1f \x01(\bR\vdnsObserved\x12#\n" +
-	"\ricmp_observed\x18  \x01(\bR\ficmpObserved\x12!\n" +
-	"\fntp_observed\x18! \x01(\bR\vntpObserved\x12!\n" +
-	"\fsip_observed\x18\" \x01(\bR\vsipObserved\"\x82\x01\n" +
-	"\x12NetprobeP0fMatchV1\x12\x14\n" +
-	"\x05label\x18\x01 \x01(\tR\x05label\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04name\x12%\n" +
-	"\x0eversion_flavor\x18\x03 \x01(\tR\rversionFlavor\x12\x1b\n" +
-	"\tos_family\x18\x04 \x01(\tR\bosFamily\"K\n" +
-	"\x15NetprobeMuonFpMatchV1\x12\x1c\n" +
-	"\tsignature\x18\x01 \x01(\tR\tsignature\x12\x14\n" +
-	"\x05label\x18\x02 \x01(\tR\x05label\"g\n" +
+	"recog_smtp\x18\a \x01(\v2*.serviceradar.edge.v1.NetprobeRecogMatchV1R\trecogSmtp\x12G\n" +
+	"\trecog_rdp\x18\b \x01(\v2*.serviceradar.edge.v1.NetprobeRecogMatchV1R\brecogRdp\x12G\n" +
+	"\trecog_dns\x18\t \x01(\v2*.serviceradar.edge.v1.NetprobeRecogMatchV1R\brecogDns\x12G\n" +
+	"\trecog_ntp\x18\n" +
+	" \x01(\v2*.serviceradar.edge.v1.NetprobeRecogMatchV1R\brecogNtp\"g\n" +
 	"\x14NetprobeRecogMatchV1\x12\x18\n" +
 	"\aproduct\x18\x01 \x01(\tR\aproduct\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x12\x1b\n" +
-	"\tos_family\x18\x03 \x01(\tR\bosFamily\"\x9f\x01\n" +
-	"\x15NetprobeSatoriMatchV1\x12\x12\n" +
-	"\x04axis\x18\x01 \x01(\tR\x04axis\x12\x1c\n" +
-	"\tsignature\x18\x02 \x01(\tR\tsignature\x12\x14\n" +
-	"\x05label\x18\x03 \x01(\tR\x05label\x12!\n" +
-	"\fdevice_class\x18\x04 \x01(\tR\vdeviceClass\x12\x1b\n" +
-	"\tos_family\x18\x05 \x01(\tR\bosFamily\"r\n" +
-	"\x1aNetprobeFingerprintMatchV1\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12#\n" +
-	"\rversion_range\x18\x02 \x01(\tR\fversionRange\x12\x1b\n" +
-	"\tos_family\x18\x03 \x01(\tR\bosFamily\"\xe8\x01\n" +
+	"\tos_family\x18\x03 \x01(\tR\bosFamily\"\x89\x01\n" +
 	"\x11NetprobeOsMatchV1\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12#\n" +
 	"\rversion_range\x18\x02 \x01(\tR\fversionRange\x12\x1b\n" +
 	"\tos_family\x18\x03 \x01(\tR\bosFamily\x12\x1e\n" +
 	"\n" +
 	"confidence\x18\x04 \x01(\x02R\n" +
-	"confidence\x12]\n" +
-	"\rdisagreements\x18\x05 \x03(\v27.serviceradar.edge.v1.NetprobeFingerprintDisagreementV1R\rdisagreements\"\xcc\x01\n" +
-	"!NetprobeFingerprintDisagreementV1\x12\x16\n" +
-	"\x06signal\x18\x01 \x01(\tR\x06signal\x12\x1c\n" +
-	"\tsignature\x18\x02 \x01(\tR\tsignature\x12'\n" +
-	"\x0fobserved_family\x18\x03 \x01(\tR\x0eobservedFamily\x12#\n" +
-	"\robserved_name\x18\x04 \x01(\tR\fobservedName\x12#\n" +
-	"\rversion_range\x18\x05 \x01(\tR\fversionRange\"\xdd\x04\n" +
+	"confidence\"\xdc\x02\n" +
 	"\x18NetprobeDpiObservationV1\x12\x16\n" +
 	"\x06source\x18\x01 \x01(\tR\x06source\x12\x1d\n" +
 	"\n" +
@@ -6550,17 +5289,7 @@ const file_edge_v1_json_producer_batches_proto_rawDesc = "" +
 	"confidence\x18\a \x01(\x02R\n" +
 	"confidence\x121\n" +
 	"\x15observed_at_unix_nano\x18\b \x01(\x03R\x12observedAtUnixNano\x12:\n" +
-	"\x1alast_observed_at_unix_nano\x18\t \x01(\x03R\x16lastObservedAtUnixNano\x12\x1b\n" +
-	"\tsource_ip\x18\n" +
-	" \x01(\tR\bsourceIp\x12%\n" +
-	"\x0edestination_ip\x18\v \x01(\tR\rdestinationIp\x12\x1f\n" +
-	"\vsource_port\x18\f \x01(\rR\n" +
-	"sourcePort\x12)\n" +
-	"\x10destination_port\x18\r \x01(\rR\x0fdestinationPort\x12-\n" +
-	"\x12transport_protocol\x18\x0e \x01(\tR\x11transportProtocol\x12!\n" +
-	"\fdissector_id\x18\x0f \x01(\tR\vdissectorId\x12\x1d\n" +
-	"\n" +
-	"subject_ip\x18\x10 \x01(\tR\tsubjectIp\"\xd5\x04\n" +
+	"\x1alast_observed_at_unix_nano\x18\t \x01(\x03R\x16lastObservedAtUnixNano\"\x8d\x04\n" +
 	"$NetprobeProcessSnapshotObservationV1\x12\x16\n" +
 	"\x06schema\x18\x01 \x01(\tR\x06schema\x12 \n" +
 	"\vfingerprint\x18\x02 \x01(\tR\vfingerprint\x121\n" +
@@ -6572,72 +5301,10 @@ const file_edge_v1_json_producer_batches_proto_rawDesc = "" +
 	"port_count\x18\x06 \x01(\rR\tportCount\x12'\n" +
 	"\x0fcontainer_count\x18\a \x01(\rR\x0econtainerCount\x12\x1c\n" +
 	"\tprotocols\x18\b \x03(\tR\tprotocols\x12\x84\x01\n" +
-	"\x14protocol_port_counts\x18\t \x03(\v2R.serviceradar.edge.v1.NetprobeProcessSnapshotObservationV1.ProtocolPortCountsEntryR\x12protocolPortCounts\x12F\n" +
-	"\aentries\x18\n" +
-	" \x03(\v2,.serviceradar.edge.v1.NetprobeProcessEntryV1R\aentries\x1aE\n" +
+	"\x14protocol_port_counts\x18\t \x03(\v2R.serviceradar.edge.v1.NetprobeProcessSnapshotObservationV1.ProtocolPortCountsEntryR\x12protocolPortCounts\x1aE\n" +
 	"\x17ProtocolPortCountsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\rR\x05value:\x028\x01\"\xf4\x03\n" +
-	"\x16NetprobeProcessEntryV1\x12\x19\n" +
-	"\blocal_ip\x18\x01 \x01(\tR\alocalIp\x12\x1d\n" +
-	"\n" +
-	"local_port\x18\x02 \x01(\rR\tlocalPort\x12-\n" +
-	"\x12transport_protocol\x18\x03 \x01(\tR\x11transportProtocol\x12\x10\n" +
-	"\x03pid\x18\x04 \x01(\rR\x03pid\x12\x12\n" +
-	"\x04tgid\x18\x05 \x01(\rR\x04tgid\x12\x10\n" +
-	"\x03uid\x18\x06 \x01(\rR\x03uid\x12\x10\n" +
-	"\x03gid\x18\a \x01(\rR\x03gid\x12\x12\n" +
-	"\x04comm\x18\b \x01(\tR\x04comm\x12)\n" +
-	"\x10redacted_cmdline\x18\t \x03(\tR\x0fredactedCmdline\x12!\n" +
-	"\fcontainer_id\x18\n" +
-	" \x01(\tR\vcontainerId\x12]\n" +
-	"\x11workload_identity\x18\v \x01(\v20.serviceradar.edge.v1.NetprobeWorkloadIdentityV1R\x10workloadIdentity\x12f\n" +
-	"\x14executable_ownership\x18\f \x01(\v23.serviceradar.edge.v1.NetprobeExecutableOwnershipV1R\x13executableOwnership\"\x86\x06\n" +
-	"\x1aNetprobeWorkloadIdentityV1\x12$\n" +
-	"\x0epod_sandbox_id\x18\x01 \x01(\tR\fpodSandboxId\x12\x19\n" +
-	"\bpod_name\x18\x02 \x01(\tR\apodName\x12#\n" +
-	"\rpod_namespace\x18\x03 \x01(\tR\fpodNamespace\x12\x17\n" +
-	"\apod_uid\x18\x04 \x01(\tR\x06podUid\x12!\n" +
-	"\fcontainer_id\x18\x05 \x01(\tR\vcontainerId\x12%\n" +
-	"\x0econtainer_name\x18\x06 \x01(\tR\rcontainerName\x12\x14\n" +
-	"\x05image\x18\a \x01(\tR\x05image\x12\x1b\n" +
-	"\timage_ref\x18\b \x01(\tR\bimageRef\x12\x1f\n" +
-	"\vruntime_pid\x18\t \x01(\rR\n" +
-	"runtimePid\x12\x1f\n" +
-	"\vcgroup_path\x18\n" +
-	" \x01(\tR\n" +
-	"cgroupPath\x12%\n" +
-	"\x0eruntime_source\x18\v \x01(\tR\rruntimeSource\x12\x1e\n" +
-	"\n" +
-	"confidence\x18\f \x01(\tR\n" +
-	"confidence\x12-\n" +
-	"\x12degradation_reason\x18\r \x01(\tR\x11degradationReason\x12T\n" +
-	"\x06labels\x18\x0e \x03(\v2<.serviceradar.edge.v1.NetprobeWorkloadIdentityV1.LabelsEntryR\x06labels\x12c\n" +
-	"\vannotations\x18\x0f \x03(\v2A.serviceradar.edge.v1.NetprobeWorkloadIdentityV1.AnnotationsEntryR\vannotations\x1a9\n" +
-	"\vLabelsEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a>\n" +
-	"\x10AnnotationsEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xdd\x04\n" +
-	"\x1dNetprobeExecutableOwnershipV1\x12)\n" +
-	"\x10resolution_state\x18\x01 \x01(\tR\x0fresolutionState\x12\x16\n" +
-	"\x06detail\x18\x02 \x01(\tR\x06detail\x12!\n" +
-	"\fsource_scope\x18\x03 \x01(\tR\vsourceScope\x12!\n" +
-	"\fpackage_type\x18\x04 \x01(\tR\vpackageType\x12'\n" +
-	"\x0fpackage_manager\x18\x05 \x01(\tR\x0epackageManager\x12\x1c\n" +
-	"\tnamespace\x18\x06 \x01(\tR\tnamespace\x12\x18\n" +
-	"\arelease\x18\a \x01(\tR\arelease\x12\x1c\n" +
-	"\tecosystem\x18\b \x01(\tR\tecosystem\x12%\n" +
-	"\x0ebinary_package\x18\t \x01(\tR\rbinaryPackage\x12%\n" +
-	"\x0esource_package\x18\n" +
-	" \x01(\tR\rsourcePackage\x12\"\n" +
-	"\farchitecture\x18\v \x01(\tR\farchitecture\x12+\n" +
-	"\x11installed_version\x18\f \x01(\tR\x10installedVersion\x12\x1a\n" +
-	"\bresolver\x18\r \x01(\tR\bresolver\x12'\n" +
-	"\x0fexecutable_path\x18\x0e \x01(\tR\x0eexecutablePath\x12%\n" +
-	"\x0eexecutable_dev\x18\x0f \x01(\x04R\rexecutableDev\x12)\n" +
-	"\x10executable_inode\x18\x10 \x01(\x04R\x0fexecutableInode\"\xfe\x01\n" +
+	"\x05value\x18\x02 \x01(\rR\x05value:\x028\x01\"\xfe\x01\n" +
 	"\x0fSyncPageBatchV1\x12=\n" +
 	"\tsync_meta\x18\x01 \x01(\v2 .serviceradar.edge.v1.SyncMetaV1R\bsyncMeta\x12U\n" +
 	"\x0econtrol_marker\x18\x02 \x01(\v2).serviceradar.edge.v1.SyncControlMarkerV1H\x00R\rcontrolMarker\x88\x01\x01\x12B\n" +
@@ -6856,7 +5523,7 @@ func file_edge_v1_json_producer_batches_proto_rawDescGZIP() []byte {
 	return file_edge_v1_json_producer_batches_proto_rawDescData
 }
 
-var file_edge_v1_json_producer_batches_proto_msgTypes = make([]protoimpl.MessageInfo, 64)
+var file_edge_v1_json_producer_batches_proto_msgTypes = make([]protoimpl.MessageInfo, 54)
 var file_edge_v1_json_producer_batches_proto_goTypes = []any{
 	(*MapperDeviceBatchV1)(nil),                  // 0: serviceradar.edge.v1.MapperDeviceBatchV1
 	(*MapperDeviceRecordV1)(nil),                 // 1: serviceradar.edge.v1.MapperDeviceRecordV1
@@ -6884,125 +5551,102 @@ var file_edge_v1_json_producer_batches_proto_goTypes = []any{
 	(*NetprobeTlsFingerprintV1)(nil),             // 23: serviceradar.edge.v1.NetprobeTlsFingerprintV1
 	(*NetprobeHttpFingerprintV1)(nil),            // 24: serviceradar.edge.v1.NetprobeHttpFingerprintV1
 	(*NetprobeLicenseCleanFingerprintV1)(nil),    // 25: serviceradar.edge.v1.NetprobeLicenseCleanFingerprintV1
-	(*NetprobeP0FMatchV1)(nil),                   // 26: serviceradar.edge.v1.NetprobeP0fMatchV1
-	(*NetprobeMuonFpMatchV1)(nil),                // 27: serviceradar.edge.v1.NetprobeMuonFpMatchV1
-	(*NetprobeRecogMatchV1)(nil),                 // 28: serviceradar.edge.v1.NetprobeRecogMatchV1
-	(*NetprobeSatoriMatchV1)(nil),                // 29: serviceradar.edge.v1.NetprobeSatoriMatchV1
-	(*NetprobeFingerprintMatchV1)(nil),           // 30: serviceradar.edge.v1.NetprobeFingerprintMatchV1
-	(*NetprobeOsMatchV1)(nil),                    // 31: serviceradar.edge.v1.NetprobeOsMatchV1
-	(*NetprobeFingerprintDisagreementV1)(nil),    // 32: serviceradar.edge.v1.NetprobeFingerprintDisagreementV1
-	(*NetprobeDpiObservationV1)(nil),             // 33: serviceradar.edge.v1.NetprobeDpiObservationV1
-	(*NetprobeProcessSnapshotObservationV1)(nil), // 34: serviceradar.edge.v1.NetprobeProcessSnapshotObservationV1
-	(*NetprobeProcessEntryV1)(nil),               // 35: serviceradar.edge.v1.NetprobeProcessEntryV1
-	(*NetprobeWorkloadIdentityV1)(nil),           // 36: serviceradar.edge.v1.NetprobeWorkloadIdentityV1
-	(*NetprobeExecutableOwnershipV1)(nil),        // 37: serviceradar.edge.v1.NetprobeExecutableOwnershipV1
-	(*SyncPageBatchV1)(nil),                      // 38: serviceradar.edge.v1.SyncPageBatchV1
-	(*SyncMetaV1)(nil),                           // 39: serviceradar.edge.v1.SyncMetaV1
-	(*SyncPopulationReportV1)(nil),               // 40: serviceradar.edge.v1.SyncPopulationReportV1
-	(*SyncControlMarkerV1)(nil),                  // 41: serviceradar.edge.v1.SyncControlMarkerV1
-	(*SyncDeviceRecordV1)(nil),                   // 42: serviceradar.edge.v1.SyncDeviceRecordV1
-	(*SyncDeviceOsV1)(nil),                       // 43: serviceradar.edge.v1.SyncDeviceOsV1
-	(*SyncDeviceHwInfoV1)(nil),                   // 44: serviceradar.edge.v1.SyncDeviceHwInfoV1
-	(*SyncNetworkInterfaceV1)(nil),               // 45: serviceradar.edge.v1.SyncNetworkInterfaceV1
-	(*SyncDeviceUserV1)(nil),                     // 46: serviceradar.edge.v1.SyncDeviceUserV1
-	(*SyncDeviceOrganizationV1)(nil),             // 47: serviceradar.edge.v1.SyncDeviceOrganizationV1
-	(*SyncDeviceGroupV1)(nil),                    // 48: serviceradar.edge.v1.SyncDeviceGroupV1
-	(*SyncDeviceAgentV1)(nil),                    // 49: serviceradar.edge.v1.SyncDeviceAgentV1
-	nil,                                          // 50: serviceradar.edge.v1.MapperDeviceRecordV1.MetadataEntry
-	nil,                                          // 51: serviceradar.edge.v1.MapperSnmpFingerprintV1.ExtractionErrorsEntry
-	nil,                                          // 52: serviceradar.edge.v1.MapperInterfaceRecordV1.MetadataEntry
-	nil,                                          // 53: serviceradar.edge.v1.MapperTopologyLinkRecordV1.MetadataEntry
-	nil,                                          // 54: serviceradar.edge.v1.MapperTopologyObservationV2.RawAttributesEntry
-	nil,                                          // 55: serviceradar.edge.v1.NetprobeDiscoveryRecordV1.MetadataEntry
-	nil,                                          // 56: serviceradar.edge.v1.NetprobeProcessSnapshotObservationV1.ProtocolPortCountsEntry
-	nil,                                          // 57: serviceradar.edge.v1.NetprobeWorkloadIdentityV1.LabelsEntry
-	nil,                                          // 58: serviceradar.edge.v1.NetprobeWorkloadIdentityV1.AnnotationsEntry
-	nil,                                          // 59: serviceradar.edge.v1.SyncDeviceRecordV1.SwitchPortAttachmentEntry
-	nil,                                          // 60: serviceradar.edge.v1.SyncDeviceRecordV1.MetadataEntry
-	nil,                                          // 61: serviceradar.edge.v1.SyncDeviceRecordV1.TagsEntry
-	nil,                                          // 62: serviceradar.edge.v1.SyncDeviceRecordV1.FactsEntry
-	nil,                                          // 63: serviceradar.edge.v1.SyncNetworkInterfaceV1.MetadataEntry
+	(*NetprobeRecogMatchV1)(nil),                 // 26: serviceradar.edge.v1.NetprobeRecogMatchV1
+	(*NetprobeOsMatchV1)(nil),                    // 27: serviceradar.edge.v1.NetprobeOsMatchV1
+	(*NetprobeDpiObservationV1)(nil),             // 28: serviceradar.edge.v1.NetprobeDpiObservationV1
+	(*NetprobeProcessSnapshotObservationV1)(nil), // 29: serviceradar.edge.v1.NetprobeProcessSnapshotObservationV1
+	(*SyncPageBatchV1)(nil),                      // 30: serviceradar.edge.v1.SyncPageBatchV1
+	(*SyncMetaV1)(nil),                           // 31: serviceradar.edge.v1.SyncMetaV1
+	(*SyncPopulationReportV1)(nil),               // 32: serviceradar.edge.v1.SyncPopulationReportV1
+	(*SyncControlMarkerV1)(nil),                  // 33: serviceradar.edge.v1.SyncControlMarkerV1
+	(*SyncDeviceRecordV1)(nil),                   // 34: serviceradar.edge.v1.SyncDeviceRecordV1
+	(*SyncDeviceOsV1)(nil),                       // 35: serviceradar.edge.v1.SyncDeviceOsV1
+	(*SyncDeviceHwInfoV1)(nil),                   // 36: serviceradar.edge.v1.SyncDeviceHwInfoV1
+	(*SyncNetworkInterfaceV1)(nil),               // 37: serviceradar.edge.v1.SyncNetworkInterfaceV1
+	(*SyncDeviceUserV1)(nil),                     // 38: serviceradar.edge.v1.SyncDeviceUserV1
+	(*SyncDeviceOrganizationV1)(nil),             // 39: serviceradar.edge.v1.SyncDeviceOrganizationV1
+	(*SyncDeviceGroupV1)(nil),                    // 40: serviceradar.edge.v1.SyncDeviceGroupV1
+	(*SyncDeviceAgentV1)(nil),                    // 41: serviceradar.edge.v1.SyncDeviceAgentV1
+	nil,                                          // 42: serviceradar.edge.v1.MapperDeviceRecordV1.MetadataEntry
+	nil,                                          // 43: serviceradar.edge.v1.MapperSnmpFingerprintV1.ExtractionErrorsEntry
+	nil,                                          // 44: serviceradar.edge.v1.MapperInterfaceRecordV1.MetadataEntry
+	nil,                                          // 45: serviceradar.edge.v1.MapperTopologyLinkRecordV1.MetadataEntry
+	nil,                                          // 46: serviceradar.edge.v1.MapperTopologyObservationV2.RawAttributesEntry
+	nil,                                          // 47: serviceradar.edge.v1.NetprobeDiscoveryRecordV1.MetadataEntry
+	nil,                                          // 48: serviceradar.edge.v1.NetprobeProcessSnapshotObservationV1.ProtocolPortCountsEntry
+	nil,                                          // 49: serviceradar.edge.v1.SyncDeviceRecordV1.SwitchPortAttachmentEntry
+	nil,                                          // 50: serviceradar.edge.v1.SyncDeviceRecordV1.MetadataEntry
+	nil,                                          // 51: serviceradar.edge.v1.SyncDeviceRecordV1.TagsEntry
+	nil,                                          // 52: serviceradar.edge.v1.SyncDeviceRecordV1.FactsEntry
+	nil,                                          // 53: serviceradar.edge.v1.SyncNetworkInterfaceV1.MetadataEntry
 }
 var file_edge_v1_json_producer_batches_proto_depIdxs = []int32{
 	1,  // 0: serviceradar.edge.v1.MapperDeviceBatchV1.devices:type_name -> serviceradar.edge.v1.MapperDeviceRecordV1
 	2,  // 1: serviceradar.edge.v1.MapperDeviceRecordV1.snmp_fingerprint:type_name -> serviceradar.edge.v1.MapperSnmpFingerprintV1
-	50, // 2: serviceradar.edge.v1.MapperDeviceRecordV1.metadata:type_name -> serviceradar.edge.v1.MapperDeviceRecordV1.MetadataEntry
+	42, // 2: serviceradar.edge.v1.MapperDeviceRecordV1.metadata:type_name -> serviceradar.edge.v1.MapperDeviceRecordV1.MetadataEntry
 	3,  // 3: serviceradar.edge.v1.MapperSnmpFingerprintV1.system:type_name -> serviceradar.edge.v1.MapperSnmpSystemFingerprintV1
 	4,  // 4: serviceradar.edge.v1.MapperSnmpFingerprintV1.bridge:type_name -> serviceradar.edge.v1.MapperSnmpBridgeFingerprintV1
 	5,  // 5: serviceradar.edge.v1.MapperSnmpFingerprintV1.vlan:type_name -> serviceradar.edge.v1.MapperSnmpVlanFingerprintV1
 	8,  // 6: serviceradar.edge.v1.MapperSnmpFingerprintV1.interface_summary:type_name -> serviceradar.edge.v1.MapperSnmpInterfaceSummaryV1
-	51, // 7: serviceradar.edge.v1.MapperSnmpFingerprintV1.extraction_errors:type_name -> serviceradar.edge.v1.MapperSnmpFingerprintV1.ExtractionErrorsEntry
+	43, // 7: serviceradar.edge.v1.MapperSnmpFingerprintV1.extraction_errors:type_name -> serviceradar.edge.v1.MapperSnmpFingerprintV1.ExtractionErrorsEntry
 	6,  // 8: serviceradar.edge.v1.MapperSnmpVlanFingerprintV1.pvid_distribution:type_name -> serviceradar.edge.v1.MapperSnmpVlanPvidCountV1
 	7,  // 9: serviceradar.edge.v1.MapperSnmpVlanFingerprintV1.port_evidence:type_name -> serviceradar.edge.v1.MapperSnmpVlanPortEvidenceV1
 	9,  // 10: serviceradar.edge.v1.MapperSnmpInterfaceSummaryV1.if_type_counts:type_name -> serviceradar.edge.v1.MapperSnmpIfTypeCountV1
 	11, // 11: serviceradar.edge.v1.MapperInterfaceBatchV1.interfaces:type_name -> serviceradar.edge.v1.MapperInterfaceRecordV1
-	52, // 12: serviceradar.edge.v1.MapperInterfaceRecordV1.metadata:type_name -> serviceradar.edge.v1.MapperInterfaceRecordV1.MetadataEntry
+	44, // 12: serviceradar.edge.v1.MapperInterfaceRecordV1.metadata:type_name -> serviceradar.edge.v1.MapperInterfaceRecordV1.MetadataEntry
 	12, // 13: serviceradar.edge.v1.MapperInterfaceRecordV1.available_metrics:type_name -> serviceradar.edge.v1.MapperInterfaceMetricV1
 	14, // 14: serviceradar.edge.v1.MapperTopologyBatchV1.links:type_name -> serviceradar.edge.v1.MapperTopologyLinkRecordV1
 	15, // 15: serviceradar.edge.v1.MapperTopologyLinkRecordV1.neighbor_identity:type_name -> serviceradar.edge.v1.MapperNeighborIdentityV1
 	16, // 16: serviceradar.edge.v1.MapperTopologyLinkRecordV1.observation:type_name -> serviceradar.edge.v1.MapperTopologyObservationV2
-	53, // 17: serviceradar.edge.v1.MapperTopologyLinkRecordV1.metadata:type_name -> serviceradar.edge.v1.MapperTopologyLinkRecordV1.MetadataEntry
+	45, // 17: serviceradar.edge.v1.MapperTopologyLinkRecordV1.metadata:type_name -> serviceradar.edge.v1.MapperTopologyLinkRecordV1.MetadataEntry
 	17, // 18: serviceradar.edge.v1.MapperTopologyObservationV2.source_endpoint:type_name -> serviceradar.edge.v1.MapperTopologyEndpointV1
 	17, // 19: serviceradar.edge.v1.MapperTopologyObservationV2.target_endpoint:type_name -> serviceradar.edge.v1.MapperTopologyEndpointV1
-	54, // 20: serviceradar.edge.v1.MapperTopologyObservationV2.raw_attributes:type_name -> serviceradar.edge.v1.MapperTopologyObservationV2.RawAttributesEntry
+	46, // 20: serviceradar.edge.v1.MapperTopologyObservationV2.raw_attributes:type_name -> serviceradar.edge.v1.MapperTopologyObservationV2.RawAttributesEntry
 	1,  // 21: serviceradar.edge.v1.MapperResultsBatchV1.devices:type_name -> serviceradar.edge.v1.MapperDeviceRecordV1
 	11, // 22: serviceradar.edge.v1.MapperResultsBatchV1.interfaces:type_name -> serviceradar.edge.v1.MapperInterfaceRecordV1
 	14, // 23: serviceradar.edge.v1.MapperResultsBatchV1.topology_links:type_name -> serviceradar.edge.v1.MapperTopologyLinkRecordV1
 	20, // 24: serviceradar.edge.v1.NetprobeDiscoveryBatchV1.records:type_name -> serviceradar.edge.v1.NetprobeDiscoveryRecordV1
-	55, // 25: serviceradar.edge.v1.NetprobeDiscoveryRecordV1.metadata:type_name -> serviceradar.edge.v1.NetprobeDiscoveryRecordV1.MetadataEntry
+	47, // 25: serviceradar.edge.v1.NetprobeDiscoveryRecordV1.metadata:type_name -> serviceradar.edge.v1.NetprobeDiscoveryRecordV1.MetadataEntry
 	21, // 26: serviceradar.edge.v1.NetprobeDiscoveryRecordV1.fingerprint:type_name -> serviceradar.edge.v1.NetprobeFingerprintObservationV1
-	33, // 27: serviceradar.edge.v1.NetprobeDiscoveryRecordV1.dpi:type_name -> serviceradar.edge.v1.NetprobeDpiObservationV1
-	34, // 28: serviceradar.edge.v1.NetprobeDiscoveryRecordV1.process_snapshot:type_name -> serviceradar.edge.v1.NetprobeProcessSnapshotObservationV1
+	28, // 27: serviceradar.edge.v1.NetprobeDiscoveryRecordV1.dpi:type_name -> serviceradar.edge.v1.NetprobeDpiObservationV1
+	29, // 28: serviceradar.edge.v1.NetprobeDiscoveryRecordV1.process_snapshot:type_name -> serviceradar.edge.v1.NetprobeProcessSnapshotObservationV1
 	22, // 29: serviceradar.edge.v1.NetprobeFingerprintObservationV1.tcp:type_name -> serviceradar.edge.v1.NetprobeTcpFingerprintV1
 	23, // 30: serviceradar.edge.v1.NetprobeFingerprintObservationV1.tls:type_name -> serviceradar.edge.v1.NetprobeTlsFingerprintV1
 	24, // 31: serviceradar.edge.v1.NetprobeFingerprintObservationV1.http:type_name -> serviceradar.edge.v1.NetprobeHttpFingerprintV1
 	25, // 32: serviceradar.edge.v1.NetprobeFingerprintObservationV1.license_clean:type_name -> serviceradar.edge.v1.NetprobeLicenseCleanFingerprintV1
-	26, // 33: serviceradar.edge.v1.NetprobeLicenseCleanFingerprintV1.p0f_match:type_name -> serviceradar.edge.v1.NetprobeP0fMatchV1
-	30, // 34: serviceradar.edge.v1.NetprobeLicenseCleanFingerprintV1.ja4_match:type_name -> serviceradar.edge.v1.NetprobeFingerprintMatchV1
-	30, // 35: serviceradar.edge.v1.NetprobeLicenseCleanFingerprintV1.hassh_match:type_name -> serviceradar.edge.v1.NetprobeFingerprintMatchV1
-	31, // 36: serviceradar.edge.v1.NetprobeLicenseCleanFingerprintV1.os_match:type_name -> serviceradar.edge.v1.NetprobeOsMatchV1
-	27, // 37: serviceradar.edge.v1.NetprobeLicenseCleanFingerprintV1.muonfp:type_name -> serviceradar.edge.v1.NetprobeMuonFpMatchV1
-	28, // 38: serviceradar.edge.v1.NetprobeLicenseCleanFingerprintV1.recog_http:type_name -> serviceradar.edge.v1.NetprobeRecogMatchV1
-	28, // 39: serviceradar.edge.v1.NetprobeLicenseCleanFingerprintV1.recog_ssh:type_name -> serviceradar.edge.v1.NetprobeRecogMatchV1
-	28, // 40: serviceradar.edge.v1.NetprobeLicenseCleanFingerprintV1.recog_smb:type_name -> serviceradar.edge.v1.NetprobeRecogMatchV1
-	28, // 41: serviceradar.edge.v1.NetprobeLicenseCleanFingerprintV1.recog_ftp:type_name -> serviceradar.edge.v1.NetprobeRecogMatchV1
-	28, // 42: serviceradar.edge.v1.NetprobeLicenseCleanFingerprintV1.recog_telnet:type_name -> serviceradar.edge.v1.NetprobeRecogMatchV1
-	28, // 43: serviceradar.edge.v1.NetprobeLicenseCleanFingerprintV1.recog_snmp:type_name -> serviceradar.edge.v1.NetprobeRecogMatchV1
-	28, // 44: serviceradar.edge.v1.NetprobeLicenseCleanFingerprintV1.recog_sip:type_name -> serviceradar.edge.v1.NetprobeRecogMatchV1
-	28, // 45: serviceradar.edge.v1.NetprobeLicenseCleanFingerprintV1.recog_rdp:type_name -> serviceradar.edge.v1.NetprobeRecogMatchV1
-	28, // 46: serviceradar.edge.v1.NetprobeLicenseCleanFingerprintV1.recog_dns:type_name -> serviceradar.edge.v1.NetprobeRecogMatchV1
-	28, // 47: serviceradar.edge.v1.NetprobeLicenseCleanFingerprintV1.recog_smtp:type_name -> serviceradar.edge.v1.NetprobeRecogMatchV1
-	28, // 48: serviceradar.edge.v1.NetprobeLicenseCleanFingerprintV1.recog_ntp:type_name -> serviceradar.edge.v1.NetprobeRecogMatchV1
-	29, // 49: serviceradar.edge.v1.NetprobeLicenseCleanFingerprintV1.satori_matches:type_name -> serviceradar.edge.v1.NetprobeSatoriMatchV1
-	32, // 50: serviceradar.edge.v1.NetprobeOsMatchV1.disagreements:type_name -> serviceradar.edge.v1.NetprobeFingerprintDisagreementV1
-	56, // 51: serviceradar.edge.v1.NetprobeProcessSnapshotObservationV1.protocol_port_counts:type_name -> serviceradar.edge.v1.NetprobeProcessSnapshotObservationV1.ProtocolPortCountsEntry
-	35, // 52: serviceradar.edge.v1.NetprobeProcessSnapshotObservationV1.entries:type_name -> serviceradar.edge.v1.NetprobeProcessEntryV1
-	36, // 53: serviceradar.edge.v1.NetprobeProcessEntryV1.workload_identity:type_name -> serviceradar.edge.v1.NetprobeWorkloadIdentityV1
-	37, // 54: serviceradar.edge.v1.NetprobeProcessEntryV1.executable_ownership:type_name -> serviceradar.edge.v1.NetprobeExecutableOwnershipV1
-	57, // 55: serviceradar.edge.v1.NetprobeWorkloadIdentityV1.labels:type_name -> serviceradar.edge.v1.NetprobeWorkloadIdentityV1.LabelsEntry
-	58, // 56: serviceradar.edge.v1.NetprobeWorkloadIdentityV1.annotations:type_name -> serviceradar.edge.v1.NetprobeWorkloadIdentityV1.AnnotationsEntry
-	39, // 57: serviceradar.edge.v1.SyncPageBatchV1.sync_meta:type_name -> serviceradar.edge.v1.SyncMetaV1
-	41, // 58: serviceradar.edge.v1.SyncPageBatchV1.control_marker:type_name -> serviceradar.edge.v1.SyncControlMarkerV1
-	42, // 59: serviceradar.edge.v1.SyncPageBatchV1.devices:type_name -> serviceradar.edge.v1.SyncDeviceRecordV1
-	40, // 60: serviceradar.edge.v1.SyncMetaV1.population:type_name -> serviceradar.edge.v1.SyncPopulationReportV1
-	43, // 61: serviceradar.edge.v1.SyncDeviceRecordV1.os:type_name -> serviceradar.edge.v1.SyncDeviceOsV1
-	44, // 62: serviceradar.edge.v1.SyncDeviceRecordV1.hw_info:type_name -> serviceradar.edge.v1.SyncDeviceHwInfoV1
-	45, // 63: serviceradar.edge.v1.SyncDeviceRecordV1.network_interfaces:type_name -> serviceradar.edge.v1.SyncNetworkInterfaceV1
-	46, // 64: serviceradar.edge.v1.SyncDeviceRecordV1.owner:type_name -> serviceradar.edge.v1.SyncDeviceUserV1
-	47, // 65: serviceradar.edge.v1.SyncDeviceRecordV1.org:type_name -> serviceradar.edge.v1.SyncDeviceOrganizationV1
-	48, // 66: serviceradar.edge.v1.SyncDeviceRecordV1.groups:type_name -> serviceradar.edge.v1.SyncDeviceGroupV1
-	49, // 67: serviceradar.edge.v1.SyncDeviceRecordV1.agent_list:type_name -> serviceradar.edge.v1.SyncDeviceAgentV1
-	59, // 68: serviceradar.edge.v1.SyncDeviceRecordV1.switch_port_attachment:type_name -> serviceradar.edge.v1.SyncDeviceRecordV1.SwitchPortAttachmentEntry
-	60, // 69: serviceradar.edge.v1.SyncDeviceRecordV1.metadata:type_name -> serviceradar.edge.v1.SyncDeviceRecordV1.MetadataEntry
-	61, // 70: serviceradar.edge.v1.SyncDeviceRecordV1.tags:type_name -> serviceradar.edge.v1.SyncDeviceRecordV1.TagsEntry
-	62, // 71: serviceradar.edge.v1.SyncDeviceRecordV1.facts:type_name -> serviceradar.edge.v1.SyncDeviceRecordV1.FactsEntry
-	39, // 72: serviceradar.edge.v1.SyncDeviceRecordV1.sync_meta:type_name -> serviceradar.edge.v1.SyncMetaV1
-	63, // 73: serviceradar.edge.v1.SyncNetworkInterfaceV1.metadata:type_name -> serviceradar.edge.v1.SyncNetworkInterfaceV1.MetadataEntry
-	74, // [74:74] is the sub-list for method output_type
-	74, // [74:74] is the sub-list for method input_type
-	74, // [74:74] is the sub-list for extension type_name
-	74, // [74:74] is the sub-list for extension extendee
-	0,  // [0:74] is the sub-list for field type_name
+	27, // 33: serviceradar.edge.v1.NetprobeLicenseCleanFingerprintV1.os_match:type_name -> serviceradar.edge.v1.NetprobeOsMatchV1
+	26, // 34: serviceradar.edge.v1.NetprobeLicenseCleanFingerprintV1.recog_http:type_name -> serviceradar.edge.v1.NetprobeRecogMatchV1
+	26, // 35: serviceradar.edge.v1.NetprobeLicenseCleanFingerprintV1.recog_ssh:type_name -> serviceradar.edge.v1.NetprobeRecogMatchV1
+	26, // 36: serviceradar.edge.v1.NetprobeLicenseCleanFingerprintV1.recog_smb:type_name -> serviceradar.edge.v1.NetprobeRecogMatchV1
+	26, // 37: serviceradar.edge.v1.NetprobeLicenseCleanFingerprintV1.recog_ftp:type_name -> serviceradar.edge.v1.NetprobeRecogMatchV1
+	26, // 38: serviceradar.edge.v1.NetprobeLicenseCleanFingerprintV1.recog_telnet:type_name -> serviceradar.edge.v1.NetprobeRecogMatchV1
+	26, // 39: serviceradar.edge.v1.NetprobeLicenseCleanFingerprintV1.recog_smtp:type_name -> serviceradar.edge.v1.NetprobeRecogMatchV1
+	26, // 40: serviceradar.edge.v1.NetprobeLicenseCleanFingerprintV1.recog_rdp:type_name -> serviceradar.edge.v1.NetprobeRecogMatchV1
+	26, // 41: serviceradar.edge.v1.NetprobeLicenseCleanFingerprintV1.recog_dns:type_name -> serviceradar.edge.v1.NetprobeRecogMatchV1
+	26, // 42: serviceradar.edge.v1.NetprobeLicenseCleanFingerprintV1.recog_ntp:type_name -> serviceradar.edge.v1.NetprobeRecogMatchV1
+	48, // 43: serviceradar.edge.v1.NetprobeProcessSnapshotObservationV1.protocol_port_counts:type_name -> serviceradar.edge.v1.NetprobeProcessSnapshotObservationV1.ProtocolPortCountsEntry
+	31, // 44: serviceradar.edge.v1.SyncPageBatchV1.sync_meta:type_name -> serviceradar.edge.v1.SyncMetaV1
+	33, // 45: serviceradar.edge.v1.SyncPageBatchV1.control_marker:type_name -> serviceradar.edge.v1.SyncControlMarkerV1
+	34, // 46: serviceradar.edge.v1.SyncPageBatchV1.devices:type_name -> serviceradar.edge.v1.SyncDeviceRecordV1
+	32, // 47: serviceradar.edge.v1.SyncMetaV1.population:type_name -> serviceradar.edge.v1.SyncPopulationReportV1
+	35, // 48: serviceradar.edge.v1.SyncDeviceRecordV1.os:type_name -> serviceradar.edge.v1.SyncDeviceOsV1
+	36, // 49: serviceradar.edge.v1.SyncDeviceRecordV1.hw_info:type_name -> serviceradar.edge.v1.SyncDeviceHwInfoV1
+	37, // 50: serviceradar.edge.v1.SyncDeviceRecordV1.network_interfaces:type_name -> serviceradar.edge.v1.SyncNetworkInterfaceV1
+	38, // 51: serviceradar.edge.v1.SyncDeviceRecordV1.owner:type_name -> serviceradar.edge.v1.SyncDeviceUserV1
+	39, // 52: serviceradar.edge.v1.SyncDeviceRecordV1.org:type_name -> serviceradar.edge.v1.SyncDeviceOrganizationV1
+	40, // 53: serviceradar.edge.v1.SyncDeviceRecordV1.groups:type_name -> serviceradar.edge.v1.SyncDeviceGroupV1
+	41, // 54: serviceradar.edge.v1.SyncDeviceRecordV1.agent_list:type_name -> serviceradar.edge.v1.SyncDeviceAgentV1
+	49, // 55: serviceradar.edge.v1.SyncDeviceRecordV1.switch_port_attachment:type_name -> serviceradar.edge.v1.SyncDeviceRecordV1.SwitchPortAttachmentEntry
+	50, // 56: serviceradar.edge.v1.SyncDeviceRecordV1.metadata:type_name -> serviceradar.edge.v1.SyncDeviceRecordV1.MetadataEntry
+	51, // 57: serviceradar.edge.v1.SyncDeviceRecordV1.tags:type_name -> serviceradar.edge.v1.SyncDeviceRecordV1.TagsEntry
+	52, // 58: serviceradar.edge.v1.SyncDeviceRecordV1.facts:type_name -> serviceradar.edge.v1.SyncDeviceRecordV1.FactsEntry
+	31, // 59: serviceradar.edge.v1.SyncDeviceRecordV1.sync_meta:type_name -> serviceradar.edge.v1.SyncMetaV1
+	53, // 60: serviceradar.edge.v1.SyncNetworkInterfaceV1.metadata:type_name -> serviceradar.edge.v1.SyncNetworkInterfaceV1.MetadataEntry
+	61, // [61:61] is the sub-list for method output_type
+	61, // [61:61] is the sub-list for method input_type
+	61, // [61:61] is the sub-list for extension type_name
+	61, // [61:61] is the sub-list for extension extendee
+	0,  // [0:61] is the sub-list for field type_name
 }
 
 func init() { file_edge_v1_json_producer_batches_proto_init() }
@@ -7016,20 +5660,20 @@ func file_edge_v1_json_producer_batches_proto_init() {
 		(*NetprobeDiscoveryRecordV1_Dpi)(nil),
 		(*NetprobeDiscoveryRecordV1_ProcessSnapshot)(nil),
 	}
+	file_edge_v1_json_producer_batches_proto_msgTypes[30].OneofWrappers = []any{}
+	file_edge_v1_json_producer_batches_proto_msgTypes[34].OneofWrappers = []any{}
+	file_edge_v1_json_producer_batches_proto_msgTypes[35].OneofWrappers = []any{}
+	file_edge_v1_json_producer_batches_proto_msgTypes[36].OneofWrappers = []any{}
+	file_edge_v1_json_producer_batches_proto_msgTypes[37].OneofWrappers = []any{}
 	file_edge_v1_json_producer_batches_proto_msgTypes[38].OneofWrappers = []any{}
-	file_edge_v1_json_producer_batches_proto_msgTypes[42].OneofWrappers = []any{}
-	file_edge_v1_json_producer_batches_proto_msgTypes[43].OneofWrappers = []any{}
-	file_edge_v1_json_producer_batches_proto_msgTypes[44].OneofWrappers = []any{}
-	file_edge_v1_json_producer_batches_proto_msgTypes[45].OneofWrappers = []any{}
-	file_edge_v1_json_producer_batches_proto_msgTypes[46].OneofWrappers = []any{}
-	file_edge_v1_json_producer_batches_proto_msgTypes[49].OneofWrappers = []any{}
+	file_edge_v1_json_producer_batches_proto_msgTypes[41].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_edge_v1_json_producer_batches_proto_rawDesc), len(file_edge_v1_json_producer_batches_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   64,
+			NumMessages:   54,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
