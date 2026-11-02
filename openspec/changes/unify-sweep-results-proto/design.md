@@ -2512,16 +2512,22 @@ Otherwise a port-heavy profile would repeat thousands of checks across about
   window to the slots still held when any remain, and keeps the push window
   when none remain. A different lease id, including the 1µs
   empty window `LeaseDelivery` sends when the lease id changed and nothing is
-  unrun, replaces the installed lease outright, so no previous-epoch slot
-  keeps running. `mergeSweepLease` clones the push, so the stored lease stays
-  `lease_version` 1, and the ticker stays suppressed while that lease is held.
-  On load, discarding a stored slot lease whose `lease_version` is not 2 does
-  not delete a held lease that has no slots or resume its ticker. A
+  unrun, replaces the installed lease outright and takes the push's
+  `lease_version`, so no previous-epoch slot keeps running. A same-lease merge
+  keeps the installed lease's `lease_version` and the check sets its retained
+  slots reference, and never lowers that version. `mergeSweepLease` clones the
+  push today and would store a slot-less push at `lease_version` 1; M2.0i4
+  changes that merge. A same-lease clear of an installed `lease_version` 2
+  that still holds a started slot stays `lease_version` 2, so the on-load
+  discard of a stored slot lease whose `lease_version` is not 2 does not drop
+  it or resume its ticker. A held lease with no slots stays installed and its
+  ticker stays suppressed. A
   slot-carrying push at `lease_version` 1 is refused with a `SweepLeaseAck`
   error, so an agent that cannot execute from carried checks does not run it
   from config. Both generations accept a `lease_version` 1 push that carries
   no slots.
-- The agent keeps the carried sets that its installed slots still reference.
+- The agent keeps the carried sets that its installed slots still reference,
+  including the sets a same-lease merge still holds for a started slot.
   A tail carries check sets only for the slots in that push. A retained slot,
   whose start lies outside the window, resolves from the sets kept for it.
   An unresolved key is only a slot in the push whose header matches no set
@@ -2542,9 +2548,10 @@ not leased. The orders are covered without new state:
   new lease id, and a full window is pushed.
 - Agent first: old core pushes slots at `lease_version` 1 and the new agent
   refuses that push. On load the new agent discards stored slot leases whose
-  `lease_version` is not 2, so no valid installed lease covers the group and
-  the group runs on its ticker. A held lease with no slots stays installed
-  and its ticker stays suppressed. A revocation-only push at `lease_version` 1
+  `lease_version` is not 2, so a pre-upgrade slot lease does not cover the
+  group and the group runs on its ticker. A same-lease merge that kept an
+  installed `lease_version` 2 is not discarded. A held lease with no slots
+  stays installed and its ticker stays suppressed. A revocation-only push at `lease_version` 1
   is installed. When core upgrades, the last
   slot-carrying push has no successful acknowledgement, so the existing
   Carrier rule sends a full window.

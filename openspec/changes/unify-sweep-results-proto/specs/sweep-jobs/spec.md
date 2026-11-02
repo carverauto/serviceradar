@@ -133,11 +133,18 @@ the installed production capability when the push carries none, SHALL
 normalize the window to the slots still held when any remain, and SHALL keep
 the push window when none remain. A different
 lease id SHALL replace the installed lease outright, so no previous-epoch
-slot keeps running. The stored lease SHALL be that merge, at the push's
-`lease_version` 1, and the ticker SHALL stay suppressed while it is held. On
-load, the agent SHALL discard a stored lease whose `lease_version` is not 2
-and that carries slots, and SHALL keep a held lease that has no slots so that
-group's ticker stays suppressed. A push that carries slots at
+slot keeps running, and that stored lease SHALL take the push's
+`lease_version`. A same-lease merge SHALL keep the installed lease's
+`lease_version` and the check sets its retained slots reference, and SHALL
+NOT lower that version. `mergeSweepLease` clones the push today, which stores
+a slot-less push at `lease_version` 1; M2.0i4 changes that merge so a
+slot-less push into an installed lease never lowers the stored version. The
+ticker SHALL stay suppressed while the merged lease is held. On load, the
+agent SHALL discard a stored lease whose `lease_version` is not 2 and that
+carries slots. A same-lease merge that kept an installed `lease_version` 2
+still carries those slots, so that discard SHALL NOT drop it or resume its
+ticker. The agent SHALL keep a held lease that has no slots so that group's
+ticker stays suppressed. A push that carries slots at
 `lease_version` 1 SHALL be refused. `sweep_lease_plan_checks:v1` names digest
 grammar 1, and core SHALL NOT send a check set whose `digest_version` the
 agent did not advertise. Before install, the agent SHALL validate the push's
@@ -198,14 +205,28 @@ terminal.
 - **AND** SHALL keep the installed production capability
 - **AND** SHALL normalize the window to the slots still held when any remain
 - **AND** SHALL keep the push window when none remain
-- **AND** SHALL store that merge at `lease_version` 1
+- **AND** SHALL keep the installed lease's `lease_version`
+- **AND** SHALL keep the check sets its retained slots reference
 - **AND** SHALL NOT resume the local ticker
+
+#### Scenario: A started slot survives a same-lease empty push
+- **GIVEN** an installed lease at `lease_version` 2 whose slot has already
+  started
+- **AND** the agent holds the carried set that slot references
+- **WHEN** core pushes `lease_version` 1 with no slots, `revoked` false, and
+  that same lease id, in a window that starts after the slot
+- **THEN** the agent SHALL store the merge at `lease_version` 2
+- **AND** SHALL keep the carried set that slot references
+- **AND** after the agent loads its stored leases, that lease SHALL still be
+  installed and the local ticker SHALL stay suppressed
+- **AND** the started slot SHALL resume from that carried plan
 
 #### Scenario: A different lease id with no slots replaces the lease
 - **GIVEN** a valid lease for the group is already installed
 - **WHEN** core pushes `lease_version` 1 with no slots, `revoked` false, and
   a different lease id
 - **THEN** the agent SHALL replace the installed lease with that push
+- **AND** the stored lease SHALL take that push's `lease_version`
 - **AND** no slot from the previous lease SHALL keep running
 - **AND** SHALL NOT resume the local ticker
 
