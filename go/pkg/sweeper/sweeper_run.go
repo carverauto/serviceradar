@@ -151,8 +151,10 @@ func (s *NetworkSweeper) runSweepWithExecution(ctx context.Context, executionID 
 
 // runSweepWithObserver runs one cycle from a config fixed when the cycle
 // starts: the sweeper config current once the run lock is held, or what derive
-// makes of it. The cycle reads only that config, so an UpdateConfig during the
-// run applies from the next cycle and cannot change this one.
+// makes of it. Target generation, the banner-grab phase, and the wall-clock
+// deadline read that config, so an UpdateConfig during the run applies from
+// the next cycle. Agent, gateway, and partition on results still read the
+// live sweeper config.
 func (s *NetworkSweeper) runSweepWithObserver(
 	ctx context.Context,
 	executionID string,

@@ -272,8 +272,9 @@ func (s *NetworkSweeper) ensureScannersInitialized() {
 	s.ensureScannersInitializedLocked(s.config)
 }
 
-// ensureScannersInitializedLocked initializes only scanners cfg requests, with
-// cfg's scanner settings. The caller must hold s.mu.
+// ensureScannersInitializedLocked creates any scanner cfg's modes still lack,
+// using cfg's scanner settings, and leaves an existing scanner in place. The
+// caller must hold s.mu.
 func (s *NetworkSweeper) ensureScannersInitializedLocked(cfg *models.Config) {
 	if s.icmpScanner == nil {
 		s.icmpScanner = initializeICMPScanner(cfg, s.logger)
