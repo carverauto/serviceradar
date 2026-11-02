@@ -461,3 +461,11 @@ alone.
   projected or explicitly terminally failed
 - **THEN** the execution SHALL record reconciled completion and exact unique
   totals
+
+#### Scenario: Execution retains attribution context
+- **GIVEN** a completed sweep execution
+- **WHEN** its results are inspected
+- **THEN** the execution SHALL identify the sweep group, the agent that ran it,
+  and the config version in force
+- **AND** each host result belonging to it SHALL carry the requested sweep modes
+  alongside the observed per-mode outcome
