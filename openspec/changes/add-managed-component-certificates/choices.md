@@ -149,11 +149,15 @@ This is the initial supported catalog, not independent per-pipeline identities.
 
 ### Bound hub grants even when the authorizer disappears
 
-A hub authorization grant expires with its current short policy lease. The broker
-therefore closes connections even if the authorization worker dies before sending
-a targeted disconnect. Healthy clients must reconnect periodically as a result.
-Real-broker expiry is proved; reconnect overhead and application continuity still
-need acceptance measurements before the chosen lease is considered settled.
+Hub authorization grants use a configurable nominal lifetime of 12 hours with
+uniform +/-20% jitter and a cap at certificate expiry. The maximum fallback
+lifetime is therefore 14 hours 24 minutes at the default, even if every authorizer
+disappears. Admission still requires a fresh short-lived policy snapshot.
+Revocation and de-adoption use targeted system-account KICK requests immediately;
+they never wait for grant expiry. No patched broker, in-place renewal protocol,
+or ServiceRadar-owned expiry timer is introduced. Scheduled expiry requires
+client resubscription and durable consumer recovery; acceptance must verify
+leaf-to-hub records and prompt kick/reconnect rejection on stock NATS.
 
 ### Allow collector certificates to serve approved listeners
 

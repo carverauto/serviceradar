@@ -23,6 +23,12 @@ defmodule CertificateCodecBridge do
         {:ok, signer} = NKEYS.Keypair.from_seed(input["seed"])
         permissions = input["permissions"] || %{}
 
+        Application.put_env(
+          :serviceradar,
+          :nats_certificate_grant_ttl_seconds,
+          input["ttl_seconds"] || 30
+        )
+
         decision =
           if input["allow"] do
             {:allow,
@@ -31,7 +37,10 @@ defmodule CertificateCodecBridge do
                subscribe: Map.get(permissions, "subscribe", [">"]),
                publish_deny: Map.get(permissions, "publish_deny", []),
                subscribe_deny: Map.get(permissions, "subscribe_deny", []),
-               expires_at: System.system_time(:second) + 30
+               expires_at:
+                 CertificateAuthorizationToken.grant_expiry(
+                   DateTime.from_unix!(input["not_after"] || System.system_time(:second) + 86_400)
+                 )
              }}
           else
             {:deny, "certificate not authorized"}

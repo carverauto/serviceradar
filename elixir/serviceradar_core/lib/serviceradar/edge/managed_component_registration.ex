@@ -37,7 +37,12 @@ defmodule ServiceRadar.Edge.ManagedComponentRegistration do
          service when is_binary(service) <- params["service"],
          {:ok, %Agent{status: status}} when status != :superseded <- Ash.get(Agent, host, opts),
          {:ok, attrs} <- source(params, service, opts),
-         {:ok, existing} <- Ash.get(ManagedComponent, attrs.component_id, opts) do
+         {:ok, existing} <-
+           Ash.get(
+             ManagedComponent,
+             attrs.component_id,
+             Keyword.put(opts, :not_found_error?, false)
+           ) do
       if existing do
         if existing.host_agent_id == host && existing.component_type == service &&
              existing.edge_site_id == attrs[:edge_site_id] &&
