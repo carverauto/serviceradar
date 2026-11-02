@@ -21,15 +21,12 @@
 
 // Agent-scheduled and non-leased MTR trace output contract.
 //
-// `MtrTraceBatchV1` already correlates leased sweeps, scheduled checks,
-// ad-hoc runs, and on-demand commands through a source-matching `correlation`
-// oneof. This contract reuses the frozen `MtrTraceEventV1`, `MtrTraceHopV1`,
-// and `MtrMplsLabelV1` shapes and adds the per-trace metadata those batches
-// do not carry: `check_id`, `check_name`, `device_id`, `command_id`,
-// `execution_source`, `error_message`, TCP probe fields (`tcp_port`,
-// `tcp_probe_mode`), handshake and hop-reply diagnostics, `probed_hops`,
-// `last_responding_hop`, and unleased `sweep_group_id` plus `execution_id`,
-// without a per-run source authorization join.
+// `AgentScheduledMtrTraceBatchV1` reuses the frozen `MtrTraceEventV1`,
+// `MtrTraceHopV1`, and `MtrMplsLabelV1` shapes. It adds per-trace
+// `check_name`, `device_id`, TCP probe fields, handshake and hop-reply
+// diagnostics, `probed_hops`, `last_responding_hop`, and unleased
+// `sweep_group_id` plus `execution_id`, without a per-run source
+// authorization join.
 
 package edgev1
 
@@ -47,6 +44,57 @@ const (
 	// Verify that runtime/protoimpl is sufficiently up-to-date.
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
+
+// MtrTcpProbeModeV1 names the TCP probe used for one scheduled MTR trace.
+// Non-TCP traces leave this unspecified.
+type MtrTcpProbeModeV1 int32
+
+const (
+	MtrTcpProbeModeV1_MTR_TCP_PROBE_MODE_V1_UNSPECIFIED MtrTcpProbeModeV1 = 0
+	MtrTcpProbeModeV1_MTR_TCP_PROBE_MODE_V1_SYN         MtrTcpProbeModeV1 = 1
+	MtrTcpProbeModeV1_MTR_TCP_PROBE_MODE_V1_CONNECT     MtrTcpProbeModeV1 = 2
+)
+
+// Enum value maps for MtrTcpProbeModeV1.
+var (
+	MtrTcpProbeModeV1_name = map[int32]string{
+		0: "MTR_TCP_PROBE_MODE_V1_UNSPECIFIED",
+		1: "MTR_TCP_PROBE_MODE_V1_SYN",
+		2: "MTR_TCP_PROBE_MODE_V1_CONNECT",
+	}
+	MtrTcpProbeModeV1_value = map[string]int32{
+		"MTR_TCP_PROBE_MODE_V1_UNSPECIFIED": 0,
+		"MTR_TCP_PROBE_MODE_V1_SYN":         1,
+		"MTR_TCP_PROBE_MODE_V1_CONNECT":     2,
+	}
+)
+
+func (x MtrTcpProbeModeV1) Enum() *MtrTcpProbeModeV1 {
+	p := new(MtrTcpProbeModeV1)
+	*p = x
+	return p
+}
+
+func (x MtrTcpProbeModeV1) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (MtrTcpProbeModeV1) Descriptor() protoreflect.EnumDescriptor {
+	return file_edge_v1_scheduled_mtr_proto_enumTypes[0].Descriptor()
+}
+
+func (MtrTcpProbeModeV1) Type() protoreflect.EnumType {
+	return &file_edge_v1_scheduled_mtr_proto_enumTypes[0]
+}
+
+func (x MtrTcpProbeModeV1) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use MtrTcpProbeModeV1.Descriptor instead.
+func (MtrTcpProbeModeV1) EnumDescriptor() ([]byte, []int) {
+	return file_edge_v1_scheduled_mtr_proto_rawDescGZIP(), []int{0}
+}
 
 // AgentScheduledMtrTraceBatchV1 is the payload of an EdgeRecordV1 record for
 // the agent-scheduled MTR output contract (`serviceradar.mtr.scheduled_trace`,
@@ -111,7 +159,7 @@ type AgentScheduledMtrTraceV1 struct {
 	ProbedHops        uint32                        `protobuf:"varint,9,opt,name=probed_hops,json=probedHops,proto3" json:"probed_hops,omitempty"`
 	LastRespondingHop uint32                        `protobuf:"varint,10,opt,name=last_responding_hop,json=lastRespondingHop,proto3" json:"last_responding_hop,omitempty"`
 	TcpPort           uint32                        `protobuf:"varint,11,opt,name=tcp_port,json=tcpPort,proto3" json:"tcp_port,omitempty"`
-	TcpProbeMode      string                        `protobuf:"bytes,12,opt,name=tcp_probe_mode,json=tcpProbeMode,proto3" json:"tcp_probe_mode,omitempty"`
+	TcpProbeMode      MtrTcpProbeModeV1             `protobuf:"varint,12,opt,name=tcp_probe_mode,json=tcpProbeMode,proto3,enum=serviceradar.edge.v1.MtrTcpProbeModeV1" json:"tcp_probe_mode,omitempty"`
 	ErrorMessage      string                        `protobuf:"bytes,13,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
 	TcpHandshake      *MtrTcpHandshakeDiagnosticsV1 `protobuf:"bytes,14,opt,name=tcp_handshake,json=tcpHandshake,proto3" json:"tcp_handshake,omitempty"`
 	HopDiagnostics    []*MtrHopReplyDiagnosticsV1   `protobuf:"bytes,15,rep,name=hop_diagnostics,json=hopDiagnostics,proto3" json:"hop_diagnostics,omitempty"`
@@ -226,11 +274,11 @@ func (x *AgentScheduledMtrTraceV1) GetTcpPort() uint32 {
 	return 0
 }
 
-func (x *AgentScheduledMtrTraceV1) GetTcpProbeMode() string {
+func (x *AgentScheduledMtrTraceV1) GetTcpProbeMode() MtrTcpProbeModeV1 {
 	if x != nil {
 		return x.TcpProbeMode
 	}
-	return ""
+	return MtrTcpProbeModeV1_MTR_TCP_PROBE_MODE_V1_UNSPECIFIED
 }
 
 func (x *AgentScheduledMtrTraceV1) GetErrorMessage() string {
@@ -520,7 +568,7 @@ const file_edge_v1_scheduled_mtr_proto_rawDesc = "" +
 	"\n" +
 	"\x1bedge/v1/scheduled_mtr.proto\x12\x14serviceradar.edge.v1\x1a\x13edge/v1/sweep.proto\"g\n" +
 	"\x1dAgentScheduledMtrTraceBatchV1\x12F\n" +
-	"\x06traces\x18\x01 \x03(\v2..serviceradar.edge.v1.AgentScheduledMtrTraceV1R\x06traces\"\xd6\x05\n" +
+	"\x06traces\x18\x01 \x03(\v2..serviceradar.edge.v1.AgentScheduledMtrTraceV1R\x06traces\"\xff\x05\n" +
 	"\x18AgentScheduledMtrTraceV1\x12;\n" +
 	"\x05trace\x18\x01 \x01(\v2%.serviceradar.edge.v1.MtrTraceEventV1R\x05trace\x12\x19\n" +
 	"\bcheck_id\x18\x02 \x01(\tR\acheckId\x12\x1d\n" +
@@ -536,8 +584,8 @@ const file_edge_v1_scheduled_mtr_proto_rawDesc = "" +
 	"probedHops\x12.\n" +
 	"\x13last_responding_hop\x18\n" +
 	" \x01(\rR\x11lastRespondingHop\x12\x19\n" +
-	"\btcp_port\x18\v \x01(\rR\atcpPort\x12$\n" +
-	"\x0etcp_probe_mode\x18\f \x01(\tR\ftcpProbeMode\x12#\n" +
+	"\btcp_port\x18\v \x01(\rR\atcpPort\x12M\n" +
+	"\x0etcp_probe_mode\x18\f \x01(\x0e2'.serviceradar.edge.v1.MtrTcpProbeModeV1R\ftcpProbeMode\x12#\n" +
 	"\rerror_message\x18\r \x01(\tR\ferrorMessage\x12W\n" +
 	"\rtcp_handshake\x18\x0e \x01(\v22.serviceradar.edge.v1.MtrTcpHandshakeDiagnosticsV1R\ftcpHandshake\x12W\n" +
 	"\x0fhop_diagnostics\x18\x0f \x03(\v2..serviceradar.edge.v1.MtrHopReplyDiagnosticsV1R\x0ehopDiagnostics\"\xdb\x04\n" +
@@ -573,7 +621,11 @@ const file_edge_v1_scheduled_mtr_proto_rawDesc = "" +
 	"\x13reply_time_exceeded\x18\x04 \x01(\rR\x11replyTimeExceeded\x12+\n" +
 	"\x11reply_unreachable\x18\x05 \x01(\rR\x10replyUnreachable\x12!\n" +
 	"\freply_synack\x18\x06 \x01(\rR\vreplySynack\x12\x1b\n" +
-	"\treply_rst\x18\a \x01(\rR\breplyRstB9Z7github.com/carverauto/serviceradar/proto/edge/v1;edgev1b\x06proto3"
+	"\treply_rst\x18\a \x01(\rR\breplyRst*|\n" +
+	"\x11MtrTcpProbeModeV1\x12%\n" +
+	"!MTR_TCP_PROBE_MODE_V1_UNSPECIFIED\x10\x00\x12\x1d\n" +
+	"\x19MTR_TCP_PROBE_MODE_V1_SYN\x10\x01\x12!\n" +
+	"\x1dMTR_TCP_PROBE_MODE_V1_CONNECT\x10\x02B9Z7github.com/carverauto/serviceradar/proto/edge/v1;edgev1b\x06proto3"
 
 var (
 	file_edge_v1_scheduled_mtr_proto_rawDescOnce sync.Once
@@ -587,26 +639,29 @@ func file_edge_v1_scheduled_mtr_proto_rawDescGZIP() []byte {
 	return file_edge_v1_scheduled_mtr_proto_rawDescData
 }
 
+var file_edge_v1_scheduled_mtr_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_edge_v1_scheduled_mtr_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_edge_v1_scheduled_mtr_proto_goTypes = []any{
-	(*AgentScheduledMtrTraceBatchV1)(nil), // 0: serviceradar.edge.v1.AgentScheduledMtrTraceBatchV1
-	(*AgentScheduledMtrTraceV1)(nil),      // 1: serviceradar.edge.v1.AgentScheduledMtrTraceV1
-	(*MtrTcpHandshakeDiagnosticsV1)(nil),  // 2: serviceradar.edge.v1.MtrTcpHandshakeDiagnosticsV1
-	(*MtrHopReplyDiagnosticsV1)(nil),      // 3: serviceradar.edge.v1.MtrHopReplyDiagnosticsV1
-	(*MtrTraceEventV1)(nil),               // 4: serviceradar.edge.v1.MtrTraceEventV1
-	(SweepExecutionSource)(0),             // 5: serviceradar.edge.v1.SweepExecutionSource
+	(MtrTcpProbeModeV1)(0),                // 0: serviceradar.edge.v1.MtrTcpProbeModeV1
+	(*AgentScheduledMtrTraceBatchV1)(nil), // 1: serviceradar.edge.v1.AgentScheduledMtrTraceBatchV1
+	(*AgentScheduledMtrTraceV1)(nil),      // 2: serviceradar.edge.v1.AgentScheduledMtrTraceV1
+	(*MtrTcpHandshakeDiagnosticsV1)(nil),  // 3: serviceradar.edge.v1.MtrTcpHandshakeDiagnosticsV1
+	(*MtrHopReplyDiagnosticsV1)(nil),      // 4: serviceradar.edge.v1.MtrHopReplyDiagnosticsV1
+	(*MtrTraceEventV1)(nil),               // 5: serviceradar.edge.v1.MtrTraceEventV1
+	(SweepExecutionSource)(0),             // 6: serviceradar.edge.v1.SweepExecutionSource
 }
 var file_edge_v1_scheduled_mtr_proto_depIdxs = []int32{
-	1, // 0: serviceradar.edge.v1.AgentScheduledMtrTraceBatchV1.traces:type_name -> serviceradar.edge.v1.AgentScheduledMtrTraceV1
-	4, // 1: serviceradar.edge.v1.AgentScheduledMtrTraceV1.trace:type_name -> serviceradar.edge.v1.MtrTraceEventV1
-	5, // 2: serviceradar.edge.v1.AgentScheduledMtrTraceV1.execution_source:type_name -> serviceradar.edge.v1.SweepExecutionSource
-	2, // 3: serviceradar.edge.v1.AgentScheduledMtrTraceV1.tcp_handshake:type_name -> serviceradar.edge.v1.MtrTcpHandshakeDiagnosticsV1
-	3, // 4: serviceradar.edge.v1.AgentScheduledMtrTraceV1.hop_diagnostics:type_name -> serviceradar.edge.v1.MtrHopReplyDiagnosticsV1
-	5, // [5:5] is the sub-list for method output_type
-	5, // [5:5] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	2, // 0: serviceradar.edge.v1.AgentScheduledMtrTraceBatchV1.traces:type_name -> serviceradar.edge.v1.AgentScheduledMtrTraceV1
+	5, // 1: serviceradar.edge.v1.AgentScheduledMtrTraceV1.trace:type_name -> serviceradar.edge.v1.MtrTraceEventV1
+	6, // 2: serviceradar.edge.v1.AgentScheduledMtrTraceV1.execution_source:type_name -> serviceradar.edge.v1.SweepExecutionSource
+	0, // 3: serviceradar.edge.v1.AgentScheduledMtrTraceV1.tcp_probe_mode:type_name -> serviceradar.edge.v1.MtrTcpProbeModeV1
+	3, // 4: serviceradar.edge.v1.AgentScheduledMtrTraceV1.tcp_handshake:type_name -> serviceradar.edge.v1.MtrTcpHandshakeDiagnosticsV1
+	4, // 5: serviceradar.edge.v1.AgentScheduledMtrTraceV1.hop_diagnostics:type_name -> serviceradar.edge.v1.MtrHopReplyDiagnosticsV1
+	6, // [6:6] is the sub-list for method output_type
+	6, // [6:6] is the sub-list for method input_type
+	6, // [6:6] is the sub-list for extension type_name
+	6, // [6:6] is the sub-list for extension extendee
+	0, // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_edge_v1_scheduled_mtr_proto_init() }
@@ -620,13 +675,14 @@ func file_edge_v1_scheduled_mtr_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_edge_v1_scheduled_mtr_proto_rawDesc), len(file_edge_v1_scheduled_mtr_proto_rawDesc)),
-			NumEnums:      0,
+			NumEnums:      1,
 			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
 		GoTypes:           file_edge_v1_scheduled_mtr_proto_goTypes,
 		DependencyIndexes: file_edge_v1_scheduled_mtr_proto_depIdxs,
+		EnumInfos:         file_edge_v1_scheduled_mtr_proto_enumTypes,
 		MessageInfos:      file_edge_v1_scheduled_mtr_proto_msgTypes,
 	}.Build()
 	File_edge_v1_scheduled_mtr_proto = out.File

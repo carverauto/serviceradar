@@ -1,3 +1,27 @@
+defmodule Serviceradar.Edge.V1.MtrTcpProbeModeV1 do
+  @moduledoc false
+
+  use Protobuf,
+    enum: true,
+    full_name: "serviceradar.edge.v1.MtrTcpProbeModeV1",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  # SERVICERADAR EDGE ENUM PARITY (task 1.5) -- injected by scripts/patch_edge_enum_negatives.exs.
+  # Go RETAINS an unknown/negative int32 enum as its integer and rejects it in the explicit
+  # semantic validator; the generated `key/1`/`value/1` catchalls are guarded `tag >= 0` and
+  # would RAISE, making Elixir reject a message Go accepts (last-one-wins: `-1` followed by a
+  # valid value has the VALID effective value). Declared in the module BODY on purpose: the
+  # Protobuf DSL appends its clauses at `@before_compile`, so these win for negatives while
+  # every other tag falls through to the generated clauses unchanged.
+  def key(tag) when is_integer(tag) and tag < 0, do: tag
+  def value(tag) when is_integer(tag) and tag < 0, do: tag
+
+  field :MTR_TCP_PROBE_MODE_V1_UNSPECIFIED, 0
+  field :MTR_TCP_PROBE_MODE_V1_SYN, 1
+  field :MTR_TCP_PROBE_MODE_V1_CONNECT, 2
+end
+
 defmodule Serviceradar.Edge.V1.AgentScheduledMtrTraceBatchV1 do
   @moduledoc false
 
@@ -33,7 +57,12 @@ defmodule Serviceradar.Edge.V1.AgentScheduledMtrTraceV1 do
   field :probed_hops, 9, type: :uint32, json_name: "probedHops"
   field :last_responding_hop, 10, type: :uint32, json_name: "lastRespondingHop"
   field :tcp_port, 11, type: :uint32, json_name: "tcpPort"
-  field :tcp_probe_mode, 12, type: :string, json_name: "tcpProbeMode"
+
+  field :tcp_probe_mode, 12,
+    type: Serviceradar.Edge.V1.MtrTcpProbeModeV1,
+    json_name: "tcpProbeMode",
+    enum: true
+
   field :error_message, 13, type: :string, json_name: "errorMessage"
 
   field :tcp_handshake, 14,

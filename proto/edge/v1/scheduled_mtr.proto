@@ -18,20 +18,25 @@ syntax = "proto3";
 
 // Agent-scheduled and non-leased MTR trace output contract.
 //
-// `MtrTraceBatchV1` already correlates leased sweeps, scheduled checks,
-// ad-hoc runs, and on-demand commands through a source-matching `correlation`
-// oneof. This contract reuses the frozen `MtrTraceEventV1`, `MtrTraceHopV1`,
-// and `MtrMplsLabelV1` shapes and adds the per-trace metadata those batches
-// do not carry: `check_id`, `check_name`, `device_id`, `command_id`,
-// `execution_source`, `error_message`, TCP probe fields (`tcp_port`,
-// `tcp_probe_mode`), handshake and hop-reply diagnostics, `probed_hops`,
-// `last_responding_hop`, and unleased `sweep_group_id` plus `execution_id`,
-// without a per-run source authorization join.
+// `AgentScheduledMtrTraceBatchV1` reuses the frozen `MtrTraceEventV1`,
+// `MtrTraceHopV1`, and `MtrMplsLabelV1` shapes. It adds per-trace
+// `check_name`, `device_id`, TCP probe fields, handshake and hop-reply
+// diagnostics, `probed_hops`, `last_responding_hop`, and unleased
+// `sweep_group_id` plus `execution_id`, without a per-run source
+// authorization join.
 package serviceradar.edge.v1;
 
 option go_package = "github.com/carverauto/serviceradar/proto/edge/v1;edgev1";
 
 import "edge/v1/sweep.proto";
+
+// MtrTcpProbeModeV1 names the TCP probe used for one scheduled MTR trace.
+// Non-TCP traces leave this unspecified.
+enum MtrTcpProbeModeV1 {
+  MTR_TCP_PROBE_MODE_V1_UNSPECIFIED = 0;
+  MTR_TCP_PROBE_MODE_V1_SYN = 1;
+  MTR_TCP_PROBE_MODE_V1_CONNECT = 2;
+}
 
 // AgentScheduledMtrTraceBatchV1 is the payload of an EdgeRecordV1 record for
 // the agent-scheduled MTR output contract (`serviceradar.mtr.scheduled_trace`,
@@ -55,7 +60,7 @@ message AgentScheduledMtrTraceV1 {
   uint32 probed_hops = 9;
   uint32 last_responding_hop = 10;
   uint32 tcp_port = 11;
-  string tcp_probe_mode = 12;
+  MtrTcpProbeModeV1 tcp_probe_mode = 12;
   string error_message = 13;
   MtrTcpHandshakeDiagnosticsV1 tcp_handshake = 14;
   repeated MtrHopReplyDiagnosticsV1 hop_diagnostics = 15;
