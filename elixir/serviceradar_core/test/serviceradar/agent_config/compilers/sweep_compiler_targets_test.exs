@@ -839,6 +839,150 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
     end
   end
 
+  describe "contained static targets" do
+    alias ServiceRadar.Actors.SystemActor
+    alias ServiceRadar.Edge.SweepPlan
+
+    defp plan_opts do
+      {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+      range_id = fn ->
+        n = Agent.get_and_update(counter, &{&1 + 1, &1 + 1})
+        <<n::48, 4::4, 0::12, 2::2, 0::62>>
+      end
+
+      [
+        plan_id: Base.decode16!("0192A4A0000170008000000000000001"),
+        network_scope_id: Base.decode16!("0192A4A0000270008000000000000002"),
+        check_set_sha256: :crypto.hash(:sha256, "check-set"),
+        range_id: range_id
+      ]
+    end
+
+    defp save_actor, do: SystemActor.system(:static_target_merge)
+
+    defp create_targets(targets) do
+      Ash.Changeset.for_create(
+        SweepGroup,
+        :create,
+        %{name: "targets", partition: "default", interval: "15m", static_targets: targets},
+        actor: save_actor()
+      )
+    end
+
+    defp update_targets(existing, targets) do
+      record =
+        group(%{
+          id: Ecto.UUID.generate(),
+          name: "targets",
+          partition: "default",
+          interval: "15m",
+          static_targets: existing
+        })
+
+      Ash.Changeset.for_update(record, :update, %{static_targets: targets}, actor: save_actor())
+    end
+
+    defp add_targets(existing, added) do
+      record =
+        group(%{
+          id: Ecto.UUID.generate(),
+          name: "targets",
+          partition: "default",
+          interval: "15m",
+          static_targets: existing
+        })
+
+      Ash.Changeset.for_update(record, :add_targets, %{targets: added}, actor: save_actor())
+    end
+
+    defp refused_on_static_targets?(changeset) do
+      Enum.any?(changeset.errors, fn error ->
+        Map.get(error, :field) == :static_targets and
+          Exception.message(error) =~ "cannot be merged"
+      end)
+    end
+
+    test "a contained host or range becomes the outer target in the plan and the agent config" do
+      contained = ["198.51.100.5/32", "198.51.100.0/24", "198.51.100.9", "198.51.100.128/25"]
+
+      for targets <- [contained, Enum.reverse(contained)] do
+        assert {:ok, ["198.51.100.0/24"]} = SweepPlan.canonical_targets(targets)
+
+        assert {:ok, %{pages: [page]}} = SweepPlan.build(targets, plan_opts())
+        assert Enum.map(page.ranges, & &1.cidr) == ["198.51.100.0/24"]
+
+        compiled =
+          compile_by_id([group(%{id: "sg-merge", name: "merge", static_targets: targets})], [])
+
+        assert compiled["sg-merge"]["targets"] == ["198.51.100.0/24"]
+      end
+
+      {:ok, forward} = SweepPlan.build(contained, plan_opts())
+      {:ok, reverse} = SweepPlan.build(Enum.reverse(contained), plan_opts())
+      assert forward.header.execution_plan_sha256 == reverse.header.execution_plan_sha256
+    end
+
+    test "a target inside a first-last range is dropped and the outer text is kept" do
+      cases = [
+        {["10.0.0.10-10.0.0.50", "10.0.0.20"], ["10.0.0.10-10.0.0.50"]},
+        {["10.0.0.10-10.0.0.50", "10.0.0.50"], ["10.0.0.10-10.0.0.50"]},
+        {["10.0.0.0-10.0.0.200", "10.0.0.0/25"], ["10.0.0.0-10.0.0.200"]},
+        {["10.0.0.0-10.0.0.200", "10.0.0.10-10.0.0.50"], ["10.0.0.0-10.0.0.200"]},
+        {["10.0.0.0-10.0.0.255", "10.0.0.128/25"], ["10.0.0.0-10.0.0.255"]},
+        {["10.0.0.10-10.0.0.50", "10.0.0.20", "192.0.2.9"], ["10.0.0.10-10.0.0.50", "192.0.2.9"]}
+      ]
+
+      for {targets, expected} <- cases, ordered <- [targets, Enum.reverse(targets)] do
+        assert {:ok, expected} == SweepPlan.merge_static_targets(ordered)
+
+        created = create_targets(ordered)
+        assert created.errors == []
+        assert Ash.Changeset.get_attribute(created, :static_targets) == expected
+
+        compiled =
+          compile_by_id(
+            [group(%{id: "sg-range", name: "range", static_targets: ordered})],
+            []
+          )
+
+        assert compiled["sg-range"]["targets"] == expected
+      end
+    end
+
+    test "a partial overlap is refused on the save change and is not rewritten as one range" do
+      overlap = ["10.0.0.10-10.0.0.50", "10.0.0.30-10.0.0.80"]
+
+      assert {:error, {:unmergeable_targets, "10.0.0.10-10.0.0.50", "10.0.0.30-10.0.0.80"}} =
+               SweepPlan.merge_static_targets(overlap)
+
+      assert {:error, {:unmergeable_targets, "10.0.0.0-10.0.0.100", "10.0.0.64/26"}} =
+               SweepPlan.merge_static_targets(["10.0.0.64/26", "10.0.0.0-10.0.0.100"])
+
+      # 198.51.100.64/25 is not prefix-aligned, so it is the same /25 as 198.51.100.0/25.
+      # Two canonical CIDRs never partially overlap: one contains the other, or they are apart.
+      assert {:ok, ["198.51.100.0/25"]} =
+               SweepPlan.merge_static_targets(["198.51.100.64/25", "198.51.100.0/25"])
+
+      assert refused_on_static_targets?(create_targets(overlap))
+      assert refused_on_static_targets?(update_targets(["198.51.100.0/24"], overlap))
+
+      # A group that already stores a nested pair must still accept an unrelated
+      # address. add_targets concatenates, then the save change drops the contained host.
+      added = add_targets(["10.0.0.10-10.0.0.50", "10.0.0.20"], ["192.0.2.9"])
+      assert added.errors == []
+
+      assert Ash.Changeset.get_attribute(added, :static_targets) == [
+               "10.0.0.10-10.0.0.50",
+               "192.0.2.9"
+             ]
+
+      assert refused_on_static_targets?(
+               add_targets(["10.0.0.10-10.0.0.50"], ["10.0.0.40-10.0.0.80"])
+             )
+    end
+  end
+
   describe "agent capability eligibility" do
     @mixed_mtr_id "sg-icmp-mtr"
 

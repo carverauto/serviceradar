@@ -177,7 +177,8 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
     assert scheduled > 0
     assignment = assignment!(group, ctx.agent)
     slots = unrun!(assignment, now)
-    assert range_cidrs(slots) == List.duplicate(["198.51.100.0/24"], scheduled)
+    assert length(slots) == scheduled
+    assert range_cidrs(slots) == [["198.51.100.0/24"]]
 
     assert {:error, %Ash.Error.Invalid{errors: errors}} =
              group
