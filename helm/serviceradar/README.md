@@ -461,7 +461,11 @@ only for the canary, and use an enabled static-target group without a target
 query. Other agents continue using the legacy results path. With
 `agentMetricsEnabled` set, those metrics stay on the status path until
 `contractRegistry` includes an active `serviceradar.metrics.batch` version 1
-contract and that agent's leasing switch is on.
+contract and that agent's leasing switch is on. Results of sweep groups the
+agent runs from its own config, without a lease, move to edge records only when
+`contractRegistry` also includes an active `serviceradar.sweep.unleased_results`
+version 1 contract; each results response and its metric batch then take the
+edge path together, and otherwise both keep the legacy results path.
 
 Use complete terminal ICMP/TCP host windows for this first canary. Partial-mode
 and MTR windows are not supported by this projection yet. Keep the issuer key

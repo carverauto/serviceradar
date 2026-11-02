@@ -3,10 +3,10 @@ defmodule ServiceRadar.Edge.OutputGrants do
   Issues, fences and signs standing edge-record output grants: one
   `ServiceRadar.Edge.OutputGrant` per (agent, passive output contract).
 
-  A producer the agent schedules from its own config (sysmon, SNMP and ICMP metrics today) has
-  no execution core schedules, so instead of a lease it emits under a standing production
-  capability. Core issues grants for every `:standing_grant` contract in
-  `ServiceRadar.Edge.ContractCatalog`. An agent holds a grant for such a contract when:
+  A producer the agent schedules from its own config has no execution core schedules, so
+  instead of a lease it emits under a standing production capability. Core issues grants
+  for every `:standing_grant` contract in `ServiceRadar.Edge.ContractCatalog`. An agent
+  holds a grant for such a contract when:
 
     * the contract is active in the installation's registry, the same document the gateway
       admits records against (`ServiceRadar.Edge.OutputContract.current/1`); and

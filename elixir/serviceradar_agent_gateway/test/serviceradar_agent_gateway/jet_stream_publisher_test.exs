@@ -10,6 +10,7 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
   alias Serviceradar.Edge.V1.EdgeDeliveryFrameV1
   alias Serviceradar.Edge.V1.EdgeRecordV1
   alias Serviceradar.Edge.V1.EdgeSignedCapabilityV1
+  alias ServiceRadarAgentGateway.Config
   alias ServiceRadarAgentGateway.JetStreamPublisher
 
   # A fake connection module driven by the test process mailbox: it records the
@@ -826,11 +827,28 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
              "two delivery modes produced identical provenance"
     end
 
-    test "the header key multiset is EXACTLY four keys once each, in EVERY delivery mode" do
+    test "the header key multiset is EXACTLY five keys once each, in EVERY delivery mode" do
       # EVERY mode, from the same derived set. Checking fresh alone let a renewal-only extra
       # header survive the whole publisher file; checking fresh and renewal alone would still
       # have missed a rollover- or late-fenced-only one. Distinct provenance (above) is
       # additional evidence, NOT a substitute for asserting the exact key set here.
+      # The unit target does not start the gateway application, so the identity is set here.
+      previous =
+        try do
+          :persistent_term.get(Config)
+        catch
+          :error, :badarg -> :missing
+        end
+
+      on_exit(fn ->
+        case previous do
+          :missing -> :persistent_term.erase(Config)
+          config -> :persistent_term.put(Config, config)
+        end
+      end)
+
+      Config.setup(gateway_id: "gw-at-publish", domain: "publisher-header-test")
+
       for {label, pub} <-
             Enum.map(all_delivery_modes(), fn {name, mode} ->
               {name, publication_in_mode(name, mode)}
@@ -842,10 +860,12 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
                  "Nats-Expected-Stream",
                  "Nats-Msg-Id",
                  "Sr-Edge-Delivery-Id",
+                 "Sr-Edge-Gateway-Id",
                  "Sr-Edge-Transport-Provenance"
                ],
                "#{label} mode emitted #{inspect(Enum.sort(keys))}"
 
+        assert header(planned.headers, "Sr-Edge-Gateway-Id") == "gw-at-publish"
         assert length(keys) == length(Enum.uniq(keys)), "#{label} mode repeated a header key"
       end
     end

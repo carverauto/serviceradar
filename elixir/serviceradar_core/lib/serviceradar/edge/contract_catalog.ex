@@ -15,6 +15,7 @@ defmodule ServiceRadar.Edge.ContractCatalog do
 
   alias ServiceRadar.Edge.MetricsBatchProjection
   alias ServiceRadar.Edge.Projectors.SweepObservation
+  alias ServiceRadar.Edge.Projectors.UnleasedSweepResults
 
   @type ref :: {String.t(), pos_integer()}
   @type entry :: %{
@@ -41,6 +42,14 @@ defmodule ServiceRadar.Edge.ContractCatalog do
       max_projected_rows: 10_000,
       write_bytes_per_row: 1_024,
       package_id: "serviceradar.agent.metrics"
+    },
+    %{
+      ref: {"serviceradar.sweep.unleased_results", 1},
+      authority: :standing_grant,
+      projector: UnleasedSweepResults,
+      max_projected_rows: 10_000,
+      write_bytes_per_row: 2_048,
+      package_id: "serviceradar.agent.sweep_results"
     }
   ]
 
