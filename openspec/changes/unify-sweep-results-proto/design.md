@@ -2597,9 +2597,26 @@ the plan did not sign.
 refuse every slot of a group with an IPv6 range and SYN, and the planner could
 not react. The marker (`tcp_syn_ipv6.unavailable`) and its planner rule are
 part of the agent-execution slice. The rule is to not lease the group to that
-agent, because one plan carries one check set. Whether EventWriter should also
-verify `check_set_digest(batch.tested_checks)` against the slot is a separate
-proposal. Nothing checks that today.
+agent, because one plan carries one check set.
+
+**Core verifies what the batch claims.** EventWriter already checks each leased
+batch against its slot, inside the ledger transaction and before any domain
+write. `ServiceRadar.Edge.SweepProjection` accepts a batch only when
+`check_set_digest(batch.tested_checks)` equals the persisted header's
+`check_set_sha256` and the header's value equals the slot's stored
+`check_set_sha256`. Otherwise it refuses with `:sweep_check_set_mismatch`.
+Under this decision an agent that runs the carried checks always passes. A
+mismatch therefore means a defective or forged producer, never config drift.
+The refusal follows the projector's authority-refusal convention: the
+transaction rolls back, so no ledger row, batch coordinate or domain row is
+written. The message is acknowledged rather than redelivered, and is counted
+by the `[:serviceradar, :event_writer, :edge_record, :rejected]` event with its
+reason. It is a rejection, not a quarantine. Quarantine is for admitted
+content whose bytes must be kept for repair (poison, or a digest or slot
+conflict). A batch that claims checks its plan did not sign holds no evidence
+to recover. The slot itself is not relabeled. It stays `scheduled` until a
+conforming batch arrives or `LeaseMisses` judges it missed, so a host that
+sends only nonconforming batches shows as a missed run.
 
 ## Failure Semantics
 

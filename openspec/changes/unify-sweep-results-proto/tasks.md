@@ -316,6 +316,15 @@ in `choices.md` and the chart README.
       config-versus-plan check-set and network comparisons are deleted. The
       planner gets the matching rule: a group with an IPv6 range and TCP SYN
       is not leased to an agent that reports the marker.
+    - [x] M2.0i5 Batch check-set verification. Core rejects a leased batch whose
+      `tested_checks` digest differs from the slot's signed `check_set_sha256`,
+      as an authority refusal (`:sweep_check_set_mismatch`: rollback, no
+      ledger row, acknowledged, `edge_record.rejected` telemetry; not
+      quarantined, slot state unchanged). Already in place:
+      `ServiceRadar.Edge.SweepProjection` checks it, and
+      `edge_record_db_test.exs` ("signed range authority rejects changed
+      targets and checks") covers it. M2.0i1-M2.0i4 do not change it, because
+      an agent that runs the carried checks emits exactly the signed set.
 - [ ] M2.1 Sweep producer. Completed host windows from the agent's sweep become
   byte-bounded `SweepObservationBatchV1` records appended to the existing agent
   spool and sent by the existing sender, while the scan continues (narrows 2.1,

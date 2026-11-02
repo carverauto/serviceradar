@@ -186,6 +186,15 @@ signed checks.
 - **THEN** it SHALL refuse the push with a `SweepLeaseAck` error
 - **AND** the group SHALL keep running on the agent's local ticker
 
+#### Scenario: Batch claims checks its slot did not sign
+- **WHEN** EventWriter receives a leased sweep batch whose `tested_checks`
+  digest differs from the slot's signed `check_set_sha256`
+- **THEN** core SHALL reject the batch with `sweep_check_set_mismatch` before
+  any domain write
+- **AND** SHALL write no ledger row, batch coordinate or domain row for it
+- **AND** SHALL NOT redeliver or quarantine it
+- **AND** SHALL leave the slot's state unchanged
+
 ## MODIFIED Requirements
 
 ### Requirement: Sweep Job Compiled Config Output
