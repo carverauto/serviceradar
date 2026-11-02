@@ -19,9 +19,11 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   sweep config compiles. A capability change re-plans unrun slots on the next pass. While a
   delivered slot for that agent and group has started and is not completed, dropped, missed,
   or expired, that function keeps the config and every newly planned slot on the running
-  slot's signed check set, so the pass does not deliver a next slot for a different set.
-  Once the slot is finished, the capability-adjusted set applies and the next pass re-plans
-  unrun slots onto it.
+  slot's signed check set when the group can still express it, so the pass does not deliver
+  a next slot for a different set. When the group can no longer express that header, both
+  use the capability-adjusted set and the open slot is left on the old header. Once the slot
+  is finished, the capability-adjusted set applies and the next pass re-plans unrun slots
+  onto it.
 
   An unrun slot that no longer matches (its epoch was bumped, its check set, network scope or
   planned targets changed, or the schedule or horizon moved) is dropped and planned again, so

@@ -168,6 +168,46 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
     end
   end
 
+  test "a running slot whose header the group can no longer express compiles the current set",
+       ctx do
+    lease_on!(ctx, 3_600)
+
+    group =
+      leased_group!(ctx, sweep_modes: ["icmp", "tcp"], ports: [22, 443])
+
+    sibling =
+      leased_group!(ctx, sweep_modes: ["icmp"], static_targets: ["192.0.2.0/24"])
+
+    enable_group!(group)
+    enable_group!(sibling)
+    now = DateTime.utc_now()
+
+    assert %{leases: 1, errors: 0} = LeasePass.reconcile_group(group, now)
+    [slot | _] = unrun!(assignment!(group, ctx.agent), now)
+    assert check_set_hex(slot) == @icmp_tcp_22_443_check_set
+
+    deliver_running!(slot, now)
+
+    Repo.query!(
+      "UPDATE platform.sweep_groups SET ports = '{22,80,443}'::integer[] WHERE id = $1::uuid",
+      [Ecto.UUID.dump!(group.id)]
+    )
+
+    log =
+      ExUnit.CaptureLog.capture_log([level: :info], fn ->
+        assert {:ok, %{"groups" => compiled}} =
+                 SweepCompiler.compile(ctx.partition.slug, ctx.agent)
+
+        by_id = Map.new(compiled, &{&1["id"], &1})
+        assert by_id[group.id]["modes"] == ["icmp", "tcp"]
+        assert by_id[group.id]["ports"] == [22, 80, 443]
+        assert by_id[sibling.id]["modes"] == ["icmp"]
+      end)
+
+    assert log =~
+             "group #{group.id} running slot check set cannot be expressed (unexpressed_plan_header)"
+  end
+
   # A slot already running keeps the check set its header was signed with. Withholding ICMP
   # in the next compile would make the edge producer reject every result for that slot.
   test "a running slot keeps ICMP in the delivered config until the slot finishes", ctx do

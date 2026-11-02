@@ -17,10 +17,13 @@ defmodule ServiceRadar.SweepJobs.LeaseEligibility do
   the plan's `check_set_sha256` and refuses a slot whose sets differ, so the plan is built
   from the same function and never from the group's modes alone. While one of that agent's
   delivered slots for the group has started and is not finished, `SweepCompiler.effective_agent_checks/4`
-  keeps both the compiled config and the lease plan on that slot's signed check set. The
-  capability-adjusted set applies once the slot is finished, and the next pass re-plans unrun
-  slots onto it. An agent that can run none of the group's modes is not leased the group, as
-  it is not sent the group at all.
+  keeps both the compiled config and the lease plan on that slot's signed check set when the
+  group can still express it. When it cannot, both use the capability-adjusted set and that
+  open slot is left behind. The capability-adjusted set also applies once the slot is
+  finished, and the next pass re-plans unrun slots onto it. An agent that can run none of
+  the group's modes is not leased the group, as it is not sent the group at all. A group
+  the plan format cannot carry, including one that still runs MTR, is not leased and is
+  still compiled from its scan modes.
 
   A group that fails any of these stays on the legacy path, for that agent or, for a group
   property, for every agent. One execution is never split across the two paths.
