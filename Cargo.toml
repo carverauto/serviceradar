@@ -150,7 +150,7 @@ phf = "0.14"
 phf_codegen = "0.11"
 # Exact-pinned: it selects the pq-src version that //third_party/rust_patches:pq_src_fortify_patch
 # is written against, and a patch that no longer applies fails the fetch.
-pq-sys = "=0.7.5"
+pq-sys = "=0.7.6"
 pretty_assertions = "1"
 proptest = "1"
 # default = ["protobuf"]: without it prometheus swaps in its own
