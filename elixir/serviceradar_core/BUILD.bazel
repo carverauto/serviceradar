@@ -428,6 +428,8 @@ ALL_TEST_SRCS = glob(
         "test/serviceradar/observability/stateful_alert_engine/peer_readiness_test.exs",
         # Runs against a disposable nats-server staged by its own target below.
         "test/serviceradar/event_writer/shared_durable_nats_test.exs",
+        # Real JetStream publish of flow observations. Its target stages nats-server.
+        "test/serviceradar/flow_attribution/observations_nats_test.exs",
     ],
 )
 
@@ -1007,6 +1009,25 @@ ex_unit_test(
     elixir_opts = [
         "-r",
         "test/cluster_test_helper.exs",
+    ],
+    deps = [":erlang_app"],
+)
+
+# Flow observations published through the real JetStream client onto a disposable broker
+# whose max payload is the NATS server default. Kept out of the unit glob because that
+# glob does not stage nats-server.
+ex_unit_test(
+    name = "observations_nats_test",
+    size = "medium",
+    timeout = "long",
+    srcs = ["test/serviceradar/flow_attribution/observations_nats_test.exs"],
+    data = [
+        "test/test_helper.exs",
+        "@nats_server_linux_amd64//:nats_server",
+    ],
+    elixir_opts = [
+        "-r",
+        "test/test_helper.exs",
     ],
     deps = [":erlang_app"],
 )

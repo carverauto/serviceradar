@@ -151,26 +151,26 @@ defmodule ServiceRadar.FlowAttribution.Observations do
 
   defp split_messages(encoded_rows) do
     encoded_rows
-    |> Enum.reduce_while({:ok, [], [], 0, @envelope_bytes}, fn row,
-                                                               {:ok, done, current, count, size} ->
-      size_with_row = size + byte_size(row) + if(count == 0, do: 0, else: 1)
+    |> Enum.reduce_while({:ok, [], [], 0, @envelope_bytes}, fn
+      row, {:ok, done, current, count, size} ->
+        size_with_row = size + byte_size(row) + if(count == 0, do: 0, else: 1)
 
-      cond do
-        size_with_row > @max_message_bytes and count == 0 ->
-          {:halt, {:error, :observation_exceeds_max_payload}}
-
-        count > 0 and
-            (count + 1 > @max_rows_per_message or size_with_row > @max_message_bytes) ->
-          if @envelope_bytes + byte_size(row) > @max_message_bytes do
+        cond do
+          size_with_row > @max_message_bytes and count == 0 ->
             {:halt, {:error, :observation_exceeds_max_payload}}
-          else
-            {:cont,
-             {:ok, [encode_body(current) | done], [row], 1, @envelope_bytes + byte_size(row)}}
-          end
 
-        true ->
-          {:cont, {:ok, done, [row | current], count + 1, size_with_row}}
-      end
+          count > 0 and
+              (count + 1 > @max_rows_per_message or size_with_row > @max_message_bytes) ->
+            if @envelope_bytes + byte_size(row) > @max_message_bytes do
+              {:halt, {:error, :observation_exceeds_max_payload}}
+            else
+              {:cont,
+               {:ok, [encode_body(current) | done], [row], 1, @envelope_bytes + byte_size(row)}}
+            end
+
+          true ->
+            {:cont, {:ok, done, [row | current], count + 1, size_with_row}}
+        end
     end)
     |> finish_split()
   end

@@ -763,6 +763,55 @@ mod path_cap {
 
         assert_eq!(resolver.take_counters().malformed_paths, 0);
     }
+
+    #[test]
+    fn resolve_on_procfs_rejects_an_overlong_symlink_when_the_kernel_stores_it() {
+        use std::fs;
+        use std::os::unix::fs::symlink;
+
+        let proc_root =
+            std::env::temp_dir().join(format!("netprobe-path-cap-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&proc_root);
+        let exe = proc_root.join("77/exe");
+        fs::create_dir_all(exe.parent().unwrap()).unwrap();
+        let over = format!("/{}", "b".repeat(4096));
+        assert_eq!(over.len(), 4097);
+
+        let outcome = match symlink(Path::new(&over), &exe) {
+            Ok(()) => {
+                let mut resolver = ExecutableOwnershipResolver::new(&proc_root);
+                let record = resolver.resolve(77);
+                let counters = resolver.take_counters();
+                let _ = fs::remove_dir_all(&proc_root);
+                assert_eq!(record.state, OwnershipState::Unknown);
+                assert_eq!(record.detail, "executable_path_too_long");
+                assert!(record.executable_path.is_empty());
+                assert_eq!(counters.malformed_paths, 1);
+                "kernel_stored_4097"
+            }
+            Err(err) => {
+                let _ = fs::remove_dir_all(&proc_root);
+                // Linux VFS refuses a symlink target at or above PATH_MAX
+                // (ENAMETOOLONG is 36 on Linux and 63 on macOS), so resolve()
+                // cannot observe this input from a real procfs. The same
+                // resolver still rejects those bytes when they are the readlink result.
+                assert!(
+                    matches!(err.raw_os_error(), Some(36 | 63)),
+                    "expected ENAMETOOLONG storing a 4097-byte symlink, got {err}"
+                );
+                let mut resolver = ExecutableOwnershipResolver::new("/no-such-proc");
+                let record = resolver
+                    .resolve_executable_path(Path::new(&over), Path::new("/no-such-root"))
+                    .expect_err("4097-byte target");
+                assert_eq!(record.state, OwnershipState::Unknown);
+                assert_eq!(record.detail, "executable_path_too_long");
+                assert!(record.executable_path.is_empty());
+                assert_eq!(resolver.take_counters().malformed_paths, 1);
+                "kernel_rejected_4097"
+            }
+        };
+        eprintln!("EVIDENCE path_cap_procfs={outcome}");
+    }
 }
 
 #[cfg(all(test, unix))]
