@@ -113,8 +113,15 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                   <label class="flex cursor-pointer items-center gap-2 gap-2">
                     <span class="text-sm font-medium text-sr-ink">Enabled</span>
                     <input
+                      type="hidden"
+                      name="settings[is_enabled]"
+                      value="false"
+                      disabled={password_only_mode?(@form[:mode].value)}
+                    />
+                    <input
                       type="checkbox"
                       name="settings[is_enabled]"
+                      value="true"
                       checked={sso_enabled}
                       disabled={password_only_mode?(@form[:mode].value)}
                       class={ui_toggle_class()}
@@ -297,6 +304,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                       <input
                         type="checkbox"
                         name="settings[sso_auto_provision]"
+                        value="true"
                         checked={@form[:sso_auto_provision].value}
                         class={ui_toggle_class(class: "toggle-warning")}
                       />
@@ -978,6 +986,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
     }
   end
 
+  # Entra has a distinct email mapping; other persisted mappings remain generic
+  # because Authentik shares the generic email mapping.
+  defp infer_idp_preset(settings) when is_map(settings) do
+    mappings = Map.get(settings, :claim_mappings) || %{}
+
+    if Map.get(mappings, "email") == "preferred_username", do: "entra", else: "generic"
+  end
+
   @impl true
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
@@ -1015,6 +1031,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
      socket
      |> assign(:loading, false)
      |> assign(:settings, settings)
+     |> assign(:idp_preset, infer_idp_preset(settings))
      |> assign(:form, to_form(form_data, as: :settings))}
   end
 
@@ -1063,7 +1080,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
     {:noreply,
      socket
      |> assign(:form, to_form(form_data, as: :settings))
-     |> assign(:idp_preset, "generic")
+     |> assign(:idp_preset, infer_idp_preset(settings))
      |> put_flash(:info, "Form reset to saved values.")}
   end
 
