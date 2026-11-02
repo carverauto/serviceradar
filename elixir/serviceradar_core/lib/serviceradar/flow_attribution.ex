@@ -29,8 +29,9 @@ defmodule ServiceRadar.FlowAttribution do
   so the agent's batch is acknowledged and dropped rather than retried forever.
 
   Options: `:enabled` overrides `enabled?/0`; `:publish` and `:event_id` are
-  passed to `Observations.publish/2`. `:event_id` is the EdgeRecordV1 event id
-  used as the per-split `Nats-Msg-Id` prefix.
+  passed to `Observations.publish/2`. `:event_id` is the EdgeRecordV1 event id.
+  Observations encodes it as a header token and uses that text as the per-split
+  `Nats-Msg-Id` prefix.
   """
   @spec publish_observations(
           [FlowAttributionEvent.t()],

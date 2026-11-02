@@ -55,9 +55,10 @@ defmodule ServiceRadar.FlowAttribution.Observations do
   `(subject, body, msg_id -> :ok | {:error, term})`; an arity-2 callback is
   `(subject, body -> :ok | {:error, term})`.
 
-  `:event_id` is the EdgeRecordV1 event id. Each split's `Nats-Msg-Id` is that
-  id, a colon, and the split index, so a retry stores each split once and a
-  later split is not dropped.
+  `:event_id` is the EdgeRecordV1 event id. A 16-byte id is written as
+  canonical UUID text; any other id that is not a header token is lowercase
+  hex. Each split's `Nats-Msg-Id` is that text, a colon, and the split index,
+  so a retry stores each split once and a later split is not dropped.
   """
   @spec publish([map()], keyword()) :: :ok | {:error, term()}
   def publish(rows, opts \\ []) when is_list(rows) do
@@ -94,10 +95,28 @@ defmodule ServiceRadar.FlowAttribution.Observations do
   end
 
   defp message_id(event_id, index) when is_binary(event_id) and event_id != "" do
-    event_id <> ":" <> Integer.to_string(index)
+    message_id_prefix(event_id) <> ":" <> Integer.to_string(index)
   end
 
   defp message_id(_event_id, _index), do: nil
+
+  defp message_id_prefix(<<_::128>> = event_id), do: canonical_uuid(event_id)
+
+  defp message_id_prefix(event_id) do
+    if header_token?(event_id), do: event_id, else: Base.encode16(event_id, case: :lower)
+  end
+
+  defp canonical_uuid(<<_::128>> = event_id) do
+    <<p1::binary-size(8), p2::binary-size(4), p3::binary-size(4), p4::binary-size(4),
+      p5::binary-size(12)>> =
+      Base.encode16(event_id, case: :lower)
+
+    p1 <> "-" <> p2 <> "-" <> p3 <> "-" <> p4 <> "-" <> p5
+  end
+
+  defp header_token?(value) do
+    String.valid?(value) and Enum.all?(:binary.bin_to_list(value), &(&1 in 0x21..0x7E))
+  end
 
   defp encode_rows(rows) do
     rows
@@ -114,20 +133,15 @@ defmodule ServiceRadar.FlowAttribution.Observations do
   end
 
   defp encode_one(row) when is_map(row) do
-    row = row |> scrub_binaries() |> cap_scalars() |> cap_nested()
+    with {:ok, row} <- row |> scrub_binaries() |> cap_scalars() |> cap_nested(),
+         {:ok, clamped} <- clamp_value(row, @max_row_bytes) do
+      encoded = Jason.encode!(clamped)
 
-    case clamp_value(row, @max_row_bytes) do
-      {:ok, clamped} ->
-        encoded = Jason.encode!(clamped)
-
-        if byte_size(encoded) + @envelope_bytes <= @max_message_bytes do
-          {:ok, encoded}
-        else
-          :error
-        end
-
-      :error ->
+      if byte_size(encoded) + @envelope_bytes <= @max_message_bytes do
+        {:ok, encoded}
+      else
         :error
+      end
     end
   end
 
@@ -186,16 +200,16 @@ defmodule ServiceRadar.FlowAttribution.Observations do
   end
 
   defp cap_nested(row) do
-    Enum.reduce(@nested_limits, row, fn {key, max}, acc ->
+    Enum.reduce_while(@nested_limits, {:ok, row}, fn {key, max}, {:ok, acc} ->
       case fetch_field(acc, key) do
         {:ok, value} when is_map(value) and not is_struct(value) ->
           case clamp_value(value, max) do
-            {:ok, clamped} -> put_field(acc, key, clamped)
-            :error -> put_field(acc, key, nil)
+            {:ok, clamped} -> {:cont, {:ok, put_field(acc, key, clamped)}}
+            :error -> {:halt, :error}
           end
 
         _ ->
-          acc
+          {:cont, {:ok, acc}}
       end
     end)
   end

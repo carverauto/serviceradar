@@ -4,6 +4,7 @@ defmodule ServiceRadar.FlowAttribution.ObservationsTest do
 
   alias Serviceradar.Agent.Netprobe.V1.ExecutableOwnership
   alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEvent
+  alias Serviceradar.Agent.Netprobe.V1.WorkloadIdentity
   alias ServiceRadar.Analytics.StarRocks
   alias ServiceRadar.FlowAttribution
   alias ServiceRadar.FlowAttribution.Observations
@@ -215,6 +216,110 @@ defmodule ServiceRadar.FlowAttribution.ObservationsTest do
     assert length(first) > 1
     assert first == second
     assert first == Enum.map(0..(length(first) - 1), &"edge-record-1:#{&1}")
+  end
+
+  # EdgeRecordV1.event_id is 16 raw bytes. A Nats-Msg-Id value is a header
+  # token: CR or LF in it breaks the shared NATS connection.
+  test "a 16-byte event id is a stable uuid token on each split" do
+    events = for port <- 1..501, do: event(local_port: port)
+
+    event_id = <<
+      0x01,
+      0x92,
+      0xAA,
+      0xBB,
+      0xCC,
+      0xDD,
+      0x0A,
+      0x0D,
+      0x80,
+      0x00,
+      0x80,
+      0x00,
+      0x11,
+      0x22,
+      0x33,
+      0x44
+    >>
+
+    publish = fn subject, body, msg_id ->
+      send(self(), {:published, subject, body, msg_id})
+      :ok
+    end
+
+    opts = [enabled: true, event_id: event_id, publish: publish]
+    assert :ok = FlowAttribution.publish_observations(events, "site-a", "agent-a", opts)
+    first = collect_ids([])
+    assert :ok = FlowAttribution.publish_observations(events, "site-a", "agent-a", opts)
+    second = collect_ids([])
+
+    assert byte_size(event_id) == 16
+    assert length(first) > 1
+    assert first == second
+
+    assert first ==
+             Enum.map(0..(length(first) - 1), fn index ->
+               "0192aabb-ccdd-0a0d-8000-800011223344:#{index}"
+             end)
+
+    assert Enum.all?(first, &(not String.contains?(&1, ["\r", "\n"])))
+  end
+
+  test "a non-token event id is hex encoded on the message id" do
+    publish = fn _subject, _body, msg_id ->
+      send(self(), {:msg_id, msg_id})
+      :ok
+    end
+
+    assert :ok =
+             FlowAttribution.publish_observations([event()], "site-a", "agent-a",
+               enabled: true,
+               event_id: "edge\r\n1",
+               publish: publish
+             )
+
+    assert_received {:msg_id, "656467650d0a31:0"}
+  end
+
+  # flow_process_attribution_observations JSON columns are VARCHAR(1048576) for
+  # workload_identity and VARCHAR(65533) for executable_ownership. A key of that
+  # width cannot fit inside the JSON object, and dropping the column would
+  # acknowledge a hollow row.
+  test "a nested key that cannot fit its column fails the batch before publish" do
+    publish = fn _subject, _body, _msg_id ->
+      send(self(), :published)
+      :ok
+    end
+
+    label = String.duplicate("k", 1_048_576)
+
+    assert {:error, {:flow_attribution_publish_failed, :observation_exceeds_max_payload}} =
+             FlowAttribution.publish_observations(
+               [event(workload_identity: %WorkloadIdentity{labels: %{label => "x"}})],
+               "site-a",
+               "agent-a",
+               enabled: true,
+               publish: publish
+             )
+
+    refute_received :published
+
+    key = String.duplicate("k", 65_533)
+
+    assert {:error, :observation_exceeds_max_payload} =
+             Observations.publish([%{"executable_ownership" => %{key => "x"}}], publish: publish)
+
+    refute_received :published
+
+    annotation = String.duplicate("k", 1_048_576)
+
+    assert {:error, :observation_exceeds_max_payload} =
+             Observations.publish(
+               [%{"workload_identity" => %{"annotations" => %{annotation => "x"}}}],
+               publish: publish
+             )
+
+    refute_received :published
   end
 
   # The admission lane reports the batch as failed to the gateway, which keeps
