@@ -448,7 +448,7 @@ func TestMultiIPScanFlow(t *testing.T) {
 			},
 		}
 
-		targets, hostCount := sweeper.generateTargetsForDeviceTarget(deviceTarget)
+		targets, hostCount := sweeper.generateTargetsForDeviceTarget(sweeper.config, deviceTarget)
 
 		// Should generate targets only for the primary IP with all modes
 		// 1 ICMP target + N TCP targets (per configured ports)
@@ -481,7 +481,7 @@ func TestMultiIPScanFlow(t *testing.T) {
 
 	t.Run("full aggregation flow", func(t *testing.T) {
 		// Generate targets for our device (primary IP only)
-		targets, err := sweeper.generateTargets()
+		targets, err := sweeper.generateTargets(sweeper.config)
 		require.NoError(t, err)
 		require.NotEmpty(t, targets)
 

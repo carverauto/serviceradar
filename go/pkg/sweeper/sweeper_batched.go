@@ -25,7 +25,7 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/scan"
 )
 
-func (s *NetworkSweeper) runBatchedSweep(ctx context.Context, targetEstimate int) error {
+func (s *NetworkSweeper) runBatchedSweep(ctx context.Context, cfg *models.Config, targetEstimate int) error {
 	s.mu.RLock()
 	icmpScanner := s.icmpScanner
 	tcpScanner := s.tcpScanner
@@ -39,7 +39,7 @@ func (s *NetworkSweeper) runBatchedSweep(ctx context.Context, targetEstimate int
 	s.deviceResults = make(map[string]*DeviceResultAggregator)
 	s.resultsMu.Unlock()
 
-	bannerPhase := s.startBannerGrabPhase(ctx)
+	bannerPhase := s.startBannerGrabPhase(ctx, cfg)
 	finishedBannerPhase := false
 	defer func() {
 		if !finishedBannerPhase {
@@ -86,7 +86,7 @@ func (s *NetworkSweeper) runBatchedSweep(ctx context.Context, targetEstimate int
 		Bool("tcpConnectIPv6Available", tcpConnectCaps.TCPConnectIPv6).
 		Msg("Starting batched sweep")
 
-	if err := s.generateTargetsBatched(runner.addTarget); err != nil {
+	if err := s.generateTargetsBatched(cfg, runner.addTarget); err != nil {
 		runner.closeStreams()
 		return fmt.Errorf("failed to generate batched targets: %w", err)
 	}

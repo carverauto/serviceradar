@@ -76,10 +76,10 @@ func isCIDRBroadcast(ip net.IP, ipNet *net.IPNet) bool {
 }
 
 // createTargetsForIP creates targets for a specific IP using the given sweep modes
-func (s *NetworkSweeper) createTargetsForIP(ip string, sweepModes []models.SweepMode, metadata map[string]interface{}) []models.Target {
+func (s *NetworkSweeper) createTargetsForIP(ip string, sweepModes []models.SweepMode, ports []int, metadata map[string]interface{}) []models.Target {
 	var targets []models.Target
 
-	_ = s.emitTargetsForIP(ip, sweepModes, metadata, func(target models.Target) error {
+	_ = s.emitTargetsForIP(ip, sweepModes, ports, metadata, func(target models.Target) error {
 		targets = append(targets, target)
 		return nil
 	})
@@ -90,6 +90,7 @@ func (s *NetworkSweeper) createTargetsForIP(ip string, sweepModes []models.Sweep
 func (s *NetworkSweeper) emitTargetsForIP(
 	ip string,
 	sweepModes []models.SweepMode,
+	ports []int,
 	metadata map[string]interface{},
 	emit func(models.Target) error,
 ) error {
@@ -106,7 +107,7 @@ func (s *NetworkSweeper) emitTargetsForIP(
 	}
 
 	if containsMode(effectiveModes, models.ModeTCP) {
-		for _, port := range s.config.Ports {
+		for _, port := range ports {
 			target := scan.TargetFromIP(ip, models.ModeTCP, port)
 			target.Metadata = metadataForTarget(metadata, ip, requestedModes, models.ModeTCP, rawSYNIPv6Available)
 			if err := emit(target); err != nil {
@@ -116,7 +117,7 @@ func (s *NetworkSweeper) emitTargetsForIP(
 	}
 
 	if containsMode(effectiveModes, models.ModeTCPConnect) {
-		for _, port := range s.config.Ports {
+		for _, port := range ports {
 			target := scan.TargetFromIP(ip, models.ModeTCPConnect, port)
 			target.Metadata = metadataForTarget(metadata, ip, requestedModes, models.ModeTCPConnect, rawSYNIPv6Available)
 			if err := emit(target); err != nil {

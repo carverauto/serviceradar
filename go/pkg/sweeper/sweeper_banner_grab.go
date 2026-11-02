@@ -28,12 +28,12 @@ type activeBannerGrabPhase struct {
 	done   <-chan error
 }
 
-func (s *NetworkSweeper) startBannerGrabPhase(ctx context.Context) *activeBannerGrabPhase {
-	if !s.config.BannerGrab.Enabled {
+func (s *NetworkSweeper) startBannerGrabPhase(ctx context.Context, cfg *models.Config) *activeBannerGrabPhase {
+	if !cfg.BannerGrab.Enabled {
 		return nil
 	}
 
-	engine := banner_grab.New(banner_grab.ConfigFromModel(s.config.BannerGrab))
+	engine := banner_grab.New(banner_grab.ConfigFromModel(cfg.BannerGrab))
 	observations := engine.Start(ctx)
 
 	handler := s.bannerHandler
@@ -43,7 +43,7 @@ func (s *NetworkSweeper) startBannerGrabPhase(ctx context.Context) *activeBanner
 
 	done := make(chan error, 1)
 	go func() {
-		done <- handler(ctx, s.config.BannerGrab, engine, observations)
+		done <- handler(ctx, cfg.BannerGrab, engine, observations)
 	}()
 
 	s.bannerMu.Lock()
@@ -52,9 +52,9 @@ func (s *NetworkSweeper) startBannerGrabPhase(ctx context.Context) *activeBanner
 	s.bannerMu.Unlock()
 
 	s.logger.Info().
-		Strs("protocols", s.config.BannerGrab.Protocols).
-		Int("maxGlobalConcurrency", s.config.BannerGrab.MaxGlobalConcurrency).
-		Int("maxCandidateQueue", s.config.BannerGrab.MaxCandidateQueue).
+		Strs("protocols", cfg.BannerGrab.Protocols).
+		Int("maxGlobalConcurrency", cfg.BannerGrab.MaxGlobalConcurrency).
+		Int("maxCandidateQueue", cfg.BannerGrab.MaxCandidateQueue).
 		Msg("Started banner-grab phase")
 
 	return &activeBannerGrabPhase{

@@ -201,15 +201,15 @@ func validateCIDRExpansion(cidr string, hostCount int) error {
 	return nil
 }
 
-// generateTargets creates scan targets from the configuration.
-func (s *NetworkSweeper) generateTargets() ([]models.Target, error) {
+// generateTargets creates scan targets from one run's configuration.
+func (s *NetworkSweeper) generateTargets(cfg *models.Config) ([]models.Target, error) {
 	var targets []models.Target
 
 	totalHostCount := 0
 
 	// Process legacy networks with global sweep modes (for backward compatibility)
-	for _, network := range s.config.Networks {
-		networkTargets, hostCount, err := s.generateTargetsForNetwork(network)
+	for _, network := range cfg.Networks {
+		networkTargets, hostCount, err := s.generateTargetsForNetwork(cfg, network)
 		if err != nil {
 			return nil, err
 		}
@@ -219,8 +219,8 @@ func (s *NetworkSweeper) generateTargets() ([]models.Target, error) {
 	}
 
 	// Process device targets with per-device sweep modes (from sync service)
-	for _, deviceTarget := range s.config.DeviceTargets {
-		deviceTargets, hostCount := s.generateTargetsForDeviceTarget(&deviceTarget)
+	for _, deviceTarget := range cfg.DeviceTargets {
+		deviceTargets, hostCount := s.generateTargetsForDeviceTarget(cfg, &deviceTarget)
 
 		targets = append(targets, deviceTargets...)
 		totalHostCount += hostCount
@@ -228,13 +228,13 @@ func (s *NetworkSweeper) generateTargets() ([]models.Target, error) {
 
 	s.logger.Info().
 		Int("targetsGenerated", len(targets)).
-		Int("networkCount", len(s.config.Networks)).
-		Int("deviceTargetCount", len(s.config.DeviceTargets)).
+		Int("networkCount", len(cfg.Networks)).
+		Int("deviceTargetCount", len(cfg.DeviceTargets)).
 		Int("totalHosts", totalHostCount).
-		Ints("configuredPorts", s.config.Ports).
+		Ints("configuredPorts", cfg.Ports).
 		Strs("globalSweepModes", func() []string {
-			modes := make([]string, 0, len(s.config.SweepModes))
-			for _, m := range s.config.SweepModes {
+			modes := make([]string, 0, len(cfg.SweepModes))
+			for _, m := range cfg.SweepModes {
 				modes = append(modes, string(m))
 			}
 			return modes

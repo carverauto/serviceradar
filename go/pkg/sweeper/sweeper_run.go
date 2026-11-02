@@ -146,10 +146,19 @@ func (s *NetworkSweeper) runSweepWithLock(ctx context.Context) error {
 // executionID only if that cycle completes. A failed or stopped cycle leaves
 // the previously published id in place.
 func (s *NetworkSweeper) runSweepWithExecution(ctx context.Context, executionID string) error {
-	return s.runSweepWithObserver(ctx, executionID, nil)
+	return s.runSweepWithObserver(ctx, executionID, nil, nil)
 }
 
-func (s *NetworkSweeper) runSweepWithObserver(ctx context.Context, executionID string, observer func(context.Context, *models.Result) error) error {
+// runSweepWithObserver runs one cycle from a config fixed when the cycle
+// starts: the sweeper config current once the run lock is held, or what derive
+// makes of it. The cycle reads only that config, so an UpdateConfig during the
+// run applies from the next cycle and cannot change this one.
+func (s *NetworkSweeper) runSweepWithObserver(
+	ctx context.Context,
+	executionID string,
+	derive func(*models.Config) *models.Config,
+	observer func(context.Context, *models.Result) error,
+) error {
 	s.runMu.Lock()
 	defer s.runMu.Unlock()
 	if err := CheckExecution(ctx); err != nil {
@@ -162,12 +171,17 @@ func (s *NetworkSweeper) runSweepWithObserver(ctx context.Context, executionID s
 	run := &sweepRun{cancel: cancel}
 
 	s.mu.Lock()
+	cfg := s.config
 	s.activeRun = run
 	s.runExecutionID = executionID
 	s.resultObserver = observer
 	s.mu.Unlock()
 
-	err := s.runSweep(runCtx)
+	if derive != nil {
+		cfg = derive(cfg)
+	}
+
+	err := s.runSweep(runCtx, cfg)
 
 	s.mu.Lock()
 	if s.activeRun == run {
@@ -225,14 +239,14 @@ func (s *NetworkSweeper) logRunError(err error, msg string) {
 	s.logger.Error().Err(err).Msg(msg)
 }
 
-func (s *NetworkSweeper) runSweep(ctx context.Context) error {
+func (s *NetworkSweeper) runSweep(ctx context.Context, cfg *models.Config) error {
 	startedAt := time.Now()
 	s.markSweepStarted()
 	defer s.markSweepFinished()
 
-	targetEstimate := estimateTargetCount(s.config)
+	targetEstimate := estimateTargetCount(cfg)
 	if targetEstimate > defaultTargetBatch {
-		if err := s.runBatchedSweep(ctx, targetEstimate); err != nil {
+		if err := s.runBatchedSweep(ctx, cfg, targetEstimate); err != nil {
 			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 				return s.completeCancelledSweep(ctx, startedAt)
 			}
@@ -243,7 +257,7 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 		return s.completeSuccessfulSweep(ctx, startedAt, false)
 	}
 
-	targets, err := s.generateTargets()
+	targets, err := s.generateTargets(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to generate targets: %w", err)
 	}
@@ -278,7 +292,7 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 	// An empty config still finishes the run so previous results are pruned.
 	// It must not claim that a scan started. A configured network that
 	// expands to zero hosts is a real sweep and keeps the start log.
-	nothingToScan := len(s.config.Networks) == 0 && len(s.config.DeviceTargets) == 0
+	nothingToScan := len(cfg.Networks) == 0 && len(cfg.DeviceTargets) == 0
 	if nothingToScan {
 		s.logger.Info().
 			Int("networkCount", 0).
@@ -304,7 +318,7 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 			Msg("Starting sweep")
 	}
 
-	bannerPhase := s.startBannerGrabPhase(ctx)
+	bannerPhase := s.startBannerGrabPhase(ctx, cfg)
 	finishedBannerPhase := false
 	defer func() {
 		if !finishedBannerPhase {

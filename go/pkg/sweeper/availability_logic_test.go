@@ -333,7 +333,7 @@ func TestEndToEndAvailabilityFlow(t *testing.T) {
 
 	t.Run("end-to-end: only last IP responds - device available", func(t *testing.T) {
 		// Generate targets and prepare aggregators
-		targets, err := sweeper.generateTargets()
+		targets, err := sweeper.generateTargets(sweeper.config)
 		require.NoError(t, err)
 		require.NotEmpty(t, targets)
 
@@ -401,7 +401,7 @@ func TestEndToEndAvailabilityFlow(t *testing.T) {
 		sweeper.deviceResults = make(map[string]*DeviceResultAggregator)
 
 		// Generate targets and prepare aggregators
-		targets, err := sweeper.generateTargets()
+		targets, err := sweeper.generateTargets(sweeper.config)
 		require.NoError(t, err)
 
 		sweeper.prepareDeviceAggregators(targets)
@@ -507,7 +507,7 @@ func TestTCPOnlyArmisScenarios(t *testing.T) {
 
 	t.Run("TCP-only: single port success marks device available", func(t *testing.T) {
 		// Generate targets and prepare aggregators
-		targets, err := sweeper.generateTargets()
+		targets, err := sweeper.generateTargets(sweeper.config)
 		require.NoError(t, err)
 		require.NotEmpty(t, targets)
 
@@ -567,7 +567,7 @@ func TestTCPOnlyArmisScenarios(t *testing.T) {
 		sweeper.deviceResults = make(map[string]*DeviceResultAggregator)
 
 		// Generate targets and prepare aggregators
-		targets, err := sweeper.generateTargets()
+		targets, err := sweeper.generateTargets(sweeper.config)
 		require.NoError(t, err)
 
 		sweeper.prepareDeviceAggregators(targets)
@@ -623,7 +623,7 @@ func TestTCPOnlyArmisScenarios(t *testing.T) {
 		sweeper.deviceResults = make(map[string]*DeviceResultAggregator)
 
 		// Generate targets and prepare aggregators
-		targets, err := sweeper.generateTargets()
+		targets, err := sweeper.generateTargets(sweeper.config)
 		require.NoError(t, err)
 
 		sweeper.prepareDeviceAggregators(targets)
