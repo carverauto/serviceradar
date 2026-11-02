@@ -87,6 +87,20 @@ defmodule ServiceRadar.Edge.ManagedCertificateLifecycleIntegrationTest do
     assert {:ok, same} = Lifecycle.rotate(ctx.component.component_id, ctx.opts)
     assert same.id == operation.id
 
+    assert {:ok, nil} =
+             Ash.get(AgentCommand, operation.id, Keyword.put(ctx.opts, :not_found_error?, false))
+
+    assert {:snooze, _} = Lifecycle.reconcile(operation.id)
+    assert {:ok, command} = Ash.get(AgentCommand, operation.id, ctx.opts)
+    assert command.command_type == "certificates.prepare"
+    assert command.agent_id == ctx.component.host_agent_id
+    assert command.payload["request_id"] == operation.id
+    assert command.payload["generation"] == operation.generation
+
+    assert {:snooze, _} = Lifecycle.reconcile(operation.id)
+    assert {:ok, retried} = Ash.get(AgentCommand, operation.id, ctx.opts)
+    assert retried.payload == command.payload
+
     assert {:ok, _} =
              Authority.revoke_component(ctx.component.component_id, "operator-request", ctx.opts)
 
