@@ -68,7 +68,8 @@ holds a current `serviceradar.sweep.unleased_results` version 1 grant. Without
 that grant, and for a leased sweep group, the response stays on the status path.
 The agent splits each metrics record at 512 KiB. An unleased sweep results
 record is split by halving the host list so it stays within that grant's row
-ceiling and 512 KiB. Core republishes the edge records onto the same
+ceiling and 512 KiB, and core ingests it on the results path the status
+message used. Core republishes the metric records onto the same
 `metrics.sysmon.>`, `metrics.snmp.>`,
 `metrics.icmp.>`, `metrics.mtr.>` and `metrics.sweep.>` subjects. Core also
 admits `rperf-metrics` batches onto `metrics.rperf.>`; the agent has no rperf
