@@ -43,7 +43,6 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   alias ServiceRadar.SRQLQuery
   alias ServiceRadar.SweepJobs.AliasRecency
   alias ServiceRadar.SweepJobs.DeclaredTargets
-  alias ServiceRadar.SweepJobs.ExecutionSlots
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepProfile
   alias ServiceRadar.SweepJobs.SweepProfile.BannerGrab
@@ -163,11 +162,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   # replaces the active `:ip` alias lookup for matched device uids; when only
   # `:query_page_fn` is given, no aliases are loaded. `:agent_capabilities`
   # is the compiling agent's capability list (nil when unknown), which
-  # withholds the modes the agent reports it cannot run. A delivered slot whose
-  # collection window is still open keeps that header's modes when the group's
-  # current definition can express it. A group that cannot be leased, and a
-  # header the group can no longer express, compile from `agent_scan_modes/3`.
-  # `:agent_id` names the agent in the resulting log lines. `:format` selects the emitted shape:
+  # withholds the modes the agent reports it cannot run; `:agent_id` names the
+  # agent in the resulting log lines. `:format` selects the emitted shape:
   # `:legacy` (default) returns the compiled groups, `:shared_targets_v1`
   # returns `{:shared_targets_v1, document, compiled_groups}` with the
   # shared-targets document derived from the same groups, and any other value
@@ -279,9 +275,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   `nil` capabilities are unknown and withhold nothing, as for an agent predating the markers.
 
   Returns `{:withheld, modes}` when the agent can run none of the group's modes; the group
-  is then not sent to that agent at all. The lease plan and the compiled config both take
-  their checks from `effective_agent_checks/4`, which uses this for an agent with no
-  delivered slot still in its collection window.
+  is then not sent to that agent at all. Anything that must agree with the agent's delivered
+  sweep config, such as the check set of a sweep lease plan, is derived from this.
   """
   @spec agent_scan_modes(SweepGroup.t(), SweepProfile.t() | nil, [String.t() | atom()] | nil) ::
           {:ok, %{modes: [String.t()], ports: [integer()], withheld: [String.t()]}}
@@ -292,110 +287,6 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     case withhold_unavailable_modes(modes, capabilities) do
       {[], [_ | _] = withheld} -> {:withheld, withheld}
       {kept, withheld} -> {:ok, %{modes: kept, ports: ports, withheld: withheld}}
-    end
-  end
-
-  @type agent_checks :: %{
-          modes: [String.t()],
-          ports: [integer()],
-          withheld: [String.t()],
-          checks: [tuple()],
-          check_set_sha256: binary()
-        }
-
-  @doc """
-  The checks the sweep config and the lease plan both use for one agent and group.
-
-  A group `SweepPlan.checks/2` refuses (MTR, or no representable checks) is not leased
-  and not frozen: `{:error, reason}`. The compiler still emits `agent_scan_modes/3`.
-  Otherwise this is the capability-adjusted set. A delivered slot that has started and
-  is not finished replaces that set with the signed header when the group's current
-  modes and ports can express it. When they cannot, the capability-adjusted set is
-  kept and the open slot is left on its old header.
-  """
-  @spec effective_agent_checks(
-          SweepGroup.t(),
-          SweepProfile.t() | nil,
-          String.t() | nil,
-          [String.t() | atom()] | nil
-        ) ::
-          {:ok, agent_checks()} | {:withheld, [String.t(), ...]} | {:error, term()}
-  def effective_agent_checks(%SweepGroup{} = group, profile, agent_id, capabilities) do
-    case checks_of(group, profile, capabilities) do
-      {:ok, inputs} -> running_or_current(group, profile, agent_id, inputs)
-      other -> other
-    end
-  end
-
-  # `nil` withholds nothing. ICMP and MTR are the only modes a marker can add or remove,
-  # so one of these is the signed set when a capability changed and the group did not.
-  @signed_header_capabilities [
-    nil,
-    ["icmp.unavailable"],
-    ["mtr.unavailable"],
-    ["icmp.unavailable", "mtr.unavailable"]
-  ]
-
-  defp running_or_current(group, profile, agent_id, inputs) do
-    case running_check_set(group, agent_id) do
-      :none -> {:ok, inputs}
-      {:ok, check_set} -> freeze_or_current(group, profile, inputs, check_set)
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp freeze_or_current(group, profile, current, check_set) do
-    expressed =
-      Enum.find_value(@signed_header_capabilities, fn capabilities ->
-        case checks_of(group, profile, capabilities) do
-          {:ok, %{check_set_sha256: ^check_set} = inputs} -> inputs
-          _ -> nil
-        end
-      end)
-
-    case expressed do
-      nil ->
-        Logger.info(
-          "SweepCompiler: group #{group.id} running slot check set cannot be expressed " <>
-            "(unexpressed_plan_header); delivering the current check set"
-        )
-
-        {:ok, current}
-
-      inputs ->
-        {:ok, inputs}
-    end
-  end
-
-  defp checks_of(group, profile, capabilities) do
-    case agent_scan_modes(group, profile, capabilities) do
-      {:withheld, withheld} ->
-        {:withheld, withheld}
-
-      {:ok, %{modes: modes, ports: ports, withheld: withheld}} ->
-        case SweepPlan.checks(modes, ports) do
-          {:ok, checks} ->
-            {:ok,
-             %{
-               modes: modes,
-               ports: ports,
-               withheld: withheld,
-               checks: checks,
-               check_set_sha256: SweepPlan.check_set_sha256(checks)
-             }}
-
-          {:error, reason} ->
-            {:error, reason}
-        end
-    end
-  end
-
-  defp running_check_set(_group, agent_id) when agent_id in [nil, ""], do: :none
-
-  defp running_check_set(%{id: group_id}, agent_id) when is_binary(agent_id) do
-    case Ecto.UUID.cast(group_id) do
-      {:ok, group_id} -> ExecutionSlots.delivered_running_check_set(agent_id, group_id)
-      :error -> :none
     end
   end
 
@@ -736,13 +627,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   # agent at all, and the warning is the diagnostic for a group whose only
   # agent cannot run it: such a group otherwise just never reports results.
   defp agent_modes(group, profile, agent) do
-    expressed =
-      case effective_agent_checks(group, profile, agent.id, agent.capabilities) do
-        {:error, _reason} -> agent_scan_modes(group, profile, agent.capabilities)
-        scan -> scan
-      end
-
-    case expressed do
+    case agent_scan_modes(group, profile, agent.capabilities) do
       {:ok, %{withheld: []} = scan} ->
         {:ok, scan}
 

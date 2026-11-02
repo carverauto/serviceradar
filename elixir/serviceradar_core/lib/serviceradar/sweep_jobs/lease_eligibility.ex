@@ -15,15 +15,8 @@ defmodule ServiceRadar.SweepJobs.LeaseEligibility do
   group overrides on top, and the modes the agent reports it cannot run withheld), which must
   reduce to ICMP and TCP checks with no MTR. The agent compares that config's check set with
   the plan's `check_set_sha256` and refuses a slot whose sets differ, so the plan is built
-  from the same function and never from the group's modes alone. While one of that agent's
-  delivered slots for the group has started and is not finished, `SweepCompiler.effective_agent_checks/4`
-  keeps both the compiled config and the lease plan on that slot's signed check set when the
-  group can still express it. When it cannot, both use the capability-adjusted set and that
-  open slot is left behind. The capability-adjusted set also applies once the slot is
-  finished, and the next pass re-plans unrun slots onto it. An agent that can run none of
-  the group's modes is not leased the group, as it is not sent the group at all. A group
-  the plan format cannot carry, including one that still runs MTR, is not leased and is
-  still compiled from its scan modes.
+  from the same function and never from the group's modes alone. An agent that can run none
+  of the group's modes is not leased the group, as it is not sent the group at all.
 
   A group that fails any of these stays on the legacy path, for that agent or, for a group
   property, for every agent. One execution is never split across the two paths.
@@ -96,10 +89,16 @@ defmodule ServiceRadar.SweepJobs.LeaseEligibility do
   @spec agent_checks(SweepGroup.t(), SweepProfile.t() | nil, capabilities()) ::
           {:ok, agent_inputs()} | {:error, reason()}
   def agent_checks(%SweepGroup{} = group, profile, capabilities) do
-    case SweepCompiler.effective_agent_checks(group, profile, nil, capabilities) do
-      {:ok, inputs} -> {:ok, Map.take(inputs, [:checks, :check_set_sha256])}
+    with {:ok, %{modes: modes, ports: ports}} <- agent_scan_modes(group, profile, capabilities),
+         {:ok, checks} <- SweepPlan.checks(modes, ports) do
+      {:ok, %{checks: checks, check_set_sha256: SweepPlan.check_set_sha256(checks)}}
+    end
+  end
+
+  defp agent_scan_modes(group, profile, capabilities) do
+    case SweepCompiler.agent_scan_modes(group, profile, capabilities) do
+      {:ok, scan} -> {:ok, scan}
       {:withheld, _modes} -> {:error, :all_modes_withheld}
-      {:error, reason} -> {:error, reason}
     end
   end
 

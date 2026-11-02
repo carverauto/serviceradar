@@ -1037,32 +1037,6 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
       assert log =~ "the agent reports icmp.unavailable, mtr.unavailable"
     end
 
-    test "an MTR group compiles beside an ICMP and TCP group when nothing is leased" do
-      mtr =
-        group(%{
-          id: "sg-mtr",
-          name: "mtr",
-          static_targets: ["192.0.2.40"],
-          sweep_modes: ["icmp", "mtr"]
-        })
-
-      tcp =
-        group(%{
-          id: "sg-tcp",
-          name: "tcp",
-          static_targets: ["198.51.100.7"],
-          sweep_modes: ["icmp", "tcp"],
-          ports: [22, 443]
-        })
-
-      compiled =
-        compile_by_id([mtr, tcp], agent_id: "agent-01", agent_capabilities: ["sweep"])
-
-      assert compiled["sg-mtr"]["modes"] == ["icmp", "mtr"]
-      assert compiled["sg-tcp"]["modes"] == ["icmp", "tcp"]
-      assert compiled["sg-tcp"]["ports"] == [22, 443]
-    end
-
     # An older agent omits "icmp" when its probe fails but never reports the
     # marker, so a missing "icmp" cannot withhold work: upgrading core would
     # otherwise stop ICMP across a fleet of older agents.

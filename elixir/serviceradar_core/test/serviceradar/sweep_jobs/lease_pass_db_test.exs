@@ -5,12 +5,9 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
   alias ServiceRadar.AgentConfig.Compilers.SweepCompiler
   alias Serviceradar.Edge.V1.ScheduledPlanHeaderV1
 
-  # Go sweepCheckSetDigest (domain serviceradar.edge.check_set.v1) for TCP SYN on ports 22
-  # and 443, mode 2 protocol 2. The icmp+tcp value is the same grammar from
-  # proto/edge/v1/testdata/sweep_static_plan_corpus.txt (ICMP plus those two TCP checks).
-  # Neither value is computed by SweepCompiler.
+  # Go sweepCheckSetDigest (domain serviceradar.edge.check_set.v1) for TCP SYN on
+  # ports 22 and 443. Not computed by SweepCompiler.
   @tcp_22_443_check_set "ef27b5a15eb570030ffae530ef5e67d3af0e3b988f5f7c10f9f2bad9b2379ca1"
-  @icmp_tcp_22_443_check_set "e9449cfb0b14842f2f541b720e3be9ffa81c21da39d175330e2df72c270401f5"
   alias Serviceradar.Edge.V1.ScheduledPlanPageV1
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Infrastructure.Partition
@@ -164,88 +161,14 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
     assert slots != []
 
     for slot <- slots do
-      assert check_set_hex(slot) == @tcp_22_443_check_set
+      digest =
+        slot.plan_header
+        |> ScheduledPlanHeaderV1.decode()
+        |> Map.fetch!(:check_set_sha256)
+        |> Base.encode16(case: :lower)
+
+      assert digest == @tcp_22_443_check_set
     end
-  end
-
-  test "a running slot whose header the group can no longer express compiles the current set",
-       ctx do
-    lease_on!(ctx, 3_600)
-
-    group =
-      leased_group!(ctx, sweep_modes: ["icmp", "tcp"], ports: [22, 443])
-
-    sibling =
-      leased_group!(ctx, sweep_modes: ["icmp"], static_targets: ["192.0.2.0/24"])
-
-    enable_group!(group)
-    enable_group!(sibling)
-    now = DateTime.utc_now()
-
-    assert %{leases: 1, errors: 0} = LeasePass.reconcile_group(group, now)
-    [slot | _] = unrun!(assignment!(group, ctx.agent), now)
-    assert check_set_hex(slot) == @icmp_tcp_22_443_check_set
-
-    deliver_running!(slot, now)
-
-    Repo.query!(
-      "UPDATE platform.sweep_groups SET ports = '{22,80,443}'::integer[] WHERE id = $1::uuid",
-      [Ecto.UUID.dump!(group.id)]
-    )
-
-    log =
-      ExUnit.CaptureLog.capture_log([level: :info], fn ->
-        assert {:ok, %{"groups" => compiled}} =
-                 SweepCompiler.compile(ctx.partition.slug, ctx.agent)
-
-        by_id = Map.new(compiled, &{&1["id"], &1})
-        assert by_id[group.id]["modes"] == ["icmp", "tcp"]
-        assert by_id[group.id]["ports"] == [22, 80, 443]
-        assert by_id[sibling.id]["modes"] == ["icmp"]
-      end)
-
-    assert log =~
-             "group #{group.id} running slot check set cannot be expressed (unexpressed_plan_header)"
-  end
-
-  # A slot already running keeps the check set its header was signed with. Withholding ICMP
-  # in the next compile would make the edge producer reject every result for that slot.
-  test "a running slot keeps ICMP in the delivered config until the slot finishes", ctx do
-    lease_on!(ctx, 3_600)
-
-    group =
-      leased_group!(ctx, sweep_modes: ["icmp", "tcp"], ports: [22, 443])
-
-    enable_group!(group)
-    now = DateTime.utc_now()
-
-    assert %{leases: 1, errors: 0} = LeasePass.reconcile_group(group, now)
-    [slot | _] = unrun!(assignment!(group, ctx.agent), now)
-    assert check_set_hex(slot) == @icmp_tcp_22_443_check_set
-
-    deliver_running!(slot, now)
-    set_capabilities!(ctx.admin, ctx.agent, ["sweep", "icmp.unavailable"])
-
-    running = compiled_group!(ctx.partition.slug, ctx.agent, group.id)
-    assert running["modes"] == ["icmp", "tcp"]
-    assert running["ports"] == [22, 443]
-
-    assert %{dropped: 0, errors: 0} = LeasePass.reconcile_group(group, now)
-    planned = unrun!(assignment!(group, ctx.agent), now)
-    assert planned != []
-    assert Enum.all?(planned, &(check_set_hex(&1) == @icmp_tcp_22_443_check_set))
-
-    expire_slot!(slot, now)
-    later = DateTime.utc_now()
-
-    finished = compiled_group!(ctx.partition.slug, ctx.agent, group.id)
-    assert finished["modes"] == ["tcp"]
-    assert finished["ports"] == [22, 443]
-
-    assert %{errors: 0} = LeasePass.reconcile_group(group, later)
-    reduced = unrun!(assignment!(group, ctx.agent), later)
-    assert reduced != []
-    assert Enum.all?(reduced, &(check_set_hex(&1) == @tcp_22_443_check_set))
   end
 
   test "changed targets re-plan every unrun slot onto the new ranges without an epoch bump",
@@ -573,55 +496,6 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
   defp slot_state(group, slot_id) do
     assert {:ok, slots} = ExecutionSlots.list_for_group(group.id)
     Enum.find(slots, &(&1.id == slot_id)).state
-  end
-
-  defp check_set_hex(slot) do
-    slot.plan_header
-    |> ScheduledPlanHeaderV1.decode()
-    |> Map.fetch!(:check_set_sha256)
-    |> Base.encode16(case: :lower)
-  end
-
-  defp compiled_group!(partition, agent_id, group_id) do
-    assert {:ok, %{"groups" => compiled}} = SweepCompiler.compile(partition, agent_id)
-    assert group = Enum.find(compiled, &(&1["id"] == group_id))
-    group
-  end
-
-  defp deliver_running!(slot, now) do
-    Repo.query!(
-      """
-      UPDATE platform.sweep_execution_slots
-      SET slot_start = $2, collection_expires = $3, delivered_at = $4
-      WHERE id = $1::uuid
-      """,
-      [
-        Ecto.UUID.dump!(slot.id),
-        DateTime.shift(now, second: -60),
-        DateTime.shift(now, second: 600),
-        now
-      ]
-    )
-  end
-
-  defp expire_slot!(slot, now) do
-    Repo.query!(
-      """
-      UPDATE platform.sweep_execution_slots
-      SET collection_expires = $2
-      WHERE id = $1::uuid
-      """,
-      [Ecto.UUID.dump!(slot.id), DateTime.shift(now, second: -1)]
-    )
-  end
-
-  defp set_capabilities!(admin, agent_uid, capabilities) do
-    assert {:ok, agent} = Agent.get_by_uid(agent_uid, actor: admin)
-
-    assert {:ok, _agent} =
-             agent
-             |> Ash.Changeset.for_update(:update, %{capabilities: capabilities}, actor: admin)
-             |> Ash.update()
   end
 
   defp assignment!(group, agent_id) do

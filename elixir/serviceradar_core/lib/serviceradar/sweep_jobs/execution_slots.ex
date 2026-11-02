@@ -12,7 +12,6 @@ defmodule ServiceRadar.SweepJobs.ExecutionSlots do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.SweepPlan
-  alias ServiceRadar.Repo
   alias Serviceradar.Edge.V1.ScheduledPlanHeaderV1
   alias Serviceradar.Edge.V1.ScheduledPlanPageV1
   alias ServiceRadar.SweepJobs.SweepExecutionSlot
@@ -176,58 +175,6 @@ defmodule ServiceRadar.SweepJobs.ExecutionSlots do
     |> Ash.Query.sort(slot_start: :asc)
     |> Ash.read(actor: actor())
   end
-
-  @doc """
-  The check set of the signed plan header on this agent's delivered slot for the group, while
-  that slot's collection window is open.
-
-  A completed, dropped, missed, or expired slot is finished and yields `:none`. The sweep
-  compiler keeps this check set in the config it delivers until then.
-  """
-  @spec delivered_running_check_set(String.t(), Ecto.UUID.t(), DateTime.t()) ::
-          {:ok, binary()} | :none | {:error, term()}
-  def delivered_running_check_set(agent_id, sweep_group_id, now \\ DateTime.utc_now())
-      when is_binary(agent_id) do
-    case Repo.query(
-           """
-           SELECT slot.plan_header
-           FROM platform.sweep_execution_slots AS slot
-           WHERE slot.agent_id = $1
-             AND slot.sweep_group_id = $2::uuid
-             AND slot.state = 'scheduled'
-             AND slot.delivered_at IS NOT NULL
-             AND slot.slot_start <= $3
-             AND slot.collection_expires > $3
-             AND NOT EXISTS (
-               SELECT 1
-               FROM platform.sweep_group_executions AS execution
-               WHERE execution.id = slot.id
-                 AND execution.status = 'completed'
-             )
-           ORDER BY slot.slot_start DESC
-           LIMIT 1
-           """,
-           [agent_id, sweep_group_id, now]
-         ) do
-      {:ok, %{rows: [[header]]}} -> header_check_set(header)
-      {:ok, %{rows: []}} -> :none
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp header_check_set(encoded) when is_binary(encoded) do
-    case ScheduledPlanHeaderV1.decode(encoded) do
-      %{check_set_sha256: check_set} when is_binary(check_set) and byte_size(check_set) == 32 ->
-        {:ok, check_set}
-
-      _ ->
-        {:error, :invalid_plan_header}
-    end
-  rescue
-    _ -> {:error, :invalid_plan_header}
-  end
-
-  defp header_check_set(_encoded), do: {:error, :invalid_plan_header}
 
   defp actor, do: SystemActor.system(:sweep_execution_slots)
 end
