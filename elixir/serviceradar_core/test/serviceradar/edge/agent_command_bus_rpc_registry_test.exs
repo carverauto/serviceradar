@@ -2,6 +2,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusRPCRegistryTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.Edge.AgentCommandBus
+  alias ServiceRadar.Edge.ManagedComponentCertificateIssuer
   alias ServiceRadar.ProcessRegistry
 
   @moduletag :cluster
@@ -63,6 +64,74 @@ defmodule ServiceRadar.Edge.AgentCommandBusRPCRegistryTest do
                  session.canonical_principal?
              end)
            end)
+  end
+
+  test "managed leaf issuance reaches the authenticated session when gateway metadata is text" do
+    ensure_distribution!()
+
+    suffix = System.unique_integer([:positive])
+    {:ok, peer, gateway} = start_peer(String.to_atom("example_gateway_#{suffix}"))
+    on_exit(fn -> stop_peer(peer) end)
+    sync_code_paths(gateway)
+    start_registry(gateway)
+
+    # Only the remote signing endpoint is a fixture. Registry lookup and the
+    # issuer's Erlang RPC execute normally, including the node argument type.
+    :erpc.call(gateway, Code, :compile_string, [
+      """
+      defmodule ServiceRadarAgentGateway.CertIssuer do
+        def issue_from_csr(csr, identity, partition, type, opts) do
+          send(:persistent_term.get(:managed_issuer_test_owner),
+            {:issued, csr, identity, partition, type, opts})
+          {:ok, %{certificate_pem: "synthetic certificate"}}
+        end
+      end
+      """
+    ])
+
+    :ok = :erpc.call(gateway, :persistent_term, :put, [:managed_issuer_test_owner, self()])
+    agent_id = "example-agent-#{suffix}"
+    partition = "example-partition"
+
+    name =
+      ProcessRegistry.via(
+        {:agent_control, partition, agent_id, gateway},
+        %{agent_id: agent_id, partition_id: partition, gateway_node: Atom.to_string(gateway)}
+      )
+
+    assert {:ok, _session} = :erpc.call(gateway, Agent, :start, [Map, :new, [], [name: name]])
+
+    operation = %{
+      service: "nats-leaf",
+      component_id: "example-leaf",
+      host_agent_id: agent_id,
+      partition_id: partition,
+      server_hosts: ["leaf.example.com"],
+      requested_by: "example-operator",
+      csrs: %{
+        "local_server" => %{"csr_der" => Base.encode64("synthetic server CSR")},
+        "upstream_client" => %{"csr_der" => Base.encode64("synthetic upstream CSR")}
+      }
+    }
+
+    assert {:ok,
+            %{
+              "local_server" => %{certificate_pem: "synthetic certificate"},
+              "upstream_client" => %{certificate_pem: "synthetic certificate"}
+            }} = :erpc.call(gateway, ManagedComponentCertificateIssuer, :issue, [operation])
+
+    assert_receive {:issued, "synthetic server CSR", "example-leaf-server", ^partition,
+                    :nats_leaf_server, server_opts}
+
+    assert server_opts[:authorized_component_id] == "example-leaf-server"
+    assert server_opts[:authorized_partition_id] == partition
+    assert server_opts[:server_hosts] == ["leaf.example.com"]
+
+    assert_receive {:issued, "synthetic upstream CSR", "example-leaf", ^partition, :nats_leaf,
+                    upstream_opts}
+
+    assert upstream_opts[:authorized_component_id] == "example-leaf"
+    assert upstream_opts[:audit_actor] == %{id: "example-operator"}
   end
 
   defp ensure_distribution! do
