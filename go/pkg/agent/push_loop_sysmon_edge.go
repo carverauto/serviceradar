@@ -141,23 +141,36 @@ type sysmonEdgeQueued struct {
 	ready  []sysmonEdgeBuilt
 }
 
-// takeSysmonEdgePending returns samples the spool has not admitted any part of,
+// takeSysmonEdgePending detaches samples the spool has not admitted any part of,
 // so they can take the legacy path once the grant is gone. Partly admitted
-// samples stay queued as their unsent records.
-func (p *PushLoop) takeSysmonEdgePending() []*sysmon.MetricSample {
+// samples stay queued as their unsent records. The caller restores the detached
+// items, in order, unless the legacy send delivers them.
+func (p *PushLoop) takeSysmonEdgePending() []sysmonEdgeQueued {
 	p.sysmonEdgeMu.Lock()
 	defer p.sysmonEdgeMu.Unlock()
-	var samples []*sysmon.MetricSample
+	var taken []sysmonEdgeQueued
 	kept := make([]sysmonEdgeQueued, 0, len(p.sysmonEdgePending))
 	for _, item := range p.sysmonEdgePending {
 		if item.sample != nil {
-			samples = append(samples, item.sample)
+			taken = append(taken, item)
 			continue
 		}
 		kept = append(kept, item)
 	}
 	p.sysmonEdgePending = kept
-	return samples
+	return taken
+}
+
+func (p *PushLoop) restoreSysmonEdgePending(items []sysmonEdgeQueued) {
+	if len(items) == 0 {
+		return
+	}
+	p.sysmonEdgeMu.Lock()
+	defer p.sysmonEdgeMu.Unlock()
+	pending := make([]sysmonEdgeQueued, 0, len(items)+len(p.sysmonEdgePending))
+	pending = append(pending, items...)
+	pending = append(pending, p.sysmonEdgePending...)
+	p.sysmonEdgePending = p.trimSysmonEdgePending(pending)
 }
 
 // spoolSysmonSamples appends the pending queue and newly drained samples, oldest

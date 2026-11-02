@@ -152,21 +152,45 @@ func syntheticSysmonSamples(n int) []*sysmon.MetricSample {
 
 // sysmonStatusGateway is a disposable AgentGatewayService peer that counts the
 // sysmon statuses the agent streams to it over the real StreamStatus RPC.
+type sysmonStreamMode int
+
+const (
+	sysmonStreamOK sysmonStreamMode = iota
+	sysmonStreamError
+	sysmonStreamUnacked
+)
+
 type sysmonStatusGateway struct {
 	proto.UnimplementedAgentGatewayServiceServer
 
 	mu     sync.Mutex
 	sysmon int
+	mode   sysmonStreamMode
+}
+
+func (g *sysmonStatusGateway) setMode(mode sysmonStreamMode) {
+	g.mu.Lock()
+	g.mode = mode
+	g.mu.Unlock()
 }
 
 func (g *sysmonStatusGateway) StreamStatus(stream grpc.ClientStreamingServer[proto.GatewayStatusChunk, proto.GatewayStatusResponse]) error {
+	g.mu.Lock()
+	mode := g.mode
+	g.mu.Unlock()
+	if mode == sysmonStreamError {
+		return errSysmonStreamFailed
+	}
 	for {
 		chunk, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
-			return stream.SendAndClose(&proto.GatewayStatusResponse{Received: true})
+			return stream.SendAndClose(&proto.GatewayStatusResponse{Received: mode != sysmonStreamUnacked})
 		}
 		if err != nil {
 			return err
+		}
+		if mode != sysmonStreamOK {
+			continue
 		}
 		for _, status := range chunk.GetServices() {
 			if status.GetSource() == "sysmon-metrics" {
@@ -259,6 +283,65 @@ func TestSysmonMetricsWithAGrantGoOnlyToTheEdgeSpool(t *testing.T) {
 	want, err := buildSysmonMetricBatch(syntheticSysmonSamples(3), loop.metricEnvelopeContext())
 	require.NoError(t, err)
 	require.Len(t, batches[0].GetMetrics(), len(want.GetMetrics()))
+}
+
+func TestQueuedSysmonSurvivesAFailedLegacyStream(t *testing.T) {
+	for _, mode := range []sysmonStreamMode{sysmonStreamError, sysmonStreamUnacked} {
+		t.Run(mode.String(), func(t *testing.T) {
+			loop, gw, _ := sysmonEdgeLoop(t, openTestEdgeSpool(t))
+			first := syntheticSysmonSamples(1)[0]
+			second := syntheticSysmonSamples(1)[0]
+			second.HostID = "queued-host-2.example.com"
+			remainder := sysmonEdgeQueued{ready: []sysmonEdgeBuilt{{}}}
+			loop.sysmonEdgePending = []sysmonEdgeQueued{{sample: first}, remainder, {sample: second}}
+			gw.setMode(mode)
+
+			require.False(t, loop.pushSysmonStatus(context.Background(), nil))
+
+			require.Zero(t, gw.sysmonStatuses())
+			require.Zero(t, sysmonEdgeDrops(loop, edgeDropRetryBufferFull))
+			require.Equal(t, []*sysmon.MetricSample{first, second}, queuedSysmonSamples(loop))
+			require.Len(t, loop.sysmonEdgePending, 3)
+			require.Nil(t, loop.sysmonEdgePending[2].sample)
+
+			gw.setMode(sysmonStreamOK)
+			if mode == sysmonStreamError {
+				require.NoError(t, loop.gateway.Connect(t.Context()))
+			}
+			require.True(t, loop.pushSysmonStatus(context.Background(), nil))
+
+			require.Equal(t, 1, gw.sysmonStatuses())
+			require.Len(t, loop.sysmonEdgePending, 1)
+			require.Nil(t, loop.sysmonEdgePending[0].sample)
+			require.False(t, loop.pushSysmonStatus(context.Background(), nil))
+			require.Equal(t, 1, gw.sysmonStatuses())
+		})
+	}
+}
+
+func (m sysmonStreamMode) String() string {
+	switch m {
+	case sysmonStreamError:
+		return "stream error"
+	case sysmonStreamUnacked:
+		return "unacknowledged"
+	case sysmonStreamOK:
+		return "ok"
+	default:
+		return "ok"
+	}
+}
+
+var errSysmonStreamFailed = errors.New("stream failed")
+
+func queuedSysmonSamples(loop *PushLoop) []*sysmon.MetricSample {
+	var samples []*sysmon.MetricSample
+	for _, item := range loop.sysmonEdgePending {
+		if item.sample != nil {
+			samples = append(samples, item.sample)
+		}
+	}
+	return samples
 }
 
 func TestSysmonMetricsWithoutAGrantKeepTheLegacyPath(t *testing.T) {

@@ -149,12 +149,20 @@ func (p *PushLoop) pushSysmonStatus(ctx context.Context, _ *proto.GatewayService
 	if capability := p.edgeMetricsCapability(time.Now()); capability != nil {
 		return p.spoolSysmonSamples(samples, capability)
 	}
-	samples = append(p.takeSysmonEdgePending(), samples...)
+	taken := p.takeSysmonEdgePending()
+	if len(taken) > 0 {
+		queued := make([]*sysmon.MetricSample, len(taken), len(taken)+len(samples))
+		for i, item := range taken {
+			queued[i] = item.sample
+		}
+		samples = append(queued, samples...)
+	}
 
 	var statuses []*proto.GatewayServiceStatus
+	var included []*sysmon.MetricSample
 	sampleCount := 0
 	if len(samples) > 0 {
-		statuses = p.convertToSysmonGatewayStatusesFromSamples(samples)
+		statuses, included = p.convertToSysmonGatewayStatusesFromSamples(samples)
 		for _, sample := range samples {
 			if sample != nil {
 				sampleCount++
@@ -163,6 +171,7 @@ func (p *PushLoop) pushSysmonStatus(ctx context.Context, _ *proto.GatewayService
 	}
 
 	if len(statuses) == 0 {
+		p.restoreSysmonEdgePending(taken)
 		return false
 	}
 
@@ -196,24 +205,44 @@ func (p *PushLoop) pushSysmonStatus(ctx context.Context, _ *proto.GatewayService
 	resp, err := p.gateway.StreamStatus(pushCtx, chunks)
 	if err != nil {
 		p.logger.Error().Err(err).Msg("Failed to stream sysmon metrics to gateway")
+		p.restoreSysmonEdgePending(taken)
 		return false
 	}
 
 	if resp.Received {
+		p.restoreSysmonEdgePending(sysmonEdgeNotIncluded(taken, included))
 		p.logger.Info().
 			Int("sample_count", sampleCount).
 			Int("batch_count", len(statuses)).
 			Msg("Successfully streamed sysmon metrics to gateway")
 		return true
-	} else {
-		p.logger.Warn().Msg("Gateway did not acknowledge sysmon metrics stream")
-		return false
 	}
+	p.logger.Warn().Msg("Gateway did not acknowledge sysmon metrics stream")
+	p.restoreSysmonEdgePending(taken)
+	return false
 }
 
-func (p *PushLoop) convertToSysmonGatewayStatusesFromSamples(samples []*sysmon.MetricSample) []*proto.GatewayServiceStatus {
-	if len(samples) == 0 {
+func sysmonEdgeNotIncluded(taken []sysmonEdgeQueued, included []*sysmon.MetricSample) []sysmonEdgeQueued {
+	if len(taken) == 0 {
 		return nil
+	}
+	in := make(map[*sysmon.MetricSample]struct{}, len(included))
+	for _, sample := range included {
+		in[sample] = struct{}{}
+	}
+	var pending []sysmonEdgeQueued
+	for _, item := range taken {
+		if _, ok := in[item.sample]; ok {
+			continue
+		}
+		pending = append(pending, item)
+	}
+	return pending
+}
+
+func (p *PushLoop) convertToSysmonGatewayStatusesFromSamples(samples []*sysmon.MetricSample) ([]*proto.GatewayServiceStatus, []*sysmon.MetricSample) {
+	if len(samples) == 0 {
+		return nil, nil
 	}
 
 	ctx := p.metricEnvelopeContext()
@@ -222,6 +251,7 @@ func (p *PushLoop) convertToSysmonGatewayStatusesFromSamples(samples []*sysmon.M
 	current := make([]*sysmon.MetricSample, 0, len(samples))
 	var currentPayload []byte
 	statuses := make([]*proto.GatewayServiceStatus, 0, 1)
+	var included []*sysmon.MetricSample
 
 	for _, sample := range samples {
 		if sample == nil {
@@ -238,6 +268,7 @@ func (p *PushLoop) convertToSysmonGatewayStatusesFromSamples(samples []*sysmon.M
 
 		if len(current) > 0 && len(payload) > sysmonMetricTargetBatchMessageBytes {
 			statuses = append(statuses, p.sysmonGatewayStatusFromPayload(currentPayload, agentID, gatewayID, partition, kvStoreID))
+			included = append(included, current...)
 			current = []*sysmon.MetricSample{sample}
 			currentPayload, err = marshalSysmonMetricEnvelopeBatch(current, ctx)
 			if err != nil {
@@ -255,9 +286,10 @@ func (p *PushLoop) convertToSysmonGatewayStatusesFromSamples(samples []*sysmon.M
 
 	if len(currentPayload) > 0 {
 		statuses = append(statuses, p.sysmonGatewayStatusFromPayload(currentPayload, agentID, gatewayID, partition, kvStoreID))
+		included = append(included, current...)
 	}
 
-	return statuses
+	return statuses, included
 }
 
 func (p *PushLoop) sysmonGatewayStatusFromPayload(
