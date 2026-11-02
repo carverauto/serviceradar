@@ -47,16 +47,24 @@ consumer promotes logs that match an event rule into
 OCSF events as it stores them; there is no separate promotion consumer, so each
 log is promoted once, under an id derived from the JetStream message.
 
-For sysmon, SNMP, ICMP, rperf, MTR scalar and sweep metrics, `agent-gateway`
-splits oversized protobuf batches before publishing them to NATS. The gateway
-uses the broker-advertised `max_payload` with headroom for NATS headers; no
-agent-side batch-size setting is required. Large multi-port sweep groups can
-therefore produce several messages on the same subject. A warning reports
-the original byte count, broker limit, number of parts and `dropped_points`.
-A point that cannot fit by itself is dropped; if no parts remain, publishing
-returns an error. The payload-budget and per-part deduplication contracts live
-in `ServiceRadarAgentGateway.MetricBatchPublisher` and
+For SNMP, ICMP, rperf, MTR scalar and sweep metrics, and for sysmon that still
+arrives on the status path, `agent-gateway` splits oversized protobuf batches
+before publishing them to NATS. The gateway uses the broker-advertised
+`max_payload` with headroom for NATS headers; no agent-side batch-size setting
+is required. Large multi-port sweep groups can therefore produce several
+messages on the same subject. A warning reports the original byte count,
+broker limit, number of parts and `dropped_points`. A point that cannot fit by
+itself is dropped; if no parts remain, publishing returns an error. The
+payload-budget and per-part deduplication contracts live in
+`ServiceRadarAgentGateway.MetricBatchPublisher` and
 `ServiceRadarAgentGateway.MetricBatchSplit`.
+
+When the agent's metrics spool is enabled and it holds a current
+`serviceradar.metrics.batch` grant, those sysmon samples leave the status path.
+Core republishes the edge records onto the same `metrics.sysmon.>` subjects.
+The Helm chart README documents that opt-in
+(`edgeRecords.agentMetricsEnabled`). The publish rules are
+`ServiceRadar.Edge.MetricsBatchProjection`.
 
 ## Data Service (datasvc)
 
