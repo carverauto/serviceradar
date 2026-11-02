@@ -2452,6 +2452,7 @@ print(open(sys.argv[2]).read().strip())
             },
             "test/serviceradar/event_writer/processors/edge_record_db_test.exs": {
                 "on_exit(fn ->": 1,
+                "on_exit(fn -> :telemetry.detach(handler) end)": 2,
             },
         }
 
