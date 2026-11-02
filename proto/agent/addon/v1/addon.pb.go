@@ -1230,14 +1230,17 @@ func (x *TelemetryBatch) GetCounters() *TelemetryCounters {
 //   - Agent identity comes from the attested EdgeRecordV1.origin_principal_id (the
 //     agent component id). network_scope_id is the partition row's 16-byte UUID, not
 //     the warehouse partition or Sr-Partition. Resolve that row with
-//     Partition.get_by_id/1 and use its slug. A missing row refuses publish/3; do not
-//     stamp the raw scope bytes or substitute "default". Never take either value from
-//     batch.source.metadata or TelemetryRecord.metadata.
+//     ServiceRadar.Infrastructure.Partition.get_by_id/2 and
+//     actor: SystemActor.system/1, and use its slug. Refuse publish/3 only when that
+//     read finds no row. Do not pass the raw scope bytes or substitute "default".
+//     Never take either value from batch.source.metadata or TelemetryRecord.metadata.
 //   - The agent commits each OtlpRelayFrame record to its durable edge spool under the
 //     standing grant before advancing OtlpRelayAck.acked_relay_id to the add-on.
 //   - On a fresh primary delivery, the projector's publish/3 (before the EdgeRecord
 //     ledger transaction) re-checks OutputGrants.check_current/5, emits
-//     [:serviceradar, :otlp_relay, :spool] from batch.counters, and republishes each
+//     [:serviceradar, :otlp_relay, :spool] with measurements received, filtered,
+//     emitted, dropped, and queue_depth from batch.counters and metadata agent_id
+//     (origin_principal_id) and partition_id (the resolved slug), and republishes each
 //     TelemetryRecord.payload verbatim to the JetStream subject
 //     OtlpRelayPublisher.subjects/1 uses for that payload kind. Defaults, overridable
 //     by AGENT_GATEWAY_OTLP_RELAY_TRACES_SUBJECT, AGENT_GATEWAY_OTLP_RELAY_LOGS_SUBJECT,
@@ -1245,7 +1248,10 @@ func (x *TelemetryBatch) GetCounters() *TelemetryCounters {
 //     AGENT_GATEWAY_OTLP_RELAY_DERIVED_METRICS_SUBJECT, are traces otel.traces.raw,
 //     logs logs.otel, metrics otel.metrics.raw, and derived metrics
 //     otel.metrics.derived. Headers are Sr-Agent-Id (origin_principal_id), Sr-Partition
-//     (the resolved slug), Sr-Ingest-Identity, and IngressId.
+//     (the resolved slug), Sr-Ingest-Identity ("agent:" <> origin_principal_id),
+//     Sr-Ingress-Id, Sr-Ingress-Time-Unix-Nano, and Nats-Msg-Id set to that
+//     TelemetryRecord's event_id so a retried primary delivery does not store a second
+//     copy of the chunk.
 //     Replays and late-fenced deliveries skip publish/3.
 type OtlpRelayFrame struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`

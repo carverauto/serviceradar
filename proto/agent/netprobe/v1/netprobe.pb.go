@@ -3229,9 +3229,11 @@ func (x *FlowAttributionEvent) GetExecutableOwnership() *ExecutableOwnership {
 //   - Partition guard (B-4 defeater): the batch carries no partition or agent field.
 //     The projector takes agent_id from the attested EdgeRecordV1.origin_principal_id
 //     (the agent component id). network_scope_id is the partition row's 16-byte UUID,
-//     not the warehouse partition. Resolve that row with Partition.get_by_id/1 and
-//     pass its slug to FlowAttribution.publish_observations/4. A missing row refuses
-//     publish/3; do not pass the raw scope bytes or substitute "default".
+//     not the warehouse partition. Resolve that row with
+//     ServiceRadar.Infrastructure.Partition.get_by_id/2 and
+//     actor: SystemActor.system/1, and pass its slug to
+//     FlowAttribution.publish_observations/4. Refuse publish/3 only when that read
+//     finds no row. Do not pass the raw scope bytes or substitute "default".
 //   - The agent commits each bounded FlowAttributionEventBatch to its durable edge
 //     spool under the standing grant before acknowledging the drained sidecar prefix
 //     and dropped_since_last baseline.
