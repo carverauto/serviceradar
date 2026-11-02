@@ -36,7 +36,8 @@ const (
 )
 
 // MapperDeviceBatchV1 carries a batch of discovered devices from a mapper run.
-// Replaces the JSON array payload emitted under `service_name: "mapper_devices"`.
+// Replaces the JSON array payload emitted with `service_name: "mapper"` and
+// `service_type: "mapper"`.
 type MapperDeviceBatchV1 struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Agent identifier stamped across the batch (`agent_id`).
@@ -964,7 +965,8 @@ func (x *MapperSnmpIfTypeCountV1) GetCount() int32 {
 }
 
 // MapperInterfaceBatchV1 carries a batch of discovered network interfaces from a mapper run.
-// Replaces the JSON array payload emitted under `service_name: "mapper_interfaces"`.
+// Replaces the JSON array payload emitted with `service_name: "mapper"` and
+// `service_type: "mapper_interfaces"`.
 type MapperInterfaceBatchV1 struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Agent identifier stamped across the batch (`agent_id`).
@@ -1075,9 +1077,9 @@ type MapperInterfaceRecordV1 struct {
 	Duplex string `protobuf:"bytes,15,opt,name=duplex,proto3" json:"duplex,omitempty"`
 	// Discovery source (`source`, e.g. `"snmp"`, `"unifi-api"`).
 	Source string `protobuf:"bytes,16,opt,name=source,proto3" json:"source,omitempty"`
-	// Interface metadata key-value pairs (`metadata`, including UniFi controller
-	// keys `unifi_api_urls`, `unifi_api_names`, `controller_url`, `controller_name`,
-	// `site_id`, `site_name`, `unifi_device_id` and IP CIDR list `ip_cidrs`).
+	// Interface metadata key-value pairs (`metadata`). UniFi writes `source`,
+	// `controller_url`, `controller_name`, `site_id`, `site_name`, `connector`,
+	// `port_state`, and `max_speed_mbps`. SNMP and MikroTik write `ip_cidrs`.
 	Metadata map[string]string `protobuf:"bytes,17,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Telemetry metrics discovered as supported on this interface (`available_metrics`).
 	AvailableMetrics []*MapperInterfaceMetricV1 `protobuf:"bytes,18,rep,name=available_metrics,json=availableMetrics,proto3" json:"available_metrics,omitempty"`
@@ -1378,7 +1380,8 @@ func (x *MapperInterfaceMetricV1) GetUnit() string {
 }
 
 // MapperTopologyBatchV1 carries a batch of discovered topology links from a mapper run.
-// Replaces the JSON array payload emitted under `service_name: "mapper_topology"`.
+// Replaces the JSON array payload emitted with `service_name: "mapper"` and
+// `service_type: "mapper_topology"`.
 type MapperTopologyBatchV1 struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Agent identifier stamped across the batch (`agent_id`).
@@ -2072,11 +2075,11 @@ type MapperResultsBatchV1 struct {
 	GatewayId string `protobuf:"bytes,2,opt,name=gateway_id,json=gatewayId,proto3" json:"gateway_id,omitempty"`
 	// Network partition identifier (`partition`).
 	Partition string `protobuf:"bytes,3,opt,name=partition,proto3" json:"partition,omitempty"`
-	// Discovered device records (`mapper_devices`).
+	// Discovered device records. The status route is `service_name: "mapper"`, `service_type: "mapper"`.
 	Devices []*MapperDeviceRecordV1 `protobuf:"bytes,4,rep,name=devices,proto3" json:"devices,omitempty"`
-	// Discovered interface records (`mapper_interfaces`).
+	// Discovered interface records. The status route is `service_name: "mapper"`, `service_type: "mapper_interfaces"`.
 	Interfaces []*MapperInterfaceRecordV1 `protobuf:"bytes,5,rep,name=interfaces,proto3" json:"interfaces,omitempty"`
-	// Discovered topology link records (`mapper_topology`).
+	// Discovered topology link records. The status route is `service_name: "mapper"`, `service_type: "mapper_topology"`.
 	TopologyLinks []*MapperTopologyLinkRecordV1 `protobuf:"bytes,6,rep,name=topology_links,json=topologyLinks,proto3" json:"topology_links,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2264,7 +2267,8 @@ func (x *NetprobeDiscoveryBatchV1) GetRecords() []*NetprobeDiscoveryRecordV1 {
 }
 
 // NetprobeDiscoveryRecordV1 maps a single netprobe discovery update emitted by
-// `netprobe.TranslateBatch` (`go/pkg/agent/netprobe/translator.go`).
+// `FingerprintEventToDiscoveredDevice`, `DpiEventToDiscoveredDevice`, and
+// `ProcessSnapshotToDiscoveredDevice` (`go/pkg/agent/netprobe/translator.go`).
 type NetprobeDiscoveryRecordV1 struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Subject host IP address (`ip`).
@@ -2290,9 +2294,9 @@ type NetprobeDiscoveryRecordV1 struct {
 	TimestampUnixNano int64 `protobuf:"varint,10,opt,name=timestamp_unix_nano,json=timestampUnixNano,proto3" json:"timestamp_unix_nano,omitempty"`
 	// Additional string metadata key-value pairs (`metadata`).
 	Metadata map[string]string `protobuf:"bytes,11,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	// Typed discovery observation payload (`metadata["passive_fingerprint"]`,
-	// `metadata["active_fingerprint"]`, `metadata["dpi"]`, or
-	// `metadata["local_processes"]`).
+	// Typed discovery observation. Fingerprint keys use the `passive_fingerprint`
+	// or `active_fingerprint` prefix. DPI keys use the `dpi` prefix. Process
+	// snapshots use flat `local_processes.<field>` keys.
 	//
 	// Types that are valid to be assigned to Observation:
 	//
@@ -2752,7 +2756,7 @@ type NetprobeTlsFingerprintV1 struct {
 	Ja4 string `protobuf:"bytes,1,opt,name=ja4,proto3" json:"ja4,omitempty"`
 	// JA4S server fingerprint (`ja4s`).
 	Ja4S string `protobuf:"bytes,2,opt,name=ja4s,proto3" json:"ja4s,omitempty"`
-	// Redacted SNI indicator (`sni_redacted`).
+	// SNI indicator (`sni_redacted`). The emitter writes `"<present>"` or an empty string.
 	SniRedacted   string `protobuf:"bytes,3,opt,name=sni_redacted,json=sniRedacted,proto3" json:"sni_redacted,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2890,33 +2894,35 @@ type NetprobeLicenseCleanFingerprintV1 struct {
 	HasshServer string `protobuf:"bytes,6,opt,name=hassh_server,json=hasshServer,proto3" json:"hassh_server,omitempty"`
 	// Matched HASSH corpus entry (`hassh_match`).
 	HasshMatch *NetprobeFingerprintMatchV1 `protobuf:"bytes,7,opt,name=hassh_match,json=hasshMatch,proto3" json:"hassh_match,omitempty"`
-	// Synthesized multi-signal OS match (`os_match`).
+	// License-clean OS match. JSON keys are `<base>.os.name`, `<base>.os.version_range`,
+	// `<base>.os.family`, and `<base>.os.confidence`, where `<base>` is
+	// `passive_fingerprint` or `active_fingerprint`.
 	OsMatch *NetprobeOsMatchV1 `protobuf:"bytes,8,opt,name=os_match,json=osMatch,proto3" json:"os_match,omitempty"`
 	// Number of agreeing fingerprint signals (`agreement_count`).
 	AgreementCount uint32 `protobuf:"varint,9,opt,name=agreement_count,json=agreementCount,proto3" json:"agreement_count,omitempty"`
 	// MuonFP TCP fingerprint match (`muonfp`).
 	Muonfp *NetprobeMuonFpMatchV1 `protobuf:"bytes,10,opt,name=muonfp,proto3" json:"muonfp,omitempty"`
-	// Recog HTTP banner match (`recog_http`).
+	// Recog HTTP banner match (`<base>.recog.http.product`, `.version`, `.os_family`).
 	RecogHttp *NetprobeRecogMatchV1 `protobuf:"bytes,11,opt,name=recog_http,json=recogHttp,proto3" json:"recog_http,omitempty"`
-	// Recog SSH banner match (`recog_ssh`).
+	// Recog SSH banner match (`<base>.recog.ssh.product`, `.version`, `.os_family`).
 	RecogSsh *NetprobeRecogMatchV1 `protobuf:"bytes,12,opt,name=recog_ssh,json=recogSsh,proto3" json:"recog_ssh,omitempty"`
-	// Recog SMB match (`recog_smb`).
+	// Recog SMB match (`<base>.recog.smb.product`, `.version`, `.os_family`).
 	RecogSmb *NetprobeRecogMatchV1 `protobuf:"bytes,13,opt,name=recog_smb,json=recogSmb,proto3" json:"recog_smb,omitempty"`
-	// Recog FTP banner match (`recog_ftp`).
+	// Recog FTP banner match (`<base>.recog.ftp.product`, `.version`, `.os_family`).
 	RecogFtp *NetprobeRecogMatchV1 `protobuf:"bytes,14,opt,name=recog_ftp,json=recogFtp,proto3" json:"recog_ftp,omitempty"`
-	// Recog Telnet banner match (`recog_telnet`).
+	// Recog Telnet banner match (`<base>.recog.telnet.product`, `.version`, `.os_family`).
 	RecogTelnet *NetprobeRecogMatchV1 `protobuf:"bytes,15,opt,name=recog_telnet,json=recogTelnet,proto3" json:"recog_telnet,omitempty"`
-	// Recog SNMP sysDescr match (`recog_snmp`).
+	// Recog SNMP sysDescr match. `addLicenseCleanMetadata` does not write this protocol.
 	RecogSnmp *NetprobeRecogMatchV1 `protobuf:"bytes,16,opt,name=recog_snmp,json=recogSnmp,proto3" json:"recog_snmp,omitempty"`
-	// Recog SIP banner match (`recog_sip`).
+	// Recog SIP banner match. `addLicenseCleanMetadata` does not write this protocol.
 	RecogSip *NetprobeRecogMatchV1 `protobuf:"bytes,17,opt,name=recog_sip,json=recogSip,proto3" json:"recog_sip,omitempty"`
-	// Recog RDP match (`recog_rdp`).
+	// Recog RDP match (`<base>.recog.rdp.product`, `.version`, `.os_family`).
 	RecogRdp *NetprobeRecogMatchV1 `protobuf:"bytes,18,opt,name=recog_rdp,json=recogRdp,proto3" json:"recog_rdp,omitempty"`
-	// Recog DNS version.bind match (`recog_dns`).
+	// Recog DNS version.bind match (`<base>.recog.dns.product`, `.version`, `.os_family`).
 	RecogDns *NetprobeRecogMatchV1 `protobuf:"bytes,19,opt,name=recog_dns,json=recogDns,proto3" json:"recog_dns,omitempty"`
-	// Recog SMTP banner match (`recog_smtp`).
+	// Recog SMTP banner match (`<base>.recog.smtp.product`, `.version`, `.os_family`).
 	RecogSmtp *NetprobeRecogMatchV1 `protobuf:"bytes,20,opt,name=recog_smtp,json=recogSmtp,proto3" json:"recog_smtp,omitempty"`
-	// Recog NTP match (`recog_ntp`).
+	// Recog NTP match (`<base>.recog.ntp.product`, `.version`, `.os_family`).
 	RecogNtp *NetprobeRecogMatchV1 `protobuf:"bytes,21,opt,name=recog_ntp,json=recogNtp,proto3" json:"recog_ntp,omitempty"`
 	// Satori passive fingerprint matches across axes (`satori_matches`).
 	SatoriMatches []*NetprobeSatoriMatchV1 `protobuf:"bytes,22,rep,name=satori_matches,json=satoriMatches,proto3" json:"satori_matches,omitempty"`
@@ -3543,7 +3549,7 @@ func (x *NetprobeFingerprintMatchV1) GetOsFamily() string {
 	return ""
 }
 
-// NetprobeOsMatchV1 maps `osMatchMetadata` (`os_match`).
+// NetprobeOsMatchV1 maps license-clean OS fields under `<base>.os`.
 type NetprobeOsMatchV1 struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Synthesized OS name (`name`).
@@ -3721,13 +3727,13 @@ type NetprobeDpiObservationV1 struct {
 	InterfaceName string `protobuf:"bytes,4,opt,name=interface_name,json=interfaceName,proto3" json:"interface_name,omitempty"`
 	// Detected application protocol (`protocol`).
 	Protocol string `protobuf:"bytes,5,opt,name=protocol,proto3" json:"protocol,omitempty"`
-	// Observed packet/flow match count (`count`).
+	// Match count. JSON is the string `"1"` at `dpi.<protocol>.count`.
 	Count uint64 `protobuf:"varint,6,opt,name=count,proto3" json:"count,omitempty"`
-	// Classification confidence in [0.0, 1.0] (`confidence`).
+	// Classification confidence. JSON is `dpi.<protocol>.confidence`.
 	Confidence float32 `protobuf:"fixed32,7,opt,name=confidence,proto3" json:"confidence,omitempty"`
-	// First observation timestamp in Unix epoch nanoseconds (`observed_at`, RFC3339Nano in JSON).
+	// First observation time (`dpi.observed_at`, RFC3339Nano).
 	ObservedAtUnixNano int64 `protobuf:"varint,8,opt,name=observed_at_unix_nano,json=observedAtUnixNano,proto3" json:"observed_at_unix_nano,omitempty"`
-	// Most recent observation timestamp in Unix epoch nanoseconds (`last_observed_at`, RFC3339Nano in JSON).
+	// Most recent observation time (`dpi.<protocol>.last_observed_at`, RFC3339Nano).
 	LastObservedAtUnixNano int64 `protobuf:"varint,9,opt,name=last_observed_at_unix_nano,json=lastObservedAtUnixNano,proto3" json:"last_observed_at_unix_nano,omitempty"`
 	// Flow source IP address (`source_ip`).
 	SourceIp string `protobuf:"bytes,10,opt,name=source_ip,json=sourceIp,proto3" json:"source_ip,omitempty"`
@@ -3907,9 +3913,9 @@ type NetprobeProcessSnapshotObservationV1 struct {
 	PortCount uint32 `protobuf:"varint,6,opt,name=port_count,json=portCount,proto3" json:"port_count,omitempty"`
 	// Distinct container count (`container_count`).
 	ContainerCount uint32 `protobuf:"varint,7,opt,name=container_count,json=containerCount,proto3" json:"container_count,omitempty"`
-	// Sorted transport protocols observed (`protocols`).
+	// Transport protocols. JSON `local_processes.protocols` is a comma-joined string.
 	Protocols []string `protobuf:"bytes,8,rep,name=protocols,proto3" json:"protocols,omitempty"`
-	// Listening port counts keyed by transport protocol (`protocol_port_counts`).
+	// Per-protocol listening port counts. JSON keys are `local_processes.<protocol>_port_count` strings.
 	ProtocolPortCounts map[string]uint32 `protobuf:"bytes,9,rep,name=protocol_port_counts,json=protocolPortCounts,proto3" json:"protocol_port_counts,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
 	// Listening socket / process entries (`entries`).
 	Entries       []*NetprobeProcessEntryV1 `protobuf:"bytes,10,rep,name=entries,proto3" json:"entries,omitempty"`

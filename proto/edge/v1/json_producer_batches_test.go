@@ -319,7 +319,7 @@ func TestNetprobeDiscoveryBatchProtoRoundTrip(t *testing.T) {
 						Tls: &edgev1.NetprobeTlsFingerprintV1{
 							Ja4:         "t13d1516h2_8daaf6152771_b186095e22b6",
 							Ja4S:        "t130200_1301_234ea6891587",
-							SniRedacted: "redacted",
+							SniRedacted: "<present>",
 						},
 						Http: &edgev1.NetprobeHttpFingerprintV1{
 							UserAgent:      "ExampleClient/1.0",
@@ -411,7 +411,7 @@ func TestNetprobeDiscoveryBatchProtoRoundTrip(t *testing.T) {
 						ProfileName:            "default-dpi",
 						InterfaceName:          "eth0",
 						Protocol:               "tls",
-						Count:                  42,
+						Count:                  1,
 						Confidence:             0.99,
 						ObservedAtUnixNano:     1700000001000000000,
 						LastObservedAtUnixNano: 1700000006000000000,
