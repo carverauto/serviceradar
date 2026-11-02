@@ -88,6 +88,8 @@ defmodule Serviceradar.Edge.V1.PluginDeviceLocationV1 do
   field :site_name, 2, type: :string, json_name: "siteName"
   field :latitude, 3, type: :double
   field :longitude, 4, type: :double
+  field :has_latitude, 5, type: :bool, json_name: "hasLatitude"
+  field :has_longitude, 6, type: :bool, json_name: "hasLongitude"
 end
 
 defmodule Serviceradar.Edge.V1.PluginDiscoveredDeviceV1.LabelsEntry do

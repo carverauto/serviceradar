@@ -17,9 +17,12 @@
 package edgev1_test
 
 import (
+	"encoding/json"
 	"testing"
+	"time"
 
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
+	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
@@ -28,6 +31,7 @@ func TestWasmPluginResultBatchV1RoundTrip(t *testing.T) {
 	t.Parallel()
 
 	const observedNanos = int64(1_784_000_000_000_000_000)
+	eventPayload := fullOCSFEventJSON(t, observedNanos)
 
 	original := &edgev1.WasmPluginResultBatchV1{
 		Provenance: &edgev1.PluginResultProvenanceV1{
@@ -78,7 +82,7 @@ func TestWasmPluginResultBatchV1RoundTrip(t *testing.T) {
 						SeverityId:   1,
 						Severity:     "Informational",
 						Message:      "probe completed",
-						PayloadJson:  []byte(`{"target":"192.0.2.10"}`),
+						PayloadJson:  eventPayload,
 					},
 				},
 				DeviceDiscovery: []*edgev1.PluginDeviceDiscoveryItemV1{
@@ -103,10 +107,8 @@ func TestWasmPluginResultBatchV1RoundTrip(t *testing.T) {
 								HasIsAvailable: true,
 								IsAvailable:    true,
 								Location: &edgev1.PluginDeviceLocationV1{
-									SiteCode:  "EXAMPLE-01",
-									SiteName:  "Example Lab",
-									Latitude:  0.0,
-									Longitude: 0.0,
+									SiteCode: "EXAMPLE-01",
+									SiteName: "Example Lab",
 								},
 								Labels:       map[string]string{"role": "sensor"},
 								MetadataJson: []byte(`{"os":"linux"}`),
@@ -167,20 +169,20 @@ func TestWasmPluginResultBatchV1RoundTrip(t *testing.T) {
 					},
 				},
 				ActionResult: &edgev1.PluginActionResultV1{
-					Schema:                  "serviceradar.northbound_action_result.v1",
-					Status:                  "succeeded",
-					SummaryJson:             []byte(`{"updated":1}`),
-					ExternalCorrelationId:   "corr-0001",
-					ContinuationStateJson:   []byte(`{}`),
-					PollMode:                "poll",
-					NextPollAt:              "2026-07-14T00:01:00Z",
-					NextPollDelaySeconds:    60,
-					PollDeadlineAt:          "2026-07-14T00:10:00Z",
-					MaxDurationSeconds:      600,
-					TargetsJson:             []byte(`[{"device_uid":"sr:00000000-0000-4000-8000-000000000005","status":"succeeded"}]`),
-					ErrorClass:              "",
-					ErrorMessage:            "",
-					MetadataJson:            []byte(`{"ticket":"SYN-1"}`),
+					Schema:                "serviceradar.northbound_action_result.v1",
+					Status:                "succeeded",
+					SummaryJson:           []byte(`{"updated":1}`),
+					ExternalCorrelationId: "corr-0001",
+					ContinuationStateJson: []byte(`{}`),
+					PollMode:              "poll",
+					NextPollAt:            "2026-07-14T00:01:00Z",
+					NextPollDelaySeconds:  60,
+					PollDeadlineAt:        "2026-07-14T00:10:00Z",
+					MaxDurationSeconds:    600,
+					TargetsJson:           []byte(`[{"device_uid":"sr:00000000-0000-4000-8000-000000000005","status":"succeeded"}]`),
+					ErrorClass:            "",
+					ErrorMessage:          "",
+					MetadataJson:          []byte(`{"ticket":"SYN-1"}`),
 				},
 				ContractPayloads: []*edgev1.PluginContractPayloadV1{
 					{
@@ -208,6 +210,133 @@ func TestWasmPluginResultBatchV1RoundTrip(t *testing.T) {
 	if !proto.Equal(original, &decoded) {
 		t.Fatalf("decoded batch did not match original:\ngot:  %+v\nwant: %+v", &decoded, original)
 	}
+
+	var event map[string]any
+	if err := json.Unmarshal(decoded.GetResults()[0].GetEvents()[0].GetPayloadJson(), &event); err != nil {
+		t.Fatalf("payload_json is not the OCSF event JSON: %v", err)
+	}
+	device, _ := event["device"].(map[string]any)
+	unmapped, _ := event["unmapped"].(map[string]any)
+	metadata, _ := event["metadata"].(map[string]any)
+	if device["uid"] != "sr:00000000-0000-4000-8000-000000000005" {
+		t.Fatalf("payload device.uid = %#v", device["uid"])
+	}
+	if unmapped["camera_id"] != "cam-1" || unmapped["camera_device_uid"] != device["uid"] {
+		t.Fatalf("payload unmapped = %#v", unmapped)
+	}
+	if metadata["version"] != "1.7.0" || metadata["logged_time"] == "" {
+		t.Fatalf("payload metadata = %#v", metadata)
+	}
+	if event["log_name"] != "events.ocsf.processed" || event["log_provider"] != "serviceradar-plugin" {
+		t.Fatalf("payload log identity = log_name %#v log_provider %#v", event["log_name"], event["log_provider"])
+	}
+	location := decoded.GetResults()[0].GetDeviceDiscovery()[0].GetDevices()[0].GetLocation()
+	if location.GetHasLatitude() || location.GetHasLongitude() || location.GetLatitude() != 0 || location.GetLongitude() != 0 {
+		t.Fatalf("site-only location claimed coordinates: %+v", location)
+	}
+}
+
+func TestPluginDeviceLocationV1CoordinatePresence(t *testing.T) {
+	t.Parallel()
+
+	siteOnly := &edgev1.PluginDeviceLocationV1{SiteCode: "EXAMPLE-01", SiteName: "Example Lab"}
+	siteWire, err := proto.Marshal(siteOnly)
+	if err != nil {
+		t.Fatalf("proto.Marshal site-only: %v", err)
+	}
+	if fields := protoFieldNumbers(t, siteWire); fields[3] || fields[4] || fields[5] || fields[6] {
+		t.Fatalf("site-only location wrote coordinate fields: %v", fields)
+	}
+
+	nullIsland := &edgev1.PluginDeviceLocationV1{
+		SiteCode:     "NULL-ISLAND",
+		HasLatitude:  true,
+		HasLongitude: true,
+	}
+	nullWire, err := proto.Marshal(nullIsland)
+	if err != nil {
+		t.Fatalf("proto.Marshal null island: %v", err)
+	}
+	nullFields := protoFieldNumbers(t, nullWire)
+	if nullFields[3] || nullFields[4] || !nullFields[5] || !nullFields[6] {
+		t.Fatalf("present 0,0 coordinates = %v, want flags 5 and 6 only", nullFields)
+	}
+	var decoded edgev1.PluginDeviceLocationV1
+	if err := proto.Unmarshal(nullWire, &decoded); err != nil {
+		t.Fatalf("proto.Unmarshal null island: %v", err)
+	}
+	if !decoded.GetHasLatitude() || !decoded.GetHasLongitude() || decoded.GetLatitude() != 0 || decoded.GetLongitude() != 0 {
+		t.Fatalf("present 0,0 round trip = %+v", &decoded)
+	}
+}
+
+func protoFieldNumbers(t *testing.T, wire []byte) map[protowire.Number]bool {
+	t.Helper()
+	seen := map[protowire.Number]bool{}
+	for len(wire) > 0 {
+		num, _, n := protowire.ConsumeField(wire)
+		if n < 0 {
+			t.Fatalf("protowire.ConsumeField: %v", protowire.ParseError(n))
+		}
+		seen[num] = true
+		wire = wire[n:]
+	}
+	return seen
+}
+
+func fullOCSFEventJSON(t *testing.T, observedNanos int64) []byte {
+	t.Helper()
+	observed := time.Unix(0, observedNanos).UTC()
+	body, err := json.Marshal(struct {
+		ID           string         `json:"id"`
+		Time         time.Time      `json:"time"`
+		ClassUID     int            `json:"class_uid"`
+		CategoryUID  int            `json:"category_uid"`
+		TypeUID      int            `json:"type_uid"`
+		ActivityID   int            `json:"activity_id"`
+		ActivityName string         `json:"activity_name,omitempty"`
+		SeverityID   int            `json:"severity_id"`
+		Severity     string         `json:"severity,omitempty"`
+		Message      string         `json:"message,omitempty"`
+		Metadata     map[string]any `json:"metadata,omitempty"`
+		Device       map[string]any `json:"device,omitempty"`
+		LogName      string         `json:"log_name,omitempty"`
+		LogProvider  string         `json:"log_provider,omitempty"`
+		Unmapped     map[string]any `json:"unmapped,omitempty"`
+	}{
+		ID:           "evt-00000000-0000-4000-8000-000000000007",
+		Time:         observed,
+		ClassUID:     1008,
+		CategoryUID:  1,
+		TypeUID:      100801,
+		ActivityID:   1,
+		ActivityName: "Create",
+		SeverityID:   1,
+		Severity:     "Informational",
+		Message:      "probe completed",
+		Metadata: map[string]any{
+			"logged_time": observed.Format(time.RFC3339Nano),
+			"product": map[string]any{
+				"name":        "plugin",
+				"vendor_name": "ServiceRadar",
+			},
+			"version": "1.7.0",
+		},
+		Device: map[string]any{
+			"name": "cam-1",
+			"uid":  "sr:00000000-0000-4000-8000-000000000005",
+		},
+		LogName:     "events.ocsf.processed",
+		LogProvider: "serviceradar-plugin",
+		Unmapped: map[string]any{
+			"camera_device_uid": "sr:00000000-0000-4000-8000-000000000005",
+			"camera_id":         "cam-1",
+		},
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal OCSF event: %v", err)
+	}
+	return body
 }
 
 func TestPluginResultsProtoNoOptionalScalarFields(t *testing.T) {

@@ -274,20 +274,24 @@ func (x *PluginDisplayInstructionV1) GetDataJson() []byte {
 
 // PluginEventEnvelopeV1 carries one OCSF Event Log Activity entry
 // (`sdk.OCSFEvent` in `serviceradar-sdk-go/v2/sdk/result.go`) emitted with a
-// plugin result.
+// plugin result. The typed fields are only the projection core routes on.
+// `payload_json` is the complete event.
 type PluginEventEnvelopeV1 struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	TimeUnixNano  int64                  `protobuf:"varint,2,opt,name=time_unix_nano,json=timeUnixNano,proto3" json:"time_unix_nano,omitempty"`
-	ClassUid      uint32                 `protobuf:"varint,3,opt,name=class_uid,json=classUid,proto3" json:"class_uid,omitempty"`
-	CategoryUid   uint32                 `protobuf:"varint,4,opt,name=category_uid,json=categoryUid,proto3" json:"category_uid,omitempty"`
-	TypeUid       uint32                 `protobuf:"varint,5,opt,name=type_uid,json=typeUid,proto3" json:"type_uid,omitempty"`
-	ActivityId    uint32                 `protobuf:"varint,6,opt,name=activity_id,json=activityId,proto3" json:"activity_id,omitempty"`
-	ActivityName  string                 `protobuf:"bytes,7,opt,name=activity_name,json=activityName,proto3" json:"activity_name,omitempty"`
-	SeverityId    uint32                 `protobuf:"varint,8,opt,name=severity_id,json=severityId,proto3" json:"severity_id,omitempty"`
-	Severity      string                 `protobuf:"bytes,9,opt,name=severity,proto3" json:"severity,omitempty"`
-	Message       string                 `protobuf:"bytes,10,opt,name=message,proto3" json:"message,omitempty"`
-	PayloadJson   []byte                 `protobuf:"bytes,11,opt,name=payload_json,json=payloadJson,proto3" json:"payload_json,omitempty"`
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Id           string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	TimeUnixNano int64                  `protobuf:"varint,2,opt,name=time_unix_nano,json=timeUnixNano,proto3" json:"time_unix_nano,omitempty"`
+	ClassUid     uint32                 `protobuf:"varint,3,opt,name=class_uid,json=classUid,proto3" json:"class_uid,omitempty"`
+	CategoryUid  uint32                 `protobuf:"varint,4,opt,name=category_uid,json=categoryUid,proto3" json:"category_uid,omitempty"`
+	TypeUid      uint32                 `protobuf:"varint,5,opt,name=type_uid,json=typeUid,proto3" json:"type_uid,omitempty"`
+	ActivityId   uint32                 `protobuf:"varint,6,opt,name=activity_id,json=activityId,proto3" json:"activity_id,omitempty"`
+	ActivityName string                 `protobuf:"bytes,7,opt,name=activity_name,json=activityName,proto3" json:"activity_name,omitempty"`
+	SeverityId   uint32                 `protobuf:"varint,8,opt,name=severity_id,json=severityId,proto3" json:"severity_id,omitempty"`
+	Severity     string                 `protobuf:"bytes,9,opt,name=severity,proto3" json:"severity,omitempty"`
+	Message      string                 `protobuf:"bytes,10,opt,name=message,proto3" json:"message,omitempty"`
+	// Complete `sdk.OCSFEvent` JSON the SDK already produces. Encoders MUST
+	// populate the whole event, including device, unmapped, metadata, log_name,
+	// and log_provider. Correlation and storage read this body.
+	PayloadJson   []byte `protobuf:"bytes,11,opt,name=payload_json,json=payloadJson,proto3" json:"payload_json,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -401,12 +405,17 @@ func (x *PluginEventEnvelopeV1) GetPayloadJson() []byte {
 
 // PluginDeviceLocationV1 carries mappable location metadata for a discovered
 // device (`sdk.DeviceLocation` in `serviceradar-sdk-go/v2/sdk/device_discovery.go`).
+// A site may be set with no coordinates. `latitude` is present only when
+// `has_latitude` is true, and `longitude` only when `has_longitude` is true.
+// A false flag means that coordinate was omitted, even when the double is 0.
 type PluginDeviceLocationV1 struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	SiteCode      string                 `protobuf:"bytes,1,opt,name=site_code,json=siteCode,proto3" json:"site_code,omitempty"`
 	SiteName      string                 `protobuf:"bytes,2,opt,name=site_name,json=siteName,proto3" json:"site_name,omitempty"`
 	Latitude      float64                `protobuf:"fixed64,3,opt,name=latitude,proto3" json:"latitude,omitempty"`
 	Longitude     float64                `protobuf:"fixed64,4,opt,name=longitude,proto3" json:"longitude,omitempty"`
+	HasLatitude   bool                   `protobuf:"varint,5,opt,name=has_latitude,json=hasLatitude,proto3" json:"has_latitude,omitempty"`
+	HasLongitude  bool                   `protobuf:"varint,6,opt,name=has_longitude,json=hasLongitude,proto3" json:"has_longitude,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -467,6 +476,20 @@ func (x *PluginDeviceLocationV1) GetLongitude() float64 {
 		return x.Longitude
 	}
 	return 0
+}
+
+func (x *PluginDeviceLocationV1) GetHasLatitude() bool {
+	if x != nil {
+		return x.HasLatitude
+	}
+	return false
+}
+
+func (x *PluginDeviceLocationV1) GetHasLongitude() bool {
+	if x != nil {
+		return x.HasLongitude
+	}
+	return false
 }
 
 // PluginDiscoveredDeviceV1 describes one discovered or enriched inventory
@@ -1451,12 +1474,14 @@ const file_edge_v1_plugin_results_proto_rawDesc = "" +
 	"\bseverity\x18\t \x01(\tR\bseverity\x12\x18\n" +
 	"\amessage\x18\n" +
 	" \x01(\tR\amessage\x12!\n" +
-	"\fpayload_json\x18\v \x01(\fR\vpayloadJson\"\x8c\x01\n" +
+	"\fpayload_json\x18\v \x01(\fR\vpayloadJson\"\xd4\x01\n" +
 	"\x16PluginDeviceLocationV1\x12\x1b\n" +
 	"\tsite_code\x18\x01 \x01(\tR\bsiteCode\x12\x1b\n" +
 	"\tsite_name\x18\x02 \x01(\tR\bsiteName\x12\x1a\n" +
 	"\blatitude\x18\x03 \x01(\x01R\blatitude\x12\x1c\n" +
-	"\tlongitude\x18\x04 \x01(\x01R\tlongitude\"\xcf\x04\n" +
+	"\tlongitude\x18\x04 \x01(\x01R\tlongitude\x12!\n" +
+	"\fhas_latitude\x18\x05 \x01(\bR\vhasLatitude\x12#\n" +
+	"\rhas_longitude\x18\x06 \x01(\bR\fhasLongitude\"\xcf\x04\n" +
 	"\x18PluginDiscoveredDeviceV1\x12\x1b\n" +
 	"\tdevice_id\x18\x01 \x01(\tR\bdeviceId\x12\x1a\n" +
 	"\bhostname\x18\x02 \x01(\tR\bhostname\x12\x0e\n" +
