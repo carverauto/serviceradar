@@ -1,7 +1,9 @@
 defmodule ServiceRadar.SweepJobs.Changes.NormalizeStaticTargets do
   @moduledoc """
-  Merges contained or overlapping static targets into deterministic order and
-  refuses targets that are invalid or overlap without merging into a CIDR range.
+  Drops a static target that lies entirely inside another, keeps the outer
+  target's text, and orders the result by address family, start address, and
+  width. Refuses a target that is invalid, too wide, or overlaps another
+  without containing it.
   """
 
   use Ash.Resource.Change
