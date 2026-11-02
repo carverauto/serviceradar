@@ -1,11 +1,11 @@
 package edgev1_test
 
 import (
+	"bytes"
 	"testing"
 
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 func TestWorkloadIdentitySnapshotV1RoundTrip(t *testing.T) {
@@ -364,30 +364,87 @@ func TestK8sPublicEndpointsSnapshotV1RoundTrip(t *testing.T) {
 	}
 }
 
-func TestInventoryProducerProtosNoOptionalScalarFields(t *testing.T) {
-	files := []protoreflect.FileDescriptor{
-		edgev1.File_edge_v1_workload_identity_proto,
-		edgev1.File_edge_v1_endpoint_inventory_proto,
-		edgev1.File_edge_v1_bumblebee_proto,
-		edgev1.File_edge_v1_k8s_endpoints_proto,
+// Wire bytes below are the protobuf encoding spec, not a dump of this generator.
+// A bool or numeric zero is omitted. An explicit presence companion (has_*) is a
+// separate varint field, so dropping it makes "explicit false/zero" identical to unset.
+func TestEndpointInventoryExplicitFalseDetectedDiffersOnWire(t *testing.T) {
+	// field 1, string "trivy": tag (1<<3)|2 = 0x0a, length 5.
+	// field 10, has_detected=true: tag (10<<3)|0 = 0x50, varint 1.
+	// detected=false is omitted. Emitting it, or dropping has_detected, fails the compare.
+	const name = "trivy"
+	unset := &edgev1.EndpointInventorySourceSummaryV1{Name: name}
+	explicit := &edgev1.EndpointInventorySourceSummaryV1{Name: name, HasDetected: true}
+
+	wantUnset := []byte{0x0a, 0x05, 't', 'r', 'i', 'v', 'y'}
+	wantExplicit := []byte{0x0a, 0x05, 't', 'r', 'i', 'v', 'y', 0x50, 0x01}
+	assertWire(t, "unset detected", unset, wantUnset)
+	assertWire(t, "explicit false detected", explicit, wantExplicit)
+	if bytes.Equal(wantUnset, wantExplicit) {
+		t.Fatal("oracle bytes are not distinct")
 	}
 
-	var walkMessages func(msgs protoreflect.MessageDescriptors)
-	walkMessages = func(msgs protoreflect.MessageDescriptors) {
-		for i := 0; i < msgs.Len(); i++ {
-			msg := msgs.Get(i)
-			fields := msg.Fields()
-			for j := 0; j < fields.Len(); j++ {
-				field := fields.Get(j)
-				if field.HasOptionalKeyword() && field.Kind() != protoreflect.MessageKind {
-					t.Errorf("%s.%s uses proto3 optional on scalar/enum kind %v", msg.FullName(), field.Name(), field.Kind())
-				}
-			}
-			walkMessages(msg.Messages())
-		}
+	got := &edgev1.EndpointInventorySourceSummaryV1{}
+	if err := proto.Unmarshal(wantExplicit, got); err != nil {
+		t.Fatalf("Unmarshal explicit false detected: %v", err)
 	}
+	if got.GetName() != name || got.GetDetected() || !got.GetHasDetected() {
+		t.Fatalf("explicit false detected decoded as name=%q detected=%v has_detected=%v", got.GetName(), got.GetDetected(), got.GetHasDetected())
+	}
+}
 
-	for _, fd := range files {
-		walkMessages(fd.Messages())
+func TestBumblebeeExplicitZeroRiskScoreDiffersOnWire(t *testing.T) {
+	// field 6, has_risk_score=true: tag (6<<3)|0 = 0x30, varint 1.
+	// risk_score=0 is omitted. An encoder that skips the presence bit yields an empty message.
+	unset := &edgev1.BumblebeeFindingV1{}
+	explicit := &edgev1.BumblebeeFindingV1{HasRiskScore: true}
+
+	assertWire(t, "unset risk score", unset, []byte{})
+	assertWire(t, "explicit zero risk score", explicit, []byte{0x30, 0x01})
+
+	got := &edgev1.BumblebeeFindingV1{}
+	if err := proto.Unmarshal([]byte{0x30, 0x01}, got); err != nil {
+		t.Fatalf("Unmarshal explicit zero risk score: %v", err)
+	}
+	if got.GetRiskScore() != 0 || !got.GetHasRiskScore() {
+		t.Fatalf("explicit zero risk score decoded as risk_score=%d has_risk_score=%v", got.GetRiskScore(), got.GetHasRiskScore())
+	}
+}
+
+func TestWorkloadIdentityExplicitZeroRuntimePidDiffersOnWire(t *testing.T) {
+	// field 10, has_runtime_pid=true: tag (10<<3)|0 = 0x50, varint 1.
+	unset := &edgev1.WorkloadIdentityRecordV1{}
+	explicit := &edgev1.WorkloadIdentityRecordV1{HasRuntimePid: true}
+
+	assertWire(t, "unset runtime pid", unset, []byte{})
+	assertWire(t, "explicit zero runtime pid", explicit, []byte{0x50, 0x01})
+
+	// Nested under snapshot.identities (field 5) -> lookup.identity (field 2).
+	// lookup payload is field 2, length-delimited: tag 0x12, len 2, then 50 01.
+	// snapshot payload is field 5, length-delimited: tag 0x2a, len 4, then that lookup.
+	nested := []byte{0x2a, 0x04, 0x12, 0x02, 0x50, 0x01}
+	snapshot := &edgev1.WorkloadIdentitySnapshotV1{
+		Identities: []*edgev1.WorkloadIdentityContainerLookupV1{{
+			Identity: explicit,
+		}},
+	}
+	assertWire(t, "nested explicit zero runtime pid", snapshot, nested)
+
+	got := &edgev1.WorkloadIdentitySnapshotV1{}
+	if err := proto.Unmarshal(nested, got); err != nil {
+		t.Fatalf("Unmarshal nested runtime pid: %v", err)
+	}
+	if len(got.GetIdentities()) != 1 || got.GetIdentities()[0].GetIdentity().GetRuntimePid() != 0 || !got.GetIdentities()[0].GetIdentity().GetHasRuntimePid() {
+		t.Fatalf("nested explicit zero runtime pid decoded as %+v", got)
+	}
+}
+
+func assertWire(t *testing.T, label string, msg proto.Message, want []byte) {
+	t.Helper()
+	got, err := proto.Marshal(msg)
+	if err != nil {
+		t.Fatalf("Marshal %s: %v", label, err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("%s wire bytes = %x, want %x", label, got, want)
 	}
 }
