@@ -658,6 +658,7 @@ generate-proto: proto-tools ## Generate Go and Rust code from protobuf definitio
 		--go_out=proto --go_opt=paths=source_relative \
 		proto/edge/v1/sweep.proto \
 		proto/edge/v1/scheduled_mtr.proto \
+		proto/edge/v1/plugin_results.proto \
 		proto/edge/v1/unleased_sweep.proto \
 		proto/edge/v1/json_producer_batches.proto \
 		proto/edge/v1/workload_identity.proto \
@@ -722,6 +723,7 @@ generate-proto-elixir: install-protoc-gen-elixir ## Generate Elixir code from pr
 		proto/metric/v1/metric.proto \
 		proto/edge/v1/sweep.proto \
 		proto/edge/v1/scheduled_mtr.proto \
+		proto/edge/v1/plugin_results.proto \
 		proto/edge/v1/unleased_sweep.proto \
 		proto/edge/v1/json_producer_batches.proto \
 		proto/edge/v1/workload_identity.proto \
@@ -780,6 +782,7 @@ verify-proto-edge-go: proto-tools ## Manifest+byte drift guard for the single-so
 		--go_out="$$tmp" --go_opt=paths=source_relative \
 		proto/edge/v1/sweep.proto \
 		proto/edge/v1/scheduled_mtr.proto \
+		proto/edge/v1/plugin_results.proto \
 		proto/edge/v1/unleased_sweep.proto \
 		proto/edge/v1/json_producer_batches.proto \
 		proto/edge/v1/workload_identity.proto \
@@ -810,6 +813,7 @@ verify-proto-edge-elixir: install-protoc-gen-elixir ## Manifest+byte drift guard
 		--elixir_out=plugins=grpc:"$$tmp" \
 		proto/edge/v1/sweep.proto \
 		proto/edge/v1/scheduled_mtr.proto \
+		proto/edge/v1/plugin_results.proto \
 		proto/edge/v1/unleased_sweep.proto \
 		proto/edge/v1/json_producer_batches.proto \
 		proto/edge/v1/workload_identity.proto \

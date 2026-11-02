@@ -21,6 +21,7 @@ proto_library(
         "endpoint_inventory.proto",
         "json_producer_batches.proto",
         "k8s_endpoints.proto",
+        "plugin_results.proto",
         "record.proto",
         "scheduled_mtr.proto",
         "sweep.proto",
@@ -41,6 +42,7 @@ filegroup(
         "endpoint_inventory.proto",
         "json_producer_batches.proto",
         "k8s_endpoints.proto",
+        "plugin_results.proto",
         "record.proto",
         "scheduled_mtr.proto",
         "sweep.proto",
@@ -57,6 +59,7 @@ go_library(
         "endpoint_inventory.pb.go",
         "json_producer_batches.pb.go",
         "k8s_endpoints.pb.go",
+        "plugin_results.pb.go",
         "record.pb.go",
         "record_grpc.pb.go",
         "scheduled_mtr.pb.go",
@@ -103,6 +106,7 @@ go_test(
         # required shard would verify nothing about the corpus.
         "sweep_corpus_test.go",
         "family_corpus_test.go",
+        "plugin_results_test.go",
         "unleased_sweep_test.go",
     ],
     data = glob(["testdata/**"]),
@@ -114,12 +118,6 @@ go_test(
         "@org_golang_google_protobuf//proto",
         "@org_golang_google_protobuf//reflect/protoreflect",
     ],
-)
-
-test_suite(
-    name = "edgev1_test",
-    tests = [":edgev1_golden_test"],
-    visibility = ["//visibility:public"],
 )
 
 go_test_inventory_test(

@@ -29,6 +29,7 @@ defmodule TransformFixtureTest do
     EdgeRecordPayloadFamily EdgeRecordRouteProfile EdgeRecordTrafficClass
     EdgeSourceAuthorizationKind EdgeUnattributableReason MtrCompletionDisposition MtrOutcome
     MtrTcpProbeModeV1
+    PluginResultStatus
     SweepAssignmentState SweepExecutionEventKind
     SweepExecutionSource
     SweepMode SweepModeBit SweepModeOutcome SweepResultFormat TransportProtocol
