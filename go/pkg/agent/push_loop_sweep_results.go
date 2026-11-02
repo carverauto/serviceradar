@@ -31,9 +31,17 @@ func (p *PushLoop) pushSweepResults(ctx context.Context) bool {
 		return false
 	}
 
-	// A response partly in the edge spool finishes there, whatever the grants now
-	// are, before another response is read: it never also takes the legacy path.
-	pending, sentAny := p.finishSweepResultsEdge(sweepSvc)
+	// A response with records already in the edge spool finishes there, whatever
+	// the grants now are, before another response is read: those records never
+	// also take the legacy path. A pending response that never entered the spool
+	// returns here when the spool will not accept it.
+	pending, sentAny, fallback := p.finishSweepResultsEdge(sweepSvc)
+	if fallback != nil {
+		if !p.pushSweepResultsLegacy(ctx, sweepSvc, fallback) {
+			return sentAny
+		}
+		sentAny = true
+	}
 	if pending {
 		return sentAny
 	}

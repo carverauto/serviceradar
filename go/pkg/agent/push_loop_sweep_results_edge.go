@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
+	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	"github.com/carverauto/serviceradar/go/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
@@ -45,21 +46,27 @@ const unleasedSweepProjectedRowBytes = 2048
 const unleasedSweepClosedPort = "closed"
 
 var (
-	errSweepResultsExecutionID  = errors.New("sweep results have no canonical execution id")
-	errSweepResultsGroupID      = errors.New("sweep results group id is not a canonical uuid")
-	errSweepResultsHostForm     = errors.New("sweep host address is not in canonical form")
-	errSweepResultsHostTooLarge = errors.New("one sweep host does not fit an edge record")
+	errSweepResultsExecutionID       = errors.New("sweep results have no canonical execution id")
+	errSweepResultsGroupID           = errors.New("sweep results group id is not a canonical uuid")
+	errSweepResultsHostForm          = errors.New("sweep host address is not in canonical form")
+	errSweepResultsHostTooLarge      = errors.New("one sweep host does not fit an edge record")
+	errSweepResultsUnbuildableMetric = errors.New("sweep results chunk metric does not fit an edge record")
 )
 
 // sweepResultsEdgePending is the built records of the one sweep results response
 // the agent is spooling: each legacy chunk's metric batch, then the results.
-// Records are built once, so a retry after a spool refusal appends the unsent ones
-// under their original event ids; the response is acknowledged to the sweep
-// service only when every record is in the spool. Its zero value is empty.
+// Records are built once, so a retry after a retryable spool refusal appends the
+// unsent ones under their original event ids. admitted is set once any record of
+// this response is in the spool. The response is acknowledged when every record
+// is in the spool or, after admitted, has been permanently dropped. When nothing
+// from the response was admitted and a record cannot enter the spool, response
+// goes back to the legacy path whole. Its zero value is empty.
 type sweepResultsEdgePending struct {
 	mu       sync.Mutex
 	groupID  string
 	sequence string
+	response *proto.ResultsResponse
+	admitted bool
 	metrics  []edgeMetricsBuilt
 	parts    []edgeMetricsBuilt
 }
@@ -122,64 +129,91 @@ func (p *PushLoop) pushSweepResultsEdge(sweepSvc SweepResultsProvider, response 
 		return false, false, false
 	}
 
-	metrics := p.sweepResultsMetricRecords(metricPayloads, metricsGrant)
+	metrics, err := p.sweepResultsMetricRecords(metricPayloads, metricsGrant)
+	if err != nil {
+		// Nothing from this response is in the spool yet. The legacy push sends
+		// the response unchanged, including the chunk whose metric did not build.
+		p.logger.Warn().Err(err).Str("sweep_group_id", response.SweepGroupId).
+			Str("reason", sweepPermanentDropReason(err).label()).
+			Msg("Sweep results response stays on the legacy path")
+		return false, false, false
+	}
 
 	p.sweepResultsEdge.mu.Lock()
 	p.sweepResultsEdge.groupID = response.SweepGroupId
 	p.sweepResultsEdge.sequence = response.CurrentSequence
+	p.sweepResultsEdge.response = response
+	p.sweepResultsEdge.admitted = false
 	p.sweepResultsEdge.metrics = metrics
 	p.sweepResultsEdge.parts = parts
 	p.sweepResultsEdge.mu.Unlock()
 
-	pending, sent = p.finishSweepResultsEdge(sweepSvc)
+	pending, sent, fallback := p.finishSweepResultsEdge(sweepSvc)
+	if fallback != nil {
+		return false, false, false
+	}
 	return true, pending, sent
 }
 
 // sweepResultsMetricRecords builds the metric batch record of each legacy results
 // chunk, as the legacy push builds its envelope. A chunk with no metric points has
 // none; a batch no record can hold is split, and only what no record holds is
-// dropped and counted.
-func (p *PushLoop) sweepResultsMetricRecords(payloads []map[string]any, capability *edgev1.EdgeSignedCapabilityV1) []edgeMetricsBuilt {
+// dropped and counted. A chunk that cannot form a record at all is an error, so
+// the response can stay on the legacy path instead of losing that chunk.
+func (p *PushLoop) sweepResultsMetricRecords(payloads []map[string]any, capability *edgev1.EdgeSignedCapabilityV1) ([]edgeMetricsBuilt, error) {
 	m := sweepResultsEdgeMetrics()
 	ctx := p.metricEnvelopeContext()
 	var parts []edgeMetricsBuilt
+	dropped := 0
 	for _, payload := range payloads {
-		_, built, dropped, err := nextEdgeMetricsRecords([]map[string]any{payload}, m.build, capability, ctx)
+		_, built, n, err := nextEdgeMetricsRecords([]map[string]any{payload}, m.build, capability, ctx)
 		if err != nil {
-			if !errors.Is(err, m.nothing) {
-				p.dropEdgeMetrics(m.producer, edgeDropInvalidRecord, 1, err)
+			if errors.Is(err, m.nothing) {
+				continue
 			}
-			continue
+			return nil, fmt.Errorf("%w: %w", errSweepResultsUnbuildableMetric, err)
 		}
-		p.dropEdgeMetrics(m.producer, edgeDropInvalidRecord, dropped, errEdgeMetricsRecordTooLarge)
+		dropped += n
 		parts = append(parts, built...)
 	}
-	return parts
+	p.dropEdgeMetrics(m.producer, edgeDropInvalidRecord, dropped, errEdgeMetricsRecordTooLarge)
+	return parts, nil
 }
 
 // finishSweepResultsEdge appends the unsent records of the response being spooled,
 // metric batches first. A retryable refusal leaves the rest queued with their
-// event ids (pending); a permanent refusal drops only that record. Once every
-// record is in the spool the response is acknowledged and its sequence recorded.
-func (p *PushLoop) finishSweepResultsEdge(sweepSvc SweepResultsProvider) (pending, appended bool) {
+// event ids (pending). A permanent refusal before anything from this response was
+// admitted returns the original response for the legacy path and appends nothing
+// further. A permanent refusal after a record was admitted drops that record,
+// counts it, and continues. The response is acknowledged once nothing remains queued.
+func (p *PushLoop) finishSweepResultsEdge(sweepSvc SweepResultsProvider) (pending, appended bool, fallback *proto.ResultsResponse) {
 	p.sweepResultsEdge.mu.Lock()
 	defer p.sweepResultsEdge.mu.Unlock()
 	state := &p.sweepResultsEdge
 	if state.sequence == "" && len(state.metrics) == 0 && len(state.parts) == 0 {
-		return false, false
+		return false, false, nil
 	}
 
-	queued := len(state.metrics) + len(state.parts)
-	admittedMetrics, restMetrics := appendEdgeMetricsParts(p, sweepResultsEdgeMetrics(), state.metrics, queued)
-	state.metrics = restMetrics
-	if len(restMetrics) > 0 {
-		return true, admittedMetrics > 0
+	added, rest, err := p.appendSweepResultsRecords(edgeProducerSweepResultsMetrics, state.metrics, state.admitted)
+	if err != nil {
+		return false, false, p.abandonSweepResultsEdge(err)
 	}
-	admitted, rest := appendEdgeMetricsParts(p, sweepResultsEdgeRecords(), state.parts, len(state.parts))
-	admitted += admittedMetrics
-	state.parts = rest
+	state.admitted = state.admitted || added > 0
+	state.metrics = rest
+	appended = added > 0
 	if len(rest) > 0 {
-		return true, admitted > 0
+		return true, appended, nil
+	}
+
+	added, rest, err = p.appendSweepResultsRecords(edgeProducerSweepResults, state.parts, state.admitted)
+	if err != nil {
+		return false, false, p.abandonSweepResultsEdge(err)
+	}
+	state.admitted = state.admitted || added > 0
+	state.parts = rest
+	appended = appended || added > 0
+	if len(rest) > 0 {
+		return true, appended, nil
 	}
 
 	acknowledgeSweepResults(sweepSvc, state.groupID, state.sequence)
@@ -187,7 +221,84 @@ func (p *PushLoop) finishSweepResultsEdge(sweepSvc SweepResultsProvider) (pendin
 		p.setSweepResultsSequence(state.sequence)
 	}
 	state.groupID, state.sequence = "", ""
-	return false, admitted > 0
+	state.response = nil
+	state.admitted = false
+	state.metrics, state.parts = nil, nil
+	return false, appended, nil
+}
+
+// abandonSweepResultsEdge forgets a response that never entered the spool so the
+// caller can send it on the legacy path. The caller acknowledges it only if that
+// send succeeds.
+func (p *PushLoop) abandonSweepResultsEdge(err error) *proto.ResultsResponse {
+	state := &p.sweepResultsEdge
+	response := state.response
+	groupID := state.groupID
+	state.groupID, state.sequence = "", ""
+	state.response = nil
+	state.admitted = false
+	state.metrics, state.parts = nil, nil
+	p.logger.Warn().Err(err).Str("sweep_group_id", groupID).
+		Str("reason", sweepPermanentDropReason(err).label()).
+		Msg("Sweep results response stays on the legacy path")
+	return response
+}
+
+// appendSweepResultsRecords appends parts in order. added is how many this call
+// put in the spool. rest is the unsent suffix after a retryable refusal and
+// includes the refused record, whose event id is unchanged. A permanent refusal
+// with nothing from this response in the spool returns that error and an empty
+// rest, so the caller does not append later records. After a record was admitted,
+// a permanent refusal drops that record and continues.
+func (p *PushLoop) appendSweepResultsRecords(producer edgeProducer, parts []edgeMetricsBuilt, already bool) (added int, rest []edgeMetricsBuilt, fallback error) {
+	for i, part := range parts {
+		permanent, err := p.appendOneSweepRecord(part)
+		if err == nil {
+			added++
+			continue
+		}
+		if !permanent {
+			p.logger.Warn().Err(err).Str("producer", producer.label()).
+				Msg("Edge spool refused sweep results; retrying on the next push")
+			return added, parts[i:], nil
+		}
+		if !already && added == 0 {
+			return 0, nil, err
+		}
+		p.dropEdgeMetrics(producer, sweepPermanentDropReason(err), 1, err)
+	}
+	return added, nil, nil
+}
+
+// appendOneSweepRecord appends one built record. permanent is set when repeating
+// the append cannot succeed: the body will not encode, or the spool refused it
+// for a reason that is not cleared by waiting.
+func (p *PushLoop) appendOneSweepRecord(part edgeMetricsBuilt) (permanent bool, err error) {
+	body, err := edgerecord.CanonicalRecordBytes(part.record)
+	if err != nil {
+		return true, err
+	}
+	if _, err = p.edgeMetricsSpool.Append(part.record.GetEventId(), body); err != nil {
+		return permanentSpoolRefusal(err) || errors.Is(err, spool.ErrEventIDLength), err
+	}
+	return false, nil
+}
+
+// sweepPermanentDropReason is the drop-metric reason for a sweep record that
+// cannot enter the spool. A generic permanent refusal stays "refused".
+func sweepPermanentDropReason(err error) edgeDropReason {
+	switch {
+	case errors.Is(err, spool.ErrScopeUnauthorized), errors.Is(err, spool.ErrAgentUnauthorized):
+		return edgeDropUnauthorizedScope
+	case errors.Is(err, spool.ErrEventIDLength):
+		return edgeDropMalformedEventID
+	case errors.Is(err, spool.ErrBodyTooLarge):
+		return edgeDropBodyTooLarge
+	case errors.Is(err, errSweepResultsUnbuildableMetric), errors.Is(err, errEdgeMetricsRecordTooLarge):
+		return edgeDropUnbuildableMetric
+	default:
+		return edgeDropRefused
+	}
 }
 
 // sweepResultsJSON is the agent's sweep results document (SweepService.GetSweepResults).

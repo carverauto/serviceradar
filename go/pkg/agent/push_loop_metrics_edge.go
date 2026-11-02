@@ -86,16 +86,27 @@ const (
 	// edgeDropInvalidRecord: the items, or a single point no record can hold,
 	// cannot form a valid record, so a retry would fail the same way.
 	edgeDropInvalidRecord
-	// edgeDropRefused: the spool refused the record permanently.
+	// edgeDropRefused: the spool refused the record permanently, for a reason
+	// that is not one of the sweep-results reasons below.
 	edgeDropRefused
+	// A sweep results record was dropped after part of its response was already
+	// in the spool. The reason is the refusal the spool reported.
+	edgeDropUnauthorizedScope
+	edgeDropMalformedEventID
+	edgeDropBodyTooLarge
+	edgeDropUnbuildableMetric
 	edgeDropReasonCount
 )
 
 func (r edgeDropReason) label() string {
 	return [edgeDropReasonCount]string{
-		edgeDropRetryBufferFull: "retry_buffer_full",
-		edgeDropInvalidRecord:   "invalid_record",
-		edgeDropRefused:         "refused",
+		edgeDropRetryBufferFull:   "retry_buffer_full",
+		edgeDropInvalidRecord:     "invalid_record",
+		edgeDropRefused:           "refused",
+		edgeDropUnauthorizedScope: "unauthorized_scope",
+		edgeDropMalformedEventID:  "malformed_event_id",
+		edgeDropBodyTooLarge:      "body_too_large",
+		edgeDropUnbuildableMetric: "unbuildable_chunk_metric",
 	}[r]
 }
 

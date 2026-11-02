@@ -588,6 +588,254 @@ func TestARefusedUnleasedSweepAppendResumesWithTheUnsentRecords(t *testing.T) {
 	}
 }
 
+// A permanent spool refusal, or a chunk metric that cannot be built, before any
+// record of the response is in the spool sends that response on the legacy path
+// unchanged: nothing is spooled, the refusal is not counted as a drop, and the
+// sweep service is acknowledged by the legacy send.
+func TestSweepResultsWithNothingAdmittedReturnToLegacy(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{
+		{name: "unauthorized scope", err: spool.ErrScopeUnauthorized},
+		{name: "malformed event id", err: spool.ErrEventIDLength},
+		{name: "body too large", err: spool.ErrBodyTooLarge},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			inner := openTestEdgeSpool(t)
+			response := sweepResultsResponse(t, unleasedTestGroupID, "1", []models.HostResult{reachableHost("192.0.2.10")}, nil)
+			svc := &scriptedSweepResults{responses: []*proto.ResultsResponse{response}}
+			loop, gw := unleasedSweepLoop(t, inner, svc, currentMetricsGrant(t), unleasedSweepGrant(t, 10_000))
+			script := &appendScript{inner: inner, refuseAfter: -1, permanentOn: 1, permanentErr: tc.err}
+			loop.edgeMetricsSpool = script
+
+			require.True(t, loop.pushSweepResults(t.Context()))
+
+			require.Len(t, script.ids, 1, "later records of a response that never entered the spool are not appended")
+			_, batches, metrics := spooledUnleasedSweep(t, inner)
+			require.Empty(t, batches)
+			require.Zero(t, metrics)
+			require.Equal(t, 1, gw.statusesFrom("results"))
+			require.Equal(t, 1, gw.statusesFrom("sweep-metrics"))
+			require.Equal(t, []string{unleasedTestGroupID + "/1"}, svc.acked())
+			requireSweepDrops(t, loop, edgeProducerSweepResults, edgeDropRefused, 0)
+
+			require.False(t, loop.pushSweepResults(t.Context()))
+			require.Equal(t, []string{unleasedTestGroupID + "/1"}, svc.acked())
+			require.Equal(t, 1, gw.statusesFrom("results"))
+		})
+	}
+
+	t.Run("unbuildable chunk metric", func(t *testing.T) {
+		sp := openTestEdgeSpool(t)
+		response := sweepResultsResponse(t, unleasedTestGroupID, "4", []models.HostResult{reachableHost("192.0.2.10")}, nil)
+		svc := &scriptedSweepResults{responses: []*proto.ResultsResponse{response}}
+		now := time.Now()
+		grants := []*proto.EdgeOutputGrant{
+			metricsGrantRows(t, sysmonEdgeAgentID, now.Add(-time.Hour), now.Add(8*24*time.Hour), 0),
+			unleasedSweepGrant(t, 10_000),
+		}
+		loop, gw := unleasedSweepLoop(t, sp, svc, grants...)
+		results, metricsGrant := loop.sweepResultsEdgeGrants(time.Now())
+		require.NotNil(t, results)
+		require.NotNil(t, metricsGrant)
+		require.Zero(t, metricsGrant.GetProduction().GetMaxProjectedRowCount())
+
+		require.True(t, loop.pushSweepResults(t.Context()))
+
+		_, batches, metrics := spooledUnleasedSweep(t, sp)
+		require.Empty(t, batches)
+		require.Zero(t, metrics)
+		require.Equal(t, 1, gw.statusesFrom("results"))
+		require.Equal(t, 1, gw.statusesFrom("sweep-metrics"))
+		require.Equal(t, []string{unleasedTestGroupID + "/4"}, svc.acked())
+		requireSweepDrops(t, loop, edgeProducerSweepResultsMetrics, edgeDropUnbuildableMetric, 0)
+	})
+
+	t.Run("the next response still takes the edge path", func(t *testing.T) {
+		inner := openTestEdgeSpool(t)
+		svc := &scriptedSweepResults{responses: []*proto.ResultsResponse{
+			sweepResultsResponse(t, unleasedTestGroupID, "1", []models.HostResult{reachableHost("192.0.2.10")}, nil),
+			sweepResultsResponse(t, unleasedTestGroupID, "2", []models.HostResult{reachableHost("192.0.2.11")}, nil),
+		}}
+		loop, gw := unleasedSweepLoop(t, inner, svc, currentMetricsGrant(t), unleasedSweepGrant(t, 10_000))
+		loop.edgeMetricsSpool = &appendScript{inner: inner, refuseAfter: -1, permanentOn: 1, permanentErr: spool.ErrScopeUnauthorized}
+
+		require.True(t, loop.pushSweepResults(t.Context()))
+
+		_, batches, metrics := spooledUnleasedSweep(t, inner)
+		require.Len(t, batches, 1)
+		require.EqualValues(t, 2, batches[0].GetSequence())
+		require.Equal(t, 1, metrics)
+		require.Equal(t, 1, gw.statusesFrom("results"))
+		require.Equal(t, 1, gw.statusesFrom("sweep-metrics"))
+		require.Equal(t, []string{unleasedTestGroupID + "/1", unleasedTestGroupID + "/2"}, svc.acked())
+	})
+}
+
+// A permanent refusal after a record of the response is already in the spool
+// drops that record, counts the refusal, acknowledges the response, and does
+// not send the admitted records on the legacy path.
+func TestSweepResultsPermanentRefusalAfterAdmissionDropsAndAcks(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		err        error
+		reason     edgeDropReason
+		producer   edgeProducer
+		hosts      int
+		maxRows    uint32
+		permanent  int
+		chunkBytes int
+	}{
+		{name: "unauthorized scope", err: spool.ErrScopeUnauthorized, reason: edgeDropUnauthorizedScope, producer: edgeProducerSweepResults, hosts: 5, maxRows: 2, permanent: 2},
+		{name: "malformed event id", err: spool.ErrEventIDLength, reason: edgeDropMalformedEventID, producer: edgeProducerSweepResults, hosts: 5, maxRows: 2, permanent: 2},
+		{name: "body too large", err: spool.ErrBodyTooLarge, reason: edgeDropBodyTooLarge, producer: edgeProducerSweepResults, hosts: 5, maxRows: 2, permanent: 2},
+		// Two legacy chunks, so the response has two metric records. The second is refused.
+		{name: "a later metric record", err: spool.ErrBodyTooLarge, reason: edgeDropBodyTooLarge, producer: edgeProducerSweepResultsMetrics, hosts: 250, maxRows: 10_000, permanent: 2, chunkBytes: 64 * 1024},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.chunkBytes > 0 {
+				t.Setenv("SWEEP_RESULTS_MAX_CHUNK_BYTES", strconv.Itoa(tc.chunkBytes))
+			}
+			inner := openTestEdgeSpool(t)
+			hosts := make([]models.HostResult, tc.hosts)
+			for i := range hosts {
+				hosts[i] = reachableHost(fmt.Sprintf("2001:db8::%x", i+1))
+			}
+			svc := &scriptedSweepResults{responses: []*proto.ResultsResponse{
+				sweepResultsResponse(t, unleasedTestGroupID, "7", hosts, nil),
+			}}
+			loop, gw := unleasedSweepLoop(t, inner, svc, currentMetricsGrant(t), unleasedSweepGrant(t, tc.maxRows))
+			script := &appendScript{inner: inner, refuseAfter: -1, permanentOn: tc.permanent, permanentErr: tc.err}
+			loop.edgeMetricsSpool = script
+
+			require.True(t, loop.pushSweepResults(t.Context()))
+
+			require.GreaterOrEqual(t, len(script.ids), tc.permanent)
+			refused := script.ids[tc.permanent-1]
+			spooled := spooledEventIDs(t, inner)
+			require.NotContains(t, eventIDKeys(spooled), string(refused))
+			require.Len(t, spooled, len(script.ids)-1)
+			for _, id := range script.ids {
+				if string(id) == string(refused) {
+					continue
+				}
+				require.Contains(t, eventIDKeys(spooled), string(id))
+			}
+			_, batches, metrics := spooledUnleasedSweep(t, inner)
+			carried := 0
+			for _, batch := range batches {
+				carried += len(batch.GetHosts())
+			}
+			require.Equal(t, tc.hosts-hostsInSweepRecord(t, script.bodies[tc.permanent-1]), carried)
+			if tc.producer == edgeProducerSweepResultsMetrics {
+				require.Positive(t, metrics)
+				require.Equal(t, tc.hosts, carried)
+			} else {
+				require.Equal(t, 1, metrics)
+				require.Positive(t, hostsInSweepRecord(t, script.bodies[tc.permanent-1]))
+			}
+			require.Zero(t, gw.statusesFrom("results"))
+			require.Zero(t, gw.statusesFrom("sweep-metrics"))
+			require.Equal(t, []string{unleasedTestGroupID + "/7"}, svc.acked())
+			requireSweepDrops(t, loop, tc.producer, tc.reason, 1)
+
+			before := len(spooled)
+			require.False(t, loop.pushSweepResults(t.Context()))
+			require.Len(t, spooledEventIDs(t, inner), before)
+			require.Equal(t, []string{unleasedTestGroupID + "/7"}, svc.acked())
+		})
+	}
+
+	t.Run("after a record was admitted on an earlier push", func(t *testing.T) {
+		inner := openTestEdgeSpool(t)
+		hosts := make([]models.HostResult, 5)
+		for i := range hosts {
+			hosts[i] = reachableHost(fmt.Sprintf("192.0.2.%d", 20+i))
+		}
+		svc := &scriptedSweepResults{responses: []*proto.ResultsResponse{
+			sweepResultsResponse(t, unleasedTestGroupID, "8", hosts, nil),
+		}}
+		loop, gw := unleasedSweepLoop(t, inner, svc, currentMetricsGrant(t), unleasedSweepGrant(t, 2))
+		script := &appendScript{inner: inner, refuseAfter: 1, permanentErr: spool.ErrScopeUnauthorized}
+		loop.edgeMetricsSpool = script
+
+		require.True(t, loop.pushSweepResults(t.Context()))
+		require.Empty(t, svc.acked())
+		require.Len(t, script.ids, 2)
+		refused := append([]byte(nil), script.ids[1]...)
+		require.Equal(t, [][]byte{script.ids[0]}, spooledEventIDs(t, inner))
+
+		script.refuseAfter = -1
+		script.permanentOn = len(script.ids) + 1
+		require.True(t, loop.pushSweepResults(t.Context()))
+
+		require.Equal(t, refused, script.ids[2])
+		spooled := spooledEventIDs(t, inner)
+		require.NotContains(t, eventIDKeys(spooled), string(refused))
+		require.Contains(t, eventIDKeys(spooled), string(script.ids[0]))
+		_, batches, metrics := spooledUnleasedSweep(t, inner)
+		require.Equal(t, 1, metrics)
+		carried := 0
+		for _, batch := range batches {
+			carried += len(batch.GetHosts())
+		}
+		require.Equal(t, len(hosts)-hostsInSweepRecord(t, script.bodies[2]), carried)
+		require.Positive(t, carried)
+		require.Zero(t, gw.statusesFrom("results"))
+		require.Zero(t, gw.statusesFrom("sweep-metrics"))
+		require.Equal(t, []string{unleasedTestGroupID + "/8"}, svc.acked())
+		requireSweepDrops(t, loop, edgeProducerSweepResults, edgeDropUnauthorizedScope, 1)
+	})
+}
+
+func spooledEventIDs(t *testing.T, sp *spool.Spool) [][]byte {
+	t.Helper()
+	stored, err := sp.Unresolved()
+	require.NoError(t, err)
+	ids := make([][]byte, 0, len(stored))
+	for _, s := range stored {
+		record := &edgev1.EdgeRecordV1{}
+		require.NoError(t, gproto.Unmarshal(s.Body, record))
+		ids = append(ids, record.GetEventId())
+	}
+	return ids
+}
+
+func eventIDKeys(ids [][]byte) []string {
+	keys := make([]string, len(ids))
+	for i, id := range ids {
+		keys[i] = string(id)
+	}
+	return keys
+}
+
+func hostsInSweepRecord(t *testing.T, body []byte) int {
+	t.Helper()
+	record := &edgev1.EdgeRecordV1{}
+	require.NoError(t, gproto.Unmarshal(body, record))
+	if record.GetOutputContract().GetContractId() != edgerecord.UnleasedSweepResultsContractID {
+		return 0
+	}
+	batch := &edgev1.UnleasedSweepResultsBatchV1{}
+	require.NoError(t, gproto.Unmarshal(recordBody(t, record), batch))
+	return len(batch.GetHosts())
+}
+
+func requireSweepDrops(t *testing.T, loop *PushLoop, producer edgeProducer, reason edgeDropReason, count uint64) {
+	t.Helper()
+	for _, candidate := range []edgeProducer{edgeProducerSweepResults, edgeProducerSweepResultsMetrics} {
+		for dropReason := range edgeDropReasonCount {
+			got := edgeDrops(loop, candidate, dropReason)
+			if candidate == producer && dropReason == reason {
+				require.Equal(t, count, got, "%s %s", candidate.label(), dropReason.label())
+				continue
+			}
+			require.Zero(t, got, "%s %s", candidate.label(), dropReason.label())
+		}
+	}
+}
+
 // The fidelity fixture shared with core's EdgeRecord DB test: one legacy results
 // response and the unleased batch the agent converts it to. Core ingests the JSON
 // through the legacy results path and the batch through the projector and
