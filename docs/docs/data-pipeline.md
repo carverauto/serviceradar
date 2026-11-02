@@ -61,9 +61,16 @@ payload-budget and per-part deduplication contracts live in
 When the agent's metrics spool is enabled and it holds a current
 `serviceradar.metrics.batch` grant, its sysmon, SNMP, ICMP and MTR scalar metrics
 and its periodic sweep summary leave the status path on that one grant. Each
-producer keeps its own queue. MTR traces and the metric batch carried with
-sweep results stay on the status path for now. The agent splits each record at 512 KiB, and core
-republishes the edge records onto the same `metrics.sysmon.>`, `metrics.snmp.>`,
+producer keeps its own queue. MTR traces stay on the status path. Results of a
+sweep group the agent runs from its own config, and the metric batch on each of
+those results chunks, leave the status path together only while the agent also
+holds a current `serviceradar.sweep.unleased_results` version 1 grant. Without
+that grant, and for a leased sweep group, the response stays on the status path.
+The agent splits each metrics record at 512 KiB. An unleased sweep results
+record is split by halving the host list so it stays within that grant's row
+ceiling and 512 KiB, and core ingests it on the results path the status
+message used. Core republishes the metric records onto the same
+`metrics.sysmon.>`, `metrics.snmp.>`,
 `metrics.icmp.>`, `metrics.mtr.>` and `metrics.sweep.>` subjects. Core also
 admits `rperf-metrics` batches onto `metrics.rperf.>`; the agent has no rperf
 producer of its own.

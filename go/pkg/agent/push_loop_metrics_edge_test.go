@@ -519,11 +519,12 @@ func flattenedMetricPoints(batches []*metricpb.MetricBatch) []string {
 // 0 means none. refuseAfter is how many appends succeed before a retryable
 // refusal; negative means every non-permanent append is admitted.
 type appendScript struct {
-	inner       *spool.Spool
-	refuseAfter int
-	permanentOn int
-	ids         [][]byte
-	bodies      [][]byte
+	inner        *spool.Spool
+	refuseAfter  int
+	permanentOn  int
+	ids          [][]byte
+	bodies       [][]byte
+	permanentErr error
 }
 
 func (a *appendScript) Append(eventID, body []byte) (uint64, error) {
@@ -531,6 +532,9 @@ func (a *appendScript) Append(eventID, body []byte) (uint64, error) {
 	a.ids = append(a.ids, bytes.Clone(eventID))
 	a.bodies = append(a.bodies, bytes.Clone(body))
 	if a.permanentOn == n {
+		if a.permanentErr != nil {
+			return 0, a.permanentErr
+		}
 		return 0, spool.ErrPermanent
 	}
 	if a.refuseAfter >= 0 && n > a.refuseAfter {
