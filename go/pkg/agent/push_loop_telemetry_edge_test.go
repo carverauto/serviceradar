@@ -17,14 +17,17 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 	gproto "google.golang.org/protobuf/proto"
 
@@ -297,6 +300,77 @@ func TestTelemetryBatchSplitAccountsForWholeRecordBound(t *testing.T) {
 		total += len(part.GetRecords())
 	}
 	require.Equal(t, 3, total)
+}
+
+// warnCaptureLogger records Warn events and discards every other level.
+type warnCaptureLogger struct {
+	logger.Logger
+	output zerolog.Logger
+}
+
+func (l warnCaptureLogger) Warn() *zerolog.Event { return l.output.Warn() }
+
+func TestAddonTelemetryGrantReportsBufferDrops(t *testing.T) {
+	sp := openTestEdgeSpool(t)
+	var output bytes.Buffer
+	loop := &PushLoop{
+		server: &Server{
+			config:         &ServerConfig{AgentID: sysmonEdgeAgentID, Partition: "default"},
+			addonTelemetry: newAddonTelemetryBuffer(1),
+		},
+		logger: warnCaptureLogger{Logger: logger.NewTestLogger(), output: zerolog.New(&output)},
+	}
+	loop.SetEdgeTelemetrySpool(sp)
+	telemetryCapability(t, loop)
+
+	kept := ocsfTelemetryRecord(`{"class_uid":4003,"raw":"kept"}`)
+	discarded := ocsfTelemetryRecord(`{"class_uid":4003,"raw":"discarded"}`)
+	loop.server.addonTelemetry.enqueue("powerdns", &addonpb.TelemetryBatch{Records: []*addonpb.TelemetryRecord{kept}})
+	loop.server.addonTelemetry.enqueue("powerdns", &addonpb.TelemetryBatch{Records: []*addonpb.TelemetryRecord{discarded}})
+
+	require.True(t, loop.pushAddonTelemetry(context.Background()))
+
+	batches := spooledTelemetryBatches(t, sp)
+	require.Len(t, batches, 1)
+	require.Equal(t, [][]byte{kept.GetPayload()}, telemetryPayloads(batches))
+
+	reports := addonTelemetryDropReports(t, output.String())
+	require.Len(t, reports, 1)
+	require.EqualValues(t, 1, reports[0]["dropped_since_last"])
+	require.EqualValues(t, 1, reports[0]["dropped_total"])
+	require.Zero(t, edgeDrops(loop, edgeProducerAddonTelemetry, edgeDropRetryBufferFull))
+	require.Zero(t, edgeDrops(loop, edgeProducerAddonTelemetry, edgeDropInvalidRecord))
+
+	output.Reset()
+	require.False(t, loop.pushAddonTelemetry(context.Background()))
+	require.Empty(t, addonTelemetryDropReports(t, output.String()))
+}
+
+func telemetryPayloads(batches []*addonpb.TelemetryBatch) [][]byte {
+	payloads := make([][]byte, 0, len(batches))
+	for _, batch := range batches {
+		for _, record := range batch.GetRecords() {
+			payloads = append(payloads, record.GetPayload())
+		}
+	}
+	return payloads
+}
+
+func addonTelemetryDropReports(t *testing.T, logged string) []map[string]any {
+	t.Helper()
+	var reports []map[string]any
+	for _, line := range strings.Split(logged, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var event map[string]any
+		require.NoError(t, json.Unmarshal([]byte(line), &event))
+		if event["message"] == "Dropped add-on telemetry before push" {
+			reports = append(reports, event)
+		}
+	}
+	return reports
 }
 
 func TestTelemetryBatchKeepsRecordsBesideOneThatCannotFormAPart(t *testing.T) {

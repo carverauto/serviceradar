@@ -53,6 +53,12 @@ func (p *PushLoop) pushAddonTelemetry(ctx context.Context) bool {
 	// the legacy status path. Without it, items the spool admitted no part
 	// of go back on the legacy path.
 	if capability := p.edgeTelemetryCapability(time.Now()); capability != nil {
+		if droppedDelta > 0 {
+			p.logger.Warn().
+				Uint64("dropped_since_last", droppedDelta).
+				Uint64("dropped_total", droppedTotal).
+				Msg("Dropped add-on telemetry before push")
+		}
 		items := make([]telemetryEdgeItem, 0, len(envelopes))
 		for _, envelope := range envelopes {
 			envelope := envelope
