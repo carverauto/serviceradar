@@ -5,6 +5,19 @@ agent. Each host can own one instance of each fixed service: NATS leaf, log coll
 flow collector, BMP collector, and trapd. Syslog and OTEL share the log service;
 NetFlow and sFlow share the flow service. Distinct services have distinct identities.
 
+Packaged Linux enrollment, `srctl enroll` as root, publishes that enrollment where
+the privileged helper can trust it. Enrollment makes `/etc/serviceradar` and
+`/etc/serviceradar/host-trust` root-owned directories that no other user can write,
+then writes `identity.json` (agent id and partition only) and `ca.pem` (the
+enrollment CA chain) there as root-owned regular files. The service account still
+owns `agent.json` and `/etc/serviceradar/certs`, including `ca-chain.pem`, so
+renewal can replace `component.pem` there while host-trust stays unchanged. The
+helper and `edge install` trust that host-trust identity and CA. A host enrolled
+before this record existed needs a new agent package and `srctl enroll` as root
+to publish it. Package upgrade keeps an existing host-trust directory root-owned
+at mode `0755`, leaves the certificate directory service-owned, and refuses a
+symlink at `/etc/serviceradar/host-trust`.
+
 The administrative API requires `settings.edge.manage`:
 
 1. Read `GET /api/admin/managed-components/bootstrap` for the deployment policy
@@ -60,8 +73,18 @@ dashes). Bound collectors address that domain; their exact stream API permission
 cover both the addressed and broker-mapped subject forms. Unbound collectors use
 the hub's default domain.
 
-Infrastructure adoption is separate from host registration. Permission-only
-adoption stores effective `publish` and `subscribe` arrays, plus optional
+Infrastructure adoption is separate from host registration. Existing cluster
+collectors and other static NATS clients use component type `nats-client` with
+their current explicit broker permissions. This records their public certificate
+without an enrolled host or an agent-managed renewal operation; new edge services
+continue to use host enrollment. The CLI's `edge.manage` scope permits
+`GET /api/admin/managed-components/bootstrap`,
+`GET /api/admin/managed-components/:id`, `POST /api/admin/managed-components`,
+and `POST /api/admin/managed-components/:id/rotate`, subject to the operator's
+`settings.edge.manage` permission. Infrastructure adoption, hub certificate
+authorization bootstrap, successor recording, fingerprint revocation, component
+revoke, and re-enrollment stay outside that narrow scope.
+Permission-only adoption stores effective `publish` and `subscribe` arrays, plus optional
 `publish_deny` and `subscribe_deny` arrays. An empty allow array on that path
 means no permission. That path does not record a certificate, and it does not
 unblock a revoked component. Permission updates require the current certificate
@@ -102,7 +125,7 @@ revocation. The component stays unblocked. Its generation and stored grant
 stay unchanged. The component Revoke control still blocks renewal until
 re-enrollment. Broker authorization callout stays disabled.
 
-`POST /api/nats/certificate-authorization/bootstrap` stores signing material
+`POST /api/admin/nats/certificate-authorization/bootstrap` stores signing material
 only for the deployment account (`:nats_account_name`). A missing or unusable
 deployment account returns `nats_account_unconfigured`. A different requested
 name returns `nats_account_mismatch`. An existing record for another account

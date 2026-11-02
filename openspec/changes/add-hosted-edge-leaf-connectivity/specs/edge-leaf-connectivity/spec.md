@@ -132,8 +132,13 @@ web-ng SHALL also expose `GET /api/admin/agents`, which returns
 - the collector routes
 - the NATS account and credentials routes
 - the edge site routes
+- `GET /api/admin/managed-components/bootstrap` and `GET /api/admin/managed-components/:id`
+- `POST /api/admin/managed-components`
+- `POST /api/admin/managed-components/:id/rotate`
 - `GET /api/admin/agents`
 - `GET /api/admin/version`
+
+Managed-certificate route detail is in `docs/managed-component-certificates.md`.
 
 The CLI device-code flow SHALL be able to request it by default, and existing
 `cli_allowed_scopes` rows SHALL gain it through a migration.

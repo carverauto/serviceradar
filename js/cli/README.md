@@ -171,8 +171,11 @@ without changing anything. `edge install agent` downloads the package for
 leaf` and `edge install collector` omit `--version` to download the matching
 package from the latest GitHub release; pass `--version` to pin one.
 `--format rpm|deb` and `--arch` override host detection. `edge install leaf`
-and `edge install collector` require an enrolled, running host agent. They
-register one managed component for that host service, pin the deployment
+and `edge install collector` require an enrolled, running host agent whose
+packaged enrollment published host-trust. A host enrolled before that record
+existed needs re-enrollment first
+([Managed component certificates](../../docs/managed-component-certificates.md)).
+They register one managed component for that host service, pin the deployment
 policy public key, and wait until the agent has installed certificates and
 activated the service. Activation is separate from receiver enforcement.
 Certificate lifecycle and NATS readiness are in
