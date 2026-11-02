@@ -224,11 +224,19 @@ func writeManagedLocalNATSFile(path string, data []byte, mode os.FileMode, gid i
 	return syncCertDir(filepath.Dir(path))
 }
 
-func readLocalNATSMetadata() (*managedLocalNATSMetadata, error) {
-	if err := validatePrivilegedAddonRootOwnership(managedCertificateRoot); err != nil {
+func (s managedCertificateStore) readLocalNATSMetadata() (*managedLocalNATSMetadata, error) {
+	path := filepath.Join(s.root, "local-nats.json")
+	// The root CLI opts a host into local authorization by installing this file.
+	// An unenrolled host has no authority whose parent ownership needs checking.
+	if _, err := os.Lstat(path); err != nil {
 		return nil, err
 	}
-	data, err := readManagedTrustedFile(filepath.Join(managedCertificateRoot, "local-nats.json"))
+	// Configured authorities still require protected parents: replacing a parent
+	// could substitute the broker identity and the keys this process trusts.
+	if err := validatePrivilegedAddonRootOwnership(s.root); err != nil {
+		return nil, err
+	}
+	data, err := readManagedTrustedFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -334,7 +342,8 @@ func runManagedLocalNATSAuthorization(ctx context.Context, input io.Reader, outp
 	if err := decodeManagedCertificateRequest(data, &request); err != nil {
 		return err
 	}
-	metadata, err := readLocalNATSMetadata()
+	store := managedCertificateStore{root: managedCertificateRoot}
+	metadata, err := store.readLocalNATSMetadata()
 	if err != nil {
 		return err
 	}
@@ -378,11 +387,47 @@ func runManagedLocalNATSAuthorization(ctx context.Context, input io.Reader, outp
 	return json.NewEncoder(output).Encode(managedLocalNATSAuthorization{result, !policy.ValidUntil.After(time.Now())})
 }
 
+func (p *PushLoop) startManagedLocalNATS(ctx context.Context) {
+	if !runtimeSupportsNativeAddonHosting() {
+		return
+	}
+	if _, err := os.Lstat(filepath.Join(managedCertificateRoot, "local-nats.json")); errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	if !p.managedLocalNATSRunning.CompareAndSwap(false, true) {
+		return
+	}
+	go func() {
+		defer p.managedLocalNATSRunning.Store(false)
+		p.managedLocalNATSLoop(ctx)
+	}()
+}
+
 func (p *PushLoop) managedLocalNATSLoop(ctx context.Context) {
+	if !runtimeSupportsNativeAddonHosting() {
+		return
+	}
+	store := managedCertificateStore{root: managedCertificateRoot}
+	store.runLocalNATSLoop(ctx, p)
+}
+
+func (s managedCertificateStore) runLocalNATSLoop(ctx context.Context, p *PushLoop) {
+	lastError := ""
 	for ctx.Err() == nil {
-		err := p.serveManagedLocalNATS(ctx)
-		if err != nil && !errors.Is(err, os.ErrNotExist) && ctx.Err() == nil {
-			p.logger.Warn().Err(err).Msg("Local NATS certificate authorization unavailable")
+		metadata, err := s.readLocalNATSMetadata()
+		if errors.Is(err, os.ErrNotExist) {
+			return
+		}
+		if err == nil {
+			err = p.serveManagedLocalNATS(ctx, metadata)
+		}
+		if err != nil && ctx.Err() == nil {
+			if err.Error() != lastError {
+				p.logger.Warn().Err(err).Msg("Local NATS certificate authorization unavailable")
+			} else {
+				p.logger.Debug().Err(err).Msg("Local NATS certificate authorization unavailable")
+			}
+			lastError = err.Error()
 		}
 		select {
 		case <-ctx.Done():
@@ -392,13 +437,9 @@ func (p *PushLoop) managedLocalNATSLoop(ctx context.Context) {
 	}
 }
 
-func (p *PushLoop) serveManagedLocalNATS(ctx context.Context) error {
+func (p *PushLoop) serveManagedLocalNATS(ctx context.Context, metadata *managedLocalNATSMetadata) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	metadata, err := readLocalNATSMetadata()
-	if err != nil {
-		return err
-	}
 	p.server.mu.RLock()
 	configuration := *p.server.config
 	p.server.mu.RUnlock()

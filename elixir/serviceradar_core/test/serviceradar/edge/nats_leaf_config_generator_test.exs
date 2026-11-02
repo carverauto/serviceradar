@@ -34,7 +34,7 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGeneratorTest do
     refute config =~ "account_seed"
   end
 
-  test "managed sites use independent JetStream domains while keeping the local authorizer include" do
+  test "managed sites use independent JetStream domains" do
     site = %{
       id: "00000000-0000-4000-8000-000000000123",
       name: "Example site",
@@ -47,7 +47,6 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGeneratorTest do
       NatsLeafConfigGenerator.generate_config(site, leaf, managed_component_id: "example-leaf")
 
     assert config =~ "domain: edge_00000000000040008000000000000123"
-    assert config =~ "include /etc/serviceradar/managed-components/example-leaf/local-auth.conf"
     assert config =~ ~s(account: "EDGE")
     refute config =~ "verify_and_map"
 
@@ -60,6 +59,66 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGeneratorTest do
 
     assert other =~ "domain: edge_00000000000040008000000000000124"
     refute other =~ "domain: edge_00000000000040008000000000000123"
+  end
+
+  @tag :tmp_dir
+  test "the packaged broker loads managed authorization relative to its config file", %{
+    tmp_dir: root
+  } do
+    site = %{
+      id: "00000000-0000-4000-8000-000000000125",
+      name: "Example site",
+      slug: "example-site"
+    }
+
+    leaf = %{upstream_url: "tls://hub.example.com:7422", local_listen: "0.0.0.0:4222"}
+    config_dir = Path.join(root, "etc/nats")
+    component_dir = Path.join(root, "etc/serviceradar/managed-components/example-leaf")
+    File.mkdir_p!(config_dir)
+
+    %{cert: der, key: key} =
+      :public_key.pkix_test_root_cert(~c"example-leaf", key: {:namedCurve, :secp256r1})
+
+    certificate = :public_key.pem_encode([{:Certificate, der, :not_encrypted}])
+    private_key = :public_key.pem_encode([:public_key.pem_entry_encode(elem(key, 0), key)])
+
+    for role <- ["local_server", "upstream_client"] do
+      directory = Path.join([component_dir, "current", role])
+      File.mkdir_p!(directory)
+      File.write!(Path.join(directory, "component.pem"), certificate)
+      File.write!(Path.join(directory, "component-key.pem"), private_key)
+      File.write!(Path.join(directory, "root.pem"), certificate)
+    end
+
+    include_path = Path.join(component_dir, "local-auth.conf")
+    File.write!(include_path, "accounts { EDGE { jetstream: enabled } }\n")
+
+    # Relocate the package's absolute file paths into the disposable filesystem.
+    # Leave relative paths intact so the broker owns include resolution.
+    config =
+      site
+      |> NatsLeafConfigGenerator.generate_config(leaf, managed_component_id: "example-leaf")
+      |> String.replace("/etc/", Path.join(root, "etc") <> "/")
+      |> String.replace("/var/", Path.join(root, "var") <> "/")
+
+    config_path = Path.join(config_dir, "nats-server.conf")
+    File.write!(config_path, config)
+
+    [broker] =
+      Path.wildcard(Path.join(System.fetch_env!("TEST_TMPDIR"), "external/*/nats-server"))
+
+    {output, status} =
+      System.cmd(broker, ["-t", "-c", config_path], stderr_to_stdout: true, cd: root)
+
+    assert status == 0, output
+
+    File.rm!(include_path)
+
+    {output, status} =
+      System.cmd(broker, ["-t", "-c", config_path], stderr_to_stdout: true, cd: root)
+
+    assert status != 0
+    assert output =~ "local-auth.conf"
   end
 
   describe "client_url/1" do
