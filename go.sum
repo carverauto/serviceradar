@@ -28,8 +28,8 @@ github.com/bazelbuild/rules_go v0.65.0 h1:oHAvkNIMaOhguFSCHi0bCoUhz2390srk4U0rTn
 github.com/bazelbuild/rules_go v0.65.0/go.mod h1:xfi7fis5FXCWYcI1W3egOzRBoz+Yi5AeFV7MbCtdmj8=
 github.com/bluenviron/gortsplib/v5 v5.6.7 h1:0o0Ays+oereZwmeOP66t154lmrvXJsON/4iCxDnjgmw=
 github.com/bluenviron/gortsplib/v5 v5.6.7/go.mod h1:5aF0ncI3gp3OjaOfJEL4qBOFiheEgrLWp2nc13rHt2c=
-github.com/bluenviron/mediacommon/v2 v2.9.6 h1:4DRWZyFZ4Xbkgu85c0UIiny0ohAFDr+ZgtdDK+iq/e8=
-github.com/bluenviron/mediacommon/v2 v2.9.6/go.mod h1:1J4QckclKIksdI9+7C+PJXVBkpO/JYWn7/h+wOYq+7E=
+github.com/bluenviron/mediacommon/v2 v2.9.7 h1:BEexzVxSuh2X7rWKviZlYC0yneRG8w8SMxx34+7H7o4=
+github.com/bluenviron/mediacommon/v2 v2.9.7/go.mod h1:1J4QckclKIksdI9+7C+PJXVBkpO/JYWn7/h+wOYq+7E=
 github.com/bufbuild/protocompile v0.14.1 h1:iA73zAf/fyljNjQKwYzUHD6AD4R8KMasmwa/FBatYVw=
 github.com/bufbuild/protocompile v0.14.1/go.mod h1:ppVdAIhbr2H8asPk6k4pY7t9zB1OU5DoEw9xY/FUi1c=
 github.com/cenkalti/backoff/v5 v5.0.3 h1:ZN+IMa753KfX5hd8vVaMixjnqRZ3y8CuJKRKj1xcsSM=
