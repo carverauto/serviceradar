@@ -28,7 +28,7 @@ require (
 	github.com/nats-io/nats.go v1.54.0
 	github.com/pion/rtcp v1.2.20
 	github.com/pion/rtp v1.10.5
-	github.com/pkg/sftp v1.13.11
+	github.com/pkg/sftp v1.13.12
 	github.com/rs/zerolog v1.35.1
 	github.com/shirou/gopsutil/v3 v3.24.5
 	github.com/stretchr/testify v1.12.1
