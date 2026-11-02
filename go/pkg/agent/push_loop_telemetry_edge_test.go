@@ -299,6 +299,74 @@ func TestTelemetryBatchSplitAccountsForWholeRecordBound(t *testing.T) {
 	require.Equal(t, 3, total)
 }
 
+func TestTelemetryBatchKeepsRecordsBesideOneThatCannotFormAPart(t *testing.T) {
+	sp := openTestEdgeSpool(t)
+	loop := telemetryLoop(t, sp)
+	capability := telemetryCapability(t, loop)
+
+	smallA := ocsfTelemetryRecord(`{"class_uid":4003,"raw":"a"}`)
+	smallB := ocsfTelemetryRecord(`{"class_uid":4003,"raw":"b"}`)
+	oversized := &addonpb.TelemetryRecord{
+		PayloadKind: addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OCSF_EVENT,
+		Payload:     incompressiblePayload(edgeTelemetryMaxPayloadBytes+1, 9),
+	}
+	loop.addonTelemetryEdge.enqueue([]telemetryEdgeItem{{
+		producerType: "addon", producerID: "powerdns",
+		batch: &addonpb.TelemetryBatch{
+			Counters: &addonpb.TelemetryCounters{Received: 4},
+			Records: []*addonpb.TelemetryRecord{
+				smallA, smallB, oversized,
+				{PayloadKind: addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OTLP_LOGS, Payload: []byte("relay")},
+			},
+		},
+	}})
+
+	require.True(t, loop.spoolTelemetry(edgeProducerAddonTelemetry, &loop.addonTelemetryEdge, capability))
+
+	var spooled [][]byte
+	for i, part := range spooledTelemetryBatches(t, sp) {
+		if i == 0 {
+			require.EqualValues(t, 4, part.GetCounters().GetReceived(), "counters ride the first part")
+		} else {
+			require.Nil(t, part.GetCounters(), "later parts carry no counters")
+		}
+		for _, record := range part.GetRecords() {
+			spooled = append(spooled, record.GetPayload())
+		}
+	}
+	require.Equal(t, [][]byte{smallA.GetPayload(), smallB.GetPayload()}, spooled)
+	require.Equal(t, uint64(2), edgeDrops(loop, edgeProducerAddonTelemetry, edgeDropInvalidRecord),
+		"the oversized record and the unrouted kind are each counted once")
+	require.Zero(t, edgeDrops(loop, edgeProducerAddonTelemetry, edgeDropRetryBufferFull))
+}
+
+func TestTelemetryEnqueueKeepsABatchOverTheQueuedRecordCeiling(t *testing.T) {
+	sp := openTestEdgeSpool(t)
+	loop := telemetryLoop(t, sp)
+	capability := telemetryCapability(t, loop)
+
+	const recordsInBatch = maxEdgeTelemetryQueuedRecords + 1
+	records := make([]*addonpb.TelemetryRecord, recordsInBatch)
+	for i := range records {
+		records[i] = ocsfTelemetryRecord(`{"class_uid":4003}`)
+	}
+	dropped := loop.addonTelemetryEdge.enqueue([]telemetryEdgeItem{{
+		producerType: "addon", producerID: "powerdns",
+		batch: &addonpb.TelemetryBatch{Records: records},
+	}})
+	require.Zero(t, dropped, "a single batch over the queue ceiling is admitted and packed, not deleted")
+
+	require.True(t, loop.spoolTelemetry(edgeProducerAddonTelemetry, &loop.addonTelemetryEdge, capability))
+
+	total := 0
+	for _, part := range spooledTelemetryBatches(t, sp) {
+		total += len(part.GetRecords())
+	}
+	require.Equal(t, recordsInBatch, total)
+	require.Zero(t, edgeDrops(loop, edgeProducerAddonTelemetry, edgeDropRetryBufferFull))
+	require.Zero(t, loop.addonTelemetryEdge.queuedRecords())
+}
+
 func incompressiblePayload(size int, seed byte) []byte {
 	out := make([]byte, 0, size)
 	for len(out) < size {

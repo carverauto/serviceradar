@@ -30,17 +30,19 @@ import (
 )
 
 // Plugin signals and native add-on telemetry share one standing-grant
-// contract (serviceradar.telemetry.batch) and this one producer. A batch is
-// spooled whole-item at a time: an item's records keep the event ids they
-// were first built with across spool retries, so a part is never re-minted,
-// and an item leaves the queue only when the spool has admitted every part
-// (or the one legacy path has carried it). The host stamp of the producing
-// assignment or add-on is written from agent configuration, never from what
-// the guest put in its batch source.
+// contract (serviceradar.telemetry.batch) and this one producer. A batch stays
+// queued until the spool has admitted every part that formed a valid record,
+// or the one legacy path has carried the item. A record that cannot form a
+// valid part is dropped on its own; the parts already built keep the event
+// ids they were first built with across spool retries, so a part is never
+// re-minted. The host stamp of the producing assignment or add-on is written
+// from agent configuration, never from what the guest put in its batch source.
 
 const (
 	// maxEdgeTelemetryQueuedRecords bounds either telemetry retry queue, in
-	// telemetry records across its queued batches.
+	// telemetry records across its queued batches. A batch already admitted
+	// (the head, or the only pending item) is kept when it alone exceeds the
+	// bound; the bound drops the oldest backlog behind that batch.
 	maxEdgeTelemetryQueuedRecords = 8192
 	// edgeTelemetryMaxPayloadBytes caps one spooled batch part, like a
 	// metrics batch record body.
@@ -120,24 +122,36 @@ func (q *telemetryEdgeQueue) queuedRecords() int {
 	return total
 }
 
-// enqueue appends items, dropping the oldest unbuilt items past the record
-// bound. It returns how many telemetry records the bound dropped.
+// enqueue appends items, then sheds records past the queue bound. It returns
+// how many telemetry records the bound dropped.
 func (q *telemetryEdgeQueue) enqueue(items []telemetryEdgeItem) int {
 	q.pending = append(q.pending, items...)
-	dropped := 0
-	for q.queuedRecords() > maxEdgeTelemetryQueuedRecords && len(q.pending) > 0 {
-		dropped += q.pending[0].records()
-		q.pending = q.pending[1:]
-	}
-	return dropped
+	return q.shedOverflow()
 }
 
 // restore puts items an undelivered legacy send could not carry back at the
 // front of the queue, ahead of anything queued since.
 func (q *telemetryEdgeQueue) restore(items []telemetryEdgeItem) int {
 	q.pending = append(append([]telemetryEdgeItem{}, items...), q.pending...)
+	return q.shedOverflow()
+}
+
+// shedOverflow applies maxEdgeTelemetryQueuedRecords. The head pending batch
+// is kept when it is the only one, or when it alone exceeds the bound; a
+// built batch already handed to the spool is kept too. The oldest backlog
+// behind that admitted batch is what the bound drops.
+func (q *telemetryEdgeQueue) shedOverflow() int {
 	dropped := 0
 	for q.queuedRecords() > maxEdgeTelemetryQueuedRecords && len(q.pending) > 0 {
+		headExceeds := q.pending[0].records() > maxEdgeTelemetryQueuedRecords
+		if len(q.pending) == 1 && (headExceeds || q.built == nil) {
+			break
+		}
+		if headExceeds {
+			dropped += q.pending[1].records()
+			q.pending = append(q.pending[:1], q.pending[2:]...)
+			continue
+		}
 		dropped += q.pending[0].records()
 		q.pending = q.pending[1:]
 	}
@@ -184,7 +198,9 @@ func (p *PushLoop) spoolTelemetry(
 					Str("producer_type", item.producerType).
 					Str("producer_id", item.producerID).
 					Msg("Dropping telemetry batch the durable contract refuses")
-				p.dropEdgeTelemetry(producer, edgeDropInvalidRecord, item.records())
+				if rest := item.records() - filtered; rest > 0 {
+					p.dropEdgeTelemetry(producer, edgeDropInvalidRecord, rest)
+				}
 				continue
 			}
 			queue.pending = queue.pending[1:]
@@ -214,8 +230,10 @@ func (p *PushLoop) appendTelemetryBuilt(producer edgeProducer, built *telemetryB
 // batch, drops records the contract does not route (the OTLP relay kinds,
 // which the legacy core path also counted and dropped), and expands the
 // batch into spooled parts that each form one valid record under the grant.
-// The spool counters ride the first part only, so a split batch reports them
-// once.
+// A record that cannot form a part is counted with the filtered records and
+// does not discard parts already built. The spool counters ride the first
+// part only, so a split batch reports them once. An error refuses the batch
+// before any part exists; filtered is then only the records already counted.
 func buildTelemetryItem(
 	item telemetryEdgeItem,
 	capability *edgev1.EdgeSignedCapabilityV1,
@@ -226,28 +244,28 @@ func buildTelemetryItem(
 		// counted, and an empty batch is not an error worth retrying.
 		return &telemetryBuiltItem{item: item}, filtered, nil
 	}
-	if err := edgerecord.ValidateTelemetryBatch(stamped); err != nil {
-		return nil, filtered, err
+	if _, _, ok := edgerecord.TelemetryBatchProducer(stamped); !ok {
+		return nil, filtered, edgerecord.ErrTelemetryBatch
 	}
 
 	built = &telemetryBuiltItem{item: item}
 	records := stamped.GetRecords()
 	counters := stamped.GetCounters()
+	skipped := 0
 	for len(records) > 0 {
-		n, record, body, err := longestTelemetryPrefix(
+		n, record, body, _ := longestTelemetryPrefix(
 			stamped.GetSource(), counters, records, capability)
-		if err != nil {
-			return nil, filtered, err
-		}
 		if n == 0 {
-			return nil, filtered, errTelemetryRecordTooLarge
+			skipped++
+			records = records[1:]
+			continue
 		}
 		built.records = append(built.records, record)
 		built.bodies = append(built.bodies, body)
 		records = records[n:]
 		counters = nil
 	}
-	return built, filtered, nil
+	return built, filtered + skipped, nil
 }
 
 // longestTelemetryPrefix packs the longest prefix of records that forms one
