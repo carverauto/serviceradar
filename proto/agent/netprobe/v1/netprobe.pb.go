@@ -3226,20 +3226,24 @@ func (x *FlowAttributionEvent) GetExecutableOwnership() *ExecutableOwnership {
 //     write_bytes_per_row: 1,536).
 //   - When both batch_start_unix_nano and batch_end_unix_nano are non-zero,
 //     batch_start_unix_nano <= batch_end_unix_nano.
-//   - Partition guard (B-4 defeater): the batch carries no partition or agent field;
-//     the projector derives agent_id (origin_principal_id) and partition
-//     (network_scope_id) exclusively from the attested EdgeRecordV1.
+//   - Partition guard (B-4 defeater): the batch carries no partition or agent field.
+//     The projector takes agent_id from the attested EdgeRecordV1.origin_principal_id
+//     (the agent component id). network_scope_id is the partition row's 16-byte UUID,
+//     not the warehouse partition. Resolve that row with Partition.get_by_id/1 and
+//     pass its slug to FlowAttribution.publish_observations/4. A missing row refuses
+//     publish/3; do not pass the raw scope bytes or substitute "default".
 //   - The agent commits each bounded FlowAttributionEventBatch to its durable edge
 //     spool under the standing grant before acknowledging the drained sidecar prefix
 //     and dropped_since_last baseline.
 //   - On a fresh primary delivery, the projector's publish/3 (before the EdgeRecord
 //     ledger transaction) re-checks OutputGrants.check_current/5, forwards events to
-//     ServiceRadar.FlowAttribution.publish_observations/4 with the attested
-//     partition_id and agent_id (loaded by EventWriter into StarRocks
+//     ServiceRadar.FlowAttribution.publish_observations/4 with the resolved partition
+//     slug and origin_principal_id as agent_id (loaded by EventWriter into StarRocks
 //     flow_process_attribution_observations, or acknowledged as :ok without publishing
 //     when StarRocks is disabled), and emits
-//     [:serviceradar, :flow_attribution, :batch_received] with event_count and
-//     dropped_since_last. Replays and late-fenced deliveries skip publish/3.
+//     [:serviceradar, :event_writer, :attributed_flow, :batch_received] with
+//     measurements count: 1, event_count, and dropped_since_last. Replays and
+//     late-fenced deliveries skip publish/3.
 type FlowAttributionEventBatch struct {
 	state              protoimpl.MessageState  `protogen:"open.v1"`
 	Events             []*FlowAttributionEvent `protobuf:"bytes,1,rep,name=events,proto3" json:"events,omitempty"`

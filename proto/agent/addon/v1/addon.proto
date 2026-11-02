@@ -310,17 +310,25 @@ message TelemetryBatch {
 //     TELEMETRY_PAYLOAD_KIND_OTLP_METRICS (5),
 //     TELEMETRY_PAYLOAD_KIND_OTLP_DERIVED_METRIC (6)} and non-empty pre-chunked payload
 //     bytes. Any other payload_kind is refused by decode/1.
-//   * Agent identity and partition come exclusively from the attested EdgeRecordV1
-//     (origin_principal_id and network_scope_id), never from batch.source.metadata or
-//     TelemetryRecord.metadata.
+//   * Agent identity comes from the attested EdgeRecordV1.origin_principal_id (the
+//     agent component id). network_scope_id is the partition row's 16-byte UUID, not
+//     the warehouse partition or Sr-Partition. Resolve that row with
+//     Partition.get_by_id/1 and use its slug. A missing row refuses publish/3; do not
+//     stamp the raw scope bytes or substitute "default". Never take either value from
+//     batch.source.metadata or TelemetryRecord.metadata.
 //   * The agent commits each OtlpRelayFrame record to its durable edge spool under the
 //     standing grant before advancing OtlpRelayAck.acked_relay_id to the add-on.
 //   * On a fresh primary delivery, the projector's publish/3 (before the EdgeRecord
 //     ledger transaction) re-checks OutputGrants.check_current/5, emits
 //     [:serviceradar, :otlp_relay, :spool] from batch.counters, and republishes each
-//     TelemetryRecord.payload verbatim to its canonical JetStream subject
-//     (otel.traces.raw, logs.otel, otel.metrics.raw, otel.metrics.derived) with
-//     attested Sr-Agent-Id, Sr-Partition, Sr-Ingest-Identity, and IngressId headers.
+//     TelemetryRecord.payload verbatim to the JetStream subject
+//     OtlpRelayPublisher.subjects/1 uses for that payload kind. Defaults, overridable
+//     by AGENT_GATEWAY_OTLP_RELAY_TRACES_SUBJECT, AGENT_GATEWAY_OTLP_RELAY_LOGS_SUBJECT,
+//     AGENT_GATEWAY_OTLP_RELAY_METRICS_SUBJECT, and
+//     AGENT_GATEWAY_OTLP_RELAY_DERIVED_METRICS_SUBJECT, are traces otel.traces.raw,
+//     logs logs.otel, metrics otel.metrics.raw, and derived metrics
+//     otel.metrics.derived. Headers are Sr-Agent-Id (origin_principal_id), Sr-Partition
+//     (the resolved slug), Sr-Ingest-Identity, and IngressId.
 //     Replays and late-fenced deliveries skip publish/3.
 message OtlpRelayFrame {
   uint64 relay_id = 1;
