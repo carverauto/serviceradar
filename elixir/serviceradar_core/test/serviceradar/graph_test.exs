@@ -4,8 +4,6 @@ defmodule ServiceRadar.GraphTest do
   alias ServiceRadar.Graph
 
   defmodule RetryRepo do
-    def in_transaction?, do: Process.get(:graph_retry_repo_in_transaction, false)
-
     def query(sql, [], opts) do
       calls = Process.get(:graph_retry_repo_calls, [])
       Process.put(:graph_retry_repo_calls, calls ++ [{sql, opts}])
@@ -18,8 +16,6 @@ defmodule ServiceRadar.GraphTest do
   end
 
   defmodule FailingRepo do
-    def in_transaction?, do: false
-
     def query(sql, [], opts) do
       calls = Process.get(:graph_failing_repo_calls, [])
       Process.put(:graph_failing_repo_calls, calls ++ [{sql, opts}])
@@ -51,17 +47,6 @@ defmodule ServiceRadar.GraphTest do
            |> Enum.at(1)
            |> elem(0)
            |> String.contains?("'RETURN 1'")
-  end
-
-  test "inside a transaction each AGE candidate runs in its own savepoint" do
-    Process.delete(:graph_retry_repo_calls)
-    Process.put(:graph_retry_repo_in_transaction, true)
-
-    assert :ok = Graph.execute("RETURN 1", repo: RetryRepo)
-
-    calls = Process.get(:graph_retry_repo_calls)
-    assert length(calls) == 2
-    assert Enum.all?(calls, fn {_sql, opts} -> opts[:mode] == :savepoint end)
   end
 
   test "execute preserves the first failure when every AGE candidate fails" do

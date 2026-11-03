@@ -100,7 +100,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
   # fingerprint is the set of values the apply would leave: links are taken in
   # the same observation order do_upsert_links/1 applies them, the newest
   # non-empty value wins each device IP and interface name or ifindex, and the
-  # newest link between two interfaces wins that edge. A report that changes
+  # newest link between two interfaces wins that pair's edge of each relation.
+  # Links the apply skips write nothing and are left out. A report that changes
   # which row wins therefore changes the fingerprint even when the set of rows
   # is the same. Observation timestamps are excluded so unchanged heartbeat
   # reports still use the periodic re-apply window.
@@ -111,17 +112,28 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
       |> Enum.map(&Projection.projection_payload/1)
       |> Enum.reject(&is_nil/1)
 
+    written = Enum.flat_map(payloads, &written_relation/1)
+
     scope =
       payloads
       |> Enum.map(& &1.local_device_id)
       |> Enum.uniq()
       |> Enum.sort()
 
-    {:erlang.phash2(scope), :erlang.phash2(resolved_winners(payloads))}
+    {:erlang.phash2(scope), :erlang.phash2(resolved_winners(written))}
   end
 
-  defp resolved_winners(payloads) do
-    Enum.reduce(payloads, {%{}, %{}, %{}, %{}}, fn payload, {devices, locals, neighbors, edges} ->
+  defp written_relation(payload) do
+    case Projection.projection_mode(payload) do
+      {:backbone, _reason} -> [{payload, "CONNECTS_TO"}]
+      {:auxiliary, _reason} -> [{payload, Projection.evidence_relation_type(payload)}]
+      {:skip, _reason} -> []
+    end
+  end
+
+  defp resolved_winners(written) do
+    Enum.reduce(written, {%{}, %{}, %{}, %{}}, fn {payload, relation},
+                                                  {devices, locals, neighbors, edges} ->
       {
         put_winner(devices, payload.local_device_id, %{ip: payload.local_device_ip}),
         put_winner(locals, payload.local_interface_id, %{
@@ -131,7 +143,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
         put_winner(neighbors, payload.neighbor_interface_id, %{name: payload.neighbor_port_name}),
         Map.put(
           edges,
-          {payload.local_interface_id, payload.neighbor_interface_id},
+          {payload.local_interface_id, payload.neighbor_interface_id, relation},
           Map.delete(payload, :observed_at)
         )
       }

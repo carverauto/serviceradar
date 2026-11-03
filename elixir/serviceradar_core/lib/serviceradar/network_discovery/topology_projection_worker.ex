@@ -29,15 +29,22 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
   enqueued it, so a retry, including one that runs after a newer job for the
   device has already completed, applies whatever CNPG holds at that moment.
 
-  Uniqueness on the device id is only coalescing. A newer result for that
-  device replaces a job that has not started, so a pending backlog collapses
-  to one run per device. Runs for one device are serialized by a
-  transaction-scoped advisory lock on the device id: a job takes
-  `pg_try_advisory_xact_lock` in its transaction, then reads CNPG and writes
-  the graph inside that transaction. A job that finds the lock held snoozes and
-  reads CNPG again when it runs, so whichever run holds the lock last reads the
-  newest committed rows. A node that dies mid-projection releases the lock with
-  its connection.
+  Uniqueness on the device id is only coalescing. Oban keeps at most one
+  pending (available, scheduled or retryable) job per device, and a newer
+  result replaces it, so a pending backlog collapses to one run per device. An
+  executing job is not pending, so a result that lands during a run still
+  enqueues the next one.
+
+  ## Convergence
+
+  Each graph statement commits on its own; no transaction spans a projection.
+  When a job reads the device's rows it records a watermark: the row count and
+  newest `timestamp` of the device's interfaces and of its links. After a
+  successful projection it reads the watermark again. If a write landed in
+  between, or another run for the device read newer rows and finished first,
+  the watermark differs and the job enqueues one follow-up projection for the
+  device, which reads CNPG again. The graph therefore converges to the newest
+  committed rows, however runs for one device overlap.
 
   ## Failure
 
@@ -62,7 +69,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.NetworkDiscovery.TopologyGraph
   alias ServiceRadar.NetworkDiscovery.TopologyLink
-  alias ServiceRadar.Observability.AdvisoryLocks
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
 
@@ -70,7 +76,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
 
   @lane :topology_projection
   @timeout_ms to_timeout(minute: 10)
-  @wait_seconds 5
   @replace [available: [:args], scheduled: [:args], retryable: [:args]]
 
   @type kind :: :interfaces | :links
@@ -96,10 +101,11 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"device_id" => device_id}} = job) when is_binary(device_id) do
-    case Repo.transaction(fn -> locked_project(device_id, job) end, timeout: @timeout_ms) do
-      {:ok, :busy} -> {:snooze, @wait_seconds}
-      {:ok, result} -> result
-      {:error, reason} -> {:error, reason}
+    watermark = watermark(device_id)
+
+    with :ok <- project(device_id, job) do
+      if watermark(device_id) != watermark, do: enqueue_device(device_id)
+      :ok
     end
   end
 
@@ -161,12 +167,24 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
     end
   end
 
-  defp locked_project(device_id, job) do
-    case AdvisoryLocks.try_acquire_ordered(["topology_projection:" <> device_id]) do
-      :ok -> project(device_id, job)
-      {:error, {:advisory_locks_busy, _keys}} -> :busy
-      {:error, reason} -> Repo.rollback(reason)
-    end
+  defp watermark(device_id) do
+    interfaces =
+      Repo.one(
+        from(i in Interface,
+          where: i.device_id == ^device_id,
+          select: {count(), max(i.timestamp)}
+        )
+      )
+
+    links =
+      Repo.one(
+        from(l in TopologyLink,
+          where: l.local_device_id == ^device_id,
+          select: {count(), max(l.timestamp)}
+        )
+      )
+
+    {interfaces, links}
   end
 
   defp queue_wait_ms(%Oban.Job{args: %{"enqueued_at" => enqueued_at}, attempted_at: attempted}) do

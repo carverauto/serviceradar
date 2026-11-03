@@ -4,7 +4,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
   import Ecto.Query, only: [from: 2]
 
   alias Ecto.Adapters.SQL
-  alias Ecto.Adapters.SQL.Sandbox
   alias ServiceRadar.Ingestion.LaneSupervisor
   alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
   alias ServiceRadar.NetworkDiscovery.TopologyGraph
@@ -92,7 +91,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
         "sr:it-win-b",
         "sr:it-win-b/Gi0/1",
         "sr:it-win-c",
-        "sr:it-win-c/Gi0/2"
+        "sr:it-win-c/Gi0/2",
+        "sr:it-follow",
+        "sr:it-follow/eth0"
       ] ++ sparse_payload_ids() ++ synthetic_topology_ids()
     )
 
@@ -1021,10 +1022,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     assert :ok = TopologyProjectionWorker.perform(job_b)
     assert interface_alias("#{device_b}/eth0") == "stable-alias"
 
-    release = hold_projection_lock(device_a)
-    assert {:snooze, _seconds} = TopologyProjectionWorker.perform(newer_a)
-    release.()
-
     mark_retryable(older_a)
     assert :ok = TopologyProjectionWorker.perform(reload_job(newer_a.id))
     assert interface_alias("#{device_a}/eth0") == "latest-alias"
@@ -1040,21 +1037,49 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     assert interface_alias("#{device_b}/eth0") == "stable-alias"
   end
 
-  test "a job that finds another run of its device in progress waits and then projects the newest rows" do
-    device = "sr:it-order"
+  test "a write that lands during a projection causes exactly one follow-up projection" do
+    device = "sr:it-follow"
     on_exit(fn -> delete_interface(device) end)
+    on_exit(fn -> purge_topology_rows([device]) end)
 
     upsert_interface_alias(device, "first-alias")
+    insert_unresolved_link(device)
+
     assert :ok = TopologyProjectionWorker.enqueue(:interfaces, [%{device_id: device}])
     [job] = pending_projection_jobs()
+    mark_executing(job)
 
-    release = hold_projection_lock(device)
-    assert {:snooze, _seconds} = TopologyProjectionWorker.perform(job)
-    upsert_interface_alias(device, "latest-alias")
-    release.()
+    test = self()
+    handler = "mapper-graph-ingestion-follow-up-#{System.unique_integer([:positive])}"
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        [:serviceradar, :mapper_topology, :neighbor_dropped],
+        fn _event, _measurements, _metadata, _config ->
+          if Process.get(:follow_up_write) == nil do
+            Process.put(:follow_up_write, :done)
+            upsert_interface_alias(device, "latest-alias")
+            send(test, :write_landed)
+          end
+        end,
+        nil
+      )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
 
     assert :ok = TopologyProjectionWorker.perform(reload_job(job.id))
+    assert_received :write_landed
+    assert interface_alias("#{device}/eth0") == "first-alias"
+
+    assert [follow_up] = pending_projection_jobs()
+    assert follow_up.id != job.id
+    assert follow_up.args["device_id"] == device
+
+    mark_executing(follow_up)
+    assert :ok = TopologyProjectionWorker.perform(reload_job(follow_up.id))
     assert interface_alias("#{device}/eth0") == "latest-alias"
+    assert [] = pending_projection_jobs()
   end
 
   test "an unchanged row set is reapplied when a different row becomes the newest" do
@@ -1486,34 +1511,21 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
   defp reload_job(id), do: Repo.get!(Oban.Job, id, prefix: "platform")
 
-  # Another projection run for the device, on its own connection, holding the
-  # device's transaction-scoped lock until released.
-  defp hold_projection_lock(device_id) do
-    test = self()
-
-    holder =
-      Task.async(fn ->
-        Sandbox.unboxed_run(Repo, fn ->
-          Repo.transaction(fn ->
-            Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
-              "topology_projection:" <> device_id
-            ])
-
-            send(test, {:projection_lock_held, self()})
-
-            receive do
-              :release -> :ok
-            end
-          end)
-        end)
-      end)
-
-    assert_receive {:projection_lock_held, pid}, 5_000
-
-    fn ->
-      send(pid, :release)
-      Task.await(holder)
-    end
+  # A committed link whose neighbor never resolved to an `sr:` identity: the
+  # projection reads it and drops it.
+  defp insert_unresolved_link(local_device_id) do
+    SQL.query!(
+      Repo,
+      """
+      INSERT INTO platform.mapper_topology_links (
+        id, timestamp, created_at, local_device_id, neighbor_device_id,
+        local_if_index, neighbor_port_id, protocol, neighbor_chassis_id, metadata
+      )
+      VALUES (gen_random_uuid(), $1, $1, $2, 'host01.example.com', 1, 'Gi0/1', 'LLDP',
+              'aa:bb:cc:dd:ee:01', '{}')
+      """,
+      [DateTime.utc_now(), local_device_id]
+    )
   end
 
   defp winner_link(local, neighbor, port, timestamp, ip) do
