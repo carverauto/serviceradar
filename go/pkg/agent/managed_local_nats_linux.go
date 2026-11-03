@@ -477,7 +477,7 @@ func runManagedLocalNATSReconciliation(ctx context.Context, output io.Writer) er
 // issuer seed and the record of which running broker proved targeted KICK.
 type localNATSAuthority string
 
-var managedLocalNATSAuthority = localNATSAuthority(filepath.Join(managedCertificateRoot, ".nats-auth"))
+const managedLocalNATSAuthority = localNATSAuthority(managedCertificateRoot + "/.nats-auth")
 
 // authorizer issues long grants only for the broker recorded by a successful
 // system-account reconciliation. It reads that record instead of connecting,
