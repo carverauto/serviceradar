@@ -105,6 +105,8 @@ defmodule ServiceRadar.Edge.ManagedCertificateLifecycle do
           when reason in [
                  :activation_unconfirmed,
                  :successor_not_current,
+                 :successor_not_authorized,
+                 :component_unavailable,
                  :not_found,
                  :host_mismatch,
                  :invalid_receiver,
