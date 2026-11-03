@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"math/big"
@@ -567,8 +568,11 @@ func TestManagedLocalNATSBootstrapPreservesAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if first.GrantTTLSeconds != 43200 {
+		t.Fatalf("unexpected default local grant lifetime: %d", first.GrantTTLSeconds)
+	}
 	for path, mode := range map[string]os.FileMode{
-		".nats-auth": 0700, ".nats-auth/issuer.seed": 0600,
+		".nats-auth": 0700, ".nats-auth/issuer.seed": 0600, ".nats-auth/system.seed": 0600,
 		"local-nats-auth.seed": 0640, "local-nats.json": 0644,
 		"leaf-synthetic/local-auth.conf": 0640,
 	} {
@@ -580,6 +584,40 @@ func TestManagedLocalNATSBootstrapPreservesAuthority(t *testing.T) {
 	again, err := f.store.bootstrapLocalNATS(binding)
 	if err != nil || !reflect.DeepEqual(first, again) {
 		t.Fatalf("bootstrap retry changed local authority: %v", err)
+	}
+	// An existing authority gains a system credential without replacing its
+	// issuer or callout identity. Missing established system keys fail closed.
+	metadataPath := filepath.Join(f.store.root, "local-nats.json")
+	legacy := *first
+	legacy.SystemUserPublicKey = ""
+	legacy.GrantTTLSeconds = 3600
+	encoded, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(metadataPath, encoded, 0644); err != nil {
+		t.Fatal(err)
+	}
+	systemPath := filepath.Join(f.store.root, ".nats-auth", "system.seed")
+	if err := os.Remove(systemPath); err != nil {
+		t.Fatal(err)
+	}
+	migrated, err := f.store.bootstrapLocalNATS(binding)
+	if err != nil || migrated.SystemUserPublicKey == "" || migrated.IssuerPublicKey != first.IssuerPublicKey || migrated.AuthUserPublicKey != first.AuthUserPublicKey || migrated.GrantTTLSeconds != 3600 {
+		t.Fatalf("authority migration changed established keys or grant setting: %v", err)
+	}
+	systemSeed, err := os.ReadFile(systemPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(systemPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.store.bootstrapLocalNATS(binding); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("missing established system key was replaced: %v", err)
+	}
+	if err := os.WriteFile(systemPath, systemSeed, 0600); err != nil {
+		t.Fatal(err)
 	}
 	other := binding
 	other.ComponentID = "another-leaf"

@@ -91,7 +91,7 @@ type Options struct {
 // Register defines every updater flag on fs and returns the options they fill.
 func Register(fs *flag.FlagSet) *Options {
 	o := &Options{}
-	fs.StringVar(&o.ManagedCertificates, ManagedCertificates, "", "Managed certificate operation (prepare, install, policy, local-nats-bootstrap or local-nats-authorize); request JSON on stdin")
+	fs.StringVar(&o.ManagedCertificates, ManagedCertificates, "", "Managed certificate operation (prepare, install, policy, local-nats-bootstrap, local-nats-authorize or local-nats-reconcile); request JSON on stdin")
 
 	fs.StringVar(&o.RuntimeRoot, RuntimeRoot, "", "ServiceRadar runtime root")
 	fs.StringVar(&o.Version, Version, "", "Target staged release version")

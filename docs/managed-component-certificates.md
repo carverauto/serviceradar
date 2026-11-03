@@ -82,6 +82,26 @@ leaf-to-hub publishing and durable consumer progress on both the packaged broker
 and the newer server module. Local leaf authorization retains its separate offline
 policy contract; this setting changes hub grants only.
 
+Managed local leaf grants also default to 12 hours with +/-20% jitter, capped
+at certificate expiry. The root-owned
+`/etc/serviceradar/managed-components/local-nats.json` configures their nominal
+`grant_ttl_seconds` (1 through 31536000). This is separate from policy freshness:
+WAN loss still permits local ingestion under the last verified policy. The agent
+asks its privileged helper to reconcile local sessions every five seconds; the
+helper reads that policy, lists the local `EDGE` account, and kicks fingerprints
+that no longer have a grant. It holds the system-account seed root-only and never
+accepts a caller-selected broker, client ID, or fingerprint to disconnect.
+
+For a leaf installed before the system credential was introduced, rerun managed
+leaf installation with the updated agent/helper, then restart the local NATS
+service once to activate its system-account configuration. Bootstrap preserves
+the existing issuer and callout keys. Until that configuration is installed, the
+helper retains short grants; it does not extend sessions without targeted
+revocation support. Later certificate rotations continue using the supported
+reload path. A default grant surviving the old 30-second boundary, scheduled
+expiry with durable-consumer progress, and targeted revocation preserving another
+collector are covered by the stock-broker regression.
+
 These interfaces do not themselves prove a deployment's active connection closure,
 local NATS authorization reload, or all collector listener enforcement. Those require
 the receiver and host acceptance checks in the managed-component OpenSpec proposal.

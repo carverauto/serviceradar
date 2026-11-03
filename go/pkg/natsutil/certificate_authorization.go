@@ -1,11 +1,13 @@
 package natsutil
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"math/big"
 	"time"
 
 	"github.com/nats-io/jwt/v2"
@@ -18,6 +20,7 @@ var (
 	errLocalAuthRequest        = errors.New("authorization request is not a current request from the local broker")
 	errBrokerClientCertificate = errors.New("broker did not verify a client certificate")
 	errBrokerCertificateChain  = errors.New("broker sent an invalid certificate chain")
+	errCertificateGrantTTL     = errors.New("certificate grant TTL must be between one second and one year")
 )
 
 // CertificatePermissions is the authority's signed subject projection for one DER fingerprint.
@@ -37,7 +40,12 @@ type LocalCertificateAuthorizer struct {
 	Roots       *x509.CertPool
 	Signer      nkeys.KeyPair
 	Permissions map[string]CertificatePermissions
+	GrantTTL    time.Duration
 }
+
+// DefaultCertificateGrantTTL bounds sessions if every authorizer disappears.
+// Revocation is enforced separately through the broker's targeted KICK API.
+const DefaultCertificateGrantTTL = 12 * time.Hour
 
 type CertificateAuthorization struct {
 	Token       string `json:"token"`
@@ -73,10 +81,14 @@ func (a LocalCertificateAuthorizer) Authorize(token string, now time.Time) (*Cer
 		if !allowed {
 			response.Error = "certificate is not authorized"
 		} else {
+			expires, err := a.grantExpiry(now, certificate.NotAfter)
+			if err != nil {
+				return nil, err
+			}
 			user := jwt.NewUserClaims(request.UserNkey)
 			user.Audience = "EDGE"
 			user.Name = result.Fingerprint
-			user.Expires = min(response.Expires, certificate.NotAfter.Unix())
+			user.Expires = expires
 			user.Pub = certificateSubjectPermission(permissions.Publish, permissions.PublishDeny)
 			user.Sub = certificateSubjectPermission(permissions.Subscribe, permissions.SubscribeDeny)
 			response.Jwt, err = user.Encode(a.Signer)
@@ -91,6 +103,21 @@ func (a LocalCertificateAuthorizer) Authorize(token string, now time.Time) (*Cer
 		return nil, fmt.Errorf("sign local authorization response: %w", err)
 	}
 	return result, nil
+}
+
+func (a LocalCertificateAuthorizer) grantExpiry(now, certificateExpiry time.Time) (int64, error) {
+	ttl := a.GrantTTL
+	if ttl == 0 {
+		ttl = DefaultCertificateGrantTTL
+	}
+	if ttl < time.Second || ttl > 365*24*time.Hour {
+		return 0, errCertificateGrantTTL
+	}
+	jitter, err := rand.Int(rand.Reader, big.NewInt(int64(2*(ttl/5))+1))
+	if err != nil {
+		return 0, fmt.Errorf("generate certificate grant jitter: %w", err)
+	}
+	return min(now.Add(ttl-ttl/5+time.Duration(jitter.Int64())).Unix(), certificateExpiry.Unix()), nil
 }
 
 func certificateSubjectPermission(subjects, denied []string) jwt.Permission {

@@ -1,11 +1,13 @@
 package verticalslice
 
 import (
+	"context"
 	"crypto/sha256"
 	"crypto/x509"
 	stderrors "errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -51,19 +53,20 @@ leafnodes: {host: "127.0.0.1", port: %d, tls: {cert_file: %q, key_file: %q, ca_f
 		t.Fatal(err)
 	}
 	authPublic, _ := authKey.PublicKey()
+	systemKey, err := nkeys.CreateUser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	systemPublic, _ := systemKey.PublicKey()
 	clientPort, monitorPort := revocationPort(t), revocationPort(t)
 	config := fmt.Sprintf(`host: "127.0.0.1"
 port: %d
 http: "127.0.0.1:%d"
 jetstream: {store_dir: %q, domain: "edge_0123456789abcdef0123456789abcdef"}
-accounts: {
-  EDGE: {jetstream: enabled}
-  AUTH: {users: [{nkey: %q, permissions: {subscribe: ["$SYS.REQ.USER.AUTH"], publish: ["$SYS._INBOX.>"]}}]}
-}
-authorization: {auth_callout: {issuer: %q, account: AUTH, auth_users: [%q]}}
+%s
 tls: {cert_file: %q, key_file: %q, ca_file: %q, verify: true}
 leafnodes: {remotes: [{url: "tls://127.0.0.1:%d", account: EDGE, tls: {cert_file: %q, key_file: %q, ca_file: %q}}]}
-`, clientPort, monitorPort, t.TempDir(), authPublic, issuer, authPublic,
+`, clientPort, monitorPort, t.TempDir(), natsutil.LocalCertificateBrokerAccounts(issuer, authPublic, systemPublic),
 		pki.GatewayCertPath, pki.GatewayKeyPath, pki.CACertPath, hubLeaf,
 		pki.AgentCertPath, pki.AgentKeyPath, pki.CACertPath)
 	startRevocationBroker(t, config, monitorPort)
@@ -77,6 +80,11 @@ leafnodes: {remotes: [{url: "tls://127.0.0.1:%d", account: EDGE, tls: {cert_file
 		t.Fatal(err)
 	}
 	defer auth.Close()
+	operator, err := nats.Connect(endpoint, nats.Secure(tlsConfig), nats.Nkey(systemPublic, systemKey.Sign), nats.NoReconnect())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer operator.Close()
 	rootsPEM, err := os.ReadFile(pki.CACertPath)
 	if err != nil {
 		t.Fatal(err)
@@ -130,6 +138,27 @@ leafnodes: {remotes: [{url: "tls://127.0.0.1:%d", account: EDGE, tls: {cert_file
 	if err := auth.FlushTimeout(time.Second); err != nil {
 		t.Fatal(err)
 	}
+	otherCert, otherKey := filepath.Join(pki.Dir, "other-collector.pem"), filepath.Join(pki.Dir, "other-collector-key.pem")
+	if err := pki.issueClientLeaf(otherCert, otherKey, "collector", "other-collector.example.test"); err != nil {
+		t.Fatal(err)
+	}
+	otherTLS, err := pki.clientTLSConfig(otherCert, otherKey, "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherCertificate, err := readPEMCert(otherCert)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherFingerprint := fmt.Sprintf("%x", sha256.Sum256(otherCertificate.Raw))
+	policyMu.Lock()
+	authorizer.Permissions[otherFingerprint] = natsutil.CertificatePermissions{Publish: []string{"synthetic.ingest"}}
+	policyMu.Unlock()
+	unaffected, err := nats.Connect(endpoint, nats.Secure(otherTLS), nats.NoReconnect())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unaffected.Close()
 	for _, test := range []struct {
 		name        string
 		permissions natsutil.CertificatePermissions
@@ -204,6 +233,17 @@ leafnodes: {remotes: [{url: "tls://127.0.0.1:%d", account: EDGE, tls: {cert_file
 		t.Fatal(err)
 	}
 	awaitRevocation(t, "local EDGE account bridged to hub", func() bool { return revocationLeafCount(monitorPort) == 1 })
+	policyMu.Lock()
+	initialPermissions := map[string]natsutil.CertificatePermissions{
+		fingerprint: authorizer.Permissions[fingerprint], otherFingerprint: authorizer.Permissions[otherFingerprint],
+	}
+	policyMu.Unlock()
+	initialCtx, initialCancel := context.WithTimeout(t.Context(), 2*time.Second)
+	initialDisconnected, err := natsutil.RevokeUnauthorizedLocalClients(initialCtx, operator, initialPermissions)
+	initialCancel()
+	if err != nil || initialDisconnected != 0 {
+		t.Fatalf("local reconciliation disrupted an allowed client or upstream leaf: disconnected=%d error=%v", initialDisconnected, err)
+	}
 	awaitRevocation(t, "local publication reaches hub", func() bool {
 		ack, err := js.Publish("synthetic.ingest", []byte("connected"))
 		if err != nil || ack.Stream != "LOCAL_INGEST" {
@@ -220,33 +260,90 @@ leafnodes: {remotes: [{url: "tls://127.0.0.1:%d", account: EDGE, tls: {cert_file
 		t.Fatal(err)
 	}
 	awaitRevocation(t, "hub disconnected", func() bool { return revocationLeafCount(monitorPort) == 0 })
+	select {
+	case <-reconnected:
+		t.Fatal("default local authorization forced a reconnect within 35 seconds")
+	case <-time.After(35 * time.Second):
+	}
 	if _, err := js.Publish("synthetic.ingest", []byte("offline")); err != nil {
 		t.Fatalf("local durable ingestion stopped during WAN outage: %v", err)
 	}
-	select {
-	case <-reconnected:
-	case <-time.After(40 * time.Second):
-		t.Fatal("collector did not renew its 30-second local authorization while hub was unavailable")
-	}
-	awaitRevocation(t, "collector reconnected locally after grant expiry", collector.IsConnected)
-	ack, err := js.Publish("synthetic.ingest", []byte("offline-after-renewal"))
+	ack, err := js.Publish("synthetic.ingest", []byte("offline-without-reconnect"))
 	if err != nil {
 		t.Fatalf("local ingestion after offline reauthorization: %v", err)
 	}
 	stored, err := js.GetMsg("LOCAL_INGEST", ack.Sequence)
-	if err != nil || string(stored.Data) != "offline-after-renewal" {
+	if err != nil || string(stored.Data) != "offline-without-reconnect" {
 		t.Fatalf("local stream did not retain the acknowledged payload: %v", err)
 	}
+	// A deliberately short setting exercises scheduled expiry without making
+	// ordinary collectors use that short lifetime. The durable consumer belongs
+	// to the reconnecting client; each acknowledged record must arrive once.
 	policyMu.Lock()
-	authorizer.Permissions = map[string]natsutil.CertificatePermissions{}
+	authorizer.GrantTTL = 2 * time.Second
+	authorizer.Permissions[fingerprint] = natsutil.CertificatePermissions{Publish: []string{"synthetic.ingest", "$JS.>"}, Subscribe: []string{"_INBOX.>"}}
+	policyMu.Unlock()
+	renewing, err := nats.Connect(endpoint, nats.Secure(tlsConfig), nats.MaxReconnects(-1), nats.ReconnectWait(50*time.Millisecond), nats.ReconnectHandler(func(*nats.Conn) {
+		select {
+		case reconnected <- struct{}{}:
+		default:
+		}
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer renewing.Close()
+	renewingJS, err := renewing.JetStream(nats.MaxWait(time.Second), nats.Domain("edge_0123456789abcdef0123456789abcdef"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	durable, err := renewingJS.PullSubscribe("synthetic.ingest", "CONTINUITY", nats.BindStream("LOCAL_INGEST"), nats.DeliverNew())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for period := range 3 {
+		select {
+		case <-reconnected:
+		case <-time.After(5 * time.Second):
+			t.Fatal("short configured grant did not expire and reconnect")
+		}
+		payload := fmt.Sprintf("after-expiry-%d", period)
+		if _, err := js.Publish("synthetic.ingest", []byte(payload)); err != nil {
+			t.Fatal(err)
+		}
+		messages, err := durable.Fetch(1, nats.MaxWait(time.Second))
+		if err != nil || len(messages) != 1 || string(messages[0].Data) != payload {
+			t.Fatalf("durable consumer lost or duplicated data after expiry: %v", err)
+		}
+		if err := messages[0].AckSync(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	renewing.Close()
+	policyMu.Lock()
+	delete(authorizer.Permissions, fingerprint)
+	permissions := map[string]natsutil.CertificatePermissions{otherFingerprint: authorizer.Permissions[otherFingerprint]}
 	policyMu.Unlock()
 	revokedAt := time.Now()
-	deadline := revokedAt.Add(35 * time.Second)
+	reconcileCtx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	disconnected, err := natsutil.RevokeUnauthorizedLocalClients(reconcileCtx, operator, permissions)
+	if err != nil || disconnected < 1 {
+		t.Fatalf("targeted revocation failed: disconnected=%d error=%v", disconnected, err)
+	}
+	deadline := revokedAt.Add(2 * time.Second)
 	for collector.IsConnected() && time.Now().Before(deadline) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	if collector.IsConnected() {
-		t.Fatal("revoked certificate retained its existing local connection beyond the grant lease")
+		t.Fatal("revoked certificate retained its long-lived local connection after targeted kick")
+	}
+	if !unaffected.IsConnected() || unaffected.Publish("synthetic.ingest", []byte("unaffected")) != nil || unaffected.FlushTimeout(time.Second) != nil {
+		t.Fatal("targeted revocation disconnected an unrelated collector")
+	}
+	if denied, err := nats.Connect(endpoint, nats.Secure(tlsConfig), nats.NoReconnect()); err == nil {
+		denied.Close()
+		t.Fatal("revoked certificate reconnected")
 	}
 	if _, err := js.Publish("synthetic.ingest", []byte("must-not-store")); err == nil {
 		t.Fatal("revoked collector still received a local PubAck")
