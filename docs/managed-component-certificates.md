@@ -89,18 +89,22 @@ at certificate expiry. The root-owned
 WAN loss still permits local ingestion under the last verified policy. The agent
 asks its privileged helper to reconcile local sessions every five seconds; the
 helper reads that policy, lists the local `EDGE` account, and kicks fingerprints
-that no longer have a grant. It holds the system-account seed root-only and never
-accepts a caller-selected broker, client ID, or fingerprint to disconnect.
+that no longer have a grant or whose session was granted different subject
+permissions; the reconnect receives the current permissions. It holds the
+system-account seed root-only and never accepts a caller-selected broker, client
+ID, or fingerprint to disconnect.
 
 For a leaf installed before the system credential was introduced, rerun managed
 leaf installation with the updated agent/helper, then restart the local NATS
 service once to activate its system-account configuration. Bootstrap preserves
-the existing issuer and callout keys. Until that configuration is installed, the
-helper retains short grants; it does not extend sessions without targeted
-revocation support. Later certificate rotations continue using the supported
+the existing issuer and callout keys. Grants keep the 30-second lifetime until a
+reconciliation has listed sessions through the running broker's system account;
+the helper records that broker and issues long grants only to it, so it never
+extends sessions without targeted revocation support. Later certificate rotations continue using the supported
 reload path. A default grant surviving the old 30-second boundary, scheduled
-expiry with durable-consumer progress, and targeted revocation preserving another
-collector are covered by the stock-broker regression.
+expiry with durable-consumer progress, targeted revocation and permission
+narrowing preserving another collector, and short grants before system-account
+activation are covered by the stock-broker regression.
 
 These interfaces do not themselves prove a deployment's active connection closure,
 local NATS authorization reload, or all collector listener enforcement. Those require

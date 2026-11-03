@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/natsutil"
+	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nkeys"
 )
@@ -138,6 +139,17 @@ leafnodes: {remotes: [{url: "tls://127.0.0.1:%d", account: EDGE, tls: {cert_file
 	if err := auth.FlushTimeout(time.Second); err != nil {
 		t.Fatal(err)
 	}
+	// The helper lengthens grants only after its system account has listed
+	// sessions on this running broker.
+	proofCtx, proofCancel := context.WithTimeout(t.Context(), 2*time.Second)
+	_, err = natsutil.RevokeUnauthorizedLocalClients(proofCtx, operator, map[string]natsutil.CertificatePermissions{})
+	proofCancel()
+	if err != nil {
+		t.Fatalf("activated system account could not list local sessions: %v", err)
+	}
+	policyMu.Lock()
+	authorizer.RevocationBrokerID = operator.ConnectedServerId()
+	policyMu.Unlock()
 	otherCert, otherKey := filepath.Join(pki.Dir, "other-collector.pem"), filepath.Join(pki.Dir, "other-collector-key.pem")
 	if err := pki.issueClientLeaf(otherCert, otherKey, "collector", "other-collector.example.test"); err != nil {
 		t.Fatal(err)
@@ -320,6 +332,50 @@ leafnodes: {remotes: [{url: "tls://127.0.0.1:%d", account: EDGE, tls: {cert_file
 		}
 	}
 	renewing.Close()
+	awaitRevocation(t, "closed collector left the broker", func() bool {
+		var connections struct {
+			Count int `json:"num_connections"`
+		}
+		return revocationMonitor(monitorPort, "connz?acc=EDGE", &connections) == nil && connections.Count == 2
+	})
+	// Narrowing a still-authorized certificate's permissions disconnects only
+	// its stale grant; the reconnect receives, and is held to, the new policy.
+	select {
+	case <-reconnected:
+	default:
+	}
+	narrowed := natsutil.CertificatePermissions{Publish: []string{"synthetic.ingest"}, Subscribe: []string{"_INBOX.>"}}
+	policyMu.Lock()
+	authorizer.GrantTTL = 0
+	authorizer.Permissions[fingerprint] = narrowed
+	narrowedPermissions := map[string]natsutil.CertificatePermissions{fingerprint: narrowed, otherFingerprint: authorizer.Permissions[otherFingerprint]}
+	policyMu.Unlock()
+	narrowCtx, narrowCancel := context.WithTimeout(t.Context(), 2*time.Second)
+	narrowedDisconnected, err := natsutil.RevokeUnauthorizedLocalClients(narrowCtx, operator, narrowedPermissions)
+	narrowCancel()
+	if err != nil || narrowedDisconnected != 1 {
+		t.Fatalf("permission narrowing did not disconnect exactly the stale grant: disconnected=%d error=%v", narrowedDisconnected, err)
+	}
+	select {
+	case <-reconnected:
+	case <-time.After(5 * time.Second):
+		t.Fatal("collector with a narrowed grant did not reconnect")
+	}
+	if !unaffected.IsConnected() {
+		t.Fatal("permission narrowing disconnected an unrelated collector")
+	}
+	if _, err := js.GetMsg("LOCAL_INGEST", ack.Sequence); err == nil {
+		t.Fatal("reconnected collector retained permissions removed from the policy")
+	}
+	if ack, err := js.Publish("synthetic.ingest", []byte("narrowed")); err != nil || ack.Stream != "LOCAL_INGEST" {
+		t.Fatalf("narrowed collector lost its remaining permission: %v", err)
+	}
+	stableCtx, stableCancel := context.WithTimeout(t.Context(), 2*time.Second)
+	stableDisconnected, err := natsutil.RevokeUnauthorizedLocalClients(stableCtx, operator, narrowedPermissions)
+	stableCancel()
+	if err != nil || stableDisconnected != 0 {
+		t.Fatalf("current grant was disconnected again: disconnected=%d error=%v", stableDisconnected, err)
+	}
 	policyMu.Lock()
 	delete(authorizer.Permissions, fingerprint)
 	permissions := map[string]natsutil.CertificatePermissions{otherFingerprint: authorizer.Permissions[otherFingerprint]}
@@ -353,5 +409,138 @@ leafnodes: {remotes: [{url: "tls://127.0.0.1:%d", account: EDGE, tls: {cert_file
 	case err := <-errors:
 		t.Fatal(err)
 	default:
+	}
+}
+
+// A leaf whose running broker still has the configuration from before the
+// system credential existed sends the system user through the callout. Until a
+// system-account listing succeeds on the running broker, grants keep the 30-second
+// authorization-response lifetime instead of the configured long grant.
+func TestLocalNATSGrantsStayShortBeforeSystemAccountActivation(t *testing.T) {
+	pki, err := GenerateCertSet(t.TempDir(), "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, err := nkeys.CreateAccount()
+	if err != nil {
+		t.Fatal(err)
+	}
+	issuer, _ := signer.PublicKey()
+	authKey, err := nkeys.CreateUser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	authPublic, _ := authKey.PublicKey()
+	systemKey, err := nkeys.CreateUser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	systemPublic, _ := systemKey.PublicKey()
+	clientPort, monitorPort := revocationPort(t), revocationPort(t)
+	startRevocationBroker(t, fmt.Sprintf(`host: "127.0.0.1"
+port: %d
+http: "127.0.0.1:%d"
+accounts: {
+  EDGE: {}
+  AUTH: {users: [{nkey: %q, permissions: {subscribe: ["$SYS.REQ.USER.AUTH"], publish: ["$SYS._INBOX.>"]}}]}
+}
+authorization: {auth_callout: {issuer: %q, account: AUTH, auth_users: [%q]}}
+tls: {cert_file: %q, key_file: %q, ca_file: %q, verify: true}
+`, clientPort, monitorPort, authPublic, issuer, authPublic, pki.GatewayCertPath, pki.GatewayKeyPath, pki.CACertPath), monitorPort)
+	tlsConfig, err := pki.clientTLSConfig(pki.AgentCertPath, pki.AgentKeyPath, "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	endpoint := fmt.Sprintf("tls://127.0.0.1:%d", clientPort)
+	auth, err := nats.Connect(endpoint, nats.Secure(tlsConfig), nats.Nkey(authPublic, authKey.Sign), nats.NoReconnect())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer auth.Close()
+	rootsPEM, err := os.ReadFile(pki.CACertPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots := x509.NewCertPool()
+	if !roots.AppendCertsFromPEM(rootsPEM) {
+		t.Fatal("invalid generated root")
+	}
+	clientCert, err := readPEMCert(pki.AgentCertPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fingerprint := fmt.Sprintf("%x", sha256.Sum256(clientCert.Raw))
+	otherBroker, err := nkeys.CreateServer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousBrokerID, _ := otherBroker.PublicKey()
+	authorizer := natsutil.LocalCertificateAuthorizer{
+		BrokerID: auth.ConnectedServerId(), Roots: roots, Signer: signer, RevocationBrokerID: previousBrokerID,
+		Permissions: map[string]natsutil.CertificatePermissions{fingerprint: {Publish: []string{"synthetic.ingest"}, Subscribe: []string{"_INBOX.>"}}},
+	}
+	grants := make(chan int64, 8)
+	failures := make(chan error, 8)
+	_, err = auth.Subscribe("$SYS.REQ.USER.AUTH", func(message *nats.Msg) {
+		requestedAt := time.Now()
+		result, err := authorizer.Authorize(string(message.Data), requestedAt)
+		if err == nil && result.Allowed {
+			var response *jwt.AuthorizationResponseClaims
+			var user *jwt.UserClaims
+			if response, err = jwt.DecodeAuthorizationResponseClaims(result.Token); err == nil {
+				if user, err = jwt.DecodeUserClaims(response.Jwt); err == nil {
+					grants <- user.Expires - requestedAt.Unix()
+				}
+			}
+		}
+		if err == nil {
+			err = message.Respond([]byte(result.Token))
+		}
+		if err != nil {
+			failures <- err
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.FlushTimeout(time.Second); err != nil {
+		t.Fatal(err)
+	}
+	// Before the activation restart the system user is an ordinary callout
+	// client; its session listing must fail rather than prove targeted KICK.
+	if system, err := nats.Connect(endpoint, nats.Secure(tlsConfig), nats.Nkey(systemPublic, systemKey.Sign), nats.NoReconnect()); err == nil {
+		listCtx, listCancel := context.WithTimeout(t.Context(), time.Second)
+		_, listErr := natsutil.RevokeUnauthorizedLocalClients(listCtx, system, authorizer.Permissions)
+		listCancel()
+		system.Close()
+		if listErr == nil {
+			t.Fatal("system session listing succeeded on a broker without the system account")
+		}
+	}
+	collector, err := nats.Connect(endpoint, nats.Secure(tlsConfig), nats.NoReconnect())
+	if err != nil {
+		t.Fatalf("collector denied before system-account activation: %v", err)
+	}
+	defer collector.Close()
+	if err := collector.Publish("synthetic.ingest", []byte("pre-activation")); err != nil || collector.FlushTimeout(time.Second) != nil {
+		t.Fatalf("collector could not publish before system-account activation: %v", err)
+	}
+	observed := 0
+	for {
+		select {
+		case lifetime := <-grants:
+			observed++
+			if lifetime < 29 || lifetime > 31 {
+				t.Fatalf("pre-activation grant lifetime %ds is not the 30-second authorization lifetime", lifetime)
+			}
+			continue
+		case err := <-failures:
+			t.Fatal(err)
+		default:
+		}
+		break
+	}
+	if observed == 0 {
+		t.Fatal("collector grant was not observed")
 	}
 }

@@ -30,16 +30,19 @@ authorization: {auth_callout: {issuer: %q, account: AUTH, auth_users: [%q, %q]}}
 }
 
 type localCertificateConnection struct {
-	CID          uint64 `json:"cid"`
-	Kind         string `json:"kind"`
-	Certificates []struct {
+	CID            uint64 `json:"cid"`
+	Kind           string `json:"kind"`
+	AuthorizedUser string `json:"authorized_user"`
+	Certificates   []struct {
 		Fingerprint string `json:"cert_sha256"`
 	} `json:"tls_peer_certs"`
 }
 
 // RevokeUnauthorizedLocalClients observes the fixed broker's EDGE account and
-// disconnects clients absent from the last verified policy. It scans before
-// kicking so removals cannot shift pagination and hide another revoked client.
+// disconnects clients absent from the last verified policy or holding a grant
+// whose permissions differ from it, so they reconnect under the current policy.
+// It scans before kicking so removals cannot shift pagination and hide another
+// revoked client.
 func RevokeUnauthorizedLocalClients(ctx context.Context, broker *nats.Conn, permissions map[string]CertificatePermissions) (int, error) {
 	prefix := "$SYS.REQ.SERVER." + broker.ConnectedServerId()
 	var revoked []uint64
@@ -76,7 +79,13 @@ func RevokeUnauthorizedLocalClients(ctx context.Context, broker *nats.Conn, perm
 			if len(connection.Certificates) > 0 {
 				fingerprint = strings.ToLower(connection.Certificates[0].Fingerprint)
 			}
-			if _, allowed := permissions[fingerprint]; !allowed && connection.CID != 0 {
+			current := ""
+			if permission, allowed := permissions[fingerprint]; allowed {
+				if current, err = certificateGrantName(fingerprint, permission); err != nil {
+					return 0, err
+				}
+			}
+			if (current == "" || connection.AuthorizedUser != current) && connection.CID != 0 {
 				revoked = append(revoked, connection.CID)
 			}
 		}

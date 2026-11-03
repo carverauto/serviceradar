@@ -20,7 +20,10 @@ import (
 	"github.com/nats-io/nkeys"
 )
 
-const localNATSEndpoint = "tls://localhost:4222"
+const (
+	localNATSEndpoint        = "tls://localhost:4222"
+	localNATSRevocationProof = "system-activation"
+)
 
 var (
 	errLocalNATSHostBinding        = errors.New("local NATS binding does not belong to this enrolled host")
@@ -437,18 +440,18 @@ func runManagedLocalNATSAuthorization(ctx context.Context, input io.Reader, outp
 	if err != nil {
 		return err
 	}
-	// An existing leaf must install the root CLI's system-account configuration
-	// before receiving long grants. Never lengthen its revocation bound first.
-	grantTTL := 30 * time.Second
-	if metadata.SystemUserPublicKey != "" {
-		system, err := connectLocalNATSSystem(binding, metadata)
-		if err != nil {
-			return err
-		}
-		system.Close()
-		grantTTL = time.Duration(metadata.GrantTTLSeconds) * time.Second
+	// Only a reconciliation that listed sessions through this running broker's
+	// system account proves targeted revocation. Until then grants stay short.
+	// Reading its record avoids connecting here, which would recurse through
+	// the callout on a broker that has not activated the system account.
+	revocationBroker := ""
+	if proof, err := readManagedTrustedFile(filepath.Join(privateDir, localNATSRevocationProof)); err == nil {
+		revocationBroker = string(proof)
 	}
-	authorizer := natsutil.LocalCertificateAuthorizer{BrokerID: broker.ConnectedServerId(), Roots: tlsConfig.RootCAs, Signer: signer, Permissions: policy.NATSPermissions, GrantTTL: grantTTL}
+	authorizer := natsutil.LocalCertificateAuthorizer{
+		BrokerID: broker.ConnectedServerId(), Roots: tlsConfig.RootCAs, Signer: signer, Permissions: policy.NATSPermissions,
+		GrantTTL: time.Duration(metadata.GrantTTLSeconds) * time.Second, RevocationBrokerID: revocationBroker,
+	}
 	result, err := authorizer.Authorize(request.Token, time.Now())
 	if err != nil {
 		return err
@@ -486,7 +489,22 @@ func runManagedLocalNATSReconciliation(ctx context.Context, output io.Writer) er
 	if err != nil {
 		return err
 	}
+	if err := recordLocalNATSRevocationProof(broker.ConnectedServerId()); err != nil {
+		return err
+	}
 	return json.NewEncoder(output).Encode(struct{ Disconnected int }{disconnected})
+}
+
+func recordLocalNATSRevocationProof(brokerID string) error {
+	privateDir := filepath.Join(managedCertificateRoot, ".nats-auth")
+	if err := validatePrivilegedAddonRootOwnership(privateDir); err != nil {
+		return err
+	}
+	path := filepath.Join(privateDir, localNATSRevocationProof)
+	if current, err := readManagedTrustedFile(path); err == nil && string(current) == brokerID {
+		return nil
+	}
+	return writeManagedLocalNATSFile(path, []byte(brokerID), 0600, 0)
 }
 
 func (p *PushLoop) startManagedLocalNATS(ctx context.Context) {
