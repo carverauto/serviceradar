@@ -242,13 +242,19 @@ The agent SHALL handle network privilege requirements gracefully, using raw sock
 - **AND** UDP and TCP probe modes report an error indicating insufficient privileges
 
 ### Requirement: Result Reporting
-The agent SHALL report MTR trace results through the standard gateway push pipeline as structured JSON, including per-hop statistics with MPLS labels, ASN data, hostnames, and execution context (agent ID, gateway ID, timestamps). The result payload SHALL be self-contained — no downstream enrichment required.
+The agent SHALL report each MTR trace with per-hop statistics, MPLS labels, ASN data, hostnames, and execution context (agent ID, gateway ID, timestamps). The result payload SHALL be self-contained.
 
-#### Scenario: Periodic result push
-- **WHEN** a scheduled MTR check completes a probe cycle
+A scheduled check SHALL deliver its full trace on one path. While the agent's metrics spool is enabled and it holds a current `serviceradar.mtr.scheduled_trace` version 1 standing grant, the agent SHALL spool that trace as an `AgentScheduledMtrTraceBatchV1` edge record, and core SHALL project it through `ServiceRadar.Edge.Projectors.ScheduledMtrTrace` into the same trace and hop rows as the legacy ingestor. Without that grant, the agent SHALL marshal the full trace to JSON and send it on `StreamStatus` as service `mtr_traces`. Scalar MTR metrics use `serviceradar.metrics.batch` or the status path under their own grant, and that choice is independent of the trace grant.
+
+#### Scenario: Scheduled trace under the standing grant
+- **WHEN** a scheduled MTR check completes a probe cycle while the agent holds a current `serviceradar.mtr.scheduled_trace` version 1 grant
+- **THEN** the full trace, including hop data with ASN, MPLS, hostname, target reachability, and timing metadata, is spooled as that edge record
+- **AND** the same cycle sends no `mtr_traces` JSON on `StreamStatus`
+
+#### Scenario: Scheduled trace without the grant
+- **WHEN** a scheduled MTR check completes a probe cycle and the agent holds no current `serviceradar.mtr.scheduled_trace` grant
 - **THEN** the full enriched trace result is marshaled to JSON
-- **AND** pushed to the gateway via PushStatus as a GatewayServiceStatus message
-- **AND** the result includes all hop data with ASN, MPLS, hostname, target reachability, and timing metadata
+- **AND** pushed to the gateway via `StreamStatus` as a `GatewayServiceStatus` message for service `mtr_traces`
 
 ### Requirement: TimescaleDB Storage
 The core system SHALL store MTR trace results in TimescaleDB hypertables (`mtr_traces` for trace metadata, `mtr_hops` for per-hop time-series data) in the `platform` schema, enabling historical path analysis and time-series queries.

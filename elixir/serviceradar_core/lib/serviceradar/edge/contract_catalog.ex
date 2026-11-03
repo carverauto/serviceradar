@@ -14,6 +14,7 @@ defmodule ServiceRadar.Edge.ContractCatalog do
   """
 
   alias ServiceRadar.Edge.MetricsBatchProjection
+  alias ServiceRadar.Edge.Projectors.ScheduledMtrTrace
   alias ServiceRadar.Edge.Projectors.SweepObservation
   alias ServiceRadar.Edge.Projectors.TelemetryBatch
   alias ServiceRadar.Edge.Projectors.UnleasedSweepResults
@@ -59,6 +60,14 @@ defmodule ServiceRadar.Edge.ContractCatalog do
       max_projected_rows: 10_000,
       write_bytes_per_row: 8_192,
       package_id: "serviceradar.agent.telemetry"
+    },
+    %{
+      ref: {"serviceradar.mtr.scheduled_trace", 1},
+      authority: :standing_grant,
+      projector: ScheduledMtrTrace,
+      max_projected_rows: 1_000,
+      write_bytes_per_row: 2_048,
+      package_id: "serviceradar.agent.mtr"
     }
   ]
 

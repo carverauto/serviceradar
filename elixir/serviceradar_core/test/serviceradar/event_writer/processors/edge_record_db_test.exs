@@ -27,9 +27,16 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
   alias ServiceRadar.Edge.PublicationIdentity
   alias ServiceRadar.Edge.RecordValidate
   alias ServiceRadar.Edge.SemanticDigest
+  alias Serviceradar.Edge.V1.AgentScheduledMtrTraceBatchV1
+  alias Serviceradar.Edge.V1.AgentScheduledMtrTraceV1
   alias Serviceradar.Edge.V1.EdgeOutputContractRef
   alias Serviceradar.Edge.V1.EdgeProducerContext
   alias Serviceradar.Edge.V1.EdgeRecordV1
+  alias Serviceradar.Edge.V1.MtrHopReplyDiagnosticsV1
+  alias Serviceradar.Edge.V1.MtrMplsLabelV1
+  alias Serviceradar.Edge.V1.MtrTcpHandshakeDiagnosticsV1
+  alias Serviceradar.Edge.V1.MtrTraceEventV1
+  alias Serviceradar.Edge.V1.MtrTraceHopV1
   alias Serviceradar.Edge.V1.SweepHostObservationV1
   alias Serviceradar.Edge.V1.SweepIcmpSummaryV1
   alias Serviceradar.Edge.V1.SweepObservationBatchV1
@@ -52,7 +59,11 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
   alias Serviceradar.Metric.V1.MetricBatch
   alias Serviceradar.Metric.V1.MetricPoint
   alias Serviceradar.Metric.V1.MetricResource
+  alias ServiceRadar.Observability.MtrHop
+  alias ServiceRadar.Observability.MtrMetricsIngestor
+  alias ServiceRadar.Observability.MtrTrace
   alias ServiceRadar.Observability.ServiceState
+  alias ServiceRadar.Observability.ServiceStateRegistry
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ExecutionSlots
   alias ServiceRadar.SweepJobs.LeaseCapabilities
@@ -68,6 +79,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
   @metrics_contract "serviceradar.metrics.batch"
   @unleased_sweep_contract "serviceradar.sweep.unleased_results"
   @telemetry_contract "serviceradar.telemetry.batch"
+  @scheduled_mtr_contract "serviceradar.mtr.scheduled_trace"
 
   setup_all do
     ServiceRadar.TestSupport.start_core!()
@@ -1008,6 +1020,586 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
       assert edge == legacy
     end
+  end
+
+  describe "ingest/4 of scheduled MTR trace records" do
+    test "a fresh record ingests its trace and hops under the authenticated agent and updates service state" do
+      frame = build_scheduled_mtr_frame(gateway_header: "gw-mtr-publish")
+
+      assert {:ok, :inserted} = EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo)
+
+      assert ledger_count(frame.record) == 1
+      assert mtr_trace_gateway(frame.agent_id) == "gw-mtr-publish"
+
+      assert [
+               %{
+                 id: trace_id,
+                 agent_id: agent_id,
+                 gateway_id: "gw-mtr-publish",
+                 check_id: "mtr-check-01",
+                 check_name: "Synthetic Edge Core Link",
+                 device_id: "sr:0197f8a0-0000-7000-8000-000000000001",
+                 target: "target.example.com",
+                 target_ip: "192.0.2.10",
+                 target_reached: true,
+                 total_hops: 2,
+                 probed_hops: 4,
+                 last_responding_hop: 2,
+                 protocol: "tcp",
+                 tcp_port: 443,
+                 tcp_handshake_ttl: 64,
+                 tcp_handshake_attempts: 3,
+                 tcp_syn_sent: 4,
+                 tcp_synack_received: 3,
+                 tcp_server_response_us: 3100
+               }
+             ] = mtr_traces_for(frame.trace_uuid)
+
+      assert trace_id == frame.trace_uuid
+      assert agent_id == frame.agent_id
+
+      assert [
+               %{hop_number: 1, addr: "198.51.100.1", reply_time_exceeded: 10, reply_synack: 0},
+               %{
+                 hop_number: 2,
+                 addr: "192.0.2.10",
+                 unreachable_code: 3,
+                 reply_unreachable: 1,
+                 reply_synack: 8
+               }
+             ] = mtr_hops_for(frame.trace_uuid)
+    end
+
+    test "a redelivered record is a replay and ingests no duplicate trace or hop rows" do
+      frame = build_scheduled_mtr_frame(gateway_header: "gw-mtr-publish")
+
+      assert {:ok, :inserted} = EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo)
+      assert {:ok, :replay} = EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo)
+
+      assert length(mtr_traces_for(frame.trace_uuid)) == 1
+      assert length(mtr_hops_for(frame.trace_uuid)) == 2
+      assert ledger_count(frame.record) == 1
+    end
+
+    test "a late-fenced record is recorded and ingests nothing" do
+      frame = build_scheduled_mtr_frame(delivery_mode: PublicationIdentity.mode_late_fenced())
+
+      assert {:ok, :inserted} = EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo)
+
+      assert ledger_count(frame.record) == 1
+      assert mtr_traces_for(frame.trace_uuid) == []
+      assert mtr_hops_for(frame.trace_uuid) == []
+    end
+
+    test "a record whose grant was revoked is refused and ingests nothing" do
+      frame = build_scheduled_mtr_frame(gateway_header: "gw-mtr-publish")
+
+      {:ok, nil} =
+        OutputGrants.reconcile(
+          frame.agent_id,
+          @scheduled_mtr_contract,
+          frame.partition_id,
+          false
+        )
+
+      assert {:error, :output_grant_not_current} =
+               EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo)
+
+      assert mtr_traces_for(frame.trace_uuid) == []
+      assert mtr_hops_for(frame.trace_uuid) == []
+      assert ledger_count(frame.record) == 0
+    end
+
+    test "a projected row count that disagrees with the traces is refused" do
+      frame = build_scheduled_mtr_frame(gateway_header: "gw-mtr-publish")
+      refused = encode_frame(%{frame.record | projected_row_count: 2}, frame.batch, frame.slot)
+
+      assert {:error, :scheduled_mtr_row_count} =
+               EdgeRecord.ingest(refused.record_bytes, refused.headers, Repo)
+
+      assert mtr_traces_for(frame.trace_uuid) == []
+      assert ledger_count(refused.record) == 0
+    end
+
+    test "a record with no gateway header and no agent gateway is refused" do
+      frame = build_scheduled_mtr_frame()
+
+      assert {:error, {:refused, :gateway_unknown}} =
+               EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo)
+
+      assert mtr_traces_for(frame.trace_uuid) == []
+      assert ledger_count(frame.record) == 0
+    end
+  end
+
+  describe "scheduled MTR trace fidelity" do
+    test "a scheduled MTR trace batch and the legacy JSON ingestor write identical trace and hop rows" do
+      frame = build_scheduled_mtr_frame(gateway?: true)
+
+      status = %{
+        service_name: "mtr_traces",
+        service_type: "mtr",
+        available: true,
+        message: Jason.encode!(frame.legacy_payload),
+        response_time: 0,
+        agent_id: frame.agent_id,
+        gateway_id: frame.gateway_id,
+        partition: frame.partition_slug,
+        authenticated_partition: frame.partition_slug,
+        source: "results",
+        kv_store_id: "",
+        timestamp: System.os_time(:second),
+        agent_timestamp: 1_780_000_000,
+        chunk_index: 0,
+        total_chunks: 1,
+        is_final: true
+      }
+
+      legacy =
+        mtr_fidelity_rows(frame, fn ->
+          assert :ok =
+                   MtrMetricsIngestor.ingest(frame.legacy_payload, status, skip_existing: true)
+
+          assert :ok = ServiceStateRegistry.upsert_from_status_strict(status)
+        end)
+
+      edge =
+        mtr_fidelity_rows(frame, fn ->
+          assert {:ok, :inserted} = EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo)
+        end)
+
+      assert length(legacy.traces) == 1
+      assert length(legacy.hops) == 2
+      assert [_ | _] = legacy.service_states
+      assert edge == legacy
+    end
+  end
+
+  defp mtr_fidelity_rows(frame, ingest) do
+    {:error, {:rows, rows}} =
+      Repo.transaction(fn ->
+        ingest.()
+        Repo.rollback({:rows, mtr_fidelity_snapshot(frame)})
+      end)
+
+    rows
+  end
+
+  defp mtr_fidelity_snapshot(frame) do
+    trace_uuid = frame.trace_uuid
+    agent_id = frame.agent_id
+
+    %{
+      traces: mtr_traces_for(trace_uuid),
+      hops: mtr_hops_for(trace_uuid),
+      service_states:
+        Repo.all(
+          Ecto.Query.from(s in ServiceState,
+            where: s.agent_id == ^agent_id,
+            order_by: [s.service_type, s.service_name],
+            select:
+              map(s, [
+                :agent_id,
+                :gateway_id,
+                :partition,
+                :service_type,
+                :service_name,
+                :available,
+                :state
+              ])
+          )
+        )
+    }
+  end
+
+  defp mtr_trace_gateway(agent_id) do
+    Repo.one(
+      Ecto.Query.from(s in ServiceState,
+        where:
+          s.agent_id == ^agent_id and s.service_type == "mtr" and s.service_name == "mtr_traces",
+        select: s.gateway_id
+      )
+    )
+  end
+
+  defp mtr_traces_for(trace_uuid) do
+    Repo.all(
+      Ecto.Query.from(t in MtrTrace,
+        where: t.id == ^trace_uuid,
+        select:
+          map(t, [
+            :id,
+            :time,
+            :agent_id,
+            :gateway_id,
+            :check_id,
+            :check_name,
+            :device_id,
+            :target,
+            :target_ip,
+            :target_reached,
+            :total_hops,
+            :probed_hops,
+            :last_responding_hop,
+            :protocol,
+            :tcp_port,
+            :ip_version,
+            :packet_size,
+            :partition,
+            :error,
+            :tcp_handshake_ttl,
+            :tcp_handshake_attempts,
+            :tcp_syn_sent,
+            :tcp_synack_received,
+            :tcp_rst_received,
+            :tcp_syn_unanswered,
+            :tcp_syn_drop_pct,
+            :tcp_syn_retransmits,
+            :tcp_answered_after_retx,
+            :tcp_ack_mismatch,
+            :tcp_synack_duplicates,
+            :tcp_handshake_rtt_min_us,
+            :tcp_handshake_rtt_avg_us,
+            :tcp_handshake_rtt_max_us,
+            :tcp_server_response_us
+          ])
+      )
+    )
+  end
+
+  defp mtr_hops_for(trace_uuid) do
+    Repo.all(
+      Ecto.Query.from(h in MtrHop,
+        where: h.trace_id == ^trace_uuid,
+        order_by: h.hop_number,
+        select:
+          map(h, [
+            :id,
+            :time,
+            :trace_id,
+            :target_ip,
+            :device_id,
+            :hop_number,
+            :addr,
+            :hostname,
+            :ecmp_addrs,
+            :asn,
+            :asn_org,
+            :mpls_labels,
+            :sent,
+            :received,
+            :loss_pct,
+            :last_us,
+            :avg_us,
+            :min_us,
+            :max_us,
+            :stddev_us,
+            :jitter_us,
+            :jitter_worst_us,
+            :jitter_interarrival_us,
+            :unreachable_code,
+            :reply_time_exceeded,
+            :reply_unreachable,
+            :reply_synack,
+            :reply_rst
+          ])
+      )
+    )
+  end
+
+  defp build_scheduled_mtr_frame(opts \\ []) do
+    {gateway?, opts} = Keyword.pop(opts, :gateway?, false)
+    actor = SystemActor.system(:edge_record_test)
+    partition = partition!(random_uuid(4), actor)
+    agent_id = "agent-#{System.unique_integer([:positive])}"
+    ensure_agent!(agent_id, partition, actor)
+    gateway_id = if gateway?, do: attach_gateway!(agent_id, actor)
+
+    {:ok, grant} =
+      OutputGrants.reconcile(agent_id, @scheduled_mtr_contract, partition.id, true)
+
+    key = IssuerKey.from_seed(:binary.copy(<<0x5A>>, 32))
+    now = DateTime.utc_now()
+
+    contract = %{
+      contract_id: @scheduled_mtr_contract,
+      contract_version: 1,
+      contract_bundle_sha256: :crypto.hash(:sha256, "scheduled-mtr-bundle"),
+      registry_epoch: 1,
+      registry_snapshot_sha256: :crypto.hash(:sha256, "registry"),
+      cost_model_version: 1,
+      max_projected_row_count: 1_000,
+      max_projected_write_bytes: 2_048_000
+    }
+
+    production = OutputGrants.production_capability(grant, contract, key, now)
+    {:production, claims} = production.claims
+
+    trace_id_bytes = Ecto.UUID.dump!(ExecutionSlots.mint_id(now))
+    trace_uuid = Ecto.UUID.load!(trace_id_bytes)
+    trace_event_id = Ecto.UUID.dump!(ExecutionSlots.mint_id(now))
+    observed_nano = 1_780_000_000_000_000_000
+
+    batch = %AgentScheduledMtrTraceBatchV1{
+      traces: [
+        %AgentScheduledMtrTraceV1{
+          check_id: "mtr-check-01",
+          check_name: "Synthetic Edge Core Link",
+          device_id: "sr:0197f8a0-0000-7000-8000-000000000001",
+          execution_source: :SWEEP_EXECUTION_SOURCE_SCHEDULED_CHECK,
+          probed_hops: 4,
+          last_responding_hop: 2,
+          tcp_port: 443,
+          tcp_probe_mode: :MTR_TCP_PROBE_MODE_V1_SYN,
+          trace: %MtrTraceEventV1{
+            trace_id: trace_id_bytes,
+            event_id: trace_event_id,
+            sweep_host_address: <<192, 0, 2, 10>>,
+            device_hint: "sr:0197f8a0-0000-7000-8000-000000000001",
+            observed_at_unix_nano: observed_nano,
+            attempted: true,
+            outcome: :MTR_OUTCOME_REACHED,
+            target: "target.example.com",
+            resolved_address: <<192, 0, 2, 10>>,
+            protocol: :TRANSPORT_PROTOCOL_TCP,
+            ip_version: 4,
+            packet_size: 64,
+            target_reached: true,
+            total_hops: 2,
+            hops: [
+              %MtrTraceHopV1{
+                hop_number: 1,
+                address: <<198, 51, 100, 1>>,
+                hostname: "hop1.example.com",
+                ecmp_addresses: [<<198, 51, 100, 2>>],
+                mpls_labels: [
+                  %MtrMplsLabelV1{
+                    label: 24_001,
+                    experimental: 0,
+                    bottom_of_stack: true,
+                    ttl: 63
+                  }
+                ],
+                asn: 64_512,
+                asn_org: "Example Transit AS64512",
+                sent: 10,
+                received: 10,
+                loss_pct: 0.0,
+                last_micro: 1_200,
+                avg_micro: 1_150,
+                min_micro: 1_000,
+                max_micro: 1_400,
+                stddev_micro: 120,
+                jitter_micro: 80,
+                jitter_worst_micro: 200,
+                jitter_interarrival_micro: 95
+              },
+              %MtrTraceHopV1{
+                hop_number: 2,
+                address: <<192, 0, 2, 10>>,
+                hostname: "target.example.com",
+                asn: 64_513,
+                asn_org: "Example Edge AS64513",
+                sent: 10,
+                received: 9,
+                loss_pct: 10.0,
+                last_micro: 3_400,
+                avg_micro: 3_200,
+                min_micro: 2_900,
+                max_micro: 3_800,
+                stddev_micro: 250,
+                jitter_micro: 140,
+                jitter_worst_micro: 400,
+                jitter_interarrival_micro: 160
+              }
+            ]
+          },
+          tcp_handshake: %MtrTcpHandshakeDiagnosticsV1{
+            ttl: 64,
+            attempts: 3,
+            syn_sent: 4,
+            synack_received: 3,
+            rst_received: 0,
+            unanswered: 1,
+            syn_drop_pct: 25.0,
+            syn_retransmits: 1,
+            answered_after_retx: 1,
+            ack_mismatch: 0,
+            synack_duplicates: 0,
+            rtt_min_us: 2_900,
+            rtt_avg_us: 3_200,
+            rtt_max_us: 3_800,
+            server_response_us: 3_100,
+            has_server_response_us: true
+          },
+          hop_diagnostics: [
+            %MtrHopReplyDiagnosticsV1{
+              hop_number: 1,
+              reply_time_exceeded: 10
+            },
+            %MtrHopReplyDiagnosticsV1{
+              hop_number: 2,
+              has_unreachable_code: true,
+              unreachable_code: 3,
+              reply_unreachable: 1,
+              reply_synack: 8
+            }
+          ]
+        }
+      ]
+    }
+
+    legacy_payload = %{
+      "results" => [
+        %{
+          "trace_uuid" => trace_uuid,
+          "check_id" => "mtr-check-01",
+          "check_name" => "Synthetic Edge Core Link",
+          "target" => "target.example.com",
+          "device_id" => "sr:0197f8a0-0000-7000-8000-000000000001",
+          "available" => true,
+          "timestamp" => observed_nano,
+          "error" => nil,
+          "trace" => %{
+            "target" => "target.example.com",
+            "target_ip" => "192.0.2.10",
+            "target_reached" => true,
+            "total_hops" => 2,
+            "probed_hops" => 4,
+            "last_responding_hop" => 2,
+            "protocol" => "tcp",
+            "tcp_port" => 443,
+            "tcp_probe_mode" => "syn",
+            "ip_version" => 4,
+            "packet_size" => 64,
+            "timestamp" => observed_nano,
+            "tcp_handshake" => %{
+              "ttl" => 64,
+              "attempts" => 3,
+              "syn_sent" => 4,
+              "synack_received" => 3,
+              "rst_received" => 0,
+              "unanswered" => 1,
+              "syn_drop_pct" => 25.0,
+              "syn_retransmits" => 1,
+              "answered_after_retx" => 1,
+              "ack_mismatch" => 0,
+              "synack_duplicates" => 0,
+              "rtt_min_us" => 2_900,
+              "rtt_avg_us" => 3_200,
+              "rtt_max_us" => 3_800,
+              "server_response_us" => 3_100
+            },
+            "hops" => [
+              %{
+                "hop_number" => 1,
+                "addr" => "198.51.100.1",
+                "hostname" => "hop1.example.com",
+                "ecmp_addrs" => ["198.51.100.2"],
+                "asn" => %{"asn" => 64_512, "org" => "Example Transit AS64512"},
+                "mpls_labels" => [%{"label" => 24_001, "exp" => 0, "s" => true, "ttl" => 63}],
+                "sent" => 10,
+                "received" => 10,
+                "loss_pct" => 0.0,
+                "last_us" => 1_200,
+                "avg_us" => 1_150,
+                "min_us" => 1_000,
+                "max_us" => 1_400,
+                "stddev_us" => 120,
+                "jitter_us" => 80,
+                "jitter_worst_us" => 200,
+                "jitter_interarrival_us" => 95,
+                "reply_time_exceeded" => 10
+              },
+              %{
+                "hop_number" => 2,
+                "addr" => "192.0.2.10",
+                "hostname" => "target.example.com",
+                "ecmp_addrs" => [],
+                "asn" => %{"asn" => 64_513, "org" => "Example Edge AS64513"},
+                "mpls_labels" => nil,
+                "sent" => 10,
+                "received" => 9,
+                "loss_pct" => 10.0,
+                "last_us" => 3_400,
+                "avg_us" => 3_200,
+                "min_us" => 2_900,
+                "max_us" => 3_800,
+                "stddev_us" => 250,
+                "jitter_us" => 140,
+                "jitter_worst_us" => 400,
+                "jitter_interarrival_us" => 160,
+                "unreachable_code" => 3,
+                "reply_unreachable" => 1,
+                "reply_synack" => 8
+              }
+            ]
+          }
+        }
+      ]
+    }
+
+    payload = AgentScheduledMtrTraceBatchV1.encode(batch)
+
+    record = %EdgeRecordV1{
+      event_id: Ecto.UUID.dump!(ExecutionSlots.mint_id(now)),
+      output_contract:
+        struct(
+          EdgeOutputContractRef,
+          Map.take(claims, [
+            :contract_id,
+            :contract_version,
+            :contract_bundle_sha256,
+            :registry_epoch,
+            :registry_snapshot_sha256,
+            :effective_grant_sha256
+          ])
+        ),
+      production_capability: production,
+      payload_family: :EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1,
+      compression: :EDGE_RECORD_COMPRESSION_NONE,
+      encoded_size: byte_size(payload),
+      uncompressed_size: byte_size(payload),
+      payload_sha256: :crypto.hash(:sha256, payload),
+      producer_context: %EdgeProducerContext{
+        origin_kind: :EDGE_ORIGIN_KIND_AGENT,
+        origin_principal_id: agent_id,
+        producer_instance_id: agent_id,
+        producer_assignment_id: claims.producer_assignment_id,
+        authority_epoch: claims.authority_epoch,
+        run_id: claims.run_id,
+        run_shard: 0,
+        scope_id: claims.scope_id,
+        scope_sha256: claims.scope_sha256,
+        package_id: claims.package_id,
+        package_sha256: claims.package_sha256
+      },
+      route_profile: :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
+      traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_BULK,
+      network_scope_id: Ecto.UUID.dump!(partition.id),
+      projected_row_count: length(batch.traces),
+      projected_write_bytes: 0,
+      cost_model_version: 1,
+      payload: payload
+    }
+
+    slot = %{
+      network_scope_id: record.network_scope_id,
+      authenticated_agent_id: agent_id,
+      spool_id: random_uuid(7),
+      sequence: 1
+    }
+
+    record
+    |> encode_frame(batch, slot, opts)
+    |> Map.merge(%{
+      agent_id: agent_id,
+      partition_id: partition.id,
+      partition_slug: partition.slug,
+      gateway_id: gateway_id,
+      trace_uuid: trace_uuid,
+      legacy_payload: legacy_payload
+    })
   end
 
   defp fidelity_fixture(name),

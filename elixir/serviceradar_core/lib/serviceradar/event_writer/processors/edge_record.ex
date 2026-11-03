@@ -142,7 +142,15 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
          :ok <- check_slot_matches_record(slot, record),
          {:ok, projector} <- projector_for(record),
          {:ok, body} <- projector.decode(record),
-         :ok <- publish_fresh(repo, provenance, record, projector, body, opts) do
+         :ok <-
+           publish_fresh(
+             repo,
+             provenance,
+             record,
+             projector,
+             body,
+             Keyword.put(opts, :gateway_id, header_set.gateway_id)
+           ) do
       record_sha256 = :crypto.hash(:sha256, record_bytes)
 
       run_transaction(
@@ -202,6 +210,10 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   # primary delivery: not for a record the ledger already holds (a replay) and not for a
   # late-fenced delivery. A refusal is returned like a projection refusal; any other failure
   # raises, so the batch fails and JetStream redelivers the record.
+  defp publish_opts(repo, opts) do
+    [repo: repo, gateway_id: Keyword.get(opts, :gateway_id)] ++ Keyword.take(opts, [:request])
+  end
+
   defp publish_fresh(repo, provenance, record, projector, body, opts) do
     cond do
       not function_exported?(projector, :publish, 3) ->
@@ -214,7 +226,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
         :ok
 
       true ->
-        case projector.publish(record, body, Keyword.take(opts, [:request])) do
+        case projector.publish(record, body, publish_opts(repo, opts)) do
           :ok -> :ok
           {:refused, reason} -> {:error, reason}
           {:error, reason} -> raise "edge record publish failed: #{inspect(reason)}"
