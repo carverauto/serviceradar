@@ -36,36 +36,42 @@ var errGatewayUnavailable = errors.New("gateway unavailable")
 // it is asked about, as core would, unless told to fail or to bind the wrong
 // bytes. It records which sequences each request named.
 type fakeGrantRenewer struct {
-	mu        sync.Mutex
-	requested [][]uint64
-	fail      bool
-	wrongSHA  bool
-	now       time.Time
+	mu               sync.Mutex
+	requested        [][]uint64
+	fail             bool
+	wrongSHA         bool
+	blockUntilCancel bool
+	now              time.Time
 }
 
 func (f *fakeGrantRenewer) RenewDeliveryGrants(
-	_ context.Context, spoolID []byte, records []spool.Record,
+	ctx context.Context, spoolID []byte, records []spool.Record,
 ) (map[uint64]*edgev1.EdgeSignedCapabilityV1, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
-
 	seqs := make([]uint64, 0, len(records))
 	for _, rec := range records {
 		seqs = append(seqs, rec.Sequence)
 	}
 	f.requested = append(f.requested, seqs)
-	if f.fail {
+	fail, wrong, block, now := f.fail, f.wrongSHA, f.blockUntilCancel, f.now
+	f.mu.Unlock()
+
+	if block {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	if fail {
 		return nil, errGatewayUnavailable
 	}
 
 	granted := make(map[uint64]*edgev1.EdgeSignedCapabilityV1, len(records))
 	for _, rec := range records {
 		sum := sha256.Sum256(rec.Body)
-		if f.wrongSHA {
+		if wrong {
 			sum[0] ^= 0xFF
 		}
-		notBefore := f.now.UnixNano()
-		expires := f.now.Add(15 * time.Minute).UnixNano()
+		notBefore := now.UnixNano()
+		expires := now.Add(15 * time.Minute).UnixNano()
 		granted[rec.Sequence] = &edgev1.EdgeSignedCapabilityV1{
 			CapabilityVersion: 1,
 			IssuerId:          []byte("serviceradar-core"),
@@ -218,5 +224,110 @@ func TestRunOnceSendsWithoutAGrantItCouldNotObtain(t *testing.T) {
 				t.Fatalf("frames = %v, want the record sent once without a grant", frames)
 			}
 		})
+	}
+}
+
+// A renewal that does not answer is one bounded attempt. Records whose
+// production grants are still valid are sent without waiting out the caller's
+// deadline, and the next cycle asks again.
+func TestRenewalTimeoutDoesNotDelayRecordsUnderCurrentAuthority(t *testing.T) {
+	now := time.Now()
+	sp := newTestSpool(t)
+	appendRecord(t, sp, now.Add(-2*time.Hour))
+	appendRecord(t, sp, now.Add(2*time.Hour))
+
+	srv := acceptingServer()
+	renewer := &fakeGrantRenewer{now: now, blockUntilCancel: true}
+	s := grantSender(t, sp, srv, renewer, now)
+
+	parent, cancel := context.WithTimeout(context.Background(), renewalAttemptTimeout+5*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	result, err := s.RunOnce(parent)
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+	if elapsed >= renewalAttemptTimeout+2*time.Second {
+		t.Fatalf("RunOnce took %s; a timed-out renewal held the delivery session", elapsed)
+	}
+	if !errors.Is(result.GrantRenewal, context.DeadlineExceeded) {
+		t.Fatalf("GrantRenewal = %v, want deadline exceeded", result.GrantRenewal)
+	}
+	frames := srv.framesReceived()
+	if len(frames) != 2 {
+		t.Fatalf("server received %d frames, want both records sent", len(frames))
+	}
+	for _, frame := range frames {
+		if frame.GetDeliveryCapability() != nil {
+			t.Fatalf("sequence %d carried a grant after renewal timed out", frame.GetSequence())
+		}
+	}
+
+	renewer.mu.Lock()
+	renewer.blockUntilCancel = false
+	renewer.mu.Unlock()
+
+	result, err = s.RunOnce(parent)
+	if err != nil {
+		t.Fatalf("second RunOnce: %v", err)
+	}
+	if result.GrantRenewal != nil {
+		t.Fatalf("second GrantRenewal = %v, want the retry to succeed", result.GrantRenewal)
+	}
+	got := renewer.requests()
+	if len(got) != 2 || !equalSeqs(got[0], []uint64{1}) || !equalSeqs(got[1], []uint64{1}) {
+		t.Fatalf("grant requests = %v, want the lapsed record asked once per cycle", got)
+	}
+	var renewed bool
+	for _, frame := range srv.framesReceived()[len(frames):] {
+		if frame.GetSequence() == 1 && frame.GetDeliveryCapability().GetDelivery().GetSequence() == 1 {
+			renewed = true
+		}
+	}
+	if !renewed {
+		t.Fatal("second cycle did not send the lapsed record with the grant it retried for")
+	}
+}
+
+// One failed batch ends the renewal phase. Later batches wait for the next
+// cycle instead of spending the session deadline on more RPCs.
+func TestRunOnceStopsGrantRenewalAfterTheFirstRPCError(t *testing.T) {
+	now := time.Now()
+	sp := newTestSpool(t)
+	for i := 0; i < maxGrantRecordsPerRequest+1; i++ {
+		appendRecord(t, sp, now.Add(-2*time.Hour))
+	}
+
+	srv := acceptingServer()
+	srv.grantedFrameCredits = maxGrantRecordsPerRequest + 1
+	renewer := &fakeGrantRenewer{now: now, fail: true}
+
+	cfg := testConfig(t)
+	cfg.Grants = renewer
+	cfg.Now = func() time.Time { return now }
+	cfg.RequestedFrameCredits = maxGrantRecordsPerRequest + 1
+	cfg.RequestedByteCredits = 8 << 20
+	s, err := New(sp, dialFakeIngest(t, srv), cfg)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	result, err := s.RunOnce(ctx)
+	if err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+	if !errors.Is(result.GrantRenewal, errGatewayUnavailable) {
+		t.Fatalf("GrantRenewal = %v, want %v", result.GrantRenewal, errGatewayUnavailable)
+	}
+	got := renewer.requests()
+	if len(got) != 1 || len(got[0]) != maxGrantRecordsPerRequest {
+		t.Fatalf("grant requests = %v, want one batch of %d and no second RPC", got, maxGrantRecordsPerRequest)
+	}
+	if len(srv.framesReceived()) != maxGrantRecordsPerRequest+1 {
+		t.Fatalf("sent %d frames, want every record in the window", len(srv.framesReceived()))
 	}
 }

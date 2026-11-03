@@ -140,6 +140,23 @@ func (c *Client) Close() error {
 	return c.conn.Close()
 }
 
+// WithoutRetry tells RetryInterceptor to invoke the call once and return its
+// error. The delivery-grant renewal uses it: that RPC is one attempt per
+// sender cycle, and a failure waits for the next cycle instead of backing off
+// inside the delivery session.
+func WithoutRetry() grpc.CallOption { return withoutRetry{} }
+
+type withoutRetry struct{ grpc.EmptyCallOption }
+
+func retryLimit(maxRetries int, opts []grpc.CallOption) int {
+	for _, opt := range opts {
+		if _, ok := opt.(withoutRetry); ok {
+			return 1
+		}
+	}
+	return maxRetries
+}
+
 // RetryInterceptor provides basic retry logic.
 func RetryInterceptor(maxRetries int, log logger.Logger) grpc.UnaryClientInterceptor {
 	return func(ctx context.Context, method string, req, reply interface{},
@@ -147,8 +164,9 @@ func RetryInterceptor(maxRetries int, log logger.Logger) grpc.UnaryClientInterce
 		var lastErr error
 
 		backoff := 1 * time.Second
+		attempts := retryLimit(maxRetries, opts)
 
-		for attempt := 0; attempt < maxRetries; attempt++ {
+		for attempt := 0; attempt < attempts; attempt++ {
 			start := time.Now()
 
 			err := invoker(ctx, method, req, reply, cc, opts...)
@@ -173,7 +191,7 @@ func RetryInterceptor(maxRetries int, log logger.Logger) grpc.UnaryClientInterce
 
 			lastErr = err
 
-			if attempt == maxRetries-1 {
+			if attempt == attempts-1 {
 				break
 			}
 
@@ -188,6 +206,6 @@ func RetryInterceptor(maxRetries int, log logger.Logger) grpc.UnaryClientInterce
 			}
 		}
 
-		return fmt.Errorf("all %d retries failed: %w", maxRetries, lastErr)
+		return fmt.Errorf("all %d retries failed: %w", attempts, lastErr)
 	}
 }

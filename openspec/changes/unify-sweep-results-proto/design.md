@@ -386,7 +386,9 @@ the agent's existing mTLS gateway connection:
   the window it is about to send whose production grant expires within the
   5-minute clock tolerance of the agent's clock, and that holds no grant still
   current by the same margin. A record under current production authority is
-  sent without one. Grants are held in memory only, so a restarted sender asks
+  sent without one. The ask is one attempt on a short deadline, with no client
+  retry: a failure is reported and the session still sends, and the next poll
+  asks again. Grants are held in memory only, so a restarted sender asks
   again.
 - The request names the lane's `spool_id` and, per record, its `sequence` and
   exact `record_bytes`: at most 64 records and 2 MiB per request. The gateway

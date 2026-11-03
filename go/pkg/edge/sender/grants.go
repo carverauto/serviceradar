@@ -53,6 +53,12 @@ const (
 	// The bounds the gateway enforces on one RenewEdgeDeliveryGrants request.
 	maxGrantRecordsPerRequest = 64
 	maxGrantBytesPerRequest   = 2 << 20
+
+	// renewalAttemptTimeout is the whole renewal phase of one delivery cycle.
+	// The poll that calls RunOnce has its own deadline; a renewal that runs
+	// until that deadline expires never opens the session, so records whose
+	// grants are still valid stay unsent. One bounded attempt, then send.
+	renewalAttemptTimeout = 5 * time.Second
 )
 
 // errGrantMismatch is returned for a grant that does not bind the record it was
@@ -102,13 +108,19 @@ func (s *Sender) renewGrants(ctx context.Context) error {
 	if scanErr != nil {
 		return fmt.Errorf("sender: scan spool for delivery grants: %w", scanErr)
 	}
+	if len(need) == 0 {
+		return nil
+	}
+
+	renewCtx, cancel := context.WithTimeout(ctx, renewalAttemptTimeout)
+	defer cancel()
 
 	var errs []error
 	for _, batch := range grantBatches(need) {
-		granted, err := s.cfg.Grants.RenewDeliveryGrants(ctx, s.cfg.SpoolID, batch)
+		granted, err := s.cfg.Grants.RenewDeliveryGrants(renewCtx, s.cfg.SpoolID, batch)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("sender: renew delivery grants: %w", err))
-			continue
+			break
 		}
 		for _, rec := range batch {
 			if capability, ok := granted[rec.Sequence]; ok {

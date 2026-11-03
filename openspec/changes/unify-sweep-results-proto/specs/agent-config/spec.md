@@ -72,6 +72,9 @@ domain eligibility after an assignment fence.
   assignment is active and held by that agent
 - **AND** a record whose assignment was revoked SHALL receive no delivery
   authority
+- **AND** a renewal that fails or does not answer within its attempt SHALL NOT
+  delay records whose authority is still valid; the agent SHALL report it and
+  ask again on the next delivery cycle, without retrying that attempt
 
 #### Scenario: Old assignment was replaced
 - **GIVEN** an immutable old frame was collected before its assignment was

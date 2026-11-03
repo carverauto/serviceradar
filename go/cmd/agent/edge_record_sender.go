@@ -181,7 +181,7 @@ func (g gatewayGrantRenewer) RenewDeliveryGrants(
 	for _, rec := range records {
 		req.Records = append(req.Records, &proto.EdgeDeliveryGrantRecord{Sequence: rec.Sequence, RecordBytes: rec.Body})
 	}
-	resp, err := g.client.RenewEdgeDeliveryGrants(ctx, req)
+	resp, err := g.client.RenewEdgeDeliveryGrants(ctx, req, srgrpc.WithoutRetry())
 	if err != nil {
 		return nil, err
 	}
