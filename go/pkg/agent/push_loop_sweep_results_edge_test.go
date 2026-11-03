@@ -877,6 +877,8 @@ func TestUnleasedSweepWithAnUndeliveredRecordIsNotReportedComplete(t *testing.T)
 		hosts[i] = reachableHost(fmt.Sprintf("192.0.2.%d", 50+i))
 	}
 	run := func(t *testing.T, appender func(*spool.Spool) edgeMetricsAppender, reject func(spool.Record) bool) {
+		t.Helper()
+
 		sp := openTestEdgeSpool(t)
 		svc := &scriptedSweepResults{responses: []*proto.ResultsResponse{sweepResultsResponse(t, unleasedTestGroupID, "9", hosts, nil)}}
 		loop, _ := unleasedSweepLoop(t, sp, svc, currentMetricsGrant(t), unleasedSweepGrant(t, 2))
