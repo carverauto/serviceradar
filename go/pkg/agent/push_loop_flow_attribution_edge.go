@@ -18,6 +18,7 @@ package agent
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"time"
@@ -251,7 +252,7 @@ func (p *PushLoop) pushFlowAttributionEdge(
 			continue
 		}
 
-		if _, err := spoolApp.Append(cached.built.record.GetEventId(), body); err != nil {
+		if err := appendEdgeMetricsRecord(spoolApp, cached.built.record, body); err != nil {
 			if permanentSpoolRefusal(err) || errors.Is(err, spool.ErrEventIDLength) {
 				p.flowAttributionDelivery.clearEdgePending()
 				_, ok := p.flowAttributionDelivery.dropPrefix(pending, cached.eventCount)
@@ -303,4 +304,41 @@ func (p *PushLoop) pushFlowAttributionEdge(
 	}
 
 	return sentAny
+}
+
+// appendEdgeMetricsRecord writes one canonical record through whichever spool
+// surface this tree has. PR #6274 replaced Append with AppendFlow; this branch
+// still builds against Append, and GitHub CI typechecks the merge of both.
+func appendEdgeMetricsRecord(spoolApp edgeMetricsAppender, record *edgev1.EdgeRecordV1, body []byte) error {
+	if flowApp, ok := any(spoolApp).(interface {
+		AppendFlow(flow string, eventID, body []byte) (uint64, error)
+	}); ok {
+		_, err := flowApp.AppendFlow(edgeRecordAdmissionFlow(record), record.GetEventId(), body)
+		return err
+	}
+	if app, ok := any(spoolApp).(interface {
+		Append(eventID, body []byte) (uint64, error)
+	}); ok {
+		_, err := app.Append(record.GetEventId(), body)
+		return err
+	}
+	return spool.ErrAdmissionRefused
+}
+
+// edgeRecordAdmissionFlow matches edgeAdmissionFlow: length-prefixed identity
+// fields, then the run shard, origin kind, and traffic class.
+func edgeRecordAdmissionFlow(record *edgev1.EdgeRecordV1) string {
+	c := record.GetProducerContext()
+	var key []byte
+	for _, part := range [][]byte{
+		record.GetNetworkScopeId(), c.GetOriginPrincipalId(), c.GetProducerAssignmentId(), c.GetRunId(),
+		[]byte(record.GetOutputContract().GetContractId()),
+	} {
+		key = binary.AppendUvarint(key, uint64(len(part)))
+		key = append(key, part...)
+	}
+	key = binary.AppendUvarint(key, uint64(c.GetRunShard()))
+	key = binary.AppendUvarint(key, uint64(c.GetOriginKind()))
+	key = binary.AppendUvarint(key, uint64(record.GetTrafficClass()))
+	return string(key)
 }
