@@ -1148,8 +1148,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
   test "newest local link fields win and a neighbor link leaves the other device unchanged" do
     local = "sr:it-own-a"
     neighbor = "sr:it-own-b"
-    older = ~U[2026-04-01 00:00:00Z]
-    newer = ~U[2026-04-01 00:05:00Z]
+    # Inside the stale-link cutoff, so the projected edge survives pruning.
+    newer = DateTime.truncate(DateTime.utc_now(), :second)
+    older = DateTime.add(newer, -300, :second)
 
     assert :ok =
              TopologyGraph.upsert_links([
