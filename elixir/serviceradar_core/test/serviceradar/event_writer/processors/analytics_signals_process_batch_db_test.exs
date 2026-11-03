@@ -615,9 +615,8 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
 
     assert_receive {:alert_evaluation_events, [%{message: ^quiet_forecast}]}
 
-    refute_receive {:alert_evaluation_events, [%{message: message}]}
-                   when message in [saturated_message, quiet_forecast],
-                   50
+    refute_receive {:alert_evaluation_events, [%{message: ^saturated_message}]}, 50
+    refute_receive {:alert_evaluation_events, [%{message: ^quiet_forecast}]}, 50
 
     assert pending_admission_messages(quiet) == []
 
