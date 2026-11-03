@@ -76,10 +76,10 @@ func CheckSetDigest(checks []*edgev1.SweepTestV1) []byte {
 // SweepLeaseCheckSets verifies that push's carried check sets bind its slots and
 // returns them keyed by check_set_sha256. A push with slots is lease_version 2;
 // every slot's plan_header.check_set_sha256 resolves to exactly one carried set;
-// no carried set is unreferenced; and every set of a known digest_version lists
-// its checks in canonical order and digests to its key. A set of an unknown
-// digest_version is returned unverified, since its grammar is unknown here:
-// SweepCheckSetRun refuses the slots that reference it.
+// no carried set is unreferenced; and every set names the digest_version this
+// agent knows, lists its checks in canonical order and digests to its key. An
+// unknown digest_version fails the push: its grammar cannot be verified here,
+// and sweep_lease_plan_checks:v1 advertises version 1 only.
 func SweepLeaseCheckSets(push *edgev1.SweepLeaseV1) (map[string]*edgev1.SweepCheckSetV1, error) {
 	if len(push.GetSlots()) == 0 {
 		if len(push.GetCheckSets()) != 0 {
@@ -100,13 +100,14 @@ func SweepLeaseCheckSets(push *edgev1.SweepLeaseV1) (map[string]*edgev1.SweepChe
 		if _, dup := sets[string(key)]; dup {
 			return nil, fmt.Errorf("%w: check set %d repeats key %x", ErrSweepLeaseCheckSets, i, key)
 		}
-		if set.GetDigestVersion() == CheckSetDigestVersion {
-			if !canonicalChecks(set.GetChecks()) {
-				return nil, fmt.Errorf("%w: check set %x is not sorted and de-duplicated", ErrSweepLeaseCheckSets, key)
-			}
-			if !bytes.Equal(CheckSetDigest(set.GetChecks()), key) {
-				return nil, fmt.Errorf("%w: check set %x does not digest to its key", ErrSweepLeaseCheckSets, key)
-			}
+		if set.GetDigestVersion() != CheckSetDigestVersion {
+			return nil, fmt.Errorf("%w: check set %x has digest_version %d", ErrSweepLeaseCheckSets, key, set.GetDigestVersion())
+		}
+		if !canonicalChecks(set.GetChecks()) {
+			return nil, fmt.Errorf("%w: check set %x is not sorted and de-duplicated", ErrSweepLeaseCheckSets, key)
+		}
+		if !bytes.Equal(CheckSetDigest(set.GetChecks()), key) {
+			return nil, fmt.Errorf("%w: check set %x does not digest to its key", ErrSweepLeaseCheckSets, key)
 		}
 		sets[string(key)] = set
 	}
@@ -157,13 +158,10 @@ type SweepCheckSetRunSpec struct {
 
 // SweepCheckSetRun turns a carried set into the scanner's run shape. The scanner
 // runs every TCP mode on every port, so the set must be ICMP at most once (port
-// 0) plus each TCP mode on one shared, non-empty port list. Any other set, an
-// unknown digest_version, or a mode the edge sweep does not produce (MTR) is
-// ErrSweepCheckSetUnsupported.
+// 0) plus each TCP mode on one shared, non-empty port list. Any other set, or a
+// mode the edge sweep does not produce (MTR), is ErrSweepCheckSetUnsupported.
+// The set's digest_version was already checked when the push was installed.
 func SweepCheckSetRun(set *edgev1.SweepCheckSetV1) (SweepCheckSetRunSpec, error) {
-	if set.GetDigestVersion() != CheckSetDigestVersion {
-		return SweepCheckSetRunSpec{}, fmt.Errorf("%w: digest_version %d", ErrSweepCheckSetUnsupported, set.GetDigestVersion())
-	}
 	if len(set.GetChecks()) == 0 {
 		return SweepCheckSetRunSpec{}, fmt.Errorf("%w: no checks", ErrSweepCheckSetUnsupported)
 	}

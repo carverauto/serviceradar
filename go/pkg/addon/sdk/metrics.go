@@ -61,8 +61,8 @@ const (
 )
 
 // ServiceRadarMetricRecord wraps one canonical ServiceRadar metric batch as a
-// native add-on telemetry record. The payload is protobuf bytes, not JSON; the
-// gateway republishes it unchanged to metrics.*.
+// native add-on telemetry record. The payload is protobuf bytes, not JSON.
+// Publish routing is documented in docs/docs/data-pipeline.md.
 func ServiceRadarMetricRecord(
 	eventID string,
 	eventTimeUnixNano int64,

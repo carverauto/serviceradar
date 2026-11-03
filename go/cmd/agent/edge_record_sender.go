@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/agent"
+	"github.com/carverauto/serviceradar/go/pkg/edge/admission"
 	edgesender "github.com/carverauto/serviceradar/go/pkg/edge/sender"
 	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	srgrpc "github.com/carverauto/serviceradar/go/pkg/grpc"
@@ -42,6 +43,15 @@ const (
 	edgeRecordSenderRequestedByteCredits = 8 << 20 // 8 MiB
 	edgeRecordSenderRequestedFrameCreds  = 256
 	edgeRecordSenderSetupInitialBackoff  = time.Second
+)
+
+// Producer admission to the spool pauses once its ordinary bytes reach
+// edgeSpoolHighWaterPercent of the allocator's ordinary ceiling and resumes once
+// reclaim brings them down to edgeSpoolLowWaterPercent (M3.2). The gap above the
+// high water keeps room below the hard ceiling for records already in flight.
+const (
+	edgeSpoolHighWaterPercent = 80
+	edgeSpoolLowWaterPercent  = 50
 )
 
 // runEdgeRecordSender drains cfg.EdgeRecordSender's agent spool over a
@@ -231,11 +241,12 @@ func highestSentSequence(result edgesender.Result) uint64 {
 	return 0
 }
 
-// attachEdgeSpoolMetrics publishes unresolved spool bytes, oldest record age
-// and the quarantine of permanently rejected records through the agent's
-// Prometheus exporter. The sampler only reads record headers and quarantine
-// entry sizes, so a scrape of a large backlog never loads a body.
-func attachEdgeSpoolMetrics(server *agent.Server, sp *spool.Spool) {
+// attachEdgeSpoolMetrics publishes unresolved spool bytes, oldest record age,
+// the quarantine of permanently rejected records and whether producer admission
+// is paused through the agent's Prometheus exporter. The sampler only reads
+// record headers and quarantine entry sizes, so a scrape of a large backlog never
+// loads a body.
+func attachEdgeSpoolMetrics(server *agent.Server, sp *spool.Spool, gate *admission.Gate) {
 	if server == nil || sp == nil {
 		return
 	}
@@ -257,25 +268,30 @@ func attachEdgeSpoolMetrics(server *agent.Server, sp *spool.Spool) {
 			PermanentRejections: q.Quarantined + q.Dropped,
 			QuarantineEvicted:   q.Evicted,
 			QuarantineDropped:   q.Dropped,
+			AdmissionPaused:     gate.BulkPaused(),
 		}, true
 	})
 }
 
 // openEdgeRecordSpool is called once for the process; producer and sender share
-// its mutex, sequence allocation, recovery state and byte allocator.
-func openEdgeRecordSpool(cfg *agent.ServerConfig) (*spool.Spool, error) {
+// its mutex, sequence allocation, recovery state, byte allocator and admission
+// gate. Every producer on this spool emits bulk records, so the gate's bulk
+// hysteresis governs sweeps and metrics alike, and between the marks the gate
+// shares the room byte-fairly across the producers' admission flows: a refused
+// append is a retryable admission refusal, which each producer defers.
+func openEdgeRecordSpool(cfg *agent.ServerConfig) (*spool.Spool, *admission.Gate, error) {
 	c := cfg.EdgeRecordSender
 	if c == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	if !c.Enabled {
 		if c.ProducersEnabled() {
-			return nil, errEdgeProducersRequireSender
+			return nil, nil, errEdgeProducersRequireSender
 		}
-		return nil, nil
+		return nil, nil, nil
 	}
 	if c.SpoolDir == "" {
-		return nil, errEdgeRecordSpoolDirRequired
+		return nil, nil, errEdgeRecordSpoolDirRequired
 	}
 	capacity := c.MaxBytes
 	if capacity == 0 {
@@ -286,7 +302,20 @@ func openEdgeRecordSpool(cfg *agent.ServerConfig) (*spool.Spool, error) {
 		Recovery: spool.Footprint{DestinationSegment: 1 << 20, AttributionSidecar: 64 << 10, JournalCopy: 64 << 10, ManifestPages: 256 << 10, Mapping: 64 << 10, FilesystemMetadata: 64 << 10},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("edge spool capacity: %w", err)
+		return nil, nil, fmt.Errorf("edge spool capacity: %w", err)
 	}
-	return spool.Open(c.SpoolDir, spool.WithAllocator(allocator))
+	ceiling := allocator.Usage().OrdinaryCeiling
+	gate, err := admission.NewGate(ceiling/100*edgeSpoolHighWaterPercent, ceiling/100*edgeSpoolLowWaterPercent,
+		func() uint64 { return allocator.Usage().OrdinaryUsed })
+	if err != nil {
+		return nil, nil, fmt.Errorf("edge spool admission gate: %w", err)
+	}
+	sp, err := spool.Open(c.SpoolDir, spool.WithAllocator(allocator),
+		spool.WithAdmissionGate(func(flow string, cost uint64) bool {
+			return gate.AdmitFlow(flow, cost, time.Now()) == admission.Admit
+		}))
+	if err != nil {
+		return nil, nil, err
+	}
+	return sp, gate, nil
 }

@@ -46,8 +46,55 @@ func (p *PushLoop) pushPluginSignals(ctx context.Context) bool {
 	}
 
 	signals := pluginManager.DrainSignals(pluginSignalTelemetryMaxDrainPerPush)
+
+	// One path per producer: while the agent holds the telemetry standing
+	// grant, batches are spooled as durable records and never also sent on
+	// the legacy status path. Without it, items the spool admitted no part
+	// of go back on the legacy path.
+	if capability := p.edgeTelemetryCapability(time.Now()); capability != nil {
+		items := make([]telemetryEdgeItem, 0, len(signals))
+		for _, signal := range signals {
+			items = append(items, telemetryEdgeItem{
+				producerType: "plugin",
+				producerID:   pluginTelemetryProducerID(signal),
+				batch:        signal.Batch,
+				signal:       &signal,
+			})
+		}
+		if dropped := p.pluginTelemetryEdge.enqueue(items); dropped > 0 {
+			p.dropEdgeTelemetry(edgeProducerPluginTelemetry, edgeDropRetryBufferFull, dropped)
+		}
+		return p.spoolTelemetry(edgeProducerPluginTelemetry, &p.pluginTelemetryEdge, capability)
+	}
+
+	taken := p.pluginTelemetryEdge.take()
+	queued := make([]PluginSignalTelemetry, 0, len(taken))
+	for _, item := range taken {
+		if item.signal != nil {
+			queued = append(queued, *item.signal)
+		}
+	}
+	signals = append(queued, signals...)
 	if len(signals) == 0 {
 		return false
+	}
+	// Signals the chunk build below skips (unmarshalable or oversized) are
+	// dropped for good, as before; signals that made a chunk but could not
+	// be delivered return to the edge queue for the next cycle.
+	var chunkedSignals []PluginSignalTelemetry
+	restoreUndelivered := func() {
+		items := make([]telemetryEdgeItem, 0, len(chunkedSignals))
+		for _, signal := range chunkedSignals {
+			items = append(items, telemetryEdgeItem{
+				producerType: "plugin",
+				producerID:   pluginTelemetryProducerID(signal),
+				batch:        signal.Batch,
+				signal:       &signal,
+			})
+		}
+		if dropped := p.pluginTelemetryEdge.restore(items); dropped > 0 {
+			p.dropEdgeTelemetry(edgeProducerPluginTelemetry, edgeDropRetryBufferFull, dropped)
+		}
 	}
 
 	gatewayID := p.gateway.GetGatewayID()
@@ -70,6 +117,7 @@ func (p *PushLoop) pushPluginSignals(ctx context.Context) bool {
 			continue
 		}
 
+		chunkedSignals = append(chunkedSignals, signal)
 		chunks = append(chunks, &proto.GatewayStatusChunk{
 			Services:  []*proto.GatewayServiceStatus{status},
 			GatewayId: gatewayID,
@@ -101,10 +149,12 @@ func (p *PushLoop) pushPluginSignals(ctx context.Context) bool {
 	resp, err := p.gateway.StreamStatus(pushCtx, chunks)
 	if err != nil {
 		p.logger.Error().Err(err).Int("chunk_count", len(chunks)).Msg("Failed to stream plugin telemetry")
+		restoreUndelivered()
 		return false
 	}
 	if !resp.Received {
 		p.logger.Warn().Int("chunk_count", len(chunks)).Msg("Gateway did not acknowledge plugin telemetry")
+		restoreUndelivered()
 		return false
 	}
 
@@ -135,7 +185,9 @@ func buildPluginSignalGatewayStatus(
 	}, len(messageBytes), nil
 }
 
-func pluginSignalTelemetrySource(signal PluginSignalTelemetry) string {
+// pluginTelemetryProducerID is the host-stamped telemetry producer id of a
+// signal: the same instance the legacy status source names after `plugin:`.
+func pluginTelemetryProducerID(signal PluginSignalTelemetry) string {
 	clean := strings.TrimSpace(signal.AssignmentID)
 	if clean == "" {
 		clean = strings.TrimSpace(signal.PluginID)
@@ -143,5 +195,9 @@ func pluginSignalTelemetrySource(signal PluginSignalTelemetry) string {
 	if clean == "" {
 		clean = unknownTelemetrySource
 	}
-	return fmt.Sprintf("%s%s", pluginSignalTelemetrySourcePrefix, clean)
+	return clean
+}
+
+func pluginSignalTelemetrySource(signal PluginSignalTelemetry) string {
+	return fmt.Sprintf("%s%s", pluginSignalTelemetrySourcePrefix, pluginTelemetryProducerID(signal))
 }

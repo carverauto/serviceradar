@@ -1,17 +1,17 @@
 ## 1. Schema And Resources
-- [ ] 1.1 Add an Elixir migration for `platform.ocsf_findings` with common indexed columns, full OCSF payload JSONB, class-specific JSONB, and source/entity references.
-- [ ] 1.2 Add `finding_info_uid` or equivalent reference columns/indexes for finding-producing `platform.ocsf_events` rows.
+- [ ] 1.1 (created by `add-falco-runtime-findings` with this schema) Add an Elixir migration for `platform.ocsf_findings` with common indexed columns, full OCSF payload JSONB, class-specific JSONB, and source/entity references.
+- [ ] 1.2 (created by `add-falco-runtime-findings`) Add `finding_info_uid` or equivalent reference columns/indexes for finding-producing `platform.ocsf_events` rows.
 - [ ] 1.3 Add Ash resource/domain support for findings without introducing app-level multitenancy bypasses.
 - [ ] 1.4 Add schema tests for required indexes, constraints, and `platform` prefix usage.
 
 ## 2. OCSF Builders
 - [ ] 2.1 Add OCSF finding builders for classes 2002, 2003, 2004, 2005, 2006, and 2007 using OCSF 1.9.0-dev required/recommended fields.
 - [ ] 2.2 Add deterministic finding identity builders per source and class.
-- [ ] 2.3 Extract shared Falco decomposition used by direct processing and log promotion.
-- [ ] 2.4 Structure Falco MITRE tags into ATT&CK tactic/technique `attacks` and supporting evidence on detection findings.
+- [ ] 2.3 (delivered by `add-falco-runtime-findings`) Extract the shared Falco decomposition that change uses for occurrence normalization. That change does not keep a Falco `logs` row or a per-occurrence `ocsf_events` row.
+- [ ] 2.4 (delivered by `add-falco-runtime-findings`) Structure Falco MITRE tags into ATT&CK tactic/technique `attacks` and supporting evidence on detection findings.
 
 ## 3. Producer Mapping
-- [ ] 3.1 Make Falco warning-and-higher signals upsert detection findings and emit referencing events.
+- [ ] 3.1 (delivered by `add-falco-runtime-findings`, keyed on subject entity and rule) Fold every Falco occurrence, of any priority, into one detection finding. Do not write per-occurrence rows to `ocsf_events`. Emit only the lifecycle transitions `opened`, `reopened`, `escalated`, and `resolved` as events that reference the finding.
 - [ ] 3.2 Make Trivy findings upsert vulnerability findings and emit referencing events.
 - [ ] 3.3 Make endpoint-inventory vulnerability matches upsert vulnerability findings and emit referencing events.
 - [ ] 3.4 Audit Bumblebee outputs and map each producer path to detection or vulnerability findings with tests.

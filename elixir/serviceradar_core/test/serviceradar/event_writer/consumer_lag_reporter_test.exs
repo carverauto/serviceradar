@@ -109,4 +109,36 @@ defmodule ServiceRadar.EventWriter.ConsumerLagReporterTest do
              "TELEMETRY_EDGE_RECORD_V1_BULK"
            ]
   end
+
+  # The security-quarantine alert reads this stream's retained bytes, and its consumer only reports,
+  # so stream INFO is the only place its depth appears.
+  test "retention stream INFO polling covers every configured edge-record route" do
+    config = %Config{
+      enabled: true,
+      nats: %{host: "localhost", port: 4222, tls: false},
+      batch_size: 100,
+      batch_timeout: 1_000,
+      consumer_name: "serviceradar-event-writer",
+      producer_name: nil,
+      streams: [
+        Config.edge_record_stream(),
+        Config.edge_record_audit_stream(),
+        Config.edge_record_security_quarantine_stream()
+      ]
+    }
+
+    consumers = ConsumerLagReporter.consumer_refs(config)
+
+    assert Enum.map(consumers, & &1.subject_class) == [
+             "edge_record",
+             "edge_record_audit",
+             "edge_record_quarantine"
+           ]
+
+    assert ConsumerLagReporter.retention_stream_names(consumers) == [
+             "TELEMETRY_EDGE_RECORD_V1_BULK",
+             "TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK",
+             "TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK"
+           ]
+  end
 end

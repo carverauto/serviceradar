@@ -453,24 +453,42 @@ base64-encoded 32-byte seed (the Secret's data encoding wraps that text).
 
 `edgeRecords.agentSweepEnabled` enables the bundled agent's sweep producer.
 `edgeRecords.agentMetricsEnabled` enables its sysmon, SNMP, ICMP, MTR scalar
-and periodic sweep summary metrics producers on the same spool. Either flag
-requires `edgeRecords.enabled` and `agent.runtimeStorage.enabled=true`. The spool lives under that volume's base
-path and `edgeRecords.maxSpoolBytes` bounds it. Core's agent-scoped
-sweep lease settings select which agent receives signed slots. Enable leasing
-only for the canary, and use an enabled static-target group without a target
-query. Other agents continue using the legacy results path. With
-`agentMetricsEnabled` set, those metrics stay on the status path until
-`contractRegistry` includes an active `serviceradar.metrics.batch` version 1
-contract and that agent's leasing switch is on. Results of sweep groups the
-agent runs from its own config, without a lease, move to edge records only when
-`contractRegistry` also includes an active `serviceradar.sweep.unleased_results`
-version 1 contract; each results response and its metric batch then take the
-edge path together, and otherwise both keep the legacy results path.
+and periodic sweep summary metrics producers on the same spool. That spool is
+also where flow-attribution windows and OTLP relay frames go while the agent
+holds a current `serviceradar.netprobe.flow_attribution` version 1 or
+`serviceradar.otlp.relay` version 1 grant. Core issues that grant only when
+`contractRegistry` includes an active entry for it and that agent's leasing
+switch is on. Without `agentMetricsEnabled`, those stay on the status path
+even if core has issued the grant.
+`edgeRecords.agentTelemetryEnabled` enables its plugin and native add-on
+telemetry producer on that spool. Each of these flags requires
+`edgeRecords.enabled` and `agent.runtimeStorage.enabled=true`. The spool lives
+under that volume's base path and `edgeRecords.maxSpoolBytes` bounds it.
+Core's agent-scoped sweep lease settings select which agent receives signed
+slots. Enable leasing only for the canary, and use an enabled static-target
+group without a target query. Other agents continue using the legacy results
+path. With `agentMetricsEnabled` set, those metrics stay on the status path
+until `contractRegistry` includes an active `serviceradar.metrics.batch`
+version 1 contract and that agent's leasing switch is on. With
+`agentTelemetryEnabled` set, plugin and add-on telemetry stays on the status
+path until `contractRegistry` includes an active
+`serviceradar.telemetry.batch` version 1 contract and that agent's leasing
+switch is on. Results of sweep groups the agent runs from its own config,
+without a lease, move to edge records only when `contractRegistry` also
+includes an active `serviceradar.sweep.unleased_results` version 1 contract;
+each results response and its metric batch then take the edge path together,
+and otherwise both keep the legacy results path. Full
+traces from agent-scheduled MTR checks leave the status path only when
+`contractRegistry` also includes an active `serviceradar.mtr.scheduled_trace`
+version 1 contract. The metrics grant does not carry those traces. Without the
+trace contract they stay on the status path.
 
 Use complete terminal ICMP/TCP host windows for this first canary. Partial-mode
 and MTR windows are not supported by this projection yet. Keep the issuer key
-and agent network scope fixed while records remain in the spool: historical
-key/scope trust and audit publication are later milestones. A sender with
+and agent network scope fixed while records remain in the spool. Historical
+key and scope trust for a change of either is still a later milestone. A
+stale-fence record that carries a valid delivery grant is published on the
+audit route; see `docs/edge-record-quarantine-runbook.md`. A sender with
 sweep or metrics producers enabled persists terminal resolutions. It reclaims
 a fully drained segment when durable dispositions cover every retained
 sequence. Permanently rejected records are

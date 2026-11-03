@@ -18,6 +18,7 @@ package agent
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 
 	"google.golang.org/protobuf/proto"
 
@@ -79,4 +80,26 @@ func newEdgeRecord(
 	}
 	record.SemanticEnvelopeSha256 = edgerecord.SemanticEnvelopeDigest(record)
 	return record, nil
+}
+
+// edgeAdmissionFlow is the spool admission flow record competes in, which the
+// spool's admission gate shares room across byte-fairly: its network scope,
+// attested origin, producer assignment, run and shard, output contract and
+// traffic class. newEdgeRecord copies every one of them from the capability
+// core signed, so a producer cannot split its work into more flows than its
+// authority names.
+func edgeAdmissionFlow(record *edgev1.EdgeRecordV1) string {
+	c := record.GetProducerContext()
+	var key []byte
+	for _, part := range [][]byte{
+		record.GetNetworkScopeId(), c.GetOriginPrincipalId(), c.GetProducerAssignmentId(), c.GetRunId(),
+		[]byte(record.GetOutputContract().GetContractId()),
+	} {
+		key = binary.AppendUvarint(key, uint64(len(part)))
+		key = append(key, part...)
+	}
+	key = binary.AppendUvarint(key, uint64(c.GetRunShard()))
+	key = binary.AppendUvarint(key, uint64(c.GetOriginKind()))
+	key = binary.AppendUvarint(key, uint64(record.GetTrafficClass()))
+	return string(key)
 }

@@ -120,6 +120,7 @@ func TestCoreCanPublishToChartSubjects(t *testing.T) {
 		allowedRperf       = "metrics.rperf.throughput.bits_per_second"
 		allowedMTRMetric   = "metrics.mtr.mtr.hop_loss_pct"
 		allowedSweep       = "metrics.sweep.sweep.total_hosts"
+		allowedTimeseries  = "metrics.timeseries.custom.synthetic_value"
 		allowedFlowAttrObs = "flows.attribution.observations"
 		allowedOtelTraces  = "otel.traces.raw"
 		allowedOtelLogs    = "logs.otel"
@@ -129,14 +130,16 @@ func TestCoreCanPublishToChartSubjects(t *testing.T) {
 		allowedExpMetric   = "metrics.exposure_transitions"
 		allowedRecovery    = "exposure.delivery.recovery.3.synthetic-operation"
 		allowedSnapshot    = "exposure.snapshots.1.device-3.1"
-		deniedTimeseries   = "metrics.timeseries.custom.synthetic_value"
 		deniedPurge        = "$JS.API.STREAM.PURGE.EXPOSURE_RECOVERY"
 		deniedDelete       = "$JS.API.STREAM.DELETE.EXPOSURE_RECOVERY"
 		denied             = "zz.not.allowed"
 	)
 
+	chartSubjects := []string{allowedScan, allowedMTR, allowedEvent, allowedWarehouse, allowedSysmon, allowedSnmp, allowedICMP, allowedRperf, allowedMTRMetric, allowedSweep, allowedTimeseries, allowedFlowAttrObs, allowedOtelTraces, allowedOtelLogs, allowedOtelMetrics, allowedOtelDerived, allowedExposure, allowedExpMetric, allowedRecovery, allowedSnapshot}
+	deniedSubjects := []string{deniedPurge, deniedDelete, denied}
+
 	received := make(map[string]chan struct{})
-	for _, subject := range []string{allowedScan, allowedMTR, allowedEvent, allowedWarehouse, allowedSysmon, allowedSnmp, allowedICMP, allowedRperf, allowedMTRMetric, allowedSweep, allowedFlowAttrObs, allowedOtelTraces, allowedOtelLogs, allowedOtelMetrics, allowedOtelDerived, allowedExposure, allowedExpMetric, allowedRecovery, allowedSnapshot, deniedTimeseries, deniedPurge, deniedDelete, denied} {
+	for _, subject := range append(append([]string{}, chartSubjects...), deniedSubjects...) {
 		ch := make(chan struct{}, 1)
 		received[subject] = ch
 
@@ -149,7 +152,7 @@ func TestCoreCanPublishToChartSubjects(t *testing.T) {
 		t.Fatalf("flush subscriptions: %v", err)
 	}
 
-	for _, subject := range []string{allowedScan, allowedMTR, allowedEvent, allowedWarehouse, allowedSysmon, allowedSnmp, allowedICMP, allowedRperf, allowedMTRMetric, allowedSweep, allowedFlowAttrObs, allowedOtelTraces, allowedOtelLogs, allowedOtelMetrics, allowedOtelDerived, allowedExposure, allowedExpMetric, allowedRecovery, allowedSnapshot, deniedTimeseries, deniedPurge, deniedDelete, denied} {
+	for _, subject := range append(append([]string{}, chartSubjects...), deniedSubjects...) {
 		if err := core.Publish(subject, []byte(`{"synthetic":true}`)); err != nil {
 			t.Fatalf("publish %s: %v", subject, err)
 		}
@@ -165,7 +168,7 @@ func TestCoreCanPublishToChartSubjects(t *testing.T) {
 		t.Fatalf("expected a permissions violation for %s, got %v", denied, coreErrs.all())
 	}
 
-	for _, subject := range []string{allowedScan, allowedMTR, allowedEvent, allowedWarehouse, allowedSysmon, allowedSnmp, allowedICMP, allowedRperf, allowedMTRMetric, allowedSweep, allowedFlowAttrObs, allowedOtelTraces, allowedOtelLogs, allowedOtelMetrics, allowedOtelDerived, allowedExposure, allowedExpMetric, allowedRecovery, allowedSnapshot} {
+	for _, subject := range chartSubjects {
 		select {
 		case <-received[subject]:
 		case <-time.After(5 * time.Second):
@@ -177,7 +180,7 @@ func TestCoreCanPublishToChartSubjects(t *testing.T) {
 		}
 	}
 
-	for _, subject := range []string{denied, deniedTimeseries, deniedPurge, deniedDelete} {
+	for _, subject := range deniedSubjects {
 		if !coreErrs.has(subject) {
 			t.Errorf("expected permission denial for %s", subject)
 		}

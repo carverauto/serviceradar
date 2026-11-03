@@ -37,7 +37,7 @@ const (
 )
 
 // DiscoveryEnvelope carries device observations an add-on made about OTHER
-// hosts, from the add-on to the control plane, through the agent and gateway
+// hosts, from the add-on to the control plane. The agent forwards the payload
 // unchanged.
 //
 // It rides as the payload of a
@@ -50,11 +50,11 @@ const (
 // between the add-on and core treats `payload` as opaque bytes and must
 // continue to.
 //
-// Nothing here is trusted for identity. agent_id, gateway_id and partition are
-// stamped by the control plane from the gateway-attested status metadata, and
-// the source string comes from the schema registry -- never from this message.
-// See serviceradar.agent.addon.v1.TelemetrySource for the same rule stated for
-// telemetry.
+// Nothing here is trusted for identity. The control plane stamps identity from
+// the authenticated producer, never from this message, and the source string
+// comes from the schema registry. See
+// serviceradar.agent.addon.v1.TelemetrySource and
+// ServiceRadar.Edge.Projectors.TelemetryBatch.
 type DiscoveryEnvelope struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// schema names the payload contract, for example

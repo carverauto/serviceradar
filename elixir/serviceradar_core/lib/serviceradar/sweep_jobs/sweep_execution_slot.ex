@@ -11,7 +11,9 @@ defmodule ServiceRadar.SweepJobs.SweepExecutionSlot do
   A slot that will not run any more (its assignment was revoked, or the group became
   ineligible) is `:dropped`, not deleted, so what was planned stays inspectable.
   `ServiceRadar.SweepJobs.LeaseMisses` marks a closed slot `:missed_offline` or
-  `:missed_exhausted`.
+  `:missed_exhausted`. A slot the agent refused to run (`SweepLeaseSlotRefusal`) is
+  `:refused`, with the typed reason and capability markers the agent reported. `:refused`
+  is terminal: nothing marks it missed or reopens it.
   `delivered_at` records when a lease push last carried the slot to the agent; a
   scheduled slot without one has never been sent.
 
@@ -60,6 +62,13 @@ defmodule ServiceRadar.SweepJobs.SweepExecutionSlot do
       accept []
 
       change set_attribute(:state, :dropped)
+    end
+
+    update :refuse do
+      description "Record that the agent refused to run the slot"
+      accept [:refusal_reason, :refusal_unavailable_capabilities, :refusal_detail]
+
+      change set_attribute(:state, :refused)
     end
 
     update :mark_delivered do
@@ -129,7 +138,24 @@ defmodule ServiceRadar.SweepJobs.SweepExecutionSlot do
       allow_nil? false
       default :scheduled
       public? true
-      constraints one_of: [:scheduled, :dropped, :missed_offline, :missed_exhausted]
+      constraints one_of: [:scheduled, :dropped, :missed_offline, :missed_exhausted, :refused]
+    end
+
+    attribute :refusal_reason, :atom do
+      public? true
+      constraints one_of: [:check_unavailable, :unsupported_plan, :invalid_plan]
+      description "Why the agent refused the slot; null unless refused"
+    end
+
+    attribute :refusal_unavailable_capabilities, {:array, :string} do
+      public? true
+      description "The `<check>.unavailable` markers a CHECK_UNAVAILABLE refusal named"
+    end
+
+    attribute :refusal_detail, :string do
+      public? true
+      constraints max_length: 512
+      description "The agent's bounded explanation of the refusal"
     end
 
     attribute :plan_id, :uuid do

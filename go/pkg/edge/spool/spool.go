@@ -199,6 +199,7 @@ type Spool struct {
 	baseSeq  uint64
 	bindings BindingInspector
 	alloc    *Allocator
+	admitNew func(flow string, cost uint64) bool
 
 	mu      sync.Mutex
 	seg     segmentHandle
@@ -258,6 +259,20 @@ func WithBindings(b BindingInspector) Option {
 // allocator across every lane on the same filesystem.
 func WithAllocator(a *Allocator) Option {
 	return func(s *Spool) { s.alloc = a }
+}
+
+// WithAdmissionGate makes every commit ask admit first, after the commit is
+// validated and before allocator admission. admit is given the commit's
+// admission flow (AppendFlow; empty for Append and Commit) and the bytes the
+// commit would charge, so it can share the room fairly across producers
+// (go/pkg/edge/admission Gate.AdmitFlow). A false answer refuses the commit
+// with an error matching ErrAdmissionPaused, and so ErrAdmissionRefused: nothing
+// is written or charged and no sequence is allocated, so the producer defers the
+// record unchanged. The gate does not apply to terminal evidence or reclaim, so a
+// paused spool still drains. The agent passes the bulk high/low-water hysteresis
+// of go/pkg/edge/admission here.
+func WithAdmissionGate(admit func(flow string, cost uint64) bool) Option {
+	return func(s *Spool) { s.admitNew = admit }
 }
 
 // Open opens (creating if needed) the spool at dir and resolves durable state.
@@ -390,7 +405,15 @@ func regularFileBytes(dir string) (uint64, error) {
 // sequence once it is committed. The sequence space starts at 1 and is never reused.
 // Admission and fail-stop are as for Commit.
 func (s *Spool) Append(eventID, body []byte) (uint64, error) {
-	r, err := s.Commit(eventID, body, Bindings{})
+	return s.AppendFlow("", eventID, body)
+}
+
+// AppendFlow is Append for a record of an admission flow: the producer stream
+// WithAdmissionGate shares the spool's room across. A flow's records must be
+// appended in order, each retried until it is admitted, for that order to hold
+// in the spool.
+func (s *Spool) AppendFlow(flow string, eventID, body []byte) (uint64, error) {
+	r, err := s.commit(flow, eventID, body, Bindings{})
 	if err != nil {
 		return 0, err
 	}
@@ -411,12 +434,21 @@ func (s *Spool) Append(eventID, body []byte) (uint64, error) {
 // shared allocator it also stops ordinary admission for every lane, but leaves
 // recovery running: recovery is how a failed lane is repaired.
 //
-// With an allocator, a commit is first admitted for every byte it adds on disk
+// WithAdmissionGate, when set, is consulted after validation and before
+// allocator admission. A false answer returns ErrAdmissionPaused, which matches
+// ErrAdmissionRefused: nothing is written or charged and no sequence is
+// allocated. Terminal evidence and reclaim are not gated.
+//
+// With an allocator, a commit is then admitted for every byte it adds on disk
 // (its record and the growth of both evidence copies) plus one
 // terminalEvidenceAllowance for the acknowledgement that will resolve it. A
 // refused admission returns an error matching ErrAdmissionRefused, writes
 // nothing, and allocates no sequence.
 func (s *Spool) Commit(eventID, body []byte, b Bindings) (CommitReceipt, error) {
+	return s.commit("", eventID, body, b)
+}
+
+func (s *Spool) commit(flow string, eventID, body []byte, b Bindings) (CommitReceipt, error) {
 	if len(eventID) != 16 {
 		return CommitReceipt{}, fmt.Errorf("%w: got %d", ErrEventIDLength, len(eventID))
 	}
@@ -446,17 +478,23 @@ func (s *Spool) Commit(eventID, body []byte, b Bindings) (CommitReceipt, error) 
 	if bound := s.segBounds.refusalFor(b.AttributionSHA256); bound != "" {
 		return CommitReceipt{}, rotationRefusal(bound, s.segBounds.stats())
 	}
-	var charged uint64
+	cost := uint64(minRecordLen + len(body))
 	if s.alloc != nil {
 		n, err := s.commitBytes(len(body))
 		if err != nil {
 			return CommitReceipt{}, err
 		}
-		n += terminalEvidenceAllowance
-		if err := s.alloc.admit(s.dir, n); err != nil {
+		cost = n + terminalEvidenceAllowance
+	}
+	if s.admitNew != nil && !s.admitNew(flow, cost) {
+		return CommitReceipt{}, ErrAdmissionPaused
+	}
+	var charged uint64
+	if s.alloc != nil {
+		if err := s.alloc.admit(s.dir, cost); err != nil {
 			return CommitReceipt{}, err
 		}
-		charged = n
+		charged = cost
 	}
 	r, err := s.commitLocked(eventID, body, b)
 	if s.alloc != nil {

@@ -300,6 +300,94 @@ defmodule ServiceRadar.SweepJobs.ExecutionSlotsDbTest do
     assert state(group, slot.id) == :dropped
   end
 
+  test "the slot's agent refuses it once, the refusal is kept, and the miss mark leaves it",
+       ctx do
+    group = create_group!(ctx)
+    assignment = assign!(group, "agent-a")
+    now = DateTime.utc_now()
+    closed = closed_slot!(assignment, now)
+
+    refusal = refusal(group, closed)
+
+    assert {:ok, 1} = ExecutionSlots.refuse("agent-a", refusal)
+    assert {:ok, 0} = ExecutionSlots.refuse("agent-a", refusal)
+
+    assert {:ok, _} = LeaseMisses.mark(now)
+
+    assert %{
+             state: :refused,
+             refusal_reason: :check_unavailable,
+             refusal_unavailable_capabilities: ["icmp.unavailable"],
+             refusal_detail: "icmp sweep socket unavailable"
+           } = slot(group, closed.id)
+  end
+
+  test "a refusal moves a missed slot to refused", ctx do
+    group = create_group!(ctx)
+    assignment = assign!(group, "agent-a")
+    now = DateTime.utc_now()
+    closed = closed_slot!(assignment, now)
+
+    assert {:ok, _} = LeaseMisses.mark(now)
+    assert state(group, closed.id) == :missed_exhausted
+
+    assert {:ok, 1} = ExecutionSlots.refuse("agent-a", refusal(group, closed))
+    assert state(group, closed.id) == :refused
+  end
+
+  test "a refusal for another agent, another lease or a superseded epoch changes nothing", ctx do
+    group = create_group!(ctx)
+    assignment = assign!(group, "agent-a")
+    closed = closed_slot!(assignment, DateTime.utc_now())
+    refusal = refusal(group, closed)
+
+    assert {:ok, 0} = ExecutionSlots.refuse("agent-b", refusal)
+
+    assert {:ok, 0} =
+             ExecutionSlots.refuse("agent-a", %{refusal | lease_id: Ecto.UUID.bingenerate()})
+
+    Repo.query!(
+      "UPDATE platform.sweep_producer_assignments SET authority_epoch = authority_epoch + 1 WHERE id = $1::uuid",
+      [Ecto.UUID.dump!(assignment.id)]
+    )
+
+    assert {:ok, 0} = ExecutionSlots.refuse("agent-a", refusal)
+    assert state(group, closed.id) == :scheduled
+  end
+
+  test "a refusal without a typed reason is rejected", ctx do
+    group = create_group!(ctx)
+    closed = closed_slot!(assign!(group, "agent-a"), DateTime.utc_now())
+    refusal = %{refusal(group, closed) | reason: :SWEEP_LEASE_SLOT_REFUSAL_REASON_UNSPECIFIED}
+
+    assert {:error, :invalid_refusal_reason} = ExecutionSlots.refuse("agent-a", refusal)
+    assert state(group, closed.id) == :scheduled
+  end
+
+  defp closed_slot!(assignment, now) do
+    schedule_window!(
+      assignment,
+      DateTime.shift(now, hour: -1),
+      DateTime.shift(now, second: -(LeaseMisses.grace_seconds() + 1))
+    )
+  end
+
+  defp refusal(group, slot) do
+    %{
+      sweep_group_id: group.id,
+      lease_id: Ecto.UUID.dump!(slot.lease_id),
+      execution_id: Ecto.UUID.dump!(slot.id),
+      reason: :SWEEP_LEASE_SLOT_REFUSAL_REASON_CHECK_UNAVAILABLE,
+      unavailable_capabilities: ["icmp.unavailable"],
+      detail: "icmp sweep socket unavailable"
+    }
+  end
+
+  defp slot(group, slot_id) do
+    assert {:ok, slots} = ExecutionSlots.list_for_group(group.id)
+    Enum.find(slots, &(&1.id == slot_id))
+  end
+
   defp create_group!(%{actor: actor, suffix: suffix}) do
     unique = System.unique_integer([:positive, :monotonic])
 
@@ -380,8 +468,5 @@ defmodule ServiceRadar.SweepJobs.ExecutionSlotsDbTest do
     )
   end
 
-  defp state(group, slot_id) do
-    assert {:ok, slots} = ExecutionSlots.list_for_group(group.id)
-    Enum.find(slots, &(&1.id == slot_id)).state
-  end
+  defp state(group, slot_id), do: slot(group, slot_id).state
 end

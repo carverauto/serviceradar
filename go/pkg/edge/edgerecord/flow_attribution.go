@@ -46,14 +46,26 @@ var (
 // contract serviceradar.netprobe.flow_attribution v1, decompresses its inner
 // FlowAttributionEventBatch payload, and checks the batch and cost invariants.
 func ValidateFlowAttributionRecord(r *edgev1.EdgeRecordV1) error {
+	if err := ValidateRecord(r); err != nil {
+		return err
+	}
+	contract := r.GetOutputContract()
+	if contract.GetContractId() != FlowAttributionContractID ||
+		contract.GetContractVersion() != FlowAttributionContractVersion {
+		return fmt.Errorf("%w: %s v%d", ErrContractDispatch, contract.GetContractId(), contract.GetContractVersion())
+	}
+	if err := requireFramingFamily(r); err != nil {
+		return err
+	}
+	if r.GetSourceAuthorization() != nil {
+		return ErrFlowAttributionSourceAuthorization
+	}
+	inner, err := innerPayload(r)
+	if err != nil {
+		return err
+	}
 	var batch netprobepb.FlowAttributionEventBatch
-	if err := decodeStandingGrantRecord(
-		r,
-		FlowAttributionContractID,
-		FlowAttributionContractVersion,
-		ErrFlowAttributionSourceAuthorization,
-		&batch,
-	); err != nil {
+	if err := unmarshalPayload(inner, &batch); err != nil {
 		return err
 	}
 	if err := ValidateFlowAttributionBatch(&batch); err != nil {

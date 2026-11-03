@@ -145,10 +145,19 @@ type PushLoop struct {
 	configSectionFailures map[string]configSectionFailure // persistent config-section apply failure, by section name (drives skip + escalate-once + per-section ack)
 
 	edgeSweepSpool *spool.Spool
-	// edgeMetricsSpool receives metrics batch records while the agent holds a
-	// standing grant for that contract; nil keeps every metric on its legacy path.
+	// edgeMetricsSpool is the sender's one open bulk spool. Metric batches,
+	// flow-attribution windows, and OTLP relay frames append here while the
+	// agent holds the matching standing grant. Nil keeps each of those on its
+	// legacy path.
 	edgeMetricsSpool edgeMetricsAppender
-	edgeOutputGrants edgeOutputGrants
+	// edgeTelemetrySpool is the same one open spool, connected for plugin and
+	// add-on telemetry while telemetry emission is enabled; nil keeps
+	// telemetry on its legacy status path.
+	edgeTelemetrySpool edgeMetricsAppender
+	// Each telemetry producer's bounded retry queue, oldest first.
+	pluginTelemetryEdge telemetryEdgeQueue
+	addonTelemetryEdge  telemetryEdgeQueue
+	edgeOutputGrants    edgeOutputGrants
 	// Each metric producer's bounded retry queue, oldest first. An entry is either
 	// an item no part of which the spool has admitted, or one built record of an
 	// item that already has a part in the spool.
@@ -156,6 +165,7 @@ type PushLoop struct {
 	snmpEdge     edgeMetricsQueue[snmpMetricResult]
 	icmpEdge     edgeMetricsQueue[icmpCheckResult]
 	mtrEdge      edgeMetricsQueue[mtrCheckResult]
+	mtrTraceEdge edgeMetricsQueue[mtrCheckResult]
 	sweepSummary edgeMetricsQueue[map[string]any]
 	// sweepResultsEdge is the records of the unleased sweep results response
 	// being spooled.

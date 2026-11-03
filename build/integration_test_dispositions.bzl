@@ -66,6 +66,7 @@ ASYNC_INTEGRATION_SRCS = [
     "test/serviceradar/infrastructure/agent_health_test.exs",
     "test/serviceradar/infrastructure/agent_supersession_test.exs",
     "test/serviceradar/infrastructure/agent_test.exs",
+    "test/serviceradar/infrastructure/default_partition_migration_db_test.exs",
     "test/serviceradar/infrastructure/state_machine_test.exs",
     "test/serviceradar/integrations/armis_northbound_oban_reaper_test.exs",
     "test/serviceradar/integrations/armis_northbound_runner_integration_test.exs",

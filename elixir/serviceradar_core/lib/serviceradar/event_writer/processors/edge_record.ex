@@ -15,6 +15,10 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
       delivery is primary. A replay makes no domain changes; late-fenced deliveries remain
       ledger-only.
 
+  The same processor consumes the audit route (`telemetry.edge-record-audit.v1.*`), where the
+  gateway publishes only `LATE_FENCED_DELIVERY` records: they claim their slot and ledger row
+  and project nothing, and a record there without that stamp is refused.
+
   The gateway owns signature verification; projectors check the persisted authority again
   before writing authoritative domain state.
 
@@ -70,8 +74,9 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
 
   defp process_one(%{data: data, metadata: metadata}) when is_binary(data) do
     headers = Map.get(metadata || %{}, :headers, %{})
+    opts = [test_hook: test_hook(), publication: publication_of(metadata)]
 
-    case ingest(data, headers, Repo, test_hook: test_hook()) do
+    case ingest(data, headers, Repo, opts) do
       {:ok, outcome} ->
         :telemetry.execute(
           [:serviceradar, :event_writer, :edge_record, :ingested],
@@ -95,6 +100,10 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
 
   defp process_one(_message), do: 0
 
+  # The audit route carries only late-fenced deliveries; `ingest/4` refuses anything else there.
+  defp publication_of(%{subject: "telemetry.edge-record-audit." <> _}), do: :audit
+  defp publication_of(_metadata), do: :primary
+
   @doc """
   Decodes one raw edge-record frame (`record_bytes`, exactly what a gateway
   publishes to JetStream per design.md) plus its transport headers, and runs
@@ -116,7 +125,10 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   raises after the transaction rolls back, with the same redelivery.
 
   `opts[:test_hook]` is the test-only hook described in the moduledoc; it
-  defaults to `nil`, which disables it.
+  defaults to `nil`, which disables it. `opts[:publication]` is `:audit` for a
+  record read from the audit route, which must be stamped
+  `LATE_FENCED_DELIVERY` and is otherwise refused `:audit_not_late_fenced`
+  before anything is written; it defaults to `:primary`.
   """
   @spec ingest(binary(), map() | list(), module(), keyword()) ::
           {:ok, :inserted | :replay} | {:error, term()}
@@ -125,11 +137,20 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
          {:ok, provenance} <-
            PublicationIdentity.decode_transport_provenance(header_set.provenance),
          {:edge, slot} <- {provenance.kind, provenance.slot},
+         :ok <- audit_delivery(Keyword.get(opts, :publication, :primary), provenance),
          {:ok, %EdgeRecordV1{} = record} <- WireDecode.decode_record(record_bytes),
          :ok <- check_slot_matches_record(slot, record),
          {:ok, projector} <- projector_for(record),
          {:ok, body} <- projector.decode(record),
-         :ok <- publish_fresh(repo, provenance, record, projector, body, opts) do
+         :ok <-
+           publish_fresh(
+             repo,
+             provenance,
+             record,
+             projector,
+             body,
+             Keyword.put(opts, :gateway_id, header_set.gateway_id)
+           ) do
       record_sha256 = :crypto.hash(:sha256, record_bytes)
 
       run_transaction(
@@ -146,6 +167,16 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
       {:error, _reason} = err -> err
     end
   end
+
+  # A record on the audit route reaches the ledger only. The late-fenced stamp is what keeps it
+  # there, so a record on that route without it is refused rather than projected.
+  defp audit_delivery(:audit, provenance) do
+    if provenance.delivery_mode == PublicationIdentity.mode_late_fenced(),
+      do: :ok,
+      else: {:error, :audit_not_late_fenced}
+  end
+
+  defp audit_delivery(:primary, _provenance), do: :ok
 
   defp check_slot_matches_record(slot, %EdgeRecordV1{producer_context: producer_context} = record) do
     cond do
@@ -179,6 +210,11 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   # primary delivery: not for a record the ledger already holds (a replay) and not for a
   # late-fenced delivery. A refusal is returned like a projection refusal; any other failure
   # raises, so the batch fails and JetStream redelivers the record.
+  defp publish_opts(repo, opts) do
+    [repo: repo, gateway_id: Keyword.get(opts, :gateway_id)] ++
+      Keyword.take(opts, [:request, :flow_attribution_publisher, :otlp_relay_publisher])
+  end
+
   defp publish_fresh(repo, provenance, record, projector, body, opts) do
     cond do
       not function_exported?(projector, :publish, 3) ->
@@ -191,10 +227,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
         :ok
 
       true ->
-        publish_opts =
-          Keyword.take(opts, [:request, :flow_attribution_publisher, :otlp_relay_publisher])
-
-        case projector.publish(record, body, publish_opts) do
+        case projector.publish(record, body, publish_opts(repo, opts)) do
           :ok -> :ok
           {:refused, reason} -> {:error, reason}
           {:error, reason} -> raise "edge record publish failed: #{inspect(reason)}"

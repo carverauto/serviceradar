@@ -8,8 +8,8 @@ ServiceRadar ingests Falco logs, promotes critical detections into OCSF events, 
 The incident that motivated this change was ultimately traced to a Forgejo Actions lint job running Go compiler/assembler processes inside a nested container. That conclusion was not visible from the alert itself.
 
 ## Goals
-- Make event and alert details actionable from the UI/API without requiring direct SQL or cluster access.
-- Preserve normalized fields for machine use while retaining raw Falco payloads for audit/debugging.
+- Make occurrence and alert details actionable from the UI/API without requiring direct SQL or cluster access.
+- Preserve normalized diagnostic fields for machine use. Raw Falco records stay on the occurrence, as specified by `add-falco-runtime-findings`.
 - Make stateful alerts explain why they fired and what representative source events contributed.
 - Handle partial attribution explicitly instead of presenting empty Kubernetes fields as if no workload context exists.
 
@@ -20,14 +20,14 @@ The incident that motivated this change was ultimately traced to a Forgejo Actio
 - Performing expensive live Kubernetes/container runtime lookups on every alert detail request.
 
 ## Decisions
-- Normalize Falco runtime context at promotion time into stable OCSF metadata/unmapped substructures. This keeps later stateful alert evaluation independent of raw string parsing.
-- Store stateful alert diagnostic summaries on the generated alert event. The summary is bounded and sample-based, not a complete copy of every source event in the window.
+- Normalize Falco runtime context onto the runtime security occurrence. Do not promote each Falco log into an OCSF event that keeps the raw payload. `add-falco-runtime-findings` owns that storage. Lifecycle transitions on `runtime_security.finding.*` carry the bounded alert summary.
+- Store stateful alert diagnostic summaries on the lifecycle alert. The summary is bounded and sample-based, not a complete copy of every source occurrence.
 - Use explicit attribution status fields, for example `attribution.status = "resolved" | "partial" | "missing" | "inferred"`, so the UI can distinguish known Kubernetes context from nested-runtime gaps.
-- Prefer source event ids and aggregate samples over large raw payload blobs in alert metadata. Raw source records remain queryable through the existing observability storage path.
+- Prefer source occurrence ids and aggregate samples over large raw payload blobs in alert metadata. Raw source records are the occurrences in `runtime_security_occurrences`.
 
 ## Risks / Trade-offs
 - More metadata increases event row size. Mitigation: store bounded summaries and short samples, not full windows.
-- Falco output fields can vary by rule and version. Mitigation: normalize known fields opportunistically and preserve the original payload.
+- Falco output fields can vary by rule and version. Mitigation: normalize known fields opportunistically and keep the original payload on the occurrence (`add-falco-runtime-findings`).
 - Nested runtime attribution may be incomplete. Mitigation: expose the container id, host, cwd, command, and an attribution status rather than silently dropping context.
 
 ## Migration Plan

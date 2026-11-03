@@ -12,10 +12,10 @@ defmodule ServiceRadar.Inventory.Discovery.Decoders.Census do
   moving them next to `SourcePolicy` is the point of the change.
 
   This decoder emits OBSERVATIONS ONLY. It must never set `agent_id`,
-  `gateway_id`, `partition` or `source` -- those are stamped by
-  `DiscoveryIngestor` from gateway-attested status metadata and the schema
-  registry. A decoder that read identity out of the payload would let an add-on
-  claim to be a different agent.
+  `gateway_id`, `partition` or `source` -- `DiscoveryIngestor` stamps those
+  from the caller's attested status and the schema registry. A decoder that
+  read identity out of the payload would let an add-on claim to be a different
+  agent.
   """
 
   alias Serviceradar.Agent.Netprobe.V1.DeviceCensusSnapshot

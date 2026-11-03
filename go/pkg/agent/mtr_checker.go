@@ -64,21 +64,26 @@ type mtrCheckConfig struct {
 }
 
 type mtrCheckResult struct {
-	CheckID   string           `json:"check_id"`
-	CheckName string           `json:"check_name"`
-	Target    string           `json:"target"`
-	DeviceID  string           `json:"device_id,omitempty"`
-	Available bool             `json:"available"`
-	Trace     *mtr.TraceResult `json:"trace,omitempty"`
-	Timestamp int64            `json:"timestamp"`
-	Error     string           `json:"error,omitempty"`
+	CheckID         string           `json:"check_id"`
+	CheckName       string           `json:"check_name"`
+	Target          string           `json:"target"`
+	DeviceID        string           `json:"device_id,omitempty"`
+	SweepGroupID    string           `json:"sweep_group_id,omitempty"`
+	ExecutionID     string           `json:"execution_id,omitempty"`
+	CommandID       string           `json:"command_id,omitempty"`
+	ExecutionSource string           `json:"execution_source,omitempty"`
+	Available       bool             `json:"available"`
+	Trace           *mtr.TraceResult `json:"trace,omitempty"`
+	Timestamp       int64            `json:"timestamp"`
+	Error           string           `json:"error,omitempty"`
 }
 
 // mtrCheckerState holds per-PushLoop MTR check state.
 type mtrCheckerState struct {
-	checks  map[string]*mtrCheckConfig
-	lastRun map[string]time.Time
-	mu      sync.RWMutex
+	checks   map[string]*mtrCheckConfig
+	lastRun  map[string]time.Time
+	runCheck func(context.Context, *mtrCheckConfig) mtrCheckResult
+	mu       sync.RWMutex
 }
 
 func newMtrCheckerState() *mtrCheckerState {
@@ -91,64 +96,55 @@ func newMtrCheckerState() *mtrCheckerState {
 // pushMtrResults collects and pushes due MTR check results.
 func (p *PushLoop) pushMtrResults(ctx context.Context) bool {
 	results := p.collectDueMtrResults(ctx)
+	now := time.Now()
+	metricsCapability := p.edgeMetricsCapability(now)
+	traceCapability := p.edgeScheduledMtrCapability(now)
 
-	// One path at a time for the scalar metrics: while the agent holds a metrics
-	// grant they go only to the edge spool, and the traces alone take StreamStatus.
-	// Without one, results the spool never admitted take the legacy metric status
-	// with the new ones.
-	spooled := false
+	// Scalar metrics and full hop traces each take one path at a time: the edge
+	// spool while the agent holds that contract's standing grant, or StreamStatus
+	// otherwise. Un-admitted items taken back from either edge queue return to it
+	// unless this StreamStatus send delivers them.
+	spooledMetrics := false
+	spooledTraces := false
 	metricResults := results
-	capability := p.edgeMetricsCapability(time.Now())
-	// Results taken back from the edge queue return to it unless this send
-	// delivers them.
-	var taken []edgeMetricsQueued[mtrCheckResult]
+	traceResults := results
+	var takenMetrics []edgeMetricsQueued[mtrCheckResult]
+	var takenTraces []edgeMetricsQueued[mtrCheckResult]
 	delivered := false
 	defer func() {
 		if !delivered {
-			restoreEdgeMetrics(p, mtrEdgeMetrics(), &p.mtrEdge, taken)
+			restoreEdgeMetrics(p, mtrEdgeMetrics(), &p.mtrEdge, takenMetrics)
+			restoreEdgeMetrics(p, mtrTraceEdgeQueueProducer(), &p.mtrTraceEdge, takenTraces)
 		}
 	}()
-	if capability != nil {
-		spooled = spoolEdgeMetrics(p, mtrEdgeMetrics(), &p.mtrEdge, results, capability)
+
+	if metricsCapability != nil {
+		spooledMetrics = spoolEdgeMetrics(p, mtrEdgeMetrics(), &p.mtrEdge, results, metricsCapability)
 	} else {
-		taken = p.mtrEdge.take()
-		metricResults = append(queuedItems(taken), results...)
+		takenMetrics = p.mtrEdge.take()
+		metricResults = append(queuedItems(takenMetrics), results...)
 	}
-	if len(results) == 0 {
+
+	if traceCapability != nil {
+		spooledTraces = spoolScheduledMtrTraces(p, results, traceCapability)
+	} else {
+		takenTraces = p.mtrTraceEdge.take()
+		traceResults = append(queuedItems(takenTraces), results...)
+	}
+
+	spooled := spooledMetrics || spooledTraces
+	if metricsCapability != nil && traceCapability != nil {
 		return spooled
 	}
 
-	payload := map[string]any{
-		"results": results,
-	}
-
-	data, err := json.Marshal(payload)
-	if err != nil {
-		p.logger.Error().Err(err).Msg("Failed to marshal MTR results payload")
+	statusChunks, ok := p.buildMtrLegacyStatusChunks(
+		traceResults,
+		metricResults,
+		traceCapability == nil && len(traceResults) > 0,
+		metricsCapability == nil && len(metricResults) > 0,
+	)
+	if !ok || len(statusChunks) == 0 {
 		return spooled
-	}
-
-	chunk := &proto.ResultsChunk{
-		Data:        data,
-		IsFinal:     true,
-		ChunkIndex:  0,
-		TotalChunks: 1,
-		Timestamp:   time.Now().UnixNano(),
-	}
-
-	statusChunks := p.buildResultsStatusChunks([]*proto.ResultsChunk{chunk}, mtrServiceName, mtrServiceType)
-	if len(statusChunks) == 0 {
-		return spooled
-	}
-
-	if capability == nil {
-		metricStatus, err := p.mtrMetricStatus(metricResults)
-		if err != nil {
-			p.logger.Error().Err(err).Msg("Failed to marshal MTR metric envelope")
-			return false
-		}
-
-		statusChunks[0].Services = append(statusChunks[0].Services, metricStatus)
 	}
 
 	pushCtx, cancel := context.WithTimeout(ctx, mtrResultsPushTimeout)
@@ -168,6 +164,57 @@ func (p *PushLoop) pushMtrResults(ctx context.Context) bool {
 	p.logger.Info().Int("result_count", len(results)).Msg("Streamed MTR results to gateway")
 
 	return true
+}
+
+func (p *PushLoop) buildMtrLegacyStatusChunks(
+	traceResults []mtrCheckResult,
+	metricResults []mtrCheckResult,
+	includeTraces bool,
+	includeMetrics bool,
+) ([]*proto.GatewayStatusChunk, bool) {
+	var statusChunks []*proto.GatewayStatusChunk
+	if includeTraces {
+		data, err := json.Marshal(map[string]any{"results": traceResults})
+		if err != nil {
+			p.logger.Error().Err(err).Msg("Failed to marshal MTR results payload")
+			return nil, false
+		}
+		chunk := &proto.ResultsChunk{
+			Data:        data,
+			IsFinal:     true,
+			ChunkIndex:  0,
+			TotalChunks: 1,
+			Timestamp:   time.Now().UnixNano(),
+		}
+		statusChunks = p.buildResultsStatusChunks([]*proto.ResultsChunk{chunk}, mtrServiceName, mtrServiceType)
+		if len(statusChunks) == 0 {
+			return nil, false
+		}
+	}
+
+	if includeMetrics {
+		metricStatus, err := p.mtrMetricStatus(metricResults)
+		if err != nil {
+			p.logger.Error().Err(err).Msg("Failed to marshal MTR metric envelope")
+			return nil, false
+		}
+		if len(statusChunks) == 0 {
+			statusChunks = p.buildResultsStatusChunks([]*proto.ResultsChunk{{
+				IsFinal:     true,
+				ChunkIndex:  0,
+				TotalChunks: 1,
+				Timestamp:   time.Now().UnixNano(),
+			}}, mtrServiceName, mtrServiceType)
+			if len(statusChunks) == 0 {
+				return nil, false
+			}
+			statusChunks[0].Services = []*proto.GatewayServiceStatus{metricStatus}
+		} else {
+			statusChunks[0].Services = append(statusChunks[0].Services, metricStatus)
+		}
+	}
+
+	return statusChunks, true
 }
 
 func (p *PushLoop) mtrMetricStatus(results []mtrCheckResult) (*proto.GatewayServiceStatus, error) {
@@ -213,6 +260,7 @@ func (p *PushLoop) collectDueMtrResults(ctx context.Context) []mtrCheckResult {
 
 	lastRun := make(map[string]time.Time, len(p.mtrState.lastRun))
 	maps.Copy(lastRun, p.mtrState.lastRun)
+	runOverride := p.mtrState.runCheck
 	p.mtrState.mu.RUnlock()
 
 	if len(checks) == 0 {
@@ -235,7 +283,11 @@ func (p *PushLoop) collectDueMtrResults(ctx context.Context) []mtrCheckResult {
 			continue
 		}
 
-		result := p.runMtrCheck(ctx, check)
+		run := p.runMtrCheck
+		if runOverride != nil {
+			run = runOverride
+		}
+		result := run(ctx, check)
 		results = append(results, result)
 
 		p.mtrState.mu.Lock()

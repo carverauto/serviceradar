@@ -350,6 +350,21 @@ defmodule ServiceRadar.Repo.SchemaBootstrap do
     VALUES (gen_random_uuid(), 'password_only', false, true, false)
     ON CONFLICT DO NOTHING
     """)
+
+    # Agents that report no partition of their own report `default`; core resolves their
+    # network scope from this row (migration 20261102231152_seed_default_partition).
+    repo.query!("""
+    INSERT INTO platform.partitions (id, name, slug, enabled, created_at, updated_at)
+    VALUES (
+      gen_random_uuid(),
+      'Default',
+      'default',
+      true,
+      (now() AT TIME ZONE 'utc'),
+      (now() AT TIME ZONE 'utc')
+    )
+    ON CONFLICT (slug) DO NOTHING
+    """)
   end
 
   defp mark_baseline_migrations_applied!(repo, migrations_path, %{

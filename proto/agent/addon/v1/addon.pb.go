@@ -56,8 +56,9 @@ const (
 	TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OTLP_DERIVED_METRIC TelemetryPayloadKind = 6
 	// ServiceRadar-native metric batches produced by non-OTLP collectors.
 	// TelemetryRecord.payload is exactly one encoded
-	// serviceradar.metric.v1.MetricBatch. Gateway republishes this payload
-	// unchanged to metrics.* so core/event_writer owns persistence.
+	// serviceradar.metric.v1.MetricBatch. It is published without a JSON
+	// conversion, and core/event_writer owns persistence. The publish path is
+	// documented in docs/docs/data-pipeline.md.
 	TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS TelemetryPayloadKind = 7
 	// Device observations an add-on made about OTHER hosts, for the inventory
 	// pipeline rather than the observability one.
@@ -920,8 +921,9 @@ type TelemetrySource struct {
 	// source_instance identifies the local producer instance, for example
 	// "recursor" or a configured listener name.
 	SourceInstance string `protobuf:"bytes,2,opt,name=source_instance,json=sourceInstance,proto3" json:"source_instance,omitempty"`
-	// metadata carries bounded source-local labels. Gateway-attested identity is
-	// attached upstream and MUST NOT be trusted from this map.
+	// metadata carries bounded source-local labels. Upstream identity is
+	// attached by the authenticated producer and MUST NOT be trusted from
+	// guest-supplied values in this map.
 	Metadata      map[string]string `protobuf:"bytes,3,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1244,10 +1246,7 @@ func (x *TelemetryBatch) GetCounters() *TelemetryCounters {
 //   - The agent commits each OtlpRelayFrame record to its durable edge spool under the
 //     standing grant before advancing OtlpRelayAck.acked_relay_id to the add-on.
 //   - On a fresh primary delivery, the projector's publish/3 (before the EdgeRecord
-//     ledger transaction) re-checks OutputGrants.check_current/5, emits
-//     [:serviceradar, :otlp_relay, :spool] with measurements received, filtered,
-//     emitted, dropped, and queue_depth from batch.counters and metadata agent_id
-//     (origin_principal_id) and partition_id (the resolved slug), and republishes each
+//     ledger transaction) re-checks OutputGrants.check_current/5 and republishes each
 //     TelemetryRecord.payload verbatim to the JetStream subject
 //     OtlpRelayPublisher.subjects/1 uses for that payload kind. Defaults, overridable
 //     by AGENT_GATEWAY_OTLP_RELAY_TRACES_SUBJECT, AGENT_GATEWAY_OTLP_RELAY_LOGS_SUBJECT,
@@ -1264,6 +1263,12 @@ func (x *TelemetryBatch) GetCounters() *TelemetryCounters {
 //     :logs, :metric_points, or :metrics for traces, logs, OTLP metrics, and derived
 //     metrics only when that PubAck is not a duplicate.
 //     Replays and late-fenced deliveries skip publish/3.
+//     [:serviceradar, :otlp_relay, :spool] is emitted from committed/3 only after that
+//     ledger commit, with measurements received, filtered, emitted, dropped, and
+//     queue_depth from batch.counters and metadata agent_id (origin_principal_id) and
+//     partition_id (the resolved slug). A failed attempt does not emit it. A partition
+//     read failure in committed/3 misses that sample and returns :ok. The same read in
+//     publish/3 still raises when it is not a not-found.
 type OtlpRelayFrame struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RelayId       uint64                 `protobuf:"varint,1,opt,name=relay_id,json=relayId,proto3" json:"relay_id,omitempty"`

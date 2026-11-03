@@ -118,6 +118,8 @@ ASYNC_ON_EXIT_ALLOWED_SOURCES = {
     "test/serviceradar/inventory/remediation/netprobe_alias_debris_test.exs",
     # Restores a process-global Application env flag; no database cleanup.
     "test/serviceradar/plugins/wasm_plugin_rollout_db_test.exs",
+    # Restores the process-global add-on telemetry publisher; no database cleanup.
+    "test/serviceradar/event_writer/processors/edge_record_db_test.exs",
 }
 DATABASE_BOOTSTRAP_SOURCE = (
     "test/serviceradar/cluster/database_bootstrap_integration_test.exs"
@@ -205,6 +207,7 @@ def ordinary_core_test_sources() -> tuple[str, ...]:
         "test/serviceradar/edge/agent_command_bus_rpc_registry_test.exs",
         "test/serviceradar/observability/stateful_alert_engine/peer_readiness_test.exs",
         "test/serviceradar/event_writer/shared_durable_nats_test.exs",
+        "test/serviceradar/flow_attribution/observations_nats_test.exs",
     }
     sources = []
 
@@ -2447,6 +2450,10 @@ print(open(sys.argv[2]).read().strip())
             },
             "test/serviceradar/plugins/wasm_plugin_rollout_db_test.exs": {
                 "on_exit(fn ->": 1,
+            },
+            "test/serviceradar/event_writer/processors/edge_record_db_test.exs": {
+                "on_exit(fn ->": 1,
+                "on_exit(fn -> :telemetry.detach(handler) end)": 2,
             },
         }
 

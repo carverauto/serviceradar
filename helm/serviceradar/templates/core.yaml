@@ -526,10 +526,13 @@ spec:
         - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" $js.stream "suffix" "REPLICAS") }}
           value: {{ $js.replicas | quote }}
         {{- end }}
-        - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" $coreJs.telemetry_edge_record_v1_bulk.stream "suffix" "MAX_BYTES") }}
-          value: {{ $coreJs.telemetry_edge_record_v1_bulk.maxBytes | quote }}
-        - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" $coreJs.telemetry_edge_record_v1_bulk.stream "suffix" "REPLICAS") }}
-          value: {{ $coreJs.telemetry_edge_record_v1_bulk.replicas | quote }}
+        {{- range $id := list "telemetry_edge_record_v1_bulk" "telemetry_edge_record_audit_v1_bulk" "telemetry_edge_record_security_quarantine_v1_bulk" }}
+        {{- $js := index $coreJs $id }}
+        - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" $js.stream "suffix" "MAX_BYTES") }}
+          value: {{ $js.maxBytes | quote }}
+        - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" $js.stream "suffix" "REPLICAS") }}
+          value: {{ $js.replicas | quote }}
+        {{- end }}
         {{- range $pair := list (list "EVENTS" "events") (list "FLOWS" "flowsFallback") (list "ARANCINI_CAUSAL" "aranciniFallback") }}
         {{- $js := index $coreJs (index $pair 1) }}
         - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" (index $pair 0) "suffix" "FALLBACK_MAX_BYTES") }}

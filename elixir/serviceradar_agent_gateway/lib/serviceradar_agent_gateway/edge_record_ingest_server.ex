@@ -46,14 +46,17 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
   ## Deliberately narrow scope
 
   This server does NOT implement the exact-byte/retained-memory binding of task 3.4, the
-  six-outcome-to-five-wire-disposition mapping of task 3.5, the transport-provenance stamping of task 3.9, or the two-watermark reclaim state
-  machine of task 3.10.
+  complete six-outcome-to-five-wire-disposition mapping of task 3.5 (there is no ordinary
+  quarantine publication and no reject-audit DLQ yet), the transport-provenance stamping of task
+  3.9, or the two-watermark reclaim state machine of task 3.10.
 
-  Two authorization decisions therefore have nowhere to go yet: an AUDIT publication (a
-  stale-fence replay under its exact delivery capability, decided with its `LATE_FENCED_DELIVERY`
-  stamp) and a SECURITY-QUARANTINE publication (a compromise-revoked key). Their streams are task
-  3.5's, and publishing either to the primary stream would make fenced or compromised data
-  authoritative, so both are withheld: never offered, never resolved.
+  Three authorization decisions are offered, each to its own route
+  (`ServiceRadar.Edge.StreamRoute`): a PRIMARY publication; an AUDIT publication (a stale-fence
+  replay under its exact delivery capability, stamped `LATE_FENCED_DELIVERY`), which resolves
+  ACCEPTED_AUDIT_ONLY on its audit-stream PubAck and which EventWriter keeps ledger-only; and a
+  SECURITY-QUARANTINE publication (a compromise-revoked key), which resolves ACCEPTED_QUARANTINE on
+  its security-quarantine stream PubAck and which no projector reads. Neither non-authoritative
+  publication can reach the primary stream.
 
   ## Frames are OFFERED, and acks follow the pipeline
 
@@ -89,7 +92,8 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
   watermark.
 
   The dispositions are the subset `JetStreamPublisher.publish_record/2` can produce today, matching
-  the pipeline's own classification: a durable PubAck resolves ACCEPTED_AUTHORITATIVE; a decode,
+  the pipeline's own classification: a durable PubAck resolves the publication's accepted kind
+  (ACCEPTED_AUTHORITATIVE, ACCEPTED_AUDIT_ONLY or ACCEPTED_QUARANTINE); a decode,
   integrity or authorization failure that can never succeed on retry, or a record the contract
   registry rejects, resolves REJECTED_PERMANENT, recorded through `PublishPipeline.reject_permanent/3`
   so it fills its place in the prefix instead of leaving a gap nothing could close; everything else
@@ -447,24 +451,15 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
     end
   end
 
-  # The only route this publisher resolves today is the contract's PRIMARY stream, and EventWriter
-  # does not yet act on the LATE_FENCED_DELIVERY stamp. Offering an audit or security-quarantine
-  # decision there would make fenced or compromised data authoritative, so both are withheld --
-  # never offered, never resolved -- until task 3.5 supplies their streams.
-  defp offer_frame(state, _stream, _sequence, _frame, %{publication: publication, record: record}, _route)
-       when publication in [:audit, :security_quarantine] do
-    Logger.warning(
-      "edge record #{publication} publication withheld: no #{publication} route yet " <>
-        "(event_id=#{Base.encode16(record.event_id, case: :lower)})"
-    )
-
-    state
-  end
-
+  # The decision's publication selects the route family and the kind its PubAck resolves to, so an
+  # audit or security-quarantine record cannot reach the primary stream.
   defp offer_frame(state, stream, sequence, frame, %{record: record} = decision, route) do
+    log_non_authoritative(decision)
+
     publication =
       maybe_put_delivery(
         %{
+          publication: decision.publication,
           slot: %{
             network_scope_id: record.network_scope_id,
             authenticated_agent_id: state.identity.component_id,
@@ -485,6 +480,21 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
     state
     |> remember_event_id(sequence, record.event_id)
     |> offer(stream, sequence, publication)
+  end
+
+  defp log_non_authoritative(%{publication: :primary}), do: :ok
+
+  defp log_non_authoritative(%{publication: publication, record: record}) do
+    :telemetry.execute(
+      [:serviceradar, :agent_gateway, :edge_record, :non_authoritative_publication],
+      %{count: 1},
+      %{publication: Atom.to_string(publication)}
+    )
+
+    Logger.warning(
+      "edge record offered for #{publication} publication " <>
+        "(event_id=#{Base.encode16(record.event_id, case: :lower)})"
+    )
   end
 
   # A fresh publish carries no delivery stamp. Anything else is stamped with the gateway-attested

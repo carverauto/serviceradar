@@ -611,6 +611,17 @@ func (s *Server) writeEdgeSpoolMetrics(w io.Writer) error {
 	); err != nil {
 		return fmt.Errorf("write agent edge spool quarantine: %w", err)
 	}
+	paused := 0
+	if h.AdmissionPaused {
+		paused = 1
+	}
+	if _, err := fmt.Fprintf(
+		w,
+		"# TYPE agent_edge_spool_admission_paused gauge\nagent_edge_spool_admission_paused %d\n",
+		paused,
+	); err != nil {
+		return fmt.Errorf("write agent edge spool admission: %w", err)
+	}
 	return nil
 }
 

@@ -161,13 +161,40 @@ The active work order is therefore four end-to-end milestones (`tasks.md`,
 A milestone closes only on evidence from the required composed target or a
 running deployment. Deployment evidence lives in the milestone's GitHub
 tracking issue, never in the repository, because data captured from a live
-system is not committed. The remaining tasks stay owed as a
-backlog that does not gate M1-M4: capacity baselines and benchmarks, the
-signed registry lifecycle and cost API, the Wasm, native and inventory producer
-migrations, the recovery coordinator and coverage-proof reclamation, DLQ and
-redrive completeness, and 64-partition production sizing. Normative
-requirements in `specs/` are unchanged; this amendment changes the order of
-work, not the contract.
+system is not committed. The remaining tasks were then a backlog that did
+not gate M1-M4: capacity baselines and benchmarks, the signed registry
+lifecycle and cost API, the Wasm, native and inventory producer migrations,
+the recovery coordinator and coverage-proof reclamation, DLQ and redrive
+completeness, and 64-partition production sizing. Normative requirements in
+`specs/` were unchanged by this amendment; it changed the order of work, not
+the contract.
+
+### Scope amendment 2026-11-02
+
+Maintainer-approved close-out. The normative split is `proposal.md` (Impact,
+scope update). The backlog above is no longer owed here. Deferred follow-up
+work is tracked in GitHub #6271.
+
+Capacity baselines and benchmarks (tasks 0.1-0.4, 0.7, and 8.4) moved as
+tasks only into `add-edge-pipeline-benchmarks` section 7. No requirement
+delta moved there.
+
+The signed registry lifecycle and cost API moved as requirement deltas and
+tasks to `add-edge-contract-registry-lifecycle`. The recovery coordinator
+and coverage-proof reclamation moved as requirement deltas and tasks to
+`add-edge-spool-recovery-coordinator`. DLQ, redrive completeness, and
+64-partition production sizing moved as requirement deltas and tasks to
+`add-edge-record-stream-partitioning`.
+
+The Wasm, native, and inventory producer migrations are superseded by
+`move-agent-telemetry-to-edge-records`. The Wasm host ABI, extension-record,
+and package-grant deltas, the cohort-barrier cutover, sweep-lease MTR Result
+Reporting, the native OTLP relay, and the mapper ingestion delta were
+removed so archive cannot write them. They were not copied into that change.
+Goals that assign this change the Wasm, native add-on, or package-defined
+output work, and "Migration and Rollback" later in this file, are history
+and are not kept requirements. Cutover is
+`move-agent-telemetry-to-edge-records` Decision 7.
 
 ### M2.0 design: core-scheduled sweeps as signed schedule leases
 
@@ -1610,6 +1637,10 @@ Initial subjects are installation-local and fixed for the
 ```text
 telemetry.edge-record.v1.bulk.pNN
 telemetry.edge-record.v1.interactive.pNN
+telemetry.edge-record-audit.v1.bulk.pNN
+telemetry.edge-record-audit.v1.interactive.pNN
+telemetry.edge-record-security-quarantine.v1.bulk.pNN
+telemetry.edge-record-security-quarantine.v1.interactive.pNN
 telemetry.edge-record-recovery.v1
 telemetry.edge-record-dlq.v1.bulk.pNN
 telemetry.edge-record-dlq.v1.interactive.pNN
@@ -2524,16 +2555,14 @@ Otherwise a port-heavy profile would repeat thousands of checks across about
   id drops installed slots whose start lies in the push window, keeps the
   installed production capability when the push has none, normalizes the
   window to the slots still held when any remain, and keeps the push window
-  when none remain. A different lease id, including the 1µs
+  when none remain. A different lease id, including the 1-microsecond
   empty window `LeaseDelivery` sends when the lease id changed and nothing is
   unrun, replaces the installed lease outright and takes the push's
   `lease_version`, so no previous-epoch slot keeps running. A slot-less
   same-lease merge keeps the installed lease's `lease_version` and the check
   sets its retained slots reference, and never lowers that version. A push
-  that carries slots stores its own `lease_version`, which is 2, as the
-  current clone already does. `mergeSweepLease` clones the push today and
-  would store a slot-less push at `lease_version` 1; M2.0i4 changes that
-  slot-less same-lease merge. A same-lease clear of an installed `lease_version` 2
+  that carries slots stores its own `lease_version`, which is 2. A
+  same-lease clear of an installed `lease_version` 2
   that still holds a started slot stays `lease_version` 2, so the on-load
   discard of a stored slot lease whose `lease_version` is not 2 does not drop
   it or resume its ticker. A held lease with no slots stays installed and its
@@ -2599,12 +2628,16 @@ following replace `sweepChecks(cfg)` and the config-network comparison in
    `errEdgeSweepCheckSetMismatch`, `errEdgeSweepCIDRMismatch`,
    `errEdgeSweepTargetsMismatch` and `errEdgeSweepStaticCIDRRequired` go away.
 3. `SweepService.runLeaseToSpool` checks every range with
-   `EffectiveSweepModes(cidr, spec.Modes)` before it claims the slot. A carried
-   mode the agent cannot run refuses the slot with `CHECK_UNAVAILABLE` and the
-   marker of the missing check: `icmp.unavailable` or `mtr.unavailable` for
-   that mode, and `tcp_syn_ipv6.unavailable` when raw IPv6 SYN would run as
-   connect. The agent never runs a subset or a substitute of the signed
-   checks.
+   `NetworkSweeper.EffectivePlannedSweepModes(cidr, spec)` before it claims
+   the slot. That call creates any scanner the planned run still lacks, from
+   the carried `RunSpec` rather than the group's sweep config, then applies
+   the same per-family rules as `EffectiveSweepModes`. A stopped sweeper
+   creates no scanners. Missing ICMP and a mode the planned scanner would
+   rewrite are one `CHECK_UNAVAILABLE` refusal before claim. The markers are
+   their union: `icmp.unavailable` or `mtr.unavailable` for that mode, and
+   `tcp_syn_ipv6.unavailable` when the scanner that run creates would run raw
+   IPv6 SYN as connect. The agent never runs a subset or a substitute of the
+   signed checks.
 4. It runs `NetworkSweeper.RunPlannedWithObserver(ctx, executionID, spec,
    observer)`, a new method. The scanner cannot run an override config for one
    execution today: `RunOnceWithObserver` reads `s.config`, which
@@ -2616,13 +2649,15 @@ following replace `sweepChecks(cfg)` and the config-network comparison in
    port expansion instead of `s.config`. A config update during the run then
    cannot change the leased execution, and nothing is frozen or restored.
 
-**Refusal and the next pass.** No per-slot outcome reaches core today. A
-refused slot is only logged and marked executed on the agent
-(`sweepLeaseExecutor.runSlot`). Core later labels it `missed_offline` or
-`missed_exhausted`. `SweepExecutionEventV1` ABORTED exists, but nothing
-produces it, and no contract consumes it. The refusal therefore gets a typed
-control-plane report on the path `SweepLeaseAck` already uses (agent ->
-gateway -> `AgentGatewaySync` -> `ServiceRadar.SweepJobs`):
+**Refusal and the next pass.** The agent persists a refused slot with its
+executed mark and re-sends that refusal on each control-stream connect until
+24 hours past the slot's collection expiry. If no refusal arrives, core
+labels the slot `missed_offline` or `missed_exhausted`.
+`SweepExecutionEventV1` ABORTED exists, but nothing produces it, and no
+contract consumes it. The refusal is a typed control-plane report on the
+path `SweepLeaseAck` already uses
+(agent -> gateway -> `AgentGatewaySync` -> `ServiceRadar.SweepJobs`). The
+gateway forwards it, and `ExecutionSlots.refuse/2` records it:
 
 - `ControlStreamRequest.sweep_lease_slot_refusal = 8` carries
   `SweepLeaseSlotRefusal { sweep_group_id, lease_id, execution_id, reason,
@@ -2655,22 +2690,16 @@ gateway -> `AgentGatewaySync` -> `ServiceRadar.SweepJobs`):
   reopen it.
 - The next pass excludes a mode only through the agent's reported
   capabilities. Core does not turn refusals into exclusions of its own.
-  Per-agent check sets are not on staging. They come from the dependency
-  change on branch `fix/lease-plan-agent-capability-checks`
-  (`SweepCompiler.agent_scan_modes/3` and `LeaseEligibility.agent_checks/3`).
-  Until that change lands, the planner uses one group-level check set.
-  M2.0i3 depends on that change. Once it has landed, the agent reports the
-  marker before it refuses the slot. `icmp.unavailable` and `mtr.unavailable`
+  Per-agent check sets come from `SweepCompiler.agent_scan_modes/3` and
+  `LeaseEligibility.agent_checks/3`. The agent reports the marker before it
+  refuses the slot. `icmp.unavailable` and `mtr.unavailable`
   withhold that mode on the next pass. `tcp_syn_ipv6.unavailable` means the
   planner does not lease a group whose check set would need IPv6 SYN to that
   agent. The changed check set then re-plans that agent's unrun slots, and
   the drop-and-full-push rule replaces them on the agent.
 
-**Core planner changes.** Until `fix/lease-plan-agent-capability-checks`
-lands, the lease pass plans one group-level check set and applies that digest
-to every candidate. That branch is not on staging. It adds
-`SweepCompiler.agent_scan_modes/3` and `LeaseEligibility.agent_checks/3`, and
-M2.0i3 depends on it. After it lands, `LeaseDelivery.deliver` receives that
+**Core planner changes.** The lease pass plans each agent's own check set
+(`LeaseEligibility.agent_checks/3`). `LeaseDelivery.deliver` receives that
 agent's checks, carries them as the push's `check_sets` entry, and pushes
 only slots whose stored `check_set_sha256` equals their digest. `sync_slots`
 then drops every other unrun slot of that agent in the same pass, so no slot
@@ -2709,6 +2738,15 @@ conflict). A batch that claims checks its plan did not sign holds no evidence
 to recover. The slot itself is not relabeled. It stays `scheduled` until a
 conforming batch arrives or `LeaseMisses` judges it missed, so a host that
 sends only nonconforming batches shows as a missed run.
+
+**Where the contract lives.** Field comments on `SweepLeaseV1`,
+`SweepCheckSetV1` and `SweepLeaseSlotRefusal` are the wire contract. The Go
+check is in `go/pkg/edge/edgerecord`: `CheckSetDigest`, `SweepLeaseCheckSets`
+(push integrity before install) and `SweepCheckSetRun` (the run shape at
+execution). Golden pushes under
+`proto/edge/v1/testdata/sweep_lease_check_sets_*.bin` are encoded by Elixir
+from `SweepPlan` and decoded by that Go check; regenerate them with
+`EDGE_GOLDEN_UPDATE=1`.
 
 ## Failure Semantics
 
@@ -3029,7 +3067,7 @@ typed disposition):
 | --- | --- | --- |
 | Historical collection proof | verifier; ONLY the signature/key/trust-chain grant is cacheable by capability digest + trust-policy epoch (body observation/event-time and body-to-claim joins are always evaluated per record) | `valid` / `invalid` / `historically_revoked` / `unavailable` (must validate the authoritative BODY observation/event times against the signed collection interval, not only the UUIDv7 identity time; rotation keeps key history; compromise revokes it) |
 | Delivery mode/reason | delivery layer | `fresh` / `renewal` / `rollover` / `late_fenced_delivery` (a stale-fence historical delivery, not a "replay") |
-| Gateway publication | gateway | `primary_publication` / `audit_publication` (valid historical, stale fence) / `quarantine_publication` (admitted poison) / `security_quarantine_publication` (a COMPROMISE-revoked key -- a distinct SECURITY variant: the `EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_QUARANTINE` disposition routed to the security-quarantine DLQ, ledger_only, reachable, grant-free) / `retryable_rejection` / `permanent_rejection` (invalid/unauthorized/oversize at a known slot) |
+| Gateway publication | gateway | `primary_publication` / `audit_publication` (valid historical, stale fence) / `quarantine_publication` (admitted poison) / `security_quarantine_publication` (a COMPROMISE-revoked key -- a distinct SECURITY variant: the `EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_QUARANTINE` disposition routed to the security-quarantine stream, no event-ledger row, reachable, grant-free) / `retryable_rejection` / `permanent_rejection` (invalid/unauthorized/oversize at a known slot) |
 | EventWriter projection | EventWriter | `authoritative_apply` (ledger + domain) / `ledger_only` (ledger idempotency/audit, NO domain projection) / `conflict_quarantine` |
 
 HOW those four decisions are evaluated -- the gateway publication matrix, the
@@ -3096,10 +3134,10 @@ authoritative apply. Evaluate in this order; the FIRST match wins:
    grant is cacheable by capability digest + trust-policy epoch). `invalid` (signature /
    structure / envelope-to-grant unauthorized) -> `permanent_rejection`.
    `historically_revoked` (a record otherwise valid but whose signing key was
-   compromise-revoked -- resolved HERE, NOT silently into `authoritative_apply`) ->
-   `ledger_only` audit row + PubAck the affected record to the security-quarantine cohort
-   DLQ (see the compromised-cohort remediation below), THEN source-ACK the original
-   delivery. `unavailable` (key/trust store not loadable) -> NO ACK, pause; the message
+   compromise-revoked -- resolved at the gateway, NOT silently into `authoritative_apply`) ->
+   the gateway has already published it on the security-quarantine stream, and
+   `EdgeRecordQuarantine` reports the message and writes no ledger row
+   (`docs/edge-record-quarantine-runbook.md`). `unavailable` (key/trust store not loadable) -> NO ACK, pause; the message
    stays pending.
 4. Readiness: the pinned contract bundle's registry/projector/schema are LOADABLE AND the
    exact projector generation is DEPLOYED. Not loadable, OR a valid-but-not-yet-deployed
@@ -3126,7 +3164,7 @@ Precedence note: transport / slot / trust / conflict / poison (steps 1-6) preced
 fence downgrade (step 7), and slot binding (step 2) precedes every terminal decision, so
 no downgrade or audit path can mask a conflict, a compromise, or an unbound slot -- an
 audit publication that is ALSO an event-id conflict is handled as a conflict, and a
-compromise-revoked record resolves to `ledger_only` + security-quarantine, never to a
+compromise-revoked record resolves on the security-quarantine stream with no ledger row, never to a
 stale `authoritative_apply`. Semantic-digest VERIFICATION (step 1) precedes its use as the
 ledger replay key (step 5).
 
@@ -3145,12 +3183,12 @@ Failure-disposition deconfliction:
   so it is a transport-level lane close with NO per-delivery disposition (see the gateway
   matrix). Quarantine is for admitted-but-poison content; permanent rejection is for
   structurally invalid / unauthorized / oversize input at a known slot.
-- POST-PubAck compromise revocation resolves in the trust-outcome step (step 3) as
-  `historically_revoked`: EventWriter writes a `ledger_only` audit row and PubAcks the
-  affected record to the security-quarantine cohort DLQ, THEN source-ACKs the original
-  delivery: the record is durably captured, never authoritatively projected, and never
-  left unresolved. On compromise revocation of a signing key, EVERY record signed by that
-  key is `historically_revoked` -> `ledger_only` + security-quarantine cohort, and any
+- POST-PubAck compromise revocation is the gateway's `security_quarantine_publication`:
+  the record is on the security-quarantine stream, EventWriter writes no ledger row,
+  and the agent resolves the sequence on that stream's PubAck. The record is durably
+  retained, never authoritatively projected, and never left unresolved while the
+  stream accepts the publish. On compromise revocation of a signing key, EVERY record
+  signed by that key is `historically_revoked` and takes that stream, and any
   already-authoritatively-projected domain rows from that key/cohort are marked
   `security_held` and scheduled for operator-authorized retraction/redrive under a fixed
   safe bundle; redrive uses a durable synthetic spool + fresh delivery/map envelope + a
@@ -3170,27 +3208,3 @@ eligible for idempotent redelivery. A stale producer epoch presented under a val
 delivery grant is `audit_publication` + `late_fenced_delivery` + `ledger_only`
 (durable forensic record, no authoritative projection), never a permanent rejection
 and never an authoritative apply.
-
-## Decision 12: The signed plan carries the check set
-
-Maintainer decision, 2026-11-02: a leased slot runs the checks, ports, and
-targets of its signed plan. The push carries each distinct check set once, as
-`SweepCheckSetV1` on `SweepLeaseV1.check_sets`, keyed by the check-set digest
-the slot's plan header names. `lease_version` 2 is a push that carries slots.
-A revocation or any other push with no slots carries no check sets and stays
-`lease_version` 1, which both agent generations accept.
-
-Unknown `digest_version` is a slot refusal,
-`SWEEP_LEASE_SLOT_REFUSAL_REASON_UNSUPPORTED_PLAN`, as is a carried set the
-scanner cannot run (not the product of its modes and one shared TCP port
-list). A mismatched digest, an unresolved set, an unreferenced set, or slots
-on `lease_version` 1 refuses the whole push with a `SweepLeaseAck` error.
-`CHECK_UNAVAILABLE` and `INVALID_PLAN` are the other slot-refusal reasons.
-Field comments on `SweepLeaseV1` and `SweepLeaseSlotRefusal` are the wire
-contract. The Go check lives in `go/pkg/edge/edgerecord` (`CheckSetDigest`,
-`SweepLeaseCheckSets`, `SweepCheckSetRun`). Golden pushes under
-`proto/edge/v1/testdata/sweep_lease_check_sets_*.bin` are encoded by Elixir
-from `SweepPlan` and decoded by that Go check; regenerate with
-`EDGE_GOLDEN_UPDATE=1`. The agent calls the check when it runs a slot, and
-core records refusals, in later slices. Until core records them, the gateway
-decodes `SweepLeaseSlotRefusal` and drops it.

@@ -368,7 +368,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
     end
   end
 
-  defp edge_record_message?(%{metadata: %{subject: "telemetry.edge-record." <> _}}), do: true
+  defp edge_record_message?(%{metadata: %{subject: "telemetry.edge-record" <> _}}), do: true
   defp edge_record_message?(_message), do: false
 
   defp terminal_delivery?(%{metadata: metadata}) when is_map(metadata) do
@@ -640,6 +640,9 @@ defmodule ServiceRadar.EventWriter.Pipeline do
       # MUST precede the generic :telemetry rule below -- both match a
       # "telemetry." prefix, and find_value/2 takes the first match.
       {:edge_record, &String.starts_with?(&1, "telemetry.edge-record.")},
+      {:edge_record_audit, &String.starts_with?(&1, "telemetry.edge-record-audit.")},
+      {:edge_record_security_quarantine,
+       &String.starts_with?(&1, "telemetry.edge-record-security-quarantine.")},
       {:telemetry, &String.starts_with?(&1, "telemetry.")},
       # Catch-all before specific prefixes are unnecessary: every raw-flow
       # subject (netflow/sflow/ipfix/extensions) must hit Processors.Flows.
@@ -740,6 +743,11 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   defp get_processor(:metrics), do: Metrics
   defp get_processor(:telemetry), do: Telemetry
   defp get_processor(:edge_record), do: EdgeRecord
+  defp get_processor(:edge_record_audit), do: EdgeRecord
+
+  defp get_processor(:edge_record_security_quarantine),
+    do: ServiceRadar.EventWriter.Processors.EdgeRecordQuarantine
+
   defp get_processor(:flows_raw), do: Flows
 
   defp get_processor(:flow_attribution_observations),

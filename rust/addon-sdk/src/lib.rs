@@ -321,10 +321,10 @@ pub fn serviceradar_metric_record(
 /// observations are ingested under. It must be a schema the control plane has
 /// registered; an unregistered one is dropped loudly rather than guessed at.
 ///
-/// Nothing in the envelope is trusted for identity. `agent_id`, `gateway_id`
-/// and `partition` are stamped by the control plane from gateway-attested
-/// metadata, and the source string comes from the registry -- so a `producer_id`
-/// here is for display and telemetry only, never an identity claim.
+/// Nothing in the envelope is trusted for identity. The control plane stamps
+/// identity from the authenticated producer, and the source string comes from
+/// the registry, so a `producer_id` here is for display and telemetry only.
+/// See `ServiceRadar.Edge.Projectors.TelemetryBatch`.
 ///
 /// For a SNAPSHOT (a complete replacement of `observation_scope`), set
 /// `snapshot_id` to something that cannot repeat across a producer restart --
@@ -634,8 +634,8 @@ mod tests {
             .expect("payload is an encoded DiscoveryEnvelope");
         assert_eq!(decoded, envelope);
 
-        // No identity is carried on the record itself. agent_id, gateway_id and
-        // partition are stamped by the control plane from attested metadata.
+        // No identity is carried on the record itself. The control plane stamps
+        // identity from the authenticated producer.
         assert!(record.metadata.is_empty());
     }
 

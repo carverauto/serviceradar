@@ -31,7 +31,8 @@ defmodule ServiceRadar.Edge.SweepProjection do
 
   # A missed slot is still this execution. A batch that commits after the mark
   # reopens it, because the record is judged by event time. A dropped slot
-  # was withdrawn and stays refused.
+  # was withdrawn, and a refused slot is the agent's own report that it did
+  # not run it; both stay closed.
   @committable_slot_states [:scheduled, :missed_offline, :missed_exhausted]
 
   @doc "Project a correlated scheduled batch in the caller's database transaction."

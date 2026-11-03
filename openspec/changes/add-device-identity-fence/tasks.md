@@ -147,8 +147,9 @@ automatic, and the real defect is elsewhere.
 
 - [x] 7.1 ~~Resolve whether the agent-side `resource.device_id` flips after a merge.~~
       **Answered: it never does, and cannot.** Zero production writers for
-      `MetricResource.device_id`; core's own decoder documents this at
-      `observability/metric_envelope.ex:58-62`. The edge falls through `anomaly_device_uid` to
+      `MetricResource.device_id`; the decoder documents this in
+      `elixir/serviceradar_core/lib/serviceradar/observability/metric_envelope.ex`.
+      The edge falls through `anomaly_device_uid` to
       `os.Hostname()` (sysmon), the polled target IP (SNMP) or the agent id (ICMP). No trigger,
       no TTL. Because the edge identity is merge-invariant, `episode_uid` is stable and the
       existing upsert already re-attributes the open episode in place.

@@ -27,6 +27,12 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
   horizon, a mint retried after an error) has no mark, and only a full window sends it: a
   tail starts at the cursor and would pass it by forever.
 
+  A push that carries slots is `lease_version` 2 and carries, in `check_sets`, the one
+  `SweepCheckSetV1` its slots' plan headers name: the agent's check set, which the agent runs
+  exactly. Only slots planned under that check set are pushed; the lease pass has already
+  dropped every other unrun slot of the agent. A push with no slots (an empty clear, or a
+  revocation) carries no check set and stays `lease_version` 1, which every agent accepts.
+
   Every push of one lease signs the same issuance time (`lease_issued_at`, the first push of
   the lease). A push that carries slots signs a production capability from there to the end of
   the last slot pushed, so the newest capability the agent holds covers every slot it was given.
@@ -44,6 +50,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.IssuerKey
   alias ServiceRadar.Edge.SweepContract
+  alias ServiceRadar.Edge.SweepPlan
   alias Serviceradar.Edge.V1.ScheduledPlanHeaderV1
   alias Serviceradar.Edge.V1.ScheduledPlanPageV1
   alias Serviceradar.Edge.V1.SweepLeaseSlotV1
@@ -99,21 +106,42 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
     end
   end
 
-  @doc "Pushes the assignment's lease if the agent is missing any of it."
-  @spec deliver(SweepProducerAssignment.t(), authority(), DateTime.t(), sender()) ::
-          {:ok, outcome()} | {:error, term()}
-  def deliver(%SweepProducerAssignment{} = assignment, authority, %DateTime{} = now, sender) do
+  @doc """
+  Pushes the assignment's lease if the agent is missing any of it. `checks` is the agent's
+  check set for the group (`LeaseEligibility.agent_checks/3`), which the push carries.
+  """
+  @spec deliver(
+          SweepProducerAssignment.t(),
+          authority(),
+          DateTime.t(),
+          sender(),
+          [SweepPlan.check()]
+        ) :: {:ok, outcome()} | {:error, term()}
+  def deliver(
+        %SweepProducerAssignment{} = assignment,
+        authority,
+        %DateTime{} = now,
+        sender,
+        checks
+      )
+      when is_list(checks) do
     lease_id = LeasePass.lease_id(assignment)
+    check_set = SweepPlan.check_set(checks)
 
     with {:ok, state} <- get(assignment.id),
          {:ok, unrun} <- ExecutionSlots.list_unrun(assignment.id, now),
+         unrun = Enum.filter(unrun, &(&1.check_set_sha256 == check_set.check_set_sha256)),
          {:ok, dropped?} <- dropped_since?(assignment, state, now) do
       case plan(state, lease_id, dropped? or undelivered_behind?(state, unrun), unrun, now) do
         :up_to_date ->
           {:ok, :up_to_date}
 
         push ->
-          push = Map.put(push, :ack_pending_since, pending_since(state, lease_id, now))
+          push =
+            push
+            |> Map.put(:ack_pending_since, pending_since(state, lease_id, now))
+            |> Map.put(:check_set, check_set)
+
           send_push(assignment, lease_id, push, authority, now, sender)
       end
     end
@@ -384,7 +412,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
          {:ok, slots} <- lease_slots(assignment, push.slots, key) do
       payload =
         SweepLeaseV1.encode(%SweepLeaseV1{
-          lease_version: 1,
+          lease_version: if(slots == [], do: 1, else: 2),
           sweep_group_id: uuid(assignment.sweep_group_id),
           lease_id: uuid(lease_id),
           producer_assignment_id: uuid(assignment.id),
@@ -392,7 +420,8 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
           production_capability: capability,
           window_start_unix_nano: nanos(push.window_start),
           window_end_unix_nano: nanos(push.window_end),
-          slots: slots
+          slots: slots,
+          check_sets: if(slots == [], do: [], else: [push.check_set])
         })
 
       with {:ok, :pushed} <- record_push(assignment, lease_id, push, payload, now) do

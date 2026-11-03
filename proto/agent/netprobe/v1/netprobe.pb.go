@@ -3261,7 +3261,9 @@ func (x *FlowAttributionEvent) GetExecutableOwnership() *ExecutableOwnership {
 //     [:serviceradar, :event_writer, :attributed_flow, :batch_received] is emitted
 //     only after that ledger commit, with measurements count: 1, event_count, and
 //     dropped_since_last and metadata partition_id and agent_id. A failed attempt
-//     does not emit it. Replays and late-fenced deliveries skip publish/3.
+//     does not emit it. A partition read failure while emitting it misses that sample
+//     and returns :ok. The same read in publish/3 still raises when it is not a
+//     not-found. Replays and late-fenced deliveries skip publish/3.
 type FlowAttributionEventBatch struct {
 	state              protoimpl.MessageState  `protogen:"open.v1"`
 	Events             []*FlowAttributionEvent `protobuf:"bytes,1,rep,name=events,proto3" json:"events,omitempty"`

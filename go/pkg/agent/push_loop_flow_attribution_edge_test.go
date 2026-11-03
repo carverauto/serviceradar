@@ -88,23 +88,35 @@ func currentFlowAttributionGrant(t *testing.T) *proto.EdgeOutputGrant {
 	return flowAttributionGrant(t, sysmonEdgeAgentID, now.Add(-time.Hour), now.Add(8*24*time.Hour), edgerecord.FlowAttributionMaxRows)
 }
 
-func spooledFlowAttributionRecords(t *testing.T, sp *spool.Spool) ([]*edgev1.EdgeRecordV1, []*netprobepb.FlowAttributionEventBatch) {
+func spooledEdgeRecordsWithBody[T gproto.Message](
+	t *testing.T,
+	sp *spool.Spool,
+	validate func(*edgev1.EdgeRecordV1) error,
+	newBody func() T,
+) ([]*edgev1.EdgeRecordV1, []T) {
 	t.Helper()
 	stored, err := sp.Unresolved()
 	require.NoError(t, err)
 	records := make([]*edgev1.EdgeRecordV1, 0, len(stored))
-	batches := make([]*netprobepb.FlowAttributionEventBatch, 0, len(stored))
+	bodies := make([]T, 0, len(stored))
 	for _, s := range stored {
 		record := &edgev1.EdgeRecordV1{}
 		require.NoError(t, gproto.Unmarshal(s.Body, record))
-		require.NoError(t, edgerecord.ValidateFlowAttributionRecord(record))
+		require.NoError(t, validate(record))
 		require.Nil(t, record.GetSourceAuthorization())
-		batch := &netprobepb.FlowAttributionEventBatch{}
-		require.NoError(t, gproto.Unmarshal(recordBody(t, record), batch))
+		body := newBody()
+		require.NoError(t, gproto.Unmarshal(recordBody(t, record), body))
 		records = append(records, record)
-		batches = append(batches, batch)
+		bodies = append(bodies, body)
 	}
-	return records, batches
+	return records, bodies
+}
+
+func spooledFlowAttributionRecords(t *testing.T, sp *spool.Spool) ([]*edgev1.EdgeRecordV1, []*netprobepb.FlowAttributionEventBatch) {
+	t.Helper()
+	return spooledEdgeRecordsWithBody(t, sp, edgerecord.ValidateFlowAttributionRecord, func() *netprobepb.FlowAttributionEventBatch {
+		return &netprobepb.FlowAttributionEventBatch{}
+	})
 }
 
 func TestFlowAttributionWithGrantSpoolsEdgeRecordAndSkipsStreamStatus(t *testing.T) {

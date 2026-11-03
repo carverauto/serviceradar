@@ -56,9 +56,12 @@ const (
 	edgeProducerSNMP
 	edgeProducerICMP
 	edgeProducerMTR
+	edgeProducerMTRTraces
 	edgeProducerSweepSummary
 	edgeProducerSweepResults
 	edgeProducerSweepResultsMetrics
+	edgeProducerPluginTelemetry
+	edgeProducerAddonTelemetry
 	edgeProducerFlowAttribution
 	edgeProducerOtlpRelay
 	edgeProducerCount
@@ -66,15 +69,18 @@ const (
 
 func (p edgeProducer) label() string {
 	return [edgeProducerCount]string{
-		edgeProducerSysmon: "sysmon",
-		edgeProducerSNMP:   "snmp",
-		edgeProducerICMP:   "icmp",
-		edgeProducerMTR:    "mtr",
+		edgeProducerSysmon:    "sysmon",
+		edgeProducerSNMP:      "snmp",
+		edgeProducerICMP:      "icmp",
+		edgeProducerMTR:       "mtr",
+		edgeProducerMTRTraces: "mtr_traces",
 		// The periodic sweep summary sample, not the batch carried with sweep results.
 		edgeProducerSweepSummary: "sweep",
 		// Unleased sweep results records, and the metric batch each results chunk carries.
 		edgeProducerSweepResults:        "sweep_results",
 		edgeProducerSweepResultsMetrics: "sweep_results_metrics",
+		edgeProducerPluginTelemetry:     "plugin_telemetry",
+		edgeProducerAddonTelemetry:      "addon_telemetry",
 		edgeProducerFlowAttribution:     "flow_attribution",
 		edgeProducerOtlpRelay:           "otlp_relay",
 	}[p]
@@ -142,13 +148,15 @@ func (t *edgeProducerDropTelemetry) write(w io.Writer) error {
 	return nil
 }
 
-// edgeMetricsAppender is the spool surface a metrics producer writes.
+// edgeMetricsAppender is the spool surface a metrics producer writes. flow is
+// the record's admission flow (edgeAdmissionFlow).
 type edgeMetricsAppender interface {
-	Append(eventID, body []byte) (uint64, error)
+	AppendFlow(flow string, eventID, body []byte) (uint64, error)
 }
 
-// SetEdgeMetricsSpool connects metric producers to the sender's one open spool.
-// Call before Start; a nil spool keeps every metric on its legacy path.
+// SetEdgeMetricsSpool connects metric, flow-attribution, and OTLP relay
+// producers to the sender's one open spool. Call before Start; a nil spool
+// keeps each of those on its legacy path.
 func (p *PushLoop) SetEdgeMetricsSpool(sp *spool.Spool) {
 	if sp == nil {
 		p.edgeMetricsSpool = nil
@@ -414,7 +422,7 @@ func appendEdgeMetricsParts[T any](
 			p.dropEdgeMetrics(m.producer, edgeDropRefused, 1, err)
 			continue
 		}
-		if _, err := p.edgeMetricsSpool.Append(part.record.GetEventId(), body); err != nil {
+		if _, err := p.edgeMetricsSpool.AppendFlow(edgeAdmissionFlow(part.record), part.record.GetEventId(), body); err != nil {
 			if permanentSpoolRefusal(err) {
 				p.dropEdgeMetrics(m.producer, edgeDropRefused, 1, err)
 				continue

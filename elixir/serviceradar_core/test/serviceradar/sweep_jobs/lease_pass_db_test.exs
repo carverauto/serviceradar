@@ -22,6 +22,8 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
   @tcp_22_443_check_set "ef27b5a15eb570030ffae530ef5e67d3af0e3b988f5f7c10f9f2bad9b2379ca1"
   @moduletag :integration
 
+  @plan_checks "sweep_lease_plan_checks:v1"
+
   setup do
     suffix = System.unique_integer([:positive, :monotonic])
     admin = %{id: Ash.UUID.generate(), email: "admin-#{suffix}@example.test", role: :admin}
@@ -127,8 +129,8 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
     assert [] == unrun!(assignment, now)
   end
 
-  # The agent refuses a slot whose plan check set differs from the check set of the sweep
-  # config it was delivered for the group, so the two must come from the same checks.
+  # The lease carries the check set and the agent runs exactly it, so it must not carry a
+  # mode the agent reports it cannot run: the check set of the config it is delivered.
   test "an agent that cannot run ICMP is planned the check set of the config it is delivered",
        ctx do
     lease_on!(ctx, 3_600)
@@ -139,7 +141,7 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
         "agent-noicmp-#{ctx.suffix}",
         ctx.partition.slug,
         "192.0.2.11",
-        ["sweep", "icmp.unavailable"]
+        [@plan_checks, "sweep", "icmp.unavailable"]
       )
 
     group =
@@ -168,6 +170,35 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
 
       assert digest == @tcp_22_443_check_set
     end
+  end
+
+  # An agent that cannot execute a slot from the checks its lease carries would run it from
+  # config, so it is not leased: its assignment is revoked and it runs the group on its ticker.
+  test "an agent that stops reporting plan-carried execution loses its lease", ctx do
+    lease_on!(ctx, 3_600)
+    group = leased_group!(ctx)
+    now = DateTime.utc_now()
+
+    for capabilities <- [["sweep_lease_v1", "sweep"], nil] do
+      set_capabilities!(ctx.agent, [@plan_checks])
+      assert %{leases: 1} = LeasePass.reconcile_group(group, now)
+      assignment = assignment!(group, ctx.agent)
+      assert %{state: :active} = assignment
+      assert unrun!(assignment, now) != []
+
+      set_capabilities!(ctx.agent, capabilities)
+      assert %{leases: 0, errors: 0} = LeasePass.reconcile_group(group, now)
+      assert %{state: :revoked} = assignment!(group, ctx.agent)
+      assert [] == unrun!(assignment, now)
+    end
+  end
+
+  defp set_capabilities!(agent_id, capabilities) do
+    %{num_rows: 1} =
+      Repo.query!("UPDATE platform.ocsf_agents SET capabilities = $2 WHERE uid = $1", [
+        agent_id,
+        capabilities
+      ])
   end
 
   test "changed targets re-plan every unrun slot onto the new ranges without an epoch bump",
@@ -451,7 +482,7 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
     partition
   end
 
-  defp agent_with_device!(admin, uid, partition, ip, capabilities \\ []) do
+  defp agent_with_device!(admin, uid, partition, ip, capabilities \\ [@plan_checks]) do
     device_uid = "device-#{uid}"
 
     assert {:ok, _device} =

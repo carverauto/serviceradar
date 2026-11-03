@@ -71,6 +71,10 @@ type Server struct {
 	// sockets is the ICMP sweep and MTR socket probe taken when the server is
 	// built. The startup log and every capability report read it.
 	sockets socketProbe
+	// tcpSynIPv6Unavailable latches once a leased slot was refused because
+	// raw IPv6 SYN would run as connect; capability reports then carry
+	// tcp_syn_ipv6.unavailable.
+	tcpSynIPv6Unavailable atomic.Bool
 	// synScanGate is shared by the raw SYN scanner of every sweep group, so the
 	// agent runs one raw SYN scan at a time.
 	synScanGate *scan.SYNScanGate
@@ -101,6 +105,9 @@ type EdgeSpoolHealth struct {
 	PermanentRejections uint64
 	QuarantineEvicted   uint64
 	QuarantineDropped   uint64
+	// AdmissionPaused is set while producer admission is paused at the spool
+	// high water (go/pkg/edge/admission).
+	AdmissionPaused bool
 }
 
 // EdgeSpoolSampler reads edge-spool health. ok is false when the spool cannot
@@ -258,10 +265,16 @@ type EdgeRecordSenderConfig struct {
 	Enabled bool `json:"enabled"`
 	// SweepEnabled opts leased static sweeps into durable edge records.
 	SweepEnabled bool `json:"sweep_enabled,omitempty"`
-	// MetricsEnabled lets metric producers emit metrics batch records while core
-	// grants this agent the metrics batch contract. Without a grant they keep the
-	// legacy status path.
+	// MetricsEnabled connects the metrics spool. Metric producers emit metrics
+	// batch records while core grants the metrics batch contract. Flow-attribution
+	// windows and OTLP relay frames use that same spool while core grants their
+	// contracts. Without the spool or the matching grant, each producer keeps
+	// its legacy status path.
 	MetricsEnabled bool `json:"metrics_enabled,omitempty"`
+	// TelemetryEnabled lets plugin and add-on telemetry producers emit
+	// telemetry batch records while core grants this agent the telemetry
+	// batch contract. Without a grant they keep the legacy status path.
+	TelemetryEnabled bool `json:"telemetry_enabled,omitempty"`
 	// MaxBytes bounds durable spool admission; zero uses 256 MiB.
 	MaxBytes uint64 `json:"max_bytes,omitempty"`
 	// SpoolDir is the directory holding the agent's edge-record spool segment
@@ -276,7 +289,7 @@ type EdgeRecordSenderConfig struct {
 // records. Such a sender must persist terminal acknowledgements so the spool
 // reclaims what the gateway accepted.
 func (c *EdgeRecordSenderConfig) ProducersEnabled() bool {
-	return c != nil && (c.SweepEnabled || c.MetricsEnabled)
+	return c != nil && (c.SweepEnabled || c.MetricsEnabled || c.TelemetryEnabled)
 }
 
 type BumblebeeStatusConfig struct {

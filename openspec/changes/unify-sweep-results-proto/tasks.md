@@ -5,8 +5,11 @@
 > Work on runtime trust, agent emission, normal sweep domain projection and
 > deployment wiring concurrently. Close this checkpoint only with fresh
 > post-rollout execution, ledger and domain-row evidence. The 24-hour parallel
-> comparison, reconnect grants, audit routes and fault drills remain owed;
-> they do not block the first current-epoch canary run. Preserve authentication,
+> comparison, reconnect grants and fault drills remain owed, as do the DLQ
+> routes other than the narrowed audit and security-quarantine streams
+> (task 3.5, and task 5.7 now in `add-edge-record-stream-partitioning`). They
+> do not block the first current-epoch canary run.
+> Preserve authentication,
 > durable PubAck, replay idempotency and a finite spool bound throughout.
 
 > **ACTIVE WORK ORDER (scope amendment 2026-09-28, maintainer-approved):**
@@ -34,6 +37,16 @@
 > legacy cutover. PARTIAL and TODO items stay unchecked with a one-line note of
 > what remains. The "Current pickup" paragraph below predates the merge of
 > `usp-01-proposal` to `staging` (#3597).
+>
+> **Follow-up areas split out on 2026-11-02.** Items marked "MOVED to" are
+> checked here and carried, with their original text, by the named change:
+> `add-edge-spool-recovery-coordinator`, `add-edge-contract-registry-lifecycle`,
+> `add-edge-record-stream-partitioning`, `harden-edge-record-transport`,
+> `add-edge-inventory-run-completeness`, `add-edge-scan-and-mtr-policy`, and
+> `add-edge-pipeline-benchmarks`. The legacy removal (M4.2, 2.1, 7.4, 7.5) is
+> `move-agent-telemetry-to-edge-records` task 8.1, which already owns it. The
+> matching requirement deltas moved with the tasks, and the deltas of
+> superseded items were removed.
 
 ## Active: end-to-end milestones
 
@@ -291,9 +304,10 @@ in `choices.md` and the chart README.
     `ServiceRadarAgentGateway.EdgeRecordTrustRefresh` (#6181) refreshes
     `ServiceRadar.Edge.RecordTrust.snapshot/0` (sweep assignments and output
     grants), exercised by `integration_tests/edge_record/authority_test.go`.
-    Missing: a stale epoch with a delivery grant is withheld in
-    `EdgeRecordIngestServer` instead of published as
-    `audit_publication`/`ledger_only`; needs M2.0g and the 3.5 audit route.
+    The gateway audit route has landed (task 3.5): a stale epoch presented with
+    a valid delivery grant is `audit_publication` / ledger-only. Still missing
+    is M2.0g, the delivery-grant issuer, so a backlog record does not yet
+    obtain that grant.
   - [ ] M2.0g Delivery after reconnect. On reconnect the agent obtains a
     per-record delivery grant (`EdgeDeliveryClaimsV1` same-spool renewal:
     `event_id`, `record_sha256`, `spool_id`, `sequence`) for each unresolved
@@ -315,12 +329,12 @@ in `choices.md` and the chart README.
     `SweepCorrelate.ingest_own_payload/1` already gates EventWriter sweep ingest.
     `ServiceRadar.SweepJobs.LeaseMisses` owns the mark, and
     `ServiceRadar.Edge.SweepProjection` reopens a later projecting batch.
-  - [ ] M2.0i Plan-carried checks. A leased slot executes the checks, ports and
+  - [x] M2.0i Plan-carried checks. A leased slot executes the checks, ports and
     targets its signed plan carries, never its sweep config (Decision 12 in
     `design.md`). Each slice lands on its own, in this order:
-    PARTIAL (reconciled 2026-11-02): M2.0i2 (#6259) and M2.0i5 are done; M2.0i1
-    is #6260 (open); M2.0i3 and M2.0i4 remain.
-    - [ ] M2.0i1 Proto. `SweepCheckSetV1`, `SweepLeaseV1.check_sets = 11`,
+    DONE (reconciled 2026-11-02): M2.0i1 (#6260), M2.0i2 (#6259), M2.0i3,
+    M2.0i4, and M2.0i5 are done.
+    - [x] M2.0i1 Proto. `SweepCheckSetV1`, `SweepLeaseV1.check_sets = 11`,
       `SweepLeaseSlotRefusal` with its reason enum, and
       `ControlStreamRequest.sweep_lease_slot_refusal = 8`, regenerated for Go
       and Elixir. Add a synthetic golden lease fixture under
@@ -328,23 +342,21 @@ in `choices.md` and the chart README.
       validates, with negative cases for a mismatched digest, an unresolved
       set, a set no slot references, and a slot-carrying `lease_version` 1
       push. A check set that is not a product of modes and ports is not a
-      decode failure. Nothing reads the new fields yet.
-      PARTIAL (reconciled 2026-11-02): implemented on `feat/plan-checks-proto`
-      (#6260, open, in CI); not on `staging`.
+      decode failure.
+      DONE (reconciled 2026-11-02): #6260. M2.0i3 reads the fields:
+      `LeaseDelivery` carries `SweepCheckSetV1`, and the gateway forwards
+      `SweepLeaseSlotRefusal`.
     - [x] M2.0i2 Sweeper run spec. `NetworkSweeper.RunPlannedWithObserver` runs
       one execution from a run-scoped copy of the config with networks, modes
       and ports replaced. The run path reads that copy instead of `s.config`,
-      so `UpdateConfig` during the run cannot change it. No caller yet.
+      so `UpdateConfig` during the run cannot change it. M2.0i4 is the caller.
       DONE (reconciled 2026-11-02): #6259:
       `NetworkSweeper.RunPlannedWithObserver` in
       `go/pkg/sweeper/sweeper_lifecycle.go`; `sweeper_planned_run_test.go`
       covers a config update during the run and modes the config lacks.
-    - [ ] M2.0i3 Core carrier. Depends on
-      `fix/lease-plan-agent-capability-checks` (not yet on staging). Until that
-      change lands, the planner uses one group-level check set. The branch
-      adds `SweepCompiler.agent_scan_modes/3` and
-      `LeaseEligibility.agent_checks/3`, which this task then uses for
-      per-agent check sets. `icmp.unavailable` and `mtr.unavailable` withhold
+    - [x] M2.0i3 Core carrier. Builds on
+      `SweepCompiler.agent_scan_modes/3` and `LeaseEligibility.agent_checks/3`
+      (per-agent check sets). `icmp.unavailable` and `mtr.unavailable` withhold
       those modes. The planner does not lease a group whose check set would
       need IPv6 SYN to an agent reporting `tcp_syn_ipv6.unavailable`.
       `sweep_lease_plan_checks:v1` names digest grammar 1, and core does not
@@ -353,21 +365,19 @@ in `choices.md` and the chart README.
       `lease_version` 2 when the push carries slots. A push with no slots
       stays `lease_version` 1: `revoked` true is a revocation, and `revoked`
       false merges by lease id. The same lease id window-merges (the high-water
-      clear). A different lease id replaces the installed lease (the 1µs empty
+      clear). A different lease id replaces the installed lease (the 1-microsecond empty
       window when nothing is unrun). `LeaseAgents` candidates require
       `sweep_lease_plan_checks:v1`. Core records `SweepLeaseSlotRefusal` as
       `refused`. A refusal for the same assignment and lease moves
       `missed_offline` or `missed_exhausted` to `refused`, and `refused` is
-      terminal, so `LeaseMisses` does not relabel it. Until agents advertise
-      the capability, no agent is leased, and each leased group runs on its
-      local ticker. Release this slice and M2.0i4 together, in either order,
-      so that gap lasts only as long as the agent rollout.
-      TODO (reconciled 2026-11-02): the dependency landed: #6257 put
-      `SweepCompiler.agent_scan_modes/3` and `LeaseEligibility.agent_checks/3`
-      on `staging`. Remaining: carry the check sets, `lease_version` 2, the
-      refusal record and the capability gate in `LeaseDelivery`/`LeaseAgents`;
-      needs M2.0i1.
-    - [ ] M2.0i4 Agent execution. The install gate accepts `lease_version` 2
+      terminal, so `LeaseMisses` does not relabel it. An agent that does not
+      advertise the capability is not leased, and each of its groups runs on
+      its local ticker.
+      DONE: `LeaseAgents` gates on the capability, `LeaseDelivery` carries
+      the agent's `SweepPlan.check_set/1` at `lease_version` 2,
+      `LeaseEligibility` applies the IPv6 SYN rule, and
+      `ExecutionSlots.refuse/2` records refusals the gateway forwards.
+    - [x] M2.0i4 Agent execution. The install gate accepts `lease_version` 2
       for a push that carries slots and `lease_version` 1 for every push with
       no slots. `revoked` true withdraws the lease and the ticker resumes.
       `revoked` false merges by lease id: the same lease id drops installed
@@ -378,9 +388,7 @@ in `choices.md` and the chart README.
       push's `lease_version`. A slot-less same-lease merge keeps the installed
       lease's `lease_version` and the check sets its retained slots reference,
       and never lowers that version. A push that carries slots stores its own
-      `lease_version`, which is 2, as the current clone already does.
-      `mergeSweepLease` currently clones the push's version; this slice changes
-      the slot-less same-lease merge. An installed `lease_version` 2 with a
+      `lease_version`, which is 2. An installed `lease_version` 2 with a
       started slot, after a same-lease empty `lease_version` 1 push, is stored
       at `lease_version` 2, survives reload with the ticker suppressed, and
       that slot resumes from the plan. The ticker stays suppressed while the
@@ -408,10 +416,10 @@ in `choices.md` and the chart README.
       config-versus-plan check-set and network comparisons are deleted. The
       planner does not lease a group whose check set would need IPv6 SYN to
       an agent that reports `tcp_syn_ipv6.unavailable`.
-      TODO (reconciled 2026-11-02): agent install gate, merge rules,
-      `RunPlannedWithObserver` caller, refusal persistence and the
-      `sweep_lease_plan_checks:v1` advertisement; needs M2.0i1, ships with
-      M2.0i3.
+      DONE: agent install gate, merge rules, `RunPlannedWithObserver` caller,
+      refusal persistence and the `sweep_lease_plan_checks:v1` advertisement.
+      M2.0i1 and M2.0i3 are on staging, so core leases agents that advertise
+      the capability.
     - [x] M2.0i5 Batch check-set verification. Core rejects a leased batch whose
       `tested_checks` digest differs from the slot's signed `check_set_sha256`,
       as an authority refusal (`:sweep_check_set_mismatch`: rollback, no
@@ -434,12 +442,8 @@ in `choices.md` and the chart README.
   `addSweepCheckResult` carries ICMP sent/received, hostname and per-port
   errors) with the `go/pkg/edge/obsbatch` byte-bounded builder, appended to the
   shared spool. Known defect, not a task: the slot claim runs before the first
-  append, so a refused append burns the slot. Known defect, not a task: fresh
-  installs lack the 'default' partition row, so
-  `OutputGrants.config_grants/2` and the lease pass get
-  `{:error, :partition_not_found}` and never issue grants or leases; the
-  warning hides the reason in metadata. Being fixed on branch
-  `fix/default-partition-for-edge-grants`.
+  append, so a refused append burns the slot. The missing `default` partition
+  row is seeded by migration `20261102231152_seed_default_partition`.
 - [x] M2.2 Per-agent opt-in. An agent opted in leases a sweep group only when
   that group is enabled, has non-empty `static_targets`, no `target_query`, and
   every static target fits one `TargetRangeV1`: core schedules it (M2.0) and
@@ -548,9 +552,19 @@ in `choices.md` and the chart README.
 - [ ] M3.2 Backpressure. Sweep admission pauses at the spool high-water mark and
   resumes at the low-water mark, and an execution is never reported complete
   while its records are unresolved (narrows 2.6).
-  TODO (reconciled 2026-11-02): `go/pkg/edge/admission` has no importers. Wire
-  spool high/low-water admission into the sweep producer and the standing-grant
-  producers, and hold completion while records are unresolved.
+  PARTIALLY LANDED: `admission.Gate` applies the bulk high/low-water hysteresis
+  to the spool allocator's ordinary usage (80 and 50 percent of the ordinary
+  ceiling), and `spool.WithAdmissionGate` refuses a deferred commit with
+  `ErrAdmissionPaused`, which matches `ErrAdmissionRefused` and writes
+  nothing. Pause is that hysteresis. Between the marks the same gate also
+  defers a flow ahead of its share; that rule is task 2.7. Every producer on
+  the agent spool is bulk, so leased sweeps wait, and metrics and unleased
+  sweep results keep their records queued, until reclaim brings the spool to
+  the low water. The agent exports `agent_edge_spool_admission_paused`.
+  `admission.Controller` stays unwired: it frees charged bytes only through a
+  reclaim authorization nothing can mint before task 2.28. This item stays
+  unchecked until the farm01 verification; the rest of task 2.7 stays open.
+  Holding execution completion while records are unresolved remains TODO.
 - [ ] M3.3 Fault drill. During active sweeps on farm01, restart the gateway,
   core (EventWriter), NATS and the canary agent, each at least once
   mid-execution. Afterwards CNPG shows zero missing and zero duplicated host
@@ -575,9 +589,9 @@ in `choices.md` and the chart README.
   TODO (reconciled 2026-11-02): deployment evidence only. Unleased
   (`target_query`) groups now count via the unleased contract (#6255), so every
   farm01 agent can be on the edge path.
-- [ ] M4.2 Remove the legacy sweep-results emission and decode for agents on the
+- [x] M4.2 Remove the legacy sweep-results emission and decode for agents on the
   edge path in a separately gated cleanup release (narrows 7.4 and 7.5).
-  TODO (reconciled 2026-11-02): executed as task 8.1 of
+  MOVED to `move-agent-telemetry-to-edge-records` task 8.1 (2026-11-02); remaining: executed as task 8.1 of
   `move-agent-telemetry-to-edge-records`: one release removes every legacy agent
   emission (except RTSP/live media) after each family's parity soak;
   per-producer cutoff applies until then.
@@ -800,28 +814,28 @@ change together with the requirements they implement.
 
 ## 0. Baseline and approve capacity assumptions
 
-- [ ] 0.1 Capture 1k, 10k, 100k, and 1M target fixtures for ICMP plus zero,
+- [x] 0.1 Capture 1k, 10k, 100k, and 1M target fixtures for ICMP plus zero,
   five, ten, and fifty TCP ports, including realistic sparse open ports and
   failures.
-  TODO (reconciled 2026-11-02): follow-up change (`add-edge-pipeline-benchmarks`
+  MOVED to `add-edge-pipeline-benchmarks` (2026-11-02); remaining: follow-up change (`add-edge-pipeline-benchmarks`
   owns fixture-driven throughput).
-- [ ] 0.2 Capture scheduled, sweep-profile, ad-hoc, and on-demand MTR fixtures
+- [x] 0.2 Capture scheduled, sweep-profile, ad-hoc, and on-demand MTR fixtures
   with ECMP, MPLS, ASN, DNS, unreachable targets, partial hops, and maximum
   configured bounds.
-  TODO (reconciled 2026-11-02): follow-up; MTR fixtures now serve
+  MOVED to `add-edge-pipeline-benchmarks` (2026-11-02); remaining: follow-up; MTR fixtures now serve
   `move-agent-telemetry-to-edge-records` task 3.1.
-- [ ] 0.3 Measure current end-to-end JSON and duplicate `MetricBatch` bytes,
+- [x] 0.3 Measure current end-to-end JSON and duplicate `MetricBatch` bytes,
   CPU, allocations, peak RSS, BEAM mailbox/queue bytes, gateway loss behavior,
   NATS traffic, database rows, index/WAL bytes, and query latency.
-  TODO (reconciled 2026-11-02): follow-up (`add-edge-pipeline-benchmarks`).
-- [ ] 0.4 Produce and approve a capacity plan for burst rate, supported outage,
+  MOVED to `add-edge-pipeline-benchmarks` (2026-11-02); remaining: follow-up (`add-edge-pipeline-benchmarks`).
+- [x] 0.4 Produce and approve a capacity plan for burst rate, supported outage,
   agent spool bytes, JetStream logical and replica bytes per physical stream
   shard, stream/consumer RAFT and connection cardinality, consumer drain rate,
   shared CNPG transaction credits/ingest rate, raw retention, and MTR probe
   budget. Include correctness-metadata retirement bucket width, live partition
   count, row/index-byte ceiling, partition-retirement throughput, exceptional
   hold capacity, and accepted domain-replay horizon.
-  TODO (reconciled 2026-11-02): follow-up capacity plan; no approved figures
+  MOVED to `add-edge-pipeline-benchmarks` (2026-11-02); remaining: follow-up capacity plan; no approved figures
   exist.
 - [x] 0.5 Archive the unimplemented `add-bulk-payload-pipeline` and revise the
   active `add-adhoc-network-scan` contract to use canonical events.
@@ -831,11 +845,11 @@ change together with the requirements they implement.
   Decision 3: sweep-mode MTR traces use the standing-grant MTR contract, so
   `add-sweep-profile-mtr-mode` no longer rebases onto a sweep-lease trace
   contract.
-- [ ] 0.7 Capture representative Wasm metric/event/inventory output, native
+- [x] 0.7 Capture representative Wasm metric/event/inventory output, native
   add-on telemetry and OTLP relay, and embedded Armis discovery fixtures.
   Measure producer-to-agent copies, JSON/base64 amplification, queue-loss
   windows, peak memory, records/bytes per run, and downstream row/write cost.
-  TODO (reconciled 2026-11-02): follow-up; the plugin, OTLP and flow contracts
+  MOVED to `add-edge-pipeline-benchmarks` (2026-11-02); remaining: follow-up; the plugin, OTLP and flow contracts
   (#6245, #6262, #6264) carry synthetic fixtures only.
 - [x] 0.8 Approve which existing outputs are durable records, ephemeral state,
   command/action traffic, or blob/media traffic. Publish a migration inventory;
@@ -882,7 +896,7 @@ change together with the requirements they implement.
 > both validators, the byte checks, and the fixtures land atomically. THIS change
 > DEPENDS ON that one and MUST NOT re-freeze any contract it owns.
 
-- [ ] 1.8 Add `ProducerRunEventV1` and typed
+- [x] 1.8 Add `ProducerRunEventV1` and typed
   `DeviceInventoryObservationBatchV1` contracts with provider/source identity,
   bounded pages, stable item keys, page ordinal/content digest, cursor, start,
   checkpoint, complete/partial/aborted terminal manifest, and absence/deletion
@@ -890,7 +904,7 @@ change together with the requirements they implement.
   ordered Merkle/checkpoint root, assignment-authorized coverage scope, and
   provider snapshot token/revision or contract-specific consistency proof;
   without completeness proof, a run is upsert-only.
-  PARTIAL (reconciled 2026-11-02): per-family typed inventory batches replace a
+  MOVED to `add-edge-inventory-run-completeness` (2026-11-02); remaining: per-family typed inventory batches replace a
   generic inventory batch (`move-agent-telemetry-to-edge-records` task 7.1:
   #6215, #6221). Run lifecycle events and absence-on-complete semantics are not
   built; follow-up.
@@ -917,7 +931,7 @@ change together with the requirements they implement.
   Decisions 1, 2 and 8: per-(agent, contract, epoch) standing output grants in
   the agent config and `ServiceRadar.Edge.ContractCatalog` replace package
   output requests.
-- [ ] 1.11 Define the signed registry lifecycle and activation protocol with
+- [x] 1.11 Define the signed registry lifecycle and activation protocol with
   `candidate`, `ready`, `active`, `draining`, `retired`, and
   `security-revoked` states. Require readiness evidence for the target agent
   cohort, every authoritative gateway route/map generation, and every required
@@ -927,21 +941,21 @@ change together with the requirements they implement.
   bounded watermarks. Security revocation stops both production and delivery
   fail-closed until an approved safe replacement/redrive or waiver exists.
   Define rollback, stale-component fencing, bundle retention, and GC rules.
-  PARTIAL (reconciled 2026-11-02): `EdgeContractRegistry` withholds non-active
+  MOVED to `add-edge-contract-registry-lifecycle` (2026-11-02); remaining: `EdgeContractRegistry` withholds non-active
   bundles and holds security-revoked ones against a static registry document;
   the signed lifecycle, readiness evidence and atomic epoch switch are not built
   (an epoch change is a manual leasing-off procedure). Follow-up.
-- [ ] 1.12 Define a deterministic platform-owned cost API and golden fixtures
+- [x] 1.12 Define a deterministic platform-owned cost API and golden fixtures
   for each output contract. The agent SHALL compute the trusted conservative
   charge or reserve the grant maximum, the gateway SHALL validate that trusted
   stamp against the active bundle without trusting caller metadata, and
   EventWriter SHALL recompute decoded actual rows/write bytes before refund or
   commit. Underdeclared, unknown-model, overflow, or nondeterministic cost is a
   protocol failure, never authority to perform a partial write.
-  PARTIAL (reconciled 2026-11-02): cost model version 1 plus per-contract bounds
+  MOVED to `add-edge-contract-registry-lifecycle` (2026-11-02); remaining: cost model version 1 plus per-contract bounds
   in `ServiceRadar.Edge.ContractCatalog`; no per-contract golden cost fixtures,
   gateway stamp validation or EventWriter refund. Follow-up.
-- [ ] 1.16 Runtime integration of the publication-identity codec at the trust
+- [x] 1.16 Runtime integration of the publication-identity codec at the trust
   boundaries (requires live infra; separate from the pure codec in 1.14): (a) at
   ingress, extract EXACTLY ONE value per required publication-identity header with
   CASE-INSENSITIVE name matching, rejecting missing/duplicate headers fail-closed;
@@ -1088,7 +1102,7 @@ change together with the requirements they implement.
   not yet the live gRPC codec, which this task adds.) (Service lane/sequence DURABILITY
   is owned by the governed service publisher, NOT the gateway/EventWriter; see task
   4.6.)
-  PARTIAL (reconciled 2026-11-02): `ServiceRadar.Edge.WireDecode` now has
+  MOVED to `harden-edge-record-transport` (2026-11-02); remaining: `ServiceRadar.Edge.WireDecode` now has
   production callers (gateway authorization, core projections). The custom
   edge-ingest `GRPC.Codec`, transport-level length check before buffering and
   the compression refusal are not built.
@@ -1110,10 +1124,10 @@ change together with the requirements they implement.
 > the durable assignment mapping -- so "2.20" in this change means that, not the
 > classification-span work.
 
-- [ ] 2.1 Refactor sweep execution so completed host windows feed the result
+- [x] 2.1 Refactor sweep execution so completed host windows feed the result
   pipeline continuously while scanning continues; remove full-run result JSON
   construction and delivery ownership from `GetSummary`.
-  PARTIAL (reconciled 2026-11-02): leased runs stream host windows through the
+  MOVED to `move-agent-telemetry-to-edge-records` task 8.1 (2026-11-02); remaining: leased runs stream host windows through the
   sweeper observer (M2.1, #6259); the unleased edge path (#6255) and the legacy
   path still build from the `GetSummary` results. `GetSummary` loses delivery
   ownership at the M4.2 cutover.
@@ -1125,12 +1139,12 @@ change together with the requirements they implement.
   with a 2,000-host guard, and the catalog caps projected rows; there is no
   short flush timer. The MTR guards moved to
   `move-agent-telemetry-to-edge-records` task 3.1.
-- [ ] 2.3 Emit stable execution start, bounded progress/watermark, completion,
+- [x] 2.3 Emit stable execution start, bounded progress/watermark, completion,
   and aborted evidence, with each data frame independently decodable and useful;
   integrate scheduler lease recovery so an agent crash produces authoritative
   lost/expired/superseded attempt state and a retriable WHOLE range window (v1 has no
   sparse-remainder representation -- see task 2.3c).
-  PARTIAL (reconciled 2026-11-02): core mints the execution (M2.0b2), completes
+  MOVED to `add-edge-inventory-run-completeness` (2026-11-02); remaining: core mints the execution (M2.0b2), completes
   it at the plan's target count (M2.3) and marks missed slots (M2.0h, #6196).
   Agent-emitted start/progress/aborted evidence is not built, and
   `go/pkg/edge/execstate` has no importers.
@@ -1183,7 +1197,7 @@ change together with the requirements they implement.
   Decision 3: leased plans carry no MTR (`mtr_*` zero), MTR traces are
   standing-grant records, and `go/pkg/edge/execstate` has no importers.
 
-- [ ] 2.4 Implement an fsynced segmented agent spool that persists encoded bytes,
+- [x] 2.4 Implement an fsynced segmented agent spool that persists encoded bytes,
   event IDs, sequence state, checksums, retry/quarantine state, and survives
   restart without overwriting unacknowledged data; cover record/tail checksums,
   directory fsync, private permissions, never-reused sequence high-water,
@@ -1218,10 +1232,10 @@ change together with the requirements they implement.
   sender, and added the `Resolved()` watermark read. The segmented recovery,
   rollover, and allocator obligations above are not implemented, so this task
   stays unchecked.
-  PARTIAL (reconciled 2026-11-02): plus prepaid terminal evidence (#6198) and
+  MOVED to `add-edge-spool-recovery-coordinator` (2026-11-02); remaining: plus prepaid terminal evidence (#6198) and
   the permanent-rejection quarantine (#6208). Segmented recovery, rollover and
   the single allocator remain (with 2.27, 2.28); follow-up.
-- [ ] 2.5 Add a bounded bidirectional gRPC sender with independent finite
+- [x] 2.5 Add a bounded bidirectional gRPC sender with independent finite
   platform-owned bulk/interactive and reserved recovery-control sequence/credit
   lanes, cumulative resolved
   watermarks, accepted/rejected dispositions, nonce-fenced opening handshake,
@@ -1239,7 +1253,7 @@ change together with the requirements they implement.
   (see design "Interim local quarantine"): reclaim copies each permanently
   rejected record into a bounded lane quarantine before it checkpoints past the
   segment, so one rejection no longer stops the spool from reclaiming.
-  PARTIAL (reconciled 2026-11-02): a single-lane sender with reconnect replay
+  MOVED to `harden-edge-record-transport` (2026-11-02); remaining: a single-lane sender with reconnect replay
   and stale-nonce ack rejection. Per-lane RPCs and pools and delivery-capability
   renewal (M2.0g) remain.
 - [ ] 2.6 Connect scanner admission to spool and network pressure: pause/defer
@@ -1264,6 +1278,16 @@ change together with the requirements they implement.
   file descriptors, ICMP tokens, DNS concurrency, CPU, spool, and sender credits.
   TODO (reconciled 2026-11-02): required before high-volume families move
   (`move-agent-telemetry-to-edge-records` task 1.3).
+  PARTIAL: the agent spool's admission boundary is byte-fair across producer
+  flows. `admission.Gate.AdmitFlow` keys a flow by the signed network scope,
+  origin, assignment, run and shard, contract and traffic class
+  (`edgeAdmissionFlow`). Between the low and high water it admits a flow only
+  while it is less than one 256 KiB quantum ahead of the least-served flow seen
+  in the last two minutes, and a flow's count trails the lead by at most the
+  distance between the marks. A burst therefore waits for a slower producer
+  instead of filling the spool to the pause. Deferred records stay with their
+  producer, so nothing is dropped or reordered. The site scheduler, the
+  sender's credit window and the interactive execution floor remain open.
 - [x] 2.8 Emit the small MTR summary on its correlated sweep host and the complete
   trace through `MtrTraceBatchV1` for every producer mode; allow an independently
   revisioned MTR-mode fragment to follow ICMP/TCP without suppressing it, and
@@ -1274,12 +1298,12 @@ change together with the requirements they implement.
   SUPERSEDED (reconciled 2026-11-02): by `move-agent-telemetry-to-edge-records`
   Decision 3 and task 3.1: every MTR trace moves to the agent-scheduled MTR
   contract (#6256), independent of the sweep host.
-- [ ] 2.9 Advertise producer-plane protocol, registry epoch/bundle, encoder,
+- [x] 2.9 Advertise producer-plane protocol, registry epoch/bundle, encoder,
   validator, cost-model, route-profile, and spool-reader support in Hello and
   select one exact sticky output-contract bundle per run from the compiled grant
   plus end-to-end readiness; do not use a config hash as the gate and never emit
   a second authoritative representation for one semantic event.
-  PARTIAL (reconciled 2026-11-02): Hello advertises `sweep_lease_v1` and
+  MOVED to `add-edge-contract-registry-lifecycle` (2026-11-02); remaining: Hello advertises `sweep_lease_v1` and
   contract grants carry the registry epoch and bundle. Encoder, validator,
   cost-model and spool-reader versions are not advertised. Low confidence; may
   be superseded by the standing-grant model.
@@ -1380,7 +1404,7 @@ change together with the requirements they implement.
   it, so a retry cannot permanently wedge the prefix. `ResolvedThrough` and
   `ReclaimableThrough` are separate watermarks and a PubAcked prefix does not
   advance local reclamation.
-- [ ] 2.17 **Correct `admission`: free bytes on durable terminal outcome only.**
+- [x] 2.17 **Correct `admission`: free bytes on durable terminal outcome only.**
   It releases reserved bytes when the gateway resolves, which reclaims evidence
   before the agent can prove the outcome survived its own restart. Release MUST
   follow the durable terminal record and the coverage proof. Test that a crash
@@ -1406,14 +1430,14 @@ change together with the requirements they implement.
   coverage computation (task 2.28); modelling any of them here means inventing
   semantics for an owner that does not exist yet and then keeping two
   definitions in agreement by hand.
-  PARTIAL (reconciled 2026-11-02): unchanged: the admission side is merged, but
-  `go/pkg/edge/admission` has no importers and the end-to-end authorization is
-  task 2.28.
-- [ ] 2.18 **Correct `projection`: use the v2 idempotency and cost model.** It
+  MOVED to `add-edge-spool-recovery-coordinator` (2026-11-02); remaining: the admission side is merged. M3.2 imports
+  `admission.Gate` from `go/cmd/agent`. `Controller` still has no caller, and
+  the end-to-end reclaim authorization remains task 2.28.
+- [x] 2.18 **Correct `projection`: use the v2 idempotency and cost model.** It
   applies the wrong idempotency key and cost model for v2 records. Align both with
   the record identities and the versioned cost contract, and test replay
   idempotence plus cost accounting against the v2 model.
-  TODO (reconciled 2026-11-02): low confidence: EventWriter idempotency now
+  MOVED to `add-edge-contract-registry-lifecycle` (2026-11-02); remaining: low confidence: EventWriter idempotency now
   lives in the Elixir ledger, and `go/pkg/edge/projection` supplies the agent's
   row counts. Re-scope or retire in the follow-up.
 - [x] 2.19 **Hold the edge feature PR until 2.15-2.18 are demonstrated.** The edge feature
@@ -1426,16 +1450,16 @@ change together with the requirements they implement.
   SUPERSEDED (reconciled 2026-11-02): the edge feature branch merged to
   `staging` in #3597 under the 2026-09-28 scope amendment; the integration gate
   no longer applies.
-- [ ] 2.20a **OWN the assignment mapping's tagged VALUE shape.** The ABI change froze
+- [x] 2.20a **OWN the assignment mapping's tagged VALUE shape.** The ABI change froze
   the KEY only; it explicitly does NOT freeze the value, because no message there
   represents a POSITIVE / EXPLICIT_NEGATIVE body or a durable negative reason. Define
   the tagged body here -- POSITIVE (execution/plan/range identities and digests, shard,
   epoch, contract-specific correlation operand) or EXPLICIT NEGATIVE (durable negative
   evidence and reason, no positive-only fields). A single untagged schema cannot
   express both, because a durable negative means there is no execution.
-  TODO (reconciled 2026-11-02): follow-up (recovery coordinator prerequisite).
+  MOVED to `add-edge-spool-recovery-coordinator` (2026-11-02); remaining: follow-up (recovery coordinator prerequisite).
 
-- [ ] 2.20 **Implement the durable assignment mapping (runtime half of the split
+- [x] 2.20 **Implement the durable assignment mapping (runtime half of the split
   1.3).** The `freeze-edge-record-v1-abi` change freezes the KEY ONLY --
   `(trust_namespace, span_identity)`. It does NOT freeze the tagged POSITIVE /
   EXPLICIT-NEGATIVE value shape: no message there represents one, so the earlier
@@ -1456,8 +1480,8 @@ change together with the requirements they implement.
   `RecoveryResolvedV1`). Without this task the durable requirement below has no
   implementer: the ABI change's 1.3 covers only schema and correlation, and 2.22
   CONSUMES the join rather than implementing the mapping.
-  TODO (reconciled 2026-11-02): follow-up (recovery coordinator prerequisite).
-- [ ] 2.21 **Scope generations to lanes and freeze one identity per lane.** Bind
+  MOVED to `add-edge-spool-recovery-coordinator` (2026-11-02); remaining: follow-up (recovery coordinator prerequisite).
+- [x] 2.21 **Scope generations to lanes and freeze one identity per lane.** Bind
   each generation to ONE (route profile, traffic class) lane drawn from the finite
   platform taxonomy, with its own open generation, sequence space, and reclamation
   state, so bulk, interactive, and recovery run CONCURRENTLY — not one open
@@ -1470,11 +1494,11 @@ change together with the requirements they implement.
   Closed-but-unreclaimed generations must remain independently recoverable under
   their own frozen identity. Test concurrent lanes, per-lane rotation isolation,
   and that rotation is retryable while unauthorized identity is permanent.
-  PARTIAL (reconciled 2026-11-02): `spool.LaneSet` in
+  MOVED to `add-edge-spool-recovery-coordinator` (2026-11-02); remaining: `spool.LaneSet` in
   `go/pkg/edge/spool/lanes.go` implements per-lane generations and the retryable
   `ROTATION_REQUIRED`, with tests; the agent still opens one spool. Wiring is
   follow-up.
-- [ ] 2.22 **Bind attribution to the accepted record in the spool
+- [x] 2.22 **Bind attribution to the accepted record in the spool
   (`usp2-05b-spool-attribution`; needs companion ABI task 1.3, plus local 2.10, 2.20 and 2.21).** It CONSUMES the durable assignment mapping that local task 2.20
   implements; without that dependency 2.22 could be checked against a mapping that
   does not exist. INVOKE the validators task 1.3 implements rather than restating their
@@ -1516,7 +1540,7 @@ change together with the requirements they implement.
   APPEND-TIME semantic-join mismatch, which MUST be a permanent refusal with
   nothing stored; and LATER CORRUPTION of a binding that verified at append time,
   which MUST degrade the span to unattributable rather than to a wrong authority.
-  TODO (reconciled 2026-11-02): follow-up (needs 2.20, 2.21 wiring).
+  MOVED to `add-edge-spool-recovery-coordinator` (2026-11-02); remaining: follow-up (needs 2.20, 2.21 wiring).
 - [x] 2.23 **Make restart resolution total over redundant commit evidence.**
   Store commit evidence with redundancy INDEPENDENT of the record segment, each
   copy carrying a MONOTONIC EVIDENCE GENERATION and a digest over its own
@@ -1590,12 +1614,12 @@ change together with the requirements they implement.
   alternating A,B run bound, the keys and manifest legs, restart persistence,
   and that any admitted segment's worst-case manifest validates within the
   recovery grammar's page and byte ceilings.
-- [ ] 2.25 **Preserve attribution across relocation.** Carry the bound relation
+- [x] 2.25 **Preserve attribution across relocation.** Carry the bound relation
   through rollover, compaction, and scratch copies; re-verify the binding and
   re-checksum at the destination BEFORE the source becomes eligible for release;
   degrade a span that cannot be verified to unattributable rather than dropping or
   blindly copying it.
-  TODO (reconciled 2026-11-02): follow-up (needs 2.27).
+  MOVED to `add-edge-spool-recovery-coordinator` (2026-11-02); remaining: follow-up (needs 2.27).
 - [x] 2.26 **Implement the reserve and allocation primitives (no coordinator
   dependency).** Reserve a budget excluded from producer admission and sized for
   the AGGREGATE a recovery must durably write — destination segment, attribution
@@ -1620,7 +1644,7 @@ change together with the requirements they implement.
   step fail-stops every grant and all admission; a failed record write/fsync
   stops its lane and all admission but not recovery; per-artifact exhaustion
   stops its recovery. Whether a destructive step is AUTHORIZED stays with 2.28.
-- [ ] 2.27 **Resume the saved rollover work as the agent recovery coordinator
+- [x] 2.27 **Resume the saved rollover work as the agent recovery coordinator
   (needs companion ABI task 1.6a plus local 2.10 and 2.21-2.26).** The paged-manifest/tombstone implementation
   preserved at `rescue/usp13-v2-wip-20260725` (`9a3a701f`) already builds pages,
   links them, and defers every digest to `edgerecord`'s `ManifestPageDigest` /
@@ -1647,9 +1671,9 @@ change together with the requirements they implement.
   sequence 2 preserved stays SEPARATE; adjacent ATTRIBUTED inputs differing in ONE
   identity or `range_sha256` member stay SEPARATE; adjacent `UNATTRIBUTABLE` inputs
   with DIFFERENT `reason` values stay SEPARATE.
-  TODO (reconciled 2026-11-02): follow-up; until it lands, an ambiguous sequence
+  MOVED to `add-edge-spool-recovery-coordinator` (2026-11-02); remaining: follow-up; until it lands, an ambiguous sequence
   gap wedges the lane (package `sender` doc).
-- [ ] 2.28 **Integrate post-coordinator reclamation behind the coverage proof
+- [x] 2.28 **Integrate post-coordinator reclamation behind the coverage proof
   (needs 2.26 and 2.27).** A source segment is deleted only when a durable
   coverage proof accounts for EVERY UNRECLAIMED ALLOCATED SEQUENCE in
   `(durable_local_reclaim_watermark, sequence_high_water]` — not merely every
@@ -1678,7 +1702,7 @@ change together with the requirements they implement.
   MARKERLESS in the same segment — where covering only sequence 9 MUST NOT
   authorize deletion, and sequence 10 MUST appear in the coverage proof rather
   than disappearing with no manifest entry.
-  TODO (reconciled 2026-11-02): follow-up (needs 2.27).
+  MOVED to `add-edge-spool-recovery-coordinator` (2026-11-02); remaining: follow-up (needs 2.27).
 
 ## 3. Make the gateway a durable authenticated relay
 
@@ -1740,10 +1764,11 @@ change together with the requirements they implement.
   rejection route keeps the record. A producer with no fence entry, and a key id the snapshot does
   not hold or holds without the requested purpose, are withheld as retryable. Withheld frames
   follow task 3.3's gap contract (commit `3cba585303`).
-  The runtime path is still incomplete: an AUDIT decision (a stale-epoch replay, decided with its
-  `LATE_FENCED_DELIVERY` mode and proof) and a SECURITY-QUARANTINE decision are withheld rather
-  than published. Publishing them is deferred to task 3.5, which owns their streams; EventWriter
-  does not yet act on the stamp. Every authorized record is then admitted by `EdgeContractRegistry`
+  AUDIT and SECURITY-QUARANTINE decisions are published on the routes task 3.5 owns.
+  EventWriter keeps a late-fenced audit record ledger-only and refuses an audit record
+  that is not late-fenced; the security-quarantine consumer reports the record and writes
+  nothing (task 5.7). A stale-epoch replay still needs the delivery grant M2.0g issues.
+  Every authorized record is then admitted by `EdgeContractRegistry`
   (task 3.8's narrowed slice) before it is offered; a registry withhold or hold is withheld like any
   other frame, and loading a signed registry snapshot stays open under task 3.8.
   DEFERRED FOLLOW-UP -- a runtime trust-snapshot refresh: the gateway loads
@@ -1758,7 +1783,7 @@ change together with the requirements they implement.
   the required composed target, and the runtime trust refresh exists (#6181), so
   the DEFERRED FOLLOW-UP above is closed. Remaining: stale-epoch replay under a
   delivery capability (M2.0f, M2.0g).
-- [ ] 3.3 PARTIALLY LANDED: **`usp-19`** is MERGED into `usp-01-proposal`.
+- [x] 3.3 PARTIALLY LANDED: **`usp-19`** is MERGED into `usp-01-proposal`.
   Check what it actually delivered before starting -- duplicating it is how the
   earlier 22-PR chain accumulated, and its scope is NARROWER than this task.
   ALREADY LANDED in `ServiceRadarAgentGateway.JetStreamPublisher`: the publish
@@ -1876,9 +1901,9 @@ change together with the requirements they implement.
   Group F shows the identical retry refused while the first attempt is active
   under its living owner, and admitted once after that owner reports
   termination. This does not check this task: (c) above is still open.
-  PARTIAL (reconciled 2026-11-02): remaining: the owner's decision on (c) and
+  MOVED to `harden-edge-record-transport` (2026-11-02); remaining: remaining: the owner's decision on (c) and
   the dead-owner reservation gap, which needs 3.5's request correlation.
-- [ ] 3.4 Bounded-decode and verify the bounded binary record against the mTLS
+- [x] 3.4 Bounded-decode and verify the bounded binary record against the mTLS
   session, grant, registry, route, cost, size, and digest, but publish the exact
   `EdgeDeliveryFrameV1.record_bytes` unchanged to JetStream, never the delivery
   wrapper or a larger spool-record encoding. Supply both immutable-semantic and
@@ -1893,7 +1918,7 @@ change together with the requirements they implement.
   early retryable gap prevents the cumulative prefix from advancing. Add a golden
   test proving the exact
   `EdgeRecordV1` bytes fsynced inside the agent spool equal the JetStream body.
-  PARTIAL (reconciled 2026-11-02): exact bytes are proven (vertical slice Group
+  MOVED to `harden-edge-record-transport` (2026-11-02); remaining: exact bytes are proven (vertical slice Group
   B: the spool record equals the JetStream body). The retained-memory bound on a
   long-lived lane is not proven.
 - [ ] 3.5 Compute the INTERNAL publication outcome, then MAP it to the generated
@@ -1922,9 +1947,22 @@ change together with the requirements they implement.
   prefix through the same validated idempotent publication and PubAck path, without
   subscribing to stored records or recovering private gateway state; evidence
   eviction MUST NOT surface as an ambiguous disposition state to the agent.
-  PARTIAL (reconciled 2026-11-02): primary, quarantine, permanent and retryable
-  are mapped. Audit and security-quarantine decisions are withheld (no routes or
-  DLQ streams), so this blocks M2.0f.
+  PARTIAL (reconciled 2026-11-02): primary, permanent and retryable are mapped.
+  The narrowed audit and security-quarantine routes are the note below. Ordinary
+  `quarantine_publication` still has no route, so this task stays open.
+  NARROWED SLICE LANDED (audit and security-quarantine routes): the gateway now
+  offers an `audit_publication` (stale fence under a valid delivery grant, stamped
+  `LATE_FENCED_DELIVERY`) to `telemetry.edge-record-audit.v1.bulk.pNN` and a
+  `security_quarantine_publication` to
+  `telemetry.edge-record-security-quarantine.v1.bulk.pNN`, each on its own R3
+  stream, and `PublishPipeline` resolves their PubAcks to
+  `EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUDIT_ONLY` and
+  `EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_QUARANTINE`, so neither caps the
+  lane's watermark. EventWriter keeps an audit record ledger-only and refuses
+  one that is not late-fenced; the security-quarantine consumer only reports
+  (see 5.7). Still open here: `quarantine_publication` (ordinary admitted
+  poison), the reject-audit DLQ PubAck for `permanent_rejection`, the
+  INTERACTIVE streams, and evidence-eviction replay.
 - [x] 3.6 Ensure this lane never enters `StatusBuffer`, never acknowledges an
   ERTS/Core NATS handoff as durable, and remains stateless across restarts.
   LANDED: `ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest` drives the
@@ -1953,14 +1991,14 @@ change together with the requirements they implement.
   longer moves `resolved_through_sequence` past a withheld earlier sequence: the
   first sequence a session leaves unresolved caps it (see
   `EdgeRecordIngestServer`'s moduledoc).
-- [ ] 3.7 Add byte-bounded fair queues and rate limits across network/site scope,
+- [x] 3.7 Add byte-bounded fair queues and rate limits across network/site scope,
   agent, producer assignment, run/execution, and attested traffic class so a
   noisy stream cannot starve other edge sessions before JetStream partitioning.
   Preserve separate bulk, interactive, and recovery credits through every
   gateway queue; output-contract or package cardinality MUST NOT allocate more
   lanes, connections, subjects, streams, consumers, or processes.
-  TODO (reconciled 2026-11-02): follow-up.
-- [ ] 3.8 Load the same signed output-contract/route registry epoch as the agent
+  MOVED to `harden-edge-record-transport` (2026-11-02); remaining: follow-up.
+- [x] 3.8 Load the same signed output-contract/route registry epoch as the agent
   and EventWriter. Reject unknown, revoked, digest-mismatched, route-conflicting,
   candidate, partially activated, or downstream-not-ready contracts before
   PubAck; report signed readiness for an atomic epoch switch and fence stale
@@ -1985,9 +2023,9 @@ change together with the requirements they implement.
   snapshot loading, signed readiness reporting, the atomic epoch switch and
   stale-generation fencing, planned-retirement drain under the exact bundle and
   watermark, and binding network scope to the session (task 3.2's grant).
-  PARTIAL (reconciled 2026-11-02): unchanged narrowed slice (static registry
+  MOVED to `add-edge-contract-registry-lifecycle` (2026-11-02); remaining: unchanged narrowed slice (static registry
   document, epoch 2 deployed); the signed format and lifecycle remain with 1.11.
-- [ ] 3.9 Stamp the `Sr-Edge-Transport-Provenance` header on every gateway publish,
+- [x] 3.9 Stamp the `Sr-Edge-Transport-Provenance` header on every gateway publish,
   alongside `Nats-Msg-Id` and `Sr-Edge-Delivery-Id`, over the edge slot. Its slot
   kind, framed members, delivery-proof presence rule, `delivery_mode` constants, and
   `route_map_version` validity are the ABI-frozen grammars from task 1.14 and are NOT
@@ -1996,11 +2034,11 @@ change together with the requirements they implement.
   or unknown-version provenance header as a distinct `provenance_missing`
   quarantine rather than silent acceptance. Assert the stamped headers against the
   ABI-owned vectors; do NOT generate a second cross-language corpus.
-  PARTIAL (reconciled 2026-11-02): the gateway stamps
+  MOVED to `harden-edge-record-transport` (2026-11-02); remaining: the gateway stamps
   `Sr-Edge-Transport-Provenance` (`JetStreamPublisher`), and EventWriter decodes
   it (`PublicationIdentity.decode_transport_provenance/1`). Not verified: a
   distinct `provenance_missing` quarantine for missing or duplicate headers.
-- [ ] 3.10 Implement the two-watermark state machine and keep the two watermarks
+- [x] 3.10 Implement the two-watermark state machine and keep the two watermarks
   strictly separate. The REMOTE terminal-disposition-through watermark
   (`EdgeDeliveryAckV1.resolved_through_sequence`) advances only across resolved
   terminal dispositions per task 3.5 and never references any agent-local action.
@@ -2014,21 +2052,21 @@ change together with the requirements they implement.
   cross-language golden vectors mapping fixed
   disposition/reclaim event sequences to the expected remote and agent-local
   watermark values.
-  PARTIAL (reconciled 2026-11-02): the agent sender keeps the remote watermark
+  MOVED to `harden-edge-record-transport` (2026-11-02); remaining: the agent sender keeps the remote watermark
   separate from local reclaim (package `sender` doc), but `go/pkg/edge/gwprefix`
   has no importers and there are no cross-language golden vectors.
 
 ## 4. Provision the JetStream durability boundary
 
-- [ ] 4.0 Reconcile runtime NATS provisioning with the completed single-customer
+- [x] 4.0 Reconcile runtime NATS provisioning with the completed single-customer
   control-plane split: audit and remove customer-prefixed runtime subjects,
   per-customer accounts/capacity cells, shared-platform imports/mirrors, database
   routing from subject prefixes, and synthetic `default`-customer inference.
   Seal and drain any declared legacy prefixed backlog under an explicit watermark;
   quarantine ambiguous records rather than inventing authority.
-  TODO (reconciled 2026-11-02): low confidence: not audited in this
+  MOVED to `add-edge-record-stream-partitioning` (2026-11-02); remaining: low confidence: not audited in this
   reconciliation.
-- [ ] 4.1 Add fixed installation-local, versioned platform route-profile plus
+- [x] 4.1 Add fixed installation-local, versioned platform route-profile plus
   bulk/interactive, result-recovery, and class-preserving result-DLQ subjects
   with 64 stable logical data/DLQ
   partitions and documented versioned hashes. Define a complete non-overlapping
@@ -2037,9 +2075,9 @@ change together with the requirements they implement.
   consumers, exact subject/credential ACLs, installation admission quotas, and
   no authoritative cross-account result mirror/import. `network_scope_id` is a
   signed site/address namespace, not a broker-account or capacity-cell key.
-  TODO (reconciled 2026-11-02): follow-up; today there is one
+  MOVED to `add-edge-record-stream-partitioning` (2026-11-02); remaining: follow-up; today there is one
   `TELEMETRY_EDGE_RECORD_V1_BULK` stream.
-- [ ] 4.2 Provision separate file-backed physical stream shards by the finite
+- [x] 4.2 Provision separate file-backed physical stream shards by the finite
   platform route-profile/class map plus a capacity-reserved recovery stream and
   scheduler-repair durable, with RAFT
   placement from benchmarked per-stream limits, production replication, an encoded-body
@@ -2058,17 +2096,17 @@ change together with the requirements they implement.
   that keeps old consumers draining through final redelivery/repair. Size every
   physical shard for its worst-case assigned arrival envelope/hash skew and
   place leaders/replicas across intended failure domains.
-  TODO (reconciled 2026-11-02): follow-up; replication of the edge stream is
+  MOVED to `add-edge-record-stream-partitioning` (2026-11-02); remaining: follow-up; replication of the edge stream is
   `move-agent-telemetry-to-edge-records` task 1.4.
-- [ ] 4.3 Define the authoritative durability domain for hub and NATS-leaf
+- [x] 4.3 Define the authoritative durability domain for hub and NATS-leaf
   deployments. The gateway remains the sole NATS publisher for agent-originated
   records and plugins/add-ons receive no NATS credentials. Document whether an
   edge-local stream may produce the authoritative PubAck and its explicit
   replication/site-loss RPO; do not call a leaf PubAck durable if the admitted
   RPO requires hub replication first.
-  TODO (reconciled 2026-11-02): follow-up (see
+  MOVED to `add-edge-record-stream-partitioning` (2026-11-02); remaining: follow-up (see
   `add-hosted-edge-leaf-connectivity`).
-- [ ] 4.4 Provision initially one registry-dispatching shared persistence durable
+- [x] 4.4 Provision initially one registry-dispatching shared persistence durable
   per physical stream shard/route profile with byte-bounded pulls, bounded
   ack-pending, unlimited
   transient redelivery, bounded backoff, and systemic-failure pull pause. Permit
@@ -2078,10 +2116,10 @@ change together with the requirements they implement.
   including the smallest supported deployment. Cap installation-wide streams,
   consumer RAFT groups, NATS connections, processes, and backlog; stop new bulk
   admission before the bounded interactive latency SLO is threatened.
-  PARTIAL (reconciled 2026-11-02): one shared EventWriter durable on the edge
+  MOVED to `add-edge-record-stream-partitioning` (2026-11-02); remaining: one shared EventWriter durable on the edge
   stream. Disjoint bulk and interactive streams and the cardinality caps are not
   built.
-- [ ] 4.5 Add dashboards and alerts for PubAck latency/errors, stream bytes and
+- [x] 4.5 Add dashboards and alerts for PubAck latency/errors, stream bytes and
   oldest age, per-physical-stream leader/replica placement and throughput, total
   stream/consumer/connection cardinality, lag, ack-pending, redelivery, consumer
   drain rate, recovery-record lag/state, shared CNPG credits/pool/lock/WAL
@@ -2090,9 +2128,9 @@ change together with the requirements they implement.
   catch-up, projected retention exhaustion, correctness-metadata row/index bytes,
   oldest retirement bucket, partition-retirement lag/rate, acceptance watermark,
   exceptional hold count/bytes, and metadata-budget admission stops.
-  PARTIAL (reconciled 2026-11-02): M3.4's four signals landed (#6193); the rest
+  MOVED to `add-edge-record-stream-partitioning` (2026-11-02); remaining: M3.4's four signals landed (#6193); the rest
   of the list remains.
-- [ ] 4.6 Give cluster-local durable producers the same canonical
+- [x] 4.6 Give cluster-local durable producers the same canonical
   contract/registry/projector rules through a least-privilege direct publisher
   or transactional outbox. Do not hairpin them through an agent/gateway and do
   not let this exception become an arbitrary subject or direct-to-CNPG metric
@@ -2117,7 +2155,7 @@ change together with the requirements they implement.
   retry/timeout/restart so a lost-ACK redelivery deduplicates. `publication_sequence`
   MUST NEVER wrap: on approaching the maximum sequence, SEAL and DRAIN the current lane
   while allocating NEW work on a fresh UUIDv7 `publication_lane_id` restarting at 1.
-  TODO (reconciled 2026-11-02): follow-up.
+  MOVED to `add-edge-record-stream-partitioning` (2026-11-02); remaining: follow-up.
 
 ## 5. Implement replay-safe domain projectors
 
@@ -2139,7 +2177,7 @@ change together with the requirements they implement.
   `SweepCorrelate` and plan membership in `SweepProjection` cover the sweep
   contract; streaming-decompression ratio and per-contract generic validation
   remain.
-- [ ] 5.2 Add a retirement-bucket-partitioned ingest ledger keyed ONLY by
+- [x] 5.2 Add a retirement-bucket-partitioned ingest ledger keyed ONLY by
   (network scope, stable event ID) -- the retirement-metadata bucket derived
   from the event ID for physical partitioning only -- with authenticated agent,
   exact output-contract bundle, and `record_sha256` stored (physical-slot value
@@ -2182,9 +2220,9 @@ change together with the requirements they implement.
   `ServiceRadar.EventWriter.Processors.EdgeRecord` writer. None of those tables is
   bucket- or range-partitioned, and there is no terminal slot, service-ingress
   slot, or retirement job, so this task stays unchecked.
-  PARTIAL (reconciled 2026-11-02): unchanged: the tables are not partitioned,
+  MOVED to `add-edge-record-stream-partitioning` (2026-11-02); remaining: unchanged: the tables are not partitioned,
   and there is no terminal slot, service-ingress slot or retirement job.
-- [ ] 5.3 Implement horizontally partitioned sweep consumers that preserve each
+- [x] 5.3 Implement horizontally partitioned sweep consumers that preserve each
   micro-batch as an independent idempotency unit while adaptively grouping
   compatible messages in bounded aggregate transactions. Perform bounded bulk authoritative
   CNPG/DIRE identity resolution, merge revisions per agent/mode with a stable
@@ -2209,7 +2247,7 @@ change together with the requirements they implement.
   Recheck the fenced grant immediately before commit, retain expired capacity
   until backend cancellation/session death is proven, and use one canonical
   table/row lock order with sorted bulk keys across all result writers.
-  PARTIAL (reconciled 2026-11-02): the canary projection (M2.3) is one
+  MOVED to `add-edge-record-stream-partitioning` (2026-11-02); remaining: the canary projection (M2.3) is one
   transaction per record; partitioned consumers, aggregate transactions and CNPG
   credit grants remain.
 - [x] 5.4 Implement separate MTR consumers that preserve complete trace fidelity,
@@ -2289,7 +2327,7 @@ change together with the requirements they implement.
   PARTIAL (reconciled 2026-11-02): completion at the plan's target count (M2.3),
   missed and exhausted slots and a late batch reopen (#6196). Per-shard evidence
   and watermark reconciler remain.
-- [ ] 5.6 Implement the idempotent recovery consumer with DURABLE KEYS that contain
+- [x] 5.6 Implement the idempotent recovery consumer with DURABLE KEYS that contain
   IDENTITY ONLY, never comparison values: the page key is
   (`network_scope_id`, `agent_id`, `recovery_id`, `page_index`) and it COMPARES one
   fixed page digest; the recovery key is (`network_scope_id`, `agent_id`,
@@ -2333,8 +2371,8 @@ change together with the requirements they implement.
   unattributable span as merely uncounted, and never infer passive from record
   kind -- lost terminal/lifecycle evidence is unattributable when its attribution
   cannot be proven.
-  TODO (reconciled 2026-11-02): follow-up (needs 2.27).
-- [ ] 5.7 Copy poison events and diagnostics to the durable DLQ, wait for its
+  MOVED to `add-edge-spool-recovery-coordinator` (2026-11-02); remaining: follow-up (needs 2.27).
+- [x] 5.7 Copy poison events and diagnostics to the durable DLQ, wait for its
   PubAck, and only then terminate the source delivery; use a stable network-scope/
   source-sequence/checksum/error-class DLQ ID and retry ambiguous acknowledgments.
   Use a separate trusted agent/spool/fingerprint/rejection ID before primary
@@ -2345,15 +2383,24 @@ change together with the requirements they implement.
   catalogued sequences. Redrive through a synthetic durable lane with new
   delivery coordinates/publication ID while preserving exact trusted envelope,
   semantic identity, original traffic class, and source provenance.
-  TODO (reconciled 2026-11-02): follow-up; no DLQ streams exist, and 3.5 depends
-  on them.
+  MOVED to `add-edge-record-stream-partitioning` (2026-11-02); remaining: the
+  catalog, states, deleter and redrive remain a follow-up. The security-quarantine
+  stream in the note below is the only DLQ that exists; task 3.5's other routes
+  still depend on the rest.
+  MINIMAL INSPECTION LANDED for the security-quarantine route only: its stream
+  keeps every record (`MaxAge` disabled, `DiscardNew`), an EventWriter consumer
+  logs each one with its stream sequence and slot and writes nothing, the
+  stream's retained bytes are polled so `ServiceRadarEdgeRecordSecurityQuarantine`
+  fires on any held record, and `docs/edge-record-quarantine-runbook.md` gives
+  the `nats stream get` path. The catalog, stable DLQ IDs, states, deleter and
+  redrive above remain open.
 - [x] 5.8 Derive required low-cardinality execution/scanner/availability/trace
   metrics from the canonical event without recreating per-host/per-hop generic
   metric expansion.
   SUPERSEDED (reconciled 2026-11-02): by `move-agent-telemetry-to-edge-records`:
   a leased execution emits no metric batch, and deriving per-execution gauges
   from projected results is named an out-of-scope follow-up.
-- [ ] 5.9 Add bounded current-state, raw-history, execution-summary, and rollup
+- [x] 5.9 Add bounded current-state, raw-history, execution-summary, and rollup
   storage/retention paths and verify queries do not require execution-wide
   materialization. Preserve operator-controlled MTR retention within safe bounds;
   migrations/control-plane reconciliation, never EventWriter, own policy DDL.
@@ -2373,8 +2420,8 @@ change together with the requirements they implement.
   ledger partitions by a single ordered-time-window range drop/detach WITHOUT
   touching current-window partitions, and (b) newly bound slots in the current
   window land in the correct `hash_subshard`.
-  TODO (reconciled 2026-11-02): follow-up.
-- [ ] 5.10 Add registry-driven dispatch that verifies the exact output contract,
+  MOVED to `add-edge-record-stream-partitioning` (2026-11-02); remaining: follow-up.
+- [x] 5.10 Add registry-driven dispatch that verifies the exact output contract,
   complete bundle digest, cost model, route, and approved platform-owned
   validator/projector before decode. Preload candidate bundles and publish
   signed readiness, then atomically select only the control-plane active epoch;
@@ -2384,11 +2431,11 @@ change together with the requirements they implement.
   projection, and distinguish deployment-not-ready pause from deterministic
   payload poison. Unknown contracts never fall back to dynamic code or generic
   SQL.
-  PARTIAL (reconciled 2026-11-02): `ServiceRadar.Edge.ContractCatalog` and the
+  MOVED to `add-edge-contract-registry-lifecycle` (2026-11-02); remaining: `ServiceRadar.Edge.ContractCatalog` and the
   `ServiceRadar.Edge.Projector` behaviour dispatch by `{contract_id,
   contract_version}` (#6247, #6216). Readiness, the atomic epoch switch and cost
   recompute remain.
-- [ ] 5.11 Implement the DIRE-aware inventory projector for bounded pages and
+- [x] 5.11 Implement the DIRE-aware inventory projector for bounded pages and
   terminal manifests. Stage each immutable page idempotently by source instance
   and scheduler-owned generation with no current/absence side effect; allow an
   early terminal to wait pending; validate every ordinal/hash/object key and
@@ -2398,7 +2445,7 @@ change together with the requirements they implement.
   prior current inventory on partial/aborted/missing/conflicting runs, poison
   late or conflicting terminals, and boundedly GC abandoned staging after its
   repair horizon.
-  TODO (reconciled 2026-11-02): follow-up;
+  MOVED to `add-edge-inventory-run-completeness` (2026-11-02); remaining: follow-up;
   `move-agent-telemetry-to-edge-records` task 7.2 projects inventory batches,
   but absence semantics need 1.8.
 - [x] 5.12 Implement approved extension-record projection through the bounded
@@ -2408,7 +2455,7 @@ change together with the requirements they implement.
   SQL, DDL, or choose physical storage at ingestion time.
   SUPERSEDED (reconciled 2026-11-02): by `move-agent-telemetry-to-edge-records`
   Decision 8: no package-defined extension records.
-- [ ] 5.13 Implement the projection-fence race handler as the final, first-match
+- [x] 5.13 Implement the projection-fence race handler as the final, first-match
   pipeline step. In the SAME transaction as the domain effects and the ledger row,
   `SELECT ... FOR UPDATE` / conditional-UPDATE the fence/assignment row: a current
   fence commits `authoritative_apply`; a stale/advanced fence commits an atomic
@@ -2421,17 +2468,17 @@ change together with the requirements they implement.
   restored. Add Go/Elixir cross-language golden vectors for concurrent
   current-vs-stale fence ordering producing deterministic
   `authoritative_apply` / `ledger_only` outcomes.
-  PARTIAL (reconciled 2026-11-02): `SweepProjection` takes the assignment row
+  MOVED to `harden-edge-record-transport` (2026-11-02); remaining: `SweepProjection` takes the assignment row
   `FOR SHARE` in the ledger transaction and refuses a fenced assignment
   (`:sweep_assignment_fenced`); it does not commit `ledger_only`, and there are
   no cross-language vectors.
-- [ ] 5.14 Add a concurrent CNPG fence-activation-vs-projection race integration
+- [x] 5.14 Add a concurrent CNPG fence-activation-vs-projection race integration
   test that runs a projection transaction and a fence-activation (epoch bump)
   concurrently against a live CNPG instance and asserts the projection either
   commits authoritative rows under the read epoch (`authoritative_apply`) OR
   atomically downgrades to `ledger_only` when the fence advanced first -- never a
   stale `authoritative_apply` and never a lost ledger row.
-  TODO (reconciled 2026-11-02): follow-up (`lease_miss_commit_race_db_test`
+  MOVED to `harden-edge-record-transport` (2026-11-02); remaining: follow-up (`lease_miss_commit_race_db_test`
   covers miss-versus-commit, not fence-versus-projection).
 
 ## 6. Integrate scheduling and producer migrations
@@ -2449,20 +2496,20 @@ change together with the requirements they implement.
   than retaining a run- or interval-wide result slice.
   SUPERSEDED (reconciled 2026-11-02): by `move-agent-telemetry-to-edge-records`
   task 3.1.
-- [ ] 6.3 Add deterministic scan shards and per-site/global MTR target,
+- [x] 6.3 Add deterministic scan shards and per-site/global MTR target,
   trace/probe-rate, concurrency, duration, interval-overlap, backlog, and
   storage admission budgets, including monotonic assignment fencing for
   reassigned target ranges.
-  TODO (reconciled 2026-11-02): follow-up.
-- [ ] 6.4 Add baseline sampling/rotation, critical-target selection, and
+  MOVED to `add-edge-scan-and-mtr-policy` (2026-11-02); remaining: follow-up.
+- [x] 6.4 Add baseline sampling/rotation, critical-target selection, and
   anomaly/incident-triggered MTR policies so fleet-wide deep tracing is an
   explicit capacity decision rather than an hourly default.
-  TODO (reconciled 2026-11-02): follow-up.
-- [ ] 6.5 Preserve on-demand command/control responses as lightweight status and
+  MOVED to `add-edge-scan-and-mtr-policy` (2026-11-02); remaining: follow-up.
+- [x] 6.5 Preserve on-demand command/control responses as lightweight status and
   trace correlation; persist the full result only through the canonical MTR
   event lane, and update the UI to resolve the trace after EventWriter commit
   with pending, failed, quarantined, and timeout states.
-  TODO (reconciled 2026-11-02): the persistence half moves with
+  MOVED to `add-edge-scan-and-mtr-policy` (2026-11-02); remaining: the persistence half moves with
   `move-agent-telemetry-to-edge-records` task 3.1; the UI pending, failed,
   quarantined and timeout states remain.
 - [x] 6.6 Compile imported Wasm/native package output requests into explicit
@@ -2534,37 +2581,36 @@ change together with the requirements they implement.
   SUPERSEDED (reconciled 2026-11-02): by the per-family farm01 parity soaks in
   `move-agent-telemetry-to-edge-records` (tasks 2.4, 3.1, 4.1, 5.3, 6.1, 7.2);
   the sweep comparison is M2.6.
-- [ ] 7.3 Exercise the supported minimum-version and offline-agent upgrade
+- [x] 7.3 Exercise the supported minimum-version and offline-agent upgrade
   policy; older binaries receive no affected new assignments and must upgrade
   before rejoining the cohort. Keep new-format consumers/readers until all
   stream backlog and agent spools are drained. Rollback stops new admissions and
   reverts read selection only after compatible consumers have drained or remain
   available; it never converts a durable v1 record back to JSON.
-  PARTIAL (reconciled 2026-11-02): capability gating (`sweep_lease_v1`, and
-  `sweep_lease_plan_checks:v1` in M2.0i3) withholds new leases from older
-  agents. The written upgrade and rollback policy remains.
-- [ ] 7.4 Remove agent-side duplicate sweep/MTR metric projections only after
+  SUPERSEDED (reconciled 2026-11-02): by `move-agent-telemetry-to-edge-records`
+  Decision 7 (per-producer cutover, then one removal release).
+- [x] 7.4 Remove agent-side duplicate sweep/MTR metric projections only after
   real-time consumer and persistence parity is demonstrated.
-  TODO (reconciled 2026-11-02): done as M4.2
+  MOVED to `move-agent-telemetry-to-edge-records` task 8.1 (2026-11-02); remaining: done as M4.2
   (`move-agent-telemetry-to-edge-records` task 8.1).
-- [ ] 7.5 Remove legacy JSON `GatewayServiceStatus{source: "results"}` emission,
+- [x] 7.5 Remove legacy JSON `GatewayServiceStatus{source: "results"}` emission,
   decode, ERTS routing, and volatile fallback only in a separately gated
   cleanup release.
-  TODO (reconciled 2026-11-02): done as M4.2
+  MOVED to `move-agent-telemetry-to-edge-records` task 8.1 (2026-11-02); remaining: done as M4.2
   (`move-agent-telemetry-to-edge-records` task 8.1).
 - [ ] 7.6 Update architecture, operations, capacity, installation-local NATS,
   network-scope identity, result-state, and failure-recovery documentation after
   the conflicting active proposals are withdrawn, amended, or rebased in tasks
   0.5, 0.9, and 0.11.
   TODO (reconciled 2026-11-02): update the docs after M4.2.
-- [ ] 7.7 Roll out each registry epoch as candidate, collect target-cohort agent,
+- [x] 7.7 Roll out each registry epoch as candidate, collect target-cohort agent,
   gateway-route, and EventWriter readiness, and switch it active atomically
   before issuing producer grants. Canary output contracts independently, seal
   planned-retirement grants, and retire their historical bundle only after
   agent-spool, JetStream, DLQ, redrive, and receipt-binding watermarks drain.
   Rollback MUST fence the failed epoch and MUST NOT reactivate a
   security-revoked bundle.
-  TODO (reconciled 2026-11-02): follow-up (needs 1.11).
+  MOVED to `add-edge-contract-registry-lifecycle` (2026-11-02); remaining: follow-up (needs 1.11).
 - [x] 7.8 Remove durable Wasm output from base64/JSON `plugin_result`, native
   durable output from drain-before-send telemetry queues and specialized OTLP
   relay ownership, and Armis inventory from JSON/ERTS/coalescing only after
@@ -2612,8 +2658,8 @@ change together with the requirements they implement.
 - [ ] 8.2 Add integration tests for continuous scan/data/completion interleaving,
   mixed agents, gateway/NATS/core/CNPG restarts, PubAck loss, five forced
   redeliveries, a greater-than-64-MiB logical execution carried as independently
-  durable frames no larger than the frozen `MaxFrameBytes` bound, minimum-version assignment
-  rejection, gateway/consumer poison DLQ PubAck loss, bulk poison at DLQ and
+  durable frames no larger than the frozen `MaxFrameBytes` bound,
+  gateway/consumer poison DLQ PubAck loss, bulk poison at DLQ and
   quarantine capacity while an interactive failure still obtains its reserved
   disposition path, fleet-wide bad-decoder circuit/pause/repair/redrive,
   indefinite transient retries, stale sessions/assignments, key rotation with
@@ -2635,7 +2681,9 @@ change together with the requirements they implement.
   cross-network-scope negative reads, retention-boundary catch-up, and partial
   execution repair.
   PARTIAL (reconciled 2026-11-02): vertical slice Groups A-G and the authority
-  test cover the composed path; most of the list remains.
+  test cover the composed path; most of the list remains. The minimum-version
+  assignment rejection case is SUPERSEDED by `move-agent-telemetry-to-edge-records`
+  Decision 7 (per-producer cutover, then one removal release).
 - [ ] 8.3 Prove zero acknowledged loss and zero duplicate domain/OCSF/MTR rows,
   p99 durability under 2 seconds, p99 queryability under 30 seconds, and at
   least twice-live backlog drain capacity. Define and prove a separate bounded
@@ -2644,7 +2692,7 @@ change together with the requirements they implement.
   PARTIAL (reconciled 2026-11-02): the farm01 soak showed no loss and no
   duplicates for leased sweeps; the latency SLOs and drain capacity are
   unmeasured.
-- [ ] 8.4 Benchmark the full matrix through 1M hosts and a 72-hour soak; require
+- [x] 8.4 Benchmark the full matrix through 1M hosts and a 72-hour soak; require
   at least 10,000 host observations/second aggregate on a fully documented
   reference topology, a 1M-host ten-port drain within 6 minutes, bounded result
   RSS below 256 MiB independent of scan size, measured domain-row/WAL rates, no
@@ -2659,7 +2707,7 @@ change together with the requirements they implement.
   ingest or interactive-latency gate. Prove correctness rows/index bytes converge
   to a bounded sawtooth/plateau under partition retirement plus configured holds;
   linear steady-state growth or bulk row-delete/vacuum cleanup fails the gate.
-  TODO (reconciled 2026-11-02): follow-up (`add-edge-pipeline-benchmarks`).
+  MOVED to `add-edge-pipeline-benchmarks` (2026-11-02); remaining: follow-up (`add-edge-pipeline-benchmarks`).
 - [ ] 8.5 Run Go, Elixir, database, and Bazel suites for all touched targets and
   `openspec validate unify-sweep-results-proto --strict`.
   TODO (reconciled 2026-11-02): run at archive time.

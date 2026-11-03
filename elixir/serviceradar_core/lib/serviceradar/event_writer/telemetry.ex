@@ -193,22 +193,59 @@ defmodule ServiceRadar.EventWriter.Telemetry do
   @spec subject_class(term()) :: String.t()
   def subject_class(subject) when is_binary(subject) do
     cond do
-      String.starts_with?(subject, "metrics.") -> "metrics"
-      String.starts_with?(subject, "otel.metrics.") -> "otel_metrics"
-      String.starts_with?(subject, "otel.traces.") -> "otel_traces"
-      String.starts_with?(subject, "otel.logs.") -> "otel_logs"
-      String.starts_with?(subject, "logs.") -> "logs"
-      String.starts_with?(subject, "events.") -> "events"
-      String.starts_with?(subject, "flows.") or String.starts_with?(subject, "flow.") -> "flows"
-      String.starts_with?(subject, "pdns.") -> "pdns"
-      String.starts_with?(subject, "falco.") -> "falco"
-      String.starts_with?(subject, "trivy.") -> "trivy"
-      String.starts_with?(subject, "sweep.") -> "sweep"
-      String.starts_with?(subject, "telemetry.edge-record.") -> "edge_record"
-      String.starts_with?(subject, "signals.analytics.") -> "analytics"
-      String.starts_with?(subject, "causal.") -> "causal"
-      subject == "" -> "unknown"
-      true -> "other"
+      String.starts_with?(subject, "metrics.") ->
+        "metrics"
+
+      String.starts_with?(subject, "otel.metrics.") ->
+        "otel_metrics"
+
+      String.starts_with?(subject, "otel.traces.") ->
+        "otel_traces"
+
+      String.starts_with?(subject, "otel.logs.") ->
+        "otel_logs"
+
+      String.starts_with?(subject, "logs.") ->
+        "logs"
+
+      String.starts_with?(subject, "events.") ->
+        "events"
+
+      String.starts_with?(subject, "flows.") or String.starts_with?(subject, "flow.") ->
+        "flows"
+
+      String.starts_with?(subject, "pdns.") ->
+        "pdns"
+
+      String.starts_with?(subject, "falco.") ->
+        "falco"
+
+      String.starts_with?(subject, "trivy.") ->
+        "trivy"
+
+      String.starts_with?(subject, "sweep.") ->
+        "sweep"
+
+      String.starts_with?(subject, "telemetry.edge-record.") ->
+        "edge_record"
+
+      String.starts_with?(subject, "telemetry.edge-record-audit.") ->
+        "edge_record_audit"
+
+      String.starts_with?(subject, "telemetry.edge-record-security-quarantine.") ->
+        "edge_record_quarantine"
+
+      String.starts_with?(subject, "signals.analytics.") ->
+        "analytics"
+
+      String.starts_with?(subject, "causal.") ->
+        "causal"
+
+      subject == "" ->
+        "unknown"
+
+      true ->
+        "other"
     end
   end
 

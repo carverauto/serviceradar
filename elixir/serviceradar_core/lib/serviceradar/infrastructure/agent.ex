@@ -119,6 +119,15 @@ defmodule ServiceRadar.Infrastructure.Agent do
               "so ICMP sweeps are not assigned to it"
         }
 
+      "tcp_syn_ipv6.unavailable" ->
+        %{
+          icon: "hero-signal-slash",
+          color: "warning",
+          description:
+            "The agent cannot send raw TCP SYN probes over IPv6, " <>
+              "so groups that need TCP SYN on an IPv6 range are not leased to it"
+        }
+
       "mtr.unavailable" ->
         %{
           icon: "hero-signal-slash",

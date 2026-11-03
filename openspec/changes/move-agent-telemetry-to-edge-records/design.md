@@ -143,7 +143,9 @@ kept to data plus, only where a destination is genuinely new, one projector modu
 - **Plugins and add-ons never get their own contract.** Native add-ons and Wasm plugins emit
   through the plugin telemetry contract (`TelemetryBatch`) and the plugin result contract.
   Routing keys off the SDK's closed TelemetryBatch payload kinds (`serviceradar_metrics`,
-  `ocsf_event`, `otel_log`). Manifest `signal_schemas` only describe event and log schemas
+  `ocsf_event`, `otel_log`, `discovery_v1`). `discovery_v1` is admitted only from a native add-on;
+  a plugin-stamped discovery record is refused, because Wasm plugins reach inventory through the
+  plugin-result route. Manifest `signal_schemas` only describe event and log schemas
   (`ocsf_event`, `otel_log`) and do not admit `serviceradar_metrics`. One projector routes each
   closed payload kind to its existing destination. A plugin author emits a closed payload kind
   and touches no core, gateway, registry, or manifest code. A new payload kind is an SDK and

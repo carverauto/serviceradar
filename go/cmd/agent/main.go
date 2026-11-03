@@ -193,13 +193,13 @@ func runPushMode(
 			interval = maxPushInterval
 		}
 	}
-	edgeSpool, err := openEdgeRecordSpool(cfg)
+	edgeSpool, edgeAdmission, err := openEdgeRecordSpool(cfg)
 	if err != nil {
 		return err
 	}
 	if edgeSpool != nil {
 		defer func() { _ = edgeSpool.Close() }()
-		attachEdgeSpoolMetrics(server, edgeSpool)
+		attachEdgeSpoolMetrics(server, edgeSpool, edgeAdmission)
 	}
 	pushLoop := agent.NewPushLoop(server, gatewayClient, interval, log)
 	if cfg.EdgeRecordSender != nil && cfg.EdgeRecordSender.SweepEnabled {
@@ -207,6 +207,9 @@ func runPushMode(
 	}
 	if cfg.EdgeRecordSender != nil && cfg.EdgeRecordSender.MetricsEnabled {
 		pushLoop.SetEdgeMetricsSpool(edgeSpool)
+	}
+	if cfg.EdgeRecordSender != nil && cfg.EdgeRecordSender.TelemetryEnabled {
+		pushLoop.SetEdgeTelemetrySpool(edgeSpool)
 	}
 	if cfg.StatusDebounceInterval > 0 {
 		pushLoop.SetStatusDebounceInterval(time.Duration(cfg.StatusDebounceInterval))

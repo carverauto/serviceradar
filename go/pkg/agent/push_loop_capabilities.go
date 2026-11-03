@@ -242,6 +242,7 @@ type agentCapabilityOptions struct {
 	icmpAvailable                           bool
 	mtrAvailable                            bool
 	mtrTCPSyn                               bool
+	tcpSynIPv6Unavailable                   bool
 }
 
 func (p *PushLoop) getAgentCapabilities(cfg *ServerConfig) []string {
@@ -253,17 +254,21 @@ func (p *PushLoop) getAgentCapabilities(cfg *ServerConfig) []string {
 	sidecarStatus := p.server.sidecarStatus
 	p.server.mu.RUnlock()
 
-	return getAgentCapabilitiesForSidecars(cfg, sidecarStatusesForStatus(sidecarStatus), false, p.server.sockets)
+	return getAgentCapabilitiesForSidecars(cfg, sidecarStatusesForStatus(sidecarStatus), false, p.socketProbe())
 }
 
-// socketProbe is the socket probe the Server took when it was built. Without a
-// Server nothing was probed, so ICMP and MTR report unavailable.
+// socketProbe is the socket probe the Server took when it was built, plus the
+// raw IPv6 SYN verdict a refused leased slot latched since. Without a Server
+// nothing was probed, so ICMP and MTR report unavailable.
 func (p *PushLoop) socketProbe() socketProbe {
 	if p == nil || p.server == nil {
 		return socketProbe{}
 	}
 
-	return p.server.sockets
+	probe := p.server.sockets
+	probe.tcpSynIPv6Unavailable = p.server.tcpSynIPv6Unavailable.Load()
+
+	return probe
 }
 
 func (p *PushLoop) netprobeRunningAsRoot() bool {
@@ -371,6 +376,7 @@ func getAgentCapabilitiesForSidecarsWithRDPPath(
 		icmpAvailable:                           sockets.icmp.Available(),
 		mtrAvailable:                            sockets.mtr,
 		mtrTCPSyn:                               sockets.mtrTCPSyn,
+		tcpSynIPv6Unavailable:                   sockets.tcpSynIPv6Unavailable,
 	})
 }
 
@@ -386,6 +392,9 @@ func agentCapabilities(options agentCapabilityOptions) []string {
 	}
 	if !options.mtrAvailable {
 		capabilities = append(capabilities, capabilityMTRUnavailable)
+	}
+	if options.tcpSynIPv6Unavailable {
+		capabilities = append(capabilities, capabilityTCPSynIPv6Unavailable)
 	}
 	if options.mtrTCPSyn {
 		// mtr_tcp_syn: TCP traces craft SYNs on one stable flow and report the
@@ -404,6 +413,7 @@ func agentCapabilities(options agentCapabilityOptions) []string {
 		commandTypeAdhocScan,
 		capabilityConfigPushChunks,
 		capabilitySweepLeaseV1,
+		capabilitySweepLeasePlanChecksV1,
 		"snmp",
 		capabilitySNMPSharedOIDs,
 		"mapper",
@@ -480,11 +490,14 @@ func agentCapabilities(options agentCapabilityOptions) []string {
 }
 
 // socketProbe records which ICMP sweep and MTR sockets this process can open.
+// tcpSynIPv6Unavailable is not probed at startup: raw IPv6 SYN depends on each
+// sweep group's interface, so it is learned when a leased slot needs it.
 type socketProbe struct {
-	icmp      scan.ICMPSocketProbe
-	mtr       bool
-	mtrErr    error
-	mtrTCPSyn bool
+	icmp                  scan.ICMPSocketProbe
+	mtr                   bool
+	mtrErr                error
+	mtrTCPSyn             bool
+	tcpSynIPv6Unavailable bool
 }
 
 // probeHostSockets opens and closes the sockets the ICMP sweep scanner and MTR

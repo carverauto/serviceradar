@@ -1,5 +1,47 @@
 # nats-cross-account-consumption Delta
 
+## ADDED Requirements
+
+### Requirement: Authoritative edge records remain in installation NATS authority
+
+All approved edge durable-record, recovery, and record-DLQ streams SHALL be published and
+consumed directly inside the single-customer installation's configured NATS
+durability authority. They SHALL use fixed installation-local subjects,
+class-separated physical streams and durables, one explicit logical-to-physical
+stream map, and installation-level admission. They SHALL NOT require a
+per-customer, per-network-scope, per-agent, per-producer-assignment,
+per-run/execution, per-output-contract, per-package, or per-logical-partition
+account, durable, connection, or process. This change SHALL NOT create a
+cross-cluster durable-record aggregation path.
+
+#### Scenario: Many record partitions are active
+
+- **GIVEN** installation-local processing covers many logical partitions,
+  network scopes, agents, producer assignments, and runs/executions
+- **WHEN** EventWriter replicas scale out
+- **THEN** they SHALL share bounded durable, connection, and process pools aligned
+  with the class-separated physical stream shards
+- **AND** database and stream admission SHALL remain bounded for the whole
+  installation
+
+#### Scenario: Gateway publishes through a leaf connection
+
+- **GIVEN** a NATS leaf forwards a result to the configured authoritative
+  installation stream
+- **WHEN** the gateway publishes the result
+- **THEN** only PubAck from that configured authoritative physical stream SHALL
+  permit an accepted edge disposition
+- **AND** a Core NATS handoff or non-authoritative local/mirrored acceptance SHALL
+  NOT acknowledge durability
+
+#### Scenario: Edge-local JetStream is selected as authority
+
+- **WHEN** a deployment explicitly selects an edge-local JetStream durability
+  domain
+- **THEN** its replication and site-loss RPO SHALL be configured and surfaced
+- **AND** no account export, import, mirror, or source SHALL be treated as a
+  substitute for authoritative PubAck
+
 ## MODIFIED Requirements
 
 ### Requirement: Tenant Stream Exports
@@ -172,45 +214,3 @@ network scope, agent, traffic class, or authorization context from a subject tok
   legacy stream, and mappable without ambiguity, MAY be drained by a
   compatibility consumer from retained trusted legacy authority metadata, as
   described in "Legacy prefixed backlog exists at cutover"
-
-## ADDED Requirements
-
-### Requirement: Authoritative edge records remain in installation NATS authority
-
-All approved edge durable-record, recovery, and record-DLQ streams SHALL be published and
-consumed directly inside the single-customer installation's configured NATS
-durability authority. They SHALL use fixed installation-local subjects,
-class-separated physical streams and durables, one explicit logical-to-physical
-stream map, and installation-level admission. They SHALL NOT require a
-per-customer, per-network-scope, per-agent, per-producer-assignment,
-per-run/execution, per-output-contract, per-package, or per-logical-partition
-account, durable, connection, or process. This change SHALL NOT create a
-cross-cluster durable-record aggregation path.
-
-#### Scenario: Many record partitions are active
-
-- **GIVEN** installation-local processing covers many logical partitions,
-  network scopes, agents, producer assignments, and runs/executions
-- **WHEN** EventWriter replicas scale out
-- **THEN** they SHALL share bounded durable, connection, and process pools aligned
-  with the class-separated physical stream shards
-- **AND** database and stream admission SHALL remain bounded for the whole
-  installation
-
-#### Scenario: Gateway publishes through a leaf connection
-
-- **GIVEN** a NATS leaf forwards a result to the configured authoritative
-  installation stream
-- **WHEN** the gateway publishes the result
-- **THEN** only PubAck from that configured authoritative physical stream SHALL
-  permit an accepted edge disposition
-- **AND** a Core NATS handoff or non-authoritative local/mirrored acceptance SHALL
-  NOT acknowledge durability
-
-#### Scenario: Edge-local JetStream is selected as authority
-
-- **WHEN** a deployment explicitly selects an edge-local JetStream durability
-  domain
-- **THEN** its replication and site-loss RPO SHALL be configured and surfaced
-- **AND** no account export, import, mirror, or source SHALL be treated as a
-  substitute for authoritative PubAck
