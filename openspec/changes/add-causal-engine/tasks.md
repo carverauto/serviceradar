@@ -21,7 +21,7 @@ Automation-first ordering: the engine exists to turn events into alerts and stat
 - [x] 0.3.1b Hook `health_events` (tap `HealthTracker.record_state_change/3` — old/new already in hand).
 - [x] 0.3.1c Hook `service_state` (NOT the `service_status` hypertable): pre-fetch prior availability in `ServiceStateRegistry.upsert_from_status/1` (gated behind `enabled?/0`) and publish only on a real transition; keyed by composite service identity (Decision 2).
 - [x] 0.3.1d Hook `ocsf_devices` is_available/is_managed transitions in `inventory/sync_ingestor.ex`: gated pre-fetch of prior is_available/is_managed by uid before `upsert_devices`, diff after `{:ok, remap}` (publishes against the remapped final uid). COALESCE-aware — only a non-nil incoming value that differs counts as a transition; risk_score deferred (separate DeviceRiskReducer rollup hook).
-- [ ] 0.3.1e Hook virtualization + AGE-projection transition write-sites (not yet grounded). DEFERRED.
+- [ ] 0.3.1e Hook virtualization + topology-projection transition write-sites (not yet grounded). DEFERRED.
 - [x] 0.3.2 `service_state` (not the `service_status` hypertable) is the transition surface; the publisher targets only current-state tables. Add an explicit hypertable-exclusion guard/test when the ocsf_devices/virt hooks land.
 - [x] 0.3.3 Identity per table: `ocsf_devices` → `sr:` `uid`; `service_state` → composite `agent_id:service_type:service_name` (Decision 2); `health_events` → writer `entity_id`. The engine maps `(table, entity_uid)` into one canonical space.
 - [x] 0.3.4 Envelope carries before/after (`explainability.old/new`), `partition_id`, per-node monotonic `seq`, `event_time`, and `event_identity` (engine dedupes on `event_identity`). Unit test: `test/serviceradar/event_writer/state_change_publisher_test.exs`.
@@ -36,7 +36,7 @@ Automation-first ordering: the engine exists to turn events into alerts and stat
 - [ ] 1.1.4 (partial) Config (envy) + tracing logging + snapshot-restore-on-start wired and a fused tick loop runs; graceful shutdown lands with the real hydrator/NATS in 1.2.
 
 ### 1.2 Hydrator — three ingestion feeds (capability: causal-engine) — Feeds 1 + 3 done
-- [x] 1.2.1 Feed 1 (current-state snapshot): `ContextHydrator::connect()` builds `EmbeddedSrql` from srql `AppConfig::from_env`, and `current_context()` runs SRQL queries (`in:devices`, `in:services`) via `QueryEngine::execute_query`, mapping result rows into the `Context` (Device/Service). On-demand continuous-aggregate + AGE `graph_cypher` queries land as coverage broadens (1.2b). Unit-tested row mappers.
+- [x] 1.2.1 Feed 1 (current-state snapshot): `ContextHydrator::connect()` builds `EmbeddedSrql` from srql `AppConfig::from_env`, and `current_context()` runs SRQL queries (`in:devices`, `in:services`) via `QueryEngine::execute_query`, mapping result rows into the `Context` (Device/Service). On-demand continuous-aggregate + Dgraph `in:graph` (read-only DQL) queries land as coverage broadens (1.2b). Unit-tested row mappers.
 - [ ] 1.2.2 Feed 2: JetStream subscriber for live deltas on EXISTING causal subjects (`signals.causal.>`, `arancini.updates.>`, `siem.events.>`, zen OCSF). (1.2b)
 - [x] 1.2.3 Feed 3 (live state-change): `subscriber.rs` core-NATS subscribes `signals.state.>`, parses `StateChangePublisher` envelopes (`delta.rs`) and applies deltas to the shared `Arc<RwLock<Context>>` between `EmbeddedSrql` refreshes. Best-effort/ephemeral — durability comes from the periodic `refresh()`, so NO JetStream stream/consumer/ack is needed for V1 (Phase-2 reactivity/scale concern). The hydrator now holds the shared Context (seed-on-connect + periodic `refresh`), and `current_context()` clones it. TLS-aware `nats::connect` (mTLS) feeds both this subscriber and the emitter. main runs dual cadences (reason tick + refresh tick) via `tokio::select!`.
 - [x] 1.2.4 Single-point identity validation: `map_device` skips any device whose `uid` is not a canonical `sr:`-prefixed id (the engine never forks the ID space). Extend to every entity mapper as coverage grows.
@@ -54,7 +54,7 @@ Automation-first ordering: the engine exists to turn events into alerts and stat
 - [x] 1.4.3 Verified against pinned `ultragraph 0.9`: `cargo clippy --all-targets -D warnings` + 54 unit tests + `bazel build //rust/causal-engine:{causal_engine_lib,causal_engine_bin,causal_engine_test} --config=ci` (RBE) green. Full C1–C13 set ships together; no upstream gate remains.
 
 ### 1.5 Risk composition into C5/C7/C10 (capability: causal-reasoning, inventory-risk-feed) — DONE
-- [x] 1.5.1 `device_risk()` composes per-device `ocsf_devices.risk_score` + bounded `pkg_severity` (AGE `pkg_worst_severity`, CVSS ×10) into a 0..=100 risk that RAISES — never lowers — the predicted `Verdict.severity` of C5/C7/C10 for the affected node; the structural classification is unchanged (`raise_severity_to` is monotonic). Unit-tested.
+- [x] 1.5.1 `device_risk()` composes per-device `ocsf_devices.risk_score` + bounded `pkg_severity` (Dgraph `device.pkg_worst_severity`, CVSS ×10) into a 0..=100 risk that RAISES — never lowers — the predicted `Verdict.severity` of C5/C7/C10 for the affected node; the structural classification is unchanged (`raise_severity_to` is monotonic). Unit-tested.
 - [x] 1.5.2 Risk is consumed via the `DeviceRiskReducer` MAX-wins `risk_score` (+ the bounded pkg scalar) only; no purl/cpe coordinate-matching here (DELEGATED to `add-cti-signal-coverage`).
 
 ### 1.6 Emitter — signals.causal.predictions producer (capability: causal-prediction-signals) — DONE (engine side)
@@ -69,13 +69,13 @@ Automation-first ordering: the engine exists to turn events into alerts and stat
 ### 1.8 Inventory-risk-feed seam (capability: inventory-risk-feed) — DELIVERED by the merged endpoint-SBOM feature
 - [x] 1.8.1 `endpoint_inventory` DeviceRiskReducer contribution: `ServiceRadar.Inventory.EndpointInventoryVulnerabilityRisk` (inventory/endpoint_inventory_vulnerability_risk.ex) computes a CVSS-derived score from vulnerability-match payloads and calls `DeviceRiskReducer.upsert_contribution(%{source: "endpoint_inventory", source_ref: device_uid, score, active, occurred_at, resolved_at, metadata})` (MAX-wins → `ocsf_devices.risk_score`). Merged from feat/endpoint-sbom-ingestion.
 - [x] 1.8.2 `signals.causal.inventory.<event_type>` emission: `EndpointInventoryHistory.publish_package_change_signals` (inventory/endpoint_inventory_history.ex:119) via the causal-signal publisher.
-- [x] 1.8.3 Bounded AGE `Device` `pkg_*` scalars: `topology_graph.ex:280-284` SET pkg_worst_severity/pkg_critical_count/pkg_kev_count/pkg_has_unpatched_rce/pkg_risk_summary_at via `project_vulnerability_risk_summary` (no Package vertices/edges — the @-attrs allowlist at :26-30 bounds it).
+- [x] 1.8.3 Bounded Dgraph `Device` `device.pkg_*` scalars: `TopologyGraph.project_endpoint_inventory_risk_summary` (`network_discovery/topology_graph/risk_summary.ex`, written by `topology_graph/dgraph_persist.ex`) sets pkg_worst_severity/pkg_critical_count/pkg_kev_count/pkg_has_unpatched_rce/pkg_risk_summary_at (no Package nodes/edges — the fixed five-scalar allowlist bounds it).
 - [x] 1.8.4 Engine consumes per-device risk via `ocsf_devices.risk_score` (hydrator `map_device` reads it). CVE→CVSS scoring is done by the inventory's vulnerability-match path (D1 resolved: it consumes match payloads — e.g. from add-cti-signal-coverage — and scores them; the engine does not duplicate matching).
 
 ### 1.9 Automation-loop closure (capability: observability-signals, causal-prediction-signals) — DELIVERED by the merged endpoint-SBOM feature
 - [x] 1.9.1/1.9.2 Inventory causal events drive alerts: `causal_signals.ex` detects inventory rows (`inventory_event_row?`, `signal_type => "inventory"`) and calls `enqueue_inventory_alert_evaluation` → `StatefulAlertEngine`; the existing firing path produces `class_uid:1008` alerts. (If device-scoped incidents are wanted, verify/author a `group_by: ["device.uid"]` rule for the inventory subject — the grouping mechanism + firing path exist.)
 - [x] 1.9.3 OCSF `class_uid:2004` vulnerability findings: `causal_signals.ex:28` `@ocsf_vulnerability_finding_class_uid 2004` / `:30` `@ocsf_vulnerability_finding_type_uid 200_401`, split out via `inventory_vulnerability_finding_row?` — inventory-derived risk surfaces as 2004 findings, not only score enrichment.
-- [x] 1.9.4 (engine-side) `ocsf_devices.risk_score` + AGE pkg_* scalars composed into C5/C7/C10 — done in task 1.5 (`device_risk` / `Verdict::raise_severity_to`).
+- [x] 1.9.4 (engine-side) `ocsf_devices.risk_score` + Dgraph `device.pkg_*` scalars composed into C5/C7/C10 — done in task 1.5 (`device_risk` / `Verdict::raise_severity_to`).
 
 ### 1.10 god_view_nif refactor — 6 steps (capability: topology-god-view, causal-reasoning)
 > Step 1 is reversible/code-only and DONE. Steps 2–6 are deploy-gated and ordered so the live God-View never loses reasoning — see `runbooks/god-view-nif-cutover.md`. Demoting the NIF or dropping its deps before the engine is deployed and proven at parity would blank the God-View overlay, so they follow engine deployment, not this PR.
@@ -108,19 +108,19 @@ Automation-first ordering: the engine exists to turn events into alerts and stat
 
 ### 4.1 Structured components + redundancy substrate (capability: device-components, age-graph)
 - [ ] 4.1.1 Add a `device-components` model (structured sub-device components: PSUs, line cards, fans, links) feeding redundancy reasoning.
-- [ ] 4.1.2 Add an AGE `CONTAINS` edge from `Device` to its components in `network_discovery/topology_graph.ex` (alongside existing `CONNECTS_TO`, `HAS_INTERFACE`, `MANAGED_BY`, `CANONICAL_TOPOLOGY`).
+- [ ] 4.1.2 Add a Dgraph `CONTAINS` edge from `Device` to its components in `network_discovery/topology_graph.ex` (alongside existing `CONNECTS_TO`, `HAS_INTERFACE`, `MANAGED_BY`, `CANONICAL_TOPOLOGY`).
 - [ ] 4.1.3 Provide the redundancy substrate the structural causaloids (C4/C5/C5b/C8) need to distinguish single-point-of-failure from redundant components.
 - [ ] 4.1.4 Coordinate with `add-device-environmental-snmp-metrics` and `add-structured-hypervisor-storage-enrichment` (Gap F substrate) as declared dependencies.
 
 ## 5. Phase 5 — Gap E OOB flag + Gap D reverse MANAGES (when convenient)
 
 ### 5.1 Out-of-band gateway flag (capability: age-graph, topology-causal-overlays)
-> ENGINE-READY: C3 already consumes `Device.gateway_class` (`InBand|OutOfBand|Management`) and suppresses OOB/management gateways from data-plane root-cause blame (task 1.4.1). 5.1.1/5.1.2 are the DATA-SOURCE side — a `gateways.network_class` column migration + AGE projection so the hydrator can populate `gateway_class`. Deferred (migration-bearing; the engine no-ops safely with `gateway_class = None`).
+> ENGINE-READY: C3 already consumes `Device.gateway_class` (`InBand|OutOfBand|Management`) and suppresses OOB/management gateways from data-plane root-cause blame (task 1.4.1). 5.1.1/5.1.2 are the DATA-SOURCE side — a `gateways.network_class` column migration + Dgraph topology projection so the hydrator can populate `gateway_class`. Deferred (migration-bearing; the engine no-ops safely with `gateway_class = None`).
 - [ ] 5.1.1 Gap E: add `gateways.network_class` enum (`in-band|out-of-band|management`) so causaloids do not treat a management/OOB path as in-band reachability.
-- [ ] 5.1.2 Surface `network_class` into the AGE projection / overlay evidence + the hydrator's `map_device` so structural causaloids weight OOB paths correctly.
+- [ ] 5.1.2 Surface `network_class` into the Dgraph topology projection / overlay evidence + the hydrator's `map_device` so structural causaloids weight OOB paths correctly.
 
 ### 5.2 Reverse MANAGES edge (capability: age-graph)
-- [x] 5.2.1 Gap D: `topology_graph.ex` `upsert_managed_by/2` now also MERGEs the reverse `(mgmt)-[:MANAGES]->(child)` edge (additive, mirrors the `MANAGED_BY` MERGE) so the engine can traverse manager -> managed directly. A dedicated AGE edge index is a follow-on optimization (the reverse edge already avoids the full reverse scan).
+- [x] 5.2.1 Gap D: `TopologyGraph.upsert_managed_by/2` now also writes the reverse `(mgmt)-[:MANAGES]->(child)` edge (additive, mirrors `MANAGED_BY`; Dgraph-only via `topology_graph/dgraph_persist.ex`) so the engine can traverse manager -> managed directly. A dedicated edge index is a follow-on optimization (the reverse edge already avoids the full reverse scan).
 
 ## 6. Validation
 
