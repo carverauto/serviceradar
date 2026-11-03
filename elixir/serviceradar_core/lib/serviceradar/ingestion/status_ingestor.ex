@@ -275,11 +275,12 @@ defmodule ServiceRadar.Ingestion.StatusIngestor do
   # Payload kinds that legitimately reach this function and are consumed
   # somewhere else, so arriving here is not a fault.
   #
-  # SERVICERADAR_METRICS is the volume case: the Rust add-on SDK sends metrics
-  # through StreamTelemetry, the gateway's PluginMetricsPublisher publishes them
-  # to JetStream, and the status is still forwarded here with those records
-  # intact. Treating them as unknown would log a warning per metric record from
-  # every Rust add-on in the fleet.
+  # SERVICERADAR_METRICS is the volume case. On the status path the gateway's
+  # PluginMetricsPublisher publishes them to JetStream and still forwards the
+  # status here with those records intact. On the telemetry edge-record path
+  # `ServiceRadar.Edge.Projectors.TelemetryBatch` publishes them before this
+  # route and then calls in with the same records. Treating them as unknown
+  # would log a warning per metric record from every Rust add-on in the fleet.
   #
   # The OTLP kinds ride AddonService.RelayOtlp rather than StreamTelemetry, so
   # they should not appear in a batch at all -- but they are a known kind that
