@@ -17,6 +17,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
@@ -31,6 +32,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 	gproto "google.golang.org/protobuf/proto"
 
@@ -906,6 +908,43 @@ func TestUnleasedSweepWithAnUndeliveredRecordIsNotReportedComplete(t *testing.T)
 			return settledBy{&appendScript{inner: sp, refuseAfter: -1, permanentOn: 2, permanentErr: spool.ErrBodyTooLarge}, sp}
 		}, nil)
 	})
+}
+
+// The completion record is what core treats as the execution's close. When the
+// gateway permanently rejects that record, the checker response is still
+// released once the rejection is terminal evidence, and the producer says the
+// execution was left open. Releasing it earlier would acknowledge a close core
+// never received; holding it would block every later response.
+func TestUnleasedSweepRejectedCompletionReleasesTheResponse(t *testing.T) {
+	sp := openTestEdgeSpool(t)
+	hosts := make([]models.HostResult, 5)
+	for i := range hosts {
+		hosts[i] = reachableHost(fmt.Sprintf("192.0.2.%d", 70+i))
+	}
+	svc := &scriptedSweepResults{responses: []*proto.ResultsResponse{
+		sweepResultsResponse(t, unleasedTestGroupID, "11", hosts, nil),
+		sweepResultsResponse(t, unleasedTestGroupID, "12", []models.HostResult{reachableHost("192.0.2.80")}, nil),
+	}}
+	loop, _ := unleasedSweepLoop(t, sp, svc, currentMetricsGrant(t), unleasedSweepGrant(t, 2))
+	loop.edgeMetricsSpool = sp
+	var logs bytes.Buffer
+	loop.logger = &recordingLogger{Logger: zerolog.New(&logs)}
+
+	require.True(t, loop.pushSweepResults(t.Context()))
+	resolveSpooled(t, sp, nil)
+	require.True(t, loop.pushSweepResults(t.Context()))
+	_, batches, _ := spooledUnleasedSweep(t, sp)
+	require.Len(t, batches, 1)
+	require.True(t, batches[0].GetIsFinal())
+	require.False(t, batches[0].GetIsCancelled())
+	require.Empty(t, svc.acked())
+	require.NotContains(t, logs.String(), "completion record was not delivered")
+
+	resolveSpooled(t, sp, func(spool.Record) bool { return true })
+	loop.pushSweepResults(t.Context())
+	require.Equal(t, []string{unleasedTestGroupID + "/11"}, svc.acked())
+	require.Equal(t, 2, svc.reads, "the next response stays unread until the completion record is resolved")
+	require.Contains(t, logs.String(), "Sweep results completion record was not delivered")
 }
 
 // settledBy appends through a script and settles through the real spool.
