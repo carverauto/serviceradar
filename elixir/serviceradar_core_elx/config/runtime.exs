@@ -1250,8 +1250,7 @@ if config_env() == :prod do
       topology_world: 1,
       # Mapper graph projection (TopologyProjectionWorker). Kept in step with
       # serviceradar_core's runtime.exs.
-      topology_projection:
-        String.to_integer(System.get_env("OBAN_QUEUE_TOPOLOGY_PROJECTION") || "2"),
+      topology_projection: String.to_integer(System.get_env("OBAN_QUEUE_TOPOLOGY_PROJECTION") || "2"),
       alerts: String.to_integer(System.get_env("OBAN_QUEUE_ALERTS") || "5"),
       monitoring: String.to_integer(System.get_env("OBAN_QUEUE_MONITORING") || "5"),
       service_checks: String.to_integer(System.get_env("OBAN_QUEUE_SERVICE_CHECKS") || "10"),

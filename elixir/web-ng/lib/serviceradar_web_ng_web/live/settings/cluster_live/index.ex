@@ -1369,8 +1369,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
             not_accepted_total: acc.not_accepted_total + entry.not_accepted_total,
             timeout_total: acc.timeout_total + entry.timeout_total,
             crash_total: acc.crash_total + entry.crash_total,
-            coalesced_total:
-              acc.coalesced_total + Map.get(entry, :coalesced_total, 0),
+            coalesced_total: acc.coalesced_total + Map.get(entry, :coalesced_total, 0),
             expired_total: acc.expired_total + Map.get(entry, :expired_total, 0),
             incomplete_run_total: acc.incomplete_run_total + entry.incomplete_run_total,
             queue_wait_ms: max(acc.queue_wait_ms, entry.queue_wait_ms),
