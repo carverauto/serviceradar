@@ -76,10 +76,10 @@ words end-to-end or throughput attach to it.
   - `//buildbuddy.yaml` — one added step
 - **Not in scope:** any performance THRESHOLD, any optimisation work, and any change to what the
   benchmarks measure. Part 1 changes only whether they run.
-- **Moved, not deferred:** the throughput benchmark belongs to `unify-sweep-results-proto`'s
-  vertical-slice implementation, so it exercises production composition rather than becoming a
-  second independently proven model of ingress. It additionally depends on
-  `freeze-edge-record-v1-abi` 1.5-k and 1.5-n, which define two of the stages it would measure.
+- **Owned here:** the throughput benchmark is section 7 of `tasks.md`. It exercises the
+  production entrypoint the vertical slice now owns, so it does not become a second
+  independently proven model of ingress. The paragraphs above record the original assignment
+  to `unify-sweep-results-proto`; follow section 7, not that assignment.
 - **Available dependency:** a real NATS JetStream instance exists in `sr-testing`, so neither the
   vertical slice nor the throughput benchmark needs to mock the PubAck hop. A measurement taken
   against a real broker describes the system; one taken against a mock describes the harness.

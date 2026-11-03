@@ -43,7 +43,10 @@
 - [ ] 5.3 Collect enough runs to state each benchmark's observed variance, so a later proposal to
       gate can be argued from data rather than from a round number.
 
-## 6. Pipeline throughput -- MOVED to the vertical slice, not tracked here
+## 6. Pipeline throughput -- tracked in section 7
+
+Items 6.1-6.3 record the original assignment. Section 7 holds the throughput
+and capacity tasks.
 
 - [x] 6.1 Record that the throughput benchmark is NOT part of this change. It must exercise the
       same production entrypoint the vertical slice uses; built here it would grow

@@ -49,7 +49,7 @@ simultaneously as typed output, `MetricBatch`, OCSF,
 `plugin_result` JSON, or a lossy copy unless one platform-owned idempotent
 derivation is the sole owner of the secondary representation.
 
-#### Scenario: Package metadata selects a subject or SQL table
+#### Scenario: selects a package subject and SQL table
 - **WHEN** package metadata attempts to provide a subject filter, SQL, DDL,
   executable processor, or destination table
 - **THEN** import or contract approval SHALL reject those transport/storage
@@ -268,7 +268,7 @@ using the trusted envelope/grant BEFORE side effects.
 
 #### Scenario: A scanner output lacks scan authority
 - **GIVEN** no valid target/range collection capability
-- **WHEN** a scanner attempts to report or initiate a scan
+- **WHEN** it attempts to report or initiate a scan
 - **THEN** output permission SHALL NOT authorize the probe or make the target
   claims authoritative
 - **AND** the record SHALL be rejected or retained as non-authoritative audit

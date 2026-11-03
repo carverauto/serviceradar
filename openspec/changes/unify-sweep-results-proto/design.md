@@ -161,18 +161,26 @@ The active work order is therefore four end-to-end milestones (`tasks.md`,
 A milestone closes only on evidence from the required composed target or a
 running deployment. Deployment evidence lives in the milestone's GitHub
 tracking issue, never in the repository, because data captured from a live
-system is not committed. The remaining tasks stay owed as a
-backlog that does not gate M1-M4: capacity baselines and benchmarks, the
-signed registry lifecycle and cost API, the Wasm, native and inventory producer
-migrations, the recovery coordinator and coverage-proof reclamation, DLQ and
-redrive completeness, and 64-partition production sizing. Normative
-requirements in `specs/` are unchanged; this amendment changes the order of
-work, not the contract.
+system is not committed. The remaining tasks were then a backlog that did
+not gate M1-M4: capacity baselines and benchmarks, the signed registry
+lifecycle and cost API, the Wasm, native and inventory producer migrations,
+the recovery coordinator and coverage-proof reclamation, DLQ and redrive
+completeness, and 64-partition production sizing. Normative requirements in
+`specs/` were unchanged by this amendment; it changed the order of work, not
+the contract.
 
 ### Scope amendment 2026-11-02
 
 Maintainer-approved close-out. The normative split is `proposal.md` (Impact,
-scope update). Goals that assign this change the Wasm, native add-on, or
+scope update). The backlog above is no longer owed here. Capacity baselines
+and benchmarks belong to `add-edge-pipeline-benchmarks`. The signed registry
+lifecycle and cost API belong to `add-edge-contract-registry-lifecycle`. The
+Wasm, native and inventory producer migrations belong to
+`move-agent-telemetry-to-edge-records`. The recovery coordinator and
+coverage-proof reclamation belong to `add-edge-spool-recovery-coordinator`.
+DLQ, redrive completeness, and 64-partition production sizing belong to
+`add-edge-record-stream-partitioning`. Their normative requirements moved
+with them. Goals that assign this change the Wasm, native add-on, or
 package-defined output work, and "Migration and Rollback" later in this file,
 are history and are not kept requirements. Cutover is
 `move-agent-telemetry-to-edge-records` Decision 7.

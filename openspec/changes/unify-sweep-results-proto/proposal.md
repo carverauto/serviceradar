@@ -487,8 +487,10 @@ class.
     change (scope update above);
   - Elixir agent-gateway record RPC, identity attestation, JetStream publisher,
     ACL/configuration, and removal of volatile result buffering for this lane;
-  - Elixir core EventWriter streams, partitioned pull consumers, sweep/MTR
-    processors, DLQ, ingest ledger, and execution reconciliation;
+  - Elixir core EventWriter streams, sweep/MTR processors, and execution
+    reconciliation;
+  - partitioned pull consumers, DLQ, and the ingest ledger belong to
+    `add-edge-record-stream-partitioning`;
   - sweep/MTR resources, uniqueness constraints, retention, and rollups;
   - Helm/Docker stream capacity and gateway publisher configuration.
 - **Compatibility**: `move-agent-telemetry-to-edge-records` Decision 7
