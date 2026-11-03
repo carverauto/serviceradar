@@ -1119,6 +1119,23 @@ defmodule ServiceRadar.StatusHandlerTest do
                StatusIngestor.ingest(status, return_transport_errors: true)
 
       assert :counters.get(attempts, 1) == 1
+
+      test_pid = self()
+
+      Application.put_env(:serviceradar_core, StatusHandler,
+        addon_telemetry_publisher: fn subject, payload ->
+          send(test_pid, {:published, subject, payload})
+          :ok
+        end
+      )
+
+      assert :ok = StatusIngestor.ingest(status, return_transport_errors: true)
+
+      assert_receive {:published, subject, payload}
+      assert String.starts_with?(subject, "signals.analytics.predictions.")
+      assert {:ok, decoded} = Jason.decode(payload)
+      assert decoded["event_type"] == "anomaly"
+      assert_receive {:published, "logs.otel.addon", _log}
     end
   end
 
