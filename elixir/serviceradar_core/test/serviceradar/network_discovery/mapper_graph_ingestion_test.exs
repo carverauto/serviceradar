@@ -960,43 +960,64 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
                [device_ip]
              )
 
-    assert [%{"kind" => "interfaces", "records" => records}] = pending_projection_args()
-    assert length(records) == 200
+    assert [%{"kind" => "interfaces", "device_ids" => device_ids}] = pending_projection_args()
+    assert device_ids != []
+    refute Map.has_key?(hd(pending_projection_args()), "records")
   end
 
-  test "a newer mapper result replaces a pending projection and an older one never lands over it" do
-    run = fn alias_name ->
-      [%{device_id: "sr:it-order", if_name: "eth0", if_index: 1, if_alias: alias_name}]
-    end
+  test "a retried older projection leaves the graph equal to the latest committed interfaces" do
+    device_id = "sr:it-order"
+    on_exit(fn -> delete_interface(device_id) end)
 
-    # Two results before the projection runs: only the newer one is projected.
-    assert :ok = TopologyProjectionWorker.enqueue(:interfaces, run.("first"))
-    assert :ok = TopologyProjectionWorker.enqueue(:interfaces, run.("second"))
-    assert [%{"records" => [%{"if_alias" => "second"}]}] = pending_projection_args()
-    project_pending_topology()
-    assert interface_alias("sr:it-order/eth0") == "second"
+    # The job that was queued for the first observation still carries that
+    # payload, which is what a retry used to apply after a newer result.
+    upsert_interface_alias(device_id, "stale-alias")
+    assert :ok = TopologyProjectionWorker.enqueue(:interfaces, [%{device_id: device_id}])
+    assert :ok = TopologyProjectionWorker.enqueue(:interfaces, [%{device_id: device_id}])
+    assert [%{"device_ids" => [^device_id], "kind" => "interfaces"}] = pending_projection_args()
 
-    # A result arrives while an earlier projection of the same scope is still
-    # executing: it waits for that projection instead of racing it.
-    assert :ok = TopologyProjectionWorker.enqueue(:interfaces, run.("third"))
     [older] = pending_projection_jobs()
+
+    stale_records = [
+      %{
+        "device_id" => device_id,
+        "if_name" => "eth0",
+        "if_index" => 1,
+        "if_alias" => "stale-alias"
+      }
+    ]
+
+    Repo.update_all(
+      from(j in Oban.Job, where: j.id == ^older.id),
+      [set: [args: older.args |> Map.delete("device_ids") |> Map.put("records", stale_records)]],
+      prefix: "platform"
+    )
+
     mark_executing(older)
-    assert :ok = TopologyProjectionWorker.enqueue(:interfaces, run.("fourth"))
+    upsert_interface_alias(device_id, "latest-alias")
+
+    assert :ok =
+             TopologyProjectionWorker.enqueue(:interfaces, [
+               %{device_id: device_id, if_alias: "latest-alias"}
+             ])
+
     [newer] = pending_projection_jobs()
     assert newer.id > older.id
     assert {:snooze, _seconds} = TopologyProjectionWorker.perform(newer)
 
-    # The earlier projection, run (or rescued) after the newer result arrived,
-    # is superseded and never writes its older state.
-    assert {:cancel, :superseded} = TopologyProjectionWorker.perform(older)
-    assert interface_alias("sr:it-order/eth0") == "second"
+    mark_retryable(older)
+    assert :ok = TopologyProjectionWorker.perform(reload_job(newer.id))
+    assert interface_alias("#{device_id}/eth0") == "latest-alias"
 
-    Repo.update_all(from(j in Oban.Job, where: j.id == ^older.id), [set: [state: "cancelled"]],
-      prefix: "platform"
+    # A no-op retry would leave this sentinel. Applying the stored payload
+    # would restore stale-alias. The retry must write the current CNPG row.
+    cypher_rows(
+      "MATCH (i:Interface {id:'#{device_id}/eth0'}) SET i.alias = 'gap' RETURN {alias: i.alias} AS result"
     )
 
-    project_pending_topology()
-    assert interface_alias("sr:it-order/eth0") == "fourth"
+    assert :ok = TopologyProjectionWorker.perform(reload_job(older.id))
+    assert current_if_alias(device_id) == "latest-alias"
+    assert interface_alias("#{device_id}/eth0") == current_if_alias(device_id)
   end
 
   test "router drops low-confidence inferred neighbors when only the uplink is corroborated" do
@@ -1228,6 +1249,50 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
       from(j in Oban.Job, where: j.id == ^id),
       [set: [state: "executing", attempted_at: DateTime.utc_now(), attempt: 1]],
       prefix: "platform"
+    )
+  end
+
+  defp mark_retryable(%Oban.Job{id: id}) do
+    Repo.update_all(
+      from(j in Oban.Job, where: j.id == ^id),
+      [set: [state: "retryable", attempted_at: DateTime.utc_now(), attempt: 1]],
+      prefix: "platform"
+    )
+  end
+
+  defp reload_job(id), do: Repo.get!(Oban.Job, id, prefix: "platform")
+
+  defp upsert_interface_alias(device_id, if_alias) do
+    SQL.query!(
+      Repo,
+      """
+      INSERT INTO platform.discovered_interfaces
+        (timestamp, device_id, interface_uid, if_index, if_name, if_alias,
+         classifications, classification_meta, classification_source)
+      VALUES ($1, $2, 'eth0', 1, 'eth0', $3, '{}', '{}', 'rules')
+      ON CONFLICT (device_id, interface_uid)
+      DO UPDATE SET if_alias = EXCLUDED.if_alias, timestamp = EXCLUDED.timestamp, if_name = EXCLUDED.if_name
+      """,
+      [DateTime.utc_now(), device_id, if_alias]
+    )
+  end
+
+  defp current_if_alias(device_id) do
+    %Postgrex.Result{rows: [[if_alias]]} =
+      SQL.query!(
+        Repo,
+        "SELECT if_alias FROM platform.discovered_interfaces WHERE device_id = $1 AND interface_uid = 'eth0'",
+        [device_id]
+      )
+
+    if_alias
+  end
+
+  defp delete_interface(device_id) do
+    SQL.query!(
+      Repo,
+      "DELETE FROM platform.discovered_interfaces WHERE device_id = $1",
+      [device_id]
     )
   end
 

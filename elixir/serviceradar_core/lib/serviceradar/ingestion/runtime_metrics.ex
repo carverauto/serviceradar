@@ -15,9 +15,10 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
     * `topology_projection` - mapper graph projection jobs
       (`ServiceRadar.NetworkDiscovery.TopologyProjectionWorker`): scheduled
       (`admitted`), replaced by a newer result before running (`coalesced`),
-      superseded (`cancellation`), completed (`completion`, `accepted` or
-      `not_accepted`), and exhausted or unschedulable (`failed`), with the last
-      projection's `queue_wait_ms` and `duration_ms`.
+      completed (`completion`, `accepted` or `not_accepted`), and exhausted or
+      unschedulable (`failed`), with the last projection's `queue_wait_ms` and
+      `duration_ms`. A job reads the current CNPG rows for its devices when it
+      runs, so a retry applies that state rather than the result that enqueued it.
     * `dgraph` - every Dgraph call, from the `[:serviceradar, :dgraph, :call, *]`
       telemetry of `ServiceRadar.Dgraph.Call`: replies (`completion`,
       `accepted` when the reply kind is `:ok`), backstop `timeout`s and

@@ -183,4 +183,53 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveIngestionTest do
     assert html =~ "3 / 6"
     refute html =~ "60 / 32"
   end
+
+  test "a core that omits coalesced and expired counters counts them as zero" do
+    lane = %{
+      lane: :mapper,
+      pending_count: 0,
+      pending_bytes: 0,
+      in_flight_count: 0,
+      in_flight_bytes: 0,
+      max_items: 1,
+      max_bytes: 1024,
+      admitted_total: 2,
+      rejected_total: 0,
+      accepted_total: 2,
+      not_accepted_total: 0,
+      timeout_total: 0,
+      crash_total: 0,
+      incomplete_run_total: 0,
+      queue_wait_ms: 0,
+      execution_ms: 0,
+      acknowledgement_ms: 0
+    }
+
+    assert [^lane] =
+             ClusterLive.merge_ingestion_lane_snapshots([%{node: "core-old", lanes: [lane]}])
+
+    html =
+      render_component(&ClusterLive.ingestion_lanes_panel/1,
+        ingestion_stats: %{
+          available: true,
+          nodes: ["core-old"],
+          lanes: [lane],
+          totals: %{pending_count: 0, in_flight_count: 0}
+        }
+      )
+
+    assert html =~ "cluster-ingestion-lane-mapper"
+    assert html =~ "0 / 0"
+
+    newer = Map.merge(lane, %{coalesced_total: 3, expired_total: 4})
+
+    [merged] =
+      ClusterLive.merge_ingestion_lane_snapshots([
+        %{node: "core-old", lanes: [lane]},
+        %{node: "core-new", lanes: [newer]}
+      ])
+
+    assert merged.coalesced_total == 3
+    assert merged.expired_total == 4
+  end
 end

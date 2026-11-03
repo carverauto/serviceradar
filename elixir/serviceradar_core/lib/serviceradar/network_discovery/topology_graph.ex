@@ -24,14 +24,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   @spec upsert_links([map()]) :: :ok | {:error, term()}
   defdelegate upsert_links(links), to: Links
 
-  @doc "The part of a mapper link `upsert_links/1` reads, in a JSON-safe form."
-  @spec link_projection_input(map()) :: map()
-  defdelegate link_projection_input(link), to: Projection, as: :projection_input
-
-  @doc "The part of an interface record `upsert_interfaces/1` reads."
-  @spec interface_projection_input(map()) :: map()
-  defdelegate interface_projection_input(interface), to: Interfaces, as: :projection_input
-
   @doc """
   Rebuilds canonical device-level topology edges from current mapper evidence in AGE.
   """

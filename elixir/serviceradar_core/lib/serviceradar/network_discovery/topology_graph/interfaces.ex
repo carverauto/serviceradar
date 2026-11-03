@@ -17,26 +17,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Interfaces do
     |> DgraphPersist.upsert_interfaces()
   end
 
-  # Every interface field build_interface_payload/1 reads.
-  @input_keys [
-    :device_id,
-    :if_name,
-    :if_index,
-    :if_descr,
-    :if_alias,
-    :if_phys_address,
-    :ip_addresses
-  ]
-
-  @doc """
-  The part of an interface record that projection reads, so it can be carried
-  to a later projection and yield the same payload there.
-  """
-  @spec projection_input(map()) :: map()
-  def projection_input(interface) when is_map(interface) do
-    Map.new(@input_keys, &{&1, Utils.link_value(interface, &1)})
-  end
-
   @spec upsert_managed_by(String.t(), String.t()) :: :ok
   def upsert_managed_by(device_uid, management_device_uid)
       when is_binary(device_uid) and is_binary(management_device_uid) do
