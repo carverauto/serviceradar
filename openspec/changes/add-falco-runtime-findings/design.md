@@ -115,9 +115,11 @@ record this.
   value the agent stamps from `falcoIngest.clusterId`, defaulting to `default`. It is a key
   within the attested partition. Two partitions that both use cluster id `default` therefore
   produce different workload and pod keys, and different finding uids.
-- **Finding uid** = `deterministic_uuid("falco:runtime-finding:v1:" <> entity_kind <> "|" <>
-  entity_key <> "|" <> rule)`. It never includes container id, pod uid, device uid or the ingest
-  subject, so a binding can arrive, change or follow a DIRE merge without changing the finding.
+- **Finding uid** = `deterministic_uuid("falco:runtime-finding:v1:" <> partition <> "|" <>
+  entity_kind <> "|" <> entity_key <> "|" <> rule)`. The attested partition is its own hash input
+  and the first coordinate of every entity key, including workload and pod. The uid never includes
+  container id, pod uid, device uid, or the ingest subject, so a binding can arrive, change, or
+  follow a DIRE merge without changing the finding.
 - **Rule identity** is the Falco rule name. A renamed rule is a new finding.
 
 ### Decision 3: Inventory binding records how it was made, and never guesses
@@ -151,7 +153,9 @@ resolution runs for the subject (`device_uid`) and for the node the occurrence r
 - Occurrences of a batch are grouped by finding uid; one upsert per finding, in one CNPG
   transaction that locks findings in uid order (no deadlocks between EventWriter replicas). It
   adds to `occurrence_count` and `episode_occurrence_count`, moves `first_seen` / `last_seen`
-  monotonically, raises episode severity monotonically, and merges samples.
+  monotonically, raises episode severity monotonically within the current episode, and merges
+  samples. A reopen sets episode severity from the reopening occurrence; later occurrences in
+  that episode can only raise it.
 - **Window:** `window_started_at` / `window_count` is a tumbling one-hour window for "how hot is it
   now". It is a display counter, not an alert input. The full timeline is a bucketed query on the
   occurrence dataset.
@@ -207,14 +211,15 @@ table, writer and reader stay for installations without StarRocks.
 - **Nothing is dropped.** An upload that fails (including a full bucket, which the store refuses
   rather than evicts) fails the batch; JetStream redelivers and the upload is retried under the
   same key. The failure is counted and raised as a health event. There is no "mark oversize and
-  continue" path.
-- **Retention coupling.** An object lives exactly as long as the occurrence that references it. The
-  occurrence dataset is day-partitioned on both backends, and the object key carries the same UTC
-  day. `ServiceRadar.ObjectStore.RetentionWorker` gains a runtime-evidence pass that deletes a day
-  prefix only after that day's occurrence partition (warehouse) or chunk (CNPG) has been dropped
-  on the active backend, plus a one-day grace. It never deletes a day that is still retained.
-  Objects uploaded for a batch that was never stored (it reached `max_deliver`) are removed with
-  their day.
+  continue" path. A delivery that reaches `max_deliver` without a stored occurrence is published
+  to `TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK` with its object references intact. That
+  publication is counted and visible. The objects are not deleted because delivery stopped.
+- **Retention coupling.** An object lives as long as the occurrence or quarantine record that
+  references it. The occurrence dataset is day-partitioned on both backends, and the object key
+  carries the same UTC day. `ServiceRadar.ObjectStore.RetentionWorker` gains a runtime-evidence
+  pass that deletes a day prefix only after that day's occurrence partition (warehouse) or chunk
+  (CNPG) has been dropped on the active backend, plus a one-day grace. It never deletes a day
+  that is still retained, and it never deletes an object a quarantine record still references.
 - **Reads.** SRQL returns `raw_ref` for spilled records. The finding detail page streams the object
   through core and verifies the digest; a missing object or digest mismatch is displayed and raised
   as a health event, never shown as empty.
@@ -226,10 +231,11 @@ table, writer and reader stay for installations without StarRocks.
 
 - `active` -> `resolved` automatically after a quiet period with no new occurrence (default 24 h,
   configurable as `runtime_findings.auto_resolve_after`), or by an operator.
-- `resolved` -> `active` on a new occurrence (`reopen_count += 1`, a new episode starts).
+- `resolved` -> `active` on a new occurrence (`reopen_count += 1`, a new episode starts). The new
+  episode's severity starts at that occurrence's severity.
 - **Alerting is lifecycle only** (user decision): `opened`, `reopened`, `escalated` (episode
   severity rose), `resolved`. There is no volume or rate alert. Falco findings are `active` or
-  `resolved`. They do not write the shared table's suppressed status.
+  `resolved`.
 - Each transition draws the next `transition_seq` inside the finding transaction and inserts an
   outbox row in that transaction. A relay writes it as an OCSF Detection Finding event (activity
   Create, Update or Close) to `ocsf_events`, admits it through
@@ -278,22 +284,26 @@ required.
 `json_include_output_fields_property: true` and `json_include_tags_property: true` includes
 `output_fields`, `tags`, and `uuid`. The OTLP relay contract refuses one record above 512 KiB
 and would wrap that JSON in another encoding. The Falco contract carries the posted bytes. The
-agent splits an event that does not fit in one 512 KiB edge record into ordered parts:
+agent splits an event that does not fit in one 512 KiB edge record into ordered parts. Each part
+is its own `EdgeRecordV1`:
 
-- `falco_event_id` is the JSON `uuid` when present, otherwise the SHA-256 of the full JSON;
-- `part_index` is 0-based and `part_total` is the count; a small event is part 0 of 1;
-- each part's payload is a contiguous slice of the posted JSON, and the encoded edge record stays
-  within 512 KiB;
-- every part carries `raw_sha256` and `raw_bytes` of the full JSON, plus the agent-stamped
-  `cluster_id`;
-- the edge-record event id is derived from `falco_event_id` and `part_index`, so redelivery
-  dedupes that part only.
+- `event_id` is a freshly minted RFC 9562 UUIDv7 whose embedded time is inside the
+  production-capability window. The agent records that id in the spool journal and reuses it when
+  it retries the same part. It is never the Falco `uuid` and never a hash of the body.
+- The contract payload carries `falco_event_id` (the JSON `uuid`, otherwise the SHA-256 of the
+  full JSON), `part_index` (0-based), `part_total` (1 for a single part), `raw_sha256`,
+  `raw_bytes`, the agent-stamped `cluster_id`, and the JSON slice. The encoded edge record stays
+  within 512 KiB.
+- Reassembly concatenates the JSON slices in `part_index` order. The concatenation must equal the
+  posted JSON and match `raw_sha256`.
 
-The projector concatenates a complete set in index order, checks the digest, and only then
-normalizes. It does not discard a part and does not acknowledge any part until the occurrence
-and finding update are stored. An incomplete set produces no occurrence. After reassembly,
-Decision 6 applies: inline up to 1 MiB, object store above that. Nothing is refused or dropped
-for size.
+The projector reassembles a complete set before it normalizes. Once an occurrence exists for
+that `falco_event_id`, any redelivered part of the set is acknowledged as already stored. Parts
+are retained until the set completes or the reassembly window for that `falco_event_id` expires.
+An expired incomplete set is published to
+`TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK` with its part payloads intact, then
+acknowledged. It is not discarded. After a complete reassembly, Decision 6 applies: inline up to
+1 MiB, object store above that. Size never refuses, truncates, or drops an event.
 
 **Endpoint auth.** Falco's `http_output` supports `mtls`, `client_cert`, `client_key`, and
 `ca_cert`. It has no custom-header token. The agent already authenticates callers with
@@ -331,9 +341,11 @@ ones are revoked). Release notes require pointing the Falco DaemonSet `http_outp
 in that upgrade. An unmigrated NATS publisher is refused. There is no flag that keeps both paths.
 
 **Delivery confirmation (task 0.4).** The agent returns HTTP success only after every part is in
-its durable edge spool. Each part stays there until its JetStream PubAck, and the projector
-stores the reassembled event before acknowledging the parts. A spool admission failure is a
-non-success HTTP response, so the agent has not accepted an event it cannot hold.
+its durable edge spool. Each part stays there until it is acknowledged. A complete set is
+acknowledged after the occurrence and finding update are stored. A redelivered part of an
+already-stored `falco_event_id` is acknowledged immediately. An incomplete set is acknowledged
+only after its quarantine publication. A spool admission failure is a non-success HTTP response,
+so the agent has not accepted an event it cannot hold.
 
 ### Decision 10: SRQL entities
 
@@ -410,5 +422,7 @@ Deleting a finding does not delete its occurrences.
 None. The user decided the logs row, count semantics, alerting scope, quiet period, oversize
 handling, migration, sequencing, and transport on 2026-11-02 and 2026-11-03. The 2026-11-03
 transport decision is Falco `http_output` into a chunked Falco edge contract, with the attested
-partition in the workload uid, a bound node still showing the finding, and no operator
-suppression or SRQL aliases.
+partition in the workload uid and in the finding-uid hash, a bound node still showing the
+finding, and no operator suppression or SRQL aliases. Each Falco part uses its own in-window
+UUIDv7 edge `event_id`. An unfinished part set or a `max_deliver` delivery is quarantined with
+its bytes and object references. A reopened episode starts at the new occurrence's severity.

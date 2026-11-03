@@ -53,7 +53,7 @@ The normalizer MUST NOT infer a workload owner by parsing pod names. A container
 - **AND** the container id and image SHALL be recorded on the occurrence and in the finding's samples
 
 ### Requirement: Runtime finding identity is stable across restarts and bindings
-The finding uid SHALL be a deterministic function of the entity kind, the entity key built from observed coordinates, and the Falco rule name, and MUST NOT include container id, pod uid, device uid, or the ingest subject.
+The finding uid SHALL be a deterministic function of the attested partition, the entity kind, the entity key, and the Falco rule name. The workload and pod entity keys SHALL begin with that same attested partition. The uid MUST NOT include container id, pod uid, device uid, or the ingest subject.
 
 #### Scenario: Pod restart keeps the finding
 - **GIVEN** an active workload finding whose occurrences came from container `aaaaaaaaaaaa`
@@ -107,7 +107,7 @@ Runtime finding binding MUST NOT create, merge, restore, or revive devices and M
 - **THEN** no device row SHALL be created or restored
 
 ### Requirement: Runtime finding aggregation is atomic and bounded
-The system SHALL aggregate each batch's occurrences per finding into one atomic update that adds to the lifetime and episode counts, moves first seen and last seen monotonically, raises episode severity monotonically, maintains a one-hour tumbling window count, and merges bounded samples.
+The system SHALL aggregate each batch's occurrences per finding into one atomic update that adds to the lifetime and episode counts, moves first seen and last seen monotonically, raises episode severity monotonically within the current episode, maintains a one-hour tumbling window count, and merges bounded samples.
 Concurrent updates from multiple EventWriter replicas MUST NOT lose counts. Samples SHALL be capped at fixed sizes: 10 process names, 5 latest command lines, 10 images, 20 nodes, 5 users, and 5 latest occurrence ids.
 
 #### Scenario: Concurrent replicas do not lose updates
@@ -127,6 +127,7 @@ Concurrent updates from multiple EventWriter replicas MUST NOT lose counts. Samp
 
 ### Requirement: Runtime finding lifecycle
 A runtime finding SHALL be `active` or `resolved`. It SHALL auto-resolve after a configurable quiet period without occurrences (default 24 hours), SHALL reopen on a new occurrence after resolution with a new episode, and SHALL support operator resolve.
+On reopen the new episode's severity SHALL start at the reopening occurrence's severity and SHALL then rise monotonically within that episode. The `reopened` transition SHALL carry that starting severity.
 A new occurrence on an active finding SHALL update counts and samples, and SHALL emit `escalated` when the episode severity rises.
 
 #### Scenario: Quiet finding auto-resolves
@@ -134,10 +135,18 @@ A new occurrence on an active finding SHALL update counts and samples, and SHALL
 - **WHEN** the auto-resolve job runs
 - **THEN** the finding SHALL become `resolved` and a `resolved` transition SHALL be emitted
 
-#### Scenario: Resolved finding reopens
-- **GIVEN** a resolved finding
-- **WHEN** a new occurrence arrives
-- **THEN** the finding SHALL become `active`, its reopen count SHALL increase by one, its episode counters SHALL restart, and a `reopened` transition SHALL be emitted
+#### Scenario: Resolved finding reopens at the new occurrence's severity
+- **GIVEN** a resolved finding whose previous episode severity was Critical
+- **WHEN** a Warning occurrence arrives
+- **THEN** the finding SHALL become `active`, its reopen count SHALL increase by one, and its episode counters SHALL restart
+- **AND** the new episode severity SHALL be Warning
+- **AND** the `reopened` transition SHALL carry Warning
+
+#### Scenario: Later occurrence in the new episode can escalate
+- **GIVEN** a finding reopened at Warning
+- **WHEN** a Critical occurrence arrives in that episode
+- **THEN** the episode severity SHALL become Critical
+- **AND** an `escalated` transition SHALL be emitted
 
 #### Scenario: Higher priority on an active finding escalates
 - **GIVEN** an active finding
@@ -186,7 +195,7 @@ Runtime finding occurrence counts SHALL be at-least-once: a count MAY exceed the
 
 ### Requirement: Raw Falco evidence is lossless and never dropped
 Each occurrence SHALL retain its raw Falco record losslessly with its SHA-256 digest and byte length. A record up to 1,048,576 bytes SHALL be stored inline on either backend; a larger record SHALL be uploaded to the datasvc object store before its occurrence is written, and the occurrence SHALL carry a reference `{store, key, sha256, bytes, content_type}` with key `runtime-security/raw/<UTC date of the occurrence>/<occurrence id>.json`.
-The system MUST NOT truncate, drop, or merely flag raw evidence. A failed upload, including a full object store bucket, SHALL fail the batch so JetStream redelivers it, and SHALL be counted and raised as a health event.
+The system MUST NOT truncate, drop, or merely flag raw evidence. A failed upload, including a full object store bucket, SHALL fail the batch so JetStream redelivers it, and SHALL be counted and raised as a health event. A delivery that reaches `max_deliver` without a stored occurrence SHALL be published to `TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK` with its object references intact, and those objects SHALL NOT be deleted because delivery stopped.
 
 #### Scenario: Inline evidence round-trips
 - **GIVEN** a Falco JSON event of 80,000 bytes
@@ -206,9 +215,15 @@ The system MUST NOT truncate, drop, or merely flag raw evidence. A failed upload
 - **THEN** the batch SHALL fail and SHALL NOT be acknowledged
 - **AND** no occurrence row SHALL be written without its evidence
 
+#### Scenario: Max delivery quarantines the evidence
+- **GIVEN** a spilled object was uploaded and the occurrence write then fails until the delivery reaches `max_deliver`
+- **WHEN** the consumer stops redelivery
+- **THEN** the message SHALL be published on `TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK` with that object reference
+- **AND** the object SHALL NOT be deleted for that reason
+
 ### Requirement: Spilled evidence retention follows its occurrence
 A spilled raw evidence object SHALL be deleted only after the occurrence partition (warehouse) or chunk (CNPG) for its UTC day has been dropped on the active backend, plus a one-day grace, by the object store retention worker.
-The retention worker MUST NOT delete an object whose day is still retained.
+The retention worker MUST NOT delete an object whose day is still retained, and MUST NOT delete an object that a quarantine record still references.
 
 #### Scenario: Retained day keeps its objects
 - **GIVEN** occurrences for a day are still within telemetry retention
@@ -217,8 +232,10 @@ The retention worker MUST NOT delete an object whose day is still retained.
 
 #### Scenario: Expired day is cleaned
 - **GIVEN** a day's occurrence partition was dropped two days ago
+- **AND** one object under that prefix is still referenced by a quarantine record
 - **WHEN** the object store retention worker runs
-- **THEN** every evidence object under that day's prefix SHALL be deleted, including objects whose batch was never stored
+- **THEN** the other evidence objects under that day's prefix SHALL be deleted
+- **AND** the quarantined object SHALL remain
 
 ### Requirement: Runtime finding retention
 The system SHALL keep active findings, SHALL delete resolved findings a configurable period after resolution (default 90 days) with a bounded prune job, and SHALL age occurrences out on the occurrence dataset's telemetry retention.
@@ -258,8 +275,8 @@ The agent SHALL return success only after every part of that event is in its dur
 
 ### Requirement: Oversized Falco events are chunked, reassembled, then spilled
 The agent SHALL spool each accepted event under the `{"serviceradar.falco.event", 1}` contract. The OTLP relay contract SHALL NOT carry these events: it refuses one record above the 512 KiB edge-record bound, and wrapping the Falco JSON as an OTLP log would be a second encoding of `output_fields`, `uuid`, and `tags`.
-An event whose edge record would exceed the 512 KiB bound SHALL be split into ordered parts that share one `falco_event_id` and carry `part_index`, `part_total`, and the SHA-256 of the full JSON. Each part's edge record SHALL stay within 512 KiB, and its payload SHALL be a contiguous slice of the posted JSON. A single-part event SHALL use `part_index` 0 and `part_total` 1. The edge-record event id SHALL distinguish parts of the same Falco event so a redelivered part does not collapse its siblings.
-The projector SHALL reassemble a complete part set, in index order, before normalizing, and SHALL NOT write an occurrence until the concatenation equals the posted JSON and matches the carried digest. It SHALL NOT discard a part, and it SHALL NOT acknowledge any part of an event until that occurrence and its finding update are stored. After reassembly, a raw record up to 1,048,576 bytes SHALL be stored inline and a larger record SHALL be stored out-of-line as this spec requires. Size SHALL NOT refuse, truncate, or drop an event.
+An event whose edge record would exceed the 512 KiB bound SHALL be split into ordered parts. Each part SHALL be its own `EdgeRecordV1` with a freshly minted RFC 9562 UUIDv7 `event_id` inside the production-capability window. The agent SHALL reuse that `event_id` from its spool journal when it retries the same part. The Falco `uuid`, or the SHA-256 of the posted JSON when `uuid` is absent, plus `part_index`, `part_total`, and the JSON slice, SHALL travel in the contract payload and SHALL NOT be the edge `event_id`. A single-part event SHALL use `part_index` 0 and `part_total` 1. Each encoded edge record SHALL stay within 512 KiB.
+The projector SHALL concatenate the JSON slices in index order before normalizing, and SHALL write an occurrence only when that concatenation equals the posted JSON and matches the carried digest. The parts that completed the set SHALL be acknowledged after that occurrence and its finding update are stored. Once that occurrence is stored, any redelivered part of the same Falco event SHALL be acknowledged as already stored. Parts SHALL be retained until the set completes or the reassembly window for that Falco event expires. An expired incomplete set SHALL be published to `TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK` with its part payloads intact and SHALL then be acknowledged. After reassembly, a raw record up to 1,048,576 bytes SHALL be stored inline and a larger record SHALL be stored out-of-line as this spec requires. Size SHALL NOT refuse, truncate, or drop an event.
 
 #### Scenario: An event above the edge-record bound is reassembled inline
 - **GIVEN** a posted Falco JSON event of 600,000 bytes
@@ -273,11 +290,24 @@ The projector SHALL reassemble a complete part set, in index order, before norma
 - **THEN** the object store SHALL hold the full posted bytes
 - **AND** the occurrence SHALL carry the reference and no inline payload
 
-#### Scenario: An incomplete part set is not normalized
+#### Scenario: An incomplete part set is retained
 - **GIVEN** the agent spooled part 0 of 2 for a Falco event and part 1 has not arrived
+- **AND** the reassembly window has not expired
 - **WHEN** the projector runs
 - **THEN** no occurrence SHALL be written
-- **AND** part 0 SHALL NOT be acknowledged
+- **AND** part 0 SHALL be retained and SHALL NOT be acknowledged
+
+#### Scenario: A redelivered part of a stored event is acknowledged
+- **GIVEN** an occurrence is already stored for a Falco event
+- **WHEN** one part of that event is redelivered
+- **THEN** that part SHALL be acknowledged as already stored
+- **AND** no second occurrence SHALL be written
+
+#### Scenario: An expired incomplete set is quarantined
+- **GIVEN** part 0 of 2 is retained and the reassembly window expires before part 1 arrives
+- **WHEN** the projector runs
+- **THEN** the incomplete set SHALL be published to `TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK` with part 0's payload intact
+- **AND** part 0 SHALL then be acknowledged
 
 ### Requirement: Chart wiring points the Falco DaemonSet at the agent
 When `falcoIngest.enabled` is true, the Helm chart SHALL expose the in-cluster agent's Falco HTTPS port (default 14318) on the `serviceradar-agent` Service, SHALL cause core to grant that agent `{"serviceradar.falco.event", 1}`, and SHALL admit `falcoIngest.namespace` to that port in its network policy.
@@ -291,9 +321,10 @@ The chart SHALL render, in `falcoIngest.namespace`, the client certificate, clie
 - **AND** the agent configuration SHALL stamp cluster id `shop-cluster`
 
 ### Requirement: Falco delivery holds every accepted event
-Operator documentation SHALL state that a Falco event is durably held from the moment the agent returns HTTP success, with every part in the agent edge spool, until each part has a JetStream PubAck and the projector has stored the reassembled occurrence. A failed spool admission is a non-success HTTP response. Documentation SHALL state that guarantee and SHALL NOT list a drop, truncation, or oversize refusal.
+Operator documentation SHALL state that a Falco event is durably held from the moment the agent returns HTTP success, with every part in the agent edge spool. A complete set becomes an occurrence. A redelivered part of a stored event is acknowledged. An incomplete set whose reassembly window expires, and a delivery that reaches `max_deliver` without a stored occurrence, is published to the security quarantine route with its bytes and object references intact. A failed spool admission is a non-success HTTP response. Documentation SHALL state that guarantee and SHALL NOT list a drop, truncation, or oversize refusal.
 
 #### Scenario: Operator reads the delivery guarantee
 - **WHEN** an operator reads the Falco ingestion documentation
 - **THEN** it SHALL state that HTTP success means every part is in the agent edge spool
+- **AND** it SHALL state that an unfinished set is quarantined with its bytes and object references
 - **AND** it SHALL NOT name a counted drop, truncation, or oversize refusal
