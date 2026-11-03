@@ -394,7 +394,8 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
       assert :ok = Pipeline.ack(:ack_ref, [], [message])
 
       assert [
-               {:publish, "telemetry.edge-record-dlq.v1.bulk.p07.unknown.v0", @record_bytes, opts},
+               {:publish, "telemetry.edge-record-dlq.v1.bulk.p07.unknown.v0", @record_bytes,
+                opts},
                {:publish, "$JS.API.STREAM.MSG.GET.TELEMETRY_EDGE_RECORD_DLQ_V1_BULK", get_body,
                 _get_opts},
                {:ack, :ack}
