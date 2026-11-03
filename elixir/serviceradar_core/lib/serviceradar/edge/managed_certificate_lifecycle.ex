@@ -107,6 +107,7 @@ defmodule ServiceRadar.Edge.ManagedCertificateLifecycle do
                  :successor_not_current,
                  :successor_not_authorized,
                  :component_unavailable,
+                 :operation_superseded,
                  :not_found,
                  :host_mismatch,
                  :invalid_receiver,
