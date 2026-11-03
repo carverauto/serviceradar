@@ -34,38 +34,24 @@ Tracking epic: #6271 ("Falco transport" item).
   no `raw_data` column; `logs.body` is `VARCHAR(65533)` with no guard; BMP, OTel span and flow
   attribution columns are also truncated to their widths.
 
-### The durable edge path this change moves onto
+### The agent edge spool
 
-- The first-party `otel-collector` native add-on (`rust/otel-addon`, capability `otlp-relay:v1`)
-  runs beside an agent. It serves OTLP/gRPC and OTLP/HTTP with optional TLS and token auth, holds
-  accepted exports in a durable spool (`agent_forward`), and ships them to the agent as
-  `OtlpRelayFrame`s over `RelayOtlp`.
-- The agent commits each frame to its edge spool under the standing grant for contract
-  `{"serviceradar.otlp.relay", 1}` (package `serviceradar.agent.otlp_relay`) before acking the
-  add-on. The OTLP relay projector (`move-agent-telemetry-to-edge-records` task 4.1; contract text
-  in #6262) re-checks the grant and republishes each `TelemetryRecord.payload` verbatim to the
-  logs subject (`logs.otel` by default) with `Sr-Agent-Id`, `Sr-Partition` (the resolved
-  partition slug), `Sr-Ingest-Identity = "agent:" <> origin_principal_id`, and `Nats-Msg-Id`
-  set to the record's event id. It waits for the JetStream PubAck before the edge ledger commits.
-- `logs.otel` is consumed by the EventWriter `Logs` processor.
+The agent commits a record to its edge spool under a granted contract before the record leaves
+the node. The gateway authorizes by contract and does not decode the payload. A projector
+registered by `{contract_id, contract_version}` decodes and projects. One edge record is at most
+512 KiB (`MaxRecordBytes`). The otel-collector add-on and `{"serviceradar.otlp.relay", 1}` are a
+different producer. This change does not use them.
 
-### Falcosidekick's OTLP logs output, as it exists
+### Why this path does not use the OTLP relay contract
 
-Read from the Falcosidekick fork checkout in `~/src/falcosidekick` (`outputs/otlp_logs.go`):
-
-- Configuration: `otlp.logs.endpoint`, `protocol` (`grpc`, `http/protobuf`, `http/json`),
-  `timeout`, `headers`, `extraenvvars`, `minimumpriority`, `checkcert`; the matching environment
-  variables are `OTLP_LOGS_*`.
-- Each event becomes one log record through an `otelslog` logger: body = Falco `output`,
-  attributes `priority`, `source`, `rule`, `hostname`, `tags` (comma-joined) and `timestamp`.
-  **It does not send `output_fields`, `uuid` or custom fields.** The scope name is `falco`; the
-  resource is fixed to `service.name = "falco"` and the service version, and does not read
-  `OTEL_RESOURCE_ATTRIBUTES`. The logs exporter's TLS check reads the traces `checkcert` setting.
-- Export uses the SDK batch processor: a failed export is retried by the OTLP exporter and then
-  dropped, counted in Falcosidekick's own output metrics.
-
-Without `output_fields` there is no pod, namespace, container, or process context, so the
-normalization this change exists for is impossible. The output must be extended (Decision 9).
+Falco's native `http_output` posts one JSON event per request. With `json_output`,
+`json_include_output_fields_property`, and `json_include_tags_property` enabled, that JSON
+contains `output_fields`, `tags`, and `uuid` (Decision 9). The OTLP relay contract
+`{"serviceradar.otlp.relay", 1}` carries one OTLP record per edge record and refuses a record
+above the 512 KiB bound back to the sender. Putting the Falco JSON inside an OTLP log would be
+a second encoding, and that contract cannot split an event into parts. This change therefore
+uses a Falco contract and chunks on the agent. Falcosidekick is not in the path, and its OTLP
+logs output is not extended.
 
 ## Goals / Non-Goals
 
@@ -105,16 +91,15 @@ record this.
   `attribution_status`, `tactics text[]`, `techniques text[]`, `episode_started_at`,
   `episode_occurrence_count`, `episode_severity_id`, `reopen_count`, `window_started_at`,
   `window_count`, `samples jsonb` (bounded, Decision 4), `first_occurrence_id`,
-  `latest_occurrence_id`, `last_resolved_at`, `suppressed_until`, `suppressed_by`,
-  `suppression_reason`, `transition_seq`.
+  `latest_occurrence_id`, `last_resolved_at`, `transition_seq`.
 - Runtime attributes stay off the cross-class table; typed columns give indexed SRQL filters.
 
 ### Decision 2: The subject entity is the most specific stable one
 
 | `entity_kind` | When | `entity_key` coordinates |
 | --- | --- | --- |
-| `k8s_workload` | namespace, owner kind and owner name are known | `cluster_id / namespace / owner_kind / owner_name` |
-| `k8s_pod` | namespace and pod are known, owner is not | `cluster_id / namespace / pod_name` |
+| `k8s_workload` | namespace, owner kind and owner name are known | `partition / cluster_id / namespace / owner_kind / owner_name` |
+| `k8s_pod` | namespace and pod are known, owner is not | `partition / cluster_id / namespace / pod_name` |
 | `host` | a `syscall` event with no pod context (bare host, Docker host, nested runtime) | `partition / normalized hostname` |
 | `falco_source` | a non-`syscall` source (plugin events) | `partition / rule_source / normalized hostname` |
 
@@ -126,9 +111,10 @@ record this.
 - **Container-only events** are first enriched from `workload_identity_current` by
   `(partition, container_id)` (`attribution_status = enriched`). Otherwise the subject is the
   `host`, with container id and image as occurrence attributes and finding samples.
-- **Partition** is the attested `Sr-Partition` of the relay record. **Cluster id** is the
-  resource attribute `serviceradar.cluster_id` (Decision 9), defaulting to `default`. It is
-  sender-asserted and used only as a key within the attested partition.
+- **Partition** is the attested partition of the edge record (Decision 9). **Cluster id** is the
+  value the agent stamps from `falcoIngest.clusterId`, defaulting to `default`. It is a key
+  within the attested partition. Two partitions that both use cluster id `default` therefore
+  produce different workload and pod keys, and different finding uids.
 - **Finding uid** = `deterministic_uuid("falco:runtime-finding:v1:" <> entity_kind <> "|" <>
   entity_key <> "|" <> rule)`. It never includes container id, pod uid, device uid or the ingest
   subject, so a binding can arrive, change or follow a DIRE merge without changing the finding.
@@ -141,15 +127,19 @@ resolution runs for the subject (`device_uid`) and for the node the occurrence r
 (`node_device_uid`).
 
 - **Methods, strongest first:** `explicit_uid`; `agent` (an agent id that exists, including the
-  relaying agent when the record's hostname is that agent's own host); `workload_identity`;
+  accepting agent when the record's hostname is that agent's own host); `workload_identity`;
   `k8s_node` (node name to `k8s_nodes_current.internal_ip`, then to a device by IP in the
   partition); `hostname_unique`.
-- **The relaying agent is provenance, not location.** In a cluster one in-cluster agent relays for
-  every node, so `Sr-Agent-Id` binds a record to its host only in the colocated case above.
+- **The accepting agent is provenance, not location.** In a cluster one agent accepts events for
+  every node, so the agent id binds a record to its host only when the record's hostname is that
+  agent's own host.
 - **Ambiguity is a state.** A hostname matching more than one non-deleted device yields
-  `binding_status = ambiguous` with `binding_candidates = n` and no device.
-- **Unbound is a state.** No candidate yields `unbound`; the finding is created, listed under
-  unbound findings, and shown on no device page.
+  `binding_status = ambiguous` with `binding_candidates = n` and no device for that lookup.
+  Subject and node are separate lookups. An ambiguous subject still appears on the device page
+  of a bound node.
+- **Unbound is a state.** No candidate yields `unbound`. The finding is created and listed under
+  unbound findings. It appears on a device page only when its subject or its node is bound to
+  that device.
 - **Re-resolution.** A bounded periodic job retries `unbound`, `ambiguous`, and bindings to devices
   that are now deleted or merged, following the canonical device, in pages ordered by `last_seen`.
 - **Occurrences keep their ingest-time binding**; the finding carries the current one.
@@ -191,8 +181,8 @@ table, writer and reader stay for installations without StarRocks.
   `l4_proto`, `tactics`, `techniques`, `attribution_status`, `falco_uuid`, `edge_event_id`,
   `raw_payload`, `raw_ref`, `raw_sha256`, `raw_bytes`, `raw_storage` (`inline` or
   `object_store`).
-- **Occurrence id** is derived from the Falco `uuid` (now carried, Decision 9), otherwise from the
-  digest of the raw record.
+- **Occurrence id** is derived from the JSON `uuid` when present, otherwise from the digest of
+  the raw JSON.
 - **Write order:** spilled raw objects (Decision 6), then the occurrence load, then the finding
   upsert and transition outbox. A failure at any step fails the batch and JetStream redelivers it.
 - **No generic `logs` row** (user decision). A recognized Falco record is not written to `logs`;
@@ -203,10 +193,8 @@ table, writer and reader stay for installations without StarRocks.
 
 ### Decision 6: Raw evidence is lossless; large records go out-of-line, never cut
 
-- **What raw evidence is.** The `falco.event` attribute (Decision 9) carries the Falco event JSON
-  as Falcosidekick received it. `raw_payload` stores those bytes unchanged; `raw_sha256` and
-  `raw_bytes` describe them. If a record lacks `falco.event`, the raw evidence is the canonical
-  OTLP/JSON encoding of that log record with its resource and scope.
+- **What raw evidence is.** The raw record is the JSON body Falco posted, unchanged. `raw_payload`
+  stores those bytes; `raw_sha256` and `raw_bytes` describe them.
 - **Inline threshold** is 1,048,576 bytes on both backends: the StarRocks `VARCHAR` maximum, used
   on CNPG too so readers behave the same everywhere and CNPG rows stay bounded.
 - **Above the threshold** the bytes are uploaded to the ServiceRadar datasvc object store, the same
@@ -230,19 +218,18 @@ table, writer and reader stay for installations without StarRocks.
 - **Reads.** SRQL returns `raw_ref` for spilled records. The finding detail page streams the object
   through core and verifies the digest; a missing object or digest mismatch is displayed and raised
   as a health event, never shown as empty.
-- **Reality check.** A single edge record is at most 512 KiB, so a relayed Falco record cannot
-  exceed the inline threshold today. The spill path exists so the never-truncate rule holds without
-  depending on that bound.
+- **Events larger than one edge record.** The agent chunks the posted JSON before the spool
+  (Decision 9). The projector reassembles it before this threshold is applied, so a 600 KiB event
+  is stored inline and a 1.5 MB event is stored out-of-line. Size never refuses or drops the event.
 
 ### Decision 7: Lifecycle and alerting
 
 - `active` -> `resolved` automatically after a quiet period with no new occurrence (default 24 h,
   configurable as `runtime_findings.auto_resolve_after`), or by an operator.
 - `resolved` -> `active` on a new occurrence (`reopen_count += 1`, a new episode starts).
-- `active` -> `suppressed` by an operator, with optional expiry and reason. Suppressed findings
-  keep counting and sampling but emit no alerting transitions.
 - **Alerting is lifecycle only** (user decision): `opened`, `reopened`, `escalated` (episode
-  severity rose), `resolved`. There is no volume or rate alert.
+  severity rose), `resolved`. There is no volume or rate alert. Falco findings are `active` or
+  `resolved`. They do not write the shared table's suppressed status.
 - Each transition draws the next `transition_seq` inside the finding transaction and inserts an
   outbox row in that transaction. A relay writes it as an OCSF Detection Finding event (activity
   Create, Update or Close) to `ocsf_events`, admits it through
@@ -276,106 +263,87 @@ table, writer and reader stay for installations without StarRocks.
   from the seeded defaults and a pristine copy is disabled the same way. Its rule becomes an
   ordinary runtime finding with the Falco priority.
 
-### Decision 9: Transport is the durable edge-record pipeline from day one
+### Decision 9: Falco posts JSON to the agent, which spools a Falco edge contract
 
-Falco reaches ServiceRadar only as OTLP logs relayed on edge records. The NATS `falco.*` path is
-removed in the same rollout.
+Falco reaches ServiceRadar only through the agent's edge spool. The NATS `falco.*` path is
+removed in the same rollout. Falcosidekick is not in the path, and no Falcosidekick fork is
+required.
 
-**Path:** Falco `http_output` -> Falcosidekick -> OTLP logs (gRPC) -> the `otel-collector` add-on
-on the agent -> `OtlpRelayFrame` in the agent edge spool -> gateway -> OTLP relay projector ->
-`logs.otel` with attested headers -> EventWriter `Logs` processor -> Falco recognizer -> Falco
-normalizer.
+**Path:** Falco DaemonSet `http_output` -> agent HTTPS `POST /v1/falco/events` -> parts under
+`{"serviceradar.falco.event", 1}` in the agent edge spool -> gateway -> Falco projector
+(reassemble, then normalize). The normalizer does not read `logs.otel`. A Falco-shaped log on
+`logs.otel` stays an ordinary log and creates no finding.
 
-**Falcosidekick output extension (dependency).** The OTLP logs output must carry the whole event.
-The patch is upstreamed to falcosecurity/falcosidekick and, until released, shipped from the
-maintained fork at a pinned version. Each log record gets:
+**Why this contract.** The posted body is the Falco JSON event. `json_output: true` with
+`json_include_output_fields_property: true` and `json_include_tags_property: true` includes
+`output_fields`, `tags`, and `uuid`. The OTLP relay contract refuses one record above 512 KiB
+and would wrap that JSON in another encoding. The Falco contract carries the posted bytes. The
+agent splits an event that does not fit in one 512 KiB edge record into ordered parts:
 
-- attributes `falco.uuid`, `falco.rule`, `falco.priority`, `falco.source`, `falco.hostname`,
-  `falco.time` (RFC 3339 nanoseconds), `falco.tags` (string array), every output field as
-  `falco.output_fields.<field>` with its native type, every custom or templated field as
-  `falco.custom_fields.<key>`, and `falco.event` (the Falco event JSON);
-- severity mapped from the Falco priority, not a fixed Info;
-- a resource that merges `OTEL_RESOURCE_ATTRIBUTES` (SDK environment detector) over the defaults;
-- a logs-specific `checkcert`, instead of the traces setting.
+- `falco_event_id` is the JSON `uuid` when present, otherwise the SHA-256 of the full JSON;
+- `part_index` is 0-based and `part_total` is the count; a small event is part 0 of 1;
+- each part's payload is a contiguous slice of the posted JSON, and the encoded edge record stays
+  within 512 KiB;
+- every part carries `raw_sha256` and `raw_bytes` of the full JSON, plus the agent-stamped
+  `cluster_id`;
+- the edge-record event id is derived from `falco_event_id` and `part_index`, so redelivery
+  dedupes that part only.
 
-**Falcosidekick configuration** (environment form; the chart renders it, below):
+The projector concatenates a complete set in index order, checks the digest, and only then
+normalizes. It does not discard a part and does not acknowledge any part until the occurrence
+and finding update are stored. An incomplete set produces no occurrence. After reassembly,
+Decision 6 applies: inline up to 1 MiB, object store above that. Nothing is refused or dropped
+for size.
 
-```
-OTLP_LOGS_ENDPOINT=https://serviceradar-agent.<namespace>.svc:14317
-OTLP_LOGS_PROTOCOL=grpc
-OTLP_LOGS_HEADERS=x-serviceradar-ingestion-key=<token>
-OTLP_LOGS_MINIMUMPRIORITY=              # empty: every priority
-OTLP_LOGS_CHECKCERT=true
-OTEL_EXPORTER_OTLP_LOGS_CERTIFICATE=/etc/serviceradar/falco-otlp/ca.pem
-OTEL_RESOURCE_ATTRIBUTES=serviceradar.source=falco,serviceradar.cluster_id=<cluster id>
-```
-
-No NATS output and no NATS credentials are configured.
+**Endpoint auth.** Falco's `http_output` supports `mtls`, `client_cert`, `client_key`, and
+`ca_cert`. It has no custom-header token. The agent already authenticates callers with
+chart-issued mTLS certificates, so the endpoint requires that client certificate. A bearer token
+is the otel-collector add-on's convention and is not used. Loopback-only binding is not used
+either: the agent is one Deployment and Falco is a DaemonSet, so the DaemonSet posts to the
+agent Service. `compress_uploads` is false, and the stored raw bytes are the posted JSON.
 
 **Chart wiring (ServiceRadar chart):**
 
 - `falcoIngest.enabled` (default `false`), `falcoIngest.clusterId` (default `default`),
-  `falcoIngest.namespace` (where the Falcosidekick release runs; default the release namespace),
-  `agent.otlpReceiver.port` (default `14317`; the agent runs with `hostNetwork`, so the port avoids
-  node-level collectors on 4317).
-- When enabled: the `serviceradar-agent` Service exposes `otlp-grpc` on that port; core creates a
-  managed `otel-collector` add-on assignment for the in-cluster agent binding the port with the
-  platform `grpc_tls` certificate and `auth.enabled = true`, and seeds the edge contract
-  registry entry `{"serviceradar.otlp.relay", 1}` and the agent's grant; the chart renders the
-  Secret `serviceradar-falcosidekick-otlp` in `falcoIngest.namespace` holding the environment
-  above, the ingestion token and the CA bundle, for the Falco release to consume with `envFrom`
-  and a volume; the network policy admits `falcoIngest.namespace` to the receiver port.
-- The ingestion token is ServiceRadar ingest credential material of the same kind as the existing
-  `otlp.auth` Secret, not a device or integration credential.
-- The Falcosidekick collector package type stops provisioning NATS credentials and renders the same
-  OTLP configuration pointing at the site's agent receiver.
+  `falcoIngest.namespace` (the Falco DaemonSet namespace; default the release namespace),
+  `agent.falcoReceiver.port` (default `14318`).
+- When enabled: the `serviceradar-agent` Service exposes `falco-https` on that port; core seeds
+  the registry entry `{"serviceradar.falco.event", 1}` and the agent's grant; the chart renders
+  the client certificate, client key, and CA in `falcoIngest.namespace`, plus the Falco settings
+  for `json_output`, the two include flags, and `http_output` (`enabled`, the agent URL,
+  `mtls: true`, `compress_uploads: false`, and the certificate paths). The network policy admits
+  `falcoIngest.namespace` to that port. The agent stamps `falcoIngest.clusterId` onto each
+  event. The attested partition is the agent's own edge-record partition.
+- No Falcosidekick NATS user, no OTLP ingestion token, and no `otel-collector` add-on assignment
+  for this path. Falcosidekick collector packages stop receiving NATS credentials and do not gain
+  an OTLP configuration.
 
-**Recognition.** The `Logs` processor treats a log record as Falco only when all hold:
+**Normalizer input.** The projector hands the reassembled JSON object to the normalizer. Rule,
+priority, source, hostname, time, tags, uuid, and `output_fields` are read from that object.
+The partition is the attested partition on the edge record, not a field of the JSON.
 
-1. it arrived through the OTLP relay: the message has `Sr-Ingest-Identity` starting `agent:`, and
-   `Sr-Agent-Id` and `Sr-Partition` are present;
-2. resource `service.name = "falco"` and `serviceradar.source = "falco"`;
-3. scope name `falco`;
-4. attributes `falco.rule` and `falco.priority` are present.
+**Removal in the same rollout (per-producer cutoff).** The release that ships this path removes:
+the `FALCO` consumer and `Processors.FalcoEvents` (`config.ex`, both `runtime.exs` files), the
+pipeline's `falco` routing, `falco.>` from the chart NATS permissions and leaf credentials,
+`events.falco.>` from `NatsLeafConfigGenerator`, the `serviceradar-falcosidekick` NATS user and
+its certificate generation, and NATS credentials on Falcosidekick collector packages (existing
+ones are revoked). Release notes require pointing the Falco DaemonSet `http_output` at the agent
+in that upgrade. An unmigrated NATS publisher is refused. There is no flag that keeps both paths.
 
-A record meeting 1-3 but not 4 is a malformed Falco record: it is stored as an ordinary log and
-counted (`falco_record_malformed`), never discarded. A Falco-shaped record that did not arrive
-through the relay (1 fails) is an ordinary log and is counted (`falco_record_unrelayed`); it never
-creates findings, which keeps one path. Within one message, records are routed one by one; the
-message is acknowledged only after both its ordinary log rows and its Falco occurrences and
-finding updates are stored.
-
-**Removal in the same rollout (per-producer cutoff).** The release that ships the edge path
-removes: the `FALCO` consumer and `Processors.FalcoEvents` (`config.ex`, both `runtime.exs`
-files), the pipeline's `falco` routing, `falco.>` from the chart NATS permissions and leaf
-credentials, `events.falco.>` from `NatsLeafConfigGenerator`, the `serviceradar-falcosidekick`
-NATS user and its certificate generation, and NATS credentials on Falcosidekick collector
-packages (existing ones are revoked). Release notes require reconfiguring every Falcosidekick to
-OTLP in that upgrade; an unmigrated sender is refused by NATS, and its own output metrics show
-the failures. There is no flag that keeps both paths.
-
-**Delivery confirmation (task 0.4).** From the moment the add-on returns OTLP success, a record
-is in the add-on spool, then the agent edge spool, and only leaves each after an acknowledgement
-up to a JetStream PubAck. That answers the confirmation question for every hop from the receiver
-on. Two loss points remain and are documented, not designed around: Falcosidekick's OTLP batch
-exporter drops after its retries when the receiver is unreachable (counted in its metrics), and the
-add-on spool evicts its oldest segment when it reaches `agent_forward.max_bytes` during a long
-upstream outage (counted).
-
-**Dependency.** Sibling task 4.1 of `move-agent-telemetry-to-edge-records` (the `OtlpRelayFrame`
-producer and projector) must ship in the same or an earlier release. A single OTLP log record
-larger than the 512 KiB record bound must be refused back to the sender by that contract, never
-dropped; this change depends on that behavior.
+**Delivery confirmation (task 0.4).** The agent returns HTTP success only after every part is in
+its durable edge spool. Each part stays there until its JetStream PubAck, and the projector
+stores the reassembled event before acknowledging the parts. A spool admission failure is a
+non-success HTTP response, so the agent has not accepted an event it cannot hold.
 
 ### Decision 10: SRQL entities
 
-- `in:runtime_findings` (aliases `runtime_finding`, `falco_findings`) reads
-  `ocsf_findings JOIN runtime_finding_details` in CNPG on both backends. Filters: `status`,
-  `severity`, `rule`, `priority`, `entity_kind`, `cluster`, `namespace`, `owner_kind`, `owner`,
-  `pod`, `hostname`, `device_uid`, `node_device_uid`, `binding_status`, `attribution`, `tactic`,
-  `technique`, `first_seen`, `last_seen`, `time:` (on `last_seen`), `finding_uid`. Default sort
-  `last_seen:desc`; stats counts by rule, namespace, owner, device.
-- `in:runtime_security_occurrences` (alias `runtime_occurrences`) reads the active telemetry
+- `in:runtime_findings` reads `ocsf_findings JOIN runtime_finding_details` in CNPG on both
+  backends. Filters: `status`, `severity`, `rule`, `priority`, `entity_kind`, `partition`,
+  `cluster`, `namespace`, `owner_kind`, `owner`, `pod`, `hostname`, `device_uid`,
+  `node_device_uid`, `binding_status`, `attribution`, `tactic`, `technique`, `first_seen`,
+  `last_seen`, `time:` (on `last_seen`), `finding_uid`. Default sort `last_seen:desc`; stats
+  counts by rule, namespace, owner, device.
+- `in:runtime_security_occurrences` reads the active telemetry
   backend with the typed columns of Decision 5. `raw_payload` and `raw_ref` are returned only when
   selected or on single-row detail.
 - When `add-ocsf-finding-model` moves `in:security_findings` onto `ocsf_findings`, Falco findings
@@ -387,7 +355,7 @@ dropped; this change depends on that behavior.
 
 | Data | Store | Retention |
 | --- | --- | --- |
-| Active and suppressed findings | CNPG | kept while active or suppressed |
+| Active findings | CNPG | kept while active |
 | Resolved findings | CNPG | deleted `runtime_findings.resolved_retention` after `last_resolved_at` (default 90 days), bounded prune job |
 | Occurrences | StarRocks or CNPG | dataset telemetry retention on the active backend |
 | Spilled raw objects | datasvc object store | same day as their occurrence partition, plus one day (Decision 6) |
@@ -400,12 +368,13 @@ Deleting a finding does not delete its occurrences.
 
 - **Device page, Runtime security tab:** findings whose `device_uid` or `node_device_uid` is this
   device, active first, then by severity and `last_seen`; loaded after the socket connects, paged
-  through SRQL, rendered with streams.
+  through SRQL, rendered with streams. An ambiguous subject does not hide a finding whose node is
+  bound. A finding with neither a subject device nor a node device appears on no device page.
 - **`/security` Runtime findings view:** filters by cluster, namespace, owner, rule, status and
   binding; grouped by workload; an Unbound filter for ambiguous and unbound findings.
 - **Finding detail `/security/runtime-findings/:uid`:** subject and binding, attribution, samples,
   occurrence timeline, latest occurrences, raw evidence viewer (inline or streamed from the object
-  store with digest check), lifecycle history, RBAC-gated resolve and suppress.
+  store with digest check), lifecycle history, and an RBAC-gated resolve action.
 - **Alert detail** links to the finding; the `security-findings` dashboard package moves its Falco
   frames to `in:runtime_findings`; Logs and Events point their Falco source filter at the view.
 
@@ -414,25 +383,21 @@ Deleting a finding does not delete its occurrences.
 1. CNPG migrations: `ocsf_findings`, `finding_info_uid` on `ocsf_events`,
    `runtime_finding_details`, the transition outbox, the `runtime_security_occurrences` hypertable.
    StarRocks migrations: `runtime_security_occurrences`, `finding_info_uid` on `events`.
-2. One release ships the edge path and removes the NATS path (Decision 9), together with sibling
-   task 4.1 and the pinned Falcosidekick build.
+2. One release ships the Falco HTTP path and removes the NATS path (Decision 9).
 3. The seeder creates `falco_runtime_finding` and retires `falco_critical_incident`.
-4. **Forward-only, no backfill** (user decision). Findings start at the first relayed occurrence.
+4. **Forward-only, no backfill** (user decision). Findings start at the first accepted event.
    Historical Falco rows in `ocsf_events` and `logs` stay readable until retention removes them.
-5. Operators reconfigure Falcosidekick to OTLP during the upgrade (chart Secret, or a regenerated
-   collector package).
+5. Operators point the Falco DaemonSet `http_output` at the agent during the upgrade (chart
+   material in `falcoIngest.namespace`).
 6. Rollback is a release rollback. The NATS path is gone in the new release, so rolling back also
-   needs the old Falcosidekick configuration; release notes say so.
+   restores the previous Falco output configuration; release notes say so.
 
 ## Risks / Trade-offs
 
-- **Upstream dependency.** The edge path is useless without the Falcosidekick output extension.
-  Mitigation: a pinned build from the maintained fork until upstream releases it.
-- **Sender-hop loss** before OTLP acceptance, and add-on spool eviction under a long outage.
-  Both are counted and documented.
-- **Sender-asserted attributes.** `serviceradar.cluster_id` and the Falco fields come from the
-  sender; identity and partition come from the attested edge record. A publisher allowed on
-  `logs.otel` could set the relay headers itself; NATS permissions limit who that is.
+- **Cluster id is agent configuration.** `falcoIngest.clusterId` is stamped by the agent. The
+  attested partition comes from the edge record. Falco's JSON supplies the workload fields.
+- **One agent endpoint per cluster id.** A release that runs one in-cluster agent stamps one
+  cluster id for every event that agent accepts.
 - **Pod-level findings split on rollout** when no owner is known; accepted over a guessing
   heuristic.
 - **At-least-once counts** in the commit-to-ACK window.
@@ -443,4 +408,7 @@ Deleting a finding does not delete its occurrences.
 ## Open Questions
 
 None. The user decided the logs row, count semantics, alerting scope, quiet period, oversize
-handling, migration, sequencing and transport on 2026-11-02 and 2026-11-03.
+handling, migration, sequencing, and transport on 2026-11-02 and 2026-11-03. The 2026-11-03
+transport decision is Falco `http_output` into a chunked Falco edge contract, with the attested
+partition in the workload uid, a bound node still showing the finding, and no operator
+suppression or SRQL aliases.

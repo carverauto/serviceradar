@@ -9,8 +9,13 @@ The tab SHALL load only after the LiveView socket connects, SHALL page through S
 - **WHEN** an operator opens that device's Runtime security tab
 - **THEN** the finding SHALL be listed with its workload subject and the node relationship
 
-#### Scenario: Ambiguous finding is absent from device pages
-- **GIVEN** a finding with `binding_status = ambiguous`
+#### Scenario: Ambiguous subject still shows on the bound node's page
+- **GIVEN** a workload finding with `binding_status = ambiguous` and `node_device_uid` bound to device `sr:00000000-0000-4000-8000-000000000001`
+- **WHEN** an operator opens that device's Runtime security tab
+- **THEN** the finding SHALL be listed with its workload subject and the node relationship
+
+#### Scenario: Finding with no bound subject or node is absent from device pages
+- **GIVEN** a finding with `binding_status = ambiguous` and no `node_device_uid`
 - **WHEN** an operator opens any device page
 - **THEN** the finding SHALL NOT be listed there
 
@@ -22,7 +27,7 @@ The `/security` area SHALL provide a Runtime findings view filterable by cluster
 - **THEN** the view SHALL list each rule firing on that workload as one row
 
 ### Requirement: Runtime finding detail explains the finding
-The UI SHALL provide a runtime finding detail page showing the subject and its binding status, method and device link, attribution status, bounded samples, an hourly occurrence timeline, the latest occurrences with typed fields, a raw evidence viewer per occurrence (inline or streamed from the object store), lifecycle transitions, and resolve and suppress actions restricted by RBAC.
+The UI SHALL provide a runtime finding detail page showing the subject and its binding status, method and device link, attribution status, bounded samples, an hourly occurrence timeline, the latest occurrences with typed fields, a raw evidence viewer per occurrence (inline or streamed from the object store), lifecycle transitions, and a resolve action restricted by RBAC.
 Alert detail SHALL link to the runtime finding detail when the alert's source event carries a runtime finding uid.
 
 #### Scenario: Operator inspects raw evidence
@@ -42,7 +47,7 @@ Alert detail SHALL link to the runtime finding detail when the alert's source ev
 - **WHEN** an operator opens the alert detail
 - **THEN** the UI SHALL link to the runtime finding detail page
 
-#### Scenario: Unauthorized user cannot suppress
+#### Scenario: Unauthorized user cannot resolve
 - **GIVEN** a user without the security management permission
 - **WHEN** the user opens a runtime finding detail page
-- **THEN** the resolve and suppress actions SHALL NOT be available
+- **THEN** the resolve action SHALL NOT be available

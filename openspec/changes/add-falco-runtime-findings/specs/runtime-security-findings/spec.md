@@ -5,10 +5,16 @@ The system SHALL maintain exactly one runtime security finding per `(subject ent
 A runtime finding is an OCSF Detection Finding (class 2004) stored in `platform.ocsf_findings` with a typed runtime extension row. It carries status, episode severity, first seen, last seen, lifetime occurrence count, episode occurrence count, reopen count, a fixed-window rate counter, bounded samples, and its inventory binding.
 
 #### Scenario: A burst from one workload produces one finding
-- **GIVEN** Falco reports 500 occurrences of rule `Terminal shell in container` from pods of Deployment `shop/cart` on three nodes
+- **GIVEN** Falco reports 500 occurrences of rule `Terminal shell in container` from pods of Deployment `shop/cart` on three nodes, attested to partition `edge-a` with cluster id `default`
 - **WHEN** EventWriter processes the occurrences
-- **THEN** exactly one runtime finding SHALL exist for `k8s_workload default/shop/Deployment/cart` and that rule
+- **THEN** exactly one runtime finding SHALL exist for `k8s_workload edge-a/default/shop/Deployment/cart` and that rule
 - **AND** its occurrence count SHALL be 500 and its node samples SHALL list the three nodes with per-node counts
+
+#### Scenario: The same workload in two partitions is two findings
+- **GIVEN** partition `edge-a` and partition `edge-b` each report rule `Terminal shell in container` for Deployment `shop/cart` with cluster id `default`
+- **WHEN** both are normalized
+- **THEN** two findings SHALL exist, with keys `edge-a/default/shop/Deployment/cart` and `edge-b/default/shop/Deployment/cart`
+- **AND** their counts, samples, and device bindings SHALL NOT mix
 
 #### Scenario: A different rule on the same workload is a separate finding
 - **GIVEN** an active finding for rule `Terminal shell in container` on Deployment `shop/cart`
@@ -18,18 +24,18 @@ A runtime finding is an OCSF Detection Finding (class 2004) stored in `platform.
 
 ### Requirement: Runtime finding subjects use the most specific stable entity
 The normalizer SHALL select the subject entity of each Falco occurrence in this order: Kubernetes workload when namespace, owner kind and owner name are known; Kubernetes pod when namespace and pod name are known without an owner; host for `syscall` events without pod context; Falco source for non-`syscall` sources.
-The normalizer MUST NOT infer a workload owner by parsing pod names. A container-only occurrence SHALL first be enriched from `platform.workload_identity_current` by partition and container id, and SHALL fall back to the host subject when no pod is found. The partition SHALL come from the attested `Sr-Partition` of the relayed record, and the cluster identity from the resource attribute `serviceradar.cluster_id`, defaulting to `default` when absent.
+The normalizer MUST NOT infer a workload owner by parsing pod names. A container-only occurrence SHALL first be enriched from `platform.workload_identity_current` by partition and container id, and SHALL fall back to the host subject when no pod is found. The partition SHALL be the attested partition of the edge record. The cluster id SHALL be the cluster id the agent stamped from `falcoIngest.clusterId`, defaulting to `default` when that value is absent. Workload and pod entity keys SHALL include the attested partition and the cluster id, in that order, so the same workload in two partitions is two findings.
 
 #### Scenario: Owner fields present yield a workload subject
-- **GIVEN** an occurrence with `k8s.ns.name = shop`, `k8s.pod.name = cart-7d9f8-abcde` and owner fields `Deployment` / `cart`
+- **GIVEN** an occurrence attested to partition `edge-a` with cluster id `default`, `k8s.ns.name = shop`, `k8s.pod.name = cart-7d9f8-abcde`, and owner fields `Deployment` / `cart`
 - **WHEN** it is normalized
-- **THEN** its subject SHALL be `k8s_workload` with key `default/shop/Deployment/cart`
+- **THEN** its subject SHALL be `k8s_workload` with key `edge-a/default/shop/Deployment/cart`
 - **AND** `attribution_status` SHALL be `resolved`
 
 #### Scenario: Pod without owner yields a pod subject without guessing
-- **GIVEN** an occurrence with namespace `shop` and pod `cart-7d9f8-abcde` and no owner fields
+- **GIVEN** an occurrence attested to partition `edge-a` with cluster id `default`, namespace `shop`, and pod `cart-7d9f8-abcde`, and no owner fields
 - **WHEN** it is normalized
-- **THEN** its subject SHALL be `k8s_pod` with key `default/shop/cart-7d9f8-abcde`
+- **THEN** its subject SHALL be `k8s_pod` with key `edge-a/default/shop/cart-7d9f8-abcde`
 - **AND** `attribution_status` SHALL be `partial`
 - **AND** the system SHALL NOT derive an owner named `cart` from the pod name
 
@@ -41,9 +47,9 @@ The normalizer MUST NOT infer a workload owner by parsing pod names. A container
 - **AND** `attribution_status` SHALL be `enriched`
 
 #### Scenario: Container-only occurrence without workload identity falls back to the host
-- **GIVEN** an occurrence from host `host01.example.com` with container id `0123456789ab`, image `registry.example.com/build/runner`, and no matching workload identity
+- **GIVEN** an occurrence attested to partition `edge-a` from host `host01.example.com` with container id `0123456789ab`, image `registry.example.com/build/runner`, and no matching workload identity
 - **WHEN** it is normalized
-- **THEN** its subject SHALL be `host` with key `<attested partition>/host01.example.com`
+- **THEN** its subject SHALL be `host` with key `edge-a/host01.example.com`
 - **AND** the container id and image SHALL be recorded on the occurrence and in the finding's samples
 
 ### Requirement: Runtime finding identity is stable across restarts and bindings
@@ -68,6 +74,13 @@ A hostname lookup that matches more than one non-deleted device MUST produce `am
 - **WHEN** a host occurrence from `node01` has no agent, workload or node match
 - **THEN** the finding SHALL have `binding_status = ambiguous` with `binding_candidates = 2`
 - **AND** it SHALL appear on neither device's page
+
+#### Scenario: Ambiguous subject remains visible on the bound node
+- **GIVEN** a workload occurrence whose subject hostname matches two devices and whose node resolves through `k8s_node` to device `sr:00000000-0000-4000-8000-000000000001`
+- **WHEN** it is resolved
+- **THEN** the finding SHALL have `binding_status = ambiguous` and no subject `device_uid`
+- **AND** `node_device_uid` SHALL be that device
+- **AND** the finding SHALL be listed on that device's Runtime security tab
 
 #### Scenario: Agent binding wins over hostname
 - **GIVEN** an occurrence whose node maps through `workload_identity_current` to agent `agent-host01`, bound to device `sr:00000000-0000-4000-8000-000000000001`
@@ -113,8 +126,8 @@ Concurrent updates from multiple EventWriter replicas MUST NOT lose counts. Samp
 - **THEN** a new window SHALL start and its count SHALL be 1
 
 ### Requirement: Runtime finding lifecycle
-A runtime finding SHALL be `active`, `suppressed`, or `resolved`. It SHALL auto-resolve after a configurable quiet period without occurrences (default 24 hours), SHALL reopen on a new occurrence after resolution with a new episode, and SHALL support operator resolve and operator suppression with an optional expiry and reason.
-A suppressed finding SHALL continue to count and sample occurrences and SHALL NOT emit alerting transitions.
+A runtime finding SHALL be `active` or `resolved`. It SHALL auto-resolve after a configurable quiet period without occurrences (default 24 hours), SHALL reopen on a new occurrence after resolution with a new episode, and SHALL support operator resolve.
+A new occurrence on an active finding SHALL update counts and samples, and SHALL emit `escalated` when the episode severity rises.
 
 #### Scenario: Quiet finding auto-resolves
 - **GIVEN** an active finding with no occurrences for 24 hours
@@ -126,11 +139,11 @@ A suppressed finding SHALL continue to count and sample occurrences and SHALL NO
 - **WHEN** a new occurrence arrives
 - **THEN** the finding SHALL become `active`, its reopen count SHALL increase by one, its episode counters SHALL restart, and a `reopened` transition SHALL be emitted
 
-#### Scenario: Suppressed finding emits no alerting transition
-- **GIVEN** a finding suppressed until tomorrow
-- **WHEN** occurrences with a higher priority arrive
+#### Scenario: Higher priority on an active finding escalates
+- **GIVEN** an active finding
+- **WHEN** an occurrence with a higher priority arrives
 - **THEN** counts and samples SHALL update
-- **AND** no `escalated` transition SHALL be emitted
+- **AND** an `escalated` transition SHALL be emitted
 
 
 ### Requirement: Runtime occurrences are telemetry on exactly one backend
@@ -139,13 +152,13 @@ The system MUST NOT write occurrences to both backends and MUST keep the CNPG ta
 
 #### Scenario: StarRocks enabled
 - **GIVEN** StarRocks is enabled
-- **WHEN** a relayed Falco batch is processed
+- **WHEN** an accepted Falco batch is processed
 - **THEN** its occurrences SHALL be loaded into the warehouse
 - **AND** no CNPG occurrence row SHALL be written
 
 #### Scenario: StarRocks disabled
 - **GIVEN** StarRocks is disabled
-- **WHEN** a relayed Falco batch is processed
+- **WHEN** an accepted Falco batch is processed
 - **THEN** its occurrences SHALL be written to the CNPG occurrence table
 
 #### Scenario: No generic log row for a Falco record
@@ -154,7 +167,7 @@ The system MUST NOT write occurrences to both backends and MUST keep the CNPG ta
 - **AND** the record SHALL be queryable through `in:runtime_security_occurrences`
 
 #### Scenario: Redelivered record is one occurrence
-- **GIVEN** a Falco record with `falco.uuid` `11111111-1111-4111-8111-111111111111` is redelivered after a failed batch
+- **GIVEN** a Falco JSON event with `uuid` `11111111-1111-4111-8111-111111111111` is redelivered after a failed batch
 - **WHEN** it is processed again
 - **THEN** one occurrence SHALL exist
 
@@ -176,9 +189,9 @@ Each occurrence SHALL retain its raw Falco record losslessly with its SHA-256 di
 The system MUST NOT truncate, drop, or merely flag raw evidence. A failed upload, including a full object store bucket, SHALL fail the batch so JetStream redelivers it, and SHALL be counted and raised as a health event.
 
 #### Scenario: Inline evidence round-trips
-- **GIVEN** a Falco record whose `falco.event` is 80,000 bytes
+- **GIVEN** a Falco JSON event of 80,000 bytes
 - **WHEN** it is stored and read back
-- **THEN** the returned raw payload SHALL equal the received bytes and match the stored digest
+- **THEN** the returned raw payload SHALL equal the posted JSON bytes and match the stored digest
 
 #### Scenario: Large evidence goes out-of-line
 - **GIVEN** a Falco record of 1,500,000 bytes
@@ -208,7 +221,7 @@ The retention worker MUST NOT delete an object whose day is still retained.
 - **THEN** every evidence object under that day's prefix SHALL be deleted, including objects whose batch was never stored
 
 ### Requirement: Runtime finding retention
-The system SHALL keep active and suppressed findings, SHALL delete resolved findings a configurable period after resolution (default 90 days) with a bounded prune job, and SHALL age occurrences out on the occurrence dataset's telemetry retention.
+The system SHALL keep active findings, SHALL delete resolved findings a configurable period after resolution (default 90 days) with a bounded prune job, and SHALL age occurrences out on the occurrence dataset's telemetry retention.
 Deleting a finding MUST NOT delete its occurrences, and a finding's samples SHALL remain readable after its occurrences have expired.
 
 #### Scenario: Resolved finding is pruned
@@ -216,57 +229,71 @@ Deleting a finding MUST NOT delete its occurrences, and a finding's samples SHAL
 - **WHEN** the prune job runs
 - **THEN** the finding and its runtime extension row SHALL be deleted
 
-### Requirement: Falco ingestion rides the durable edge-record pipeline
-Falco events SHALL reach ServiceRadar only as OTLP logs sent by Falcosidekick to the `otel-collector` add-on on an agent and relayed as edge records under the `{"serviceradar.otlp.relay", 1}` contract, and the Falco normalizer SHALL consume the OTLP relay projector's output.
-The release that introduces this path SHALL remove the NATS `falco.*` consumer, processor, subject permissions, Falcosidekick NATS identity and collector-package NATS credentials, and SHALL NOT offer a setting that keeps both paths.
+### Requirement: Falco events reach the agent over http_output
+Falco events SHALL reach ServiceRadar only as JSON posted by Falco's native `http_output` to the agent's HTTPS endpoint `POST /v1/falco/events`. Falcosidekick SHALL NOT be on this path, and the agent SHALL be the only component that sends the events on to ServiceRadar.
+The endpoint SHALL require mTLS with the chart-issued client certificate, the same caller authentication the agent already uses. It SHALL NOT accept a bearer token and SHALL NOT bind to loopback only: the Falco DaemonSet posts to the agent Service, and Falco's `http_output` has client-certificate settings and no custom-header token. The agent SHALL accept one JSON object per request with `compress_uploads` off, and the stored raw record SHALL be those JSON bytes.
+The agent SHALL return success only after every part of that event is in its durable edge spool. A body that is not one JSON object, or a spool admission that fails, SHALL get a non-success response and SHALL NOT be acknowledged as stored. The release that introduces this path SHALL remove the NATS `falco.*` consumer, processor, subject permissions, Falcosidekick NATS identity, and collector-package NATS credentials, and SHALL NOT offer a setting that keeps both paths. A Falco-shaped record on `logs.otel` SHALL remain an ordinary log and SHALL NOT create a runtime finding.
 
-#### Scenario: Relayed Falco event creates an occurrence
-- **GIVEN** Falcosidekick exports a Falco event over OTLP to the agent's receiver
-- **WHEN** the agent spools it, the gateway accepts it, and the projector republishes it with its attested headers
+#### Scenario: Posted JSON event creates an occurrence
+- **GIVEN** Falco posts a JSON event with `output_fields`, `uuid`, and `tags` to the agent endpoint
+- **WHEN** the agent spools it and the projector delivers the reassembled event
 - **THEN** the Falco normalizer SHALL store one occurrence and update its finding
+- **AND** the raw payload SHALL equal the posted JSON bytes
+
+#### Scenario: Output fields survive the transport
+- **GIVEN** a posted JSON event with `output_fields.k8s.ns.name = shop`, `output_fields.k8s.pod.name = cart-7d9f8-abcde`, and `output_fields.proc.name = sh`
+- **WHEN** it is normalized
+- **THEN** the occurrence SHALL record namespace `shop`, pod `cart-7d9f8-abcde`, and process `sh`
 
 #### Scenario: NATS publish is refused after the upgrade
-- **GIVEN** an unmigrated Falcosidekick still publishing to `falco.events`
+- **GIVEN** an unmigrated publisher still publishing to `falco.events`
 - **WHEN** it publishes after the upgrade
 - **THEN** NATS SHALL refuse the publish and no Falco consumer SHALL exist
 
-### Requirement: Falco records are recognized by relay provenance, resource and scope
-The `Logs` processor SHALL treat a log record as a Falco record only when its message carries the OTLP relay headers (`Sr-Ingest-Identity` beginning `agent:`, `Sr-Agent-Id`, `Sr-Partition`), its resource has `service.name = "falco"` and `serviceradar.source = "falco"`, its scope name is `falco`, and it has the `falco.rule` and `falco.priority` attributes.
-A record with Falco resource and scope but missing required attributes SHALL be stored as an ordinary log and counted as malformed. A Falco-shaped record without the relay headers SHALL be stored as an ordinary log, counted as unrelayed, and MUST NOT create findings. The message SHALL be acknowledged only after its ordinary log rows and its Falco occurrences and finding updates are all stored.
-
-#### Scenario: Mixed message
-- **GIVEN** one relayed message carrying two Falco records and one ordinary application log
+#### Scenario: A Falco-shaped log is not a second ingress
+- **GIVEN** a log with Falco-shaped fields published to `logs.otel`
 - **WHEN** it is processed
-- **THEN** two occurrences and one `logs` row SHALL be stored before the message is acknowledged
+- **THEN** it SHALL be stored as an ordinary log
+- **AND** no runtime finding SHALL be created or updated
 
-#### Scenario: Unrelayed Falco-shaped log
-- **GIVEN** a log with Falco resource and scope published to `logs.otel` without relay headers
-- **WHEN** it is processed
-- **THEN** it SHALL be stored as an ordinary log and counted as unrelayed
-- **AND** no finding SHALL be created or updated
+### Requirement: Oversized Falco events are chunked, reassembled, then spilled
+The agent SHALL spool each accepted event under the `{"serviceradar.falco.event", 1}` contract. The OTLP relay contract SHALL NOT carry these events: it refuses one record above the 512 KiB edge-record bound, and wrapping the Falco JSON as an OTLP log would be a second encoding of `output_fields`, `uuid`, and `tags`.
+An event whose edge record would exceed the 512 KiB bound SHALL be split into ordered parts that share one `falco_event_id` and carry `part_index`, `part_total`, and the SHA-256 of the full JSON. Each part's edge record SHALL stay within 512 KiB, and its payload SHALL be a contiguous slice of the posted JSON. A single-part event SHALL use `part_index` 0 and `part_total` 1. The edge-record event id SHALL distinguish parts of the same Falco event so a redelivered part does not collapse its siblings.
+The projector SHALL reassemble a complete part set, in index order, before normalizing, and SHALL NOT write an occurrence until the concatenation equals the posted JSON and matches the carried digest. It SHALL NOT discard a part, and it SHALL NOT acknowledge any part of an event until that occurrence and its finding update are stored. After reassembly, a raw record up to 1,048,576 bytes SHALL be stored inline and a larger record SHALL be stored out-of-line as this spec requires. Size SHALL NOT refuse, truncate, or drop an event.
 
-### Requirement: Falcosidekick OTLP logs carry the whole Falco event
-The supported Falcosidekick build SHALL export each Falco event as one OTLP log record carrying `falco.uuid`, `falco.rule`, `falco.priority`, `falco.source`, `falco.hostname`, `falco.time`, `falco.tags`, every output field as `falco.output_fields.<field>` with its native type, every custom or templated field as `falco.custom_fields.<key>`, and `falco.event` holding the event JSON, with severity mapped from the priority and resource attributes merged from `OTEL_RESOURCE_ATTRIBUTES`.
-ServiceRadar documentation and packaging SHALL pin that build until an upstream release contains it.
+#### Scenario: An event above the edge-record bound is reassembled inline
+- **GIVEN** a posted Falco JSON event of 600,000 bytes
+- **WHEN** the agent spools it and the projector reassembles it
+- **THEN** the occurrence SHALL hold those bytes inline
+- **AND** no part SHALL have been refused for size
 
-#### Scenario: Output fields survive the transport
-- **GIVEN** a Falco event with `k8s.ns.name = shop`, `k8s.pod.name = cart-7d9f8-abcde` and `proc.name = sh`
-- **WHEN** it is exported by the supported Falcosidekick build and relayed
-- **THEN** the occurrence SHALL record namespace `shop`, pod `cart-7d9f8-abcde` and process `sh`
+#### Scenario: An event above 1 MiB is chunked and then stored out-of-line
+- **GIVEN** a posted Falco JSON event of 1,500,000 bytes
+- **WHEN** it is spooled, reassembled, and stored
+- **THEN** the object store SHALL hold the full posted bytes
+- **AND** the occurrence SHALL carry the reference and no inline payload
 
-### Requirement: Chart wiring points Falcosidekick at the in-cluster agent
-When `falcoIngest.enabled` is true, the Helm chart SHALL expose the in-cluster agent's OTLP/gRPC receiver port (default 14317) on the `serviceradar-agent` Service, SHALL cause core to assign the managed `otel-collector` add-on to that agent with TLS and token authentication and an OTLP relay grant, SHALL render a Secret in `falcoIngest.namespace` containing the Falcosidekick OTLP environment, ingestion token and CA bundle, and SHALL admit that namespace to the receiver port in its network policy.
-Generated Falcosidekick collector packages SHALL render the same OTLP configuration for the site's agent and SHALL NOT include NATS credentials.
+#### Scenario: An incomplete part set is not normalized
+- **GIVEN** the agent spooled part 0 of 2 for a Falco event and part 1 has not arrived
+- **WHEN** the projector runs
+- **THEN** no occurrence SHALL be written
+- **AND** part 0 SHALL NOT be acknowledged
 
-#### Scenario: Enabled chart renders the Falcosidekick Secret
-- **GIVEN** `falcoIngest.enabled = true` and `falcoIngest.namespace = falco`
+### Requirement: Chart wiring points the Falco DaemonSet at the agent
+When `falcoIngest.enabled` is true, the Helm chart SHALL expose the in-cluster agent's Falco HTTPS port (default 14318) on the `serviceradar-agent` Service, SHALL cause core to grant that agent `{"serviceradar.falco.event", 1}`, and SHALL admit `falcoIngest.namespace` to that port in its network policy.
+The chart SHALL render, in `falcoIngest.namespace`, the client certificate, client key, and CA for Falco's `http_output`, and the Falco settings `json_output: true`, `json_include_output_fields_property: true`, `json_include_tags_property: true`, `http_output.enabled: true`, `http_output.url` pointing at `https://<agent-service>:14318/v1/falco/events`, `http_output.mtls: true`, `http_output.compress_uploads: false`, and the certificate paths. `falcoIngest.clusterId` (default `default`) SHALL be the cluster id the agent stamps onto each event. The chart SHALL NOT render a Falcosidekick NATS user, an OTLP ingestion token, or an `otel-collector` add-on for this path. Falcosidekick collector packages SHALL NOT receive NATS credentials.
+
+#### Scenario: Enabled chart renders the Falco http_output material
+- **GIVEN** `falcoIngest.enabled = true`, `falcoIngest.namespace = falco`, and `falcoIngest.clusterId = shop-cluster`
 - **WHEN** the chart is rendered
-- **THEN** a Secret in namespace `falco` SHALL set `OTLP_LOGS_ENDPOINT` to the agent Service receiver, `OTLP_LOGS_PROTOCOL=grpc`, the ingestion-key header, the CA path and `OTEL_RESOURCE_ATTRIBUTES` including `serviceradar.source=falco`
+- **THEN** namespace `falco` SHALL receive the mTLS material and `http_output` settings for the agent Service port 14318
 - **AND** no NATS user for Falcosidekick SHALL be rendered
+- **AND** the agent configuration SHALL stamp cluster id `shop-cluster`
 
-### Requirement: Relay delivery confirmation and residual loss points are documented
-Operator documentation SHALL state that a Falco record is durably held from the moment the agent's receiver returns OTLP success until a JetStream PubAck, and SHALL name the remaining loss points: Falcosidekick's exporter dropping after its retries when the receiver is unreachable, and the add-on spool evicting its oldest segment at its byte bound, together with the counters that report each.
+### Requirement: Falco delivery holds every accepted event
+Operator documentation SHALL state that a Falco event is durably held from the moment the agent returns HTTP success, with every part in the agent edge spool, until each part has a JetStream PubAck and the projector has stored the reassembled occurrence. A failed spool admission is a non-success HTTP response. Documentation SHALL state that guarantee and SHALL NOT list a drop, truncation, or oversize refusal.
 
-#### Scenario: Operator checks for sender-side loss
+#### Scenario: Operator reads the delivery guarantee
 - **WHEN** an operator reads the Falco ingestion documentation
-- **THEN** it SHALL name the Falcosidekick output error metric and the add-on spool eviction counter
+- **THEN** it SHALL state that HTTP success means every part is in the agent edge spool
+- **AND** it SHALL NOT name a counted drop, truncation, or oversize refusal

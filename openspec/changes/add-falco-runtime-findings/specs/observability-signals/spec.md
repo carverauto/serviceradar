@@ -38,11 +38,6 @@ The rule's title SHALL name the rule and the subject entity through template pla
 - **WHEN** the finding auto-resolves and its `resolved` transition is evaluated
 - **THEN** the alert SHALL be resolved
 
-#### Scenario: Suppressed finding does not alert
-- **GIVEN** an operator suppressed a finding
-- **WHEN** its priority rises
-- **THEN** no transition SHALL be admitted and no alert SHALL be created
-
 ### Requirement: Retired managed stateful rule templates
 The rule seeder SHALL keep a list of retired stateful rule templates with their last shipped version, SHALL NOT create retired rules, and on boot SHALL disable and mark retired a retired rule that is managed and whose fingerprint equals the last shipped template.
 Active alerts of a rule retired this way SHALL be resolved with reason `superseded_by_runtime_findings`. An operator-modified managed copy or an unmanaged rule with a retired name MUST NOT be modified; the seeder SHALL log it and the Rules settings page SHALL flag it as matching a retired input. `falco_critical_incident` template version 1 SHALL be the first retired template.
@@ -64,8 +59,8 @@ Active alerts of a rule retired this way SHALL be resolved with reason `supersed
 ### Requirement: Event-derived alerts SHALL be incident-grouped
 The system SHALL treat repeated event-derived alerts as incident updates when incoming events resolve to the same incident fingerprint and the existing incident is still active.
 
-#### Scenario: Repeated critical detections collapse into one incident
-- **GIVEN** critical events that share the same configured incident grouping fields
+#### Scenario: Repeated Falco critical detections collapse into one incident
+- **GIVEN** critical Falco-promoted events that share the same configured incident grouping fields
 - **WHEN** multiple matching events arrive while the incident is still active
 - **THEN** the system SHALL keep a single active alert incident for that fingerprint
 - **AND** duplicate events SHALL update the active incident instead of creating new alert rows

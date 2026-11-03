@@ -60,14 +60,18 @@ Three structural problems sit underneath that:
 - **SRQL.** New entities `in:runtime_findings` (CNPG, both backends) and
   `in:runtime_security_occurrences` (warehouse or CNPG by backend), with typed fields.
 - **UI.** A Runtime security tab on the device page (findings whose subject or node is bound to
-  the device), a Runtime findings view on `/security` with workload grouping, and a finding
-  detail page with samples, occurrence timeline and raw evidence.
-- **Transport stays on NATS JetStream.** Falcosidekick keeps publishing `falco.>`; the
-  normalizer is transport-independent so a future agent-hosted receiver on the edge-record
-  pipeline can feed it unchanged. The design records why the edge-record pipeline is not
-  adopted now.
-- **Collector package.** The Falcosidekick collector bundle stamps `serviceradar.cluster_id`
-  and `serviceradar.partition` custom fields so findings can be keyed per cluster.
+  the device, so a bound node still shows a finding whose subject is ambiguous), a Runtime
+  findings view on `/security` with workload grouping, and a finding detail page with samples,
+  occurrence timeline, raw evidence, and operator resolve.
+- **Transport is Falco `http_output` onto a Falco edge contract.** The Falco DaemonSet posts
+  full JSON events (`json_output`, with `output_fields`, `uuid`, and `tags`) to an mTLS HTTPS
+  endpoint on the agent. The agent is the only component that talks to ServiceRadar. It spools
+  each event as edge records under `{"serviceradar.falco.event", 1}`, splitting an event larger
+  than the 512 KiB edge-record bound into ordered parts. The projector reassembles those parts
+  before normalizing. Falcosidekick is not in this path. The NATS `falco.*` path is removed in
+  the same release, with no dual path and no Falcosidekick fork.
+- **Identity.** Workload and pod finding keys include the attested partition, then the
+  agent-stamped cluster id, so two sites that share a cluster id never merge.
 
 ## Impact
 
@@ -78,7 +82,8 @@ Three structural problems sit underneath that:
   `ServiceRadar.Observability.LogPromotion`, `ServiceRadar.EventWriter.DeviceCorrelation`,
   `ServiceRadar.Observability.RuleSeeder`, `ServiceRadar.Analytics.StarRocks.Rows` and readers,
   CNPG and StarRocks migrations, `rust/srql`, web-ng device and security LiveViews, the
-  `security-findings` dashboard package, the Falcosidekick collector bundle generator, and docs.
+  `security-findings` dashboard package, the agent Falco HTTP ingest, the Falco edge-record
+  contract and projector, the chart wiring for the Falco DaemonSet, and docs.
 - Related changes: builds on `add-ocsf-finding-model` (this change can be the first producer of
   `platform.ocsf_findings` and delivers its Falco tasks 2.3, 2.4, 3.1); keeps the diagnostics
   contract of `update-falco-alert-diagnostics`; does not touch the admission work in
