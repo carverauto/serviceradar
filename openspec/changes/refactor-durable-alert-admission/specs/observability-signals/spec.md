@@ -2,7 +2,7 @@
 
 ### Requirement: Durable bounded alert evaluation admission
 
-Stateful alert evaluation SHALL return success only after all matching-rule work for a batch has been durably accepted, with bounded count, byte, and time limits; success SHALL NOT imply that alert effects are already visible.
+Stateful alert evaluation SHALL return success only after every matching-rule occurrence that fits the configured count and byte limits has been durably accepted, within the admission time limit. An occurrence whose own payload exceeds the byte budget SHALL be skipped, counted, and left untruncated, and that skip SHALL still allow success. When a later occurrence does not fit, the longest in-order prefix that does fit SHALL commit and the call SHALL return an explicit overload error; a redelivery of the same records SHALL admit the remainder in order. Success SHALL NOT imply that alert effects are already visible. Accepted work SHALL NOT be evicted to admit newer work.
 
 #### Scenario: A slow evaluator does not delay independent admission
 - **GIVEN** one rule's evaluator is deliberately paused
@@ -10,10 +10,22 @@ Stateful alert evaluation SHALL return success only after all matching-rule work
 - **THEN** its durable admission SHALL complete without waiting for the paused evaluator
 - **AND** the independent rule SHALL persist its outcome without waiting for that evaluator
 
-#### Scenario: Admission is rejected without partial acceptance
-- **WHEN** capacity is exhausted, the store is unavailable, or a batch is invalid
+#### Scenario: Overload commits an in-order prefix
+- **WHEN** capacity cannot hold every remaining occurrence
+- **THEN** the longest in-order prefix that fits SHALL be durably accepted
+- **AND** the call SHALL return an explicit overload error
+- **AND** a redelivery of the same records SHALL continue after that prefix, in order
+- **AND** accepted work SHALL NOT be evicted to admit newer work
+
+#### Scenario: An occurrence that can never fit is skipped
+- **WHEN** one occurrence alone exceeds the per-rule or pending byte budget
+- **THEN** alert evaluation SHALL skip that occurrence, count the skip, and leave the payload untruncated
+- **AND** the stored signal SHALL remain
+
+#### Scenario: Unavailable store or invalid payload rejects the slice
+- **WHEN** the store is unavailable or a slice is invalid
 - **THEN** evaluation SHALL return an explicit error
-- **AND** no subset of the batch SHALL be acknowledged as accepted
+- **AND** that slice SHALL NOT be partially accepted
 
 ### Requirement: Ordered replay-safe rule processing
 
