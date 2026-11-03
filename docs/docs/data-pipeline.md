@@ -85,9 +85,10 @@ on the chart). A current `serviceradar.netprobe.flow_attribution` version 1
 grant then takes drained windows off the `source=flow-attribution` status
 path. A current `serviceradar.otlp.relay` version 1 grant appends fitting OTLP
 records to that spool. A record that does not fit the 512 KiB edge-record cap
-still goes out as `source=otlp-relay`. The add-on is acked only after every
-fitting record is in the spool and every oversized record has been accepted
-on that status path. Without the spool or the matching grant, each producer
+still goes out as `source=otlp-relay` when that status fits the gateway frame.
+A record that fits neither is skipped and acked. The add-on is acked only after
+every fitting record is in the spool and every status that was sent has been
+accepted. Without the spool or the matching grant, each producer
 stays on its status path. Core republishes a
 fresh flow-attribution record through the same observation publish the status
 path uses, and republishes an OTLP relay record onto `otel.traces.raw`,
