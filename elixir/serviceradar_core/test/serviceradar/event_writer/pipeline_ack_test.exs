@@ -69,7 +69,7 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
     assert is_integer(duration) and duration >= 0
   end
 
-  test "alert evaluation backpressure backs off, preserves nack telemetry and terminates at the delivery limit" do
+  test "alert evaluation backpressure backs off and does not term an unadmitted tail" do
     parent = self()
 
     for reason <- [:alert_evaluation_peer_not_ready, {:overloaded, :rule_bytes}],
@@ -78,7 +78,7 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
           {2, {:nack, 20_000}},
           {3, {:nack, 40_000}},
           {4, {:nack, 80_000}},
-          {5, :term}
+          {5, {:nack, 80_000}}
         ],
         {publish_result, telemetry_result} <- [{:ok, :ok}, {{:error, :disconnected}, :error}] do
       message = %Message{
@@ -105,17 +105,12 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
         end)
 
       assert_receive {:ack_action, ^action}
-      telemetry_action = if delivery_count == 5, do: :term, else: :nack
 
       assert_receive {:telemetry, [:serviceradar, :event_writer, :ack], %{count: 1},
-                      %{action: ^telemetry_action, result: ^telemetry_result}}
+                      %{action: :nack, result: ^telemetry_result}}
 
-      if delivery_count == 5 do
-        assert log =~ "[error]"
-        assert log =~ "terminal JetStream delivery"
-      else
-        refute log =~ "[error]"
-      end
+      refute log =~ "[error]"
+      refute log =~ "terminal JetStream delivery"
     end
   end
 

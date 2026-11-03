@@ -291,6 +291,36 @@ defmodule ServiceRadar.EventWriter.Pipeline do
 
         messages
 
+      {:incomplete, count, failures} ->
+        failed_by_message = Map.new(failures, fn {message, reason} -> {message, reason} end)
+        reason = failures |> hd() |> elem(1)
+
+        if retryable_alert_evaluation_reason?(reason) do
+          Logger.info("Batch deferred until alert evaluation is ready",
+            batcher: batcher,
+            reason: inspect(reason),
+            message_count: map_size(failed_by_message)
+          )
+        else
+          Logger.error("Batch processing failed",
+            batcher: batcher,
+            reason: inspect(reason),
+            message_count: map_size(failed_by_message)
+          )
+        end
+
+        EventWriterTelemetry.emit_batch(:ok, messages, count, duration, %{
+          stream: batcher,
+          processor: processor
+        })
+
+        Enum.map(messages, fn message ->
+          case Map.get(failed_by_message, message) do
+            nil -> message
+            reason -> Message.failed(message, reason)
+          end
+        end)
+
       {:error, reason} ->
         EventWriterTelemetry.emit_batch(:error, messages, length(messages), duration, %{
           stream: batcher,
@@ -359,18 +389,25 @@ defmodule ServiceRadar.EventWriter.Pipeline do
 
   defp ack_failed_message(message) do
     cond do
+      retryable_alert_evaluation_status?(message.status) ->
+        delay_alert_evaluation(message)
+
       JetStreamAck.final_delivery?(message) ->
         emit_dead_letter(message)
         ack_message(message, :term)
 
-      retryable_alert_evaluation_status?(message.status) or edge_record_message?(message) ->
-        delivery_count = get_in(message.metadata, [:jetstream_ack, :delivery_count]) || 1
-        delay_ms = 10_000 * Bitwise.bsl(1, min(max(delivery_count, 1), 4) - 1)
-        ack_message(message, {:nack, delay_ms})
+      edge_record_message?(message) ->
+        delay_alert_evaluation(message)
 
       true ->
         ack_message(message, :nack)
     end
+  end
+
+  defp delay_alert_evaluation(message) do
+    delivery_count = get_in(message.metadata, [:jetstream_ack, :delivery_count]) || 1
+    delay_ms = 10_000 * Bitwise.bsl(1, min(max(delivery_count, 1), 4) - 1)
+    ack_message(message, {:nack, delay_ms})
   end
 
   defp edge_record_message?(%{metadata: %{subject: "telemetry.edge-record" <> _}}), do: true
