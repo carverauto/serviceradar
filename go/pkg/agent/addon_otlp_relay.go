@@ -15,14 +15,18 @@
  */
 
 // addon_otlp_relay.go runs the agent-side pump for add-ons advertising the
-// otlp-relay:v1 capability: it drains acked OtlpRelayFrame messages from the
-// add-on's durable spool, wraps each frame as a GatewayServiceStatus
-// (ServiceName/Source "otlp-relay"), flushes them to the gateway on a
-// dedicated <=100ms cadence (not the 30s push tick), and sends the cumulative
-// ack watermark back to the add-on only after the gateway accepted the
-// frames. Unlike the lossy native-telemetry:v1 path (addon_telemetry.go),
-// nothing is dropped here: undelivered frames stay unacked, and the add-on's
-// spool retains and re-sends them on reconnect.
+// otlp-relay:v1 capability: it drains OtlpRelayFrame messages from the
+// add-on's durable spool. With a current serviceradar.otlp.relay grant and
+// the bulk spool connected, a frame that fits an edge record is appended
+// there, and a single record that does not fit is sent as
+// GatewayServiceStatus source "otlp-relay" when that status fits the gateway
+// frame. Without that grant or spool, every deliverable frame takes the
+// status path. The pump flushes on a dedicated <=100ms cadence (not the 30s
+// push tick) and sends the cumulative ack watermark back to the add-on only
+// after those appends and status deliveries have succeeded. Unlike the lossy
+// native-telemetry:v1 path (addon_telemetry.go), a frame that can still be
+// delivered stays unacked, and the add-on's spool retains and re-sends it
+// on reconnect.
 
 package agent
 
@@ -291,12 +295,13 @@ type otlpRelayPump struct {
 
 // otlpRelayPumpStats counts frames through one relay pump.
 type otlpRelayPumpStats struct {
-	// forwarded counts frames the gateway accepted.
+	// forwarded counts frames whose flush succeeded: an edge-spool append, a
+	// gateway status delivery, or both.
 	forwarded atomic.Uint64
 	// acked counts frames resolved by a cumulative ack watermark sent to the
 	// add-on: delivered frames plus skipped oversized frames.
 	acked atomic.Uint64
-	// retried counts frame deliveries retried after a gateway failure.
+	// retried counts frame deliveries retried after a failed flush.
 	retried atomic.Uint64
 	// skippedOversize counts frames skipped (and acked) because they exceed
 	// the per-frame size limit.
@@ -333,10 +338,10 @@ func (p *otlpRelayPump) normalize() {
 	}
 }
 
-// run pumps relay frames to the gateway until ctx is cancelled or the frames
-// channel closes (stream end). On return any still-pending frames are simply
-// abandoned unacked — the add-on's durable spool re-sends them with the same
-// relay_ids on the next stream.
+// run pumps relay frames to the edge spool or the gateway until ctx is
+// cancelled or the frames channel closes (stream end). On return any
+// still-pending frames are simply abandoned unacked — the add-on's durable
+// spool re-sends them with the same relay_ids on the next stream.
 func (p *otlpRelayPump) run(ctx context.Context, frames <-chan *addonpb.OtlpRelayFrame, acks chan<- uint64) {
 	p.normalize()
 
