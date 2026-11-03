@@ -1,52 +1,15 @@
 # observability-signals Delta
 
-## MODIFIED Requirements
-
-### Requirement: Required Local OTLP Terminator on Every Agent
-Every agent SHALL include a local OTLP terminator (the `otel-collector` add-on)
-as a required, auto-installed component so OTLP emitted at the edge has a local
-endpoint. The terminator SHALL retain uncertain telemetry until the agent's
-generic native record relay returns a cumulative common-spool durability ACK.
-The agent SHALL carry canonical OTLP/observability records through the
-authenticated gateway record plane, and the gateway SHALL be the sole NATS
-publisher for agent-originated OTLP in this contract. A site-local NATS leaf MAY
-be part of the gateway's configured route only when the observed PubAck is from
-the declared durability authority; the terminator SHALL NOT receive broker
-credentials or bypass the common agent spool/registry/envelope semantics.
-
-#### Scenario: Agent installed without explicit add-on assignment
-- **WHEN** an agent is installed
-- **THEN** the local OTLP terminator add-on SHALL be installed by default without
-  an operator assigning it
-- **AND** its durable output grant and native relay identity SHALL be compiled by
-  the platform
-
-#### Scenario: Edge site without a NATS leaf
-- **WHEN** OTLP is emitted at an edge site that has no local NATS access
-- **THEN** the terminator SHALL relay it through the agent to the agent-gateway,
-  which publishes it to NATS
-- **AND** the terminator SHALL retain it until common-spool durability ACK, after
-  which the agent SHALL retain it until the corresponding edge PubAck disposition
-
-#### Scenario: Edge site with a NATS leaf
-- **WHEN** a NATS leaf is deployed at the edge site
-- **THEN** the terminator SHALL still use the assignment-authenticated native
-  record relay and common agent spool
-- **AND** any gateway publication through the leaf SHALL wait for the configured
-  authoritative durability PubAck before edge acknowledgement
-
 ## ADDED Requirements
 
 ### Requirement: Agent durable records are published before edge acknowledgement
 The agent-gateway SHALL be the defined JetStream ingress publisher for
 agent-originated persistent observations, metrics, inventory, findings,
-execution events, traces, and approved extension records. It SHALL
+execution events, and traces. It SHALL
 use a JetStream publish request and validate PubAck for the expected
 authoritative installation-local, traffic-class-specific stream before returning
 an accepted disposition for the corresponding edge spool sequence. Bulk and
 interactive records SHALL use disjoint physical streams and durable consumers.
-Agents below the required edge-record protocol version SHALL receive no new
-affected work; the installation SHALL NOT add a patched legacy JSON sender.
 
 #### Scenario: Core NATS handoff succeeds without PubAck
 - **GIVEN** a client connection accepts a Core NATS publish but no valid
@@ -72,10 +35,10 @@ affected work; the installation SHALL NOT add a patched legacy JSON sender.
   rather than JetStream suppressing it as an identical retry
 
 ### Requirement: Durable producer output has one canonical domain record
-Every durable output contract SHALL define one canonical typed or approved
-extension representation on JetStream with deterministic domain identity,
+Every durable output contract SHALL define one canonical typed
+representation on JetStream with deterministic domain identity,
 revision/merge semantics, and authoritative-versus-derived status. Producers
-SHALL NOT emit the same fact simultaneously as typed output, extension output,
+SHALL NOT emit the same fact simultaneously as typed output,
 generic per-field metrics, OCSF, plugin-result JSON, or a lossy add-on copy.
 Required low-cardinality metrics and state projections SHALL be derived
 downstream with stable source correlation.

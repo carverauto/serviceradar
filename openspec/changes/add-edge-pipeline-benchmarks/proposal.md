@@ -43,7 +43,7 @@ baseline to notice a regression against.
 - Publish each run's numbers as a build artifact so a baseline and its variance can be
   established from real data before anyone proposes gating on it.
 
-**Part 2 — NOT IN THIS CHANGE. It belongs to the vertical slice.**
+**Part 2 -- capacity baselines and the scale soak are section 7 of `tasks.md` (2026-11-02).** The paragraphs below record the original assignment to the vertical slice. Follow section 7, not that assignment.
 
 A throughput benchmark must exercise the SAME production entrypoint the vertical slice uses. If
 it is built here it will grow benchmark-only glue — a private approximation of ingress — and the
@@ -75,18 +75,22 @@ words end-to-end or throughput attach to it.
   - `rust/netprobe/BUILD.bazel`, `rust/netprobe/benches/**`
   - `//buildbuddy.yaml` — one added step
 - **Not in scope:** any performance THRESHOLD, any optimisation work, and any change to what the
-  benchmarks measure. Part 1 changes only whether they run.
-- **Moved, not deferred:** the throughput benchmark belongs to `unify-sweep-results-proto`'s
-  vertical-slice implementation, so it exercises production composition rather than becoming a
-  second independently proven model of ingress. It additionally depends on
-  `freeze-edge-record-v1-abi` 1.5-k and 1.5-n, which define two of the stages it would measure.
+  benchmarks measure. Part 1 changes only whether they run. This does not apply to section 7:
+  the tasks moved there keep their original gates verbatim.
+- **Owned here:** the throughput benchmark is section 7 of `tasks.md`. It exercises the
+  production entrypoint the vertical slice now owns, so it does not become a second
+  independently proven model of ingress. The paragraphs above record the original assignment
+  to `unify-sweep-results-proto`; follow section 7, not that assignment.
 - **Available dependency:** a real NATS JetStream instance exists in `sr-testing`, so neither the
   vertical slice nor the throughput benchmark needs to mock the PubAck hop. A measurement taken
   against a real broker describes the system; one taken against a mock describes the harness.
+- **Update 2026-11-02:** the vertical slice is green and merged to `staging`, so the capacity
+  baseline and scale-benchmark tasks of `unify-sweep-results-proto` (0.1-0.4, 0.7 and 8.4) moved
+  here as section 7 of `tasks.md`. They measure the production entrypoint the slice now owns.
 
 ## Risk
 
-The honest risk is that this change is itself a horizontal proof surface. What remains here is
-small: it makes existing benchmarks run and keeps their "not production ingress" disclaimers
-intact. The expensive half is not deferred but REASSIGNED, to the slice that will own the
-production entrypoint it must measure.
+The honest risk is that this change is itself a horizontal proof surface. What remains of the
+original benchmark wiring is small: it makes existing benchmarks run and keeps their "not
+production ingress" disclaimers intact. The capacity baselines and the scale soak are section 7
+of `tasks.md` (Impact, update 2026-11-02).

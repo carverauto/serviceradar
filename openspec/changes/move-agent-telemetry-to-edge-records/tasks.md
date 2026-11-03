@@ -85,5 +85,7 @@
   them. It follows task 6.1. It does not remove `GetSweepResults`, the sweep results KV,
   `serviceradar.sweep` on `StreamStatus`, or the gateway sweep publisher until the unleased sweep
   results contract and its payload are defined, shipped, and have passed the farm01 parity soak.
+  This task also carries `unify-sweep-results-proto` M4.2, 7.4, 7.5 and the `GetSummary`
+  delivery-ownership half of 2.1, which moved here on 2026-11-02.
 - [ ] 8.2 Confirm no durable agent data remains on `StreamStatus`/`PushStatus`; only control
   traffic and ephemeral status summaries stay there.
