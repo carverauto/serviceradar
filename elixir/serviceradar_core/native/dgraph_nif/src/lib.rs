@@ -102,6 +102,24 @@ where
     })
 }
 
+fn keys_call<'a, Op, Fut>(env: Env<'a>, url: String, deadline_ms: u64, op: Op) -> Term<'a>
+where
+    Op: FnOnce(TopologyClient) -> Fut + Send + 'static,
+    Fut: Future<Output = Result<Vec<String>, TopologyError>> + Send + 'static,
+{
+    dgraph_call(
+        env,
+        url,
+        Pool::Item,
+        deadline_ms,
+        op,
+        |result| match result {
+            Ok(keys) => KeysResult::Ok(keys),
+            Err(reason) => KeysResult::Error(reason),
+        },
+    )
+}
+
 fn rejected(env: Env<'_>, reason: String) -> Term<'_> {
     (atoms::error(), reason).encode(env)
 }
@@ -169,6 +187,39 @@ fn upsert_edge(env: Env<'_>, url: String, edge: NifEdgeWrite, deadline_ms: u64) 
     let write = edge.into_write();
     write_call(env, url, deadline_ms, move |client| async move {
         client.upsert_edge(&write).await
+    })
+}
+
+/// Devices and the interfaces they own, one conditional mutation per device
+/// in a single request. Replies with the ids of devices skipped as ambiguous.
+#[rustler::nif]
+fn upsert_device_graphs(
+    env: Env<'_>,
+    url: String,
+    devices: Vec<NifDeviceWrite>,
+    interfaces: Vec<NifInterfaceWrite>,
+    deadline_ms: u64,
+) -> Term<'_> {
+    let devices: Vec<_> = devices
+        .into_iter()
+        .map(NifDeviceWrite::into_write)
+        .collect();
+    let interfaces: Vec<_> = interfaces
+        .into_iter()
+        .map(NifInterfaceWrite::into_write)
+        .collect();
+    keys_call(env, url, deadline_ms, move |client| async move {
+        client.upsert_device_graphs(&devices, &interfaces).await
+    })
+}
+
+/// Edges in one transaction. Replies with the link keys of edges skipped
+/// because an endpoint is missing or ambiguous.
+#[rustler::nif]
+fn upsert_edges(env: Env<'_>, url: String, edges: Vec<NifEdgeWrite>, deadline_ms: u64) -> Term<'_> {
+    let writes: Vec<_> = edges.into_iter().map(NifEdgeWrite::into_write).collect();
+    keys_call(env, url, deadline_ms, move |client| async move {
+        client.upsert_edges(&writes).await
     })
 }
 
