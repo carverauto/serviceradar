@@ -60,7 +60,7 @@ const (
 // explicitly enabled in config, since the gateway-side RPC server this
 // depends on (a separate, parallel task) may not exist in every deployment.
 //
-// A sender with producers enabled (sweep or metrics) persists validated terminal
+// A sender with any producer enabled persists validated terminal
 // dispositions before advancing its local resolved prefix, then reclaims a drained
 // segment whose records are accepted or permanently rejected. Permanently rejected
 // records are quarantined first, and each rejection code is logged once per run.

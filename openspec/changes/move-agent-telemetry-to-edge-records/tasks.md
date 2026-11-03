@@ -81,8 +81,8 @@
   Plugins and add-ons never get contracts of their own. A new payload kind is an SDK and core
   change.
   TODO (reconciled 2026-11-02): remaining scope is the `TelemetryBatch` contract catalog entry, agent producer, and core projector for `serviceradar_metrics`, `ocsf_event` and `otel_log`.
-- [ ] 5.2 Typed Wasm plugin result batch; producer and projector.
-  PARTIAL (reconciled 2026-11-02): `WasmPluginResultBatchV1` contract and generated bindings landed in `proto/edge/v1/plugin_results.proto` (#6245); remaining scope is the agent producer and core projector into `ServiceRadar.Observability.PluginResultIngestor`.
+- [x] 5.2 Typed Wasm plugin result batch; producer and projector.
+  DONE (reconciled 2026-11-03): `WasmPluginResultBatchV1` in `proto/edge/v1/plugin_results.proto` (#6245); agent producer in `go/pkg/agent/push_loop_plugin_results_edge.go` and projector `ServiceRadar.Edge.Projectors.WasmPluginResult` into `ServiceRadar.Observability.PluginResultIngestor`. Parity soak remains task 5.3.
 - [ ] 5.3 Parity soak.
   TODO (reconciled 2026-11-02): remaining scope is the plugin and add-on telemetry parity soak after tasks 5.1 and 5.2.
 

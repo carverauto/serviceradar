@@ -455,7 +455,9 @@ base64-encoded 32-byte seed (the Secret's data encoding wraps that text).
 `edgeRecords.agentMetricsEnabled` enables its sysmon, SNMP, ICMP, MTR scalar
 and periodic sweep summary metrics producers on the same spool.
 `edgeRecords.agentTelemetryEnabled` enables its plugin and native add-on
-telemetry producer on that spool. Each of these flags requires
+telemetry producer on that spool.
+`edgeRecords.agentPluginResultsEnabled` enables its Wasm plugin results
+producer on that spool. Each of these flags requires
 `edgeRecords.enabled` and `agent.runtimeStorage.enabled=true`. The spool lives
 under that volume's base path and `edgeRecords.maxSpoolBytes` bounds it.
 Core's agent-scoped sweep lease settings select which agent receives signed
@@ -467,7 +469,10 @@ version 1 contract and that agent's leasing switch is on. With
 `agentTelemetryEnabled` set, plugin and add-on telemetry stays on the status
 path until `contractRegistry` includes an active
 `serviceradar.telemetry.batch` version 1 contract and that agent's leasing
-switch is on. Results of sweep groups the agent runs from its own config,
+switch is on. With `agentPluginResultsEnabled` set, Wasm plugin results stay
+on the status path until `contractRegistry` includes an active
+`serviceradar.plugin_results.batch` version 1 contract and that agent's
+leasing switch is on. Results of sweep groups the agent runs from its own config,
 without a lease, move to edge records only when `contractRegistry` also
 includes an active `serviceradar.sweep.unleased_results` version 1 contract;
 each results response and its metric batch then take the edge path together,
@@ -482,8 +487,8 @@ and MTR windows are not supported by this projection yet. Keep the issuer key
 and agent network scope fixed while records remain in the spool. Historical
 key and scope trust for a change of either is still a later milestone. A
 stale-fence record that carries a valid delivery grant is published on the
-audit route; see `docs/edge-record-quarantine-runbook.md`. A sender with
-sweep or metrics producers enabled persists terminal resolutions. It reclaims
+audit route; see `docs/edge-record-quarantine-runbook.md`. A sender with sweep, metrics, telemetry, or plugin-results producers
+enabled persists terminal resolutions. It reclaims
 a fully drained segment when durable dispositions cover every retained
 sequence. Permanently rejected records are
 copied into a bounded local quarantine in the lane directory before that
