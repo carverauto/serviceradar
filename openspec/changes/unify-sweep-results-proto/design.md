@@ -2603,12 +2603,16 @@ following replace `sweepChecks(cfg)` and the config-network comparison in
    `errEdgeSweepCheckSetMismatch`, `errEdgeSweepCIDRMismatch`,
    `errEdgeSweepTargetsMismatch` and `errEdgeSweepStaticCIDRRequired` go away.
 3. `SweepService.runLeaseToSpool` checks every range with
-   `EffectiveSweepModes(cidr, spec.Modes)` before it claims the slot. A carried
-   mode the agent cannot run refuses the slot with `CHECK_UNAVAILABLE` and the
-   marker of the missing check: `icmp.unavailable` or `mtr.unavailable` for
-   that mode, and `tcp_syn_ipv6.unavailable` when raw IPv6 SYN would run as
-   connect. The agent never runs a subset or a substitute of the signed
-   checks.
+   `NetworkSweeper.EffectivePlannedSweepModes(cidr, spec)` before it claims
+   the slot. That call creates any scanner the planned run still lacks, from
+   the carried `RunSpec` rather than the group's sweep config, then applies
+   the same per-family rules as `EffectiveSweepModes`. A stopped sweeper
+   creates no scanners. Missing ICMP and a mode the planned scanner would
+   rewrite are one `CHECK_UNAVAILABLE` refusal before claim. The markers are
+   their union: `icmp.unavailable` or `mtr.unavailable` for that mode, and
+   `tcp_syn_ipv6.unavailable` when the scanner that run creates would run raw
+   IPv6 SYN as connect. The agent never runs a subset or a substitute of the
+   signed checks.
 4. It runs `NetworkSweeper.RunPlannedWithObserver(ctx, executionID, spec,
    observer)`, a new method. The scanner cannot run an override config for one
    execution today: `RunOnceWithObserver` reads `s.config`, which
