@@ -24,7 +24,7 @@ A runtime finding is an OCSF Detection Finding (class 2004) stored in `platform.
 
 ### Requirement: Runtime finding subjects use the most specific stable entity
 The normalizer SHALL select the subject entity of each Falco occurrence in this order: Kubernetes workload when namespace, owner kind and owner name are known; Kubernetes pod when namespace and pod name are known without an owner; host for `syscall` events without pod context; Falco source for non-`syscall` sources.
-The normalizer MUST NOT infer a workload owner by parsing pod names. A container-only occurrence SHALL first be enriched from `platform.workload_identity_current` by partition and container id, and SHALL fall back to the host subject when no pod is found. The partition SHALL be the attested partition of the edge record. The cluster id SHALL be the cluster id the agent stamped from `falcoIngest.clusterId`, defaulting to `default` when that value is absent. Workload and pod entity keys SHALL include the attested partition and the cluster id, in that order, so the same workload in two partitions is two findings.
+The normalizer MUST NOT infer a workload owner by parsing pod names. A container-only occurrence SHALL first be enriched from `platform.workload_identity_current` by partition and container id, and SHALL fall back to the host subject when no pod is found. The partition SHALL be the attested partition of the edge record. The cluster id SHALL be the cluster id the agent stamped from `falcoIngest.clusterId`, defaulting to `default` when that value is absent. Workload and pod entity keys SHALL include the attested partition and the cluster id, in that order, so the same workload in two partitions is two findings. The host entity key SHALL be the attested partition and the normalized hostname. The Falco source entity key, for a non-syscall source, SHALL be the attested partition, the rule source, and the normalized hostname, so the same plugin rule on two hosts is two findings.
 
 #### Scenario: Owner fields present yield a workload subject
 - **GIVEN** an occurrence attested to partition `edge-a` with cluster id `default`, `k8s.ns.name = shop`, `k8s.pod.name = cart-7d9f8-abcde`, and owner fields `Deployment` / `cart`
@@ -52,8 +52,14 @@ The normalizer MUST NOT infer a workload owner by parsing pod names. A container
 - **THEN** its subject SHALL be `host` with key `edge-a/host01.example.com`
 - **AND** the container id and image SHALL be recorded on the occurrence and in the finding's samples
 
+#### Scenario: The same plugin rule on two hosts is two findings
+- **GIVEN** partition `edge-a` reports non-syscall source `k8s_audit` and the same rule from host `host01.example.com` and from host `host02.example.com`, with no Kubernetes fields
+- **WHEN** both are normalized
+- **THEN** two `falco_source` findings SHALL exist, with keys `edge-a/k8s_audit/host01.example.com` and `edge-a/k8s_audit/host02.example.com`
+- **AND** their counts, samples, and device bindings SHALL NOT mix
+
 ### Requirement: Runtime finding identity is stable across restarts and bindings
-The finding uid SHALL be a deterministic function of the attested partition, the entity kind, the entity key, and the Falco rule name. The workload and pod entity keys SHALL begin with that same attested partition. The uid MUST NOT include container id, pod uid, device uid, or the ingest subject.
+The finding uid SHALL be a deterministic function of the attested partition, the entity kind, the entity key, and the Falco rule name. The workload and pod entity keys SHALL begin with that same attested partition. The host entity key SHALL be the attested partition and the normalized hostname. The Falco source entity key SHALL be the attested partition, the rule source, and the normalized hostname. The uid MUST NOT include container id, pod uid, device uid, or the ingest subject.
 
 #### Scenario: Pod restart keeps the finding
 - **GIVEN** an active workload finding whose occurrences came from container `aaaaaaaaaaaa`
@@ -124,6 +130,7 @@ Concurrent updates from multiple EventWriter replicas MUST NOT lose counts. Samp
 A runtime finding SHALL be `active` or `resolved`. `active` is OCSF `status_id` 1 (New) or 2 (In Progress), and `resolved` is OCSF `status_id` 4 (Resolved). Falco SHALL store `status_id` 1 when it opens or reopens a finding and `status_id` 4 when it resolves one. Falco SHALL NOT store `status_id` 2 or 3. It SHALL auto-resolve after a configurable quiet period without occurrences (default 24 hours), SHALL reopen on a new occurrence after resolution with a new episode, and SHALL support operator resolve.
 On reopen the new episode's severity SHALL start at the reopening occurrence's severity and SHALL then rise monotonically within that episode. The `reopened` transition SHALL carry that starting severity.
 A new occurrence on an active finding SHALL update counts and samples, and SHALL emit `escalated` when the episode severity rises.
+The occurrence upsert, auto-resolve, and operator resolve SHALL serialize on the finding-row lock. Each SHALL re-read status and last seen under that lock before writing. The occurrence upsert SHALL reopen when the locked row is resolved. Auto-resolve SHALL resolve only when the locked row is still active and last seen is still outside the quiet period. Operator resolve SHALL write from that locked re-read.
 
 #### Scenario: Active and resolved use the OCSF status codes
 - **GIVEN** a finding opens
@@ -134,12 +141,19 @@ A new occurrence on an active finding SHALL update counts and samples, and SHALL
 
 #### Scenario: Quiet finding auto-resolves
 - **GIVEN** an active finding with no occurrences for 24 hours
-- **WHEN** the auto-resolve job runs
+- **WHEN** the auto-resolve job locks the finding row and re-reads it still active and still quiet
 - **THEN** the finding SHALL become `resolved` with `status_id` 4 and a `resolved` transition SHALL be emitted
+
+#### Scenario: Auto-resolve does not close over a fresher occurrence
+- **GIVEN** the auto-resolve job has read an active finding whose last seen is past the quiet period
+- **AND** an occurrence upsert then locks that finding, advances last seen, and commits
+- **WHEN** auto-resolve locks the finding row and re-reads it
+- **THEN** it SHALL NOT resolve the finding
+- **AND** the finding SHALL stay active
 
 #### Scenario: Resolved finding reopens at the new occurrence's severity
 - **GIVEN** a resolved finding whose previous episode severity was Critical
-- **WHEN** a Warning occurrence arrives
+- **WHEN** a Warning occurrence upsert locks the finding row and re-reads it as resolved
 - **THEN** the finding SHALL become `active`, its reopen count SHALL increase by one, and its episode counters SHALL restart
 - **AND** the new episode severity SHALL be Warning
 - **AND** the `reopened` transition SHALL carry Warning
@@ -190,7 +204,7 @@ The system MUST NOT write occurrences to both backends and MUST keep the CNPG ta
 - **AND** the completing delivery SHALL NOT be acknowledged
 
 ### Requirement: Finding counts are at-least-once
-Runtime finding occurrence counts SHALL be at-least-once. The count delta SHALL be applied only by the single winner of the stage row for that occurrence. A count MAY exceed the stored occurrences only when that winning process stops between the finding commit and the acknowledgement of that write. A second in-flight publish that does not win the stage row SHALL NOT apply the count delta. A later publish of an occurrence whose finding update has already committed SHALL NOT apply the count delta again. The occurrence dataset SHALL remain the exact count. The system SHALL NOT add a per-occurrence receipt ledger.
+Runtime finding occurrence counts SHALL be at-least-once. The finding upsert SHALL apply that occurrence's count delta only when that occurrence's finding update has not yet committed, and that upsert SHALL be idempotent by Falco event id. Concurrent upserts SHALL be serialized by the finding-row lock. The part stage SHALL remain a reassembly buffer and SHALL NOT record a count claim. A count MAY exceed the stored occurrences only when a process stops between the finding commit and the acknowledgement of that write. A later publish of an occurrence whose finding update has already committed SHALL NOT apply the count delta again. The occurrence dataset SHALL remain the exact count. The system SHALL NOT add a per-occurrence receipt ledger.
 
 #### Scenario: Exact count is available
 - **WHEN** an operator needs the exact number of occurrences for a finding
@@ -203,10 +217,11 @@ Runtime finding occurrence counts SHALL be at-least-once. The count delta SHALL 
 - **AND** no second occurrence SHALL be written
 
 #### Scenario: Two in-flight publishes count once
-- **GIVEN** two publishes of the same Falco event are in flight and the finding update has not committed
-- **WHEN** both are processed
-- **THEN** the count delta SHALL be applied once, by the single winner of the stage row
-- **AND** the publish that does not win the stage row SHALL NOT apply the count delta
+- **GIVEN** two publishes of the same Falco event are in flight and neither finding update has committed
+- **WHEN** both upserts take the finding-row lock
+- **THEN** the first upsert to commit SHALL apply the count delta once
+- **AND** the upsert that then observes that committed finding update SHALL NOT apply the count delta
+- **AND** the part stage SHALL NOT record a count claim
 
 ### Requirement: Raw Falco evidence is lossless and never dropped
 Each occurrence SHALL retain its raw Falco record losslessly with its SHA-256 digest and byte length. A record up to 1,048,576 bytes SHALL be stored inline on either backend; a larger record SHALL be uploaded to the datasvc object store before its occurrence is written, and the occurrence SHALL carry a reference `{store, key, sha256, bytes, content_type}` with key `runtime-security/raw/<UTC date of the occurrence>/<occurrence id>.json`.
@@ -296,7 +311,7 @@ The agent SHALL return success only after every part of that event is in its dur
 ### Requirement: Oversized Falco events are chunked, reassembled, then spilled
 The agent SHALL spool each accepted event under the `{"serviceradar.falco.event", 1}` contract. The OTLP relay contract SHALL NOT carry these events: it refuses one record above the 512 KiB edge-record bound, and wrapping the Falco JSON as an OTLP log would be a second encoding of `output_fields`, `uuid`, and `tags`.
 An event whose edge record would exceed the 512 KiB bound SHALL be split into ordered parts. Each part SHALL be its own `EdgeRecordV1` with a freshly minted RFC 9562 UUIDv7 `event_id` inside the production-capability window. The agent SHALL reuse that `event_id` from its spool journal when it retries the same part. The Falco `uuid`, or the SHA-256 of the posted JSON when `uuid` is absent, plus `part_index`, `part_total`, and the JSON slice, SHALL travel in the contract payload and SHALL NOT be the edge `event_id`. A single-part event SHALL use `part_index` 0 and `part_total` 1. Each encoded edge record SHALL stay within 512 KiB.
-The projector SHALL stage each part durably, keyed by Falco event id and `part_index`, and SHALL concatenate one slice per index before normalizing. A second delivery of the same `(falco_event_id, part_index)` or the same edge `event_id` SHALL replace that staged slice and SHALL NOT be concatenated again. The projector SHALL write an occurrence only when that concatenation equals the posted JSON and matches the carried digest. A duplicate occurrence insert SHALL be skipped when that occurrence id is already stored. The count delta SHALL be applied only by the single winner of the stage row, and SHALL NOT be applied again when that occurrence's finding update has committed. The projector SHALL NOT acknowledge any source part before the occurrence and the finding update have both committed, except after the dead-letter publication of that set is durable. A part that leaves the set incomplete SHALL NOT be acknowledged. While the reassembly window is open, that hold SHALL refresh ack progress, SHALL NOT advance `num_delivered`, and SHALL NOT be dead-lettered. The delivery that completes the set, including the only delivery of a single-part event, SHALL stay unacknowledged until both writes have committed or that publication is durable, and its attempts SHALL count toward `max_deliver`. An incomplete set's stage SHALL be held until the set completes or the reassembly window for that Falco event expires. A complete set's stage SHALL be held until the occurrence and the finding update have both committed or the dead-letter publication is durable, and SHALL be released only then. A redelivery of a part that still leaves the set incomplete SHALL replace the staged slice, SHALL refresh ack progress, SHALL NOT be acknowledged, SHALL NOT be dead-lettered, and SHALL NOT count as another delivery attempt. An expired incomplete set SHALL be published as every staged sibling part's original edge record, each including its JSON slice, to the generic edge-record dead-letter, and the stage SHALL be released only after that publication is durable. After reassembly, a raw record up to 1,048,576 bytes SHALL be stored inline and a larger record SHALL be stored out-of-line as this spec requires. Size SHALL NOT refuse, truncate, or drop an event.
+The projector SHALL stage each part durably, keyed by Falco event id and `part_index`, and SHALL concatenate one slice per index before normalizing. A second delivery of the same `(falco_event_id, part_index)` or the same edge `event_id` SHALL replace that staged slice and SHALL NOT be concatenated again. The projector SHALL write an occurrence only when that concatenation equals the posted JSON and matches the carried digest. A duplicate occurrence insert SHALL be skipped when that occurrence id is already stored. The finding upsert SHALL apply the count delta only when that occurrence's finding update has not yet committed, idempotent by Falco event id, and concurrent upserts SHALL be serialized by the finding-row lock. The part stage SHALL NOT record a count claim. The projector SHALL NOT acknowledge any source part before the occurrence and the finding update have both committed, except after the dead-letter publication of that set is durable. A part that leaves the set incomplete SHALL NOT be acknowledged. While the reassembly window is open, that hold SHALL refresh ack progress, SHALL NOT advance `num_delivered`, and SHALL NOT be dead-lettered. The delivery that completes the set, including the only delivery of a single-part event, SHALL stay unacknowledged until both writes have committed or that publication is durable, and its attempts SHALL count toward `max_deliver`. An incomplete set's stage SHALL be held until the set completes or the reassembly window for that Falco event expires. A complete set's stage SHALL be held until the occurrence and the finding update have both committed or the dead-letter publication is durable, and SHALL be released only then. A redelivery of a part that still leaves the set incomplete SHALL replace the staged slice, SHALL refresh ack progress, SHALL NOT be acknowledged, SHALL NOT be dead-lettered, and SHALL NOT count as another delivery attempt. An expired incomplete set SHALL be published as every staged sibling part's original edge record, each including its JSON slice, to the generic edge-record dead-letter, and the stage SHALL be released only after that publication is durable. After reassembly, a raw record up to 1,048,576 bytes SHALL be stored inline and a larger record SHALL be stored out-of-line as this spec requires. Size SHALL NOT refuse, truncate, or drop an event.
 
 #### Scenario: An event above the edge-record bound is reassembled inline
 - **GIVEN** a posted Falco JSON event of 600,000 bytes
@@ -345,7 +360,8 @@ The projector SHALL stage each part durably, keyed by Falco event id and `part_i
 - **GIVEN** an occurrence is stored for a Falco event and its finding update has not committed
 - **WHEN** one part of that event is redelivered
 - **THEN** the projector SHALL skip a second occurrence insert
-- **AND** the single winner of the stage row SHALL upsert the finding
+- **AND** the finding upsert SHALL apply the count delta under the finding-row lock because that update has not committed
+- **AND** the part stage SHALL NOT record a count claim
 - **AND** the completing delivery SHALL stay unacknowledged until that finding update commits
 - **AND** the stage SHALL be released only after that finding update commits
 
@@ -376,7 +392,7 @@ The chart SHALL render, in `falcoIngest.namespace`, the client certificate, clie
 - **AND** the agent configuration SHALL stamp cluster id `shop-cluster`
 
 ### Requirement: Falco delivery holds every accepted event
-Operator documentation SHALL state that a Falco event is durably held from the moment the agent returns HTTP success, with every part in the agent edge spool. No source part is acknowledged before the occurrence and the finding update have both committed, except after a durable dead-letter publication of the whole set. A part that leaves the set incomplete refreshes ack progress during the open window and does not consume further delivery attempts. The completing delivery stays unacknowledged until both writes commit or that publication is durable, and its attempts count. The count delta is applied only by the single winner of the stage row. A complete set's stage is released only after both writes have committed, or after that publication is durable. A duplicate part index is one staged slice. A retried publish of a committed occurrence does not count again. An incomplete set inside its reassembly window is not dead-lettered. An incomplete set whose reassembly window expires, and a completing delivery that would reach `max_deliver` without the occurrence and the finding update, is published as every staged sibling part together, with any spill object reference, to the generic edge-record dead-letter, and the stage is released only after that publication is durable. A failed spool admission is a non-success HTTP response. Documentation SHALL state that guarantee and SHALL NOT list a drop, truncation, or oversize refusal, and SHALL NOT name a Falco-specific dead-letter subject.
+Operator documentation SHALL state that a Falco event is durably held from the moment the agent returns HTTP success, with every part in the agent edge spool. No source part is acknowledged before the occurrence and the finding update have both committed, except after a durable dead-letter publication of the whole set. A part that leaves the set incomplete refreshes ack progress during the open window and does not consume further delivery attempts. The completing delivery stays unacknowledged until both writes commit or that publication is durable, and its attempts count. The finding upsert applies the count delta only when that occurrence's finding update has not yet committed, under the finding-row lock, and the part stage records no count claim. A complete set's stage is released only after both writes have committed, or after that publication is durable. A duplicate part index is one staged slice. A retried publish of a committed occurrence does not count again. An incomplete set inside its reassembly window is not dead-lettered. An incomplete set whose reassembly window expires, and a completing delivery that would reach `max_deliver` without the occurrence and the finding update, is published as every staged sibling part together, with any spill object reference, to the generic edge-record dead-letter, and the stage is released only after that publication is durable. A failed spool admission is a non-success HTTP response. Documentation SHALL state that guarantee and SHALL NOT list a drop, truncation, or oversize refusal, and SHALL NOT name a Falco-specific dead-letter subject.
 
 #### Scenario: Operator reads the delivery guarantee
 - **WHEN** an operator reads the Falco ingestion documentation

@@ -120,7 +120,9 @@ record this.
   produce different workload and pod keys, and different finding uids.
 - **Finding uid** = `deterministic_uuid("falco:runtime-finding:v1:" <> partition <> "|" <>
   entity_kind <> "|" <> entity_key <> "|" <> rule)`. The attested partition is its own hash input
-  and the first coordinate of every entity key, including workload and pod. The uid never includes
+  and the first coordinate of every entity key, including workload, pod, host, and falco_source.
+  The falco_source key is partition, rule source, and normalized hostname, so two hosts that emit
+  the same plugin rule do not share a finding. The uid never includes
   container id, pod uid, device uid, or the ingest subject, so a binding can arrive, change, or
   follow a DIRE merge without changing the finding.
 - **Rule identity** is the Falco rule name. A renamed rule is a new finding.
@@ -154,7 +156,11 @@ resolution runs for the subject (`device_uid`) and for the node the occurrence r
 ### Decision 4: Aggregation is per batch, atomic per finding, with bounded samples
 
 - Occurrences of a batch are grouped by finding uid; one upsert per finding, in one CNPG
-  transaction that locks findings in uid order (no deadlocks between EventWriter replicas). It
+  transaction that locks findings in uid order (no deadlocks between EventWriter replicas).
+  Auto-resolve and operator resolve take that same finding-row lock. Each writer re-reads status
+  and `last_seen` under the lock before it writes. An occurrence upsert reopens when the locked
+  row is resolved. Auto-resolve resolves only when the locked row is still active and `last_seen`
+  is still outside the quiet period. The upsert
   adds to `occurrence_count` and `episode_occurrence_count`, moves `first_seen` / `last_seen`
   monotonically, raises episode severity monotonically within the current episode, and merges
   samples. A reopen sets episode severity from the reopening occurrence; later occurrences in
@@ -164,11 +170,12 @@ resolution runs for the subject (`device_uid`) and for the node the occurrence r
   command lines, top 10 images, top 20 nodes with counts, top 5 users, 5 latest occurrence ids.
   Samples outlive the occurrences they came from.
 - **Counts are at-least-once** (user decision). Occurrence rows are idempotent on their id. The
-  count delta is applied only by the single winner of the stage row for that occurrence. A
-  second in-flight publish that does not win the stage row does not apply the delta. A later
-  publish that observes the committed finding update does not apply the delta again. A count
-  can be inflated only if that winning process stops between the CNPG commit and the
-  acknowledgement of that write. The occurrence dataset is the exact count.
+  finding upsert applies that occurrence's count delta only when that occurrence's finding
+  update has not yet committed, idempotent by Falco event id. Concurrent upserts are serialized
+  by the finding-row lock. A later publish that observes the committed finding update does not
+  apply the delta again. A count can be inflated only if the process stops between the CNPG
+  commit and the acknowledgement of that write. The part stage is a reassembly buffer and
+  records no count claim. The occurrence dataset is the exact count.
   No per-occurrence receipt ledger is added.
 
 ### Decision 5: Occurrences are a new telemetry dataset, on exactly one backend
@@ -247,9 +254,13 @@ table, writer and reader stay for installations without StarRocks.
 ### Decision 7: Lifecycle and alerting
 
 - `active` -> `resolved` automatically after a quiet period with no new occurrence (default 24 h,
-  configurable as `runtime_findings.auto_resolve_after`), or by an operator.
-- `resolved` -> `active` on a new occurrence (`reopen_count += 1`, a new episode starts). The new
-  episode's severity starts at that occurrence's severity.
+  configurable as `runtime_findings.auto_resolve_after`), or by an operator. Both paths take the
+  finding-row lock from Decision 4 and re-read status and `last_seen` under it. Auto-resolve
+  writes resolved only when that locked row is still active and `last_seen` is still outside the
+  quiet period.
+- `resolved` -> `active` on a new occurrence (`reopen_count += 1`, a new episode starts). The
+  occurrence upsert reopens when the locked row is resolved, rather than applying a count update
+  that leaves the row resolved. The new episode's severity starts at that occurrence's severity.
 - **Alerting is lifecycle only** (user decision): `opened`, `reopened`, `escalated` (episode
   severity rose), `resolved`. There is no volume or rate alert. Falco findings are `active`
   (status_id 1) or `resolved` (status_id 4), as Decision 1 states.
@@ -336,9 +347,10 @@ single-part event, stays unacknowledged. Its attempts count toward `max_deliver`
 acknowledges that delivery, and every staged sibling still unacknowledged, only after the
 occurrence and the finding update have both committed, or after the dead-letter publication is
 durable. A duplicate occurrence insert is skipped when that occurrence id is already stored.
-The count delta is applied only by the single winner of the stage row. A second in-flight
-publish that does not win, and a later publish that observes the committed finding update, does
-not apply the delta again. The stage of a complete set is released only after both writes have
+The part stage is only that reassembly buffer. It records no count claim. The finding upsert
+applies the count delta only when that occurrence's finding update has not yet committed,
+idempotent by Falco event id, with concurrent upserts serialized by the finding-row lock. A
+later publish that observes the committed finding update does not apply the delta again. The stage of a complete set is released only after both writes have
 committed, or after that dead-letter publication is durable. An incomplete set stays staged
 until it completes or the reassembly window for that `falco_event_id` expires. A redelivery of a part that
 still leaves the set incomplete replaces the staged slice, refreshes ack progress, and is not
@@ -390,7 +402,8 @@ publication of every staged sibling part, and any spill object reference, is dur
 that leaves the set incomplete refreshes ack progress while the reassembly window is open, so
 that hold does not advance `num_delivered` and is not dead-lettered. The completing delivery
 stays unacknowledged until both writes commit or that publication is durable, and its attempts
-count. The count delta is applied only by the single winner of the stage row. A duplicate
+count. The finding upsert applies the count delta only when that occurrence's finding update
+has not yet committed, under the finding-row lock. The part stage records no count claim. A duplicate
 occurrence insert is skipped. A spool admission failure is a non-success HTTP response, so the
 agent has not accepted an event it cannot hold.
 
@@ -476,9 +489,11 @@ set incomplete refreshes ack progress during the open window and is not acknowle
 dead-lettered. The completing delivery stays unacknowledged until the occurrence and the finding
 update commit, or until every staged sibling part and any spill object reference are published
 together to the generic edge-record dead-letter (`feat/edge-record-dead-letter`) and that
-publication is durable. That delivery's attempts count. The count delta is applied only by the
-single winner of the stage row. A retried publish that observes the committed finding does not
-count again. A reopened episode
+publication is durable. That delivery's attempts count. The finding upsert applies the count
+delta only when that occurrence's finding update has not yet committed, under the finding-row
+lock, and the part stage records no count claim. A retried publish that observes the committed
+finding does not count again. Auto-resolve and the occurrence upsert serialize on that lock and
+re-read status and `last_seen`. A reopened episode
 starts at the new occurrence's severity. Active is status_id 1
 (`status:active` also matches 2) and resolved is status_id 4. The Falco port is 14318 with no
 override, there is no stored window counter, and a customized `falco_critical_incident` copy

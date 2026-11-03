@@ -37,8 +37,9 @@ Three structural problems sit underneath that:
   image, node, user), and its inventory binding.
 - **Explicit entity model.** The subject is the most specific stable entity the event supports:
   Kubernetes workload (attested partition, cluster id, namespace, owner kind, owner name), else
-  Kubernetes pod (attested partition, cluster id, namespace, pod name), else host, else
-  non-syscall Falco source. The finding uid hashes the attested partition, the entity kind, the
+  Kubernetes pod (attested partition, cluster id, namespace, pod name), else host (attested
+  partition, normalized hostname), else non-syscall Falco source (attested partition, rule
+  source, normalized hostname). The finding uid hashes the attested partition, the entity kind, the
   entity key, and the rule. It never includes `container_id`, so a pod restart or rollout does
   not create a new finding.
 - **Inventory binding with explicit failure states.** Each finding records a device binding
