@@ -1077,11 +1077,13 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
 
     Application.put_env(:serviceradar_core, :analytics_signals_replay_result, :ok)
 
+    # The pending forecast arrived first, so it keeps its FIFO place ahead of
+    # the batch's own forecasts, which follow in event-time order.
     assert {:ok, 2} = AnalyticsSignals.process_batch([later, earlier])
-    assert_receive {:alert_evaluation_events, [admitted_earlier]}
-    assert admitted_earlier.message == "forecast-t1"
     assert_receive {:alert_evaluation_events, [admitted_middle]}
     assert admitted_middle.message == "forecast-t2"
+    assert_receive {:alert_evaluation_events, [admitted_earlier]}
+    assert admitted_earlier.message == "forecast-t1"
     assert_receive {:alert_evaluation_events, [admitted_later]}
     assert admitted_later.message == "forecast-t3"
     refute_receive {:alert_evaluation_events, _events}, 50

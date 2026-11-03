@@ -244,8 +244,8 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     end
   end
 
-  # Ack a message only when every pending occurrence of every series it owns
-  # is admitted. A series is admitted in `seq` order from its stored snapshots,
+  # Ack a message only when every pending occurrence it delivered is admitted.
+  # A series is admitted in `seq` order from its stored snapshots,
   # one occurrence per admission transaction that also deletes its pending row,
   # and stops at its first refusal. Message order sequences different series;
   # the first refusal blocks everything after it so a redelivery continues the
@@ -265,9 +265,15 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
         owners |> Enum.map(&Map.fetch!(message_index, &1)) |> Enum.min()
       end)
       |> Enum.reduce({[], nil}, fn {owners, occurrences}, {failures, halted} ->
-        case halted || admit_occurrences(occurrences) do
-          :ok -> {failures, nil}
-          reason -> {Enum.map(owners, &{&1, reason}) ++ failures, reason}
+        result = if halted, do: {halted, occurrences}, else: admit_occurrences(occurrences)
+
+        case result do
+          :ok ->
+            {failures, nil}
+
+          {reason, unadmitted} ->
+            owners = unadmitted_owners(unadmitted, owners, messages_by_event_id)
+            {Enum.map(owners, &{&1, reason}) ++ failures, reason}
         end
       end)
 
@@ -287,12 +293,22 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     end
   end
 
+  # A message whose own occurrences were all admitted is acked even when a later
+  # occurrence of its series is refused; the messages of the unadmitted tail
+  # fail so their redelivery continues it.
+  defp unadmitted_owners(unadmitted, owners, by_id) do
+    case unadmitted |> Enum.flat_map(&Map.get(by_id, &1.event_id, [])) |> Enum.uniq() do
+      [] -> owners
+      tail_owners -> tail_owners
+    end
+  end
+
   defp admit_occurrences([]), do: :ok
 
-  defp admit_occurrences([occurrence | rest]) do
+  defp admit_occurrences([occurrence | rest] = occurrences) do
     case admit_occurrence(occurrence) do
       :ok -> admit_occurrences(rest)
-      {:error, reason} -> reason
+      {:error, reason} -> {reason, occurrences}
     end
   end
 
@@ -555,8 +571,10 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
     {persisted_causal, causal_rows} = record_causal_prediction_ocsf_events(causal_rows)
 
-    {persisted_insert_only ++ persisted_inventory_vulnerability ++ persisted_causal,
-     insert_only_rows ++ inventory_vulnerability_rows ++ causal_rows}
+    persisted = persisted_insert_only ++ persisted_inventory_vulnerability ++ persisted_causal
+    insert_pending_admissions(persisted, valid_rows)
+
+    {persisted, insert_only_rows ++ inventory_vulnerability_rows ++ causal_rows}
   end
 
   defp record_insert_only_ocsf_events([]), do: {[], []}
@@ -584,8 +602,6 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
       rows
       |> Enum.filter(&MapSet.member?(inserted_keys, ocsf_event_conflict_key(&1)))
       |> dedupe_rows_by_conflict_key(&ocsf_event_conflict_key/1)
-
-    insert_pending_admissions(persisted)
 
     {persisted, persisted}
   end
@@ -653,8 +669,6 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
     transitions =
       Enum.filter(persisted, &MapSet.member?(transition_keys, ocsf_event_conflict_key(&1)))
-
-    insert_pending_admissions(persisted)
 
     {persisted, transitions}
   end
@@ -873,8 +887,6 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
     transitions =
       Enum.reject(persisted, &MapSet.member?(existing_id_keys, ocsf_event_id_key(&1)))
-
-    insert_pending_admissions(persisted)
 
     {persisted, transitions}
   end
@@ -1336,10 +1348,22 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     BulkInsert.insert_all(table_name(), Enum.map(rows, &Map.drop(&1, @admission_keys)), opts)
   end
 
-  # Each occurrence gets its own row in input order, so `seq` is the series'
-  # FIFO. A redelivery conflicts on the occurrence id and changes nothing.
-  defp insert_pending_admissions(rows) do
-    entries = Enum.flat_map(rows, &pending_entry/1)
+  # Each occurrence gets its own row in event-time order, same-time rows in
+  # batch order, so `seq` is the series' FIFO. A redelivery conflicts on the
+  # occurrence id and changes nothing.
+  defp insert_pending_admissions(rows, batch_rows) do
+    position =
+      batch_rows
+      |> Enum.with_index()
+      |> Enum.reverse()
+      |> Map.new(fn {row, index} -> {ocsf_event_id_key(row), index} end)
+
+    entries =
+      rows
+      |> Enum.sort_by(
+        &{time_conflict_value(Map.get(&1, :time)), Map.get(position, ocsf_event_id_key(&1))}
+      )
+      |> Enum.flat_map(&pending_entry/1)
 
     if entries != [] do
       ServiceRadar.Repo.query!(
