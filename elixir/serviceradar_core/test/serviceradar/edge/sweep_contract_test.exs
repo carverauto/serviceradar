@@ -72,7 +72,7 @@ defmodule ServiceRadar.Edge.SweepContractTest do
 
   describe "serviceradar.mtr.scheduled_trace contract and projector" do
     test "is registered in ContractCatalog as a standing-grant contract" do
-      assert {:ok, spec} = ContractCatalog.lookup("serviceradar.mtr.scheduled_trace", 1)
+      assert {:ok, spec} = ContractCatalog.fetch({"serviceradar.mtr.scheduled_trace", 1})
       assert spec.authority == :standing_grant
       assert spec.projector == ScheduledMtrTrace
       assert spec.max_projected_rows == 1_000
