@@ -145,13 +145,15 @@ defmodule ServiceRadar.Edge.Projectors.UnleasedSweepResults do
       is_final: batch.is_final
     }
 
-    if terminal_marker?(batch), do: status, else: Map.put(status, :chunk_index, batch.chunk_index)
+    if batch.is_cancel_marker do
+      Map.merge(status, %{
+        cancel_marker: true,
+        marker_chunk_indexes: batch.emitted_chunk_indexes
+      })
+    else
+      Map.put(status, :chunk_index, batch.chunk_index)
+    end
   end
-
-  defp terminal_marker?(%UnleasedSweepResultsBatchV1{is_cancelled: true, hosts: hosts})
-       when hosts in [nil, []], do: true
-
-  defp terminal_marker?(_batch), do: false
 
   defp sweep_gateway(_repo, _agent_id, header) when is_binary(header) and header != "",
     do: {:ok, header}

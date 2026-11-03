@@ -324,7 +324,9 @@ defmodule ServiceRadar.Ingestion.ResultIngestor do
             chunk_index: status[:chunk_index],
             total_chunks: status[:total_chunks],
             is_final: status[:is_final],
-            is_cancelled: is_cancelled
+            is_cancelled: is_cancelled,
+            cancel_marker: status[:cancel_marker],
+            marker_chunk_indexes: status[:marker_chunk_indexes]
           ],
           fn {_key, value} -> is_nil(value) or value == "" end
         )

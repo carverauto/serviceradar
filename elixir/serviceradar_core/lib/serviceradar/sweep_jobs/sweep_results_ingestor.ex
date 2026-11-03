@@ -65,10 +65,6 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
   # Process in chunks to balance memory vs DB efficiency
   @batch_size 500
-  # Close bookkeeping kept across chunks. received_chunk_indexes stays data
-  # indexes only; this map is the cancelled flag, whether a final data chunk
-  # or the terminal marker has been seen, and the first known chunk count.
-  @execution_close_key "_execution_close"
   @active_ip_unique_constraint "ocsf_devices_unique_active_ip_idx"
   @banner_grab_audit_failed_event [:serviceradar, :sweep, :banner_grab, :audit_failed]
   @merged_restore_skipped_event [:serviceradar, :sweep, :restore, :merged_skipped]
@@ -137,6 +133,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     total_chunks = Keyword.get(opts, :total_chunks)
     is_final = Keyword.get(opts, :is_final, true)
     is_cancelled = Keyword.get(opts, :is_cancelled, false)
+    cancel_marker = Keyword.get(opts, :cancel_marker, false)
+    marker_chunk_indexes = Keyword.get(opts, :marker_chunk_indexes)
     mapper_promotion_opts = Keyword.get(opts, :mapper_promotion_opts, [])
 
     reporter_context =
@@ -192,7 +190,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           total_chunks: total_chunks,
           is_final: is_final,
           is_cancelled: is_cancelled,
-          terminal_marker: results == [] and is_cancelled,
+          cancel_marker: cancel_marker,
+          marker_chunk_indexes: marker_chunk_indexes,
           reporter_context: reporter_context
         )
     end
@@ -2543,18 +2542,20 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       total_chunks: Keyword.get(opts, :total_chunks),
       is_final: is_final,
       is_cancelled: is_cancelled,
-      terminal_marker: Keyword.get(opts, :terminal_marker, false)
+      cancel_marker: Keyword.get(opts, :cancel_marker, false),
+      marker_chunk_indexes: Keyword.get(opts, :marker_chunk_indexes)
     }
 
     # A closed execution (failed, reaped, or superseded) keeps its final state.
     # A chunk the agent sent before it stopped has already recorded its host
     # observations, but must not bump the run's progress or complete it.
-    # The terminal marker carries no data chunk. It latches cancellation and,
-    # once the data-chunk count is met, moves a completed execution to
-    # cancelled without counting hosts again. A running execution closes only
-    # when that count is met and a final data chunk or the marker has been
-    # seen. Returning nil skips the progress broadcast, which would put a
-    # closed run back on the running-scans panel.
+    # The cancel marker carries no data chunk. It latches cancellation and
+    # names the exact data chunks the agent appended. A cancelled record moves
+    # a completed execution to cancelled without counting hosts again. A
+    # running execution closes only when every expected data chunk is in and a
+    # final data chunk or the marker has been seen. Returning nil skips the
+    # progress broadcast, which would put a closed run back on the
+    # running-scans panel.
     case update_running_execution_row(execution_id, inc_fields, set_fields, decision) do
       {0, _terminal} ->
         Logger.info(
@@ -2839,34 +2840,34 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     {count, _} =
       Repo.update_all(
         from(e in SweepGroupExecution, where: e.id == ^execution_id and e.status == :completed),
-        set: [status: :cancelled, updated_at: Keyword.fetch!(set_fields, :updated_at)]
+        set: [
+          status: :cancelled,
+          close_cancelled: true,
+          updated_at: Keyword.fetch!(set_fields, :updated_at)
+        ]
       )
 
-    {count, :cancelled}
+    {count, :reclassified}
   end
 
   defp write_running_execution(execution, inc_fields, set_fields, decision) do
-    previous = close_state(execution.scanner_metrics)
-    indexes = remember_data_chunk(execution.received_chunk_indexes, decision)
-    cancelled = decision.is_cancelled or previous["cancelled"] == true
+    received = remember_data_chunk(execution.received_chunk_indexes, decision)
+    cancelled = decision.is_cancelled or execution.close_cancelled
 
     terminal_seen =
-      previous["terminal_seen"] == true or decision.terminal_marker or decision.is_final
+      execution.close_terminal_seen or decision.cancel_marker or decision.is_final
 
-    total = known_total(previous["total_chunks"], decision.total_chunks, indexes)
-
-    state =
-      %{"cancelled" => cancelled, "terminal_seen" => terminal_seen}
-      |> maybe_put_total(total)
-
-    terminal = execution_terminal(length(indexes), total, terminal_seen, cancelled)
+    {chunk_count, expected_indexes} = expected_chunks(execution, decision)
+    expected = expected_set(chunk_count, expected_indexes)
+    terminal = execution_terminal(received, expected, terminal_seen, cancelled)
 
     set_fields =
-      set_fields
-      |> Keyword.put(:received_chunk_indexes, indexes)
-      |> Keyword.put(
-        :scanner_metrics,
-        Map.put(scanner_metrics(set_fields, execution), @execution_close_key, state)
+      Keyword.merge(set_fields,
+        received_chunk_indexes: received,
+        expected_chunk_count: chunk_count,
+        expected_chunk_indexes: expected_indexes,
+        close_cancelled: cancelled,
+        close_terminal_seen: terminal_seen
       )
 
     set_fields =
@@ -2891,7 +2892,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     {count, terminal}
   end
 
-  defp remember_data_chunk(indexes, %{terminal_marker: true}), do: data_indexes(indexes)
+  defp remember_data_chunk(indexes, %{cancel_marker: true}), do: data_indexes(indexes)
 
   defp remember_data_chunk(indexes, %{chunk_index: chunk_index})
        when is_integer(chunk_index) and chunk_index >= 0 do
@@ -2908,54 +2909,39 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     |> Enum.sort()
   end
 
-  defp known_total(stored, incoming, indexes) do
-    cond do
-      is_integer(stored) and stored > 0 -> stored
-      is_integer(incoming) and incoming > 0 -> incoming
-      incoming == 0 and indexes == [] -> 0
-      is_integer(stored) -> stored
-      true -> nil
-    end
+  # A cancel marker's index set is exact and overrides the count the data
+  # chunks carry. Otherwise the first positive chunk count is kept.
+  defp expected_chunks(_execution, %{cancel_marker: true, marker_chunk_indexes: indexes}) do
+    indexes = data_indexes(indexes)
+    {length(indexes), indexes}
   end
 
-  defp maybe_put_total(state, total) when is_integer(total), do: Map.put(state, "total_chunks", total)
-  defp maybe_put_total(state, _total), do: state
+  defp expected_chunks(%{expected_chunk_indexes: indexes} = execution, _decision)
+       when is_list(indexes),
+       do: {execution.expected_chunk_count, indexes}
 
-  defp execution_terminal(received, total, terminal_seen, cancelled) do
+  defp expected_chunks(%{expected_chunk_count: count}, _decision)
+       when is_integer(count) and count > 0, do: {count, nil}
+
+  defp expected_chunks(_execution, %{total_chunks: total}) when is_integer(total) and total > 0,
+    do: {total, nil}
+
+  defp expected_chunks(execution, _decision), do: {execution.expected_chunk_count, nil}
+
+  defp expected_set(_count, indexes) when is_list(indexes), do: indexes
+
+  defp expected_set(count, nil) when is_integer(count) and count > 0,
+    do: Enum.to_list(0..(count - 1))
+
+  defp expected_set(_count, nil), do: nil
+
+  defp execution_terminal(received, expected, terminal_seen, cancelled) do
+    closes? = terminal_seen and (is_nil(expected) or received == expected)
+
     cond do
-      total == 0 and cancelled and received == 0 ->
-        :cancelled
-
-      is_integer(total) and total > 0 and received == total and terminal_seen ->
-        if cancelled, do: :cancelled, else: :completed
-
-      is_nil(total) and terminal_seen ->
-        if cancelled, do: :cancelled, else: :completed
-
-      true ->
-        :running
-    end
-  end
-
-  defp close_state(metrics) when is_map(metrics) do
-    case Map.get(metrics, @execution_close_key) do
-      state when is_map(state) -> state
-      _ -> %{}
-    end
-  end
-
-  defp close_state(_metrics), do: %{}
-
-  defp scanner_metrics(set_fields, execution) do
-    cond do
-      Keyword.has_key?(set_fields, :scanner_metrics) and is_map(set_fields[:scanner_metrics]) ->
-        set_fields[:scanner_metrics]
-
-      is_map(execution.scanner_metrics) ->
-        execution.scanner_metrics
-
-      true ->
-        %{}
+      not closes? -> :running
+      cancelled -> :cancelled
+      true -> :completed
     end
   end
 
@@ -3239,13 +3225,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     }
   end
 
-  defp broadcast_execution_progress(
-         execution_id,
-         execution,
-         stats,
-         chunk_index,
-         total_chunks
-       ) do
+  defp broadcast_execution_progress(execution_id, execution, stats, chunk_index, total_chunks) do
     if is_nil(execution) do
       :ok
     else

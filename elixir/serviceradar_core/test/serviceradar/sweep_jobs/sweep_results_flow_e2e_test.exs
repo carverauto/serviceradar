@@ -3144,7 +3144,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                  agent_id,
                  execution_id,
                  [unavailable_result(sibling_ip)],
-                 chunk_index: 2,
+                 chunk_index: 0,
                  total_chunks: 2,
                  is_final: false
                )
@@ -3164,15 +3164,14 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
              |> Enum.sort() == Enum.sort([{final_ip, :available}, {sibling_ip, :unavailable}])
     end
 
-    test "a marker that names a data index stays open until both host chunks arrive", %{
+    test "a cancelled data chunk with no hosts is counted as a data chunk", %{
       actor: actor,
       agent_id: agent_id
     } do
       unique_id = Ash.UUID.generate()
-      group = reporter_group!(actor, unique_id, "empty-cancel-first", [])
+      group = reporter_group!(actor, unique_id, "empty-cancelled-chunk", [])
       execution_id = Ash.UUID.generate()
-      first_ip = unique_ip("empty-cancel-a-#{unique_id}")
-      second_ip = unique_ip("empty-cancel-b-#{unique_id}")
+      first_ip = unique_ip("empty-cancelled-chunk-#{unique_id}")
       :ok = SweepPubSub.subscribe()
 
       assert {:ok, _stats} =
@@ -3196,9 +3195,47 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                  is_final: false
                )
 
+      cancelled = execution_snapshot(execution_id)
+      assert cancelled.status == :cancelled
+      assert %DateTime{} = cancelled.completed_at
+      assert cancelled.hosts_available == 1
+      assert cancelled.hosts_failed == 0
+
+      assert_receive {:sweep_execution_completed,
+                      %{execution_id: ^execution_id, status: :cancelled}}
+
+      assert [%{ip: ^first_ip, status: :available}] = host_result_snapshots(actor, execution_id)
+    end
+
+    test "a marker that omits a dropped chunk closes once the chunks it names arrive", %{
+      actor: actor,
+      agent_id: agent_id
+    } do
+      unique_id = Ash.UUID.generate()
+      group = reporter_group!(actor, unique_id, "marker-dropped-chunk", [])
+      execution_id = Ash.UUID.generate()
+      first_ip = unique_ip("marker-dropped-a-#{unique_id}")
+      last_ip = unique_ip("marker-dropped-c-#{unique_id}")
+      :ok = SweepPubSub.subscribe()
+
+      assert {:ok, _stats} =
+               ingest_chunk(actor, group.id, agent_id, execution_id, [available_result(first_ip)],
+                 chunk_index: 0,
+                 total_chunks: 3,
+                 is_final: false
+               )
+
+      assert {:ok, _stats} =
+               ingest_chunk(actor, group.id, agent_id, execution_id, [],
+                 total_chunks: 2,
+                 is_final: true,
+                 is_cancelled: true,
+                 cancel_marker: true,
+                 marker_chunk_indexes: [0, 2]
+               )
+
       running = execution_snapshot(execution_id)
       assert running.status == :running
-      assert running.hosts_available == 1
       refute_received {:sweep_execution_completed, %{execution_id: ^execution_id}}
 
       assert {:ok, _stats} =
@@ -3207,10 +3244,10 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                  group.id,
                  agent_id,
                  execution_id,
-                 [unavailable_result(second_ip)],
-                 chunk_index: 1,
-                 total_chunks: 2,
-                 is_final: false
+                 [unavailable_result(last_ip)],
+                 chunk_index: 2,
+                 total_chunks: 3,
+                 is_final: true
                )
 
       cancelled = execution_snapshot(execution_id)
@@ -3221,12 +3258,6 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
 
       assert_receive {:sweep_execution_completed,
                       %{execution_id: ^execution_id, status: :cancelled}}
-
-      assert actor
-             |> host_result_snapshots(execution_id)
-             |> Enum.map(&{&1.ip, &1.status})
-             |> Enum.sort() ==
-               Enum.sort([{first_ip, :available}, {second_ip, :unavailable}])
     end
 
     test "a marker for a one-chunk sweep waits for that host chunk", %{
@@ -3243,7 +3274,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                ingest_chunk(actor, group.id, agent_id, execution_id, [],
                  total_chunks: 1,
                  is_final: true,
-                 is_cancelled: true
+                 is_cancelled: true,
+                 cancel_marker: true,
+                 marker_chunk_indexes: [0]
                )
 
       assert execution_snapshot(execution_id).status == :running
@@ -3259,6 +3292,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
       cancelled = execution_snapshot(execution_id)
       assert cancelled.status == :cancelled
       assert cancelled.hosts_available == 1
+
       assert_receive {:sweep_execution_completed,
                       %{execution_id: ^execution_id, status: :cancelled}}
 
@@ -3278,7 +3312,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                ingest_chunk(actor, group.id, agent_id, execution_id, [],
                  total_chunks: 0,
                  is_final: true,
-                 is_cancelled: true
+                 is_cancelled: true,
+                 cancel_marker: true,
+                 marker_chunk_indexes: []
                )
 
       cancelled = execution_snapshot(execution_id)
@@ -3286,6 +3322,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
       assert %DateTime{} = cancelled.completed_at
       assert cancelled.hosts_available == 0
       assert cancelled.hosts_failed == 0
+
       assert_receive {:sweep_execution_completed,
                       %{execution_id: ^execution_id, status: :cancelled}}
 
@@ -3332,7 +3369,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                  agent_id,
                  execution_id,
                  [unavailable_result(sibling_ip)],
-                 chunk_index: 2,
+                 chunk_index: 0,
                  total_chunks: 2,
                  is_final: false
                )
@@ -3374,7 +3411,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                ingest_chunk(actor, group.id, agent_id, execution_id, [],
                  total_chunks: 2,
                  is_final: true,
-                 is_cancelled: true
+                 is_cancelled: true,
+                 cancel_marker: true,
+                 marker_chunk_indexes: [0, 1]
                )
 
       running = execution_snapshot(execution_id)
@@ -3398,6 +3437,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
       assert cancelled.status == :cancelled
       assert cancelled.hosts_available == 1
       assert cancelled.hosts_failed == 1
+
       assert_receive {:sweep_execution_completed,
                       %{execution_id: ^execution_id, status: :cancelled}}
 
@@ -3428,6 +3468,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
       completed = execution_snapshot(execution_id)
       assert completed.status == :completed
       assert completed.hosts_available == 1
+
       assert_receive {:sweep_execution_completed,
                       %{execution_id: ^execution_id, status: :completed}}
     end
@@ -3443,7 +3484,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
 
       assert {:ok, _stats} =
                ingest_chunk(actor, group.id, agent_id, execution_id, [available_result(first_ip)],
-                 chunk_index: 1,
+                 chunk_index: 0,
                  total_chunks: 2,
                  is_final: false
                )
@@ -3455,7 +3496,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                  agent_id,
                  execution_id,
                  [available_result(second_ip)],
-                 chunk_index: 2,
+                 chunk_index: 1,
                  total_chunks: 2,
                  is_final: true
                )
@@ -3463,6 +3504,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
       completed = execution_snapshot(execution_id)
       assert completed.status == :completed
       assert completed.hosts_available == 2
+
       assert_receive {:sweep_execution_completed,
                       %{execution_id: ^execution_id, status: :completed}}
 
@@ -3470,7 +3512,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                ingest_chunk(actor, group.id, agent_id, execution_id, [],
                  total_chunks: 2,
                  is_final: true,
-                 is_cancelled: true
+                 is_cancelled: true,
+                 cancel_marker: true,
+                 marker_chunk_indexes: [0, 1]
                )
 
       cancelled = execution_snapshot(execution_id)
@@ -3581,13 +3625,16 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                ingest_chunk(actor, group.id, agent_id, execution_id, [],
                  total_chunks: 2,
                  is_final: true,
-                 is_cancelled: true
+                 is_cancelled: true,
+                 cancel_marker: true,
+                 marker_chunk_indexes: [0, 1]
                )
 
       cancelled = execution_snapshot(execution_id)
       assert cancelled.status == :cancelled
       assert cancelled.hosts_available == 1
       assert cancelled.hosts_failed == 1
+
       assert_receive {:sweep_execution_completed,
                       %{execution_id: ^execution_id, status: :cancelled}}
     end
@@ -3612,6 +3659,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
       completed = execution_snapshot(execution_id)
       assert completed.status == :completed
       assert completed.hosts_available == 1
+
       assert_receive {:sweep_execution_completed,
                       %{execution_id: ^execution_id, status: :completed}}
 
@@ -3619,13 +3667,16 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                ingest_chunk(actor, group.id, agent_id, execution_id, [],
                  total_chunks: 1,
                  is_final: true,
-                 is_cancelled: true
+                 is_cancelled: true,
+                 cancel_marker: true,
+                 marker_chunk_indexes: [0]
                )
 
       cancelled = execution_snapshot(execution_id)
       assert cancelled.status == :cancelled
       assert cancelled.hosts_available == 1
       assert cancelled.completed_at == completed.completed_at
+
       assert_receive {:sweep_execution_completed,
                       %{execution_id: ^execution_id, status: :cancelled}}
 
