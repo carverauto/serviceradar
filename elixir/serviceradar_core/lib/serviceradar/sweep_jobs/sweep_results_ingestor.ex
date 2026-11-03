@@ -2796,11 +2796,11 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     end
   end
 
-  # A cancel wins over a completion committed while this chunk was processed:
-  # the row is locked, and a cancel is allowed to move :completed as well as
-  # :running. :failed and :superseded (stored as :failed) stay closed.
+  # A final cancel record may move an execution that already completed.
+  # A non-final cancelled chunk updates only a running row. :failed stays closed.
   defp update_running_execution_row(execution_id, inc_fields, set_fields, decision) do
-    statuses = if decision.is_cancelled, do: [:running, :completed], else: [:running]
+    statuses =
+      if decision.is_cancelled and decision.is_final, do: [:running, :completed], else: [:running]
 
     {:ok, written} =
       Repo.transaction(fn ->
@@ -2882,16 +2882,20 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
   defp remember_chunk(indexes, _chunk_index, _total_chunks), do: List.wrap(indexes)
 
-  defp execution_terminal(_indexes, _total_chunks, _is_final, true), do: :cancelled
+  defp execution_terminal(_indexes, _total_chunks, true, true), do: :cancelled
 
-  defp execution_terminal(indexes, total_chunks, _is_final, false)
+  defp execution_terminal(indexes, total_chunks, _is_final, is_cancelled)
        when is_integer(total_chunks) and total_chunks > 1 do
-    if length(indexes) >= total_chunks, do: :completed, else: :running
+    cond do
+      length(indexes) < total_chunks -> :running
+      is_cancelled -> :cancelled
+      true -> :completed
+    end
   end
 
   defp execution_terminal(_indexes, _total_chunks, true, false), do: :completed
 
-  defp execution_terminal(_indexes, _total_chunks, false, false), do: :running
+  defp execution_terminal(_indexes, _total_chunks, false, _is_cancelled), do: :running
 
   defp execution_duration(%DateTime{} = started_at, %DateTime{} = completed_at) do
     DateTime.diff(completed_at, started_at, :millisecond)

@@ -3296,6 +3296,59 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
              |> Enum.map(& &1.ip)
              |> Enum.sort() == Enum.sort([first_ip, second_ip])
     end
+
+    test "a non-final cancelled chunk stays running until the final chunk", %{
+      actor: actor,
+      agent_id: agent_id
+    } do
+      unique_id = Ash.UUID.generate()
+      group = reporter_group!(actor, unique_id, "cancelled-chunks", [])
+      execution_id = Ash.UUID.generate()
+      first_ip = unique_ip("cancelled-chunk-a-#{unique_id}")
+      final_ip = unique_ip("cancelled-chunk-b-#{unique_id}")
+      :ok = SweepPubSub.subscribe()
+
+      assert {:ok, _stats} =
+               ingest_chunk(actor, group.id, agent_id, execution_id, [available_result(first_ip)],
+                 chunk_index: 0,
+                 total_chunks: 2,
+                 is_final: false,
+                 is_cancelled: true
+               )
+
+      running = execution_snapshot(execution_id)
+      assert running.status == :running
+      assert running.completed_at == nil
+      assert running.hosts_available == 1
+      refute_received {:sweep_execution_completed, %{execution_id: ^execution_id}}
+
+      assert {:ok, _stats} =
+               ingest_chunk(
+                 actor,
+                 group.id,
+                 agent_id,
+                 execution_id,
+                 [unavailable_result(final_ip)],
+                 chunk_index: 1,
+                 total_chunks: 2,
+                 is_final: true,
+                 is_cancelled: true
+               )
+
+      cancelled = execution_snapshot(execution_id)
+      assert cancelled.status == :cancelled
+      assert %DateTime{} = cancelled.completed_at
+      assert cancelled.hosts_available == 1
+      assert cancelled.hosts_failed == 1
+
+      assert_receive {:sweep_execution_completed,
+                      %{execution_id: ^execution_id, status: :cancelled}}
+
+      assert actor
+             |> host_result_snapshots(execution_id)
+             |> Enum.map(&{&1.ip, &1.status})
+             |> Enum.sort() == Enum.sort([{first_ip, :available}, {final_ip, :unavailable}])
+    end
   end
 
   describe "device discovery scope" do
