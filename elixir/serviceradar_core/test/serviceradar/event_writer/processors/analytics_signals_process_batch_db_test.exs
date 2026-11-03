@@ -692,7 +692,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
 
     Application.put_env(:serviceradar_core, :analytics_signals_replay_result, :ok)
 
-    assert {:error, {:overloaded, :series_pending}} = AnalyticsSignals.process_batch([later])
+    assert {:ok, 1} = AnalyticsSignals.process_batch([later])
     assert_receive {:alert_evaluation_events, [admitted_earlier]}
     assert admitted_earlier.message == "forecast-earlier"
     assert_receive {:alert_evaluation_events, [admitted_later]}
@@ -876,7 +876,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
 
     Application.put_env(:serviceradar_core, :analytics_signals_replay_result, :ok)
 
-    assert {:error, {:overloaded, :series_pending}} = AnalyticsSignals.process_batch([newer])
+    assert {:ok, 1} = AnalyticsSignals.process_batch([newer])
     assert_receive {:alert_evaluation_events, [admitted_older]}
     assert admitted_older.message == "forecast-older"
     assert_receive {:alert_evaluation_events, [admitted_newer]}
@@ -929,7 +929,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     assert pending_admission_messages(series_key) == ["forecast-later"]
   end
 
-  test "a newer inventory close waits while the open admission is pending" do
+  test "a newer inventory close is stored while the open admission is pending and survives exhausted deliveries" do
     Application.put_env(
       :serviceradar_core,
       :stateful_alert_engine,
@@ -964,39 +964,44 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     assert_receive {:northbound_event, _}
     assert stored_finding(row) == {"open", 1, "Create", "false"}
 
+    # Every one of the close's five JetStream deliveries is refused admission,
+    # so the source message is never acked and is dropped at max_deliver.
     assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([resolved])
-    assert_receive {:alert_evaluation_events, [still_open]}
-    assert still_open.status == "open"
-    assert still_open.activity_name == "Create"
+    assert_receive {:alert_evaluation_events, [pending_close]}
+    assert pending_close.status == "resolved"
+    assert pending_close.activity_name == "Close"
+    assert_receive {:northbound_event, northbound_close}
+    assert northbound_close.status == "resolved"
+
+    for _redelivery <- 2..5 do
+      assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([resolved])
+      assert_receive {:alert_evaluation_events, [retried_close]}
+      assert retried_close.status == "resolved"
+      assert retried_close.activity_name == "Close"
+    end
+
     refute_receive {:alert_evaluation_events, _events}, 50
     refute_receive {:northbound_event, _event}, 50
-    assert stored_finding(row) == {"open", 1, "Create", "false"}
+    assert stored_finding(row) == {"resolved", 3, "Close", "false"}
+    refute Map.has_key?(stored_metadata(row), "alert_evaluation_admitted")
+    refute Map.has_key?(stored_metadata(row), "alert_evaluation_occurrence_id")
 
     Application.put_env(:serviceradar_core, :analytics_signals_replay_result, :ok)
-
-    assert {:error, {:overloaded, :series_pending}} =
-             AnalyticsSignals.process_batch([resolved])
-
-    assert_receive {:alert_evaluation_events, [admitted_open]}
-    assert admitted_open.status == "open"
-    assert admitted_open.activity_name == "Create"
-    refute_receive {:northbound_event, _event}, 50
-    assert stored_finding(row) == {"open", 1, "Create", "true"}
 
     assert {:ok, 1} = AnalyticsSignals.process_batch([resolved])
     assert_receive {:alert_evaluation_events, [admitted_close]}
     assert admitted_close.status == "resolved"
     assert admitted_close.activity_name == "Close"
-    assert_receive {:northbound_event, northbound_close}
-    assert northbound_close.status == "resolved"
+    refute_receive {:northbound_event, _event}, 50
     assert stored_finding(row) == {"resolved", 3, "Close", "true"}
 
     assert {:ok, 1} = AnalyticsSignals.process_batch([opened])
     assert {:ok, 1} = AnalyticsSignals.process_batch([resolved])
     refute_receive {:alert_evaluation_events, _events}, 50
+    assert stored_finding(row) == {"resolved", 3, "Close", "true"}
   end
 
-  test "a versioned inventory redelivery continues a pending admission" do
+  test "a versioned inventory update during a pending admission is stored and admitted once" do
     Application.put_env(
       :serviceradar_core,
       :stateful_alert_engine,
@@ -1040,24 +1045,22 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
 
     Application.put_env(:serviceradar_core, :analytics_signals_replay_result, :ok)
 
-    assert {:error, {:overloaded, :series_pending}} =
-             AnalyticsSignals.process_batch([updated])
-
-    assert_receive {:alert_evaluation_events, [admitted_open]}
-    assert admitted_open.activity_name == "Create"
+    assert {:ok, 1} = AnalyticsSignals.process_batch([updated])
+    assert_receive {:alert_evaluation_events, [admitted_update]}
+    assert admitted_update.status == "open"
+    assert admitted_update.activity_name == "Update"
     refute_receive {:alert_evaluation_events, _events}, 50
     refute_receive {:northbound_event, _event}, 50
-    assert stored_finding(row) == {"open", 1, "Create", "true"}
-    assert stored_finding_version(row) == DateTime.to_iso8601(version)
+    assert stored_finding(row) == {"open", 2, "Update", "true"}
+    assert stored_finding_version(row) == DateTime.to_iso8601(later)
 
     assert {:ok, 1} = AnalyticsSignals.process_batch([opened])
     refute_receive {:alert_evaluation_events, _events}, 50
-    assert stored_finding_version(row) == DateTime.to_iso8601(version)
+    assert stored_finding_version(row) == DateTime.to_iso8601(later)
 
     assert {:ok, 1} = AnalyticsSignals.process_batch([updated])
     refute_receive {:alert_evaluation_events, _events}, 50
     assert stored_finding(row) == {"open", 2, "Update", "true"}
-    assert stored_finding_version(row) == DateTime.to_iso8601(later)
   end
 
   # Activates the real engine with room for one pending occurrence and takes it,
@@ -1770,12 +1773,15 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
   defp stored_anomaly(series_key) do
     case Repo.query!(
            """
-           SELECT message,
-                  unmapped->>'event_id',
-                  unmapped->'anomaly'->>'score',
-                  metadata->>'alert_evaluation_admitted'
-           FROM platform.ocsf_events
-           WHERE metadata->'service_radar'->>'series_key' = $1
+           SELECT events.message,
+                  events.unmapped->>'event_id',
+                  events.unmapped->'anomaly'->>'score',
+                  CASE WHEN EXISTS (
+                    SELECT 1 FROM platform.lifecycle_pending_admissions AS pending
+                    WHERE pending.event_id = events.id AND pending.event_time = events.time
+                  ) THEN 'false' ELSE 'true' END
+           FROM platform.ocsf_events AS events
+           WHERE events.metadata->'service_radar'->>'series_key' = $1
            ORDER BY time ASC
            """,
            [series_key]
@@ -1793,10 +1799,14 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     Enum.map(
       Repo.query!(
         """
-        SELECT message, metadata->>'alert_evaluation_admitted'
-        FROM platform.ocsf_events
-        WHERE metadata->'service_radar'->>'series_key' = $1
-        ORDER BY time ASC, created_at ASC, id ASC
+        SELECT events.message,
+               CASE WHEN EXISTS (
+                   SELECT 1 FROM platform.lifecycle_pending_admissions AS pending
+                   WHERE pending.event_id = events.id AND pending.event_time = events.time
+                 ) THEN 'false' ELSE 'true' END
+        FROM platform.ocsf_events AS events
+        WHERE events.metadata->'service_radar'->>'series_key' = $1
+        ORDER BY events.time ASC, events.created_at ASC, events.id ASC
         """,
         [series_key]
       ).rows,
@@ -1969,14 +1979,28 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     %{rows: [[status, activity_id, activity_name, admitted]]} =
       Repo.query!(
         """
-        SELECT status, activity_id, activity_name, metadata->>'alert_evaluation_admitted'
-        FROM platform.ocsf_events
-        WHERE id = ($1::text)::uuid AND time = $2
+        SELECT events.status, events.activity_id, events.activity_name,
+               CASE WHEN EXISTS (
+                    SELECT 1 FROM platform.lifecycle_pending_admissions AS pending
+                    WHERE pending.event_id = events.id AND pending.event_time = events.time
+                  ) THEN 'false' ELSE 'true' END
+        FROM platform.ocsf_events AS events
+        WHERE events.id = ($1::text)::uuid AND events.time = $2
         """,
         [uuid_string(row.id), row.time]
       )
 
     {status, activity_id, activity_name, admitted}
+  end
+
+  defp stored_metadata(row) do
+    %{rows: [[metadata]]} =
+      Repo.query!(
+        "SELECT metadata FROM platform.ocsf_events WHERE id = ($1::text)::uuid AND time = $2",
+        [uuid_string(row.id), row.time]
+      )
+
+    metadata || %{}
   end
 
   defp stored_finding_version(row) do
