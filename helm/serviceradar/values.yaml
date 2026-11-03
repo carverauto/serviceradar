@@ -1850,12 +1850,17 @@ agent:
 # telemetry as edge records once core grants it the serviceradar.telemetry.batch
 # contract (registered in contractRegistry and the agent's leasing switch on);
 # without a grant it keeps the status path.
+# agentPluginResultsEnabled lets the in-cluster agent emit Wasm plugin results
+# as edge records once core grants it the serviceradar.plugin_results.batch
+# contract (registered in contractRegistry and the agent's leasing switch on);
+# without a grant it keeps the status path.
 edgeRecords:
   enabled: false
   contractRegistry: {}
   agentSweepEnabled: false
   agentMetricsEnabled: false
   agentTelemetryEnabled: false
+  agentPluginResultsEnabled: false
   maxSpoolBytes: 1073741824
 
 agentGateway:

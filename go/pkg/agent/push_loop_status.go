@@ -329,11 +329,32 @@ func (p *PushLoop) pushPluginResults(ctx context.Context) bool {
 	gatewayID := gatewayIDFromClient(p.gateway)
 	runtimeMetadata := currentRuntimeMetadata()
 
+	// One path per cycle: with a plugin-results grant, drained results move
+	// into the edge queue and only the spool carries them; without one, items
+	// the spool admitted no part of ride the legacy path first, at most one
+	// stream's worth per cycle, before anything new is drained.
+	capability := p.edgePluginResultsCapability(time.Now())
 	results := p.pendingPluginResults
+	retained := len(results) > 0
+	if capability == nil && len(results) == 0 {
+		for _, item := range p.pluginResultsEdge.take(maxPluginResultsPerStream) {
+			results = append(results, item.results...)
+		}
+	}
 	if len(results) == 0 && pluginManager != nil {
 		results = pluginManager.DrainResults(maxPluginResultsPerStream)
-		p.pendingPluginResults = results
 	}
+	p.pendingPluginResults = results
+
+	if capability != nil {
+		if len(results) > 0 {
+			dropped := p.pluginResultsEdge.enqueue(groupPluginResults(results), retained)
+			p.dropEdgeTelemetry(edgeProducerPluginResults, edgeDropRetryBufferFull, dropped)
+			p.pendingPluginResults = nil
+		}
+		return p.spoolPluginResults(capability, agentID, partition)
+	}
+
 	if len(results) == 0 {
 		return false
 	}

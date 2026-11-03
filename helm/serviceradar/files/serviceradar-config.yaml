@@ -284,18 +284,19 @@ data:
   agent.json: |
       {
         {{- $edgeRecordVals := default dict .Values.edgeRecords }}
-        {{- if or $edgeRecordVals.agentSweepEnabled $edgeRecordVals.agentMetricsEnabled $edgeRecordVals.agentTelemetryEnabled }}
+        {{- if or $edgeRecordVals.agentSweepEnabled $edgeRecordVals.agentMetricsEnabled $edgeRecordVals.agentTelemetryEnabled $edgeRecordVals.agentPluginResultsEnabled }}
         {{- if not .Values.edgeRecords.enabled }}
-          {{- fail "edgeRecords.agentSweepEnabled, agentMetricsEnabled and agentTelemetryEnabled require edgeRecords.enabled" }}
+          {{- fail "edgeRecords.agentSweepEnabled, agentMetricsEnabled, agentTelemetryEnabled and agentPluginResultsEnabled require edgeRecords.enabled" }}
         {{- end }}
         {{- if not (default dict $agentVals.runtimeStorage).enabled }}
-          {{- fail "edgeRecords.agentSweepEnabled, agentMetricsEnabled and agentTelemetryEnabled require persistent agent.runtimeStorage" }}
+          {{- fail "edgeRecords.agentSweepEnabled, agentMetricsEnabled, agentTelemetryEnabled and agentPluginResultsEnabled require persistent agent.runtimeStorage" }}
         {{- end }}
         "edge_record_sender": {
           "enabled": true,
           "sweep_enabled": {{ $edgeRecordVals.agentSweepEnabled | default false }},
           "metrics_enabled": {{ $edgeRecordVals.agentMetricsEnabled | default false }},
           "telemetry_enabled": {{ $edgeRecordVals.agentTelemetryEnabled | default false }},
+          "plugin_results_enabled": {{ $edgeRecordVals.agentPluginResultsEnabled | default false }},
           "max_bytes": {{ .Values.edgeRecords.maxSpoolBytes | int64 }},
           "spool_dir": "{{ default "/var/lib/serviceradar/agent" (default dict $agentVals.runtimeStorage).basePath }}/edge-records"
         },

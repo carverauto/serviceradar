@@ -325,30 +325,12 @@ func telemetryEdgeRecord(
 	batch *addonpb.TelemetryBatch,
 	capability *edgev1.EdgeSignedCapabilityV1,
 ) (*edgev1.EdgeRecordV1, []byte, error) {
-	rows := len(batch.GetRecords())
-	if rows == 0 || uint64(rows) > telemetryMaxRows(capability) {
-		return nil, nil, errTelemetryRecordTooLarge
-	}
-	payload, err := proto.MarshalOptions{Deterministic: true}.Marshal(batch)
-	if err != nil {
-		return nil, nil, err
-	}
-	if len(payload) > edgeTelemetryMaxPayloadBytes {
-		return nil, nil, errTelemetryRecordTooLarge
-	}
-	record, err := newEdgeRecord(capability, nil, payload, uint32(rows),
-		uint64(rows)*edgerecord.TelemetryProjectedWriteBytesPerRecord)
-	if err != nil {
-		return nil, nil, err
-	}
-	if err := edgerecord.ValidateTelemetryBatchRecord(record); err != nil {
-		return nil, nil, err
-	}
-	body, err := edgerecord.CanonicalRecordBytes(record)
-	if err != nil {
-		return nil, nil, err
-	}
-	return record, body, nil
+	record, body, _, err := edgeBatchRecord(
+		batch, capability, len(batch.GetRecords()), telemetryMaxRows(capability),
+		edgerecord.TelemetryProjectedWriteBytesPerRecord, errTelemetryRecordTooLarge,
+		edgerecord.ValidateTelemetryBatchRecord,
+	)
+	return record, body, err
 }
 
 // stampTelemetryBatch clones a batch, overwrites the host producer identity

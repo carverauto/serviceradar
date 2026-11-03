@@ -82,6 +82,45 @@ func newEdgeRecord(
 	return record, nil
 }
 
+// edgeBatchRecord builds one standing-grant record for batch. rows is the
+// projected row count. maxRows is the grant's row ceiling already reduced by
+// the write-byte ceiling, at writeBytesPerRow each. An empty batch, a batch
+// past that ceiling, or a deterministic payload over the shared 512 KiB bound
+// returns tooLarge. validate is the contract's composed record check. payload
+// is the uncompressed encoding; body is the canonical record bytes.
+func edgeBatchRecord(
+	batch proto.Message,
+	capability *edgev1.EdgeSignedCapabilityV1,
+	rows int,
+	maxRows uint64,
+	writeBytesPerRow uint64,
+	tooLarge error,
+	validate func(*edgev1.EdgeRecordV1) error,
+) (record *edgev1.EdgeRecordV1, body, payload []byte, err error) {
+	if rows == 0 || uint64(rows) > maxRows {
+		return nil, nil, nil, tooLarge
+	}
+	payload, err = proto.MarshalOptions{Deterministic: true}.Marshal(batch)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if len(payload) > edgeMetricsMaxPayloadBytes {
+		return nil, nil, nil, tooLarge
+	}
+	record, err = newEdgeRecord(capability, nil, payload, uint32(rows), uint64(rows)*writeBytesPerRow)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if err = validate(record); err != nil {
+		return nil, nil, nil, err
+	}
+	body, err = edgerecord.CanonicalRecordBytes(record)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return record, body, payload, nil
+}
+
 // edgeAdmissionFlow is the spool admission flow record competes in, which the
 // spool's admission gate shares room across byte-fairly: its network scope,
 // attested origin, producer assignment, run and shard, output contract and
