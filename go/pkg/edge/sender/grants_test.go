@@ -117,11 +117,10 @@ func appendRecord(t *testing.T, sp *spool.Spool, expires time.Time) {
 	}
 }
 
-func grantSender(t *testing.T, sp *spool.Spool, srv *fakeIngestServer, renewer GrantRenewer, now time.Time) *Sender {
+func grantSender(t *testing.T, sp *spool.Spool, srv *fakeIngestServer, renewer GrantRenewer) *Sender {
 	t.Helper()
 	cfg := testConfig(t)
 	cfg.Grants = renewer
-	cfg.Now = func() time.Time { return now }
 	s, err := New(sp, dialFakeIngest(t, srv), cfg)
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -151,7 +150,7 @@ func TestRunOnceAttachesDeliveryGrantsOnlyToRecordsWhoseAuthorityLapsed(t *testi
 
 	srv := acceptingServer()
 	renewer := &fakeGrantRenewer{now: now}
-	s := grantSender(t, sp, srv, renewer, now)
+	s := grantSender(t, sp, srv, renewer)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -207,7 +206,7 @@ func TestRunOnceSendsWithoutAGrantItCouldNotObtain(t *testing.T) {
 			appendRecord(t, sp, now.Add(-2*time.Hour))
 
 			srv := acceptingServer()
-			s := grantSender(t, sp, srv, tc.renewer, now)
+			s := grantSender(t, sp, srv, tc.renewer)
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
@@ -238,7 +237,7 @@ func TestRenewalTimeoutDoesNotDelayRecordsUnderCurrentAuthority(t *testing.T) {
 
 	srv := acceptingServer()
 	renewer := &fakeGrantRenewer{now: now, blockUntilCancel: true}
-	s := grantSender(t, sp, srv, renewer, now)
+	s := grantSender(t, sp, srv, renewer)
 
 	parent, cancel := context.WithTimeout(context.Background(), renewalAttemptTimeout+5*time.Second)
 	defer cancel()
@@ -306,7 +305,6 @@ func TestRunOnceStopsGrantRenewalAfterTheFirstRPCError(t *testing.T) {
 
 	cfg := testConfig(t)
 	cfg.Grants = renewer
-	cfg.Now = func() time.Time { return now }
 	cfg.RequestedFrameCredits = maxGrantRecordsPerRequest + 1
 	cfg.RequestedByteCredits = 8 << 20
 	s, err := New(sp, dialFakeIngest(t, srv), cfg)

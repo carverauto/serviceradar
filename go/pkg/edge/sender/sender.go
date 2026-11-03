@@ -62,7 +62,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
@@ -131,9 +130,6 @@ type Config struct {
 	// Grants, when set, obtains delivery grants for records whose production
 	// authority has lapsed before each session sends them (see grants.go).
 	Grants GrantRenewer
-	// Now overrides the clock that decides whether a record's authority has
-	// lapsed; nil uses time.Now.
-	Now func() time.Time
 }
 
 func (c Config) validate() error {

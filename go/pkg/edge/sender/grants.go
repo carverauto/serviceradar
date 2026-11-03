@@ -85,7 +85,7 @@ func (s *Sender) renewGrants(ctx context.Context) error {
 	if s.cfg.Grants == nil {
 		return nil
 	}
-	now := s.now()
+	now := time.Now()
 	s.dropResolvedGrants()
 
 	var (
@@ -182,13 +182,6 @@ func (s *Sender) dropResolvedGrants() {
 			delete(s.grants, sequence)
 		}
 	}
-}
-
-func (s *Sender) now() time.Time {
-	if s.cfg.Now != nil {
-		return s.cfg.Now()
-	}
-	return time.Now()
 }
 
 // grantBatches splits records into requests within the gateway's bounds.
