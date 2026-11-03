@@ -274,7 +274,8 @@ defmodule ServiceRadar.Dgraph do
   interfaces and the peer interfaces current `CONNECTS_TO` evidence reaches.
   `{:ok, nil}` when no Device carries the id. Not retried.
   """
-  @spec query_device_neighborhood(String.t(), boolean()) :: {:ok, map() | nil} | {:error, String.t()}
+  @spec query_device_neighborhood(String.t(), boolean()) ::
+          {:ok, map() | nil} | {:error, String.t()}
   def query_device_neighborhood(device_id, include_topology)
       when is_binary(device_id) and is_boolean(include_topology) do
     with {:ok, url} <- url(),
@@ -304,7 +305,8 @@ defmodule ServiceRadar.Dgraph do
 
       true ->
         with {:ok, url} <- url(),
-             {:ok, json} <- call(:query_graph_dql, :item, false, &Native.query_graph_dql(url, dql, &1)) do
+             {:ok, json} <-
+               call(:query_graph_dql, :item, false, &Native.query_graph_dql(url, dql, &1)) do
           decode_json(json)
         end
     end

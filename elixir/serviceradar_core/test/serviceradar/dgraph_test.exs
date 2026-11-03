@@ -385,7 +385,9 @@ defmodule ServiceRadar.DgraphTest do
       assert neighborhood_reason =~ "connect"
 
       assert {:error, rows_reason} =
-               Dgraph.query_graph_rows(~s|{ q(func: eq(device.id, "sr:host01.example.com")) { device.id } }|)
+               Dgraph.query_graph_rows(
+                 ~s|{ q(func: eq(device.id, "sr:host01.example.com")) { device.id } }|
+               )
 
       assert rows_reason =~ "connect"
       refute_received {:telemetry, [:serviceradar, :dgraph, :call, :retry], _, _}
