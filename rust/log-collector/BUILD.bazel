@@ -30,3 +30,18 @@ rust_test(
         "otel",
     ],
 )
+
+rust_test(
+    name = "health_listener_test",
+    srcs = ["tests/health_listener.rs"],
+    data = [":log-collector"],
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+        normal_dev = True,
+    ) + [
+        "@crates//:rcgen",
+        "@crates//:runfiles",
+        "@crates//:tempfile",
+    ],
+)

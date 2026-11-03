@@ -1,6 +1,7 @@
 load("//build/packaging:package_rules.bzl", "serviceradar_package_from_config")
 load("//build/packaging:packages.bzl", "PACKAGES")
 load("@rules_python//python:py_test.bzl", "py_test")
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -14,6 +15,15 @@ exports_files([
 serviceradar_package_from_config(
     name = "log-collector",
     config = PACKAGES["log-collector"],
+)
+
+sh_binary(
+    name = "stage_log_collector_rpm",
+    srcs = ["//build/native_addons:stage_addon_bundle.sh"],
+    data = [":log-collector_rpm"],
+    env = {
+        "BUNDLE_RUNFILE": "$(rootpath :log-collector_rpm)",
+    },
 )
 
 py_test(

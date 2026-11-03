@@ -5,6 +5,13 @@ agent. Each host can own one instance of each fixed service: NATS leaf, log coll
 flow collector, BMP collector, and trapd. Syslog and OTEL share the log service;
 NetFlow and sFlow share the flow service. Distinct services have distinct identities.
 
+The combined log collector owns a single health listener at `health.listen_addr`.
+When syslog is enabled, it uses the mTLS settings from the Flowgger configuration's
+`grpc` section and reports both `log-collector` and `flowgger` health on that
+listener. Embedded Flowgger does not open another health socket. Invalid TLS
+configuration or an occupied health port fails collector startup. Standalone
+Flowgger continues to own its configured gRPC listener.
+
 Packaged Linux enrollment, `srctl enroll` as root, publishes that enrollment where
 the privileged helper can trust it. Enrollment makes `/etc/serviceradar` and
 `/etc/serviceradar/host-trust` root-owned directories that no other user can write,

@@ -4,7 +4,6 @@ mod config;
 mod decoder;
 #[cfg(not(test))]
 mod encoder;
-#[cfg(not(test))]
 mod grpc;
 #[cfg(not(test))]
 mod input;
@@ -418,12 +417,29 @@ pub fn validate_time_format_input(
 }
 
 pub fn start(config_file: &str) {
+    start_with_grpc(config_file, true);
+}
+
+/// Start the syslog pipeline when the embedding application owns its health listener.
+pub fn start_pipeline(config_file: &str) {
+    start_with_grpc(config_file, false);
+}
+
+/// Preserve the native health endpoint's TLS policy on an embedding application's listener.
+pub fn health_tls_config(
+    config_file: &str,
+) -> anyhow::Result<Option<tonic::transport::ServerTlsConfig>> {
+    grpc::tls_config(&Config::from_path(config_file)?)
+}
+
+fn start_with_grpc(config_file: &str, grpc_enabled: bool) {
     let config = match Config::from_path(config_file) {
         Ok(config) => config,
         Err(e) => panic!("Unable to read the config file [{}]: {}", config_file, e),
     };
-    #[cfg(not(test))]
-    grpc::maybe_spawn(&config);
+    if grpc_enabled {
+        grpc::maybe_spawn(&config);
+    }
     let input_format = config
         .lookup("input.format")
         .map_or(DEFAULT_INPUT_FORMAT, |x| {

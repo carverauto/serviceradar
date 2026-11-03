@@ -23,6 +23,11 @@ toml = { workspace = true }
 tonic = { workspace = true }
 tonic-health = { workspace = true }
 
+[dev-dependencies]
+rcgen = { workspace = true }
+runfiles = { workspace = true }
+tempfile = { workspace = true }
+
 [features]
 default = ["syslog", "otel"]
 syslog = ["flowgger/syslog", "flowgger/tls", "flowgger/gelf", "flowgger/nats-output"]
