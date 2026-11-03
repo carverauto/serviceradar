@@ -61,7 +61,6 @@ func (p *PushLoop) pushAddonTelemetry(ctx context.Context) bool {
 		}
 		items := make([]telemetryEdgeItem, 0, len(envelopes))
 		for _, envelope := range envelopes {
-			envelope := envelope
 			items = append(items, telemetryEdgeItem{
 				producerType: "addon",
 				producerID:   addonTelemetryProducerID(envelope.addonID),
@@ -99,7 +98,6 @@ func (p *PushLoop) pushAddonTelemetry(ctx context.Context) bool {
 	restoreUndelivered := func() {
 		items := make([]telemetryEdgeItem, 0, len(chunkedEnvelopes))
 		for _, envelope := range chunkedEnvelopes {
-			envelope := envelope
 			items = append(items, telemetryEdgeItem{
 				producerType: "addon",
 				producerID:   addonTelemetryProducerID(envelope.addonID),

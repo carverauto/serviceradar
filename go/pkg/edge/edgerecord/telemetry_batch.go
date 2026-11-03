@@ -94,7 +94,14 @@ func TelemetryPayloadKindRouted(kind addonpb.TelemetryPayloadKind) bool {
 		addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS,
 		addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_DISCOVERY_V1:
 		return true
+	case addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_UNSPECIFIED,
+		addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OTLP_TRACES,
+		addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OTLP_LOGS,
+		addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OTLP_METRICS,
+		addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OTLP_DERIVED_METRIC:
+		return false
 	default:
+		// Numeric values outside the enum are not routed payloads.
 		return false
 	}
 }
@@ -142,9 +149,7 @@ func ValidateTelemetryBatchRecord(r *edgev1.EdgeRecordV1) error {
 		contract.GetContractVersion() != TelemetryBatchContractVersion {
 		return fmt.Errorf("%w: %s v%d", ErrContractDispatch, contract.GetContractId(), contract.GetContractVersion())
 	}
-	if err := requireFramingFamily(r,
-		edgev1.EdgeRecordPayloadFamily_EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1,
-		ErrPayloadFraming); err != nil {
+	if err := requireFramingFamily(r); err != nil {
 		return err
 	}
 	if r.GetSourceAuthorization() != nil {

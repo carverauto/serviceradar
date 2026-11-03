@@ -54,7 +54,6 @@ func (p *PushLoop) pushPluginSignals(ctx context.Context) bool {
 	if capability := p.edgeTelemetryCapability(time.Now()); capability != nil {
 		items := make([]telemetryEdgeItem, 0, len(signals))
 		for _, signal := range signals {
-			signal := signal
 			items = append(items, telemetryEdgeItem{
 				producerType: "plugin",
 				producerID:   pluginTelemetryProducerID(signal),
@@ -86,7 +85,6 @@ func (p *PushLoop) pushPluginSignals(ctx context.Context) bool {
 	restoreUndelivered := func() {
 		items := make([]telemetryEdgeItem, 0, len(chunkedSignals))
 		for _, signal := range chunkedSignals {
-			signal := signal
 			items = append(items, telemetryEdgeItem{
 				producerType: "plugin",
 				producerID:   pluginTelemetryProducerID(signal),

@@ -42,17 +42,6 @@ import (
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 )
 
-// telemetryGrant is a standing telemetry batch grant for agentID. All
-// identity material is synthetic, like metricsGrant.
-func telemetryGrant(t *testing.T, agentID string) *proto.EdgeOutputGrant {
-	return telemetryGrantMaxRows(t, agentID, 10_000)
-}
-
-func telemetryGrantMaxRows(t *testing.T, agentID string, maxRows uint32) *proto.EdgeOutputGrant {
-	t.Helper()
-	return telemetryGrantLimits(t, agentID, maxRows, uint64(maxRows)*edgerecord.TelemetryProjectedWriteBytesPerRecord)
-}
-
 func telemetryGrantLimits(t *testing.T, agentID string, maxRows uint32, maxWriteBytes uint64) *proto.EdgeOutputGrant {
 	t.Helper()
 	_, key, err := ed25519.GenerateKey(nil)
