@@ -179,7 +179,7 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetterNatsTest do
     end)
   end
 
-  test "a duplicate of a removed dead-letter sequence leaves the source NAKed, never ACKed",
+  test "a redelivery of a dead-lettered record whose copy was removed is ACKed, not re-stored",
        ctx do
     ExposureBroker.with_broker(ctx.tmp_dir, fn conn, port ->
       config = config(port)
@@ -197,9 +197,9 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetterNatsTest do
           assert :ok = Pipeline.ack(:ack_ref, [], [removed_delivery(parent, request)])
         end)
 
-      assert_receive {:ack_action, {:nack, _delay}}, 5_000
-      refute_received {:ack_action, :ack}
-      assert log =~ "dead_letter_copy_missing"
+      assert_receive {:ack_action, :ack}, 5_000
+      refute_received {:ack_action, {:nack, _delay}}
+      assert log =~ "Edge record already dead-lettered"
       assert %{"state" => %{"messages" => 0}} = api(conn, "STREAM.INFO.#{@dlq_stream}", "")
     end)
   end

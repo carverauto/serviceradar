@@ -52,18 +52,19 @@ holds records that are valid but could not be projected.
 The copy's own `Nats-Msg-Id` is `edge-dlq:<source stream>:<source sequence>`.
 The stream's duplicate window is 24 hours, the source stream's `MaxAge`, so a
 delivery redelivered after a lost source ACK is stored once for as long as the
-source can still redeliver it. EventWriter treats a duplicate PubAck as that
-held copy only while the sequence is still in the stream. If the sequence was
-removed (an operator removed the copy while the source ACK was lost), the
-dead-letter counts as failed: it is logged, counted as `result="failed"`, and
-the source is NAKed and stays on the edge-record stream rather than being
-acknowledged without a copy.
+source can still redeliver it. JetStream reports a duplicate only for an id it
+already stored, so a duplicate PubAck means the delivery was dead-lettered
+before: its copy is still held, was restored to the source stream by a replay,
+or was removed by an operator. EventWriter acknowledges the source, logs
+`Edge record already dead-lettered` as a warning and counts
+`result="duplicate"`.
 
 ## Alerts and metrics
 
 - `serviceradar_event_writer_edge_record_dead_letter_count{contract, reason_class, result}`:
-  `result="stored"` counts records moved to the dead-letter, and
-  `result="failed"` counts copies that were not stored and left the source
+  `result="stored"` counts records moved to the dead-letter,
+  `result="duplicate"` counts redeliveries of a record that was already
+  dead-lettered (acknowledged without a new copy), and `result="failed"` counts copies that were not stored and left the source
   retrying.
 - `ServiceRadarEdgeRecordDeadLettered` (warning): records were dead-lettered in
   the last 15 minutes, by contract and reason.
@@ -76,7 +77,7 @@ acknowledged without a copy.
 For every record EventWriter logs one line naming both stream sequences:
 
 ```
-Edge record dead-lettered: source_stream=TELEMETRY_EDGE_RECORD_V1_BULK source_sequence=<seq> source_subject=<subject> dlq_subject=<subject> contract=<id>/<version> event_id=<uuid> agent_id=<agent> attempts=<n> reason=<class> reason_detail=<message> dlq_stream=TELEMETRY_EDGE_RECORD_DLQ_V1_BULK dlq_sequence=<seq> dlq_duplicate=false
+Edge record dead-lettered: source_stream=TELEMETRY_EDGE_RECORD_V1_BULK source_sequence=<seq> source_subject=<subject> dlq_subject=<subject> contract=<id>/<version> event_id=<uuid> agent_id=<agent> attempts=<n> reason=<class> reason_detail=<message> dlq_stream=TELEMETRY_EDGE_RECORD_DLQ_V1_BULK dlq_sequence=<seq>
 ```
 
 A failed copy logs `Edge record dead-letter publish failed; the source delivery

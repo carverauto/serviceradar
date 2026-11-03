@@ -30,10 +30,10 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter do
   stream keeps that id for the source stream's 24-hour `MaxAge`. A delivery redelivered after a
   lost source ACK is stored once. The same record dead-lettered again after a replay (a new
   source sequence) is stored again rather than deduplicated against a copy the replay already
-  deleted. A PubAck that reports the id as a duplicate is a held copy only when that sequence
-  is still in the stream. A duplicate of a removed sequence (an operator removed the copy while
-  the source ACK was lost) is a failed dead-letter: it is logged and counted, and the source is
-  NAKed rather than acknowledged without a copy. The record's own `Nats-Msg-Id` travels in `Sr-Edge-Dlq-Source-Msg-Id`, and replay restores it.
+  deleted. JetStream reports a duplicate only for an id it already stored, so a duplicate
+  PubAck means this delivery was dead-lettered before: its copy is still held, was restored to
+  the source stream by a replay, or was removed by an operator. The source is acknowledged, and
+  the duplicate is logged as a warning and counted as `result="duplicate"`. The record's own `Nats-Msg-Id` travels in `Sr-Edge-Dlq-Source-Msg-Id`, and replay restores it.
 
   ## Failure headers
 
@@ -69,7 +69,6 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter do
   alias ServiceRadar.Edge.WireDecode
   alias ServiceRadar.EventWriter.EdgeRecordDeadLetter.FailureLog
   alias ServiceRadar.EventWriter.Telemetry, as: EventWriterTelemetry
-  alias ServiceRadar.NATS.Connection
   alias ServiceRadar.NATS.JetStreamPublish
 
   require Logger
@@ -136,8 +135,9 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter do
   @doc """
   Copies a failed delivery to the dead-letter stream and waits for its PubAck.
 
-  Returns `:ok` once a copy is in the stream. A duplicate PubAck counts only when its sequence
-  is still there; a duplicate of a removed sequence is an error. Any other result is an error, and the caller must leave the source unacknowledged. Never raises.
+  Returns `:ok` once the stream stored the copy or reports it as a duplicate of an earlier one.
+  Any other result is an error, and the caller must leave the source unacknowledged. Never
+  raises.
   """
   @spec dead_letter(map()) :: :ok | {:error, term()}
   def dead_letter(message) do
@@ -407,49 +407,11 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter do
   defp request_fun(_message), do: nil
 
   defp store_copy(message, letter) do
-    case JetStreamPublish.publish_acked(letter.subject, letter.body,
-           msg_id: letter.msg_id,
-           headers: letter.headers,
-           request: request_fun(message)
-         ) do
-      {:ok, %{duplicate: true} = ack} ->
-        case copy_held?(message, ack) do
-          :held -> {:ok, ack}
-          :absent -> {:error, {:dead_letter_copy_missing, ack.seq}}
-          {:error, reason} -> {:error, reason}
-        end
-
-      other ->
-        other
-    end
-  end
-
-  defp copy_held?(message, %{stream: stream, seq: seq})
-       when is_binary(stream) and is_integer(seq) do
-    subject = "$JS.API.STREAM.MSG.GET.#{stream}"
-
-    with {:ok, %{body: body}} <-
-           js_request(message, subject, Jason.encode!(%{seq: seq})),
-         {:ok, decoded} <- Jason.decode(body) do
-      case decoded do
-        %{"message" => %{"seq" => ^seq}} -> :held
-        %{"error" => %{"err_code" => 10_037}} -> :absent
-        %{"error" => %{"code" => 404}} -> :absent
-        %{"error" => error} -> {:error, {:jetstream, error}}
-        other -> {:error, {:unexpected_reply, other}}
-      end
-    end
-  end
-
-  defp copy_held?(_message, ack), do: {:error, {:unexpected_ack, ack}}
-
-  defp js_request(message, subject, body) do
-    opts = [receive_timeout: 5_000]
-
-    case request_fun(message) do
-      fun when is_function(fun, 3) -> fun.(subject, body, opts)
-      nil -> with {:ok, conn} <- Connection.get(), do: Gnat.request(conn, subject, body, opts)
-    end
+    JetStreamPublish.publish_acked(letter.subject, letter.body,
+      msg_id: letter.msg_id,
+      headers: letter.headers,
+      request: request_fun(message)
+    )
   end
 
   # The minimum a failed build can still report.
@@ -473,16 +435,23 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter do
     }
   end
 
-  defp report(letter, {:ok, %{stream: stream, seq: seq} = ack}) do
+  defp report(letter, {:ok, %{duplicate: true, stream: stream, seq: seq}}) do
+    emit(letter, "duplicate")
+
+    Logger.warning(
+      "Edge record already dead-lettered; acknowledging the source delivery: " <>
+        fields(letter, dlq_stream: stream, dlq_sequence: seq)
+    )
+
+    :ok
+  end
+
+  defp report(letter, {:ok, %{stream: stream, seq: seq}}) do
     emit(letter, "stored")
 
     Logger.error(
       "Edge record dead-lettered: " <>
-        fields(letter,
-          dlq_stream: stream,
-          dlq_sequence: seq,
-          dlq_duplicate: ack.duplicate
-        )
+        fields(letter, dlq_stream: stream, dlq_sequence: seq)
     )
 
     :ok

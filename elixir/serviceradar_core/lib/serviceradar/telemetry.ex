@@ -893,8 +893,9 @@ defmodule ServiceRadar.Telemetry do
         measurement: :count,
         tags: [:contract, :reason_class, :result],
         description:
-          "Edge records copied to the dead-letter stream (result=stored) or whose copy failed " <>
-            "and stays unacknowledged on the edge-record stream (result=failed)"
+          "Edge records copied to the dead-letter stream (result=stored), already copied " <>
+            "there by an earlier delivery (result=duplicate), or whose copy failed and stays " <>
+            "unacknowledged on the edge-record stream (result=failed)"
       ),
       distribution("serviceradar.event_writer.ack.duration",
         event_name: [:serviceradar, :event_writer, :ack],

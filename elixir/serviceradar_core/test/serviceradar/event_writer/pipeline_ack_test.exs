@@ -377,46 +377,31 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
       end
     end
 
-    test "a duplicate PubAck acks the source only while that dead-letter sequence still exists" do
-      duplicate = ~s({"stream":"TELEMETRY_EDGE_RECORD_DLQ_V1_BULK","seq":9,"duplicate":true})
-      missing = ~s({"error":{"code":404,"err_code":10037,"description":"no message found"}})
-
-      answer = fn get_reply ->
-        fn subject, _body, _opts ->
-          if String.starts_with?(subject, "$JS.API.STREAM.MSG.GET."),
-            do: get_reply,
-            else: {:ok, %{body: duplicate}}
-        end
+    test "a duplicate PubAck ACKs the source without a lookup and counts a duplicate" do
+      duplicate = fn ->
+        {:ok,
+         %{body: ~s({"stream":"TELEMETRY_EDGE_RECORD_DLQ_V1_BULK","seq":9,"duplicate":true})}}
       end
 
-      message = failed_edge_record(2, 2, -1, answer.({:ok, %{body: ~s({"message":{"seq":9}})}}))
-      assert :ok = Pipeline.ack(:ack_ref, [], [message])
+      message = failed_edge_record(2, 2, -1, duplicate)
+
+      log = ExUnit.CaptureLog.capture_log(fn -> Pipeline.ack(:ack_ref, [], [message]) end)
 
       assert [
                {:publish, "telemetry.edge-record-dlq.v1.bulk.p07.unknown.v0", @record_bytes,
                 opts},
-               {:publish, "$JS.API.STREAM.MSG.GET.TELEMETRY_EDGE_RECORD_DLQ_V1_BULK", get_body,
-                _get_opts},
                {:ack, :ack}
              ] = steps()
 
-      assert Jason.decode!(get_body) == %{"seq" => 9}
       assert header(opts, "Nats-Msg-Id") == "edge-dlq:TELEMETRY_EDGE_RECORD_V1_BULK:41"
 
-      for get_reply <- [{:ok, %{body: missing}}, {:error, :timeout}] do
-        message = failed_edge_record(2, 2, -1, answer.(get_reply))
+      assert_received {:dead_letter_event, %{count: 1},
+                       %{contract: "undecodable", result: "duplicate"}}
 
-        log = ExUnit.CaptureLog.capture_log(fn -> Pipeline.ack(:ack_ref, [], [message]) end)
-
-        assert [
-                 {:publish, _, @record_bytes, _},
-                 {:publish, "$JS.API.STREAM.MSG.GET." <> _, _, _},
-                 {:ack, {:nack, 20_000}}
-               ] = steps()
-
-        assert_received {:dead_letter_event, %{count: 1}, %{result: "failed"}}
-        assert log =~ "the source delivery stays unacknowledged"
-      end
+      refute_received {:dead_letter_event, _, %{result: "failed"}}
+      assert log =~ "Edge record already dead-lettered"
+      assert log =~ "dlq_sequence=9"
+      refute log =~ "stays unacknowledged"
     end
 
     test "a non-ASCII failure detail is bounded to 256 bytes at a character boundary" do
@@ -434,25 +419,31 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
     end
   end
 
-  test "a full first-failure log evicts stale, then oldest, entries to record a new failure" do
+  test "a full first-failure log evicts the earliest entry only to record a new delivery" do
     alias ServiceRadar.EventWriter.EdgeRecordDeadLetter.FailureLog
 
     start_supervised!(FailureLog)
     now = 1_800_000_000_000
-    day = 24 * 60 * 60 * 1000
 
-    FailureLog.note({"S", 0}, now - day - 1)
-    for seq <- 1..49_999, do: FailureLog.note({"S", seq}, now - 100_000 + seq)
+    for seq <- 1..50_000, do: FailureLog.note({"S", seq}, now - 100_000 + rem(seq * 7, 50_000))
+    assert :ets.info(FailureLog, :size) == 50_000
+
+    earliest = 50_000
+    assert FailureLog.first({"S", earliest}) == now - 100_000
+
+    FailureLog.note({"S", 1}, now)
+    assert :ets.info(FailureLog, :size) == 50_000
+    assert FailureLog.first({"S", earliest}) == now - 100_000
+    assert FailureLog.first({"S", 1}) == now - 100_000 + 7
 
     FailureLog.note({"S", :new}, now)
-    assert FailureLog.first({"S", 0}) == nil
+    assert :ets.info(FailureLog, :size) == 50_000
     assert FailureLog.first({"S", :new}) == now
-    assert FailureLog.first({"S", 1}) == now - 99_999
+    assert FailureLog.first({"S", earliest}) == nil
 
+    FailureLog.forget({"S", :new})
     FailureLog.note({"S", :newer}, now + 1)
     assert FailureLog.first({"S", :newer}) == now + 1
-    assert FailureLog.first({"S", 1}) == nil
-    assert FailureLog.first({"S", 2}) == now - 99_998
     assert :ets.info(FailureLog, :size) == 50_000
   end
 
