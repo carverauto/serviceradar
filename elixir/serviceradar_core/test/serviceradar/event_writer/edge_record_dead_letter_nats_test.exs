@@ -179,6 +179,46 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetterNatsTest do
     end)
   end
 
+  test "a removed dead-letter sequence is stored again before the source is acknowledged",
+       ctx do
+    ExposureBroker.with_broker(ctx.tmp_dir, fn conn, port ->
+      config = config(port)
+      [_source, dead_letter] = config.streams
+      assert :ok = ConsumerReconciler.ensure_stream(conn, config, dead_letter)
+
+      canonical = "edge-dlq:TELEMETRY_EDGE_RECORD_V1_BULK:41"
+      removed = publish_dlq!(conn, canonical)
+      assert :ok = delete_message(conn, removed)
+      assert %{"state" => %{"messages" => 0}} = api(conn, "STREAM.INFO.#{@dlq_stream}", "")
+
+      parent = self()
+      request = fn subject, body, opts -> Gnat.request(conn, subject, body, opts) end
+
+      assert :ok = Pipeline.ack(:ack_ref, [], [removed_delivery(parent, request)])
+      assert_receive {:ack_action, :ack}, 5_000
+
+      assert {:ok, %{entries: [held]}} = Replay.list()
+      assert held.bytes == byte_size(@record)
+      stored = get_message(conn, held.dlq_sequence)
+      assert stored.data == @record
+      assert header_value(stored.headers, "nats-msg-id") == canonical <> ":1"
+      assert %{"state" => %{"messages" => 1}} = api(conn, "STREAM.INFO.#{@dlq_stream}", "")
+
+      # The replacement id is removed too. Both ids stay reserved, so the next
+      # delivery has to store a further id. Acknowledging here would drop the record.
+      assert :ok = delete_message(conn, held.dlq_sequence)
+
+      assert :ok = Pipeline.ack(:ack_ref, [], [removed_delivery(parent, request)])
+      assert_receive {:ack_action, :ack}, 5_000
+
+      assert {:ok, %{entries: [again]}} = Replay.list()
+      restored = get_message(conn, again.dlq_sequence)
+      assert restored.data == @record
+      assert header_value(restored.headers, "nats-msg-id") == canonical <> ":2"
+      assert %{"state" => %{"messages" => 1}} = api(conn, "STREAM.INFO.#{@dlq_stream}", "")
+    end)
+  end
+
   defp config(port, source_duplicate_window \\ 1_000_000_000) do
     %Config{
       enabled: true,
@@ -218,6 +258,50 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetterNatsTest do
         }
       ]
     }
+  end
+
+  defp removed_delivery(parent, request) do
+    Message.failed(
+      %Message{
+        data: @record,
+        metadata: %{
+          subject: @source_subject,
+          headers: @headers,
+          jetstream_ack: %{
+            stream: "TELEMETRY_EDGE_RECORD_V1_BULK",
+            consumer: "synthetic-writer",
+            delivery_count: 1,
+            stream_sequence: 41,
+            timestamp: 1_700_000_000_000_000_000
+          },
+          max_deliver: -1,
+          dead_letter_after: 1
+        },
+        acknowledger:
+          {Pipeline, :ack_ref,
+           %{
+             ack_fun: fn action ->
+               send(parent, {:ack_action, action})
+               :ok
+             end,
+             request_fun: request
+           }}
+      },
+      %RuntimeError{message: "synthetic projection failure"}
+    )
+  end
+
+  defp delete_message(conn, seq) do
+    reply = api(conn, "STREAM.MSG.DELETE.#{@dlq_stream}", Jason.encode!(%{seq: seq}))
+    assert reply["success"] == true
+    :ok
+  end
+
+  defp header_value(headers, name) do
+    headers
+    |> Enum.find_value(fn {key, value} ->
+      if String.downcase(key) == name, do: value
+    end)
   end
 
   defp publish!(conn) do

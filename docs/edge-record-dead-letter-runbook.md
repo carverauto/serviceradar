@@ -21,9 +21,10 @@ holds records that are valid but could not be projected.
    has a lower finite limit) fails too. EventWriter publishes a copy and waits
    for its PubAck:
    - subject `telemetry.edge-record-dlq.v1.bulk.pNN.<contract>.v<version>`,
-     with the same `pNN` as the source and the contract id lower-cased, dots
-     replaced by `_` (`serviceradar_metrics_batch.v1`), or `unknown.v0` if the
-     record does not decode;
+     with the same `pNN` as the source and the contract id lower-cased, any run
+     of characters outside `[a-z0-9_-]` replaced by `_`
+     (`serviceradar_metrics_batch.v1`), or `unknown.v0` if the record does not
+     decode;
    - stream `TELEMETRY_EDGE_RECORD_DLQ_V1_BULK` (R3, file, limits retention,
      `DiscardNew`, `MaxAge` disabled, 64 MiB; 32 MiB on `small` and 4 MiB on
      `tenant-2g`; override with

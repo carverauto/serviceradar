@@ -203,8 +203,7 @@ when it moved.
   record's original bytes and transport headers plus `Sr-Edge-Dlq-*` failure
   headers go to `TELEMETRY_EDGE_RECORD_DLQ_V1_BULK`
   (`telemetry.edge-record-dlq.v1.bulk.pNN.<contract>.v<version>`, R3, limits,
-  `DiscardNew`, `MaxAge` disabled) with a PubAck keyed
-  `edge-dlq:<source stream>:<source sequence>`, and only then is the source
+  `DiscardNew`, `MaxAge` disabled) with a PubAck, and only then is the source
   ACKed; a refused copy leaves the source NAKed with backoff
   (`ServiceRadar.EventWriter.EdgeRecordDeadLetter`). A counter by contract and
   reason, three managed alerts, `EdgeRecordDeadLetter.Replay` (republish to the

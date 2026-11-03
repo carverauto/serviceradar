@@ -2385,8 +2385,9 @@ change together with the requirements they implement.
   semantic identity, original traffic class, and source provenance.
   MOVED to `add-edge-record-stream-partitioning` (2026-11-02); remaining: the
   catalog, states, deleter and redrive remain a follow-up. The security-quarantine
-  stream in the note below is the only DLQ that exists; task 3.5's other routes
-  still depend on the rest.
+  stream in the note below and the minimal generic dead-letter (2026-11-02,
+  epic #6271; `add-edge-record-stream-partitioning` task 1.10) are the DLQs
+  that exist; task 3.5's other routes still depend on the rest.
   MINIMAL INSPECTION LANDED for the security-quarantine route only: its stream
   keeps every record (`MaxAge` disabled, `DiscardNew`), an EventWriter consumer
   logs each one with its stream sequence and slot and writes nothing, the
@@ -2394,8 +2395,6 @@ change together with the requirements they implement.
   fires on any held record, and `docs/edge-record-quarantine-runbook.md` gives
   the `nats stream get` path. The catalog, stable DLQ IDs, states, deleter and
   redrive above remain open.
-  MINIMAL GENERIC DEAD-LETTER LANDED (2026-11-02, epic #6271) for EventWriter
-  projection failures; recorded on `add-edge-record-stream-partitioning` 1.10.
 - [x] 5.8 Derive required low-cardinality execution/scanner/availability/trace
   metrics from the canonical event without recreating per-host/per-hop generic
   metric expansion.
