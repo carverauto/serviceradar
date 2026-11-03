@@ -158,7 +158,8 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
       all_ocsf_rows = Enum.map(tagged_ocsf, &elem(&1, 1))
 
       messages_by_event_id =
-        Enum.group_by(tagged_ocsf, fn {_message, row} -> ocsf_event_id_key(row) end, fn {message, _row} ->
+        Enum.group_by(tagged_ocsf, fn {_message, row} -> ocsf_event_id_key(row) end, fn {message,
+                                                                                         _row} ->
           message
         end)
 
@@ -172,8 +173,8 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
       routing_store = store_routing_events(routing_rows)
 
       with {:ok,
-            {bulk_ocsf_rows, bulk_ocsf_count, persisted_ocsf_rows, recorded_ocsf_events, admit_rows,
-             waiting_ids}} <-
+            {bulk_ocsf_rows, bulk_ocsf_count, persisted_ocsf_rows, recorded_ocsf_events,
+             admit_rows, waiting_ids}} <-
              AnomalyEpisodeRegistry.transaction(fn ->
                returned_rows = AnomalyEpisodeRegistry.transition_rows(all_ocsf_rows)
 
@@ -196,9 +197,8 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
                scope = admit_rows ++ replayed ++ held_rows
 
                {bulk_rows, count, persisted, transitions,
-                dedupe_occurrence_rows(
-                  earlier_unadmitted_rows(scope) ++ admit_rows ++ replayed
-                ), waiting_ids}
+                dedupe_occurrence_rows(earlier_unadmitted_rows(scope) ++ admit_rows ++ replayed),
+                waiting_ids}
              end) do
         lifecycle_failures =
           admit_lifecycle_in_order(
@@ -261,19 +261,17 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
     {_done, failures, _halted} =
       Enum.reduce(groups, {[], [], nil}, fn {group_messages, rows}, {done, failures, halted} ->
-        cond do
-          halted != nil ->
-            {done, Enum.map(group_messages, &{&1, halted}) ++ failures, halted}
+        if halted == nil do
+          case evaluate_transitions(rows) do
+            :ok ->
+              mark_alert_evaluation_admitted(rows)
+              {group_messages ++ done, failures, nil}
 
-          true ->
-            case evaluate_transitions(rows) do
-              :ok ->
-                mark_alert_evaluation_admitted(rows)
-                {group_messages ++ done, failures, nil}
-
-              {:error, reason} ->
-                {done, Enum.map(group_messages, &{&1, reason}) ++ failures, reason}
-            end
+            {:error, reason} ->
+              {done, Enum.map(group_messages, &{&1, reason}) ++ failures, reason}
+          end
+        else
+          {done, Enum.map(group_messages, &{&1, halted}) ++ failures, halted}
         end
       end)
 
@@ -281,7 +279,8 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   end
 
   defp ordered_admission_groups(messages, admit_rows, messages_by_event_id, messages_by_series) do
-    message_index = Map.new(Enum.with_index(messages), fn {message, index} -> {message, index} end)
+    message_index =
+      Map.new(Enum.with_index(messages), fn {message, index} -> {message, index} end)
 
     {_seen, groups} =
       Enum.reduce(admit_rows, {MapSet.new(), []}, fn row, {seen, groups} ->
@@ -394,11 +393,13 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     waiting_ids
     |> Enum.uniq()
     |> Enum.flat_map(fn id ->
-      case Map.get(messages_by_event_id, id, []) do
-        [] -> messages
-        owners -> owners
-      end
-      |> Enum.map(&{&1, {:overloaded, :series_pending}})
+      case_result =
+        case Map.get(messages_by_event_id, id, []) do
+          [] -> messages
+          owners -> owners
+        end
+
+      Enum.map(case_result, &{&1, {:overloaded, :series_pending}})
     end)
   end
 
@@ -531,11 +532,12 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
     {causal_rows, insert_only_rows} = Enum.split_with(other_rows, &causal_prediction_row?/1)
 
-    {persisted_insert_only, insert_only_rows, insert_only_admit, insert_only_held, insert_only_waiting} =
+    {persisted_insert_only, insert_only_rows, insert_only_admit, insert_only_held,
+     insert_only_waiting} =
       record_insert_only_ocsf_events(insert_only_rows)
 
-    {persisted_inventory_vulnerability, inventory_vulnerability_rows, inventory_admit, inventory_held,
-     inventory_waiting} =
+    {persisted_inventory_vulnerability, inventory_vulnerability_rows, inventory_admit,
+     inventory_held, inventory_waiting} =
       record_inventory_vulnerability_ocsf_events(inventory_vulnerability_rows)
 
     {persisted_causal, causal_rows, causal_admit, causal_held, causal_waiting} =
@@ -1292,7 +1294,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   end
 
   defp lifecycle_occurrence_id(row) do
-    StableId.uuid([
+    [
       "alert-evaluation-occurrence:v1|",
       ocsf_event_id_key(row) || "",
       "|",
@@ -1303,7 +1305,8 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
       row |> Map.get(:type_uid) |> to_string(),
       "|",
       row |> Map.get(:status) |> to_string()
-    ])
+    ]
+    |> StableId.uuid()
     |> Ecto.UUID.load!()
   end
 
@@ -1520,7 +1523,10 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
         [series_keys]
       )
 
-    Enum.group_by(rows, fn [series_key, _episode_uid] -> series_key end, fn [_series_key, episode_uid] ->
+    Enum.group_by(rows, fn [series_key, _episode_uid] -> series_key end, fn [
+                                                                              _series_key,
+                                                                              episode_uid
+                                                                            ] ->
       episode_uid
     end)
   end
@@ -1588,8 +1594,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
       %{rows: result_rows} = ServiceRadar.Repo.query!(sql, [binary_ids])
 
       Map.new(result_rows, fn [id, occurrence_id, admitted] ->
-        {uuid_conflict_value(id),
-         %{occurrence_id: occurrence_id, admitted: admitted == "true"}}
+        {uuid_conflict_value(id), %{occurrence_id: occurrence_id, admitted: admitted == "true"}}
       end)
     end
   end
