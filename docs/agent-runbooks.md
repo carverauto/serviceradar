@@ -25,6 +25,9 @@ Related runbooks in this directory:
   chart's render-time JetStream budget, moving a live install to a larger
   `nats.jetstream.profile` (PVC expansion), and reclaiming a collector-owned
   stream for EventWriter.
+- [Edge record audit and security quarantine](edge-record-quarantine-runbook.md):
+  the two non-authoritative edge-record streams, the security-quarantine
+  inspection log, and the `nats stream get` path.
 
 ## Demo Namespace Helm Refresh
 

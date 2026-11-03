@@ -469,8 +469,10 @@ edge path together, and otherwise both keep the legacy results path.
 
 Use complete terminal ICMP/TCP host windows for this first canary. Partial-mode
 and MTR windows are not supported by this projection yet. Keep the issuer key
-and agent network scope fixed while records remain in the spool: historical
-key/scope trust and audit publication are later milestones. A sender with
+and agent network scope fixed while records remain in the spool. Historical
+key and scope trust for a change of either is still a later milestone. A
+stale-fence record that carries a valid delivery grant is published on the
+audit route; see `docs/edge-record-quarantine-runbook.md`. A sender with
 sweep or metrics producers enabled persists terminal resolutions. It reclaims
 a fully drained segment when durable dispositions cover every retained
 sequence. Permanently rejected records are

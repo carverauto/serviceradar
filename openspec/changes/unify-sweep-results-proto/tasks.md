@@ -5,8 +5,10 @@
 > Work on runtime trust, agent emission, normal sweep domain projection and
 > deployment wiring concurrently. Close this checkpoint only with fresh
 > post-rollout execution, ledger and domain-row evidence. The 24-hour parallel
-> comparison, reconnect grants, audit routes and fault drills remain owed;
-> they do not block the first current-epoch canary run. Preserve authentication,
+> comparison, reconnect grants and fault drills remain owed, as do the DLQ
+> routes other than the narrowed audit and security-quarantine streams
+> (tasks 3.5 and 5.7). They do not block the first current-epoch canary run.
+> Preserve authentication,
 > durable PubAck, replay idempotency and a finite spool bound throughout.
 
 > **ACTIVE WORK ORDER (scope amendment 2026-09-28, maintainer-approved):**
@@ -291,9 +293,10 @@ in `choices.md` and the chart README.
     `ServiceRadarAgentGateway.EdgeRecordTrustRefresh` (#6181) refreshes
     `ServiceRadar.Edge.RecordTrust.snapshot/0` (sweep assignments and output
     grants), exercised by `integration_tests/edge_record/authority_test.go`.
-    Missing: a stale epoch with a delivery grant is withheld in
-    `EdgeRecordIngestServer` instead of published as
-    `audit_publication`/`ledger_only`; needs M2.0g and the 3.5 audit route.
+    The gateway audit route has landed (task 3.5): a stale epoch presented with
+    a valid delivery grant is `audit_publication` / ledger-only. Still missing
+    is M2.0g, the delivery-grant issuer, so a backlog record does not yet
+    obtain that grant.
   - [ ] M2.0g Delivery after reconnect. On reconnect the agent obtains a
     per-record delivery grant (`EdgeDeliveryClaimsV1` same-spool renewal:
     `event_id`, `record_sha256`, `spool_id`, `sequence`) for each unresolved
@@ -1740,10 +1743,11 @@ change together with the requirements they implement.
   rejection route keeps the record. A producer with no fence entry, and a key id the snapshot does
   not hold or holds without the requested purpose, are withheld as retryable. Withheld frames
   follow task 3.3's gap contract (commit `3cba585303`).
-  The runtime path is still incomplete: an AUDIT decision (a stale-epoch replay, decided with its
-  `LATE_FENCED_DELIVERY` mode and proof) and a SECURITY-QUARANTINE decision are withheld rather
-  than published. Publishing them is deferred to task 3.5, which owns their streams; EventWriter
-  does not yet act on the stamp. Every authorized record is then admitted by `EdgeContractRegistry`
+  AUDIT and SECURITY-QUARANTINE decisions are published on the routes task 3.5 owns.
+  EventWriter keeps a late-fenced audit record ledger-only and refuses an audit record
+  that is not late-fenced; the security-quarantine consumer reports the record and writes
+  nothing (task 5.7). A stale-epoch replay still needs the delivery grant M2.0g issues.
+  Every authorized record is then admitted by `EdgeContractRegistry`
   (task 3.8's narrowed slice) before it is offered; a registry withhold or hold is withheld like any
   other frame, and loading a signed registry snapshot stays open under task 3.8.
   DEFERRED FOLLOW-UP -- a runtime trust-snapshot refresh: the gateway loads
@@ -1922,9 +1926,9 @@ change together with the requirements they implement.
   prefix through the same validated idempotent publication and PubAck path, without
   subscribing to stored records or recovering private gateway state; evidence
   eviction MUST NOT surface as an ambiguous disposition state to the agent.
-  PARTIAL (reconciled 2026-11-02): primary, quarantine, permanent and retryable
-  are mapped. Audit and security-quarantine decisions are withheld (no routes or
-  DLQ streams), so this blocks M2.0f.
+  PARTIAL (reconciled 2026-11-02): primary, permanent and retryable are mapped.
+  The narrowed audit and security-quarantine routes are the note below. Ordinary
+  `quarantine_publication` still has no route, so this task stays open.
   NARROWED SLICE LANDED (audit and security-quarantine routes): the gateway now
   offers an `audit_publication` (stale fence under a valid delivery grant, stamped
   `LATE_FENCED_DELIVERY`) to `telemetry.edge-record-audit.v1.bulk.pNN` and a
@@ -2358,8 +2362,9 @@ change together with the requirements they implement.
   catalogued sequences. Redrive through a synthetic durable lane with new
   delivery coordinates/publication ID while preserving exact trusted envelope,
   semantic identity, original traffic class, and source provenance.
-  TODO (reconciled 2026-11-02): follow-up; no DLQ streams exist, and 3.5 depends
-  on them.
+  TODO (reconciled 2026-11-02): the catalog, states, deleter and redrive remain a
+  follow-up. The security-quarantine stream in the note below is the only DLQ
+  that exists; task 3.5's other routes still depend on the rest.
   MINIMAL INSPECTION LANDED for the security-quarantine route only: its stream
   keeps every record (`MaxAge` disabled, `DiscardNew`), an EventWriter consumer
   logs each one with its stream sequence and slot and writes nothing, the

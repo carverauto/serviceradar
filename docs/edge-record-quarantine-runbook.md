@@ -39,8 +39,12 @@ publications in
 For each quarantined record EventWriter logs one line:
 
 ```
-Edge record held in security quarantine: stream=TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK stream_sequence=<seq> subject=... authenticated_agent_id=... contract_id=... event_id=... network_scope_id=... production_issuer_key_id=... record_sha256=... sequence=... spool_id=...
+Edge record held in security quarantine: stream=TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK stream_sequence=<seq> subject=<subject> authenticated_agent_id=<agent> contract_id=<id> contract_version=<version> event_id=<hex> gateway_id=<id> network_scope_id=<hex> production_issuer_key_id=<hex> record_sha256=<hex> sequence=<seq> spool_id=<hex>
 ```
+
+The fields after `subject` are alphabetical. `contract_id` is the only free-text
+field taken from the record. Every string field is escaped (`\n`, `\r`, `\t`, or
+`\uXXXX`), so one record is always one line.
 
 `stream_sequence` is the JetStream sequence of the message. Fetch it, with
 its transport headers, from a NATS tools pod:
