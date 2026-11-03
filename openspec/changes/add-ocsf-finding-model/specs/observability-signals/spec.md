@@ -3,11 +3,11 @@
 The system SHALL represent OCSF security findings as durable, stateful records distinct from event occurrences. Each finding SHALL have a stable `finding_info.uid`, class/category/type/activity identifiers, current status, severity, first-seen and last-seen timestamps, occurrence count, source identity, affected entity references, and the full OCSF finding payload needed to reconstruct the class-specific record.
 
 #### Scenario: Repeated detection updates one finding
-- **GIVEN** two Falco observations describe the same rule, device, and runtime entity
+- **GIVEN** two observations share one stable finding identity
 - **WHEN** both observations are promoted as security signals
 - **THEN** the system SHALL keep one detection finding with the same `finding_info.uid`
 - **AND** it SHALL update that finding's `last_seen` and occurrence count
-- **AND** it SHALL retain separate event occurrences for the two observations
+- **AND** it SHALL retain separate occurrence records for the two observations
 
 #### Scenario: Distinct vulnerabilities remain separate findings
 - **GIVEN** one endpoint has two affected packages or CVEs
@@ -28,7 +28,7 @@ The system SHALL support OCSF 1.9 finding classes 2002 vulnerability finding, 20
 - **AND** it SHALL include `finding_info_list` references for the constituent findings
 
 ### Requirement: Finding-producing events reference findings
-Events that create, update, or close a security finding SHALL remain in `ocsf_events` as occurrence history and SHALL reference the affected finding through `finding_info.uid` or a structured equivalent. Non-finding activity events SHALL remain event-only and SHALL NOT require a finding record.
+Events that create, update, or close a security finding SHALL remain in `ocsf_events` as occurrence history and SHALL reference the affected finding through `finding_info.uid` or a structured equivalent. Non-finding activity events SHALL remain event-only and SHALL NOT require a finding record. Falco occurrence history is specified by `add-falco-runtime-findings`: each occurrence is a `runtime_security_occurrences` row, and an `ocsf_events` row is written only for a lifecycle transition.
 
 #### Scenario: Finding update records occurrence event
 - **GIVEN** an existing vulnerability finding is observed again

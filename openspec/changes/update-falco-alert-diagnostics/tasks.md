@@ -1,4 +1,5 @@
 ## 1. Event Enrichment
+Checked items record diagnostic-field work already done on the promotion path. Forward storage of each Falco record is `runtime_security_occurrences` in `add-falco-runtime-findings`. This change does not require an OCSF event per Falco log.
 - [x] 1.1 Add Falco fixture coverage for `Drop and execute new binary in container` events with process, container, host, and missing Kubernetes fields.
 - [x] 1.2 Normalize Falco `output_fields` into structured event metadata for process, parent process, user, executable flags, container, Kubernetes, host, and attribution status.
 - [x] 1.3 Preserve raw Falco payloads and source log provenance while exposing normalized fields through event queries.
