@@ -947,12 +947,14 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
       assert ledger_count(frame.record) == 1
       assert [^name] = plugin_service_names(frame.agent_id)
+      assert plugin_service_row_count(frame.agent_id) == 1
 
       assert {:ok, :replay} =
                EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
 
       assert ledger_count(frame.record) == 1
       assert [^name] = plugin_service_names(frame.agent_id)
+      assert plugin_service_row_count(frame.agent_id) == 1
     end
 
     test "a coexisting assignment ingests under its disambiguated service identity" do
@@ -2395,6 +2397,13 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
         ]
       ).rows
     )
+  end
+
+  defp plugin_service_row_count(agent_id) do
+    [[count]] =
+      Repo.query!("SELECT count(*) FROM platform.service_status WHERE agent_id = $1", [agent_id]).rows
+
+    count
   end
 
   defp build_plugin_result_frame(items, opts \\ []) do
