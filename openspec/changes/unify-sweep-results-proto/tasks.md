@@ -2544,15 +2544,14 @@ change together with the requirements they implement.
   SUPERSEDED (reconciled 2026-11-02): by the per-family farm01 parity soaks in
   `move-agent-telemetry-to-edge-records` (tasks 2.4, 3.1, 4.1, 5.3, 6.1, 7.2);
   the sweep comparison is M2.6.
-- [ ] 7.3 Exercise the supported minimum-version and offline-agent upgrade
+- [x] 7.3 Exercise the supported minimum-version and offline-agent upgrade
   policy; older binaries receive no affected new assignments and must upgrade
   before rejoining the cohort. Keep new-format consumers/readers until all
   stream backlog and agent spools are drained. Rollback stops new admissions and
   reverts read selection only after compatible consumers have drained or remain
   available; it never converts a durable v1 record back to JSON.
-  PARTIAL (reconciled 2026-11-02): capability gating (`sweep_lease_v1`, and
-  `sweep_lease_plan_checks:v1` in M2.0i3) withholds new leases from older
-  agents. The written upgrade and rollback policy remains.
+  SUPERSEDED (reconciled 2026-11-02): by `move-agent-telemetry-to-edge-records`
+  Decision 7 (per-producer cutover, then one removal release).
 - [x] 7.4 Remove agent-side duplicate sweep/MTR metric projections only after
   real-time consumer and persistence parity is demonstrated.
   MOVED to `move-agent-telemetry-to-edge-records` task 8.1 (2026-11-02); remaining: done as M4.2
@@ -2622,8 +2621,8 @@ change together with the requirements they implement.
 - [ ] 8.2 Add integration tests for continuous scan/data/completion interleaving,
   mixed agents, gateway/NATS/core/CNPG restarts, PubAck loss, five forced
   redeliveries, a greater-than-64-MiB logical execution carried as independently
-  durable frames no larger than the frozen `MaxFrameBytes` bound, minimum-version assignment
-  rejection, gateway/consumer poison DLQ PubAck loss, bulk poison at DLQ and
+  durable frames no larger than the frozen `MaxFrameBytes` bound,
+  gateway/consumer poison DLQ PubAck loss, bulk poison at DLQ and
   quarantine capacity while an interactive failure still obtains its reserved
   disposition path, fleet-wide bad-decoder circuit/pause/repair/redrive,
   indefinite transient retries, stale sessions/assignments, key rotation with
@@ -2645,7 +2644,9 @@ change together with the requirements they implement.
   cross-network-scope negative reads, retention-boundary catch-up, and partial
   execution repair.
   PARTIAL (reconciled 2026-11-02): vertical slice Groups A-G and the authority
-  test cover the composed path; most of the list remains.
+  test cover the composed path; most of the list remains. The minimum-version
+  assignment rejection case is SUPERSEDED by `move-agent-telemetry-to-edge-records`
+  Decision 7 (per-producer cutover, then one removal release).
 - [ ] 8.3 Prove zero acknowledged loss and zero duplicate domain/OCSF/MTR rows,
   p99 durability under 2 seconds, p99 queryability under 30 seconds, and at
   least twice-live backlog drain capacity. Define and prove a separate bounded
