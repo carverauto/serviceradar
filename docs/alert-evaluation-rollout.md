@@ -53,16 +53,15 @@ which runs every minute on the `maintenance` queue. A run pages through the
 pending series longest-waiting first, admits each in `seq` order up to its
 first refusal, and continues with the next series, so series stuck behind a
 saturated rule do not starve the rest. It stops after 1,000 admissions or 30
-seconds. Other unadmitted
-evaluation is lost. This is a
-bounded recovery window, not an indefinite retry guarantee. Consumer delivery
-limits are unchanged.
+seconds. Other unadmitted evaluation is lost. This is a bounded recovery window,
+not an indefinite retry guarantee. Consumer delivery limits are unchanged.
 
 Readiness and overload deferrals log at info in AnalyticsSignals and the batch
-pipeline, and at debug in the failed-message callback. Delayed acknowledgements retain the `nack` telemetry action. Other
-failures, including draining, unavailable capability, and database errors,
-retain error batch logs and immediate NAKs until the delivery limit, then a
-terminal acknowledgement and an error log. The acknowledgement policy is
+pipeline, and at debug in the failed-message callback. Delayed acknowledgements
+retain the `nack` telemetry action. Other failures, including draining,
+unavailable capability, and database errors, retain error batch logs and
+immediate NAKs until the delivery limit, then a terminal acknowledgement and an
+error log. The acknowledgement policy is
 implemented in `ServiceRadar.EventWriter.Pipeline`; regression coverage is in
 `pipeline_ack_test.exs` and `analytics_signals_process_batch_db_test.exs`
 under `elixir/serviceradar_core/test/serviceradar/event_writer/` (the latter in
