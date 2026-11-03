@@ -111,11 +111,17 @@ func (q *pluginResultEdgeQueue) queuedResults() int {
 	return total
 }
 
-// enqueue adds fresh items behind anything already queued, dropping the
-// oldest backlog past the bound. The head item is never dropped for exceeding
-// the bound on its own. It returns how many results the bound dropped.
-func (q *pluginResultEdgeQueue) enqueue(items []pluginResultEdgeItem) (dropped int) {
-	q.pending = append(q.pending, items...)
+// enqueue adds items behind anything already queued, or ahead of the pending
+// items when they are older than everything pending (a retained legacy set),
+// dropping the oldest backlog past the bound. The head item is never dropped
+// for exceeding the bound on its own. It returns how many results the bound
+// dropped.
+func (q *pluginResultEdgeQueue) enqueue(items []pluginResultEdgeItem, older bool) (dropped int) {
+	if older {
+		q.pending = append(items, q.pending...)
+	} else {
+		q.pending = append(q.pending, items...)
+	}
 	for q.queuedResults() > maxEdgePluginQueuedResults && len(q.pending) > 1 {
 		dropped += q.pending[0].count()
 		q.pending = q.pending[1:]

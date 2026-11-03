@@ -335,6 +335,7 @@ func (p *PushLoop) pushPluginResults(ctx context.Context) bool {
 	// stream's worth per cycle, before anything new is drained.
 	capability := p.edgePluginResultsCapability(time.Now())
 	results := p.pendingPluginResults
+	retained := len(results) > 0
 	if capability == nil && len(results) == 0 {
 		for _, item := range p.pluginResultsEdge.take(maxPluginResultsPerStream) {
 			results = append(results, item.results...)
@@ -347,7 +348,7 @@ func (p *PushLoop) pushPluginResults(ctx context.Context) bool {
 
 	if capability != nil {
 		if len(results) > 0 {
-			dropped := p.pluginResultsEdge.enqueue(groupPluginResults(results))
+			dropped := p.pluginResultsEdge.enqueue(groupPluginResults(results), retained)
 			p.dropEdgeTelemetry(edgeProducerPluginResults, edgeDropRetryBufferFull, dropped)
 			p.pendingPluginResults = nil
 		}

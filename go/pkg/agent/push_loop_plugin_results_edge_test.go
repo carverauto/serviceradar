@@ -282,7 +282,7 @@ func TestPluginResultsTakeLeavesPartiallySpooledGroupQueued(t *testing.T) {
 	loop.pluginResultsEdge.enqueue(groupPluginResults([]PluginResult{
 		hostPluginResult(`{"status":"OK","summary":"big one","details":"` + big + `"}`),
 		hostPluginResult(`{"status":"OK","summary":"big two","details":"` + big + `"}`),
-	}))
+	}), false)
 
 	// Spool only the first part, then lose the grant: the partially spooled
 	// group must stay queued and never rejoin the legacy set.
@@ -323,7 +323,7 @@ func TestPluginResultsLegacyFallbackStaysWithinOneStream(t *testing.T) {
 		for i := 0; i < perGroup; i++ {
 			queued = append(queued, testPendingPluginResult(fmt.Sprintf("queued-%d", g), "queued"))
 		}
-		loop.pluginResultsEdge.enqueue(groupPluginResults(queued))
+		loop.pluginResultsEdge.enqueue(groupPluginResults(queued), false)
 	}
 
 	for cycle := 0; cycle < 3; cycle++ {
@@ -343,4 +343,39 @@ func TestPluginResultsLegacyFallbackStaysWithinOneStream(t *testing.T) {
 	}
 	require.Equal(t, want, streams)
 	require.Zero(t, loop.pluginResultsEdge.queuedResults())
+}
+
+var errTestGatewayUnreachable = errors.New("gateway unreachable")
+
+func TestPluginResultsRetainedLegacySetSpoolsAheadOfQueuedRemainder(t *testing.T) {
+	const groups, perGroup = 3, 5
+	sp := openTestEdgeSpool(t)
+	loop := pluginResultsLoop(t, sp)
+	loop.server.pluginManager = &PluginManager{results: make(chan PluginResult, 1)}
+	loop.pluginResultStreamStatus = func(
+		_ context.Context,
+		_ []*proto.GatewayStatusChunk,
+	) (*proto.GatewayStatusResponse, error) {
+		return nil, errTestGatewayUnreachable
+	}
+	for g := 0; g < groups; g++ {
+		queued := make([]PluginResult, 0, perGroup)
+		for i := 0; i < perGroup; i++ {
+			queued = append(queued, testPendingPluginResult(fmt.Sprintf("queued-%d", g), "queued"))
+		}
+		loop.pluginResultsEdge.enqueue(groupPluginResults(queued), false)
+	}
+
+	require.False(t, loop.pushPluginResults(context.Background()), "the legacy stream fails transiently")
+	require.Len(t, loop.pendingPluginResults, 2*perGroup, "the oldest stream's worth is retained")
+
+	pluginResultsCapability(t, loop)
+	require.True(t, loop.pushPluginResults(context.Background()))
+
+	assignments := make([]string, 0, groups)
+	for _, batch := range spooledPluginResultBatches(t, sp) {
+		assignments = append(assignments, batch.GetProvenance().GetAssignmentId())
+	}
+	require.Equal(t, []string{"queued-0", "queued-1", "queued-2"}, assignments,
+		"retained results are older than the queued remainder and spool first")
 }
