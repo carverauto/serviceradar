@@ -2631,8 +2631,9 @@ they are conflicting encodings of one record, not a pair.
 
 HOW THIS IS STORED IS NOT THIS TASK'S TO DECIDE. Projection -- how "unavailable" is
 represented in SQL, and how wide the column must be to hold `uint32` -- is owned by
-`unify-sweep-results-proto`'s "TimescaleDB Storage" requirement and its task 5.4. This
-requirement constrains the ABI; it SHALL NOT be read as specifying DDL.
+`add-edge-scan-and-mtr-policy`'s "TimescaleDB Storage" requirement and
+`unify-sweep-results-proto` task 5.4. This requirement constrains the ABI; it
+SHALL NOT be read as specifying DDL.
 
 #### Scenario: Zero is admitted whether omitted or explicitly encoded
 - **WHEN** one record omits `asn` entirely and a SEPARATELY IDENTIFIED record encodes it

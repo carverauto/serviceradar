@@ -482,18 +482,16 @@ class.
   - protobuf definitions and generated Go/Elixir modules;
   - Go sweeper result lifecycle, streaming batch builder, disk spool, and gateway
     client;
-  - the agent's built-in producer API, Wasm host ABI/SDK, native add-on gRPC
-    contract/SDK, plugin/add-on output grants, and embedded sync runtime;
+  - the agent's built-in producer API and embedded sync runtime. The Wasm host
+    ABI, package output grants, and the native OTLP relay are outside this
+    change (scope update above);
   - Elixir agent-gateway record RPC, identity attestation, JetStream publisher,
     ACL/configuration, and removal of volatile result buffering for this lane;
   - Elixir core EventWriter streams, partitioned pull consumers, sweep/MTR
     processors, DLQ, ingest ledger, and execution reconciliation;
   - sweep/MTR resources, uniqueness constraints, retention, and rollups;
   - Helm/Docker stream capacity and gateway publisher configuration.
-- **Compatibility**: minimum-version, hard-cut cohort migration. Older agents
-  are upgraded or assignment-ineligible; only pre-cutover backlog is drained,
-  followed by removal of legacy JSON and duplicate agent metric projections.
-- **Breaking change**: after each cohort's hard cut and bounded pre-cutover
-  backlog drain, sweep/MTR data and migrated durable plugin/add-on/inventory
-  outputs no longer use JSON or `GatewayServiceStatus` delivery. Low-volume
-  status/control remains compatible.
+- **Compatibility**: `move-agent-telemetry-to-edge-records` Decision 7
+  (per-producer cutover, then one removal release). This change does not keep
+  a cohort barrier or a minimum-version gate.
+- **Breaking change**: see that same decision.

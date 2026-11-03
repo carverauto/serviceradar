@@ -169,6 +169,14 @@ redrive completeness, and 64-partition production sizing. Normative
 requirements in `specs/` are unchanged; this amendment changes the order of
 work, not the contract.
 
+### Scope amendment 2026-11-02
+
+Maintainer-approved close-out. The normative split is `proposal.md` (Impact,
+scope update). Goals that assign this change the Wasm, native add-on, or
+package-defined output work, and "Migration and Rollback" later in this file,
+are history and are not kept requirements. Cutover is
+`move-agent-telemetry-to-edge-records` Decision 7.
+
 ### M2.0 design: core-scheduled sweeps as signed schedule leases
 
 Maintainer decisions, 2026-09-28: the issuer is online from the start (no static

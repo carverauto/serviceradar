@@ -43,7 +43,7 @@ baseline to notice a regression against.
 - Publish each run's numbers as a build artifact so a baseline and its variance can be
   established from real data before anyone proposes gating on it.
 
-**Part 2 — NOT IN THIS CHANGE. It belongs to the vertical slice.**
+**Part 2 — capacity baselines and the scale soak are section 7 of `tasks.md` (2026-11-02).** The paragraphs below record the original assignment to the vertical slice. Follow section 7, not that assignment.
 
 A throughput benchmark must exercise the SAME production entrypoint the vertical slice uses. If
 it is built here it will grow benchmark-only glue — a private approximation of ingress — and the
@@ -89,7 +89,7 @@ words end-to-end or throughput attach to it.
 
 ## Risk
 
-The honest risk is that this change is itself a horizontal proof surface. What remains here is
-small: it makes existing benchmarks run and keeps their "not production ingress" disclaimers
-intact. The expensive half is not deferred but REASSIGNED, to the slice that will own the
-production entrypoint it must measure.
+The honest risk is that this change is itself a horizontal proof surface. What remains of the
+original benchmark wiring is small: it makes existing benchmarks run and keeps their "not
+production ingress" disclaimers intact. The capacity baselines and the scale soak are section 7
+of `tasks.md` (Impact, update 2026-11-02).
