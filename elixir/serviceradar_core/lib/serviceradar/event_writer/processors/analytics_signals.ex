@@ -251,8 +251,10 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   end
 
   # Ack a message only when every lifecycle occurrence it owns is fully
-  # admitted. Messages stay in batch order: the first pending occurrence blocks
-  # every later one so a redelivery continues the tail instead of overtaking it.
+  # admitted. Within one series, occurrences are admitted in event order and a
+  # later one waits while an earlier one is still pending. Message order only
+  # sequences different series. The first refusal still blocks everything after
+  # it so a redelivery continues the tail instead of overtaking it.
   defp admit_lifecycle_in_order(messages, admit_rows, messages_by_event_id, messages_by_series) do
     groups =
       ordered_admission_groups(messages, admit_rows, messages_by_event_id, messages_by_series)
@@ -300,6 +302,8 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
           group = %{
             event_id: event_id,
+            series: lifecycle_series(row),
+            event_time: admission_time_key(row),
             messages: Enum.sort_by(owners, &Map.get(message_index, &1, 0)),
             index: owners |> Enum.map(&Map.fetch!(message_index, &1)) |> Enum.min(),
             rows: [row]
@@ -309,15 +313,40 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
         end
       end)
 
+    groups = Enum.reverse(groups)
+
+    series_anchor =
+      Enum.reduce(groups, %{}, fn group, acc ->
+        Map.update(acc, group.series, group.index, &min(&1, group.index))
+      end)
+
     groups
-    |> Enum.reverse()
-    |> Enum.sort_by(& &1.index)
+    |> Enum.sort_by(fn group ->
+      {Map.fetch!(series_anchor, group.series), group.event_time, group.event_id || "", group.index}
+    end)
     |> Enum.map(fn group -> {group.messages, Enum.reverse(group.rows)} end)
+  end
+
+  defp admission_time_key(row) do
+    time = Map.get(row, :time) || Map.get(row, "time")
+
+    case time_conflict_value(time) do
+      microseconds when is_integer(microseconds) -> microseconds
+      _ -> 0
+    end
   end
 
   defp append_group_row(groups, event_id, row) do
     Enum.map(groups, fn group ->
-      if group.event_id == event_id, do: %{group | rows: [row | group.rows]}, else: group
+      if group.event_id == event_id do
+        %{
+          group
+          | rows: [row | group.rows],
+            event_time: min(group.event_time, admission_time_key(row))
+        }
+      else
+        group
+      end
     end)
   end
 

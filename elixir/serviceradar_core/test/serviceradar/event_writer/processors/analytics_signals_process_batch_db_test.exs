@@ -83,6 +83,27 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     end
   end
 
+  defmodule OneSlotEngine do
+    @moduledoc false
+
+    def evaluate_events(events) do
+      send(test_pid(), {:alert_evaluation_events, events})
+
+      case Application.get_env(:serviceradar_core, :analytics_signals_admission_slots, 0) do
+        slots when is_integer(slots) and slots > 0 ->
+          Application.put_env(:serviceradar_core, :analytics_signals_admission_slots, slots - 1)
+          :ok
+
+        _ ->
+          {:error, {:overloaded, :rule_bytes}}
+      end
+    end
+
+    defp test_pid do
+      Application.fetch_env!(:serviceradar_core, :analytics_signals_process_batch_test_pid)
+    end
+  end
+
   setup_all do
     TestSupport.start_core!()
     :ok
@@ -666,6 +687,69 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     assert {:ok, 1} = AnalyticsSignals.process_batch([later])
     refute_receive {:alert_evaluation_events, _events}, 50
     assert pending_admission_messages(series_key) == []
+  end
+
+  test "same-batch forecasts admit the earlier event before the later message" do
+    Application.put_env(:serviceradar_core, :stateful_alert_engine, __MODULE__.OneSlotEngine)
+    Application.put_env(:serviceradar_core, :analytics_signals_admission_slots, 1)
+
+    series_key = "synthetic:forecast-same-batch:#{System.unique_integer([:positive])}"
+    earlier = capacity_forecast_message(series_key, "forecast-a", "forecast-earlier", 1_812_456_000_000)
+    later = capacity_forecast_message(series_key, "forecast-b", "forecast-later", 1_812_456_060_000)
+
+    delete_episode_fixture!(series_key)
+
+    on_exit(fn ->
+      Application.delete_env(:serviceradar_core, :analytics_signals_admission_slots)
+      delete_episode_fixture!(series_key)
+    end)
+
+    assert {:incomplete, 2, [{^later, {:overloaded, :rule_bytes}}]} =
+             AnalyticsSignals.process_batch([later, earlier])
+
+    assert_receive {:alert_evaluation_events, [admitted]}
+    assert admitted.message == "forecast-earlier"
+    assert_receive {:alert_evaluation_events, [refused]}
+    assert refused.message == "forecast-later"
+    refute_receive {:alert_evaluation_events, _events}, 50
+
+    assert stored_series_transitions(series_key) == [
+             {"forecast-earlier", "true"},
+             {"forecast-later", "false"}
+           ]
+
+    assert pending_admission_messages(series_key) == ["forecast-later"]
+  end
+
+  test "different series in one batch admit in message order" do
+    Application.put_env(:serviceradar_core, :stateful_alert_engine, __MODULE__.OneSlotEngine)
+    Application.put_env(:serviceradar_core, :analytics_signals_admission_slots, 1)
+
+    first_series = "synthetic:forecast-series-a:#{System.unique_integer([:positive])}"
+    second_series = "synthetic:forecast-series-b:#{System.unique_integer([:positive])}"
+    first = capacity_forecast_message(first_series, "forecast-a", "forecast-first", 1_812_456_060_000)
+    second = capacity_forecast_message(second_series, "forecast-b", "forecast-second", 1_812_456_000_000)
+
+    delete_episode_fixture!(first_series)
+    delete_episode_fixture!(second_series)
+
+    on_exit(fn ->
+      Application.delete_env(:serviceradar_core, :analytics_signals_admission_slots)
+      delete_episode_fixture!(first_series)
+      delete_episode_fixture!(second_series)
+    end)
+
+    assert {:incomplete, 2, [{^second, {:overloaded, :rule_bytes}}]} =
+             AnalyticsSignals.process_batch([first, second])
+
+    assert_receive {:alert_evaluation_events, [admitted]}
+    assert admitted.message == "forecast-first"
+    assert_receive {:alert_evaluation_events, [refused]}
+    assert refused.message == "forecast-second"
+    refute_receive {:alert_evaluation_events, _events}, 50
+
+    assert pending_admission_messages(first_series) == []
+    assert pending_admission_messages(second_series) == ["forecast-second"]
   end
 
   test "a newer inventory close waits while the open admission is pending" do
