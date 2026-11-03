@@ -38,30 +38,38 @@ still `prepared`.
    drop an inbox that still contains accepted work; this is an additional guard,
    not proof that all application processes have stopped.
 
-During a rolling restart, `:alert_evaluation_peer_not_ready` fails the
-AnalyticsSignals transaction cleanly: episode and event transitions and their
-evaluation admission roll back together. EventWriter delays NAKs for this reason
-by 10, 20, 40, and 80 seconds on deliveries 1 through 4. With the default
-`max_deliver: 5`, these delays total 150 seconds before the final attempt;
-recovery before that attempt allows normal processing. Continued failure on
-delivery 5 logs an error and sends a terminal acknowledgement, ending automatic
-redelivery. This is a bounded recovery window, not an indefinite retry guarantee.
-Consumer delivery limits are unchanged.
+During a rolling restart, `:alert_evaluation_peer_not_ready` and
+`{:overloaded, _}` defer the batch. AnalyticsSignals commits episode and event
+transitions before admission, so a refusal leaves the transition stored and
+retries the unadmitted evaluation. EventWriter delays NAKs for both reasons by
+10, 20, 40, and 80 seconds on deliveries 1 through 4. Delivery 5 is delayed-nacked
+for 80 seconds and is not terminally acknowledged. With the default
+`max_deliver: 5`, the delays before that last attempt total 150 seconds.
+Recovery before the server stops redelivering lets admission continue the
+remainder in order. After `max_deliver`, redelivery ends and the unadmitted
+evaluation is lost; the stored signal and the committed transition remain. This is a bounded recovery window, not an indefinite retry
+guarantee. Consumer delivery limits are unchanged.
 
-Readiness deferrals log at info in AnalyticsSignals and the batch pipeline, and
-at debug in the failed-message callback; terminal delivery still logs at error.
-Delayed acknowledgements retain the `nack` telemetry action. Other failures,
-including draining, unavailable capability, and database errors, retain error
-batch logs and immediate NAKs until the delivery limit. The acknowledgement
-policy is implemented in `ServiceRadar.EventWriter.Pipeline`; regression coverage
-is in `pipeline_ack_test.exs` and `analytics_signals_process_batch_db_test.exs`
+Readiness and overload deferrals log at info in AnalyticsSignals and the batch
+pipeline, and at debug in the failed-message callback, including on the last
+delivery. Delayed acknowledgements retain the `nack` telemetry action. Other
+failures, including draining, unavailable capability, and database errors,
+retain error batch logs and immediate NAKs until the delivery limit, then a
+terminal acknowledgement and an error log. The acknowledgement policy is
+implemented in `ServiceRadar.EventWriter.Pipeline`; regression coverage is in
+`pipeline_ack_test.exs` and `analytics_signals_process_batch_db_test.exs`
 under `elixir/serviceradar_core/test/serviceradar/event_writer/` (the latter in
 `processors/`).
 
 Admission bounds use `SERVICERADAR_ALERT_EVALUATION_` followed by
 `ADMISSION_TIMEOUT_MS`, `BATCH_RECORDS`, `BATCH_WORK`, `PENDING_COUNT`,
 `PENDING_BYTES`, `RULE_COUNT`, or `RULE_BYTES`. Every supplied value must be a
-positive integer. Overload rejects an entire batch and never evicts accepted work.
+positive integer. Overload commits the longest in-order prefix that fits and
+returns an error so the pipeline retries the remainder. The acceptance rules
+are the durable admission requirement in
+`openspec/changes/refactor-durable-alert-admission/specs/observability-signals/spec.md`.
+Accepted work is never evicted. An occurrence larger than the byte budget is
+skipped for evaluation, counted, and left stored.
 
 Set `SERVICERADAR_ALERT_EVALUATION_REPLAY_DAYS` to cover the longest supported
 source redelivery and operator replay window. `SERVICERADAR_ALERT_EVALUATION_RECEIPT_DAYS`
@@ -97,7 +105,7 @@ not substitute for those checks.
 | --- | --- | --- |
 | Rule inventory | `StatefulAlertRule` Ash/JSON API actions, `RuleSeeder`, `Plugins.AlertRuleCatalog`, `Inventory.MetricRuleSync`, Rules LiveView, event-to-rule creation, AshEvents replay | Database triggers cover row INSERT/UPDATE/DELETE and replay TRUNCATE. Admission captures one revision; disabling/deleting cancels unclaimed accepted input through the lane watermark. |
 | Source acknowledgement | `StatefulEvaluationLedger` used by Events, Falco, Trivy, log promotion, and metric alert admission (`EventWriter.Processors.Metrics`, after the timeseries insert, for points that match an enabled metric rule) | The source marker records acceptance, not completed alert effects. In prepared mode the batch is acknowledged as a skip: records are stored, nothing is evaluated or promoted, and JetStream does not redeliver. Draining and capability failures still fail the batch and return it to the source consumer; receipts deduplicate a replay after accepted work commits. Metric points use a deterministic id from their stored series identity for that replay check. |
-| Stateful source transitions | `AnalyticsSignals` and `AnomalyEpisodeRegistry` | Episode and event transitions commit with their accepted evaluation. Distinct transitions may retain one event row ID; occurrence identities distinguish those transitions. |
+| Stateful source transitions | `AnalyticsSignals` and `AnomalyEpisodeRegistry` | Episode and event transitions commit before evaluation admission. A later refusal retries the unadmitted evaluation and leaves the transition stored. Distinct transitions may retain one event row ID; occurrence identities distinguish those transitions. Occurrences of one series are admitted in that series' order. |
 | Snapshot and rule history | `Owner`, `AlertLifecycle`, `StatefulAlertCleanupWorker` | The owner fence encloses restore, lifecycle changes, every changed snapshot and the receipt. Cleanup rechecks pending work and incident identity under the admission/owner boundaries. |
 | Incident and notification control | `Monitoring.Alert`, `AlertGenerator`, `AlertLifecycle`, notification routing/continuation/scheduler workers, operator actions | Existing operator acknowledgement, suppression, escalation and resolution remain control-plane actions. Renotify continuation reacquires the rule fence and rechecks the alert/rule/cadence before enqueue and bookkeeping. |
 | Completion-dependent callers | `ResolveStaleAnomaliesWorker`, `AnomalyAlertLivenessCheck` | Maintenance observes ordered receipts and returns actual resolved counts. Liveness observes persisted alert creation and resolution rather than treating acceptance as completion. |

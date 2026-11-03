@@ -902,12 +902,11 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
 
     {earlier, later} =
       Enum.find_value(1..80, fn n ->
-        later = capacity_forecast_message(series_key, "forecast-later-#{n}", "forecast-later", time)
+        later =
+          capacity_forecast_message(series_key, "forecast-later-#{n}", "forecast-later", time)
 
         if forecast_event_id(later) < forecast_event_id(earlier) do
           {earlier, later}
-        else
-          nil
         end
       end) || flunk("no same-time forecast pair inverted event-id order")
 
