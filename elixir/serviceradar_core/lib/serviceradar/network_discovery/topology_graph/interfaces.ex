@@ -8,12 +8,33 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Interfaces do
 
   require Logger
 
-  @spec upsert_interfaces([map()]) :: :ok
+  @spec upsert_interfaces([map()]) :: :ok | {:error, term()}
   def upsert_interfaces([]), do: :ok
 
   def upsert_interfaces(interfaces) when is_list(interfaces) do
-    Enum.each(interfaces, &upsert_interface/1)
-    :ok
+    interfaces
+    |> Enum.flat_map(&upsert_age_interface/1)
+    |> DgraphPersist.upsert_interfaces()
+  end
+
+  # Every interface field build_interface_payload/1 reads.
+  @input_keys [
+    :device_id,
+    :if_name,
+    :if_index,
+    :if_descr,
+    :if_alias,
+    :if_phys_address,
+    :ip_addresses
+  ]
+
+  @doc """
+  The part of an interface record that projection reads, so it can be carried
+  to a later projection and yield the same payload there.
+  """
+  @spec projection_input(map()) :: map()
+  def projection_input(interface) when is_map(interface) do
+    Map.new(@input_keys, &{&1, Utils.link_value(interface, &1)})
   end
 
   @spec upsert_managed_by(String.t(), String.t()) :: :ok
@@ -41,18 +62,20 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Interfaces do
     end
   end
 
-  defp upsert_interface(interface) when is_map(interface) do
+  # Returns the payload for the Dgraph batch once the AGE write (when AGE is
+  # written at all) has succeeded, as the per-interface path always did.
+  defp upsert_age_interface(interface) when is_map(interface) do
     case build_interface_payload(interface) do
       {:ok, payload} ->
         upsert_interface_payload(payload)
 
       {:error, :missing_ids} ->
         Logger.debug("Skipping interface graph upsert missing identifiers")
-        :ok
+        []
     end
   end
 
-  defp upsert_interface(_interface), do: :ok
+  defp upsert_age_interface(_interface), do: []
 
   defp build_interface_payload(interface) do
     device_id = Utils.non_blank(Utils.link_value(interface, :device_id))
@@ -94,10 +117,11 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Interfaces do
 
     case Persist.execute_age(cypher) do
       :ok ->
-        DgraphPersist.upsert_interface(payload)
+        [payload]
 
       {:error, reason} ->
         Logger.warning("Interface graph upsert failed: #{inspect(reason)}")
+        []
     end
   end
 end

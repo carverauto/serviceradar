@@ -100,6 +100,8 @@ defmodule ServiceRadar.NetworkDiscovery.EndpointAttachmentE2ETest do
     endpoint_uid: endpoint_uid
   } do
     assert :ok = MapperResultsIngestor.ingest_topology(Jason.encode!([fdb_payload()]), %{})
+    # The graph projection runs after ingestion commits the evidence rows.
+    assert %{failure: 0, discard: 0} = Oban.drain_queue(queue: :topology_projection)
 
     # 1. Provisional identity minted, MAC-keyed and merge-inert-tagged.
     actor = SystemActor.system(:mapper_topology_ingestor)

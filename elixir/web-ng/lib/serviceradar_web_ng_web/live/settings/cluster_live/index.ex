@@ -1231,6 +1231,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
               <th>Accepted</th>
               <th>Not Accepted</th>
               <th>Timeouts / Crashes</th>
+              <th>Coalesced / Expired</th>
               <th>Incomplete Runs</th>
             </tr>
           </thead>
@@ -1254,6 +1255,9 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
               </td>
               <td class={"font-mono text-xs #{if lane.timeout_total + lane.crash_total > 0, do: "text-warning", else: "text-sr-muted"}"}>
                 {lane.timeout_total} / {lane.crash_total}
+              </td>
+              <td class="font-mono text-xs text-sr-muted">
+                {lane.coalesced_total} / {lane.expired_total}
               </td>
               <td class={"font-mono text-xs #{if lane.incomplete_run_total > 0, do: "text-error font-semibold", else: "text-sr-muted"}"}>
                 {lane.incomplete_run_total}
@@ -1292,6 +1296,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
       not_accepted_total: 0,
       timeout_total: 0,
       crash_total: 0,
+      coalesced_total: 0,
+      expired_total: 0,
       incomplete_run_total: 0
     }
   end
@@ -1358,6 +1364,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
             not_accepted_total: acc.not_accepted_total + entry.not_accepted_total,
             timeout_total: acc.timeout_total + entry.timeout_total,
             crash_total: acc.crash_total + entry.crash_total,
+            coalesced_total: acc.coalesced_total + entry.coalesced_total,
+            expired_total: acc.expired_total + entry.expired_total,
             incomplete_run_total: acc.incomplete_run_total + entry.incomplete_run_total,
             queue_wait_ms: max(acc.queue_wait_ms, entry.queue_wait_ms),
             execution_ms: max(acc.execution_ms, entry.execution_ms),
@@ -1380,6 +1388,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
         not_accepted_total: acc.not_accepted_total + lane.not_accepted_total,
         timeout_total: acc.timeout_total + lane.timeout_total,
         crash_total: acc.crash_total + lane.crash_total,
+        coalesced_total: acc.coalesced_total + lane.coalesced_total,
+        expired_total: acc.expired_total + lane.expired_total,
         incomplete_run_total: acc.incomplete_run_total + lane.incomplete_run_total
       }
     end)
