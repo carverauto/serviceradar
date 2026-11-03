@@ -285,12 +285,12 @@ func localNATSTLS(binding ServerConfig, metadata *managedLocalNATSMetadata) (*tl
 	}
 	identity := managedCertificateDNSName(ManagedCertificateAssignment{ComponentID: metadata.ComponentID, PartitionID: metadata.PartitionID}, managedRoleLocalServer)
 	config.VerifyConnection = func(state tls.ConnectionState) error {
-		return verifyLocalNATSServer(state, identity, readLocalNATSPolicy)
+		return verifyLocalNATSServer(state, identity)
 	}
 	return config, nil
 }
 
-func verifyLocalNATSServer(state tls.ConnectionState, identity string, policy func() (*managedCertificatePolicySnapshot, error)) error {
+func verifyLocalNATSServer(state tls.ConnectionState, identity string) error {
 	if len(state.VerifiedChains) == 0 || len(state.PeerCertificates) == 0 {
 		return errLocalNATSPKIX
 	}
@@ -298,7 +298,7 @@ func verifyLocalNATSServer(state tls.ConnectionState, identity string, policy fu
 	if server.Subject.CommonName != managedCertificateCommonName(identity) || !slices.Contains(server.DNSNames, identity) || len(server.URIs) != 0 {
 		return errLocalNATSServerIdentity
 	}
-	loaded, err := policy()
+	loaded, err := readLocalNATSPolicy()
 	if err != nil {
 		return err
 	}
