@@ -8,6 +8,13 @@ Split out of `unify-sweep-results-proto` on 2026-11-02, when that change's task 
 
 The moved requirement text is unchanged from `unify-sweep-results-proto`, including where it conflicts with `move-agent-telemetry-to-edge-records`. Package metadata MAY still request approved outputs and declarative processor contributions, and a producer run MAY still pin an effective assignment grant. That conflicts with Decision 8 (plugins and add-ons do not get their own contracts) and with standing output grants. USP-01 task 0.9 stays open until `add-event-writer-processor-contributions` is reconciled. "Output contract and format are sticky per producer run" still states the cohort rollback and forbids new legacy JSON output. That conflicts with Decision 7 (per-producer cutover, then one removal release). Those sentences stay verbatim.
 
+Superseded in part by `enable-edge-record-pipeline-by-default` (2026-11-03, #6288). That change
+moves the registry source to core, which derives it from `ContractCatalog`. It also takes over
+the candidate/active/draining/retired lifecycle, readiness and the atomic switch, drain under the
+exact bundle, and stale-component fencing. Signing of the registry is an open question there. Of
+the tasks below, 1.1, 1.5, 1.6 (readiness and epoch selection) and 1.7 are re-scoped by its task
+0.3. The cost API (1.2), security revocation, Hello advertisement (1.3) and 1.4 stay here.
+
 ## What Changes
 
 - Define signed candidate, ready, active, draining, retired and security-revoked bundle states with readiness evidence and one atomic active-epoch switch.

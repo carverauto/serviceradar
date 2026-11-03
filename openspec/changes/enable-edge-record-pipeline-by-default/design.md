@@ -1,0 +1,552 @@
+# Design: Run the durable edge-record pipeline by default with a core-derived contract registry
+
+## Context
+
+As of `staging` on 2026-11-03:
+
+- **Enablement.** The gateway reads `AGENT_GATEWAY_EDGE_RECORDS_ENABLED`, which
+  defaults to `false`. Its `runtime.exs` still says the pipeline "must stay
+  disabled outside a guarded vertical-slice target", although task 0.12 of
+  `unify-sweep-results-proto` has closed. The chart sets that variable, the trust
+  source `core`, and the registry only under `edgeRecords.enabled`. The same flag
+  gates the core issuer key mount and the gateway's NATS publish permission for
+  `telemetry.edge-record*.v1.bulk.>`. JetStream streams and sizing reservations
+  for the edge-record streams are already unconditional.
+- **Registry.** `ServiceRadar.Edge.ContractRegistryDocument` parses one JSON
+  document from the environment, in both core and the gateway. Every value in it
+  is supplied by the operator: `registry_epoch`, `registry_snapshot_sha256`, and
+  `contract_bundle_sha256` per contract. No component checks any digest against
+  contract content (`ServiceRadar.Edge.RecordValidate` checks only lengths).
+  `ServiceRadar.Edge.ContractCatalog` already holds the authority model,
+  projector, bounds and package identity of all six contracts.
+  `OutputContract.current/1` joins the catalog entry with the registry entry.
+- **Gateway admission.** `ServiceRadarAgentGateway.EdgeContractRegistry.admit/3`
+  holds one snapshot. A record from an older epoch is admitted only while the
+  held snapshot still registers its exact bundle; otherwise it is withheld as
+  `:historical_bundle_not_registered`. A record from a newer epoch is withheld as
+  `:registry_epoch_ahead`. Either withhold caps the lane's watermark until the
+  registry changes back.
+- **Delivery.** The gateway fetches `ServiceRadar.Edge.RecordTrust.snapshot/0`
+  from a core node over ERTS every 5 seconds (`EdgeRecordTrustRefresh`). A
+  snapshot expires 30 seconds after its request started. Agents receive standing
+  grants in `AgentConfigResponse.edge_output_grants` and sweep leases through
+  lease delivery. Each signed capability carries the full contract reference.
+- **Issuer key.** `ServiceRadar.Edge.IssuerKey` loads a base64 seed from
+  `SERVICERADAR_EDGE_ISSUER_KEY_FILE`. The chart's secret generator always
+  creates `edge-issuer-seed`, but core mounts it only under
+  `edgeRecords.enabled`. Core already has a precedent for a core-generated
+  self-to-self signing seed: `ServiceRadar.Edge.ManagedCertificatePolicyKey`, an
+  AshCloak-encrypted singleton row bootstrapped insert-only by
+  `ComponentCertificateAuthority.ensure_policy_key/0`.
+- **Operator switch.** `ServiceRadar.SweepJobs.LeaseSettings` resolves
+  `leasing_enabled` from agent, then partition, then global rows, and defaults
+  to off. Both `OutputGrants.config_grants/4` and `LeasePass` require it.
+  Nothing in web-ng exposes it.
+- **Agent.** `EdgeRecordSenderConfig` is optional (`nil` means no sender). It
+  has one opt-in per producer family. Only the chart's bundled-agent
+  `agent.json` renders it. Package and Ansible installs never render it.
+- **Partition.** Migration `20261102231152_seed_default_partition` and
+  `SchemaBootstrap` now seed `default` (#6270). An agent whose partition has no
+  row gets no grant and no lease, and the only trace is a log warning.
+- **serviceradar-control.** `TenantRuntimeValues` renders tenant chart values in
+  code and does not mention `edgeRecords`. Hosted tenants therefore run with the
+  pipeline off. The tenant cloak key is derived per tenant
+  (`TenantSecrets.tenant_cloak_key/2`). The `serviceradar-secrets` Secret is
+  produced by the chart's secret generator inside the tenant namespace.
+
+## Goals / Non-Goals
+
+- Goals:
+  - A fresh install of any kind (Helm, hosted, Docker Compose, package-installed
+    edge agent) carries agent telemetry on edge records with zero operator steps
+    and zero settings rows.
+  - Registry content and digests are a reproducible function of the release.
+  - An epoch change needs no operator action and never caps a lane.
+  - No new Helm values. The one remaining product knob is a CNPG runtime setting
+    with a code default.
+- Non-Goals:
+  - No legacy fallback. A producer that has migrated does not return to
+    `StreamStatus` when the edge path is unhealthy. The legacy path is removed by
+    `move-agent-telemetry-to-edge-records` task 8.1, except RTSP and live media.
+  - The deterministic cost API, security revocation and Hello advertisement of
+    `add-edge-contract-registry-lifecycle` stay in that change.
+  - Issuer key rotation. The key id derivation already lets a verifier hold two
+    keys side by side, and rotation can follow later.
+
+## Decisions
+
+### Decision 1: Always on, with no switch at any layer
+
+The pipeline is the only agent data path, so turning it off means silently losing
+telemetry. A switch would be a way to break an install, not to protect one.
+Therefore:
+
+- **Gateway.** The edge-record publisher and the core trust refresh always
+  start. `AGENT_GATEWAY_EDGE_RECORDS_ENABLED` is deleted. Core is the only
+  production trust source. The boot-time file source stays only as long as a test
+  harness needs it, and no chart or Compose file renders it.
+- **NATS.** The gateway's publish allow list always includes the three
+  edge-record subjects.
+- **Core.** The issuer key always exists (Decision 6). Standing grants are
+  issued, and sweeps leased, for every agent whose partition resolves. Leasing
+  still also requires `sweep_lease_plan_checks:v1` in Hello.
+  `leasing_enabled` is dropped from the settings table, from `LeaseSettings`,
+  `LeasePass` and `OutputGrants`. Its horizon fields stay.
+- **Grant revocation.** Today the switch is the only thing besides a partition
+  move that revokes a standing grant. Agent supersession
+  (`Infrastructure.Agent` `:supersede`) and agent certificate revocation do not
+  touch grants, so a stopped agent's grant stays in the trust snapshot until it
+  expires. With the switch gone, `OutputGrants` revokes an agent's grants, moving
+  their epochs, when its identity is superseded or its certificate is revoked. A
+  partition move still reactivates the grant under a new epoch, as it does
+  today.
+- **Agent.** The sender and spool always run. `EdgeRecordSenderConfig.Enabled`
+  and the four producer opt-ins are deleted. The spool directory defaults to
+  `<runtime base>/edge-records`, which is `/var/lib/serviceradar/agent/edge-records`
+  on Linux, matching the chart, Compose and package layouts. A producer emits
+  edge records exactly when it holds the grant for its contract. That is already
+  the gate in `move-agent-telemetry-to-edge-records` Decision 7, so the opt-ins
+  were a second gate in front of it. An explicitly configured `spool_dir`,
+  gateway address or security block is still honored, because it is local host
+  layout and not a product knob.
+
+Alternatives considered:
+
+- Default the switch to on and keep it as a kill switch. Rejected: turning it off
+  in the release after legacy removal loses data. A compromised or replaced agent
+  is stopped by revoking its certificate or superseding its identity.
+- Keep `edgeRecords.enabled` with a default of `true`. Rejected: control would
+  still have to model it, and it adds nothing.
+
+### Decision 2: Core derives the registry from the release catalog
+
+The catalog is code reviewed with the release, and it is already what core signs
+against and EventWriter projects with. A second, hand-typed copy can only
+disagree with it. The registry therefore becomes a function of the catalog:
+
+- **Bundle digest.** `contract_bundle_sha256` is SHA-256 over
+  `ServiceRadar.Edge.HashGrammar` framing. The framing uses big-endian u64,
+  length-framed strings and bytes, and presence markers. The fields are, in
+  order:
+  - the domain tag `serviceradar.edge.contract_bundle.v1` and digest version 1;
+  - `contract_id` and `contract_version`;
+  - the authority kind and `package_id` (presence-marked);
+  - `route_profile`, `traffic_class` and `partition_rule`;
+  - `cost_model_version`, `max_projected_rows` and `write_bytes_per_row`;
+  - the payload message's full protobuf name;
+  - the payload schema fingerprint;
+  - `projection_revision`.
+- **Schema fingerprint.** It is computed from the generated message definition,
+  walked transitively in field-number order: each field's number, name, type,
+  label and nested message name. It is not computed from `.proto` source text,
+  so comments and formatting do not move it.
+- **`projection_revision`.** A new positive integer on each catalog entry. It is
+  bumped by hand when projection semantics change without a wire or bound
+  change. That one hand-maintained value is reviewed code, not deployment data.
+- **Snapshot digest.** `registry_snapshot_sha256` is SHA-256 over the domain tag
+  `serviceradar.edge.contract_registry.v1`, digest version 1, and the
+  `(contract_id, contract_version, contract_bundle_sha256)` triples sorted by
+  `(contract_id, contract_version)`.
+- **What the digests omit.** The digests exclude the epoch number and every
+  lifecycle state. Two installs, and every replica of one install, on the same
+  release therefore compute the same snapshot digest.
+- **Golden test.** A test pins every bundle digest and the snapshot digest of
+  the current catalog. Changing the catalog fails it until the golden value is
+  updated in the same commit, so an epoch change is always a reviewed decision.
+- **Compatibility rule.** A change that projectors cannot read alongside the old
+  bundle MUST bump `contract_version`. A change that keeps the version MUST stay
+  projectable by the new projector for records stamped with the old bundle, since
+  those records drain on the new release (Decision 5).
+
+The digest is computed only in Elixir. The agent never computes it: it copies the
+reference from its signed capability. No cross-language golden test is needed.
+
+Alternative considered: hash the `.proto` and Elixir source files at build time.
+Rejected: comments and refactors would move the digest and force needless epochs.
+
+### Decision 3: Gateways get the registry with the trust document; agents only see references
+
+- **Gateway.** `RecordTrust.snapshot/0` gains a `"contract_registry"` member. It
+  holds a format version (2) and every non-retired epoch: its number, state,
+  snapshot digest and contract entries, in the parser's existing entry shape. The
+  gateway installs trust and registry together, under the same 30-second
+  expiry. An admission decision therefore never pairs trust from one core read
+  with a registry from another. The registry is a few hundred bytes per epoch,
+  so riding the existing 5-second refresh is free. The `Static` source and
+  `AGENT_GATEWAY_EDGE_RECORD_CONTRACT_REGISTRY` are deleted. The gateway's next
+  refresh call reports the snapshot digests it installed, which is the readiness
+  evidence for Decision 5.
+- **Agent.** The agent receives no registry. Every grant and lease capability
+  already carries the full contract reference, and the agent stamps exactly that
+  reference. A new epoch reaches an agent as re-signed grants in its next
+  config and re-issued leases (Decision 5). Agent config generation is
+  invalidated at activation so the next poll returns the new grants.
+- **Core and EventWriter.** They read the epoch table (Decision 4) through one
+  cached reader. `OutputContract.current/1` returns the active epoch's entry.
+  Validation and projection of a record use the entry of the epoch the record
+  names.
+
+Mixed versions during the upgrade itself: an old gateway may fail to install the
+new document. That shows up as a withhold, never as a reject, and it clears once
+the gateway rolls.
+
+### Decision 4: Epochs are persisted in CNPG, move forward only, and start above every static label
+
+A new table, `platform.edge_contract_registry_epochs`, holds one row per epoch:
+
+- `epoch` (bigint, primary key) and `snapshot_sha256` (bytea, unique);
+- `document` (the canonical entry list, written once and never updated);
+- `state`, one of `candidate`, `active`, `draining` or `retired`;
+- `created_at`, `activated_at`, `draining_since`, `drain_until` and `retired_at`.
+
+A partial unique index allows at most one `active` row. Rows are insert-only, and
+only `state` and the timestamps change.
+
+- **Numbering.** The first derived epoch is 1_000_000, and later ones are
+  `max(epoch) + 1`. Static labels in use are small integers (1 and 2). Starting
+  above them means "older than the floor" proves that a record came from the
+  static era (Decision 7). It also keeps such a record from ever looking like it
+  belongs to a newer derived epoch.
+- **Booting with a new catalog.** A core node whose catalog digest matches no
+  row inserts it as `candidate`. The insert is idempotent through the unique
+  digest, so concurrent replicas converge on one row.
+- **Booting with an old catalog.** A core node whose digest matches a
+  `draining` or `retired` row is stale. It signs nothing new: no grant, no lease
+  and no delivery grant. It still projects records for epochs whose contracts its
+  catalog holds. A downgrade therefore never moves the active epoch backward.
+- **First epoch.** With no `active` row, which is every fresh install and every
+  upgrade from the static registry, the first candidate activates at once. No
+  epoch exists for it to drain.
+
+Alternative considered: derive the epoch number from the digest or the release
+version. Rejected: the gateway orders epochs, and a digest has no order. A
+release version can repeat a catalog, or change without changing it.
+
+### Decision 5: Epoch transition protocol, run by core
+
+The coordinator singleton (`ServiceRadar.Cluster.CoordinatorManager`) runs the
+transition:
+
+1. **Candidate.** A new release's core inserts epoch `n+1` as `candidate` on
+   boot. Gateways receive it in the next trust document alongside active `n`.
+   Core keeps signing under `n`, using `n`'s persisted document rather than its
+   own catalog, so its signatures match what it advertises.
+2. **Readiness.** Activation requires two facts, read fresh on each evaluation:
+   - Every live core node reports the candidate digest as its catalog digest.
+     A live core node is a connected node running the core application.
+   - Every live gateway has reported installing a document that contains the
+     candidate. A live gateway is one `ServiceRadar.GatewayTracker` lists with a
+     heartbeat within its window.
+
+   Activation is never forced on a timeout. While readiness is incomplete, the
+   pipeline status names the epoch and each component that does not hold it.
+3. **Activation.** One transaction sets `n+1` `active` and `n` `draining`, with
+   `drain_until` computed as below. On commit:
+   - Agent configs are invalidated, so grants are re-signed under `n+1`.
+   - `LeasePass` supersedes every slot leased under `n` that has not started,
+     and re-leases it under `n+1`. A slot that has started finishes under `n`,
+     because runs are sticky (`add-edge-contract-registry-lifecycle`, "Output
+     contract and format are sticky per producer run").
+4. **Draining.** The gateway holds `n` and admits a record under it against
+   `n`'s exact entry. This replaces today's rule, which looked the record up in
+   the current snapshot. EventWriter validates and projects it with `n`'s entry.
+   Core issues no new production capability under `n`. A delivery grant for an
+   `n` backlog record is still issued while `n` drains.
+5. **Retirement.** At `drain_until`, `n` moves to `retired`.
+   - `drain_until` is `activated_at(n+1)` plus the longest lifetime of any
+     capability core could have signed under `n`. That is the larger of the
+     8-day standing-grant window plus its 5-minute lead and the longest started
+     slot's collection window.
+   - The maximum delivery-grant lifetime is then added on top.
+
+   After retirement, a record naming `n` cannot hold a valid capability, so the
+   gateway rejects it permanently as `:registry_epoch_retired` and counts it.
+
+Why re-lease at activation: without it, a 30-day lease horizon keeps `n`
+producing records for a month and the drain horizon grows to match. Re-leasing
+bounds new production under `n` to slots that have already started.
+
+Why core drives readiness instead of an agent cohort: agents never hold the
+registry. An agent is "ready" for `n+1` the moment it holds a capability signed
+under `n+1`, and it can only get one after activation.
+
+Fleet-wide effect: every epoch change re-signs every agent's grants. The configs
+of the whole fleet therefore change once per catalog change. That is one config
+push per release that changes a contract, which is acceptable.
+
+### Decision 6: Core generates the issuer key and stores it in CNPG
+
+- **Storage.** A new singleton resource, `ServiceRadar.Edge.EdgeIssuerKeyRecord`,
+  backs the table `platform.edge_issuer_key` (the check `id = 'default'`
+  enforces one row). It mirrors `ManagedCertificatePolicyKey`: the `public_key`
+  is plaintext, and the `seed` is AshCloak-encrypted with
+  `decrypt_by_default []`.
+- **Bootstrap.** Bootstrap is insert-only. The first caller generates 32 random
+  bytes, inserts with `upsert_fields []`, and re-reads the persisted winner.
+  Concurrent replicas therefore converge on one key, and a restart never changes
+  it.
+- **Read path.** `IssuerKey.configured/0` becomes an ensure-then-cache read.
+  The `{:error, :not_configured}` branch, the file loader, the env reads in both
+  `runtime.exs` files, the chart volume, and `edge-issuer-seed` in the secret
+  generator's `REQUIRED_KEYS` and patch list are all deleted.
+
+Rationale:
+
+- It is self-to-self material, so AGENTS.md allows either a Kubernetes Secret or
+  this pattern. CNPG wins on three counts:
+  - Docker Compose and every non-Helm install get the key with no new mechanism.
+  - `secrets.autoGenerate=false` no longer needs an operator-supplied seed.
+  - The key travels with the database backup.
+- That last point matters for hosted tenants. A tenant restore restores CNPG,
+  and the tenant cloak key is derived deterministically, so the restored core
+  keeps the same issuer key and outstanding grants stay valid. With a
+  Secret-held seed, a restore into a fresh namespace would run the secret
+  generator again. It would silently mint a new key and strand every spooled
+  record.
+- The seed is never in `RecordTrust` output. The gateway still receives only
+  `trust_entry/1`.
+
+Upgrade: core does not import the existing file seed. The first derived epoch
+re-signs every grant and re-leases every slot that has not started (Decision 5),
+and static-era records are rejected by epoch before their signature matters
+(Decision 7). Key continuity across the switch therefore buys nothing. A fresh
+key also avoids keeping the Secret mount for one more release.
+
+### Decision 7: Static-era records are rejected and counted, never withheld
+
+A record whose `registry_epoch` is below the derived floor, 1_000_000, was
+stamped against a hand-written document. No component can now prove its bundle
+digest means anything. The gateway resolves such a record as a permanent
+rejection, `:static_registry_epoch`, and the agent quarantines it as it does any
+other rejection. That classification runs before capability-signature
+verification, so an old-key signature cannot turn it into a withhold. A withhold
+here would cap the lane forever, which is the failure this change removes.
+
+The rule is permanent and costs one comparison. It is a statement about which
+epochs can exist, not compatibility code for a legacy path, and no later release
+has to delete it.
+
+### Decision 8: Partition bootstrap and visible blockers
+
+- **Bootstrap.** The `default` partition seed in the migration and in
+  `SchemaBootstrap` (#6270) is the bootstrap, and this change gives it a
+  requirement. Together with Decisions 1, 4 and 6, a fresh install needs no rows
+  beyond what bootstrap writes:
+  - the key is generated on first use;
+  - the first epoch activates at once;
+  - leasing and grants have no switch.
+- **Visible blockers.** Core records a per-agent edge pipeline condition with a
+  reason, exposed in the agent's API representation and in web-ng's agent
+  detail. A healthy agent shows none. The blocking reasons are:
+  - `partition_not_found` (the agent's partition slug has no row);
+  - `no_live_gateway_on_active_epoch`;
+  - `spool_unavailable`, which the agent reports in its status when its spool
+    cannot be opened.
+
+  A log warning alone is not enough. The fresh-install defect sat for weeks
+  behind a warning whose reason the default formatter did not print.
+- **No auto-created partitions.** Core does not create a partition from an
+  agent-reported slug. A partition is a network-scope trust boundary, and letting
+  an agent's claim create a scope would let any agent mint one.
+
+### Decision 9: The one remaining knob is a scoped runtime setting
+
+The spool byte budget varies by host disk, so it stays a knob.
+
+- **Storage.** The table `platform.sweep_lease_settings` is renamed
+  `platform.edge_pipeline_settings`, keeping its global, partition and agent
+  scopes. It loses `leasing_enabled`, keeps `horizon_seconds` and
+  `max_horizon_seconds`, and gains `spool_max_bytes`.
+- **Resolution.** Each field resolves agent, then partition, then global, then
+  the code default. The default is 1 GiB, which every chart-deployed agent
+  already runs, up from today's 256 MiB Go default.
+- **Delivery.** The resolved value is delivered in `AgentConfigResponse`. The
+  agent applies it at admission, so a lower budget only blocks new appends until
+  the spool drains below it.
+- **Helm.** `edgeRecords.maxSpoolBytes` is not replaced by any Helm value.
+
+### Decision 10: Upgrade path is a clean switch
+
+- **Chart.** `_helpers.tpl` fails the render when `.Values.edgeRecords` has any
+  key. The message is:
+
+  ```text
+  edgeRecords was removed in <version>: the durable edge-record pipeline is
+  always on and core derives its contract registry. Delete the edgeRecords block
+  from your values. See docs/docs/data-pipeline.md, "Upgrading from the static
+  registry".
+  ```
+
+  `values.yaml` no longer has the block, so an untouched install never trips the
+  check.
+- **farm01.** It is not Argo-managed, so the operator who rolls farm01 deletes
+  `edgeRecords` from its values. Drain is optional. To lose no static-era
+  backlog, turn leasing off while still on the old release, wait for the spool
+  depth to reach zero, then upgrade. Without the drain, any undelivered
+  static-era records are rejected and counted (Decision 7). Either way, lanes
+  keep moving. Recommended: drain once, because farm01 carries the M4.1 evidence.
+- **demo.** Delete `edgeRecords` from the gitops values in the same commit that
+  bumps the chart. No drain, because demo is disposable.
+- **Hosted tenants and Docker Compose.** No values change, because neither
+  ever set `edgeRecords`. They move onto the pipeline on upgrade.
+- **Rollback.** Rolling back to a static-registry release needs `edgeRecords`
+  values again. Records spooled under derived epochs would then be withheld as
+  `:registry_epoch_ahead` until the install rolls forward again. Rollback across
+  this change is therefore unsupported, the same as across the legacy removal.
+
+### Decision 11: Relationship to other pending changes
+
+- **`add-edge-contract-registry-lifecycle`.** This change takes over:
+  - the registry source;
+  - the candidate, active, draining and retired lifecycle without signing;
+  - readiness and the atomic switch;
+  - drain under the exact bundle, and stale-component fencing.
+
+  It also re-scopes that change's tasks 1.1, 1.5, 1.6 (the readiness and epoch
+  parts) and 1.7. That change keeps the deterministic cost API (1.2), security
+  revocation, Hello advertisement (1.3) and the `projection` task (1.4). Its
+  ADDED requirement "Output contract bundles have a governed deployment
+  lifecycle" still says "signed" and expects target agent cohorts to attest. Task
+  0.2 of this change reconciles that text before either change archives.
+- **`move-agent-telemetry-to-edge-records`.** Its pending requirement
+  "Agent-scheduled producers emit under standing output grants" made grants
+  depend on the operator switch. This change amends it in place: a grant is
+  issued while the contract is active in the active registry epoch and the
+  agent's partition resolves. It is revoked by moving its epoch when the agent's
+  identity is superseded or its certificate is revoked, and reactivated under a
+  new epoch when the agent moves to another partition. Its Decision 2 notes the
+  change.
+- **`unify-sweep-results-proto`.** None of its pending deltas mentions the
+  Helm registry or the switch, so there is no conflict.
+
+## Risks / Trade-offs
+
+- **The first default-on release is the fleet cutover.** Every migrated producer
+  on every install leaves the status path on upgrade, because every agent now
+  holds grants. Mitigation: this release follows the farm01 M4.1 evidence, and
+  the legacy removal stays a separate, later release (Open Question 4).
+- **Readiness can stall.** One unreachable gateway still listed live blocks
+  activation, while core keeps signing under the old epoch. Data keeps flowing,
+  the stall is visible in pipeline status, and gateway liveness ages out on the
+  tracker's heartbeat window.
+- **Fleet-wide config churn per epoch.** It is bounded to one push per
+  contract-changing release (Decision 5).
+- **`projection_revision` is hand-bumped.** A missed bump hides a semantic change
+  behind an unchanged digest. Mitigation: the projector tests that pin row output
+  sit next to the golden digest test, and review covers both.
+- **Static-era backlog is rejected on installs that skip the drain.** That is
+  bounded to farm01 and demo, and the loss is counted rather than silent.
+
+## Migration Plan
+
+1. Land core: epoch table, issuer key table, the settings rename and
+   `leasing_enabled` drop, catalog derivation and the golden test, the trust
+   document extension, the transition coordinator, and pipeline conditions.
+2. Land the gateway: multi-epoch admission from the trust document, the
+   static-era rejection, removal of the `Static` source and the enable variable,
+   and a default core trust source.
+3. Land the agent: sender always on, default spool directory, producer opt-ins
+   removed, budget from config.
+4. Land the chart in the same release: remove `edgeRecords`, add the fail guard,
+   remove the issuer mount and seed key, make the NATS permissions
+   unconditional, update the README and tests.
+5. Roll farm01 (drain first), then demo, then the hosted fleet through
+   serviceradar-control.
+6. Ship the legacy removal (sibling task 8.1) in a later release.
+
+## serviceradar-control
+
+What control has to change. No change adds a value, because there is no
+`edgeRecords` value left to model.
+
+1. Reject `edgeRecords` in the rendered tenant values, including anything merged
+   from `CONTROL_PLANE_TENANT_CHART_VALUES_JSON`, so a hosted override fails in
+   control with a clear error rather than at chart render.
+2. Gate the release. Hosted tenants must reach the default-on chart before any
+   chart that removes the legacy status path. Record the minimum chart version in
+   `TenantChartCapabilities` or the chart contract versions, and refuse to plan
+   a tenant upgrade that skips it.
+3. Restore. The issuer key and registry epochs now live in CNPG, encrypted with
+   the tenant cloak key. Confirm that the restore execution plan restores CNPG
+   together with a cloak key equal to the original, which the per-tenant
+   derivation should already guarantee. Confirm too that nothing depends on the
+   `edge-issuer-seed` Secret key.
+4. Health. Add a tenant runtime health check for edge pipeline readiness: an
+   active registry epoch, the issuer key present, and every live gateway holding
+   the active epoch. It reads from core's health endpoint once that exists
+   (task 1.8).
+5. Verify, with no change expected: JetStream sizing already reserves the four
+   edge-record streams in chart profiles. `agent.runtimeStorage` stays enabled
+   in hosted values. The agent's edge-record lane uses the existing gateway gRPC
+   port, so tenant network policy needs no new rule.
+
+### Draft issue for carverauto/serviceradar-control (not filed)
+
+```text
+Title: Hosted tenants: guard removed edgeRecords values and gate on the default-on edge pipeline chart
+
+ServiceRadar is making the durable edge-record pipeline always on, with a
+core-derived contract registry (carverauto/serviceradar#6288, OpenSpec change
+enable-edge-record-pipeline-by-default). The chart's edgeRecords values block
+is removed, and the chart fails to render when any edgeRecords key is set.
+Control never rendered edgeRecords, so hosted tenants have been running with the
+pipeline off. After this chart they run it with no values. The legacy agent
+status path is removed in a later release, and a tenant that skips the
+default-on chart would lose agent telemetry.
+
+Needed in control:
+
+1. Reject edgeRecords in rendered tenant values, including anything merged from
+   CONTROL_PLANE_TENANT_CHART_VALUES_JSON, with a clear error before Helm runs.
+2. Record the default-on chart version as a required step in the tenant chart
+   capability/contract gating, and refuse a tenant upgrade plan that would jump
+   from a pre-default-on chart straight to the chart that removes the legacy
+   status path.
+3. Restore: the edge issuer key and the registry epochs now live in tenant CNPG,
+   encrypted with the tenant cloak key. Confirm the restore plan restores CNPG
+   with the same cloak key, and that nothing depends on the edge-issuer-seed key
+   of serviceradar-secrets (it is no longer generated).
+4. Add a tenant runtime health check for edge pipeline readiness once core
+   exposes it: an active registry epoch, the issuer key present, and every live
+   gateway holding the active epoch.
+5. Verify, no change expected: the JetStream profile reservations for the four
+   edge-record streams, agent.runtimeStorage stays enabled, and the gateway
+   gRPC port already carries the edge-record lane.
+
+No new chart values are involved; nothing about the pipeline is configured per
+tenant.
+```
+
+## Open Questions
+
+These are the product owner's calls. Each lists the options and a recommendation.
+
+1. **Keep a per-agent off switch?**
+   - (a) Remove `leasing_enabled` entirely.
+   - (b) Keep it with a default of on, as an emergency stop.
+   - Recommendation: (a). After legacy removal, "off" means data loss.
+     Supersession and certificate revocation revoke grants under this change
+     (Decision 1), which covers stopping a compromised or replaced agent.
+2. **Static-era backlog at the switch.**
+   - (a) Reject and count it, with an optional pre-upgrade drain on farm01.
+   - (b) Make the drain mandatory, and have the chart refuse to upgrade until an
+     operator asserts it.
+   - (c) Keep the old Secret mount for one release and accept a one-time import
+     of the static document.
+   - Recommendation: (a). Only two internal installs have static-era spools.
+     Option (c) needs exactly the Helm-carried registry this change removes.
+3. **Is the registry "signed"?** `move-agent-telemetry-to-edge-records` and
+   `add-edge-contract-registry-lifecycle` both say "signed contract registry".
+   - (a) Drop signing. The registry is derived by the authority itself and
+     reaches gateways over the authenticated ERTS control plane, so a signature
+     adds a key to manage and no new guarantee.
+   - (b) Sign each epoch document with the issuer key, and have the gateway
+     verify it.
+   - Recommendation: (a). Amend both texts in task 0.2.
+4. **Release sequencing.**
+   - (a) Default-on in release R, legacy removal in R+1.
+   - (b) Both in one release.
+   - Recommendation: (a). In R, an agent without a grant (for example, a
+     partition with no row) still has the legacy path, as existing behavior.
+     Release R+1 removes it, and R surfaces the reason (Decision 8), so every
+     such agent can be fixed before R+1.
