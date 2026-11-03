@@ -21,7 +21,7 @@
   PARTIAL (reconciled 2026-11-02): high/low-water pause landed as `unify-sweep-results-proto` M3.2 (#6269), and byte-fair admission across producer flows landed at the agent spool as USP-01 2.7 (#6274); remaining scope is the rest of USP-01 2.7.
 - [x] 1.4 Replicate `TELEMETRY_EDGE_RECORD_V1_BULK` and the projector destination streams;
   reconciliation raises the replica count of an existing stream.
-  DONE (reconciled 2026-11-02): `TELEMETRY_EDGE_RECORD_V1_BULK` and projector destination streams are configured for R3 replication, and `ServiceRadar.NATS.JetStreamConsumer` reconciles existing stream replica counts upward (#6219).
+  DONE (reconciled 2026-11-02): `TELEMETRY_EDGE_RECORD_V1_BULK` and projector destination streams are configured for R3 replication, and `ServiceRadar.NATS.JetstreamConsumer` reconciles existing stream replica counts upward (#6219).
 - [x] 1.5 EventWriter dispatch by output contract through a projector registry and behaviour;
   no per-contract clause in the processor.
   DONE (reconciled 2026-11-02): `ServiceRadar.Edge.Projector` behaviour and `ServiceRadar.Edge.ContractCatalog.projector/1` dispatch records in `ServiceRadar.EventWriter.Processors.EdgeRecord` without per-contract processor clauses (#6247).
@@ -30,7 +30,7 @@
   PARTIAL (reconciled 2026-11-02): `ServiceRadar.Edge.MetricsBatchProjection` republishes `serviceradar.metrics.batch` to `metrics.>` with `Nats-Msg-Id` and `PubAck` before ledger commit (#6214, #6247); remaining scope is OTLP relay and plugin/add-on log/event JetStream republish projection (tasks 4.1 and 5.1).
 - [x] 1.7 Core issues standing grants for every registry entry marked agent-scheduled instead of
   naming contracts in code.
-  DONE (reconciled 2026-11-02): `ServiceRadar.Edge.OutputGrants.ensure_standing/2` issues standing grants for every `ServiceRadar.Edge.ContractCatalog.standing_grant_refs/0` entry (#6247).
+  DONE (reconciled 2026-11-02): `ServiceRadar.Edge.OutputGrants.config_grants/4` issues standing grants by reconciling each `ServiceRadar.Edge.ContractCatalog.standing_grant_refs/0` entry through `reconcile/4` (#6247).
 
 ## 2. Metrics
 
@@ -75,7 +75,7 @@
   change.
   TODO (reconciled 2026-11-02): remaining scope is the `TelemetryBatch` contract catalog entry, agent producer, and core projector for `serviceradar_metrics`, `ocsf_event` and `otel_log`.
 - [ ] 5.2 Typed Wasm plugin result batch; producer and projector.
-  PARTIAL (reconciled 2026-11-02): `WasmPluginResultBatchV1` contract and generated bindings landed in `proto/edge/v1/plugin_results.proto` (#6245); remaining scope is the agent producer and core projector into `ResultIngestor`.
+  PARTIAL (reconciled 2026-11-02): `WasmPluginResultBatchV1` contract and generated bindings landed in `proto/edge/v1/plugin_results.proto` (#6245); remaining scope is the agent producer and core projector into `ServiceRadar.Observability.PluginResultIngestor`.
 - [ ] 5.3 Parity soak.
   TODO (reconciled 2026-11-02): remaining scope is the plugin and add-on telemetry parity soak after tasks 5.1 and 5.2.
 
