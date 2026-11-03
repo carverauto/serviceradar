@@ -132,6 +132,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     chunk_index = Keyword.get(opts, :chunk_index)
     total_chunks = Keyword.get(opts, :total_chunks)
     is_final = Keyword.get(opts, :is_final, true)
+    is_cancelled = Keyword.get(opts, :is_cancelled, false)
     mapper_promotion_opts = Keyword.get(opts, :mapper_promotion_opts, [])
 
     reporter_context =
@@ -186,6 +187,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           chunk_index: chunk_index,
           total_chunks: total_chunks,
           is_final: is_final,
+          is_cancelled: is_cancelled,
           reporter_context: reporter_context
         )
     end
@@ -2869,6 +2871,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           id: e.id,
           sweep_group_id: e.sweep_group_id,
           agent_id: e.agent_id,
+          status: e.status,
           started_at: e.started_at,
           completed_at: e.completed_at,
           duration_ms: e.duration_ms,
