@@ -26,10 +26,14 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter do
   unavailable, the PubAck times out) the source is NAKed with backoff and stays on the
   edge-record stream, so the next delivery tries again.
 
-  The dead-letter's `Nats-Msg-Id` is `edge-dlq:<source stream>:<source sequence>`: a delivery
-  redelivered after a lost source ACK is stored once, while the same record dead-lettered again
-  after a replay (a new source sequence) is stored again rather than deduplicated against a copy
-  the replay already deleted. The record's own `Nats-Msg-Id` travels in
+  The dead-letter's `Nats-Msg-Id` is `edge-dlq:<source stream>:<source sequence>`, and the
+  stream keeps that id for the source stream's 24-hour `MaxAge`. A delivery redelivered after a
+  lost source ACK is stored once. The same record dead-lettered again after a replay (a new
+  source sequence) is stored again rather than deduplicated against a copy the replay already
+  deleted. A PubAck that reports the id as a duplicate is a held copy only when that sequence
+  is still in the stream. If the sequence was removed, the same bytes are published again as
+  `edge-dlq:<source stream>:<source sequence>:restored`. If that copy is gone too, the publish
+  fails and the source stays unacknowledged. The record's own `Nats-Msg-Id` travels in
   `Sr-Edge-Dlq-Source-Msg-Id`, and replay restores it.
 
   ## Failure headers
@@ -66,6 +70,7 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter do
   alias ServiceRadar.Edge.WireDecode
   alias ServiceRadar.EventWriter.EdgeRecordDeadLetter.FailureLog
   alias ServiceRadar.EventWriter.Telemetry, as: EventWriterTelemetry
+  alias ServiceRadar.NATS.Connection
   alias ServiceRadar.NATS.JetStreamPublish
 
   require Logger
@@ -132,21 +137,14 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter do
   @doc """
   Copies a failed delivery to the dead-letter stream and waits for its PubAck.
 
-  Returns `:ok` once the copy is stored (or the stream reports it as a duplicate of a copy it
-  already holds); the caller then ACKs the source. Any other result is an error, and the caller
-  must leave the source unacknowledged. Never raises.
+  Returns `:ok` once a copy is in the stream. A duplicate PubAck counts only when its sequence
+  is still there; a duplicate of a removed sequence is published again under a new id. Any other
+  result is an error, and the caller must leave the source unacknowledged. Never raises.
   """
   @spec dead_letter(map()) :: :ok | {:error, term()}
   def dead_letter(message) do
     letter = build(message, DateTime.utc_now())
-
-    result =
-      JetStreamPublish.publish_acked(letter.subject, letter.body,
-        msg_id: letter.msg_id,
-        headers: letter.headers,
-        request: request_fun(message)
-      )
-
+    result = store_copy(message, letter)
     if match?({:ok, _ack}, result), do: forget_first_failure(message)
     report(letter, result)
   catch
@@ -399,6 +397,66 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter do
        when is_function(fun, 3), do: fun
 
   defp request_fun(_message), do: nil
+
+  defp store_copy(message, letter) do
+    publish_until_held(message, letter, letter.msg_id, false)
+  end
+
+  defp publish_until_held(message, letter, msg_id, restored?) do
+    case JetStreamPublish.publish_acked(letter.subject, letter.body,
+           msg_id: msg_id,
+           headers: letter.headers,
+           request: request_fun(message)
+         ) do
+      {:ok, %{duplicate: true} = ack} ->
+        case copy_held?(message, ack) do
+          :held -> {:ok, ack}
+          :absent -> republish_missing(message, letter, msg_id, restored?, ack.seq)
+          {:error, reason} -> {:error, reason}
+        end
+
+      other ->
+        other
+    end
+  end
+
+  defp republish_missing(message, letter, msg_id, false, _seq)
+       when is_binary(msg_id) and msg_id != "" do
+    publish_until_held(message, letter, msg_id <> ":restored", true)
+  end
+
+  defp republish_missing(_message, _letter, _msg_id, _restored?, seq),
+    do: {:error, {:dead_letter_copy_missing, seq}}
+
+  defp copy_held?(message, %{stream: stream, seq: seq})
+       when is_binary(stream) and is_integer(seq) do
+    subject = "$JS.API.STREAM.MSG.GET.#{stream}"
+
+    with {:ok, %{body: body}} <-
+           js_request(message, subject, Jason.encode!(%{seq: seq})),
+         {:ok, decoded} <- Jason.decode(body) do
+      case decoded do
+        %{"message" => %{"seq" => ^seq}} -> :held
+        %{"error" => %{"err_code" => 10_037}} -> :absent
+        %{"error" => %{"code" => 404}} -> :absent
+        %{"error" => error} -> {:error, {:jetstream, error}}
+        other -> {:error, {:unexpected_reply, other}}
+      end
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp copy_held?(_message, ack), do: {:error, {:unexpected_ack, ack}}
+
+  defp js_request(message, subject, body) do
+    opts = [receive_timeout: 5_000]
+
+    case request_fun(message) do
+      fun when is_function(fun, 3) -> fun.(subject, body, opts)
+      nil -> with {:ok, conn} <- Connection.get(), do: Gnat.request(conn, subject, body, opts)
+    end
+  end
 
   # The minimum a failed build can still report.
   defp build_safely(message) do

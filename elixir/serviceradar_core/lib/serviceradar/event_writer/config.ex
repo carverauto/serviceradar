@@ -948,10 +948,13 @@ defmodule ServiceRadar.EventWriter.Config do
   source delivery unacknowledged, so the record keeps retrying on the edge-record
   stream instead of being lost. Only a replay
   (`ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay`) or an operator deletes
-  a message. The `EdgeRecordDeadLetter` processor binds this stream's durable and
-  writes nothing; an acknowledgement does not remove a message under limits
-  retention. The DLQ catalog, retention and redrive are
-  `add-edge-record-stream-partitioning`.
+  a message. The duplicate window is the source stream's 24-hour `MaxAge`: the
+  dead-letter id `edge-dlq:<source stream>:<source sequence>` then stores one copy
+  of a redelivered source for as long as that source can still be redelivered.
+  `MaxAge` here is disabled, which is what lets the window be that long. The
+  `EdgeRecordDeadLetter` processor binds this stream's durable and writes nothing;
+  an acknowledgement does not remove a message under limits retention. The DLQ
+  catalog, retention and redrive are `add-edge-record-stream-partitioning`.
   """
   @spec edge_record_dead_letter_stream() :: stream_config()
   def edge_record_dead_letter_stream do
@@ -960,7 +963,8 @@ defmodule ServiceRadar.EventWriter.Config do
       | name: "EDGE_RECORD_DLQ",
         stream_name: "TELEMETRY_EDGE_RECORD_DLQ_V1_BULK",
         subject: "telemetry.edge-record-dlq.v1.bulk.>",
-        processor: ServiceRadar.EventWriter.Processors.EdgeRecordDeadLetter
+        processor: ServiceRadar.EventWriter.Processors.EdgeRecordDeadLetter,
+        stream_duplicate_window: edge_record_stream().stream_max_age
     }
   end
 
