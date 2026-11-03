@@ -177,9 +177,16 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
       with {:ok,
             {bulk_ocsf_rows, bulk_ocsf_count, persisted_ocsf_rows, recorded_ocsf_events,
-             pending_series}} <-
+             pending_series, returned_owners}} <-
              AnomalyEpisodeRegistry.transaction(fn ->
-               returned_rows = AnomalyEpisodeRegistry.transition_rows(all_ocsf_rows)
+               returned_pairs =
+                 Enum.flat_map(tagged_ocsf, fn {message, row} ->
+                   [row]
+                   |> AnomalyEpisodeRegistry.transition_rows()
+                   |> Enum.map(&{message, &1})
+                 end)
+
+               returned_rows = Enum.map(returned_pairs, &elem(&1, 1))
 
                {ash_rows, bulk_rows} = Enum.split_with(returned_rows, &ash_recorded_row?/1)
 
@@ -190,14 +197,17 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
                {persisted, transitions} = record_ocsf_events(ash_rows)
 
                {bulk_rows, count, persisted, transitions,
-                lifecycle_series(all_ocsf_rows ++ returned_rows)}
+                lifecycle_series(all_ocsf_rows ++ returned_rows),
+                Enum.group_by(returned_pairs, &ocsf_event_id_key(elem(&1, 1)), &elem(&1, 0))}
              end) do
         lifecycle_failures =
           admit_pending_series(
             messages,
             pending_series,
             owners_by_series,
-            messages_by_event_id
+            Map.merge(messages_by_event_id, returned_owners, fn _id, delivered, returned ->
+              Enum.uniq(delivered ++ returned)
+            end)
           )
 
         warehouse =
@@ -257,14 +267,13 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
       series
       |> load_pending_occurrences()
       |> Enum.chunk_by(& &1.series)
-      |> Enum.map(fn occurrences ->
-        owners = series_owners(occurrences, messages, owners_by_series, messages_by_event_id)
-        {owners, occurrences}
+      |> Enum.sort_by(fn occurrences ->
+        occurrences
+        |> series_owners(owners_by_series, messages_by_event_id)
+        |> Enum.map(&Map.fetch!(message_index, &1))
+        |> Enum.min(fn -> length(messages) end)
       end)
-      |> Enum.sort_by(fn {owners, _occurrences} ->
-        owners |> Enum.map(&Map.fetch!(message_index, &1)) |> Enum.min()
-      end)
-      |> Enum.reduce({[], nil}, fn {owners, occurrences}, {failures, halted} ->
+      |> Enum.reduce({[], nil}, fn occurrences, {failures, halted} ->
         result = if halted, do: {halted, occurrences}, else: admit_occurrences(occurrences)
 
         case result do
@@ -272,7 +281,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
             {failures, nil}
 
           {reason, unadmitted} ->
-            owners = unadmitted_owners(unadmitted, owners, messages_by_event_id)
+            owners = unadmitted_owners(unadmitted, messages_by_event_id)
             {Enum.map(owners, &{&1, reason}) ++ failures, reason}
         end
       end)
@@ -280,27 +289,17 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     Enum.reverse(failures)
   end
 
-  # A pending row we cannot tie to a message still blocks the batch: acking
-  # any message would drop an occurrence nobody retries.
-  defp series_owners([%{series: series} | _] = occurrences, messages, owners_by_series, by_id) do
-    owners =
-      Map.get(owners_by_series, series) ||
-        Enum.flat_map(occurrences, &Map.get(by_id, &1.event_id, []))
-
-    case Enum.uniq(owners) do
-      [] -> messages
-      owners -> owners
-    end
+  defp series_owners([%{series: series} | _] = occurrences, owners_by_series, by_id) do
+    Map.get(owners_by_series, series) ||
+      Enum.flat_map(occurrences, &Map.get(by_id, &1.event_id, []))
   end
 
-  # A message whose own occurrences were all admitted is acked even when a later
-  # occurrence of its series is refused; the messages of the unadmitted tail
-  # fail so their redelivery continues it.
-  defp unadmitted_owners(unadmitted, owners, by_id) do
-    case unadmitted |> Enum.flat_map(&Map.get(by_id, &1.event_id, [])) |> Enum.uniq() do
-      [] -> owners
-      tail_owners -> tail_owners
-    end
+  # Only the messages that delivered an occurrence of the unadmitted tail fail,
+  # so their redelivery continues it. A message whose own occurrences were all
+  # admitted is acked; a tail no message in this batch delivered stays pending
+  # for its own redelivery or the drain.
+  defp unadmitted_owners(unadmitted, by_id) do
+    unadmitted |> Enum.flat_map(&Map.get(by_id, &1.event_id, [])) |> Enum.uniq()
   end
 
   defp admit_occurrences([]), do: :ok

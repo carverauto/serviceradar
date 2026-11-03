@@ -554,6 +554,55 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     refute_receive {:alert_evaluation_events, [%{id: ^event_id}]}, 50
   end
 
+  test "a redelivery whose own occurrence is admitted is acked while a later one waits" do
+    Application.put_env(
+      :serviceradar_core,
+      :stateful_alert_engine,
+      __MODULE__.CanonicalBodyEngine
+    )
+
+    Application.put_env(
+      :serviceradar_core,
+      :analytics_signals_replay_result,
+      {:error, {:overloaded, :rule_bytes}}
+    )
+
+    stamp = System.unique_integer([:positive])
+    series_key = "synthetic:redelivery-tail:#{stamp}"
+    earlier_message = "earlier-forecast-#{stamp}"
+    later_message = "saturated-forecast-#{stamp}"
+
+    earlier =
+      capacity_forecast_message(series_key, "tail-earlier", earlier_message, 1_812_456_000_000)
+
+    later =
+      capacity_forecast_message(series_key, "tail-later", later_message, 1_812_456_060_000)
+
+    delete_episode_fixture!(series_key)
+
+    on_exit(fn ->
+      Application.delete_env(:serviceradar_core, :analytics_signals_replay_result)
+      delete_episode_fixture!(series_key)
+    end)
+
+    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([earlier])
+    assert_receive {:alert_evaluation_events, [%{message: ^earlier_message}]}
+    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([later])
+    assert_receive {:alert_evaluation_events, [%{message: ^earlier_message}]}
+    assert pending_admission_messages(series_key) == [earlier_message, later_message]
+
+    Application.put_env(
+      :serviceradar_core,
+      :stateful_alert_engine,
+      __MODULE__.SaturatedRuleEngine
+    )
+
+    assert {:ok, 1} = AnalyticsSignals.process_batch([earlier])
+    assert_receive {:alert_evaluation_events, [%{message: ^earlier_message}]}
+    assert_receive {:alert_evaluation_events, [%{message: ^later_message}]}
+    assert pending_admission_messages(series_key) == [later_message]
+  end
+
   test "one drain run scans past series stuck behind a saturated rule" do
     Application.put_env(
       :serviceradar_core,
@@ -836,7 +885,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     assert canonical_transition?(first_event)
     assert stored_anomaly(series_key) == {"canonical-open", "canonical-event", "false"}
 
-    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([later])
+    assert {:ok, 1} = AnalyticsSignals.process_batch([later])
     assert_receive {:alert_evaluation_events, [replayed]}
     assert canonical_transition?(replayed)
     assert stored_anomaly(series_key) == {"canonical-open", "canonical-event", "false"}
