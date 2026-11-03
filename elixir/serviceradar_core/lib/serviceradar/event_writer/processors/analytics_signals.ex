@@ -18,6 +18,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   alias ServiceRadar.Automation.Northbound.EventHandlerRunner
   alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.DeviceCorrelation
+  alias ServiceRadar.EventWriter.JetStreamAck
   alias ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry
   alias ServiceRadar.EventWriter.Telemetry, as: EventWriterTelemetry
   alias ServiceRadar.Inventory.EndpointVulnerabilityAssessment
@@ -144,6 +145,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
         |> Enum.reject(&is_nil/1)
 
       routing_store = store_routing_events(routing_rows)
+      final_delivery? = Enum.any?(messages, &JetStreamAck.final_delivery?/1)
 
       with {:ok, {bulk_ocsf_rows, bulk_ocsf_count, persisted_ocsf_rows, recorded_ocsf_events}} <-
              AnomalyEpisodeRegistry.transaction(fn ->
@@ -158,11 +160,17 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
                # Commit the transition and its accepted evaluation together. A
                # rejected inbox must leave the prior state available to redelivery.
-               case evaluate_transitions(transitions) do
+               # The final delivery has no redelivery: rolling back there would
+               # lose the transition itself, so it commits first and admits after.
+               admission = if final_delivery?, do: :ok, else: evaluate_transitions(transitions)
+
+               case admission do
                  :ok -> {bulk_rows, count, persisted, transitions}
                  {:error, reason} -> ServiceRadar.Repo.rollback(reason)
                end
              end) do
+        if final_delivery?, do: evaluate_committed_transitions(recorded_ocsf_events)
+
         warehouse = Destination.persist_after_cnpg(:events, bulk_ocsf_rows ++ persisted_ocsf_rows)
 
         dispatch_northbound_inventory_transitions(recorded_ocsf_events)
@@ -914,8 +922,9 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     )
   end
 
-  # This runs inside the transition transaction. Occurrence IDs are distinct
-  # from the reused event row ID and are stored with the accepted inbox row.
+  # Runs inside the transition transaction, or after it commits on a final
+  # delivery. Occurrence IDs are distinct from the reused event row ID and are
+  # stored with the accepted inbox row.
   defp evaluate_transitions([]), do: :ok
 
   defp evaluate_transitions(rows) do
@@ -923,6 +932,22 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     |> alert_evaluation_rows()
     |> Enum.map(&Map.put(&1, :__alert_evaluation_occurrence_id__, Ash.UUID.generate()))
     |> StatefulEvaluationLedger.evaluate_events()
+  end
+
+  # A committed final-delivery transition is stored whatever admission says;
+  # a refusal now only means no rule evaluates it. The inbox counts the
+  # refusal by reason; this names the records it left unevaluated.
+  defp evaluate_committed_transitions(rows) do
+    case evaluate_transitions(rows) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "Stored #{length(rows)} lifecycle transition(s) on their final delivery " <>
+            "without alert evaluation: #{inspect(reason)}"
+        )
+    end
   end
 
   defp alert_evaluation_event_row?(row),
