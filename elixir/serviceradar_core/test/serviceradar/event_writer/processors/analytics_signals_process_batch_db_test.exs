@@ -540,7 +540,11 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
   end
 
   test "a later same-series anomaly open admits the persisted transition" do
-    Application.put_env(:serviceradar_core, :stateful_alert_engine, __MODULE__.CanonicalBodyEngine)
+    Application.put_env(
+      :serviceradar_core,
+      :stateful_alert_engine,
+      __MODULE__.CanonicalBodyEngine
+    )
 
     Application.put_env(
       :serviceradar_core,
@@ -586,7 +590,11 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
   end
 
   test "a later series clear waits until the pending open is admitted" do
-    Application.put_env(:serviceradar_core, :stateful_alert_engine, __MODULE__.CanonicalBodyEngine)
+    Application.put_env(
+      :serviceradar_core,
+      :stateful_alert_engine,
+      __MODULE__.CanonicalBodyEngine
+    )
 
     Application.put_env(
       :serviceradar_core,
@@ -644,7 +652,11 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
   end
 
   test "a held forecast redelivery admits the earlier pending series row first" do
-    Application.put_env(:serviceradar_core, :stateful_alert_engine, __MODULE__.CanonicalBodyEngine)
+    Application.put_env(
+      :serviceradar_core,
+      :stateful_alert_engine,
+      __MODULE__.CanonicalBodyEngine
+    )
 
     Application.put_env(
       :serviceradar_core,
@@ -653,8 +665,12 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     )
 
     series_key = "synthetic:forecast-order:#{System.unique_integer([:positive])}"
-    earlier = capacity_forecast_message(series_key, "forecast-a", "forecast-earlier", 1_812_456_000_000)
-    later = capacity_forecast_message(series_key, "forecast-b", "forecast-later", 1_812_456_060_000)
+
+    earlier =
+      capacity_forecast_message(series_key, "forecast-a", "forecast-earlier", 1_812_456_000_000)
+
+    later =
+      capacity_forecast_message(series_key, "forecast-b", "forecast-later", 1_812_456_060_000)
 
     delete_episode_fixture!(series_key)
 
@@ -694,8 +710,12 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     Application.put_env(:serviceradar_core, :analytics_signals_admission_slots, 1)
 
     series_key = "synthetic:forecast-same-batch:#{System.unique_integer([:positive])}"
-    earlier = capacity_forecast_message(series_key, "forecast-a", "forecast-earlier", 1_812_456_000_000)
-    later = capacity_forecast_message(series_key, "forecast-b", "forecast-later", 1_812_456_060_000)
+
+    earlier =
+      capacity_forecast_message(series_key, "forecast-a", "forecast-earlier", 1_812_456_000_000)
+
+    later =
+      capacity_forecast_message(series_key, "forecast-b", "forecast-later", 1_812_456_060_000)
 
     delete_episode_fixture!(series_key)
 
@@ -727,8 +747,12 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
 
     first_series = "synthetic:forecast-series-a:#{System.unique_integer([:positive])}"
     second_series = "synthetic:forecast-series-b:#{System.unique_integer([:positive])}"
-    first = capacity_forecast_message(first_series, "forecast-a", "forecast-first", 1_812_456_060_000)
-    second = capacity_forecast_message(second_series, "forecast-b", "forecast-second", 1_812_456_000_000)
+
+    first =
+      capacity_forecast_message(first_series, "forecast-a", "forecast-first", 1_812_456_060_000)
+
+    second =
+      capacity_forecast_message(second_series, "forecast-b", "forecast-second", 1_812_456_000_000)
 
     delete_episode_fixture!(first_series)
     delete_episode_fixture!(second_series)
@@ -753,7 +777,11 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
   end
 
   test "a pending forecast between two same-batch forecasts is admitted first" do
-    Application.put_env(:serviceradar_core, :stateful_alert_engine, __MODULE__.CanonicalBodyEngine)
+    Application.put_env(
+      :serviceradar_core,
+      :stateful_alert_engine,
+      __MODULE__.CanonicalBodyEngine
+    )
 
     Application.put_env(
       :serviceradar_core,
@@ -762,8 +790,13 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     )
 
     series_key = "synthetic:forecast-gap:#{System.unique_integer([:positive])}"
-    earlier = capacity_forecast_message(series_key, "forecast-t1", "forecast-t1", 1_812_456_000_000)
-    middle = capacity_forecast_message(series_key, "forecast-t2", "forecast-t2", 1_812_456_030_000)
+
+    earlier =
+      capacity_forecast_message(series_key, "forecast-t1", "forecast-t1", 1_812_456_000_000)
+
+    middle =
+      capacity_forecast_message(series_key, "forecast-t2", "forecast-t2", 1_812_456_030_000)
+
     later = capacity_forecast_message(series_key, "forecast-t3", "forecast-t3", 1_812_456_060_000)
 
     delete_episode_fixture!(series_key)
@@ -799,7 +832,11 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
   end
 
   test "same-time forecasts admit in pending insert order" do
-    Application.put_env(:serviceradar_core, :stateful_alert_engine, __MODULE__.CanonicalBodyEngine)
+    Application.put_env(
+      :serviceradar_core,
+      :stateful_alert_engine,
+      __MODULE__.CanonicalBodyEngine
+    )
 
     Application.put_env(
       :serviceradar_core,
@@ -821,7 +858,9 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
       Enum.find_value(1..40, fn n ->
         delete_episode_fixture!(series_key)
         older = capacity_forecast_message(series_key, "forecast-older", "forecast-older", time)
-        newer = capacity_forecast_message(series_key, "forecast-newer-#{n}", "forecast-newer", time)
+
+        newer =
+          capacity_forecast_message(series_key, "forecast-newer-#{n}", "forecast-newer", time)
 
         assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([older])
         assert_receive {:alert_evaluation_events, [_ignored]}
@@ -847,7 +886,11 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
   end
 
   test "a newer inventory close waits while the open admission is pending" do
-    Application.put_env(:serviceradar_core, :stateful_alert_engine, __MODULE__.CanonicalBodyEngine)
+    Application.put_env(
+      :serviceradar_core,
+      :stateful_alert_engine,
+      __MODULE__.CanonicalBodyEngine
+    )
 
     Application.put_env(
       :serviceradar_core,
@@ -907,7 +950,11 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
   end
 
   test "a versioned inventory redelivery continues a pending admission" do
-    Application.put_env(:serviceradar_core, :stateful_alert_engine, __MODULE__.CanonicalBodyEngine)
+    Application.put_env(
+      :serviceradar_core,
+      :stateful_alert_engine,
+      __MODULE__.CanonicalBodyEngine
+    )
 
     Application.put_env(
       :serviceradar_core,
@@ -1696,16 +1743,18 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
   end
 
   defp stored_series_transitions(series_key) do
-    Repo.query!(
-      """
-      SELECT message, metadata->>'alert_evaluation_admitted'
-      FROM platform.ocsf_events
-      WHERE metadata->'service_radar'->>'series_key' = $1
-      ORDER BY time ASC, created_at ASC, id ASC
-      """,
-      [series_key]
-    ).rows
-    |> Enum.map(fn [message, admitted] -> {message, admitted} end)
+    Enum.map(
+      Repo.query!(
+        """
+        SELECT message, metadata->>'alert_evaluation_admitted'
+        FROM platform.ocsf_events
+        WHERE metadata->'service_radar'->>'series_key' = $1
+        ORDER BY time ASC, created_at ASC, id ASC
+        """,
+        [series_key]
+      ).rows,
+      fn [message, admitted] -> {message, admitted} end
+    )
   end
 
   defp anomaly_message(
@@ -1809,33 +1858,37 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
   end
 
   defp pending_admission_messages(series_key) do
-    Repo.query!(
-      """
-      SELECT events.message
-      FROM platform.lifecycle_pending_admissions AS pending
-      JOIN platform.ocsf_events AS events
-        ON events.time = pending.event_time AND events.id = pending.event_id
-      WHERE pending.series_key = $1
-      ORDER BY pending.event_time ASC, pending.inserted_at ASC, pending.event_id ASC
-      """,
-      [series_key]
-    ).rows
-    |> Enum.map(fn [message] -> message end)
+    Enum.map(
+      Repo.query!(
+        """
+        SELECT events.message
+        FROM platform.lifecycle_pending_admissions AS pending
+        JOIN platform.ocsf_events AS events
+          ON events.time = pending.event_time AND events.id = pending.event_id
+        WHERE pending.series_key = $1
+        ORDER BY pending.event_time ASC, pending.inserted_at ASC, pending.event_id ASC
+        """,
+        [series_key]
+      ).rows,
+      fn [message] -> message end
+    )
   end
 
   defp pending_admission_ids(series_key) do
-    Repo.query!(
-      """
-      SELECT events.message, pending.event_id::text
-      FROM platform.lifecycle_pending_admissions AS pending
-      JOIN platform.ocsf_events AS events
-        ON events.time = pending.event_time AND events.id = pending.event_id
-      WHERE pending.series_key = $1
-      ORDER BY pending.event_time ASC, pending.inserted_at ASC, pending.event_id ASC
-      """,
-      [series_key]
-    ).rows
-    |> Enum.map(fn [message, event_id] -> {message, event_id} end)
+    Enum.map(
+      Repo.query!(
+        """
+        SELECT events.message, pending.event_id::text
+        FROM platform.lifecycle_pending_admissions AS pending
+        JOIN platform.ocsf_events AS events
+          ON events.time = pending.event_time AND events.id = pending.event_id
+        WHERE pending.series_key = $1
+        ORDER BY pending.event_time ASC, pending.inserted_at ASC, pending.event_id ASC
+        """,
+        [series_key]
+      ).rows,
+      fn [message, event_id] -> {message, event_id} end
+    )
   end
 
   defp event_count(row) do
