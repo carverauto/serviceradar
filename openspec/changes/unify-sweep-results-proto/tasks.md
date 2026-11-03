@@ -318,9 +318,9 @@ in `choices.md` and the chart README.
   - [ ] M2.0i Plan-carried checks. A leased slot executes the checks, ports and
     targets its signed plan carries, never its sweep config (Decision 12 in
     `design.md`). Each slice lands on its own, in this order:
-    PARTIAL (reconciled 2026-11-02): M2.0i2 (#6259), M2.0i3, and M2.0i5 are
-    done; M2.0i1 is #6260 (open); M2.0i4 remains.
-    - [ ] M2.0i1 Proto. `SweepCheckSetV1`, `SweepLeaseV1.check_sets = 11`,
+    PARTIAL (reconciled 2026-11-02): M2.0i1 (#6260), M2.0i2 (#6259), M2.0i3,
+    and M2.0i5 are done; M2.0i4 remains.
+    - [x] M2.0i1 Proto. `SweepCheckSetV1`, `SweepLeaseV1.check_sets = 11`,
       `SweepLeaseSlotRefusal` with its reason enum, and
       `ControlStreamRequest.sweep_lease_slot_refusal = 8`, regenerated for Go
       and Elixir. Add a synthetic golden lease fixture under
@@ -328,9 +328,10 @@ in `choices.md` and the chart README.
       validates, with negative cases for a mismatched digest, an unresolved
       set, a set no slot references, and a slot-carrying `lease_version` 1
       push. A check set that is not a product of modes and ports is not a
-      decode failure. Nothing reads the new fields yet.
-      PARTIAL (reconciled 2026-11-02): implemented on `feat/plan-checks-proto`
-      (#6260, open, in CI); not on `staging`.
+      decode failure.
+      DONE (reconciled 2026-11-02): #6260. M2.0i3 reads the fields:
+      `LeaseDelivery` carries `SweepCheckSetV1`, and the gateway forwards
+      `SweepLeaseSlotRefusal`.
     - [x] M2.0i2 Sweeper run spec. `NetworkSweeper.RunPlannedWithObserver` runs
       one execution from a run-scoped copy of the config with networks, modes
       and ports replaced. The run path reads that copy instead of `s.config`,

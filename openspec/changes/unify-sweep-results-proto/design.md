@@ -2616,13 +2616,14 @@ following replace `sweepChecks(cfg)` and the config-network comparison in
    port expansion instead of `s.config`. A config update during the run then
    cannot change the leased execution, and nothing is frozen or restored.
 
-**Refusal and the next pass.** No per-slot outcome reaches core today. A
-refused slot is only logged and marked executed on the agent
-(`sweepLeaseExecutor.runSlot`). Core later labels it `missed_offline` or
-`missed_exhausted`. `SweepExecutionEventV1` ABORTED exists, but nothing
-produces it, and no contract consumes it. The refusal therefore gets a typed
-control-plane report on the path `SweepLeaseAck` already uses (agent ->
-gateway -> `AgentGatewaySync` -> `ServiceRadar.SweepJobs`):
+**Refusal and the next pass.** The agent still only logs a refused slot and
+marks it executed (`sweepLeaseExecutor.runSlot`) until M2.0i4 persists the
+refusal and re-sends it. If no refusal arrives, core labels the slot
+`missed_offline` or `missed_exhausted`. `SweepExecutionEventV1` ABORTED
+exists, but nothing produces it, and no contract consumes it. The refusal is
+a typed control-plane report on the path `SweepLeaseAck` already uses
+(agent -> gateway -> `AgentGatewaySync` -> `ServiceRadar.SweepJobs`). The
+gateway forwards it, and `ExecutionSlots.refuse/2` records it:
 
 - `ControlStreamRequest.sweep_lease_slot_refusal = 8` carries
   `SweepLeaseSlotRefusal { sweep_group_id, lease_id, execution_id, reason,
