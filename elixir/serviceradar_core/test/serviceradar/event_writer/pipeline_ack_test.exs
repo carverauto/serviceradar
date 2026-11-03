@@ -382,7 +382,8 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
       present = ~s({"message":{"seq":9}})
       missing = ~s({"error":{"code":404,"err_code":10037,"description":"no message found"}})
       canonical = "edge-dlq:TELEMETRY_EDGE_RECORD_V1_BULK:41"
-      restored = canonical <> ":restored"
+      first_retry = canonical <> ":1"
+      second_retry = canonical <> ":2"
 
       held = fn subject, _body, _opts ->
         if String.starts_with?(subject, "$JS.API.STREAM.MSG.GET."),
@@ -412,7 +413,7 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
           header(opts, "Nats-Msg-Id") == canonical ->
             {:ok, %{body: duplicate}}
 
-          header(opts, "Nats-Msg-Id") == restored ->
+          header(opts, "Nats-Msg-Id") == first_retry ->
             {:ok, %{body: ~s({"stream":"TELEMETRY_EDGE_RECORD_DLQ_V1_BULK","seq":10})}}
         end
       end
@@ -432,7 +433,7 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
              ] = steps()
 
       assert header(first, "Nats-Msg-Id") == canonical
-      assert header(second, "Nats-Msg-Id") == restored
+      assert header(second, "Nats-Msg-Id") == first_retry
       assert log =~ "dlq_sequence=10"
 
       gone = fn subject, _body, opts ->
@@ -440,12 +441,56 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
           String.starts_with?(subject, "$JS.API.STREAM.MSG.GET.") ->
             {:ok, %{body: missing}}
 
-          header(opts, "Nats-Msg-Id") in [canonical, restored] ->
+          header(opts, "Nats-Msg-Id") in [canonical, first_retry] ->
             {:ok, %{body: duplicate}}
+
+          header(opts, "Nats-Msg-Id") == second_retry ->
+            {:ok, %{body: ~s({"stream":"TELEMETRY_EDGE_RECORD_DLQ_V1_BULK","seq":11})}}
         end
       end
 
       message = failed_edge_record(2, 2, -1, gone)
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert :ok = Pipeline.ack(:ack_ref, [], [message])
+        end)
+
+      assert [
+               {:publish, _, @record_bytes, canonical_opts},
+               {:publish, "$JS.API.STREAM.MSG.GET." <> _, _, _},
+               {:publish, _, @record_bytes, retry_opts},
+               {:publish, "$JS.API.STREAM.MSG.GET." <> _, _, _},
+               {:publish, _, @record_bytes, stored_opts},
+               {:ack, :ack}
+             ] = steps()
+
+      assert header(canonical_opts, "Nats-Msg-Id") == canonical
+      assert header(retry_opts, "Nats-Msg-Id") == first_retry
+      assert header(stored_opts, "Nats-Msg-Id") == second_retry
+      assert log =~ "dlq_sequence=11"
+      refute log =~ "stays unacknowledged"
+
+      kept = fn subject, body, opts ->
+        cond do
+          String.starts_with?(subject, "$JS.API.STREAM.MSG.GET.") ->
+            if Jason.decode!(body) == %{"seq" => 11},
+              do: {:ok, %{body: ~s({"message":{"seq":11}})}},
+              else: {:ok, %{body: missing}}
+
+          header(opts, "Nats-Msg-Id") in [canonical, first_retry] ->
+            {:ok, %{body: duplicate}}
+
+          header(opts, "Nats-Msg-Id") == second_retry ->
+            {:ok,
+             %{
+               body:
+                 ~s({"stream":"TELEMETRY_EDGE_RECORD_DLQ_V1_BULK","seq":11,"duplicate":true})
+             }}
+        end
+      end
+
+      message = failed_edge_record(2, 2, -1, kept)
       assert :ok = Pipeline.ack(:ack_ref, [], [message])
 
       assert [
@@ -453,8 +498,14 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
                {:publish, "$JS.API.STREAM.MSG.GET." <> _, _, _},
                {:publish, _, _, _},
                {:publish, "$JS.API.STREAM.MSG.GET." <> _, _, _},
-               {:ack, {:nack, 20_000}}
+               {:publish, _, @record_bytes, kept_opts},
+               {:publish, "$JS.API.STREAM.MSG.GET.TELEMETRY_EDGE_RECORD_DLQ_V1_BULK", kept_get,
+                _},
+               {:ack, :ack}
              ] = steps()
+
+      assert header(kept_opts, "Nats-Msg-Id") == second_retry
+      assert Jason.decode!(kept_get) == %{"seq" => 11}
 
       unknown = fn subject, _body, _opts ->
         if String.starts_with?(subject, "$JS.API.STREAM.MSG.GET."),

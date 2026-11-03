@@ -31,10 +31,10 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter do
   lost source ACK is stored once. The same record dead-lettered again after a replay (a new
   source sequence) is stored again rather than deduplicated against a copy the replay already
   deleted. A PubAck that reports the id as a duplicate is a held copy only when that sequence
-  is still in the stream. If the sequence was removed, the same bytes are published again as
-  `edge-dlq:<source stream>:<source sequence>:restored`. If that copy is gone too, the publish
-  fails and the source stays unacknowledged. The record's own `Nats-Msg-Id` travels in
-  `Sr-Edge-Dlq-Source-Msg-Id`, and replay restores it.
+  is still in the stream. If the sequence was removed, the same bytes are published as
+  `edge-dlq:<source stream>:<source sequence>:<n>` for the smallest `n` that is not still
+  reserved by a missing message, and the source is acknowledged only once that copy is present.
+  The record's own `Nats-Msg-Id` travels in `Sr-Edge-Dlq-Source-Msg-Id`, and replay restores it.
 
   ## Failure headers
 
@@ -399,19 +399,19 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter do
   defp request_fun(_message), do: nil
 
   defp store_copy(message, letter) do
-    publish_until_held(message, letter, letter.msg_id, false)
+    publish_until_held(message, letter, letter.msg_id, 0)
   end
 
-  defp publish_until_held(message, letter, msg_id, restored?) do
+  defp publish_until_held(message, letter, base_id, generation) do
     case JetStreamPublish.publish_acked(letter.subject, letter.body,
-           msg_id: msg_id,
+           msg_id: copy_id(base_id, generation),
            headers: letter.headers,
            request: request_fun(message)
          ) do
       {:ok, %{duplicate: true} = ack} ->
         case copy_held?(message, ack) do
           :held -> {:ok, ack}
-          :absent -> republish_missing(message, letter, msg_id, restored?, ack.seq)
+          :absent -> next_copy(message, letter, base_id, generation, ack.seq)
           {:error, reason} -> {:error, reason}
         end
 
@@ -420,13 +420,16 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter do
     end
   end
 
-  defp republish_missing(message, letter, msg_id, false, _seq)
-       when is_binary(msg_id) and msg_id != "" do
-    publish_until_held(message, letter, msg_id <> ":restored", true)
+  defp next_copy(message, letter, base_id, generation, _seq)
+       when is_binary(base_id) and base_id != "" do
+    publish_until_held(message, letter, base_id, generation + 1)
   end
 
-  defp republish_missing(_message, _letter, _msg_id, _restored?, seq),
+  defp next_copy(_message, _letter, _base_id, _generation, seq),
     do: {:error, {:dead_letter_copy_missing, seq}}
+
+  defp copy_id(base_id, 0), do: base_id
+  defp copy_id(base_id, generation), do: base_id <> ":" <> Integer.to_string(generation)
 
   defp copy_held?(message, %{stream: stream, seq: seq})
        when is_binary(stream) and is_integer(seq) do
