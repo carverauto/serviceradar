@@ -72,6 +72,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
   alias ServiceRadar.Observability.ServiceState
   alias ServiceRadar.Observability.ServiceStateRegistry
   alias ServiceRadar.Repo
+  alias ServiceRadar.StatusHandler
   alias ServiceRadar.SweepJobs.ExecutionSlots
   alias ServiceRadar.SweepJobs.LeaseCapabilities
   alias ServiceRadar.SweepJobs.ProducerAssignments

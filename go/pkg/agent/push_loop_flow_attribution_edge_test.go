@@ -18,8 +18,6 @@ package agent
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/sha256"
 	"strings"
 	"testing"
 	"time"
@@ -35,57 +33,16 @@ import (
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 )
 
-func flowAttributionGrant(t *testing.T, agentID string, notBefore, expires time.Time, maxRows uint32) *proto.EdgeOutputGrant {
-	t.Helper()
-	_, key, err := ed25519.GenerateKey(nil)
-	require.NoError(t, err)
-	digest := sha256.Sum256([]byte("synthetic-flow-attribution-contract"))
-	capability := &edgev1.EdgeSignedCapabilityV1{
-		CapabilityVersion: 1,
-		IssuerId:          []byte("test-issuer"),
-		IssuerKeyId:       []byte("test-issuer-key-1"),
-		Algorithm:         "ed25519",
-		NotBeforeUnixNano: notBefore.UnixNano(),
-		ExpiresAtUnixNano: expires.UnixNano(),
-		Claims: &edgev1.EdgeSignedCapabilityV1_Production{Production: &edgev1.EdgeProductionClaimsV1{
-			ContractId:             edgerecord.FlowAttributionContractID,
-			ContractVersion:        edgerecord.FlowAttributionContractVersion,
-			ContractBundleSha256:   digest[:],
-			RegistryEpoch:          1,
-			RegistrySnapshotSha256: digest[:],
-			EffectiveGrantSha256:   digest[:],
-			NetworkScopeId:         testNetworkScopeID[:],
-			ProducerAssignmentId:   testAssignmentID[:],
-			RunId:                  testAssignmentID[:],
-			AuthorityEpoch:         1,
-			ScopeId:                testAssignmentID[:],
-			ScopeSha256:            digest[:],
-			OriginKind:             edgev1.EdgeOriginKind_EDGE_ORIGIN_KIND_AGENT,
-			OriginPrincipalId:      []byte(agentID),
-			ProducerInstanceId:     []byte(agentID),
-			RouteProfile:           edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
-			TrafficClass:           edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_BULK,
-			PackageId:              "serviceradar.agent.flow_attribution",
-			PackageSha256:          digest[:],
-			CostModelVersion:       1,
-			MaxProjectedRowCount:   maxRows,
-			MaxProjectedWriteBytes: uint64(maxRows) * edgerecord.FlowAttributionWriteBytesPerRow,
-		}},
-	}
-	edgerecord.SignCapability(capability, key)
-	encoded, err := gproto.Marshal(capability)
-	require.NoError(t, err)
-	return &proto.EdgeOutputGrant{
-		ContractId:           edgerecord.FlowAttributionContractID,
-		ContractVersion:      edgerecord.FlowAttributionContractVersion,
-		ProductionCapability: encoded,
-	}
-}
-
 func currentFlowAttributionGrant(t *testing.T) *proto.EdgeOutputGrant {
 	t.Helper()
-	now := time.Now()
-	return flowAttributionGrant(t, sysmonEdgeAgentID, now.Add(-time.Hour), now.Add(8*24*time.Hour), edgerecord.FlowAttributionMaxRows)
+	return currentRowBoundedGrant(t, rowBoundedGrantSpec{
+		contractID:       edgerecord.FlowAttributionContractID,
+		contractVersion:  edgerecord.FlowAttributionContractVersion,
+		packageID:        "serviceradar.agent.flow_attribution",
+		digestSeed:       "synthetic-flow-attribution-contract",
+		maxRows:          edgerecord.FlowAttributionMaxRows,
+		writeBytesPerRow: edgerecord.FlowAttributionWriteBytesPerRow,
+	})
 }
 
 func spooledEdgeRecordsWithBody[T gproto.Message](
