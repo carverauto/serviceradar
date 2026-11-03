@@ -136,7 +136,14 @@ and of its link rows, so any change to, addition of or removal of a row
 changes it), and after a successful projection it reads the watermark again. If it
 changed, because a write landed during the run or another run for the device
 read newer rows and finished first, the job schedules one follow-up projection
-for the device. The graph therefore converges to the newest committed rows. A failed projection is logged,
+for the device. The graph therefore converges to the newest committed rows.
+A job reads only links observed at or after the stale-link cutoff that pruning
+uses, so retained rows older than that are neither re-projected nor a reason
+for a follow-up. The graph-wide passes (global stale-evidence pruning in AGE
+and Dgraph, the legacy single-identifier attachment reconciliation and the
+canonical rebuild) run in a separate `TopologyGlobalPassWorker` job on the same
+queue. Each projection schedules it 30 seconds ahead, and it is unique while
+pending, so a burst of device projections runs the passes once. A failed projection is logged,
 reported as an Oban job exception, and retried with backoff. The ingestion
 runtime metrics
 (`metrics.ingestion_lanes`) carry a `topology_projection` lane (scheduled,

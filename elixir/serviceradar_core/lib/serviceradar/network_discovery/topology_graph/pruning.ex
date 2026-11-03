@@ -73,7 +73,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Pruning do
 
     case Persist.execute_age(cypher) do
       :ok ->
-        DgraphPersist.prune_stale(stale_cutoff, @mapper_edge_kinds)
+        :ok
 
       {:error, reason} ->
         Logger.warning("Topology stale edge pruning failed: #{inspect(reason)}")

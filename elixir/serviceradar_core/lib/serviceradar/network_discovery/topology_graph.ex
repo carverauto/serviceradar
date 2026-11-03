@@ -25,6 +25,13 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   defdelegate upsert_links(links), to: Links
 
   @doc """
+  Runs the graph-wide pruning, legacy reconciliation and canonical rebuild that
+  follow link projection.
+  """
+  @spec run_global_passes() :: :ok | {:error, term()}
+  defdelegate run_global_passes(), to: Links
+
+  @doc """
   Rebuilds canonical device-level topology edges from current mapper evidence in AGE.
   """
   @spec rebuild_canonical_links_from_current() :: :ok

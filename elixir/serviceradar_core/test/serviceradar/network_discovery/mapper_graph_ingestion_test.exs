@@ -93,7 +93,13 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
         "sr:it-win-c",
         "sr:it-win-c/Gi0/2",
         "sr:it-follow",
-        "sr:it-follow/eth0"
+        "sr:it-follow/eth0",
+        "sr:it-burst-a",
+        "sr:it-burst-a/eth0",
+        "sr:it-burst-b",
+        "sr:it-burst-b/eth0",
+        "sr:it-burst-c",
+        "sr:it-burst-c/eth0"
       ] ++ sparse_payload_ids() ++ synthetic_topology_ids()
     )
 
@@ -1082,6 +1088,24 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     assert [] = pending_projection_jobs()
   end
 
+  test "device projections in one burst schedule one run of the global passes" do
+    devices = ["sr:it-burst-a", "sr:it-burst-b", "sr:it-burst-c"]
+    Enum.each(devices, fn device -> on_exit(fn -> delete_interface(device) end) end)
+    Enum.each(devices, &upsert_interface_alias(&1, "burst-alias"))
+
+    assert :ok =
+             TopologyProjectionWorker.enqueue(:interfaces, Enum.map(devices, &%{device_id: &1}))
+
+    jobs = pending_projection_jobs()
+    assert length(jobs) == length(devices)
+    Enum.each(jobs, &assert(:ok = TopologyProjectionWorker.perform(&1)))
+
+    now = DateTime.utc_now()
+    assert [global] = pending_global_pass_jobs()
+    assert global.state == "scheduled"
+    assert DateTime.after?(global.scheduled_at, now)
+  end
+
   test "an unchanged row set is reapplied when a different row becomes the newest" do
     local = "sr:it-win-a"
     t1 = ~U[2026-04-01 00:00:00Z]
@@ -1277,6 +1301,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
       }
     ])
 
+    assert :ok = TopologyGraph.run_global_passes()
+
     [result] =
       cypher_rows(
         ~s/MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)
@@ -1339,6 +1365,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
         created_at: now
       }
     ])
+
+    assert :ok = TopologyGraph.run_global_passes()
 
     results =
       cypher_rows("""
@@ -1477,7 +1505,12 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
   end
 
   defp project_pending_topology do
-    assert %{failure: 0, discard: 0} = Oban.drain_queue(queue: :topology_projection)
+    assert %{failure: 0, discard: 0} =
+             Oban.drain_queue(
+               queue: :topology_projection,
+               with_scheduled: true,
+               with_recursion: true
+             )
   end
 
   defp pending_projection_jobs do
@@ -1487,6 +1520,17 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
           j.worker == "ServiceRadar.NetworkDiscovery.TopologyProjectionWorker" and
             j.state in ["available", "scheduled", "retryable"],
         order_by: j.id
+      ),
+      prefix: "platform"
+    )
+  end
+
+  defp pending_global_pass_jobs do
+    Repo.all(
+      from(j in Oban.Job,
+        where:
+          j.worker == "ServiceRadar.NetworkDiscovery.TopologyGlobalPassWorker" and
+            j.state in ["available", "scheduled"]
       ),
       prefix: "platform"
     )

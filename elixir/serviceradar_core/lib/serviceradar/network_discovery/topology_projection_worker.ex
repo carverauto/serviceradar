@@ -44,8 +44,15 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
   it. After a successful projection it reads the watermark again. If a write
   landed in between, or another run for the device read newer rows and
   finished first, the watermark differs and the job enqueues one follow-up
-  projection for the device, which reads CNPG again. The graph therefore converges to the newest
-  committed rows, however runs for one device overlap.
+  projection for the device, which reads CNPG again. The graph therefore
+  converges to the newest committed rows, however runs for one device overlap.
+
+  Links are read only when observed at or after the stale-link cutoff the
+  pruning uses (`TopologyGraph.Utils.stale_cutoff/0`), both for the projection
+  and for the link half of the watermark, so retained rows the pruning would
+  delete are neither re-projected nor a reason for a follow-up. After a
+  successful projection the job schedules `TopologyGlobalPassWorker`, which
+  runs the graph-wide pruning and canonical rebuild once per burst.
 
   ## Failure
 
@@ -68,7 +75,9 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
 
   alias ServiceRadar.Ingestion.RuntimeMetrics
   alias ServiceRadar.Inventory.Interface
+  alias ServiceRadar.NetworkDiscovery.TopologyGlobalPassWorker
   alias ServiceRadar.NetworkDiscovery.TopologyGraph
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.Utils
   alias ServiceRadar.NetworkDiscovery.TopologyLink
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
@@ -86,7 +95,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
      WHERE i.device_id = $1),
     (SELECT md5(coalesce(string_agg(row_to_json(l)::text, ',' ORDER BY l.id), ''))
      FROM platform.mapper_topology_links l
-     WHERE l.local_device_id = $1)
+     WHERE l.local_device_id = $1 AND l.timestamp >= $2)
   """
 
   @type kind :: :interfaces | :links
@@ -112,11 +121,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"device_id" => device_id}} = job) when is_binary(device_id) do
-    watermark = watermark(device_id)
+    cutoff = Utils.stale_cutoff()
+    watermark = watermark(device_id, cutoff)
 
-    with :ok <- project(device_id, job) do
-      if watermark(device_id) != watermark, do: enqueue_device(device_id)
-      :ok
+    with :ok <- project(device_id, cutoff, job) do
+      if watermark(device_id, cutoff) != watermark, do: enqueue_device(device_id)
+      TopologyGlobalPassWorker.schedule()
     end
   end
 
@@ -145,12 +155,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
     end
   end
 
-  defp project(device_id, job) do
+  defp project(device_id, cutoff, job) do
     started = System.monotonic_time(:millisecond)
 
     result =
       with :ok <- device_id |> load_interfaces() |> TopologyGraph.upsert_interfaces() do
-        device_id |> load_links() |> TopologyGraph.upsert_links()
+        device_id |> load_links(cutoff) |> TopologyGraph.upsert_links()
       end
 
     measurements = %{
@@ -178,8 +188,10 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
     end
   end
 
-  defp watermark(device_id) do
-    %Postgrex.Result{rows: [watermark]} = Repo.query!(@watermark_sql, [device_id])
+  defp watermark(device_id, cutoff) do
+    %Postgrex.Result{rows: [watermark]} =
+      Repo.query!(@watermark_sql, [device_id, DateTime.to_naive(cutoff)])
+
     watermark
   end
 
@@ -211,10 +223,10 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
     )
   end
 
-  defp load_links(device_id) do
+  defp load_links(device_id, cutoff) do
     Repo.all(
       from(l in TopologyLink,
-        where: l.local_device_id == ^device_id,
+        where: l.local_device_id == ^device_id and l.timestamp >= ^cutoff,
         order_by: [asc_nulls_first: l.timestamp],
         select: %{
           timestamp: l.timestamp,

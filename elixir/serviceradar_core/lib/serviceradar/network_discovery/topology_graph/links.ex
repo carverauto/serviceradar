@@ -67,14 +67,29 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
     with :ok <- DgraphPersist.upsert_links(Enum.reverse(dgraph_links)) do
       Pruning.maybe_prune_unseen_projected_links(neighbor_index)
       Pruning.maybe_prune_stale_projected_links(MapSet.to_list(local_device_ids))
-      Pruning.maybe_prune_stale_mapper_evidence_links()
-      Pruning.reconcile_legacy_single_identifier_attachment_links()
-      Pruning.purge_legacy_single_identifier_canonical_links()
-      CanonicalRebuild.rebuild_canonical_device_links()
 
       Logger.info("Topology projection diagnostics: #{inspect(diagnostics)}")
 
       :ok
+    end
+  end
+
+  @doc """
+  The graph-wide passes that follow link projection: global stale-evidence
+  pruning (AGE and Dgraph), the legacy single-identifier attachment
+  reconciliation and purge, and the canonical rebuild. They read and rewrite
+  the whole graph, so they run once per burst of device projections rather than
+  once per device.
+  """
+  @spec run_global_passes() :: :ok | {:error, term()}
+  def run_global_passes do
+    Pruning.maybe_prune_stale_mapper_evidence_links()
+    Pruning.reconcile_legacy_single_identifier_attachment_links()
+    Pruning.purge_legacy_single_identifier_canonical_links()
+
+    case CanonicalRebuild.rebuild_canonical_device_links() do
+      {:error, reason, _stats} -> {:error, reason}
+      _ -> :ok
     end
   end
 
