@@ -80,6 +80,8 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   @repo_query_event [:service_radar, :repo, :query]
   @ocsf_event_conflict_target [:time, :id]
   @occurrence_key :__alert_evaluation_occurrence_id__
+  @source_key :__alert_evaluation_source__
+  @admission_keys [@occurrence_key, @source_key]
   @ocsf_event_replace_fields [
     :class_uid,
     :category_uid,
@@ -151,7 +153,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
             case build_ocsf_event_row(normalized, payload, raw_data, metadata) do
               nil -> []
-              row -> [{message, row}]
+              row -> [{message, put_source_identity(row, message)}]
             end
           else
             []
@@ -201,7 +203,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
         warehouse =
           Destination.persist_after_cnpg(
             :events,
-            bulk_ocsf_rows ++ Enum.map(persisted_ocsf_rows, &Map.delete(&1, @occurrence_key))
+            bulk_ocsf_rows ++ Enum.map(persisted_ocsf_rows, &Map.drop(&1, @admission_keys))
           )
 
         dispatch_northbound_inventory_transitions(recorded_ocsf_events)
@@ -617,7 +619,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
       |> Enum.filter(&persist_inventory_vulnerability_lifecycle?(&1, existing))
       |> Enum.map(
         &(&1
-          |> stamp_new_occurrence()
+          |> stamp_new_occurrence(Map.get(existing, ocsf_event_id_key(&1)))
           |> prepare_inventory_vulnerability_lifecycle(existing))
       )
       |> dedupe_rows_by_conflict_key(&ocsf_event_conflict_key/1)
@@ -1165,7 +1167,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   end
 
   defp dispatch_northbound_inventory_transition(row) do
-    event = alert_evaluation_row(row)
+    event = row |> Map.drop(@admission_keys) |> alert_evaluation_row()
 
     case northbound_event_handler_runner().handle_event(event) do
       {:ok, _results} ->
@@ -1204,20 +1206,35 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   end
 
   # Occurrence ids are distinct from a reused event row id. The id is a pure
-  # function of the event as delivered (id, observed time before lifecycle
-  # pinning, finding version, status), so a redelivery finds the same pending
+  # function of the event as delivered (id, the JetStream message identity,
+  # observed time before lifecycle pinning, finding version, status) and of the
+  # stored state it transitions from, so a redelivery finds the same pending
   # row and the inbox continues after the committed prefix, while a finding
   # that re-enters an earlier state is a new occurrence.
-  defp stamp_new_occurrence(row) do
+  defp stamp_new_occurrence(row, prior \\ nil) do
     if alert_evaluation_event_row?(row),
-      do: Map.put(row, @occurrence_key, lifecycle_occurrence_id(row)),
+      do: Map.put(row, @occurrence_key, lifecycle_occurrence_id(row, prior)),
       else: row
   end
 
-  defp lifecycle_occurrence_id(row) do
+  defp put_source_identity(row, message) do
+    with true <- inventory_vulnerability_lifecycle_row?(row),
+         identity when is_binary(identity) <-
+           StableId.message_identity(Map.get(message, :metadata)) do
+      Map.put(row, @source_key, identity)
+    else
+      _ -> row
+    end
+  end
+
+  defp lifecycle_occurrence_id(row, prior) do
     [
-      "alert-evaluation-occurrence:v2|",
+      "alert-evaluation-occurrence:v3|",
       ocsf_event_id_key(row) || "",
+      "|",
+      row |> Map.get(@source_key) |> to_string(),
+      "|",
+      prior_lifecycle_state(prior),
       "|",
       row |> Map.get(:time) |> time_conflict_value() |> to_string(),
       "|",
@@ -1228,6 +1245,11 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     |> StableId.uuid()
     |> Ecto.UUID.load!()
   end
+
+  defp prior_lifecycle_state(%{status: status, time: time}),
+    do: "#{status}@#{time_conflict_value(time)}"
+
+  defp prior_lifecycle_state(_prior), do: "none"
 
   defp series_key_of(row) do
     metadata = Map.get(row, :metadata) || Map.get(row, "metadata") || %{}
@@ -1310,7 +1332,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   end
 
   defp insert_ocsf_rows(rows, opts) do
-    BulkInsert.insert_all(table_name(), Enum.map(rows, &Map.delete(&1, @occurrence_key)), opts)
+    BulkInsert.insert_all(table_name(), Enum.map(rows, &Map.drop(&1, @admission_keys)), opts)
   end
 
   # Each occurrence gets its own row in input order, so `seq` is the series'
@@ -1365,7 +1387,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   # The snapshot is exactly the payload the inbox would accept for this
   # occurrence, validated now so a stored row can never be unadmittable.
   defp occurrence_snapshot(row) do
-    [evaluation_row] = alert_evaluation_rows([row])
+    [evaluation_row] = alert_evaluation_rows([Map.delete(row, @source_key)])
     Input.prepare(:event, evaluation_row)
   end
 

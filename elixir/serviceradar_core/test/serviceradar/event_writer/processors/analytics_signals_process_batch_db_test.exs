@@ -447,6 +447,63 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
              ~w(open resolved open resolved open)
   end
 
+  test "identical unversioned re-entries from distinct stream messages are each admitted" do
+    mode = Application.get_env(:serviceradar_core, :alert_evaluation_mode)
+    Application.put_env(:serviceradar_core, :alert_evaluation_mode, :active)
+    Application.put_env(:serviceradar_core, :stateful_alert_engine, StatefulAlertEngine)
+    on_exit(fn -> restore_env(:alert_evaluation_mode, mode) end)
+    Repo.query!("UPDATE platform.stateful_alert_rules SET enabled = FALSE")
+    actor = SystemActor.system(:alert_engine)
+
+    rule =
+      StatefulAlertRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "synthetic-identical-reentry-#{Ash.UUID.generate()}",
+          signal: :event,
+          match: %{"always" => true},
+          group_by: [],
+          threshold: 100,
+          window_seconds: 120,
+          bucket_seconds: 60
+        },
+        actor: actor
+      )
+      |> Ash.create!()
+
+    event_id = "synthetic-identical-reentry-#{Ash.UUID.generate()}"
+    opened = assessment_message(event_id, "open", "active", "confirmed", "affected")
+    resolved = assessment_message(event_id, "resolved", "resolved", "confirmed", "fixed")
+    row = AnalyticsSignals.parse_message(opened)
+
+    deliveries =
+      [opened, resolved, opened, resolved, opened]
+      |> Enum.with_index(1)
+      |> Enum.map(fn {message, sequence} ->
+        put_in(message, [:metadata, :jetstream_ack], %{
+          stream: "synthetic-analytics",
+          stream_sequence: sequence
+        })
+      end)
+
+    for message <- deliveries do
+      assert {:ok, 1} = AnalyticsSignals.process_batch([message])
+    end
+
+    assert {"open", 2, "Update", "true"} = stored_finding(row)
+
+    work =
+      AlertEvaluationWork
+      |> Ash.Query.filter(rule_id == ^rule.id)
+      |> Ash.Query.sort(position: :asc)
+      |> Ash.read!(actor: actor)
+
+    assert Enum.map(work, & &1.position) == [1, 2, 3, 4, 5]
+    assert length(Enum.uniq(Enum.map(work, & &1.source_key))) == 5
+    assert Enum.map(work, & &1.payload["status"]) == ~w(open resolved open resolved open)
+  end
+
   test "the drain admits a pending occurrence whose series gets no later message" do
     Application.put_env(
       :serviceradar_core,
