@@ -294,15 +294,21 @@ in `choices.md` and the chart README.
     Missing: a stale epoch with a delivery grant is withheld in
     `EdgeRecordIngestServer` instead of published as
     `audit_publication`/`ledger_only`; needs M2.0g and the 3.5 audit route.
-  - [ ] M2.0g Delivery after reconnect. On reconnect the agent obtains a
+  - [x] M2.0g Delivery after reconnect. On reconnect the agent obtains a
     per-record delivery grant (`EdgeDeliveryClaimsV1` same-spool renewal:
     `event_id`, `record_sha256`, `spool_id`, `sequence`) for each unresolved
     backlog record. Collection windows are still checked against event time (the
     original interval), never receipt age.
-    TODO (reconciled 2026-11-02): no delivery-grant issuer or agent renewal
-    exists; the sender replays unresolved records but obtains no
-    `EdgeDeliveryClaimsV1`. Needed so a backlog older than its grant window can
-    still deliver.
+    DONE: the exchange is "Delivery after reconnect" in `design.md`.
+    `AgentGatewayService.RenewEdgeDeliveryGrants` carries it; the gateway
+    verifies each record's bytes (`EdgeDeliveryGrants`,
+    `EdgeRecordAuthorization.grant_subject/3`) and core grants only an active
+    assignment of the requesting agent (`ServiceRadar.Edge.DeliveryGrants`).
+    The sender asks before each session for the records whose production grant
+    has lapsed and attaches each grant to its frame (`go/pkg/edge/sender`).
+    The same change admits a record from an older registry epoch whose exact
+    bundle the held snapshot still registers ("Records from an older registry
+    epoch" in `design.md`), which had capped the lane's watermark for good.
   - [x] M2.0h Enforcement and missed runs. Edge sweep records are accepted only
     with a valid source authorization that correlates with the batch
     (`ValidateSweepRecord` / `SweepCorrelate` on the live path), and core marks a

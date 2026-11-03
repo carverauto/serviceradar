@@ -1,7 +1,7 @@
 defmodule ServiceRadar.Edge.IssuerKey do
   @moduledoc """
   Core's edge-record issuer key: the Ed25519 key that signs the production capabilities and
-  source authorizations of sweep schedule leases.
+  source authorizations of sweep schedule leases, and the delivery grants of a spool backlog.
 
   The private half is a 32-byte seed, stored base64-encoded in a file only core can read and
   named by `SERVICERADAR_EDGE_ISSUER_KEY_FILE`. It is ServiceRadar talking to itself, not a
@@ -93,7 +93,8 @@ defmodule ServiceRadar.Edge.IssuerKey do
 
   @doc """
   The gateway trust-file entry for this key: base64 ids and public key, valid for the
-  production and source purposes. It carries no private material.
+  production, source and delivery purposes (`ServiceRadar.Edge.DeliveryGrants` signs delivery
+  grants with it). It carries no private material.
   """
   @spec trust_entry(t()) :: map()
   def trust_entry(%__MODULE__{} = key) do
@@ -101,7 +102,7 @@ defmodule ServiceRadar.Edge.IssuerKey do
       "issuer_id" => Base.encode64(key.issuer_id),
       "issuer_key_id" => Base.encode64(key.key_id),
       "public_key" => Base.encode64(key.public_key),
-      "purposes" => ["production", "source"],
+      "purposes" => ["production", "source", "delivery"],
       "status" => "valid"
     }
   end

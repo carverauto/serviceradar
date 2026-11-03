@@ -9092,6 +9092,223 @@ func (x *CertificatePolicyResponse) GetSignature() []byte {
 	return nil
 }
 
+// EdgeDeliveryGrantRequest names spooled records of one spool lane. The gateway
+// verifies each record's bytes, production grant and origin against the
+// authenticated agent before core is asked, so a grant is never issued for
+// bytes the agent did not produce. Bounded per request: at most 64 records and
+// 2 MiB of record bytes.
+type EdgeDeliveryGrantRequest struct {
+	state         protoimpl.MessageState     `protogen:"open.v1"`
+	SpoolId       []byte                     `protobuf:"bytes,1,opt,name=spool_id,json=spoolId,proto3" json:"spool_id,omitempty"` // UUIDv7 of the lane the records drain on
+	Records       []*EdgeDeliveryGrantRecord `protobuf:"bytes,2,rep,name=records,proto3" json:"records,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EdgeDeliveryGrantRequest) Reset() {
+	*x = EdgeDeliveryGrantRequest{}
+	mi := &file_monitoring_proto_msgTypes[82]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EdgeDeliveryGrantRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EdgeDeliveryGrantRequest) ProtoMessage() {}
+
+func (x *EdgeDeliveryGrantRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_monitoring_proto_msgTypes[82]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EdgeDeliveryGrantRequest.ProtoReflect.Descriptor instead.
+func (*EdgeDeliveryGrantRequest) Descriptor() ([]byte, []int) {
+	return file_monitoring_proto_rawDescGZIP(), []int{82}
+}
+
+func (x *EdgeDeliveryGrantRequest) GetSpoolId() []byte {
+	if x != nil {
+		return x.SpoolId
+	}
+	return nil
+}
+
+func (x *EdgeDeliveryGrantRequest) GetRecords() []*EdgeDeliveryGrantRecord {
+	if x != nil {
+		return x.Records
+	}
+	return nil
+}
+
+type EdgeDeliveryGrantRecord struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Sequence      uint64                 `protobuf:"varint,1,opt,name=sequence,proto3" json:"sequence,omitempty"`                         // spool sequence the record occupies
+	RecordBytes   []byte                 `protobuf:"bytes,2,opt,name=record_bytes,json=recordBytes,proto3" json:"record_bytes,omitempty"` // exact EdgeRecordV1 bytes held at that sequence
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EdgeDeliveryGrantRecord) Reset() {
+	*x = EdgeDeliveryGrantRecord{}
+	mi := &file_monitoring_proto_msgTypes[83]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EdgeDeliveryGrantRecord) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EdgeDeliveryGrantRecord) ProtoMessage() {}
+
+func (x *EdgeDeliveryGrantRecord) ProtoReflect() protoreflect.Message {
+	mi := &file_monitoring_proto_msgTypes[83]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EdgeDeliveryGrantRecord.ProtoReflect.Descriptor instead.
+func (*EdgeDeliveryGrantRecord) Descriptor() ([]byte, []int) {
+	return file_monitoring_proto_rawDescGZIP(), []int{83}
+}
+
+func (x *EdgeDeliveryGrantRecord) GetSequence() uint64 {
+	if x != nil {
+		return x.Sequence
+	}
+	return 0
+}
+
+func (x *EdgeDeliveryGrantRecord) GetRecordBytes() []byte {
+	if x != nil {
+		return x.RecordBytes
+	}
+	return nil
+}
+
+// EdgeDeliveryGrantResponse answers every requested record, in request order.
+type EdgeDeliveryGrantResponse struct {
+	state         protoimpl.MessageState     `protogen:"open.v1"`
+	Results       []*EdgeDeliveryGrantResult `protobuf:"bytes,1,rep,name=results,proto3" json:"results,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EdgeDeliveryGrantResponse) Reset() {
+	*x = EdgeDeliveryGrantResponse{}
+	mi := &file_monitoring_proto_msgTypes[84]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EdgeDeliveryGrantResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EdgeDeliveryGrantResponse) ProtoMessage() {}
+
+func (x *EdgeDeliveryGrantResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_monitoring_proto_msgTypes[84]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EdgeDeliveryGrantResponse.ProtoReflect.Descriptor instead.
+func (*EdgeDeliveryGrantResponse) Descriptor() ([]byte, []int) {
+	return file_monitoring_proto_rawDescGZIP(), []int{84}
+}
+
+func (x *EdgeDeliveryGrantResponse) GetResults() []*EdgeDeliveryGrantResult {
+	if x != nil {
+		return x.Results
+	}
+	return nil
+}
+
+// EdgeDeliveryGrantResult carries either a delivery grant or why none was
+// issued. A refusal leaves the record to be delivered without a grant, where
+// the gateway decides it as it would have.
+type EdgeDeliveryGrantResult struct {
+	state              protoimpl.MessageState     `protogen:"open.v1"`
+	Sequence           uint64                     `protobuf:"varint,1,opt,name=sequence,proto3" json:"sequence,omitempty"`
+	DeliveryCapability *v1.EdgeSignedCapabilityV1 `protobuf:"bytes,2,opt,name=delivery_capability,json=deliveryCapability,proto3,oneof" json:"delivery_capability,omitempty"`
+	Refusal            string                     `protobuf:"bytes,3,opt,name=refusal,proto3" json:"refusal,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *EdgeDeliveryGrantResult) Reset() {
+	*x = EdgeDeliveryGrantResult{}
+	mi := &file_monitoring_proto_msgTypes[85]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EdgeDeliveryGrantResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EdgeDeliveryGrantResult) ProtoMessage() {}
+
+func (x *EdgeDeliveryGrantResult) ProtoReflect() protoreflect.Message {
+	mi := &file_monitoring_proto_msgTypes[85]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EdgeDeliveryGrantResult.ProtoReflect.Descriptor instead.
+func (*EdgeDeliveryGrantResult) Descriptor() ([]byte, []int) {
+	return file_monitoring_proto_rawDescGZIP(), []int{85}
+}
+
+func (x *EdgeDeliveryGrantResult) GetSequence() uint64 {
+	if x != nil {
+		return x.Sequence
+	}
+	return 0
+}
+
+func (x *EdgeDeliveryGrantResult) GetDeliveryCapability() *v1.EdgeSignedCapabilityV1 {
+	if x != nil {
+		return x.DeliveryCapability
+	}
+	return nil
+}
+
+func (x *EdgeDeliveryGrantResult) GetRefusal() string {
+	if x != nil {
+		return x.Refusal
+	}
+	return ""
+}
+
 var File_monitoring_proto protoreflect.FileDescriptor
 
 const file_monitoring_proto_rawDesc = "" +
@@ -9990,7 +10207,20 @@ const file_monitoring_proto_rawDesc = "" +
 	"\x18CertificatePolicyRequest\"S\n" +
 	"\x19CertificatePolicyResponse\x12\x18\n" +
 	"\apayload\x18\x01 \x01(\fR\apayload\x12\x1c\n" +
-	"\tsignature\x18\x02 \x01(\fR\tsignature*\x99\x02\n" +
+	"\tsignature\x18\x02 \x01(\fR\tsignature\"t\n" +
+	"\x18EdgeDeliveryGrantRequest\x12\x19\n" +
+	"\bspool_id\x18\x01 \x01(\fR\aspoolId\x12=\n" +
+	"\arecords\x18\x02 \x03(\v2#.monitoring.EdgeDeliveryGrantRecordR\arecords\"X\n" +
+	"\x17EdgeDeliveryGrantRecord\x12\x1a\n" +
+	"\bsequence\x18\x01 \x01(\x04R\bsequence\x12!\n" +
+	"\frecord_bytes\x18\x02 \x01(\fR\vrecordBytes\"Z\n" +
+	"\x19EdgeDeliveryGrantResponse\x12=\n" +
+	"\aresults\x18\x01 \x03(\v2#.monitoring.EdgeDeliveryGrantResultR\aresults\"\xcb\x01\n" +
+	"\x17EdgeDeliveryGrantResult\x12\x1a\n" +
+	"\bsequence\x18\x01 \x01(\x04R\bsequence\x12b\n" +
+	"\x13delivery_capability\x18\x02 \x01(\v2,.serviceradar.edge.v1.EdgeSignedCapabilityV1H\x00R\x12deliveryCapability\x88\x01\x01\x12\x18\n" +
+	"\arefusal\x18\x03 \x01(\tR\arefusalB\x16\n" +
+	"\x14_delivery_capability*\x99\x02\n" +
 	"\x11HostInterfaceKind\x12#\n" +
 	"\x1fHOST_INTERFACE_KIND_UNSPECIFIED\x10\x00\x12 \n" +
 	"\x1cHOST_INTERFACE_KIND_PHYSICAL\x10\x01\x12\x1c\n" +
@@ -10050,7 +10280,7 @@ const file_monitoring_proto_rawDesc = "" +
 	"\tGetStatus\x12\x19.monitoring.StatusRequest\x1a\x1a.monitoring.StatusResponse\"\x00\x12G\n" +
 	"\n" +
 	"GetResults\x12\x1a.monitoring.ResultsRequest\x1a\x1b.monitoring.ResultsResponse\"\x00\x12I\n" +
-	"\rStreamResults\x12\x1a.monitoring.ResultsRequest\x1a\x18.monitoring.ResultsChunk\"\x000\x012\xd9\a\n" +
+	"\rStreamResults\x12\x1a.monitoring.ResultsRequest\x1a\x18.monitoring.ResultsChunk\"\x000\x012\xc3\b\n" +
 	"\x13AgentGatewayService\x12H\n" +
 	"\x05Hello\x12\x1d.monitoring.AgentHelloRequest\x1a\x1e.monitoring.AgentHelloResponse\"\x00\x12N\n" +
 	"\tGetConfig\x12\x1e.monitoring.AgentConfigRequest\x1a\x1f.monitoring.AgentConfigResponse\"\x00\x12P\n" +
@@ -10062,7 +10292,8 @@ const file_monitoring_proto_rawDesc = "" +
 	"\x16ResolveCredentialGrant\x12*.monitoring.CredentialBrokerResolveRequest\x1a+.monitoring.CredentialBrokerResolveResponse\"\x00\x12\x8c\x01\n" +
 	"\x1fResolveAutomationLaunchEnvelope\x122.monitoring.AutomationLaunchEnvelopeResolveRequest\x1a3.monitoring.AutomationLaunchEnvelopeResolveResponse\"\x00\x12c\n" +
 	"\x10RenewCertificate\x12%.monitoring.CertificateRenewalRequest\x1a&.monitoring.CertificateRenewalResponse\"\x00\x12e\n" +
-	"\x14GetCertificatePolicy\x12$.monitoring.CertificatePolicyRequest\x1a%.monitoring.CertificatePolicyResponse\"\x00B*Z(github.com/carverauto/serviceradar/protob\x06proto3"
+	"\x14GetCertificatePolicy\x12$.monitoring.CertificatePolicyRequest\x1a%.monitoring.CertificatePolicyResponse\"\x00\x12h\n" +
+	"\x17RenewEdgeDeliveryGrants\x12$.monitoring.EdgeDeliveryGrantRequest\x1a%.monitoring.EdgeDeliveryGrantResponse\"\x00B*Z(github.com/carverauto/serviceradar/protob\x06proto3"
 
 var (
 	file_monitoring_proto_rawDescOnce sync.Once
@@ -10077,7 +10308,7 @@ func file_monitoring_proto_rawDescGZIP() []byte {
 }
 
 var file_monitoring_proto_enumTypes = make([]protoimpl.EnumInfo, 9)
-var file_monitoring_proto_msgTypes = make([]protoimpl.MessageInfo, 94)
+var file_monitoring_proto_msgTypes = make([]protoimpl.MessageInfo, 98)
 var file_monitoring_proto_goTypes = []any{
 	(HostInterfaceKind)(0),                               // 0: monitoring.HostInterfaceKind
 	(MacProvenance)(0),                                   // 1: monitoring.MacProvenance
@@ -10170,21 +10401,26 @@ var file_monitoring_proto_goTypes = []any{
 	(*MtrCheckResult)(nil),                               // 88: monitoring.MtrCheckResult
 	(*CertificatePolicyRequest)(nil),                     // 89: monitoring.CertificatePolicyRequest
 	(*CertificatePolicyResponse)(nil),                    // 90: monitoring.CertificatePolicyResponse
-	nil,                                                  // 91: monitoring.AgentHelloRequest.LabelsEntry
-	nil,                                                  // 92: monitoring.ControlStreamHello.LabelsEntry
-	nil,                                                  // 93: monitoring.CredentialBrokerResolveResponse.FieldsEntry
-	nil,                                                  // 94: monitoring.EndpointInventoryScanMetadata.RedactionEntry
-	nil,                                                  // 95: monitoring.EndpointInventoryArtifactRef.MetadataEntry
-	nil,                                                  // 96: monitoring.EndpointInventoryPackageSummary.EvidenceEntry
-	nil,                                                  // 97: monitoring.EndpointInventoryQueryRequest.MetadataEntry
-	nil,                                                  // 98: monitoring.EndpointInventoryForceFreshScanRequest.MetadataEntry
-	nil,                                                  // 99: monitoring.EndpointInventoryStandingQuestionResultCount.LabelsEntry
-	nil,                                                  // 100: monitoring.EndpointInventoryStandingQuestionResultCount.MetadataEntry
-	nil,                                                  // 101: monitoring.SysmonConfig.ThresholdsEntry
-	nil,                                                  // 102: monitoring.AgentCheckConfig.SettingsEntry
-	(*v1.EdgeRecordCapabilitiesV1)(nil),                  // 103: serviceradar.edge.v1.EdgeRecordCapabilitiesV1
-	(*AutomationLaunchEnvelopeResolveRequest)(nil),       // 104: monitoring.AutomationLaunchEnvelopeResolveRequest
-	(*AutomationLaunchEnvelopeResolveResponse)(nil),      // 105: monitoring.AutomationLaunchEnvelopeResolveResponse
+	(*EdgeDeliveryGrantRequest)(nil),                     // 91: monitoring.EdgeDeliveryGrantRequest
+	(*EdgeDeliveryGrantRecord)(nil),                      // 92: monitoring.EdgeDeliveryGrantRecord
+	(*EdgeDeliveryGrantResponse)(nil),                    // 93: monitoring.EdgeDeliveryGrantResponse
+	(*EdgeDeliveryGrantResult)(nil),                      // 94: monitoring.EdgeDeliveryGrantResult
+	nil,                                                  // 95: monitoring.AgentHelloRequest.LabelsEntry
+	nil,                                                  // 96: monitoring.ControlStreamHello.LabelsEntry
+	nil,                                                  // 97: monitoring.CredentialBrokerResolveResponse.FieldsEntry
+	nil,                                                  // 98: monitoring.EndpointInventoryScanMetadata.RedactionEntry
+	nil,                                                  // 99: monitoring.EndpointInventoryArtifactRef.MetadataEntry
+	nil,                                                  // 100: monitoring.EndpointInventoryPackageSummary.EvidenceEntry
+	nil,                                                  // 101: monitoring.EndpointInventoryQueryRequest.MetadataEntry
+	nil,                                                  // 102: monitoring.EndpointInventoryForceFreshScanRequest.MetadataEntry
+	nil,                                                  // 103: monitoring.EndpointInventoryStandingQuestionResultCount.LabelsEntry
+	nil,                                                  // 104: monitoring.EndpointInventoryStandingQuestionResultCount.MetadataEntry
+	nil,                                                  // 105: monitoring.SysmonConfig.ThresholdsEntry
+	nil,                                                  // 106: monitoring.AgentCheckConfig.SettingsEntry
+	(*v1.EdgeRecordCapabilitiesV1)(nil),                  // 107: serviceradar.edge.v1.EdgeRecordCapabilitiesV1
+	(*v1.EdgeSignedCapabilityV1)(nil),                    // 108: serviceradar.edge.v1.EdgeSignedCapabilityV1
+	(*AutomationLaunchEnvelopeResolveRequest)(nil),       // 109: monitoring.AutomationLaunchEnvelopeResolveRequest
+	(*AutomationLaunchEnvelopeResolveResponse)(nil),      // 110: monitoring.AutomationLaunchEnvelopeResolveResponse
 }
 var file_monitoring_proto_depIdxs = []int32{
 	18,  // 0: monitoring.ResultsRequest.completion_status:type_name -> monitoring.SweepCompletionStatus
@@ -10199,10 +10435,10 @@ var file_monitoring_proto_depIdxs = []int32{
 	24,  // 9: monitoring.GatewayStatusChunk.services:type_name -> monitoring.GatewayServiceStatus
 	70,  // 10: monitoring.GatewayStatusChunk.endpoint_inventory_standing_question_counts:type_name -> monitoring.EndpointInventoryStandingQuestionResultCount
 	25,  // 11: monitoring.GatewayServiceStatus.plugin_provenance:type_name -> monitoring.PluginResultProvenance
-	91,  // 12: monitoring.AgentHelloRequest.labels:type_name -> monitoring.AgentHelloRequest.LabelsEntry
+	95,  // 12: monitoring.AgentHelloRequest.labels:type_name -> monitoring.AgentHelloRequest.LabelsEntry
 	27,  // 13: monitoring.AgentHelloRequest.host_interfaces:type_name -> monitoring.HostInterface
 	28,  // 14: monitoring.AgentHelloRequest.host_tls_fingerprints:type_name -> monitoring.HostTlsFingerprint
-	103, // 15: monitoring.AgentHelloRequest.edge_record_capabilities:type_name -> serviceradar.edge.v1.EdgeRecordCapabilitiesV1
+	107, // 15: monitoring.AgentHelloRequest.edge_record_capabilities:type_name -> serviceradar.edge.v1.EdgeRecordCapabilitiesV1
 	0,   // 16: monitoring.HostInterface.kind:type_name -> monitoring.HostInterfaceKind
 	1,   // 17: monitoring.HostInterface.mac_provenance:type_name -> monitoring.MacProvenance
 	73,  // 18: monitoring.AgentConfigResponse.checks:type_name -> monitoring.AgentCheckConfig
@@ -10215,12 +10451,12 @@ var file_monitoring_proto_depIdxs = []int32{
 	59,  // 25: monitoring.AgentConfigResponse.endpoint_inventory_config:type_name -> monitoring.EndpointInventoryConfig
 	34,  // 26: monitoring.AgentConfigResponse.edge_output_grants:type_name -> monitoring.EdgeOutputGrant
 	36,  // 27: monitoring.AddonAssignmentConfig.resources:type_name -> monitoring.AddonResources
-	92,  // 28: monitoring.ControlStreamHello.labels:type_name -> monitoring.ControlStreamHello.LabelsEntry
+	96,  // 28: monitoring.ControlStreamHello.labels:type_name -> monitoring.ControlStreamHello.LabelsEntry
 	45,  // 29: monitoring.ControlStreamHello.applied_plugin_assignments:type_name -> monitoring.PluginAssignmentPolicyAck
 	43,  // 30: monitoring.ControlStreamHello.config_section_statuses:type_name -> monitoring.ConfigSectionStatus
 	27,  // 31: monitoring.ControlStreamHello.host_interfaces:type_name -> monitoring.HostInterface
 	28,  // 32: monitoring.ControlStreamHello.host_tls_fingerprints:type_name -> monitoring.HostTlsFingerprint
-	103, // 33: monitoring.ControlStreamHello.edge_record_capabilities:type_name -> serviceradar.edge.v1.EdgeRecordCapabilitiesV1
+	107, // 33: monitoring.ControlStreamHello.edge_record_capabilities:type_name -> serviceradar.edge.v1.EdgeRecordCapabilitiesV1
 	43,  // 34: monitoring.ConfigAck.section_statuses:type_name -> monitoring.ConfigSectionStatus
 	45,  // 35: monitoring.ConfigAck.applied_plugin_assignments:type_name -> monitoring.PluginAssignmentPolicyAck
 	38,  // 36: monitoring.ControlStreamRequest.hello:type_name -> monitoring.ControlStreamHello
@@ -10237,7 +10473,7 @@ var file_monitoring_proto_depIdxs = []int32{
 	37,  // 47: monitoring.ControlStreamResponse.config_chunk:type_name -> monitoring.AgentConfigChunk
 	49,  // 48: monitoring.ControlStreamResponse.sweep_lease_chunk:type_name -> monitoring.SweepLeaseChunk
 	2,   // 49: monitoring.SweepLeaseSlotRefusal.reason:type_name -> monitoring.SweepLeaseSlotRefusalReason
-	93,  // 50: monitoring.CredentialBrokerResolveResponse.fields:type_name -> monitoring.CredentialBrokerResolveResponse.FieldsEntry
+	97,  // 50: monitoring.CredentialBrokerResolveResponse.fields:type_name -> monitoring.CredentialBrokerResolveResponse.FieldsEntry
 	56,  // 51: monitoring.PluginConfig.assignments:type_name -> monitoring.PluginAssignmentConfig
 	55,  // 52: monitoring.PluginConfig.engine_limits:type_name -> monitoring.PluginEngineLimits
 	58,  // 53: monitoring.BumblebeeConfig.catalog:type_name -> monitoring.BumblebeeCatalogAssignment
@@ -10246,23 +10482,23 @@ var file_monitoring_proto_depIdxs = []int32{
 	66,  // 56: monitoring.EndpointInventoryReport.packages:type_name -> monitoring.EndpointInventoryPackageSummary
 	63,  // 57: monitoring.EndpointInventoryReport.cohort_coverage:type_name -> monitoring.EndpointInventoryCohortCoverage
 	64,  // 58: monitoring.EndpointInventoryScanMetadata.sources:type_name -> monitoring.EndpointInventorySourceSummary
-	94,  // 59: monitoring.EndpointInventoryScanMetadata.redaction:type_name -> monitoring.EndpointInventoryScanMetadata.RedactionEntry
+	98,  // 59: monitoring.EndpointInventoryScanMetadata.redaction:type_name -> monitoring.EndpointInventoryScanMetadata.RedactionEntry
 	62,  // 60: monitoring.EndpointInventoryScanMetadata.freshness:type_name -> monitoring.EndpointInventoryFreshness
-	95,  // 61: monitoring.EndpointInventoryArtifactRef.metadata:type_name -> monitoring.EndpointInventoryArtifactRef.MetadataEntry
-	96,  // 62: monitoring.EndpointInventoryPackageSummary.evidence:type_name -> monitoring.EndpointInventoryPackageSummary.EvidenceEntry
+	99,  // 61: monitoring.EndpointInventoryArtifactRef.metadata:type_name -> monitoring.EndpointInventoryArtifactRef.MetadataEntry
+	100, // 62: monitoring.EndpointInventoryPackageSummary.evidence:type_name -> monitoring.EndpointInventoryPackageSummary.EvidenceEntry
 	69,  // 63: monitoring.EndpointInventoryQueryRequest.predicate:type_name -> monitoring.EndpointInventoryPackagePredicate
-	97,  // 64: monitoring.EndpointInventoryQueryRequest.metadata:type_name -> monitoring.EndpointInventoryQueryRequest.MetadataEntry
+	101, // 64: monitoring.EndpointInventoryQueryRequest.metadata:type_name -> monitoring.EndpointInventoryQueryRequest.MetadataEntry
 	67,  // 65: monitoring.EndpointInventoryForceFreshScanRequest.query:type_name -> monitoring.EndpointInventoryQueryRequest
-	98,  // 66: monitoring.EndpointInventoryForceFreshScanRequest.metadata:type_name -> monitoring.EndpointInventoryForceFreshScanRequest.MetadataEntry
+	102, // 66: monitoring.EndpointInventoryForceFreshScanRequest.metadata:type_name -> monitoring.EndpointInventoryForceFreshScanRequest.MetadataEntry
 	62,  // 67: monitoring.EndpointInventoryStandingQuestionResultCount.freshness:type_name -> monitoring.EndpointInventoryFreshness
-	99,  // 68: monitoring.EndpointInventoryStandingQuestionResultCount.labels:type_name -> monitoring.EndpointInventoryStandingQuestionResultCount.LabelsEntry
-	100, // 69: monitoring.EndpointInventoryStandingQuestionResultCount.metadata:type_name -> monitoring.EndpointInventoryStandingQuestionResultCount.MetadataEntry
+	103, // 68: monitoring.EndpointInventoryStandingQuestionResultCount.labels:type_name -> monitoring.EndpointInventoryStandingQuestionResultCount.LabelsEntry
+	104, // 69: monitoring.EndpointInventoryStandingQuestionResultCount.metadata:type_name -> monitoring.EndpointInventoryStandingQuestionResultCount.MetadataEntry
 	66,  // 70: monitoring.EndpointInventoryQueryResult.packages:type_name -> monitoring.EndpointInventoryPackageSummary
 	64,  // 71: monitoring.EndpointInventoryQueryResult.source_summaries:type_name -> monitoring.EndpointInventorySourceSummary
 	62,  // 72: monitoring.EndpointInventoryQueryResult.freshness:type_name -> monitoring.EndpointInventoryFreshness
 	63,  // 73: monitoring.EndpointInventoryQueryResult.cohort_coverage:type_name -> monitoring.EndpointInventoryCohortCoverage
-	101, // 74: monitoring.SysmonConfig.thresholds:type_name -> monitoring.SysmonConfig.ThresholdsEntry
-	102, // 75: monitoring.AgentCheckConfig.settings:type_name -> monitoring.AgentCheckConfig.SettingsEntry
+	105, // 74: monitoring.SysmonConfig.thresholds:type_name -> monitoring.SysmonConfig.ThresholdsEntry
+	106, // 75: monitoring.AgentCheckConfig.settings:type_name -> monitoring.AgentCheckConfig.SettingsEntry
 	81,  // 76: monitoring.SNMPConfig.targets:type_name -> monitoring.SNMPTargetConfig
 	75,  // 77: monitoring.SNMPConfig.oid_sets:type_name -> monitoring.SNMPOIDSet
 	83,  // 78: monitoring.SNMPOIDSet.oids:type_name -> monitoring.SNMPOIDConfig
@@ -10282,37 +10518,42 @@ var file_monitoring_proto_depIdxs = []int32{
 	84,  // 92: monitoring.MtrHopResult.mpls_labels:type_name -> monitoring.MtrMplsLabel
 	86,  // 93: monitoring.MtrTraceResult.hops:type_name -> monitoring.MtrHopResult
 	87,  // 94: monitoring.MtrCheckResult.trace:type_name -> monitoring.MtrTraceResult
-	10,  // 95: monitoring.AgentService.GetStatus:input_type -> monitoring.StatusRequest
-	11,  // 96: monitoring.AgentService.GetResults:input_type -> monitoring.ResultsRequest
-	11,  // 97: monitoring.AgentService.StreamResults:input_type -> monitoring.ResultsRequest
-	26,  // 98: monitoring.AgentGatewayService.Hello:input_type -> monitoring.AgentHelloRequest
-	32,  // 99: monitoring.AgentGatewayService.GetConfig:input_type -> monitoring.AgentConfigRequest
-	32,  // 100: monitoring.AgentGatewayService.StreamConfig:input_type -> monitoring.AgentConfigRequest
-	20,  // 101: monitoring.AgentGatewayService.PushStatus:input_type -> monitoring.GatewayStatusRequest
-	23,  // 102: monitoring.AgentGatewayService.StreamStatus:input_type -> monitoring.GatewayStatusChunk
-	47,  // 103: monitoring.AgentGatewayService.ControlStream:input_type -> monitoring.ControlStreamRequest
-	52,  // 104: monitoring.AgentGatewayService.ResolveCredentialGrant:input_type -> monitoring.CredentialBrokerResolveRequest
-	104, // 105: monitoring.AgentGatewayService.ResolveAutomationLaunchEnvelope:input_type -> monitoring.AutomationLaunchEnvelopeResolveRequest
-	30,  // 106: monitoring.AgentGatewayService.RenewCertificate:input_type -> monitoring.CertificateRenewalRequest
-	89,  // 107: monitoring.AgentGatewayService.GetCertificatePolicy:input_type -> monitoring.CertificatePolicyRequest
-	12,  // 108: monitoring.AgentService.GetStatus:output_type -> monitoring.StatusResponse
-	14,  // 109: monitoring.AgentService.GetResults:output_type -> monitoring.ResultsResponse
-	17,  // 110: monitoring.AgentService.StreamResults:output_type -> monitoring.ResultsChunk
-	29,  // 111: monitoring.AgentGatewayService.Hello:output_type -> monitoring.AgentHelloResponse
-	33,  // 112: monitoring.AgentGatewayService.GetConfig:output_type -> monitoring.AgentConfigResponse
-	37,  // 113: monitoring.AgentGatewayService.StreamConfig:output_type -> monitoring.AgentConfigChunk
-	21,  // 114: monitoring.AgentGatewayService.PushStatus:output_type -> monitoring.GatewayStatusResponse
-	21,  // 115: monitoring.AgentGatewayService.StreamStatus:output_type -> monitoring.GatewayStatusResponse
-	48,  // 116: monitoring.AgentGatewayService.ControlStream:output_type -> monitoring.ControlStreamResponse
-	53,  // 117: monitoring.AgentGatewayService.ResolveCredentialGrant:output_type -> monitoring.CredentialBrokerResolveResponse
-	105, // 118: monitoring.AgentGatewayService.ResolveAutomationLaunchEnvelope:output_type -> monitoring.AutomationLaunchEnvelopeResolveResponse
-	31,  // 119: monitoring.AgentGatewayService.RenewCertificate:output_type -> monitoring.CertificateRenewalResponse
-	90,  // 120: monitoring.AgentGatewayService.GetCertificatePolicy:output_type -> monitoring.CertificatePolicyResponse
-	108, // [108:121] is the sub-list for method output_type
-	95,  // [95:108] is the sub-list for method input_type
-	95,  // [95:95] is the sub-list for extension type_name
-	95,  // [95:95] is the sub-list for extension extendee
-	0,   // [0:95] is the sub-list for field type_name
+	92,  // 95: monitoring.EdgeDeliveryGrantRequest.records:type_name -> monitoring.EdgeDeliveryGrantRecord
+	94,  // 96: monitoring.EdgeDeliveryGrantResponse.results:type_name -> monitoring.EdgeDeliveryGrantResult
+	108, // 97: monitoring.EdgeDeliveryGrantResult.delivery_capability:type_name -> serviceradar.edge.v1.EdgeSignedCapabilityV1
+	10,  // 98: monitoring.AgentService.GetStatus:input_type -> monitoring.StatusRequest
+	11,  // 99: monitoring.AgentService.GetResults:input_type -> monitoring.ResultsRequest
+	11,  // 100: monitoring.AgentService.StreamResults:input_type -> monitoring.ResultsRequest
+	26,  // 101: monitoring.AgentGatewayService.Hello:input_type -> monitoring.AgentHelloRequest
+	32,  // 102: monitoring.AgentGatewayService.GetConfig:input_type -> monitoring.AgentConfigRequest
+	32,  // 103: monitoring.AgentGatewayService.StreamConfig:input_type -> monitoring.AgentConfigRequest
+	20,  // 104: monitoring.AgentGatewayService.PushStatus:input_type -> monitoring.GatewayStatusRequest
+	23,  // 105: monitoring.AgentGatewayService.StreamStatus:input_type -> monitoring.GatewayStatusChunk
+	47,  // 106: monitoring.AgentGatewayService.ControlStream:input_type -> monitoring.ControlStreamRequest
+	52,  // 107: monitoring.AgentGatewayService.ResolveCredentialGrant:input_type -> monitoring.CredentialBrokerResolveRequest
+	109, // 108: monitoring.AgentGatewayService.ResolveAutomationLaunchEnvelope:input_type -> monitoring.AutomationLaunchEnvelopeResolveRequest
+	30,  // 109: monitoring.AgentGatewayService.RenewCertificate:input_type -> monitoring.CertificateRenewalRequest
+	89,  // 110: monitoring.AgentGatewayService.GetCertificatePolicy:input_type -> monitoring.CertificatePolicyRequest
+	91,  // 111: monitoring.AgentGatewayService.RenewEdgeDeliveryGrants:input_type -> monitoring.EdgeDeliveryGrantRequest
+	12,  // 112: monitoring.AgentService.GetStatus:output_type -> monitoring.StatusResponse
+	14,  // 113: monitoring.AgentService.GetResults:output_type -> monitoring.ResultsResponse
+	17,  // 114: monitoring.AgentService.StreamResults:output_type -> monitoring.ResultsChunk
+	29,  // 115: monitoring.AgentGatewayService.Hello:output_type -> monitoring.AgentHelloResponse
+	33,  // 116: monitoring.AgentGatewayService.GetConfig:output_type -> monitoring.AgentConfigResponse
+	37,  // 117: monitoring.AgentGatewayService.StreamConfig:output_type -> monitoring.AgentConfigChunk
+	21,  // 118: monitoring.AgentGatewayService.PushStatus:output_type -> monitoring.GatewayStatusResponse
+	21,  // 119: monitoring.AgentGatewayService.StreamStatus:output_type -> monitoring.GatewayStatusResponse
+	48,  // 120: monitoring.AgentGatewayService.ControlStream:output_type -> monitoring.ControlStreamResponse
+	53,  // 121: monitoring.AgentGatewayService.ResolveCredentialGrant:output_type -> monitoring.CredentialBrokerResolveResponse
+	110, // 122: monitoring.AgentGatewayService.ResolveAutomationLaunchEnvelope:output_type -> monitoring.AutomationLaunchEnvelopeResolveResponse
+	31,  // 123: monitoring.AgentGatewayService.RenewCertificate:output_type -> monitoring.CertificateRenewalResponse
+	90,  // 124: monitoring.AgentGatewayService.GetCertificatePolicy:output_type -> monitoring.CertificatePolicyResponse
+	93,  // 125: monitoring.AgentGatewayService.RenewEdgeDeliveryGrants:output_type -> monitoring.EdgeDeliveryGrantResponse
+	112, // [112:126] is the sub-list for method output_type
+	98,  // [98:112] is the sub-list for method input_type
+	98,  // [98:98] is the sub-list for extension type_name
+	98,  // [98:98] is the sub-list for extension extendee
+	0,   // [0:98] is the sub-list for field type_name
 }
 
 func init() { file_monitoring_proto_init() }
@@ -10340,13 +10581,14 @@ func file_monitoring_proto_init() {
 		(*ControlStreamResponse_ConfigChunk)(nil),
 		(*ControlStreamResponse_SweepLeaseChunk)(nil),
 	}
+	file_monitoring_proto_msgTypes[85].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_monitoring_proto_rawDesc), len(file_monitoring_proto_rawDesc)),
 			NumEnums:      9,
-			NumMessages:   94,
+			NumMessages:   98,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

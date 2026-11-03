@@ -57,6 +57,9 @@ type fakeIngestServer struct {
 	// retryLast, when set, reports the last received frame REJECTED_RETRYABLE
 	// past the resolved watermark, a tail ValidateAck accepts.
 	retryLast atomic.Bool
+	// decodeEventIDs, when set, takes each disposition's event id from the
+	// frame's decoded EdgeRecordV1 instead of its raw bytes.
+	decodeEventIDs bool
 
 	mu             sync.Mutex
 	receivedFrames []*edgev1.EdgeDeliveryFrameV1
@@ -106,9 +109,17 @@ func (f *fakeIngestServer) Stream(stream grpc.BidiStreamingServer[edgev1.EdgeRec
 		f.receivedFrames = append(f.receivedFrames, frame)
 		f.mu.Unlock()
 
+		eventID := frame.GetRecordBytes()
+		if f.decodeEventIDs {
+			record, err := edgerecord.DecodeRecord(frame.GetRecordBytes())
+			if err != nil {
+				return status.Error(codes.InvalidArgument, "undecodable record")
+			}
+			eventID = record.GetEventId()
+		}
 		disps = append(disps, &edgev1.EdgeRecordDisposition{
 			Sequence: frame.GetSequence(),
-			EventId:  frame.GetRecordBytes(),
+			EventId:  eventID,
 			Kind:     f.dispositionKind,
 		})
 		resolvedThrough = frame.GetSequence()

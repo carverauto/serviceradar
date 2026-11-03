@@ -57,6 +57,10 @@ service AgentGatewayService {
   rpc RenewCertificate(CertificateRenewalRequest) returns (CertificateRenewalResponse) {}
   // Fetch the short-lived deployment policy over the authenticated agent channel.
   rpc GetCertificatePolicy(CertificatePolicyRequest) returns (CertificatePolicyResponse) {}
+  // RenewEdgeDeliveryGrants asks core for a same-spool renewal delivery grant
+  // for each spooled edge record whose production authority has lapsed, so a
+  // reconnecting agent can drain its backlog.
+  rpc RenewEdgeDeliveryGrants(EdgeDeliveryGrantRequest) returns (EdgeDeliveryGrantResponse) {}
 }
 
 message DeviceStatusRequest {
@@ -1338,4 +1342,33 @@ message CertificatePolicyRequest {}
 message CertificatePolicyResponse {
   bytes payload = 1;   // Exact UTF-8 policy JSON bytes covered by the signature.
   bytes signature = 2; // Ed25519 over "serviceradar.certificate-policy.v1\0" + payload.
+}
+
+// EdgeDeliveryGrantRequest names spooled records of one spool lane. The gateway
+// verifies each record's bytes, production grant and origin against the
+// authenticated agent before core is asked, so a grant is never issued for
+// bytes the agent did not produce. Bounded per request: at most 64 records and
+// 2 MiB of record bytes.
+message EdgeDeliveryGrantRequest {
+  bytes spool_id = 1;                       // UUIDv7 of the lane the records drain on
+  repeated EdgeDeliveryGrantRecord records = 2;
+}
+
+message EdgeDeliveryGrantRecord {
+  uint64 sequence = 1;                      // spool sequence the record occupies
+  bytes record_bytes = 2;                   // exact EdgeRecordV1 bytes held at that sequence
+}
+
+// EdgeDeliveryGrantResponse answers every requested record, in request order.
+message EdgeDeliveryGrantResponse {
+  repeated EdgeDeliveryGrantResult results = 1;
+}
+
+// EdgeDeliveryGrantResult carries either a delivery grant or why none was
+// issued. A refusal leaves the record to be delivered without a grant, where
+// the gateway decides it as it would have.
+message EdgeDeliveryGrantResult {
+  uint64 sequence = 1;
+  optional serviceradar.edge.v1.EdgeSignedCapabilityV1 delivery_capability = 2;
+  string refusal = 3;
 }
