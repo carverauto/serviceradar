@@ -107,9 +107,9 @@ func spooledPluginResultBatches(t *testing.T, sp *spool.Spool) []*edgev1.WasmPlu
 	return batches
 }
 
-func hostPluginResult(assignmentID, payload string) PluginResult {
+func hostPluginResult(payload string) PluginResult {
 	return PluginResult{
-		AssignmentID:   assignmentID,
+		AssignmentID:   "assignment-9",
 		PluginID:       "synthetic-check",
 		PluginName:     "synthetic-check",
 		PackageID:      "pkg-synthetic-1",
@@ -126,7 +126,7 @@ func TestPluginResultsWithAGrantGoOnlyToTheEdgeSpool(t *testing.T) {
 	pluginResultsCapability(t, loop)
 
 	loop.pendingPluginResults = []PluginResult{
-		hostPluginResult("assignment-9", `{
+		hostPluginResult(`{
 			"status":"OK","summary":"synthetic check healthy","schema_version":1,
 			"labels":{"env":"lab"},
 			"events":[{"id":"evt-1","time":"2026-07-14T00:00:00Z","class_uid":1008,"category_uid":1,
@@ -134,7 +134,7 @@ func TestPluginResultsWithAGrantGoOnlyToTheEdgeSpool(t *testing.T) {
 			"device_discovery":[{"schema":"serviceradar.device_discovery.v1","collection_id":"col-1",
 			  "devices":[{"device_id":"dev-1","hostname":"sensor.example.com","ip":"192.0.2.10","is_available":true}]}]
 		}`),
-		hostPluginResult("assignment-9", `{"status":"CRITICAL","summary":"synthetic check down"}`),
+		hostPluginResult(`{"status":"CRITICAL","summary":"synthetic check down"}`),
 	}
 
 	require.True(t, loop.pushPluginResults(context.Background()))
@@ -169,7 +169,7 @@ func TestPluginResultsInvalidPayloadBecomesUnknownLikeLegacy(t *testing.T) {
 	pluginResultsCapability(t, loop)
 
 	loop.pendingPluginResults = []PluginResult{
-		hostPluginResult("assignment-9", `{"summary":"missing status"}`),
+		hostPluginResult(`{"summary":"missing status"}`),
 	}
 	require.True(t, loop.pushPluginResults(context.Background()))
 
@@ -186,9 +186,9 @@ func TestPluginResultsRecordBoundDropsOnlyTheOversizedResult(t *testing.T) {
 	details := pluginResultDetailsAtRecordBound(t, loop, capability)
 
 	loop.pendingPluginResults = []PluginResult{
-		hostPluginResult("assignment-9", `{"status":"OK","summary":"small before"}`),
-		hostPluginResult("assignment-9", pluginResultPayload(t, "oversized details", details)),
-		hostPluginResult("assignment-9", `{"status":"OK","summary":"small after"}`),
+		hostPluginResult(`{"status":"OK","summary":"small before"}`),
+		hostPluginResult(pluginResultPayload(t, "oversized details", details)),
+		hostPluginResult(`{"status":"OK","summary":"small after"}`),
 	}
 	require.True(t, loop.pushPluginResults(context.Background()))
 	require.Empty(t, loop.pendingPluginResults)
@@ -243,7 +243,7 @@ func pluginResultRecordAttempt(
 	details string,
 ) (int, error) {
 	t.Helper()
-	result := hostPluginResult("assignment-9", pluginResultPayload(t, "oversized details", details))
+	result := hostPluginResult(pluginResultPayload(t, "oversized details", details))
 	item := groupPluginResults([]PluginResult{result})[0]
 	batch := &edgev1.WasmPluginResultBatchV1{
 		Provenance: item.provenance,
@@ -273,8 +273,8 @@ func TestPluginResultsTakeLeavesPartiallySpooledGroupQueued(t *testing.T) {
 
 	big := strings.Repeat("x", 300<<10)
 	loop.pluginResultsEdge.enqueue(groupPluginResults([]PluginResult{
-		hostPluginResult("assignment-9", `{"status":"OK","summary":"big one","details":"`+big+`"}`),
-		hostPluginResult("assignment-9", `{"status":"OK","summary":"big two","details":"`+big+`"}`),
+		hostPluginResult(`{"status":"OK","summary":"big one","details":"` + big + `"}`),
+		hostPluginResult(`{"status":"OK","summary":"big two","details":"` + big + `"}`),
 	}))
 
 	// Spool only the first part, then lose the grant: the partially spooled

@@ -585,22 +585,11 @@ func metricsEdgeRecord(
 	capability *edgev1.EdgeSignedCapabilityV1,
 	maxRows uint64,
 ) (edgeMetricsBuilt, error) {
-	rows := len(batch.GetMetrics())
-	if rows == 0 || uint64(rows) > maxRows {
-		return edgeMetricsBuilt{}, errEdgeMetricsRecordTooLarge
-	}
-	payload, err := gproto.MarshalOptions{Deterministic: true}.Marshal(batch)
+	record, _, payload, err := edgeBatchRecord(
+		batch, capability, len(batch.GetMetrics()), maxRows, edgeMetricsProjectedRowBytes,
+		errEdgeMetricsRecordTooLarge, edgerecord.ValidateMetricBatchRecord,
+	)
 	if err != nil {
-		return edgeMetricsBuilt{}, err
-	}
-	if len(payload) > edgeMetricsMaxPayloadBytes {
-		return edgeMetricsBuilt{}, errEdgeMetricsRecordTooLarge
-	}
-	record, err := newEdgeRecord(capability, nil, payload, uint32(rows), uint64(rows)*edgeMetricsProjectedRowBytes)
-	if err != nil {
-		return edgeMetricsBuilt{}, err
-	}
-	if err := edgerecord.ValidateMetricBatchRecord(record); err != nil {
 		return edgeMetricsBuilt{}, err
 	}
 	return edgeMetricsBuilt{record: record, payload: payload}, nil

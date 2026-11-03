@@ -23,8 +23,6 @@ import (
 	"strings"
 	"time"
 
-	"google.golang.org/protobuf/proto"
-
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
@@ -287,30 +285,12 @@ func pluginResultEdgeRecord(
 	batch *edgev1.WasmPluginResultBatchV1,
 	capability *edgev1.EdgeSignedCapabilityV1,
 ) (*edgev1.EdgeRecordV1, []byte, error) {
-	rows := len(batch.GetResults())
-	if rows == 0 || uint64(rows) > pluginResultMaxRows(capability) {
-		return nil, nil, errPluginResultTooLarge
-	}
-	payload, err := proto.MarshalOptions{Deterministic: true}.Marshal(batch)
-	if err != nil {
-		return nil, nil, err
-	}
-	if len(payload) > edgePluginResultsMaxPayloadBytes {
-		return nil, nil, errPluginResultTooLarge
-	}
-	record, err := newEdgeRecord(capability, nil, payload, uint32(rows),
-		uint64(rows)*edgerecord.PluginResultsProjectedWriteBytesPerRecord)
-	if err != nil {
-		return nil, nil, err
-	}
-	if err := edgerecord.ValidatePluginResultRecord(record); err != nil {
-		return nil, nil, err
-	}
-	body, err := edgerecord.CanonicalRecordBytes(record)
-	if err != nil {
-		return nil, nil, err
-	}
-	return record, body, nil
+	record, body, _, err := edgeBatchRecord(
+		batch, capability, len(batch.GetResults()), pluginResultMaxRows(capability),
+		edgerecord.PluginResultsProjectedWriteBytesPerRecord, errPluginResultTooLarge,
+		edgerecord.ValidatePluginResultRecord,
+	)
+	return record, body, err
 }
 
 // groupPluginResults groups drained host results by their host-stamped
