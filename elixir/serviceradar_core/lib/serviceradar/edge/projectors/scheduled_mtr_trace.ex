@@ -148,10 +148,10 @@ defmodule ServiceRadar.Edge.Projectors.ScheduledMtrTrace do
         "last_responding_hop" => entry.last_responding_hop,
         "protocol" => protocol_name(tr.protocol),
         "ip_version" => tr.ip_version,
-        "packet_size" => tr.packet_size,
         "timestamp" => tr.observed_at_unix_nano,
         "hops" => Enum.map(tr.hops, &hop_map(&1, diag_by_hop))
       }
+      |> maybe_put("packet_size", if(tr.packet_size > 0, do: tr.packet_size))
       |> maybe_put("tcp_port", if(entry.tcp_port > 0, do: entry.tcp_port))
       |> maybe_put("tcp_probe_mode", tcp_probe_mode_name(entry.tcp_probe_mode))
       |> maybe_put("tcp_handshake", tcp_handshake_map(entry.tcp_handshake))

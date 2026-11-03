@@ -250,10 +250,6 @@ func buildScheduledMtrTrace(r mtrCheckResult) (*edgev1.AgentScheduledMtrTraceV1,
 	} else {
 		observedNano = normalizeMtrTimestampNano(observedNano)
 	}
-	if observedNano <= 0 {
-		observedNano = time.Now().UnixNano()
-	}
-
 	targetReached := r.Available
 
 	outcome := edgev1.MtrOutcome_MTR_OUTCOME_TARGET_UNREACHABLE
@@ -283,9 +279,6 @@ func buildScheduledMtrTrace(r mtrCheckResult) (*edgev1.AgentScheduledMtrTraceV1,
 		if len(resolvedAddr) == 0 {
 			resolvedAddr = parseMtrAddrBytes(target)
 		}
-		if len(resolvedAddr) == 16 && r.Trace.IPVersion == 0 {
-			ipVersion = 6
-		}
 		entry.ProbedHops = uint32(max(r.Trace.ProbedHops, 0))
 		entry.LastRespondingHop = uint32(max(r.Trace.LastRespondingHop, 0))
 		if r.Trace.TCPPort > 0 && r.Trace.TCPPort <= 65535 {
@@ -304,9 +297,6 @@ func buildScheduledMtrTrace(r mtrCheckResult) (*edgev1.AgentScheduledMtrTraceV1,
 		entry.HopDiagnostics = hopDiags
 	} else {
 		resolvedAddr = parseMtrAddrBytes(target)
-		if len(resolvedAddr) == 16 {
-			ipVersion = 6
-		}
 	}
 
 	var totalHops uint32
@@ -467,7 +457,7 @@ func scheduledMtrExecutionSource(src string) edgev1.SweepExecutionSource {
 		return edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_SWEEP_PROFILE
 	case "on_demand":
 		return edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_ON_DEMAND
-	case "ad_hoc", "bulk_job":
+	case "ad_hoc":
 		return edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_AD_HOC
 	default:
 		return edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_SCHEDULED_CHECK
