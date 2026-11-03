@@ -93,7 +93,9 @@ defmodule ServiceRadar.EventWriter.Config do
     "mtr_results" => @gib,
     "scan_results" => 268_435_456,
     "trivy_reports" => @gib,
-    "TELEMETRY_EDGE_RECORD_V1_BULK" => @gib
+    "TELEMETRY_EDGE_RECORD_V1_BULK" => @gib,
+    "TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK" => 67_108_864,
+    "TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK" => 67_108_864
   }
 
   # Compiled default `num_replicas` for streams only EventWriter creates.
@@ -106,7 +108,9 @@ defmodule ServiceRadar.EventWriter.Config do
     "mtr_results" => 1,
     "scan_results" => 3,
     "trivy_reports" => 1,
-    "TELEMETRY_EDGE_RECORD_V1_BULK" => 3
+    "TELEMETRY_EDGE_RECORD_V1_BULK" => 3,
+    "TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK" => 3,
+    "TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK" => 3
   }
 
   # EventWriter's fallback shape for the streams a collector may own (design D3,
@@ -609,11 +613,10 @@ defmodule ServiceRadar.EventWriter.Config do
   Reads every EventWriter stream size from the environment (design D3, D7).
 
   * `SERVICERADAR_JS_<STREAM>_MAX_BYTES` for `metrics`, `k8s_inventory`,
-    `analytics_predictions`, `mtr_results`, `scan_results`, `trivy_reports` and
-    `TELEMETRY_EDGE_RECORD_V1_BULK`;
-  * `SERVICERADAR_JS_<STREAM>_REPLICAS` for `metrics`, `k8s_inventory`,
-    `analytics_predictions`, `mtr_results`, `scan_results`, `trivy_reports` and
-    `TELEMETRY_EDGE_RECORD_V1_BULK`;
+    `analytics_predictions`, `mtr_results`, `scan_results`, `trivy_reports`,
+    `TELEMETRY_EDGE_RECORD_V1_BULK`, `TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK` and
+    `TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK`;
+  * `SERVICERADAR_JS_<STREAM>_REPLICAS` for the same streams;
   * `SERVICERADAR_JS_<STREAM>_FALLBACK_MAX_BYTES` and `_FALLBACK_REPLICAS` for
     `events`, `flows` and `ARANCINI_CAUSAL`.
 
@@ -870,6 +873,59 @@ defmodule ServiceRadar.EventWriter.Config do
   end
 
   @doc """
+  The audit route for edge records (unify-sweep-results-proto task 3.5, narrowed): a valid
+  historical record delivered under a stale fence, which the gateway publishes stamped
+  `LATE_FENCED_DELIVERY` and resolves ACCEPTED_AUDIT_ONLY on this stream's PubAck.
+
+  The same `EdgeRecord` processor consumes it, so the record claims its delivery slot and ledger
+  row and nothing else: a late-fenced delivery is never projected. The processor also refuses a
+  record on this subject that is not stamped late-fenced. Shape and replication follow the
+  primary stream.
+  """
+  @spec edge_record_audit_stream() :: stream_config()
+  def edge_record_audit_stream do
+    %{
+      edge_record_stream()
+      | name: "EDGE_RECORD_AUDIT",
+        stream_name: "TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK",
+        subject: "telemetry.edge-record-audit.v1.bulk.>",
+        stream_max_bytes: 67_108_864
+    }
+  end
+
+  @doc """
+  The security-quarantine route for edge records: a record signed under a compromise-revoked
+  production or source key, which the gateway resolves ACCEPTED_QUARANTINE on this stream's
+  PubAck.
+
+  This is a dead-letter stream, not a projection input. `MaxAge` is disabled and `DiscardNew`
+  refuses a publish once it is full, so a quarantined record is never aged or evicted out: the
+  gateway's publish fails, the sequence stays unresolved and the agent keeps the bytes. The
+  `EdgeRecordQuarantine` processor reads each message only to report it (a log line naming the
+  stream sequence, and a counter); it writes nothing and leaves the message in the stream for
+  inspection. The full DLQ catalog, retention and redrive are a later change.
+  """
+  @spec edge_record_security_quarantine_stream() :: stream_config()
+  def edge_record_security_quarantine_stream do
+    %{
+      name: "EDGE_RECORD_SECURITY_QUARANTINE",
+      stream_name: "TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK",
+      subject: "telemetry.edge-record-security-quarantine.v1.bulk.>",
+      allow_stream_fallback: false,
+      processor: ServiceRadar.EventWriter.Processors.EdgeRecordQuarantine,
+      batch_size: 1,
+      batch_timeout: 1_000,
+      stream_retention: "limits",
+      stream_storage: "file",
+      stream_discard: "new",
+      stream_replicas: 3,
+      stream_max_bytes: 67_108_864,
+      stream_max_age: 0,
+      consumer_max_deliver: -1
+    }
+  end
+
+  @doc """
   Ad-hoc scan results (`scans.results.>`), persisted by the AdhocScan processor.
 
   Interactive and low-volume, so a small, short-lived stream: 256 MiB / 1h,
@@ -1107,7 +1163,9 @@ defmodule ServiceRadar.EventWriter.Config do
         batch_timeout: 1_000
       },
       analytics_predictions_stream(),
-      edge_record_stream()
+      edge_record_stream(),
+      edge_record_audit_stream(),
+      edge_record_security_quarantine_stream()
       # Raw flows live in default_flow_streams/0 (dedicated Broadway demand domain).
     ]
   end

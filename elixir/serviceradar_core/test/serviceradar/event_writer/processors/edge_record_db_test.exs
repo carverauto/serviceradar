@@ -145,6 +145,24 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       assert Repo.get!(SweepExecutionSlot, execution_id).state == :scheduled
     end
 
+    test "the audit route records a late-fenced batch and refuses one that is not late-fenced" do
+      late = build_frame(delivery_mode: PublicationIdentity.mode_late_fenced())
+
+      assert {:ok, :inserted} =
+               EdgeRecord.ingest(late.record_bytes, late.headers, Repo, publication: :audit)
+
+      assert ledger_count(late.record) == 1
+      refute Repo.get(SweepGroupExecution, Ecto.UUID.cast!(late.batch.execution_id))
+
+      fresh = build_frame()
+
+      assert {:error, :audit_not_late_fenced} =
+               EdgeRecord.ingest(fresh.record_bytes, fresh.headers, Repo, publication: :audit)
+
+      assert ledger_count(fresh.record) == 0
+      refute Repo.get(SweepGroupExecution, Ecto.UUID.cast!(fresh.batch.execution_id))
+    end
+
     test "a ZSTD-compressed frame passes gateway admission and projects its decoded batch" do
       plain = build_frame()
       body = plain.record.payload

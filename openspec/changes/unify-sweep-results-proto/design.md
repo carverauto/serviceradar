@@ -1610,6 +1610,10 @@ Initial subjects are installation-local and fixed for the
 ```text
 telemetry.edge-record.v1.bulk.pNN
 telemetry.edge-record.v1.interactive.pNN
+telemetry.edge-record-audit.v1.bulk.pNN
+telemetry.edge-record-audit.v1.interactive.pNN
+telemetry.edge-record-security-quarantine.v1.bulk.pNN
+telemetry.edge-record-security-quarantine.v1.interactive.pNN
 telemetry.edge-record-recovery.v1
 telemetry.edge-record-dlq.v1.bulk.pNN
 telemetry.edge-record-dlq.v1.interactive.pNN
@@ -3029,7 +3033,7 @@ typed disposition):
 | --- | --- | --- |
 | Historical collection proof | verifier; ONLY the signature/key/trust-chain grant is cacheable by capability digest + trust-policy epoch (body observation/event-time and body-to-claim joins are always evaluated per record) | `valid` / `invalid` / `historically_revoked` / `unavailable` (must validate the authoritative BODY observation/event times against the signed collection interval, not only the UUIDv7 identity time; rotation keeps key history; compromise revokes it) |
 | Delivery mode/reason | delivery layer | `fresh` / `renewal` / `rollover` / `late_fenced_delivery` (a stale-fence historical delivery, not a "replay") |
-| Gateway publication | gateway | `primary_publication` / `audit_publication` (valid historical, stale fence) / `quarantine_publication` (admitted poison) / `security_quarantine_publication` (a COMPROMISE-revoked key -- a distinct SECURITY variant: the `EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_QUARANTINE` disposition routed to the security-quarantine DLQ, ledger_only, reachable, grant-free) / `retryable_rejection` / `permanent_rejection` (invalid/unauthorized/oversize at a known slot) |
+| Gateway publication | gateway | `primary_publication` / `audit_publication` (valid historical, stale fence) / `quarantine_publication` (admitted poison) / `security_quarantine_publication` (a COMPROMISE-revoked key -- a distinct SECURITY variant: the `EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_QUARANTINE` disposition routed to the security-quarantine stream, no event-ledger row, reachable, grant-free) / `retryable_rejection` / `permanent_rejection` (invalid/unauthorized/oversize at a known slot) |
 | EventWriter projection | EventWriter | `authoritative_apply` (ledger + domain) / `ledger_only` (ledger idempotency/audit, NO domain projection) / `conflict_quarantine` |
 
 HOW those four decisions are evaluated -- the gateway publication matrix, the
@@ -3096,10 +3100,10 @@ authoritative apply. Evaluate in this order; the FIRST match wins:
    grant is cacheable by capability digest + trust-policy epoch). `invalid` (signature /
    structure / envelope-to-grant unauthorized) -> `permanent_rejection`.
    `historically_revoked` (a record otherwise valid but whose signing key was
-   compromise-revoked -- resolved HERE, NOT silently into `authoritative_apply`) ->
-   `ledger_only` audit row + PubAck the affected record to the security-quarantine cohort
-   DLQ (see the compromised-cohort remediation below), THEN source-ACK the original
-   delivery. `unavailable` (key/trust store not loadable) -> NO ACK, pause; the message
+   compromise-revoked -- resolved at the gateway, NOT silently into `authoritative_apply`) ->
+   the gateway has already published it on the security-quarantine stream, and
+   `EdgeRecordQuarantine` reports the message and writes no ledger row
+   (`docs/edge-record-quarantine-runbook.md`). `unavailable` (key/trust store not loadable) -> NO ACK, pause; the message
    stays pending.
 4. Readiness: the pinned contract bundle's registry/projector/schema are LOADABLE AND the
    exact projector generation is DEPLOYED. Not loadable, OR a valid-but-not-yet-deployed
@@ -3126,7 +3130,7 @@ Precedence note: transport / slot / trust / conflict / poison (steps 1-6) preced
 fence downgrade (step 7), and slot binding (step 2) precedes every terminal decision, so
 no downgrade or audit path can mask a conflict, a compromise, or an unbound slot -- an
 audit publication that is ALSO an event-id conflict is handled as a conflict, and a
-compromise-revoked record resolves to `ledger_only` + security-quarantine, never to a
+compromise-revoked record resolves on the security-quarantine stream with no ledger row, never to a
 stale `authoritative_apply`. Semantic-digest VERIFICATION (step 1) precedes its use as the
 ledger replay key (step 5).
 
@@ -3145,12 +3149,12 @@ Failure-disposition deconfliction:
   so it is a transport-level lane close with NO per-delivery disposition (see the gateway
   matrix). Quarantine is for admitted-but-poison content; permanent rejection is for
   structurally invalid / unauthorized / oversize input at a known slot.
-- POST-PubAck compromise revocation resolves in the trust-outcome step (step 3) as
-  `historically_revoked`: EventWriter writes a `ledger_only` audit row and PubAcks the
-  affected record to the security-quarantine cohort DLQ, THEN source-ACKs the original
-  delivery: the record is durably captured, never authoritatively projected, and never
-  left unresolved. On compromise revocation of a signing key, EVERY record signed by that
-  key is `historically_revoked` -> `ledger_only` + security-quarantine cohort, and any
+- POST-PubAck compromise revocation is the gateway's `security_quarantine_publication`:
+  the record is on the security-quarantine stream, EventWriter writes no ledger row,
+  and the agent resolves the sequence on that stream's PubAck. The record is durably
+  retained, never authoritatively projected, and never left unresolved while the
+  stream accepts the publish. On compromise revocation of a signing key, EVERY record
+  signed by that key is `historically_revoked` and takes that stream, and any
   already-authoritatively-projected domain rows from that key/cohort are marked
   `security_held` and scheduled for operator-authorized retraction/redrive under a fixed
   safe bundle; redrive uses a durable synthetic spool + fresh delivery/map envelope + a

@@ -536,6 +536,36 @@ defmodule ServiceRadar.Edge.PublishPipelineTest do
       assert_receive {:edge_publish_outcome, @lane, 1, {:recorded, @accepted}, 2}, 5_000
     end
 
+    test "a PubAck resolves to the accepted kind of the publication it acknowledged" do
+      # The wire disposition is the agent's only record of which stream holds a sequence, so an
+      # audit or security-quarantine PubAck must never be reported as an authoritative accept.
+      p = pool(8, 4_000)
+      pipe = open(pipeline(p, windowed_publisher(self()), max_inflight: 3))
+
+      offers = [
+        {1, :audit, :EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUDIT_ONLY},
+        {2, :security_quarantine, :EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_QUARANTINE},
+        {3, :primary, @accepted}
+      ]
+
+      for {sequence, kind, _} <- offers do
+        :ok = PublishPipeline.offer(pipe, Map.put(publication(sequence), :publication, kind))
+      end
+
+      workers = started_any(3)
+
+      for {sequence, _, accepted} <- offers do
+        release(workers[sequence], ack(sequence))
+
+        assert_receive {:edge_publish_outcome, @lane, ^sequence, {:recorded, ^accepted},
+                        ^sequence},
+                       5_000
+      end
+
+      assert {:error, :publication} =
+               PublishPipeline.offer(pipe, Map.put(publication(4), :publication, :quarantine))
+    end
+
     test "reject_permanent resolves a sequence that was never published" do
       # A frame that failed its integrity check never reaches offer/2. Without a way to record it,
       # its sequence is a gap nothing can fill and the published sequence behind it never resolves.

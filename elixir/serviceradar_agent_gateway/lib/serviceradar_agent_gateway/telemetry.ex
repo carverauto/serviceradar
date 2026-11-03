@@ -85,6 +85,11 @@ defmodule ServiceRadarAgentGateway.Telemetry do
         measurement: :count,
         tags: [:reason],
         tag_values: &puback_tag_values/1
+      ),
+      counter("serviceradar.agent_gateway.edge_record.non_authoritative_publication.count",
+        event_name: [:serviceradar, :agent_gateway, :edge_record, :non_authoritative_publication],
+        measurement: :count,
+        tags: [:publication]
       )
     ] ++ ServiceRadar.Telemetry.audit_metrics()
   end

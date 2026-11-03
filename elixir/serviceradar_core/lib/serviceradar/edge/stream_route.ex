@@ -9,10 +9,12 @@ defmodule ServiceRadar.Edge.StreamRoute do
 
   ## The normative subject topology
 
-  These five families are the whole space, fixed by the `nats-tenant-isolation` spec:
+  These seven families are the whole space, fixed by the `nats-tenant-isolation` spec:
 
       telemetry.edge-record.v1.bulk.pNN
       telemetry.edge-record.v1.interactive.pNN
+      telemetry.edge-record-audit.v1.{bulk|interactive}.pNN
+      telemetry.edge-record-security-quarantine.v1.{bulk|interactive}.pNN
       telemetry.edge-record-recovery.v1
       telemetry.edge-record-dlq.v1.bulk.pNN
       telemetry.edge-record-dlq.v1.interactive.pNN
@@ -20,6 +22,18 @@ defmodule ServiceRadar.Edge.StreamRoute do
   The data subject keys on TRAFFIC CLASS; the route profile selects which FAMILY applies and
   never appears as a token. Recovery is one singular reserved lane -- no class token, no partition
   token -- with its own unborrowable storage/PubAck/consumer capacity.
+
+  ## Audit and security-quarantine publications
+
+  The gateway's authorization decides one of three publications for a durable record (task 3.5):
+  `:primary`, `:audit` (a valid historical record under a stale fence, delivered under its delivery
+  grant and stamped `LATE_FENCED_DELIVERY`) and `:security_quarantine` (a record signed by a
+  compromise-revoked key). Each has its own family and physical stream, in the same partition as
+  the primary route would use, so neither non-authoritative publication can land on a stream an
+  authoritative projector reads. The security-quarantine family is distinct from the ordinary DLQ
+  because both quarantine outcomes report the same wire disposition: the route is the only record
+  of which one it was. The recovery lane has neither; a recovery record with either decision is
+  unroutable.
 
   ## The DLQ families are normative, and NOT resolvable here yet
 
@@ -109,6 +123,15 @@ defmodule ServiceRadar.Edge.StreamRoute do
   @recovery_subject "telemetry.edge-record-recovery.v1"
   @recovery_stream "TELEMETRY_EDGE_RECORD_RECOVERY_V1"
 
+  # publication => {subject family, physical stream prefix}, for the durable-records profile.
+  @families %{
+    primary: {"telemetry.edge-record.v1", "TELEMETRY_EDGE_RECORD_V1"},
+    audit: {"telemetry.edge-record-audit.v1", "TELEMETRY_EDGE_RECORD_AUDIT_V1"},
+    security_quarantine:
+      {"telemetry.edge-record-security-quarantine.v1",
+       "TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1"}
+  }
+
   # The frozen partition rules. One today; the rest arrive with the contract registry.
   @partition_rules [:network_scope_v1]
 
@@ -144,6 +167,8 @@ defmodule ServiceRadar.Edge.StreamRoute do
     * `:partition_rule` — the rule the output-contract bundle pins. REQUIRED; no default.
     * `:partition_coordinates` — the authenticated coordinates the rule reads, e.g.
       `%{network_scope_id: <<...>>}` for `:network_scope_v1`.
+    * `:publication` — the gateway's authorization decision, `:primary` (the default), `:audit`
+      or `:security_quarantine`. It selects the family; the partition is the same for all three.
 
   Returns `{:error, :unknown_partition_rule}` for a rule this installation cannot evaluate, which
   is a refusal rather than a fallback: a record routed by the wrong rule lands on a partition its
@@ -153,9 +178,16 @@ defmodule ServiceRadar.Edge.StreamRoute do
   def resolve(contract) when is_map(contract) do
     profile = Map.get(contract, :route_profile)
     class = Map.get(contract, :traffic_class)
+    publication = Map.get(contract, :publication, :primary)
 
-    case {profile, valid_class(class)} do
-      {@recovery_control, {:ok, _token}} ->
+    case {profile, valid_class(class), Map.fetch(@families, publication)} do
+      {_, _, :error} ->
+        {:error, :unknown_publication}
+
+      {@recovery_control, {:ok, _token}, _family} when publication != :primary ->
+        {:error, :unroutable_lane}
+
+      {@recovery_control, {:ok, _token}, _family} ->
         # Singular and unpartitioned: no class token, no pNN. The rule is still VALIDATED even
         # though no partition is computed from it -- the contract bundle pins one regardless, and
         # skipping the check here made "every unknown rule is refused" untrue for exactly the lane
@@ -164,17 +196,17 @@ defmodule ServiceRadar.Edge.StreamRoute do
           {:ok, route(@recovery_subject, nil, @recovery_stream)}
         end
 
-      {@durable_records, {:ok, token}} ->
+      {@durable_records, {:ok, token}, {:ok, {family, stream}}} ->
         with {:ok, partition} <- partition_for(contract) do
           {:ok,
            route(
-             "telemetry.edge-record.v1.#{token}.#{pad(partition)}",
+             "#{family}.#{token}.#{pad(partition)}",
              partition,
-             "TELEMETRY_EDGE_RECORD_V1_#{String.upcase(token)}"
+             "#{stream}_#{String.upcase(token)}"
            )}
         end
 
-      {_, {:error, reason}} ->
+      {_, {:error, reason}, _family} ->
         {:error, reason}
 
       _ ->

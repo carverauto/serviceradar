@@ -623,6 +623,43 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
       refute_received {:requested, _, _, _, _}
     end
 
+    test "a non-authoritative publication goes to its own stream, never the primary one" do
+      late_fenced = %{
+        publication: :audit,
+        delivery_mode: PublicationIdentity.mode_late_fenced(),
+        delivery_proof: :binary.copy(<<0x5A>>, 32)
+      }
+
+      for {overrides, family, stream} <- [
+            {late_fenced, "edge-record-audit", "TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK"},
+            {%{publication: :security_quarantine}, "edge-record-security-quarantine",
+             "TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK"}
+          ] do
+        with_reply({:ok, %{body: ~s({"stream":"#{stream}","seq":4})}})
+
+        assert {:ok, %{stream: ^stream}} =
+                 JetStreamPublisher.publish_record(publication(overrides), with_pools(connection: FakeConn))
+
+        assert_received {:requested, _conn, subject, _payload, opts}
+        assert subject =~ ~r"^telemetry\.#{family}\.v1\.bulk\.p\d{2}$"
+        assert header(opts[:headers], "Nats-Expected-Stream") == stream
+      end
+    end
+
+    # EventWriter keeps an audit record ledger-only by its LATE_FENCED_DELIVERY stamp, so an audit
+    # publication without it would be projected authoritatively from the audit stream.
+    test "an audit publication without the late-fenced stamp refuses before any publish" do
+      with_reply({:ok, %{body: ~s({"stream":"TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK","seq":1})}})
+
+      assert {:error, {:derivation, :audit_delivery_mode}} =
+               JetStreamPublisher.publish_record(
+                 publication(%{publication: :audit}),
+                 with_pools(connection: FakeConn)
+               )
+
+      refute_received {:requested, _, _, _, _}
+    end
+
     test "an unknown partition rule refuses before any publish" do
       with_reply({:ok, %{body: ~s({"stream":"S","seq":1})}})
 

@@ -2106,9 +2106,12 @@ if config_env() == :prod do
         # design D9); definition shared with Config.default_streams/0 so the
         # retention stanza cannot drift.
         Config.analytics_predictions_stream(),
-        # Durable edge records the agent gateway publishes with PubAck; shared
-        # with Config.default_streams/0.
-        Config.edge_record_stream()
+        # Durable edge records the agent gateway publishes with PubAck, and
+        # their audit and security-quarantine routes; shared with
+        # Config.default_streams/0.
+        Config.edge_record_stream(),
+        Config.edge_record_audit_stream(),
+        Config.edge_record_security_quarantine_stream()
       ],
       # Dedicated demand domain for raw flows on JetStream stream `flows`.
       # Optional EVENT_WRITER_FLOW_* tuning is applied below only when set so

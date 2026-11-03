@@ -709,8 +709,9 @@ PROOF) -- evaluated for EVERY record so compromise handling is REACHABLE, resolv
 to exactly one of `valid`, `invalid`, `historically_revoked`, or `unavailable`: an
 otherwise-valid record whose signing key was compromise-revoked resolves here to
 `historically_revoked`, NOT silently to `authoritative_apply`; `invalid` SHALL be
-`permanent_rejection`; `historically_revoked` SHALL yield a `ledger_only` audit plus a
-security-quarantine cohort; `unavailable` (key/trust store not loadable) SHALL yield
+`permanent_rejection`; `historically_revoked` SHALL be the gateway's
+security-quarantine publication and SHALL NOT be written to the event ledger,
+because a compromised record must not hold an event id; `unavailable` (key/trust store not loadable) SHALL yield
 NO ACK and pause. (4) READINESS -- the registry/projector/schema for the pinned
 bundle is loadable AND the exact projector generation is deployed; not loadable or
 valid-but-not-yet-deployed SHALL yield NO ACK and pause as a deployment failure (NOT
@@ -909,8 +910,8 @@ header. A retained generation SHALL remain valid while its accepted stream drain
 On compromise revocation of a producer signing key, the deployment SHALL remediate
 the affected cohort fail-closed and SHALL NOT authoritatively project any record that
 key signed. Every record signed by the compromise-revoked key SHALL resolve to
-`historically_revoked` and be captured as a `ledger_only` audit row plus a
-security-quarantine DLQ entry, and SHALL NEVER be authoritatively projected. Domain
+`historically_revoked` and be published on the security-quarantine stream. It
+SHALL NOT be written to the event ledger, and it SHALL NEVER be authoritatively projected. Domain
 rows that were already authoritatively projected from that key or cohort before
 revocation SHALL be marked `security_held` and scheduled for operator-authorized
 retraction or redrive under a fixed safe bundle rather than silently retained as
@@ -922,9 +923,9 @@ neither duplicates domain side effects nor reinstates compromised trust.
 #### Scenario: A signing key is revoked for compromise after projection
 - **GIVEN** a producer signing key is revoked for compromise after some of its
   records were already authoritatively projected
-- **WHEN** EventWriter evaluates new and replayed deliveries signed by that key
-- **THEN** every such record SHALL resolve to `historically_revoked`, land as a
-  `ledger_only` audit row plus a security-quarantine DLQ entry, and SHALL NOT be
+- **WHEN** a new or replayed delivery signed by that key is published
+- **THEN** every such record SHALL resolve to `historically_revoked`, be published
+  on the security-quarantine stream with no event-ledger row, and SHALL NOT be
   authoritatively projected
 - **AND** the already-projected domain rows from that cohort SHALL be marked
   `security_held` and scheduled for operator-authorized retraction or redrive under a

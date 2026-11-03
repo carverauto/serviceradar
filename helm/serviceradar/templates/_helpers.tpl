@@ -1179,11 +1179,15 @@ is about the disk, and nats.jetstream.allowOvercommit does not skip it.
 {{- $ewArancini := default (dict) (index $ewStreams "ARANCINI_CAUSAL") -}}
 {{- $ewNotifications := default (dict) (index $ewStreams "notifications") -}}
 {{- $ewEdgeRecord := default (dict) (index $ewStreams "telemetry_edge_record_v1_bulk") -}}
+{{- $ewEdgeRecordAudit := default (dict) (index $ewStreams "telemetry_edge_record_audit_v1_bulk") -}}
+{{- $ewEdgeRecordQuarantine := default (dict) (index $ewStreams "telemetry_edge_record_security_quarantine_v1_bulk") -}}
 {{- $ewExposureTransitions := default (dict) (index $ewStreams "exposure_transitions") -}}
 {{- $ewExposureDimensions := default (dict) (index $ewStreams "exposure_dimensions") -}}
 {{- $entries = concat $entries (list
   (dict "id" "notifications" "stream" "NOTIFICATIONS" "source" "core.eventWriter.streams.notifications.maxBytes" "value" $ewNotifications.maxBytes "replicaSource" "core.eventWriter.streams.notifications.replicas" "replicaValue" $ewNotifications.replicas "counted" true)
   (dict "id" "telemetry_edge_record_v1_bulk" "stream" "TELEMETRY_EDGE_RECORD_V1_BULK" "source" "core.eventWriter.streams.telemetry_edge_record_v1_bulk.maxBytes" "value" $ewEdgeRecord.maxBytes "replicaSource" "core.eventWriter.streams.telemetry_edge_record_v1_bulk.replicas" "replicaValue" $ewEdgeRecord.replicas "counted" true)
+  (dict "id" "telemetry_edge_record_audit_v1_bulk" "stream" "TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK" "source" "core.eventWriter.streams.telemetry_edge_record_audit_v1_bulk.maxBytes" "value" $ewEdgeRecordAudit.maxBytes "replicaSource" "core.eventWriter.streams.telemetry_edge_record_audit_v1_bulk.replicas" "replicaValue" $ewEdgeRecordAudit.replicas "counted" true)
+  (dict "id" "telemetry_edge_record_security_quarantine_v1_bulk" "stream" "TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK" "source" "core.eventWriter.streams.telemetry_edge_record_security_quarantine_v1_bulk.maxBytes" "value" $ewEdgeRecordQuarantine.maxBytes "replicaSource" "core.eventWriter.streams.telemetry_edge_record_security_quarantine_v1_bulk.replicas" "replicaValue" $ewEdgeRecordQuarantine.replicas "counted" true)
   (dict "id" "exposureTransitions" "stream" "EXPOSURE_TRANSITIONS" "source" "core.eventWriter.streams.exposure_transitions.maxBytes" "value" $ewExposureTransitions.maxBytes "replicaSource" "core.eventWriter.streams.exposure_transitions.replicas" "replicaValue" $ewExposureTransitions.replicas "counted" true)
   (dict "id" "exposureDimensions" "stream" "EXPOSURE_DIMENSIONS" "source" "core.eventWriter.streams.exposure_dimensions.maxBytes" "value" $ewExposureDimensions.maxBytes "replicaSource" "core.eventWriter.streams.exposure_dimensions.replicas" "replicaValue" $ewExposureDimensions.replicas "counted" true)
   (dict "id" "exposureRecovery" "stream" "EXPOSURE_RECOVERY" "source" "fixed exposure recovery reservation" "value" "64Mi" "replicaSource" "fixed exposure recovery replicas" "replicaValue" 3 "counted" true)
