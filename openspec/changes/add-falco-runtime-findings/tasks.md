@@ -1,74 +1,85 @@
-## 0. Preconditions
-- [ ] 0.1 Get the user's answers to the design's open questions (logs row, exact counts, window alerting, quiet period, backfill, sequencing with `add-ocsf-finding-model`).
-- [ ] 0.2 Confirm whether `platform.ocsf_findings` exists on staging; if not, this change creates it with the common columns from `add-ocsf-finding-model` and records that in that change's tasks 1.1, 2.3, 2.4 and 3.1.
-- [ ] 0.3 Verify which Falcosidekick NATS subject edge packages publish (`falco.>` vs `events.falco.>`) and align `NatsLeafConfigGenerator` with `NatsLeafCredentials` and the chart.
-- [ ] 0.4 Verify Falcosidekick's NATS output publishes without a JetStream PubAck and record it in operator docs.
+## 0. Preconditions and dependencies
+- [x] 0.1 Get the user's decisions on the open questions (decided 2026-11-02 and 2026-11-03; recorded in design.md).
+- [ ] 0.2 Confirm `platform.ocsf_findings` does not exist on staging; create it here with `add-ocsf-finding-model`'s planned schema, and keep the coordination note in both changes current.
+- [ ] 0.3 Verify which NATS subject edge Falcosidekick packages publish today (`falco.>` or `events.falco.>`) and align `NatsLeafConfigGenerator` with `NatsLeafCredentials` and the chart until the removal in 6.5 lands, so no edge sender is lost before the cutoff.
+- [x] 0.4 Delivery confirmation. Falcosidekick's NATS output has no JetStream PubAck. On the edge path, a record is durably held from OTLP acceptance by the agent's receiver through to a JetStream PubAck (design Decision 9). The remaining sender-hop and spool-eviction loss points are documented in 8.2.
+- [ ] 0.5 Dependency: sibling task 4.1 of `move-agent-telemetry-to-edge-records` (`OtlpRelayFrame` producer and projector, #6262) ships in the same or an earlier release, including refusal back to the sender (never a drop) of a single OTLP record above the 512 KiB record bound.
+- [ ] 0.6 Dependency: extend Falcosidekick's OTLP logs output (all fields, `falco.event`, `falco.uuid`, priority severity, resource from `OTEL_RESOURCE_ATTRIBUTES`, logs-specific `checkcert`); upstream it, and pin the fork build until an upstream release contains it.
 
 ## 1. Schema
-- [ ] 1.1 CNPG migration: `platform.runtime_finding_details` (typed columns, indexes on status/severity, namespace/owner, `device_uid`, `node_device_uid`, `binding_status`, `last_seen`), cascading from `ocsf_findings`.
-- [ ] 1.2 CNPG migration: the runtime finding transition outbox.
-- [ ] 1.3 CNPG migration: `platform.runtime_security_occurrences` hypertable with a retention policy, keyed on `(time, id)`.
-- [ ] 1.4 StarRocks migration: `serviceradar.runtime_security_occurrences`, day-partitioned, `raw_payload VARCHAR(1048576)`, registered with warehouse retention.
-- [ ] 1.5 Add `retired_at` to stateful alert rules.
-- [ ] 1.6 Ash resources for findings and details, platform schema only, no multitenancy bypass.
+- [ ] 1.1 CNPG: `platform.ocsf_findings` (planned common schema) and `finding_info_uid` on `ocsf_events`.
+- [ ] 1.2 CNPG: `platform.runtime_finding_details` with indexes on status/severity, namespace/owner, `device_uid`, `node_device_uid`, `binding_status`, `last_seen`.
+- [ ] 1.3 CNPG: transition outbox.
+- [ ] 1.4 CNPG: `platform.runtime_security_occurrences` hypertable, day chunks, retention policy.
+- [ ] 1.5 StarRocks: `serviceradar.runtime_security_occurrences` (day partitions, free-text and `raw_payload` columns `VARCHAR(1048576)`), `finding_info_uid` on `events`, warehouse retention registration.
+- [ ] 1.6 `retired_at` on stateful alert rules; Ash resources in the platform schema only.
 
-## 2. Normalizer
-- [ ] 2.1 Extend `FalcoDecomposition` with entity selection, entity key, finding uid v1, typed occurrence row, and finding delta; one entry point taking a decoded record plus ingest metadata.
-- [ ] 2.2 Enrich container-only records from `workload_identity_current`.
-- [ ] 2.3 Read `serviceradar.cluster_id` / `serviceradar.partition`, defaulting cluster to `default`.
-- [ ] 2.4 Derive occurrence ids identically on the direct and log-promotion paths.
-- [ ] 2.5 Byte-exact raw evidence with digest, length, and the oversize path (counter and health event).
+## 2. Normalizer and recognition
+- [ ] 2.1 Recognizer in the `Logs` processor: relay headers, resource, scope and required attributes; malformed and unrelayed counters; per-record routing with one ACK decision per message.
+- [ ] 2.2 `FalcoDecomposition` from OTLP attributes: entity selection, entity key, finding uid v1, typed occurrence row, finding delta.
+- [ ] 2.3 Enrich container-only records from `workload_identity_current`; partition from `Sr-Partition`, cluster from the resource attribute.
+- [ ] 2.4 Occurrence id from `falco.uuid`, else from the raw-record digest.
+- [ ] 2.5 Raw evidence: inline up to 1 MiB, otherwise upload to the datasvc object store under the day-keyed reference before the occurrence write; an upload failure fails the batch.
 
 ## 3. Binding
-- [ ] 3.1 Return `{device_uid, method, candidates}` from `DeviceCorrelation` without changing existing callers' behavior; the inferred agent id counts only when the agent exists.
-- [ ] 3.2 Report `ambiguous` for multi-device hostname matches on the runtime-finding path.
-- [ ] 3.3 Add `k8s_node` resolution through `k8s_nodes_current.internal_ip`.
-- [ ] 3.4 Bounded re-resolution Oban job for unbound, ambiguous, deleted and merged bindings, following canonical devices.
-- [ ] 3.5 Prove no inventory writes on this path (grep every writer of device rows and tombstone fields).
+- [ ] 3.1 `DeviceCorrelation` returns `{device_uid, method, candidates}` without changing existing callers.
+- [ ] 3.2 `ambiguous` on multi-device hostname matches; relaying-agent binding only when colocated.
+- [ ] 3.3 `k8s_node` resolution through `k8s_nodes_current.internal_ip`.
+- [ ] 3.4 Bounded re-resolution job following canonical devices.
+- [ ] 3.5 Prove no inventory writes on this path (check every writer of device rows and tombstone fields).
 
 ## 4. Processing and storage
-- [ ] 4.1 `FalcoEvents`: write occurrences to the active backend, then upsert findings per batch in uid lock order; stop writing `ocsf_events` occurrences, the per-occurrence `logs` row (pending 0.1), and alert-engine admissions.
-- [ ] 4.2 `LogPromotion`: route promoted Falco records through the same normalizer and storage.
-- [ ] 4.3 Occurrence writer on both backends via the EventWriter destination; never both.
-- [ ] 4.4 Lifecycle: auto-resolve job, reopen, suppression with expiry, operator resolve.
-- [ ] 4.5 Transition outbox write in the finding transaction, plus the relay to `ocsf_events` and `StatefulAlertEngine.evaluate_events/1`; publish relay age/depth through JetStream.
-- [ ] 4.6 Resolved-finding prune job.
+- [ ] 4.1 Occurrences to the active backend, then per-batch finding upserts in uid lock order with the transition outbox; no `ocsf_events` occurrences, no `logs` rows, no alert-engine admissions for occurrences.
+- [ ] 4.2 Lifecycle: auto-resolve after `runtime_findings.auto_resolve_after` (default 24 h), reopen, suppression with expiry, operator resolve.
+- [ ] 4.3 Outbox relay to `ocsf_events` and `StatefulAlertEngine.evaluate_events/1`; relay age and depth published through JetStream.
+- [ ] 4.4 Resolved-finding prune job.
+- [ ] 4.5 `ObjectStore.RetentionWorker` runtime-evidence pass: delete a day prefix only after that day's occurrence partition or chunk is dropped, plus one day.
 
 ## 5. Alerting
-- [ ] 5.1 Seed `falco_runtime_finding` template v1.
-- [ ] 5.2 Add the retired-template list to `RuleSeeder`; retire pristine `falco_critical_incident` v1, resolve its active alerts as superseded, and flag customized copies in Rules settings.
-- [ ] 5.3 Alert detail renders the runtime finding summary and links to the finding.
+- [ ] 5.1 Seed `falco_runtime_finding` template v1 (lifecycle only).
+- [ ] 5.2 Retired-template list in `RuleSeeder`: retire pristine `falco_critical_incident` v1, resolve its active alerts as superseded, flag customized copies in Rules settings.
+- [ ] 5.3 Remove the seeded EventRule `copyfail_falco_logs_to_security_events` from defaults and disable a pristine copy.
+- [ ] 5.4 Alert detail renders the runtime finding summary and links to the finding.
 
-## 6. SRQL
-- [ ] 6.1 `in:runtime_findings` entity, fields, aliases, stats.
-- [ ] 6.2 `in:runtime_security_occurrences` with CNPG and warehouse implementations; raw payload opt-in.
-- [ ] 6.3 Add occurrence query shapes to the result-diff parity harness.
-- [ ] 6.4 SRQL catalog and docs entries.
+## 6. Transport and packaging
+- [ ] 6.1 Chart: `falcoIngest.*` values, `agent.otlpReceiver.port` (default 14317), the `otlp-grpc` Service port, network policy admission, and the `serviceradar-falcosidekick-otlp` Secret (OTLP environment, ingestion token, CA).
+- [ ] 6.2 Core: managed `otel-collector` add-on assignment for the in-cluster agent (TLS, token auth, port), OTLP relay contract registry entry and grant. First verify the add-on delivery model the in-cluster agent uses.
+- [ ] 6.3 Falcosidekick collector package: render the OTLP configuration for the site's agent; stop provisioning NATS credentials.
+- [ ] 6.4 Remove `Processors.FalcoEvents`, the `FALCO` consumer (`config.ex`, both `runtime.exs` files), and the pipeline's `falco` routing.
+- [ ] 6.5 Remove `falco.>` from chart NATS permissions and leaf credentials, `events.falco.>` from `NatsLeafConfigGenerator`, the `serviceradar-falcosidekick` NATS user and its certificate generation.
+- [ ] 6.6 Revoke NATS credentials of existing Falcosidekick collector packages at upgrade.
 
-## 7. UI
-- [ ] 7.1 Device page Runtime security tab (connected-only loading, SRQL paging, streams).
-- [ ] 7.2 `/security` Runtime findings view with workload grouping and Unbound filter.
-- [ ] 7.3 Runtime finding detail page with timeline, raw evidence viewer and RBAC-gated actions.
-- [ ] 7.4 Move Falco frames in the `security-findings` dashboard package to `in:runtime_findings`.
-- [ ] 7.5 Point the Logs and Events Falco source filters at the runtime findings view.
+## 7. SRQL and UI
+- [ ] 7.1 `in:runtime_findings`.
+- [ ] 7.2 `in:runtime_security_occurrences` with CNPG and warehouse implementations; `raw_payload` / `raw_ref` opt-in; parity harness shapes.
+- [ ] 7.3 Device page Runtime security tab (connected-only loading, SRQL paging, streams).
+- [ ] 7.4 `/security` Runtime findings view with workload grouping and Unbound filter.
+- [ ] 7.5 Runtime finding detail with timeline, raw evidence viewer (inline and object store, digest check), RBAC-gated actions.
+- [ ] 7.6 `security-findings` dashboard package Falco frames; Logs and Events Falco source filters point to the view.
 
-## 8. Packaging and docs
-- [ ] 8.1 Falcosidekick collector bundle: add `serviceradar.cluster_id` and `serviceradar.partition` custom fields.
-- [ ] 8.2 Operator docs: finding model, binding states, retention settings, retired rule, replacement queries, publisher-side loss window.
-- [ ] 8.3 Release notes: the breaking visibility changes and forward-only migration.
+## 8. Docs
+- [ ] 8.1 Operator docs: finding model, binding states, retention settings, retired rule, replacement queries.
+- [ ] 8.2 Falco ingestion docs: Falcosidekick OTLP configuration, chart values, the pinned Falcosidekick build, delivery guarantee and the two residual loss points with their counters.
+- [ ] 8.3 Release notes: breaking visibility changes, the required Falcosidekick reconfiguration, no NATS fallback, forward-only migration, rollback needs the old Falcosidekick configuration.
 
-## 9. Tests (load the `test-audit` skill first; fixtures are synthetic only)
-- [ ] 9.1 Pure normalizer tests, table-driven: workload, pod, enriched container, host fallback, plugin source; uid stable across container id change and late binding.
-- [ ] 9.2 Binding DB tests (boxed sandbox): each method, ambiguous hostname, unbound, re-resolution, merged device, no device created.
-- [ ] 9.3 Aggregation: per-batch fold, bounded samples, window rollover, and a concurrent two-replica upsert test (unboxed, deleting its rows in `on_exit`).
-- [ ] 9.4 Lifecycle and outbox: open, auto-resolve, reopen, suppress, escalate; crash between commit and relay; idempotent replay.
-- [ ] 9.5 Alerting: synthetic 10,000-occurrence burst across three workloads produces three `opened` admissions and three alerts; cooldown and recovery.
-- [ ] 9.6 Seeder: pristine retire, customized left and flagged, unmanaged left.
-- [ ] 9.7 Storage: StarRocks enabled writes only the warehouse; disabled writes only CNPG; raw payload round-trips byte-exact on both; oversize path.
-- [ ] 9.8 SRQL translation tests and parity fixtures for both entities.
-- [ ] 9.9 LiveView tests: device tab, security view, finding detail, no queries in disconnected mount, RBAC.
+## 9. Warehouse never-truncate (generic, separate)
+- [ ] 9.1 Inventory every bounded warehouse text column that truncates or filters a wider value: `logs.body` (`VARCHAR(65533)`, no guard, so a wider body is filtered out of the Stream Load), event `message` (truncated in `Rows`), event document columns (dropped above 1 MiB), BMP `message`/`raw_data`, OTel span columns, flow attribution `cmdline` and related columns.
+- [ ] 9.2 Widen free-text columns to `VARCHAR(1048576)` and send values above that width out-of-line through the same object-store reference and retention mechanism as Falco evidence; remove every truncate and drop path in `ServiceRadar.Analytics.StarRocks.Rows`.
+- [ ] 9.3 Make a failed spill fail the load (no silent filtering) and add regression tests per dataset on both backends. This may become its own OpenSpec change if its scope grows; it is not Falco-specific.
 
-## 10. Validation
-- [x] 10.1 `openspec validate add-falco-runtime-findings --strict`.
-- [ ] 10.2 `./scripts/elixir_quality.sh --project elixir/serviceradar_core` and `--project elixir/web-ng --phoenix`; `cargo fmt` and `cargo clippy` for `rust/srql`.
-- [ ] 10.3 Re-query after the first post-deploy burst: findings, occurrences on the active backend only, one alert per finding, retired rule disabled.
+## 10. Tests (load the `test-audit` skill first; fixtures are synthetic only)
+- [ ] 10.1 Recognizer: relayed, malformed, unrelayed and mixed messages.
+- [ ] 10.2 Normalizer, table-driven: workload, pod, enriched container, host fallback, plugin source; uid stable across container id change and late binding.
+- [ ] 10.3 Binding DB tests (boxed sandbox): each method, ambiguous hostname, unbound, re-resolution, merged device, no device created.
+- [ ] 10.4 Aggregation: per-batch fold, bounded samples, window rollover, concurrent two-replica upsert (unboxed, deleting its rows in `on_exit`).
+- [ ] 10.5 Lifecycle and outbox: open, configurable auto-resolve, reopen, suppress, escalate; crash between commit and relay; idempotent replay.
+- [ ] 10.6 Alerting: a synthetic 10,000-occurrence burst across three workloads gives three `opened` admissions and three alerts; cooldown and recovery; no volume rule.
+- [ ] 10.7 Seeder: pristine retire, customized left and flagged, unmanaged left.
+- [ ] 10.8 Storage: StarRocks enabled writes only the warehouse, disabled writes only CNPG; inline evidence round-trips byte-exact; a 1.5 MB record spills, references, reads back with digest match; a refused upload fails the batch; retention never deletes a retained day.
+- [ ] 10.9 End-to-end on a disposable broker: Falcosidekick (pinned build) to the add-on to agent spool to projector to `logs.otel` to occurrence and finding; NATS `falco.*` publish refused.
+- [ ] 10.10 SRQL translation tests and parity fixtures; LiveView tests (device tab, security view, finding detail, no queries in disconnected mount, RBAC); chart unit tests for the Secret, Service port and network policy.
+
+## 11. Validation
+- [x] 11.1 `openspec validate add-falco-runtime-findings --strict`.
+- [ ] 11.2 `./scripts/elixir_quality.sh --project elixir/serviceradar_core` and `--project elixir/web-ng --phoenix`; `cargo fmt` / `cargo clippy` for `rust/srql`; helm unittest.
+- [ ] 11.3 After the first post-deploy burst, re-query: findings, occurrences on the active backend only, one alert per finding, retired rule disabled, no `falco.*` consumer.

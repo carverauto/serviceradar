@@ -18,7 +18,7 @@ A runtime finding is an OCSF Detection Finding (class 2004) stored in `platform.
 
 ### Requirement: Runtime finding subjects use the most specific stable entity
 The normalizer SHALL select the subject entity of each Falco occurrence in this order: Kubernetes workload when namespace, owner kind and owner name are known; Kubernetes pod when namespace and pod name are known without an owner; host for `syscall` events without pod context; Falco source for non-`syscall` sources.
-The normalizer MUST NOT infer a workload owner by parsing pod names. A container-only occurrence SHALL first be enriched from `platform.workload_identity_current` by partition and container id, and SHALL fall back to the host subject when no pod is found. Cluster identity SHALL come from the `serviceradar.cluster_id` field and default to `default` when absent.
+The normalizer MUST NOT infer a workload owner by parsing pod names. A container-only occurrence SHALL first be enriched from `platform.workload_identity_current` by partition and container id, and SHALL fall back to the host subject when no pod is found. The partition SHALL come from the attested `Sr-Partition` of the relayed record, and the cluster identity from the resource attribute `serviceradar.cluster_id`, defaulting to `default` when absent.
 
 #### Scenario: Owner fields present yield a workload subject
 - **GIVEN** an occurrence with `k8s.ns.name = shop`, `k8s.pod.name = cart-7d9f8-abcde` and owner fields `Deployment` / `cart`
@@ -43,7 +43,7 @@ The normalizer MUST NOT infer a workload owner by parsing pod names. A container
 #### Scenario: Container-only occurrence without workload identity falls back to the host
 - **GIVEN** an occurrence from host `host01.example.com` with container id `0123456789ab`, image `registry.example.com/build/runner`, and no matching workload identity
 - **WHEN** it is normalized
-- **THEN** its subject SHALL be `host` with key `<partition>/host01.example.com`
+- **THEN** its subject SHALL be `host` with key `<attested partition>/host01.example.com`
 - **AND** the container id and image SHALL be recorded on the occurrence and in the finding's samples
 
 ### Requirement: Runtime finding identity is stable across restarts and bindings
@@ -132,25 +132,31 @@ A suppressed finding SHALL continue to count and sample occurrences and SHALL NO
 - **THEN** counts and samples SHALL update
 - **AND** no `escalated` transition SHALL be emitted
 
+
 ### Requirement: Runtime occurrences are telemetry on exactly one backend
-The system SHALL store every Falco occurrence in the `runtime_security_occurrences` dataset with typed columns for the rule, priority, entity, binding, Kubernetes, container, process, user, file, network, and MITRE fields. With StarRocks enabled it SHALL write and read the warehouse only. With StarRocks disabled it SHALL write and read CNPG.
-The system MUST NOT write occurrences to both backends and MUST keep the CNPG table, writer and reader for installations without StarRocks. The occurrence id SHALL be derived from the Falco `uuid` when present and otherwise from the raw bytes, identically on the direct and log-promotion paths. Falco occurrences SHALL NOT be written to `ocsf_events`, and the direct Falco processor SHALL NOT write a per-occurrence `logs` row.
+The system SHALL store every Falco occurrence in the `runtime_security_occurrences` dataset with typed columns for the rule, priority, entity, binding, relaying agent, Kubernetes, container, process, user, file, network, and MITRE fields. With StarRocks enabled it SHALL write and read the warehouse only. With StarRocks disabled it SHALL write and read CNPG.
+The system MUST NOT write occurrences to both backends and MUST keep the CNPG table, writer and reader for installations without StarRocks. The occurrence id SHALL be derived from the Falco `uuid` when present and otherwise from the digest of the raw record. Recognized Falco records MUST NOT be written to `ocsf_events` as occurrences or to `logs` as generic log rows. Typed free-text columns MUST NOT be truncated.
 
 #### Scenario: StarRocks enabled
 - **GIVEN** StarRocks is enabled
-- **WHEN** a Falco batch is processed
+- **WHEN** a relayed Falco batch is processed
 - **THEN** its occurrences SHALL be loaded into the warehouse
 - **AND** no CNPG occurrence row SHALL be written
 
 #### Scenario: StarRocks disabled
 - **GIVEN** StarRocks is disabled
-- **WHEN** a Falco batch is processed
+- **WHEN** a relayed Falco batch is processed
 - **THEN** its occurrences SHALL be written to the CNPG occurrence table
 
-#### Scenario: Same record on both paths is one occurrence
-- **GIVEN** a Falco record with `uuid` `11111111-1111-4111-8111-111111111111` arrives on the direct path and is also promoted from the log path
-- **WHEN** both are processed
-- **THEN** one occurrence SHALL exist and the finding SHALL count it once
+#### Scenario: No generic log row for a Falco record
+- **WHEN** a recognized Falco record is processed
+- **THEN** no `logs` row SHALL be written for it
+- **AND** the record SHALL be queryable through `in:runtime_security_occurrences`
+
+#### Scenario: Redelivered record is one occurrence
+- **GIVEN** a Falco record with `falco.uuid` `11111111-1111-4111-8111-111111111111` is redelivered after a failed batch
+- **WHEN** it is processed again
+- **THEN** one occurrence SHALL exist
 
 #### Scenario: Occurrence load failure updates no finding
 - **GIVEN** the occurrence load for a batch fails
@@ -158,20 +164,48 @@ The system MUST NOT write occurrences to both backends and MUST keep the CNPG ta
 - **THEN** no finding SHALL be updated for that batch
 - **AND** the batch SHALL NOT be acknowledged
 
-### Requirement: Raw Falco evidence is retained byte-exact
-Each occurrence SHALL retain its raw Falco record byte-exact with its SHA-256 digest and byte length, and the system MUST NOT truncate raw evidence on either backend.
-A record larger than the backend's evidence column SHALL be stored with no raw payload, its digest and length, and `evidence_status = oversize`, and SHALL be counted in telemetry and raised as a health event.
+### Requirement: Finding counts are at-least-once
+Runtime finding occurrence counts SHALL be at-least-once: a count MAY exceed the stored occurrences only when a process stops between the finding commit and the JetStream acknowledgement, and the occurrence dataset SHALL remain the exact count.
 
-#### Scenario: Raw evidence round-trips
-- **GIVEN** a Falco record whose `output` is 80,000 bytes
-- **WHEN** it is stored and read back through `in:runtime_security_occurrences`
+#### Scenario: Exact count is available
+- **WHEN** an operator needs the exact number of occurrences for a finding
+- **THEN** a count over `in:runtime_security_occurrences` for that `finding_uid` SHALL provide it
+
+### Requirement: Raw Falco evidence is lossless and never dropped
+Each occurrence SHALL retain its raw Falco record losslessly with its SHA-256 digest and byte length. A record up to 1,048,576 bytes SHALL be stored inline on either backend; a larger record SHALL be uploaded to the datasvc object store before its occurrence is written, and the occurrence SHALL carry a reference `{store, key, sha256, bytes, content_type}` with key `runtime-security/raw/<UTC date of the occurrence>/<occurrence id>.json`.
+The system MUST NOT truncate, drop, or merely flag raw evidence. A failed upload, including a full object store bucket, SHALL fail the batch so JetStream redelivers it, and SHALL be counted and raised as a health event.
+
+#### Scenario: Inline evidence round-trips
+- **GIVEN** a Falco record whose `falco.event` is 80,000 bytes
+- **WHEN** it is stored and read back
 - **THEN** the returned raw payload SHALL equal the received bytes and match the stored digest
 
-#### Scenario: Oversize record is not cut
-- **GIVEN** a log-path Falco record larger than 1,048,576 bytes on a StarRocks installation
+#### Scenario: Large evidence goes out-of-line
+- **GIVEN** a Falco record of 1,500,000 bytes
 - **WHEN** it is stored
-- **THEN** the occurrence SHALL carry `evidence_status = oversize`, the digest and the length
-- **AND** no truncated payload SHALL be stored
+- **THEN** the object store SHALL hold the full bytes under the referenced key
+- **AND** the occurrence SHALL carry the reference and no inline payload
+- **AND** reading the object SHALL return bytes matching the referenced digest
+
+#### Scenario: Object store refuses the upload
+- **GIVEN** the object store bucket is full
+- **WHEN** a batch needs to spill a record
+- **THEN** the batch SHALL fail and SHALL NOT be acknowledged
+- **AND** no occurrence row SHALL be written without its evidence
+
+### Requirement: Spilled evidence retention follows its occurrence
+A spilled raw evidence object SHALL be deleted only after the occurrence partition (warehouse) or chunk (CNPG) for its UTC day has been dropped on the active backend, plus a one-day grace, by the object store retention worker.
+The retention worker MUST NOT delete an object whose day is still retained.
+
+#### Scenario: Retained day keeps its objects
+- **GIVEN** occurrences for a day are still within telemetry retention
+- **WHEN** the object store retention worker runs
+- **THEN** no evidence object under that day's prefix SHALL be deleted
+
+#### Scenario: Expired day is cleaned
+- **GIVEN** a day's occurrence partition was dropped two days ago
+- **WHEN** the object store retention worker runs
+- **THEN** every evidence object under that day's prefix SHALL be deleted, including objects whose batch was never stored
 
 ### Requirement: Runtime finding retention
 The system SHALL keep active and suppressed findings, SHALL delete resolved findings a configurable period after resolution (default 90 days) with a bounded prune job, and SHALL age occurrences out on the occurrence dataset's telemetry retention.
@@ -182,17 +216,57 @@ Deleting a finding MUST NOT delete its occurrences, and a finding's samples SHAL
 - **WHEN** the prune job runs
 - **THEN** the finding and its runtime extension row SHALL be deleted
 
-### Requirement: Falcosidekick bundles stamp cluster and partition
-Generated Falcosidekick collector bundles SHALL configure the custom fields `serviceradar.cluster_id` and `serviceradar.partition`, and occurrences without them SHALL use cluster `default` and the package's partition.
+### Requirement: Falco ingestion rides the durable edge-record pipeline
+Falco events SHALL reach ServiceRadar only as OTLP logs sent by Falcosidekick to the `otel-collector` add-on on an agent and relayed as edge records under the `{"serviceradar.otlp.relay", 1}` contract, and the Falco normalizer SHALL consume the OTLP relay projector's output.
+The release that introduces this path SHALL remove the NATS `falco.*` consumer, processor, subject permissions, Falcosidekick NATS identity and collector-package NATS credentials, and SHALL NOT offer a setting that keeps both paths.
 
-#### Scenario: Existing bundle without custom fields
-- **GIVEN** a Falcosidekick package generated before this change
-- **WHEN** its events are processed
-- **THEN** findings SHALL be keyed under cluster `default`
+#### Scenario: Relayed Falco event creates an occurrence
+- **GIVEN** Falcosidekick exports a Falco event over OTLP to the agent's receiver
+- **WHEN** the agent spools it, the gateway accepts it, and the projector republishes it with its attested headers
+- **THEN** the Falco normalizer SHALL store one occurrence and update its finding
 
-### Requirement: Falco ingestion stays on JetStream with a transport-independent normalizer
-Falco ingestion SHALL remain on the existing NATS JetStream `falco.>` path, and the normalizer SHALL accept a decoded Falco record with ingest metadata so that a future edge-record contract projector can call it unchanged.
+#### Scenario: NATS publish is refused after the upgrade
+- **GIVEN** an unmigrated Falcosidekick still publishing to `falco.events`
+- **WHEN** it publishes after the upgrade
+- **THEN** NATS SHALL refuse the publish and no Falco consumer SHALL exist
 
-#### Scenario: Normalizer input is independent of transport
-- **WHEN** the direct processor and the log-promotion path normalize the same Falco record
-- **THEN** both SHALL call the same normalizer and produce identical occurrence and finding deltas apart from `ingest_path`
+### Requirement: Falco records are recognized by relay provenance, resource and scope
+The `Logs` processor SHALL treat a log record as a Falco record only when its message carries the OTLP relay headers (`Sr-Ingest-Identity` beginning `agent:`, `Sr-Agent-Id`, `Sr-Partition`), its resource has `service.name = "falco"` and `serviceradar.source = "falco"`, its scope name is `falco`, and it has the `falco.rule` and `falco.priority` attributes.
+A record with Falco resource and scope but missing required attributes SHALL be stored as an ordinary log and counted as malformed. A Falco-shaped record without the relay headers SHALL be stored as an ordinary log, counted as unrelayed, and MUST NOT create findings. The message SHALL be acknowledged only after its ordinary log rows and its Falco occurrences and finding updates are all stored.
+
+#### Scenario: Mixed message
+- **GIVEN** one relayed message carrying two Falco records and one ordinary application log
+- **WHEN** it is processed
+- **THEN** two occurrences and one `logs` row SHALL be stored before the message is acknowledged
+
+#### Scenario: Unrelayed Falco-shaped log
+- **GIVEN** a log with Falco resource and scope published to `logs.otel` without relay headers
+- **WHEN** it is processed
+- **THEN** it SHALL be stored as an ordinary log and counted as unrelayed
+- **AND** no finding SHALL be created or updated
+
+### Requirement: Falcosidekick OTLP logs carry the whole Falco event
+The supported Falcosidekick build SHALL export each Falco event as one OTLP log record carrying `falco.uuid`, `falco.rule`, `falco.priority`, `falco.source`, `falco.hostname`, `falco.time`, `falco.tags`, every output field as `falco.output_fields.<field>` with its native type, every custom or templated field as `falco.custom_fields.<key>`, and `falco.event` holding the event JSON, with severity mapped from the priority and resource attributes merged from `OTEL_RESOURCE_ATTRIBUTES`.
+ServiceRadar documentation and packaging SHALL pin that build until an upstream release contains it.
+
+#### Scenario: Output fields survive the transport
+- **GIVEN** a Falco event with `k8s.ns.name = shop`, `k8s.pod.name = cart-7d9f8-abcde` and `proc.name = sh`
+- **WHEN** it is exported by the supported Falcosidekick build and relayed
+- **THEN** the occurrence SHALL record namespace `shop`, pod `cart-7d9f8-abcde` and process `sh`
+
+### Requirement: Chart wiring points Falcosidekick at the in-cluster agent
+When `falcoIngest.enabled` is true, the Helm chart SHALL expose the in-cluster agent's OTLP/gRPC receiver port (default 14317) on the `serviceradar-agent` Service, SHALL cause core to assign the managed `otel-collector` add-on to that agent with TLS and token authentication and an OTLP relay grant, SHALL render a Secret in `falcoIngest.namespace` containing the Falcosidekick OTLP environment, ingestion token and CA bundle, and SHALL admit that namespace to the receiver port in its network policy.
+Generated Falcosidekick collector packages SHALL render the same OTLP configuration for the site's agent and SHALL NOT include NATS credentials.
+
+#### Scenario: Enabled chart renders the Falcosidekick Secret
+- **GIVEN** `falcoIngest.enabled = true` and `falcoIngest.namespace = falco`
+- **WHEN** the chart is rendered
+- **THEN** a Secret in namespace `falco` SHALL set `OTLP_LOGS_ENDPOINT` to the agent Service receiver, `OTLP_LOGS_PROTOCOL=grpc`, the ingestion-key header, the CA path and `OTEL_RESOURCE_ATTRIBUTES` including `serviceradar.source=falco`
+- **AND** no NATS user for Falcosidekick SHALL be rendered
+
+### Requirement: Relay delivery confirmation and residual loss points are documented
+Operator documentation SHALL state that a Falco record is durably held from the moment the agent's receiver returns OTLP success until a JetStream PubAck, and SHALL name the remaining loss points: Falcosidekick's exporter dropping after its retries when the receiver is unreachable, and the add-on spool evicting its oldest segment at its byte bound, together with the counters that report each.
+
+#### Scenario: Operator checks for sender-side loss
+- **WHEN** an operator reads the Falco ingestion documentation
+- **THEN** it SHALL name the Falcosidekick output error metric and the add-on spool eviction counter

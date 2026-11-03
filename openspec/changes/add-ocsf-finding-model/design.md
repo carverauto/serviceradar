@@ -52,13 +52,13 @@ the full live output before coding.
   Rationale: Events answer "what happened at time T"; findings answer "what is the current state of this logical security issue." Both are needed for timelines, stateful alerting, and audit.
 
 - Decision: Compute finding identity per source from class plus stable dimensions.
-  Rationale: Falco should key on rule/source/device/container dimensions; vulnerabilities should key on CVE/package/entity; incidents should key on the grouped constituent findings. This prevents both over-aggregation and duplicate churn.
+  Rationale: Falco should key on rule/source/device/container dimensions (superseded: `add-falco-runtime-findings` keys Falco on subject entity and rule, never on container id); vulnerabilities should key on CVE/package/entity; incidents should key on the grouped constituent findings. This prevents both over-aggregation and duplicate churn.
 
 - Decision: Map Falco MITRE tags into structured detection-finding `attacks` entries and supporting evidence.
   Rationale: OCSF 1.9.0-dev exposes both `attacks` and `evidences` on `detection_finding`; retaining ATT&CK IDs only in raw metadata prevents SRQL/UI filtering by tactic or technique.
 
 ## Migration Plan
-1. Add the `ocsf_findings` schema and Ash resource in the `platform` schema.
+1. Add the `ocsf_findings` schema and Ash resource in the `platform` schema. `add-falco-runtime-findings` creates them first with this schema; this change extends the existing table.
 2. Add a nullable finding reference to new finding-producing `ocsf_events` writes.
 3. Refactor finding-producing processors to upsert a finding first, then emit an event referencing it.
 4. Decide and document backfill strategy: derive findings from recent Falco/Trivy/endpoint-inventory events where the source payload is sufficient, or run forward-only with dashboard compatibility during retention.

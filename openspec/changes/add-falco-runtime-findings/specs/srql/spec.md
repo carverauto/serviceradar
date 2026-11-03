@@ -18,7 +18,7 @@ It SHALL support filters on `status`, `severity`, `rule`, `priority`, `entity_ki
 
 ### Requirement: SRQL runtime security occurrences entity
 SRQL SHALL provide `in:runtime_security_occurrences` (alias `runtime_occurrences`) that reads the Falco occurrence dataset from StarRocks when it is enabled and from CNPG otherwise, with filters on its typed columns including `finding_uid`, `rule`, `priority`, `hostname`, `device_uid`, `node_device_uid`, `namespace`, `owner`, `pod`, `container_id`, `image`, `process`, `exe`, `user`, `evt_type`, `src_ip`, `dst_ip`, `dst_port`, `tactic`, `technique` and `time:`.
-List projections MUST NOT return `raw_payload` unless the query selects it explicitly. The warehouse reader SHALL pass the result-diff parity harness against the CNPG reader before it ships.
+List projections MUST NOT return `raw_payload` or `raw_ref` unless the query selects them explicitly; for a record stored out-of-line, `raw_payload` SHALL be null and `raw_ref` SHALL carry the object store reference. The warehouse reader SHALL pass the result-diff parity harness against the CNPG reader before it ships.
 
 #### Scenario: Timeline for one finding
 - **WHEN** a client requests hourly occurrence counts from `in:runtime_security_occurrences` for `finding_uid:"22222222-2222-4222-8222-222222222222"` over `time:last_24h`

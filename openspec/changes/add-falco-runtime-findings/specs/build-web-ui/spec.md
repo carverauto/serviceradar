@@ -22,14 +22,20 @@ The `/security` area SHALL provide a Runtime findings view filterable by cluster
 - **THEN** the view SHALL list each rule firing on that workload as one row
 
 ### Requirement: Runtime finding detail explains the finding
-The UI SHALL provide a runtime finding detail page showing the subject and its binding status, method and device link, attribution status, bounded samples, an hourly occurrence timeline, the latest occurrences with typed fields, a raw evidence viewer per occurrence, lifecycle transitions, and resolve and suppress actions restricted by RBAC.
+The UI SHALL provide a runtime finding detail page showing the subject and its binding status, method and device link, attribution status, bounded samples, an hourly occurrence timeline, the latest occurrences with typed fields, a raw evidence viewer per occurrence (inline or streamed from the object store), lifecycle transitions, and resolve and suppress actions restricted by RBAC.
 Alert detail SHALL link to the runtime finding detail when the alert's source event carries a runtime finding uid.
 
 #### Scenario: Operator inspects raw evidence
 - **GIVEN** a finding with stored occurrences
 - **WHEN** an operator opens an occurrence's raw evidence
 - **THEN** the UI SHALL display the stored raw payload and its digest
-- **AND** an occurrence with `evidence_status = oversize` SHALL show its digest and length and state that the payload was not retained
+- **AND** for an occurrence stored out-of-line the UI SHALL stream the object through core and verify it against the referenced digest
+
+#### Scenario: Missing evidence object is visible
+- **GIVEN** an occurrence whose referenced evidence object is missing or fails its digest check
+- **WHEN** an operator opens its raw evidence
+- **THEN** the UI SHALL state that the evidence object is missing or corrupt with its key and digest
+- **AND** the system SHALL raise a health event
 
 #### Scenario: Alert links to its finding
 - **GIVEN** an alert created by `falco_runtime_finding`

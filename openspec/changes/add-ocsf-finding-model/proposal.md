@@ -15,3 +15,7 @@ ServiceRadar currently treats security "findings" as rows in `ocsf_events`. That
 - Affected specs: `observability-signals`, `srql`, `build-web-ui`
 - Affected code: Elixir migrations/Ash resources under `elixir/serviceradar_core`, event writer processors, Falco log promotion, Trivy and endpoint inventory ingestion, `rust/srql`, web-ng security dashboard and detail routes, tests/fixtures
 - Data impact: new `platform` schema table/indexes and a backfill or forward-only migration decision for existing finding-shaped `ocsf_events`
+
+## Coordination
+- `add-falco-runtime-findings` lands first and creates `platform.ocsf_findings` (and `finding_info_uid` on `ocsf_events`) using this change's planned schema, so neither change blocks the other. This change then adds its remaining producers (Trivy, advisory and endpoint-inventory vulnerability findings, incident findings, Bumblebee) and the `in:security_findings` move onto the existing table instead of creating it.
+- The Falco mapping (shared decomposition, ATT&CK `attacks`, detection findings) is delivered by `add-falco-runtime-findings`, which keys Falco findings on (subject entity, rule) rather than container dimensions.
