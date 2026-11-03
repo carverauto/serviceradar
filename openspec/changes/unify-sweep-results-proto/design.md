@@ -161,13 +161,40 @@ The active work order is therefore four end-to-end milestones (`tasks.md`,
 A milestone closes only on evidence from the required composed target or a
 running deployment. Deployment evidence lives in the milestone's GitHub
 tracking issue, never in the repository, because data captured from a live
-system is not committed. The remaining tasks stay owed as a
-backlog that does not gate M1-M4: capacity baselines and benchmarks, the
-signed registry lifecycle and cost API, the Wasm, native and inventory producer
-migrations, the recovery coordinator and coverage-proof reclamation, DLQ and
-redrive completeness, and 64-partition production sizing. Normative
-requirements in `specs/` are unchanged; this amendment changes the order of
-work, not the contract.
+system is not committed. The remaining tasks were then a backlog that did
+not gate M1-M4: capacity baselines and benchmarks, the signed registry
+lifecycle and cost API, the Wasm, native and inventory producer migrations,
+the recovery coordinator and coverage-proof reclamation, DLQ and redrive
+completeness, and 64-partition production sizing. Normative requirements in
+`specs/` were unchanged by this amendment; it changed the order of work, not
+the contract.
+
+### Scope amendment 2026-11-02
+
+Maintainer-approved close-out. The normative split is `proposal.md` (Impact,
+scope update). The backlog above is no longer owed here. Deferred follow-up
+work is tracked in GitHub #6271.
+
+Capacity baselines and benchmarks (tasks 0.1-0.4, 0.7, and 8.4) moved as
+tasks only into `add-edge-pipeline-benchmarks` section 7. No requirement
+delta moved there.
+
+The signed registry lifecycle and cost API moved as requirement deltas and
+tasks to `add-edge-contract-registry-lifecycle`. The recovery coordinator
+and coverage-proof reclamation moved as requirement deltas and tasks to
+`add-edge-spool-recovery-coordinator`. DLQ, redrive completeness, and
+64-partition production sizing moved as requirement deltas and tasks to
+`add-edge-record-stream-partitioning`.
+
+The Wasm, native, and inventory producer migrations are superseded by
+`move-agent-telemetry-to-edge-records`. The Wasm host ABI, extension-record,
+and package-grant deltas, the cohort-barrier cutover, sweep-lease MTR Result
+Reporting, the native OTLP relay, and the mapper ingestion delta were
+removed so archive cannot write them. They were not copied into that change.
+Goals that assign this change the Wasm, native add-on, or package-defined
+output work, and "Migration and Rollback" later in this file, are history
+and are not kept requirements. Cutover is
+`move-agent-telemetry-to-edge-records` Decision 7.
 
 ### M2.0 design: core-scheduled sweeps as signed schedule leases
 

@@ -1,38 +1,19 @@
 # ingestion-routing Delta
 
-## RENAMED Requirements
+## REMOVED Requirements
 
-- FROM: `### Requirement: Broker-Free Large Payload Handling`
-- TO: `### Requirement: Large payload routing follows durability semantics`
+- ### Requirement: Broker-Free Large Payload Handling
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Large payload routing follows durability semantics
-Persistent records SHALL NOT use broker-free large-payload ingestion. The system
-MAY finish and drain already-accepted pre-cutover sync payloads through bounded
-streaming gRPC chunking. Durable
+Persistent records SHALL NOT use broker-free large-payload ingestion. Durable
 inventory, telemetry, findings, events, traces, observations, and other
 persistent records produced by an agent-side integration SHALL use bounded typed
 records through the durable producer plane and JetStream/EventWriter. The legacy
 broker-free sync route SHALL NOT become a persistence path for a new or migrated
 durable output contract. Non-persistent command/configuration and coalescible
 status MAY remain broker-free.
-
-#### Scenario: Pre-cutover sync payload delivered via chunks
-- **GIVEN** a legacy sync source accepted bounded work before its hard cutover
-- **WHEN** that pre-cutover payload exceeds a single compatibility message
-- **THEN** it MAY be delivered as multiple gRPC chunks to the legacy sync
-  ingestor
-- **AND** no newly defined persistent dataset SHALL use that exception
-
-#### Scenario: Large sync payload delivered via chunks
-- **WHEN** a sync results payload exceeds single-message limits
-- **THEN** it MAY be delivered as multiple gRPC chunks without NATS involvement
-  only when it is already-accepted pre-cutover work, as described in
-  "Pre-cutover sync payload delivered via chunks"
-- **AND** any other persistent payload SHALL use bounded typed records through
-  the durable producer plane and JetStream/EventWriter rather than broker-free
-  chunking
 
 #### Scenario: Agent integration emits durable inventory
 - **WHEN** an Armis or other agent-side integration produces persistent
@@ -41,12 +22,10 @@ status MAY remain broker-free.
   record plane before EventWriter projection
 - **AND** broker-free gRPC/ERTS SHALL NOT acknowledge it as durably ingested
 
-## ADDED Requirements
-
 ### Requirement: Edge durable records use layered transport and durability
 Agent-originated durable records SHALL use layered transport and durability.
 Persistent observations, telemetry, inventory, findings, execution events,
-traces, and approved extension records SHALL use
+and traces SHALL use
 mTLS gRPC for the edge hop and installation-local JetStream for durable commit,
 replay, fan-out, and downstream backpressure. The gateway SHALL be the sole
 JetStream ingress publisher for these agent-originated durable record types.
@@ -347,47 +326,6 @@ are per lane and freeze one authenticated identity").
 - **AND** that stream SHALL NOT open a lane for scope B or resolve any sequence
   under it
 
-### Requirement: Traffic-class routing is immutable and physically disjoint
-Every result SHALL carry exactly one control-plane-attested `traffic_class` of
-`bulk` or `interactive`. All approved durable output contracts SHALL publish to
-the fixed installation-local `telemetry.edge-record.v1.bulk.pNN` or
-`telemetry.edge-record.v1.interactive.pNN` subjects for the initial
-`durable-records-v1` route profile. The signed grant/capability, edge frame, semantic
-digest, subject, expected-stream publish fence, and stream-map entry SHALL agree
-on the class; a broker header SHALL NOT override the decoded binary envelope.
-Bulk and interactive traffic SHALL use disjoint file-backed physical streams
-and persistence durables, and replay, rollover, recovery, derived work, DLQ,
-quarantine reclassification, and redrive SHALL preserve the original class.
-Package, payload-kind, and output-contract count SHALL NOT create new lane,
-subject, stream, consumer, connection, process, or RAFT-group cardinality.
-
-#### Scenario: A producer attempts class promotion
-- **GIVEN** a bulk assignment has a valid signed collection capability
-- **WHEN** its frame, subject, stream-map entry, replay, or redrive claims the
-  interactive class
-- **THEN** the gateway or consumer SHALL reject the mismatch before consuming
-  class-reserved capacity or producing side effects
-- **AND** the event SHALL NOT consume the interactive stream, durable, claim
-  queue, or database-credit floor
-
-#### Scenario: Bulk physical stream is catching up
-- **GIVEN** the bulk stream and durable contain a large retained backlog
-- **WHEN** an admitted interactive result arrives
-- **THEN** its disjoint interactive physical stream and durable SHALL remain
-  reachable within the configured latency reservation
-- **AND** overlapping filtered durables or subjects that give one message more
-  than one authoritative ownership path SHALL fail readiness
-
-#### Scenario: Stream-map version changes
-- **WHEN** a logical partition moves to a new physical stream
-- **THEN** admission SHALL stop behind a publish barrier until old gateway
-  leases are revoked or expired and exactly one writable subject authority is
-  active
-- **AND** the sealed old durable SHALL remain restartable and drain through its
-  AckWait, redelivery, repair, and rollback watermark
-- **AND** every immutable historical map version, publisher fence, subject
-  authority, and consumer configuration SHALL be retained until that watermark
-
 ### Requirement: Backpressure and fairness are bounded at every hop
 Every transport and projection hop SHALL bound work by bytes and records. This
 includes the agent sender, gateway publisher, JetStream consumer, derived-work
@@ -633,8 +571,8 @@ consumer SHALL validate opaque-body membership before side effects.
 #### Scenario: Opaque records have mixed contract or authorization contexts
 - **GIVEN** a frame declares one output contract, producer run, and authorization
   context
-- **WHEN** decoding reveals a sweep, trace, inventory page, metric, or extension
-  record from a different contract, producer assignment/run, traffic class,
+- **WHEN** decoding reveals a sweep, trace, inventory page, or metric
+  from a different contract, producer assignment/run, traffic class,
   authorization epoch, source scope, or target range
 - **THEN** the consumer SHALL reject the entire frame as poison before side
   effects
@@ -884,60 +822,10 @@ and SHALL reject an unknown version fail-closed.
   publication-identity header before validation; a missing or duplicated required
   header SHALL be handled by this same fail-closed branch
 
-### Requirement: Route-map placement is resolved against an immutable generation
-Runtime integration SHALL resolve the provenance-carried `route_map_version` against an
-active or retained immutable route-map generation and SHALL verify that the authenticated
-publisher class, subject, physical stream, route profile, and traffic class agree with that
-generation. The `route_map_version` is diagnostic placement metadata that the pure codec only
-requires to be nonzero, decodes, and exposes; there is NO separate `Sr-Edge-Route-Map-Version`
-header. A retained generation SHALL remain valid while its accepted stream drains.
-
-#### Scenario: Route-map generation is unknown or unavailable
-- **WHEN** a delivery's `route_map_version` resolves to no known or currently available
-  route-map generation
-- **THEN** readiness SHALL fail WITHOUT resolving the source delivery (no ACK, no NAK)
-- **AND** the source delivery SHALL remain eligible for idempotent redelivery once the
-  generation becomes resolvable
-
-#### Scenario: Authenticated placement disagrees with the resolved generation
-- **GIVEN** a `route_map_version` that resolves to a known route-map generation
-- **WHEN** the authenticated publisher class, subject, physical stream, route profile,
-  or traffic class does not agree with that generation
-- **THEN** EventWriter SHALL fail closed and classify the delivery as a
-  transport-integrity failure, never authoritatively projecting it
-
-### Requirement: Compromised signing-key cohorts are remediated fail-closed
-On compromise revocation of a producer signing key, the deployment SHALL remediate
-the affected cohort fail-closed and SHALL NOT authoritatively project any record that
-key signed. Every record signed by the compromise-revoked key SHALL resolve to
-`historically_revoked` and be published on the security-quarantine stream. It
-SHALL NOT be written to the event ledger, and it SHALL NEVER be authoritatively projected. Domain
-rows that were already authoritatively projected from that key or cohort before
-revocation SHALL be marked `security_held` and scheduled for operator-authorized
-retraction or redrive under a fixed safe bundle rather than silently retained as
-trusted state. Redrive of a remediated cohort SHALL use a durable synthetic spool, a
-fresh delivery/map envelope, and a capability bound to the immutable catalog record,
-and the ingest ledger SHALL make already-committed events harmless so a redrive
-neither duplicates domain side effects nor reinstates compromised trust.
-
-#### Scenario: A signing key is revoked for compromise after projection
-- **GIVEN** a producer signing key is revoked for compromise after some of its
-  records were already authoritatively projected
-- **WHEN** a new or replayed delivery signed by that key is published
-- **THEN** every such record SHALL resolve to `historically_revoked`, be published
-  on the security-quarantine stream with no event-ledger row, and SHALL NOT be
-  authoritatively projected
-- **AND** the already-projected domain rows from that cohort SHALL be marked
-  `security_held` and scheduled for operator-authorized retraction or redrive under a
-  fixed safe bundle
-- **AND** an authorized redrive SHALL republish through a durable synthetic spool with
-  a fresh delivery/map envelope and a capability bound to the immutable catalog
-  record, while the ingest ledger makes already-committed events harmless
-
 ### Requirement: Bounded durable outputs remain stream records
 Bounded durable outputs SHALL remain independently decodable JetStream records,
 including observations, traces, inventory pages/manifests, metrics, findings,
-events, and approved extension records. An oversize logical output SHALL be split only by its approved
+and events. An oversize logical output SHALL be split only by its approved
 canonical paging/batching contract or rejected/quarantined. This change SHALL
 NOT add an Object Store fallback for oversize record bytes; the record plane MAY
 carry only bounded artifact references and lifecycle metadata.
@@ -949,166 +837,7 @@ carry only bounded artifact references and lifecycle metadata.
 - **AND** consumers SHALL NOT fetch an object before processing it
 
 #### Scenario: Durable output exceeds the event contract
-- **WHEN** a sweep, trace, inventory, metric, finding, event, or extension record
+- **WHEN** a sweep, trace, inventory, metric, finding, or event
   exceeds its byte or projected-row budget and has no valid paging boundary
 - **THEN** it SHALL be rejected or quarantined according to the record protocol
 - **AND** it SHALL NOT be silently diverted into Object Store
-
-### Requirement: Migration requires a minimum edge-record version and hard cutover
-Before cutover, the control plane and gateways SHALL enforce a minimum agent/
-gateway version that can send, retain, replay, and drain v1 frames for the
-selected contract registry. Older binaries SHALL stop receiving affected work
-and SHALL be upgraded; this change SHALL NOT add a patched legacy JSON sender,
-unpatched-agent bridge, or compatibility stream. New v1 emission SHALL require
-the `edge-records:v1` gateway capability, exact downstream registry readiness,
-and explicit cohort configuration; a configuration hash SHALL NOT select a
-result format.
-
-Each cohort SHALL cross one ingress-epoch barrier. The barrier SHALL stop new
-legacy producer runs before enabling v1 assignments. Only identified records
-accepted before the barrier MAY drain through an existing legacy consumer. A
-run SHALL NOT dual-write authoritative legacy and v1 output. Rollback SHALL stop
-new affected work and retain compatible v1 spool/stream consumers; it SHALL NOT
-start new legacy emission.
-
-Historical network-scope and identity backfill SHALL run online and idempotently
-behind a durable CDC cursor and source high-water marks. Post-water legacy writes
-SHALL be captured and continuously applied during the historical pass. A hard
-delta byte/age budget SHALL slow or stop new legacy scan admission before capture
-can overflow, and cutover SHALL wait until only a configured bounded tail remains.
-The final ingress-epoch barrier SHALL fence/drain old writers, drain and validate
-only the bounded captured delta, and flip authority. It SHALL NOT scan or rewrite
-unbounded retained history while new scan admission is stopped.
-
-#### Scenario: Registered binary is below the minimum version
-- **WHEN** the control plane or gateway observes an agent that cannot emit v1
-  records or read and drain retained v1 spool state for the selected registry
-- **THEN** it SHALL stop assigning new durable-record-producing work to that binary
-- **AND** cutover readiness SHALL fail until upgrade rather than route it through
-  a legacy sender or compatibility bridge
-
-#### Scenario: Cohort crosses the ingress barrier
-- **GIVEN** every agent/gateway in the cohort and every downstream route/projector
-  is ready for the exact v1 registry
-- **WHEN** the control plane closes the cohort's old ingress epoch
-- **THEN** it SHALL stop new old-path runs before enabling v1 assignments
-- **AND** only identified pre-barrier backlog MAY drain without authorizing any
-  new legacy output
-
-#### Scenario: A plugin, add-on, or integration output contract cuts over
-- **WHEN** a durable binary contract and its agent, gateway, registry, JetStream,
-  and EventWriter path reach declared parity
-- **THEN** new runs SHALL stop emitting the same persistent facts through
-  `plugin_result`, lossy telemetry, broker-free sync, or direct persistence
-- **AND** the old adapter MAY remain only for bounded status or draining
-  identified pre-cutover backlog without dual authoritative emission
-
-#### Scenario: Historical backfill is larger than the cutover window
-- **GIVEN** retained history cannot be rewritten within the bounded admission
-  pause objective
-- **WHEN** migration prepares the new identities and scope bindings
-- **THEN** it SHALL backfill online to a durable high-water while capturing
-  and continuously applying concurrent legacy writes through a durable CDC cursor
-- **AND** admission SHALL stop before the delta byte/age bound is exhausted
-- **AND** cutover SHALL wait for historical parity before opening the short
-  barrier and SHALL drain only the final bounded delta inside it
-
-#### Scenario: Rollout is disabled
-- **WHEN** operators disable a cohort after v1 cutover
-- **THEN** new affected producer work SHALL stop and existing v1 spool lanes
-  SHALL continue through a compatible sender until drained
-- **AND** no agent binary unable to read the retained spool version SHALL be
-  deployed
-- **AND** rollback SHALL NOT select or generate new legacy JSON output
-
-#### Scenario: Legacy path is retired
-- **WHEN** all registered agents meet the minimum version, the supported offline
-  upgrade window has elapsed, and all identified pre-cutover and v1 backlog is
-  drained
-- **THEN** removal of legacy emission and decode MAY proceed in a separately
-  gated release
-
-### Requirement: Edge record ingestion is bounded at the transport and the gateway
-The transport and the gateway SHALL enforce the frozen record and frame bounds in operation, before buffering and before decompression.
-
-The field sets, the hard byte bound, and the `record_sha256` rule are frozen by the
-`freeze-edge-record-v1-abi` change. This requirement owns their enforcement and the
-surrounding pipeline: trusted projected cost, route, traffic class, and provenance
-SHALL be derived by the agent sink from the approved contract/grant rather than
-accepted from a producer, and the agent sink SHALL encode the complete
-producer-neutral semantic record bytes once.
-
-Every `EdgeDeliveryFrameV1` SHALL carry the exact `EdgeRecordV1` bytes and digest
-plus persistent spool identity, monotonic lane sequence, and other bounded edge-
-delivery/session coordinates. Delivery coordinates SHALL NOT be part of the
-canonical semantic record or its digest. Recovery MAY wrap the same record bytes
-in a new fenced delivery frame without changing semantic identity. Gateway
-receipt, physical stream/sequence, and stream-map placement are broker placement
-metadata and SHALL NOT be injected into or rewrite `EdgeRecordV1`.
-
-
-
-#### Scenario: Exact binary envelope is persisted
-
-- **GIVEN** the gateway validates a supported agent-spooled delivery frame
-- **WHEN** it durably publishes the contained record
-- **THEN** the JetStream body SHALL be byte-for-byte identical to
-  `EdgeDeliveryFrameV1.record_bytes` and the common-spooled `EdgeRecordV1` bytes
-- **AND** EventWriter SHALL recover contract, provenance, authorization, cost,
-  semantic identity, and canonical content by decoding that binary body rather
-  than an `Sr-Edge-*` header set
-- **AND** delivery-only reauthorization or recovery MAY replace delivery-frame
-  coordinates around those exact bytes but SHALL NOT rewrite the record,
-  semantic digest, traffic class, or original collection proof
-
-#### Scenario: Batch builder reaches its byte target
-
-- **WHEN** adding another observation would move a frame past its byte target
-- **THEN** the agent SHALL flush the current independently decodable frame
-- **AND** item-count guards SHALL remain secondary to actual encoded size
-
-#### Scenario: Unexpected record cannot fit
-
-- **WHEN** one record violates the configured field or frame bounds
-- **THEN** the producer SHALL quarantine it with a structured operator-visible
-  error
-- **AND** it SHALL NOT retry the same impossible frame indefinitely
-
-#### Scenario: Producer understates projected cost
-
-- **WHEN** a producer submission supplies a route, traffic class, provenance, or
-  projected database cost that differs from its effective grant
-- **THEN** the agent sink SHALL ignore and replace non-authoritative metadata or
-  reject the submission before spool acceptance
-- **AND** the consumer SHALL verify the platform-stamped cost-model version and
-  decoded worst-case cost before reserving destination capacity
-
-The gateway SHALL validate the delivery frame and enough of the fixed semantic
-record to authorize and route it, then JetStream-publish the exact `record_bytes`
-unchanged. Before any protobuf unmarshal, the gateway and EventWriter SHALL reject
-a frame/record whose raw length exceeds its frozen hard byte bound AND SHALL verify `record_sha256` over `record_bytes`. On the STREAMING
-gRPC ingest path this bound SHALL be enforced at the TRANSPORT, BEFORE the body is
-buffered and BEFORE any decompression: the gateway SHALL reject a declared gRPC message
-length exceeding the client-message bound BEFORE accumulating any chunk toward it (never
-buffering to an attacker-declared 32-bit length), and SHALL DISABLE gRPC message
-compression on the edge-ingest lane: a message whose gRPC compressed-flag is set SHALL be
-REJECTED immediately (there is no bounded-decompression fallback, because decompression
-occurs before the codec/decode sees the bytes and a unary body-size limit does not cover
-the stream). Each component SHALL then
-decode and hash the record at most once and perform at most one streaming
-decompression bounded by an independent hard output/expansion limit, never trusting
-the declared `uncompressed_size` as an allocation authority. Broker
-headers SHALL be transport-minimal, limited to protocol fields required for
-deduplication, expected-stream fencing, and bounded tracing; they SHALL NOT
-duplicate semantic metadata or act as identity, contract, authorization, cost,
-or routing authority. EventWriter SHALL decode and validate the complete binary
-`EdgeRecordV1` from the JetStream body. Broker publication identity SHALL bind trusted
-network scope/agent, spool ID/sequence, the exact-record checksum
-`record_sha256`, and the semantic digest, so that two different outer encodings in
-one slot receive DIFFERENT `Nats-Msg-Id` values and both reach EventWriter for the
-physical-slot integrity check rather than one being silently suppressed by broker
-deduplication. A legitimate same-lane retry reuses the exact record bytes and
-therefore the same `record_sha256`, keeping lost-ACK deduplication intact. The `EdgeRecordV1` target encoded size SHALL be 256 KiB; its hard bound, the
-delivery-frame bound, and the client-message bound are the frozen `MaxRecordBytes`,
-`MaxFrameBytes`, and `MaxClientMessageBytes` values owned by the edge record v1
-wire ABI, and SHALL NOT be restated as literals here.
