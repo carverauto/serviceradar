@@ -1341,6 +1341,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
   defp reload_job(id), do: Repo.get!(Oban.Job, id, prefix: "platform")
 
   defp upsert_interface_alias(device_id, if_alias) do
+    # discovered_interfaces.device_id references ocsf_devices. The projection
+    # reads the interface row; the parent device is what makes that row legal.
+    insert_device_type(device_id, "Switch")
+
     SQL.query!(
       Repo,
       """

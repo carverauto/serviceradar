@@ -255,6 +255,25 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
 
   defp native_ms(_value), do: nil
 
+  defp attach_dgraph_calls do
+    if is_pid(Process.whereis(:telemetry_handler_table)) do
+      _ = :telemetry.detach(@dgraph_handler)
+
+      :ok =
+        :telemetry.attach_many(
+          @dgraph_handler,
+          @dgraph_events,
+          &__MODULE__.handle_dgraph_call/4,
+          nil
+        )
+    else
+      Logger.warning("Dgraph call telemetry unavailable; :telemetry is not started")
+    end
+  catch
+    :exit, {:noproc, _} ->
+      Logger.warning("Dgraph call telemetry unavailable; :telemetry is not started")
+  end
+
   @impl true
   def init(opts) do
     :ets.new(@table, [
@@ -277,15 +296,10 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
     end
 
     # A restarted process re-attaches; the handler only writes the public table.
-    :telemetry.detach(@dgraph_handler)
-
-    :ok =
-      :telemetry.attach_many(
-        @dgraph_handler,
-        @dgraph_events,
-        &__MODULE__.handle_dgraph_call/4,
-        nil
-      )
+    # The table is the :telemetry application. A caller that starts this process
+    # without that application (web-ng's database-free tests) has no Dgraph call
+    # counts; the lane publisher still starts.
+    attach_dgraph_calls()
 
     Process.send_after(self(), :publish, interval)
 
