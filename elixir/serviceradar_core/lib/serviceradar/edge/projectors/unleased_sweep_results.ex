@@ -127,7 +127,7 @@ defmodule ServiceRadar.Edge.Projectors.UnleasedSweepResults do
 
   # The `results` status the gateway builds from the agent's results chunk.
   defp status(batch, agent_id, gateway_id, partition) do
-    %{
+    status = %{
       service_name: @service_name,
       service_type: @service_type,
       available: true,
@@ -141,10 +141,18 @@ defmodule ServiceRadar.Edge.Projectors.UnleasedSweepResults do
       kv_store_id: "",
       timestamp: System.os_time(:second),
       agent_timestamp: div(batch.batch_completed_at_unix_nano, 1_000_000_000),
-      chunk_index: batch.chunk_index,
       total_chunks: batch.total_chunks,
       is_final: batch.is_final
     }
+
+    if batch.is_cancel_marker do
+      Map.merge(status, %{
+        cancel_marker: true,
+        marker_chunk_indexes: batch.emitted_chunk_indexes
+      })
+    else
+      Map.put(status, :chunk_index, batch.chunk_index)
+    end
   end
 
   defp sweep_gateway(_repo, _agent_id, header) when is_binary(header) and header != "",

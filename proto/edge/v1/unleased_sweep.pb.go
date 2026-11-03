@@ -95,9 +95,18 @@ type UnleasedSweepResultsBatchV1 struct {
 	// The legacy results JSON fields of each host that the frozen host observation
 	// does not carry, one entry per host and in the same order as `hosts`, so core
 	// ingests exactly what the legacy results path ingests.
-	HostResults   []*UnleasedSweepHostResultV1 `protobuf:"bytes,23,rep,name=host_results,json=hostResults,proto3" json:"host_results,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	HostResults []*UnleasedSweepHostResultV1 `protobuf:"bytes,23,rep,name=host_results,json=hostResults,proto3" json:"host_results,omitempty"`
+	// True only on an execution's cancel marker: a record that carries no data
+	// chunk and no hosts, sent when a data chunk of the execution could not be
+	// appended. Core never counts it as a data chunk. A cancelled data chunk with
+	// no hosts is still a data chunk and leaves this false.
+	IsCancelMarker bool `protobuf:"varint,24,opt,name=is_cancel_marker,json=isCancelMarker,proto3" json:"is_cancel_marker,omitempty"`
+	// On a cancel marker, the exact data-chunk indexes the agent durably
+	// appended for the execution. Core closes the execution once it has
+	// ingested exactly these chunks. Empty on data chunks.
+	EmittedChunkIndexes []uint32 `protobuf:"varint,25,rep,packed,name=emitted_chunk_indexes,json=emittedChunkIndexes,proto3" json:"emitted_chunk_indexes,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *UnleasedSweepResultsBatchV1) Reset() {
@@ -287,6 +296,20 @@ func (x *UnleasedSweepResultsBatchV1) GetBannerGrabSummary() *UnleasedSweepBanne
 func (x *UnleasedSweepResultsBatchV1) GetHostResults() []*UnleasedSweepHostResultV1 {
 	if x != nil {
 		return x.HostResults
+	}
+	return nil
+}
+
+func (x *UnleasedSweepResultsBatchV1) GetIsCancelMarker() bool {
+	if x != nil {
+		return x.IsCancelMarker
+	}
+	return false
+}
+
+func (x *UnleasedSweepResultsBatchV1) GetEmittedChunkIndexes() []uint32 {
+	if x != nil {
+		return x.EmittedChunkIndexes
 	}
 	return nil
 }
@@ -968,7 +991,7 @@ var File_edge_v1_unleased_sweep_proto protoreflect.FileDescriptor
 
 const file_edge_v1_unleased_sweep_proto_rawDesc = "" +
 	"\n" +
-	"\x1cedge/v1/unleased_sweep.proto\x12\x14serviceradar.edge.v1\x1a\x13edge/v1/sweep.proto\"\x83\n" +
+	"\x1cedge/v1/unleased_sweep.proto\x12\x14serviceradar.edge.v1\x1a\x13edge/v1/sweep.proto\"\xe1\n" +
 	"\n" +
 	"\x1bUnleasedSweepResultsBatchV1\x12!\n" +
 	"\fexecution_id\x18\x01 \x01(\fR\vexecutionId\x12$\n" +
@@ -996,7 +1019,9 @@ const file_edge_v1_unleased_sweep_proto_rawDesc = "" +
 	"portCounts\x12V\n" +
 	"\rscanner_stats\x18\x14 \x01(\v21.serviceradar.edge.v1.UnleasedSweepScannerStatsV1R\fscannerStats\x12f\n" +
 	"\x13banner_grab_summary\x18\x15 \x01(\v26.serviceradar.edge.v1.UnleasedSweepBannerGrabSummaryV1R\x11bannerGrabSummary\x12R\n" +
-	"\fhost_results\x18\x17 \x03(\v2/.serviceradar.edge.v1.UnleasedSweepHostResultV1R\vhostResults\"\xf8\x02\n" +
+	"\fhost_results\x18\x17 \x03(\v2/.serviceradar.edge.v1.UnleasedSweepHostResultV1R\vhostResults\x12(\n" +
+	"\x10is_cancel_marker\x18\x18 \x01(\bR\x0eisCancelMarker\x122\n" +
+	"\x15emitted_chunk_indexes\x18\x19 \x03(\rR\x13emittedChunkIndexes\"\xf8\x02\n" +
 	"\x19UnleasedSweepHostResultV1\x12\x1c\n" +
 	"\tavailable\x18\x01 \x01(\bR\tavailable\x12,\n" +
 	"\x12response_time_nano\x18\x02 \x01(\x03R\x10responseTimeNano\x12/\n" +

@@ -52,6 +52,13 @@ defmodule Serviceradar.Edge.V1.UnleasedSweepResultsBatchV1 do
     repeated: true,
     type: Serviceradar.Edge.V1.UnleasedSweepHostResultV1,
     json_name: "hostResults"
+
+  field :is_cancel_marker, 24, type: :bool, json_name: "isCancelMarker"
+
+  field :emitted_chunk_indexes, 25,
+    repeated: true,
+    type: :uint32,
+    json_name: "emittedChunkIndexes"
 end
 
 defmodule Serviceradar.Edge.V1.UnleasedSweepHostResultV1 do

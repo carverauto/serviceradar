@@ -324,7 +324,9 @@ defmodule ServiceRadar.Ingestion.ResultIngestor do
             chunk_index: status[:chunk_index],
             total_chunks: status[:total_chunks],
             is_final: status[:is_final],
-            is_cancelled: is_cancelled
+            is_cancelled: is_cancelled,
+            cancel_marker: status[:cancel_marker],
+            marker_chunk_indexes: status[:marker_chunk_indexes]
           ],
           fn {_key, value} -> is_nil(value) or value == "" end
         )
@@ -423,10 +425,15 @@ defmodule ServiceRadar.Ingestion.ResultIngestor do
       |> Enum.map(&build_sweep_result(&1, last_sweep_time, network))
       |> Enum.reject(&is_nil/1)
 
-    if results == [] do
-      {:error, :no_hosts}
-    else
-      {:ok, results, execution_id, sweep_group_id}
+    cond do
+      results != [] ->
+        {:ok, results, execution_id, sweep_group_id}
+
+      payload["cancelled"] == true ->
+        {:ok, [], execution_id, sweep_group_id}
+
+      true ->
+        {:error, :no_hosts}
     end
   end
 

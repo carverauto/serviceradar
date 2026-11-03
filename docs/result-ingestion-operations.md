@@ -176,7 +176,8 @@ The queue checks capacity at reservation. A full queue rejects the reservation,
 and the gateway's status buffer keeps the chunk and offers it again. A submitted
 chunk is acknowledged at once and never expires while it waits. Chunks of one
 agent and sweep group run one at a time in arrival order, so an execution is
-created by its first chunk and completed by its final one; other agents and
+created by its first chunk and closed once all of its data chunks are in (see
+"What running means" in `docs/docs/network-sweeps.md`); other agents and
 groups use the remaining workers. A queued chunk waits behind at most the
 per-agent allowance of chunks from its own group, plus a free worker: at two to
 three seconds a chunk, a full allowance of 32 clears in under two minutes. The
