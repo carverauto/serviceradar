@@ -283,29 +283,33 @@ func localNATSTLS(binding ServerConfig, metadata *managedLocalNATSMetadata) (*tl
 	if err != nil {
 		return nil, err
 	}
-	identity := metadata.ComponentID + "-server." + metadata.PartitionID + ".serviceradar"
+	identity := managedCertificateDNSName(ManagedCertificateAssignment{ComponentID: metadata.ComponentID, PartitionID: metadata.PartitionID}, managedRoleLocalServer)
 	config.VerifyConnection = func(state tls.ConnectionState) error {
-		if len(state.VerifiedChains) == 0 || len(state.PeerCertificates) == 0 {
-			return errLocalNATSPKIX
-		}
-		server := state.PeerCertificates[0]
-		if server.Subject.CommonName != identity || !slices.Contains(server.DNSNames, identity) || len(server.URIs) != 0 {
-			return errLocalNATSServerIdentity
-		}
-		policy, err := readLocalNATSPolicy()
-		if err != nil {
-			return err
-		}
-		fingerprint := fmt.Sprintf("%x", sha256.Sum256(server.Raw))
-		for _, allowed := range policy.AllowedFingerprints {
-			if allowed == fingerprint {
-				rememberLocalReceiverFingerprint(fingerprint)
-				return nil
-			}
-		}
-		return errLocalNATSServerRevoked
+		return verifyLocalNATSServer(state, identity, readLocalNATSPolicy)
 	}
 	return config, nil
+}
+
+func verifyLocalNATSServer(state tls.ConnectionState, identity string, policy func() (*managedCertificatePolicySnapshot, error)) error {
+	if len(state.VerifiedChains) == 0 || len(state.PeerCertificates) == 0 {
+		return errLocalNATSPKIX
+	}
+	server := state.PeerCertificates[0]
+	if server.Subject.CommonName != managedCertificateCommonName(identity) || !slices.Contains(server.DNSNames, identity) || len(server.URIs) != 0 {
+		return errLocalNATSServerIdentity
+	}
+	loaded, err := policy()
+	if err != nil {
+		return err
+	}
+	fingerprint := fmt.Sprintf("%x", sha256.Sum256(server.Raw))
+	for _, allowed := range loaded.AllowedFingerprints {
+		if allowed == fingerprint {
+			rememberLocalReceiverFingerprint(fingerprint)
+			return nil
+		}
+	}
+	return errLocalNATSServerRevoked
 }
 
 func connectLocalNATS(binding ServerConfig, metadata *managedLocalNATSMetadata) (*nats.Conn, error) {

@@ -237,13 +237,16 @@ func managedCertificateDNSName(a ManagedCertificateAssignment, role string) stri
 	return id + "." + a.PartitionID + ".serviceradar"
 }
 
-func managedCertificateIdentity(a ManagedCertificateAssignment, role string) *x509.CertificateRequest {
-	cn := managedCertificateDNSName(a, role)
-	// X.509 limits Common Name to 64 characters; the DNS SAN retains the full identity.
-	if len(cn) > 64 {
-		cn = fmt.Sprintf("%x", sha256.Sum256([]byte(cn)))
+// X.509 limits Common Name to 64 characters; the DNS SAN retains the full identity.
+func managedCertificateCommonName(identity string) string {
+	if len(identity) <= 64 {
+		return identity
 	}
-	csr := &x509.CertificateRequest{Subject: pkix.Name{CommonName: cn}}
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(identity)))
+}
+
+func managedCertificateIdentity(a ManagedCertificateAssignment, role string) *x509.CertificateRequest {
+	csr := &x509.CertificateRequest{Subject: pkix.Name{CommonName: managedCertificateCommonName(managedCertificateDNSName(a, role))}}
 	if role == managedRoleLocalServer {
 		csr.DNSNames = []string{"localhost"}
 		csr.IPAddresses = []net.IP{net.ParseIP("127.0.0.1")}
