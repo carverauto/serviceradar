@@ -319,6 +319,41 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     end
   end
 
+  @doc """
+  Admits the pending lifecycle occurrences of the `series_limit` series that
+  have waited longest, each series in `seq` order and stopping at its first
+  refusal, so a series that gets no later message never strands an
+  evaluation. Returns the number of occurrences admitted.
+  """
+  @spec drain_pending_admissions(pos_integer()) :: non_neg_integer()
+  def drain_pending_admissions(series_limit) when is_integer(series_limit) and series_limit > 0 do
+    %{rows: rows} =
+      ServiceRadar.Repo.query!(
+        """
+        SELECT class_uid, series_key
+        FROM platform.lifecycle_pending_admissions
+        GROUP BY class_uid, series_key
+        ORDER BY min(seq)
+        LIMIT $1
+        """,
+        [series_limit]
+      )
+
+    rows
+    |> Enum.map(fn [class_uid, series_key] -> {class_uid, series_key} end)
+    |> load_pending_occurrences()
+    |> Enum.chunk_by(& &1.series)
+    |> Enum.reduce(0, fn occurrences, admitted ->
+      admitted +
+        Enum.reduce_while(occurrences, 0, fn occurrence, count ->
+          case admit_occurrence(occurrence) do
+            :ok -> {:cont, count + 1}
+            {:error, _reason} -> {:halt, count}
+          end
+        end)
+    end)
+  end
+
   defp messages_for_rows(rows, messages_by_event_id) do
     rows
     |> Enum.flat_map(fn row -> Map.get(messages_by_event_id, ocsf_event_id_key(row), []) end)
@@ -538,7 +573,11 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     aligned_rows =
       rows
       |> Enum.filter(&persist_inventory_vulnerability_lifecycle?(&1, existing))
-      |> Enum.map(&prepare_inventory_vulnerability_lifecycle(&1, existing))
+      |> Enum.map(
+        &(&1
+          |> stamp_new_occurrence()
+          |> prepare_inventory_vulnerability_lifecycle(existing))
+      )
       |> dedupe_rows_by_conflict_key(&ocsf_event_conflict_key/1)
 
     transition_keys =
@@ -549,8 +588,8 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     aligned_rows =
       Enum.map(aligned_rows, fn row ->
         if MapSet.member?(transition_keys, ocsf_event_conflict_key(row)),
-          do: stamp_new_occurrence(row),
-          else: row
+          do: row,
+          else: Map.delete(row, @occurrence_key)
       end)
 
     {_count, upserted_rows} =
@@ -1123,9 +1162,10 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   end
 
   # Occurrence ids are distinct from a reused event row id. The id is a pure
-  # function of the canonical transition written on its first delivery, so a
-  # redelivery finds the same pending row and the inbox continues after the
-  # committed prefix.
+  # function of the event as delivered (id, observed time before lifecycle
+  # pinning, finding version, status), so a redelivery finds the same pending
+  # row and the inbox continues after the committed prefix, while a finding
+  # that re-enters an earlier state is a new occurrence.
   defp stamp_new_occurrence(row) do
     if alert_evaluation_event_row?(row),
       do: Map.put(row, @occurrence_key, lifecycle_occurrence_id(row)),
@@ -1134,14 +1174,12 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
   defp lifecycle_occurrence_id(row) do
     [
-      "alert-evaluation-occurrence:v1|",
+      "alert-evaluation-occurrence:v2|",
       ocsf_event_id_key(row) || "",
       "|",
       row |> Map.get(:time) |> time_conflict_value() |> to_string(),
       "|",
-      row |> Map.get(:activity_id) |> to_string(),
-      "|",
-      row |> Map.get(:type_uid) |> to_string(),
+      row |> row_value("finding_version") |> to_string(),
       "|",
       row |> Map.get(:status) |> to_string()
     ]

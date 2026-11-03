@@ -4,6 +4,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
   alias Broadway.Message
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.EventWriter.AnomalyEpisodeGuardTables
+  alias ServiceRadar.EventWriter.LifecycleAdmissionDrainWorker
   alias ServiceRadar.EventWriter.Pipeline
   alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
   alias ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry
@@ -369,6 +370,114 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
              AlertEvaluationWork
              |> Ash.Query.filter(rule_id == ^rule.id)
              |> Ash.read!(actor: actor)
+  end
+
+  test "every re-entered lifecycle state is a new admitted occurrence" do
+    mode = Application.get_env(:serviceradar_core, :alert_evaluation_mode)
+    Application.put_env(:serviceradar_core, :alert_evaluation_mode, :active)
+    Application.put_env(:serviceradar_core, :stateful_alert_engine, StatefulAlertEngine)
+    on_exit(fn -> restore_env(:alert_evaluation_mode, mode) end)
+    Repo.query!("UPDATE platform.stateful_alert_rules SET enabled = FALSE")
+    actor = SystemActor.system(:alert_engine)
+
+    rule =
+      StatefulAlertRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "synthetic-reentry-#{Ash.UUID.generate()}",
+          signal: :event,
+          match: %{"always" => true},
+          group_by: [],
+          threshold: 100,
+          window_seconds: 120,
+          bucket_seconds: 60
+        },
+        actor: actor
+      )
+      |> Ash.create!()
+
+    event_id = "synthetic-reentry-#{Ash.UUID.generate()}"
+    first_seen = DateTime.truncate(DateTime.utc_now(), :microsecond)
+
+    transitions =
+      for {status, step} <- Enum.with_index(~w(open resolved open resolved open), 1) do
+        versioned_assessment_message(
+          event_id,
+          status,
+          DateTime.shift(first_seen, second: step),
+          first_seen
+        )
+      end
+
+    row = AnalyticsSignals.parse_message(hd(transitions))
+
+    for message <- transitions do
+      assert {:ok, 1} = AnalyticsSignals.process_batch([message])
+    end
+
+    assert {"open", 2, "Update", "true"} = stored_finding(row)
+
+    work =
+      AlertEvaluationWork
+      |> Ash.Query.filter(rule_id == ^rule.id)
+      |> Ash.Query.sort(position: :asc)
+      |> Ash.read!(actor: actor)
+
+    assert Enum.map(work, & &1.position) == [1, 2, 3, 4, 5]
+    assert length(Enum.uniq(Enum.map(work, & &1.source_key))) == 5
+
+    assert Enum.map(work, & &1.payload["status"]) ==
+             ~w(open resolved open resolved open)
+  end
+
+  test "the drain admits a pending occurrence whose series gets no later message" do
+    Application.put_env(
+      :serviceradar_core,
+      :stateful_alert_engine,
+      __MODULE__.CanonicalBodyEngine
+    )
+
+    Application.put_env(
+      :serviceradar_core,
+      :analytics_signals_replay_result,
+      {:error, {:overloaded, :rule_bytes}}
+    )
+
+    on_exit(fn ->
+      Application.delete_env(:serviceradar_core, :analytics_signals_replay_result)
+    end)
+
+    message =
+      assessment_message(
+        "synthetic-drain-#{Ash.UUID.generate()}",
+        "open",
+        "active",
+        "confirmed",
+        "affected"
+      )
+
+    row = AnalyticsSignals.parse_message(message)
+
+    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([message])
+    assert_receive {:alert_evaluation_events, [_refused]}
+    assert pending_occurrence_count(row) == 1
+
+    assert :ok = LifecycleAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
+    assert_receive {:alert_evaluation_events, [still_refused]}
+    assert still_refused.activity_name == "Create"
+    assert pending_occurrence_count(row) == 1
+
+    Application.put_env(:serviceradar_core, :analytics_signals_replay_result, :ok)
+
+    assert :ok = LifecycleAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
+    assert_receive {:alert_evaluation_events, [admitted]}
+    assert admitted.status == "open"
+    assert admitted.activity_name == "Create"
+    assert pending_occurrence_count(row) == 0
+
+    assert :ok = LifecycleAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
+    refute_receive {:alert_evaluation_events, _events}, 50
   end
 
   test "a rejected transition stays replayable and its retry is admitted once" do
