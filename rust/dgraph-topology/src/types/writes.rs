@@ -34,7 +34,7 @@ pub enum EdgeKind {
 }
 
 impl EdgeKind {
-    /// Dgraph stored name, matching the AGE relationship type where one exists.
+    /// Stored `topo.kind` name.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {

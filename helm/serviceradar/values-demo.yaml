@@ -3,14 +3,6 @@
 
 namespace: demo
 
-# OpenSpec 8.4: Dgraph is the live topology store. AGE writes are off.
-# Rollback: graph.read=age (and graph.backend=dual if AGE must be
-# refreshed). Do not enable the product subchart: that would create a
-# second cluster next to Helm release `dgraph`.
-graph:
-  backend: dgraph
-  read: dgraph
-
 # HA Dgraph is already running in this namespace as Helm release `dgraph`
 # (k8s/dgraph/deploy-dgraph.sh demo). Keep the chart subchart off so Argo
 # does not create a second cluster. Flip enabled=true and remove the
@@ -19,8 +11,6 @@ dgraph:
   enabled: false
   schema:
     enabled: true
-  migrator:
-    enabled: false
   external:
     host: dgraph-dgraph-alpha.demo.svc.cluster.local
     port: 9080

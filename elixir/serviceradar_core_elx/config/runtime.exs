@@ -878,11 +878,6 @@ if config_env() == :prod do
   platform_sync_component_id =
     System.get_env("SERVICERADAR_PLATFORM_SYNC_COMPONENT_ID") || "platform-sync"
 
-  age_graph_name =
-    System.get_env("SERVICERADAR_AGE_GRAPH_NAME") ||
-      System.get_env("AGE_GRAPH_NAME") ||
-      "platform_graph"
-
   database_url = System.get_env("DATABASE_URL")
   cnpg_host = System.get_env("CNPG_HOST")
   cnpg_port = String.to_integer(System.get_env("CNPG_PORT", "5432"))
@@ -1564,7 +1559,6 @@ if config_env() == :prod do
     interval_ms: "SERVICERADAR_INGESTION_METRICS_INTERVAL_MS" |> parse_int_env.(30_000) |> max(1_000)
 
   config :serviceradar_core, ServiceRadar.Repo, repo_opts
-  config :serviceradar_core, :age_graph_name, age_graph_name
   config :serviceradar_core, :oban_enabled, oban_enabled
 
   config :serviceradar_core, :object_store_retention,
@@ -1584,8 +1578,6 @@ if config_env() == :prod do
   config :serviceradar_core, :start_ash_oban_scheduler, ash_oban_scheduler_enabled
 
   config :serviceradar_core,
-    graph_backend: System.get_env("GRAPH_BACKEND", "dual"),
-    graph_read: System.get_env("GRAPH_READ", "age"),
     dgraph_url: System.get_env("DGRAPH_URL"),
     dgraph_host: System.get_env("DGRAPH_HOST"),
     dgraph_port: parse_int_env.("DGRAPH_PORT", 9080),

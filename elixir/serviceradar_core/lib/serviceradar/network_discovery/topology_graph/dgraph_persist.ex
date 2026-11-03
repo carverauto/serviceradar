@@ -2,8 +2,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist do
   @moduledoc false
 
   alias ServiceRadar.Dgraph
-  alias ServiceRadar.NetworkDiscovery.TopologyGraph.Backend
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Projection
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.Store
 
   require Logger
 
@@ -136,7 +136,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist do
   end
 
   defp persist(fun) when is_function(fun, 0) do
-    if Backend.write_dgraph?() do
+    if Store.writable?() do
       case fun.() do
         :ok -> :ok
         {:ok, _} -> :ok
@@ -168,9 +168,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist do
   @doc """
   Delete Dgraph edges of `kinds` last seen before `cutoff`.
 
-  The kind set mirrors whichever AGE statement the caller just ran: the two
-  prunes delete different relationship types on different schedules, so a
-  shared kind list would diverge the shadow store from AGE in both directions.
+  Each caller owns its kind set: the mapper evidence prune and the MTR path
+  prune delete different relationship types on different schedules.
   """
   @spec prune_stale(String.t(), [String.t()]) :: :ok
   def prune_stale(cutoff, kinds) when is_binary(cutoff) and is_list(kinds) do
@@ -185,12 +184,10 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist do
   @spec upsert_mtr_path(map()) :: :ok
   def upsert_mtr_path(attrs) when is_map(attrs) do
     maybe(fn ->
-      from_id = Map.fetch!(attrs, :from_id)
-      to_id = Map.fetch!(attrs, :to_id)
+      source = Map.fetch!(attrs, :from_id)
+      target = Map.fetch!(attrs, :to_id)
       from_kind = Map.get(attrs, :from_kind, :device)
       to_kind = Map.get(attrs, :to_kind, :device)
-      source = dgraph_mtr_id(from_kind, from_id)
-      target = dgraph_mtr_id(to_kind, to_id)
 
       with :ok <- upsert_mtr_node(from_kind, source),
            :ok <- upsert_mtr_node(to_kind, target) do
@@ -206,18 +203,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist do
           mtr: Map.get(attrs, :mtr)
         })
       end
-    end)
-  end
-
-  @spec rebuild_canonical_from_age_rows([map()]) :: :ok
-  def rebuild_canonical_from_age_rows(rows) when is_list(rows) do
-    maybe(fn ->
-      edges =
-        rows
-        |> Enum.map(&canonical_edge_from_row/1)
-        |> Enum.reject(&is_nil/1)
-
-      Dgraph.rebuild_canonical(edges)
     end)
   end
 
@@ -249,51 +234,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist do
   defp upsert_mtr_node(:hop, ip) when is_binary(ip), do: Dgraph.upsert_hop(%{ip: ip})
   defp upsert_mtr_node(_, id) when is_binary(id), do: Dgraph.upsert_device(%{id: id})
   defp upsert_mtr_node(_, _), do: :ok
-
-  @doc """
-  Dgraph identity for an MTR endpoint.
-
-  AGE keys an unresolved hop `mtr:<addr>`; Dgraph keys a HopNode by `hop.ip`,
-  so the prefix is stripped and both the node and the edge endpoint use the
-  bare address.
-  """
-  @spec dgraph_mtr_id(:hop | :device | atom(), term()) :: term()
-  def dgraph_mtr_id(:hop, "mtr:" <> address), do: address
-  def dgraph_mtr_id(_kind, id), do: id
-
-  defp canonical_edge_from_row(row) when is_map(row) do
-    source = row_value(row, :local_device_id) || row_value(row, :source) || row_value(row, :a)
-    target = row_value(row, :neighbor_device_id) || row_value(row, :target) || row_value(row, :b)
-
-    if is_binary(source) and is_binary(target) do
-      %{
-        source: source,
-        target: target,
-        kind: :canonical_topology,
-        protocol: row_value(row, :protocol) || "unknown",
-        evidence_class: row_value(row, :evidence_class) || "direct",
-        ingestor: "mapper_topology_v1",
-        if_name_ab: row_value(row, :local_if_name),
-        if_name_ba: row_value(row, :neighbor_if_name),
-        if_index_ab: int_or_nil(row_value(row, :local_if_index)),
-        if_index_ba: int_or_nil(row_value(row, :neighbor_if_index)),
-        confidence_tier: row_value(row, :confidence_tier),
-        flow_pps_ab: int_or_nil(row_value(row, :flow_pps_ab)),
-        flow_pps_ba: int_or_nil(row_value(row, :flow_pps_ba)),
-        flow_bps_ab: int_or_nil(row_value(row, :flow_bps_ab)),
-        flow_bps_ba: int_or_nil(row_value(row, :flow_bps_ba)),
-        capacity_bps: int_or_nil(row_value(row, :capacity_bps)),
-        telemetry_eligible: row_value(row, :telemetry_eligible) == true,
-        pair_support_rank: int_or_nil(row_value(row, :pair_support_rank)) || 0
-      }
-    end
-  end
-
-  defp canonical_edge_from_row(_), do: nil
-
-  defp row_value(row, key) do
-    Map.get(row, key, Map.get(row, Atom.to_string(key)))
-  end
 
   defp edge_kind("CONNECTS_TO"), do: :connects_to
   defp edge_kind("CANONICAL_TOPOLOGY"), do: :canonical_topology
@@ -351,7 +291,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist do
   end
 
   defp maybe(fun) when is_function(fun, 0) do
-    if Backend.write_dgraph?() do
+    if Store.writable?() do
       try do
         case fun.() do
           :ok ->

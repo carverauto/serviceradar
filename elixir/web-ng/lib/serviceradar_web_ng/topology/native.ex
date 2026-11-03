@@ -76,7 +76,7 @@ defmodule ServiceRadarWebNG.Topology.Native do
   def runtime_graph_get_links(_graph_ref), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
-  Ingest raw AGE topology rows into the Rust runtime graph resource.
+  Ingest raw topology rows into the Rust runtime graph resource.
   """
   def runtime_graph_ingest_rows(_graph_ref, _rows), do: :erlang.nif_error(:nif_not_loaded)
 

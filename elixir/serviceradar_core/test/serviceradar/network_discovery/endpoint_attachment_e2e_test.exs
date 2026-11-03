@@ -1,7 +1,7 @@
 defmodule ServiceRadar.NetworkDiscovery.EndpointAttachmentE2ETest do
   @moduledoc """
-  End-to-end coverage (database + Apache AGE required) for endpoint attachment
-  identity promotion (fix-topology-evidence-pipeline-resilience, task 3.5).
+  End-to-end coverage (database required) for endpoint attachment identity
+  promotion (fix-topology-evidence-pipeline-resilience, task 3.5).
 
   With `:topology_endpoint_identity_promotion_enabled` on, a real-shaped
   SNMP-L2 ARP+FDB attachment record for an un-inventoried host must:
@@ -10,10 +10,7 @@ defmodule ServiceRadar.NetworkDiscovery.EndpointAttachmentE2ETest do
        (`identity_state: provisional`, `identity_source:
        mapper_topology_sighting`);
     2. persist the evidence row with the resolved `sr:` neighbor id;
-    3. project a renderable `sr:`↔`sr:` ATTACHED_TO edge into AGE that
-       survives the canonical rebuild (CANONICAL_TOPOLOGY) and the runtime
-       topology projection;
-    4. converge onto the same uid when the same MAC is sighted again.
+    3. converge onto the same uid when the same MAC is sighted again.
   """
 
   use ServiceRadar.DataCase, async: false
@@ -25,7 +22,6 @@ defmodule ServiceRadar.NetworkDiscovery.EndpointAttachmentE2ETest do
   alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
-  alias ServiceRadar.NetworkDiscovery.RuntimeTopologyProjection
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
@@ -38,22 +34,6 @@ defmodule ServiceRadar.NetworkDiscovery.EndpointAttachmentE2ETest do
   setup_all do
     TestSupport.start_core!()
     :ok
-  end
-
-  setup do
-    if age_available?() do
-      graph_name = graph_name()
-
-      case ensure_graph(graph_name) do
-        :ok ->
-          :ok
-
-        {:error, reason} ->
-          {:ok, skip: "Apache AGE graph #{graph_name} not available: #{inspect(reason)}"}
-      end
-    else
-      {:ok, skip: "Apache AGE is not available (ag_catalog.cypher missing)"}
-    end
   end
 
   setup do
@@ -84,19 +64,10 @@ defmodule ServiceRadar.NetworkDiscovery.EndpointAttachmentE2ETest do
     purge_topology_rows([@switch_uid])
     purge_endpoint_device(endpoint_uid)
 
-    cleanup_graph([
-      @switch_uid,
-      endpoint_uid,
-      "#{@switch_uid}/ifindex:4",
-      "#{endpoint_uid}/#{@endpoint_mac}",
-      "#{endpoint_uid}/#{@endpoint_ip}",
-      "#{endpoint_uid}/unknown-neighbor"
-    ])
-
     {:ok, endpoint_uid: endpoint_uid}
   end
 
-  test "FDB attachment for an un-inventoried host renders as an sr:<->sr: attachment edge", %{
+  test "FDB attachment for an un-inventoried host resolves to a provisional sr: neighbor", %{
     endpoint_uid: endpoint_uid
   } do
     assert :ok = MapperResultsIngestor.ingest_topology(Jason.encode!([fdb_payload()]), %{})
@@ -115,38 +86,7 @@ defmodule ServiceRadar.NetworkDiscovery.EndpointAttachmentE2ETest do
     assert row["neighbor_device_id"] == endpoint_uid
     assert row["neighbor_port_id"] == ""
 
-    # 3a. Mapper evidence edge in AGE references sr: identities on both ends.
-    [attached] =
-      cypher_rows(
-        "MATCH (ai:Interface {device_id: '#{@switch_uid}'})-[r:ATTACHED_TO]->(bi:Interface {device_id: '#{endpoint_uid}'}) " <>
-          "RETURN {count: count(r)} AS result"
-      )
-
-    assert attached["count"] == 1
-
-    # 3b. The edge survives the canonical rebuild (both endpoints pass the
-    # STARTS WITH 'sr:' gates).
-    [canonical] =
-      cypher_rows(
-        "MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device) " <>
-          "WHERE (a.id = '#{@switch_uid}' AND b.id = '#{endpoint_uid}') " <>
-          "   OR (a.id = '#{endpoint_uid}' AND b.id = '#{@switch_uid}') " <>
-          "RETURN {count: count(r), relation_type: head(collect(r.relation_type))} AS result"
-      )
-
-    assert canonical["count"] == 1
-    assert canonical["relation_type"] == "ATTACHED_TO"
-
-    # 3c. And the runtime projection serves it (attachment plane).
-    assert {:ok, _} = RuntimeTopologyProjection.refresh_from_graph()
-    assert {:ok, cached} = RuntimeTopologyProjection.read_cached_links()
-
-    assert Enum.any?(cached, fn cached_row ->
-             ids = [cached_row["local_device_id"], cached_row["neighbor_device_id"]]
-             @switch_uid in ids and endpoint_uid in ids
-           end)
-
-    # 4. Re-sighting the same MAC converges on the same provisional device.
+    # 3. Re-sighting the same MAC converges on the same provisional device.
     assert :ok = MapperResultsIngestor.ingest_topology(Jason.encode!([fdb_payload()]), %{})
 
     %Postgrex.Result{rows: [[device_count]]} =
@@ -256,93 +196,5 @@ defmodule ServiceRadar.NetworkDiscovery.EndpointAttachmentE2ETest do
       )
 
     Enum.map(rows, fn row -> columns |> Enum.zip(row) |> Map.new() end)
-  end
-
-  defp age_available? do
-    with {:ok, %Postgrex.Result{rows: [[_]]}} <-
-           SQL.query(Repo, "SELECT 1 FROM pg_namespace WHERE nspname = 'ag_catalog'", []),
-         {:ok, %Postgrex.Result{rows: [[_]]}} <-
-           SQL.query(
-             Repo,
-             """
-             SELECT 1
-             FROM pg_proc p
-             JOIN pg_namespace n ON n.oid = p.pronamespace
-             WHERE n.nspname = 'ag_catalog' AND p.proname = 'cypher'
-             LIMIT 1
-             """,
-             []
-           ) do
-      true
-    else
-      _ -> false
-    end
-  rescue
-    _ -> false
-  end
-
-  defp ensure_graph(graph_name) do
-    case SQL.query(Repo, "SELECT 1 FROM ag_catalog.ag_graph WHERE name = $1 LIMIT 1", [graph_name]) do
-      {:ok, %Postgrex.Result{num_rows: 1}} ->
-        :ok
-
-      {:ok, _} ->
-        case SQL.query(Repo, "SELECT ag_catalog.create_graph($1)", [graph_name]) do
-          {:ok, _} -> :ok
-          {:error, err} -> {:error, err}
-        end
-
-      {:error, err} ->
-        {:error, err}
-    end
-  rescue
-    err -> {:error, err}
-  end
-
-  defp cleanup_graph(ids) when is_list(ids) do
-    quoted_ids = Enum.map_join(ids, ", ", &("'" <> &1 <> "'"))
-    graph = String.replace(graph_name(), "'", "\\'")
-
-    cypher = "MATCH (n) WHERE n.id IN [#{quoted_ids}] DETACH DELETE n"
-
-    _ =
-      SQL.query(
-        Repo,
-        "SELECT ag_catalog.agtype_to_text(v) FROM ag_catalog.cypher('#{graph}', $$#{cypher}$$) AS (v agtype)",
-        []
-      )
-
-    :ok
-  end
-
-  defp cypher_rows(cypher) do
-    graph = String.replace(graph_name(), "'", "\\'")
-
-    sql = """
-    SELECT ag_catalog.agtype_to_text(result)
-    FROM ag_catalog.cypher('#{graph}', $$#{cypher}$$) AS (result agtype)
-    """
-
-    case SQL.query(Repo, sql, []) do
-      {:ok, %Postgrex.Result{rows: rows}} ->
-        Enum.map(rows, fn
-          [text_value] when is_binary(text_value) -> decode_agtype(text_value)
-          row -> row
-        end)
-
-      {:error, error} ->
-        raise "cypher query failed: #{inspect(error)}"
-    end
-  end
-
-  defp decode_agtype(text_value) do
-    case Jason.decode(text_value) do
-      {:ok, parsed} -> parsed
-      {:error, _} -> text_value
-    end
-  end
-
-  defp graph_name do
-    Application.get_env(:serviceradar_core, :age_graph_name, "platform_graph")
   end
 end

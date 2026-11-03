@@ -1,20 +1,19 @@
 defmodule ServiceRadar.Observability.MtrGraph do
   @moduledoc """
-  Projects MTR trace results into the Apache AGE platform_graph as MTR_PATH edges.
+  Projects MTR trace results into the Dgraph topology graph as MTR_PATH edges.
 
   Each trace creates a chain of edges connecting consecutive responding hops:
 
-      (source:Device)-[:MTR_PATH]->(hop1:MtrHop)-[:MTR_PATH]->(hop2:MtrHop)->...->(target)
+      (source:Device)-[MTR_PATH]->(hop1:HopNode)-[MTR_PATH]->(hop2:HopNode)->...->(target)
 
-  Hop nodes that match known device IPs are linked to existing Device nodes.
-  Unknown hops use MtrHop nodes keyed by IP address.
+  Hop addresses that match known device IPs are linked to existing Device
+  nodes. Unknown hops use HopNode vertices keyed by IP address. Each edge
+  carries the far hop's latency, loss, jitter and hop numbers.
 
   Stale MTR_PATH edges are pruned after a configurable interval (default 24 hours).
   """
 
-  alias ServiceRadar.Graph
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist
-  alias ServiceRadar.NetworkDiscovery.TopologyGraph.Persist
   alias ServiceRadar.Repo
 
   require Logger
@@ -70,21 +69,8 @@ defmodule ServiceRadar.Observability.MtrGraph do
       |> DateTime.shift(hour: -stale_hours)
       |> DateTime.to_iso8601()
 
-    cypher = """
-    MATCH ()-[r:MTR_PATH]->()
-    WHERE r.last_observed_at < '#{Graph.escape(cutoff)}'
-    DELETE r
-    """
-
-    case Persist.execute_age(cypher) do
-      :ok ->
-        DgraphPersist.prune_stale(cutoff, ["MTR_PATH"])
-        Logger.debug("Pruned stale MTR_PATH edges older than #{stale_hours}h")
-
-      {:error, reason} ->
-        Logger.warning("Failed to prune stale MTR_PATH edges: #{inspect(reason)}")
-    end
-
+    DgraphPersist.prune_stale(cutoff, ["MTR_PATH"])
+    Logger.debug("Pruned stale MTR_PATH edges older than #{stale_hours}h")
     :ok
   end
 
@@ -106,36 +92,18 @@ defmodule ServiceRadar.Observability.MtrGraph do
   end
 
   defp project_edge(from_hop, to_hop, agent_id, observed_at, ip_to_device) do
-    {from_label, from_id} = node_identity(from_hop, ip_to_device)
-    {to_label, to_id} = node_identity(to_hop, ip_to_device)
+    {from_kind, from_id} = node_identity(from_hop, ip_to_device)
+    {to_kind, to_id} = node_identity(to_hop, ip_to_device)
 
-    cypher =
-      edge_upsert_cypher(
-        from_hop,
-        to_hop,
-        from_label,
-        from_id,
-        to_label,
-        to_id,
-        agent_id,
-        observed_at
-      )
-
-    case Persist.execute_age(cypher) do
-      :ok ->
-        DgraphPersist.upsert_mtr_path(%{
-          from_id: from_id,
-          to_id: to_id,
-          from_kind: mtr_node_kind(from_label),
-          to_kind: mtr_node_kind(to_label),
-          agent_id: agent_id,
-          observed_at: observed_at,
-          mtr: path_metrics(from_hop, to_hop)
-        })
-
-      {:error, reason} ->
-        Logger.warning("MTR graph edge upsert failed: #{inspect(reason)}")
-    end
+    DgraphPersist.upsert_mtr_path(%{
+      from_id: from_id,
+      to_id: to_id,
+      from_kind: from_kind,
+      to_kind: to_kind,
+      agent_id: agent_id,
+      observed_at: observed_at,
+      mtr: path_metrics(from_hop, to_hop)
+    })
   end
 
   # The far hop's measurements describe the segment that ends there.
@@ -148,59 +116,6 @@ defmodule ServiceRadar.Observability.MtrGraph do
       to_hop: hop_int(to_hop, "hop_number", 0)
     }
   end
-
-  defp mtr_node_kind("MtrHop"), do: :hop
-  defp mtr_node_kind(_), do: :device
-
-  defp edge_upsert_cypher(
-         from_hop,
-         to_hop,
-         from_label,
-         from_id,
-         to_label,
-         to_id,
-         agent_id,
-         observed_at
-       ) do
-    from_asn = hop_asn(from_hop)
-    to_asn = hop_asn(to_hop)
-    from_hop_no = hop_int(from_hop, "hop_number", 0)
-    to_hop_no = hop_int(to_hop, "hop_number", 0)
-    avg_us = hop_int(to_hop, "avg_us", 0)
-    loss_pct = hop_float(to_hop, "loss_pct", 0.0)
-    jitter_us = hop_int(to_hop, "jitter_us", 0)
-
-    """
-    MERGE (a:#{from_label} {id: '#{Graph.escape(from_id)}'})
-    #{set_node_props(from_label, "a", from_hop, from_asn)}
-    MERGE (b:#{to_label} {id: '#{Graph.escape(to_id)}'})
-    #{set_node_props(to_label, "b", to_hop, to_asn)}
-    MERGE (a)-[r:MTR_PATH]->(b)
-    SET r.first_observed_at = coalesce(r.first_observed_at, '#{Graph.escape(observed_at)}')
-    SET r.last_observed_at = '#{Graph.escape(observed_at)}'
-    SET r.ingestor = 'mtr_v1'
-    SET r.agent_id = '#{Graph.escape(agent_id)}'
-    SET r.from_hop = #{from_hop_no}
-    SET r.to_hop = #{to_hop_no}
-    SET r.avg_us = #{avg_us}
-    SET r.loss_pct = #{loss_pct}
-    SET r.jitter_us = #{jitter_us}
-    """
-  end
-
-  defp set_node_props("MtrHop", var, hop, asn) do
-    """
-    SET #{var}.addr = '#{Graph.escape(hop["addr"])}'
-    #{set_prop(var, "hostname", hop["hostname"])}
-    #{set_prop(var, "asn", asn["asn"])}
-    #{set_prop(var, "asn_org", asn["org"])}
-    """
-  end
-
-  defp set_node_props(_label, _var, _hop, _asn), do: ""
-
-  defp hop_asn(hop) when is_map(hop), do: hop["asn"] || %{}
-  defp hop_asn(_), do: %{}
 
   defp hop_int(hop, key, default) when is_map(hop) do
     case hop[key] do
@@ -246,14 +161,14 @@ defmodule ServiceRadar.Observability.MtrGraph do
 
   defp parse_float(_value, default), do: default
 
-  # If the hop IP matches a known device, use Device label with device UID.
-  # Otherwise fall back to MtrHop label keyed by IP.
+  # A hop whose IP matches a known device is that Device; otherwise it is a
+  # HopNode keyed by its address.
   defp node_identity(hop, ip_to_device) do
     addr = hop["addr"]
 
     case Map.get(ip_to_device, addr) do
-      nil -> {"MtrHop", "mtr:#{addr || "unknown"}"}
-      device_uid -> {"Device", device_uid}
+      nil -> {:hop, addr}
+      device_uid -> {:device, device_uid}
     end
   end
 
@@ -279,21 +194,5 @@ defmodule ServiceRadar.Observability.MtrGraph do
         Logger.debug("Device IP lookup for MTR correlation failed: #{inspect(reason)}")
         %{}
     end
-  end
-
-  defp set_prop(_var, _prop, nil), do: ""
-  defp set_prop(_var, _prop, ""), do: ""
-  defp set_prop(_var, _prop, 0), do: ""
-
-  defp set_prop(var, prop, value) when is_integer(value) do
-    "SET #{var}.#{prop} = #{value}"
-  end
-
-  defp set_prop(var, prop, value) when is_float(value) do
-    "SET #{var}.#{prop} = #{value}"
-  end
-
-  defp set_prop(var, prop, value) do
-    "SET #{var}.#{prop} = '#{Graph.escape(value)}'"
   end
 end

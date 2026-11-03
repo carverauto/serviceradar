@@ -47,24 +47,20 @@ defmodule ServiceRadar.NetworkConfig.ProjectorTest do
     refute Enum.any?(payloads.prefixes, fn p -> p.evidence_class == "direct-physical" end)
   end
 
-  test "project calls persist hooks and never upserts CONNECTS_TO" do
+  test "project persists config-declared payloads and never upserts CONNECTS_TO" do
     test = self()
 
     assert :ok =
              Projector.project(@device, @revision_id, @facts,
-               persist_age: fn device_uid, payloads ->
-                 send(test, {:age, device_uid, payloads})
-                 :ok
-               end,
                persist_dgraph: fn payloads ->
                  send(test, {:dgraph, payloads})
                  :ok
                end
              )
 
-    assert_receive {:age, @device, age_payloads}
     assert_receive {:dgraph, dgraph_payloads}
-    assert age_payloads.overwrite_backbone? == false
+    assert dgraph_payloads.device_uid == @device
+    assert dgraph_payloads.overwrite_backbone? == false
     assert dgraph_payloads.ingestor == "network_config_v1"
     refute Map.has_key?(dgraph_payloads, :edges)
   end

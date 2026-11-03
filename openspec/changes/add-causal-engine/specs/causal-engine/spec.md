@@ -21,13 +21,13 @@ The system SHALL introduce a new top-level Rust crate `rust/causal-engine`, peer
 
 ### Requirement: Context Hydration via EmbeddedSrql
 
-The engine SHALL hydrate its causal `Context` using the embedded SRQL query engine (`EmbeddedSrql` from `rust/srql`) against CNPG. On cold start it SHALL load current platform state, it SHALL issue on-demand queries against TimescaleDB continuous aggregates for time-series state rather than streaming hypertables, and it SHALL load topology snapshots from Apache AGE by issuing openCypher through the `graph_cypher` entity. Hydration MUST reuse the existing `EmbeddedSrql::new` / `QueryEngine::execute_query` API and MUST NOT open a parallel database connection path that bypasses SRQL.
+The engine SHALL hydrate its causal `Context` using the embedded SRQL query engine (`EmbeddedSrql` from `rust/srql`) against CNPG. On cold start it SHALL load current platform state, it SHALL issue on-demand queries against TimescaleDB continuous aggregates for time-series state rather than streaming hypertables, and it SHALL load topology snapshots from the Dgraph topology graph by issuing read-only DQL through the `in:graph` entity. Hydration MUST reuse the existing `EmbeddedSrql::new` / `QueryEngine::execute_query` API and MUST NOT open a parallel database connection path that bypasses SRQL.
 
 #### Scenario: Cold-start hydration loads current state via EmbeddedSrql
 
 - **WHEN** the engine starts with no prior snapshot
 - **THEN** it SHALL construct an `EmbeddedSrql` instance and execute queries to load current device, service, and health state
-- **AND** it SHALL load the topology snapshot by issuing openCypher through the `graph_cypher` entity into AGE
+- **AND** it SHALL load the topology snapshot by issuing read-only DQL through the `in:graph` entity against Dgraph
 
 #### Scenario: Time-series state read on demand from continuous aggregates
 

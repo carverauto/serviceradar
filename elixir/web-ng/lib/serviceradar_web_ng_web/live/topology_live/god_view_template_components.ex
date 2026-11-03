@@ -421,7 +421,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
       stream_state == :error ->
         %{
           title: "Topology unavailable",
-          message: "The topology stream failed. Check web-ng/runtime-graph logs and AGE topology data."
+          message: "The topology stream failed. Check web-ng/runtime-graph logs and Dgraph topology data."
         }
 
       stream_state == :retrying ->

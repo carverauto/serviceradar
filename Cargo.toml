@@ -18,7 +18,6 @@ members = [
     "rust/kvutil",
     "rust/config-bootstrap",
     "rust/cert-policy",
-    "rust/age-to-dgraph",
     "rust/dgraph-migrate",
     "rust/network-config-downparser",
     "rust/dgraph-topology",

@@ -29,21 +29,18 @@ The system SHALL persist topology edges that carry properties as `TopologyEdge` 
 - **AND** prior payloads are not stored as additional Dgraph nodes
 
 ### Requirement: Dgraph-authoritative topology read model
-The system SHALL treat Dgraph canonical topology edges as the authoritative source for topology rendering and downstream graph consumers once `GRAPH_READ=dgraph`.
+The system SHALL treat Dgraph canonical topology edges as the only authoritative source for topology rendering and downstream graph consumers.
 
 #### Scenario: Renderer consumes Dgraph edges
 - **GIVEN** canonical topology edges are projected in Dgraph
-- **AND** `GRAPH_READ=dgraph`
 - **WHEN** web topology views are generated
 - **THEN** edge construction uses canonical Dgraph adjacency
 - **AND** rendering does not require additional identity-fusion heuristics in the UI layer
 
 #### Scenario: Causal hydrator consumes Dgraph
-- **GIVEN** `GRAPH_READ=dgraph`
 - **WHEN** the causal hydrator loads topology
 - **THEN** it queries Dgraph through `in:graph`
 - **AND** the edge kinds it reads are `CONNECTS_TO`, `CANONICAL_TOPOLOGY`, `LOGICAL_PEER` and `MANAGED_BY`
-- **AND** it does not query AGE `graph_cypher` for adjacency
 
 ### Requirement: Management relationships in Dgraph
 The system SHALL project a device's management relationship to Dgraph as a `MANAGED_BY` `TopologyEdge` from the managed device to its management device and an inverse `MANAGES` edge, written by the `management_device_v1` ingestor and not telemetry-eligible. These kinds SHALL NOT be pruned by the mapper stale prune and SHALL NOT appear in the canonical graph or the God View topology view.
@@ -68,29 +65,27 @@ The system SHALL project and query canonical topology edges from Dgraph in the r
 - **AND** includes directional telemetry fields `flow_pps_ab`, `flow_pps_ba`, `flow_bps_ab`, `flow_bps_ba`
 - **AND** includes `capacity_bps`, `telemetry_eligible`, and evidence metadata fields used for diagnostics
 
-### Requirement: Dual-write cutover flags
-The system SHALL support `GRAPH_BACKEND=age|dual|dgraph` and `GRAPH_READ=age|dgraph` so topology can move from AGE to Dgraph without a flag-day empty graph.
+### Requirement: Dgraph is the only topology backend
+The system SHALL write and read topology only through Dgraph, with no alternative backend, no backend selector flag, and no implicit fallback, and SHALL report an unconfigured Dgraph endpoint explicitly.
 
-#### Scenario: Dual-write default during rollout
-- **GIVEN** a deployment that has not finished checksum
-- **WHEN** mapper topology is projected
-- **THEN** both AGE and Dgraph receive the projection
-- **AND** reads still come from AGE until `GRAPH_READ` is flipped
+#### Scenario: Topology writes reach Dgraph only
+- **WHEN** mapper topology, management relations, risk scalars, config facts, or MTR paths are projected
+- **THEN** they are written to Dgraph
+- **AND** no Cypher is issued against Apache AGE
 
-#### Scenario: Read flip requires a passing checksum
-- **GIVEN** the checksum Job has not passed
-- **WHEN** an operator attempts to set `GRAPH_READ=dgraph`
-- **THEN** the system refuses the flip or the Job that would flip it fails
-- **AND** God View continues to read AGE
+#### Scenario: Unconfigured Dgraph is reported, not hidden
+- **GIVEN** core starts without a resolvable Dgraph endpoint
+- **WHEN** a topology write is attempted
+- **THEN** an error naming the missing Dgraph configuration is logged once per transition
+- **AND** the write is not redirected to another store
 
-#### Scenario: AGE writes stop after backend flip
-- **GIVEN** checksum passed and `GRAPH_READ=dgraph`
-- **WHEN** `GRAPH_BACKEND=dgraph`
-- **THEN** new topology projections are written only to Dgraph
-- **AND** AGE is no longer updated
+#### Scenario: Helm refuses a release without Dgraph
+- **GIVEN** `dgraph.enabled=false` and no `dgraph.external.host`
+- **WHEN** the chart is rendered
+- **THEN** rendering fails with an error that names both settings
 
 ### Requirement: Confidence-aware Dgraph edge lifecycle
-The system SHALL maintain topology edges in Dgraph with the same confidence gating and observation freshness controls currently applied to AGE.
+The system SHALL maintain topology edges in Dgraph with confidence gating and observation freshness controls applied to mapper evidence.
 
 #### Scenario: Low-confidence links stay off the graph
 - **GIVEN** a mapper link candidate labelled `low`

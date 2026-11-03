@@ -1,6 +1,6 @@
 defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   @moduledoc """
-  Ingests mapper interface and topology results into CNPG and projects topology into AGE.
+  Ingests mapper interface and topology results into CNPG and projects topology into Dgraph.
   """
 
   import Ecto.Query
@@ -85,7 +85,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
         case insert_bulk(classified_records, Interface, actor, "interfaces") do
           # Per-record isolation: partial rejections are logged by
           # handle_bulk_result/3 but must not stop the surviving interface
-          # evidence from reaching the AGE projection.
+          # evidence from reaching the graph projection.
           {:ok, _summary} ->
             classified_records
             |> Stream.map(& &1.device_id)
@@ -168,7 +168,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       else
         case insert_bulk(records_with_wireguard, TopologyLink, actor, "topology") do
           # Per-record isolation: rejected records are counted into telemetry
-          # and filtered out, but the accepted evidence still reaches the AGE
+          # and filtered out, but the accepted evidence still reaches the graph
           # graph instead of freezing the whole payload.
           {:ok, %{rejected: rejected}} ->
             emit_topology_ingest_rejections(rejected)
@@ -5567,7 +5567,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   # Drop the raw topology records whose prepared (normalized) counterparts were
   # rejected by the bulk insert, keyed by the logical-key identity. Records for
   # unattributable errors ({nil, error} pairs) cannot be filtered and stay in
-  # the surviving set, which is safe because the AGE MERGEs are idempotent.
+  # the surviving set, which is safe because the graph upserts are idempotent.
   defp reject_rejected_topology_records(records, []), do: records
 
   defp reject_rejected_topology_records(records, rejected) do
@@ -5637,7 +5637,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
   # Per-record failure isolation: a partial bulk-create success MUST NOT abort
   # the pipeline. Return the accepted records plus {record, error} rejection
-  # pairs so callers keep the surviving evidence flowing (e.g. into the AGE
+  # pairs so callers keep the surviving evidence flowing (e.g. into the graph
   # graph) instead of dropping the whole payload; only a total failure returns
   # {:error, errors}. Public for tests: partial failures cannot be induced
   # through the JSON ingest path once validation accepts real payload shapes.
@@ -5690,7 +5690,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   # the error path. Partition the prepared batch into accepted records and
   # {record, error} rejection pairs. Errors that cannot be attributed to an
   # index become {nil, error} pairs and leave the batch unfiltered for those
-  # records, which is safe because the downstream AGE MERGEs are idempotent.
+  # records, which is safe because the downstream graph upserts are idempotent.
   defp split_bulk_rejections(prepared_records, errors) do
     {indexed, unattributed} =
       errors

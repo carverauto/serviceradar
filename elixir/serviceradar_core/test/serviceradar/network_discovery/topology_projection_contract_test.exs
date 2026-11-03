@@ -3,6 +3,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
 
   alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
   alias ServiceRadar.NetworkDiscovery.TopologyGraph
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.Utils
 
   describe "classify_projection/1 contract" do
     test "LLDP direct neighbor projects to backbone CONNECTS_TO" do
@@ -621,303 +622,24 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
     end
   end
 
-  describe "canonical rebuild query contract" do
-    test "endpoint inventory risk summary query is bounded to device scalar properties" do
-      query =
-        TopologyGraph.endpoint_inventory_risk_summary_query("sr:device-risk", %{
-          pkg_worst_severity: "critical",
-          pkg_critical_count: 2,
-          pkg_kev_count: 1,
-          pkg_has_unpatched_rce: true,
-          pkg_risk_summary_at: "2026-06-02T12:00:00Z"
-        })
+  describe "canonical rebuild contract" do
+    test "endpoint inventory risk summary normalizes absent advisory scoring to unknown defaults" do
+      summary = Utils.normalize_endpoint_inventory_risk_summary(%{pkg_worst_severity: "bogus"})
 
-      assert TopologyGraph.endpoint_inventory_risk_summary_fields() == [
-               :pkg_worst_severity,
-               :pkg_critical_count,
-               :pkg_kev_count,
-               :pkg_has_unpatched_rce,
-               :pkg_risk_summary_at
-             ]
+      assert summary.pkg_worst_severity == "unknown"
+      assert summary.pkg_critical_count == 0
+      assert summary.pkg_kev_count == 0
+      assert summary.pkg_has_unpatched_rce == false
+      assert is_binary(summary.pkg_risk_summary_at)
 
-      assert query =~ "MERGE (d:Device {id: 'sr:device-risk'})"
-      assert query =~ "SET d.pkg_worst_severity = 'critical'"
-      assert query =~ "SET d.pkg_critical_count = 2"
-      assert query =~ "SET d.pkg_kev_count = 1"
-      assert query =~ "SET d.pkg_has_unpatched_rce = true"
-      assert query =~ "SET d.pkg_risk_summary_at = '2026-06-02T12:00:00Z'"
-      assert length(Regex.scan(~r/SET d\.pkg_/, query)) == 5
-
-      refute query =~ "Package"
-      refute query =~ "HAS_PACKAGE"
-      refute query =~ "AFFECTED_BY"
-      refute query =~ "CREATE"
-      refute query =~ "]-"
-      refute query =~ "->"
-    end
-
-    test "endpoint inventory risk summary query clears absent advisory scoring to unknown defaults" do
-      query = TopologyGraph.endpoint_inventory_risk_summary_query("sr:device-risk", %{})
-
-      assert query =~ "SET d.pkg_worst_severity = 'unknown'"
-      assert query =~ "SET d.pkg_critical_count = 0"
-      assert query =~ "SET d.pkg_kev_count = 0"
-      assert query =~ "SET d.pkg_has_unpatched_rce = false"
-      assert length(Regex.scan(~r/SET d\.pkg_/, query)) == 5
-
-      refute query =~ "Package"
-      refute query =~ "HAS_PACKAGE"
-      refute query =~ "AFFECTED_BY"
-    end
-
-    test "mapper upsert queries preserve local-side device ip identity" do
-      payload = %{
-        local_device_id: "sr:ap-a",
-        local_device_ip: "192.168.1.200",
-        neighbor_device_id: "sr:endpoint-a",
-        local_interface_id: "sr:ap-a/wifi0",
-        neighbor_interface_id: "sr:endpoint-a/unknown",
-        protocol: "snmp-l2",
-        local_if_name: "wifi0",
-        local_if_index: 10,
-        neighbor_port_name: "unknown",
-        neighbor_name: nil,
-        neighbor_ip: "192.168.1.62",
-        evidence_class: "inferred-segment",
-        relation_family: "ATTACHED_TO",
-        confidence_tier: "low",
-        confidence_score: 40,
-        confidence_reason: "single_identifier_inference",
-        observed_at: "2026-03-24T04:45:00Z"
-      }
-
-      backbone_query = TopologyGraph.backbone_link_upsert_query(payload)
-      auxiliary_query = TopologyGraph.auxiliary_link_upsert_query(payload, "ATTACHED_TO")
-
-      assert backbone_query =~ "SET a.ip = '192.168.1.200'"
-      assert backbone_query =~ "SET b.ip = '192.168.1.62'"
-      assert auxiliary_query =~ "SET a.ip = '192.168.1.200'"
-      assert auxiliary_query =~ "SET b.ip = '192.168.1.62'"
-    end
-
-    test "upsert query keeps canonical relation syntax stable" do
-      query = TopologyGraph.canonical_rebuild_upsert_query("2026-02-25T00:00:00Z")
-
-      assert query =~ "MERGE (a)-[cr:CANONICAL_TOPOLOGY {link_key: link_key}]->(b)"
-      refute query =~ "CNONICAL_TOPOLOGY"
-      refute query =~ "[]->"
-
-      assert query =~
-               "WITH src_id, dst_id, local_interface_key + '|' + neighbor_interface_key AS link_key, collect({"
-
-      assert query =~ "WITH src_id, dst_id, link_key, head(candidates) AS best, candidates"
-      assert query =~ "UNWIND candidates AS c"
-      assert query =~ "support_rank"
-      assert query =~ "pair_support_rank"
-      assert query =~ "SET cr += {"
-      assert query =~ "link_key: link_key,"
-
-      assert query =~
-               "type(r) IN ['CONNECTS_TO', 'LOGICAL_PEER', 'HOSTED_ON', 'INFERRED_TO', 'ATTACHED_TO']"
-
-      refute query =~ "type(r) IN ['CONNECTS_TO', 'INFERRED_TO', 'ATTACHED_TO', 'OBSERVED_TO']"
-      assert query =~ "AND ai.device_id STARTS WITH 'sr:'"
-      assert query =~ "AND bi.device_id STARTS WITH 'sr:'"
-      assert query =~ "toLower(trim(ai.device_id)) <> 'nil'"
-      assert query =~ "toLower(trim(ai.device_id)) <> 'null'"
-      assert query =~ "toLower(trim(ai.device_id)) <> 'undefined'"
-      assert query =~ "toLower(trim(bi.device_id)) <> 'nil'"
-      assert query =~ "toLower(trim(bi.device_id)) <> 'null'"
-      assert query =~ "toLower(trim(bi.device_id)) <> 'undefined'"
-      assert query =~ "best_local_if_index"
-      assert query =~ "best_neighbor_if_index"
-      assert query =~ "local_if_index: local_if_index,"
-      assert query =~ "neighbor_if_index: neighbor_if_index,"
-      assert query =~ "local_if_index_ab: local_if_index,"
-      assert query =~ "local_if_index_ba: neighbor_if_index,"
-      assert query =~ "local_if_name_ab: local_if_name,"
-      assert query =~ "local_if_name_ba: neighbor_if_name,"
-      assert query =~ "flow_pps: coalesce(cr.flow_pps, 0),"
-      assert query =~ "flow_bps: coalesce(cr.flow_bps, 0),"
-      assert query =~ "capacity_bps: coalesce(cr.capacity_bps, 0),"
-      assert query =~ "flow_pps_ab: coalesce(cr.flow_pps_ab, 0),"
-      assert query =~ "flow_pps_ba: coalesce(cr.flow_pps_ba, 0),"
-      assert query =~ "flow_bps_ab: coalesce(cr.flow_bps_ab, 0),"
-      assert query =~ "flow_bps_ba: coalesce(cr.flow_bps_ba, 0),"
-      assert query =~ "telemetry_eligible: coalesce(cr.telemetry_eligible, false),"
-      assert query =~ "telemetry_source: coalesce(cr.telemetry_source, 'none'),"
-      assert query =~ "telemetry_observed_at: coalesce(cr.telemetry_observed_at, ''),"
-    end
-
-    test "unseen projected link prune deletes reverse mapper edge before forward edge" do
-      [reverse_query, forward_query] =
-        TopologyGraph.prune_unseen_projected_links_queries(
-          "sr:device-a",
-          MapSet.new(["sr:device-b"])
-        )
-
-      assert reverse_query =~ "MATCH (a:Interface)-[r:CONNECTS_TO]->(b:Interface)"
-      assert reverse_query =~ "a.device_id = 'sr:device-a'"
-      assert reverse_query =~ "NOT b.device_id IN ['sr:device-b']"
-      assert reverse_query =~ "MATCH (b)-[rr:CONNECTS_TO]->(a)"
-      assert reverse_query =~ "DELETE rr"
-
-      assert forward_query =~ "MATCH (a:Interface)-[r:CONNECTS_TO]->(b:Interface)"
-      assert forward_query =~ "a.device_id = 'sr:device-a'"
-      assert forward_query =~ "NOT b.device_id IN ['sr:device-b']"
-      assert forward_query =~ "DELETE r"
-    end
-
-    test "prune query targets canonical topology edges" do
-      query = TopologyGraph.canonical_rebuild_prune_query("2026-02-25T00:00:00Z")
-
-      assert query =~ "MATCH ()-[r:CANONICAL_TOPOLOGY]->()"
-      assert query =~ "DELETE r"
-    end
-
-    test "canonical edge count query targets canonical topology edges" do
-      query = TopologyGraph.canonical_edge_count_query()
-
-      assert query =~ "MATCH ()-[r:CANONICAL_TOPOLOGY]->()"
-      assert query =~ "RETURN {count: count(r)}"
-    end
-
-    test "mapper evidence count query targets mapper topology evidence edges" do
-      query = TopologyGraph.mapper_evidence_edge_count_query()
-
-      assert query =~ "r.ingestor = 'mapper_topology_v1'"
-
-      assert query =~
-               "type(r) IN ['CONNECTS_TO', 'LOGICAL_PEER', 'HOSTED_ON', 'INFERRED_TO', 'ATTACHED_TO', 'OBSERVED_TO']"
-
-      assert query =~ "RETURN {count: count(r)}"
-    end
-
-    test "stale mapper evidence prune query includes observation-only edges" do
-      query = TopologyGraph.prune_stale_mapper_evidence_links_query("2026-02-25T00:00:00Z")
-
-      assert query =~ "r.ingestor = 'mapper_topology_v1'"
-
-      assert query =~
-               "type(r) IN ['CONNECTS_TO', 'LOGICAL_PEER', 'HOSTED_ON', 'INFERRED_TO', 'ATTACHED_TO', 'OBSERVED_TO']"
-
-      assert query =~ "DELETE r"
-    end
-
-    # The upsert and the evidence prune have to agree about a missing timestamp,
-    # or an edge can be permanently unprunable AND permanently projected. The
-    # upsert used to admit `last_observed_at IS NULL` unconditionally while the
-    # prune required `IS NOT NULL`, so an evidence edge with no last_observed_at
-    # was re-projected on every rebuild and could never be deleted. Both sides now
-    # use the same coalesce the projection already uses for the emitted value.
-    test "upsert query does not admit evidence with no usable timestamp" do
-      query = TopologyGraph.canonical_rebuild_upsert_query("2026-02-25T00:00:00Z")
-
-      assert query =~
-               "coalesce(r.last_observed_at, r.observed_at) >= '2026-02-25T00:00:00Z'"
-
-      refute query =~ "r.last_observed_at IS NULL OR"
-    end
-
-    test "evidence prune deletes edges that carry no usable timestamp" do
-      query = TopologyGraph.prune_stale_mapper_evidence_links_query("2026-02-25T00:00:00Z")
-
-      assert query =~ "coalesce(r.last_observed_at, r.observed_at) IS NULL"
-
-      assert query =~
-               "coalesce(r.last_observed_at, r.observed_at) < '2026-02-25T00:00:00Z'"
-
-      refute query =~ "r.last_observed_at IS NOT NULL"
-    end
-
-    test "upsert and evidence prune partition evidence with no overlap or gap" do
-      cutoff = "2026-02-25T00:00:00Z"
-      upsert = TopologyGraph.canonical_rebuild_upsert_query(cutoff)
-      prune = TopologyGraph.prune_stale_mapper_evidence_links_query(cutoff)
-
-      # Fresh evidence is projected and never pruned.
-      assert upsert =~ "coalesce(r.last_observed_at, r.observed_at) >= '#{cutoff}'"
-      assert prune =~ "coalesce(r.last_observed_at, r.observed_at) < '#{cutoff}'"
-
-      # Timestamp-less evidence is pruned rather than projected forever.
-      assert prune =~ "coalesce(r.last_observed_at, r.observed_at) IS NULL"
-
-      # Must stay scoped to the timestamp: the upsert legitimately contains an
-      # unrelated `cr.content_hash IS NULL OR ...` for the change-detection skip.
-      refute upsert =~ "r.last_observed_at IS NULL OR"
-    end
-
-    test "legacy single-identifier attachment reconciliation converts ATTACHED_TO into OBSERVED_TO" do
-      query = TopologyGraph.reconcile_legacy_single_identifier_attachment_links_query()
-
-      assert query =~ "MATCH (ai:Interface)-[legacy:ATTACHED_TO]->(bi:Interface)"
-      assert query =~ "MERGE (ai)-[observed:OBSERVED_TO]->(bi)"
-      assert query =~ "toLower(coalesce(legacy.protocol, legacy.source, 'unknown')) = 'snmp-l2'"
-
-      assert query =~
-               "toLower(coalesce(legacy.confidence_reason, 'unknown')) = 'single_identifier_inference'"
-
-      assert query =~ "DELETE legacy"
-    end
-
-    test "legacy canonical single-identifier attachment purge deletes polluted canonical edges" do
-      query = TopologyGraph.purge_legacy_single_identifier_canonical_links_query()
-
-      assert query =~ "MATCH ()-[r:CANONICAL_TOPOLOGY]->()"
-      assert query =~ "toLower(coalesce(r.relation_type, 'unknown')) = 'attached_to'"
-      assert query =~ "toLower(coalesce(r.protocol, 'unknown')) = 'snmp-l2'"
-
-      assert query =~
-               "toLower(coalesce(r.confidence_reason, 'unknown')) = 'single_identifier_inference'"
-
-      assert query =~ "DELETE r"
-    end
-
-    test "canonical telemetry batch query updates multiple edges in one UNWIND" do
-      query =
-        TopologyGraph.canonical_edge_telemetry_batch_query([
-          %{
-            src_id: "sr:a",
-            dst_id: "sr:b",
-            flow_pps: 12,
-            flow_bps: 1200,
-            capacity_bps: 1_000_000,
-            flow_pps_ab: 7,
-            flow_pps_ba: 5,
-            flow_bps_ab: 700,
-            flow_bps_ba: 500,
-            telemetry_eligible: true,
-            telemetry_source: "interface",
-            telemetry_observed_at: "2026-03-22T18:44:48Z"
-          },
-          %{
-            src_id: "sr:c",
-            dst_id: "sr:d",
-            flow_pps: 0,
-            flow_bps: 0,
-            capacity_bps: 0,
-            flow_pps_ab: 0,
-            flow_pps_ba: 0,
-            flow_bps_ab: 0,
-            flow_bps_ba: 0,
-            telemetry_eligible: false,
-            telemetry_source: "none",
-            telemetry_observed_at: "2026-03-22T18:44:48Z"
-          }
-        ])
-
-      assert query =~ "UNWIND ["
-
-      assert query =~
-               "MATCH (a:Device {id: row.src_id})-[r:CANONICAL_TOPOLOGY]->(b:Device {id: row.dst_id})"
-
-      assert query =~ "WHERE r.ingestor = 'mapper_topology_v1'"
-      assert query =~ "SET r.flow_pps = row.flow_pps"
-      assert query =~ "SET r.telemetry_source = row.telemetry_source"
-      assert query =~ "src_id: 'sr:a'"
-      assert query =~ "dst_id: 'sr:d'"
-      assert query =~ "telemetry_eligible: true"
-      assert query =~ "telemetry_eligible: false"
+      assert summary |> Map.keys() |> Enum.sort() ==
+               Enum.sort([
+                 :pkg_worst_severity,
+                 :pkg_critical_count,
+                 :pkg_kev_count,
+                 :pkg_has_unpatched_rce,
+                 :pkg_risk_summary_at
+               ])
     end
 
     test "metric device IP extraction is IPv6-safe" do
@@ -986,7 +708,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
       assert TopologyGraph.canonical_rebuild_min_edges() == 3
     end
 
-    test "canonical rebuild timeout and telemetry batch size honor positive config" do
+    test "canonical rebuild timeout honors positive config" do
       original = Application.get_env(:serviceradar_core, TopologyGraph, [])
 
       on_exit(fn ->
@@ -995,17 +717,10 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
 
       Application.put_env(:serviceradar_core, TopologyGraph, [])
       assert TopologyGraph.canonical_rebuild_timeout_ms() == 60_000
-      assert TopologyGraph.canonical_edge_telemetry_batch_size() == 100
 
-      Application.put_env(
-        :serviceradar_core,
-        TopologyGraph,
-        canonical_rebuild_timeout_ms: 90_000,
-        canonical_edge_telemetry_batch_size: 250
-      )
+      Application.put_env(:serviceradar_core, TopologyGraph, canonical_rebuild_timeout_ms: 90_000)
 
       assert TopologyGraph.canonical_rebuild_timeout_ms() == 90_000
-      assert TopologyGraph.canonical_edge_telemetry_batch_size() == 250
     end
   end
 
