@@ -163,9 +163,11 @@ resolution runs for the subject (`device_uid`) and for the node the occurrence r
 - **Samples** (in `samples`), capped at insert: top 10 process names with counts, 5 latest distinct
   command lines, top 10 images, top 20 nodes with counts, top 5 users, 5 latest occurrence ids.
   Samples outlive the occurrences they came from.
-- **Counts are at-least-once** (user decision). Occurrence rows are idempotent on their id, and the
-  finding upsert is the last write before ACK, so a count can be inflated only if the process
-  stops between the CNPG commit and the JetStream ACK. The occurrence dataset is the exact count.
+- **Counts are at-least-once** (user decision). Occurrence rows are idempotent on their id. The
+  finding upsert runs when that occurrence's finding update has not committed, and it does not
+  apply the delta again when it has. A count can be inflated only if the process stops between
+  the CNPG commit and the acknowledgement of that write. A retried publish that observes the
+  committed finding does not count again. The occurrence dataset is the exact count.
   No per-occurrence receipt ledger is added.
 
 ### Decision 5: Occurrences are a new telemetry dataset, on exactly one backend
@@ -217,10 +219,12 @@ table, writer and reader stay for installations without StarRocks.
   does not define its own dead-letter subject. A spilled record whose occurrence or finding
   write keeps failing, and an incomplete part set whose reassembly window has expired, use the
   generic edge-record dead-letter in the EventWriter edge-record processor
-  (`feat/edge-record-dead-letter`), which covers every contract. Before a record would reach
-  `max_deliver`, that processor publishes the original edge record durably (PubAck), retains
-  its object references, counts it, alerts, and supports replay. The original edge record
-  carries the part payload. The source is acknowledged only after that publication is durable.
+  (`feat/edge-record-dead-letter`), which covers every contract. The source delivery of a part
+  is acknowledged when that part is durably staged (Decision 9), so an open hold never reaches
+  `max_deliver`. Before a terminal write would reach `max_deliver`, that processor publishes
+  the original edge record durably (PubAck), retains its object references, counts it, alerts,
+  and supports replay. The original edge record carries the part payload. The stage is released
+  only after that publication is durable.
 - **Retention coupling.** An object lives as long as the occurrence or dead-lettered edge record
   that references it. The occurrence dataset is day-partitioned on both backends, and the object
   key carries the same UTC day. `ServiceRadar.ObjectStore.RetentionWorker` gains a runtime-evidence
@@ -251,8 +255,8 @@ table, writer and reader stay for installations without StarRocks.
   the outbox, a crash after commit would lose `opened`, because the redelivered batch finds the
   finding already active.
 - **Event shape.** Opened, reopened, and escalated use
-  `log_name = "falco.finding.firing." <> transition`. Resolved uses
-  `log_name = "falco.finding.resolved"`. `log_provider = "serviceradar.core"`. Episode severity
+  `log_name = "runtime_security.finding.firing." <> transition`. Resolved uses
+  `log_name = "runtime_security.finding.resolved"`. Neither name starts with `falco.`. `log_provider = "serviceradar.core"`. Episode severity
   is `severity_id`. `device.uid` is the finding's `device_uid`. The attribute map
   `event_matches?/2` reads (`unmapped.log_attributes`) carries `finding_info.uid`,
   `runtime_finding.transition`, `runtime_finding.rule`, and `runtime_finding.entity_name`.
@@ -262,11 +266,12 @@ table, writer and reader stay for installations without StarRocks.
   template resolve `finding_info.uid`, `runtime_finding.rule`, and `runtime_finding.entity_name`
   from that map.
 - **Managed rule `falco_runtime_finding` (template v1):** `signal: :event`. The firing match is
-  `subject_prefix "falco.finding.firing."`, `attribute_equals` with
+  `subject_prefix "runtime_security.finding.firing."`, `attribute_equals` with
   `runtime_finding.transition` in `[opened, reopened, escalated]`, and `severity_number_min 5`.
-  Recovery is `subject_prefix "falco.finding.resolved"` and `attribute_equals`
-  `runtime_finding.transition = resolved`. `falco.finding.resolved` does not start with
-  `falco.finding.firing.`, so a resolved Critical transition does not take the firing path.
+  Recovery is `subject_prefix "runtime_security.finding.resolved"` and `attribute_equals`
+  `runtime_finding.transition = resolved`. `runtime_security.finding.resolved` does not start
+  with `runtime_security.finding.firing.`, so a resolved Critical transition does not take the
+  firing path. A legacy rule whose `subject_prefix` is `falco.` matches neither name.
   `group_by ["finding_info.uid"]`; threshold 1; cooldown 300 s; renotify 21,600 s; title
   `"{runtime_finding.rule} on {runtime_finding.entity_name}"`.
 - Occurrences are never alert inputs. A 10,000-event burst from one DaemonSet is one `opened`.
@@ -278,8 +283,9 @@ table, writer and reader stay for installations without StarRocks.
   its active alerts are resolved with reason `superseded_by_runtime_findings`. Disabled, not
   deleted, so alert history still resolves.
 - An operator-modified or unmanaged copy is not rewritten, and it is not given group fields that
-  would keep it firing on lifecycle subjects. Once the `falco.*` NATS subjects are removed, that
-  copy receives no events and goes silent.
+  would keep it firing on lifecycle subjects. Its `subject_prefix` stays `falco.`. Lifecycle
+  `log_name` values are under `runtime_security.finding.`, so that copy matches none of them and
+  goes silent.
 - The seeded EventRule `copyfail_falco_logs_to_security_events` matches Falco logs on `falco.`
   subjects, which no longer exist once Falco records stop being written as logs. It is removed
   from the seeded defaults and a pristine copy is disabled the same way. Its rule becomes an
@@ -314,17 +320,18 @@ is its own `EdgeRecordV1`:
   `(falco_event_id, part_index)` or the same edge `event_id` replaces that staged slice and is
   not concatenated again. The concatenation must equal the posted JSON and match `raw_sha256`.
 
-The projector stages each part durably, keyed by `(falco_event_id, part_index)`, before it
-concatenates, and it reassembles a complete set before it normalizes. A duplicate occurrence
-insert is skipped when that occurrence id is already stored, and the finding upsert still runs.
-The parts of a complete set are acknowledged only after that occurrence and that finding update
-have both committed. A redelivered part is acknowledged with no second occurrence insert only
-when that finding update has already committed. Parts stay staged until the set completes or
-the reassembly window for that `falco_event_id` expires. A redelivery while that window is open
-is the duplicate-slice rule above. It is not dead-lettered. An expired incomplete set is handed
-to the generic edge-record dead-letter (Decision 6): each original edge record, including its
-JSON slice, is published durably, and the source part is acknowledged only after that
-publication is durable. It is not discarded. After a complete reassembly, Decision 6 applies:
+The projector stages each part durably, keyed by `(falco_event_id, part_index)`, then
+acknowledges that source delivery. The open-window hold is the stage, so it does not consume
+further delivery attempts and is not dead-lettered. Reassembly reads the stage. A duplicate
+occurrence insert is skipped when that occurrence id is already stored. The finding upsert runs
+when that occurrence's finding update has not committed, and it does not apply the delta again
+when it has. The stage of a complete set is released only after the occurrence and that finding
+update have both committed. Parts stay staged until the set completes or the reassembly window
+for that `falco_event_id` expires. A redelivery while that window is open is the duplicate-slice
+rule above: it is acknowledged and it is not dead-lettered. An expired incomplete set is handed
+to the generic edge-record dead-letter (Decision 6): each staged original edge record, including
+its JSON slice, is published durably, and the stage is released only after that publication is
+durable. It is not discarded. After a complete reassembly, Decision 6 applies:
 inline up to 1 MiB, object store above that. Size never refuses, truncates, or drops an event.
 
 **Endpoint auth.** Falco's `http_output` supports `mtls`, `client_cert`, `client_key`, and
@@ -363,14 +370,14 @@ ones are revoked). Release notes require pointing the Falco DaemonSet `http_outp
 in that upgrade. An unmigrated NATS publisher is refused. There is no flag that keeps both paths.
 
 **Delivery confirmation (task 0.4).** The agent returns HTTP success only after every part is in
-its durable edge spool. Each part stays there until it is acknowledged. A complete set is
-acknowledged after the occurrence and the finding update are both stored. A duplicate occurrence
-insert is skipped, and the finding upsert still runs before that acknowledgement. A redelivered
-part is acknowledged with no further occurrence insert only when that finding update has already
-committed. An incomplete set inside its reassembly window stays staged; that wait is not
-`max_deliver`. An expired incomplete set is acknowledged only after the generic edge-record
-dead-letter publication of its original records is durable. A spool admission failure is a
-non-success HTTP response, so the agent has not accepted an event it cannot hold.
+its durable edge spool. The projector acknowledges a source part once that part is durably
+staged, so an open reassembly hold does not consume delivery attempts. The stage of a complete
+set is released only after the occurrence and the finding update are both stored. A duplicate
+occurrence insert is skipped. The finding upsert runs only when that update has not committed.
+An incomplete set inside its reassembly window stays staged and is not dead-lettered. The stage
+of an expired incomplete set is released only after the generic edge-record dead-letter
+publication of its original records is durable. A spool admission failure is a non-success HTTP
+response, so the agent has not accepted an event it cannot hold.
 
 ### Decision 10: SRQL entities
 
@@ -450,11 +457,13 @@ transport decision is Falco `http_output` into a chunked Falco edge contract, wi
 partition in the workload uid and in the finding-uid hash, a bound node still showing the
 finding, and no operator suppression or SRQL aliases. Each Falco part uses its own in-window
 UUIDv7 edge `event_id`, and a redelivered part index is one staged slice. An in-window wait is
-not dead-lettered. An expired incomplete set, and a spilled record whose occurrence write keeps
-failing, use the generic edge-record dead-letter (`feat/edge-record-dead-letter`). The source
-is acknowledged only after that publication is durable, and dead-lettered object references stay
-retained. Acknowledgement of a complete set follows the finding commit. A reopened episode
+acknowledged after its durable stage and is not dead-lettered. An expired incomplete set, and a
+spilled record whose occurrence write keeps failing, use the generic edge-record dead-letter
+(`feat/edge-record-dead-letter`). The stage is released only after that publication is durable,
+and dead-lettered object references stay retained. A complete set's stage is released only after
+the finding commit. A retried publish of a committed occurrence does not count again. A reopened episode
 starts at the new occurrence's severity. Active is status_id 1
 (`status:active` also matches 2) and resolved is status_id 4. The Falco port is 14318 with no
 override, there is no stored window counter, and a customized `falco_critical_incident` copy
-goes silent once `falco.*` subjects are removed. The firing subject is `falco.finding.firing.`.
+goes silent because lifecycle `log_name` values are under `runtime_security.finding.` and do not
+start with `falco.`. The firing subject is `runtime_security.finding.firing.`.
