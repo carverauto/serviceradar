@@ -40,7 +40,10 @@ import (
 // today. A spool refusal stops the page and returns the error, the same
 // contract a failed legacy stream has with the run emitter.
 
-var errSyncRecordTooLarge = errors.New("sync update exceeds the durable record body bound")
+var (
+	errSyncRecordTooLarge = errors.New("sync update exceeds the durable record body bound")
+	errSyncFinalPageEmpty = errors.New("sync run-final page forms no edge record")
+)
 
 // SetEdgeSyncSpool connects the sync producer to the sender's one open
 // spool and the push loop's output grants. Call before Start; a nil spool
@@ -151,6 +154,9 @@ func buildSyncPageRecords(
 	sizingMeta := syncMetaRecord(meta, meta.baseChunkIndex, meta.baseChunkIndex+len(updates), true)
 
 	groups, dropped := packSyncGroups(sizingMeta, marker, devices, capability, maxRows)
+	if meta.runFinalPage && len(groups) == 0 {
+		return nil, nil, dropped, errSyncFinalPageEmpty
+	}
 
 	totalChunks := syncMetaTotalChunks(meta, len(groups))
 	for idx, group := range groups {

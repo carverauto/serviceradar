@@ -511,6 +511,29 @@ func TestAnchorlessSyncDeviceDropsAloneAndThePageSpools(t *testing.T) {
 	require.Zero(t, gateway.calls)
 }
 
+func TestSyncFinalPageWhoseDevicesAllDropFailsTheRun(t *testing.T) {
+	sp := openTestEdgeSpool(t)
+	gateway := &recordingSyncGateway{}
+	loop, runtime := syncTestRuntime(t, sp, gateway)
+	grantDiscovery(t, loop)
+
+	anchorless := syncUpdate("", "")
+	delete(anchorless, "uid")
+	delete(anchorless, "ip")
+	runner := &syncSourceRunner{config: models.SourceConfig{SyncServiceID: "svc-synthetic-1"}}
+	chunks, err := runtime.sendSyncUpdates(context.Background(), runner,
+		[]map[string]interface{}{anchorless}, "run-14", 1, 0, true, nil)
+	require.ErrorIs(t, err, errSyncFinalPageEmpty, "a run must not report success without its final record")
+	require.Zero(t, chunks)
+	require.Empty(t, spooledRecords(t, sp))
+	require.Zero(t, gateway.calls)
+
+	chunks, err = runtime.sendSyncUpdates(context.Background(), runner,
+		[]map[string]interface{}{anchorless}, "run-15", 1, 0, false, nil)
+	require.NoError(t, err, "a non-final page still drops its unusable devices and continues")
+	require.Zero(t, chunks)
+}
+
 func TestSyncRunRefusesToSplitAcrossPaths(t *testing.T) {
 	sp := openTestEdgeSpool(t)
 	gateway := &recordingSyncGateway{}
