@@ -752,6 +752,100 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     assert pending_admission_messages(second_series) == ["forecast-second"]
   end
 
+  test "a pending forecast between two same-batch forecasts is admitted first" do
+    Application.put_env(:serviceradar_core, :stateful_alert_engine, __MODULE__.CanonicalBodyEngine)
+
+    Application.put_env(
+      :serviceradar_core,
+      :analytics_signals_replay_result,
+      {:error, {:overloaded, :rule_bytes}}
+    )
+
+    series_key = "synthetic:forecast-gap:#{System.unique_integer([:positive])}"
+    earlier = capacity_forecast_message(series_key, "forecast-t1", "forecast-t1", 1_812_456_000_000)
+    middle = capacity_forecast_message(series_key, "forecast-t2", "forecast-t2", 1_812_456_030_000)
+    later = capacity_forecast_message(series_key, "forecast-t3", "forecast-t3", 1_812_456_060_000)
+
+    delete_episode_fixture!(series_key)
+
+    on_exit(fn ->
+      Application.delete_env(:serviceradar_core, :analytics_signals_replay_result)
+      delete_episode_fixture!(series_key)
+    end)
+
+    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([middle])
+    assert_receive {:alert_evaluation_events, [waiting]}
+    assert waiting.message == "forecast-t2"
+    assert pending_admission_messages(series_key) == ["forecast-t2"]
+
+    Application.put_env(:serviceradar_core, :analytics_signals_replay_result, :ok)
+
+    assert {:ok, 2} = AnalyticsSignals.process_batch([later, earlier])
+    assert_receive {:alert_evaluation_events, [admitted_earlier]}
+    assert admitted_earlier.message == "forecast-t1"
+    assert_receive {:alert_evaluation_events, [admitted_middle]}
+    assert admitted_middle.message == "forecast-t2"
+    assert_receive {:alert_evaluation_events, [admitted_later]}
+    assert admitted_later.message == "forecast-t3"
+    refute_receive {:alert_evaluation_events, _events}, 50
+
+    assert stored_series_transitions(series_key) == [
+             {"forecast-t1", "true"},
+             {"forecast-t2", "true"},
+             {"forecast-t3", "true"}
+           ]
+
+    assert pending_admission_messages(series_key) == []
+  end
+
+  test "same-time forecasts admit in pending insert order" do
+    Application.put_env(:serviceradar_core, :stateful_alert_engine, __MODULE__.CanonicalBodyEngine)
+
+    Application.put_env(
+      :serviceradar_core,
+      :analytics_signals_replay_result,
+      {:error, {:overloaded, :rule_bytes}}
+    )
+
+    series_key = "synthetic:forecast-inserted-at:#{System.unique_integer([:positive])}"
+    time = 1_812_456_000_000
+
+    delete_episode_fixture!(series_key)
+
+    on_exit(fn ->
+      Application.delete_env(:serviceradar_core, :analytics_signals_replay_result)
+      delete_episode_fixture!(series_key)
+    end)
+
+    {_older, newer} =
+      Enum.find_value(1..40, fn n ->
+        delete_episode_fixture!(series_key)
+        older = capacity_forecast_message(series_key, "forecast-older", "forecast-older", time)
+        newer = capacity_forecast_message(series_key, "forecast-newer-#{n}", "forecast-newer", time)
+
+        assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([older])
+        assert_receive {:alert_evaluation_events, [_ignored]}
+        assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([newer])
+        assert_receive {:alert_evaluation_events, [_ignored]}
+        refute_receive {:alert_evaluation_events, _events}, 50
+
+        case pending_admission_ids(series_key) do
+          [{_, first_id}, {_, second_id}] when first_id > second_id -> {older, newer}
+          _ -> nil
+        end
+      end) || flunk("no same-time forecast pair inverted event-id order")
+
+    Application.put_env(:serviceradar_core, :analytics_signals_replay_result, :ok)
+
+    assert {:error, {:overloaded, :series_pending}} = AnalyticsSignals.process_batch([newer])
+    assert_receive {:alert_evaluation_events, [admitted_older]}
+    assert admitted_older.message == "forecast-older"
+    assert_receive {:alert_evaluation_events, [admitted_newer]}
+    assert admitted_newer.message == "forecast-newer"
+    refute_receive {:alert_evaluation_events, _events}, 50
+    assert pending_admission_messages(series_key) == []
+  end
+
   test "a newer inventory close waits while the open admission is pending" do
     Application.put_env(:serviceradar_core, :stateful_alert_engine, __MODULE__.CanonicalBodyEngine)
 
@@ -1727,6 +1821,21 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
       [series_key]
     ).rows
     |> Enum.map(fn [message] -> message end)
+  end
+
+  defp pending_admission_ids(series_key) do
+    Repo.query!(
+      """
+      SELECT events.message, pending.event_id::text
+      FROM platform.lifecycle_pending_admissions AS pending
+      JOIN platform.ocsf_events AS events
+        ON events.time = pending.event_time AND events.id = pending.event_id
+      WHERE pending.series_key = $1
+      ORDER BY pending.event_time ASC, pending.inserted_at ASC, pending.event_id ASC
+      """,
+      [series_key]
+    ).rows
+    |> Enum.map(fn [message, event_id] -> {message, event_id} end)
   end
 
   defp event_count(row) do

@@ -304,6 +304,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
             event_id: event_id,
             series: lifecycle_series(row),
             event_time: admission_time_key(row),
+            inserted_at: admission_inserted_at_key(row),
             messages: Enum.sort_by(owners, &Map.get(message_index, &1, 0)),
             index: owners |> Enum.map(&Map.fetch!(message_index, &1)) |> Enum.min(),
             rows: [row]
@@ -322,9 +323,18 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
     groups
     |> Enum.sort_by(fn group ->
-      {Map.fetch!(series_anchor, group.series), group.event_time, group.event_id || "", group.index}
+      {
+        Map.fetch!(series_anchor, group.series),
+        group.event_time,
+        group.inserted_at,
+        group.event_id || "",
+        group.index
+      }
     end)
-    |> Enum.map(fn group -> {group.messages, Enum.reverse(group.rows)} end)
+    |> Enum.map(fn group ->
+      rows = Enum.map(Enum.reverse(group.rows), &Map.delete(&1, :pending_inserted_at))
+      {group.messages, rows}
+    end)
   end
 
   defp admission_time_key(row) do
@@ -336,13 +346,21 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     end
   end
 
+  defp admission_inserted_at_key(row) do
+    case time_conflict_value(Map.get(row, :pending_inserted_at)) do
+      microseconds when is_integer(microseconds) -> microseconds
+      _ -> 9_223_372_036_854_775_807
+    end
+  end
+
   defp append_group_row(groups, event_id, row) do
     Enum.map(groups, fn group ->
       if group.event_id == event_id do
         %{
           group
           | rows: [row | group.rows],
-            event_time: min(group.event_time, admission_time_key(row))
+            event_time: min(group.event_time, admission_time_key(row)),
+            inserted_at: min(group.inserted_at, admission_inserted_at_key(row))
         }
       else
         group
@@ -1399,21 +1417,14 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   end
 
   defp earlier_than_owed(loaded, owed_rows) do
-    owed_keys = MapSet.new(owed_rows, &occurrence_dedupe_key/1)
     owed_events = MapSet.new(owed_rows, &ocsf_event_id_key/1)
 
     loaded
     |> Enum.group_by(&lifecycle_series/1)
     |> Enum.flat_map(fn {_series, series_rows} ->
-      case Enum.find_index(series_rows, &MapSet.member?(owed_keys, occurrence_dedupe_key(&1))) do
-        nil ->
-          case last_owed_index(series_rows, owed_events) do
-            nil -> []
-            index -> Enum.take(series_rows, index + 1)
-          end
-
-        index ->
-          Enum.take(series_rows, index)
+      case last_owed_index(series_rows, owed_events) do
+        nil -> []
+        index -> Enum.take(series_rows, index + 1)
       end
     end)
   end
@@ -1463,7 +1474,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     columns = Enum.map_join(@persisted_replay_columns, ", ", &persisted_replay_column/1)
 
     sql = """
-    SELECT #{columns}
+    SELECT #{columns}, pending.inserted_at
     FROM platform.lifecycle_pending_admissions AS pending
     JOIN platform.ocsf_events AS events
       ON events.time = pending.event_time AND events.id = pending.event_id
@@ -1481,6 +1492,8 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   defp persisted_replay_column(column), do: "events.#{column}"
 
   defp persisted_replay_row(values) do
+    {inserted_at, values} = List.pop_at(values, -1)
+
     row =
       @persisted_replay_columns
       |> Enum.zip(values)
@@ -1488,7 +1501,10 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
       |> Map.update!(:metadata, &(&1 || %{}))
       |> Map.update!(:unmapped, &(&1 || %{}))
 
-    %{row | time: normalize_existing_time(row.time), id: uuid_conflict_value(row.id)}
+    row
+    |> Map.put(:time, normalize_existing_time(row.time))
+    |> Map.put(:id, uuid_conflict_value(row.id))
+    |> Map.put(:pending_inserted_at, normalize_existing_time(inserted_at))
   end
 
   defp episode_uids_by_series([]), do: %{}
