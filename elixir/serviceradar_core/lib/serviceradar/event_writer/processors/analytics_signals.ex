@@ -177,16 +177,9 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
       with {:ok,
             {bulk_ocsf_rows, bulk_ocsf_count, persisted_ocsf_rows, recorded_ocsf_events,
-             pending_series, returned_owners}} <-
+             pending_series}} <-
              AnomalyEpisodeRegistry.transaction(fn ->
-               returned_pairs =
-                 Enum.flat_map(tagged_ocsf, fn {message, row} ->
-                   [row]
-                   |> AnomalyEpisodeRegistry.transition_rows()
-                   |> Enum.map(&{message, &1})
-                 end)
-
-               returned_rows = Enum.map(returned_pairs, &elem(&1, 1))
+               returned_rows = AnomalyEpisodeRegistry.transition_rows(all_ocsf_rows)
 
                {ash_rows, bulk_rows} = Enum.split_with(returned_rows, &ash_recorded_row?/1)
 
@@ -197,18 +190,10 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
                {persisted, transitions} = record_ocsf_events(ash_rows)
 
                {bulk_rows, count, persisted, transitions,
-                lifecycle_series(all_ocsf_rows ++ returned_rows),
-                Enum.group_by(returned_pairs, &ocsf_event_id_key(elem(&1, 1)), &elem(&1, 0))}
+                lifecycle_series(all_ocsf_rows ++ returned_rows)}
              end) do
         lifecycle_failures =
-          admit_pending_series(
-            messages,
-            pending_series,
-            owners_by_series,
-            Map.merge(messages_by_event_id, returned_owners, fn _id, delivered, returned ->
-              Enum.uniq(delivered ++ returned)
-            end)
-          )
+          admit_pending_series(messages, pending_series, owners_by_series, messages_by_event_id)
 
         warehouse =
           Destination.persist_after_cnpg(
@@ -290,8 +275,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   end
 
   defp series_owners([%{series: series} | _] = occurrences, owners_by_series, by_id) do
-    Map.get(owners_by_series, series) ||
-      Enum.flat_map(occurrences, &Map.get(by_id, &1.event_id, []))
+    Map.get(owners_by_series, series) || Enum.flat_map(occurrences, &occurrence_owners(&1, by_id))
   end
 
   # Only the messages that delivered an occurrence of the unadmitted tail fail,
@@ -299,7 +283,23 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   # admitted is acked; a tail no message in this batch delivered stays pending
   # for its own redelivery or the drain.
   defp unadmitted_owners(unadmitted, by_id) do
-    unadmitted |> Enum.flat_map(&Map.get(by_id, &1.event_id, [])) |> Enum.uniq()
+    unadmitted |> Enum.flat_map(&occurrence_owners(&1, by_id)) |> Enum.uniq()
+  end
+
+  # An anomaly transition is stored under its episode-transition id, and a
+  # redelivery that emits no new transition carries only the delivered row's
+  # id, so the occurrence is also owned through the delivered id it records.
+  defp occurrence_owners(%{event_id: event_id, record: record}, by_id) do
+    delivered_id =
+      record
+      |> Map.get(:metadata, %{})
+      |> get_in(["service_radar", "source_event_identity"])
+      |> uuid_conflict_value()
+
+    [event_id, delivered_id]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> Enum.flat_map(&Map.get(by_id, &1, []))
   end
 
   defp admit_occurrences([]), do: :ok

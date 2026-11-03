@@ -872,6 +872,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
         |> Map.put("episode_uid", attrs.episode_uid)
         |> Map.put("transition", attrs.last_transition)
         |> Map.put("producer_version", attrs.producer_version)
+        |> Map.put("source_event_identity", source_event_identity(row))
       )
       |> Map.put(
         "detection_finding",
@@ -883,6 +884,15 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
     row
     |> Map.put(:id, id)
     |> Map.put(:metadata, metadata)
+  end
+
+  # The id of the delivered event row this transition replaces, so a
+  # redelivery that emits no new transition can still be tied to it.
+  defp source_event_identity(row) do
+    case Map.get(row, :id) || Map.get(row, "id") do
+      <<_::128>> = id -> Ecto.UUID.load!(id)
+      id -> id
+    end
   end
 
   defp row_metadata(row), do: Map.get(row, :metadata) || Map.get(row, "metadata") || %{}
