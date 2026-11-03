@@ -65,6 +65,24 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     end
   end
 
+  defmodule CanonicalBodyEngine do
+    @moduledoc false
+
+    def evaluate_events(events) do
+      send(test_pid(), {:alert_evaluation_events, events})
+
+      Application.get_env(
+        :serviceradar_core,
+        :analytics_signals_replay_result,
+        {:error, {:overloaded, :rule_bytes}}
+      )
+    end
+
+    defp test_pid do
+      Application.fetch_env!(:serviceradar_core, :analytics_signals_process_batch_test_pid)
+    end
+  end
+
   setup_all do
     TestSupport.start_core!()
     :ok
@@ -498,6 +516,52 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
              AlertEvaluationWork
              |> Ash.Query.filter(rule_id == ^rule.id)
              |> Ash.read!(actor: actor)
+  end
+
+  test "a later same-series anomaly open admits the persisted transition" do
+    Application.put_env(:serviceradar_core, :stateful_alert_engine, __MODULE__.CanonicalBodyEngine)
+
+    Application.put_env(
+      :serviceradar_core,
+      :analytics_signals_replay_result,
+      {:error, {:overloaded, :rule_bytes}}
+    )
+
+    series_key = "synthetic:canonical-body:#{System.unique_integer([:positive])}"
+    started = 1_812_456_000_000_000_000
+
+    canonical =
+      anomaly_open(series_key, "canonical-event", "canonical-open", 4.2, started)
+
+    later = anomaly_open(series_key, "later-event", "later-open", 99.0, started)
+
+    delete_episode_fixture!(series_key)
+
+    on_exit(fn ->
+      Application.delete_env(:serviceradar_core, :analytics_signals_replay_result)
+      delete_episode_fixture!(series_key)
+    end)
+
+    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([canonical])
+    assert_receive {:alert_evaluation_events, [first_event]}
+    assert canonical_transition?(first_event)
+    assert stored_anomaly(series_key) == {"canonical-open", "canonical-event", "false"}
+
+    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([later])
+    assert_receive {:alert_evaluation_events, [replayed]}
+    assert canonical_transition?(replayed)
+    assert stored_anomaly(series_key) == {"canonical-open", "canonical-event", "false"}
+
+    Application.put_env(:serviceradar_core, :analytics_signals_replay_result, :ok)
+    assert {:ok, 1} = AnalyticsSignals.process_batch([later])
+    assert_receive {:alert_evaluation_events, [admitted]}
+    assert canonical_transition?(admitted)
+    assert stored_anomaly(series_key) == {"canonical-open", "canonical-event", "true"}
+
+    assert {:ok, 1} = AnalyticsSignals.process_batch([canonical])
+    assert {:ok, 1} = AnalyticsSignals.process_batch([later])
+    refute_receive {:alert_evaluation_events, _events}, 50
+    assert stored_anomaly(series_key) == {"canonical-open", "canonical-event", "true"}
   end
 
   # Activates the real engine with room for one pending occurrence and takes it,
@@ -1164,6 +1228,57 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
 
   defp encode_version(nil), do: nil
   defp encode_version(%DateTime{} = version), do: DateTime.to_iso8601(version)
+
+  defp anomaly_open(series_key, event_id, message, score, started) do
+    raw = anomaly_message(series_key, event_id, started)
+
+    payload =
+      raw.data
+      |> Jason.decode!()
+      |> Map.put("message", message)
+      |> put_in(["anomaly", "score"], score)
+
+    %{raw | data: Jason.encode!(payload)}
+  end
+
+  defp canonical_transition?(event) do
+    event.message == "canonical-open" and event.unmapped["event_id"] == "canonical-event" and
+      canonical_score?(get_in(event.unmapped, ["anomaly", "score"]))
+  end
+
+  defp canonical_score?(score) when is_float(score), do: abs(score - 4.2) < 0.001
+  defp canonical_score?(score) when is_integer(score), do: false
+
+  defp canonical_score?(score) when is_binary(score) do
+    case Float.parse(score) do
+      {value, _} -> abs(value - 4.2) < 0.001
+      :error -> false
+    end
+  end
+
+  defp canonical_score?(_score), do: false
+
+  defp stored_anomaly(series_key) do
+    case Repo.query!(
+           """
+           SELECT message,
+                  unmapped->>'event_id',
+                  unmapped->'anomaly'->>'score',
+                  metadata->>'alert_evaluation_admitted'
+           FROM platform.ocsf_events
+           WHERE metadata->'service_radar'->>'series_key' = $1
+           ORDER BY time ASC
+           """,
+           [series_key]
+         ).rows do
+      [[message, event_id, score, admitted]] ->
+        assert canonical_score?(score)
+        {message, event_id, admitted}
+
+      other ->
+        other
+    end
+  end
 
   defp anomaly_message(
          series_key,

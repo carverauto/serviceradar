@@ -1179,72 +1179,111 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   defp unadmitted_replays([]), do: []
 
   defp unadmitted_replays(rows) do
-    known = replay_known_event_ids(rows)
-    known_ids = MapSet.new(known, &ocsf_event_id_key/1)
-
-    stamped =
-      rows
-      |> Enum.reject(&MapSet.member?(known_ids, ocsf_event_id_key(&1)))
-      |> replay_stamped_transitions()
-
-    known ++ stamped
+    rows
+    |> unadmitted_replay_ids()
+    |> persisted_unadmitted_rows()
+    |> dedupe_occurrence_rows()
   end
 
-  defp replay_known_event_ids(rows) do
-    markers = admission_markers(Enum.map(rows, &ocsf_event_id_key/1))
-
-    Enum.flat_map(rows, fn row ->
-      case Map.get(markers, ocsf_event_id_key(row)) do
-        %{occurrence_id: id, admitted: false} = marker when is_binary(id) and id != "" ->
-          [preserve_occurrence(row, marker)]
-
-        _ ->
-          []
-      end
-    end)
-  end
-
-  defp replay_stamped_transitions([]), do: []
-
-  defp replay_stamped_transitions(rows) do
+  defp unadmitted_replay_ids(rows) do
     projected =
       Enum.flat_map(rows, fn row ->
         case AnomalyEpisodeRegistry.episode_projection(row) do
-          {:ok, attrs} -> [{row, attrs}]
+          {:ok, attrs} -> [attrs]
           _ -> []
         end
       end)
 
-    series_keys = projected |> Enum.map(fn {_row, attrs} -> attrs.series_key end) |> Enum.uniq()
+    series_keys = projected |> Enum.map(& &1.series_key) |> Enum.uniq()
     episodes = episode_uids_by_series(series_keys)
 
-    candidates =
-      Enum.flat_map(projected, fn {row, attrs} ->
-        uids = Enum.uniq([attrs.episode_uid | Map.get(episodes, attrs.series_key, [])])
-
-        Enum.map(uids, fn episode_uid ->
-          {row,
-           AnomalyEpisodeRegistry.transition_event_id(
-             episode_uid,
-             attrs.last_transition,
-             attrs.severity_id
-           )}
+    stamped =
+      Enum.flat_map(projected, fn attrs ->
+        [attrs.episode_uid | Map.get(episodes, attrs.series_key, [])]
+        |> Enum.uniq()
+        |> Enum.map(fn episode_uid ->
+          AnomalyEpisodeRegistry.transition_event_id(
+            episode_uid,
+            attrs.last_transition,
+            attrs.severity_id
+          )
         end)
       end)
 
-    markers = admission_markers(Enum.map(candidates, &elem(&1, 1)))
+    rows
+    |> Enum.map(&ocsf_event_id_key/1)
+    |> Kernel.++(stamped)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
 
-    candidates
-    |> Enum.flat_map(fn {row, event_id} ->
-      case Map.get(markers, event_id) do
-        %{occurrence_id: id, admitted: false} = marker when is_binary(id) and id != "" ->
-          [row |> Map.put(:id, event_id) |> preserve_occurrence(marker)]
+  @persisted_replay_columns [
+    :id,
+    :time,
+    :class_uid,
+    :category_uid,
+    :type_uid,
+    :activity_id,
+    :activity_name,
+    :severity_id,
+    :severity,
+    :message,
+    :status_id,
+    :status,
+    :status_code,
+    :status_detail,
+    :metadata,
+    :observables,
+    :trace_id,
+    :span_id,
+    :actor,
+    :device,
+    :src_endpoint,
+    :dst_endpoint,
+    :log_name,
+    :log_provider,
+    :log_level,
+    :log_version,
+    :unmapped,
+    :raw_data
+  ]
 
-        _ ->
-          []
-      end
-    end)
-    |> dedupe_occurrence_rows()
+  defp persisted_unadmitted_rows([]), do: []
+
+  defp persisted_unadmitted_rows(ids) do
+    binary_ids = ids |> Enum.map(&uuid_to_binary/1) |> Enum.reject(&is_nil/1)
+
+    if binary_ids == [] do
+      []
+    else
+      columns = Enum.map_join(@persisted_replay_columns, ", ", &persisted_replay_column/1)
+
+      sql = """
+      SELECT #{columns}
+      FROM platform.ocsf_events
+      WHERE id = ANY($1::uuid[])
+        AND COALESCE(metadata ->> 'alert_evaluation_occurrence_id', '') <> ''
+        AND COALESCE(metadata ->> 'alert_evaluation_admitted', 'false') <> 'true'
+      ORDER BY time ASC, id ASC
+      """
+
+      %{rows: rows} = ServiceRadar.Repo.query!(sql, [binary_ids])
+      Enum.map(rows, &persisted_replay_row/1)
+    end
+  end
+
+  defp persisted_replay_column(:id), do: "id::text"
+  defp persisted_replay_column(column), do: Atom.to_string(column)
+
+  defp persisted_replay_row(values) do
+    row =
+      @persisted_replay_columns
+      |> Enum.zip(values)
+      |> Map.new()
+      |> Map.update!(:metadata, &(&1 || %{}))
+      |> Map.update!(:unmapped, &(&1 || %{}))
+
+    %{row | time: normalize_existing_time(row.time), id: uuid_conflict_value(row.id)}
   end
 
   defp episode_uids_by_series([]), do: %{}
