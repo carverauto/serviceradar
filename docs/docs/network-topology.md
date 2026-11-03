@@ -116,15 +116,20 @@ tables by the job's queue wait plus its run time. One device's interfaces are
 written in one Dgraph request, and the links of a topology report in two
 (endpoints, then edges), however many interfaces or links it carries.
 
-Projection jobs are keyed by the set of devices a result reports. A newer
-result replaces a job that has not started, a job never runs beside an earlier
-one for the same devices, and a job that starts after a newer result arrived is
-cancelled rather than applied. A failed projection is logged, reported as an
-Oban job exception, and retried with backoff. The ingestion runtime metrics
+Projection jobs are keyed by the devices a result reports and carry that
+identity only. When a job runs it reads the current committed discovered
+interfaces (including aliases) or mapper topology links for those devices and
+replaces the scope in the graph with that state, through the same batched
+writes. A retry of an older job therefore leaves the graph equal to the latest
+CNPG rows, including when it runs after a newer job has already completed. A
+newer result still replaces a job that has not started, so a pending backlog
+collapses to one run, and a job waits while an earlier one for the same devices
+is still executing. A failed projection is logged, reported as an Oban job
+exception, and retried with backoff. The ingestion runtime metrics
 (`metrics.ingestion_lanes`) carry a `topology_projection` lane (scheduled,
-coalesced, superseded, accepted, not accepted and failed projections, with
-`queue_wait_ms` and `duration_ms`) and a `dgraph` lane (every Dgraph call's
-outcome, timeouts and retries, with `duration_ms` and `queue_wait_ms`).
+coalesced, accepted, not accepted and failed projections, with `queue_wait_ms`
+and `duration_ms`) and a `dgraph` lane (every Dgraph call's outcome, timeouts
+and retries, with `duration_ms` and `queue_wait_ms`).
 
 ### Reconciliation after the backend cutover
 
