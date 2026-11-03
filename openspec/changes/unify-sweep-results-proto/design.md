@@ -347,7 +347,7 @@ domain rows). A stale epoch without such a grant is refused. The issuer does
 not grant delivery to a revoked assignment.
 
 **Delivery after reconnect.** On reconnect the agent obtains per-record
-delivery grants for its unresolved backlog. Each grant is an
+delivery grants for spooled records whose production grant has lapsed. Each grant is an
 `EdgeDeliveryClaimsV1` same-spool renewal authorizing one record (`event_id`,
 `record_sha256`, `spool_id`, `sequence`). Collection windows are still checked
 against event time (the original interval), never receipt age.
@@ -375,7 +375,9 @@ the agent's existing mTLS gateway connection:
   the requesting agent under the record's network scope and run shard, and is
   `active`. A revoked assignment gets no grant, so its records are refused at
   the gateway as a stale fence. An active assignment whose epoch has moved on
-  does get one, and the gateway publishes that record for audit only. Grants
+  does get one; authorization classifies that record as audit-only
+  (`LATE_FENCED_DELIVERY`). The ingest path still withholds that decision until
+  the audit route exists (task 3.5). Grants
   are signed with core's issuer key for the `delivery` purpose (the trust
   snapshot now lists that purpose) and are valid for 15 minutes.
 - A record the gateway or core refuses, or a renewal that fails, is sent

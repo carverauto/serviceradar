@@ -35,13 +35,16 @@ defmodule ServiceRadarAgentGateway.EdgeContractRegistry do
       naming no output contract, a route or cost model the bundle does not pin, or provenance
       that disagrees with the authenticated session.
     * `{:withhold, reason}` -- not publishable NOW, but not proof of poison: no registry loaded,
-      an epoch or snapshot the gateway does not hold, a contract the held snapshot does not
-      contain or registers under a different bundle digest, or a bundle that is not `active`
-      (candidate, ready, draining, retired). The sequence stays unresolved. A rollout mismatch is
-      never converted into poison. Until 1.10/1.11 define a signed snapshot, the epoch and
-      snapshot digest are operator-supplied labels nothing verifies against the contract list, so
-      two documents can carry the same labels and differ in their contracts; a record naming the
-      held labels but a contract or bundle digest this snapshot lacks is therefore still lag.
+      an epoch ahead of the held snapshot, a current-epoch snapshot digest the gateway does not
+      hold, a contract the held snapshot does not contain or registers under a different bundle
+      digest, an older epoch whose exact bundle the held snapshot no longer registers (below),
+      or a bundle that is not `active` (candidate, ready, draining, retired). An older epoch
+      whose exact bundle is still registered is admitted, not withheld. The sequence stays
+      unresolved. A rollout mismatch is never converted into poison. Until 1.10/1.11 define a
+      signed snapshot, the epoch and snapshot digest are operator-supplied labels nothing
+      verifies against the contract list, so two documents can carry the same labels and differ
+      in their contracts; a record naming the held labels but a contract or bundle digest this
+      snapshot lacks is therefore still lag.
 
   ## A record from an older registry epoch drains under its unchanged bundle
 

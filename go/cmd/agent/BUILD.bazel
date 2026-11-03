@@ -46,6 +46,7 @@ go_test(
     name = "agent_test",
     size = "medium",
     srcs = [
+        "edge_delivery_grant_live_test.go",
         "edge_record_sender_test.go",
         "edge_spool_metrics_live_test.go",
         "main_test.go",
@@ -69,6 +70,7 @@ go_test(
         "//proto/edge/v1:edgev1",
         "@com_github_rs_zerolog//:zerolog",
         "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_protobuf//proto",
         "@org_golang_google_grpc//codes",
         "@org_golang_google_grpc//credentials/insecure",
         "@org_golang_google_grpc//status",
