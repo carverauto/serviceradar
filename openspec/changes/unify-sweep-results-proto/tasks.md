@@ -574,10 +574,14 @@ in `choices.md` and the chart README.
   then the execution stays running, and a chunk that arrives after the final
   one completes it. A record the gateway rejected permanently, or the spool
   refused permanently after admission, makes the agent append a durable cancel
-  record for that execution. Core marks it cancelled, instead of completed,
-  once that same chunk count is met, and keeps the host rows it already
-  stored. A cancel that arrives while chunks are still outstanding leaves the
-  execution running until they arrive. A leased execution has no agent-emitted
+  record for that execution. That record is not a data chunk: it has no hosts
+  and no chunk index, and its chunk count is the number of data chunks
+  emitted. Core latches cancellation from it, in any order, and marks the
+  execution cancelled instead of completed once the distinct data-chunk
+  indexes equal that count and a final data chunk or this marker has been
+  seen. It keeps the host rows it already stored. A marker that names no data
+  chunks closes immediately as cancelled. Chunks that never arrive stay open
+  for the stale-execution sweeper. A leased execution has no agent-emitted
   completion: core completes it only when its projected host rows reach the
   plan's `total_target_count` (`ServiceRadar.Edge.SweepProjection`), so an
   unresolved or rejected record already keeps it open.

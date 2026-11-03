@@ -912,7 +912,7 @@ func TestPermanentSiblingRejectionSpolesADurableCancelRecord(t *testing.T) {
 			return rejected
 		})
 		require.True(t, loop.pushSweepResults(t.Context()))
-		requireCancelRecord(t, sp)
+		requireCancelRecord(t, sp, 3)
 		require.Empty(t, svc.acked())
 		require.Equal(t, 1, svc.reads)
 
@@ -920,7 +920,7 @@ func TestPermanentSiblingRejectionSpolesADurableCancelRecord(t *testing.T) {
 		reopened, err := spool.Open(dir)
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = reopened.Close() })
-		requireCancelRecord(t, reopened)
+		requireCancelRecord(t, reopened, 3)
 	})
 
 	t.Run("refused by the spool after admission", func(t *testing.T) {
@@ -992,7 +992,7 @@ func TestRejectedSweepRecordReleasesTheResponseAfterItsCancelResolves(t *testing
 	require.True(t, loop.pushSweepResults(t.Context()))
 	resolveSpooled(t, sp, func(spool.Record) bool { return true })
 	require.True(t, loop.pushSweepResults(t.Context()))
-	requireCancelRecord(t, sp)
+	requireCancelRecord(t, sp, 3)
 	require.Empty(t, svc.acked())
 	require.Equal(t, 1, svc.reads)
 
@@ -1002,20 +1002,32 @@ func TestRejectedSweepRecordReleasesTheResponseAfterItsCancelResolves(t *testing
 	require.Equal(t, 2, svc.reads, "the next response stays unread until the cancel record is resolved")
 }
 
-func requireCancelRecord(t *testing.T, sp *spool.Spool) {
+func requireCancelRecord(t *testing.T, sp *spool.Spool, dataChunks uint32) {
 	t.Helper()
 	_, batches, _ := spooledUnleasedSweep(t, sp)
-	cancels := 0
+	var marker *edgev1.UnleasedSweepResultsBatchV1
+	var data uint32
 	for _, batch := range batches {
-		if !batch.GetIsCancelled() {
+		if batch.GetIsCancelled() && len(batch.GetHosts()) == 0 {
+			require.Nil(t, marker)
+			marker = batch
 			continue
 		}
-		cancels++
-		require.Empty(t, batch.GetHosts())
-		require.Len(t, batch.GetExecutionId(), 16)
-		require.Positive(t, batch.GetTotalChunks())
+		data++
+		require.NotEmpty(t, batch.GetHosts())
+		require.NotEmpty(t, batch.GetNetworkCidr())
+		require.Less(t, batch.GetChunkIndex(), dataChunks)
 	}
-	require.Equal(t, 1, cancels)
+	require.NotNil(t, marker)
+	require.Empty(t, marker.GetHosts())
+	require.Empty(t, marker.GetHostResults())
+	require.Empty(t, marker.GetNetworkCidr())
+	require.Zero(t, marker.GetExpectedTotalHosts())
+	require.Len(t, marker.GetExecutionId(), 16)
+	require.True(t, marker.GetIsFinal())
+	require.Equal(t, dataChunks, marker.GetTotalChunks())
+	require.Zero(t, marker.GetChunkIndex())
+	require.LessOrEqual(t, data, dataChunks)
 }
 
 // settledBy appends through a script and settles through the real spool.

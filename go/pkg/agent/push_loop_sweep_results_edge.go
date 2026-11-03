@@ -67,9 +67,11 @@ var (
 // every chunk, so the final does not have to wait here. If any sibling record
 // is permanently rejected by the gateway, or permanently refused by the spool
 // after admission (incomplete counts both), cancelled is appended too: a
-// durable cancel record, so core closes the execution as cancelled and keeps
-// the host rows it already stored. The response is acknowledged once every
-// record it appended, including that cancel record, has resolved.
+// durable cancel record with no hosts and no data-chunk index, carrying how
+// many data chunks were emitted. Core closes the execution as cancelled once
+// those data chunks are in, and keeps the host rows it already stored. The
+// response is acknowledged once every record it appended, including that
+// cancel record, has resolved.
 type sweepResultsEdgePending struct {
 	mu           sync.Mutex
 	groupID      string
@@ -452,13 +454,20 @@ func buildSweepResultsEdgeRecords(
 		}
 		parts = append(parts, part)
 	}
-	// The cancel record carries the execution and its chunk count and no hosts.
-	// Core already has the hosts of every record it ingested; this record only
-	// tells core to close the execution as cancelled.
-	cancelBatch := gproto.Clone(batches[len(batches)-1]).(*edgev1.UnleasedSweepResultsBatchV1)
-	cancelBatch.Hosts, cancelBatch.HostResults = nil, nil
-	cancelBatch.IsCancelled = true
-	cancelBatch.IsFinal = true
+	// The cancel record is its own marker, not a data chunk. It carries the
+	// execution and how many data chunks were emitted, and no host rows and
+	// no chunk index, so core cannot count it as one of those chunks.
+	last := batches[len(batches)-1]
+	cancelBatch := &edgev1.UnleasedSweepResultsBatchV1{
+		ExecutionId:              last.GetExecutionId(),
+		SweepGroupId:             last.GetSweepGroupId(),
+		Sequence:                 last.GetSequence(),
+		LastSweepUnixNano:        last.GetLastSweepUnixNano(),
+		BatchCompletedAtUnixNano: last.GetBatchCompletedAtUnixNano(),
+		IsCancelled:              true,
+		IsFinal:                  true,
+		TotalChunks:              uint32(len(batches)),
+	}
 	if cancelled, err = unleasedSweepEdgeRecord(cancelBatch, capability); err != nil {
 		return nil, edgeMetricsBuilt{}, nil, err
 	}
