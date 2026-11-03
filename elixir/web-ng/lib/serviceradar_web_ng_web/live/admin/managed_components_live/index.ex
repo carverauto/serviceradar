@@ -13,6 +13,8 @@ defmodule ServiceRadarWebNGWeb.Admin.ManagedComponentsLive.Index do
 
   require Ash.Query
 
+  @page_size 25
+
   @impl true
   def mount(_params, _session, socket) do
     if RBAC.can?(socket.assigns.current_scope, "settings.edge.manage") do
@@ -26,6 +28,7 @@ defmodule ServiceRadarWebNGWeb.Admin.ManagedComponentsLive.Index do
           revoked_generations: MapSet.new(),
           selected: nil,
           cursor: nil,
+          previous_cursors: [],
           more?: false,
           loading?: true
         )
@@ -55,29 +58,27 @@ defmodule ServiceRadarWebNGWeb.Admin.ManagedComponentsLive.Index do
   end
 
   @impl true
-  def handle_event("next", _, socket) do
-    cursor =
-      case List.last(socket.assigns.components) do
-        nil -> nil
-        component -> component.component_id
-      end
-
-    {:noreply, socket |> assign(:cursor, cursor) |> reload()}
+  def handle_event("next", _, %{assigns: %{more?: true, components: components}} = socket) do
+    cursor = List.last(components).component_id
+    previous_cursors = [socket.assigns.cursor | socket.assigns.previous_cursors]
+    {:noreply, navigate(socket, cursor, previous_cursors)}
   end
 
-  def handle_event("first", _, socket), do: {:noreply, socket |> assign(:cursor, nil) |> reload()}
+  def handle_event("next", _, socket), do: {:noreply, socket}
+
+  def handle_event("previous", _, %{assigns: %{previous_cursors: [cursor | rest]}} = socket) do
+    {:noreply, navigate(socket, cursor, rest)}
+  end
+
+  def handle_event("previous", _, socket), do: {:noreply, socket}
+
+  def handle_event("first", _, socket) do
+    {:noreply, navigate(socket, nil, [])}
+  end
 
   def handle_event("inspect", %{"id" => id}, socket), do: {:noreply, load_history(socket, id)}
 
-  def handle_event("close", _, socket) do
-    {:noreply,
-     assign(socket,
-       selected: nil,
-       certificates: [],
-       revoked_fingerprints: MapSet.new(),
-       revoked_generations: MapSet.new()
-     )}
-  end
+  def handle_event("close", _, socket), do: {:noreply, clear_selection(socket)}
 
   def handle_event(action, %{"id" => id}, socket) when action in ["rotate", "revoke", "reenroll"] do
     scope = socket.assigns.current_scope
@@ -138,39 +139,79 @@ defmodule ServiceRadarWebNGWeb.Admin.ManagedComponentsLive.Index do
     "Re-enrollment allowed in a new generation. Old certificates remain revoked."
   end
 
+  defp navigate(socket, cursor, previous_cursors) do
+    case read_page(socket, cursor) do
+      {:ok, page} ->
+        socket
+        |> assign(page)
+        |> assign(cursor: cursor, previous_cursors: previous_cursors, loading?: false)
+        |> clear_selection()
+
+      {:error, _} ->
+        refuse_page(socket)
+    end
+  end
+
   defp reload(socket) do
+    case read_page(socket, socket.assigns.cursor) do
+      {:ok, page} ->
+        socket
+        |> assign(page)
+        |> assign(:loading?, false)
+        |> refresh_open_history()
+
+      {:error, _} ->
+        refuse_page(socket)
+    end
+  end
+
+  defp read_page(socket, cursor) do
     scope = socket.assigns.current_scope
-    cursor = socket.assigns.cursor
 
     query =
       ManagedComponent
       |> Ash.Query.for_read(:read, %{}, scope: scope)
       |> Ash.Query.sort(:component_id)
-      |> Ash.Query.limit(51)
+      |> Ash.Query.limit(@page_size + 1)
 
     query = if cursor, do: Ash.Query.filter(query, component_id > ^cursor), else: query
 
-    socket =
-      with {:ok, rows} <- Ash.read(query, scope: scope),
-           components = Enum.take(rows, 50),
-           ids = Enum.map(components, & &1.component_id),
-           {:ok, operations} <-
-             ManagedCertificateOperation
-             |> Ash.Query.for_read(:read, %{}, scope: scope)
-             |> Ash.Query.filter(component_id in ^ids and status != :superseded)
-             |> Ash.read(scope: scope) do
-        assign(socket,
-          components: components,
-          operations: Map.new(operations, &{&1.component_id, &1}),
-          more?: length(rows) > 50,
-          loading?: false
-        )
-      else
-        {:error, _} ->
-          socket |> assign(:loading?, false) |> put_flash(:error, "Could not refresh managed certificates.")
-      end
+    with {:ok, rows} <- read_authorized(query, scope),
+         components = Enum.take(rows, @page_size),
+         ids = Enum.map(components, & &1.component_id),
+         {:ok, operations} <- open_operations(ids, scope) do
+      {:ok,
+       %{
+         components: components,
+         operations: Map.new(operations, &{&1.component_id, &1}),
+         more?: length(rows) > @page_size
+       }}
+    end
+  end
 
-    refresh_open_history(socket)
+  defp open_operations(ids, scope) do
+    ManagedCertificateOperation
+    |> Ash.Query.for_read(:read, %{}, scope: scope)
+    |> Ash.Query.filter(component_id in ^ids and status != :superseded)
+    |> read_authorized(scope)
+  end
+
+  # ActorHasPermission is a simple check. With no_filter_static_forbidden_reads?
+  # a denied actor becomes a false filter, the query is skipped, and Ash.read
+  # returns []. This screen must treat that as a failed read: an empty page
+  # would commit the cursor, and an empty history would clear the open dialog.
+  defp read_authorized(query, scope) do
+    if RBAC.can?(scope, "settings.edge.manage") do
+      Ash.read(query, scope: scope, authorize_with: :error)
+    else
+      {:error, :forbidden}
+    end
+  end
+
+  defp refuse_page(socket) do
+    socket
+    |> assign(:loading?, false)
+    |> put_flash(:error, "Could not refresh managed certificates.")
   end
 
   defp refresh_open_history(socket) do
@@ -183,17 +224,30 @@ defmodule ServiceRadarWebNGWeb.Admin.ManagedComponentsLive.Index do
   defp load_history(socket, id) do
     scope = socket.assigns.current_scope
 
-    with {:ok, certificates} <- component_certificates(id, scope),
-         {:ok, revoked} <- revocation_marks(id, certificates, scope) do
-      assign(socket,
-        selected: id,
-        certificates: certificates,
-        revoked_fingerprints: revoked.fingerprints,
-        revoked_generations: revoked.generations
-      )
+    if Enum.any?(socket.assigns.components, &(&1.component_id == id)) do
+      with {:ok, certificates} <- component_certificates(id, scope),
+           {:ok, revoked} <- revocation_marks(id, certificates, scope) do
+        assign(socket,
+          selected: id,
+          certificates: certificates,
+          revoked_fingerprints: revoked.fingerprints,
+          revoked_generations: revoked.generations
+        )
+      else
+        {:error, _} -> put_flash(socket, :error, "Could not load certificate history.")
+      end
     else
-      _ -> put_flash(socket, :error, "Could not load certificate history.")
+      clear_selection(socket)
     end
+  end
+
+  defp clear_selection(socket) do
+    assign(socket,
+      selected: nil,
+      certificates: [],
+      revoked_fingerprints: MapSet.new(),
+      revoked_generations: MapSet.new()
+    )
   end
 
   defp component_certificates(id, scope) do
@@ -202,7 +256,7 @@ defmodule ServiceRadarWebNGWeb.Admin.ManagedComponentsLive.Index do
     |> Ash.Query.filter(component_id == ^id)
     |> Ash.Query.sort(issued_at: :desc)
     |> Ash.Query.limit(20)
-    |> Ash.read(scope: scope)
+    |> read_authorized(scope)
   end
 
   defp revocation_marks(_id, [], _scope) do
@@ -220,7 +274,7 @@ defmodule ServiceRadarWebNGWeb.Admin.ManagedComponentsLive.Index do
              ((is_nil(fingerprint) and generation in ^generations) or fingerprint in ^fingerprints)
          )
          |> Ash.Query.limit(40)
-         |> Ash.read(scope: scope) do
+         |> read_authorized(scope) do
       {:ok, rows} ->
         {:ok,
          %{
@@ -241,6 +295,8 @@ defmodule ServiceRadarWebNGWeb.Admin.ManagedComponentsLive.Index do
 
   @impl true
   def render(assigns) do
+    assigns = assign(assigns, :selected_component, Enum.find(assigns.components, &(&1.component_id == assigns.selected)))
+
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <Shell.settings_chrome
@@ -275,15 +331,84 @@ defmodule ServiceRadarWebNGWeb.Admin.ManagedComponentsLive.Index do
             No managed components on this page. Enroll a leaf or collector with
             the CLI to start managing its certificates.
           </.ui_panel>
-          <.ui_panel :for={component <- @components}>
-            <.component_row component={component} operation={@operations[component.component_id]} />
+          <.ui_panel :if={!@loading? && @components != []}>
+            <div class="overflow-x-auto">
+              <table id="managed-components-table" class={ui_table_class()}>
+                <caption class="sr-only">
+                  Managed service certificates. Select a component for details and lifecycle actions.
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Component</th>
+                    <th scope="col">Type</th>
+                    <th scope="col">Host</th>
+                    <th scope="col">Enrollment</th>
+                    <th scope="col">Operation</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    :for={component <- @components}
+                    id={"component-row-#{component.component_id}"}
+                    phx-click="inspect"
+                    phx-value-id={component.component_id}
+                    class="cursor-pointer hover:bg-sr-subtle"
+                  >
+                    <td class="max-w-sm">
+                      <button
+                        type="button"
+                        class="text-left font-mono text-xs break-all text-sr-brand hover:underline focus-visible:underline"
+                        phx-click="inspect"
+                        phx-value-id={component.component_id}
+                        aria-haspopup="dialog"
+                      >
+                        {component.component_id}
+                      </button>
+                    </td>
+                    <td>{component.component_type}</td>
+                    <td>{component.host_agent_id || "Deployment managed"}</td>
+                    <td>
+                      {if component.blocked, do: "Revocation requested", else: "Enrollment allowed"}
+                    </td>
+                    <td>
+                      {if operation = @operations[component.component_id],
+                        do: operation.status,
+                        else: "No operation"}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </.ui_panel>
-          <div class="flex gap-2">
-            <.ui_button :if={@cursor} phx-click="first" size="sm">First page</.ui_button>
-            <.ui_button :if={@more?} phx-click="next" size="sm">Next page</.ui_button>
-          </div>
-          <.ui_panel :if={@selected}>
-            <:header><span>Recent certificates: {@selected}</span></:header>
+          <nav
+            :if={!@loading?}
+            aria-label="Service certificate pages"
+            class="flex flex-wrap items-center justify-between gap-3"
+          >
+            <span class="text-sm text-sr-muted">Page {length(@previous_cursors) + 1} · {length(
+              @components
+            )} components</span>
+            <div class="flex gap-2">
+              <.ui_button :if={@cursor} phx-click="first" variant="outline" size="sm">First page</.ui_button>
+              <.ui_button
+                phx-click="previous"
+                variant="outline"
+                size="sm"
+                disabled={@previous_cursors == []}
+              >Previous</.ui_button>
+              <.ui_button phx-click="next" variant="outline" size="sm" disabled={!@more?}>Next</.ui_button>
+            </div>
+          </nav>
+          <.ui_modal
+            :if={@selected_component}
+            id="component-details-modal"
+            on_cancel="close"
+            size="xl"
+          >
+            <:title>Service certificate details</:title>
+            <.component_row component={@selected_component} operation={@operations[@selected]} />
+            <h3 class="font-semibold pt-4 border-t border-sr-line">Recent certificates</h3>
+            <p :if={@certificates == []} class="text-sm text-sr-muted">No certificates issued yet.</p>
             <p class="text-xs text-sr-muted">
               Most recent 20 issued certificates. Revoking one fingerprint leaves the
               component enrolled. The component Revoke control still blocks renewal.
@@ -315,8 +440,10 @@ defmodule ServiceRadarWebNGWeb.Admin.ManagedComponentsLive.Index do
                 Revoke fingerprint
               </.ui_button>
             </div>
-            <.ui_button phx-click="close" size="sm">Close history</.ui_button>
-          </.ui_panel>
+            <:actions>
+              <.ui_button phx-click="close" variant="outline" size="sm">Close</.ui_button>
+            </:actions>
+          </.ui_modal>
         </div>
       </Shell.settings_chrome>
     </Layouts.app>
@@ -372,7 +499,6 @@ defmodule ServiceRadarWebNGWeb.Admin.ManagedComponentsLive.Index do
         <% end %>
       </div>
       <div class="flex flex-wrap gap-2">
-        <.ui_button phx-click="inspect" phx-value-id={@component.component_id} size="sm">Certificates</.ui_button>
         <.ui_button
           :if={!@component.blocked && @component.host_agent_id}
           phx-click="rotate"
