@@ -958,14 +958,15 @@ defmodule ServiceRadar.EventWriter.Config do
   """
   @spec edge_record_dead_letter_stream() :: stream_config()
   def edge_record_dead_letter_stream do
-    %{
-      edge_record_security_quarantine_stream()
-      | name: "EDGE_RECORD_DLQ",
-        stream_name: "TELEMETRY_EDGE_RECORD_DLQ_V1_BULK",
-        subject: "telemetry.edge-record-dlq.v1.bulk.>",
-        processor: ServiceRadar.EventWriter.Processors.EdgeRecordDeadLetter,
-        stream_duplicate_window: edge_record_stream().stream_max_age
-    }
+    # Map.merge, not the | update: the quarantine map has no duplicate window,
+    # and | raises KeyError on a key the source map does not already hold.
+    Map.merge(edge_record_security_quarantine_stream(), %{
+      name: "EDGE_RECORD_DLQ",
+      stream_name: "TELEMETRY_EDGE_RECORD_DLQ_V1_BULK",
+      subject: "telemetry.edge-record-dlq.v1.bulk.>",
+      processor: ServiceRadar.EventWriter.Processors.EdgeRecordDeadLetter,
+      stream_duplicate_window: edge_record_stream().stream_max_age
+    })
   end
 
   @doc """

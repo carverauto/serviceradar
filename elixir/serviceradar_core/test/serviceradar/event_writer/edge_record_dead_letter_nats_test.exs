@@ -95,6 +95,14 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetterNatsTest do
 
       assert :ok = ConsumerReconciler.ensure_stream(conn, config, dead_letter)
 
+      # The copy the reconciler just created keeps the production dead-letter shape:
+      # MaxAge off, DiscardNew, and the source stream's 24h duplicate window.
+      dlq_info = api(conn, "STREAM.INFO.#{@dlq_stream}", "")
+      assert dlq_info["config"]["max_age"] == 0
+      assert dlq_info["config"]["discard"] == "new"
+      assert dlq_info["config"]["duplicate_window"] == dead_letter.stream_duplicate_window
+      assert dlq_info["config"]["duplicate_window"] == 86_400_000_000_000
+
       # The redelivery is copied, and only then acknowledged.
       assert_receive {:delivered, 1, 2, @record}, 30_000
       assert_receive {:dead_letter, "stored"}, 10_000
@@ -133,7 +141,45 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetterNatsTest do
     end)
   end
 
-  defp config(port) do
+  test "a source duplicate keeps the dead-letter copy, and a later copy waits for the next run",
+       ctx do
+    ExposureBroker.with_broker(ctx.tmp_dir, fn conn, port ->
+      config = config(port, 60_000_000_000)
+      [source, dead_letter] = config.streams
+      assert :ok = ConsumerReconciler.ensure_stream(conn, config, source)
+      assert :ok = ConsumerReconciler.ensure_stream(conn, config, dead_letter)
+      publish!(conn)
+
+      held = publish_dlq!(conn, "edge-dlq:held-for-duplicate")
+
+      # Snapshot last_seq, then store another copy before the walk reads. That copy arrived
+      # after the run started, so this replay must leave it in place.
+      request = fn subject, body, opts ->
+        result = Gnat.request(conn, subject, body, opts)
+
+        # Once, on the snapshot that bounds this run. A later list() must not store another copy.
+        if String.ends_with?(subject, "STREAM.INFO.#{@dlq_stream}") and
+             Process.get(:injected_later_copy) != true do
+          Process.put(:injected_later_copy, true)
+          publish_dlq!(conn, "edge-dlq:arrived-after-start")
+        end
+
+        result
+      end
+
+      assert {:ok, %{entries: [entry]}} = Replay.replay(request: request)
+      assert entry.dlq_sequence == held
+      assert entry.result == {:error, :source_duplicate}
+
+      assert {:ok, %{entries: [kept, later]}} = Replay.list()
+      assert kept.dlq_sequence == held
+      assert later.dlq_sequence > held
+      assert kept.failure["source-msg-id"] == "synthetic-publication-0001"
+      assert %{"state" => %{"messages" => 2}} = api(conn, "STREAM.INFO.#{@dlq_stream}", "")
+    end)
+  end
+
+  defp config(port, source_duplicate_window \\ 1_000_000_000) do
     %Config{
       enabled: true,
       producer_name: :edge_dead_letter_producer,
@@ -163,7 +209,7 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetterNatsTest do
               dead_letter_after_deliveries: 1
           },
           :stream_duplicate_window,
-          1_000_000_000
+          source_duplicate_window
         ),
         %{
           Config.edge_record_dead_letter_stream()
@@ -179,6 +225,26 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetterNatsTest do
       Gnat.request(conn, @source_subject, @record, headers: @headers, receive_timeout: 5_000)
 
     assert %{"stream" => "TELEMETRY_EDGE_RECORD_V1_BULK", "seq" => 1} = Jason.decode!(body)
+  end
+
+  defp publish_dlq!(conn, msg_id) do
+    headers = [
+      {"Nats-Msg-Id", msg_id},
+      {"Sr-Edge-Dlq-Source-Subject", @source_subject},
+      {"Sr-Edge-Dlq-Source-Stream", "TELEMETRY_EDGE_RECORD_V1_BULK"},
+      {"Sr-Edge-Dlq-Source-Sequence", "1"},
+      {"Sr-Edge-Dlq-Source-Msg-Id", "synthetic-publication-0001"},
+      {"Sr-Edge-Delivery-Id", "synthetic-delivery-0001"}
+    ]
+
+    {:ok, %{body: body}} =
+      Gnat.request(conn, "telemetry.edge-record-dlq.v1.bulk.p07.unknown.v0", @record,
+        headers: headers,
+        receive_timeout: 5_000
+      )
+
+    assert %{"stream" => @dlq_stream, "seq" => seq} = Jason.decode!(body)
+    seq
   end
 
   # The source durable holds nothing: not pending, not awaiting an ack.
