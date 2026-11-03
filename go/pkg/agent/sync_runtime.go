@@ -34,6 +34,7 @@ const (
 var (
 	errSyncRuntimeNoContext      = errors.New("sync runtime requires context")
 	errUnsupportedSyncSourceType = errors.New("unsupported sync source type")
+	errSyncRunSplit              = errors.New("sync run already spooled pages; refusing to split it across paths")
 )
 
 // SyncRuntime executes integration sources delivered via GetConfig. It is
@@ -566,7 +567,7 @@ func (r *SyncRuntime) sendSyncUpdates(
 			runTotalDevices, baseChunkIndex, runFinalPage, population, capability)
 	}
 	if _, spooled := r.edgeRuns.Load(runID); spooled {
-		return 0, fmt.Errorf("sync run %s already spooled pages; refusing to split it across paths", runID)
+		return 0, fmt.Errorf("%w: run %s", errSyncRunSplit, runID)
 	}
 
 	chunks, err := buildSyncResultsChunks(

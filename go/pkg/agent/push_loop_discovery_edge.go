@@ -44,7 +44,11 @@ const (
 	maxEdgeDiscoveryQueuedPayloads = 256
 )
 
-var errDiscoveryRecordTooLarge = errors.New("discovery update exceeds the durable record body bound")
+var (
+	errDiscoveryRecordTooLarge  = errors.New("discovery update exceeds the durable record body bound")
+	errDiscoveryPayloadNotArray = errors.New("discovery payload is not a JSON update array")
+	errDiscoveryNoValidRecord   = errors.New("no discovery update forms a valid edge record")
+)
 
 // SetEdgeDiscoverySpool connects the mapper and netprobe discovery
 // producers to the sender's one open spool. Call before Start; a nil spool
@@ -127,24 +131,25 @@ func (k discoveryKind) spec() discoverySpec {
 				return batch
 			},
 		}
-	default:
-		return discoverySpec{
-			contractID:  edgerecord.MapperDevicesContractID,
-			bytesPerRow: edgerecord.MapperDevicesProjectedWriteBytesPerRecord,
-			producer:    edgeProducerMapper,
-			validate:    edgerecord.ValidateMapperDeviceRecord,
-			batchFor: func(updates []map[string]interface{}, agentID, partition string) proto.Message {
-				batch := &edgev1.MapperDeviceBatchV1{AgentId: agentID, Partition: partition}
-				for _, update := range updates {
-					record := mapperDeviceRecord(update)
-					if batch.GatewayId == "" {
-						batch.GatewayId = record.GetGatewayId()
-					}
-					batch.Devices = append(batch.Devices, record)
+	case discoveryMapperDevices:
+		// Mapper devices is the spec below.
+	}
+	return discoverySpec{
+		contractID:  edgerecord.MapperDevicesContractID,
+		bytesPerRow: edgerecord.MapperDevicesProjectedWriteBytesPerRecord,
+		producer:    edgeProducerMapper,
+		validate:    edgerecord.ValidateMapperDeviceRecord,
+		batchFor: func(updates []map[string]interface{}, agentID, partition string) proto.Message {
+			batch := &edgev1.MapperDeviceBatchV1{AgentId: agentID, Partition: partition}
+			for _, update := range updates {
+				record := mapperDeviceRecord(update)
+				if batch.GatewayId == "" {
+					batch.GatewayId = record.GetGatewayId()
 				}
-				return batch
-			},
-		}
+				batch.Devices = append(batch.Devices, record)
+			}
+			return batch
+		},
 	}
 }
 
@@ -156,9 +161,10 @@ func (p *PushLoop) discoveryQueue(kind discoveryKind) *discoveryEdgeQueue {
 		return &p.mapperTopologyEdge
 	case discoveryNetprobe:
 		return &p.netprobeEdge
-	default:
-		return &p.mapperDevicesEdge
+	case discoveryMapperDevices:
+		// Mapper devices is the queue below.
 	}
+	return &p.mapperDevicesEdge
 }
 
 func (p *PushLoop) discoveryCapability(kind discoveryKind, now time.Time) *edgev1.EdgeSignedCapabilityV1 {
@@ -276,7 +282,7 @@ func buildDiscoveryItem(
 ) (built *discoveryBuiltItem, dropped int, err error) {
 	updates := decodeUpdateArray(payload)
 	if len(updates) == 0 {
-		return nil, 0, errors.New("discovery payload is not a JSON update array")
+		return nil, 0, errDiscoveryPayloadNotArray
 	}
 	built = &discoveryBuiltItem{payload: payload}
 	for len(updates) > 0 {
@@ -291,7 +297,7 @@ func buildDiscoveryItem(
 		updates = updates[n:]
 	}
 	if len(built.records) == 0 {
-		return nil, dropped, errors.New("no discovery update forms a valid edge record")
+		return nil, dropped, errDiscoveryNoValidRecord
 	}
 	return built, dropped, nil
 }

@@ -38,8 +38,16 @@ import (
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 )
 
-func discoveryGrant(t *testing.T, contractID string, version uint32, bytesPerRow uint64, packageID string) *proto.EdgeOutputGrant {
+func discoveryGrant(t *testing.T, contractID string, bytesPerRow uint64, packageID string) *proto.EdgeOutputGrant {
 	t.Helper()
+	version, ok := map[string]uint32{
+		edgerecord.MapperDevicesContractID:     edgerecord.MapperDevicesContractVersion,
+		edgerecord.MapperInterfacesContractID:  edgerecord.MapperInterfacesContractVersion,
+		edgerecord.MapperTopologyContractID:    edgerecord.MapperTopologyContractVersion,
+		edgerecord.NetprobeDiscoveryContractID: edgerecord.NetprobeDiscoveryContractVersion,
+		edgerecord.SyncPageContractID:          edgerecord.SyncPageContractVersion,
+	}[contractID]
+	require.True(t, ok, "unknown discovery contract %s", contractID)
 	_, key, err := ed25519.GenerateKey(nil)
 	require.NoError(t, err)
 	digest := sha256.Sum256([]byte("synthetic-" + contractID))
@@ -86,9 +94,9 @@ func discoveryLoop(t *testing.T, sp *spool.Spool) *PushLoop {
 func grantDiscovery(t *testing.T, loop *PushLoop) {
 	t.Helper()
 	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{
-		discoveryGrant(t, edgerecord.MapperDevicesContractID, edgerecord.MapperDevicesContractVersion, edgerecord.MapperDevicesProjectedWriteBytesPerRecord, "serviceradar.agent.mapper"),
-		discoveryGrant(t, edgerecord.NetprobeDiscoveryContractID, edgerecord.NetprobeDiscoveryContractVersion, edgerecord.NetprobeDiscoveryProjectedWriteBytesPerRecord, "serviceradar.agent.netprobe"),
-		discoveryGrant(t, edgerecord.SyncPageContractID, edgerecord.SyncPageContractVersion, edgerecord.SyncPageProjectedWriteBytesPerRecord, "serviceradar.agent.sync"),
+		discoveryGrant(t, edgerecord.MapperDevicesContractID, edgerecord.MapperDevicesProjectedWriteBytesPerRecord, "serviceradar.agent.mapper"),
+		discoveryGrant(t, edgerecord.NetprobeDiscoveryContractID, edgerecord.NetprobeDiscoveryProjectedWriteBytesPerRecord, "serviceradar.agent.netprobe"),
+		discoveryGrant(t, edgerecord.SyncPageContractID, edgerecord.SyncPageProjectedWriteBytesPerRecord, "serviceradar.agent.sync"),
 	}, time.Now())
 }
 
@@ -217,8 +225,8 @@ func TestRetainedDiscoveryFlushesOnACycleWithNoNewDrain(t *testing.T) {
 	require.Empty(t, spooledRecords(t, sp))
 
 	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{
-		discoveryGrant(t, edgerecord.MapperDevicesContractID, edgerecord.MapperDevicesContractVersion, edgerecord.MapperDevicesProjectedWriteBytesPerRecord, "serviceradar.agent.mapper"),
-		discoveryGrant(t, edgerecord.MapperTopologyContractID, edgerecord.MapperTopologyContractVersion, edgerecord.MapperTopologyProjectedWriteBytesPerRecord, "serviceradar.agent.mapper"),
+		discoveryGrant(t, edgerecord.MapperDevicesContractID, edgerecord.MapperDevicesProjectedWriteBytesPerRecord, "serviceradar.agent.mapper"),
+		discoveryGrant(t, edgerecord.MapperTopologyContractID, edgerecord.MapperTopologyProjectedWriteBytesPerRecord, "serviceradar.agent.mapper"),
 	}, time.Now())
 
 	// The next cycles drain nothing new (no mapper service is running);
@@ -367,8 +375,9 @@ func TestAnchorlessDiscoveryUpdateDropsAloneMidDrain(t *testing.T) {
 			return false
 		}))
 
-	var ips []string
-	for _, record := range spooledRecords(t, sp) {
+	records := spooledRecords(t, sp)
+	ips := make([]string, 0, 4)
+	for _, record := range records {
 		require.NoError(t, edgerecord.ValidateMapperDeviceRecord(record))
 		batch := &edgev1.MapperDeviceBatchV1{}
 		require.NoError(t, gproto.Unmarshal(recordBody(t, record), batch))
@@ -414,8 +423,9 @@ func syncUpdate(uid, ip string) map[string]interface{} {
 
 func decodeSyncPages(t *testing.T, sp *spool.Spool) []*edgev1.SyncPageBatchV1 {
 	t.Helper()
-	var pages []*edgev1.SyncPageBatchV1
-	for _, record := range spooledRecords(t, sp) {
+	records := spooledRecords(t, sp)
+	pages := make([]*edgev1.SyncPageBatchV1, 0, len(records))
+	for _, record := range records {
 		require.NoError(t, edgerecord.ValidateSyncPageRecord(record))
 		page := &edgev1.SyncPageBatchV1{}
 		require.NoError(t, gproto.Unmarshal(recordBody(t, record), page))

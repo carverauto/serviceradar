@@ -30,8 +30,7 @@ import (
 // projected row count equal to rows.
 func discoveryRecord(
 	t *testing.T,
-	contractID string,
-	version uint32,
+	contract contractRef,
 	bytesPerRow uint64,
 	batch proto.Message,
 	rows uint32,
@@ -43,8 +42,8 @@ func discoveryRecord(
 	}
 	sum := sha256.Sum256(payload)
 	r := validRecord(t)
-	r.OutputContract.ContractId = contractID
-	r.OutputContract.ContractVersion = version
+	r.OutputContract.ContractId = contract.id
+	r.OutputContract.ContractVersion = contract.version
 	r.Payload, r.PayloadSha256 = payload, sum[:]
 	r.EncodedSize, r.UncompressedSize = uint32(len(payload)), uint32(len(payload))
 	r.ProjectedRowCount, r.ProjectedWriteBytes = rows, uint64(rows)*bytesPerRow
@@ -106,22 +105,22 @@ func TestValidateDiscoveryRecords(t *testing.T) {
 		validate func(*edgev1.EdgeRecordV1) error
 	}{
 		{"mapper devices", func(rows uint32) *edgev1.EdgeRecordV1 {
-			return discoveryRecord(t, MapperDevicesContractID, MapperDevicesContractVersion, MapperDevicesProjectedWriteBytesPerRecord, mapperDevices, rows)
+			return discoveryRecord(t, contractRef{MapperDevicesContractID, MapperDevicesContractVersion}, MapperDevicesProjectedWriteBytesPerRecord, mapperDevices, rows)
 		}, ValidateMapperDeviceRecord},
 		{"mapper interfaces", func(rows uint32) *edgev1.EdgeRecordV1 {
-			return discoveryRecord(t, MapperInterfacesContractID, MapperInterfacesContractVersion, MapperInterfacesProjectedWriteBytesPerRecord, mapperInterfaces, rows)
+			return discoveryRecord(t, contractRef{MapperInterfacesContractID, MapperInterfacesContractVersion}, MapperInterfacesProjectedWriteBytesPerRecord, mapperInterfaces, rows)
 		}, ValidateMapperInterfaceRecord},
 		{"mapper topology", func(rows uint32) *edgev1.EdgeRecordV1 {
-			return discoveryRecord(t, MapperTopologyContractID, MapperTopologyContractVersion, MapperTopologyProjectedWriteBytesPerRecord, mapperTopology, rows)
+			return discoveryRecord(t, contractRef{MapperTopologyContractID, MapperTopologyContractVersion}, MapperTopologyProjectedWriteBytesPerRecord, mapperTopology, rows)
 		}, ValidateMapperTopologyRecord},
 		{"netprobe", func(rows uint32) *edgev1.EdgeRecordV1 {
-			return discoveryRecord(t, NetprobeDiscoveryContractID, NetprobeDiscoveryContractVersion, NetprobeDiscoveryProjectedWriteBytesPerRecord, netprobe, rows)
+			return discoveryRecord(t, contractRef{NetprobeDiscoveryContractID, NetprobeDiscoveryContractVersion}, NetprobeDiscoveryProjectedWriteBytesPerRecord, netprobe, rows)
 		}, ValidateNetprobeDiscoveryRecord},
 		{"sync page", func(rows uint32) *edgev1.EdgeRecordV1 {
-			return discoveryRecord(t, SyncPageContractID, SyncPageContractVersion, SyncPageProjectedWriteBytesPerRecord, syncPage, rows)
+			return discoveryRecord(t, contractRef{SyncPageContractID, SyncPageContractVersion}, SyncPageProjectedWriteBytesPerRecord, syncPage, rows)
 		}, ValidateSyncPageRecord},
 		{"sync control page", func(rows uint32) *edgev1.EdgeRecordV1 {
-			return discoveryRecord(t, SyncPageContractID, SyncPageContractVersion, SyncPageProjectedWriteBytesPerRecord, syncControl, rows)
+			return discoveryRecord(t, contractRef{SyncPageContractID, SyncPageContractVersion}, SyncPageProjectedWriteBytesPerRecord, syncControl, rows)
 		}, ValidateSyncPageRecord},
 	}
 
