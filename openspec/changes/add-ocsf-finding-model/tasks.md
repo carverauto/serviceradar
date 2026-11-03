@@ -11,7 +11,7 @@
 - [ ] 2.4 (delivered by `add-falco-runtime-findings`) Structure Falco MITRE tags into ATT&CK tactic/technique `attacks` and supporting evidence on detection findings.
 
 ## 3. Producer Mapping
-- [ ] 3.1 (delivered by `add-falco-runtime-findings`, keyed on subject entity and rule) Make Falco warning-and-higher signals upsert detection findings and emit referencing events.
+- [ ] 3.1 (delivered by `add-falco-runtime-findings`, keyed on subject entity and rule) Fold every Falco occurrence, of any priority, into one detection finding. Do not write per-occurrence rows to `ocsf_events`. Emit only the lifecycle transitions `opened`, `reopened`, `escalated`, and `resolved` as events that reference the finding.
 - [ ] 3.2 Make Trivy findings upsert vulnerability findings and emit referencing events.
 - [ ] 3.3 Make endpoint-inventory vulnerability matches upsert vulnerability findings and emit referencing events.
 - [ ] 3.4 Audit Bumblebee outputs and map each producer path to detection or vulnerability findings with tests.

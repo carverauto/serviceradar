@@ -2,11 +2,15 @@
 
 ### Requirement: SRQL runtime findings entity
 SRQL SHALL provide `in:runtime_findings` that reads current runtime findings from CNPG on installations with and without StarRocks.
-It SHALL support filters on `status`, `severity`, `rule`, `priority`, `entity_kind`, `partition`, `cluster`, `namespace`, `owner_kind`, `owner`, `pod`, `hostname`, `device_uid`, `node_device_uid`, `binding_status`, `attribution`, `tactic`, `technique`, `first_seen`, `last_seen`, `finding_uid`, and `time:` applied to `last_seen`; it SHALL default to `last_seen` descending and SHALL support `stats` counts grouped by rule, namespace, owner and device.
+It SHALL support filters on `status`, `severity`, `rule`, `priority`, `entity_kind`, `partition`, `cluster`, `namespace`, `owner_kind`, `owner`, `pod`, `hostname`, `device_uid`, `node_device_uid`, `binding_status`, `attribution`, `tactic`, `technique`, `first_seen`, `last_seen`, `finding_uid`, and `time:` applied to `last_seen`; it SHALL default to `last_seen` descending and SHALL support `stats` counts grouped by rule, namespace, owner and device. `status:active` SHALL match `status_id` 1 or 2. `status:resolved` SHALL match `status_id` 4.
 
 #### Scenario: Active findings for one namespace
 - **WHEN** a client runs `in:runtime_findings status:active namespace:shop sort:severity:desc`
-- **THEN** SRQL SHALL return only active runtime findings whose subject is in namespace `shop`, ordered by severity
+- **THEN** SRQL SHALL return only runtime findings in namespace `shop` whose `status_id` is 1 or 2, ordered by severity
+
+#### Scenario: Resolved findings
+- **WHEN** a client runs `in:runtime_findings status:resolved`
+- **THEN** SRQL SHALL return only runtime findings whose `status_id` is 4
 
 #### Scenario: Findings bound to a device
 - **WHEN** a client runs `in:runtime_findings device_uid:"sr:00000000-0000-4000-8000-000000000001"`

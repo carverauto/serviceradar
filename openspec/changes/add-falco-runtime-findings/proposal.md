@@ -56,7 +56,8 @@ Three structural problems sit underneath that:
   on `resolved`. Alert volume becomes proportional to distinct findings, not to event rate.
 - **Retire `falco_critical_incident`.** The seeder gains a retire list. A pristine managed copy
   is disabled and marked retired, and its active alerts are resolved as superseded. An
-  operator-modified or unmanaged copy is left in place, flagged in Settings, and logged.
+  operator-modified or unmanaged copy is not rewritten. It goes silent once the `falco.*` NATS
+  subjects are removed.
 - **SRQL.** New entities `in:runtime_findings` (CNPG, both backends) and
   `in:runtime_security_occurrences` (warehouse or CNPG by backend), with typed fields.
 - **UI.** A Runtime security tab on the device page (findings whose subject or node is bound to

@@ -81,7 +81,10 @@ record this.
   `confidence_id`, `risk_score`, `source`, `title`, `entity_kind`, `entity_uid`, `device_uid`,
   `first_seen`, `last_seen`, `occurrence_count`, `payload` (full OCSF finding JSONB),
   `class_payload` (class-specific JSONB), `inserted_at`, `updated_at`. Falco findings use class
-  2004 and `source = 'falco'`.
+  2004 and `source = 'falco'`. Operator `active` is status_id 1 or 2, and operator `resolved`
+  is status_id 4. Falco stores 1 when it opens or reopens a finding and 4 when it resolves one.
+  The lifecycle has no in-progress transition, so Falco does not store 2, and it never stores
+  3. The shared enum stays for the other finding classes.
 - **Event reference.** `finding_info_uid` is added to CNPG `ocsf_events` and warehouse `events`
   so lifecycle transition events (Decision 7) can be drilled into without JSON parsing.
 - **Runtime extension (`platform.runtime_finding_details`, 1:1 on `finding_uid`,
@@ -89,8 +92,8 @@ record this.
   `partition`, `namespace`, `owner_kind`, `owner_name`, `pod_name`, `hostname`, `binding_status`,
   `binding_method`, `binding_candidates`, `node_device_uid`, `node_binding_status`,
   `attribution_status`, `tactics text[]`, `techniques text[]`, `episode_started_at`,
-  `episode_occurrence_count`, `episode_severity_id`, `reopen_count`, `window_started_at`,
-  `window_count`, `samples jsonb` (bounded, Decision 4), `first_occurrence_id`,
+  `episode_occurrence_count`, `episode_severity_id`, `reopen_count`,
+  `samples jsonb` (bounded, Decision 4), `first_occurrence_id`,
   `latest_occurrence_id`, `last_resolved_at`, `transition_seq`.
 - Runtime attributes stay off the cross-class table; typed columns give indexed SRQL filters.
 
@@ -155,10 +158,8 @@ resolution runs for the subject (`device_uid`) and for the node the occurrence r
   adds to `occurrence_count` and `episode_occurrence_count`, moves `first_seen` / `last_seen`
   monotonically, raises episode severity monotonically within the current episode, and merges
   samples. A reopen sets episode severity from the reopening occurrence; later occurrences in
-  that episode can only raise it.
-- **Window:** `window_started_at` / `window_count` is a tumbling one-hour window for "how hot is it
-  now". It is a display counter, not an alert input. The full timeline is a bucketed query on the
-  occurrence dataset.
+  that episode can only raise it. The hourly timeline is a query over
+  `runtime_security_occurrences`. There is no stored window counter.
 - **Samples** (in `samples`), capped at insert: top 10 process names with counts, 5 latest distinct
   command lines, top 10 images, top 20 nodes with counts, top 5 users, 5 latest occurrence ids.
   Samples outlive the occurrences they came from.
@@ -211,9 +212,13 @@ table, writer and reader stay for installations without StarRocks.
 - **Nothing is dropped.** An upload that fails (including a full bucket, which the store refuses
   rather than evicts) fails the batch; JetStream redelivers and the upload is retried under the
   same key. The failure is counted and raised as a health event. There is no "mark oversize and
-  continue" path. A delivery that reaches `max_deliver` without a stored occurrence is published
-  to `TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK` with its object references intact. That
-  publication is counted and visible. The objects are not deleted because delivery stopped.
+  continue" path. A part set still inside its reassembly window is not this terminal: a
+  redelivery in that window is a duplicate staged part (Decision 9), not a `max_deliver` give-up.
+  A complete set that reaches `max_deliver` without both the occurrence and the finding update
+  stored, and an incomplete set whose reassembly window has expired, is published to
+  `TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK` with the staged part payloads and any
+  object references intact. That publication is counted and visible. The objects are not deleted
+  because delivery stopped.
 - **Retention coupling.** An object lives as long as the occurrence or quarantine record that
   references it. The occurrence dataset is day-partitioned on both backends, and the object key
   carries the same UTC day. `ServiceRadar.ObjectStore.RetentionWorker` gains a runtime-evidence
@@ -234,8 +239,8 @@ table, writer and reader stay for installations without StarRocks.
 - `resolved` -> `active` on a new occurrence (`reopen_count += 1`, a new episode starts). The new
   episode's severity starts at that occurrence's severity.
 - **Alerting is lifecycle only** (user decision): `opened`, `reopened`, `escalated` (episode
-  severity rose), `resolved`. There is no volume or rate alert. Falco findings are `active` or
-  `resolved`.
+  severity rose), `resolved`. There is no volume or rate alert. Falco findings are `active`
+  (status_id 1) or `resolved` (status_id 4), as Decision 1 states.
 - Each transition draws the next `transition_seq` inside the finding transaction and inserts an
   outbox row in that transaction. A relay writes it as an OCSF Detection Finding event (activity
   Create, Update or Close) to `ocsf_events`, admits it through
@@ -243,15 +248,24 @@ table, writer and reader stay for installations without StarRocks.
   `deterministic_uuid(finding_uid <> ":" <> transition_seq)`, so a replay is idempotent. Without
   the outbox, a crash after commit would lose `opened`, because the redelivered batch finds the
   finding already active.
-- **Event shape:** `log_name = "falco.finding." <> transition`, `log_provider =
-  "serviceradar.core"`, episode severity, `device.uid` = the finding's `device_uid`,
-  `finding_info_uid`, and a bounded `metadata.runtime_finding` summary (entity, binding, counts,
-  window, samples, latest occurrence ids). That summary satisfies the diagnostic-summary contract
-  of `update-falco-alert-diagnostics`.
-- **Managed rule `falco_runtime_finding` (template v1):** `signal: :event`; match
-  `subject_prefix "falco.finding."`, `runtime_finding.transition in [opened, reopened, escalated]`,
-  `severity_number_min 5`; recovery on `subject_prefix "falco.finding.resolved"`; `group_by
-  ["finding_info.uid"]`; threshold 1; cooldown 300 s; renotify 21,600 s; title
+- **Event shape.** Opened, reopened, and escalated use
+  `log_name = "falco.finding.firing." <> transition`. Resolved uses
+  `log_name = "falco.finding.resolved"`. `log_provider = "serviceradar.core"`. Episode severity
+  is `severity_id`. `device.uid` is the finding's `device_uid`. The attribute map
+  `event_matches?/2` reads (`unmapped.log_attributes`) carries `finding_info.uid`,
+  `runtime_finding.transition`, `runtime_finding.rule`, and `runtime_finding.entity_name`.
+  Those four fields are also on `metadata`, with a bounded `metadata.runtime_finding` summary
+  (entity, binding, counts, samples, latest occurrence ids). That summary satisfies the
+  diagnostic-summary contract of `update-falco-alert-diagnostics`. `group_by` and the title
+  template resolve `finding_info.uid`, `runtime_finding.rule`, and `runtime_finding.entity_name`
+  from that map.
+- **Managed rule `falco_runtime_finding` (template v1):** `signal: :event`. The firing match is
+  `subject_prefix "falco.finding.firing."`, `attribute_equals` with
+  `runtime_finding.transition` in `[opened, reopened, escalated]`, and `severity_number_min 5`.
+  Recovery is `subject_prefix "falco.finding.resolved"` and `attribute_equals`
+  `runtime_finding.transition = resolved`. `falco.finding.resolved` does not start with
+  `falco.finding.firing.`, so a resolved Critical transition does not take the firing path.
+  `group_by ["finding_info.uid"]`; threshold 1; cooldown 300 s; renotify 21,600 s; title
   `"{runtime_finding.rule} on {runtime_finding.entity_name}"`.
 - Occurrences are never alert inputs. A 10,000-event burst from one DaemonSet is one `opened`.
 
@@ -261,9 +275,9 @@ table, writer and reader stay for installations without StarRocks.
   it. A managed copy whose fingerprint equals template v1 is disabled and stamped `retired_at`;
   its active alerts are resolved with reason `superseded_by_runtime_findings`. Disabled, not
   deleted, so alert history still resolves.
-- An operator-modified or unmanaged copy is not touched, is logged once per boot, and is flagged in
-  Rules settings. Its `subject_prefix "falco."` still matches `falco.finding.*` transitions, so it
-  degrades to one alert per transition rather than going silent.
+- An operator-modified or unmanaged copy is not rewritten, and it is not given group fields that
+  would keep it firing on lifecycle subjects. Once the `falco.*` NATS subjects are removed, that
+  copy receives no events and goes silent.
 - The seeded EventRule `copyfail_falco_logs_to_security_events` matches Falco logs on `falco.`
   subjects, which no longer exist once Falco records stop being written as logs. It is removed
   from the seeded defaults and a pristine copy is disabled the same way. Its rule becomes an
@@ -294,14 +308,20 @@ is its own `EdgeRecordV1`:
   full JSON), `part_index` (0-based), `part_total` (1 for a single part), `raw_sha256`,
   `raw_bytes`, the agent-stamped `cluster_id`, and the JSON slice. The encoded edge record stays
   within 512 KiB.
-- Reassembly concatenates the JSON slices in `part_index` order. The concatenation must equal the
-  posted JSON and match `raw_sha256`.
+- Reassembly concatenates one staged slice per `part_index`. A second delivery of the same
+  `(falco_event_id, part_index)` or the same edge `event_id` replaces that staged slice and is
+  not concatenated again. The concatenation must equal the posted JSON and match `raw_sha256`.
 
-The projector reassembles a complete set before it normalizes. Once an occurrence exists for
-that `falco_event_id`, any redelivered part of the set is acknowledged as already stored. Parts
-are retained until the set completes or the reassembly window for that `falco_event_id` expires.
-An expired incomplete set is published to
-`TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK` with its part payloads intact, then
+The projector stages each part durably, keyed by `(falco_event_id, part_index)`, before it
+concatenates, and it reassembles a complete set before it normalizes. A duplicate occurrence
+insert is skipped when that occurrence id is already stored, and the finding upsert still runs.
+The parts of a complete set are acknowledged only after that occurrence and that finding update
+have both committed. A redelivered part is acknowledged with no second occurrence insert only
+when that finding update has already committed. Parts stay staged until the set completes or
+the reassembly window for that `falco_event_id` expires. A redelivery while that window is open
+is the duplicate-slice rule above. It is not a `max_deliver` terminal, and it does not publish
+quarantine. An expired incomplete set is published to
+`TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK` with the staged part payloads intact, then
 acknowledged. It is not discarded. After a complete reassembly, Decision 6 applies: inline up to
 1 MiB, object store above that. Size never refuses, truncates, or drops an event.
 
@@ -315,14 +335,14 @@ agent Service. `compress_uploads` is false, and the stored raw bytes are the pos
 **Chart wiring (ServiceRadar chart):**
 
 - `falcoIngest.enabled` (default `false`), `falcoIngest.clusterId` (default `default`),
-  `falcoIngest.namespace` (the Falco DaemonSet namespace; default the release namespace),
-  `agent.falcoReceiver.port` (default `14318`).
-- When enabled: the `serviceradar-agent` Service exposes `falco-https` on that port; core seeds
+  `falcoIngest.namespace` (the Falco DaemonSet namespace; default the release namespace).
+  The Falco HTTPS port is 14318. The chart does not offer a port override.
+- When enabled: the `serviceradar-agent` Service exposes `falco-https` on port 14318; core seeds
   the registry entry `{"serviceradar.falco.event", 1}` and the agent's grant; the chart renders
   the client certificate, client key, and CA in `falcoIngest.namespace`, plus the Falco settings
   for `json_output`, the two include flags, and `http_output` (`enabled`, the agent URL,
   `mtls: true`, `compress_uploads: false`, and the certificate paths). The network policy admits
-  `falcoIngest.namespace` to that port. The agent stamps `falcoIngest.clusterId` onto each
+  `falcoIngest.namespace` to port 14318. The agent stamps `falcoIngest.clusterId` onto each
   event. The attested partition is the agent's own edge-record partition.
 - No Falcosidekick NATS user, no OTLP ingestion token, and no `otel-collector` add-on assignment
   for this path. Falcosidekick collector packages stop receiving NATS credentials and do not gain
@@ -342,9 +362,12 @@ in that upgrade. An unmigrated NATS publisher is refused. There is no flag that 
 
 **Delivery confirmation (task 0.4).** The agent returns HTTP success only after every part is in
 its durable edge spool. Each part stays there until it is acknowledged. A complete set is
-acknowledged after the occurrence and finding update are stored. A redelivered part of an
-already-stored `falco_event_id` is acknowledged immediately. An incomplete set is acknowledged
-only after its quarantine publication. A spool admission failure is a non-success HTTP response,
+acknowledged after the occurrence and the finding update are both stored. A duplicate occurrence
+insert is skipped, and the finding upsert still runs before that acknowledgement. A redelivered
+part is acknowledged with no further occurrence insert only when that finding update has already
+committed. An incomplete set inside its reassembly window stays staged; that wait is not
+`max_deliver`. An incomplete set is acknowledged only after its quarantine publication, and that
+publication carries the part payloads. A spool admission failure is a non-success HTTP response,
 so the agent has not accepted an event it cannot hold.
 
 ### Decision 10: SRQL entities
@@ -424,5 +447,10 @@ handling, migration, sequencing, and transport on 2026-11-02 and 2026-11-03. The
 transport decision is Falco `http_output` into a chunked Falco edge contract, with the attested
 partition in the workload uid and in the finding-uid hash, a bound node still showing the
 finding, and no operator suppression or SRQL aliases. Each Falco part uses its own in-window
-UUIDv7 edge `event_id`. An unfinished part set or a `max_deliver` delivery is quarantined with
-its bytes and object references. A reopened episode starts at the new occurrence's severity.
+UUIDv7 edge `event_id`, and a redelivered part index is one staged slice. An in-window wait is
+not `max_deliver`. An unfinished part set or a `max_deliver` delivery is quarantined with its
+part payloads and object references. Acknowledgement of a complete set follows the finding
+commit. A reopened episode starts at the new occurrence's severity. Active is status_id 1
+(`status:active` also matches 2) and resolved is status_id 4. The Falco port is 14318 with no
+override, there is no stored window counter, and a customized `falco_critical_incident` copy
+goes silent once `falco.*` subjects are removed. The firing subject is `falco.finding.firing.`.

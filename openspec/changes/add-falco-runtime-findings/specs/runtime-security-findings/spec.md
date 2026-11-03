@@ -107,7 +107,7 @@ Runtime finding binding MUST NOT create, merge, restore, or revive devices and M
 - **THEN** no device row SHALL be created or restored
 
 ### Requirement: Runtime finding aggregation is atomic and bounded
-The system SHALL aggregate each batch's occurrences per finding into one atomic update that adds to the lifetime and episode counts, moves first seen and last seen monotonically, raises episode severity monotonically within the current episode, maintains a one-hour tumbling window count, and merges bounded samples.
+The system SHALL aggregate each batch's occurrences per finding into one atomic update that adds to the lifetime and episode counts, moves first seen and last seen monotonically, raises episode severity monotonically within the current episode, and merges bounded samples. The hourly timeline is a query over `runtime_security_occurrences`. The system SHALL NOT store a tumbling window counter.
 Concurrent updates from multiple EventWriter replicas MUST NOT lose counts. Samples SHALL be capped at fixed sizes: 10 process names, 5 latest command lines, 10 images, 20 nodes, 5 users, and 5 latest occurrence ids.
 
 #### Scenario: Concurrent replicas do not lose updates
@@ -120,20 +120,22 @@ Concurrent updates from multiple EventWriter replicas MUST NOT lose counts. Samp
 - **WHEN** they are aggregated
 - **THEN** the finding SHALL store at most 5 command lines
 
-#### Scenario: Window rolls over
-- **GIVEN** a finding whose window started at 10:00 with 40 occurrences
-- **WHEN** an occurrence arrives at 11:05
-- **THEN** a new window SHALL start and its count SHALL be 1
-
 ### Requirement: Runtime finding lifecycle
-A runtime finding SHALL be `active` or `resolved`. It SHALL auto-resolve after a configurable quiet period without occurrences (default 24 hours), SHALL reopen on a new occurrence after resolution with a new episode, and SHALL support operator resolve.
+A runtime finding SHALL be `active` or `resolved`. `active` is OCSF `status_id` 1 (New) or 2 (In Progress), and `resolved` is OCSF `status_id` 4 (Resolved). Falco SHALL store `status_id` 1 when it opens or reopens a finding and `status_id` 4 when it resolves one. Falco SHALL NOT store `status_id` 2 or 3. It SHALL auto-resolve after a configurable quiet period without occurrences (default 24 hours), SHALL reopen on a new occurrence after resolution with a new episode, and SHALL support operator resolve.
 On reopen the new episode's severity SHALL start at the reopening occurrence's severity and SHALL then rise monotonically within that episode. The `reopened` transition SHALL carry that starting severity.
 A new occurrence on an active finding SHALL update counts and samples, and SHALL emit `escalated` when the episode severity rises.
+
+#### Scenario: Active and resolved use the OCSF status codes
+- **GIVEN** a finding opens
+- **THEN** its `status_id` SHALL be 1
+- **WHEN** that finding resolves
+- **THEN** its `status_id` SHALL be 4
+- **AND** the finding SHALL NOT have been stored with `status_id` 2 or 3
 
 #### Scenario: Quiet finding auto-resolves
 - **GIVEN** an active finding with no occurrences for 24 hours
 - **WHEN** the auto-resolve job runs
-- **THEN** the finding SHALL become `resolved` and a `resolved` transition SHALL be emitted
+- **THEN** the finding SHALL become `resolved` with `status_id` 4 and a `resolved` transition SHALL be emitted
 
 #### Scenario: Resolved finding reopens at the new occurrence's severity
 - **GIVEN** a resolved finding whose previous episode severity was Critical
@@ -195,7 +197,7 @@ Runtime finding occurrence counts SHALL be at-least-once: a count MAY exceed the
 
 ### Requirement: Raw Falco evidence is lossless and never dropped
 Each occurrence SHALL retain its raw Falco record losslessly with its SHA-256 digest and byte length. A record up to 1,048,576 bytes SHALL be stored inline on either backend; a larger record SHALL be uploaded to the datasvc object store before its occurrence is written, and the occurrence SHALL carry a reference `{store, key, sha256, bytes, content_type}` with key `runtime-security/raw/<UTC date of the occurrence>/<occurrence id>.json`.
-The system MUST NOT truncate, drop, or merely flag raw evidence. A failed upload, including a full object store bucket, SHALL fail the batch so JetStream redelivers it, and SHALL be counted and raised as a health event. A delivery that reaches `max_deliver` without a stored occurrence SHALL be published to `TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK` with its object references intact, and those objects SHALL NOT be deleted because delivery stopped.
+The system MUST NOT truncate, drop, or merely flag raw evidence. A failed upload, including a full object store bucket, SHALL fail the batch so JetStream redelivers it, and SHALL be counted and raised as a health event. An incomplete part set still inside its reassembly window SHALL NOT be treated as `max_deliver`. A reassembled event that reaches `max_deliver` without both the occurrence and the finding update stored SHALL be published to `TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK` with its staged part payloads and object references intact, and those objects SHALL NOT be deleted because delivery stopped.
 
 #### Scenario: Inline evidence round-trips
 - **GIVEN** a Falco JSON event of 80,000 bytes
@@ -218,7 +220,7 @@ The system MUST NOT truncate, drop, or merely flag raw evidence. A failed upload
 #### Scenario: Max delivery quarantines the evidence
 - **GIVEN** a spilled object was uploaded and the occurrence write then fails until the delivery reaches `max_deliver`
 - **WHEN** the consumer stops redelivery
-- **THEN** the message SHALL be published on `TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK` with that object reference
+- **THEN** the message SHALL be published on `TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK` with that object reference and the staged part payloads
 - **AND** the object SHALL NOT be deleted for that reason
 
 ### Requirement: Spilled evidence retention follows its occurrence
@@ -276,7 +278,7 @@ The agent SHALL return success only after every part of that event is in its dur
 ### Requirement: Oversized Falco events are chunked, reassembled, then spilled
 The agent SHALL spool each accepted event under the `{"serviceradar.falco.event", 1}` contract. The OTLP relay contract SHALL NOT carry these events: it refuses one record above the 512 KiB edge-record bound, and wrapping the Falco JSON as an OTLP log would be a second encoding of `output_fields`, `uuid`, and `tags`.
 An event whose edge record would exceed the 512 KiB bound SHALL be split into ordered parts. Each part SHALL be its own `EdgeRecordV1` with a freshly minted RFC 9562 UUIDv7 `event_id` inside the production-capability window. The agent SHALL reuse that `event_id` from its spool journal when it retries the same part. The Falco `uuid`, or the SHA-256 of the posted JSON when `uuid` is absent, plus `part_index`, `part_total`, and the JSON slice, SHALL travel in the contract payload and SHALL NOT be the edge `event_id`. A single-part event SHALL use `part_index` 0 and `part_total` 1. Each encoded edge record SHALL stay within 512 KiB.
-The projector SHALL concatenate the JSON slices in index order before normalizing, and SHALL write an occurrence only when that concatenation equals the posted JSON and matches the carried digest. The parts that completed the set SHALL be acknowledged after that occurrence and its finding update are stored. Once that occurrence is stored, any redelivered part of the same Falco event SHALL be acknowledged as already stored. Parts SHALL be retained until the set completes or the reassembly window for that Falco event expires. An expired incomplete set SHALL be published to `TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK` with its part payloads intact and SHALL then be acknowledged. After reassembly, a raw record up to 1,048,576 bytes SHALL be stored inline and a larger record SHALL be stored out-of-line as this spec requires. Size SHALL NOT refuse, truncate, or drop an event.
+The projector SHALL stage each part durably, keyed by Falco event id and `part_index`, and SHALL concatenate one slice per index before normalizing. A second delivery of the same `(falco_event_id, part_index)` or the same edge `event_id` SHALL replace that staged slice and SHALL NOT be concatenated again. The projector SHALL write an occurrence only when that concatenation equals the posted JSON and matches the carried digest. A duplicate occurrence insert SHALL be skipped when that occurrence id is already stored, and the finding upsert SHALL still run. The parts that completed the set SHALL be acknowledged only after that occurrence and that finding update have both committed. A redelivered part SHALL be acknowledged with no second occurrence insert only when that finding update has already committed. Parts SHALL stay staged until the set completes or the reassembly window for that Falco event expires. A redelivery while that window is open SHALL NOT be a `max_deliver` terminal and SHALL NOT be published to quarantine. An expired incomplete set SHALL be published to `TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK` with its part payloads intact and SHALL then be acknowledged. After reassembly, a raw record up to 1,048,576 bytes SHALL be stored inline and a larger record SHALL be stored out-of-line as this spec requires. Size SHALL NOT refuse, truncate, or drop an event.
 
 #### Scenario: An event above the edge-record bound is reassembled inline
 - **GIVEN** a posted Falco JSON event of 600,000 bytes
@@ -297,10 +299,24 @@ The projector SHALL concatenate the JSON slices in index order before normalizin
 - **THEN** no occurrence SHALL be written
 - **AND** part 0 SHALL be retained and SHALL NOT be acknowledged
 
-#### Scenario: A redelivered part of a stored event is acknowledged
-- **GIVEN** an occurrence is already stored for a Falco event
+#### Scenario: A redelivered part index is one slice
+- **GIVEN** part 0 and part 1 are staged for a Falco event and the reassembly window is open
+- **WHEN** part 0 is delivered again
+- **THEN** reassembly SHALL concatenate one slice for index 0 and one slice for index 1
+- **AND** the set SHALL stay unacknowledged
+- **AND** the redelivery SHALL NOT be published as a `max_deliver` quarantine
+
+#### Scenario: A redelivered part still updates the finding
+- **GIVEN** an occurrence is stored for a Falco event and its finding update has not committed
 - **WHEN** one part of that event is redelivered
-- **THEN** that part SHALL be acknowledged as already stored
+- **THEN** the projector SHALL skip a second occurrence insert
+- **AND** it SHALL upsert the finding
+- **AND** it SHALL acknowledge the part only after that finding update commits
+
+#### Scenario: A redelivered part of a stored finding is acknowledged
+- **GIVEN** an occurrence and its finding update are both committed for a Falco event
+- **WHEN** one part of that event is redelivered
+- **THEN** that part SHALL be acknowledged
 - **AND** no second occurrence SHALL be written
 
 #### Scenario: An expired incomplete set is quarantined
@@ -310,7 +326,7 @@ The projector SHALL concatenate the JSON slices in index order before normalizin
 - **AND** part 0 SHALL then be acknowledged
 
 ### Requirement: Chart wiring points the Falco DaemonSet at the agent
-When `falcoIngest.enabled` is true, the Helm chart SHALL expose the in-cluster agent's Falco HTTPS port (default 14318) on the `serviceradar-agent` Service, SHALL cause core to grant that agent `{"serviceradar.falco.event", 1}`, and SHALL admit `falcoIngest.namespace` to that port in its network policy.
+When `falcoIngest.enabled` is true, the Helm chart SHALL expose the in-cluster agent's Falco HTTPS port 14318 on the `serviceradar-agent` Service, SHALL NOT offer a port override, SHALL cause core to grant that agent `{"serviceradar.falco.event", 1}`, and SHALL admit `falcoIngest.namespace` to port 14318 in its network policy.
 The chart SHALL render, in `falcoIngest.namespace`, the client certificate, client key, and CA for Falco's `http_output`, and the Falco settings `json_output: true`, `json_include_output_fields_property: true`, `json_include_tags_property: true`, `http_output.enabled: true`, `http_output.url` pointing at `https://<agent-service>:14318/v1/falco/events`, `http_output.mtls: true`, `http_output.compress_uploads: false`, and the certificate paths. `falcoIngest.clusterId` (default `default`) SHALL be the cluster id the agent stamps onto each event. The chart SHALL NOT render a Falcosidekick NATS user, an OTLP ingestion token, or an `otel-collector` add-on for this path. Falcosidekick collector packages SHALL NOT receive NATS credentials.
 
 #### Scenario: Enabled chart renders the Falco http_output material
@@ -321,7 +337,7 @@ The chart SHALL render, in `falcoIngest.namespace`, the client certificate, clie
 - **AND** the agent configuration SHALL stamp cluster id `shop-cluster`
 
 ### Requirement: Falco delivery holds every accepted event
-Operator documentation SHALL state that a Falco event is durably held from the moment the agent returns HTTP success, with every part in the agent edge spool. A complete set becomes an occurrence. A redelivered part of a stored event is acknowledged. An incomplete set whose reassembly window expires, and a delivery that reaches `max_deliver` without a stored occurrence, is published to the security quarantine route with its bytes and object references intact. A failed spool admission is a non-success HTTP response. Documentation SHALL state that guarantee and SHALL NOT list a drop, truncation, or oversize refusal.
+Operator documentation SHALL state that a Falco event is durably held from the moment the agent returns HTTP success, with every part in the agent edge spool. A complete set becomes an occurrence and a finding update, and its parts are acknowledged only after both have committed. A duplicate part index is one staged slice. An incomplete set inside its reassembly window is not a `max_deliver` give-up. An incomplete set whose reassembly window expires, and a reassembled delivery that reaches `max_deliver` without the occurrence and the finding update, is published to the security quarantine route with its part payloads and object references intact. A failed spool admission is a non-success HTTP response. Documentation SHALL state that guarantee and SHALL NOT list a drop, truncation, or oversize refusal.
 
 #### Scenario: Operator reads the delivery guarantee
 - **WHEN** an operator reads the Falco ingestion documentation
