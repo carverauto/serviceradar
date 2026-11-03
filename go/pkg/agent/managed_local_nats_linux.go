@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,7 +21,10 @@ import (
 	"github.com/nats-io/nkeys"
 )
 
-const localNATSEndpoint = "tls://localhost:4222"
+const (
+	localNATSEndpoint        = "tls://localhost:4222"
+	localNATSRevocationProof = "system-activation"
+)
 
 var (
 	errLocalNATSHostBinding        = errors.New("local NATS binding does not belong to this enrolled host")
@@ -51,8 +55,10 @@ type managedLocalNATSBinding struct {
 
 type managedLocalNATSMetadata struct {
 	managedLocalNATSBinding
-	IssuerPublicKey   string `json:"issuer_public_key"`
-	AuthUserPublicKey string `json:"auth_user_public_key"`
+	IssuerPublicKey     string `json:"issuer_public_key"`
+	AuthUserPublicKey   string `json:"auth_user_public_key"`
+	SystemUserPublicKey string `json:"system_user_public_key,omitempty"`
+	GrantTTLSeconds     int64  `json:"grant_ttl_seconds,omitempty"`
 }
 
 type managedLocalNATSAuthorization struct {
@@ -133,9 +139,12 @@ func (s managedCertificateStore) bootstrapLocalNATS(binding managedLocalNATSBind
 	}
 	issuerPublic, _ := issuer.PublicKey()
 	authPublic, _ := auth.PublicKey()
-	metadata := &managedLocalNATSMetadata{binding, issuerPublic, authPublic}
-	if previous != nil && *previous != *metadata {
+	if previous != nil && (previous.IssuerPublicKey != issuerPublic || previous.AuthUserPublicKey != authPublic) {
 		return nil, errLocalNATSKeyMismatch
+	}
+	metadata, err := s.prepareLocalNATSSystemAuthority(binding, previous, issuerPublic, authPublic)
+	if err != nil {
+		return nil, err
 	}
 	componentDir := filepath.Join(s.root, binding.ComponentID)
 	if err := os.MkdirAll(componentDir, 0755); err != nil {
@@ -147,12 +156,7 @@ func (s managedCertificateStore) bootstrapLocalNATS(binding managedLocalNATSBind
 	if err := os.Chmod(componentDir, 0755); err != nil {
 		return nil, err
 	}
-	configuration := fmt.Sprintf(`accounts: {
-  EDGE: {jetstream: enabled}
-  AUTH: {users: [{nkey: %q, permissions: {subscribe: ["$SYS.REQ.USER.AUTH"], publish: ["$SYS._INBOX.>"]}}]}
-}
-authorization: {auth_callout: {issuer: %q, account: AUTH, auth_users: [%q]}}
-`, authPublic, issuerPublic, authPublic)
+	configuration := natsutil.LocalCertificateBrokerAccounts(issuerPublic, authPublic, metadata.SystemUserPublicKey)
 	if err := writeManagedLocalNATSFile(filepath.Join(componentDir, "local-auth.conf"), []byte(configuration), 0640, gid); err != nil {
 		return nil, err
 	}
@@ -162,6 +166,36 @@ authorization: {auth_callout: {issuer: %q, account: AUTH, auth_users: [%q]}}
 	}
 	if err := writeManagedLocalNATSFile(metadataPath, data, 0644, 0); err != nil {
 		return nil, err
+	}
+	return metadata, nil
+}
+
+func (s managedCertificateStore) prepareLocalNATSSystemAuthority(binding managedLocalNATSBinding, previous *managedLocalNATSMetadata, issuerPublic, authPublic string) (*managedLocalNATSMetadata, error) {
+	path := filepath.Join(s.root, ".nats-auth", "system.seed")
+	var key nkeys.KeyPair
+	var err error
+	if previous != nil && previous.SystemUserPublicKey != "" {
+		key, err = readLocalNATSKey(path, false, 0600)
+	} else {
+		key, err = loadOrCreateLocalNATSKey(path, false, 0600, 0)
+	}
+	if err != nil {
+		return nil, err
+	}
+	public, err := key.PublicKey()
+	if err != nil {
+		return nil, err
+	}
+	if previous != nil && previous.SystemUserPublicKey != "" && previous.SystemUserPublicKey != public {
+		return nil, errLocalNATSKeyMismatch
+	}
+	metadata := &managedLocalNATSMetadata{
+		managedLocalNATSBinding: binding, IssuerPublicKey: issuerPublic,
+		AuthUserPublicKey: authPublic, SystemUserPublicKey: public,
+		GrantTTLSeconds: int64(natsutil.DefaultCertificateGrantTTL / time.Second),
+	}
+	if previous != nil && previous.GrantTTLSeconds != 0 {
+		metadata.GrantTTLSeconds = previous.GrantTTLSeconds
 	}
 	return metadata, nil
 }
@@ -260,6 +294,9 @@ func (s managedCertificateStore) readLocalNATSMetadata() (*managedLocalNATSMetad
 	if !managedSafeID(metadata.ComponentID) || !managedSafeID(metadata.PartitionID) || !nkeys.IsValidPublicAccountKey(metadata.IssuerPublicKey) || !nkeys.IsValidPublicUserKey(metadata.AuthUserPublicKey) {
 		return nil, errLocalNATSAuthorityMetadata
 	}
+	if metadata.SystemUserPublicKey != "" && (!nkeys.IsValidPublicUserKey(metadata.SystemUserPublicKey) || metadata.GrantTTLSeconds < 1 || metadata.GrantTTLSeconds > int64(365*24*time.Hour/time.Second)) {
+		return nil, errLocalNATSAuthorityMetadata
+	}
 	return &metadata, nil
 }
 
@@ -326,11 +363,19 @@ func verifyLocalNATSServer(state tls.ConnectionState, identity string) error {
 }
 
 func connectLocalNATS(binding ServerConfig, metadata *managedLocalNATSMetadata) (*nats.Conn, error) {
+	return connectLocalNATSUser(binding, metadata, filepath.Join(managedCertificateRoot, "local-nats-auth.seed"), metadata.AuthUserPublicKey)
+}
+
+func connectLocalNATSSystem(binding ServerConfig, metadata *managedLocalNATSMetadata) (*nats.Conn, error) {
+	return connectLocalNATSUser(binding, metadata, filepath.Join(managedCertificateRoot, ".nats-auth", "system.seed"), metadata.SystemUserPublicKey)
+}
+
+func connectLocalNATSUser(binding ServerConfig, metadata *managedLocalNATSMetadata, seedPath, expectedPublic string) (*nats.Conn, error) {
 	config, err := localNATSTLS(binding, metadata)
 	if err != nil {
 		return nil, err
 	}
-	seed, err := readManagedTrustedFile(filepath.Join(managedCertificateRoot, "local-nats-auth.seed"))
+	seed, err := readManagedTrustedFile(seedPath)
 	if err != nil {
 		return nil, err
 	}
@@ -339,7 +384,7 @@ func connectLocalNATS(binding ServerConfig, metadata *managedLocalNATSMetadata) 
 		return nil, err
 	}
 	public, err := key.PublicKey()
-	if err != nil || public != metadata.AuthUserPublicKey {
+	if err != nil || public != expectedPublic {
 		return nil, errLocalNATSAuthKey
 	}
 	return nats.Connect(localNATSEndpoint, nats.Secure(config), nats.Nkey(public, key.Sign), nats.NoReconnect(), nats.Timeout(time.Second), nats.IgnoreDiscoveredServers())
@@ -380,23 +425,14 @@ func runManagedLocalNATSAuthorization(ctx context.Context, input io.Reader, outp
 		return err
 	}
 	defer broker.Close()
-	privateDir := filepath.Join(managedCertificateRoot, ".nats-auth")
-	if err := validatePrivilegedAddonRootOwnership(privateDir); err != nil {
-		return err
-	}
-	signer, err := readLocalNATSKey(filepath.Join(privateDir, "issuer.seed"), true, 0600)
-	if err != nil {
-		return err
-	}
-	public, err := signer.PublicKey()
-	if err != nil || public != metadata.IssuerPublicKey {
-		return errLocalNATSIssuer
-	}
 	tlsConfig, err := localNATSTLS(binding, metadata)
 	if err != nil {
 		return err
 	}
-	authorizer := natsutil.LocalCertificateAuthorizer{BrokerID: broker.ConnectedServerId(), Roots: tlsConfig.RootCAs, Signer: signer, Permissions: policy.NATSPermissions}
+	authorizer, err := managedLocalNATSAuthority.authorizer(metadata, broker.ConnectedServerId(), tlsConfig.RootCAs, policy.NATSPermissions)
+	if err != nil {
+		return err
+	}
 	result, err := authorizer.Authorize(request.Token, time.Now())
 	if err != nil {
 		return err
@@ -406,6 +442,86 @@ func runManagedLocalNATSAuthorization(ctx context.Context, input io.Reader, outp
 		return err
 	}
 	return json.NewEncoder(output).Encode(localNATSAuthorizationResponse(result, !policy.ValidUntil.After(time.Now()), state))
+}
+
+func runManagedLocalNATSReconciliation(ctx context.Context, output io.Writer) error {
+	store := managedCertificateStore{root: managedCertificateRoot}
+	metadata, err := store.readLocalNATSMetadata()
+	if err != nil {
+		return err
+	}
+	if metadata.SystemUserPublicKey == "" {
+		return json.NewEncoder(output).Encode(struct{ Disconnected int }{})
+	}
+	binding, err := readManagedHostConfig()
+	if err != nil {
+		return err
+	}
+	policy, err := readLocalNATSPolicy()
+	if err != nil {
+		return err
+	}
+	broker, err := connectLocalNATSSystem(binding, metadata)
+	if err != nil {
+		return err
+	}
+	defer broker.Close()
+	disconnected, err := managedLocalNATSAuthority.reconcile(ctx, broker, policy.NATSPermissions)
+	if err != nil {
+		return err
+	}
+	return json.NewEncoder(output).Encode(struct{ Disconnected int }{disconnected})
+}
+
+// localNATSAuthority is the root-only directory holding the local broker's
+// issuer seed and the record of which running broker proved targeted KICK.
+type localNATSAuthority string
+
+const managedLocalNATSAuthority = localNATSAuthority(managedCertificateRoot + "/.nats-auth")
+
+// authorizer issues long grants only for the broker recorded by a successful
+// system-account reconciliation. It reads that record instead of connecting,
+// which would recurse through the callout before the system account activates.
+func (a localNATSAuthority) authorizer(metadata *managedLocalNATSMetadata, brokerID string, roots *x509.CertPool, permissions map[string]natsutil.CertificatePermissions) (natsutil.LocalCertificateAuthorizer, error) {
+	dir := string(a)
+	if err := validatePrivilegedAddonRootOwnership(dir); err != nil {
+		return natsutil.LocalCertificateAuthorizer{}, err
+	}
+	signer, err := readLocalNATSKey(filepath.Join(dir, "issuer.seed"), true, 0600)
+	if err != nil {
+		return natsutil.LocalCertificateAuthorizer{}, err
+	}
+	public, err := signer.PublicKey()
+	if err != nil || public != metadata.IssuerPublicKey {
+		return natsutil.LocalCertificateAuthorizer{}, errLocalNATSIssuer
+	}
+	revocationBroker := ""
+	if proof, err := readManagedTrustedFile(filepath.Join(dir, localNATSRevocationProof)); err == nil {
+		revocationBroker = string(proof)
+	}
+	return natsutil.LocalCertificateAuthorizer{
+		BrokerID: brokerID, Roots: roots, Signer: signer, Permissions: permissions,
+		GrantTTL: time.Duration(metadata.GrantTTLSeconds) * time.Second, RevocationBrokerID: revocationBroker,
+	}, nil
+}
+
+// reconcile records the broker as revocation-capable only after its system
+// account has listed sessions and every required disconnect succeeded.
+func (a localNATSAuthority) reconcile(ctx context.Context, system *nats.Conn, permissions map[string]natsutil.CertificatePermissions) (int, error) {
+	disconnected, err := natsutil.RevokeUnauthorizedLocalClients(ctx, system, permissions)
+	if err != nil {
+		return 0, err
+	}
+	dir := string(a)
+	if err := validatePrivilegedAddonRootOwnership(dir); err != nil {
+		return 0, err
+	}
+	path := filepath.Join(dir, localNATSRevocationProof)
+	brokerID := system.ConnectedServerId()
+	if current, err := readManagedTrustedFile(path); err == nil && string(current) == brokerID {
+		return disconnected, nil
+	}
+	return disconnected, writeManagedLocalNATSFile(path, []byte(brokerID), 0600, 0)
 }
 
 func (p *PushLoop) startManagedLocalNATS(ctx context.Context) {
@@ -508,8 +624,9 @@ func (p *PushLoop) serveManagedLocalNATS(ctx context.Context, metadata *managedL
 	if err := broker.FlushTimeout(time.Second); err != nil {
 		return err
 	}
-	ticker := time.NewTicker(time.Second)
+	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
+	lastReconciliationError := ""
 	for {
 		select {
 		case <-ctx.Done():
@@ -517,6 +634,20 @@ func (p *PushLoop) serveManagedLocalNATS(ctx context.Context, metadata *managedL
 		case <-ticker.C:
 			if broker.IsClosed() {
 				return errLocalNATSBrokerDisconnected
+			}
+			requestCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			var response struct{ Disconnected int }
+			err := callManagedCertificateUpdater(requestCtx, "local-nats-reconcile", struct{}{}, &response)
+			cancel()
+			if err != nil {
+				if err.Error() != lastReconciliationError {
+					p.logger.Warn().Err(err).Msg("Local NATS certificate revocation reconciliation failed")
+				} else {
+					p.logger.Debug().Err(err).Msg("Local NATS certificate revocation reconciliation failed")
+				}
+				lastReconciliationError = err.Error()
+			} else {
+				lastReconciliationError = ""
 			}
 		}
 	}

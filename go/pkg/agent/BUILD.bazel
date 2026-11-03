@@ -643,6 +643,8 @@ go_test(
     deps = [
         "//go/pkg/logger",
         "//go/pkg/models",
+        "@com_github_nats_io_jwt_v2//:jwt",
+        "@com_github_nats_io_nats_server_v2//server",
         "@com_github_nats_io_nkeys//:nkeys",
         "@com_github_rs_zerolog//:zerolog",
     ],
