@@ -67,35 +67,7 @@ impl TopologyClient {
     pub async fn upsert_device(&self, device: &DeviceWrite) -> Result<(), TopologyError> {
         let id = dql_string(device.id())?;
         let query = format!("{{ q(func: eq(device.id, {id})) {{ v as uid }} }}");
-        let mut node = json!({
-            "uid": "uid(v)",
-            "dgraph.type": "Device",
-            "device.id": device.id(),
-        });
-        if let Some(hostname) = device.hostname() {
-            node["device.hostname"] = json!(hostname);
-        }
-        if let Some(ip) = device.ip() {
-            node["device.ip"] = json!(ip);
-        }
-        if let Some(revision) = device.config_revision_id() {
-            node["device.config_revision_id"] = json!(revision);
-        }
-        if let Some(severity) = device.pkg_worst_severity() {
-            node["device.pkg_worst_severity"] = json!(severity);
-        }
-        if let Some(count) = device.pkg_critical_count() {
-            node["device.pkg_critical_count"] = json!(count);
-        }
-        if let Some(count) = device.pkg_kev_count() {
-            node["device.pkg_kev_count"] = json!(count);
-        }
-        if let Some(flag) = device.pkg_has_unpatched_rce() {
-            node["device.pkg_has_unpatched_rce"] = json!(flag);
-        }
-        if let Some(at) = device.pkg_risk_summary_at() {
-            node["device.pkg_risk_summary_at"] = json!(at);
-        }
+        let node = device_node(device, "uid(v)");
         let _: Value = self
             .upsert(&query, "@if(ge(len(v), 0))", &node, None)
             .await?;
@@ -117,19 +89,8 @@ impl TopologyClient {
   iface(func: eq(iface.key, {key})) {{ i as uid }}
 }}"
         );
-        let mut node = json!({
-            "uid": "uid(i)",
-            "dgraph.type": "Interface",
-            "iface.key": iface.key(),
-        });
-        if let Some(name) = iface.name() {
-            node["iface.name"] = json!(name);
-        }
-        if let Some(if_index) = iface.if_index() {
-            node["iface.if_index"] = json!(if_index);
-        }
         let set = json!([
-            node,
+            interface_node(iface, "uid(i)"),
             {
                 "uid": "uid(d)",
                 "device.interfaces": [{"uid": "uid(i)"}]
@@ -140,6 +101,92 @@ impl TopologyClient {
             .await?;
         require_block(&blocks.device, "device", iface.device_id())?;
         Ok(())
+    }
+
+    /// Upsert Devices and the Interfaces they own in one Dgraph request: one
+    /// conditional mutation per device writes the device, every interface in
+    /// `interfaces` whose `device_id` names it, and the `device.interfaces`
+    /// edges between them. Writes exactly what [`Self::upsert_device`]
+    /// followed by [`Self::upsert_interface`] for each interface would, without
+    /// a round trip per interface. Idempotent.
+    ///
+    /// A device id held by more than one Device vertex is ambiguous: its
+    /// mutation is skipped and its id is returned, so one bad identity cannot
+    /// fail the rest of the batch.
+    ///
+    /// # Errors
+    ///
+    /// [`TopologyError::InvalidValue`] when a device id repeats, an interface
+    /// names a device outside `devices`, or a value cannot be placed in DQL;
+    /// otherwise as [`Self::upsert_device`].
+    pub async fn upsert_device_graphs(
+        &self,
+        devices: &[DeviceWrite],
+        interfaces: &[InterfaceWrite],
+    ) -> Result<Vec<String>, TopologyError> {
+        if devices.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut owned: Vec<Vec<&InterfaceWrite>> = vec![Vec::new(); devices.len()];
+        let mut index_of = std::collections::HashMap::with_capacity(devices.len());
+        for (index, device) in devices.iter().enumerate() {
+            if index_of.insert(device.id(), index).is_some() {
+                return Err(TopologyError::InvalidValue(format!(
+                    "device {} repeats in one device-graph batch",
+                    device.id()
+                )));
+            }
+        }
+        for iface in interfaces {
+            let Some(&index) = index_of.get(iface.device_id()) else {
+                return Err(TopologyError::InvalidValue(format!(
+                    "interface {} names device {} outside the batch",
+                    iface.key(),
+                    iface.device_id()
+                )));
+            };
+            owned[index].push(iface);
+        }
+
+        let mut query = String::from("{\n");
+        let mut mutations = Vec::with_capacity(devices.len());
+        for (index, (device, ifaces)) in devices.iter().zip(&owned).enumerate() {
+            let id = dql_string(device.id())?;
+            query.push_str(&format!(
+                "  dev{index}(func: eq(device.id, {id})) {{ dv{index} as uid }}\n"
+            ));
+            let mut device_node = device_node(device, &format!("uid(dv{index})"));
+            let mut set = Vec::with_capacity(ifaces.len() + 1);
+            let mut edges = Vec::with_capacity(ifaces.len());
+            for (slot, iface) in ifaces.iter().enumerate() {
+                let key = dql_string(iface.key())?;
+                let var = format!("i{index}_{slot}");
+                query.push_str(&format!(
+                    "  var(func: eq(iface.key, {key})) {{ {var} as uid }}\n"
+                ));
+                let uid = format!("uid({var})");
+                set.push(interface_node(iface, &uid));
+                edges.push(json!({ "uid": uid }));
+            }
+            if !edges.is_empty() {
+                device_node["device.interfaces"] = Value::Array(edges);
+            }
+            set.insert(0, device_node);
+            mutations.push(mutation(
+                &format!("@if(le(len(dv{index}), 1))"),
+                &Value::Array(set),
+                None,
+            )?);
+        }
+        query.push('}');
+        let blocks: std::collections::HashMap<String, Vec<UidRow>> =
+            self.upsert_mutations(&query, mutations).await?;
+        Ok(devices
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| blocks.get(&format!("dev{index}")).map_or(0, Vec::len) > 1)
+            .map(|(_, device)| device.id().to_owned())
+            .collect())
     }
 
     /// Upsert a Prefix on `prefix.cidr`.
@@ -370,8 +417,58 @@ impl TopologyClient {
     /// As [`Self::upsert_edge`]: [`TopologyError::ConditionSkipped`] names the
     /// first edge whose source or target is missing.
     pub async fn upsert_canonical_edges(&self, edges: &[EdgeWrite]) -> Result<(), TopologyError> {
+        for (edge, endpoints) in edges.iter().zip(self.upsert_edge_batch(edges).await?) {
+            require_rows(endpoints.src, "src", edge.source())?;
+            require_rows(endpoints.dst, "dst", edge.target())?;
+        }
+        Ok(())
+    }
+
+    /// Upsert a batch of edges in one Dgraph transaction, as
+    /// [`Self::upsert_canonical_edges`] does, and return the link keys of the
+    /// edges that were not written because an endpoint is missing or matches
+    /// more than one vertex. The other edges are written; a skipped edge is
+    /// reported rather than failing the batch, as one edge per call would.
+    ///
+    /// A link key that repeats keeps its last occurrence, which is what
+    /// writing the edges one at a time would leave. Both mutations would
+    /// otherwise resolve the same absent edge and create it twice.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TopologyError`] if the transaction fails or a value cannot be
+    /// placed in DQL.
+    pub async fn upsert_edges(&self, edges: &[EdgeWrite]) -> Result<Vec<String>, TopologyError> {
+        let keys: Vec<String> = edges.iter().map(EdgeWrite::link_key).collect();
+        let last: std::collections::HashMap<&str, usize> = keys
+            .iter()
+            .enumerate()
+            .map(|(index, key)| (key.as_str(), index))
+            .collect();
+        let (unique, unique_keys): (Vec<EdgeWrite>, Vec<&String>) = edges
+            .iter()
+            .zip(&keys)
+            .enumerate()
+            .filter(|(index, (_, key))| last[key.as_str()] == *index)
+            .map(|(_, (edge, key))| (edge.clone(), key))
+            .unzip();
+        Ok(unique_keys
+            .into_iter()
+            .zip(self.upsert_edge_batch(&unique).await?)
+            .filter(|(_, endpoints)| endpoints.src != 1 || endpoints.dst != 1)
+            .map(|(key, _)| key.clone())
+            .collect())
+    }
+
+    /// One request carrying one conditional mutation per edge. Returns, per
+    /// edge and in order, how many vertices matched each endpoint; the
+    /// mutation applied only where both counts are exactly one.
+    async fn upsert_edge_batch(
+        &self,
+        edges: &[EdgeWrite],
+    ) -> Result<Vec<EndpointMatches>, TopologyError> {
         if edges.is_empty() {
-            return Ok(());
+            return Ok(Vec::new());
         }
         let mut query = String::from("{\n");
         let mut mutations = Vec::with_capacity(edges.len());
@@ -387,17 +484,13 @@ impl TopologyClient {
         query.push('}');
         let blocks: std::collections::HashMap<String, Vec<UidRow>> =
             self.upsert_mutations(&query, mutations).await?;
-        for (index, edge) in edges.iter().enumerate() {
-            let src = blocks
-                .get(&format!("src{index}"))
-                .map_or(&[][..], Vec::as_slice);
-            let dst = blocks
-                .get(&format!("dst{index}"))
-                .map_or(&[][..], Vec::as_slice);
-            require_block(src, "src", edge.source())?;
-            require_block(dst, "dst", edge.target())?;
-        }
-        Ok(())
+        let rows = |name: String| blocks.get(&name).map_or(0, Vec::len);
+        Ok((0..edges.len())
+            .map(|index| EndpointMatches {
+                src: rows(format!("src{index}")),
+                dst: rows(format!("dst{index}")),
+            })
+            .collect())
     }
 
     /// Link keys of canonical edges currently stored that are not among
@@ -1081,14 +1174,74 @@ fn mutation(
     Ok(mutation)
 }
 
-fn require_block(rows: &[UidRow], block: &str, key: &str) -> Result<(), TopologyError> {
-    if rows.is_empty() {
+/// Vertices matched by each endpoint of one edge in a batched upsert.
+struct EndpointMatches {
+    src: usize,
+    dst: usize,
+}
+
+fn require_rows(rows: usize, block: &str, key: &str) -> Result<(), TopologyError> {
+    if rows == 0 {
         return Err(TopologyError::ConditionSkipped(
             block.to_string(),
             key.to_string(),
         ));
     }
     Ok(())
+}
+
+/// The Device node a write sets, addressed by `uid` (a `uid(var)` reference).
+fn device_node(device: &DeviceWrite, uid: &str) -> Value {
+    let mut node = json!({
+        "uid": uid,
+        "dgraph.type": "Device",
+        "device.id": device.id(),
+    });
+    if let Some(hostname) = device.hostname() {
+        node["device.hostname"] = json!(hostname);
+    }
+    if let Some(ip) = device.ip() {
+        node["device.ip"] = json!(ip);
+    }
+    if let Some(revision) = device.config_revision_id() {
+        node["device.config_revision_id"] = json!(revision);
+    }
+    if let Some(severity) = device.pkg_worst_severity() {
+        node["device.pkg_worst_severity"] = json!(severity);
+    }
+    if let Some(count) = device.pkg_critical_count() {
+        node["device.pkg_critical_count"] = json!(count);
+    }
+    if let Some(count) = device.pkg_kev_count() {
+        node["device.pkg_kev_count"] = json!(count);
+    }
+    if let Some(flag) = device.pkg_has_unpatched_rce() {
+        node["device.pkg_has_unpatched_rce"] = json!(flag);
+    }
+    if let Some(at) = device.pkg_risk_summary_at() {
+        node["device.pkg_risk_summary_at"] = json!(at);
+    }
+    node
+}
+
+/// The Interface node a write sets, addressed by `uid` (a `uid(var)` reference).
+fn interface_node(iface: &InterfaceWrite, uid: &str) -> Value {
+    let mut node = json!({
+        "uid": uid,
+        "dgraph.type": "Interface",
+        "iface.key": iface.key(),
+    });
+    if let Some(name) = iface.name() {
+        node["iface.name"] = json!(name);
+    }
+    if let Some(if_index) = iface.if_index() {
+        node["iface.if_index"] = json!(if_index);
+    }
+    node
+}
+
+fn require_block(rows: &[UidRow], block: &str, key: &str) -> Result<(), TopologyError> {
+    require_rows(rows.len(), block, key)
 }
 
 /// Reject values that would break DQL string literals.

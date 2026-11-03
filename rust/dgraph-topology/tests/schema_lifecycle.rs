@@ -27,7 +27,10 @@ use std::collections::BTreeSet;
 use std::time::{Duration, Instant};
 
 use dgraph_migrate::{Mode, Outcome, run_with_client, verify};
-use dgraph_topology::{DeviceWrite, EdgeWrite, PREDICATES, TYPES, TopologyClient, schema_spec};
+use dgraph_topology::{
+    DeviceWrite, EdgeKind, EdgeWrite, InterfaceWrite, PREDICATES, TYPES, TopologyClient,
+    schema_spec,
+};
 use serde::Deserialize;
 
 #[path = "support/fixture.rs"]
@@ -277,6 +280,134 @@ async fn canonical_edges_are_rebuilt_in_batched_transactions() {
         );
     })
     .await;
+}
+
+/// The mapper projection writes one device with all of its interfaces per
+/// mutation, and a report's edges in one transaction. The graph it leaves must
+/// be the one per-item writes leave, and repeating it must change nothing.
+#[tokio::test]
+async fn batched_device_graphs_and_edges_match_per_item_writes() {
+    with_scratch(Duration::from_secs(300), |client, _target| async move {
+        run_with_client(&client, schema_spec(), Mode::Migrate)
+            .await
+            .expect("apply topology schema");
+        let topology = TopologyClient::new(client);
+        let ports = ["eth0", "eth1", "eth2"];
+        let ifaces = |device: &str| -> Vec<InterfaceWrite> {
+            ports
+                .iter()
+                .zip(1..)
+                .map(|(port, index)| {
+                    InterfaceWrite::new(format!("{device}/{port}"), device)
+                        .with_name(*port)
+                        .with_if_index(index)
+                })
+                .collect()
+        };
+        let edge = |source: &str, target: &str| {
+            EdgeWrite::mapper_evidence(
+                source,
+                target,
+                EdgeKind::ConnectsTo,
+                "lldp",
+                "direct-physical",
+            )
+            .with_interfaces("eth1", 2, "Gi0/1", 0)
+            .with_confidence("high")
+            .with_last_seen("2030-01-01T00:00:00Z")
+        };
+
+        // Per item, as the projection wrote before.
+        let (a, b) = ("sr:item-a.example.com", "sr:item-b.example.com");
+        topology
+            .upsert_device(&DeviceWrite::new(a).with_ip("192.0.2.10"))
+            .await
+            .expect("device");
+        topology
+            .upsert_device(&DeviceWrite::new(b))
+            .await
+            .expect("device");
+        for iface in ifaces(a) {
+            topology.upsert_interface(&iface).await.expect("interface");
+        }
+        topology
+            .upsert_interface(&InterfaceWrite::new(format!("{b}/Gi0/1"), b).with_name("Gi0/1"))
+            .await
+            .expect("interface");
+        topology.upsert_edge(&edge(a, b)).await.expect("edge");
+
+        // Batched, twice: a repeat must be a no-op.
+        let (c, d) = ("sr:batch-a.example.com", "sr:batch-b.example.com");
+        let devices = [
+            DeviceWrite::new(c).with_ip("192.0.2.10"),
+            DeviceWrite::new(d),
+        ];
+        let mut interfaces = ifaces(c);
+        interfaces.push(InterfaceWrite::new(format!("{d}/Gi0/1"), d).with_name("Gi0/1"));
+        for _ in 0..2 {
+            let skipped = topology
+                .upsert_device_graphs(&devices, &interfaces)
+                .await
+                .expect("device graphs");
+            assert!(skipped.is_empty(), "no device is ambiguous: {skipped:?}");
+            let skipped = topology
+                .upsert_edges(&[edge(c, d), edge(c, d)])
+                .await
+                .expect("edges");
+            assert!(skipped.is_empty(), "both endpoints exist: {skipped:?}");
+        }
+
+        for (item, batch) in [(a, c), (b, d)] {
+            assert_eq!(
+                device_shape(&topology, batch).await,
+                device_shape(&topology, item).await,
+                "{batch} must be stored as {item} is"
+            );
+        }
+
+        // An edge whose endpoint is missing is reported, not written, and does
+        // not fail the edges beside it.
+        let skipped = topology
+            .upsert_edges(&[edge(c, "sr:absent.example.com"), edge(d, c)])
+            .await
+            .expect("edges");
+        assert_eq!(skipped, vec![edge(c, "sr:absent.example.com").link_key()]);
+        assert_eq!(
+            device_shape(&topology, d).await["edges"]
+                .as_array()
+                .map(Vec::len),
+            Some(1)
+        );
+
+        let outside = topology
+            .upsert_device_graphs(&devices[..1], &interfaces)
+            .await
+            .expect_err("an interface outside the batch is refused");
+        assert!(
+            outside.to_string().contains("outside the batch"),
+            "{outside}"
+        );
+    })
+    .await;
+}
+
+/// A device's stored attributes, interfaces and outgoing edges, with its own
+/// id removed so two devices written different ways can be compared.
+async fn device_shape(topology: &TopologyClient, id: &str) -> serde_json::Value {
+    let query = format!(
+        "{{ d(func: eq(device.id, \"{id}\")) {{
+            device.ip
+            device.interfaces (orderasc: iface.key) {{ iface.key iface.name iface.if_index }}
+            edges: ~topo.src {{
+                topo.kind topo.protocol topo.evidence_class topo.confidence_tier
+                topo.if_name_ab topo.if_index_ab topo.if_name_ba topo.last_seen topo.stale
+            }}
+        }} }}"
+    );
+    let value = topology.query_dql(&query).await.expect("read device");
+    let rows = value["d"].as_array().expect("device rows");
+    assert_eq!(rows.len(), 1, "exactly one vertex carries {id}");
+    serde_json::from_str(&rows[0].to_string().replace(id, "<id>")).expect("shape")
 }
 
 #[derive(Debug, Deserialize)]

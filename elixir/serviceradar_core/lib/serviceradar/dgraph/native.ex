@@ -38,6 +38,14 @@ defmodule ServiceRadar.Dgraph.Native do
   @spec upsert_interface(url(), map(), deadline_ms()) :: submission()
   def upsert_interface(_url, _iface, _deadline_ms), do: :erlang.nif_error(:nif_not_loaded)
 
+  @doc """
+  Upsert devices and the interfaces they own in one request, one conditional
+  mutation per device. Replies `{:ok, skipped_device_ids}`.
+  """
+  @spec upsert_device_graphs(url(), [map()], [map()], deadline_ms()) :: submission()
+  def upsert_device_graphs(_url, _devices, _interfaces, _deadline_ms),
+    do: :erlang.nif_error(:nif_not_loaded)
+
   @spec upsert_prefix(url(), map(), deadline_ms()) :: submission()
   def upsert_prefix(_url, _prefix, _deadline_ms), do: :erlang.nif_error(:nif_not_loaded)
 
@@ -52,6 +60,10 @@ defmodule ServiceRadar.Dgraph.Native do
 
   @spec upsert_edge(url(), map(), deadline_ms()) :: submission()
   def upsert_edge(_url, _edge, _deadline_ms), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc "Upsert edges in one transaction. Replies `{:ok, skipped_link_keys}`."
+  @spec upsert_edges(url(), [map()], deadline_ms()) :: submission()
+  def upsert_edges(_url, _edges, _deadline_ms), do: :erlang.nif_error(:nif_not_loaded)
 
   @spec retire_hosted_edge(url(), String.t(), String.t(), String.t(), deadline_ms()) ::
           submission()
