@@ -594,7 +594,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
          start_time,
          opts
        ) do
-    execution =
+    {execution, terminal} =
       update_execution(
         execution_id,
         sweep_group_id,
@@ -607,6 +607,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     broadcast_execution_progress(
       execution_id,
       execution,
+      terminal,
       final_stats,
       Keyword.get(opts, :chunk_index),
       Keyword.get(opts, :total_chunks)
@@ -2563,7 +2564,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
             "leaving its progress and status unchanged"
         )
 
-        nil
+        {nil, nil}
 
       {_updated, terminal} ->
         maybe_set_expected_total(execution_id, expected_total_hosts, updated_at)
@@ -2581,7 +2582,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           is_final
         )
 
-        fetch_execution(execution_id)
+        {fetch_execution(execution_id), terminal}
     end
   end
 
@@ -3225,7 +3226,14 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     }
   end
 
-  defp broadcast_execution_progress(execution_id, execution, stats, chunk_index, total_chunks) do
+  defp broadcast_execution_progress(
+         execution_id,
+         execution,
+         terminal,
+         stats,
+         chunk_index,
+         total_chunks
+       ) do
     if is_nil(execution) do
       :ok
     else
@@ -3249,7 +3257,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
       SweepPubSub.broadcast_progress(execution_id, progress)
 
-      if execution.status in [:completed, :cancelled] do
+      if terminal in [:completed, :cancelled, :reclassified] do
         SweepPubSub.broadcast_completed(execution, %{
           hosts_total: execution.hosts_total,
           hosts_available: hosts_available,
