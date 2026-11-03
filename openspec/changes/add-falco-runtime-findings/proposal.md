@@ -93,7 +93,8 @@ Three structural problems sit underneath that:
   `refactor-durable-alert-admission`; consumes `platform.workload_identity_current` from
   `add-workload-identity-enrichment`. Terminal Falco deliveries depend on the generic
   edge-record dead-letter in the EventWriter edge-record processor
-  (`feat/edge-record-dead-letter`). This change does not define that stream.
+  (`feat/edge-record-dead-letter`). A dead-lettered set publishes every staged sibling part
+  and, once spilled, the object reference together. This change does not define that stream.
 - **BREAKING (operator-visible):** Falco occurrences no longer appear in `in:events` /
   `in:security_findings` or the Logs page; their history moves to
   `in:runtime_security_occurrences`. The `falco_critical_incident` rule is retired. Existing

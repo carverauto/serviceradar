@@ -164,10 +164,11 @@ resolution runs for the subject (`device_uid`) and for the node the occurrence r
   command lines, top 10 images, top 20 nodes with counts, top 5 users, 5 latest occurrence ids.
   Samples outlive the occurrences they came from.
 - **Counts are at-least-once** (user decision). Occurrence rows are idempotent on their id. The
-  finding upsert runs when that occurrence's finding update has not committed, and it does not
-  apply the delta again when it has. A count can be inflated only if the process stops between
-  the CNPG commit and the acknowledgement of that write. A retried publish that observes the
-  committed finding does not count again. The occurrence dataset is the exact count.
+  count delta is applied only by the single winner of the stage row for that occurrence. A
+  second in-flight publish that does not win the stage row does not apply the delta. A later
+  publish that observes the committed finding update does not apply the delta again. A count
+  can be inflated only if that winning process stops between the CNPG commit and the
+  acknowledgement of that write. The occurrence dataset is the exact count.
   No per-occurrence receipt ledger is added.
 
 ### Decision 5: Occurrences are a new telemetry dataset, on exactly one backend
@@ -191,7 +192,8 @@ table, writer and reader stay for installations without StarRocks.
 - **Occurrence id** is derived from the JSON `uuid` when present, otherwise from the digest of
   the raw JSON.
 - **Write order:** spilled raw objects (Decision 6), then the occurrence load, then the finding
-  upsert and transition outbox. A failure at any step fails the batch and JetStream redelivers it.
+  upsert and transition outbox. A failure at any step fails the batch. The completing delivery
+  is still unacknowledged, so JetStream redelivers it.
 - **No generic `logs` row** (user decision). A recognized Falco record is not written to `logs`;
   the occurrence holds the raw record and is queryable through SRQL.
 - **Free-text column widths.** In the warehouse, `process_cmdline`, `fd_name` and the other
@@ -212,19 +214,23 @@ table, writer and reader stay for installations without StarRocks.
   "sha256": "<hex>", "bytes": <n>, "content_type": "application/json"}`. The date is the
   occurrence's UTC `time` date.
 - **Nothing is dropped.** An upload that fails (including a full bucket, which the store refuses
-  rather than evicts) fails the batch; JetStream redelivers and the upload is retried under the
-  same key. The failure is counted and raised as a health event. There is no "mark oversize and
-  continue" path. A part set still inside its reassembly window is not this terminal: a
-  redelivery in that window is a duplicate staged part (Decision 9), not a dead-letter. Falco
-  does not define its own dead-letter subject. A spilled record whose occurrence or finding
-  write keeps failing, and an incomplete part set whose reassembly window has expired, use the
-  generic edge-record dead-letter in the EventWriter edge-record processor
-  (`feat/edge-record-dead-letter`), which covers every contract. The source delivery of a part
-  is acknowledged when that part is durably staged (Decision 9), so an open hold never reaches
-  `max_deliver`. Before a terminal write would reach `max_deliver`, that processor publishes
-  the original edge record durably (PubAck), retains its object references, counts it, alerts,
-  and supports replay. The original edge record carries the part payload. The stage is released
-  only after that publication is durable.
+  rather than evicts) fails the batch. The completing delivery is still unacknowledged, so
+  JetStream redelivers it and the upload is retried under the same key. The failure is counted and raised as a health event. There is no "mark oversize and
+  continue" path. A part that leaves the set incomplete is not this terminal. While the
+  reassembly window is open, that hold refreshes ack progress so `num_delivered` does not
+  advance and the part is not dead-lettered (Decision 9). That source is not acknowledged.
+  Falco does not define its own dead-letter subject. A spilled record whose occurrence or
+  finding write keeps failing, and an incomplete part set whose reassembly window has expired,
+  use the generic edge-record dead-letter in the EventWriter edge-record processor
+  (`feat/edge-record-dead-letter`), which covers every contract. The completing delivery stays
+  unacknowledged, and its attempts count toward `max_deliver`. Before that delivery would reach
+  `max_deliver`, or when the reassembly window expires, the processor publishes every staged
+  sibling part's original edge record together, each including its JSON slice. Once the raw
+  record has been spilled, each published record carries the object reference
+  `runtime-security/raw/<yyyy-mm-dd>/<occurrence_id>.json` that the retention pass matches. The publication is durable (PubAck)
+  before any source part is acknowledged and before the stage is released. The processor counts
+  the set, alerts, and supports replay. No staged sibling part is dropped. Retention treats
+  that object reference as still referenced.
 - **Retention coupling.** An object lives as long as the occurrence or dead-lettered edge record
   that references it. The occurrence dataset is day-partitioned on both backends, and the object
   key carries the same UTC day. `ServiceRadar.ObjectStore.RetentionWorker` gains a runtime-evidence
@@ -320,19 +326,27 @@ is its own `EdgeRecordV1`:
   `(falco_event_id, part_index)` or the same edge `event_id` replaces that staged slice and is
   not concatenated again. The concatenation must equal the posted JSON and match `raw_sha256`.
 
-The projector stages each part durably, keyed by `(falco_event_id, part_index)`, then
-acknowledges that source delivery. The open-window hold is the stage, so it does not consume
-further delivery attempts and is not dead-lettered. Reassembly reads the stage. A duplicate
-occurrence insert is skipped when that occurrence id is already stored. The finding upsert runs
-when that occurrence's finding update has not committed, and it does not apply the delta again
-when it has. The stage of a complete set is released only after the occurrence and that finding
-update have both committed. Parts stay staged until the set completes or the reassembly window
-for that `falco_event_id` expires. A redelivery while that window is open is the duplicate-slice
-rule above: it is acknowledged and it is not dead-lettered. An expired incomplete set is handed
-to the generic edge-record dead-letter (Decision 6): each staged original edge record, including
-its JSON slice, is published durably, and the stage is released only after that publication is
-durable. It is not discarded. After a complete reassembly, Decision 6 applies:
-inline up to 1 MiB, object store above that. Size never refuses, truncates, or drops an event.
+The projector stages each part durably, keyed by `(falco_event_id, part_index)`. It does not
+acknowledge any source part before the occurrence and the finding update have both committed,
+except when the generic dead-letter publication below is durable. A part that leaves the set
+incomplete stays unacknowledged. While the reassembly window is open, that hold refreshes ack
+progress, so `num_delivered` does not advance and the part is not dead-lettered. Reassembly
+reads the stage. The delivery that completes the set, including the only delivery of a
+single-part event, stays unacknowledged. Its attempts count toward `max_deliver`. The projector
+acknowledges that delivery, and every staged sibling still unacknowledged, only after the
+occurrence and the finding update have both committed, or after the dead-letter publication is
+durable. A duplicate occurrence insert is skipped when that occurrence id is already stored.
+The count delta is applied only by the single winner of the stage row. A second in-flight
+publish that does not win, and a later publish that observes the committed finding update, does
+not apply the delta again. The stage of a complete set is released only after both writes have
+committed, or after that dead-letter publication is durable. An incomplete set stays staged
+until it completes or the reassembly window for that `falco_event_id` expires. A redelivery of a part that
+still leaves the set incomplete replaces the staged slice, refreshes ack progress, and is not
+dead-lettered. An expired incomplete set is handed to the generic edge-record dead-letter
+(Decision 6): every staged original edge record, including its JSON slice, is published
+together, and the stage is released only after that publication is durable. It is not
+discarded. After a complete reassembly, Decision 6 applies: inline up to 1 MiB, object store
+above that. Size never refuses, truncates, or drops an event.
 
 **Endpoint auth.** Falco's `http_output` supports `mtls`, `client_cert`, `client_key`, and
 `ca_cert`. It has no custom-header token. The agent already authenticates callers with
@@ -370,14 +384,15 @@ ones are revoked). Release notes require pointing the Falco DaemonSet `http_outp
 in that upgrade. An unmigrated NATS publisher is refused. There is no flag that keeps both paths.
 
 **Delivery confirmation (task 0.4).** The agent returns HTTP success only after every part is in
-its durable edge spool. The projector acknowledges a source part once that part is durably
-staged, so an open reassembly hold does not consume delivery attempts. The stage of a complete
-set is released only after the occurrence and the finding update are both stored. A duplicate
-occurrence insert is skipped. The finding upsert runs only when that update has not committed.
-An incomplete set inside its reassembly window stays staged and is not dead-lettered. The stage
-of an expired incomplete set is released only after the generic edge-record dead-letter
-publication of its original records is durable. A spool admission failure is a non-success HTTP
-response, so the agent has not accepted an event it cannot hold.
+its durable edge spool. The projector does not acknowledge any source part before the occurrence
+and the finding update have both committed, except when the generic edge-record dead-letter
+publication of every staged sibling part, and any spill object reference, is durable. A part
+that leaves the set incomplete refreshes ack progress while the reassembly window is open, so
+that hold does not advance `num_delivered` and is not dead-lettered. The completing delivery
+stays unacknowledged until both writes commit or that publication is durable, and its attempts
+count. The count delta is applied only by the single winner of the stage row. A duplicate
+occurrence insert is skipped. A spool admission failure is a non-success HTTP response, so the
+agent has not accepted an event it cannot hold.
 
 ### Decision 10: SRQL entities
 
@@ -456,12 +471,14 @@ handling, migration, sequencing, and transport on 2026-11-02 and 2026-11-03. The
 transport decision is Falco `http_output` into a chunked Falco edge contract, with the attested
 partition in the workload uid and in the finding-uid hash, a bound node still showing the
 finding, and no operator suppression or SRQL aliases. Each Falco part uses its own in-window
-UUIDv7 edge `event_id`, and a redelivered part index is one staged slice. An in-window wait is
-acknowledged after its durable stage and is not dead-lettered. An expired incomplete set, and a
-spilled record whose occurrence write keeps failing, use the generic edge-record dead-letter
-(`feat/edge-record-dead-letter`). The stage is released only after that publication is durable,
-and dead-lettered object references stay retained. A complete set's stage is released only after
-the finding commit. A retried publish of a committed occurrence does not count again. A reopened episode
+UUIDv7 edge `event_id`, and a redelivered part index is one staged slice. A part that leaves the
+set incomplete refreshes ack progress during the open window and is not acknowledged or
+dead-lettered. The completing delivery stays unacknowledged until the occurrence and the finding
+update commit, or until every staged sibling part and any spill object reference are published
+together to the generic edge-record dead-letter (`feat/edge-record-dead-letter`) and that
+publication is durable. That delivery's attempts count. The count delta is applied only by the
+single winner of the stage row. A retried publish that observes the committed finding does not
+count again. A reopened episode
 starts at the new occurrence's severity. Active is status_id 1
 (`status:active` also matches 2) and resolved is status_id 4. The Falco port is 14318 with no
 override, there is no stored window counter, and a customized `falco_critical_incident` copy

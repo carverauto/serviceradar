@@ -187,9 +187,10 @@ The system MUST NOT write occurrences to both backends and MUST keep the CNPG ta
 - **WHEN** the batch is processed
 - **THEN** no finding SHALL be updated for that batch
 - **AND** the stage SHALL be retained
+- **AND** the completing delivery SHALL NOT be acknowledged
 
 ### Requirement: Finding counts are at-least-once
-Runtime finding occurrence counts SHALL be at-least-once. A count MAY exceed the stored occurrences only when a process stops between the finding commit and the acknowledgement of that write. A later publish of an occurrence whose finding update has already committed SHALL NOT apply the count delta again. The occurrence dataset SHALL remain the exact count.
+Runtime finding occurrence counts SHALL be at-least-once. The count delta SHALL be applied only by the single winner of the stage row for that occurrence. A count MAY exceed the stored occurrences only when that winning process stops between the finding commit and the acknowledgement of that write. A second in-flight publish that does not win the stage row SHALL NOT apply the count delta. A later publish of an occurrence whose finding update has already committed SHALL NOT apply the count delta again. The occurrence dataset SHALL remain the exact count. The system SHALL NOT add a per-occurrence receipt ledger.
 
 #### Scenario: Exact count is available
 - **WHEN** an operator needs the exact number of occurrences for a finding
@@ -201,9 +202,15 @@ Runtime finding occurrence counts SHALL be at-least-once. A count MAY exceed the
 - **THEN** the finding count SHALL NOT increase
 - **AND** no second occurrence SHALL be written
 
+#### Scenario: Two in-flight publishes count once
+- **GIVEN** two publishes of the same Falco event are in flight and the finding update has not committed
+- **WHEN** both are processed
+- **THEN** the count delta SHALL be applied once, by the single winner of the stage row
+- **AND** the publish that does not win the stage row SHALL NOT apply the count delta
+
 ### Requirement: Raw Falco evidence is lossless and never dropped
 Each occurrence SHALL retain its raw Falco record losslessly with its SHA-256 digest and byte length. A record up to 1,048,576 bytes SHALL be stored inline on either backend; a larger record SHALL be uploaded to the datasvc object store before its occurrence is written, and the occurrence SHALL carry a reference `{store, key, sha256, bytes, content_type}` with key `runtime-security/raw/<UTC date of the occurrence>/<occurrence id>.json`.
-The system MUST NOT truncate, drop, or merely flag raw evidence. A failed upload, including a full object store bucket, SHALL fail the batch so JetStream redelivers it, and SHALL be counted and raised as a health event. An incomplete part set still inside its reassembly window SHALL be acknowledged once each part is durably staged, SHALL NOT consume further delivery attempts, and SHALL NOT be dead-lettered. Falco SHALL NOT define its own dead-letter subject. A reassembled event whose occurrence or finding write keeps failing, before that delivery would reach `max_deliver`, SHALL be published as the original edge record to the generic edge-record dead-letter owned by the EventWriter edge-record processor (`feat/edge-record-dead-letter`). That publication SHALL be durable before the source is acknowledged. The retention pass SHALL treat the dead-lettered object reference as still referenced.
+The system MUST NOT truncate, drop, or merely flag raw evidence. A failed upload, including a full object store bucket, SHALL fail the batch and SHALL leave the completing delivery unacknowledged so JetStream redelivers it, and SHALL be counted and raised as a health event. A part that leaves the set incomplete SHALL NOT be acknowledged. While the reassembly window is open, that hold SHALL refresh ack progress so `num_delivered` does not advance, and that part SHALL NOT be dead-lettered. Falco SHALL NOT define its own dead-letter subject. The delivery that completes a set SHALL stay unacknowledged until the occurrence and the finding update have both committed, or until the dead-letter publication below is durable, and that delivery's attempts SHALL count toward `max_deliver`. Before that completing delivery would reach `max_deliver`, and when an incomplete set's reassembly window expires, the system SHALL publish every staged sibling part's original edge record together, each including its JSON slice, to the generic edge-record dead-letter owned by the EventWriter edge-record processor (`feat/edge-record-dead-letter`). Once the raw record has been spilled, each published record SHALL carry the object reference `runtime-security/raw/<UTC date of the occurrence>/<occurrence id>.json` that the retention pass matches. No staged sibling part SHALL be omitted. That publication SHALL be durable before any source part is acknowledged and before the stage is released. The retention pass SHALL treat that dead-lettered object reference as still referenced.
 
 #### Scenario: Inline evidence round-trips
 - **GIVEN** a Falco JSON event of 80,000 bytes
@@ -221,13 +228,17 @@ The system MUST NOT truncate, drop, or merely flag raw evidence. A failed upload
 - **GIVEN** the object store bucket is full
 - **WHEN** a batch needs to spill a record
 - **THEN** the batch SHALL fail and the stage SHALL be retained
+- **AND** the completing delivery SHALL NOT be acknowledged
 - **AND** no occurrence row SHALL be written without its evidence
 
 #### Scenario: A failed occurrence write is dead-lettered before max delivery
-- **GIVEN** a spilled object was uploaded and the occurrence write keeps failing
-- **WHEN** the delivery would reach `max_deliver`
-- **THEN** the original edge record SHALL be published durably to the generic edge-record dead-letter
-- **AND** the source SHALL be acknowledged only after that publication is durable
+- **GIVEN** a Falco event in three parts was reassembled, its object was uploaded under `runtime-security/raw/<UTC date>/<occurrence id>.json`, and the occurrence write keeps failing
+- **WHEN** the completing delivery would reach `max_deliver`
+- **THEN** every staged part's original edge record, including its JSON slice, SHALL be published durably together to the generic edge-record dead-letter
+- **AND** each published record SHALL carry the object reference for that key
+- **AND** no staged sibling part SHALL be omitted
+- **AND** each source SHALL be acknowledged only after that publication is durable
+- **AND** the stage SHALL be released only after that publication is durable
 - **AND** the object SHALL remain because the retention pass treats the dead-lettered reference as referenced
 
 ### Requirement: Spilled evidence retention follows its occurrence
@@ -285,7 +296,7 @@ The agent SHALL return success only after every part of that event is in its dur
 ### Requirement: Oversized Falco events are chunked, reassembled, then spilled
 The agent SHALL spool each accepted event under the `{"serviceradar.falco.event", 1}` contract. The OTLP relay contract SHALL NOT carry these events: it refuses one record above the 512 KiB edge-record bound, and wrapping the Falco JSON as an OTLP log would be a second encoding of `output_fields`, `uuid`, and `tags`.
 An event whose edge record would exceed the 512 KiB bound SHALL be split into ordered parts. Each part SHALL be its own `EdgeRecordV1` with a freshly minted RFC 9562 UUIDv7 `event_id` inside the production-capability window. The agent SHALL reuse that `event_id` from its spool journal when it retries the same part. The Falco `uuid`, or the SHA-256 of the posted JSON when `uuid` is absent, plus `part_index`, `part_total`, and the JSON slice, SHALL travel in the contract payload and SHALL NOT be the edge `event_id`. A single-part event SHALL use `part_index` 0 and `part_total` 1. Each encoded edge record SHALL stay within 512 KiB.
-The projector SHALL stage each part durably, keyed by Falco event id and `part_index`, and SHALL concatenate one slice per index before normalizing. A second delivery of the same `(falco_event_id, part_index)` or the same edge `event_id` SHALL replace that staged slice and SHALL NOT be concatenated again. The projector SHALL write an occurrence only when that concatenation equals the posted JSON and matches the carried digest. A duplicate occurrence insert SHALL be skipped when that occurrence id is already stored. The finding upsert SHALL run when that occurrence's finding update has not committed, and SHALL NOT apply the count delta again when it has. Once a part is durably staged, its source delivery SHALL be acknowledged and SHALL NOT consume further delivery attempts toward `max_deliver`. The stage SHALL be held until the set completes or the reassembly window for that Falco event expires. A complete set's stage SHALL be released only after the occurrence and the finding update have both committed. A redelivery while that window is open SHALL be acknowledged, SHALL NOT be dead-lettered, and SHALL NOT count as another delivery attempt. An expired incomplete set SHALL be published as its staged original edge records, each including its JSON slice, to the generic edge-record dead-letter, and the stage SHALL be released only after that publication is durable. After reassembly, a raw record up to 1,048,576 bytes SHALL be stored inline and a larger record SHALL be stored out-of-line as this spec requires. Size SHALL NOT refuse, truncate, or drop an event.
+The projector SHALL stage each part durably, keyed by Falco event id and `part_index`, and SHALL concatenate one slice per index before normalizing. A second delivery of the same `(falco_event_id, part_index)` or the same edge `event_id` SHALL replace that staged slice and SHALL NOT be concatenated again. The projector SHALL write an occurrence only when that concatenation equals the posted JSON and matches the carried digest. A duplicate occurrence insert SHALL be skipped when that occurrence id is already stored. The count delta SHALL be applied only by the single winner of the stage row, and SHALL NOT be applied again when that occurrence's finding update has committed. The projector SHALL NOT acknowledge any source part before the occurrence and the finding update have both committed, except after the dead-letter publication of that set is durable. A part that leaves the set incomplete SHALL NOT be acknowledged. While the reassembly window is open, that hold SHALL refresh ack progress, SHALL NOT advance `num_delivered`, and SHALL NOT be dead-lettered. The delivery that completes the set, including the only delivery of a single-part event, SHALL stay unacknowledged until both writes have committed or that publication is durable, and its attempts SHALL count toward `max_deliver`. An incomplete set's stage SHALL be held until the set completes or the reassembly window for that Falco event expires. A complete set's stage SHALL be held until the occurrence and the finding update have both committed or the dead-letter publication is durable, and SHALL be released only then. A redelivery of a part that still leaves the set incomplete SHALL replace the staged slice, SHALL refresh ack progress, SHALL NOT be acknowledged, SHALL NOT be dead-lettered, and SHALL NOT count as another delivery attempt. An expired incomplete set SHALL be published as every staged sibling part's original edge record, each including its JSON slice, to the generic edge-record dead-letter, and the stage SHALL be released only after that publication is durable. After reassembly, a raw record up to 1,048,576 bytes SHALL be stored inline and a larger record SHALL be stored out-of-line as this spec requires. Size SHALL NOT refuse, truncate, or drop an event.
 
 #### Scenario: An event above the edge-record bound is reassembled inline
 - **GIVEN** a posted Falco JSON event of 600,000 bytes
@@ -304,23 +315,38 @@ The projector SHALL stage each part durably, keyed by Falco event id and `part_i
 - **AND** the reassembly window has not expired
 - **WHEN** the projector runs
 - **THEN** no occurrence SHALL be written
-- **AND** part 0 SHALL be durably staged and its source delivery SHALL be acknowledged
-- **AND** that hold SHALL NOT consume further delivery attempts
+- **AND** part 0 SHALL be durably staged and its source delivery SHALL NOT be acknowledged
+- **AND** that hold SHALL refresh ack progress and SHALL NOT advance `num_delivered`
 - **AND** part 0 SHALL NOT be dead-lettered
 
 #### Scenario: A redelivered part index is one slice
 - **GIVEN** part 0 and part 1 are staged for a Falco event and the reassembly window is open
 - **WHEN** part 0 is delivered again
 - **THEN** reassembly SHALL concatenate one slice for index 0 and one slice for index 1
-- **AND** the redelivery SHALL be acknowledged
-- **AND** it SHALL NOT count as another delivery attempt toward `max_deliver`
+- **AND** the redelivery SHALL NOT be acknowledged
+- **AND** it SHALL refresh ack progress and SHALL NOT count as another delivery attempt toward `max_deliver`
 - **AND** the redelivery SHALL NOT be dead-lettered
+
+#### Scenario: The completing delivery stays unacknowledged until both writes commit
+- **GIVEN** a single-part Falco event whose occurrence and finding update have not committed
+- **WHEN** the projector has staged that part
+- **THEN** that source delivery SHALL NOT be acknowledged
+- **AND** further attempts of that delivery SHALL count toward `max_deliver`
+
+#### Scenario: Both writes acknowledge every staged part
+- **GIVEN** a two-part Falco event whose parts are both staged
+- **WHEN** the occurrence and the finding update have both committed
+- **THEN** the completing delivery SHALL be acknowledged
+- **AND** the part that left the set incomplete SHALL be acknowledged
+- **AND** the stage SHALL be released
+- **AND** the finding count SHALL have increased once
 
 #### Scenario: A redelivered part still updates the finding
 - **GIVEN** an occurrence is stored for a Falco event and its finding update has not committed
 - **WHEN** one part of that event is redelivered
 - **THEN** the projector SHALL skip a second occurrence insert
-- **AND** it SHALL upsert the finding
+- **AND** the single winner of the stage row SHALL upsert the finding
+- **AND** the completing delivery SHALL stay unacknowledged until that finding update commits
 - **AND** the stage SHALL be released only after that finding update commits
 
 #### Scenario: A redelivered part of a stored finding is acknowledged
@@ -333,7 +359,9 @@ The projector SHALL stage each part durably, keyed by Falco event id and `part_i
 #### Scenario: An expired incomplete set is dead-lettered
 - **GIVEN** part 0 of 2 is retained and the reassembly window expires before part 1 arrives
 - **WHEN** the projector runs
-- **THEN** part 0's staged original edge record, including its JSON slice, SHALL be published durably to the generic edge-record dead-letter
+- **THEN** every staged sibling part's original edge record, including its JSON slice, SHALL be published durably together to the generic edge-record dead-letter
+- **AND** no staged sibling part SHALL be omitted
+- **AND** part 0's source SHALL be acknowledged only after that publication is durable
 - **AND** the stage SHALL be released only after that publication is durable
 
 ### Requirement: Chart wiring points the Falco DaemonSet at the agent
@@ -348,11 +376,11 @@ The chart SHALL render, in `falcoIngest.namespace`, the client certificate, clie
 - **AND** the agent configuration SHALL stamp cluster id `shop-cluster`
 
 ### Requirement: Falco delivery holds every accepted event
-Operator documentation SHALL state that a Falco event is durably held from the moment the agent returns HTTP success, with every part in the agent edge spool. A source part is acknowledged once it is durably staged, and an open reassembly hold does not consume further delivery attempts. A complete set's stage is released only after the occurrence and the finding update have both committed. A duplicate part index is one staged slice. A retried publish of a committed occurrence does not count again. An incomplete set inside its reassembly window is not dead-lettered. An incomplete set whose reassembly window expires, and a reassembled delivery that would reach `max_deliver` without the occurrence and the finding update, is published as the original edge record to the generic edge-record dead-letter, and the stage is released only after that publication is durable. A failed spool admission is a non-success HTTP response. Documentation SHALL state that guarantee and SHALL NOT list a drop, truncation, or oversize refusal, and SHALL NOT name a Falco-specific dead-letter subject.
+Operator documentation SHALL state that a Falco event is durably held from the moment the agent returns HTTP success, with every part in the agent edge spool. No source part is acknowledged before the occurrence and the finding update have both committed, except after a durable dead-letter publication of the whole set. A part that leaves the set incomplete refreshes ack progress during the open window and does not consume further delivery attempts. The completing delivery stays unacknowledged until both writes commit or that publication is durable, and its attempts count. The count delta is applied only by the single winner of the stage row. A complete set's stage is released only after both writes have committed, or after that publication is durable. A duplicate part index is one staged slice. A retried publish of a committed occurrence does not count again. An incomplete set inside its reassembly window is not dead-lettered. An incomplete set whose reassembly window expires, and a completing delivery that would reach `max_deliver` without the occurrence and the finding update, is published as every staged sibling part together, with any spill object reference, to the generic edge-record dead-letter, and the stage is released only after that publication is durable. A failed spool admission is a non-success HTTP response. Documentation SHALL state that guarantee and SHALL NOT list a drop, truncation, or oversize refusal, and SHALL NOT name a Falco-specific dead-letter subject.
 
 #### Scenario: Operator reads the delivery guarantee
 - **WHEN** an operator reads the Falco ingestion documentation
 - **THEN** it SHALL state that HTTP success means every part is in the agent edge spool
-- **AND** it SHALL state that an open reassembly hold is acknowledged after a durable stage and does not consume further delivery attempts
-- **AND** it SHALL state that an unfinished set is dead-lettered as its original edge records, and that the stage is released only after that publication is durable
+- **AND** it SHALL state that an incomplete part refreshes ack progress and is not acknowledged before both writes commit
+- **AND** it SHALL state that a dead-lettered set includes every staged sibling part and any spill object reference, and that the stage is released only after that publication is durable
 - **AND** it SHALL NOT name a counted drop, truncation, or oversize refusal
