@@ -1925,6 +1925,19 @@ change together with the requirements they implement.
   PARTIAL (reconciled 2026-11-02): primary, quarantine, permanent and retryable
   are mapped. Audit and security-quarantine decisions are withheld (no routes or
   DLQ streams), so this blocks M2.0f.
+  NARROWED SLICE LANDED (audit and security-quarantine routes): the gateway now
+  offers an `audit_publication` (stale fence under a valid delivery grant, stamped
+  `LATE_FENCED_DELIVERY`) to `telemetry.edge-record-audit.v1.bulk.pNN` and a
+  `security_quarantine_publication` to
+  `telemetry.edge-record-security-quarantine.v1.bulk.pNN`, each on its own R3
+  stream, and `PublishPipeline` resolves their PubAcks to
+  `EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUDIT_ONLY` and
+  `EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_QUARANTINE`, so neither caps the
+  lane's watermark. EventWriter keeps an audit record ledger-only and refuses
+  one that is not late-fenced; the security-quarantine consumer only reports
+  (see 5.7). Still open here: `quarantine_publication` (ordinary admitted
+  poison), the reject-audit DLQ PubAck for `permanent_rejection`, the
+  INTERACTIVE streams, and evidence-eviction replay.
 - [x] 3.6 Ensure this lane never enters `StatusBuffer`, never acknowledges an
   ERTS/Core NATS handoff as durable, and remains stateless across restarts.
   LANDED: `ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest` drives the
@@ -2347,6 +2360,13 @@ change together with the requirements they implement.
   semantic identity, original traffic class, and source provenance.
   TODO (reconciled 2026-11-02): follow-up; no DLQ streams exist, and 3.5 depends
   on them.
+  MINIMAL INSPECTION LANDED for the security-quarantine route only: its stream
+  keeps every record (`MaxAge` disabled, `DiscardNew`), an EventWriter consumer
+  logs each one with its stream sequence and slot and writes nothing, the
+  stream's retained bytes are polled so `ServiceRadarEdgeRecordSecurityQuarantine`
+  fires on any held record, and `docs/edge-record-quarantine-runbook.md` gives
+  the `nats stream get` path. The catalog, stable DLQ IDs, states, deleter and
+  redrive above remain open.
 - [x] 5.8 Derive required low-cardinality execution/scanner/availability/trace
   metrics from the canonical event without recreating per-host/per-hop generic
   metric expansion.

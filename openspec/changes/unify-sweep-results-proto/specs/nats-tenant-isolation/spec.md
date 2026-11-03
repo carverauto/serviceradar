@@ -284,9 +284,19 @@ The installation SHALL provision these versioned record subject families:
 
 - `telemetry.edge-record.v1.bulk.pNN`
 - `telemetry.edge-record.v1.interactive.pNN`
+- `telemetry.edge-record-audit.v1.bulk.pNN`
+- `telemetry.edge-record-audit.v1.interactive.pNN`
+- `telemetry.edge-record-security-quarantine.v1.bulk.pNN`
+- `telemetry.edge-record-security-quarantine.v1.interactive.pNN`
 - `telemetry.edge-record-recovery.v1`
 - `telemetry.edge-record-dlq.v1.bulk.pNN`
 - `telemetry.edge-record-dlq.v1.interactive.pNN`
+
+An `audit_publication` and a `security_quarantine_publication` SHALL use the audit
+and security-quarantine families respectively, in the same logical partition the
+record's primary route would use, each on its own physical stream. Neither SHALL
+be published to a primary data subject. The security-quarantine stream SHALL NOT
+age out or evict a record.
 
 Bulk and interactive durable-record subjects SHALL use disjoint physical streams and
 disjoint persistence durables. Result-DLQ subjects SHALL preserve the original
@@ -305,6 +315,17 @@ assignment, run/execution, output contract, package, or logical partition.
   that no bulk subject captures
 - **AND** bulk work SHALL NOT borrow the configured interactive storage, PubAck,
   consumer, or database-credit floor
+
+#### Scenario: A non-authoritative publication keeps its own stream
+
+- **GIVEN** the gateway decides `audit_publication` or `security_quarantine_publication`
+  for an authorized record
+- **WHEN** it publishes the record
+- **THEN** it SHALL use `telemetry.edge-record-audit.v1.{class}.pNN` or
+  `telemetry.edge-record-security-quarantine.v1.{class}.pNN` for the mapped logical
+  partition and report the matching accepted disposition only after that stream's
+  PubAck
+- **AND** no primary-stream consumer SHALL receive it
 
 #### Scenario: Interactive poison is routed to its class reserve
 

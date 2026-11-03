@@ -79,6 +79,9 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
     * `:record_bytes` — the exact `EdgeDeliveryFrameV1.record_bytes`, published UNCHANGED.
     * `:record_sha256`, `:semantic_envelope_sha256` — 32-byte digests.
     * `:delivery_mode` — defaults to fresh; a non-fresh mode requires `:delivery_proof`.
+    * `:publication` — the authorization decision, `:primary` (default), `:audit` or
+      `:security_quarantine`, which selects the route family (`StreamRoute.resolve/1`). An
+      audit publication must carry the `LATE_FENCED_DELIVERY` mode its decision stamped.
 
   Returns `{:ok, pub_ack}`; `{:error, error_class}`; or `{:error, {:derivation, reason}}` when the
   route or identity could not be derived, which is a bug or a bad grant rather than something to
@@ -90,6 +93,7 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
     contract = contract_of(publication)
 
     with {:ok, route} <- wrap(StreamRoute.resolve(contract)),
+         :ok <- audit_mode(publication),
          {:ok, lane} <- resolve_lane(contract),
          {:ok, bytes} <- record_bytes(publication),
          {:ok, key} <- reservation_key(publication, bytes),
@@ -109,9 +113,14 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
          {:ok, reservation} <- admit(pool, key, bytes, opts) do
       route
       |> request(conn_pid, bytes, headers, opts)
-      |> settle(pool, reservation)
+      |> settle(pool, reservation, settling_outcome(contract.publication))
     end
   end
+
+  # The window's accounting outcome for a durable PubAck, by the publication that earned it.
+  defp settling_outcome(:primary), do: :primary_publication
+  defp settling_outcome(:audit), do: :audit_publication
+  defp settling_outcome(:security_quarantine), do: :security_quarantine_publication
 
   defp connection_for(lane, opts) do
     conn = Keyword.get(opts, :connection, Connection)
@@ -233,11 +242,10 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
   # systemic, misrouted -- leaves the frame outstanding, because it is still owed a republish on
   # the same slot. Releasing there would relax the bound exactly when the broker is struggling.
   #
-  # The outcome here is an ACCOUNTING outcome, not a disposition. This publisher writes one record
-  # to its resolved route and does not yet compute audit/quarantine/security-quarantine routing;
-  # that mapping is task 3.5 and supplies the outcome when it lands.
-  defp settle({:ok, _ack} = result, pool, reservation) do
-    case pool_call(fn -> PublisherPool.settle(pool, reservation, :primary_publication) end) do
+  # The outcome here is an ACCOUNTING outcome, not a disposition: the publication's settling
+  # outcome (`settling_outcome/1`), which matches the route `StreamRoute` resolved for it.
+  defp settle({:ok, _ack} = result, pool, reservation, outcome) do
+    case pool_call(fn -> PublisherPool.settle(pool, reservation, outcome) end) do
       :ok ->
         result
 
@@ -273,13 +281,13 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
     end
   end
 
-  defp settle({:error, :poison} = result, pool, reservation) do
+  defp settle({:error, :poison} = result, pool, reservation, _outcome) do
     emit_puback_error(:poison)
     pool_call(fn -> PublisherPool.settle(pool, reservation, :permanent_rejection) end)
     result
   end
 
-  defp settle({:error, reason} = result, pool, reservation) do
+  defp settle({:error, reason} = result, pool, reservation, _outcome) do
     emit_puback_error(reason)
     # NON-terminal: the record is still owed a republish, so the credits stay charged -- but the
     # ATTEMPT is over. Saying so is what makes the next retry a legal re-admission instead of
@@ -288,7 +296,7 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
     result
   end
 
-  defp settle(result, pool, reservation) do
+  defp settle(result, pool, reservation, _outcome) do
     pool_call(fn -> PublisherPool.attempt_failed(pool, reservation) end)
     result
   end
@@ -321,6 +329,16 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
   # from anything on the frame. That is what makes "an agent cannot select the recovery publisher"
   # true at this call site rather than only in PublisherLane's docs: the route profile here is the
   # one the effective grant produced.
+  # EventWriter keeps a record ledger-only by its LATE_FENCED_DELIVERY stamp, so an audit
+  # publication without that stamp would be projected authoritatively from the audit stream.
+  defp audit_mode(%{publication: :audit} = publication) do
+    if Map.get(publication, :delivery_mode) == PublicationIdentity.mode_late_fenced(),
+      do: :ok,
+      else: {:error, {:derivation, :audit_delivery_mode}}
+  end
+
+  defp audit_mode(_publication), do: :ok
+
   defp resolve_lane(contract) do
     wrap(PublisherLane.for_lane(contract.route_profile, contract.traffic_class))
   end
@@ -362,7 +380,8 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
       route_profile: Map.get(publication, :route_profile),
       traffic_class: Map.get(publication, :traffic_class),
       partition_rule: Map.get(publication, :partition_rule),
-      partition_coordinates: coords
+      partition_coordinates: coords,
+      publication: Map.get(publication, :publication, :primary)
     }
   end
 

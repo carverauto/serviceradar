@@ -1,6 +1,7 @@
 defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
   use ExUnit.Case, async: false
 
+  alias ServiceRadar.Edge.PublicationIdentity
   alias ServiceRadar.Edge.PublishPipeline
   alias Serviceradar.Edge.V1.EdgeDeliveryAckV1
   alias Serviceradar.Edge.V1.EdgeRecordClientMessage
@@ -23,6 +24,8 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
   @session_nonce :binary.copy(<<0xCD>>, 8)
   @accepted :EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE
   @permanent :EDGE_RECORD_DISPOSITION_KIND_REJECTED_PERMANENT
+  @audit_only :EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUDIT_ONLY
+  @quarantine :EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_QUARANTINE
   @second_contract_id "serviceradar.test.second"
   # The keypair the installed trust snapshot verifies, which the record helpers sign with.
   @signing_keys {__MODULE__, :signing_keys}
@@ -408,13 +411,44 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
       refute_received {:edge_record_published, %{slot: %{sequence: 1}}}
     end
 
-    test "a stale-fence audit replay under its delivery capability is withheld, not offered to the primary stream" do
+    test "a stale-fence replay under its delivery capability is published for audit and resolves audit-only" do
       assignment = Factory.uuidv7()
       install_trust(fences: [default_fence(), {Factory.network_scope_id(), assignment, 0, 2}])
       replay = record(producer_assignment_id: assignment)
       dc = Factory.delivery_capability(replay, signing_keys().private, spool_id: @spool_id)
+      valid = record()
 
-      assert_caps_later_frame(frame(1, replay, delivery_capability: dc))
+      messages = [
+        client({:lane_open, lane_open()}),
+        client({:delivery_frame, frame(1, replay, delivery_capability: dc)}),
+        client({:delivery_frame, frame(2, valid)})
+      ]
+
+      assert :ok = EdgeRecordIngestServer.stream(messages, stream())
+      assert_receive {:edge_record_stream_reply, %EdgeRecordServerMessage{payload: {:lane_open_ack, _}}}
+
+      assert_receive {:edge_record_published, %{slot: %{sequence: 1}} = audit}
+      assert audit.publication == :audit
+      assert audit.delivery_mode == PublicationIdentity.mode_late_fenced()
+      assert byte_size(audit.delivery_proof) == 32
+      assert_receive {:edge_record_published, %{slot: %{sequence: 2}, publication: :primary}}
+
+      assert Enum.map(acks_through(2), &{&1.sequence, &1.event_id, &1.kind}) ==
+               [{1, replay.event_id, @audit_only}, {2, valid.event_id, @accepted}]
+    end
+
+    test "a record signed by a compromise-revoked key is published to security quarantine and resolves quarantined" do
+      install_trust(status: "historically_revoked")
+      revoked = record()
+
+      assert :ok = run_one_frame(revoked)
+
+      assert_receive {:edge_record_published, quarantined}
+      assert quarantined.publication == :security_quarantine
+      refute Map.has_key?(quarantined, :delivery_mode)
+
+      assert Enum.map(acks_through(1), &{&1.sequence, &1.event_id, &1.kind}) ==
+               [{1, revoked.event_id, @quarantine}]
     end
 
     test "a late drain under a renewal is published with its delivery mode and proof" do

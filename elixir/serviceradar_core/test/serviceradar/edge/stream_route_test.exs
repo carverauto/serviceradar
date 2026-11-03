@@ -68,21 +68,62 @@ defmodule ServiceRadar.Edge.StreamRouteTest do
       refute function_exported?(StreamRoute, :resolve_dlq, 3)
     end
 
-    test "no subject outside the five normative families is emitted" do
+    test "no subject outside the seven normative families is emitted" do
       subjects =
-        for {p, c} <- StreamRoute.active_lanes() do
-          {:ok, r} = StreamRoute.resolve(contract(p, c))
+        for {p, c} <- StreamRoute.active_lanes(),
+            publication <- [:primary, :audit, :security_quarantine],
+            {:ok, r} <- [StreamRoute.resolve(Map.put(contract(p, c), :publication, publication))] do
           r.subject
         end
 
       for s <- subjects do
         assert s =~
-                 ~r"^telemetry\.(edge-record\.v1\.(bulk|interactive)\.p\d{2}|edge-record-recovery\.v1|edge-record-dlq\.v1\.(bulk|interactive)\.p\d{2})$",
+                 ~r"^telemetry\.(edge-record(-audit|-security-quarantine)?\.v1\.(bulk|interactive)\.p\d{2}|edge-record-recovery\.v1|edge-record-dlq\.v1\.(bulk|interactive)\.p\d{2})$",
                "#{s} is outside the normative subject families"
       end
 
       # The old invented namespace must not reappear.
       refute Enum.any?(subjects, &String.starts_with?(&1, "sr.edge."))
+    end
+  end
+
+  describe "audit and security-quarantine publications" do
+    test "each has its own family and stream, in the partition the primary route would use" do
+      for class <- [@bulk, @interactive] do
+        token = if class == @bulk, do: "bulk", else: "interactive"
+        {:ok, primary} = StreamRoute.resolve(contract(@durable, class, 7))
+
+        {:ok, audit} =
+          StreamRoute.resolve(Map.put(contract(@durable, class, 7), :publication, :audit))
+
+        {:ok, quarantine} =
+          StreamRoute.resolve(
+            Map.put(contract(@durable, class, 7), :publication, :security_quarantine)
+          )
+
+        suffix = String.replace_prefix(primary.subject, "telemetry.edge-record.v1.", "")
+        assert audit.subject == "telemetry.edge-record-audit.v1." <> suffix
+        assert quarantine.subject == "telemetry.edge-record-security-quarantine.v1." <> suffix
+        assert audit.partition == primary.partition
+        assert quarantine.partition == primary.partition
+
+        assert audit.expected_stream == "TELEMETRY_EDGE_RECORD_AUDIT_V1_" <> String.upcase(token)
+
+        assert quarantine.expected_stream ==
+                 "TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_" <> String.upcase(token)
+      end
+    end
+
+    test "the recovery lane has neither, and an unknown publication is refused" do
+      for publication <- [:audit, :security_quarantine] do
+        assert {:error, :unroutable_lane} =
+                 StreamRoute.resolve(
+                   Map.put(contract(@recovery, @bulk), :publication, publication)
+                 )
+      end
+
+      assert {:error, :unknown_publication} =
+               StreamRoute.resolve(Map.put(contract(@durable, @bulk), :publication, :quarantine))
     end
   end
 

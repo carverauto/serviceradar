@@ -73,7 +73,9 @@ defmodule ServiceRadar.Edge.PublishPipeline do
   lets the prefix advance past a record that may never have been published, and eventually
   authorises reclaiming customer data that was never delivered.
 
-      {:ok, pub_ack}        -> ACCEPTED_AUTHORITATIVE   resolves
+      {:ok, pub_ack}        -> the publication's accepted kind, which resolves:
+                                 ACCEPTED_AUTHORITATIVE (primary), ACCEPTED_AUDIT_ONLY (audit)
+                                 or ACCEPTED_QUARANTINE (security quarantine)
       {:error, :poison}     -> REJECTED_PERMANENT       resolves (PROVEN poison only)
       any other error       -> REJECTED_RETRYABLE       caps the prefix
       the worker CRASHED    -> REJECTED_RETRYABLE       caps the prefix
@@ -139,7 +141,13 @@ defmodule ServiceRadar.Edge.PublishPipeline do
 
   @classes PublisherLane.lanes()
 
-  @accepted :EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE
+  # The kind a PubAck resolves to, by the publication the gateway decided. The route the publisher
+  # derives from the same `:publication` is the stream whose PubAck this kind reports.
+  @accepted %{
+    primary: :EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE,
+    audit: :EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUDIT_ONLY,
+    security_quarantine: :EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_QUARANTINE
+  }
   @permanent :EDGE_RECORD_DISPOSITION_KIND_REJECTED_PERMANENT
   @retryable :EDGE_RECORD_DISPOSITION_KIND_REJECTED_RETRYABLE
 
@@ -229,7 +237,11 @@ defmodule ServiceRadar.Edge.PublishPipeline do
   outcome lands in the lane's prefix and is pushed to the lane's owner; `resolved_through/2` reads
   the watermark.
 
-  Refusals: `:lane_not_open`, `:queue_full`, `:slot` (the publication carries no usable slot).
+  The publication's `:publication` (`:primary` when absent, `:audit` or `:security_quarantine`)
+  selects the kind its PubAck resolves to.
+
+  Refusals: `:lane_not_open`, `:queue_full`, `:slot` (the publication carries no usable slot),
+  `:publication` (an unknown publication).
   """
   @spec offer(GenServer.server(), map()) :: :ok | {:error, atom()}
   def offer(pipeline, publication) when is_map(publication),
@@ -370,8 +382,10 @@ defmodule ServiceRadar.Edge.PublishPipeline do
   end
 
   def handle_call({:offer, publication}, _from, state) do
-    case slot_of(publication) do
-      {:ok, lane, sequence} -> offer_reply(state, lane, sequence, publication)
+    with {:ok, lane, sequence} <- slot_of(publication),
+         {:ok, accepted} <- accepted_of(publication) do
+      offer_reply(state, lane, sequence, accepted, publication)
+    else
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
@@ -426,7 +440,7 @@ defmodule ServiceRadar.Edge.PublishPipeline do
      }, state}
   end
 
-  defp offer_reply(state, lane, sequence, publication) do
+  defp offer_reply(state, lane, sequence, accepted, publication) do
     cond do
       not Map.has_key?(state.lanes, lane) ->
         {:reply, {:error, :lane_not_open}, state}
@@ -436,7 +450,14 @@ defmodule ServiceRadar.Edge.PublishPipeline do
 
       true ->
         {_owner, monitor} = Map.fetch!(state.owners, lane)
-        work = %{lane: lane, monitor: monitor, sequence: sequence, publication: publication}
+
+        work = %{
+          lane: lane,
+          monitor: monitor,
+          sequence: sequence,
+          accepted: accepted,
+          publication: publication
+        }
 
         {:reply, :ok,
          dispatch(%{state | queue: :queue.in(work, state.queue), queued: state.queued + 1})}
@@ -449,12 +470,20 @@ defmodule ServiceRadar.Edge.PublishPipeline do
       {nil, _} ->
         {:noreply, state}
 
-      {%{lane: lane, monitor: monitor, sequence: sequence}, rest} ->
+      {%{lane: lane, monitor: monitor, sequence: sequence, accepted: accepted}, rest} ->
         # The task succeeded, so its :DOWN carries no information and is flushed rather than
         # falling through to the crash clause below and recording a second outcome.
         Process.demonitor(ref, [:flush])
 
-        state = record(%{state | inflight: rest}, lane, monitor, sequence, disposition_of(result))
+        state =
+          record(
+            %{state | inflight: rest},
+            lane,
+            monitor,
+            sequence,
+            disposition_of(result, accepted)
+          )
+
         {:noreply, dispatch(state)}
     end
   end
@@ -525,9 +554,16 @@ defmodule ServiceRadar.Edge.PublishPipeline do
 
   # Only a durable PubAck and PROVEN poison resolve. Everything else caps the prefix, which is the
   # conservative direction: the prefix must never advance past a record that may not be published.
-  defp disposition_of({:ok, _pub_ack}), do: @accepted
-  defp disposition_of({:error, :poison}), do: @permanent
-  defp disposition_of(_other), do: @retryable
+  defp disposition_of({:ok, _pub_ack}, accepted), do: accepted
+  defp disposition_of({:error, :poison}, _accepted), do: @permanent
+  defp disposition_of(_other, _accepted), do: @retryable
+
+  defp accepted_of(publication) do
+    case Map.fetch(@accepted, Map.get(publication, :publication, :primary)) do
+      {:ok, kind} -> {:ok, kind}
+      :error -> {:error, :publication}
+    end
+  end
 
   defp record(state, lane, monitor, sequence, disposition) do
     case Map.fetch(state.owners, lane) do

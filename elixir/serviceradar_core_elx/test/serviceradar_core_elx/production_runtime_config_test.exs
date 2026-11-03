@@ -348,6 +348,15 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     assert edge_record.stream_name == "TELEMETRY_EDGE_RECORD_V1_BULK"
     assert edge_record.subject == "telemetry.edge-record.v1.bulk.>"
     assert edge_record.stream_replicas == 3
+
+    # The gateway resolves audit and security-quarantine publications on these streams' PubAcks.
+    streams = read_prod_event_writer_streams()
+
+    assert Enum.find(streams, &(&1.name == "EDGE_RECORD_AUDIT")) ==
+             EventWriterConfig.edge_record_audit_stream()
+
+    assert Enum.find(streams, &(&1.name == "EDGE_RECORD_SECURITY_QUARANTINE")) ==
+             EventWriterConfig.edge_record_security_quarantine_stream()
   end
 
   test "prod EventWriter Falco consumer targets the provisioned events stream" do

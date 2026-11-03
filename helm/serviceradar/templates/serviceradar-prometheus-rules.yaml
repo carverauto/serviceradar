@@ -69,13 +69,29 @@ spec:
             summary: "ServiceRadar agent-gateway JetStream PubAck errors"
             description: "The agent-gateway durable edge publisher received PubAck errors in namespace {{ .Release.Namespace }}."
         - alert: ServiceRadarEdgeRecordConsumerLag
-          expr: max(serviceradar_event_writer_consumer_lag_messages_value{namespace="{{ .Release.Namespace }}", subject_class="edge_record"}) > 0
+          expr: max(serviceradar_event_writer_consumer_lag_messages_value{namespace="{{ .Release.Namespace }}", subject_class=~"edge_record|edge_record_audit"}) > 0
           for: 10m
           labels:
             severity: warning
           annotations:
             summary: "ServiceRadar EDGE_RECORD consumer lag"
             description: "The EventWriter EDGE_RECORD durable has pending or unacked messages in namespace {{ .Release.Namespace }}."
+        - alert: ServiceRadarEdgeRecordSecurityQuarantine
+          expr: max(serviceradar_event_writer_consumer_stream_bytes_value{namespace="{{ .Release.Namespace }}", subject_class="edge_record_quarantine"}) > 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "ServiceRadar edge records are held in security quarantine"
+            description: "The edge-record security-quarantine stream holds records signed by a compromise-revoked key in namespace {{ .Release.Namespace }}. The EventWriter log line 'Edge record held in security quarantine' names each record's stream sequence; see docs/edge-record-quarantine-runbook.md."
+        - alert: ServiceRadarEdgeRecordSecurityQuarantineFull
+          expr: max(serviceradar_event_writer_consumer_stream_byte_utilization_ratio{namespace="{{ .Release.Namespace }}", subject_class="edge_record_quarantine"}) > 0.8
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "ServiceRadar edge-record security quarantine is nearly full"
+            description: "The edge-record security-quarantine stream is above 80% of its MaxBytes in namespace {{ .Release.Namespace }}. It refuses new records when full, which leaves those agent spool sequences unresolved."
         - alert: ServiceRadarAgentEdgeSpoolUnresolvedAge
           expr: max(agent_edge_spool_oldest_unresolved_age_seconds) > 900
           for: 5m
