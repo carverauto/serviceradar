@@ -312,8 +312,13 @@ func TestEdgeSweepInterruptedAfterPublicationConsumesAttempt(t *testing.T) {
 	scanner := &observingSweep{mockSweeper: &mockSweeper{}, results: edgeSweepResults()[:7], err: errTestScannerInterrupted}
 	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
 	claimed := false
-	require.ErrorContains(t, svc.runLeaseToSpool(context.Background(), lease, slot, sp, sweepSlotClaim{claim: func() error { claimed = true; return nil }}), "scanner interrupted")
+	released := false
+	require.ErrorContains(t, svc.runLeaseToSpool(context.Background(), lease, slot, sp, sweepSlotClaim{
+		claim:   func() error { claimed = true; return nil },
+		release: func() error { released = true; return nil },
+	}), "scanner interrupted")
 	require.True(t, claimed)
+	require.False(t, released, "a slot that already admitted a record stays consumed")
 	records, err := sp.Unresolved()
 	require.NoError(t, err)
 	require.Len(t, records, 2)
@@ -520,17 +525,25 @@ func TestEdgeSweepReturnsOtherAppendErrorsWithoutWaiting(t *testing.T) {
 	cfg, lease, slot, sp := edgeSweepFixture(t)
 	require.NoError(t, sp.Close())
 	claims := 0
+	releases := 0
 	scanner := &observingSweep{mockSweeper: &mockSweeper{}, results: edgeSweepResults()}
 	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
 	start := time.Now()
-	err := svc.runLeaseToSpool(context.Background(), lease, slot, sp, sweepSlotClaim{claim: func() error {
-		claims++
-		return nil
-	}})
+	err := svc.runLeaseToSpool(context.Background(), lease, slot, sp, sweepSlotClaim{
+		claim: func() error {
+			claims++
+			return nil
+		},
+		release: func() error {
+			releases++
+			return nil
+		},
+	})
 	elapsed := time.Since(start)
-	t.Logf("closed-spool append returned in %s with %d claim(s): %v", elapsed, claims, err)
+	t.Logf("closed-spool append returned in %s with %d claim(s) and %d release(s): %v", elapsed, claims, releases, err)
 	require.ErrorIs(t, err, os.ErrClosed)
 	require.NotErrorIs(t, err, spool.ErrAdmissionRefused)
 	require.Equal(t, 1, claims)
+	require.Zero(t, releases, "a non-admission append error keeps the slot claim")
 	require.Less(t, elapsed, sweepAdmissionInitialBackoff, "a non-admission append error must not enter the backoff")
 }

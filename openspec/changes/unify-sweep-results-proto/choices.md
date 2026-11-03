@@ -29,12 +29,10 @@ request for a running farm01 end-to-end sweep within 24 hours.
   The producer supplies every signed target and attempted check, including
   unavailable hosts. The projector rejects partial-mode/MTR windows instead
   of presenting incomplete host evidence as a finished sweep.
-- **Consume a slot before its first append attempt (medium confidence).**
-  Configuration and scan failures before publication can retry. After the
-  durable claim, the agent does not rescan an interrupted slot and produce
-  different bytes at the same execution coordinates. A first-append capacity
-  or I/O failure can therefore leave a consumed slot with zero rows. The run
-  remains incomplete; resumable partial executions are outside this pass.
+- **Claim a leased slot before each append, and keep it only after admission (high confidence).**
+  Configuration and scan failures before publication can retry. The
+  operator-visible rule for a failed first append is in
+  `helm/serviceradar/README.md`.
 
 ## Corrected during integration review
 

@@ -88,8 +88,9 @@ type sweepSlotClaim struct {
 	release func() error
 }
 
-// RunSweepGroupLease consumes the slot durably before its first append. An interrupted
-// run stays incomplete, rather than repeating previously emitted host windows
+// RunSweepGroupLease claims the slot before each append until a record of the
+// run is admitted. An interrupted run that already admitted a record stays
+// incomplete, rather than repeating previously emitted host windows
 // with different bytes under the same execution and batch sequence. A run that
 // never gets a record admitted does not consume the slot.
 func (s *MultiSweepService) RunSweepGroupLease(ctx context.Context, groupID string, lease *edgev1.SweepLeaseV1, slot *edgev1.SweepLeaseSlotV1, sp *spool.Spool, claim sweepSlotClaim) error {
