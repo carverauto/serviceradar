@@ -625,10 +625,10 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
   describe "ingest/4 of telemetry batch records" do
     setup do
-      original = Application.get_env(:serviceradar_core, ServiceRadar.StatusHandler, [])
+      original = Application.get_env(:serviceradar_core, StatusHandler, [])
       test = self()
 
-      Application.put_env(:serviceradar_core, ServiceRadar.StatusHandler,
+      Application.put_env(:serviceradar_core, StatusHandler,
         addon_telemetry_publisher: fn subject, payload ->
           send(test, {:telemetry_routed, subject, payload})
           :ok
@@ -637,9 +637,9 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
       on_exit(fn ->
         if original == [] do
-          Application.delete_env(:serviceradar_core, ServiceRadar.StatusHandler)
+          Application.delete_env(:serviceradar_core, StatusHandler)
         else
-          Application.put_env(:serviceradar_core, ServiceRadar.StatusHandler, original)
+          Application.put_env(:serviceradar_core, StatusHandler, original)
         end
       end)
 
@@ -768,7 +768,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
       on_exit(fn -> :telemetry.detach(handler) end)
 
-      Application.put_env(:serviceradar_core, ServiceRadar.StatusHandler,
+      Application.put_env(:serviceradar_core, StatusHandler,
         addon_telemetry_publisher: fn _subject, _payload -> {:error, :not_connected} end
       )
 
@@ -782,7 +782,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
       test = self()
 
-      Application.put_env(:serviceradar_core, ServiceRadar.StatusHandler,
+      Application.put_env(:serviceradar_core, StatusHandler,
         addon_telemetry_publisher: fn subject, payload ->
           send(test, {:telemetry_routed, subject, payload})
           :ok
@@ -2122,7 +2122,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
     frame = %OtlpRelayFrame{
       relay_id: Keyword.get(opts, :relay_id, 42),
-      batch: %TelemetryBatch{
+      batch: %AddonTelemetryBatch{
         source: %TelemetrySource{
           source_type: "otlp",
           source_instance: "otel-addon",
