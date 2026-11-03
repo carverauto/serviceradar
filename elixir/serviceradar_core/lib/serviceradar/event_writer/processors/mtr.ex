@@ -89,13 +89,65 @@ defmodule ServiceRadar.EventWriter.Processors.Mtr do
   """
   @spec persist_all([map()], keyword()) :: :ok | {:error, term()}
   def persist_all(parsed, opts \\ []) when is_list(parsed) do
-    if Keyword.get_lazy(opts, :starrocks_enabled, &Destination.enabled?/0) do
+    if starrocks_enabled?(opts) do
       persist_warehouse(parsed, opts)
     else
       parsed
       |> Enum.map(&(&1 |> persist_cnpg(opts) |> classify()))
       |> Enum.find(:ok, &match?({:error, _}, &1))
     end
+  end
+
+  @doc """
+  The part of `persist_all/2` that leaves the database: a StarRocks Stream Load
+  when that backend is enabled, and the graph projection either way. It writes
+  no CNPG rows.
+  """
+  @spec persist_outside_ledger([map()], keyword()) :: :ok | {:error, term()}
+  def persist_outside_ledger(parsed, opts \\ []) when is_list(parsed) do
+    if starrocks_enabled?(opts) do
+      persist_warehouse(parsed, opts)
+    else
+      project_graphs(parsed, opts)
+    end
+  end
+
+  @doc """
+  CNPG trace and hop rows for `parsed`, with no graph projection.
+
+  A no-op when StarRocks is enabled, because that backend is the only row store.
+  """
+  @spec persist_ledger_rows([map()], keyword()) :: :ok | {:error, term()}
+  def persist_ledger_rows(parsed, opts \\ []) when is_list(parsed) do
+    if starrocks_enabled?(opts) do
+      :ok
+    else
+      parsed
+      |> Enum.map(&(&1 |> persist_cnpg(Keyword.put(opts, :skip_graph, true)) |> classify()))
+      |> Enum.find(:ok, &match?({:error, _}, &1))
+    end
+  end
+
+  defp starrocks_enabled?(opts) do
+    Keyword.get_lazy(opts, :starrocks_enabled, &Destination.enabled?/0)
+  end
+
+  defp project_graphs(parsed, opts) do
+    build = Keyword.get(opts, :rows, &MtrMetricsIngestor.rows/2)
+    project = Keyword.get(opts, :project, &MtrGraph.project_traces/2)
+
+    parsed
+    |> Enum.map(fn %{payload: payload, status: status} ->
+      case build.(payload, status) do
+        {:ok, %{results: results}} ->
+          if results != [], do: project.(results, status)
+          :ok
+
+        {:error, _reason} = error ->
+          classify(error)
+      end
+    end)
+    |> Enum.find(:ok, &match?({:error, _}, &1))
   end
 
   defp classify(:ok), do: :ok
@@ -132,7 +184,7 @@ defmodule ServiceRadar.EventWriter.Processors.Mtr do
   defp persist_cnpg(%{payload: payload, status: status} = parsed, opts) do
     ingest = Keyword.get(opts, :ingest, &MtrMetricsIngestor.ingest/3)
 
-    case ingest.(payload, status, skip_existing: true) do
+    case ingest.(payload, status, [skip_existing: true] ++ Keyword.take(opts, [:skip_graph])) do
       :ok ->
         announce(Map.get(parsed, :broadcast), opts)
         :ok

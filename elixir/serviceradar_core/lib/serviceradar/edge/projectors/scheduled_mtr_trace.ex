@@ -3,20 +3,14 @@ defmodule ServiceRadar.Edge.Projectors.ScheduledMtrTrace do
   Projects `serviceradar.mtr.scheduled_trace` v1 records: full hop-by-hop MTR traces
   emitted by agent-scheduled checks under a standing output grant.
 
-  On a primary delivery (`primary?: true`):
-  - Re-checks the standing output grant via `OutputGrants.check_current/5`.
-  - Resolves the partition slug from the record's `network_scope_id` and the gateway ID
-    from the `Sr-Edge-Gateway-Id` header or the agent's registered `gateway_id`.
-  - Rebuilds the ingestor payload (`%{"results" => [...]}`) with deterministic `trace_uuid`
-    derived from each trace's `trace_id`, preserving TCP SYN handshake diagnostics,
-    per-hop reply classification counters, MPLS labels, ECMP addresses, ASN metadata,
-    and microsecond RTT/jitter metrics.
-  - Persists through `ServiceRadar.EventWriter.Processors.Mtr.persist_all/2` (which writes
-    to StarRocks when enabled or CNPG `MtrMetricsIngestor` when disabled, and projects
-    into `MtrGraph`), then updates `ServiceStateRegistry` and broadcasts on
-    `ServiceStatusPubSub`.
+  On a fresh primary delivery, `publish/3` runs before the ledger transaction and does
+  the work that leaves the database: the StarRocks Stream Load when that backend is
+  enabled, and the `MtrGraph` projection either way. `project/4` then runs inside the
+  transaction. It re-checks the standing output grant, writes the CNPG trace and hop
+  rows when StarRocks is not the backend, and updates `ServiceStateRegistry`.
 
-  On a replay or late-fenced delivery (`primary?: false`), `project/4` is a no-op.
+  On a replay or late-fenced delivery, `publish/3` is not called and `project/4` is a
+  no-op.
   """
 
   @behaviour ServiceRadar.Edge.Projector
@@ -37,6 +31,7 @@ defmodule ServiceRadar.Edge.Projectors.ScheduledMtrTrace do
   alias ServiceRadar.Infrastructure.Partition
   alias ServiceRadar.Observability.ServiceStateRegistry
   alias ServiceRadar.Observability.ServiceStatusPubSub
+  alias ServiceRadar.Repo
 
   @service_name "mtr_traces"
   @service_type "mtr"
@@ -83,12 +78,45 @@ defmodule ServiceRadar.Edge.Projectors.ScheduledMtrTrace do
   def decode(%EdgeRecordV1{}), do: {:error, :scheduled_mtr_source_authorization}
 
   @impl true
+  def publish(%EdgeRecordV1{} = record, %AgentScheduledMtrTraceBatchV1{} = batch, opts) do
+    repo = Keyword.get(opts, :repo, Repo)
+
+    case prepare(repo, record, batch, opts) do
+      {:ok, payload, status} ->
+        MtrProcessor.persist_outside_ledger([%{payload: payload, status: status, broadcast: nil}])
+
+      {:error, {:refused, reason}} ->
+        {:refused, {:refused, reason}}
+
+      {:error, reason} when reason in [:output_grant_not_current, :mtr_partition_not_found] ->
+        {:refused, reason}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  @impl true
   def project(
         repo,
         %EdgeRecordV1{} = record,
         %AgentScheduledMtrTraceBatchV1{} = batch,
         %{primary?: true} = context
       ) do
+    with {:ok, payload, status} <- prepare(repo, record, batch, gateway_id: context.gateway_id),
+         :ok <-
+           MtrProcessor.persist_ledger_rows([%{payload: payload, status: status, broadcast: nil}]),
+         :ok <- ServiceStateRegistry.upsert_from_status_strict(status) do
+      ServiceStatusPubSub.broadcast_update(status)
+      :ok
+    else
+      {:error, _reason} = error -> error
+    end
+  end
+
+  def project(_repo, _record, _batch, _context), do: :ok
+
+  defp prepare(repo, %EdgeRecordV1{} = record, batch, opts) do
     producer = record.producer_context
     network_scope_id = Ecto.UUID.load!(record.network_scope_id)
     agent_id = producer.origin_principal_id
@@ -102,22 +130,14 @@ defmodule ServiceRadar.Edge.Projectors.ScheduledMtrTrace do
              producer.authority_epoch
            ),
          %Partition{slug: partition} <- repo.get(Partition, network_scope_id),
-         {:ok, gateway_id} <- mtr_gateway(repo, agent_id, context.gateway_id) do
+         {:ok, gateway_id} <- mtr_gateway(repo, agent_id, Keyword.get(opts, :gateway_id)) do
       payload = to_ingestor_payload(batch)
-      status = status(batch, payload, agent_id, gateway_id, partition)
-
-      with :ok <- MtrProcessor.persist_all([%{payload: payload, status: status, broadcast: nil}]),
-           :ok <- ServiceStateRegistry.upsert_from_status_strict(status) do
-        ServiceStatusPubSub.broadcast_update(status)
-        :ok
-      end
+      {:ok, payload, status(batch, payload, agent_id, gateway_id, partition)}
     else
       nil -> {:error, :mtr_partition_not_found}
       {:error, _reason} = error -> error
     end
   end
-
-  def project(_repo, _record, _batch, _context), do: :ok
 
   @doc """
   Converts an `AgentScheduledMtrTraceBatchV1` into the `%{"results" => [...]}` map
@@ -268,7 +288,7 @@ defmodule ServiceRadar.Edge.Projectors.ScheduledMtrTrace do
     latest_nano =
       traces
       |> Enum.map(& &1.trace.observed_at_unix_nano)
-      |> Enum.max(fn -> System.os_time(:nanosecond) end)
+      |> Enum.max()
 
     %{
       service_name: @service_name,

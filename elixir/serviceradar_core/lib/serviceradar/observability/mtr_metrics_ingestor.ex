@@ -48,7 +48,8 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
   A result may carry a `trace_uuid`, which becomes the stored trace id instead
   of a generated one. With `skip_existing: true`, results whose `trace_uuid` is
   already stored are left out, which makes a redelivered JetStream message a
-  no-op; `:existing_trace_ids` replaces that lookup (tests).
+  no-op; `:existing_trace_ids` replaces that lookup (tests). `skip_graph: true`
+  stores the rows and does not project them into the graph.
   """
   @spec ingest(map() | list(), map(), keyword()) :: :ok | {:error, term()}
   def ingest(payload, status, opts \\ [])
@@ -61,7 +62,10 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
       {:ok, %{results: results, traces: trace_rows, hops: hop_rows}} ->
         case insert_results(trace_rows, hop_rows, opts) do
           :ok ->
-            MtrGraph.project_traces(results, status)
+            unless Keyword.get(opts, :skip_graph, false) do
+              MtrGraph.project_traces(results, status)
+            end
+
             :ok
 
           error ->
