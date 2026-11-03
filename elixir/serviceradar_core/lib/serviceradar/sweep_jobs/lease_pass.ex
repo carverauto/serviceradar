@@ -319,10 +319,25 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
       end
 
     case classify_lease(scope, settings, inputs.schedule, now) do
-      {:leased, window} -> agent_window(group, profile, inputs, candidate, window)
-      decision -> decision
+      {:leased, window} ->
+        agent_window(group, profile, inputs, candidate, window)
+
+      decision ->
+        warn_unresolved_partition(scope, group, candidate)
+        decision
     end
   end
+
+  # An agent reporting a partition that has no row stays on the status path. Nothing else
+  # reports why, so say it here.
+  defp warn_unresolved_partition({:error, :partition_not_found = reason}, group, candidate) do
+    Logger.warning(
+      "Sweep lease pass: group #{group.id} is not leased to #{candidate.agent_id} in partition " <>
+        "#{candidate.partition}: #{inspect(reason)}"
+    )
+  end
+
+  defp warn_unresolved_partition(_scope, _group, _candidate), do: :ok
 
   # The agent's own check set: what its delivered sweep config carries for the group.
   defp agent_window(group, profile, inputs, candidate, window) do

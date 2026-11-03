@@ -131,6 +131,20 @@ defmodule ServiceRadar.Edge.OutputGrantsDbTest do
     assert claims.network_scope_id == Ecto.UUID.dump!(ctx.partition.id)
   end
 
+  test "an agent in the default partition gets a grant on an install that created no partition",
+       ctx do
+    # Agents that report no partition report "default"; no test or operator created it here.
+    enable_leasing!(ctx)
+
+    assert [_grant] =
+             OutputGrants.config_grants(ctx.agent, "default", DateTime.utc_now(), authority(ctx))
+
+    assert {:ok, %{id: default_scope}} = Partition.get_by_slug("default", actor: ctx.actor)
+
+    assert {:ok, %{state: :active, network_scope_id: ^default_scope}} =
+             OutputGrants.get(ctx.agent, @contract)
+  end
+
   test "an agent off the edge-record pipeline gets no grant, and turning it off revokes one",
        ctx do
     assert [] =
