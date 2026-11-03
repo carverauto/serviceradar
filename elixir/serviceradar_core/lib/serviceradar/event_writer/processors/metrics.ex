@@ -118,11 +118,6 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
     end
   end
 
-  # Canonical device_id enrichment for the DB-sync persistence path (the deleted
-  # legacy ingestors did this). Resolution is batched once per message batch and
-  # is strictly best-effort: an unknown IP or a lookup failure leaves device_id
-  # nil rather than dropping the metric. The anomaly hot path is unaffected — it
-  # never calls this; only the CNPG persistence path enriches device_id.
   @doc """
   Whether a decoded row carries a value the timeseries store can hold.
 
@@ -140,6 +135,10 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
   agent's own host (sysmon) is attributed to the live device that agent is linked
   to. Rows still without a `device_id` are then backfilled by target IP. `sr:`
   uids pass through untouched.
+
+  Lookups run once per batch and are best-effort: a miss or a lookup failure
+  keeps the row, and `device_id` stays nil when nothing resolves it. The anomaly
+  hot path does not call this.
   """
   @spec attribute_device_ids([map()]) :: [map()]
   def attribute_device_ids(rows) do
