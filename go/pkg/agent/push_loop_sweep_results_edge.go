@@ -51,24 +51,45 @@ var (
 	errSweepResultsHostForm          = errors.New("sweep host address is not in canonical form")
 	errSweepResultsHostTooLarge      = errors.New("one sweep host does not fit an edge record")
 	errSweepResultsUnbuildableMetric = errors.New("sweep results chunk metric does not fit an edge record")
+	errSweepResultsNoChunks          = errors.New("sweep results response has no results chunk")
 )
 
 // sweepResultsEdgePending is the built records of the one sweep results response
-// the agent is spooling: each legacy chunk's metric batch, then the results.
-// Records are built once, so a retry after a retryable spool refusal appends the
-// unsent ones under their original event ids. admitted is set once any record of
-// this response is in the spool. The response is acknowledged when every record
-// is in the spool or, after admitted, has been permanently dropped. When nothing
-// from the response was admitted and a record cannot enter the spool, response
-// goes back to the legacy path whole. Its zero value is empty.
+// the agent is spooling: each legacy chunk's metric batch, then every results
+// record, including the final one. Records are built once, so a retry after a
+// retryable spool refusal appends the unsent ones under their original event
+// ids. admitted is set once any record of this response is in the spool. When
+// nothing from the response was admitted and a record cannot enter the spool,
+// response goes back to the legacy path whole. Its zero value is empty.
+//
+// The final results record is appended with the others, carrying the execution's
+// total chunk count. Core completes the execution only once it has ingested
+// every chunk, so the final does not have to wait here. If the spool permanently
+// refuses a record after admission (incomplete counts them), a cancel marker is
+// appended once the parts queue drains: a durable record flagged as the marker,
+// with no hosts and no data-chunk index, naming exactly the data-chunk indexes
+// appended (emitted). It is built from cancelTemplate under capability and kept
+// in cancelled so a retry reuses its event id. partChunks is the data-chunk
+// index of each unsent part. Core closes the execution as cancelled once those
+// data chunks are in, and keeps the host rows it already stored. The response is acknowledged once every record is in the spool;
+// delivery is the spool's, and a chunk core never receives leaves the execution
+// to core's stale-execution sweeper.
 type sweepResultsEdgePending struct {
-	mu       sync.Mutex
-	groupID  string
-	sequence string
-	response *proto.ResultsResponse
-	admitted bool
-	metrics  []edgeMetricsBuilt
-	parts    []edgeMetricsBuilt
+	mu             sync.Mutex
+	groupID        string
+	sequence       string
+	response       *proto.ResultsResponse
+	admitted       bool
+	metrics        []edgeMetricsBuilt
+	parts          []edgeMetricsBuilt
+	partChunks     []uint32
+	emitted        []uint32
+	capability     *edgev1.EdgeSignedCapabilityV1
+	cancelTemplate *edgev1.UnleasedSweepResultsBatchV1
+	cancelled      edgeMetricsBuilt
+	cancelNeeded   bool
+	cancelSent     bool
+	incomplete     int
 }
 
 // sweepResultsEdgeMetrics carries the metric batch of each sweep results chunk:
@@ -117,7 +138,7 @@ func (p *PushLoop) pushSweepResultsEdge(sweepSvc SweepResultsProvider, response 
 		return false, false, false
 	}
 
-	parts, metricPayloads, err := buildSweepResultsEdgeRecords(response, resultsGrant)
+	parts, cancelTemplate, metricPayloads, err := buildSweepResultsEdgeRecords(response, resultsGrant)
 	if err != nil {
 		p.logger.Warn().Err(err).Str("sweep_group_id", response.SweepGroupId).
 			Msg("Sweep results response stays on the legacy path")
@@ -141,6 +162,17 @@ func (p *PushLoop) pushSweepResultsEdge(sweepSvc SweepResultsProvider, response 
 	p.sweepResultsEdge.admitted = false
 	p.sweepResultsEdge.metrics = metrics
 	p.sweepResultsEdge.parts = parts
+	p.sweepResultsEdge.partChunks = make([]uint32, len(parts))
+	for i := range parts {
+		p.sweepResultsEdge.partChunks[i] = uint32(i)
+	}
+	p.sweepResultsEdge.emitted = nil
+	p.sweepResultsEdge.capability = resultsGrant
+	p.sweepResultsEdge.cancelTemplate = cancelTemplate
+	p.sweepResultsEdge.cancelled = edgeMetricsBuilt{}
+	p.sweepResultsEdge.cancelNeeded = false
+	p.sweepResultsEdge.cancelSent = false
+	p.sweepResultsEdge.incomplete = 0
 	p.sweepResultsEdge.mu.Unlock()
 
 	pending, sent, fallback := p.finishSweepResultsEdge(sweepSvc)
@@ -176,50 +208,113 @@ func (p *PushLoop) sweepResultsMetricRecords(payloads []map[string]any, capabili
 }
 
 // finishSweepResultsEdge appends the unsent records of the response being spooled,
-// metric batches first. A retryable refusal leaves the rest queued with their
-// event ids (pending). A permanent refusal before anything from this response was
-// admitted returns the original response for the legacy path and appends nothing
-// further. A permanent refusal after a record was admitted drops that record,
-// counts it, and continues. The response is acknowledged once nothing remains queued.
+// metric batches first and every results record, including the final one, as
+// soon as the spool accepts it. A retryable refusal leaves the rest queued with
+// their event ids (pending). A permanent refusal before anything from this
+// response was admitted returns the original response for the legacy path and
+// appends nothing further. A permanent refusal after a record was admitted
+// drops that record, counts it, and continues. A counted refusal appends the
+// cancel record. The response is acknowledged once every record is appended.
 func (p *PushLoop) finishSweepResultsEdge(sweepSvc SweepResultsProvider) (pending, appended bool, fallback *proto.ResultsResponse) {
 	p.sweepResultsEdge.mu.Lock()
 	defer p.sweepResultsEdge.mu.Unlock()
 	state := &p.sweepResultsEdge
-	if state.sequence == "" && len(state.metrics) == 0 && len(state.parts) == 0 {
+	if state.sequence == "" && len(state.metrics) == 0 && len(state.parts) == 0 && !state.cancelNeeded {
 		return false, false, nil
 	}
 
-	added, rest, err := p.appendSweepResultsRecords(edgeProducerSweepResultsMetrics, state.metrics, state.admitted)
+	added, rest, err := p.appendSweepResultsRecords(edgeProducerSweepResultsMetrics, state.metrics, state, nil)
 	if err != nil {
 		return false, false, p.abandonSweepResultsEdge(err)
 	}
-	state.admitted = state.admitted || added > 0
 	state.metrics = rest
 	appended = added > 0
 	if len(rest) > 0 {
 		return true, appended, nil
 	}
 
-	added, rest, err = p.appendSweepResultsRecords(edgeProducerSweepResults, state.parts, state.admitted)
+	chunks := state.partChunks
+	added, rest, err = p.appendSweepResultsRecords(edgeProducerSweepResults, state.parts, state, func(i int) {
+		state.emitted = append(state.emitted, chunks[i])
+	})
 	if err != nil {
 		return false, false, p.abandonSweepResultsEdge(err)
 	}
-	state.admitted = state.admitted || added > 0
 	state.parts = rest
+	state.partChunks = chunks[len(chunks)-len(rest):]
 	appended = appended || added > 0
 	if len(rest) > 0 {
 		return true, appended, nil
+	}
+
+	if state.incomplete > 0 {
+		state.cancelNeeded = true
+	}
+	cancelAdded, waiting, fallback := p.appendSweepCancel(state)
+	appended = appended || cancelAdded
+	if fallback != nil || waiting {
+		return waiting, appended, fallback
 	}
 
 	acknowledgeSweepResults(sweepSvc, state.groupID, state.sequence)
 	if state.sequence != "" {
 		p.setSweepResultsSequence(state.sequence)
 	}
+	state.reset()
+	return false, appended, nil
+}
+
+// appendSweepCancel builds the response's cancel marker once the parts queue
+// has drained, naming exactly the data chunks appended, and appends it once
+// under that record's event id. pending means the spool asked for a retry. A
+// marker that does not build, or that the spool permanently refuses, is
+// counted and not retried: the spool will not take it.
+func (p *PushLoop) appendSweepCancel(state *sweepResultsEdgePending) (added, pending bool, fallback *proto.ResultsResponse) {
+	if !state.cancelNeeded || state.cancelSent {
+		return false, false, nil
+	}
+	if state.cancelled.record == nil {
+		marker := gproto.Clone(state.cancelTemplate).(*edgev1.UnleasedSweepResultsBatchV1)
+		marker.EmittedChunkIndexes = append([]uint32(nil), state.emitted...)
+		marker.TotalChunks = uint32(len(state.emitted))
+		built, err := unleasedSweepEdgeRecord(marker, state.capability)
+		if err != nil {
+			state.cancelSent = true
+			p.dropEdgeMetrics(edgeProducerSweepResults, sweepPermanentDropReason(err), 1, err)
+			p.logger.Warn().Err(err).Str("sweep_group_id", state.groupID).
+				Msg("Sweep results cancel record did not build; the execution stays open")
+			return false, false, nil
+		}
+		state.cancelled = built
+	}
+	n, rest, err := p.appendSweepResultsRecords(edgeProducerSweepResults, []edgeMetricsBuilt{state.cancelled}, state, nil)
+	if err != nil {
+		return false, false, p.abandonSweepResultsEdge(err)
+	}
+	if len(rest) > 0 {
+		return n > 0, true, nil
+	}
+	state.cancelSent = true
+	if n > 0 {
+		p.logger.Warn().Str("sweep_group_id", state.groupID).Int("records", state.incomplete).
+			Msg("Sweep results records were not delivered; the execution is reported cancelled, not completed")
+	} else {
+		p.logger.Warn().Str("sweep_group_id", state.groupID).
+			Msg("Sweep results cancel record was not accepted; the execution stays open")
+	}
+	return n > 0, false, nil
+}
+
+func (state *sweepResultsEdgePending) reset() {
 	state.groupID, state.sequence = "", ""
 	state.response = nil
 	state.admitted = false
 	state.metrics, state.parts = nil, nil
-	return false, appended, nil
+	state.partChunks, state.emitted = nil, nil
+	state.capability, state.cancelTemplate = nil, nil
+	state.cancelled = edgeMetricsBuilt{}
+	state.cancelNeeded, state.cancelSent = false, false
+	state.incomplete = 0
 }
 
 // abandonSweepResultsEdge forgets a response that never entered the spool so the
@@ -229,26 +324,28 @@ func (p *PushLoop) abandonSweepResultsEdge(err error) *proto.ResultsResponse {
 	state := &p.sweepResultsEdge
 	response := state.response
 	groupID := state.groupID
-	state.groupID, state.sequence = "", ""
-	state.response = nil
-	state.admitted = false
-	state.metrics, state.parts = nil, nil
+	state.reset()
 	p.logger.Warn().Err(err).Str("sweep_group_id", groupID).
 		Str("reason", sweepPermanentDropReason(err).label()).
 		Msg("Sweep results response stays on the legacy path")
 	return response
 }
 
-// appendSweepResultsRecords appends parts in order. added is how many this call
-// put in the spool. rest is the unsent suffix after a retryable refusal and
-// includes the refused record, whose event id is unchanged. A permanent refusal
-// with nothing from this response in the spool returns that error and an empty
-// rest, so the caller does not append later records. After a record was admitted,
-// a permanent refusal drops that record and continues.
-func (p *PushLoop) appendSweepResultsRecords(producer edgeProducer, parts []edgeMetricsBuilt, already bool) (added int, rest []edgeMetricsBuilt, fallback error) {
+// appendSweepResultsRecords appends parts in order, calling admitted, when
+// set, with the position in parts of each record the spool took. added is how
+// many this call put in the spool. rest is the unsent suffix after a retryable refusal and includes the
+// refused record, whose event id is unchanged. A permanent refusal with nothing
+// from this response in the spool returns that error and an empty rest, so the
+// caller does not append later records. After a record was admitted, a permanent
+// refusal drops that record, counts it in state.incomplete, and continues.
+func (p *PushLoop) appendSweepResultsRecords(producer edgeProducer, parts []edgeMetricsBuilt, state *sweepResultsEdgePending, admitted func(i int)) (added int, rest []edgeMetricsBuilt, fallback error) {
 	for i, part := range parts {
 		permanent, err := p.appendOneSweepRecord(part)
 		if err == nil {
+			if admitted != nil {
+				admitted(i)
+			}
+			state.admitted = true
 			added++
 			continue
 		}
@@ -257,9 +354,10 @@ func (p *PushLoop) appendSweepResultsRecords(producer edgeProducer, parts []edge
 				Msg("Edge spool refused sweep results; retrying on the next push")
 			return added, parts[i:], nil
 		}
-		if !already && added == 0 {
+		if !state.admitted {
 			return 0, nil, err
 		}
+		state.incomplete++
 		p.dropEdgeMetrics(producer, sweepPermanentDropReason(err), 1, err)
 	}
 	return added, nil, nil
@@ -319,48 +417,64 @@ type sweepResultsJSON struct {
 func buildSweepResultsEdgeRecords(
 	response *proto.ResultsResponse,
 	capability *edgev1.EdgeSignedCapabilityV1,
-) ([]edgeMetricsBuilt, []map[string]any, error) {
+) (parts []edgeMetricsBuilt, cancelTemplate *edgev1.UnleasedSweepResultsBatchV1, metrics []map[string]any, err error) {
 	chunks, err := buildSweepResultsChunks(response)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	maxRows := capability.GetProduction().GetMaxProjectedRowCount()
 	sequence, _ := strconv.ParseUint(response.CurrentSequence, 10, 64)
 
 	var batches []*edgev1.UnleasedSweepResultsBatchV1
-	metrics := make([]map[string]any, 0, len(chunks))
+	metrics = make([]map[string]any, 0, len(chunks))
 	for _, chunk := range chunks {
 		var doc sweepResultsJSON
 		if err := json.Unmarshal(chunk.Data, &doc); err != nil {
-			return nil, nil, fmt.Errorf("parse sweep results chunk: %w", err)
+			return nil, nil, nil, fmt.Errorf("parse sweep results chunk: %w", err)
 		}
 		batch, err := unleasedSweepBatch(&doc, sequence)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		// The response time is the legacy results status time core records the
 		// sweep service as observed at.
 		batch.BatchCompletedAtUnixNano = uint64(max(response.Timestamp, 0)) * uint64(time.Second)
 		split, err := splitUnleasedSweepBatch(batch, uint64(maxRows))
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		batches = append(batches, split...)
 		metrics = append(metrics, chunk.MetricPayload)
 	}
+	if len(batches) == 0 {
+		return nil, nil, nil, errSweepResultsNoChunks
+	}
 
-	parts := make([]edgeMetricsBuilt, 0, len(batches))
+	parts = make([]edgeMetricsBuilt, 0, len(batches))
 	for i, batch := range batches {
 		batch.ChunkIndex = uint32(i)
 		batch.TotalChunks = uint32(len(batches))
 		batch.IsFinal = i == len(batches)-1
 		part, err := unleasedSweepEdgeRecord(batch, capability)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		parts = append(parts, part)
 	}
-	return parts, metrics, nil
+	// The cancel marker is not a data chunk. appendSweepCancel completes it
+	// with the data-chunk indexes actually appended.
+	last := batches[len(batches)-1]
+	cancelTemplate = &edgev1.UnleasedSweepResultsBatchV1{
+		ExecutionId:              last.GetExecutionId(),
+		SweepGroupId:             last.GetSweepGroupId(),
+		Sequence:                 last.GetSequence(),
+		LastSweepUnixNano:        last.GetLastSweepUnixNano(),
+		BatchCompletedAtUnixNano: last.GetBatchCompletedAtUnixNano(),
+		IsCancelled:              true,
+		IsFinal:                  true,
+		IsCancelMarker:           true,
+	}
+	return parts, cancelTemplate, metrics, nil
 }
 
 // splitUnleasedSweepBatch halves a batch's hosts until every part fits maxRows

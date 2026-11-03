@@ -569,7 +569,32 @@ in `choices.md` and the chart README.
   `admission.Controller` stays unwired: it frees charged bytes only through a
   reclaim authorization nothing can mint before task 2.28. This item stays
   unchecked until the farm01 verification; the rest of task 2.7 stays open.
-  Holding execution completion while records are unresolved remains TODO.
+  Execution completion is decided in core. The agent appends every results
+  record, including the final one (`is_final`, carrying the execution's total
+  chunk count), as soon as the spool accepts it, and acknowledges the response
+  once every record is appended; delivery is the spool's. Core marks the
+  execution completed only once it has ingested every chunk of that execution:
+  the distinct data-chunk indexes stored on the execution
+  (`received_chunk_indexes`) equal the expected set and a final data chunk or
+  the cancel marker has been seen. Until then the execution stays running, and
+  a chunk that arrives after the final one completes it. Only a record the
+  spool refuses permanently after the response's first record was admitted
+  makes the agent append a durable cancel marker, once the remaining records
+  are appended. The marker is flagged `is_cancel_marker`, has no hosts and no
+  chunk index, and carries `emitted_chunk_indexes`, the exact data-chunk
+  indexes the agent appended; core uses that set as the expected set in place
+  of `0..total_chunks-1`. A zero-host cancelled data chunk is still a data
+  chunk. Core latches cancellation from any cancelled record, in any order,
+  and marks the execution cancelled instead of completed once the expected set
+  is in. It keeps the host rows it already stored. A marker that names no data
+  chunks closes immediately as cancelled. A record the gateway rejects after
+  it was appended produces no marker: its chunk never arrives, and the
+  execution is left to the stale-execution reaper. The close state lives in
+  dedicated execution columns, not in `scanner_metrics`. A leased execution
+  has no agent-emitted completion: core completes it only when its projected
+  host rows reach the plan's `total_target_count`
+  (`ServiceRadar.Edge.SweepProjection`), so an
+  unresolved or rejected record already keeps it open.
 - [ ] M3.3 Fault drill. During active sweeps on farm01, restart the gateway,
   core (EventWriter), NATS and the canary agent, each at least once
   mid-execution. Afterwards CNPG shows zero missing and zero duplicated host

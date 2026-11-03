@@ -132,6 +132,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     chunk_index = Keyword.get(opts, :chunk_index)
     total_chunks = Keyword.get(opts, :total_chunks)
     is_final = Keyword.get(opts, :is_final, true)
+    is_cancelled = Keyword.get(opts, :is_cancelled, false)
+    cancel_marker = Keyword.get(opts, :cancel_marker, false)
+    marker_chunk_indexes = Keyword.get(opts, :marker_chunk_indexes)
     mapper_promotion_opts = Keyword.get(opts, :mapper_promotion_opts, [])
 
     reporter_context =
@@ -186,6 +189,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           chunk_index: chunk_index,
           total_chunks: total_chunks,
           is_final: is_final,
+          is_cancelled: is_cancelled,
+          cancel_marker: cancel_marker,
+          marker_chunk_indexes: marker_chunk_indexes,
           reporter_context: reporter_context
         )
     end
@@ -588,7 +594,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
          start_time,
          opts
        ) do
-    execution =
+    {execution, terminal} =
       update_execution(
         execution_id,
         sweep_group_id,
@@ -601,10 +607,10 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     broadcast_execution_progress(
       execution_id,
       execution,
+      terminal,
       final_stats,
       Keyword.get(opts, :chunk_index),
-      Keyword.get(opts, :total_chunks),
-      Keyword.get(opts, :is_final)
+      Keyword.get(opts, :total_chunks)
     )
 
     elapsed = System.monotonic_time(:millisecond) - start_time
@@ -2528,33 +2534,42 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     request_id = Keyword.get(opts, :request_id)
     reporter_context = Keyword.fetch!(opts, :reporter_context)
 
-    {completed_at, updated_at} = execution_timestamps(is_final)
-    duration_ms = execution_duration_ms(execution_id, is_final, completed_at)
+    updated_at = DateTime.truncate(DateTime.utc_now(), :microsecond)
     inc_fields = execution_inc_fields(stats, expected_total_hosts)
+    set_fields = execution_set_fields(updated_at, scanner_metrics)
 
-    set_fields =
-      updated_at
-      |> execution_set_fields(scanner_metrics)
-      |> maybe_mark_execution_complete(is_final, is_cancelled, completed_at, duration_ms)
+    decision = %{
+      chunk_index: Keyword.get(opts, :chunk_index),
+      total_chunks: Keyword.get(opts, :total_chunks),
+      is_final: is_final,
+      is_cancelled: is_cancelled,
+      cancel_marker: Keyword.get(opts, :cancel_marker, false),
+      marker_chunk_indexes: Keyword.get(opts, :marker_chunk_indexes)
+    }
 
-    # A closed execution (cancelled by an operator, reaped, superseded or already
-    # completed) keeps its final state. A chunk the agent sent before it stopped
-    # has already recorded its host observations, but must not bump the run's
-    # progress or complete it. Returning nil also skips the progress broadcast,
-    # which would put the run back on the running-scans panel.
-    case update_running_execution_row(execution_id, inc_fields, set_fields) do
-      {0, _rows} ->
+    # A closed execution (failed, reaped, or superseded) keeps its final state.
+    # A chunk the agent sent before it stopped has already recorded its host
+    # observations, but must not bump the run's progress or complete it.
+    # The cancel marker carries no data chunk. It latches cancellation and
+    # names the exact data chunks the agent appended. A cancelled record moves
+    # a completed execution to cancelled without counting hosts again. A
+    # running execution closes only when every expected data chunk is in and a
+    # final data chunk or the marker has been seen. Returning nil skips the
+    # progress broadcast, which would put a closed run back on the
+    # running-scans panel.
+    case update_running_execution_row(execution_id, inc_fields, set_fields, decision) do
+      {0, _terminal} ->
         Logger.info(
           "SweepResultsIngestor: Execution #{execution_id} is not running; " <>
             "leaving its progress and status unchanged"
         )
 
-        nil
+        {nil, nil}
 
-      {_updated, _rows} ->
+      {_updated, terminal} ->
         maybe_set_expected_total(execution_id, expected_total_hosts, updated_at)
 
-        if is_final do
+        if terminal in [:completed, :cancelled] do
           record_group_execution(reporter_context, actor)
         end
 
@@ -2567,7 +2582,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           is_final
         )
 
-        fetch_execution(execution_id)
+        {fetch_execution(execution_id), terminal}
     end
   end
 
@@ -2766,28 +2781,6 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     end
   end
 
-  defp execution_timestamps(true) do
-    now = DateTime.utc_now()
-    {DateTime.truncate(now, :second), DateTime.truncate(now, :microsecond)}
-  end
-
-  defp execution_timestamps(false) do
-    now = DateTime.utc_now()
-    {nil, DateTime.truncate(now, :microsecond)}
-  end
-
-  defp execution_duration_ms(_execution_id, false, _completed_at), do: nil
-
-  defp execution_duration_ms(execution_id, true, completed_at) do
-    started_at =
-      Repo.one(from(e in SweepGroupExecution, where: e.id == ^execution_id, select: e.started_at))
-
-    case started_at do
-      nil -> nil
-      _ -> DateTime.diff(completed_at, started_at, :millisecond)
-    end
-  end
-
   defp execution_inc_fields(stats, nil) do
     [
       hosts_available: stats.hosts_available,
@@ -2813,37 +2806,151 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     end
   end
 
-  defp maybe_mark_execution_complete(
-         set_fields,
-         false,
-         _is_cancelled,
-         _completed_at,
-         _duration_ms
-       ), do: set_fields
+  # A cancelled chunk may move an execution that already completed.
+  # A running execution stays running until every chunk has arrived.
+  # :failed stays closed.
+  defp update_running_execution_row(execution_id, inc_fields, set_fields, decision) do
+    statuses = if decision.is_cancelled, do: [:running, :completed], else: [:running]
 
-  defp maybe_mark_execution_complete(set_fields, true, true, completed_at, duration_ms) do
-    set_fields
-    |> Keyword.put(:status, :cancelled)
-    |> Keyword.put(:completed_at, completed_at)
-    |> Keyword.put(:duration_ms, duration_ms)
+    {:ok, written} =
+      Repo.transaction(fn ->
+        execution =
+          Repo.one(
+            from(e in SweepGroupExecution,
+              where: e.id == ^execution_id and e.status in ^statuses,
+              lock: "FOR UPDATE"
+            )
+          )
+
+        cond do
+          is_nil(execution) ->
+            {0, nil}
+
+          execution.status == :completed ->
+            cancel_completed_execution(execution_id, set_fields)
+
+          true ->
+            write_running_execution(execution, inc_fields, set_fields, decision)
+        end
+      end)
+
+    written
   end
 
-  defp maybe_mark_execution_complete(set_fields, true, _is_cancelled, completed_at, duration_ms) do
-    set_fields
-    |> Keyword.put(:status, :completed)
-    |> Keyword.put(:completed_at, completed_at)
-    |> Keyword.put(:duration_ms, duration_ms)
+  defp cancel_completed_execution(execution_id, set_fields) do
+    {count, _} =
+      Repo.update_all(
+        from(e in SweepGroupExecution, where: e.id == ^execution_id and e.status == :completed),
+        set: [
+          status: :cancelled,
+          close_cancelled: true,
+          updated_at: Keyword.fetch!(set_fields, :updated_at)
+        ]
+      )
+
+    {count, :reclassified}
   end
 
-  # The status predicate makes the check and the write one statement, so a
-  # cancel committed while this chunk was being processed still wins.
-  defp update_running_execution_row(execution_id, inc_fields, set_fields) do
-    Repo.update_all(
-      from(e in SweepGroupExecution, where: e.id == ^execution_id and e.status == :running),
-      inc: inc_fields,
-      set: set_fields
-    )
+  defp write_running_execution(execution, inc_fields, set_fields, decision) do
+    received = remember_data_chunk(execution.received_chunk_indexes, decision)
+    cancelled = decision.is_cancelled or execution.close_cancelled
+
+    terminal_seen =
+      execution.close_terminal_seen or decision.cancel_marker or decision.is_final
+
+    {chunk_count, expected_indexes} = expected_chunks(execution, decision)
+    expected = expected_set(chunk_count, expected_indexes)
+    terminal = execution_terminal(received, expected, terminal_seen, cancelled)
+
+    set_fields =
+      Keyword.merge(set_fields,
+        received_chunk_indexes: received,
+        expected_chunk_count: chunk_count,
+        expected_chunk_indexes: expected_indexes,
+        close_cancelled: cancelled,
+        close_terminal_seen: terminal_seen
+      )
+
+    set_fields =
+      if terminal in [:completed, :cancelled] do
+        completed_at = DateTime.truncate(DateTime.utc_now(), :second)
+
+        set_fields
+        |> Keyword.put(:status, terminal)
+        |> Keyword.put(:completed_at, completed_at)
+        |> Keyword.put(:duration_ms, execution_duration(execution.started_at, completed_at))
+      else
+        set_fields
+      end
+
+    {count, _} =
+      Repo.update_all(
+        from(e in SweepGroupExecution, where: e.id == ^execution.id and e.status == :running),
+        inc: inc_fields,
+        set: set_fields
+      )
+
+    {count, terminal}
   end
+
+  defp remember_data_chunk(indexes, %{cancel_marker: true}), do: data_indexes(indexes)
+
+  defp remember_data_chunk(indexes, %{chunk_index: chunk_index})
+       when is_integer(chunk_index) and chunk_index >= 0 do
+    data_indexes([chunk_index | List.wrap(indexes)])
+  end
+
+  defp remember_data_chunk(indexes, _decision), do: data_indexes(indexes)
+
+  defp data_indexes(indexes) do
+    indexes
+    |> List.wrap()
+    |> Enum.filter(&(is_integer(&1) and &1 >= 0))
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  # A cancel marker's index set is exact and overrides the count the data
+  # chunks carry. Otherwise the first positive chunk count is kept.
+  defp expected_chunks(_execution, %{cancel_marker: true, marker_chunk_indexes: indexes}) do
+    indexes = data_indexes(indexes)
+    {length(indexes), indexes}
+  end
+
+  defp expected_chunks(%{expected_chunk_indexes: indexes} = execution, _decision)
+       when is_list(indexes),
+       do: {execution.expected_chunk_count, indexes}
+
+  defp expected_chunks(%{expected_chunk_count: count}, _decision)
+       when is_integer(count) and count > 0, do: {count, nil}
+
+  defp expected_chunks(_execution, %{total_chunks: total}) when is_integer(total) and total > 0,
+    do: {total, nil}
+
+  defp expected_chunks(execution, _decision), do: {execution.expected_chunk_count, nil}
+
+  defp expected_set(_count, indexes) when is_list(indexes), do: indexes
+
+  defp expected_set(count, nil) when is_integer(count) and count > 0,
+    do: Enum.to_list(0..(count - 1))
+
+  defp expected_set(_count, nil), do: nil
+
+  defp execution_terminal(received, expected, terminal_seen, cancelled) do
+    closes? = terminal_seen and (is_nil(expected) or received == expected)
+
+    cond do
+      not closes? -> :running
+      cancelled -> :cancelled
+      true -> :completed
+    end
+  end
+
+  defp execution_duration(%DateTime{} = started_at, %DateTime{} = completed_at) do
+    DateTime.diff(completed_at, started_at, :millisecond)
+  end
+
+  defp execution_duration(_started_at, _completed_at), do: nil
 
   defp maybe_set_expected_total(_execution_id, nil, _updated_at), do: :ok
 
@@ -2869,6 +2976,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           id: e.id,
           sweep_group_id: e.sweep_group_id,
           agent_id: e.agent_id,
+          status: e.status,
           started_at: e.started_at,
           completed_at: e.completed_at,
           duration_ms: e.duration_ms,
@@ -3121,10 +3229,10 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   defp broadcast_execution_progress(
          execution_id,
          execution,
+         terminal,
          stats,
          chunk_index,
-         total_chunks,
-         is_final
+         total_chunks
        ) do
     if is_nil(execution) do
       :ok
@@ -3149,7 +3257,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
       SweepPubSub.broadcast_progress(execution_id, progress)
 
-      if is_final do
+      if terminal in [:completed, :cancelled, :reclassified] do
         SweepPubSub.broadcast_completed(execution, %{
           hosts_total: execution.hosts_total,
           hosts_available: hosts_available,
