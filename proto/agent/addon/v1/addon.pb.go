@@ -56,8 +56,9 @@ const (
 	TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OTLP_DERIVED_METRIC TelemetryPayloadKind = 6
 	// ServiceRadar-native metric batches produced by non-OTLP collectors.
 	// TelemetryRecord.payload is exactly one encoded
-	// serviceradar.metric.v1.MetricBatch. Gateway republishes this payload
-	// unchanged to metrics.* so core/event_writer owns persistence.
+	// serviceradar.metric.v1.MetricBatch. It is published without a JSON
+	// conversion, and core/event_writer owns persistence. The publish path is
+	// documented in docs/docs/data-pipeline.md.
 	TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS TelemetryPayloadKind = 7
 	// Device observations an add-on made about OTHER hosts, for the inventory
 	// pipeline rather than the observability one.
@@ -920,8 +921,9 @@ type TelemetrySource struct {
 	// source_instance identifies the local producer instance, for example
 	// "recursor" or a configured listener name.
 	SourceInstance string `protobuf:"bytes,2,opt,name=source_instance,json=sourceInstance,proto3" json:"source_instance,omitempty"`
-	// metadata carries bounded source-local labels. Gateway-attested identity is
-	// attached upstream and MUST NOT be trusted from this map.
+	// metadata carries bounded source-local labels. Upstream identity is
+	// attached by the authenticated producer and MUST NOT be trusted from
+	// guest-supplied values in this map.
 	Metadata      map[string]string `protobuf:"bytes,3,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
