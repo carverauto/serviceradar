@@ -65,6 +65,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
   # Process in chunks to balance memory vs DB efficiency
   @batch_size 500
+  # Stored beside real chunk indexes. It is not a chunk, so it never counts
+  # toward completion; it only remembers that a cancel was already ingested.
+  @cancel_seen -1
   @active_ip_unique_constraint "ocsf_devices_unique_active_ip_idx"
   @banner_grab_audit_failed_event [:serviceradar, :sweep, :banner_grab, :audit_failed]
   @merged_restore_skipped_event [:serviceradar, :sweep, :restore, :merged_skipped]
@@ -2543,10 +2546,10 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     # A closed execution (failed, reaped, or superseded) keeps its final state.
     # A chunk the agent sent before it stopped has already recorded its host
     # observations, but must not bump the run's progress or complete it.
-    # A cancel record is the exception: it closes a running execution, and it
-    # also moves an execution that already completed back to cancelled, without
-    # counting hosts again. Returning nil skips the progress broadcast, which
-    # would put the run back on the running-scans panel.
+    # A cancel moves an execution that already completed to cancelled, without
+    # counting hosts again. A running execution becomes cancelled only once
+    # every chunk has been ingested. Returning nil skips the progress
+    # broadcast, which would put a closed run back on the running-scans panel.
     case update_running_execution_row(execution_id, inc_fields, set_fields, decision) do
       {0, _terminal} ->
         Logger.info(
@@ -2796,11 +2799,11 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     end
   end
 
-  # A final cancel record may move an execution that already completed.
-  # A non-final cancelled chunk updates only a running row. :failed stays closed.
+  # A cancelled chunk may move an execution that already completed.
+  # A running execution stays running until every chunk has arrived.
+  # :failed stays closed.
   defp update_running_execution_row(execution_id, inc_fields, set_fields, decision) do
-    statuses =
-      if decision.is_cancelled and decision.is_final, do: [:running, :completed], else: [:running]
+    statuses = if decision.is_cancelled, do: [:running, :completed], else: [:running]
 
     {:ok, written} =
       Repo.transaction(fn ->
@@ -2842,7 +2845,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       remember_chunk(
         execution.received_chunk_indexes,
         decision.chunk_index,
-        decision.total_chunks
+        decision.total_chunks,
+        decision.is_cancelled
       )
 
     terminal =
@@ -2872,30 +2876,38 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     {count, terminal}
   end
 
-  defp remember_chunk(indexes, chunk_index, total_chunks)
-       when is_integer(chunk_index) and chunk_index >= 0 and is_integer(total_chunks) and
-              total_chunks > 1 do
-    [chunk_index | List.wrap(indexes)]
-    |> Enum.uniq()
-    |> Enum.sort()
+  defp remember_chunk(indexes, chunk_index, total_chunks, is_cancelled) do
+    indexes = List.wrap(indexes)
+
+    indexes =
+      if is_integer(chunk_index) and chunk_index >= 0 and is_integer(total_chunks) and
+           total_chunks > 1 do
+        [chunk_index | indexes]
+      else
+        indexes
+      end
+
+    indexes = if is_cancelled, do: [@cancel_seen | indexes], else: indexes
+
+    indexes |> Enum.uniq() |> Enum.sort()
   end
 
-  defp remember_chunk(indexes, _chunk_index, _total_chunks), do: List.wrap(indexes)
+  defp execution_terminal(indexes, total_chunks, is_final, is_cancelled) do
+    cancelled = is_cancelled or @cancel_seen in indexes
+    chunked = is_integer(total_chunks) and total_chunks > 1
+    received = Enum.count(indexes, &(&1 >= 0))
 
-  defp execution_terminal(_indexes, _total_chunks, true, true), do: :cancelled
-
-  defp execution_terminal(indexes, total_chunks, _is_final, is_cancelled)
-       when is_integer(total_chunks) and total_chunks > 1 do
     cond do
-      length(indexes) < total_chunks -> :running
-      is_cancelled -> :cancelled
-      true -> :completed
+      chunked and received >= total_chunks ->
+        if cancelled, do: :cancelled, else: :completed
+
+      is_final and not chunked ->
+        if cancelled, do: :cancelled, else: :completed
+
+      true ->
+        :running
     end
   end
-
-  defp execution_terminal(_indexes, _total_chunks, true, false), do: :completed
-
-  defp execution_terminal(_indexes, _total_chunks, false, _is_cancelled), do: :running
 
   defp execution_duration(%DateTime{} = started_at, %DateTime{} = completed_at) do
     DateTime.diff(completed_at, started_at, :millisecond)

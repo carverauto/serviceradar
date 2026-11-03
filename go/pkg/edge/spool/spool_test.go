@@ -28,6 +28,7 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 	"google.golang.org/protobuf/proto"
 )
@@ -781,4 +782,97 @@ func TestSettleReportsWatchedRecordsOnceResolved(t *testing.T) {
 		t.Fatal(err)
 	}
 	settle(true, 1, 4)
+}
+
+// One acknowledgement may permanently reject DefaultMaxDispositions records
+// before any of them is watched. Each of those sequences is unaccepted, and so
+// is one the ring later trims. A newer sequence the evidence accepted is not.
+func TestSettleCountsAFullAckOfRejectionsNotedBeforeWatch(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+
+	const n = edgerecord.DefaultMaxDispositions
+	reject := func(through uint64, rejected ...uint64) {
+		t.Helper()
+		ack := &edgev1.EdgeDeliveryAckV1{
+			SpoolId: evid(91), SessionNonce: evid(92), ResolvedThroughSequence: through,
+		}
+		rejectedSet := map[uint64]bool{}
+		for _, seq := range rejected {
+			rejectedSet[seq] = true
+		}
+		for seq := s.Resolved() + 1; seq <= through; seq++ {
+			kind := edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE
+			id := make([]byte, 16)
+			binary.BigEndian.PutUint64(id[8:], seq)
+			if rejectedSet[seq] {
+				kind = edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_REJECTED_PERMANENT
+				id = nil
+			}
+			ack.Dispositions = append(ack.Dispositions, &edgev1.EdgeRecordDisposition{Sequence: seq, EventId: id, Kind: kind})
+		}
+		b, err := proto.Marshal(ack)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.ResolveWithEvidence(through, b); err != nil {
+			t.Fatal(err)
+		}
+	}
+	appendSeq := func(seq uint64) {
+		t.Helper()
+		id := make([]byte, 16)
+		binary.BigEndian.PutUint64(id[8:], seq)
+		got, err := s.Append(id, []byte("synthetic"))
+		if err != nil || got != seq {
+			t.Fatalf("append %d = %d, %v", seq, got, err)
+		}
+	}
+
+	for seq := uint64(1); seq <= n; seq++ {
+		appendSeq(seq)
+	}
+	rejected := make([]uint64, n)
+	for i := range rejected {
+		rejected[i] = uint64(i + 1)
+	}
+	reject(n, rejected...)
+	watched := make([]uint64, n)
+	for seq := uint64(1); seq <= n; seq++ {
+		s.Watch(seq)
+		watched[seq-1] = seq
+	}
+	if resolved, unaccepted := s.Settle(watched); !resolved || unaccepted != n {
+		t.Fatalf("Settle(full ack) = %v, %d; want true, %d", resolved, unaccepted, n)
+	}
+
+	appendSeq(n + 1)
+	reject(n+1, n+1)
+	appendSeq(n + 2)
+	id := make([]byte, 16)
+	binary.BigEndian.PutUint64(id[8:], n+2)
+	ack := &edgev1.EdgeDeliveryAckV1{
+		SpoolId: evid(91), SessionNonce: evid(92), ResolvedThroughSequence: n + 2,
+		Dispositions: []*edgev1.EdgeRecordDisposition{{
+			Sequence: n + 2,
+			EventId:  id,
+			Kind:     edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE,
+		}},
+	}
+	b, err := proto.Marshal(ack)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ResolveWithEvidence(n+2, b); err != nil {
+		t.Fatal(err)
+	}
+	s.Watch(1)
+	s.Watch(n + 1)
+	s.Watch(n + 2)
+	if resolved, unaccepted := s.Settle([]uint64{1, n + 1, n + 2}); !resolved || unaccepted != 2 {
+		t.Fatalf("Settle(trimmed, rejected, accepted) = %v, %d; want true, 2", resolved, unaccepted)
+	}
 }

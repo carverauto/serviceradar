@@ -282,7 +282,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroupExecution do
       allow_nil? false
       public? true
       default []
-      description "Distinct chunk indexes already ingested for this execution"
+      description "Distinct chunk indexes already ingested for this execution. -1 records that a cancel was seen."
     end
 
     create_timestamp :inserted_at

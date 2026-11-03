@@ -108,7 +108,8 @@ defmodule ServiceRadar.SweepJobs.SweepPubSub do
   Broadcast that an execution closed.
 
   `status` is the execution's status after that close: `:completed` once every
-  chunk has been ingested, or `:cancelled` when a cancel record was ingested.
+  chunk has been ingested, or `:cancelled` when a cancel was ingested and that
+  same chunk count has been reached.
   """
   def broadcast_completed(execution, stats) do
     event =

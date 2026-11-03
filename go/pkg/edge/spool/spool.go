@@ -58,6 +58,7 @@ import (
 	"sync"
 
 	"github.com/carverauto/serviceradar/go/pkg/durablefs"
+	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
 )
 
 const (
@@ -203,9 +204,12 @@ type Spool struct {
 	// watched holds each sequence a producer waits on (Watch) and whether it
 	// resolved without being accepted. unwatchedUnaccepted keeps the latest
 	// such sequences no one watched yet, for a Watch that races its record's
-	// resolution.
-	watched             map[uint64]bool
-	unwatchedUnaccepted []uint64
+	// resolution. Once that list drops a sequence, unwatchedDroppedThrough is
+	// the highest one dropped, and a Watch at or below it is unaccepted.
+	watched                 map[uint64]bool
+	unwatchedUnaccepted     []uint64
+	unwatchedDroppedThrough uint64
+	unwatchedOverflow       bool
 
 	mu      sync.Mutex
 	seg     segmentHandle
@@ -768,9 +772,10 @@ func (s *Spool) ResolveWithEvidence(through uint64, evidence []byte) error {
 }
 
 // maxUnwatchedUnaccepted bounds the unaccepted sequences kept for a Watch that
-// arrives after its record resolved. The race is one append's return, so the
-// bound only has to outlast a burst of rejections in that window.
-const maxUnwatchedUnaccepted = 1024
+// arrives after its record resolved. One acknowledgement may name this many
+// dispositions. A sequence trimmed from the list is still unaccepted: Watch
+// cannot tell a dropped rejection from a sequence that was accepted.
+const maxUnwatchedUnaccepted = edgerecord.DefaultMaxDispositions
 
 func (s *Spool) noteUnacceptedLocked(unaccepted []uint64) {
 	for _, seq := range unaccepted {
@@ -781,6 +786,17 @@ func (s *Spool) noteUnacceptedLocked(unaccepted []uint64) {
 		s.unwatchedUnaccepted = append(s.unwatchedUnaccepted, seq)
 	}
 	if over := len(s.unwatchedUnaccepted) - maxUnwatchedUnaccepted; over > 0 {
+		dropped := s.unwatchedUnaccepted[:over]
+		var through uint64
+		for _, seq := range dropped {
+			if seq > through {
+				through = seq
+			}
+		}
+		s.unwatchedOverflow = true
+		if through > s.unwatchedDroppedThrough {
+			s.unwatchedDroppedThrough = through
+		}
 		s.unwatchedUnaccepted = append([]uint64(nil), s.unwatchedUnaccepted[over:]...)
 	}
 }
@@ -799,7 +815,13 @@ func (s *Spool) Watch(seq uint64) {
 	unaccepted := false
 	if seq <= s.resolved {
 		for _, u := range s.unwatchedUnaccepted {
-			unaccepted = unaccepted || u == seq
+			if u == seq {
+				unaccepted = true
+				break
+			}
+		}
+		if !unaccepted && s.unwatchedOverflow && seq <= s.unwatchedDroppedThrough {
+			unaccepted = true
 		}
 	}
 	s.watched[seq] = unaccepted
