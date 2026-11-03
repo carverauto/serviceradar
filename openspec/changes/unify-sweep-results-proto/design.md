@@ -2555,16 +2555,14 @@ Otherwise a port-heavy profile would repeat thousands of checks across about
   id drops installed slots whose start lies in the push window, keeps the
   installed production capability when the push has none, normalizes the
   window to the slots still held when any remain, and keeps the push window
-  when none remain. A different lease id, including the 1µs
+  when none remain. A different lease id, including the 1-microsecond
   empty window `LeaseDelivery` sends when the lease id changed and nothing is
   unrun, replaces the installed lease outright and takes the push's
   `lease_version`, so no previous-epoch slot keeps running. A slot-less
   same-lease merge keeps the installed lease's `lease_version` and the check
   sets its retained slots reference, and never lowers that version. A push
-  that carries slots stores its own `lease_version`, which is 2, as the
-  current clone already does. `mergeSweepLease` clones the push today and
-  would store a slot-less push at `lease_version` 1; M2.0i4 changes that
-  slot-less same-lease merge. A same-lease clear of an installed `lease_version` 2
+  that carries slots stores its own `lease_version`, which is 2. A
+  same-lease clear of an installed `lease_version` 2
   that still holds a started slot stays `lease_version` 2, so the on-load
   discard of a stored slot lease whose `lease_version` is not 2 does not drop
   it or resume its ticker. A held lease with no slots stays installed and its
@@ -2630,12 +2628,16 @@ following replace `sweepChecks(cfg)` and the config-network comparison in
    `errEdgeSweepCheckSetMismatch`, `errEdgeSweepCIDRMismatch`,
    `errEdgeSweepTargetsMismatch` and `errEdgeSweepStaticCIDRRequired` go away.
 3. `SweepService.runLeaseToSpool` checks every range with
-   `EffectiveSweepModes(cidr, spec.Modes)` before it claims the slot. A carried
-   mode the agent cannot run refuses the slot with `CHECK_UNAVAILABLE` and the
-   marker of the missing check: `icmp.unavailable` or `mtr.unavailable` for
-   that mode, and `tcp_syn_ipv6.unavailable` when raw IPv6 SYN would run as
-   connect. The agent never runs a subset or a substitute of the signed
-   checks.
+   `NetworkSweeper.EffectivePlannedSweepModes(cidr, spec)` before it claims
+   the slot. That call creates any scanner the planned run still lacks, from
+   the carried `RunSpec` rather than the group's sweep config, then applies
+   the same per-family rules as `EffectiveSweepModes`. A stopped sweeper
+   creates no scanners. Missing ICMP and a mode the planned scanner would
+   rewrite are one `CHECK_UNAVAILABLE` refusal before claim. The markers are
+   their union: `icmp.unavailable` or `mtr.unavailable` for that mode, and
+   `tcp_syn_ipv6.unavailable` when the scanner that run creates would run raw
+   IPv6 SYN as connect. The agent never runs a subset or a substitute of the
+   signed checks.
 4. It runs `NetworkSweeper.RunPlannedWithObserver(ctx, executionID, spec,
    observer)`, a new method. The scanner cannot run an override config for one
    execution today: `RunOnceWithObserver` reads `s.config`, which
@@ -2647,12 +2649,13 @@ following replace `sweepChecks(cfg)` and the config-network comparison in
    port expansion instead of `s.config`. A config update during the run then
    cannot change the leased execution, and nothing is frozen or restored.
 
-**Refusal and the next pass.** The agent still only logs a refused slot and
-marks it executed (`sweepLeaseExecutor.runSlot`) until M2.0i4 persists the
-refusal and re-sends it. If no refusal arrives, core labels the slot
-`missed_offline` or `missed_exhausted`. `SweepExecutionEventV1` ABORTED
-exists, but nothing produces it, and no contract consumes it. The refusal is
-a typed control-plane report on the path `SweepLeaseAck` already uses
+**Refusal and the next pass.** The agent persists a refused slot with its
+executed mark and re-sends that refusal on each control-stream connect until
+24 hours past the slot's collection expiry. If no refusal arrives, core
+labels the slot `missed_offline` or `missed_exhausted`.
+`SweepExecutionEventV1` ABORTED exists, but nothing produces it, and no
+contract consumes it. The refusal is a typed control-plane report on the
+path `SweepLeaseAck` already uses
 (agent -> gateway -> `AgentGatewaySync` -> `ServiceRadar.SweepJobs`). The
 gateway forwards it, and `ExecutionSlots.refuse/2` records it:
 
@@ -2735,6 +2738,15 @@ conflict). A batch that claims checks its plan did not sign holds no evidence
 to recover. The slot itself is not relabeled. It stays `scheduled` until a
 conforming batch arrives or `LeaseMisses` judges it missed, so a host that
 sends only nonconforming batches shows as a missed run.
+
+**Where the contract lives.** Field comments on `SweepLeaseV1`,
+`SweepCheckSetV1` and `SweepLeaseSlotRefusal` are the wire contract. The Go
+check is in `go/pkg/edge/edgerecord`: `CheckSetDigest`, `SweepLeaseCheckSets`
+(push integrity before install) and `SweepCheckSetRun` (the run shape at
+execution). Golden pushes under
+`proto/edge/v1/testdata/sweep_lease_check_sets_*.bin` are encoded by Elixir
+from `SweepPlan` and decoded by that Go check; regenerate them with
+`EDGE_GOLDEN_UPDATE=1`.
 
 ## Failure Semantics
 
@@ -3196,27 +3208,3 @@ eligible for idempotent redelivery. A stale producer epoch presented under a val
 delivery grant is `audit_publication` + `late_fenced_delivery` + `ledger_only`
 (durable forensic record, no authoritative projection), never a permanent rejection
 and never an authoritative apply.
-
-## Decision 12: The signed plan carries the check set
-
-Maintainer decision, 2026-11-02: a leased slot runs the checks, ports, and
-targets of its signed plan. The push carries each distinct check set once, as
-`SweepCheckSetV1` on `SweepLeaseV1.check_sets`, keyed by the check-set digest
-the slot's plan header names. `lease_version` 2 is a push that carries slots.
-A revocation or any other push with no slots carries no check sets and stays
-`lease_version` 1, which both agent generations accept.
-
-Unknown `digest_version` is a slot refusal,
-`SWEEP_LEASE_SLOT_REFUSAL_REASON_UNSUPPORTED_PLAN`, as is a carried set the
-scanner cannot run (not the product of its modes and one shared TCP port
-list). A mismatched digest, an unresolved set, an unreferenced set, or slots
-on `lease_version` 1 refuses the whole push with a `SweepLeaseAck` error.
-`CHECK_UNAVAILABLE` and `INVALID_PLAN` are the other slot-refusal reasons.
-Field comments on `SweepLeaseV1` and `SweepLeaseSlotRefusal` are the wire
-contract. The Go check lives in `go/pkg/edge/edgerecord` (`CheckSetDigest`,
-`SweepLeaseCheckSets`, `SweepCheckSetRun`). Golden pushes under
-`proto/edge/v1/testdata/sweep_lease_check_sets_*.bin` are encoded by Elixir
-from `SweepPlan` and decoded by that Go check; regenerate with
-`EDGE_GOLDEN_UPDATE=1`. The agent calls the check when it runs a slot in a
-later slice. Core records a refusal now: the gateway forwards
-`SweepLeaseSlotRefusal`, and `ExecutionSlots.refuse/2` stores the terminal slot.

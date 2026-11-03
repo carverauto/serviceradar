@@ -167,9 +167,9 @@ const (
 	// check. The refusal names the `<check>.unavailable` capability markers the
 	// agent now reports.
 	SweepLeaseSlotRefusalReason_SWEEP_LEASE_SLOT_REFUSAL_REASON_CHECK_UNAVAILABLE SweepLeaseSlotRefusalReason = 1
-	// The slot's check set is one the agent cannot execute: an unknown
-	// check-set digest_version, or a set that is not the product of its modes
-	// and one shared TCP port list.
+	// The installed slot's check set is one the executor cannot express: a set
+	// that is not the product of its modes and one shared TCP port list. An
+	// unknown check-set digest_version fails the whole push before install.
 	SweepLeaseSlotRefusalReason_SWEEP_LEASE_SLOT_REFUSAL_REASON_UNSUPPORTED_PLAN SweepLeaseSlotRefusalReason = 2
 	// The installed slot's plan does not decode or validate when it runs.
 	SweepLeaseSlotRefusalReason_SWEEP_LEASE_SLOT_REFUSAL_REASON_INVALID_PLAN SweepLeaseSlotRefusalReason = 3

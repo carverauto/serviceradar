@@ -51,6 +51,7 @@ go_test(
         "main_test.go",
         "main_windows_test.go",
         "startup_socket_probe_test.go",
+        "sweep_lease_live_test.go",
     ],
     data = [":agent"],
     embed = [":agent_lib"],

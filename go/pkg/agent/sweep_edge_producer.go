@@ -23,7 +23,9 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -41,24 +43,17 @@ import (
 )
 
 var (
-	errEdgeSweepStaticCIDRRequired = errors.New("edge sweep requires static CIDR targets")
-	errEdgeSweepCheckSetMismatch   = errors.New("edge sweep check set differs from signed plan")
+	errEdgeSweepCheckSetNotCarried = errors.New("edge sweep slot check set is not carried by its lease")
 	errEdgeSweepProjectionBudget   = errors.New("edge sweep grant lacks supported projection budget")
-	errEdgeSweepCIDRMismatch       = errors.New("edge sweep targets differ from signed CIDR plan")
 	errEdgeSweepOverlappingRanges  = errors.New("edge sweep overlapping ranges are unsupported")
 	errEdgeSweepRangeUnauthorized  = errors.New("edge sweep range lacks source authorization")
-	errEdgeSweepTargetsMismatch    = errors.New("edge sweep targets differ from signed plan")
-	errEdgeSweepNoTCPPorts         = errors.New("edge sweep has no TCP ports")
-	errEdgeSweepInvalidPort        = errors.New("edge sweep invalid port")
-	errEdgeSweepNoChecks           = errors.New("edge sweep has no checks")
+	errEdgeSweepNoRanges           = errors.New("edge sweep plan has no ranges")
 	errEdgeSweepCheckOutsidePlan   = errors.New("edge sweep result check is outside signed plan")
 	errEdgeSweepPendingHostLimit   = errors.New("edge sweep pending host window limit reached")
 	errEdgeSweepAddressOutsidePlan = errors.New("edge sweep result address is outside signed plan")
 	errEdgeSweepDuplicateResult    = errors.New("edge sweep duplicate terminal check result")
 	errEdgeSweepWindowExpired      = errors.New("edge sweep collection window expired")
-	errEdgeSweepUnsupportedMode    = errors.New("edge sweep unsupported mode")
 	errEdgeSweepIncomplete         = errors.New("edge sweep incomplete")
-	errEdgeSweepModeUnavailable    = errors.New("edge sweep signed modes cannot run")
 )
 
 // Pending windows are bounded independently of the batch builder. The scanner
@@ -92,21 +87,22 @@ type sweepSlotClaim struct {
 // run is admitted. An interrupted run that already admitted a record stays
 // incomplete, rather than repeating previously emitted host windows
 // with different bytes under the same execution and batch sequence. A run that
-// never gets a record admitted does not consume the slot.
-func (s *MultiSweepService) RunSweepGroupLease(ctx context.Context, groupID string, lease *edgev1.SweepLeaseV1, slot *edgev1.SweepLeaseSlotV1, sp *spool.Spool, claim sweepSlotClaim) error {
+// never gets a record admitted does not consume the slot. icmpUnavailable is
+// the startup socket probe: a carried ICMP check is refused before claim.
+func (s *MultiSweepService) RunSweepGroupLease(ctx context.Context, groupID string, lease *edgev1.SweepLeaseV1, slot *edgev1.SweepLeaseSlotV1, sp *spool.Spool, icmpUnavailable bool, claim sweepSlotClaim) error {
 	s.mu.RLock()
 	svc := s.groups[groupID]
 	s.mu.RUnlock()
 	if svc == nil {
 		return errSweepGroupNotFound
 	}
-	return svc.runLeaseToSpool(ctx, lease, slot, sp, claim)
+	return svc.runLeaseToSpool(ctx, lease, slot, sp, icmpUnavailable, claim)
 }
 
-func (s *SweepService) runLeaseToSpool(ctx context.Context, lease *edgev1.SweepLeaseV1, slot *edgev1.SweepLeaseSlotV1, sp *spool.Spool, claim sweepSlotClaim) error {
+func (s *SweepService) runLeaseToSpool(ctx context.Context, lease *edgev1.SweepLeaseV1, slot *edgev1.SweepLeaseSlotV1, sp *spool.Spool, icmpUnavailable bool, claim sweepSlotClaim) error {
 	runner, ok := s.sweeper.(interface {
-		RunOnceWithObserver(context.Context, string, func(context.Context, *models.Result) error) error
-		EffectiveSweepModes(string, []models.SweepMode) ([]models.SweepMode, error)
+		RunPlannedWithObserver(context.Context, string, sweeper.RunSpec, func(context.Context, *models.Result) error) error
+		EffectivePlannedSweepModes(string, sweeper.RunSpec) ([]models.SweepMode, error)
 	})
 	if !ok {
 		return errSweepRunnerUnavailable
@@ -117,21 +113,41 @@ func (s *SweepService) runLeaseToSpool(ctx context.Context, lease *edgev1.SweepL
 		return err
 	}
 
-	s.mu.Lock()
-	signedModes := s.config.SweepModes
-	producer, err := newSweepEdgeProducer(s.config, lease, slot, sp, time.Now())
-	s.mu.Unlock()
+	producer, err := newSweepEdgeProducer(lease, slot, sp, time.Now())
+	if errors.Is(err, edgerecord.ErrSweepCheckSetUnsupported) {
+		return refuseUnsupportedPlan(err)
+	}
 	if err != nil {
 		return err
 	}
+	// The scanner may run a signed mode as another one for some ranges (raw
+	// SYN on IPv6 falls back to connect), and this agent may be unable to open
+	// ICMP sockets. Either way the records would claim checks that never ran,
+	// so the slot is refused once before it claims anything.
+	signedModes := producer.spec.Modes
+	var markers []string
+	var details []string
+	if icmpUnavailable && slices.Contains(signedModes, models.ModeICMP) {
+		markers = append(markers, capabilityICMPUnavailable)
+		details = append(details, "ICMP sweep sockets cannot be opened")
+	}
 	for _, r := range producer.ranges {
-		effective, err := runner.EffectiveSweepModes(r.prefix.String(), signedModes)
+		effective, err := runner.EffectivePlannedSweepModes(r.prefix.String(), producer.spec)
 		if err != nil {
 			return err
 		}
-		if !sameSweepModes(effective, signedModes) {
-			return fmt.Errorf("%w: %s runs %v, signed %v", errEdgeSweepModeUnavailable, r.prefix, effective, signedModes)
+		if sameSweepModes(effective, signedModes) {
+			continue
 		}
+		for _, marker := range unavailableSweepModeMarkers(signedModes, effective) {
+			if !slices.Contains(markers, marker) {
+				markers = append(markers, marker)
+			}
+		}
+		details = append(details, fmt.Sprintf("%s runs %v, signed %v", r.prefix, effective, signedModes))
+	}
+	if len(markers) > 0 {
+		return refuseUnavailableChecks(markers, strings.Join(details, "; "))
 	}
 
 	s.mu.Lock()
@@ -150,7 +166,7 @@ func (s *SweepService) runLeaseToSpool(ctx context.Context, lease *edgev1.SweepL
 	runCtx, cancel := context.WithDeadline(ctx, time.Unix(0, slot.GetCollectionExpiresUnixNano()))
 	defer cancel()
 	producer.ctx = runCtx
-	err = runner.RunOnceWithObserver(runCtx, executionID, func(scanCtx context.Context, result *models.Result) error {
+	err = runner.RunPlannedWithObserver(runCtx, executionID, producer.spec, func(scanCtx context.Context, result *models.Result) error {
 		if err := producer.observe(scanCtx, result); err != nil {
 			cancel()
 			return err
@@ -225,42 +241,101 @@ type sweepEdgeProducer struct {
 	// admitted is set once a record of this run is in the spool. From then on
 	// the slot stays consumed whatever happens to the run.
 	admitted bool
+	// spec is what the scanner runs for this slot, from its carried checks.
+	spec sweeper.RunSpec
 	// ctx bounds admission waits; its deadline is the slot's collection expiry.
 	ctx context.Context
 }
 
-func newSweepEdgeProducer(cfg *models.Config, lease *edgev1.SweepLeaseV1, slot *edgev1.SweepLeaseSlotV1, sp *spool.Spool, now time.Time) (*sweepEdgeProducer, error) {
-	checks, keys, bits, err := sweepChecks(cfg)
+// sweepPlan is what one leased slot executes: the check set its push carried
+// for the slot's signed plan header, indexed for result matching, and the
+// scanner run spec it implies.
+type sweepPlan struct {
+	checks   []*edgev1.SweepTestV1
+	index    map[sweepCheck]uint32
+	modeBits uint32
+	spec     sweeper.RunSpec
+}
+
+// sweepPlanChecks resolves slot's carried check set and verifies it digests to
+// the plan header's check_set_sha256, the one comparison between a slot and its
+// checks. The run spec's networks are the plan ranges' CIDRs in plan order. A
+// set the scanner cannot express is edgerecord.ErrSweepCheckSetUnsupported.
+func sweepPlanChecks(lease *edgev1.SweepLeaseV1, slot *edgev1.SweepLeaseSlotV1) (*sweepPlan, error) {
+	key := slot.GetPlanHeader().GetCheckSetSha256()
+
+	var set *edgev1.SweepCheckSetV1
+	for _, carried := range lease.GetCheckSets() {
+		if bytes.Equal(carried.GetCheckSetSha256(), key) {
+			set = carried
+			break
+		}
+	}
+	if set == nil || set.GetDigestVersion() != edgerecord.CheckSetDigestVersion ||
+		!bytes.Equal(edgerecord.CheckSetDigest(set.GetChecks()), key) {
+		return nil, errEdgeSweepCheckSetNotCarried
+	}
+
+	run, err := edgerecord.SweepCheckSetRun(set)
 	if err != nil {
 		return nil, err
 	}
-	if len(cfg.DeviceTargets) != 0 || len(cfg.Networks) == 0 {
-		return nil, errEdgeSweepStaticCIDRRequired
+
+	plan := &sweepPlan{checks: set.GetChecks(), index: make(map[sweepCheck]uint32, len(set.GetChecks()))}
+	for i, check := range set.GetChecks() {
+		mode, bit := plannedSweepMode(check.GetMode())
+		plan.index[sweepCheck{mode, int(check.GetPort())}] = uint32(i)
+		plan.modeBits |= bit
 	}
-	if !bytes.Equal(edgerecord.CheckSetDigest(checks), slot.GetPlanHeader().GetCheckSetSha256()) {
-		return nil, errEdgeSweepCheckSetMismatch
+	for _, mode := range run.Modes {
+		planned, _ := plannedSweepMode(mode)
+		plan.spec.Modes = append(plan.spec.Modes, planned)
+	}
+	for _, port := range run.Ports {
+		plan.spec.Ports = append(plan.spec.Ports, int(port))
+	}
+	for _, page := range slot.GetPlanPages() {
+		for _, targetRange := range page.GetRanges() {
+			plan.spec.Networks = append(plan.spec.Networks, targetRange.GetCidr())
+		}
+	}
+	return plan, nil
+}
+
+// plannedSweepMode is the scanner mode and SweepModeBit of a carried check mode.
+// edgerecord.SweepCheckSetRun admits only ICMP and the two TCP modes.
+func plannedSweepMode(mode edgev1.SweepMode) (models.SweepMode, uint32) {
+	switch mode {
+	case edgev1.SweepMode_SWEEP_MODE_ICMP:
+		return models.ModeICMP, uint32(edgev1.SweepModeBit_SWEEP_MODE_BIT_ICMP)
+	case edgev1.SweepMode_SWEEP_MODE_TCP_SYN:
+		return models.ModeTCP, uint32(edgev1.SweepModeBit_SWEEP_MODE_BIT_TCP_SYN)
+	case edgev1.SweepMode_SWEEP_MODE_TCP_CONNECT:
+		return models.ModeTCPConnect, uint32(edgev1.SweepModeBit_SWEEP_MODE_BIT_TCP_CONNECT)
+	case edgev1.SweepMode_SWEEP_MODE_UNSPECIFIED, edgev1.SweepMode_SWEEP_MODE_MTR:
+		return "", 0
+	default:
+		return "", 0
+	}
+}
+
+func newSweepEdgeProducer(lease *edgev1.SweepLeaseV1, slot *edgev1.SweepLeaseSlotV1, sp *spool.Spool, now time.Time) (*sweepEdgeProducer, error) {
+	plan, err := sweepPlanChecks(lease, slot)
+	if err != nil {
+		return nil, err
 	}
 	claims := lease.GetProductionCapability().GetProduction()
 	maxRows := min(uint64(claims.GetMaxProjectedRowCount()), claims.GetMaxProjectedWriteBytes()/sweepProjectedRowBytes)
 	if maxRows == 0 || claims.GetCostModelVersion() != 1 {
 		return nil, errEdgeSweepProjectionBudget
 	}
-	p := &sweepEdgeProducer{lease: lease, slot: slot, spool: sp, checks: keys, modeBits: bits, observedAt: now.UnixNano(), pending: make(map[netip.Addr]*sweepHostWindow)}
-	networks := make(map[netip.Prefix]bool, len(cfg.Networks))
-	for _, cidr := range cfg.Networks {
-		prefix, err := netip.ParsePrefix(cidr)
-		if err != nil {
-			return nil, fmt.Errorf("edge sweep static target: %w", err)
-		}
-		networks[prefix.Masked()] = true
-	}
+	p := &sweepEdgeProducer{lease: lease, slot: slot, spool: sp, checks: plan.index, modeBits: plan.modeBits, spec: plan.spec, observedAt: now.UnixNano(), pending: make(map[netip.Addr]*sweepHostWindow)}
 	for _, page := range slot.GetPlanPages() {
 		for _, targetRange := range page.GetRanges() {
 			prefix, err := netip.ParsePrefix(targetRange.GetCidr())
-			if err != nil || !networks[prefix] {
-				return nil, errEdgeSweepCIDRMismatch
+			if err != nil {
+				return nil, fmt.Errorf("edge sweep plan range: %w", err)
 			}
-			delete(networks, prefix)
 			for _, existing := range p.ranges {
 				if prefix.Overlaps(existing.prefix) {
 					return nil, errEdgeSweepOverlappingRanges
@@ -281,76 +356,16 @@ func newSweepEdgeProducer(cfg *models.Config, lease *edgev1.SweepLeaseV1, slot *
 				ExecutionShard: claims.GetRunShard(), AssignmentEpoch: lease.GetAuthorityEpoch(), ObservedAtUnixNano: p.observedAt,
 				ExecutionPlanID: slot.GetPlanHeader().GetExecutionPlanId(), ExecutionPlanSHA256: slot.GetPlanHeader().GetExecutionPlanSha256(),
 				TargetRangeID: targetRange.GetRangeId(), TargetRangeSHA256: targetRange.GetRangeSha256(),
-				TestedChecks: checks, ConfiguredModeBits: bits, AvailabilityPolicy: targetRange.GetAvailabilityPolicyId(),
+				TestedChecks: plan.checks, ConfiguredModeBits: plan.modeBits, AvailabilityPolicy: targetRange.GetAvailabilityPolicyId(),
 				Source: edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_SCHEDULED_SWEEP,
 			}
 			p.ranges = append(p.ranges, sweepRangeBuilder{prefix, obsbatch.NewBuilder(batchContext, obsbatch.Limits{MaxSweepRows: int(min(maxRows, obsbatch.DefaultMaxSweepRows))}), authority})
 		}
 	}
-	if len(networks) != 0 || len(p.ranges) == 0 {
-		return nil, errEdgeSweepTargetsMismatch
+	if len(p.ranges) == 0 {
+		return nil, errEdgeSweepNoRanges
 	}
 	return p, nil
-}
-
-func sweepChecks(cfg *models.Config) ([]*edgev1.SweepTestV1, map[sweepCheck]uint32, uint32, error) {
-	type entry struct {
-		key   sweepCheck
-		check *edgev1.SweepTestV1
-		bit   uint32
-	}
-	entries := make(map[sweepCheck]entry)
-	for _, mode := range cfg.SweepModes {
-		var m edgev1.SweepMode
-		var protocol edgev1.TransportProtocol
-		var bit uint32
-		ports := cfg.Ports
-		switch mode {
-		case models.ModeICMP:
-			m, protocol, bit, ports = edgev1.SweepMode_SWEEP_MODE_ICMP, edgev1.TransportProtocol_TRANSPORT_PROTOCOL_ICMP, 1, []int{0}
-		case models.ModeTCP:
-			m, protocol, bit = edgev1.SweepMode_SWEEP_MODE_TCP_SYN, edgev1.TransportProtocol_TRANSPORT_PROTOCOL_TCP, 2
-		case models.ModeTCPConnect:
-			m, protocol, bit = edgev1.SweepMode_SWEEP_MODE_TCP_CONNECT, edgev1.TransportProtocol_TRANSPORT_PROTOCOL_TCP, 4
-		case models.ModeMTR:
-			// MTR has no edge sweep producer; reject it explicitly.
-			fallthrough
-		default:
-			return nil, nil, 0, fmt.Errorf("%w %q", errEdgeSweepUnsupportedMode, mode)
-		}
-		if len(ports) == 0 {
-			return nil, nil, 0, errEdgeSweepNoTCPPorts
-		}
-		for _, port := range ports {
-			if port < 0 || port > 65535 || (mode != models.ModeICMP && port == 0) {
-				return nil, nil, 0, errEdgeSweepInvalidPort
-			}
-			key := sweepCheck{mode, port}
-			entries[key] = entry{key, &edgev1.SweepTestV1{Mode: m, Protocol: protocol, Port: uint32(port)}, bit}
-		}
-	}
-	ordered := make([]entry, 0, len(entries))
-	for _, e := range entries {
-		ordered = append(ordered, e)
-	}
-	sort.Slice(ordered, func(i, j int) bool {
-		if ordered[i].check.Mode != ordered[j].check.Mode {
-			return ordered[i].check.Mode < ordered[j].check.Mode
-		}
-		return ordered[i].check.Port < ordered[j].check.Port
-	})
-	checks := make([]*edgev1.SweepTestV1, 0, len(ordered))
-	keys := make(map[sweepCheck]uint32)
-	var bits uint32
-	for i, e := range ordered {
-		checks = append(checks, e.check)
-		keys[e.key] = uint32(i)
-		bits |= e.bit
-	}
-	if len(checks) == 0 {
-		return nil, nil, 0, errEdgeSweepNoChecks
-	}
-	return checks, keys, bits, nil
 }
 
 func (p *sweepEdgeProducer) observe(ctx context.Context, result *models.Result) error {

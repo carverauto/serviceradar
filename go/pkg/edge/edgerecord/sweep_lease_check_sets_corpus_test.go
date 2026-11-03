@@ -103,7 +103,7 @@ func TestSweepLeaseCheckSetsCorpusRefusals(t *testing.T) {
 		{file: "sweep_lease_check_sets_unreferenced.bin", pushErr: ErrSweepLeaseCheckSets, reason: "referenced by no slot"},
 		{file: "sweep_lease_check_sets_version_1.bin", pushErr: ErrSweepLeaseCheckSets, reason: "lease_version 1 carries slots"},
 		{file: "sweep_lease_check_sets_not_product.bin", slotsErr: ErrSweepCheckSetUnsupported, reason: "TCP modes probe different ports"},
-		{file: "sweep_lease_check_sets_unknown_digest_version.bin", slotsErr: ErrSweepCheckSetUnsupported, reason: "digest_version 2"},
+		{file: "sweep_lease_check_sets_unknown_digest_version.bin", pushErr: ErrSweepLeaseCheckSets, reason: "has digest_version 2"},
 	} {
 		t.Run(tc.file, func(t *testing.T) {
 			lease := loadSweepLeaseCheckSetsFixture(t, tc.file)

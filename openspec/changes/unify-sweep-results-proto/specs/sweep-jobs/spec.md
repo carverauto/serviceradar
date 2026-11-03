@@ -30,9 +30,7 @@ slot keeps running, and that stored lease SHALL take the push's
 `lease_version`. A slot-less same-lease merge SHALL keep the installed
 lease's `lease_version` and the check sets its retained slots reference, and
 SHALL NOT lower that version. A push that carries slots SHALL store its own
-`lease_version`, which is 2. `mergeSweepLease` clones the push today, which
-stores a slot-less push at `lease_version` 1; M2.0i4 changes that slot-less
-same-lease merge so it never lowers the stored version. The ticker SHALL stay
+`lease_version`, which is 2. The ticker SHALL stay
 suppressed while the merged lease is held. On load, the agent SHALL discard a
 stored lease whose `lease_version` is not 2 and that carries slots. A
 slot-less same-lease merge that kept an installed `lease_version` 2 still

@@ -158,6 +158,25 @@ func (s *NetworkSweeper) EffectiveSweepModes(cidr string, sweepModes []models.Sw
 	return modes, err
 }
 
+// EffectivePlannedSweepModes returns the modes a planned run of spec would
+// scan for targets in cidr. It creates any scanner that run still lacks,
+// from spec's modes rather than the sweeper config's, then applies the same
+// per-family rules as EffectiveSweepModes. A stopped sweeper creates no
+// scanners and returns errSweeperStopped.
+func (s *NetworkSweeper) EffectivePlannedSweepModes(cidr string, spec RunSpec) ([]models.SweepMode, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.stopped {
+		return nil, errSweeperStopped
+	}
+
+	s.ensureScannersInitializedLocked(plannedSweepConfig(s.config, spec))
+	rawSYNIPv6 := scannerCapabilities(s.tcpScanner).RawSYNIPv6
+	modes, _, err := effectiveSweepModesForCIDR(cidr, spec.Modes, rawSYNIPv6)
+	return modes, err
+}
+
 func effectiveSweepModesForIPWithRawSYN(ip string, sweepModes []models.SweepMode, rawSYNIPv6Available bool) []models.SweepMode {
 	parsed := net.ParseIP(ip)
 	if parsed == nil {

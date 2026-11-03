@@ -267,7 +267,7 @@ func (p *PushLoop) controlStreamLoop(ctx context.Context) {
 				p.setControlStreamSender(nil)
 			}()
 
-			if err := p.sendControlHello(sender); err != nil {
+			if err := p.openControlStream(sender); err != nil {
 				p.logger.Warn().Err(err).Msg("Failed to send control stream hello")
 				return
 			}
@@ -290,6 +290,19 @@ func (p *PushLoop) controlStreamLoop(ctx context.Context) {
 			continue
 		}
 	}
+}
+
+// openControlStream sends a new stream's hello, then re-sends every held
+// sweep slot refusal: core records a refusal idempotently and never
+// acknowledges it, so each connect delivers them again.
+func (p *PushLoop) openControlStream(sender *controlStreamSender) error {
+	if err := p.sendControlHello(sender); err != nil {
+		return err
+	}
+
+	p.resendSweepLeaseSlotRefusals(sender)
+
+	return nil
 }
 
 func (p *PushLoop) superviseControlStreamLoop(ctx context.Context) {
