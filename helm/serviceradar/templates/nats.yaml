@@ -383,6 +383,12 @@ spec:
                       "metrics.rperf.>",
                       "metrics.mtr.>",
                       "metrics.sweep.>",
+                      # OTLP relay chunks republished from edge records
+                      # (Edge.Projectors.OtlpRelay) onto the canonical OTLP
+                      # subjects. logs.otel is already covered by logs.> above.
+                      "otel.traces.raw",
+                      "otel.metrics.raw",
+                      "otel.metrics.derived",
                       # Exposure transitions and CVE/package dimensions, relayed
                       # from their outboxes into EXPOSURE_TRANSITIONS and
                       # EXPOSURE_DIMENSIONS, plus each relay's health metrics.

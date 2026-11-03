@@ -14,6 +14,8 @@ defmodule ServiceRadar.Edge.ContractCatalog do
   """
 
   alias ServiceRadar.Edge.MetricsBatchProjection
+  alias ServiceRadar.Edge.Projectors.FlowAttribution
+  alias ServiceRadar.Edge.Projectors.OtlpRelay
   alias ServiceRadar.Edge.Projectors.SweepObservation
   alias ServiceRadar.Edge.Projectors.UnleasedSweepResults
 
@@ -24,6 +26,7 @@ defmodule ServiceRadar.Edge.ContractCatalog do
           required(:projector) => module(),
           required(:max_projected_rows) => pos_integer(),
           required(:write_bytes_per_row) => pos_integer(),
+          optional(:max_projected_write_bytes) => pos_integer(),
           optional(:package_id) => String.t()
         }
 
@@ -50,6 +53,23 @@ defmodule ServiceRadar.Edge.ContractCatalog do
       max_projected_rows: 10_000,
       write_bytes_per_row: 2_048,
       package_id: "serviceradar.agent.sweep_results"
+    },
+    %{
+      ref: {"serviceradar.netprobe.flow_attribution", 1},
+      authority: :standing_grant,
+      projector: FlowAttribution,
+      max_projected_rows: 4_096,
+      write_bytes_per_row: 983_029,
+      package_id: "serviceradar.agent.flow_attribution"
+    },
+    %{
+      ref: {"serviceradar.otlp.relay", 1},
+      authority: :standing_grant,
+      projector: OtlpRelay,
+      max_projected_rows: 1_024,
+      write_bytes_per_row: 512,
+      max_projected_write_bytes: 524_288,
+      package_id: "serviceradar.agent.otlp_relay"
     }
   ]
 

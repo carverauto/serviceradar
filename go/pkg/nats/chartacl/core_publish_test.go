@@ -110,28 +110,33 @@ func TestCoreCanPublishToChartSubjects(t *testing.T) {
 	core, coreErrs := pki.connectTracked(t, srv, coreSubject)
 
 	const (
-		allowedScan      = "scans.results.run01"
-		allowedMTR       = "mtr.results.ingest"
-		allowedEvent     = "events.example"
-		allowedWarehouse = "metrics.event_writer.warehouse"
-		allowedSysmon    = "metrics.sysmon.cpu.cpu_usage_percent"
-		allowedSnmp      = "metrics.snmp.interface.if_in_octets"
-		allowedICMP      = "metrics.icmp.icmp.response_time_ms"
-		allowedRperf     = "metrics.rperf.throughput.bits_per_second"
-		allowedMTRMetric = "metrics.mtr.mtr.hop_loss_pct"
-		allowedSweep     = "metrics.sweep.sweep.total_hosts"
-		allowedExposure  = "vulnerability.assessment.transitions.7"
-		allowedExpMetric = "metrics.exposure_transitions"
-		allowedRecovery  = "exposure.delivery.recovery.3.synthetic-operation"
-		allowedSnapshot  = "exposure.snapshots.1.device-3.1"
-		deniedTimeseries = "metrics.timeseries.custom.synthetic_value"
-		deniedPurge      = "$JS.API.STREAM.PURGE.EXPOSURE_RECOVERY"
-		deniedDelete     = "$JS.API.STREAM.DELETE.EXPOSURE_RECOVERY"
-		denied           = "zz.not.allowed"
+		allowedScan        = "scans.results.run01"
+		allowedMTR         = "mtr.results.ingest"
+		allowedEvent       = "events.example"
+		allowedWarehouse   = "metrics.event_writer.warehouse"
+		allowedSysmon      = "metrics.sysmon.cpu.cpu_usage_percent"
+		allowedSnmp        = "metrics.snmp.interface.if_in_octets"
+		allowedICMP        = "metrics.icmp.icmp.response_time_ms"
+		allowedRperf       = "metrics.rperf.throughput.bits_per_second"
+		allowedMTRMetric   = "metrics.mtr.mtr.hop_loss_pct"
+		allowedSweep       = "metrics.sweep.sweep.total_hosts"
+		allowedFlowAttrObs = "flows.attribution.observations"
+		allowedOtelTraces  = "otel.traces.raw"
+		allowedOtelLogs    = "logs.otel"
+		allowedOtelMetrics = "otel.metrics.raw"
+		allowedOtelDerived = "otel.metrics.derived"
+		allowedExposure    = "vulnerability.assessment.transitions.7"
+		allowedExpMetric   = "metrics.exposure_transitions"
+		allowedRecovery    = "exposure.delivery.recovery.3.synthetic-operation"
+		allowedSnapshot    = "exposure.snapshots.1.device-3.1"
+		deniedTimeseries   = "metrics.timeseries.custom.synthetic_value"
+		deniedPurge        = "$JS.API.STREAM.PURGE.EXPOSURE_RECOVERY"
+		deniedDelete       = "$JS.API.STREAM.DELETE.EXPOSURE_RECOVERY"
+		denied             = "zz.not.allowed"
 	)
 
 	received := make(map[string]chan struct{})
-	for _, subject := range []string{allowedScan, allowedMTR, allowedEvent, allowedWarehouse, allowedSysmon, allowedSnmp, allowedICMP, allowedRperf, allowedMTRMetric, allowedSweep, allowedExposure, allowedExpMetric, allowedRecovery, allowedSnapshot, deniedTimeseries, deniedPurge, deniedDelete, denied} {
+	for _, subject := range []string{allowedScan, allowedMTR, allowedEvent, allowedWarehouse, allowedSysmon, allowedSnmp, allowedICMP, allowedRperf, allowedMTRMetric, allowedSweep, allowedFlowAttrObs, allowedOtelTraces, allowedOtelLogs, allowedOtelMetrics, allowedOtelDerived, allowedExposure, allowedExpMetric, allowedRecovery, allowedSnapshot, deniedTimeseries, deniedPurge, deniedDelete, denied} {
 		ch := make(chan struct{}, 1)
 		received[subject] = ch
 
@@ -144,7 +149,7 @@ func TestCoreCanPublishToChartSubjects(t *testing.T) {
 		t.Fatalf("flush subscriptions: %v", err)
 	}
 
-	for _, subject := range []string{allowedScan, allowedMTR, allowedEvent, allowedWarehouse, allowedSysmon, allowedSnmp, allowedICMP, allowedRperf, allowedMTRMetric, allowedSweep, allowedExposure, allowedExpMetric, allowedRecovery, allowedSnapshot, deniedTimeseries, deniedPurge, deniedDelete, denied} {
+	for _, subject := range []string{allowedScan, allowedMTR, allowedEvent, allowedWarehouse, allowedSysmon, allowedSnmp, allowedICMP, allowedRperf, allowedMTRMetric, allowedSweep, allowedFlowAttrObs, allowedOtelTraces, allowedOtelLogs, allowedOtelMetrics, allowedOtelDerived, allowedExposure, allowedExpMetric, allowedRecovery, allowedSnapshot, deniedTimeseries, deniedPurge, deniedDelete, denied} {
 		if err := core.Publish(subject, []byte(`{"synthetic":true}`)); err != nil {
 			t.Fatalf("publish %s: %v", subject, err)
 		}
@@ -160,7 +165,7 @@ func TestCoreCanPublishToChartSubjects(t *testing.T) {
 		t.Fatalf("expected a permissions violation for %s, got %v", denied, coreErrs.all())
 	}
 
-	for _, subject := range []string{allowedScan, allowedMTR, allowedEvent, allowedWarehouse, allowedSysmon, allowedSnmp, allowedICMP, allowedRperf, allowedMTRMetric, allowedSweep, allowedExposure, allowedExpMetric, allowedRecovery, allowedSnapshot} {
+	for _, subject := range []string{allowedScan, allowedMTR, allowedEvent, allowedWarehouse, allowedSysmon, allowedSnmp, allowedICMP, allowedRperf, allowedMTRMetric, allowedSweep, allowedFlowAttrObs, allowedOtelTraces, allowedOtelLogs, allowedOtelMetrics, allowedOtelDerived, allowedExposure, allowedExpMetric, allowedRecovery, allowedSnapshot} {
 		select {
 		case <-received[subject]:
 		case <-time.After(5 * time.Second):

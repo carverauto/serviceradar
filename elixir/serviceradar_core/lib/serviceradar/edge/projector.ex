@@ -12,6 +12,8 @@ defmodule ServiceRadar.Edge.Projector do
       batch so JetStream redelivers it.
     * `project/4` (optional) writes domain state inside the ledger transaction. `primary?` is
       true only for a fresh delivery that is not late-fenced.
+    * `committed/3` (optional) runs after the ledger transaction commits for a fresh primary
+      delivery, so commit-gated telemetry is emitted only when the ledger row is durable.
   """
 
   alias Serviceradar.Edge.V1.EdgeRecordV1
@@ -26,6 +28,7 @@ defmodule ServiceRadar.Edge.Projector do
   @callback publish(EdgeRecordV1.t(), term(), keyword()) ::
               :ok | {:refused, term()} | {:error, term()}
   @callback project(module(), EdgeRecordV1.t(), term(), context()) :: :ok | {:error, term()}
+  @callback committed(EdgeRecordV1.t(), term(), context()) :: :ok
 
-  @optional_callbacks publish: 3, project: 4
+  @optional_callbacks publish: 3, project: 4, committed: 3
 end

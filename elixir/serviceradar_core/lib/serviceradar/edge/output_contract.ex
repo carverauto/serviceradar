@@ -36,7 +36,7 @@ defmodule ServiceRadar.Edge.OutputContract do
   @doc "The named contract from a registry document."
   @spec from_document(term(), ContractCatalog.ref()) :: {:ok, t()} | {:error, term()}
   def from_document(raw, ref) do
-    with {:ok, %{max_projected_rows: rows, write_bytes_per_row: per_row}} <- catalog(ref),
+    with {:ok, %{max_projected_rows: rows, write_bytes_per_row: per_row} = cat} <- catalog(ref),
          {:ok, snapshot} <- ContractRegistryDocument.parse(raw),
          {:ok, entry} <- entry(snapshot, ref) do
       {:ok,
@@ -48,7 +48,8 @@ defmodule ServiceRadar.Edge.OutputContract do
          registry_snapshot_sha256: snapshot.registry_snapshot_sha256,
          cost_model_version: entry.cost_model_version,
          max_projected_row_count: rows,
-         max_projected_write_bytes: rows * per_row
+         max_projected_write_bytes:
+           Map.get_lazy(cat, :max_projected_write_bytes, fn -> rows * per_row end)
        }}
     end
   end
