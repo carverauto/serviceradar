@@ -35,13 +35,38 @@ defmodule ServiceRadarAgentGateway.EdgeContractRegistry do
       naming no output contract, a route or cost model the bundle does not pin, or provenance
       that disagrees with the authenticated session.
     * `{:withhold, reason}` -- not publishable NOW, but not proof of poison: no registry loaded,
-      an epoch or snapshot the gateway does not hold, a contract the held snapshot does not
-      contain or registers under a different bundle digest, or a bundle that is not `active`
-      (candidate, ready, draining, retired). The sequence stays unresolved. A rollout mismatch is
-      never converted into poison. Until 1.10/1.11 define a signed snapshot, the epoch and
-      snapshot digest are operator-supplied labels nothing verifies against the contract list, so
-      two documents can carry the same labels and differ in their contracts; a record naming the
-      held labels but a contract or bundle digest this snapshot lacks is therefore still lag.
+      an epoch ahead of the held snapshot, a current-epoch snapshot digest the gateway does not
+      hold, a contract the held snapshot does not contain or registers under a different bundle
+      digest, an older epoch whose exact bundle the held snapshot no longer registers (below),
+      or a bundle that is not `active` (candidate, ready, draining, retired). An older epoch
+      whose exact bundle is still registered is admitted, not withheld. The sequence stays
+      unresolved. A rollout mismatch is never converted into poison. Until 1.10/1.11 define a
+      signed snapshot, the epoch and snapshot digest are operator-supplied labels nothing
+      verifies against the contract list, so two documents can carry the same labels and differ
+      in their contracts; a record naming the held labels but a contract or bundle digest this
+      snapshot lacks is therefore still lag.
+
+  ## A record from an older registry epoch drains under its unchanged bundle
+
+  A record carries the registry epoch it was produced under, and its bytes are immutable: the
+  production grant signs that epoch, and a renewal or re-signing may not change the record. So a
+  registry epoch activated while an agent still holds records from the previous one must not
+  strand them, which withholding every stale epoch did -- the old epoch never comes back, so that
+  gap capped the lane's watermark for good. The rule is the spec's ("the old run SHALL drain under
+  its pinned historical bundle and route"):
+
+    * a record whose epoch is OLDER than the held snapshot is admitted when the held snapshot
+      still registers its exact contract -- the same id, version and bundle digest -- and that
+      entry passes the same lifecycle and route checks as a current record. The bundle digest
+      covers the complete processing bundle, so an equal digest is the same contract, and the
+      route the record publishes on is still the registry entry's. The old snapshot digest is not
+      compared: it names a snapshot this gateway no longer holds;
+    * one whose contract the held snapshot no longer registers, or registers under another
+      digest, is withheld as `:historical_bundle_not_registered`. That is a registry that dropped
+      a bundle with backlog still outstanding, not poison, and it clears when the entry returns.
+
+  Quarantining stale-epoch records instead would turn an ordinary epoch change into poison, and
+  re-signing them is impossible without changing the bytes.
     * `{:hold, reason}` -- a `security_revoked` bundle. Never published and never resolved, and
       reported separately from a withhold: compromise is not ordinary retirement.
 
@@ -152,22 +177,34 @@ defmodule ServiceRadarAgentGateway.EdgeContractRegistry do
         {:withhold, :registry_epoch_ahead}
 
       contract.registry_epoch < snapshot.registry_epoch ->
-        {:withhold, :registry_epoch_stale}
+        historical_entry(contract, snapshot)
 
       contract.registry_snapshot_sha256 != snapshot.registry_snapshot_sha256 ->
         {:withhold, :registry_snapshot_mismatch}
 
       true ->
-        case Map.fetch(snapshot.contracts, {contract.contract_id, contract.contract_version}) do
-          :error ->
-            {:withhold, :unknown_contract}
-
-          {:ok, %{contract_bundle_sha256: digest} = entry} when digest == contract.contract_bundle_sha256 ->
-            {:ok, entry}
-
-          {:ok, _entry} ->
-            {:withhold, :contract_digest_mismatch}
+        case registered_entry(contract, snapshot) do
+          {:ok, entry} -> {:ok, entry}
+          :unknown -> {:withhold, :unknown_contract}
+          :digest_mismatch -> {:withhold, :contract_digest_mismatch}
         end
+    end
+  end
+
+  # An older epoch's record drains under the held snapshot's entry only while that entry is still
+  # its exact bundle. See "A record from an older registry epoch" in the moduledoc.
+  defp historical_entry(contract, snapshot) do
+    case registered_entry(contract, snapshot) do
+      {:ok, entry} -> {:ok, entry}
+      _absent_or_changed -> {:withhold, :historical_bundle_not_registered}
+    end
+  end
+
+  defp registered_entry(contract, snapshot) do
+    case Map.fetch(snapshot.contracts, {contract.contract_id, contract.contract_version}) do
+      :error -> :unknown
+      {:ok, %{contract_bundle_sha256: digest} = entry} when digest == contract.contract_bundle_sha256 -> {:ok, entry}
+      {:ok, _entry} -> :digest_mismatch
     end
   end
 

@@ -100,6 +100,30 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorization do
     end
   end
 
+  @doc """
+  Verifies the record a delivery-grant renewal names (unify-sweep-results-proto M2.0g) before core
+  is asked to grant it: the exact bytes admit structurally, the record's attested origin is the
+  authenticated agent, its production and any source authorization verify under keys the trust
+  snapshot holds as valid, and its network scope is one the snapshot binds to the agent.
+
+  Authority expiry and the fence are deliberately NOT checked: a lapsed production grant is what
+  the renewal is for, and the fence decides the publication when the record is delivered. A
+  record signed by a compromise-revoked key needs no grant (it is security-quarantined at delivery)
+  and is refused one.
+
+  Returns `{:ok, record}` or the same refusal shape as `authorize_frame/5`.
+  """
+  @spec grant_subject(binary(), map(), EdgeRecordTrust.snapshot()) :: {:ok, struct()} | refusal()
+  def grant_subject(record_bytes, identity, snapshot) when is_binary(record_bytes) do
+    with {:ok, record} <- validate_record(record_bytes),
+         :ok <- with_event(origin_identity(record, identity), record),
+         {:ok, status} <- with_event(record_key_status(record, snapshot), record),
+         :ok <- with_event(check(status == :valid, :permanent, :key_historically_revoked), record),
+         :ok <- with_event(network_scope(record, identity), record) do
+      {:ok, record}
+    end
+  end
+
   # --- 1. wrapper ------------------------------------------------------------------------------
 
   defp frame_digest(%{record_bytes: bytes, record_sha256: sha}) when is_binary(bytes) and is_binary(sha) do

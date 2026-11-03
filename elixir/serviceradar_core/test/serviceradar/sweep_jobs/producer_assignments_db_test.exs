@@ -1,6 +1,8 @@
 defmodule ServiceRadar.SweepJobs.ProducerAssignmentsDbTest do
   use ServiceRadar.DataCase, async: true
 
+  alias ServiceRadar.Edge.CapabilitySigning
+  alias ServiceRadar.Edge.DeliveryGrants
   alias ServiceRadar.Edge.IssuerKey
   alias ServiceRadar.Edge.RecordTrust
   alias ServiceRadar.Infrastructure.Agent
@@ -44,6 +46,70 @@ defmodule ServiceRadar.SweepJobs.ProducerAssignmentsDbTest do
     assert Enum.find(revoked["scopes"], &(&1["agent_id"] == agent))["network_scope_ids"] == [
              encoded_scope
            ]
+  end
+
+  # A reconnecting agent drains its backlog under these (M2.0g). The gateway has already verified
+  # the record bytes; core decides only whether the authority they name is still this agent's.
+  test "delivery grants go only to the agent that holds an active assignment", ctx do
+    group = create_group!(ctx)
+    scope = Ash.UUID.generate()
+    agent = "agent-grant-#{ctx.suffix}"
+    key = IssuerKey.from_seed(:binary.copy(<<0x42>>, 32))
+    now = DateTime.utc_now()
+    {:ok, assignment} = ProducerAssignments.ensure(group.id, agent, scope)
+    {:ok, revoked} = ProducerAssignments.ensure(group.id, "#{agent}-revoked", scope)
+    {:ok, 1} = ProducerAssignments.revoke_agents(group.id, ["#{agent}-revoked"])
+
+    item = fn sequence, held ->
+      %{
+        sequence: sequence,
+        spool_id: Ecto.UUID.dump!(Ash.UUID.generate()),
+        event_id: Ecto.UUID.dump!(Ash.UUID.generate()),
+        record_sha256: :crypto.hash(:sha256, <<sequence>>),
+        network_scope_id: Ecto.UUID.dump!(scope),
+        producer_assignment_id: Ecto.UUID.dump!(held.id),
+        run_shard: held.run_shard
+      }
+    end
+
+    granted = item.(1, assignment)
+    other_scope = %{item.(4, assignment) | network_scope_id: Ecto.UUID.dump!(Ash.UUID.generate())}
+
+    assert {:ok, [first, second, third, fourth]} =
+             DeliveryGrants.issue(
+               agent,
+               [granted, item.(2, revoked), item.(3, assignment), other_scope],
+               key,
+               now
+             )
+
+    assert {second.refusal, third.refusal, fourth.refusal} ==
+             {:not_assignment_owner, nil, :not_assignment_owner}
+
+    assert {:ok, [%{refusal: :assignment_revoked}]} =
+             DeliveryGrants.issue("#{agent}-revoked", [item.(5, revoked)], key, now)
+
+    assert first.refusal == nil
+    capability = first.delivery_capability
+    assert CapabilitySigning.verify(capability, :delivery, key.public_key)
+    assert {:delivery, claims} = capability.claims
+
+    assert {claims.event_id, claims.record_sha256, claims.spool_id, claims.sequence} ==
+             {granted.event_id, granted.record_sha256, granted.spool_id, 1}
+
+    assert {:renewal, renewal} = claims.transition
+    assert renewal.renewed_not_before_unix_nano == DateTime.to_unix(now, :nanosecond)
+
+    assert renewal.renewed_expires_unix_nano - renewal.renewed_not_before_unix_nano ==
+             DeliveryGrants.ttl_seconds() * 1_000_000_000
+
+    assert {:ok, [%{refusal: :unknown_assignment}]} =
+             DeliveryGrants.issue(
+               agent,
+               [%{granted | producer_assignment_id: Ecto.UUID.dump!(Ash.UUID.generate())}],
+               key,
+               now
+             )
   end
 
   test "ensure creates an active assignment at epoch 1 and returns it unchanged afterwards",

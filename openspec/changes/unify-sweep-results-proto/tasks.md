@@ -5,7 +5,7 @@
 > Work on runtime trust, agent emission, normal sweep domain projection and
 > deployment wiring concurrently. Close this checkpoint only with fresh
 > post-rollout execution, ledger and domain-row evidence. The 24-hour parallel
-> comparison, reconnect grants and fault drills remain owed, as do the DLQ
+> comparison and fault drills remain owed, as do the DLQ
 > routes other than the narrowed audit and security-quarantine streams
 > (task 3.5, and task 5.7 now in `add-edge-record-stream-partitioning`). They
 > do not block the first current-epoch canary run.
@@ -87,9 +87,8 @@ in `choices.md` and the chart README.
   are read, so core learns of an execution only when its results arrive. Design:
   `design.md`, "M2.0 design: core-scheduled sweeps as signed schedule leases".
   Narrows 1.10, 2.3, 2.10, 2.20, 3.2 and 3.8 to the scheduled-sweep contract.
-  PARTIAL (reconciled 2026-11-02): M2.0a-e and M2.0h are done; M2.0f
-  (stale-epoch audit path), M2.0g (reconnect delivery grants) and M2.0i
-  (plan-carried checks) remain.
+  PARTIAL (reconciled 2026-11-02): M2.0a-h are done; M2.0i
+  (plan-carried checks) remains.
   - [x] M2.0a Sweep assignment authority. Persist one assignment per (sweep
     group, agent): `producer_assignment_id`, `network_scope_id` (the agent's
     partition id), `run_shard` (0 until sharding) and a monotonic
@@ -292,7 +291,7 @@ in `choices.md` and the chart README.
     sweeper tests cover this behavior against the real components, and
     BazelCI on the PR is the remaining gate. Producing edge records
     from these runs is M2.1, and which agents are leased at all is M2.2.
-  - [ ] M2.0f Live gateway trust. The gateway's trust snapshot (issuer keys,
+  - [x] M2.0f Live gateway trust. The gateway's trust snapshot (issuer keys,
     fences from assignment epochs, agent-to-scope bindings) comes from core at
     runtime and follows changes. A record whose assignment epoch is current
     publishes as primary. A stale epoch presented with a valid per-record
@@ -300,23 +299,29 @@ in `choices.md` and the chart README.
     domain rows). A stale epoch without such a grant is refused. The issuer
     does not grant delivery to a revoked assignment. The boot-time trust file
     remains for tests.
-    PARTIAL (reconciled 2026-11-02): runtime trust from core is done:
+    DONE (reconciled 2026-11-02): runtime trust from core is done:
     `ServiceRadarAgentGateway.EdgeRecordTrustRefresh` (#6181) refreshes
     `ServiceRadar.Edge.RecordTrust.snapshot/0` (sweep assignments and output
     grants), exercised by `integration_tests/edge_record/authority_test.go`.
     The gateway audit route has landed (task 3.5): a stale epoch presented with
-    a valid delivery grant is `audit_publication` / ledger-only. Still missing
-    is M2.0g, the delivery-grant issuer, so a backlog record does not yet
-    obtain that grant.
-  - [ ] M2.0g Delivery after reconnect. On reconnect the agent obtains a
+    a valid delivery grant is `audit_publication` / ledger-only. M2.0g issues
+    that grant, so a backlog record under a moved epoch is published on the
+    audit route rather than withheld.
+  - [x] M2.0g Delivery after reconnect. On reconnect the agent obtains a
     per-record delivery grant (`EdgeDeliveryClaimsV1` same-spool renewal:
     `event_id`, `record_sha256`, `spool_id`, `sequence`) for each unresolved
     backlog record. Collection windows are still checked against event time (the
     original interval), never receipt age.
-    TODO (reconciled 2026-11-02): no delivery-grant issuer or agent renewal
-    exists; the sender replays unresolved records but obtains no
-    `EdgeDeliveryClaimsV1`. Needed so a backlog older than its grant window can
-    still deliver.
+    DONE: the exchange is "Delivery after reconnect" in `design.md`.
+    `AgentGatewayService.RenewEdgeDeliveryGrants` carries it; the gateway
+    verifies each record's bytes (`EdgeDeliveryGrants`,
+    `EdgeRecordAuthorization.grant_subject/3`) and core grants only an active
+    assignment of the requesting agent (`ServiceRadar.Edge.DeliveryGrants`).
+    The sender asks before each session for the records whose production grant
+    has lapsed and attaches each grant to its frame (`go/pkg/edge/sender`).
+    The same change admits a record from an older registry epoch whose exact
+    bundle the held snapshot still registers ("Records from an older registry
+    epoch" in `design.md`), which had capped the lane's watermark for good.
   - [x] M2.0h Enforcement and missed runs. Edge sweep records are accepted only
     with a valid source authorization that correlates with the batch
     (`ValidateSweepRecord` / `SweepCorrelate` on the live path), and core marks a
@@ -1247,15 +1252,15 @@ change together with the requirements they implement.
   stalled bulk connection while interactive and recovery frames progress.
   PARTIALLY LANDED: commit `2c816c114e` added
   `go/pkg/edge/sender`, a minimum single-lane sender over the spool with
-  credit-based flow control, wired into `go/cmd/agent`. Per-lane RPCs and pools,
-  reconnect/replay and capability renewal are not implemented, so this task
-  stays unchecked. Permanent-rejection quarantine landed in its interim form
+  credit-based flow control, wired into `go/cmd/agent`. That commit did not
+  include per-lane RPCs and pools, reconnect/replay, or capability renewal.
+  Permanent-rejection quarantine landed in its interim form
   (see design "Interim local quarantine"): reclaim copies each permanently
   rejected record into a bounded lane quarantine before it checkpoints past the
   segment, so one rejection no longer stops the spool from reclaiming.
   MOVED to `harden-edge-record-transport` (2026-11-02); remaining: a single-lane sender with reconnect replay
-  and stale-nonce ack rejection. Per-lane RPCs and pools and delivery-capability
-  renewal (M2.0g) remain.
+  and stale-nonce ack rejection. Delivery-capability renewal for a lapsed
+  production grant landed with M2.0g. Per-lane RPCs and pools remain.
 - [ ] 2.6 Connect scanner admission to spool and network pressure: pause/defer
   lower-priority or overlapping work at high-water, reserve worst-case bytes per
   target window, cap active result state by bytes, use high/low-water hysteresis,
@@ -1767,7 +1772,8 @@ change together with the requirements they implement.
   AUDIT and SECURITY-QUARANTINE decisions are published on the routes task 3.5 owns.
   EventWriter keeps a late-fenced audit record ledger-only and refuses an audit record
   that is not late-fenced; the security-quarantine consumer reports the record and writes
-  nothing (task 5.7). A stale-epoch replay still needs the delivery grant M2.0g issues.
+  nothing (task 5.7). A stale-epoch replay under the delivery grant M2.0g issues
+  is that audit publication.
   Every authorized record is then admitted by `EdgeContractRegistry`
   (task 3.8's narrowed slice) before it is offered; a registry withhold or hold is withheld like any
   other frame, and loading a signed registry snapshot stays open under task 3.8.
@@ -1781,8 +1787,8 @@ change together with the requirements they implement.
   as current, and its new one as future, until restart.
   PARTIAL (reconciled 2026-11-02): Group G's record-level identity refusal is in
   the required composed target, and the runtime trust refresh exists (#6181), so
-  the DEFERRED FOLLOW-UP above is closed. Remaining: stale-epoch replay under a
-  delivery capability (M2.0f, M2.0g).
+  the DEFERRED FOLLOW-UP above is closed. A stale-epoch replay is published on
+  the audit route (task 3.5) under the delivery grant M2.0g issues.
 - [x] 3.3 PARTIALLY LANDED: **`usp-19`** is MERGED into `usp-01-proposal`.
   Check what it actually delivered before starting -- duplicating it is how the
   earlier 22-PR chain accumulated, and its scope is NARROWER than this task.
@@ -2014,11 +2020,13 @@ change together with the requirements they implement.
   `EdgeOutputContractRef` fields: it rejects a missing contract, a route or cost
   model the bundle does not pin, and provenance that contradicts the
   authenticated session; withholds (no publish, sequence unresolved) on no
-  registry, an epoch or snapshot the gateway does not hold, an unknown or
-  digest-mismatched contract, and any non-active bundle; holds security-revoked
-  bundles; and takes the published route profile, traffic class and partition
-  rule from the registry entry. The edge-records:v1 capability is not ready
-  without a loaded snapshot.
+  registry, an epoch ahead of the snapshot, a current-epoch snapshot digest the
+  gateway does not hold, an older epoch whose exact bundle is no longer
+  registered, an unknown or digest-mismatched contract, and any non-active
+  bundle; admits an older epoch whose exact bundle is still registered; holds
+  security-revoked bundles; and takes the published route profile, traffic class
+  and partition rule from the registry entry. The edge-records:v1 capability is
+  not ready without a loaded snapshot.
   STILL OPEN and blocked on tasks 1.10/1.11 defining the signed format: signed
   snapshot loading, signed readiness reporting, the atomic epoch switch and
   stale-generation fencing, planned-retirement drain under the exact bundle and
