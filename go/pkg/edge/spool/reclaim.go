@@ -405,6 +405,43 @@ func (s *Spool) terminalProof() ([32]byte, []permanentSlot, bool, error) {
 	return proof, permanent, next == s.nextSeq, nil
 }
 
+// unacceptedSequences lists the sequences in (after, through] that evidence,
+// a terminal acknowledgement, does not show accepted. Evidence that does not
+// parse proves nothing accepted.
+func unacceptedSequences(evidence []byte, after, through uint64) []uint64 {
+	accepted := map[uint64]bool{}
+	var ack edgev1.EdgeDeliveryAckV1
+	if proto.Unmarshal(evidence, &ack) == nil {
+		for _, d := range ack.GetDispositions() {
+			if acceptedDisposition(d.GetKind()) {
+				accepted[d.GetSequence()] = true
+			}
+		}
+	}
+	var unaccepted []uint64
+	for seq := after + 1; seq <= through; seq++ {
+		if !accepted[seq] {
+			unaccepted = append(unaccepted, seq)
+		}
+	}
+	return unaccepted
+}
+
+func acceptedDisposition(kind edgev1.EdgeRecordDispositionKind) bool {
+	switch kind {
+	case edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE,
+		edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUDIT_ONLY,
+		edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_QUARANTINE:
+		return true
+	case edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_UNSPECIFIED,
+		edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_REJECTED_RETRYABLE,
+		edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_REJECTED_PERMANENT:
+		return false
+	default:
+		return false
+	}
+}
+
 func terminalSequence(name string) (uint64, bool) {
 	if len(name) != len("terminal-")+20+len(".pb") || !strings.HasPrefix(name, "terminal-") || !strings.HasSuffix(name, ".pb") {
 		return 0, false

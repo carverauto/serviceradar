@@ -554,8 +554,19 @@ in `choices.md` and the chart README.
   `agent_edge_spool_admission_paused`. `admission.Controller` stays unwired:
   it frees charged bytes only through a reclaim authorization nothing can
   mint before task 2.28. This item stays unchecked until the farm01
-  verification; byte-fair lanes remain task 2.7. Holding execution completion
-  while records are unresolved remains TODO.
+  verification; byte-fair lanes remain task 2.7.
+  Execution completion now waits for unresolved records. An unleased execution
+  completes in core when its final results record (`is_final`) is ingested. The
+  agent holds that record until every other record of the response has resolved
+  in the spool (`Spool.Watch`/`Settle`, from the terminal evidence), and
+  acknowledges the response only once the completion record has resolved too.
+  A record the gateway rejected permanently, or the spool refused permanently
+  after admission, sends the completion record marked cancelled, so core
+  closes the execution as cancelled rather than completed. A leased execution
+  has no agent-emitted completion: core completes it only when its projected
+  host rows reach the plan's `total_target_count`
+  (`ServiceRadar.Edge.SweepProjection`), so an unresolved or rejected record
+  already keeps it open.
 - [ ] M3.3 Fault drill. During active sweeps on farm01, restart the gateway,
   core (EventWriter), NATS and the canary agent, each at least once
   mid-execution. Afterwards CNPG shows zero missing and zero duplicated host

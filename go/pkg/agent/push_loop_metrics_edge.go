@@ -138,9 +138,13 @@ func (t *edgeProducerDropTelemetry) write(w io.Writer) error {
 	return nil
 }
 
-// edgeMetricsAppender is the spool surface a metrics producer writes.
+// edgeMetricsAppender is the spool surface metric and sweep results producers
+// write. Watch and Settle follow the records whose fate decides what a
+// producer reports (spool.Spool.Watch).
 type edgeMetricsAppender interface {
 	Append(eventID, body []byte) (uint64, error)
+	Watch(seq uint64)
+	Settle(seqs []uint64) (resolved bool, unaccepted int)
 }
 
 // SetEdgeMetricsSpool connects metric producers to the sender's one open spool.
