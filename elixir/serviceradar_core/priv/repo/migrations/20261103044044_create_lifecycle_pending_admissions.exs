@@ -2,9 +2,16 @@ defmodule ServiceRadar.Repo.Migrations.CreateLifecyclePendingAdmissions do
   @moduledoc """
   One row per lifecycle occurrence whose alert admission has not committed.
 
-  Per-series order is an indexed lookup on this table. The row is inserted in the
-  same transaction as the lifecycle event and removed in the transaction that
-  records the admission.
+  The row is the only record of admission state: an occurrence is unadmitted
+  while its row exists. It is inserted in the same transaction as the lifecycle
+  event and removed in the transaction that records the admission.
+
+  Each occurrence keeps its own row, keyed by its stable `occurrence_id`, so a
+  newer transition for the same event never overwrites one still waiting.
+  `occurrence` is an immutable snapshot of what alert evaluation receives, so a
+  later upsert of the current-state event row cannot change or erase it.
+  Per-(class, series) FIFO order is `seq`, assigned at insert; it also orders
+  occurrences that share an event time.
   """
   use Ecto.Migration
 
@@ -15,14 +22,20 @@ defmodule ServiceRadar.Repo.Migrations.CreateLifecyclePendingAdmissions do
 
     execute("""
     CREATE TABLE IF NOT EXISTS #{schema}.#{@table} (
+      occurrence_id  UUID         PRIMARY KEY,
+      seq            BIGINT       GENERATED ALWAYS AS IDENTITY,
       class_uid      INTEGER      NOT NULL,
       series_key     TEXT         NOT NULL,
       event_time     TIMESTAMPTZ  NOT NULL,
       event_id       UUID         NOT NULL,
-      occurrence_id  UUID         NOT NULL,
-      inserted_at    TIMESTAMPTZ  NOT NULL DEFAULT now(),
-      PRIMARY KEY (class_uid, series_key, event_time, event_id)
+      occurrence     JSONB        NOT NULL,
+      inserted_at    TIMESTAMPTZ  NOT NULL DEFAULT now()
     )
+    """)
+
+    execute("""
+    CREATE UNIQUE INDEX IF NOT EXISTS lifecycle_pending_admissions_series_seq_idx
+      ON #{schema}.#{@table} (class_uid, series_key, seq)
     """)
 
     execute("""
