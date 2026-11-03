@@ -5,11 +5,11 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
   lane.
 
   `MapperResultsIngestor` commits the authoritative CNPG rows inside its lane
-  worker and then calls `enqueue/2` with the records it just committed. The
-  job carries the projection kind and the device scope only. The graph
-  projection, which makes Dgraph round trips and may run pruning and the
-  canonical rebuild, no longer counts against the lane's worker budget, so a
-  slow graph backend cannot time a mapper result out and lose it.
+  worker and then calls `enqueue/2` with the records it just committed. Each
+  job carries one device id and nothing else. The graph projection, which
+  makes Dgraph round trips and may run pruning and the canonical rebuild, no
+  longer counts against the lane's worker budget, so a slow graph backend
+  cannot time a mapper result out and lose it.
 
   ## Projection lag
 
@@ -21,26 +21,28 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
 
   ## What a job applies
 
-  At perform the worker reads the current committed rows for the job's devices
-  and projects those: discovered interfaces (including their aliases) or
-  mapper topology links. The write is the same batched idempotent replace the
-  inline path used. A job does not carry the result that enqueued it, so a
-  retry, including one that runs after a newer job for the scope has already
-  completed, applies whatever CNPG holds at that moment.
+  At perform the worker reads the current committed rows for that one device
+  and projects them: discovered interfaces (including their aliases) and
+  mapper topology links where the device is local. The write is the same
+  batched idempotent replace the inline path used, and it does not write
+  another device's interfaces or links. A job does not carry the result that
+  enqueued it, so a retry, including one that runs after a newer job for the
+  device has already completed, applies whatever CNPG holds at that moment.
 
-  Uniqueness on kind and scope is only coalescing. A newer result replaces a
-  job that has not started, so a pending backlog collapses to one run. A job
-  that starts while an earlier job for the scope is still executing waits for
-  it. An `executing` job older than this worker's timeout is treated as
-  orphaned, so a node that dies mid-projection does not block its scope until
-  Lifeline rescues the row. The rescued job reads CNPG again.
+  Uniqueness on the device id is only coalescing. A newer result for that
+  device replaces a job that has not started, so a pending backlog collapses
+  to one run per device. A job that starts while an earlier job for the same
+  device is still executing waits for it. An `executing` job older than this
+  worker's timeout is treated as orphaned, so a node that dies mid-projection
+  does not block the device until Lifeline rescues the row. The rescued job
+  reads CNPG again.
 
   ## Failure
 
   A failed projection is logged, counted as `not_accepted` on the
   `topology_projection` lane, reported as an Oban job exception, and retried
   with backoff. A projection that exhausts its attempts is also counted as
-  `failed`. The next mapper result for the scope enqueues a fresh projection.
+  `failed`. The next mapper result for the device enqueues a fresh projection.
   """
 
   use Oban.Worker,
@@ -48,7 +50,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
     max_attempts: 10,
     unique: [
       period: :infinity,
-      keys: [:kind, :scope],
+      keys: [:device_id],
       states: [:available, :scheduled, :retryable]
     ]
 
@@ -74,7 +76,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
   @type kind :: :interfaces | :links
 
   @doc """
-  Schedules a projection of the devices named by mapper `records` already
+  Schedules one projection job per device named by mapper `records` already
   committed to CNPG. Never fails the caller: CNPG holds the result either way.
   A job that cannot be enqueued is logged and counted as `failed`.
   """
@@ -82,12 +84,30 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
   def enqueue(_kind, []), do: :ok
 
   def enqueue(kind, records) when kind in [:interfaces, :links] and is_list(records) do
-    device_ids = scope_device_ids(kind, records)
+    kind
+    |> device_ids(records)
+    |> Enum.each(&enqueue_device/1)
 
+    :ok
+  end
+
+  @impl Oban.Worker
+  def timeout(_job), do: @timeout_ms
+
+  @impl Oban.Worker
+  def perform(%Oban.Job{args: %{"device_id" => device_id}} = job) when is_binary(device_id) do
+    case turn(job) do
+      :wait ->
+        {:snooze, @wait_seconds}
+
+      :apply ->
+        project(device_id, job)
+    end
+  end
+
+  defp enqueue_device(device_id) do
     args = %{
-      kind: Atom.to_string(kind),
-      scope: scope(device_ids),
-      device_ids: device_ids,
+      device_id: device_id,
       enqueued_at: DateTime.to_iso8601(DateTime.utc_now())
     }
 
@@ -103,38 +123,19 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
 
         Logger.error(
           "Topology projection could not be scheduled; the graph will not reflect this " <>
-            "mapper result until the next one",
-          kind: kind,
-          records: length(records),
+            "device until the next mapper result",
+          device_id: device_id,
           reason: inspect(reason)
         )
     end
-
-    :ok
   end
 
-  @impl Oban.Worker
-  def timeout(_job), do: @timeout_ms
-
-  @impl Oban.Worker
-  def perform(%Oban.Job{args: %{"kind" => kind} = args} = job)
-      when kind in ["interfaces", "links"] do
-    case turn(job) do
-      :wait ->
-        {:snooze, @wait_seconds}
-
-      :apply ->
-        project(kind, device_ids_from_args(args), job)
-    end
-  end
-
-  defp project(kind, device_ids, job) do
+  defp project(device_id, job) do
     started = System.monotonic_time(:millisecond)
 
     result =
-      case kind do
-        "interfaces" -> device_ids |> load_interfaces() |> TopologyGraph.upsert_interfaces()
-        "links" -> device_ids |> load_links() |> TopologyGraph.upsert_links()
+      with :ok <- device_id |> load_interfaces() |> TopologyGraph.upsert_interfaces() do
+        device_id |> load_links() |> TopologyGraph.upsert_links()
       end
 
     measurements = %{
@@ -152,7 +153,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
         if job.attempt >= job.max_attempts, do: RuntimeMetrics.record(@lane, :failed, %{})
 
         Logger.warning("Topology projection failed; the graph lags CNPG until it succeeds",
-          kind: kind,
+          device_id: device_id,
           attempt: job.attempt,
           max_attempts: job.max_attempts,
           reason: inspect(reason)
@@ -162,11 +163,9 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
     end
   end
 
-  # An earlier live attempt may have read CNPG before the rows this job was
-  # enqueued for were committed. Wait until it finishes, then read again.
-  # A later or already-finished job is not a reason to skip: this attempt
-  # reads the current rows and replaces the scope with them.
-  defp turn(%Oban.Job{id: id, args: %{"kind" => kind, "scope" => scope}}) do
+  # An earlier attempt for this device may still be writing the rows it read.
+  # Wait until it finishes, then read CNPG again.
+  defp turn(%Oban.Job{id: id, args: %{"device_id" => device_id}}) do
     orphaned_before = DateTime.add(DateTime.utc_now(), -@orphaned_after_ms, :millisecond)
 
     blocking =
@@ -176,8 +175,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
             j.worker == ^Oban.Worker.to_string(__MODULE__) and
               j.queue == ^Atom.to_string(@lane) and j.id < ^id and
               j.state == "executing" and j.attempted_at > ^orphaned_before and
-              fragment("? ->> 'kind'", j.args) == ^kind and
-              fragment("? ->> 'scope'", j.args) == ^scope
+              fragment("? ->> 'device_id'", j.args) == ^device_id
         ),
         prefix: ObanSupport.prefix()
       )
@@ -196,12 +194,10 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
 
   defp queue_wait_ms(_job), do: nil
 
-  defp load_interfaces([]), do: []
-
-  defp load_interfaces(device_ids) do
+  defp load_interfaces(device_id) do
     Repo.all(
       from(i in Interface,
-        where: i.device_id in ^device_ids,
+        where: i.device_id == ^device_id,
         select: %{
           device_id: i.device_id,
           if_name: i.if_name,
@@ -215,12 +211,10 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
     )
   end
 
-  defp load_links([]), do: []
-
-  defp load_links(device_ids) do
+  defp load_links(device_id) do
     Repo.all(
       from(l in TopologyLink,
-        where: l.local_device_id in ^device_ids,
+        where: l.local_device_id == ^device_id,
         select: %{
           timestamp: l.timestamp,
           protocol: l.protocol,
@@ -240,26 +234,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
     )
   end
 
-  # Jobs inserted before device_ids was the identity still name their devices
-  # on each stored record. The record body is not projected.
-  defp device_ids_from_args(%{"device_ids" => ids}) when is_list(ids) do
-    normalize_device_ids(ids)
-  end
-
-  defp device_ids_from_args(%{"kind" => kind, "records" => records}) when is_list(records) do
-    key = if kind == "interfaces", do: "device_id", else: "local_device_id"
-
-    records
-    |> Enum.map(&record_device_id(&1, key))
-    |> normalize_device_ids()
-  end
-
-  defp device_ids_from_args(_args), do: []
-
-  defp record_device_id(record, key) when is_map(record), do: Map.get(record, key)
-  defp record_device_id(_record, _key), do: nil
-
-  defp scope_device_ids(kind, records) do
+  defp device_ids(kind, records) do
     key = if kind == :interfaces, do: :device_id, else: :local_device_id
 
     records
@@ -287,12 +262,5 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
     end)
     |> Enum.uniq()
     |> Enum.sort()
-  end
-
-  # Stable across nodes and releases, unlike :erlang.phash2/1.
-  defp scope(device_ids) do
-    :sha256
-    |> :crypto.hash(Enum.join(device_ids, "\n"))
-    |> Base.encode16(case: :lower)
   end
 end

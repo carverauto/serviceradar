@@ -113,19 +113,20 @@ result out.
 
 Topology views read the graph, so they trail the CNPG interface and evidence
 tables by the job's queue wait plus its run time. One device's interfaces are
-written in one Dgraph request, and the links of a topology report in two
-(endpoints, then edges), however many interfaces or links it carries.
+written in one Dgraph request, and that device's links in two (endpoints, then
+edges), however many interfaces or links it carries.
 
-Projection jobs are keyed by the devices a result reports and carry that
-identity only. When a job runs it reads the current committed discovered
-interfaces (including aliases) or mapper topology links for those devices and
-replaces the scope in the graph with that state, through the same batched
-writes. A retry of an older job therefore leaves the graph equal to the latest
+Each projection job is one device and carries that device id only. When it
+runs it reads the current committed discovered interfaces (including aliases)
+and mapper topology links for that device, and replaces that device's graph
+state through the same batched writes. It does not write another device. A
+retry of an older job therefore leaves the graph equal to that device's latest
 CNPG rows, including when it runs after a newer job has already completed. A
-newer result still replaces a job that has not started, so a pending backlog
-collapses to one run, and a job waits while an earlier one for the same devices
-is still executing. A failed projection is logged, reported as an Oban job
-exception, and retried with backoff. The ingestion runtime metrics
+newer result for the same device still replaces a job that has not started, so
+a pending backlog collapses to one run per device, and a job waits while an
+earlier one for that device is still executing. A failed projection is logged,
+reported as an Oban job exception, and retried with backoff. The ingestion
+runtime metrics
 (`metrics.ingestion_lanes`) carry a `topology_projection` lane (scheduled,
 coalesced, accepted, not accepted and failed projections, with `queue_wait_ms`
 and `duration_ms`) and a `dgraph` lane (every Dgraph call's outcome, timeouts

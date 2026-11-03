@@ -71,7 +71,14 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
         "sr:tonka/eth4",
         "sr:zz-mikrotik/ether1",
         "sr:it-order",
-        "sr:it-order/eth0"
+        "sr:it-order/eth0",
+        "sr:it-order-b",
+        "sr:it-order-b/eth0",
+        "sr:it-link-a",
+        "sr:it-link-a/10",
+        "sr:it-link-a/GigabitEthernet0/1",
+        "sr:it-link-b",
+        "sr:it-link-b/Gi0/1"
       ] ++ sparse_payload_ids() ++ synthetic_topology_ids()
     )
 
@@ -960,64 +967,101 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
                [device_ip]
              )
 
-    assert [%{"kind" => "interfaces", "device_ids" => device_ids}] = pending_projection_args()
-    assert device_ids != []
-    refute Map.has_key?(hd(pending_projection_args()), "records")
+    assert [%{"device_id" => device_id}] = pending_projection_args()
+    assert is_binary(device_id) and device_id != ""
   end
 
-  test "a retried older projection leaves the graph equal to the latest committed interfaces" do
-    device_id = "sr:it-order"
-    on_exit(fn -> delete_interface(device_id) end)
+  test "overlapping device batches leave each device at its latest committed alias" do
+    device_a = "sr:it-order"
+    device_b = "sr:it-order-b"
+    on_exit(fn -> delete_interface(device_a) end)
+    on_exit(fn -> delete_interface(device_b) end)
 
-    # The job that was queued for the first observation still carries that
-    # payload, which is what a retry used to apply after a newer result.
-    upsert_interface_alias(device_id, "stale-alias")
-    assert :ok = TopologyProjectionWorker.enqueue(:interfaces, [%{device_id: device_id}])
-    assert :ok = TopologyProjectionWorker.enqueue(:interfaces, [%{device_id: device_id}])
-    assert [%{"device_ids" => [^device_id], "kind" => "interfaces"}] = pending_projection_args()
-
-    [older] = pending_projection_jobs()
-
-    stale_records = [
-      %{
-        "device_id" => device_id,
-        "if_name" => "eth0",
-        "if_index" => 1,
-        "if_alias" => "stale-alias"
-      }
-    ]
-
-    Repo.update_all(
-      from(j in Oban.Job, where: j.id == ^older.id),
-      [set: [args: older.args |> Map.delete("device_ids") |> Map.put("records", stale_records)]],
-      prefix: "platform"
-    )
-
-    mark_executing(older)
-    upsert_interface_alias(device_id, "latest-alias")
+    upsert_interface_alias(device_a, "first-alias")
+    upsert_interface_alias(device_b, "stable-alias")
 
     assert :ok =
              TopologyProjectionWorker.enqueue(:interfaces, [
-               %{device_id: device_id, if_alias: "latest-alias"}
+               %{device_id: device_a},
+               %{device_id: device_b}
              ])
 
-    [newer] = pending_projection_jobs()
-    assert newer.id > older.id
-    assert {:snooze, _seconds} = TopologyProjectionWorker.perform(newer)
+    [older_a, job_b] = pending_projection_jobs()
+    assert older_a.args["device_id"] == device_a
+    assert job_b.args["device_id"] == device_b
 
-    mark_retryable(older)
-    assert :ok = TopologyProjectionWorker.perform(reload_job(newer.id))
-    assert interface_alias("#{device_id}/eth0") == "latest-alias"
+    mark_executing(older_a)
+    upsert_interface_alias(device_a, "latest-alias")
 
-    # A no-op retry would leave this sentinel. Applying the stored payload
-    # would restore stale-alias. The retry must write the current CNPG row.
+    assert :ok = TopologyProjectionWorker.enqueue(:interfaces, [%{device_id: device_a}])
+
+    pending = pending_projection_jobs()
+    newer_a = Enum.find(pending, &(&1.args["device_id"] == device_a))
+    assert newer_a.id > older_a.id
+    assert Enum.any?(pending, &(&1.id == job_b.id))
+
+    assert :ok = TopologyProjectionWorker.perform(job_b)
+    assert interface_alias("#{device_b}/eth0") == "stable-alias"
+    assert {:snooze, _seconds} = TopologyProjectionWorker.perform(newer_a)
+
+    mark_retryable(older_a)
+    assert :ok = TopologyProjectionWorker.perform(reload_job(newer_a.id))
+    assert interface_alias("#{device_a}/eth0") == "latest-alias"
+    assert interface_alias("#{device_b}/eth0") == "stable-alias"
+
     cypher_rows(
-      "MATCH (i:Interface {id:'#{device_id}/eth0'}) SET i.alias = 'gap' RETURN {alias: i.alias} AS result"
+      "MATCH (i:Interface {id:'#{device_a}/eth0'}) SET i.alias = 'gap' RETURN {alias: i.alias} AS result"
     )
 
-    assert :ok = TopologyProjectionWorker.perform(reload_job(older.id))
-    assert current_if_alias(device_id) == "latest-alias"
-    assert interface_alias("#{device_id}/eth0") == current_if_alias(device_id)
+    assert :ok = TopologyProjectionWorker.perform(reload_job(older_a.id))
+    assert current_if_alias(device_a) == "latest-alias"
+    assert interface_alias("#{device_a}/eth0") == current_if_alias(device_a)
+    assert interface_alias("#{device_b}/eth0") == "stable-alias"
+  end
+
+  test "a later topology report refreshes the projected interface name and device ip" do
+    local = "sr:it-link-a"
+    neighbor = "sr:it-link-b"
+    on_exit(fn -> purge_topology_rows([local]) end)
+
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
+
+    assert :ok =
+             MapperResultsIngestor.ingest_topology(
+               Jason.encode!([
+                 link_report(local, neighbor, now, "10", "192.0.2.40", "access")
+               ]),
+               %{}
+             )
+
+    project_pending_topology()
+
+    later = DateTime.truncate(DateTime.utc_now(), :microsecond)
+
+    assert :ok =
+             MapperResultsIngestor.ingest_topology(
+               Jason.encode!([
+                 link_report(local, neighbor, later, "GigabitEthernet0/1", "192.0.2.41", "uplink")
+               ]),
+               %{}
+             )
+
+    assert ["GigabitEthernet0/1", "192.0.2.41", "uplink"] == projected_link_row(local)
+
+    project_pending_topology()
+
+    [edge] =
+      cypher_rows(
+        ~s/MATCH (a:Interface {id:'sr:it-link-a\/GigabitEthernet0\/1'})-[r:CONNECTS_TO]->(b:Interface {id:'sr:it-link-b\/Gi0\/1'})
+      RETURN {count: count(r)} AS result/
+      )
+
+    assert edge["count"] == 1
+
+    [device] =
+      cypher_rows("MATCH (d:Device {id:'sr:it-link-a'}) RETURN {ip: d.ip} AS result")
+
+    assert device["ip"] == "192.0.2.41"
   end
 
   test "router drops low-confidence inferred neighbors when only the uplink is corroborated" do
@@ -1196,6 +1240,40 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     )
 
     :ok
+  end
+
+  defp link_report(local, neighbor, timestamp, if_name, ip, port_descr) do
+    %{
+      "timestamp" => timestamp,
+      "protocol" => "LLDP",
+      "agent_id" => "agent-it-link",
+      "gateway_id" => "agent-it-link",
+      "partition" => "default",
+      "local_device_id" => local,
+      "local_device_ip" => ip,
+      "local_if_index" => 10,
+      "local_if_name" => if_name,
+      "neighbor_device_id" => neighbor,
+      "neighbor_port_id" => "Gi0/1",
+      "neighbor_port_descr" => port_descr,
+      "neighbor_system_name" => "link-b",
+      "metadata" => %{"source" => "lldp"}
+    }
+  end
+
+  defp projected_link_row(local_device_id) do
+    %Postgrex.Result{rows: [row]} =
+      SQL.query!(
+        Repo,
+        """
+        SELECT local_if_name, local_device_ip, neighbor_port_descr
+        FROM platform.mapper_topology_links
+        WHERE local_device_id = $1 AND protocol = 'LLDP'
+        """,
+        [local_device_id]
+      )
+
+    row
   end
 
   defp topology_rows(local_device_id) do
