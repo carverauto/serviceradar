@@ -148,7 +148,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     assert result["score"] == 95
   end
 
-  test "upsert_links refreshes the local device and interface and leaves the neighbor unchanged" do
+  test "upsert_links refreshes the local device and interface and the reported neighbor port name" do
     now = DateTime.truncate(DateTime.utc_now(), :microsecond)
 
     link = %{
@@ -199,16 +199,24 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     assert result["value"] == " eth0 "
 
-    link = %{link | neighbor_port_id: "aabbccddeeff"}
-    TopologyGraph.upsert_links([link])
-
     [result] =
       cypher_rows(
         "MATCH (i:Interface {id:'sr:dev-2/aa:bb:cc:dd:ee:ff'}) RETURN {device_id: i.device_id, name: i.name} AS result"
       )
 
     assert result["device_id"] == "sr:dev-2"
-    assert Map.get(result, "name") in [nil, ""]
+    assert result["name"] == "aa:bb:cc:dd:ee:ff"
+
+    # Both spellings normalize to one vertex ID, but the projected name changed.
+    link = %{link | neighbor_port_id: "aabbccddeeff"}
+    TopologyGraph.upsert_links([link])
+
+    [result] =
+      cypher_rows(
+        "MATCH (i:Interface {id:'sr:dev-2/aa:bb:cc:dd:ee:ff'}) RETURN {value: i.name} AS result"
+      )
+
+    assert result["value"] == "aabbccddeeff"
   end
 
   test "upsert_links falls back when neighbor port metadata is missing" do
@@ -1022,6 +1030,32 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     assert interface_alias("#{device_b}/eth0") == "stable-alias"
   end
 
+  test "a retry of an older job that starts while a newer one executes waits for it" do
+    device = "sr:it-order"
+    on_exit(fn -> delete_interface(device) end)
+
+    upsert_interface_alias(device, "first-alias")
+    assert :ok = TopologyProjectionWorker.enqueue(:interfaces, [%{device_id: device}])
+    [older] = pending_projection_jobs()
+
+    mark_executing(older)
+    upsert_interface_alias(device, "latest-alias")
+    assert :ok = TopologyProjectionWorker.enqueue(:interfaces, [%{device_id: device}])
+    [newer] = pending_projection_jobs()
+    assert newer.id > older.id
+
+    # The older attempt failed, the newer one started, then the older retry started.
+    now = DateTime.utc_now()
+    mark_executing(newer, DateTime.add(now, -1, :second))
+    mark_executing(older, now)
+
+    assert {:snooze, _seconds} = TopologyProjectionWorker.perform(reload_job(older.id))
+
+    mark_retryable(newer)
+    assert :ok = TopologyProjectionWorker.perform(reload_job(older.id))
+    assert interface_alias("#{device}/eth0") == "latest-alias"
+  end
+
   test "a later topology report refreshes the projected interface name and device ip" do
     local = "sr:it-link-a"
     neighbor = "sr:it-link-b"
@@ -1130,7 +1164,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
       )
 
     assert created["device_id"] == neighbor
-    assert Map.get(created, "name") in [nil, ""]
+    assert created["name"] == "Eth9"
     assert Map.get(created, "ifindex") in [nil, 0]
 
     [edge] =
@@ -1415,10 +1449,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
   defp pending_projection_args, do: Enum.map(pending_projection_jobs(), & &1.args)
 
-  defp mark_executing(%Oban.Job{id: id}) do
+  defp mark_executing(%Oban.Job{id: id}, attempted_at \\ DateTime.utc_now()) do
     Repo.update_all(
       from(j in Oban.Job, where: j.id == ^id),
-      [set: [state: "executing", attempted_at: DateTime.utc_now(), attempt: 1]],
+      [set: [state: "executing", attempted_at: attempted_at, attempt: 1]],
       prefix: "platform"
     )
   end

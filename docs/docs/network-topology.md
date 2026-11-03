@@ -120,14 +120,17 @@ Each projection job is one device and carries that device id only. When it
 runs it reads the current committed discovered interfaces (including aliases)
 and mapper topology links for that device, and replaces that device's graph
 state through the same batched writes. The newest of that device's link rows
-that sets a field owns its IP and interface fields. The job still creates the
-neighbor vertex and the edge, and does not write that neighbor's IP, name, or
-interface name. A retry of an older job therefore leaves the graph equal to
-that device's latest CNPG rows, including when it runs after a newer job has
-already completed. A
-newer result for the same device still replaces a job that has not started, so
-a pending backlog collapses to one run per device, and a job waits while an
-earlier one for that device is still executing. A failed projection is logged,
+that sets a field owns its IP and interface fields. For each link the job also
+creates the neighbor vertex, the neighbor interface and the edge, and writes
+the neighbor interface name the reporting device observed when it has one; a
+missing value never erases a known one. It does not write the neighbor
+device's IP or name. A retry of an older job therefore leaves the graph equal
+to that device's latest CNPG rows, including when it runs after a newer job has
+already completed. A newer result for the same device replaces a job that has
+not started, so a pending backlog collapses to one run per device. A job waits
+while another job for that device that started before it is still executing,
+so a retry of an older job that starts during a newer run waits for it and
+then reads CNPG again. A failed projection is logged,
 reported as an Oban job exception, and retried with backoff. The ingestion
 runtime metrics
 (`metrics.ingestion_lanes`) carry a `topology_projection` lane (scheduled,

@@ -17,6 +17,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Queries.EdgeLinks do
     #{Utils.set_prop("ai", "ifindex", payload.local_if_index)}
     MERGE (bi:Interface {id: '#{Graph.escape(payload.neighbor_interface_id)}'})
     SET bi.device_id = '#{Graph.escape(payload.neighbor_device_id)}'
+    #{Utils.set_prop("bi", "name", payload.neighbor_port_name)}
     MERGE (a)-[r1:HAS_INTERFACE]->(ai)
     SET r1.source = 'mapper'
     MERGE (b)-[r2:HAS_INTERFACE]->(bi)
@@ -60,6 +61,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Queries.EdgeLinks do
     #{Utils.set_prop("ai", "ifindex", payload.local_if_index)}
     MERGE (bi:Interface {id: '#{Graph.escape(payload.neighbor_interface_id)}'})
     SET bi.device_id = '#{Graph.escape(payload.neighbor_device_id)}'
+    #{Utils.set_prop("bi", "name", payload.neighbor_port_name)}
     MERGE (a)-[r1:HAS_INTERFACE]->(ai)
     SET r1.source = 'mapper'
     MERGE (b)-[r2:HAS_INTERFACE]->(bi)

@@ -31,11 +31,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
 
   Uniqueness on the device id is only coalescing. A newer result for that
   device replaces a job that has not started, so a pending backlog collapses
-  to one run per device. A job that starts while an earlier job for the same
-  device is still executing waits for it. An `executing` job older than this
-  worker's timeout is treated as orphaned, so a node that dies mid-projection
-  does not block the device until Lifeline rescues the row. The rescued job
-  reads CNPG again.
+  to one run per device. A job that starts while another job for the same
+  device that started before it is still executing waits for it, including a
+  retry of an older job that starts while a newer one runs. An `executing` job
+  older than this worker's timeout is treated as orphaned, so a node that dies
+  mid-projection does not block the device until Lifeline rescues the row. The
+  rescued job reads CNPG again.
 
   ## Failure
 
@@ -163,18 +164,23 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
     end
   end
 
-  # An earlier attempt for this device may still be writing the rows it read.
-  # Wait until it finishes, then read CNPG again.
-  defp turn(%Oban.Job{id: id, args: %{"device_id" => device_id}}) do
-    orphaned_before = DateTime.add(DateTime.utc_now(), -@orphaned_after_ms, :millisecond)
+  # Another run for this device that started first may still be writing the
+  # rows it read. Wait until it finishes, then read CNPG again. Runs are ordered
+  # by when they started, then by id, so a retry of an older job that starts
+  # while a newer one executes waits for it as well.
+  defp turn(%Oban.Job{id: id, args: %{"device_id" => device_id}} = job) do
+    now = DateTime.utc_now()
+    started = job.attempted_at || now
+    orphaned_before = DateTime.add(now, -@orphaned_after_ms, :millisecond)
 
     blocking =
       Repo.exists?(
         from(j in Oban.Job,
           where:
             j.worker == ^Oban.Worker.to_string(__MODULE__) and
-              j.queue == ^Atom.to_string(@lane) and j.id < ^id and
+              j.queue == ^Atom.to_string(@lane) and j.id != ^id and
               j.state == "executing" and j.attempted_at > ^orphaned_before and
+              (j.attempted_at < ^started or (j.attempted_at == ^started and j.id < ^id)) and
               fragment("? ->> 'device_id'", j.args) == ^device_id
         ),
         prefix: ObanSupport.prefix()

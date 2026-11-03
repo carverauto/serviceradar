@@ -93,7 +93,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist do
           interface_write(
             payload.neighbor_interface_id,
             payload.neighbor_device_id,
-            nil,
+            payload.neighbor_port_name,
             nil
           )
         ]
