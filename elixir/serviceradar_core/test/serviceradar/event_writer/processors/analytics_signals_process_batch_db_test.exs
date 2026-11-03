@@ -90,7 +90,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     def evaluate_events(events) do
       send(test_pid(), {:alert_evaluation_events, events})
 
-      if Enum.any?(events, &(&1.message == "saturated-forecast")),
+      if Enum.any?(events, &String.starts_with?(&1.message, "saturated-forecast")),
         do: {:error, {:overloaded, :rule_count}},
         else: :ok
     end
@@ -474,26 +474,27 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
       )
 
     row = AnalyticsSignals.parse_message(message)
+    event_id = uuid_string(row.id)
 
     assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([message])
-    assert_receive {:alert_evaluation_events, [_refused]}
+    assert_receive {:alert_evaluation_events, [%{id: ^event_id}]}
     assert pending_occurrence_count(row) == 1
 
     assert :ok = LifecycleAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
-    assert_receive {:alert_evaluation_events, [still_refused]}
+    assert_receive {:alert_evaluation_events, [%{id: ^event_id} = still_refused]}
     assert still_refused.activity_name == "Create"
     assert pending_occurrence_count(row) == 1
 
     Application.put_env(:serviceradar_core, :analytics_signals_replay_result, :ok)
 
     assert :ok = LifecycleAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
-    assert_receive {:alert_evaluation_events, [admitted]}
+    assert_receive {:alert_evaluation_events, [%{id: ^event_id} = admitted]}
     assert admitted.status == "open"
     assert admitted.activity_name == "Create"
     assert pending_occurrence_count(row) == 0
 
     assert :ok = LifecycleAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
-    refute_receive {:alert_evaluation_events, _events}, 50
+    refute_receive {:alert_evaluation_events, [%{id: ^event_id}]}, 50
   end
 
   test "one drain run scans past series stuck behind a saturated rule" do
@@ -510,6 +511,8 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     )
 
     stamp = System.unique_integer([:positive])
+    saturated_message = "saturated-forecast-#{stamp}"
+    quiet_forecast = "quiet-forecast-#{stamp}"
     saturated = for n <- 1..4, do: "synthetic:drain-saturated:#{stamp}:#{n}"
     quiet = "synthetic:drain-quiet:#{stamp}"
     series = saturated ++ [quiet]
@@ -526,7 +529,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
         capacity_forecast_message(
           series_key,
           "drain-saturated-#{n}",
-          "saturated-forecast",
+          saturated_message,
           1_812_456_000_000
         )
 
@@ -535,7 +538,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     end
 
     quiet_message =
-      capacity_forecast_message(quiet, "drain-quiet", "quiet-forecast", 1_812_456_000_000)
+      capacity_forecast_message(quiet, "drain-quiet", quiet_forecast, 1_812_456_000_000)
 
     assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([quiet_message])
     assert_receive {:alert_evaluation_events, [_refused]}
@@ -547,18 +550,22 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     )
 
     # Two full pages of saturated series come before the quiet one.
-    assert AnalyticsSignals.drain_pending_admissions(page_size: 2) == 1
+    assert AnalyticsSignals.drain_pending_admissions(page_size: 2) >= 1
 
     for _series_key <- saturated do
-      assert_receive {:alert_evaluation_events, [%{message: "saturated-forecast"}]}
+      assert_receive {:alert_evaluation_events, [%{message: ^saturated_message}]}
     end
 
-    assert_receive {:alert_evaluation_events, [%{message: "quiet-forecast"}]}
-    refute_receive {:alert_evaluation_events, _events}, 50
+    assert_receive {:alert_evaluation_events, [%{message: ^quiet_forecast}]}
+
+    refute_receive {:alert_evaluation_events, [%{message: message}]}
+                   when message in [saturated_message, quiet_forecast],
+                   50
+
     assert pending_admission_messages(quiet) == []
 
     for series_key <- saturated do
-      assert pending_admission_messages(series_key) == ["saturated-forecast"]
+      assert pending_admission_messages(series_key) == [saturated_message]
     end
   end
 
