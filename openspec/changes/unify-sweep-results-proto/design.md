@@ -379,6 +379,52 @@ delivery grants for its unresolved backlog. Each grant is an
 `record_sha256`, `spool_id`, `sequence`). Collection windows are still checked
 against event time (the original interval), never receipt age.
 
+The exchange is the unary `AgentGatewayService.RenewEdgeDeliveryGrants` RPC on
+the agent's existing mTLS gateway connection:
+
+- Before each delivery session the sender asks for a grant for every record in
+  the window it is about to send whose production grant expires within the
+  5-minute clock tolerance of the agent's clock, and that holds no grant still
+  current by the same margin. A record under current production authority is
+  sent without one. Grants are held in memory only, so a restarted sender asks
+  again.
+- The request names the lane's `spool_id` and, per record, its `sequence` and
+  exact `record_bytes`: at most 64 records and 2 MiB per request. The gateway
+  verifies each record before core sees it: the bytes admit, the origin is the
+  authenticated agent, the production (and any source) grant verifies under a
+  key the trust snapshot holds as valid, and the network scope is bound to the
+  agent. Expiry and the fence are not checked, since a lapsed grant is what the
+  renewal is for and the fence decides the publication at delivery. Sending the
+  bytes, rather than only the record's claims, is what binds the grant to a
+  record this agent produced under the assignment it names.
+- Core (`ServiceRadar.Edge.DeliveryGrants`) receives only the verified
+  coordinates. It grants a record whose producer assignment exists, belongs to
+  the requesting agent under the record's network scope and run shard, and is
+  `active`. A revoked assignment gets no grant, so its records are refused at
+  the gateway as a stale fence. An active assignment whose epoch has moved on
+  does get one, and the gateway publishes that record for audit only. Grants
+  are signed with core's issuer key for the `delivery` purpose (the trust
+  snapshot now lists that purpose) and are valid for 15 minutes.
+- A record the gateway or core refuses, or a renewal that fails, is sent
+  without a grant and the gateway decides it as before. A grant never relaxes
+  the record's collection window or its fence.
+
+A compromise-revoked key needs no grant: its record is security-quarantined at
+delivery, so it is refused one.
+
+**Records from an older registry epoch.** A record carries the registry epoch
+it was produced under, and that epoch is signed into its production grant, so
+it cannot be re-signed without changing the bytes. When a new epoch activates,
+the gateway admits an older epoch's record if the held snapshot still registers
+its exact contract (id, version and bundle digest) and that entry passes the
+usual lifecycle and route checks. The old snapshot digest is not compared. A
+record whose bundle the held snapshot no longer registers is withheld as
+`historical_bundle_not_registered`: a registry that dropped a bundle with
+backlog outstanding, which clears when the entry returns. Withholding every
+older epoch, as before, capped the lane's watermark permanently because an
+epoch never returns. Quarantining those records would have turned an ordinary
+epoch change into poison.
+
 **Missed runs.** Because core minted every execution, the lease pass marks a
 scheduled slot after it refills the horizon. The slot is missed once
 `collection_expires` plus the existing 300-second sweep grace has passed and

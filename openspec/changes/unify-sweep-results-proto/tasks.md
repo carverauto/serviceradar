@@ -87,9 +87,8 @@ in `choices.md` and the chart README.
   are read, so core learns of an execution only when its results arrive. Design:
   `design.md`, "M2.0 design: core-scheduled sweeps as signed schedule leases".
   Narrows 1.10, 2.3, 2.10, 2.20, 3.2 and 3.8 to the scheduled-sweep contract.
-  PARTIAL (reconciled 2026-11-02): M2.0a-e and M2.0h are done; M2.0f
-  (stale-epoch audit path), M2.0g (reconnect delivery grants) and M2.0i
-  (plan-carried checks) remain.
+  PARTIAL (reconciled 2026-11-02): M2.0a-h are done; M2.0i
+  (plan-carried checks) remains.
   - [x] M2.0a Sweep assignment authority. Persist one assignment per (sweep
     group, agent): `producer_assignment_id`, `network_scope_id` (the agent's
     partition id), `run_shard` (0 until sharding) and a monotonic
@@ -292,7 +291,7 @@ in `choices.md` and the chart README.
     sweeper tests cover this behavior against the real components, and
     BazelCI on the PR is the remaining gate. Producing edge records
     from these runs is M2.1, and which agents are leased at all is M2.2.
-  - [ ] M2.0f Live gateway trust. The gateway's trust snapshot (issuer keys,
+  - [x] M2.0f Live gateway trust. The gateway's trust snapshot (issuer keys,
     fences from assignment epochs, agent-to-scope bindings) comes from core at
     runtime and follows changes. A record whose assignment epoch is current
     publishes as primary. A stale epoch presented with a valid per-record
@@ -300,23 +299,29 @@ in `choices.md` and the chart README.
     domain rows). A stale epoch without such a grant is refused. The issuer
     does not grant delivery to a revoked assignment. The boot-time trust file
     remains for tests.
-    PARTIAL (reconciled 2026-11-02): runtime trust from core is done:
+    DONE (reconciled 2026-11-02): runtime trust from core is done:
     `ServiceRadarAgentGateway.EdgeRecordTrustRefresh` (#6181) refreshes
     `ServiceRadar.Edge.RecordTrust.snapshot/0` (sweep assignments and output
     grants), exercised by `integration_tests/edge_record/authority_test.go`.
     The gateway audit route has landed (task 3.5): a stale epoch presented with
-    a valid delivery grant is `audit_publication` / ledger-only. Still missing
-    is M2.0g, the delivery-grant issuer, so a backlog record does not yet
-    obtain that grant.
-  - [ ] M2.0g Delivery after reconnect. On reconnect the agent obtains a
+    a valid delivery grant is `audit_publication` / ledger-only. M2.0g issues
+    that grant, so a backlog record under a moved epoch is published on the
+    audit route rather than withheld.
+  - [x] M2.0g Delivery after reconnect. On reconnect the agent obtains a
     per-record delivery grant (`EdgeDeliveryClaimsV1` same-spool renewal:
     `event_id`, `record_sha256`, `spool_id`, `sequence`) for each unresolved
     backlog record. Collection windows are still checked against event time (the
     original interval), never receipt age.
-    TODO (reconciled 2026-11-02): no delivery-grant issuer or agent renewal
-    exists; the sender replays unresolved records but obtains no
-    `EdgeDeliveryClaimsV1`. Needed so a backlog older than its grant window can
-    still deliver.
+    DONE: the exchange is "Delivery after reconnect" in `design.md`.
+    `AgentGatewayService.RenewEdgeDeliveryGrants` carries it; the gateway
+    verifies each record's bytes (`EdgeDeliveryGrants`,
+    `EdgeRecordAuthorization.grant_subject/3`) and core grants only an active
+    assignment of the requesting agent (`ServiceRadar.Edge.DeliveryGrants`).
+    The sender asks before each session for the records whose production grant
+    has lapsed and attaches each grant to its frame (`go/pkg/edge/sender`).
+    The same change admits a record from an older registry epoch whose exact
+    bundle the held snapshot still registers ("Records from an older registry
+    epoch" in `design.md`), which had capped the lane's watermark for good.
   - [x] M2.0h Enforcement and missed runs. Edge sweep records are accepted only
     with a valid source authorization that correlates with the batch
     (`ValidateSweepRecord` / `SweepCorrelate` on the live path), and core marks a

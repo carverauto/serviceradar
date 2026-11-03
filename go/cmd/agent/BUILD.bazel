@@ -22,6 +22,7 @@ go_library(
         "//go/pkg/lifecycle",
         "//go/pkg/logger",
         "//go/pkg/models",
+        "//proto",
         "//proto/edge/v1:edgev1",
     ] + select({
         "@io_bazel_rules_go//go/platform:windows": [

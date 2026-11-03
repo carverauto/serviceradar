@@ -29,13 +29,54 @@ defmodule ServiceRadarAgentGateway.EdgeContractRegistryTest do
                EdgeContractRegistry.admit(record(), @session, {:error, :registry_not_configured})
     end
 
-    test "withholds an epoch the gateway does not hold yet, and a stale one, rather than poisoning it" do
+    test "withholds an epoch the gateway does not hold yet rather than poisoning it" do
       assert {:withhold, :registry_epoch_ahead} = admit(with_contract(record(), registry_epoch: 2))
+    end
 
-      loaded = {:ok, %{EdgeContractRegistryStub.snapshot_with(:active) | registry_epoch: 2}}
+    # An epoch never comes back, so withholding an older epoch's record capped its lane for good.
+    test "admits a record from an older epoch whose exact bundle the held snapshot still registers" do
+      newer = %{
+        EdgeContractRegistryStub.snapshot_with(:active)
+        | registry_epoch: 2,
+          registry_snapshot_sha256: :binary.copy(<<0xC2>>, 32)
+      }
 
-      assert {:withhold, :registry_epoch_stale} =
-               EdgeContractRegistry.admit(with_contract(record(), registry_epoch: 1), @session, loaded)
+      assert {:ok, %{partition_rule: :network_scope_v1}} =
+               EdgeContractRegistry.admit(with_contract(record(), registry_epoch: 1), @session, {:ok, newer})
+    end
+
+    test "withholds an older epoch's record whose bundle the held snapshot no longer registers" do
+      newer = %{EdgeContractRegistryStub.snapshot_with(:active) | registry_epoch: 2}
+
+      assert {:withhold, :historical_bundle_not_registered} =
+               EdgeContractRegistry.admit(
+                 with_contract(record(), registry_epoch: 1, contract_bundle_sha256: :binary.copy(<<0xEE>>, 32)),
+                 @session,
+                 {:ok, newer}
+               )
+
+      assert {:withhold, :historical_bundle_not_registered} =
+               EdgeContractRegistry.admit(
+                 with_contract(record(), registry_epoch: 1, contract_id: "serviceradar.test.retired"),
+                 @session,
+                 {:ok, newer}
+               )
+    end
+
+    test "an older epoch's record still passes the lifecycle and route checks of its entry" do
+      draining = %{EdgeContractRegistryStub.snapshot_with(:draining) | registry_epoch: 2}
+
+      assert {:withhold, {:contract_not_active, :draining}} =
+               EdgeContractRegistry.admit(with_contract(record(), registry_epoch: 1), @session, {:ok, draining})
+
+      newer = %{EdgeContractRegistryStub.snapshot_with(:active) | registry_epoch: 2}
+
+      assert {:reject, :cost_model_mismatch} =
+               EdgeContractRegistry.admit(
+                 %{with_contract(record(), registry_epoch: 1) | cost_model_version: 9},
+                 @session,
+                 {:ok, newer}
+               )
     end
 
     test "withholds a same-epoch record naming a different snapshot" do

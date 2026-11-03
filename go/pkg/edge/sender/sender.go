@@ -20,8 +20,10 @@
 //
 // Scope, per task 0.12 of openspec/changes/unify-sweep-results-proto: one
 // bounded lane-open/send/drain-acks cycle sufficient to carry a committed
-// spool record through the real composed path end to end. Reconnect/replay,
-// credit renewal and recovery/rollover remain outside this sender. Optional local
+// spool record through the real composed path end to end. Before a session it
+// obtains delivery grants for records whose production authority has lapsed
+// (grants.go, M2.0g). Credit renewal and recovery/rollover remain outside this
+// sender. Optional local
 // disposition persistence advances the resolved prefix and reclaims a drained
 // segment once every record is accepted or permanently rejected; the spool keeps
 // permanently rejected records in its bounded local quarantine. Unresolved
@@ -60,6 +62,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
@@ -125,6 +128,12 @@ type Config struct {
 	// drained segment, quarantining its permanently rejected records first.
 	// Unresolved records stay on disk.
 	PersistAcknowledgements bool
+	// Grants, when set, obtains delivery grants for records whose production
+	// authority has lapsed before each session sends them (see grants.go).
+	Grants GrantRenewer
+	// Now overrides the clock that decides whether a record's authority has
+	// lapsed; nil uses time.Now.
+	Now func() time.Time
 }
 
 func (c Config) validate() error {
@@ -147,6 +156,10 @@ type Result struct {
 	Sent                  []uint64
 	Dispositions          []*edgev1.EdgeRecordDisposition
 	RemoteResolvedThrough uint64
+	// GrantRenewal is why delivery grants could not be obtained for this run,
+	// if they could not. The run still sends; records that needed a grant are
+	// refused by the gateway and stay unresolved for the next run.
+	GrantRenewal error
 }
 
 // Sender drains one agent spool over one lane session.
@@ -154,6 +167,9 @@ type Sender struct {
 	spool  *spool.Spool
 	client StreamClient
 	cfg    Config
+	// grants holds the delivery grants obtained for unresolved records, by
+	// sequence. Only the run loop touches it.
+	grants map[uint64]heldGrant
 }
 
 // New builds a Sender for the given spool, client, and lane configuration.
@@ -167,7 +183,7 @@ func New(sp *spool.Spool, client StreamClient, cfg Config) (*Sender, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
-	return &Sender{spool: sp, client: client, cfg: cfg}, nil
+	return &Sender{spool: sp, client: client, cfg: cfg, grants: make(map[uint64]heldGrant)}, nil
 }
 
 // RunOnce opens one lane session, sends every currently-unresolved spool
@@ -176,11 +192,19 @@ func New(sp *spool.Spool, client StreamClient, cfg Config) (*Sender, error) {
 // persists the resolving prefix of a validated acknowledgement only when
 // configured to do so.
 func (s *Sender) RunOnce(ctx context.Context) (Result, error) {
+	grantErr := s.renewGrants(ctx)
+	result, err := s.runSession(ctx)
+	result.GrantRenewal = grantErr
+	return result, err
+}
+
+func (s *Sender) runSession(ctx context.Context) (Result, error) {
 	if s.cfg.PersistAcknowledgements {
 		if err := s.spool.ReclaimResolved(); err != nil {
 			return Result{}, fmt.Errorf("sender: reclaim accepted records: %w", err)
 		}
 	}
+
 	streamCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -314,6 +338,7 @@ func (s *Sender) sendUnresolved(
 		}
 
 		frame := buildFrame(s.cfg.SpoolID, rec)
+		frame.DeliveryCapability = s.grantFor(rec)
 		if err := edgerecord.ValidateDeliveryFrame(frame, false); err != nil {
 			sendErr = fmt.Errorf("sender: built frame failed local validation: %w", err)
 			return false

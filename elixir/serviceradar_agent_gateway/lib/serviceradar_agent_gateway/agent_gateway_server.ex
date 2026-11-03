@@ -49,6 +49,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   alias ServiceRadarAgentGateway.ConfigChunks
   alias ServiceRadarAgentGateway.ConfigResponse
   alias ServiceRadarAgentGateway.ControlStreamSession
+  alias ServiceRadarAgentGateway.EdgeDeliveryGrants
+  alias ServiceRadarAgentGateway.MediaIdentity
   alias ServiceRadarAgentGateway.RuntimeMetrics
   alias ServiceRadarAgentGateway.StatusBuffer
   alias ServiceRadarAgentGateway.StatusProcessor
@@ -244,6 +246,47 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       _ ->
         raise GRPC.RPCError, status: :unavailable, message: "certificate policy unavailable"
     end
+  end
+
+  @doc """
+  Issues delivery grants for spooled edge records whose production grant has lapsed
+  (`ServiceRadarAgentGateway.EdgeDeliveryGrants`).
+
+  The caller is the edge identity of its client certificate, resolved exactly as the edge record
+  ingest stream resolves it, so a grant is bound to the principal its records must name.
+  """
+  @spec renew_edge_delivery_grants(Monitoring.EdgeDeliveryGrantRequest.t(), GRPC.Server.Stream.t()) ::
+          Monitoring.EdgeDeliveryGrantResponse.t()
+  def renew_edge_delivery_grants(request, stream) do
+    identity = extract_edge_identity!(stream)
+
+    case EdgeDeliveryGrants.renew(request, identity) do
+      {:ok, response} -> response
+      {:error, status, message} -> raise GRPC.RPCError, status: status, message: message
+    end
+  end
+
+  defp extract_edge_identity!(stream) do
+    resolver = edge_identity_resolver()
+
+    with {:ok, cert_der} <- MediaIdentity.peer_cert(stream),
+         {:ok, %{component_type: :agent} = identity} <- resolver.resolve_edge_identity(cert_der, :agent) do
+      identity
+    else
+      {:ok, _other_role} ->
+        raise GRPC.RPCError, status: :permission_denied, message: "component type is not allowed"
+
+      {:error, {:identity_conflict, _reason}} ->
+        raise GRPC.RPCError, status: :permission_denied, message: "component identity conflict"
+
+      {:error, reason} ->
+        Logger.warning("Edge delivery grant certificate validation failed: #{inspect(reason)}")
+        raise GRPC.RPCError, status: :unauthenticated, message: "invalid client certificate"
+    end
+  end
+
+  defp edge_identity_resolver do
+    Application.get_env(:serviceradar_agent_gateway, :edge_record_ingest_identity_resolver, ComponentIdentityResolver)
   end
 
   @doc """

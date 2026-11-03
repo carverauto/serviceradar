@@ -2,7 +2,10 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "sender",
-    srcs = ["sender.go"],
+    srcs = [
+        "grants.go",
+        "sender.go",
+    ],
     importpath = "github.com/carverauto/serviceradar/go/pkg/edge/sender",
     visibility = ["//visibility:public"],
     deps = [
@@ -17,7 +20,10 @@ go_library(
 
 go_test(
     name = "sender_test",
-    srcs = ["sender_test.go"],
+    srcs = [
+        "grants_test.go",
+        "sender_test.go",
+    ],
     embed = [":sender"],
     deps = [
         "//go/pkg/edge/edgerecord",

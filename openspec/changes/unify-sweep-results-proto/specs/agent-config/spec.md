@@ -59,6 +59,20 @@ domain eligibility after an assignment fence.
 - **THEN** it SHALL stop new collection immediately
 - **AND** MAY request delivery-only authority to drain that exact frame
 
+#### Scenario: Reconnecting agent drains a backlog whose production grant lapsed
+- **GIVEN** an agent was disconnected past the production grant of records it
+  spooled while its producer assignment stayed active
+- **WHEN** it reconnects and requests delivery authority for those records
+  through its gateway with their exact bytes
+- **THEN** the gateway SHALL verify each record's bytes, origin, production
+  grant signature and network scope against the authenticated agent before the
+  issuer is asked
+- **AND** the issuer SHALL return a short-lived same-spool renewal bound to each
+  record's event ID, `record_sha256`, spool ID and sequence only while the
+  assignment is active and held by that agent
+- **AND** a record whose assignment was revoked SHALL receive no delivery
+  authority
+
 #### Scenario: Old assignment was replaced
 - **GIVEN** an immutable old frame was collected before its assignment was
   fenced

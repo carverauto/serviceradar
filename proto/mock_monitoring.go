@@ -361,6 +361,26 @@ func (mr *MockAgentGatewayServiceClientMockRecorder) RenewCertificate(ctx, in an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RenewCertificate", reflect.TypeOf((*MockAgentGatewayServiceClient)(nil).RenewCertificate), varargs...)
 }
 
+// RenewEdgeDeliveryGrants mocks base method.
+func (m *MockAgentGatewayServiceClient) RenewEdgeDeliveryGrants(ctx context.Context, in *EdgeDeliveryGrantRequest, opts ...grpc.CallOption) (*EdgeDeliveryGrantResponse, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, in}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "RenewEdgeDeliveryGrants", varargs...)
+	ret0, _ := ret[0].(*EdgeDeliveryGrantResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RenewEdgeDeliveryGrants indicates an expected call of RenewEdgeDeliveryGrants.
+func (mr *MockAgentGatewayServiceClientMockRecorder) RenewEdgeDeliveryGrants(ctx, in any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, in}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RenewEdgeDeliveryGrants", reflect.TypeOf((*MockAgentGatewayServiceClient)(nil).RenewEdgeDeliveryGrants), varargs...)
+}
+
 // ResolveAutomationLaunchEnvelope mocks base method.
 func (m *MockAgentGatewayServiceClient) ResolveAutomationLaunchEnvelope(ctx context.Context, in *AutomationLaunchEnvelopeResolveRequest, opts ...grpc.CallOption) (*AutomationLaunchEnvelopeResolveResponse, error) {
 	m.ctrl.T.Helper()
@@ -552,6 +572,21 @@ func (m *MockAgentGatewayServiceServer) RenewCertificate(arg0 context.Context, a
 func (mr *MockAgentGatewayServiceServerMockRecorder) RenewCertificate(arg0, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RenewCertificate", reflect.TypeOf((*MockAgentGatewayServiceServer)(nil).RenewCertificate), arg0, arg1)
+}
+
+// RenewEdgeDeliveryGrants mocks base method.
+func (m *MockAgentGatewayServiceServer) RenewEdgeDeliveryGrants(arg0 context.Context, arg1 *EdgeDeliveryGrantRequest) (*EdgeDeliveryGrantResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RenewEdgeDeliveryGrants", arg0, arg1)
+	ret0, _ := ret[0].(*EdgeDeliveryGrantResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RenewEdgeDeliveryGrants indicates an expected call of RenewEdgeDeliveryGrants.
+func (mr *MockAgentGatewayServiceServerMockRecorder) RenewEdgeDeliveryGrants(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RenewEdgeDeliveryGrants", reflect.TypeOf((*MockAgentGatewayServiceServer)(nil).RenewEdgeDeliveryGrants), arg0, arg1)
 }
 
 // ResolveAutomationLaunchEnvelope mocks base method.
