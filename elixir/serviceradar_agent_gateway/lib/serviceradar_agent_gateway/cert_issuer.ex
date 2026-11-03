@@ -2,8 +2,10 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
   @moduledoc """
   Issues mTLS certificates for edge components using the gateway CA.
 
-  Certificates use the CN format:
-    <component_id>.<partition_id>.serviceradar
+  The certificate CN is `<component_id>.<partition_id>.serviceradar`.
+  Managed PKIX identities longer than 64 ASCII characters use the lowercase
+  hexadecimal SHA-256 of that DNS name as the CN. The DNS SAN keeps the full
+  DNS name.
   """
 
   alias ServiceRadar.Edge.CertificateLifetimePolicy
@@ -63,7 +65,8 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
   P-256/P-384/P-521, or Ed25519), and validates that any Subject CN or SANs in
   the CSR match the authenticated peer's identity (`component_id`,
   `partition_id`, `component_type`). The resulting certificate's Subject CN and
-  SANs are constructed strictly from the server-derived identity.
+  SANs are constructed strictly from the server-derived identity, using the
+  CN rule in the module documentation.
   """
   @spec issue_from_csr(binary(), String.t(), String.t(), atom() | String.t(), keyword()) ::
           {:ok, map()} | {:error, atom() | term()}
