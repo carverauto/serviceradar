@@ -379,19 +379,17 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
 
     test "a duplicate PubAck acks the source only while that dead-letter sequence still exists" do
       duplicate = ~s({"stream":"TELEMETRY_EDGE_RECORD_DLQ_V1_BULK","seq":9,"duplicate":true})
-      present = ~s({"message":{"seq":9}})
       missing = ~s({"error":{"code":404,"err_code":10037,"description":"no message found"}})
-      canonical = "edge-dlq:TELEMETRY_EDGE_RECORD_V1_BULK:41"
-      first_retry = canonical <> ":1"
-      second_retry = canonical <> ":2"
 
-      held = fn subject, _body, _opts ->
-        if String.starts_with?(subject, "$JS.API.STREAM.MSG.GET."),
-          do: {:ok, %{body: present}},
-          else: {:ok, %{body: duplicate}}
+      answer = fn get_reply ->
+        fn subject, _body, _opts ->
+          if String.starts_with?(subject, "$JS.API.STREAM.MSG.GET."),
+            do: get_reply,
+            else: {:ok, %{body: duplicate}}
+        end
       end
 
-      message = failed_edge_record(2, 2, -1, held)
+      message = failed_edge_record(2, 2, -1, answer.({:ok, %{body: ~s({"message":{"seq":9}})}}))
       assert :ok = Pipeline.ack(:ack_ref, [], [message])
 
       assert [
@@ -403,125 +401,59 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
              ] = steps()
 
       assert Jason.decode!(get_body) == %{"seq" => 9}
-      assert header(opts, "Nats-Msg-Id") == canonical
+      assert header(opts, "Nats-Msg-Id") == "edge-dlq:TELEMETRY_EDGE_RECORD_V1_BULK:41"
 
-      replaced = fn subject, _body, opts ->
-        cond do
-          String.starts_with?(subject, "$JS.API.STREAM.MSG.GET.") ->
-            {:ok, %{body: missing}}
+      for get_reply <- [{:ok, %{body: missing}}, {:error, :timeout}] do
+        message = failed_edge_record(2, 2, -1, answer.(get_reply))
 
-          header(opts, "Nats-Msg-Id") == canonical ->
-            {:ok, %{body: duplicate}}
+        log = ExUnit.CaptureLog.capture_log(fn -> Pipeline.ack(:ack_ref, [], [message]) end)
 
-          header(opts, "Nats-Msg-Id") == first_retry ->
-            {:ok, %{body: ~s({"stream":"TELEMETRY_EDGE_RECORD_DLQ_V1_BULK","seq":10})}}
-        end
+        assert [
+                 {:publish, _, @record_bytes, _},
+                 {:publish, "$JS.API.STREAM.MSG.GET." <> _, _, _},
+                 {:ack, {:nack, 20_000}}
+               ] = steps()
+
+        assert_received {:dead_letter_event, %{count: 1}, %{result: "failed"}}
+        assert log =~ "the source delivery stays unacknowledged"
       end
-
-      message = failed_edge_record(2, 2, -1, replaced)
-
-      log =
-        ExUnit.CaptureLog.capture_log(fn ->
-          assert :ok = Pipeline.ack(:ack_ref, [], [message])
-        end)
-
-      assert [
-               {:publish, _, @record_bytes, first},
-               {:publish, "$JS.API.STREAM.MSG.GET.TELEMETRY_EDGE_RECORD_DLQ_V1_BULK", _, _},
-               {:publish, _, @record_bytes, second},
-               {:ack, :ack}
-             ] = steps()
-
-      assert header(first, "Nats-Msg-Id") == canonical
-      assert header(second, "Nats-Msg-Id") == first_retry
-      assert log =~ "dlq_sequence=10"
-
-      gone = fn subject, _body, opts ->
-        cond do
-          String.starts_with?(subject, "$JS.API.STREAM.MSG.GET.") ->
-            {:ok, %{body: missing}}
-
-          header(opts, "Nats-Msg-Id") in [canonical, first_retry] ->
-            {:ok, %{body: duplicate}}
-
-          header(opts, "Nats-Msg-Id") == second_retry ->
-            {:ok, %{body: ~s({"stream":"TELEMETRY_EDGE_RECORD_DLQ_V1_BULK","seq":11})}}
-        end
-      end
-
-      message = failed_edge_record(2, 2, -1, gone)
-
-      log =
-        ExUnit.CaptureLog.capture_log(fn ->
-          assert :ok = Pipeline.ack(:ack_ref, [], [message])
-        end)
-
-      assert [
-               {:publish, _, @record_bytes, canonical_opts},
-               {:publish, "$JS.API.STREAM.MSG.GET." <> _, _, _},
-               {:publish, _, @record_bytes, retry_opts},
-               {:publish, "$JS.API.STREAM.MSG.GET." <> _, _, _},
-               {:publish, _, @record_bytes, stored_opts},
-               {:ack, :ack}
-             ] = steps()
-
-      assert header(canonical_opts, "Nats-Msg-Id") == canonical
-      assert header(retry_opts, "Nats-Msg-Id") == first_retry
-      assert header(stored_opts, "Nats-Msg-Id") == second_retry
-      assert log =~ "dlq_sequence=11"
-      refute log =~ "stays unacknowledged"
-
-      kept = fn subject, body, opts ->
-        cond do
-          String.starts_with?(subject, "$JS.API.STREAM.MSG.GET.") ->
-            if Jason.decode!(body) == %{"seq" => 11},
-              do: {:ok, %{body: ~s({"message":{"seq":11}})}},
-              else: {:ok, %{body: missing}}
-
-          header(opts, "Nats-Msg-Id") in [canonical, first_retry] ->
-            {:ok, %{body: duplicate}}
-
-          header(opts, "Nats-Msg-Id") == second_retry ->
-            {:ok,
-             %{
-               body:
-                 ~s({"stream":"TELEMETRY_EDGE_RECORD_DLQ_V1_BULK","seq":11,"duplicate":true})
-             }}
-        end
-      end
-
-      message = failed_edge_record(2, 2, -1, kept)
-      assert :ok = Pipeline.ack(:ack_ref, [], [message])
-
-      assert [
-               {:publish, _, _, _},
-               {:publish, "$JS.API.STREAM.MSG.GET." <> _, _, _},
-               {:publish, _, _, _},
-               {:publish, "$JS.API.STREAM.MSG.GET." <> _, _, _},
-               {:publish, _, @record_bytes, kept_opts},
-               {:publish, "$JS.API.STREAM.MSG.GET.TELEMETRY_EDGE_RECORD_DLQ_V1_BULK", kept_get,
-                _},
-               {:ack, :ack}
-             ] = steps()
-
-      assert header(kept_opts, "Nats-Msg-Id") == second_retry
-      assert Jason.decode!(kept_get) == %{"seq" => 11}
-
-      unknown = fn subject, _body, _opts ->
-        if String.starts_with?(subject, "$JS.API.STREAM.MSG.GET."),
-          do: {:error, :timeout},
-          else: {:ok, %{body: duplicate}}
-      end
-
-      message = failed_edge_record(2, 2, -1, unknown)
-      assert :ok = Pipeline.ack(:ack_ref, [], [message])
-
-      assert [
-               {:publish, _, @record_bytes, _},
-               {:publish, "$JS.API.STREAM.MSG.GET." <> _, _, _},
-               {:ack, {:nack, 20_000}}
-             ] = steps()
     end
+
+    test "a non-ASCII failure detail is bounded to 256 bytes at a character boundary" do
+      message =
+        failed_edge_record(2, 2, -1, stored(9))
+        |> Message.failed(%RuntimeError{message: String.duplicate("é", 200)})
+
+      ExUnit.CaptureLog.capture_log(fn -> Pipeline.ack(:ack_ref, [], [message]) end)
+
+      assert [{:publish, _, _, opts}, {:ack, :ack}] = steps()
+      detail = header(opts, "Sr-Edge-Dlq-Reason-Detail")
+      assert byte_size(detail) <= 256
+      assert String.valid?(detail)
+      assert detail == String.duplicate("é", 126) <> "..."
+    end
+  end
+
+  test "a full first-failure log evicts stale, then oldest, entries to record a new failure" do
+    alias ServiceRadar.EventWriter.EdgeRecordDeadLetter.FailureLog
+
+    start_supervised!(FailureLog)
+    now = 1_800_000_000_000
+    day = 24 * 60 * 60 * 1000
+
+    FailureLog.note({"S", 0}, now - day - 1)
+    for seq <- 1..49_999, do: FailureLog.note({"S", seq}, now - 100_000 + seq)
+
+    FailureLog.note({"S", :new}, now)
+    assert FailureLog.first({"S", 0}) == nil
+    assert FailureLog.first({"S", :new}) == now
+    assert FailureLog.first({"S", 1}) == now - 99_999
+
+    FailureLog.note({"S", :newer}, now + 1)
+    assert FailureLog.first({"S", :newer}) == now + 1
+    assert FailureLog.first({"S", 1}) == nil
+    assert FailureLog.first({"S", 2}) == now - 99_998
+    assert :ets.info(FailureLog, :size) == 50_000
   end
 
   defp header(opts, name), do: opts |> Keyword.fetch!(:headers) |> Map.new() |> Map.fetch!(name)

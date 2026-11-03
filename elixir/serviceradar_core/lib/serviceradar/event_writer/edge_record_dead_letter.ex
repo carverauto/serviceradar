@@ -31,10 +31,9 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter do
   lost source ACK is stored once. The same record dead-lettered again after a replay (a new
   source sequence) is stored again rather than deduplicated against a copy the replay already
   deleted. A PubAck that reports the id as a duplicate is a held copy only when that sequence
-  is still in the stream. If the sequence was removed, the same bytes are published as
-  `edge-dlq:<source stream>:<source sequence>:<n>` for the smallest `n` that is not still
-  reserved by a missing message, and the source is acknowledged only once that copy is present.
-  The record's own `Nats-Msg-Id` travels in `Sr-Edge-Dlq-Source-Msg-Id`, and replay restores it.
+  is still in the stream. A duplicate of a removed sequence (an operator removed the copy while
+  the source ACK was lost) is a failed dead-letter: it is logged and counted, and the source is
+  NAKed rather than acknowledged without a copy. The record's own `Nats-Msg-Id` travels in `Sr-Edge-Dlq-Source-Msg-Id`, and replay restores it.
 
   ## Failure headers
 
@@ -138,8 +137,7 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter do
   Copies a failed delivery to the dead-letter stream and waits for its PubAck.
 
   Returns `:ok` once a copy is in the stream. A duplicate PubAck counts only when its sequence
-  is still there; a duplicate of a removed sequence is published again under a new id. Any other
-  result is an error, and the caller must leave the source unacknowledged. Never raises.
+  is still there; a duplicate of a removed sequence is an error. Any other result is an error, and the caller must leave the source unacknowledged. Never raises.
   """
   @spec dead_letter(map()) :: :ok | {:error, term()}
   def dead_letter(message) do
@@ -348,8 +346,18 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter do
     text = String.replace(text, ~r/[\x00-\x1F\x7F]+/, " ")
 
     if byte_size(text) > @max_detail_bytes,
-      do: String.slice(text, 0, @max_detail_bytes - 3) <> "...",
+      do: utf8_prefix(text, @max_detail_bytes - 3) <> "...",
       else: text
+  end
+
+  defp utf8_prefix(text, max_bytes) do
+    text
+    |> String.graphemes()
+    |> Enum.reduce_while({[], 0}, fn grapheme, {acc, size} ->
+      next = size + byte_size(grapheme)
+      if next > max_bytes, do: {:halt, {acc, size}}, else: {:cont, {[grapheme | acc], next}}
+    end)
+    |> then(fn {acc, _size} -> acc |> Enum.reverse() |> IO.iodata_to_binary() end)
   end
 
   # NATS header values cannot carry CR/LF; anything that is not a printable single line is hex.
@@ -399,19 +407,15 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter do
   defp request_fun(_message), do: nil
 
   defp store_copy(message, letter) do
-    publish_until_held(message, letter, letter.msg_id, 0)
-  end
-
-  defp publish_until_held(message, letter, base_id, generation) do
     case JetStreamPublish.publish_acked(letter.subject, letter.body,
-           msg_id: copy_id(base_id, generation),
+           msg_id: letter.msg_id,
            headers: letter.headers,
            request: request_fun(message)
          ) do
       {:ok, %{duplicate: true} = ack} ->
         case copy_held?(message, ack) do
           :held -> {:ok, ack}
-          :absent -> next_copy(message, letter, base_id, generation, ack.seq)
+          :absent -> {:error, {:dead_letter_copy_missing, ack.seq}}
           {:error, reason} -> {:error, reason}
         end
 
@@ -419,17 +423,6 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter do
         other
     end
   end
-
-  defp next_copy(message, letter, base_id, generation, _seq)
-       when is_binary(base_id) and base_id != "" do
-    publish_until_held(message, letter, base_id, generation + 1)
-  end
-
-  defp next_copy(_message, _letter, _base_id, _generation, seq),
-    do: {:error, {:dead_letter_copy_missing, seq}}
-
-  defp copy_id(base_id, 0), do: base_id
-  defp copy_id(base_id, generation), do: base_id <> ":" <> Integer.to_string(generation)
 
   defp copy_held?(message, %{stream: stream, seq: seq})
        when is_binary(stream) and is_integer(seq) do

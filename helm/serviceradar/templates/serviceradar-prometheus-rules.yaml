@@ -93,7 +93,7 @@ spec:
             summary: "ServiceRadar edge-record security quarantine is nearly full"
             description: "The edge-record security-quarantine stream is above 80% of its MaxBytes in namespace {{ .Release.Namespace }}. It refuses new records when full, which leaves those agent spool sequences unresolved."
         - alert: ServiceRadarEdgeRecordDeadLettered
-          expr: sum by (contract, reason_class) (increase(serviceradar_event_writer_edge_record_dead_letter_count{namespace="{{ .Release.Namespace }}", result="stored"}[15m])) > 0
+          expr: sum by (contract, reason_class) ((increase(serviceradar_event_writer_edge_record_dead_letter_count{namespace="{{ .Release.Namespace }}", result="stored"}[15m]) > 0) or (serviceradar_event_writer_edge_record_dead_letter_count{namespace="{{ .Release.Namespace }}", result="stored"} unless serviceradar_event_writer_edge_record_dead_letter_count{namespace="{{ .Release.Namespace }}", result="stored"} offset 15m)) > 0
           for: 1m
           labels:
             severity: warning
@@ -101,7 +101,7 @@ spec:
             summary: "ServiceRadar edge records were dead-lettered"
             description: "EventWriter dead-lettered {{`{{ $labels.contract }}`}} edge records ({{`{{ $labels.reason_class }}`}}) in namespace {{ .Release.Namespace }} after their projection kept failing. They are held in TELEMETRY_EDGE_RECORD_DLQ_V1_BULK; fix the cause, then replay them (docs/edge-record-dead-letter-runbook.md)."
         - alert: ServiceRadarEdgeRecordDeadLetterPublishFailed
-          expr: sum(increase(serviceradar_event_writer_edge_record_dead_letter_count{namespace="{{ .Release.Namespace }}", result="failed"}[5m])) > 0
+          expr: sum((increase(serviceradar_event_writer_edge_record_dead_letter_count{namespace="{{ .Release.Namespace }}", result="failed"}[5m]) > 0) or (serviceradar_event_writer_edge_record_dead_letter_count{namespace="{{ .Release.Namespace }}", result="failed"} unless serviceradar_event_writer_edge_record_dead_letter_count{namespace="{{ .Release.Namespace }}", result="failed"} offset 5m)) > 0
           for: 1m
           labels:
             severity: critical

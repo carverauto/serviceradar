@@ -54,10 +54,10 @@ The stream's duplicate window is 24 hours, the source stream's `MaxAge`, so a
 delivery redelivered after a lost source ACK is stored once for as long as the
 source can still redeliver it. EventWriter treats a duplicate PubAck as that
 held copy only while the sequence is still in the stream. If the sequence was
-removed, it publishes the same bytes again as
-`edge-dlq:<source stream>:<source sequence>:<n>`, taking the smallest `n`
-whose id is not still reserved by a missing message, and acknowledges the
-source only once that copy is present.
+removed (an operator removed the copy while the source ACK was lost), the
+dead-letter counts as failed: it is logged, counted as `result="failed"`, and
+the source is NAKed and stays on the edge-record stream rather than being
+acknowledged without a copy.
 
 ## Alerts and metrics
 

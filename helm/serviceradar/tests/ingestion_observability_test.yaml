@@ -62,7 +62,7 @@ tests:
           path: spec.groups[0].rules
           content:
             alert: ServiceRadarEdgeRecordDeadLettered
-            expr: sum by (contract, reason_class) (increase(serviceradar_event_writer_edge_record_dead_letter_count{namespace="sr-test", result="stored"}[15m])) > 0
+            expr: sum by (contract, reason_class) ((increase(serviceradar_event_writer_edge_record_dead_letter_count{namespace="sr-test", result="stored"}[15m]) > 0) or (serviceradar_event_writer_edge_record_dead_letter_count{namespace="sr-test", result="stored"} unless serviceradar_event_writer_edge_record_dead_letter_count{namespace="sr-test", result="stored"} offset 15m)) > 0
             for: 1m
             labels:
               severity: warning
@@ -73,7 +73,7 @@ tests:
           path: spec.groups[0].rules
           content:
             alert: ServiceRadarEdgeRecordDeadLetterPublishFailed
-            expr: sum(increase(serviceradar_event_writer_edge_record_dead_letter_count{namespace="sr-test", result="failed"}[5m])) > 0
+            expr: sum((increase(serviceradar_event_writer_edge_record_dead_letter_count{namespace="sr-test", result="failed"}[5m]) > 0) or (serviceradar_event_writer_edge_record_dead_letter_count{namespace="sr-test", result="failed"} unless serviceradar_event_writer_edge_record_dead_letter_count{namespace="sr-test", result="failed"} offset 5m)) > 0
             for: 1m
             labels:
               severity: critical

@@ -179,43 +179,28 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetterNatsTest do
     end)
   end
 
-  test "a removed dead-letter sequence is stored again before the source is acknowledged",
+  test "a duplicate of a removed dead-letter sequence leaves the source NAKed, never ACKed",
        ctx do
     ExposureBroker.with_broker(ctx.tmp_dir, fn conn, port ->
       config = config(port)
       [_source, dead_letter] = config.streams
       assert :ok = ConsumerReconciler.ensure_stream(conn, config, dead_letter)
 
-      canonical = "edge-dlq:TELEMETRY_EDGE_RECORD_V1_BULK:41"
-      removed = publish_dlq!(conn, canonical)
+      removed = publish_dlq!(conn, "edge-dlq:TELEMETRY_EDGE_RECORD_V1_BULK:41")
       assert :ok = delete_message(conn, removed)
-      assert %{"state" => %{"messages" => 0}} = api(conn, "STREAM.INFO.#{@dlq_stream}", "")
 
       parent = self()
       request = fn subject, body, opts -> Gnat.request(conn, subject, body, opts) end
 
-      assert :ok = Pipeline.ack(:ack_ref, [], [removed_delivery(parent, request)])
-      assert_receive {:ack_action, :ack}, 5_000
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert :ok = Pipeline.ack(:ack_ref, [], [removed_delivery(parent, request)])
+        end)
 
-      assert {:ok, %{entries: [held]}} = Replay.list()
-      assert held.bytes == byte_size(@record)
-      stored = get_message(conn, held.dlq_sequence)
-      assert stored.data == @record
-      assert header_value(stored.headers, "nats-msg-id") == canonical <> ":1"
-      assert %{"state" => %{"messages" => 1}} = api(conn, "STREAM.INFO.#{@dlq_stream}", "")
-
-      # The replacement id is removed too. Both ids stay reserved, so the next
-      # delivery has to store a further id. Acknowledging here would drop the record.
-      assert :ok = delete_message(conn, held.dlq_sequence)
-
-      assert :ok = Pipeline.ack(:ack_ref, [], [removed_delivery(parent, request)])
-      assert_receive {:ack_action, :ack}, 5_000
-
-      assert {:ok, %{entries: [again]}} = Replay.list()
-      restored = get_message(conn, again.dlq_sequence)
-      assert restored.data == @record
-      assert header_value(restored.headers, "nats-msg-id") == canonical <> ":2"
-      assert %{"state" => %{"messages" => 1}} = api(conn, "STREAM.INFO.#{@dlq_stream}", "")
+      assert_receive {:ack_action, {:nack, _delay}}, 5_000
+      refute_received {:ack_action, :ack}
+      assert log =~ "dead_letter_copy_missing"
+      assert %{"state" => %{"messages" => 0}} = api(conn, "STREAM.INFO.#{@dlq_stream}", "")
     end)
   end
 

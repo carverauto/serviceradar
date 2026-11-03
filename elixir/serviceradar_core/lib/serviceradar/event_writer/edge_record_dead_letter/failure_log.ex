@@ -5,9 +5,11 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter.FailureLog do
   first failed rather than only when it last did.
 
   It is a hint, not a ledger: a NAK carries no state, and redeliveries can move between
-  replicas, so a node only knows the failures it handled. The table is bounded at
-  50,000 entries; past that a failure is not recorded and the dead-letter reports its last
-  failure as the first. An entry leaves when its delivery succeeds or is dead-lettered. When the
+  replicas, so a node only knows the failures it handled. An entry leaves when its delivery
+  succeeds or is dead-lettered on this node; a delivery that moved to another replica leaves
+  its entry behind. The table is therefore bounded at 50,000 entries: a new failure on a full
+  table first evicts entries older than the source stream's 24-hour `MaxAge` (their deliveries
+  can no longer be redelivered), and failing that the oldest entry. When the
   owner is not running (a test that drives the pipeline's ack callback directly), every call is
   a no-op.
   """
@@ -16,6 +18,7 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter.FailureLog do
 
   @table __MODULE__
   @max_entries 50_000
+  @stale_after_ms 24 * 60 * 60 * 1000
 
   @doc false
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -23,7 +26,8 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter.FailureLog do
   @doc "Records `at_ms` as the first failure of `key`, unless an earlier one is recorded."
   @spec note(term(), integer()) :: :ok
   def note(key, at_ms) do
-    if :ets.info(@table, :size) < @max_entries, do: :ets.insert_new(@table, {key, at_ms})
+    if :ets.info(@table, :size) >= @max_entries, do: evict(at_ms)
+    :ets.insert_new(@table, {key, at_ms})
     :ok
   rescue
     ArgumentError -> :ok
@@ -48,6 +52,21 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter.FailureLog do
   rescue
     ArgumentError -> :ok
   end
+
+  defp evict(now_ms) do
+    cutoff = now_ms - @stale_after_ms
+
+    if :ets.select_delete(@table, [{{:_, :"$1"}, [{:<, :"$1", cutoff}], [true]}]) == 0 do
+      case :ets.foldl(&older/2, nil, @table) do
+        {key, _at_ms} -> :ets.delete(@table, key)
+        nil -> true
+      end
+    end
+  end
+
+  defp older(entry, nil), do: entry
+  defp older({_key, at_ms} = entry, {_oldest_key, oldest_ms}) when at_ms < oldest_ms, do: entry
+  defp older(_entry, oldest), do: oldest
 
   @impl true
   def init(_opts) do
