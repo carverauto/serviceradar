@@ -29,7 +29,9 @@
 // Gate applies that same hysteresis to a byte count another component owns and
 // releases. The agent spool uses it on the allocator's ordinary usage (M3.2).
 // Gate pauses only ClassBulk; the byte owner's hard ceiling still refuses what
-// does not fit.
+// does not fit. Between the marks Gate.AdmitFlow shares the room left byte-fairly
+// across producer flows by deficit round robin (task 2.7), so one high-volume
+// producer cannot starve the others of the spool.
 //
 // # Scope: Controller is byte accounting, not durability
 //

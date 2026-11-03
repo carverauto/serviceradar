@@ -253,6 +253,64 @@ func TestEdgeSpoolAdmissionPausesAtHighWaterAndResumesAfterReclaim(t *testing.T)
 	}
 }
 
+// Between the watermarks the agent spool shares its room across producer
+// flows. A burst that has used its share is deferred before the high-water
+// pause, while a steady flow that has used less keeps entering; the burst's
+// deferred record is admitted once the steady flow has caught up.
+func TestEdgeSpoolBurstDefersToASteadyFlowBetweenWatermarks(t *testing.T) {
+	cfg := &agent.ServerConfig{EdgeRecordSender: &agent.EdgeRecordSenderConfig{Enabled: true, SweepEnabled: true, SpoolDir: t.TempDir(), MaxBytes: 8 << 20}}
+	sp, gate, err := openEdgeRecordSpool(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = sp.Close() }()
+	issued := 0
+	eventID := func() []byte {
+		issued++
+		id := make([]byte, 16)
+		binary.BigEndian.PutUint64(id[8:], uint64(issued))
+		return id
+	}
+	body := make([]byte, 64<<10)
+	if _, err = sp.AppendFlow("steady", eventID(), body); err != nil {
+		t.Fatalf("first steady record = %v", err)
+	}
+
+	burstHead := eventID()
+	for burst := 0; ; burst++ {
+		if burst > 1000 {
+			t.Fatal("the burst was never deferred")
+		}
+		if _, err = sp.AppendFlow("burst", burstHead, body); err != nil {
+			break
+		}
+		burstHead = eventID()
+	}
+	if !errors.Is(err, spool.ErrAdmissionPaused) {
+		t.Fatalf("burst refusal = %v, want a retryable admission refusal", err)
+	}
+	if gate.BulkPaused() {
+		t.Fatal("the burst reached the high-water pause; it should defer at its share")
+	}
+
+	steady := 0
+	for {
+		if _, err = sp.AppendFlow("steady", eventID(), body); err != nil {
+			t.Fatalf("steady record while the burst waits = %v, want admitted", err)
+		}
+		steady++
+		if _, err = sp.AppendFlow("burst", burstHead, body); err == nil {
+			break
+		}
+		if steady > 1000 {
+			t.Fatal("the burst's deferred record was never admitted")
+		}
+	}
+	if steady < 2 {
+		t.Fatalf("the burst was readmitted after %d steady record, want it to wait for the steady flow to catch up", steady)
+	}
+}
+
 func TestRunEdgeRecordSenderRetriesSetupUntilSpoolDirIsCreatable(t *testing.T) {
 	sp, err := spool.Open(t.TempDir())
 	if err != nil {

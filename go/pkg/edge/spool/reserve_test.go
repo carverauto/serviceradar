@@ -1165,7 +1165,7 @@ func TestAdmissionGatePauseWritesNothing(t *testing.T) {
 	a := newTestAllocator(t, 4*laneChargeLen(body), 1)
 	dir := t.TempDir()
 	admitting := true
-	s, err := Open(dir, WithAllocator(a), WithAdmissionGate(func() bool { return admitting }))
+	s, err := Open(dir, WithAllocator(a), WithAdmissionGate(func(string, uint64) bool { return admitting }))
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}

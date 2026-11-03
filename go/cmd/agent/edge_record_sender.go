@@ -276,8 +276,9 @@ func attachEdgeSpoolMetrics(server *agent.Server, sp *spool.Spool, gate *admissi
 // openEdgeRecordSpool is called once for the process; producer and sender share
 // its mutex, sequence allocation, recovery state, byte allocator and admission
 // gate. Every producer on this spool emits bulk records, so the gate's bulk
-// hysteresis governs sweeps and metrics alike: a paused append is a retryable
-// admission refusal, which each producer defers.
+// hysteresis governs sweeps and metrics alike, and between the marks the gate
+// shares the room byte-fairly across the producers' admission flows: a refused
+// append is a retryable admission refusal, which each producer defers.
 func openEdgeRecordSpool(cfg *agent.ServerConfig) (*spool.Spool, *admission.Gate, error) {
 	c := cfg.EdgeRecordSender
 	if c == nil {
@@ -310,7 +311,9 @@ func openEdgeRecordSpool(cfg *agent.ServerConfig) (*spool.Spool, *admission.Gate
 		return nil, nil, fmt.Errorf("edge spool admission gate: %w", err)
 	}
 	sp, err := spool.Open(c.SpoolDir, spool.WithAllocator(allocator),
-		spool.WithAdmissionGate(func() bool { return gate.Admit(admission.ClassBulk) == admission.Admit }))
+		spool.WithAdmissionGate(func(flow string, cost uint64) bool {
+			return gate.AdmitFlow(flow, cost, time.Now()) == admission.Admit
+		}))
 	if err != nil {
 		return nil, nil, err
 	}
