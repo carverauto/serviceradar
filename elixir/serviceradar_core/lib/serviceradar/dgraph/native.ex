@@ -97,6 +97,9 @@ defmodule ServiceRadar.Dgraph.Native do
   def downstream_of(_url, _from_ids, _to_ids, _deadline_ms),
     do: :erlang.nif_error(:nif_not_loaded)
 
+  @spec query_mtr_paths(url(), pos_integer(), deadline_ms()) :: submission()
+  def query_mtr_paths(_url, _limit, _deadline_ms), do: :erlang.nif_error(:nif_not_loaded)
+
   @spec query_neighbourhood(url(), String.t(), deadline_ms()) :: submission()
   def query_neighbourhood(_url, _device_id, _deadline_ms), do: :erlang.nif_error(:nif_not_loaded)
 

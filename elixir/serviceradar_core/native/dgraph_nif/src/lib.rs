@@ -27,9 +27,9 @@ use rustler::{Encoder, Env, Term};
 
 use crate::abi::{
     refuses_mutation, CanonicalEdgesResult, CanonicalGraphResult, CountResult, DownstreamResult,
-    JsonResult, KeysResult, NeighbourhoodResult, NifCanonicalEdge, NifCanonicalGraph,
-    NifChangeWrite, NifDeviceWrite, NifDownstreamFact, NifEdgeWrite, NifHopWrite,
-    NifInterfaceWrite, NifNeighbourhoodEdge, NifPrefixWrite, WriteResult,
+    JsonResult, KeysResult, MtrPathsResult, NeighbourhoodResult, NifCanonicalEdge,
+    NifCanonicalGraph, NifChangeWrite, NifDeviceWrite, NifDownstreamFact, NifEdgeWrite,
+    NifHopWrite, NifInterfaceWrite, NifMtrPath, NifNeighbourhoodEdge, NifPrefixWrite, WriteResult,
 };
 use crate::runtime::{client_for, require_url, Failure, Pool, CONNECT_DEADLINE};
 
@@ -378,6 +378,22 @@ fn query_neighbourhood(env: Env<'_>, url: String, device_id: String, deadline_ms
                 NeighbourhoodResult::Ok(edges.iter().map(NifNeighbourhoodEdge::from).collect())
             }
             Err(reason) => NeighbourhoodResult::Error(reason),
+        },
+    )
+}
+
+#[rustler::nif]
+fn query_mtr_paths(env: Env<'_>, url: String, limit: u64, deadline_ms: u64) -> Term<'_> {
+    let limit = usize::try_from(limit).unwrap_or(usize::MAX);
+    dgraph_call(
+        env,
+        url,
+        Pool::Item,
+        deadline_ms,
+        move |client| async move { client.query_mtr_paths(limit).await },
+        |result| match result {
+            Ok(paths) => MtrPathsResult::Ok(paths.iter().map(NifMtrPath::from).collect()),
+            Err(reason) => MtrPathsResult::Error(reason),
         },
     )
 }

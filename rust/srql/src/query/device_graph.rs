@@ -1,40 +1,35 @@
+//! `in:device_graph`: one device's neighbourhood from the Dgraph topology graph.
+
 use super::{BindParam, QueryPlan};
 use crate::{
     error::{Result, ServiceError},
-    jsonb::DbJson,
     parser::{Entity, FilterOp},
 };
-use diesel::prelude::*;
-use diesel::sql_types::{Bool, Jsonb, Text};
-use diesel_async::{AsyncPgConnection, RunQueryDsl};
+use dgraph_topology::TopologyClient;
 use serde_json::Value;
 
-pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> Result<Vec<Value>> {
+pub(super) async fn execute(plan: &QueryPlan, dgraph_url: Option<&str>) -> Result<Vec<Value>> {
     ensure_entity(plan)?;
     let params = extract_params(plan)?;
+    let url = dgraph_url
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ServiceError::InvalidRequest("device_graph requires DGRAPH_URL".into()))?;
 
-    let row = diesel::sql_query(DEVICE_GRAPH_QUERY)
-        .bind::<Text, _>(params.device_id)
-        .bind::<Bool, _>(params.collector_owned_only)
-        .bind::<Bool, _>(params.include_topology)
-        .get_result::<DeviceGraphRow>(conn)
+    let client = TopologyClient::connect(url)
         .await
-        .optional()
         .map_err(|err| ServiceError::Internal(err.into()))?;
-
-    Ok(row.map(|r| vec![r.result.into()]).unwrap_or_default())
+    let neighborhood = client
+        .query_device_neighborhood(&params.device_id, params.include_topology)
+        .await
+        .map_err(|err| ServiceError::Internal(err.into()))?;
+    Ok(neighborhood.into_iter().collect())
 }
 
 pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
     ensure_entity(plan)?;
-    let params = extract_params(plan)?;
-    Ok((
-        DEVICE_GRAPH_QUERY.trim().to_string(),
-        vec![
-            BindParam::Text(params.device_id),
-            BindParam::Bool(params.collector_owned_only),
-            BindParam::Bool(params.include_topology),
-        ],
+    let _ = extract_params(plan)?;
+    Err(ServiceError::InvalidRequest(
+        "device_graph is not SQL; execute it against Dgraph".into(),
     ))
 }
 
@@ -50,13 +45,11 @@ fn ensure_entity(plan: &QueryPlan) -> Result<()> {
 #[derive(Debug)]
 struct DeviceGraphParams {
     device_id: String,
-    collector_owned_only: bool,
     include_topology: bool,
 }
 
 fn extract_params(plan: &QueryPlan) -> Result<DeviceGraphParams> {
     let mut device_id: Option<String> = None;
-    let mut collector_owned_only = false;
     let mut include_topology = true;
 
     for filter in &plan.filters {
@@ -83,11 +76,20 @@ fn extract_params(plan: &QueryPlan) -> Result<DeviceGraphParams> {
                     ));
                 }
                 let value = filter.value.as_scalar()?.trim().to_lowercase();
-                collector_owned_only = parse_bool(&value, false).ok_or_else(|| {
+                let collector_owned_only = parse_bool(&value, false).ok_or_else(|| {
                     ServiceError::InvalidRequest(
                         "collector_owned filter expects boolean true/false".into(),
                     )
                 })?;
+                // The topology graph carries no collector vertices, so no
+                // device could satisfy this; refuse rather than return nothing.
+                if collector_owned_only {
+                    return Err(ServiceError::InvalidRequest(
+                        "collector_owned:true is not supported: collector ownership is not \
+                         part of the topology graph"
+                            .into(),
+                    ));
+                }
             }
             "include_topology" => {
                 if !matches!(filter.op, FilterOp::Eq) {
@@ -116,7 +118,6 @@ fn extract_params(plan: &QueryPlan) -> Result<DeviceGraphParams> {
 
     Ok(DeviceGraphParams {
         device_id,
-        collector_owned_only,
         include_topology,
     })
 }
@@ -128,10 +129,12 @@ fn parse_bool(input: &str, default_value: bool) -> Option<bool> {
     input.parse::<bool>().ok()
 }
 
+/// The id becomes a DQL string literal, which cannot carry a quote or a
+/// backslash; control characters are never part of a device id.
 fn validate_device_id(value: &str) -> Result<()> {
-    if value.contains('$') {
+    if value.contains('"') || value.contains('\\') {
         return Err(ServiceError::InvalidRequest(
-            "device_id contains invalid character '$'".into(),
+            "device_id cannot contain quotes or backslashes".into(),
         ));
     }
 
@@ -144,35 +147,22 @@ fn validate_device_id(value: &str) -> Result<()> {
     Ok(())
 }
 
-#[derive(QueryableByName)]
-#[diesel(check_for_backend(diesel::pg::Pg))]
-struct DeviceGraphRow {
-    #[diesel(sql_type = Jsonb)]
-    result: DbJson,
-}
-
-const DEVICE_GRAPH_QUERY: &str = r#"
-WITH _config AS (
-    SELECT
-        set_config('search_path', 'ag_catalog,"$user",public', false)
-)
-SELECT public.age_device_neighborhood($1::text, $2::boolean, $3::boolean) AS result;
-"#;
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::parser::{Entity, Filter, FilterOp, FilterValue};
 
-    #[test]
-    fn rejects_device_ids_with_dollar_signs() {
-        let plan = QueryPlan {
+    fn plan(filters: &[(&str, &str)]) -> QueryPlan {
+        QueryPlan {
             entity: Entity::DeviceGraph,
-            filters: vec![Filter {
-                field: "device_id".into(),
-                op: FilterOp::Eq,
-                value: FilterValue::Scalar("device$$alpha".into()),
-            }],
+            filters: filters
+                .iter()
+                .map(|(field, value)| Filter {
+                    field: (*field).into(),
+                    op: FilterOp::Eq,
+                    value: FilterValue::Scalar((*value).into()),
+                })
+                .collect(),
             order: Vec::new(),
             limit: 100,
             offset: 0,
@@ -183,37 +173,40 @@ mod tests {
             other: false,
             include_deleted: false,
             exhaustive_window: false,
-        };
-
-        let err = extract_params(&plan).expect_err("device_id with '$' should be rejected");
-        assert_eq!(
-            err.to_string(),
-            "invalid request: device_id contains invalid character '$'"
-        );
+        }
     }
 
     #[test]
-    fn accepts_standard_device_ids() {
-        let plan = QueryPlan {
-            entity: Entity::DeviceGraph,
-            filters: vec![Filter {
-                field: "device_id".into(),
-                op: FilterOp::Eq,
-                value: FilterValue::Scalar("serviceradar:agent:agent-1".into()),
-            }],
-            order: Vec::new(),
-            limit: 100,
-            offset: 0,
-            time_range: None,
-            stats: None,
-            downsample: None,
-            rollup_stats: None,
-            other: false,
-            include_deleted: false,
-            exhaustive_window: false,
-        };
+    fn rejects_device_ids_that_cannot_be_dql_literals() {
+        for id in [r#"sr:host01"x"#, r"sr:host01\x", "sr:host01\nx"] {
+            let err = extract_params(&plan(&[("device_id", id)]))
+                .expect_err("a device_id that breaks a DQL literal must be rejected");
+            assert!(
+                matches!(err, ServiceError::InvalidRequest(_)),
+                "{id:?} must be a client error, got {err}"
+            );
+        }
+    }
 
-        let params = extract_params(&plan).expect("standard device_id should be accepted");
-        assert_eq!(params.device_id, "serviceradar:agent:agent-1");
+    #[test]
+    fn accepts_standard_device_ids_and_topology_toggle() {
+        let params = extract_params(&plan(&[
+            ("device_id", "sr:host01.example.com"),
+            ("include_topology", "false"),
+            ("collector_owned", "false"),
+        ]))
+        .expect("standard device_id should be accepted");
+        assert_eq!(params.device_id, "sr:host01.example.com");
+        assert!(!params.include_topology);
+    }
+
+    #[test]
+    fn refuses_collector_owned_true() {
+        let err = extract_params(&plan(&[
+            ("device_id", "sr:host01.example.com"),
+            ("collector_owned", "true"),
+        ]))
+        .expect_err("collector ownership is not in the topology graph");
+        assert!(err.to_string().contains("collector_owned:true"), "{err}");
     }
 }

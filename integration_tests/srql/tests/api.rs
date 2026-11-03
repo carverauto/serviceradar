@@ -13,8 +13,7 @@ async fn srql_api_queries() {
         check_mtr_traces_query_contract(&harness).await;
         check_devices_inventory_query_matches_fixture(&harness).await;
         check_invalid_field_returns_400(&harness).await;
-        check_device_graph_query_returns_neighborhood(&harness).await;
-        check_device_graph_query_rejects_invalid_device_id(&harness).await;
+        check_device_graph_requires_dgraph(&harness).await;
         check_timeseries_metrics_query_returns_rows(&harness).await;
         check_timeseries_other_rollup_returns_tail_row(&harness).await;
         check_timeseries_metrics_profile_hour_of_week(&harness).await;
@@ -552,153 +551,11 @@ async fn check_invalid_field_returns_400(harness: &SrqlTestHarness) {
     );
 }
 
-async fn check_device_graph_query_returns_neighborhood(harness: &SrqlTestHarness) {
-    if !harness.age_available() {
-        if allow_age_skip() {
-            eprintln!("[srql-test] AGE not available in fixture; skipping device_graph test");
-            return;
-        }
-        panic!("AGE not available in fixture and SRQL_ALLOW_AGE_SKIP not set");
-    }
-
+async fn check_device_graph_requires_dgraph(harness: &SrqlTestHarness) {
+    // The harness configures no Dgraph, so the neighborhood read must refuse
+    // with a client error instead of returning an empty result.
     let request = QueryRequest {
         query: r#"in:device_graph device_id:"device-alpha""#.to_string(),
-        limit: None,
-        cursor: None,
-        direction: QueryDirection::Next,
-        mode: None,
-        permitted_signals: None,
-    };
-
-    let response = harness.query(request).await;
-    let (status, body) = read_json(response).await;
-
-    assert_eq!(status, http::StatusCode::OK, "unexpected status: {body}");
-    let results = body["results"]
-        .as_array()
-        .unwrap_or_else(|| panic!("results missing or not array: {body}"));
-    assert_eq!(results.len(), 1, "expected single neighborhood row");
-    let graph = results[0]
-        .as_object()
-        .unwrap_or_else(|| panic!("graph result is not an object: {body}"));
-
-    let device = graph
-        .get("device")
-        .and_then(|d| d.get("id"))
-        .and_then(|id| id.as_str())
-        .unwrap_or_else(|| panic!("device id missing in graph result: {body}"));
-    assert_eq!(device, "device-alpha");
-
-    let collectors = graph
-        .get("collectors")
-        .and_then(|c| c.as_array())
-        .unwrap_or_else(|| panic!("collectors missing or not array: {body}"));
-    assert!(
-        collectors
-            .iter()
-            .any(|c| c.get("id").and_then(|id| id.as_str()) == Some("serviceradar:agent:agent-1")),
-        "expected collector serviceradar:agent:agent-1 in graph: {body}"
-    );
-
-    let services = graph
-        .get("services")
-        .and_then(|s| s.as_array())
-        .unwrap_or_else(|| panic!("services missing or not array: {body}"));
-    assert!(
-        services.iter().any(|svc| {
-            let svc_obj = svc.as_object().unwrap();
-            svc_obj
-                .get("collector_owned")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false)
-                && svc_obj.get("collector_id").and_then(|v| v.as_str())
-                    == Some("serviceradar:agent:agent-1")
-                && svc_obj
-                    .get("service")
-                    .and_then(|p| p.get("id"))
-                    .and_then(|id| id.as_str())
-                    == Some("serviceradar:service:ssh@agent-1")
-        }),
-        "expected collector-owned service ssh@agent-1 in graph: {body}"
-    );
-
-    let interfaces = graph
-        .get("interfaces")
-        .and_then(|i| i.as_array())
-        .unwrap_or_else(|| panic!("interfaces missing or not array: {body}"));
-    assert!(
-        interfaces
-            .iter()
-            .any(|iface| iface.get("id").and_then(|id| id.as_str()) == Some("device-alpha/eth0")),
-        "expected interface device-alpha/eth0 in graph: {body}"
-    );
-
-    let peer_interfaces = graph
-        .get("peer_interfaces")
-        .and_then(|i| i.as_array())
-        .unwrap_or_else(|| panic!("peer_interfaces missing or not array: {body}"));
-    assert!(
-        peer_interfaces.iter().any(|iface| {
-            iface.get("id").and_then(|id| id.as_str()) == Some("device-beta/eth1")
-                && iface.get("owner_device_id").and_then(|id| id.as_str()) == Some("device-beta")
-                && iface
-                    .get("owner_device")
-                    .and_then(|device| device.get("hostname"))
-                    .and_then(|hostname| hostname.as_str())
-                    == Some("beta-edge")
-        }),
-        "expected peer interface owner data in graph: {body}"
-    );
-
-    let device_caps = graph
-        .get("device_capabilities")
-        .and_then(|c| c.as_array())
-        .unwrap_or_else(|| panic!("device_capabilities missing or not array: {body}"));
-    assert!(
-        device_caps
-            .iter()
-            .any(|cap| cap.get("type").and_then(|t| t.as_str()) == Some("snmp")),
-        "expected snmp capability in graph: {body}"
-    );
-
-    let filtered_request = QueryRequest {
-        query: r#"in:device_graph device_id:"device-alpha" collector_owned:true include_topology:false"#
-            .to_string(),
-        limit: None,
-        cursor: None,
-        direction: QueryDirection::Next,
-        mode: None,
-        permitted_signals: None,
-    };
-
-    let filtered_response = harness.query(filtered_request).await;
-    let (filtered_status, filtered_body) = read_json(filtered_response).await;
-    assert_eq!(
-        filtered_status,
-        http::StatusCode::OK,
-        "unexpected status on filtered graph query: {filtered_body}"
-    );
-    let filtered_results = filtered_body["results"]
-        .as_array()
-        .unwrap_or_else(|| panic!("filtered results missing or not array: {filtered_body}"));
-    assert_eq!(filtered_results.len(), 1, "expected single filtered row");
-    let filtered_graph = filtered_results[0]
-        .as_object()
-        .unwrap_or_else(|| panic!("filtered graph result is not an object: {filtered_body}"));
-
-    let filtered_interfaces = filtered_graph
-        .get("interfaces")
-        .and_then(|i| i.as_array())
-        .unwrap_or_else(|| panic!("interfaces missing or not array: {filtered_body}"));
-    assert!(
-        filtered_interfaces.is_empty(),
-        "include_topology:false should omit interfaces: {filtered_body}"
-    );
-}
-
-async fn check_device_graph_query_rejects_invalid_device_id(harness: &SrqlTestHarness) {
-    let request = QueryRequest {
-        query: r#"in:device_graph device_id:"device$$alpha""#.to_string(),
         limit: None,
         cursor: None,
         direction: QueryDirection::Next,
@@ -716,7 +573,7 @@ async fn check_device_graph_query_rejects_invalid_device_id(harness: &SrqlTestHa
     );
     assert_eq!(
         body["error"],
-        serde_json::json!("invalid request: device_id contains invalid character '$'")
+        serde_json::json!("invalid request: device_graph requires DGRAPH_URL")
     );
 }
 
@@ -1059,11 +916,4 @@ async fn check_rperf_metrics_queries_still_work(harness: &SrqlTestHarness) {
             .all(|row| row.get("metric_type").and_then(|v| v.as_str()) == Some("rperf")),
         "rperf_metrics should continue to enforce metric_type=rperf: {body}"
     );
-}
-
-fn allow_age_skip() -> bool {
-    match std::env::var("SRQL_ALLOW_AGE_SKIP") {
-        Ok(val) => !(val.trim().eq_ignore_ascii_case("false") || val.trim() == "0"),
-        Err(_) => true, // default to skipping when AGE is unavailable
-    }
 }

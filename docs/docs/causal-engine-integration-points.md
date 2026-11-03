@@ -24,7 +24,7 @@
    (`rust/srql`, `EmbeddedSrql` / `QueryEngine::execute_query`). A Rust causal
    service can link it directly: no new service, no FFI, no HTTP hop. It covers
    every entity — events, logs, metrics, traces, devices, interfaces, alerts —
-   plus raw openCypher into the AGE topology graph.
+   plus read-only DQL into the Dgraph topology graph (`in:graph`).
 
 3. **But the prediction you described is not a data-access problem — it is a
    *model* problem.** "We lost one of two PSUs → redundancy is gone → one more

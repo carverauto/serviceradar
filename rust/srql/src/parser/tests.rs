@@ -512,8 +512,14 @@ fn parses_graph_dql_aliases_and_quoted_dql() {
         );
     }
 
-    let cypher = parse("in:graph_cypher cypher:\"MATCH (n) RETURN n\"").unwrap();
-    assert!(matches!(cypher.entity, Entity::GraphCypher));
+    for retired in ["graph_cypher", "graphcypher", "cypher"] {
+        let err = parse(&format!("in:{retired} cypher:\"MATCH (n) RETURN n\""))
+            .expect_err("Cypher was retired with Apache AGE");
+        assert!(
+            err.to_string().contains("in:graph dql:"),
+            "{retired}: {err}"
+        );
+    }
 }
 
 #[test]

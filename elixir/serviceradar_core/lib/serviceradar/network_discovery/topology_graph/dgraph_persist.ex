@@ -178,7 +178,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist do
           evidence_class: "path",
           ingestor: "mtr_path_v1",
           agent_id: Map.get(attrs, :agent_id),
-          last_seen: Map.get(attrs, :observed_at)
+          last_seen: Map.get(attrs, :observed_at),
+          mtr: Map.get(attrs, :mtr)
         })
       end
     end)

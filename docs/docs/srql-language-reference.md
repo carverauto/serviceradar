@@ -388,12 +388,18 @@ fields; using a field that the entity does not support returns an
 > (`virtualization_hosts`, `virtualization_guests`, …), and field-survey
 > datasets. They use the same `key:value` grammar described above.
 >
-> The two graph entities take a query string rather than field filters:
-> `in:graph dql:"..."` runs read-only DQL against Dgraph, and
-> `in:graph_cypher cypher:"..."` runs read-only openCypher against the Apache
-> AGE graph. Mutations are refused in both. `in:graph` selected the device
+> Both graph entities read the Dgraph topology graph. `in:graph dql:"..."`
+> takes a read-only DQL query string rather than field filters and refuses
+> mutations. `in:device_graph device_id:"..."` returns one device, its
+> interfaces, and the peer interfaces its current `CONNECTS_TO` evidence
+> reaches; `include_topology:false` omits the interfaces. The topology graph
+> holds no collector, service or capability vertices, so those arrays are
+> empty and `collector_owned:true` is refused. `in:graph` selected the device
 > neighborhood in earlier releases; that entity is now reachable only as
 > `in:device_graph`.
+>
+> `in:graph_cypher` (openCypher against Apache AGE) was retired with AGE and
+> now returns an error that names `in:graph` as its replacement.
 
 ## Filterable fields by entity
 

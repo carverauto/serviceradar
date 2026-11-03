@@ -26,6 +26,7 @@ mod canonical_read;
 mod client;
 mod downstream;
 mod errors;
+mod reads;
 mod schema;
 mod types;
 
@@ -35,11 +36,12 @@ mod cutover_tests;
 pub use crate::client::TopologyClient;
 pub use crate::downstream::{DownstreamFact, looks_like_cidr, reachable_on_canonical};
 pub use crate::errors::{TopologyError, TopologyErrorEnum};
+pub use crate::reads::{MAX_MTR_PATHS, MtrPath};
 pub use crate::schema::{
     PRED_CHANGE_ID, PRED_DEVICE_ID, PRED_LINK_KEY, PRED_PREFIX_CIDR, PREDICATES, SCHEMA, TYPES,
     schema_spec,
 };
 pub use crate::types::{
     CanonicalDevice, CanonicalEdge, CanonicalGraph, ChangeWrite, DeviceWrite, EdgeKind, EdgeWrite,
-    HopWrite, InterfaceWrite, NeighbourhoodEdge, PrefixWrite, TopologyView, link_key,
+    HopWrite, InterfaceWrite, MtrMetrics, NeighbourhoodEdge, PrefixWrite, TopologyView, link_key,
 };

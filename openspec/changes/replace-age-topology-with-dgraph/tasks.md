@@ -210,15 +210,25 @@ is tracked here as follow-up work. Disabling or dropping the extension is gated
 on migrating active consumers and verifying their replacement behavior; a
 Dgraph-only God View reader does not establish that the extension is unused.
 
-- [ ] 14.1 Move SRQL `in:device_graph` off
+- [x] 14.1 Move SRQL `in:device_graph` off
       `public.age_device_neighborhood`, and retire or explicitly migrate the
       `in:graph_cypher` API. Audit saved queries and dashboards before removing
       either public query surface; keep `in:graph` / `in:graph_dql` as the
       Dgraph paths.
-- [ ] 14.2 Move dashboard MTR overlay/count queries in
+      `in:device_graph` reads `TopologyClient::query_device_neighborhood`.
+      `in:graph_cypher` is retired: the parser refuses it with an error that
+      names `in:graph dql:`. The audit found no shipped saved query, dashboard
+      package, seed or SRQL catalog entry using either surface; the only
+      in-repo consumer was the correlation hydrator, now Dgraph-only.
+- [x] 14.2 Move dashboard MTR overlay/count queries in
       `DashboardLive.Data.Mtr` to Dgraph and verify overlays with invented
       MTR paths. Remove the direct `ServiceRadarWebNG.Graph` queries so an
       unavailable AGE graph cannot silently appear as an empty overlay.
+      `MTR_PATH` edges now carry `topo.avg_rtt_us`, `topo.loss_pct`,
+      `topo.jitter_us`, `topo.from_hop` and `topo.to_hop`, read through the
+      typed `query_mtr_paths`. The dashboard, full-screen map and God View show
+      an unavailable notice on a failed read. `ServiceRadarWebNG.Graph` is
+      deleted and `mix graph.ready` probes Dgraph.
 - [ ] 14.3 Move canonical-edge telemetry reads and refresh writes in
       `TopologyGraph.Telemetry.Edges` and `TopologyGraph.Telemetry.Refresh`
       to the typed Dgraph path. Verify directional packet flow, capacity,

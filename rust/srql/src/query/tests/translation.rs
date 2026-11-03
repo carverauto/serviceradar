@@ -157,14 +157,6 @@ fn translate_param_arity_matches_sql_placeholders() {
                 permitted_signals: None,
             },
             QueryRequest {
-                query: "in:device_graph device_id:dev-1 collector_owned_only:true include_topology:false".to_string(),
-                limit: None,
-                cursor: None,
-                direction: QueryDirection::Next,
-                mode: None,
-                permitted_signals: None,
-            },
-            QueryRequest {
                 query: "in:devices switch_port_attachment.switch_hostname:switch01.example.com vlan_uid:200".to_string(),
                 limit: Some(10),
                 cursor: None,
@@ -1002,89 +994,6 @@ fn translate_rate_downsample_is_counter_wrap_aware() {
 }
 
 #[test]
-fn translate_graph_cypher_rejects_mutations() {
-    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
-    let request = QueryRequest {
-        query: "in:graph_cypher cypher:\"CREATE (n:Device {id:'x'}) RETURN 1 as result\""
-            .to_string(),
-        limit: None,
-        cursor: None,
-        direction: QueryDirection::Next,
-        mode: None,
-        permitted_signals: None,
-    };
-
-    let err = translate_request(&config, request).expect_err("should reject write cypher");
-    assert!(
-        err.to_string().to_lowercase().contains("read-only"),
-        "expected read-only error, got: {err}"
-    );
-}
-
-#[test]
-fn translate_graph_cypher_rejects_mutations_without_keyword_spacing() {
-    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
-    let request = QueryRequest {
-        query: r#"in:graph_cypher cypher:"MATCH (n) CREATE(m:Device {id:'x'}) RETURN n""#
-            .to_string(),
-        limit: None,
-        cursor: None,
-        direction: QueryDirection::Next,
-        mode: None,
-        permitted_signals: None,
-    };
-
-    let err = translate_request(&config, request).expect_err("should reject write cypher");
-    assert!(
-        err.to_string().to_lowercase().contains("read-only"),
-        "expected read-only error, got: {err}"
-    );
-}
-
-#[test]
-fn translate_graph_cypher_ignores_keywords_inside_literals_and_comments() {
-    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
-    let request = QueryRequest {
-        query: r#"in:graph_cypher cypher:"MATCH (n) WHERE n.note = 'delete; merge' // set ignored
-RETURN {id: n.id, label: 'create'} AS result" limit:10"#
-            .to_string(),
-        limit: None,
-        cursor: None,
-        direction: QueryDirection::Next,
-        mode: None,
-        permitted_signals: None,
-    };
-
-    let response = translate_request(&config, request).expect("translation should succeed");
-    assert!(
-        response.sql.contains("ag_catalog.cypher"),
-        "expected graph_cypher SQL, got: {}",
-        response.sql
-    );
-}
-
-#[test]
-fn translate_graph_cypher_still_rejects_mutations_after_comments() {
-    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
-    let request = QueryRequest {
-        query:
-            r#"in:graph_cypher cypher:"MATCH (n) /* delete ignored */ SET n.name = 'x' RETURN n""#
-                .to_string(),
-        limit: None,
-        cursor: None,
-        direction: QueryDirection::Next,
-        mode: None,
-        permitted_signals: None,
-    };
-
-    let err = translate_request(&config, request).expect_err("should reject write cypher");
-    assert!(
-        err.to_string().to_lowercase().contains("read-only"),
-        "expected read-only error, got: {err}"
-    );
-}
-
-#[test]
 fn translate_graph_dql_rejects_mutations() {
     let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
     let request = QueryRequest {
@@ -1143,10 +1052,10 @@ fn translate_graph_dql_is_not_sql() {
 }
 
 #[test]
-fn translate_graph_cypher_wraps_rows_as_topology_payload() {
+fn translate_device_graph_is_not_sql() {
     let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
     let request = QueryRequest {
-        query: "in:graph_cypher cypher:\"MATCH (n) RETURN n\" limit:10".to_string(),
+        query: "in:device_graph device_id:sr:host01.example.com include_topology:false".to_string(),
         limit: None,
         cursor: None,
         direction: QueryDirection::Next,
@@ -1154,27 +1063,12 @@ fn translate_graph_cypher_wraps_rows_as_topology_payload() {
         permitted_signals: None,
     };
 
-    let response = translate_request(&config, request).expect("translation should succeed");
-    let sql = response.sql.to_lowercase();
-
+    let err = translate_request(&config, request).expect_err("device_graph reads Dgraph");
     assert!(
-        sql.contains("jsonb_build_object('nodes'"),
-        "expected topology wrapper in SQL, got: {}",
-        response.sql
-    );
-    assert!(
-        sql.contains("jsonb_build_array"),
-        "expected jsonb_build_array in SQL, got: {}",
-        response.sql
-    );
-    assert_eq!(
-        response.params.len(),
-        2,
-        "expected limit + offset binds, got: {:?}",
-        response.params
+        err.to_string().to_lowercase().contains("not sql"),
+        "expected not-SQL error, got: {err}"
     );
 }
-
 #[test]
 fn translate_device_filtered_hourly_downsample_routes_to_timeseries_cagg() {
     // Regression: device-detail metric charts filter by metric_type/metric_name and group by

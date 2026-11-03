@@ -37,7 +37,6 @@ mod field_survey;
 mod fleet;
 mod flows;
 mod gateways;
-mod graph_cypher;
 mod graph_dql;
 mod identity;
 mod interfaces;

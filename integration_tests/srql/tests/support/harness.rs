@@ -80,19 +80,12 @@ where
         .expect("failed to seed fixture database");
 
     let app_config = test_config(config.database_url.clone(), &tls_config);
-    // Not unwrap_or(false): seeding already ran `CREATE EXTENSION IF NOT EXISTS age` and fails
-    // if it cannot, so an Err here means the check itself broke. Defaulting it to false quietly
-    // downgraded every AGE-gated assertion instead.
-    let age_available = check_age_available(&config.database_url, &tls_config)
-        .await
-        .expect("failed to check whether AGE is available");
     let embedded = srql::EmbeddedSrql::new(app_config)
         .await
         .expect("failed to boot embedded SRQL engine for remote harness");
 
     let harness = SrqlTestHarness {
         engine: embedded.query,
-        age_available,
     };
 
     test(harness).await;
@@ -103,7 +96,6 @@ where
 fn test_config(database_url: String, tls_config: &FixtureTlsConfig) -> AppConfig {
     AppConfig {
         database_url,
-        age_graph_name: "platform_graph".to_string(),
         starrocks_database: "serviceradar".to_string(),
         dgraph_url: None,
         max_pool_size: 5,
@@ -157,7 +149,6 @@ async fn seed_fixture_database_once(
     };
 
     ensure_extension(&client, "timescaledb").await?;
-    ensure_extension(&client, "age").await?;
     let schema_sql = load_fixture("schema.sql")?;
     let seed_sql = load_fixture("seed.sql")?;
     client.batch_execute(&schema_sql).await?;
@@ -197,8 +188,6 @@ async fn extension_exists(client: &Client, name: &str) -> anyhow::Result<bool> {
 #[derive(Clone)]
 pub struct SrqlTestHarness {
     engine: QueryEngine,
-    #[allow(dead_code)]
-    age_available: bool,
 }
 
 impl SrqlTestHarness {
@@ -214,11 +203,6 @@ impl SrqlTestHarness {
                 serde_json::json!({ "error": err.to_string() }),
             ),
         }
-    }
-
-    #[allow(dead_code)]
-    pub fn age_available(&self) -> bool {
-        self.age_available
     }
 }
 
@@ -374,25 +358,10 @@ impl RemoteFixtureGuard {
             .batch_execute("CREATE EXTENSION IF NOT EXISTS timescaledb;")
             .await?;
         client
-            .batch_execute("CREATE EXTENSION IF NOT EXISTS age;")
-            .await?;
-        client
             .batch_execute("CREATE EXTENSION IF NOT EXISTS postgis;")
             .await?;
         client
             .batch_execute("CREATE EXTENSION IF NOT EXISTS vector;")
-            .await?;
-        client
-            .batch_execute(&format!(
-                "GRANT USAGE ON SCHEMA ag_catalog TO {};",
-                quote_ident(&config.database_owner)
-            ))
-            .await?;
-        client
-            .batch_execute(&format!(
-                "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ag_catalog TO {};",
-                quote_ident(&config.database_owner)
-            ))
             .await?;
         drop(client);
         let _ = task.await;
@@ -474,25 +443,6 @@ fn fixture_root() -> PathBuf {
         return Path::new(&manifest_dir).join("tests").join("fixtures");
     }
     Path::new("tests").join("fixtures")
-}
-
-async fn check_age_available(
-    database_url: &str,
-    tls_config: &FixtureTlsConfig,
-) -> anyhow::Result<bool> {
-    // Through the shared parser: the assembled DSN carries `sslmode=verify-full`, which
-    // tokio-postgres rejects outright -- it accepts only disable/prefer/require. The verifying
-    // posture is a typed field that configures the connector, so the mode is stripped rather
-    // than rewritten, and one implementation does it for both this harness and the lifecycle.
-    let config = db::parse_pg_config(database_url, "database.url")?;
-    let (client, _task) = connect_with_tls(config, "age-check", tls_config).await?;
-    let result = client
-        .query(
-            "SELECT 1 FROM ag_catalog.cypher('platform_graph', 'RETURN 1') AS (result agtype) LIMIT 1",
-            &[],
-        )
-        .await;
-    Ok(result.is_ok())
 }
 
 async fn connect_with_tls(
