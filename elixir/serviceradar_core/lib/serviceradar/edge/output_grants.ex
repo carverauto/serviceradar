@@ -94,8 +94,11 @@ defmodule ServiceRadar.Edge.OutputGrants do
         []
 
       {:error, reason} ->
-        Logger.warning("Edge output grant not issued",
+        Logger.warning(
+          "Edge output grant not issued to agent #{agent_id} in partition #{partition}: " <>
+            inspect(reason),
           agent_id: agent_id,
+          partition: partition,
           reason: inspect(reason)
         )
 
@@ -120,7 +123,9 @@ defmodule ServiceRadar.Edge.OutputGrants do
         []
 
       {:error, reason} ->
-        Logger.warning("Edge output grant not issued",
+        Logger.warning(
+          "Edge output grant for #{contract.contract_id} not issued to agent #{agent_id}: " <>
+            inspect(reason),
           agent_id: agent_id,
           contract_id: contract.contract_id,
           reason: inspect(reason)
