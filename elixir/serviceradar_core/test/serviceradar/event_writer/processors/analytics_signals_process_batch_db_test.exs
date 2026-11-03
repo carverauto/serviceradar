@@ -333,6 +333,62 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
   end
 
   test "a rejected transition stays replayable and its retry is admitted once" do
+    rule = fill_alert_evaluation_capacity!()
+
+    message =
+      assessment_message(
+        "synthetic-retry-#{Ash.UUID.generate()}",
+        "open",
+        "active",
+        "confirmed",
+        "affected"
+      )
+
+    row = AnalyticsSignals.parse_message(message)
+    assert {:error, _} = AnalyticsSignals.process_batch([message])
+    assert event_count(row) == 0
+    assert {:ok, {:processed, :completed}} = Owner.advance(rule.id)
+    assert {:ok, 1} = AnalyticsSignals.process_batch([message])
+    assert {:ok, 1} = AnalyticsSignals.process_batch([message])
+
+    assert [%{position: 2}] =
+             AlertEvaluationWork
+             |> Ash.Query.filter(rule_id == ^rule.id)
+             |> Ash.read!(actor: SystemActor.system(:alert_engine))
+
+    assert event_count(row) == 1
+  end
+
+  test "a transition on its final delivery is stored even when admission rejects it" do
+    rule = fill_alert_evaluation_capacity!()
+
+    message =
+      "synthetic-final-#{Ash.UUID.generate()}"
+      |> assessment_message("open", "active", "confirmed", "affected")
+      |> update_in(
+        [:metadata],
+        &Map.merge(&1, %{jetstream_ack: %{delivery_count: 5}, max_deliver: 5})
+      )
+
+    row = AnalyticsSignals.parse_message(message)
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert {:ok, 1} = AnalyticsSignals.process_batch([message])
+      end)
+
+    assert event_count(row) == 1
+    assert log =~ "on their final delivery without alert evaluation"
+
+    assert [%{position: 1}] =
+             AlertEvaluationWork
+             |> Ash.Query.filter(rule_id == ^rule.id)
+             |> Ash.read!(actor: SystemActor.system(:alert_engine))
+  end
+
+  # Activates the real engine with room for one pending occurrence and takes it,
+  # so the next admission is refused as overloaded.
+  defp fill_alert_evaluation_capacity! do
     mode = Application.get_env(:serviceradar_core, :alert_evaluation_mode)
     limits = Application.get_env(:serviceradar_core, :alert_evaluation_limits)
     Application.put_env(:serviceradar_core, :alert_evaluation_mode, :active)
@@ -373,28 +429,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
                }
              ])
 
-    message =
-      assessment_message(
-        "synthetic-retry-#{Ash.UUID.generate()}",
-        "open",
-        "active",
-        "confirmed",
-        "affected"
-      )
-
-    row = AnalyticsSignals.parse_message(message)
-    assert {:error, _} = AnalyticsSignals.process_batch([message])
-    assert event_count(row) == 0
-    assert {:ok, {:processed, :completed}} = Owner.advance(rule.id)
-    assert {:ok, 1} = AnalyticsSignals.process_batch([message])
-    assert {:ok, 1} = AnalyticsSignals.process_batch([message])
-
-    assert [%{position: 2}] =
-             AlertEvaluationWork
-             |> Ash.Query.filter(rule_id == ^rule.id)
-             |> Ash.read!(actor: actor)
-
-    assert event_count(row) == 1
+    rule
   end
 
   test "alert_evaluation_peer_not_ready nacks analytics predictions with delayed backoff and processes once ready (#6062)" do
@@ -517,26 +552,6 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
                |> Ash.read!(actor: actor)
     end
 
-    message = put_in(broadway_message.metadata.jetstream_ack.delivery_count, 5)
-
-    log =
-      ExUnit.CaptureLog.capture_log([level: :info], fn ->
-        assert [%Message{status: {:failed, :alert_evaluation_peer_not_ready}} = failed_msg] =
-                 Pipeline.handle_batch(
-                   :analytics_predictions,
-                   [message],
-                   %{batch_key: :default},
-                   %{}
-                 )
-
-        Pipeline.handle_failed([failed_msg], %{})
-        assert :ok = Pipeline.ack(:ack_ref, [], [failed_msg])
-      end)
-
-    assert_receive {:jetstream_ack, :term}
-    assert log =~ "[error]"
-    assert log =~ "EventWriter message reached terminal JetStream delivery"
-
     Application.put_env(:serviceradar_core, :analytics_signals_peer_ready, true)
     broadway_message = put_in(broadway_message.metadata.jetstream_ack.delivery_count, 4)
 
@@ -615,12 +630,14 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
          }}
     }
 
+    # The final delivery stores the transition before admitting it, so these
+    # errors cannot fail it; see the final-delivery transition test.
     for reason <- [
           :alert_evaluation_draining,
           :alert_evaluation_capability_unavailable,
           :db_unavailable
         ],
-        delivery_count <- 1..5 do
+        delivery_count <- 1..4 do
       Application.put_env(:serviceradar_core, :analytics_signals_peer_ready, {:error, reason})
       message = put_in(broadway_message.metadata.jetstream_ack.delivery_count, delivery_count)
 
@@ -638,8 +655,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
           assert :ok = Pipeline.ack(:ack_ref, [], [failed_msg])
         end)
 
-      action = if delivery_count == 5, do: :term, else: :nack
-      assert_receive {:jetstream_ack, ^action}
+      assert_receive {:jetstream_ack, :nack}
       assert log =~ "[error]"
       assert log =~ "Batch processing failed"
       refute log =~ "Batch deferred"

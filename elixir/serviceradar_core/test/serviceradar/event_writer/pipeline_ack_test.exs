@@ -69,10 +69,11 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
     assert is_integer(duration) and duration >= 0
   end
 
-  test "readiness backoff preserves nack telemetry and terminates at the delivery limit" do
+  test "alert evaluation backpressure backs off, preserves nack telemetry and terminates at the delivery limit" do
     parent = self()
 
-    for {delivery_count, action} <- [
+    for reason <- [:alert_evaluation_peer_not_ready, {:overloaded, :rule_bytes}],
+        {delivery_count, action} <- [
           {1, {:nack, 10_000}},
           {2, {:nack, 20_000}},
           {3, {:nack, 40_000}},
@@ -82,7 +83,7 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
         {publish_result, telemetry_result} <- [{:ok, :ok}, {{:error, :disconnected}, :error}] do
       message = %Message{
         data: "",
-        status: {:failed, :alert_evaluation_peer_not_ready},
+        status: {:failed, reason},
         metadata: %{
           subject: "signals.analytics.predictions.test",
           jetstream_ack: %{delivery_count: delivery_count},

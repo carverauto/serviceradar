@@ -10,6 +10,11 @@ defmodule ServiceRadar.Observability.StatefulEvaluationLedger do
       :ok = evaluate(pending)            # rejection fails the batch
       :ok = StatefulEvaluationLedger.record(pending)
 
+  Callers store their records before evaluating them, so a rejection never
+  costs the records themselves. An `{:overloaded, _}` rejection is
+  backpressure: the inbox may have accepted an in-order prefix, EventWriter
+  redelivers the batch with a delay, and the inbox continues after that prefix.
+
   This is not a completion receipt. The alert evaluation inbox and receipts
   own ordered effects and replay safety; they deduplicate accepted occurrences
   if a process dies before recording this marker. The marker holds ids, not

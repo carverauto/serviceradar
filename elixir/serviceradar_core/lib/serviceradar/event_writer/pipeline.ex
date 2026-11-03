@@ -25,6 +25,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   alias Broadway.Message
   alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.EventWriter.Config
+  alias ServiceRadar.EventWriter.JetStreamAck
   alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
   alias ServiceRadar.EventWriter.Processors.EdgeRecord
   alias ServiceRadar.EventWriter.Processors.Events
@@ -347,14 +348,18 @@ defmodule ServiceRadar.EventWriter.Pipeline do
 
   defp retryable_alert_evaluation_status?(_status), do: false
 
+  # Transient alert-evaluation backpressure. Processors persist the signal
+  # before admitting it, so a delayed redelivery only retries the admission
+  # remainder, which the inbox continues in order.
   defp retryable_alert_evaluation_reason?(:alert_evaluation_peer_not_ready), do: true
+  defp retryable_alert_evaluation_reason?({:overloaded, _dimension}), do: true
   defp retryable_alert_evaluation_reason?(_reason), do: false
 
   # Private functions
 
   defp ack_failed_message(message) do
     cond do
-      terminal_delivery?(message) ->
+      JetStreamAck.final_delivery?(message) ->
         emit_dead_letter(message)
         ack_message(message, :term)
 
@@ -370,17 +375,6 @@ defmodule ServiceRadar.EventWriter.Pipeline do
 
   defp edge_record_message?(%{metadata: %{subject: "telemetry.edge-record" <> _}}), do: true
   defp edge_record_message?(_message), do: false
-
-  defp terminal_delivery?(%{metadata: metadata}) when is_map(metadata) do
-    with %{delivery_count: delivery_count} <- metadata[:jetstream_ack],
-         max_deliver when is_integer(max_deliver) and max_deliver > 0 <- metadata[:max_deliver] do
-      delivery_count >= max_deliver
-    else
-      _ -> false
-    end
-  end
-
-  defp terminal_delivery?(_message), do: false
 
   defp emit_dead_letter(%{metadata: metadata, status: status}) do
     ack = metadata[:jetstream_ack] || %{}

@@ -19,16 +19,28 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.RuntimeMetrics do
     Publisher.record(lane, :admission, %{acknowledgement_ms: elapsed(started)})
 
     case result do
-      {:ok, _keys, admitted} when is_integer(admitted) and admitted > 0 ->
-        Publisher.record(lane, :admitted, %{count: admitted})
+      {:ok, %{admitted: admitted, overloaded: overloaded}} ->
+        record_admitted(lane, length(admitted))
 
-      {:ok, _, _} ->
-        :ok
+        # A partial admission is one chunk of a larger batch: the remainder
+        # waits for capacity and its retry continues in order.
+        if overloaded do
+          Publisher.record(lane, :chunked, %{})
+          Publisher.record(lane, :rejected, %{reason: rejection({:overloaded, overloaded})})
+        end
 
       {:error, reason} ->
         Publisher.record(lane, :rejected, %{reason: rejection(reason)})
     end
   end
+
+  @doc "Counts occurrences skipped because each alone exceeds the admission byte budget."
+  def skipped(signal, count) when is_integer(count) and count > 0 do
+    Publisher.record(lane(signal), :rejected, %{reason: :record_too_large, count: count})
+  end
+
+  defp record_admitted(_lane, 0), do: :ok
+  defp record_admitted(lane, count), do: Publisher.record(lane, :admitted, %{count: count})
 
   def completion(disposition, measurements) do
     lane = lane(measurements.signal)

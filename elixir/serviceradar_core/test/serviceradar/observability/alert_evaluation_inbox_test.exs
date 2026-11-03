@@ -14,6 +14,7 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
   alias ServiceRadar.Observability.StatefulAlertEngine.Completion
   alias ServiceRadar.Observability.StatefulAlertEngine.EvaluationWorker
   alias ServiceRadar.Observability.StatefulAlertEngine.Inbox
+  alias ServiceRadar.Observability.StatefulAlertEngine.Input
   alias ServiceRadar.Observability.StatefulAlertEngine.Owner
   alias ServiceRadar.Observability.StatefulAlertEngine.PeerReadiness
   alias ServiceRadar.Observability.StatefulAlertEngine.RecoveryWorker
@@ -879,25 +880,71 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
     refute_receive {:delivered, :outer_rollback}, 100
   end
 
-  test "count overload rejects the entire batch without reserving input positions", %{
-    rule: rule,
-    actor: actor
-  } do
+  test "shared pending overload admits the prefix that fits and reserves no further positions",
+       %{rule: rule, actor: actor} do
     Application.put_env(:serviceradar_core, :alert_evaluation_limits, pending_count: 2)
     assert {:ok, [_]} = Inbox.admit(:event, [event()])
-    assert {:error, {:overloaded, :pending_count}} = Inbox.admit(:event, [event(), event()])
+    first = %{event() | message: "synthetic first"}
+    second = %{event() | message: "synthetic second"}
+    assert {:error, {:overloaded, :pending_count}} = Inbox.admit(:event, [first, second])
 
-    assert [%{position: 1}] = work(rule, actor)
-    assert [%{next_position: 1}] = Ash.read!(AlertEvaluationLane, actor: actor)
+    assert [%{position: 1}, %{position: 2, payload: %{"message" => "synthetic first"}}] =
+             work(rule, actor)
+
+    assert [%{next_position: 2}] = Ash.read!(AlertEvaluationLane, actor: actor)
     assert [] = Ash.read!(AlertEvaluationReceipt, actor: actor)
   end
 
-  test "byte overload leaves no partly accepted rule or record", %{rule: rule, actor: actor} do
-    Application.put_env(:serviceradar_core, :alert_evaluation_limits, pending_bytes: 2_048)
-    oversized = Map.put(event(), :message, String.duplicate("x", 4_096))
-    assert {:error, {:overloaded, :pending_bytes}} = Inbox.admit(:event, [event(), oversized])
-    assert [] = work(rule, actor)
-    assert [] = Ash.read!(AlertEvaluationLane, actor: actor)
+  test "a batch over its rule's byte budget is admitted in order, one budget-sized chunk per retry",
+       %{rule: rule, actor: actor} do
+    ensure_metric_publisher!()
+    inputs = for index <- 1..5, do: %{event() | message: "synthetic chunk #{index}"}
+    {:ok, %{bytes: record_bytes}} = Input.prepare(:event, hd(inputs))
+    occurrence_bytes = record_bytes + byte_size(Jason.encode!(Input.revision(rule)))
+
+    # Two occurrences fit the rule's budget; the batch of five never would.
+    Application.put_env(:serviceradar_core, :alert_evaluation_limits,
+      rule_bytes: div(5 * occurrence_bytes, 2)
+    )
+
+    chunked_before = runtime_count({:events, :alert_event, :chunked})
+
+    assert {:error, {:overloaded, :rule_bytes}} = Inbox.admit(:event, inputs)
+    assert messages(rule, actor) == ["synthetic chunk 1", "synthetic chunk 2"]
+    drain(rule, 2)
+
+    assert {:error, {:overloaded, :rule_bytes}} = Inbox.admit(:event, inputs)
+    assert messages(rule, actor) == ["synthetic chunk 3", "synthetic chunk 4"]
+    assert [3, 4] == Enum.map(work(rule, actor), & &1.position)
+    drain(rule, 2)
+
+    assert {:ok, keys} = Inbox.admit(:event, inputs)
+    assert length(keys) == 5
+    assert [%{position: 5, payload: %{"message" => "synthetic chunk 5"}}] = work(rule, actor)
+    assert runtime_count({:events, :alert_event, :chunked}) == chunked_before + 2
+  end
+
+  test "an occurrence larger than the byte budget is skipped with a counted reason, not its batch",
+       %{rule: rule, actor: actor} do
+    ensure_metric_publisher!()
+    Application.put_env(:serviceradar_core, :alert_evaluation_limits, rule_bytes: 2_048)
+    oversized = %{event() | message: String.duplicate("x", 4_096)}
+    first = %{event() | message: "synthetic before"}
+    last = %{event() | message: "synthetic after"}
+    skipped_before = runtime_count({:rejection, :alert_event, :record_too_large})
+
+    log =
+      capture_log(fn ->
+        assert {:ok, [_, _]} = Inbox.admit(:event, [first, oversized, last])
+      end)
+
+    assert messages(rule, actor) == ["synthetic before", "synthetic after"]
+    assert log =~ "skipped 1 event occurrence(s) larger than the 2048-byte admission budget"
+    assert runtime_count({:rejection, :alert_event, :record_too_large}) == skipped_before + 1
+
+    # A redelivery skips it again and admits nothing twice.
+    capture_log(fn -> assert {:ok, [_, _]} = Inbox.admit(:event, [first, oversized, last]) end)
+    assert length(work(rule, actor)) == 2
   end
 
   test "an invalid timestamp rejects every occurrence before durable admission", %{
@@ -1387,15 +1434,13 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
     end
   end
 
-  defp alert_maintenance_store_failures do
-    case :ets.lookup(MetricPublisher, {:rejection, :alert_maintenance, :store_unavailable}) do
-      [{_key, count}] -> count
-      [] -> 0
-    end
-  end
+  defp alert_maintenance_store_failures,
+    do: runtime_count({:rejection, :alert_maintenance, :store_unavailable})
 
-  defp alert_maintenance_retries do
-    case :ets.lookup(MetricPublisher, {:events, :alert_maintenance, :retry}) do
+  defp alert_maintenance_retries, do: runtime_count({:events, :alert_maintenance, :retry})
+
+  defp runtime_count(key) do
+    case :ets.lookup(MetricPublisher, key) do
       [{_key, count}] -> count
       [] -> 0
     end
@@ -1445,6 +1490,12 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
     |> Ash.Query.filter(rule_id == ^rule.id)
     |> Ash.Query.sort(position: :asc)
     |> Ash.read!(actor: actor)
+  end
+
+  defp messages(rule, actor), do: Enum.map(work(rule, actor), & &1.payload["message"])
+
+  defp drain(rule, count) do
+    for _ <- 1..count, do: assert({:ok, {:processed, :completed}} = Owner.advance(rule.id))
   end
 
   defp event do

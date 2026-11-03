@@ -22,7 +22,6 @@ defmodule ServiceRadar.EventWriter.MetricAlertAdmission do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Ash.Page
-  alias ServiceRadar.Observability.StatefulAlertEngine.Inbox
   alias ServiceRadar.Observability.StatefulAlertEngine.RuleMatcher
   alias ServiceRadar.Observability.StatefulAlertRule
   alias ServiceRadar.Observability.StatefulEvaluationLedger
@@ -47,13 +46,7 @@ defmodule ServiceRadar.EventWriter.MetricAlertAdmission do
         rows
         |> Enum.filter(fn row -> Enum.any?(rules, &RuleMatcher.rule_matches_metric?(row, &1)) end)
         |> Enum.map(&Map.put(&1, :id, occurrence_id(&1)))
-        |> Enum.chunk_every(Inbox.limits().batch_records)
-        |> Enum.reduce_while(:ok, fn chunk, :ok ->
-          case StatefulEvaluationLedger.evaluate_metrics(chunk) do
-            :ok -> {:cont, :ok}
-            {:error, _reason} = error -> {:halt, error}
-          end
-        end)
+        |> StatefulEvaluationLedger.evaluate_metrics()
     end
   end
 
