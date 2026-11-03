@@ -107,7 +107,9 @@
   them. It follows task 6.1. It does not remove `GetSweepResults`, the sweep results KV,
   `serviceradar.sweep` on `StreamStatus`, or the gateway sweep publisher until the unleased sweep
   results contract and its payload are defined, shipped, and have passed the farm01 parity soak.
-  TODO (reconciled 2026-11-02): remaining scope is removing legacy agent emissions and gateway publishers after all producer families and their farm01 parity soaks complete; it also carries `unify-sweep-results-proto` M4.2, 7.4, 7.5 and the `GetSummary` delivery-ownership half of 2.1.
+  This task also carries `unify-sweep-results-proto` M4.2, 7.4, 7.5 and the `GetSummary`
+  delivery-ownership half of 2.1, which moved here on 2026-11-02.
+  TODO (reconciled 2026-11-02): remaining scope is removing legacy agent emissions and gateway publishers after all producer families and their farm01 parity soaks complete.
 - [ ] 8.2 Confirm no durable agent data remains on `StreamStatus`/`PushStatus`; only control
   traffic and ephemeral status summaries stay there.
   TODO (reconciled 2026-11-02): remaining scope is verifying after task 8.1 that only control traffic and ephemeral status summaries remain on `StreamStatus`/`PushStatus`.
