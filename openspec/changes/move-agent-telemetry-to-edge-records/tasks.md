@@ -11,6 +11,8 @@
   retryable backpressure, counted drops.
 - [ ] 1.3 Spool admission backpressure (USP-01 M3.2) and byte-fair lane interleaving (USP-01 2.7)
   before any high-volume family moves.
+  PARTIAL: the high/low-water pause (M3.2) and byte-fair admission across producer flows
+  at the agent spool (2.7) are in; the rest of USP-01 2.7 stays open.
 - [ ] 1.4 Replicate `TELEMETRY_EDGE_RECORD_V1_BULK` and the projector destination streams;
   reconciliation raises the replica count of an existing stream.
 - [ ] 1.5 EventWriter dispatch by output contract through a projector registry and behaviour;

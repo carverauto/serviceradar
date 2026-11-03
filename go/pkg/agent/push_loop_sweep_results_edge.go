@@ -273,7 +273,7 @@ func (p *PushLoop) appendOneSweepRecord(part edgeMetricsBuilt) (permanent bool, 
 	if err != nil {
 		return true, err
 	}
-	if _, err = p.edgeMetricsSpool.Append(part.record.GetEventId(), body); err != nil {
+	if _, err = p.edgeMetricsSpool.AppendFlow(edgeAdmissionFlow(part.record), part.record.GetEventId(), body); err != nil {
 		return permanentSpoolRefusal(err) || errors.Is(err, spool.ErrEventIDLength), err
 	}
 	return false, nil

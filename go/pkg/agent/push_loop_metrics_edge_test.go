@@ -527,7 +527,7 @@ type appendScript struct {
 	permanentErr error
 }
 
-func (a *appendScript) Append(eventID, body []byte) (uint64, error) {
+func (a *appendScript) AppendFlow(flow string, eventID, body []byte) (uint64, error) {
 	n := len(a.ids) + 1
 	a.ids = append(a.ids, bytes.Clone(eventID))
 	a.bodies = append(a.bodies, bytes.Clone(body))
@@ -540,7 +540,7 @@ func (a *appendScript) Append(eventID, body []byte) (uint64, error) {
 	if a.refuseAfter >= 0 && n > a.refuseAfter {
 		return 0, spool.ErrAdmissionRefused
 	}
-	return a.inner.Append(eventID, body)
+	return a.inner.AppendFlow(flow, eventID, body)
 }
 
 // admitAll starts a new phase in which every append is admitted.
@@ -1476,4 +1476,32 @@ func TestQueuedSweepSummariesSurviveAnUndeliveredStatusPush(t *testing.T) {
 	loop.settleSweepSummaryLegacy(true)
 	require.Len(t, loop.sweepSummary.pending, 1, "a delivered push removes the sample")
 	require.False(t, loop.sweepSummary.pending[0].hasItem)
+}
+
+// Every record a producer emits under one capability competes in one spool
+// admission flow, and records under a different run or contract compete in
+// their own, so the spool shares its room per producer run rather than per
+// record.
+func TestEdgeAdmissionFlowFollowsTheSignedProducerRun(t *testing.T) {
+	record := func(edit func(*edgev1.EdgeProductionClaimsV1)) *edgev1.EdgeRecordV1 {
+		t.Helper()
+		capability := &edgev1.EdgeSignedCapabilityV1{}
+		require.NoError(t, gproto.Unmarshal(currentMetricsGrant(t).GetProductionCapability(), capability))
+		if edit != nil {
+			edit(capability.GetProduction())
+		}
+		built, err := newEdgeRecord(capability, nil, []byte("synthetic payload"), 1, edgeMetricsProjectedRowBytes)
+		require.NoError(t, err)
+		return built
+	}
+	run := edgeAdmissionFlow(record(nil))
+	require.Equal(t, run, edgeAdmissionFlow(record(nil)), "two records of one run")
+	for name, edit := range map[string]func(*edgev1.EdgeProductionClaimsV1){
+		"another run":        func(c *edgev1.EdgeProductionClaimsV1) { c.RunId = []byte("synthetic-run-02") },
+		"another run shard":  func(c *edgev1.EdgeProductionClaimsV1) { c.RunShard = 1 },
+		"another contract":   func(c *edgev1.EdgeProductionClaimsV1) { c.ContractId = edgerecord.UnleasedSweepResultsContractID },
+		"another assignment": func(c *edgev1.EdgeProductionClaimsV1) { c.ProducerAssignmentId = []byte("synthetic-asgn-02") },
+	} {
+		require.NotEqual(t, run, edgeAdmissionFlow(record(edit)), name)
+	}
 }

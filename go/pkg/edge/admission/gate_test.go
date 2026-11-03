@@ -18,7 +18,9 @@ package admission
 
 import (
 	"errors"
+	"strconv"
 	"testing"
+	"time"
 )
 
 func TestNewGateRejectsBadWatermarks(t *testing.T) {
@@ -100,5 +102,205 @@ func TestGatePausesOnlyBulk(t *testing.T) {
 		if got := g.Admit(class); got != want {
 			t.Errorf("class %d while paused = %v, want %v", class, got, want)
 		}
+	}
+}
+
+// fairSimFlow is one producer in the fair-share simulation: a FIFO of records
+// of one size that it offers head first, retrying a deferred head unchanged.
+type fairSimFlow struct {
+	name      string
+	size      uint64
+	perTick   int // records generated each tick
+	every     int // the flow asks every this many ticks
+	next      int // sequence of the next record generated
+	queue     []int
+	admitted  []int
+	generated int
+}
+
+func (f *fairSimFlow) generate() {
+	for range f.perTick {
+		f.next++
+		f.queue = append(f.queue, f.next)
+		f.generated++
+	}
+}
+
+// offer appends head first until the gate defers, as a producer drains its
+// retry queue in one push.
+func (f *fairSimFlow) offer(g *Gate, held *uint64, now time.Time) {
+	for len(f.queue) > 0 && g.AdmitFlow(f.name, f.size, now) == Admit {
+		f.admitted = append(f.admitted, f.queue[0])
+		f.queue = f.queue[1:]
+		*held += f.size
+	}
+}
+
+func (f *fairSimFlow) admittedBytes() uint64 { return uint64(len(f.admitted)) * f.size }
+
+// A burst flow that offers more than the spool drains, and retries in a tight
+// loop, cannot hold a steady flow that asks once a push interval below its fair
+// share of the contended room. The steady flow wants a quarter of the drain, so
+// all of it is its fair share; the burst still gets the rest. Every record of
+// both flows is admitted once production stops, in the order each flow offered
+// them.
+func TestAdmitFlowBurstCannotStarveASteadyFlow(t *testing.T) {
+	const (
+		mib       = 1 << 20
+		drain     = 256 << 10 // bytes reclaimed per tick (one second)
+		producing = 900       // ticks of production
+	)
+	var held uint64
+	g, err := NewGate(8*mib, 4*mib, func() uint64 { return held })
+	if err != nil {
+		t.Fatal(err)
+	}
+	burst := &fairSimFlow{name: "burst", size: 256 << 10, perTick: 4, every: 1}
+	steady := &fairSimFlow{name: "steady", size: 64 << 10, perTick: 1, every: 30}
+	start := time.Unix(1_700_000_000, 0)
+
+	tick := 0
+	run := func(produce bool) {
+		now := start.Add(time.Duration(tick) * time.Second)
+		held -= min(held, drain)
+		for _, f := range []*fairSimFlow{burst, steady} {
+			if produce {
+				f.generate()
+			}
+			if tick%f.every == 0 {
+				f.offer(g, &held, now)
+			}
+		}
+		tick++
+	}
+	for tick < producing {
+		run(true)
+	}
+	if len(steady.queue) > steady.every {
+		t.Fatalf("steady flow has %d records waiting after its last push, want at most one push interval (%d): got %d of %d bytes admitted",
+			len(steady.queue), steady.every, steady.admittedBytes(), uint64(steady.generated)*steady.size)
+	}
+	if burstShare := float64(burst.admittedBytes()) / float64(uint64(producing)*drain); burstShare < 0.6 {
+		t.Fatalf("burst flow got %.2f of the drained bytes, want at least 0.6 (all the steady flow left)", burstShare)
+	}
+
+	for len(burst.queue)+len(steady.queue) > 0 {
+		if tick > 100*producing {
+			t.Fatalf("records still waiting after production stopped: burst %d, steady %d", len(burst.queue), len(steady.queue))
+		}
+		run(false)
+	}
+	for _, f := range []*fairSimFlow{burst, steady} {
+		if len(f.admitted) != f.generated {
+			t.Fatalf("%s: %d of %d records admitted", f.name, len(f.admitted), f.generated)
+		}
+		for i, seq := range f.admitted {
+			if seq != i+1 {
+				t.Fatalf("%s: record %d admitted at position %d, want offer order", f.name, seq, i+1)
+			}
+		}
+	}
+}
+
+// A flow that stops asking keeps its share for fairFlowTTL and is then
+// forgotten, so it holds the others back no longer than that.
+func TestAdmitFlowForgetsAFlowThatStoppedAsking(t *testing.T) {
+	var held uint64
+	g, err := NewGate(8<<20, 4<<20, func() uint64 { return held })
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Unix(1_700_000_000, 0)
+	const record = 256 << 10
+	if g.AdmitFlow("quiet", record, start) != Admit {
+		t.Fatal("first record below the low water was deferred")
+	}
+	for range 2 {
+		if g.AdmitFlow("busy", record, start) != Admit {
+			t.Fatal("record below the low water was deferred")
+		}
+	}
+
+	held = 5 << 20
+	if got := g.AdmitFlow("busy", record, start.Add(fairFlowTTL)); got != Defer {
+		t.Fatalf("busy flow a quantum ahead of a flow seen within the TTL = %v, want Defer", got)
+	}
+	if got := g.AdmitFlow("busy", record, start.Add(fairFlowTTL+time.Second)); got != Admit {
+		t.Fatalf("busy flow after the quiet flow's TTL = %v, want Admit", got)
+	}
+}
+
+// A flow that arrives far behind the lead may catch up by at most the distance
+// between the marks before the leader is admitted again; it cannot replay the
+// leader's whole history.
+func TestAdmitFlowBoundsTheCatchUpOfANewFlow(t *testing.T) {
+	var held uint64
+	g, err := NewGate(8<<20, 4<<20, func() uint64 { return held })
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(1_700_000_000, 0)
+	const record = 256 << 10
+	for range 400 { // 100 MiB through an uncontended spool
+		if g.AdmitFlow("leader", record, now) != Admit {
+			t.Fatal("record below the low water was deferred")
+		}
+	}
+
+	held = 5 << 20
+	caughtUp := 0
+	for {
+		if g.AdmitFlow("newcomer", record, now) != Admit {
+			t.Fatal("the least-served flow was deferred")
+		}
+		caughtUp++
+		if g.AdmitFlow("leader", record, now) == Admit {
+			break
+		}
+		if caughtUp > 100 {
+			t.Fatal("newcomer replayed the leader's history")
+		}
+	}
+	if caughtUp < 2 {
+		t.Fatal("leader was admitted while a quantum ahead of the newcomer")
+	}
+	if limit := int((4<<20+fairQuantum)/record) + 1; caughtUp > limit {
+		t.Fatalf("newcomer caught up %d records before the leader resumed, want at most %d", caughtUp, limit)
+	}
+}
+
+// Past maxFairFlows the flow seen longest ago is forgotten. A one-byte flow
+// that has not asked since the others filled the table no longer holds a
+// leader back; forgetting anyone newer would leave that leader deferred.
+func TestAdmitFlowForgetsTheStalestFlowPastTheCap(t *testing.T) {
+	var held uint64
+	g, err := NewGate(8<<20, 4<<20, func() uint64 { return held })
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Unix(1_700_000_000, 0)
+	ahead := fairQuantum + 1
+	if g.AdmitFlow("victim", 1, start) != Admit {
+		t.Fatal("victim below the low water was deferred")
+	}
+	if g.AdmitFlow("leader", ahead, start.Add(time.Second)) != Admit {
+		t.Fatal("leader below the low water was deferred")
+	}
+	for i := range maxFairFlows - 2 {
+		name := "filler-" + strconv.Itoa(i)
+		if g.AdmitFlow(name, ahead, start.Add(2*time.Second)) != Admit {
+			t.Fatalf("%s below the low water was deferred", name)
+		}
+	}
+
+	held = 5 << 20
+	if got := g.AdmitFlow("leader", 1, start.Add(3*time.Second)); got != Defer {
+		t.Fatalf("leader a quantum ahead of the stalest flow = %v, want Defer", got)
+	}
+	if g.AdmitFlow("newcomer", ahead, start.Add(4*time.Second)) != Admit {
+		t.Fatal("newcomer that should evict the stalest flow was deferred")
+	}
+	if got := g.AdmitFlow("leader", 1, start.Add(5*time.Second)); got != Admit {
+		t.Fatalf("leader after the stalest flow was evicted = %v, want Admit", got)
 	}
 }

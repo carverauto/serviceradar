@@ -138,9 +138,10 @@ func (t *edgeProducerDropTelemetry) write(w io.Writer) error {
 	return nil
 }
 
-// edgeMetricsAppender is the spool surface a metrics producer writes.
+// edgeMetricsAppender is the spool surface a metrics producer writes. flow is
+// the record's admission flow (edgeAdmissionFlow).
 type edgeMetricsAppender interface {
-	Append(eventID, body []byte) (uint64, error)
+	AppendFlow(flow string, eventID, body []byte) (uint64, error)
 }
 
 // SetEdgeMetricsSpool connects metric producers to the sender's one open spool.
@@ -410,7 +411,7 @@ func appendEdgeMetricsParts[T any](
 			p.dropEdgeMetrics(m.producer, edgeDropRefused, 1, err)
 			continue
 		}
-		if _, err := p.edgeMetricsSpool.Append(part.record.GetEventId(), body); err != nil {
+		if _, err := p.edgeMetricsSpool.AppendFlow(edgeAdmissionFlow(part.record), part.record.GetEventId(), body); err != nil {
 			if permanentSpoolRefusal(err) {
 				p.dropEdgeMetrics(m.producer, edgeDropRefused, 1, err)
 				continue

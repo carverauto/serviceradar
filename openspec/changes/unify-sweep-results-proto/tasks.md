@@ -546,16 +546,17 @@ in `choices.md` and the chart README.
   while its records are unresolved (narrows 2.6).
   PARTIALLY LANDED: `admission.Gate` applies the bulk high/low-water hysteresis
   to the spool allocator's ordinary usage (80 and 50 percent of the ordinary
-  ceiling), and `spool.WithAdmissionGate` refuses a commit while it is paused
-  with `ErrAdmissionPaused`, which matches `ErrAdmissionRefused` and writes
-  nothing. Every producer on the agent spool is bulk, so leased sweeps wait,
-  and metrics and unleased sweep results keep their records queued, until
-  reclaim brings the spool to the low water. The agent exports
-  `agent_edge_spool_admission_paused`. `admission.Controller` stays unwired:
-  it frees charged bytes only through a reclaim authorization nothing can
-  mint before task 2.28. This item stays unchecked until the farm01
-  verification; byte-fair lanes remain task 2.7. Holding execution completion
-  while records are unresolved remains TODO.
+  ceiling), and `spool.WithAdmissionGate` refuses a deferred commit with
+  `ErrAdmissionPaused`, which matches `ErrAdmissionRefused` and writes
+  nothing. Pause is that hysteresis. Between the marks the same gate also
+  defers a flow ahead of its share; that rule is task 2.7. Every producer on
+  the agent spool is bulk, so leased sweeps wait, and metrics and unleased
+  sweep results keep their records queued, until reclaim brings the spool to
+  the low water. The agent exports `agent_edge_spool_admission_paused`.
+  `admission.Controller` stays unwired: it frees charged bytes only through a
+  reclaim authorization nothing can mint before task 2.28. This item stays
+  unchecked until the farm01 verification; the rest of task 2.7 stays open.
+  Holding execution completion while records are unresolved remains TODO.
 - [ ] M3.3 Fault drill. During active sweeps on farm01, restart the gateway,
   core (EventWriter), NATS and the canary agent, each at least once
   mid-execution. Afterwards CNPG shows zero missing and zero duplicated host
@@ -1269,6 +1270,16 @@ change together with the requirements they implement.
   file descriptors, ICMP tokens, DNS concurrency, CPU, spool, and sender credits.
   TODO (reconciled 2026-11-02): required before high-volume families move
   (`move-agent-telemetry-to-edge-records` task 1.3).
+  PARTIAL: the agent spool's admission boundary is byte-fair across producer
+  flows. `admission.Gate.AdmitFlow` keys a flow by the signed network scope,
+  origin, assignment, run and shard, contract and traffic class
+  (`edgeAdmissionFlow`). Between the low and high water it admits a flow only
+  while it is less than one 256 KiB quantum ahead of the least-served flow seen
+  in the last two minutes, and a flow's count trails the lead by at most the
+  distance between the marks. A burst therefore waits for a slower producer
+  instead of filling the spool to the pause. Deferred records stay with their
+  producer, so nothing is dropped or reordered. The site scheduler, the
+  sender's credit window and the interactive execution floor remain open.
 - [x] 2.8 Emit the small MTR summary on its correlated sweep host and the complete
   trace through `MtrTraceBatchV1` for every producer mode; allow an independently
   revisioned MTR-mode fragment to follow ICMP/TCP without suppressing it, and

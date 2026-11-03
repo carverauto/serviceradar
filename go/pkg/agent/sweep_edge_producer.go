@@ -527,7 +527,7 @@ func (p *sweepEdgeProducer) emit(scanCtx context.Context, batch *edgev1.SweepObs
 	if err != nil {
 		return err
 	}
-	return p.appendWithBackpressure(scanCtx, record.GetEventId(), body)
+	return p.appendWithBackpressure(scanCtx, edgeAdmissionFlow(record), record.GetEventId(), body)
 }
 
 // appendClaimed appends body. Until a record of this run is in the spool, each
@@ -535,9 +535,9 @@ func (p *sweepEdgeProducer) emit(scanCtx context.Context, batch *edgev1.SweepObs
 // and an admission refusal, which writes nothing, releases that claim. A run
 // whose records are all refused therefore leaves its slot runnable, including
 // when the agent stops while the producer waits for admission.
-func (p *sweepEdgeProducer) appendClaimed(eventID, body []byte) error {
+func (p *sweepEdgeProducer) appendClaimed(flow string, eventID, body []byte) error {
 	if p.admitted {
-		_, err := p.spool.Append(eventID, body)
+		_, err := p.spool.AppendFlow(flow, eventID, body)
 		return err
 	}
 	if p.claim.claim != nil {
@@ -545,7 +545,7 @@ func (p *sweepEdgeProducer) appendClaimed(eventID, body []byte) error {
 			return fmt.Errorf("persist sweep slot start: %w", err)
 		}
 	}
-	_, err := p.spool.Append(eventID, body)
+	_, err := p.spool.AppendFlow(flow, eventID, body)
 	switch {
 	case err == nil:
 		p.admitted = true
@@ -561,10 +561,10 @@ func (p *sweepEdgeProducer) appendClaimed(eventID, body []byte) error {
 // appendWithBackpressure appends body, waiting out admission refusals until the
 // spool has room or either the run context or the scan context ends. Any other
 // append error is returned at once.
-func (p *sweepEdgeProducer) appendWithBackpressure(scanCtx context.Context, eventID, body []byte) error {
+func (p *sweepEdgeProducer) appendWithBackpressure(scanCtx context.Context, flow string, eventID, body []byte) error {
 	backoff := sweepAdmissionInitialBackoff
 	for {
-		err := p.appendClaimed(eventID, body)
+		err := p.appendClaimed(flow, eventID, body)
 		if !errors.Is(err, spool.ErrAdmissionRefused) {
 			return err
 		}
