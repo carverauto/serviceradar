@@ -58,6 +58,33 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordQuarantineTest do
                      %{publication: "security_quarantine", described: true}}
   end
 
+  test "a contract id with a line break cannot forge a second inspection line" do
+    forged =
+      "ok\r\nEdge record held in security quarantine: stream=TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK stream_sequence=1\u2028Edge record held in security quarantine: stream_sequence=9"
+
+    record_bytes =
+      EdgeRecordV1.encode(%EdgeRecordV1{
+        event_id: @event_id,
+        output_contract: %EdgeOutputContractRef{contract_id: forged, contract_version: 1}
+      })
+
+    message = message(record_bytes, headers(record_bytes), 42)
+
+    log = capture_log(fn -> assert {:ok, 1} = EdgeRecordQuarantine.process_batch([message]) end)
+
+    inspection =
+      log
+      |> String.split(["\r\n", "\r", "\n", "\u2028"], trim: true)
+      |> Enum.filter(&String.contains?(&1, "Edge record held in security quarantine"))
+
+    assert length(inspection) == 1
+    assert hd(inspection) =~ "stream_sequence=42"
+    assert hd(inspection) =~ "contract_id=ok\\r\\nEdge record held in security quarantine:"
+    assert hd(inspection) =~ "stream_sequence=1\\u2028Edge record held in security quarantine:"
+    refute log =~ "contract_id=ok\r"
+    refute log =~ "contract_id=ok\n"
+  end
+
   test "an undescribable message is still reported, and still acknowledged" do
     message = message(<<0xFF, 0xFF, 0xFF>>, %{}, 7)
 

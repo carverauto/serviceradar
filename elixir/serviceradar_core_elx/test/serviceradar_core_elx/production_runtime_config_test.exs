@@ -350,13 +350,24 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     assert edge_record.stream_replicas == 3
 
     # The gateway resolves audit and security-quarantine publications on these streams' PubAcks.
+    # Subjects are the nats-tenant-isolation families; the quarantine stream is limits,
+    # DiscardNew, and MaxAge disabled so a held record is never aged or evicted.
     streams = read_prod_event_writer_streams()
+    audit = Enum.find(streams, &(&1.name == "EDGE_RECORD_AUDIT"))
+    quarantine = Enum.find(streams, &(&1.name == "EDGE_RECORD_SECURITY_QUARANTINE"))
 
-    assert Enum.find(streams, &(&1.name == "EDGE_RECORD_AUDIT")) ==
-             EventWriterConfig.edge_record_audit_stream()
+    assert audit == EventWriterConfig.edge_record_audit_stream()
+    assert audit.stream_name == "TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK"
+    assert audit.subject == "telemetry.edge-record-audit.v1.bulk.>"
+    assert audit.stream_replicas == 3
 
-    assert Enum.find(streams, &(&1.name == "EDGE_RECORD_SECURITY_QUARANTINE")) ==
-             EventWriterConfig.edge_record_security_quarantine_stream()
+    assert quarantine == EventWriterConfig.edge_record_security_quarantine_stream()
+    assert quarantine.stream_name == "TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK"
+    assert quarantine.subject == "telemetry.edge-record-security-quarantine.v1.bulk.>"
+    assert quarantine.stream_replicas == 3
+    assert quarantine.stream_retention == "limits"
+    assert quarantine.stream_discard == "new"
+    assert quarantine.stream_max_age == 0
   end
 
   test "prod EventWriter Falco consumer targets the provisioned events stream" do

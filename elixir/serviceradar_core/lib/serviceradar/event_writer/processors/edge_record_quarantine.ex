@@ -109,14 +109,36 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordQuarantine do
   defp issuer_key_id(%{issuer_key_id: key_id}), do: hex(key_id)
   defp issuer_key_id(_capability), do: nil
 
+  @log_controls ~r/[\x00-\x1F\x7F-\x9F\x{2028}\x{2029}]/u
+
   defp loggable(nil), do: "-"
   defp loggable(value) when is_integer(value), do: Integer.to_string(value)
 
   defp loggable(value) when is_binary(value) do
-    if String.printable?(value), do: value, else: hex(value)
+    cond do
+      not String.valid?(value) ->
+        hex(value)
+
+      String.match?(value, @log_controls) ->
+        String.replace(value, @log_controls, &escape_control/1)
+
+      String.printable?(value) ->
+        value
+
+      true ->
+        hex(value)
+    end
   end
 
   defp loggable(value), do: inspect(value)
+
+  defp escape_control("\n"), do: "\\n"
+  defp escape_control("\r"), do: "\\r"
+  defp escape_control("\t"), do: "\\t"
+
+  defp escape_control(<<codepoint::utf8>>) do
+    "\\u" <> String.pad_leading(Integer.to_string(codepoint, 16), 4, "0")
+  end
 
   defp hex(value) when is_binary(value), do: Base.encode16(value, case: :lower)
   defp hex(value), do: value
