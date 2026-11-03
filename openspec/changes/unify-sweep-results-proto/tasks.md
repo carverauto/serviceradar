@@ -2385,8 +2385,9 @@ change together with the requirements they implement.
   semantic identity, original traffic class, and source provenance.
   MOVED to `add-edge-record-stream-partitioning` (2026-11-02); remaining: the
   catalog, states, deleter and redrive remain a follow-up. The security-quarantine
-  stream in the note below is the only DLQ that exists; task 3.5's other routes
-  still depend on the rest.
+  stream in the note below and the minimal generic dead-letter (2026-11-02,
+  epic #6271; `add-edge-record-stream-partitioning` task 1.10) are the DLQs
+  that exist; task 3.5's other routes still depend on the rest.
   MINIMAL INSPECTION LANDED for the security-quarantine route only: its stream
   keeps every record (`MaxAge` disabled, `DiscardNew`), an EventWriter consumer
   logs each one with its stream sequence and slot and writes nothing, the

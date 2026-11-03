@@ -90,6 +90,18 @@ defmodule ServiceRadar.EventWriter.Telemetry do
   end
 
   @doc """
+  A bounded label for a failed message's status: the reason atom, the leading atom of a
+  `{reason, detail}` tuple, an exception's module name, or `"error"`.
+  """
+  @spec failure_class(term()) :: String.t()
+  def failure_class(nil), do: "error"
+  def failure_class({:failed, reason}), do: failure_class(reason)
+  def failure_class(reason) when is_atom(reason), do: Atom.to_string(reason)
+  def failure_class(%_{} = reason), do: reason.__struct__ |> Module.split() |> List.last()
+  def failure_class({reason, _}) when is_atom(reason), do: Atom.to_string(reason)
+  def failure_class(_reason), do: "error"
+
+  @doc """
   Emits a terminal delivery event before EventWriter sends `+TERM`.
   """
   @spec emit_dead_letter(map()) :: :ok
@@ -234,6 +246,9 @@ defmodule ServiceRadar.EventWriter.Telemetry do
 
       String.starts_with?(subject, "telemetry.edge-record-security-quarantine.") ->
         "edge_record_quarantine"
+
+      String.starts_with?(subject, "telemetry.edge-record-dlq.") ->
+        "edge_record_dlq"
 
       String.starts_with?(subject, "signals.analytics.") ->
         "analytics"

@@ -27,3 +27,13 @@ tests:
       - matchRegex:
           path: spec.template.spec.containers[0].args[0]
           pattern: '(?s)user: "CN=serviceradar-agent-gateway,[^"]+"\s+permissions: \{\s+publish: \{\s+allow: \["metrics\.sysmon\.>"'
+
+  - it: lets core dead-letter and replay edge records but not purge or delete the dead-letter stream
+    template: templates/nats.yaml
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: '(?s)user: "CN=serviceradar-core,[^"]+"\s+permissions: \{\s+publish: \{\s+allow: \[[^\]]*"telemetry\.edge-record-dlq\.v1\.bulk\.>",\s+"telemetry\.edge-record\.v1\.bulk\.>",\s+"telemetry\.edge-record-audit\.v1\.bulk\.>",[^\]]*\]\s+deny: \[[^\]]*"\\\$JS\.API\.STREAM\.PURGE\.TELEMETRY_EDGE_RECORD_DLQ_V1_BULK", "\\\$JS\.API\.STREAM\.DELETE\.TELEMETRY_EDGE_RECORD_DLQ_V1_BULK"\]'

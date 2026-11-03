@@ -28,6 +28,8 @@ Related runbooks in this directory:
 - [Edge record audit and security quarantine](edge-record-quarantine-runbook.md):
   the two non-authoritative edge-record streams, the security-quarantine
   inspection log, and the `nats stream get` path.
+- [Edge record dead-letter](edge-record-dead-letter-runbook.md): records whose
+  projection kept failing, their failure headers, the alerts, and replay.
 
 ## Demo Namespace Helm Refresh
 

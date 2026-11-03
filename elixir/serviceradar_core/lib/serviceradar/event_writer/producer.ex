@@ -387,7 +387,8 @@ defmodule ServiceRadar.EventWriter.Producer do
     headers = Map.get(msg, :headers, %{})
     original_subject = extract_original_subject(subject, headers)
     jetstream_ack = JetStreamAck.parse(reply_to)
-    max_deliver = max_deliver_for(state.config, jetstream_ack, original_subject)
+    stream = configured_stream(state.config, jetstream_ack, original_subject)
+    max_deliver = max_deliver_for(state.config, stream)
 
     broadway_event = %{
       data: body,
@@ -397,13 +398,15 @@ defmodule ServiceRadar.EventWriter.Producer do
         headers: headers,
         jetstream_ack: jetstream_ack,
         max_deliver: max_deliver,
+        dead_letter_after: dead_letter_after(stream),
         received_at: DateTime.utc_now(),
         received_monotonic: System.monotonic_time()
       },
       ack_data: %{
         conn: state.conn,
         reply_to: reply_to,
-        ack_fun: build_ack_fun(state.conn, reply_to)
+        ack_fun: build_ack_fun(state.conn, reply_to),
+        request_fun: build_request_fun(state.conn)
       }
     }
 
@@ -1071,6 +1074,13 @@ defmodule ServiceRadar.EventWriter.Producer do
     fn _ -> :ok end
   end
 
+  # A request on this producer's own connection, for a publish an acknowledgement
+  # depends on (`ServiceRadar.EventWriter.EdgeRecordDeadLetter`): the dead-letter
+  # copy and the source ack then share one connection and one NATS identity.
+  defp build_request_fun(conn) do
+    fn subject, body, opts -> Gnat.request(resolve_conn_ref(conn), subject, body, opts) end
+  end
+
   defp safe_ack_publish(conn, reply_to, payload) when is_binary(reply_to) and reply_to != "" do
     conn_ref = resolve_conn_ref(conn)
 
@@ -1177,20 +1187,26 @@ defmodule ServiceRadar.EventWriter.Producer do
   defp normalize_header_value(value) when is_atom(value), do: Atom.to_string(value)
   defp normalize_header_value(value), do: to_string(value)
 
-  defp max_deliver_for(%Config{} = config, jetstream_ack, subject) do
-    default = config.max_deliver || Config.default_max_deliver()
+  defp configured_stream(%Config{} = config, jetstream_ack, subject) do
+    Enum.find(config.streams, &stream_matches_message?(&1, jetstream_ack, subject))
+  end
 
-    config.streams
-    |> Enum.find(&stream_matches_message?(&1, jetstream_ack, subject))
-    |> case do
+  defp max_deliver_for(%Config{} = config, stream) do
+    case stream do
       %{consumer_max_deliver: max_deliver}
       when is_integer(max_deliver) and (max_deliver == -1 or max_deliver > 0) ->
         max_deliver
 
       _ ->
-        default
+        config.max_deliver || Config.default_max_deliver()
     end
   end
+
+  defp dead_letter_after(%{dead_letter_after_deliveries: deliveries})
+       when is_integer(deliveries) and deliveries > 0,
+       do: deliveries
+
+  defp dead_letter_after(_stream), do: nil
 
   defp stream_matches_message?(stream, %{stream: ack_stream}, subject)
        when is_binary(ack_stream) do

@@ -16,6 +16,13 @@ The installation SHALL provision these versioned record subject families:
 - `telemetry.edge-record-dlq.v1.bulk.pNN`
 - `telemetry.edge-record-dlq.v1.interactive.pNN`
 
+A record EventWriter dead-letters after its projection kept failing SHALL use the DLQ
+family of the class and logical partition of the subject it was delivered on,
+followed by two tokens naming its output contract, `<contract>.v<version>`, where
+`<contract>` is the contract id lower-cased and reduced to `[a-z0-9_-]`
+(`unknown.v0` when the record does not decode). The contract tokens select no
+stream, durable or capacity of their own.
+
 An `audit_publication` and a `security_quarantine_publication` SHALL use the audit
 and security-quarantine families respectively, in the same logical partition the
 record's primary route would use, each on its own physical stream. Neither SHALL
@@ -50,6 +57,18 @@ assignment, run/execution, output contract, package, or logical partition.
   partition and report the matching accepted disposition only after that stream's
   PubAck
 - **AND** no primary-stream consumer SHALL receive it
+
+#### Scenario: A record whose projection keeps failing is dead-lettered without loss
+
+- **GIVEN** EventWriter's projection of a durable record delivered on
+  `telemetry.edge-record.v1.bulk.p07` has failed until the stream's dead-letter
+  threshold
+- **WHEN** EventWriter dead-letters it
+- **THEN** it SHALL publish the record's original bytes and transport headers, with
+  its failure headers, to `telemetry.edge-record-dlq.v1.bulk.p07.<contract>.v<version>`
+  and acknowledge the source delivery only after that stream's PubAck
+- **AND** when the DLQ stream does not store it, the source delivery SHALL stay
+  unacknowledged and be redelivered
 
 #### Scenario: Interactive poison is routed to its class reserve
 
