@@ -39,7 +39,9 @@ defmodule ServiceRadar.SweepJobs.LeaseMisses do
   A projecting delivery that commits later reopens the slot. That happens in
   `ServiceRadar.Edge.SweepProjection`, because a record is judged by its
   event time. A ledger-only delivery does not. A dropped slot is not marked
-  and is not reopened.
+  and is not reopened. Neither is a refused slot: the agent's refusal
+  (`ExecutionSlots.refuse/2`) moves a scheduled or missed slot to `refused`,
+  and only `scheduled` slots are marked here.
   """
 
   alias ServiceRadar.Repo

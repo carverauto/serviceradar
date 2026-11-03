@@ -93,6 +93,31 @@ defmodule ServiceRadar.SweepJobs.LeaseEligibilityTest do
     assert Base.encode16(digest, case: :lower) == @icmp_check_set
   end
 
+  # One plan carries one check set, and an agent without raw IPv6 SYN would run a carried
+  # TCP SYN check on an IPv6 range as a connect scan, so it is not leased such a group.
+  for {label, targets, modes, capabilities, leased?} <- [
+        {"an IPv6 range and TCP SYN", ["2001:db8::/120"], ["tcp"], ["tcp_syn_ipv6.unavailable"],
+         false},
+        {"IPv4 ranges only", ["192.0.2.0/24"], ["tcp"], ["tcp_syn_ipv6.unavailable"], true},
+        {"an IPv4-mapped address, which the scanner runs as IPv4", ["::ffff:192.0.2.1"], ["tcp"],
+         ["tcp_syn_ipv6.unavailable"], true},
+        {"an IPv6 range with TCP connect only", ["2001:db8::/120"], ["tcp_connect"],
+         ["tcp_syn_ipv6.unavailable"], true},
+        {"an IPv6 range and TCP SYN on an agent with raw IPv6 SYN", ["2001:db8::/120"], ["tcp"],
+         ["sweep"], true}
+      ] do
+    test "an agent reporting the given capabilities with #{label} is #{if leased?, do: "", else: "not "}leased" do
+      group = group(%{static_targets: unquote(targets), sweep_modes: unquote(modes), ports: [22]})
+      result = LeaseEligibility.agent_checks(group, nil, unquote(capabilities))
+
+      if unquote(leased?) do
+        assert {:ok, %{checks: [_ | _]}} = result
+      else
+        assert {:error, :ipv6_syn_unavailable} = result
+      end
+    end
+  end
+
   for {label, change, reason} <- [
         {"disabled", %{enabled: false}, :disabled},
         {"an SRQL target query", %{target_query: "in:devices tags:web"}, :has_target_query},

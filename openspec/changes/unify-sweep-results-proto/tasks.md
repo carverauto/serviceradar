@@ -321,9 +321,9 @@ in `choices.md` and the chart README.
   - [ ] M2.0i Plan-carried checks. A leased slot executes the checks, ports and
     targets its signed plan carries, never its sweep config (Decision 12 in
     `design.md`). Each slice lands on its own, in this order:
-    PARTIAL (reconciled 2026-11-02): M2.0i2 (#6259) and M2.0i5 are done; M2.0i1
-    is #6260 (open); M2.0i3 and M2.0i4 remain.
-    - [ ] M2.0i1 Proto. `SweepCheckSetV1`, `SweepLeaseV1.check_sets = 11`,
+    PARTIAL (reconciled 2026-11-02): M2.0i1 (#6260), M2.0i2 (#6259), M2.0i3,
+    and M2.0i5 are done; M2.0i4 remains.
+    - [x] M2.0i1 Proto. `SweepCheckSetV1`, `SweepLeaseV1.check_sets = 11`,
       `SweepLeaseSlotRefusal` with its reason enum, and
       `ControlStreamRequest.sweep_lease_slot_refusal = 8`, regenerated for Go
       and Elixir. Add a synthetic golden lease fixture under
@@ -331,9 +331,10 @@ in `choices.md` and the chart README.
       validates, with negative cases for a mismatched digest, an unresolved
       set, a set no slot references, and a slot-carrying `lease_version` 1
       push. A check set that is not a product of modes and ports is not a
-      decode failure. Nothing reads the new fields yet.
-      PARTIAL (reconciled 2026-11-02): implemented on `feat/plan-checks-proto`
-      (#6260, open, in CI); not on `staging`.
+      decode failure.
+      DONE (reconciled 2026-11-02): #6260. M2.0i3 reads the fields:
+      `LeaseDelivery` carries `SweepCheckSetV1`, and the gateway forwards
+      `SweepLeaseSlotRefusal`.
     - [x] M2.0i2 Sweeper run spec. `NetworkSweeper.RunPlannedWithObserver` runs
       one execution from a run-scoped copy of the config with networks, modes
       and ports replaced. The run path reads that copy instead of `s.config`,
@@ -342,12 +343,9 @@ in `choices.md` and the chart README.
       `NetworkSweeper.RunPlannedWithObserver` in
       `go/pkg/sweeper/sweeper_lifecycle.go`; `sweeper_planned_run_test.go`
       covers a config update during the run and modes the config lacks.
-    - [ ] M2.0i3 Core carrier. Depends on
-      `fix/lease-plan-agent-capability-checks` (not yet on staging). Until that
-      change lands, the planner uses one group-level check set. The branch
-      adds `SweepCompiler.agent_scan_modes/3` and
-      `LeaseEligibility.agent_checks/3`, which this task then uses for
-      per-agent check sets. `icmp.unavailable` and `mtr.unavailable` withhold
+    - [x] M2.0i3 Core carrier. Builds on
+      `SweepCompiler.agent_scan_modes/3` and `LeaseEligibility.agent_checks/3`
+      (per-agent check sets). `icmp.unavailable` and `mtr.unavailable` withhold
       those modes. The planner does not lease a group whose check set would
       need IPv6 SYN to an agent reporting `tcp_syn_ipv6.unavailable`.
       `sweep_lease_plan_checks:v1` names digest grammar 1, and core does not
@@ -365,11 +363,10 @@ in `choices.md` and the chart README.
       the capability, no agent is leased, and each leased group runs on its
       local ticker. Release this slice and M2.0i4 together, in either order,
       so that gap lasts only as long as the agent rollout.
-      TODO (reconciled 2026-11-02): the dependency landed: #6257 put
-      `SweepCompiler.agent_scan_modes/3` and `LeaseEligibility.agent_checks/3`
-      on `staging`. Remaining: carry the check sets, `lease_version` 2, the
-      refusal record and the capability gate in `LeaseDelivery`/`LeaseAgents`;
-      needs M2.0i1.
+      DONE: `LeaseAgents` gates on the capability, `LeaseDelivery` carries
+      the agent's `SweepPlan.check_set/1` at `lease_version` 2,
+      `LeaseEligibility` applies the IPv6 SYN rule, and
+      `ExecutionSlots.refuse/2` records refusals the gateway forwards.
     - [ ] M2.0i4 Agent execution. The install gate accepts `lease_version` 2
       for a push that carries slots and `lease_version` 1 for every push with
       no slots. `revoked` true withdraws the lease and the ticker resumes.

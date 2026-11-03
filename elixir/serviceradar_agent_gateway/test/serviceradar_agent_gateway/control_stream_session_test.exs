@@ -488,11 +488,17 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
                     ]}
   end
 
-  test "a sweep lease slot refusal keeps the session open" do
+  test "a sweep lease slot refusal is recorded on core" do
     ensure_process_registry!()
 
     agent_id = "agent-lease-refusal-#{System.unique_integer([:positive])}"
     pid = start_push_session!(agent_id, ["sweep_lease_v1"])
+    test_pid = self()
+
+    Application.put_env(:serviceradar_agent_gateway, :config_sync_rpc, fn function, args ->
+      send(test_pid, {:core_call, function, args})
+      :ok
+    end)
 
     ControlStreamSession.handle_message(
       pid,
@@ -501,15 +507,28 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
           {:sweep_lease_slot_refusal,
            %Monitoring.SweepLeaseSlotRefusal{
              sweep_group_id: "0192a4a0-0007-7000-8000-000000000007",
+             lease_id: <<2::128>>,
              execution_id: <<1::128>>,
              reason: :SWEEP_LEASE_SLOT_REFUSAL_REASON_CHECK_UNAVAILABLE,
-             unavailable_capabilities: ["icmp.unavailable"]
+             unavailable_capabilities: ["icmp.unavailable"],
+             detail: "icmp socket unavailable"
            }}
       },
       identity_context(agent_id, "partition-a")
     )
 
-    assert %{agent_id: ^agent_id} = :sys.get_state(pid)
+    assert_receive {:core_call, :record_sweep_lease_slot_refusal,
+                    [
+                      ^agent_id,
+                      %{
+                        sweep_group_id: "0192a4a0-0007-7000-8000-000000000007",
+                        lease_id: <<2::128>>,
+                        execution_id: <<1::128>>,
+                        reason: :SWEEP_LEASE_SLOT_REFUSAL_REASON_CHECK_UNAVAILABLE,
+                        unavailable_capabilities: ["icmp.unavailable"],
+                        detail: "icmp socket unavailable"
+                      }
+                    ]}
   end
 
   test "oversized config push to an agent without config_push_chunks is refused without touching the stream" do

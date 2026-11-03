@@ -7,6 +7,11 @@ defmodule ServiceRadar.SweepJobs.LeaseAgents do
   on every agent whose device is in the group's partition. Either way an agent's records are
   written under its own partition: the partition of its device. An agent with no device, or
   whose device is deleted, has no partition core can vouch for, so it is left out.
+
+  An agent must also report `sweep_lease_plan_checks:v1`: it executes a leased slot from the
+  checks the lease carries, under check-set grammar 1. An agent without it (an older agent, or unknown `nil`
+  capabilities) is left out, so its assignment is revoked and it runs the group on its local
+  ticker.
   """
 
   alias ServiceRadar.Actors.SystemActor
@@ -14,6 +19,8 @@ defmodule ServiceRadar.SweepJobs.LeaseAgents do
   alias ServiceRadar.SweepJobs.SweepGroup
 
   require Ash.Query
+
+  @plan_checks_capability "sweep_lease_plan_checks:v1"
 
   @type candidate :: %{
           agent_id: String.t(),
@@ -23,7 +30,7 @@ defmodule ServiceRadar.SweepJobs.LeaseAgents do
 
   @doc """
   The agents the group runs on, sorted by agent id, each with the capabilities it last
-  reported (which decide the checks its sweep config carries for the group).
+  reported (which decide the checks its lease carries for the group).
   """
   @spec candidates(SweepGroup.t()) :: {:ok, [candidate()]} | {:error, term()}
   def candidates(%SweepGroup{} = group) do
@@ -40,6 +47,7 @@ defmodule ServiceRadar.SweepJobs.LeaseAgents do
            |> Ash.read(actor: actor()) do
       {:ok,
        agents
+       |> Enum.filter(&(@plan_checks_capability in List.wrap(&1.capabilities)))
        |> Enum.map(
          &%{agent_id: &1.uid, partition: &1.device.partition, capabilities: &1.capabilities}
        )

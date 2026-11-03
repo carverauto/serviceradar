@@ -2620,13 +2620,14 @@ following replace `sweepChecks(cfg)` and the config-network comparison in
    port expansion instead of `s.config`. A config update during the run then
    cannot change the leased execution, and nothing is frozen or restored.
 
-**Refusal and the next pass.** No per-slot outcome reaches core today. A
-refused slot is only logged and marked executed on the agent
-(`sweepLeaseExecutor.runSlot`). Core later labels it `missed_offline` or
-`missed_exhausted`. `SweepExecutionEventV1` ABORTED exists, but nothing
-produces it, and no contract consumes it. The refusal therefore gets a typed
-control-plane report on the path `SweepLeaseAck` already uses (agent ->
-gateway -> `AgentGatewaySync` -> `ServiceRadar.SweepJobs`):
+**Refusal and the next pass.** The agent still only logs a refused slot and
+marks it executed (`sweepLeaseExecutor.runSlot`) until M2.0i4 persists the
+refusal and re-sends it. If no refusal arrives, core labels the slot
+`missed_offline` or `missed_exhausted`. `SweepExecutionEventV1` ABORTED
+exists, but nothing produces it, and no contract consumes it. The refusal is
+a typed control-plane report on the path `SweepLeaseAck` already uses
+(agent -> gateway -> `AgentGatewaySync` -> `ServiceRadar.SweepJobs`). The
+gateway forwards it, and `ExecutionSlots.refuse/2` records it:
 
 - `ControlStreamRequest.sweep_lease_slot_refusal = 8` carries
   `SweepLeaseSlotRefusal { sweep_group_id, lease_id, execution_id, reason,
@@ -2659,22 +2660,16 @@ gateway -> `AgentGatewaySync` -> `ServiceRadar.SweepJobs`):
   reopen it.
 - The next pass excludes a mode only through the agent's reported
   capabilities. Core does not turn refusals into exclusions of its own.
-  Per-agent check sets are not on staging. They come from the dependency
-  change on branch `fix/lease-plan-agent-capability-checks`
-  (`SweepCompiler.agent_scan_modes/3` and `LeaseEligibility.agent_checks/3`).
-  Until that change lands, the planner uses one group-level check set.
-  M2.0i3 depends on that change. Once it has landed, the agent reports the
-  marker before it refuses the slot. `icmp.unavailable` and `mtr.unavailable`
+  Per-agent check sets come from `SweepCompiler.agent_scan_modes/3` and
+  `LeaseEligibility.agent_checks/3`. The agent reports the marker before it
+  refuses the slot. `icmp.unavailable` and `mtr.unavailable`
   withhold that mode on the next pass. `tcp_syn_ipv6.unavailable` means the
   planner does not lease a group whose check set would need IPv6 SYN to that
   agent. The changed check set then re-plans that agent's unrun slots, and
   the drop-and-full-push rule replaces them on the agent.
 
-**Core planner changes.** Until `fix/lease-plan-agent-capability-checks`
-lands, the lease pass plans one group-level check set and applies that digest
-to every candidate. That branch is not on staging. It adds
-`SweepCompiler.agent_scan_modes/3` and `LeaseEligibility.agent_checks/3`, and
-M2.0i3 depends on it. After it lands, `LeaseDelivery.deliver` receives that
+**Core planner changes.** The lease pass plans each agent's own check set
+(`LeaseEligibility.agent_checks/3`). `LeaseDelivery.deliver` receives that
 agent's checks, carries them as the push's `check_sets` entry, and pushes
 only slots whose stored `check_set_sha256` equals their digest. `sync_slots`
 then drops every other unrun slot of that agent in the same pass, so no slot
@@ -3195,6 +3190,6 @@ contract. The Go check lives in `go/pkg/edge/edgerecord` (`CheckSetDigest`,
 `SweepLeaseCheckSets`, `SweepCheckSetRun`). Golden pushes under
 `proto/edge/v1/testdata/sweep_lease_check_sets_*.bin` are encoded by Elixir
 from `SweepPlan` and decoded by that Go check; regenerate with
-`EDGE_GOLDEN_UPDATE=1`. The agent calls the check when it runs a slot, and
-core records refusals, in later slices. Until core records them, the gateway
-decodes `SweepLeaseSlotRefusal` and drops it.
+`EDGE_GOLDEN_UPDATE=1`. The agent calls the check when it runs a slot in a
+later slice. Core records a refusal now: the gateway forwards
+`SweepLeaseSlotRefusal`, and `ExecutionSlots.refuse/2` stores the terminal slot.

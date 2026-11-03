@@ -6,8 +6,8 @@ defmodule ServiceRadar.SweepJobs.ExecutionSlots do
   that execution binds (`ServiceRadar.Edge.SweepPlan`) and stores both, so the source
   authorization core signs later names an execution and a plan that already exist.
   `drop_unrun/2` withdraws the slots that have not started when their agent is revoked,
-  and `mark_delivered/2` records that a lease push carried slots to the agent.
-  Only the system actor writes.
+  `mark_delivered/2` records that a lease push carried slots to the agent, and `refuse/2`
+  records that the agent refused to run one. Only the system actor writes.
   """
 
   alias ServiceRadar.Actors.SystemActor
@@ -153,6 +153,78 @@ defmodule ServiceRadar.SweepJobs.ExecutionSlots do
     |> Ash.Query.filter(id in ^slot_ids)
     |> bulk_update(:mark_delivered, %{delivered_at: now})
   end
+
+  @max_refusal_markers 16
+  @max_refusal_marker_bytes 128
+  @max_refusal_detail_bytes 512
+
+  @refusal_reasons %{
+    SWEEP_LEASE_SLOT_REFUSAL_REASON_CHECK_UNAVAILABLE: :check_unavailable,
+    SWEEP_LEASE_SLOT_REFUSAL_REASON_UNSUPPORTED_PLAN: :unsupported_plan,
+    SWEEP_LEASE_SLOT_REFUSAL_REASON_INVALID_PLAN: :invalid_plan
+  }
+
+  @doc """
+  Records an agent's `SweepLeaseSlotRefusal` as a `:refused` slot.
+
+  `refusal` carries the message fields: `:sweep_group_id` (a UUID string), `:lease_id` and
+  `:execution_id` (16 bytes each), `:reason`, `:unavailable_capabilities` and `:detail`.
+  Only the refusing agent's slot of its active assignment, at the assignment's current
+  epoch, in the named group and lease, moves, and only from `:scheduled`, `:missed_offline`
+  or `:missed_exhausted`: the refusal is more specific evidence than a miss. Any other slot
+  is left alone, so a stale or repeated refusal changes nothing, and the agent's re-sends
+  need no acknowledgement. Returns how many slots moved (0 or 1).
+  """
+  @spec refuse(String.t(), map()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def refuse(agent_id, refusal) when is_binary(agent_id) and is_map(refusal) do
+    with {:ok, reason} <- refusal_reason(Map.get(refusal, :reason)),
+         {:ok, group_id} <- Ecto.UUID.cast(Map.get(refusal, :sweep_group_id) || ""),
+         {:ok, lease_id} <- uuid_bytes(Map.get(refusal, :lease_id)),
+         {:ok, execution_id} <- uuid_bytes(Map.get(refusal, :execution_id)) do
+      SweepExecutionSlot
+      |> Ash.Query.filter(
+        id == ^execution_id and agent_id == ^agent_id and sweep_group_id == ^group_id and
+          lease_id == ^lease_id and state in [:scheduled, :missed_offline, :missed_exhausted] and
+          producer_assignment.state == :active and producer_assignment.agent_id == ^agent_id and
+          producer_assignment.authority_epoch == authority_epoch
+      )
+      |> bulk_update(:refuse, %{
+        refusal_reason: reason,
+        refusal_unavailable_capabilities: markers(Map.get(refusal, :unavailable_capabilities)),
+        refusal_detail: truncate(Map.get(refusal, :detail), @max_refusal_detail_bytes)
+      })
+    else
+      :error -> {:error, :invalid_refusal}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp refusal_reason(reason) do
+    case Map.fetch(@refusal_reasons, reason) do
+      {:ok, atom} -> {:ok, atom}
+      :error -> {:error, :invalid_refusal_reason}
+    end
+  end
+
+  defp uuid_bytes(<<_::128>> = bytes), do: Ecto.UUID.load(bytes)
+  defp uuid_bytes(_value), do: :error
+
+  defp markers(markers) when is_list(markers) do
+    markers
+    |> Enum.filter(&is_binary/1)
+    |> Enum.map(&truncate(&1, @max_refusal_marker_bytes))
+    |> Enum.uniq()
+    |> Enum.take(@max_refusal_markers)
+  end
+
+  defp markers(_markers), do: []
+
+  defp truncate(text, max) when is_binary(text) and byte_size(text) > max do
+    text |> binary_part(0, max) |> String.chunk(:valid) |> List.first("")
+  end
+
+  defp truncate(text, _max) when is_binary(text), do: text
+  defp truncate(_text, _max), do: nil
 
   @doc "The scheduled slots of an assignment that start after `now`, soonest first."
   @spec list_unrun(Ecto.UUID.t(), DateTime.t()) ::
