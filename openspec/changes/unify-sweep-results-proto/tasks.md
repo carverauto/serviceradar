@@ -546,16 +546,17 @@ in `choices.md` and the chart README.
   while its records are unresolved (narrows 2.6).
   PARTIALLY LANDED: `admission.Gate` applies the bulk high/low-water hysteresis
   to the spool allocator's ordinary usage (80 and 50 percent of the ordinary
-  ceiling), and `spool.WithAdmissionGate` refuses a commit while it is paused
-  with `ErrAdmissionPaused`, which matches `ErrAdmissionRefused` and writes
-  nothing. Every producer on the agent spool is bulk, so leased sweeps wait,
-  and metrics and unleased sweep results keep their records queued, until
-  reclaim brings the spool to the low water. The agent exports
-  `agent_edge_spool_admission_paused`. `admission.Controller` stays unwired:
-  it frees charged bytes only through a reclaim authorization nothing can
-  mint before task 2.28. This item stays unchecked until the farm01
-  verification; byte-fair lanes remain task 2.7. Holding execution completion
-  while records are unresolved remains TODO.
+  ceiling), and `spool.WithAdmissionGate` refuses a deferred commit with
+  `ErrAdmissionPaused`, which matches `ErrAdmissionRefused` and writes
+  nothing. Pause is that hysteresis. Between the marks the same gate also
+  defers a flow ahead of its share; that rule is task 2.7. Every producer on
+  the agent spool is bulk, so leased sweeps wait, and metrics and unleased
+  sweep results keep their records queued, until reclaim brings the spool to
+  the low water. The agent exports `agent_edge_spool_admission_paused`.
+  `admission.Controller` stays unwired: it frees charged bytes only through a
+  reclaim authorization nothing can mint before task 2.28. This item stays
+  unchecked until the farm01 verification; the rest of task 2.7 stays open.
+  Holding execution completion while records are unresolved remains TODO.
 - [ ] M3.3 Fault drill. During active sweeps on farm01, restart the gateway,
   core (EventWriter), NATS and the canary agent, each at least once
   mid-execution. Afterwards CNPG shows zero missing and zero duplicated host

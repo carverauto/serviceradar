@@ -47,8 +47,9 @@ var ErrInvalidAllocatorConfig = errors.New("spool: invalid allocator config")
 var ErrAdmissionRefused = errors.New("spool: admission refused")
 
 // ErrAdmissionPaused is returned when the admission gate (WithAdmissionGate)
-// holds producer admission paused. It matches ErrAdmissionRefused: nothing is
-// charged or written, and the producer defers.
+// defers a commit: the gate is paused, or, between the watermarks, the
+// commit's flow is ahead of its share. It matches ErrAdmissionRefused:
+// nothing is charged or written, and the producer defers.
 var ErrAdmissionPaused = fmt.Errorf("%w: producer admission paused", ErrAdmissionRefused)
 
 // ErrRecoveryConcurrencyExhausted is returned by AcquireRecovery when the

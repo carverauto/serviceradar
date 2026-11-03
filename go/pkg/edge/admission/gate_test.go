@@ -18,6 +18,7 @@ package admission
 
 import (
 	"errors"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -265,5 +266,41 @@ func TestAdmitFlowBoundsTheCatchUpOfANewFlow(t *testing.T) {
 	}
 	if limit := int((4<<20+fairQuantum)/record) + 1; caughtUp > limit {
 		t.Fatalf("newcomer caught up %d records before the leader resumed, want at most %d", caughtUp, limit)
+	}
+}
+
+// Past maxFairFlows the flow seen longest ago is forgotten. A one-byte flow
+// that has not asked since the others filled the table no longer holds a
+// leader back; forgetting anyone newer would leave that leader deferred.
+func TestAdmitFlowForgetsTheStalestFlowPastTheCap(t *testing.T) {
+	var held uint64
+	g, err := NewGate(8<<20, 4<<20, func() uint64 { return held })
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Unix(1_700_000_000, 0)
+	ahead := fairQuantum + 1
+	if g.AdmitFlow("victim", 1, start) != Admit {
+		t.Fatal("victim below the low water was deferred")
+	}
+	if g.AdmitFlow("leader", ahead, start.Add(time.Second)) != Admit {
+		t.Fatal("leader below the low water was deferred")
+	}
+	for i := range maxFairFlows - 2 {
+		name := "filler-" + strconv.Itoa(i)
+		if g.AdmitFlow(name, ahead, start.Add(2*time.Second)) != Admit {
+			t.Fatalf("%s below the low water was deferred", name)
+		}
+	}
+
+	held = 5 << 20
+	if got := g.AdmitFlow("leader", 1, start.Add(3*time.Second)); got != Defer {
+		t.Fatalf("leader a quantum ahead of the stalest flow = %v, want Defer", got)
+	}
+	if g.AdmitFlow("newcomer", ahead, start.Add(4*time.Second)) != Admit {
+		t.Fatal("newcomer that should evict the stalest flow was deferred")
+	}
+	if got := g.AdmitFlow("leader", 1, start.Add(5*time.Second)); got != Admit {
+		t.Fatalf("leader after the stalest flow was evicted = %v, want Admit", got)
 	}
 }

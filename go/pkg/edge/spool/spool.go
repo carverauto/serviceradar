@@ -435,7 +435,7 @@ func (s *Spool) AppendFlow(flow string, eventID, body []byte) (uint64, error) {
 // recovery running: recovery is how a failed lane is repaired.
 //
 // WithAdmissionGate, when set, is consulted after validation and before
-// allocator admission. A paused gate returns ErrAdmissionPaused, which matches
+// allocator admission. A false answer returns ErrAdmissionPaused, which matches
 // ErrAdmissionRefused: nothing is written or charged and no sequence is
 // allocated. Terminal evidence and reclaim are not gated.
 //
