@@ -21,7 +21,6 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
-	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -37,7 +36,7 @@ import (
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 )
 
-func otlpRelayCapability(t *testing.T, agentID string, notBefore, expires time.Time, maxRows uint32, maxWriteBytes uint64) *edgev1.EdgeSignedCapabilityV1 {
+func otlpRelayCapability(t *testing.T, notBefore, expires time.Time, maxRows uint32) *edgev1.EdgeSignedCapabilityV1 {
 	t.Helper()
 	_, key, err := ed25519.GenerateKey(nil)
 	require.NoError(t, err)
@@ -63,15 +62,15 @@ func otlpRelayCapability(t *testing.T, agentID string, notBefore, expires time.T
 			ScopeId:                testAssignmentID[:],
 			ScopeSha256:            digest[:],
 			OriginKind:             edgev1.EdgeOriginKind_EDGE_ORIGIN_KIND_AGENT,
-			OriginPrincipalId:      []byte(agentID),
-			ProducerInstanceId:     []byte(agentID),
+			OriginPrincipalId:      []byte(sysmonEdgeAgentID),
+			ProducerInstanceId:     []byte(sysmonEdgeAgentID),
 			RouteProfile:           edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
 			TrafficClass:           edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_BULK,
 			PackageId:              "serviceradar.agent.otlp_relay",
 			PackageSha256:          digest[:],
 			CostModelVersion:       1,
 			MaxProjectedRowCount:   maxRows,
-			MaxProjectedWriteBytes: maxWriteBytes,
+			MaxProjectedWriteBytes: uint64(edgerecord.MaxRecordBytes),
 		}},
 	}
 	edgerecord.SignCapability(capability, key)
@@ -80,21 +79,9 @@ func otlpRelayCapability(t *testing.T, agentID string, notBefore, expires time.T
 
 func spooledOtlpRelayRecords(t *testing.T, sp *spool.Spool) ([]*edgev1.EdgeRecordV1, []*addonpb.OtlpRelayFrame) {
 	t.Helper()
-	stored, err := sp.Unresolved()
-	require.NoError(t, err)
-	records := make([]*edgev1.EdgeRecordV1, 0, len(stored))
-	frames := make([]*addonpb.OtlpRelayFrame, 0, len(stored))
-	for _, s := range stored {
-		record := &edgev1.EdgeRecordV1{}
-		require.NoError(t, gproto.Unmarshal(s.Body, record))
-		require.NoError(t, edgerecord.ValidateOtlpRelayRecord(record))
-		require.Nil(t, record.GetSourceAuthorization())
-		frame := &addonpb.OtlpRelayFrame{}
-		require.NoError(t, gproto.Unmarshal(recordBody(t, record), frame))
-		records = append(records, record)
-		frames = append(frames, frame)
-	}
-	return records, frames
+	return spooledEdgeRecordsWithBody(t, sp, edgerecord.ValidateOtlpRelayRecord, func() *addonpb.OtlpRelayFrame {
+		return &addonpb.OtlpRelayFrame{}
+	})
 }
 
 type fakeOtlpRelayGateway struct {
@@ -118,7 +105,7 @@ func (g *fakeOtlpRelayGateway) StreamStatus(_ context.Context, chunks []*proto.G
 func TestOtlpRelayPumpWithGrantSpoolsEdgeRecordsAndAcksAfterAppend(t *testing.T) {
 	sp := openTestEdgeSpool(t)
 	now := time.Now()
-	cap := otlpRelayCapability(t, sysmonEdgeAgentID, now.Add(-time.Hour), now.Add(8*24*time.Hour), 1024, 524_288)
+	cap := otlpRelayCapability(t, now.Add(-time.Hour), now.Add(8*24*time.Hour), 1024)
 	gw := &fakeOtlpRelayGateway{}
 
 	pump := &otlpRelayPump{
@@ -172,7 +159,7 @@ func TestOtlpRelayPumpWithGrantSpoolsEdgeRecordsAndAcksAfterAppend(t *testing.T)
 func TestOtlpRelayPumpSplitsMultiRecordFrameAndPreservesCountersOnFirstPart(t *testing.T) {
 	sp := openTestEdgeSpool(t)
 	now := time.Now()
-	cap := otlpRelayCapability(t, sysmonEdgeAgentID, now.Add(-time.Hour), now.Add(8*24*time.Hour), 2, 524_288)
+	cap := otlpRelayCapability(t, now.Add(-time.Hour), now.Add(8*24*time.Hour), 2)
 	gw := &fakeOtlpRelayGateway{}
 
 	pump := &otlpRelayPump{
@@ -235,7 +222,7 @@ func (f *flakyEdgeAppender) AppendFlow(_ string, eventID, body []byte) (uint64, 
 	f.eventIDs = append(f.eventIDs, append([]byte(nil), eventID...))
 	f.mu.Unlock()
 	if attempt == 1 {
-		return 0, errors.New("simulated transient spool full")
+		return 0, spool.ErrAdmissionPaused
 	}
 	return f.delegate.Append(eventID, body)
 }
@@ -244,7 +231,7 @@ func TestOtlpRelayPumpRetryableSpoolRefusalRetainsBuiltEventIDBeforeAck(t *testi
 	sp := openTestEdgeSpool(t)
 	flaky := &flakyEdgeAppender{delegate: sp}
 	now := time.Now()
-	cap := otlpRelayCapability(t, sysmonEdgeAgentID, now.Add(-time.Hour), now.Add(8*24*time.Hour), 1024, 524_288)
+	cap := otlpRelayCapability(t, now.Add(-time.Hour), now.Add(8*24*time.Hour), 1024)
 
 	pump := &otlpRelayPump{
 		addonID:             "otel-collector",
@@ -287,7 +274,7 @@ func TestOtlpRelayPumpRetryableSpoolRefusalRetainsBuiltEventIDBeforeAck(t *testi
 func TestOtlpRelayPumpSendsOversizedSingleRecordOnGatewayPath(t *testing.T) {
 	sp := openTestEdgeSpool(t)
 	now := time.Now()
-	cap := otlpRelayCapability(t, sysmonEdgeAgentID, now.Add(-time.Hour), now.Add(8*24*time.Hour), 1024, 524_288)
+	cap := otlpRelayCapability(t, now.Add(-time.Hour), now.Add(8*24*time.Hour), 1024)
 	gw := &fakeOtlpRelayGateway{}
 	dropped := 0
 	payload := bytes.Repeat([]byte("x"), edgerecord.MaxRecordBytes+1024)
@@ -346,7 +333,7 @@ func TestOtlpRelayPumpSendsOversizedSingleRecordOnGatewayPath(t *testing.T) {
 func TestOtlpRelayPumpSpoolsFittingRecordAndGatewaysOversizedSibling(t *testing.T) {
 	sp := openTestEdgeSpool(t)
 	now := time.Now()
-	cap := otlpRelayCapability(t, sysmonEdgeAgentID, now.Add(-time.Hour), now.Add(8*24*time.Hour), 1024, 524_288)
+	cap := otlpRelayCapability(t, now.Add(-time.Hour), now.Add(8*24*time.Hour), 1024)
 	gw := &fakeOtlpRelayGateway{}
 	oversized := bytes.Repeat([]byte("y"), edgerecord.MaxRecordBytes+2048)
 
@@ -407,7 +394,7 @@ func TestOtlpRelayPumpSpoolsFittingRecordAndGatewaysOversizedSibling(t *testing.
 func TestOtlpRelayPumpAcksSingleRecordThatExceedsGatewayFrameCap(t *testing.T) {
 	sp := openTestEdgeSpool(t)
 	now := time.Now()
-	cap := otlpRelayCapability(t, sysmonEdgeAgentID, now.Add(-time.Hour), now.Add(8*24*time.Hour), 1024, 524_288)
+	cap := otlpRelayCapability(t, now.Add(-time.Hour), now.Add(8*24*time.Hour), 1024)
 	gw := &fakeOtlpRelayGateway{}
 
 	pump := &otlpRelayPump{

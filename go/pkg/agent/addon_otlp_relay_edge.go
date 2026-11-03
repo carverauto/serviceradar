@@ -129,12 +129,7 @@ func validOtlpRelayTelemetryRecord(rec *addonpb.TelemetryRecord) error {
 	if rec == nil {
 		return fmt.Errorf("%w: nil telemetry record", edgerecord.ErrOtlpRelayFrame)
 	}
-	switch rec.GetPayloadKind() {
-	case addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OTLP_TRACES,
-		addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OTLP_LOGS,
-		addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OTLP_METRICS,
-		addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OTLP_DERIVED_METRIC:
-	default:
+	if !edgerecord.ValidOtlpRelayPayloadKind(rec.GetPayloadKind()) {
 		return fmt.Errorf("%w: unsupported payload_kind %v", edgerecord.ErrOtlpRelayFrame, rec.GetPayloadKind())
 	}
 	if len(rec.GetPayload()) == 0 {

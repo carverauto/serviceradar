@@ -1027,30 +1027,33 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       assert {@flow_attribution_contract, 1} in refs
       assert {@otlp_relay_contract, 1} in refs
 
-      document = %{
-        "registry_epoch" => 1,
-        "registry_snapshot_sha256" => Base.encode64(:crypto.hash(:sha256, "registry")),
-        "contracts" => [
-          %{
-            "contract_id" => @flow_attribution_contract,
-            "contract_version" => 1,
-            "contract_bundle_sha256" => Base.encode64(:crypto.hash(:sha256, "flow-bundle")),
-            "state" => "active",
-            "route_profile" => "EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1",
-            "traffic_class" => "EDGE_RECORD_TRAFFIC_CLASS_BULK",
-            "cost_model_version" => 1
-          },
-          %{
-            "contract_id" => @otlp_relay_contract,
-            "contract_version" => 1,
-            "contract_bundle_sha256" => Base.encode64(:crypto.hash(:sha256, "otlp-bundle")),
-            "state" => "active",
-            "route_profile" => "EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1",
-            "traffic_class" => "EDGE_RECORD_TRAFFIC_CLASS_BULK",
-            "cost_model_version" => 1
-          }
-        ]
-      }
+      document =
+        Jason.encode!(%{
+          "registry_epoch" => 1,
+          "registry_snapshot_sha256" => String.duplicate("cd", 32),
+          "contracts" => [
+            %{
+              "contract_id" => @flow_attribution_contract,
+              "contract_version" => 1,
+              "contract_bundle_sha256" => String.duplicate("ab", 32),
+              "state" => "active",
+              "route_profile" => "EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1",
+              "traffic_class" => "EDGE_RECORD_TRAFFIC_CLASS_BULK",
+              "partition_rule" => "network_scope_v1",
+              "cost_model_version" => 1
+            },
+            %{
+              "contract_id" => @otlp_relay_contract,
+              "contract_version" => 1,
+              "contract_bundle_sha256" => String.duplicate("ef", 32),
+              "state" => "active",
+              "route_profile" => "EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1",
+              "traffic_class" => "EDGE_RECORD_TRAFFIC_CLASS_BULK",
+              "partition_rule" => "network_scope_v1",
+              "cost_model_version" => 1
+            }
+          ]
+        })
 
       assert {:ok, flow_contract} =
                OutputContract.from_document(document, {@flow_attribution_contract, 1})
