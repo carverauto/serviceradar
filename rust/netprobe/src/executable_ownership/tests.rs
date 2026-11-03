@@ -503,6 +503,7 @@ fn resolution_happens_once_per_executable_inode_until_the_database_changes() {
             resolutions: 1,
             cache_hits: 9,
             index_builds: 1,
+            malformed_paths: 0,
         }
     );
 
@@ -531,6 +532,7 @@ fn resolution_happens_once_per_executable_inode_until_the_database_changes() {
             resolutions: 1,
             cache_hits: 0,
             index_builds: 1,
+            malformed_paths: 0,
         }
     );
 }

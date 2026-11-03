@@ -1208,6 +1208,62 @@ func (x *TelemetryBatch) GetCounters() *TelemetryCounters {
 // one pre-chunked Export*ServiceRequest, so the agent can forward a frame
 // verbatim as the GatewayServiceStatus.message bytes for source ==
 // "otlp-relay" without re-chunking.
+//
+// Edge-record contract and payload rules (move-agent-telemetry-to-edge-records, task 4.1):
+//   - Contract ref: {"serviceradar.otlp.relay", 1}, authority: :standing_grant,
+//     package_id: "serviceradar.agent.otlp_relay", payload family:
+//     EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1, route profile:
+//     EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1, traffic class:
+//     EDGE_RECORD_TRAFFIC_CLASS_BULK.
+//   - EdgeRecordV1.source_authorization MUST be unset (nil).
+//   - Uncompressed inner payload is a single canonical protobuf-encoded OtlpRelayFrame.
+//     966,656 bytes (900 * 1024 + 64 * 1024, otlpRelayMaxFrameMessageBytes) is an
+//     uncompressed ceiling only. The encoded payload must be small enough that the
+//     canonical EdgeRecordV1 is at most MaxRecordBytes (512 KiB). That bound is
+//     stricter than payload length <= MaxPayloadBytes, and a payload at
+//     MaxPayloadBytes does not fit. The producer splits further when it does not.
+//   - relay_id MUST be > 0; batch MUST be present with non-empty records;
+//     length(batch.records) MUST equal EdgeRecordV1.projected_row_count.
+//     projected_write_bytes equals that record's actual uncompressed payload size,
+//     a true upper bound because the projector never writes more than the record
+//     carries. max_projected_write_bytes is the 512 KiB record payload cap.
+//   - Every TelemetryRecord in batch.records MUST have a routable OTLP payload_kind in
+//     {TELEMETRY_PAYLOAD_KIND_OTLP_TRACES (3), TELEMETRY_PAYLOAD_KIND_OTLP_LOGS (4),
+//     TELEMETRY_PAYLOAD_KIND_OTLP_METRICS (5),
+//     TELEMETRY_PAYLOAD_KIND_OTLP_DERIVED_METRIC (6)} and non-empty pre-chunked payload
+//     bytes. An unroutable payload_kind is not a retryable edge-record failure: drop
+//     that record and emit [:serviceradar, :otlp_relay, :record_rejected] with
+//     measurement count: 1 and metadata agent_id (origin_principal_id).
+//   - Agent identity comes from the attested EdgeRecordV1.origin_principal_id (the
+//     agent component id). network_scope_id is the partition row's 16-byte UUID, not
+//     the warehouse partition or Sr-Partition. Resolve that row with
+//     ServiceRadar.Infrastructure.Partition.get_by_id/2 and
+//     actor: SystemActor.system/1, and use its slug. Refuse publish/3 only when that
+//     read finds no row. Do not pass the raw scope bytes or substitute "default".
+//     Never take either value from batch.source.metadata or TelemetryRecord.metadata.
+//   - The agent commits each OtlpRelayFrame record to its durable edge spool under the
+//     standing grant before advancing OtlpRelayAck.acked_relay_id to the add-on.
+//   - On a fresh primary delivery, the projector's publish/3 (before the EdgeRecord
+//     ledger transaction) re-checks OutputGrants.check_current/5, emits
+//     [:serviceradar, :otlp_relay, :spool] with measurements received, filtered,
+//     emitted, dropped, and queue_depth from batch.counters and metadata agent_id
+//     (origin_principal_id) and partition_id (the resolved slug), and republishes each
+//     TelemetryRecord.payload verbatim to the JetStream subject
+//     OtlpRelayPublisher.subjects/1 uses for that payload kind. Defaults, overridable
+//     by AGENT_GATEWAY_OTLP_RELAY_TRACES_SUBJECT, AGENT_GATEWAY_OTLP_RELAY_LOGS_SUBJECT,
+//     AGENT_GATEWAY_OTLP_RELAY_METRICS_SUBJECT, and
+//     AGENT_GATEWAY_OTLP_RELAY_DERIVED_METRICS_SUBJECT, are traces otel.traces.raw,
+//     logs logs.otel, metrics otel.metrics.raw, and derived metrics
+//     otel.metrics.derived. Headers are Sr-Agent-Id (origin_principal_id), Sr-Partition
+//     (the resolved slug), Sr-Ingest-Identity ("agent:" <> origin_principal_id),
+//     Sr-Ingress-Id, Sr-Ingress-Time-Unix-Nano, and Nats-Msg-Id set to that
+//     TelemetryRecord's event_id so a retried primary delivery does not store a second
+//     copy of the chunk. The republish waits for a JetStream PubAck and only then
+//     returns so the ledger can commit. It emits [:serviceradar, :event_writer, :signal]
+//     with measurement count: 1 and metadata outcome: :relayed and signal :traces,
+//     :logs, :metric_points, or :metrics for traces, logs, OTLP metrics, and derived
+//     metrics only when that PubAck is not a duplicate.
+//     Replays and late-fenced deliveries skip publish/3.
 type OtlpRelayFrame struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RelayId       uint64                 `protobuf:"varint,1,opt,name=relay_id,json=relayId,proto3" json:"relay_id,omitempty"`

@@ -3209,6 +3209,59 @@ func (x *FlowAttributionEvent) GetExecutableOwnership() *ExecutableOwnership {
 // dropped_since_last surfaces backpressure from
 // client.DroppedFlowAttributionEvents so the receive path can emit telemetry
 // when the sidecar IPC queue overflowed between drains.
+//
+// Edge-record contract and payload rules (move-agent-telemetry-to-edge-records, task 4.1):
+//   - Contract ref: {"serviceradar.netprobe.flow_attribution", 1},
+//     authority: :standing_grant, package_id: "serviceradar.agent.flow_attribution",
+//     payload family: EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1, route profile:
+//     EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1, traffic class:
+//     EDGE_RECORD_TRAFFIC_CLASS_BULK.
+//   - EdgeRecordV1.source_authorization MUST be unset (nil).
+//   - Uncompressed inner payload is a single canonical protobuf-encoded
+//     FlowAttributionEventBatch. 6,291,456 bytes (6 * 1024 * 1024,
+//     flowAttributionMaxBatchMessageBytes) is an uncompressed ceiling only. The
+//     encoded payload must be small enough that the canonical EdgeRecordV1 is at
+//     most MaxRecordBytes (512 KiB). That bound is stricter than payload length
+//     <= MaxPayloadBytes, and a payload at MaxPayloadBytes does not fit. The
+//     producer splits further when it does not.
+//   - events MUST be non-empty (1 <= length(events) <= 4,096,
+//     flowAttributionMaxEventsPerChunk), and length(events) MUST equal
+//     EdgeRecordV1.projected_row_count. max_projected_rows is 4,096.
+//     write_bytes_per_row is 983,029, the maximum JSON object size in bytes of
+//     one observation row as ServiceRadar.FlowAttribution.Observations.publish
+//     emits it: the flow_process_attribution_observations column bounds, shortened
+//     until that object fits in one NATS message. projected_write_bytes is
+//     projected_row_count * 983,029. max_projected_write_bytes is
+//     4,096 * 983,029 = 4,026,486,784.
+//   - When both batch_start_unix_nano and batch_end_unix_nano are non-zero,
+//     batch_start_unix_nano <= batch_end_unix_nano.
+//   - Partition guard (B-4 defeater): the batch carries no partition or agent field.
+//     The projector takes agent_id from the attested EdgeRecordV1.origin_principal_id
+//     (the agent component id). network_scope_id is the partition row's 16-byte UUID,
+//     not the warehouse partition. Resolve that row with
+//     ServiceRadar.Infrastructure.Partition.get_by_id/2 and
+//     actor: SystemActor.system/1, and pass its slug to
+//     FlowAttribution.publish_observations/4. Refuse publish/3 only when that read
+//     finds no row. Do not pass the raw scope bytes or substitute "default".
+//   - The agent commits each bounded FlowAttributionEventBatch to its durable edge
+//     spool under the standing grant before acknowledging the drained sidecar prefix
+//     and dropped_since_last baseline.
+//   - On a fresh primary delivery, the projector's publish/3 (before the EdgeRecord
+//     ledger transaction) re-checks OutputGrants.check_current/5 and forwards events
+//     to ServiceRadar.FlowAttribution.publish_observations/4 with the resolved
+//     partition slug, origin_principal_id as agent_id, and EdgeRecordV1.event_id
+//     (loaded by EventWriter into StarRocks flow_process_attribution_observations,
+//     or acknowledged as :ok without publishing when StarRocks is disabled).
+//     publish_observations/4 chunks the batch so every published message stays
+//     within the NATS server max payload (1,048,576 bytes) and never publishes
+//     one oversized message. Each observation split carries a stable Nats-Msg-Id
+//     derived from that event id and distinct across splits, so a ledger failure
+//     before commit stores each split once and does not drop a later split.
+//     publish/3 returns only after those PubAcks so the ledger can commit.
+//     [:serviceradar, :event_writer, :attributed_flow, :batch_received] is emitted
+//     only after that ledger commit, with measurements count: 1, event_count, and
+//     dropped_since_last and metadata partition_id and agent_id. A failed attempt
+//     does not emit it. Replays and late-fenced deliveries skip publish/3.
 type FlowAttributionEventBatch struct {
 	state              protoimpl.MessageState  `protogen:"open.v1"`
 	Events             []*FlowAttributionEvent `protobuf:"bytes,1,rep,name=events,proto3" json:"events,omitempty"`
