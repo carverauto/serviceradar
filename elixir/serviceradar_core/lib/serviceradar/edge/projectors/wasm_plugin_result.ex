@@ -197,11 +197,9 @@ defmodule ServiceRadar.Edge.Projectors.WasmPluginResult do
 
   # Rebuilds the serviceradar.plugin_result.v1 payload map the ingestor and
   # its registered handlers read. Typed sub-bodies that core stores or
-  # correlates on ride back as their decoded JSON values. Dedicated contract
-  # payloads fold into the slot their handler reads today: schema'd detail
-  # payloads become `details` when the result carries none, a threat-intel
-  # page becomes `threat_intel`, and every contract payload is also listed
-  # under `contract_payloads` for handlers that scan it.
+  # correlates on ride back as their decoded JSON values. Schema'd bodies
+  # that travel in `details` stay there verbatim; a top-level threat-intel
+  # page goes back under `threat_intel`, the key its handler reads first.
   defp result_payload(%WasmPluginResultItemV1{} = item) do
     payload =
       put_present(
@@ -227,45 +225,13 @@ defmodule ServiceRadar.Edge.Projectors.WasmPluginResult do
         item.run_overrides_acknowledged
       )
 
-    payload
-    |> fold_contract_payloads(item)
-    |> Map.reject(fn {_key, value} -> value in [nil, ""] end)
-  end
-
-  defp fold_contract_payloads(payload, %WasmPluginResultItemV1{} = item) do
-    payloads =
-      [
-        item.interface_config_checks,
-        item.hypervisor_enrichment,
-        item.proxmox_enrichment,
-        item.wifi_map_batch,
-        item.threat_intel_page
-      ] ++
-        (item.camera_descriptors || []) ++ (item.contract_payloads || [])
-
-    decoded =
-      payloads
-      |> Enum.reject(&is_nil/1)
-      |> Enum.map(fn contract ->
-        %{"schema" => contract.schema, "payload" => decode_json(contract.payload_json)}
-      end)
-
-    payload = put_present(payload, "contract_payloads", decoded)
-
     payload =
       case item.threat_intel_page do
         nil -> payload
         page -> Map.put(payload, "threat_intel", decode_json(page.payload_json))
       end
 
-    if payload["details"] in [nil, ""] do
-      case Enum.find(decoded, &is_map(&1["payload"])) do
-        %{"payload" => details} -> Map.put(payload, "details", Jason.encode!(details))
-        _ -> payload
-      end
-    else
-      payload
-    end
+    Map.reject(payload, fn {_key, value} -> value in [nil, ""] end)
   end
 
   defp display_payload(widget) do

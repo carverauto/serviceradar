@@ -262,6 +262,17 @@ func payloadList(payload map[string]interface{}, key string) []interface{} {
 }
 
 func payloadStringList(payload map[string]interface{}, key string) []string {
+	// The host stamps its acknowledgement list as a []string on the shared
+	// payload map; guest JSON lists arrive as []interface{}.
+	if values, ok := payload[key].([]string); ok {
+		out := make([]string, 0, len(values))
+		for _, value := range values {
+			if value != "" {
+				out = append(out, value)
+			}
+		}
+		return out
+	}
 	var out []string
 	for _, raw := range payloadList(payload, key) {
 		if value, ok := raw.(string); ok && value != "" {

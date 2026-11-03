@@ -125,15 +125,18 @@ func TestPluginResultsWithAGrantGoOnlyToTheEdgeSpool(t *testing.T) {
 	loop := pluginResultsLoop(t, sp)
 	pluginResultsCapability(t, loop)
 
-	loop.pendingPluginResults = []PluginResult{
-		hostPluginResult(`{
+	acknowledged := hostPluginResult(`{
 			"status":"OK","summary":"synthetic check healthy","schema_version":1,
 			"labels":{"env":"lab"},
 			"events":[{"id":"evt-1","time":"2026-07-14T00:00:00Z","class_uid":1008,"category_uid":1,
 			  "type_uid":100801,"activity_id":1,"severity_id":1,"severity":"Informational","message":"probe ok"}],
 			"device_discovery":[{"schema":"serviceradar.device_discovery.v1","collection_id":"col-1",
 			  "devices":[{"device_id":"dev-1","hostname":"sensor.example.com","ip":"192.0.2.10","is_available":true}]}]
-		}`),
+		}`)
+	acknowledged.AcknowledgedRunOverrides = []string{"override-f1"}
+
+	loop.pendingPluginResults = []PluginResult{
+		acknowledged,
 		hostPluginResult(`{"status":"CRITICAL","summary":"synthetic check down"}`),
 	}
 
@@ -153,6 +156,8 @@ func TestPluginResultsWithAGrantGoOnlyToTheEdgeSpool(t *testing.T) {
 	require.Equal(t, "synthetic check healthy", first.GetSummary())
 	require.Equal(t, "synthetic-check", first.GetServiceName())
 	require.Equal(t, "plugin", first.GetServiceType())
+	require.Equal(t, []string{"override-f1"}, first.GetRunOverridesAcknowledged(),
+		"the host-authored acknowledgement list reaches the edge record")
 	require.Equal(t, "assignment-9", first.GetLabels()["assignment_id"], "host labels are stamped")
 	require.Equal(t, sysmonEdgeAgentID, first.GetLabels()["agent_id"])
 	require.Len(t, first.GetEvents(), 1)
