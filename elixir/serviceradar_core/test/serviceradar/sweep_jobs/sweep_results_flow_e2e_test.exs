@@ -3142,6 +3142,162 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     end
   end
 
+  describe "execution completion waits for every chunk" do
+    test "a final chunk leaves the execution running until the other chunk arrives", %{
+      actor: actor,
+      agent_id: agent_id
+    } do
+      unique_id = Ash.UUID.generate()
+      group = reporter_group!(actor, unique_id, "final-before-sibling", [])
+      execution_id = Ash.UUID.generate()
+      final_ip = unique_ip("final-before-#{unique_id}")
+      sibling_ip = unique_ip("sibling-after-#{unique_id}")
+      :ok = SweepPubSub.subscribe()
+
+      # Indexes are 1 and 2. Completion counts distinct ingested chunks, so the
+      # final chunk alone does not close an execution whose total is 2.
+      assert {:ok, _stats} =
+               ingest_chunk(
+                 actor,
+                 group.id,
+                 agent_id,
+                 execution_id,
+                 [available_result(final_ip)],
+                 chunk_index: 1,
+                 total_chunks: 2,
+                 is_final: true
+               )
+
+      running = execution_snapshot(execution_id)
+      assert running.status == :running
+      assert running.completed_at == nil
+      assert running.hosts_available == 1
+      refute_received {:sweep_execution_completed, %{execution_id: ^execution_id}}
+
+      assert {:ok, _stats} =
+               ingest_chunk(
+                 actor,
+                 group.id,
+                 agent_id,
+                 execution_id,
+                 [unavailable_result(sibling_ip)],
+                 chunk_index: 2,
+                 total_chunks: 2,
+                 is_final: false
+               )
+
+      completed = execution_snapshot(execution_id)
+      assert completed.status == :completed
+      assert %DateTime{} = completed.completed_at
+      assert completed.hosts_available == 1
+      assert completed.hosts_failed == 1
+
+      assert_receive {:sweep_execution_completed,
+                      %{execution_id: ^execution_id, status: :completed}}
+
+      assert actor
+             |> host_result_snapshots(execution_id)
+             |> Enum.map(& &1.ip)
+             |> Enum.sort() == Enum.sort([final_ip, sibling_ip])
+    end
+
+    test "a cancel record cancels the execution and keeps its host rows", %{
+      actor: actor,
+      agent_id: agent_id
+    } do
+      unique_id = Ash.UUID.generate()
+      group = reporter_group!(actor, unique_id, "cancel-record", [])
+      execution_id = Ash.UUID.generate()
+      ip = unique_ip("cancel-kept-#{unique_id}")
+      :ok = SweepPubSub.subscribe()
+
+      assert {:ok, _stats} =
+               ingest_chunk(actor, group.id, agent_id, execution_id, [available_result(ip)],
+                 chunk_index: 0,
+                 total_chunks: 2,
+                 is_final: false
+               )
+
+      assert execution_snapshot(execution_id).hosts_available == 1
+
+      assert {:ok, _stats} =
+               ingest_chunk(actor, group.id, agent_id, execution_id, [],
+                 chunk_index: 1,
+                 total_chunks: 2,
+                 is_final: true,
+                 is_cancelled: true
+               )
+
+      cancelled = execution_snapshot(execution_id)
+      assert cancelled.status == :cancelled
+      assert %DateTime{} = cancelled.completed_at
+      assert cancelled.hosts_available == 1
+      assert cancelled.hosts_failed == 0
+
+      assert_receive {:sweep_execution_completed,
+                      %{execution_id: ^execution_id, status: :cancelled}}
+
+      assert [%{ip: ^ip, status: :available}] = host_result_snapshots(actor, execution_id)
+    end
+
+    test "a cancel record after completion cancels the execution without counting hosts again",
+         %{actor: actor, agent_id: agent_id} do
+      unique_id = Ash.UUID.generate()
+      group = reporter_group!(actor, unique_id, "cancel-after-complete", [])
+      execution_id = Ash.UUID.generate()
+      first_ip = unique_ip("cancel-after-a-#{unique_id}")
+      second_ip = unique_ip("cancel-after-b-#{unique_id}")
+      :ok = SweepPubSub.subscribe()
+
+      assert {:ok, _stats} =
+               ingest_chunk(actor, group.id, agent_id, execution_id, [available_result(first_ip)],
+                 chunk_index: 1,
+                 total_chunks: 2,
+                 is_final: false
+               )
+
+      assert {:ok, _stats} =
+               ingest_chunk(
+                 actor,
+                 group.id,
+                 agent_id,
+                 execution_id,
+                 [available_result(second_ip)],
+                 chunk_index: 2,
+                 total_chunks: 2,
+                 is_final: true
+               )
+
+      completed = execution_snapshot(execution_id)
+      assert completed.status == :completed
+      assert completed.hosts_available == 2
+      assert_receive {:sweep_execution_completed,
+                      %{execution_id: ^execution_id, status: :completed}}
+
+      assert {:ok, _stats} =
+               ingest_chunk(actor, group.id, agent_id, execution_id, [],
+                 chunk_index: 2,
+                 total_chunks: 2,
+                 is_final: true,
+                 is_cancelled: true
+               )
+
+      cancelled = execution_snapshot(execution_id)
+      assert cancelled.status == :cancelled
+      assert cancelled.hosts_available == 2
+      assert cancelled.hosts_failed == 0
+      assert cancelled.completed_at == completed.completed_at
+
+      assert_receive {:sweep_execution_completed,
+                      %{execution_id: ^execution_id, status: :cancelled}}
+
+      assert actor
+             |> host_result_snapshots(execution_id)
+             |> Enum.map(& &1.ip)
+             |> Enum.sort() == Enum.sort([first_ip, second_ip])
+    end
+  end
+
   describe "device discovery scope" do
     test "a device-query group records an answering unknown host without seeding a device", %{
       actor: actor,

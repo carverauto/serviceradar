@@ -564,18 +564,21 @@ in `choices.md` and the chart README.
   `admission.Controller` stays unwired: it frees charged bytes only through a
   reclaim authorization nothing can mint before task 2.28. This item stays
   unchecked until the farm01 verification; the rest of task 2.7 stays open.
-  Execution completion now waits for unresolved records. An unleased execution
-  completes in core when its final results record (`is_final`) is ingested. The
-  agent holds that record until every other record of the response has resolved
-  in the spool (`Spool.Watch`/`Settle`, from the terminal evidence), and
-  acknowledges the response only once the completion record has resolved too.
-  A record the gateway rejected permanently, or the spool refused permanently
-  after admission, sends the completion record marked cancelled, so core
-  closes the execution as cancelled rather than completed. A leased execution
-  has no agent-emitted completion: core completes it only when its projected
-  host rows reach the plan's `total_target_count`
-  (`ServiceRadar.Edge.SweepProjection`), so an unresolved or rejected record
-  already keeps it open.
+  Execution completion is decided in core. The agent appends every results
+  record, including the final one (`is_final`, carrying the execution's total
+  chunk count), as soon as the spool accepts it, and acknowledges the response
+  once every record it appended has resolved. Core marks the execution
+  completed only once it has ingested every chunk of that execution: the
+  distinct chunk indexes stored on the execution, compared with that count the
+  way a leased execution completes at the plan's `total_target_count`. Until
+  then the execution stays running, and a chunk that arrives after the final
+  one completes it. A record the gateway rejected permanently, or the spool
+  refused permanently after admission, makes the agent append a durable cancel
+  record for that execution. Core closes the execution as cancelled and keeps
+  the host rows it already stored. A leased execution has no agent-emitted
+  completion: core completes it only when its projected host rows reach the
+  plan's `total_target_count` (`ServiceRadar.Edge.SweepProjection`), so an
+  unresolved or rejected record already keeps it open.
 - [ ] M3.3 Fault drill. During active sweeps on farm01, restart the gateway,
   core (EventWriter), NATS and the canary agent, each at least once
   mid-execution. Afterwards CNPG shows zero missing and zero duplicated host

@@ -423,10 +423,15 @@ defmodule ServiceRadar.Ingestion.ResultIngestor do
       |> Enum.map(&build_sweep_result(&1, last_sweep_time, network))
       |> Enum.reject(&is_nil/1)
 
-    if results == [] do
-      {:error, :no_hosts}
-    else
-      {:ok, results, execution_id, sweep_group_id}
+    cond do
+      results != [] ->
+        {:ok, results, execution_id, sweep_group_id}
+
+      payload["cancelled"] == true ->
+        {:ok, [], execution_id, sweep_group_id}
+
+      true ->
+        {:error, :no_hosts}
     end
   end
 

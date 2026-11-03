@@ -278,6 +278,13 @@ defmodule ServiceRadar.SweepJobs.SweepGroupExecution do
       """
     end
 
+    attribute :received_chunk_indexes, {:array, :integer} do
+      allow_nil? false
+      public? true
+      default []
+      description "Distinct chunk indexes already ingested for this execution"
+    end
+
     create_timestamp :inserted_at
     update_timestamp :updated_at
   end

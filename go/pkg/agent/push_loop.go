@@ -166,7 +166,8 @@ type PushLoop struct {
 	mtrTraceEdge edgeMetricsQueue[mtrCheckResult]
 	sweepSummary edgeMetricsQueue[map[string]any]
 	// sweepResultsEdge is the records of the unleased sweep results response
-	// being spooled.
+	// being spooled, including its final record and, after a permanent sibling
+	// rejection, its cancel record.
 	sweepResultsEdge sweepResultsEdgePending
 	// sweepSummaryInFlight is the queued sweep summary samples the current status
 	// push carries on the legacy path; only the push loop goroutine touches it.

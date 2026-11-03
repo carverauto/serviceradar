@@ -605,8 +605,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       execution,
       final_stats,
       Keyword.get(opts, :chunk_index),
-      Keyword.get(opts, :total_chunks),
-      Keyword.get(opts, :is_final)
+      Keyword.get(opts, :total_chunks)
     )
 
     elapsed = System.monotonic_time(:millisecond) - start_time
@@ -2530,22 +2529,26 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     request_id = Keyword.get(opts, :request_id)
     reporter_context = Keyword.fetch!(opts, :reporter_context)
 
-    {completed_at, updated_at} = execution_timestamps(is_final)
-    duration_ms = execution_duration_ms(execution_id, is_final, completed_at)
+    updated_at = DateTime.truncate(DateTime.utc_now(), :microsecond)
     inc_fields = execution_inc_fields(stats, expected_total_hosts)
+    set_fields = execution_set_fields(updated_at, scanner_metrics)
 
-    set_fields =
-      updated_at
-      |> execution_set_fields(scanner_metrics)
-      |> maybe_mark_execution_complete(is_final, is_cancelled, completed_at, duration_ms)
+    decision = %{
+      chunk_index: Keyword.get(opts, :chunk_index),
+      total_chunks: Keyword.get(opts, :total_chunks),
+      is_final: is_final,
+      is_cancelled: is_cancelled
+    }
 
-    # A closed execution (cancelled by an operator, reaped, superseded or already
-    # completed) keeps its final state. A chunk the agent sent before it stopped
-    # has already recorded its host observations, but must not bump the run's
-    # progress or complete it. Returning nil also skips the progress broadcast,
-    # which would put the run back on the running-scans panel.
-    case update_running_execution_row(execution_id, inc_fields, set_fields) do
-      {0, _rows} ->
+    # A closed execution (failed, reaped, or superseded) keeps its final state.
+    # A chunk the agent sent before it stopped has already recorded its host
+    # observations, but must not bump the run's progress or complete it.
+    # A cancel record is the exception: it closes a running execution, and it
+    # also moves an execution that already completed back to cancelled, without
+    # counting hosts again. Returning nil skips the progress broadcast, which
+    # would put the run back on the running-scans panel.
+    case update_running_execution_row(execution_id, inc_fields, set_fields, decision) do
+      {0, _terminal} ->
         Logger.info(
           "SweepResultsIngestor: Execution #{execution_id} is not running; " <>
             "leaving its progress and status unchanged"
@@ -2553,10 +2556,10 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
         nil
 
-      {_updated, _rows} ->
+      {_updated, terminal} ->
         maybe_set_expected_total(execution_id, expected_total_hosts, updated_at)
 
-        if is_final do
+        if terminal in [:completed, :cancelled] do
           record_group_execution(reporter_context, actor)
         end
 
@@ -2768,28 +2771,6 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     end
   end
 
-  defp execution_timestamps(true) do
-    now = DateTime.utc_now()
-    {DateTime.truncate(now, :second), DateTime.truncate(now, :microsecond)}
-  end
-
-  defp execution_timestamps(false) do
-    now = DateTime.utc_now()
-    {nil, DateTime.truncate(now, :microsecond)}
-  end
-
-  defp execution_duration_ms(_execution_id, false, _completed_at), do: nil
-
-  defp execution_duration_ms(execution_id, true, completed_at) do
-    started_at =
-      Repo.one(from(e in SweepGroupExecution, where: e.id == ^execution_id, select: e.started_at))
-
-    case started_at do
-      nil -> nil
-      _ -> DateTime.diff(completed_at, started_at, :millisecond)
-    end
-  end
-
   defp execution_inc_fields(stats, nil) do
     [
       hosts_available: stats.hosts_available,
@@ -2815,37 +2796,108 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     end
   end
 
-  defp maybe_mark_execution_complete(
-         set_fields,
-         false,
-         _is_cancelled,
-         _completed_at,
-         _duration_ms
-       ), do: set_fields
+  # A cancel wins over a completion committed while this chunk was processed:
+  # the row is locked, and a cancel is allowed to move :completed as well as
+  # :running. :failed and :superseded (stored as :failed) stay closed.
+  defp update_running_execution_row(execution_id, inc_fields, set_fields, decision) do
+    statuses = if decision.is_cancelled, do: [:running, :completed], else: [:running]
 
-  defp maybe_mark_execution_complete(set_fields, true, true, completed_at, duration_ms) do
-    set_fields
-    |> Keyword.put(:status, :cancelled)
-    |> Keyword.put(:completed_at, completed_at)
-    |> Keyword.put(:duration_ms, duration_ms)
+    {:ok, written} =
+      Repo.transaction(fn ->
+        execution =
+          Repo.one(
+            from(e in SweepGroupExecution,
+              where: e.id == ^execution_id and e.status in ^statuses,
+              lock: "FOR UPDATE"
+            )
+          )
+
+        cond do
+          is_nil(execution) ->
+            {0, nil}
+
+          execution.status == :completed ->
+            cancel_completed_execution(execution_id, set_fields)
+
+          true ->
+            write_running_execution(execution, inc_fields, set_fields, decision)
+        end
+      end)
+
+    written
   end
 
-  defp maybe_mark_execution_complete(set_fields, true, _is_cancelled, completed_at, duration_ms) do
-    set_fields
-    |> Keyword.put(:status, :completed)
-    |> Keyword.put(:completed_at, completed_at)
-    |> Keyword.put(:duration_ms, duration_ms)
+  defp cancel_completed_execution(execution_id, set_fields) do
+    {count, _} =
+      Repo.update_all(
+        from(e in SweepGroupExecution, where: e.id == ^execution_id and e.status == :completed),
+        set: [status: :cancelled, updated_at: Keyword.fetch!(set_fields, :updated_at)]
+      )
+
+    {count, :cancelled}
   end
 
-  # The status predicate makes the check and the write one statement, so a
-  # cancel committed while this chunk was being processed still wins.
-  defp update_running_execution_row(execution_id, inc_fields, set_fields) do
-    Repo.update_all(
-      from(e in SweepGroupExecution, where: e.id == ^execution_id and e.status == :running),
-      inc: inc_fields,
-      set: set_fields
-    )
+  defp write_running_execution(execution, inc_fields, set_fields, decision) do
+    indexes =
+      remember_chunk(
+        execution.received_chunk_indexes,
+        decision.chunk_index,
+        decision.total_chunks
+      )
+
+    terminal =
+      execution_terminal(indexes, decision.total_chunks, decision.is_final, decision.is_cancelled)
+
+    set_fields = Keyword.put(set_fields, :received_chunk_indexes, indexes)
+
+    set_fields =
+      if terminal in [:completed, :cancelled] do
+        completed_at = DateTime.truncate(DateTime.utc_now(), :second)
+
+        set_fields
+        |> Keyword.put(:status, terminal)
+        |> Keyword.put(:completed_at, completed_at)
+        |> Keyword.put(:duration_ms, execution_duration(execution.started_at, completed_at))
+      else
+        set_fields
+      end
+
+    {count, _} =
+      Repo.update_all(
+        from(e in SweepGroupExecution, where: e.id == ^execution.id and e.status == :running),
+        inc: inc_fields,
+        set: set_fields
+      )
+
+    {count, terminal}
   end
+
+  defp remember_chunk(indexes, chunk_index, total_chunks)
+       when is_integer(chunk_index) and chunk_index >= 0 and is_integer(total_chunks) and
+              total_chunks > 1 do
+    [chunk_index | List.wrap(indexes)]
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp remember_chunk(indexes, _chunk_index, _total_chunks), do: List.wrap(indexes)
+
+  defp execution_terminal(_indexes, _total_chunks, _is_final, true), do: :cancelled
+
+  defp execution_terminal(indexes, total_chunks, _is_final, false)
+       when is_integer(total_chunks) and total_chunks > 1 do
+    if length(indexes) >= total_chunks, do: :completed, else: :running
+  end
+
+  defp execution_terminal(_indexes, _total_chunks, true, false), do: :completed
+
+  defp execution_terminal(_indexes, _total_chunks, false, false), do: :running
+
+  defp execution_duration(%DateTime{} = started_at, %DateTime{} = completed_at) do
+    DateTime.diff(completed_at, started_at, :millisecond)
+  end
+
+  defp execution_duration(_started_at, _completed_at), do: nil
 
   defp maybe_set_expected_total(_execution_id, nil, _updated_at), do: :ok
 
@@ -3126,8 +3178,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
          execution,
          stats,
          chunk_index,
-         total_chunks,
-         is_final
+         total_chunks
        ) do
     if is_nil(execution) do
       :ok
@@ -3152,7 +3203,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
       SweepPubSub.broadcast_progress(execution_id, progress)
 
-      if is_final do
+      if execution.status in [:completed, :cancelled] do
         SweepPubSub.broadcast_completed(execution, %{
           hosts_total: execution.hosts_total,
           hosts_available: hosts_available,
