@@ -176,9 +176,12 @@ Keep this managed block so 'openspec update' can refresh the instructions.
   core MUST NOT ingest a metric path that bypassed JetStream. The legacy
   agent→gateway→core gRPC `StreamStatus` path that writes sysmon metrics directly
   to the database is the one known exception, being migrated to JetStream (see
-  `openspec/changes/add-causal-anomaly-detection`). MTR traces travel on
-  `mtr.results.>` and are stored by the EventWriter `Mtr` processor; core
-  publishes them and never writes them. Do not add new direct-to-DB
+  `openspec/changes/add-causal-anomaly-detection`). Status-path MTR traces
+  still travel on `mtr.results.>` and are stored by the EventWriter `Mtr`
+  processor after core publishes them. A scheduled trace under a current
+  `serviceradar.mtr.scheduled_trace` grant is an edge record stored by
+  `ServiceRadar.Edge.Projectors.ScheduledMtrTrace` after that JetStream
+  delivery, not from `mtr.results.>`. Do not add new direct-to-DB
   metric writes. The reason is architectural, not stylistic: a metric that lands
   straight in a hypertable is invisible to every real-time consumer (anomaly
   detection, the causal engine) until it is queried back out. Keeping all metrics
