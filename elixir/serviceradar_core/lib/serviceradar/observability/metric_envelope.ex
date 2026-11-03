@@ -13,6 +13,9 @@ defmodule ServiceRadar.Observability.MetricEnvelope do
 
   @schema_version "serviceradar.metric.v1"
 
+  # Ingest sources whose readings describe the host the reporting agent runs on.
+  @agent_host_sources ["sysmon-metrics"]
+
   @typedoc """
   Resolves the canonical device_id for rows whose gateway-attested
   `resource.device_id` is absent. Invoked at most once per decoded message
@@ -48,6 +51,11 @@ defmodule ServiceRadar.Observability.MetricEnvelope do
     `ServiceRadar.EventWriter.PluginDeviceAttribution.attribute_metric_rows/2`.
     That key is not a column; the caller must pass the rows through that function
     (which removes it) before persisting them. Default `false`.
+  - `:agent_host_producer` - when `true`, a row with no `device_id` from a batch
+    whose attested ingest source measures the reporting agent's own host
+    (sysmon) carries `agent_host_metric: true`, for
+    `ServiceRadar.EventWriter.Processors.Metrics.attribute_device_ids/1`, which
+    attributes it to that agent's device and removes the key. Default `false`.
   """
   @spec decode_rows_count(binary(), keyword()) ::
           {:ok, [map()], non_neg_integer()} | {:error, term()}
@@ -60,6 +68,7 @@ defmodule ServiceRadar.Observability.MetricEnvelope do
         rows
         |> resolve_device_ids(Keyword.get(opts, :device_resolver))
         |> maybe_mark_plugin_producer(batch, Keyword.get(opts, :plugin_producer, false))
+        |> maybe_mark_agent_host(batch, Keyword.get(opts, :agent_host_producer, false))
 
       {:ok, rows, count}
     else
@@ -68,23 +77,11 @@ defmodule ServiceRadar.Observability.MetricEnvelope do
     end
   end
 
-  # device_id is NULL for sysmon/SNMP/ICMP because no producer/gateway/core sets
-  # resource.device_id. Resolve it here on the row-build path only, batched once
-  # per message via an injected resolver keyed on target_device_ip. This stays
-  # off the anomaly sample-extract path (which keys on attested identity, not
-  # canonical device_id) and is a no-op unless a resolver is supplied.
-  #
-  # TODO(review): wire the resolver from the persistence caller
-  # (ServiceRadar.EventWriter.Processors.Metrics.parse_message/1, not in this
-  # file) using the same batched IP lookup the deleted ingestors used:
-  #
-  #   ips
-  #   |> ServiceRadar.Identity.DeviceLookup.batch_lookup_by_ip(
-  #        actor: actor, include_deleted: true, use_cache: false)
-  #   |> Map.new(fn {ip, %{canonical_device_id: id}} -> {ip, id} end)
-  #
-  # passed as `device_resolver: fn ips -> ... end`. The caller must supply the
-  # actor/partition context the pure decoder does not have. Reported partial.
+  # No producer or gateway sets resource.device_id for sysmon/SNMP/ICMP. The
+  # persistence caller attributes those rows after decoding
+  # (ServiceRadar.EventWriter.Processors.Metrics.attribute_device_ids/1, using
+  # the markers set below); this optional resolver stays off the anomaly
+  # sample-extract path, which keys on attested identity, not canonical device_id.
   defp resolve_device_ids(rows, nil), do: rows
 
   defp resolve_device_ids(rows, resolver) when is_function(resolver, 1) do
@@ -134,6 +131,18 @@ defmodule ServiceRadar.Observability.MetricEnvelope do
   end
 
   defp maybe_mark_plugin_producer(rows, _batch, _enabled), do: rows
+
+  # Like the plugin marker, this keys on the attested ingest source and never on
+  # the stored `source` tag, which a producer-set metric tag can override.
+  defp maybe_mark_agent_host(rows, %MetricBatch{ingest_identity: %{source: source}}, true)
+       when source in @agent_host_sources do
+    Enum.map(rows, fn
+      %{device_id: nil} = row -> Map.put(row, :agent_host_metric, true)
+      row -> row
+    end)
+  end
+
+  defp maybe_mark_agent_host(rows, _batch, _enabled), do: rows
 
   @spec metric_envelope?(binary()) :: boolean()
   def metric_envelope?(data) when is_binary(data) do

@@ -4,7 +4,8 @@ defmodule ServiceRadar.EventWriter.PluginDeviceAttributionDbTest do
   approved package declaring an inventory source, a real assignment bound to an
   agent and partition, and a device carrying the `integration_id` the plugin
   names -- through the metrics processor, the events processor and alert device
-  resolution.
+  resolution. Also the metrics processor's other attribution rules: an agent's
+  host reading goes to the agent's device, anything else falls back to target IP.
   """
 
   use ServiceRadar.DataCase, async: false
@@ -180,6 +181,33 @@ defmodule ServiceRadar.EventWriter.PluginDeviceAttributionDbTest do
       |> Metrics.attribute_device_ids()
 
     assert row.device_id == polled.uid
+  end
+
+  test "an agent's sysmon metric is stored against the agent's device, not by host IP", ctx do
+    # The host address is held by another device, as on a multi-homed host whose
+    # management address is not the device's primary IP or a confirmed alias.
+    ip = unique_ip()
+    create_device!(ctx.actor, "default", ip: ip)
+
+    [row] =
+      ctx
+      |> metric_message(nil,
+        ingest_identity: %IngestIdentity{
+          source: "sysmon-metrics",
+          payload_kind: "serviceradar.metric.v1",
+          producer_id: ctx.agent_id,
+          producer_kind: "agent",
+          attested_by: "gateway-attr"
+        },
+        target_device_ip: ip
+      )
+      |> List.wrap()
+      |> Metrics.decode_batch()
+      |> elem(0)
+      |> Metrics.attribute_device_ids()
+
+    assert row.device_id == ctx.agent_device.uid
+    refute Map.has_key?(row, :agent_host_metric)
   end
 
   defp metric_rows(ctx, device_id) do

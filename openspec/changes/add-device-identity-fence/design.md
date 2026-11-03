@@ -109,9 +109,10 @@ false**, and the correction inverts the design.
 `MetricResource.device_id` (proto field 9) has **zero production writers** anywhere in the
 repo. None of the five envelope constructions in `go/pkg/agent/metric_envelope.go` sets it,
 no Rust producer sets it, and the gateway's attestation rewrites five other fields and leaves
-it alone. Core's own decoder says so in a comment: *"device_id is NULL for sysmon/SNMP/ICMP
-because no producer/gateway/core sets resource.device_id"*
-(`observability/metric_envelope.ex:58-62`). The only assignments are three test fixtures.
+it alone. The decoder records the same fact
+(`elixir/serviceradar_core/lib/serviceradar/observability/metric_envelope.ex`):
+no producer or gateway sets `resource.device_id` for sysmon, SNMP, or ICMP.
+The only assignments of that proto field are three test fixtures.
 
 So `anomaly_device_uid` (`identity.rs:216-232`) always falls through to a locally-derived
 value: the agent's `os.Hostname()` for sysmon, the polled target IP for SNMP, the agent id
