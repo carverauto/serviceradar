@@ -483,8 +483,10 @@ Partial-tail compaction is not implemented. Reaching the configured byte bound
 still stops further appends. Quarantine occupancy, permanent rejections, and
 quarantine drops are counted on the agent's `/metrics` endpoint beside the
 existing unresolved-byte and age gauges.
-An interrupted run remains incomplete and is not rescanned once the agent has
-durably claimed its first append attempt, even if that first append fails.
+An interrupted run remains incomplete and is not rescanned once a record from
+that run has been admitted. A first append the spool refuses for admission
+writes nothing and leaves the slot runnable, so the executor can try the slot
+again. Any other first-append failure keeps the slot consumed.
 
 Upgrade core and the gateways before the agent. The agent's edge-record builder
 compresses each sweep or sysmon metrics payload as one Zstandard level 1 frame

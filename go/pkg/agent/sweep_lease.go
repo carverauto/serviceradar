@@ -316,6 +316,29 @@ func (s *sweepLeaseStore) MarkExecuted(groupID string, executionID string, colle
 	pruneExecuted(executed, now.UnixNano())
 	executed[executionID] = collectionExpiresUnixNano
 
+	return s.writeExecutedLocked(groupID, executed)
+}
+
+// ReleaseExecuted removes the record MarkExecuted made for executionID in
+// groupID, and persists the group's record, so the executor may run that slot
+// again. Only a run that spooled nothing releases its slot. A slot with no
+// record is left alone.
+func (s *sweepLeaseStore) ReleaseExecuted(groupID string, executionID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.executed[groupID][executionID]; !ok {
+		return nil
+	}
+
+	executed := maps.Clone(s.executed[groupID])
+	delete(executed, executionID)
+
+	return s.writeExecutedLocked(groupID, executed)
+}
+
+// writeExecutedLocked persists executed as groupID's record, then installs it.
+func (s *sweepLeaseStore) writeExecutedLocked(groupID string, executed map[string]int64) error {
 	data, err := json.Marshal(executed)
 	if err != nil {
 		return fmt.Errorf("encode sweep lease executions: %w", err)

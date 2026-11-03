@@ -315,13 +315,16 @@ func (e *sweepLeaseExecutor) runSlot(ctx context.Context, runner sweepLeaseRunne
 	var err error
 	if e.edgeSpool != nil {
 		edgeRunner, ok := runner.(interface {
-			RunSweepGroupLease(context.Context, string, *edgev1.SweepLeaseV1, *edgev1.SweepLeaseSlotV1, *spool.Spool, func() error) error
+			RunSweepGroupLease(context.Context, string, *edgev1.SweepLeaseV1, *edgev1.SweepLeaseSlotV1, *spool.Spool, sweepSlotClaim) error
 		})
 		if !ok {
 			err = errSweepRunnerUnavailable
 		} else {
-			err = edgeRunner.RunSweepGroupLease(runCtx, groupID, lease, slot, e.edgeSpool, func() error {
-				return e.store.MarkExecuted(groupID, executionID, slot.GetCollectionExpiresUnixNano(), now)
+			err = edgeRunner.RunSweepGroupLease(runCtx, groupID, lease, slot, e.edgeSpool, sweepSlotClaim{
+				claim: func() error {
+					return e.store.MarkExecuted(groupID, executionID, slot.GetCollectionExpiresUnixNano(), now)
+				},
+				release: func() error { return e.store.ReleaseExecuted(groupID, executionID) },
 			})
 		}
 	} else {

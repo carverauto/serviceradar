@@ -501,6 +501,48 @@ func TestSweepLeaseExecutorRetriesFailedSlot(t *testing.T) {
 	require.True(t, fixture.store.Executed(fixture.group, built.executionID))
 }
 
+// A leased run whose first record the spool refuses spools nothing, so it must
+// not consume its slot: the slot stays runnable after the agent stops mid-wait
+// and across a reload of the lease store, and once the spool has room the next
+// pass inside the collection window runs it.
+func TestSweepLeaseExecutorRefusedFirstRecordLeavesSlotRunnable(t *testing.T) {
+	fixture := newLeaseExecutorFixture(t)
+	cfg, lease, slot, _ := edgeSweepFixture(t)
+	fixture.group = uuid.UUID(lease.SweepGroupId).String()
+	cfg.SweepGroupID = fixture.group
+	fixture.service.sweepGroupID = fixture.group
+	fixture.service.config = cfg
+	fixture.service.sweeper = &observingSweep{mockSweeper: &mockSweeper{}, results: edgeSweepResults()}
+	fixture.multi.groups = map[string]*SweepService{fixture.group: fixture.service}
+	fixture.multi.groupSequences = map[string]string{fixture.group: ""}
+	fixture.multi.groupOrder = []string{fixture.group}
+	fixture.install(t, lease)
+	sp, freeSpool := fullEdgeSweepSpool(t)
+	fixture.executor.edgeSpool = sp
+	executionID := uuid.UUID(slot.ExecutionId).String()
+
+	// The agent stops while the producer waits for admission.
+	stopping, stop := context.WithTimeout(context.Background(), 600*time.Millisecond)
+	fixture.executor.step(stopping, time.Now)
+	stop()
+
+	records, err := sp.Unresolved()
+	require.NoError(t, err)
+	require.Empty(t, records)
+	require.False(t, fixture.store.Executed(fixture.group, executionID), "a run that spooled nothing consumed its slot")
+	reopened, err := newSweepLeaseStore(fixture.dir)
+	require.NoError(t, err)
+	require.False(t, reopened.Executed(fixture.group, executionID), "the released slot is consumed again after a restart")
+
+	freeSpool()
+	fixture.executor.step(context.Background(), time.Now)
+
+	records, err = sp.Unresolved()
+	require.NoError(t, err)
+	require.NotEmpty(t, records)
+	require.True(t, fixture.store.Executed(fixture.group, executionID))
+}
+
 // Revoking during a slot stops the rest of the pass and does not write the
 // executed sidecar Install removed.
 func TestSweepLeaseExecutorRevokeDuringPassSkipsRemainingSlots(t *testing.T) {
@@ -944,7 +986,7 @@ func TestSweepCallersSerializeThroughSnapshot(t *testing.T) {
 					first <- multi.RunSweepGroupExecution(ctx, group, firstID)
 					return
 				}
-				first <- multi.RunSweepGroupLease(ctx, group, lease, slot, sp, func() error {
+				first <- multi.RunSweepGroupLease(ctx, group, lease, slot, sp, sweepSlotClaim{claim: func() error {
 					select {
 					case <-sw.observerFinished:
 					default:
@@ -952,7 +994,7 @@ func TestSweepCallersSerializeThroughSnapshot(t *testing.T) {
 					}
 					sw.pausePublication()
 					return nil
-				})
+				}})
 			}()
 			select {
 			case <-sw.snapshotStarted:
@@ -1021,7 +1063,7 @@ func (r *queuedLeaseRunner) RunSweepGroupExecution(ctx context.Context, group, e
 	return err
 }
 
-func (r *queuedLeaseRunner) RunSweepGroupLease(ctx context.Context, group string, lease *edgev1.SweepLeaseV1, slot *edgev1.SweepLeaseSlotV1, sp *spool.Spool, claim func() error) error {
+func (r *queuedLeaseRunner) RunSweepGroupLease(ctx context.Context, group string, lease *edgev1.SweepLeaseV1, slot *edgev1.SweepLeaseSlotV1, sp *spool.Spool, claim sweepSlotClaim) error {
 	close(r.entered)
 	err := r.MultiSweepService.RunSweepGroupLease(ctx, group, lease, slot, sp, claim)
 	r.returned <- err
