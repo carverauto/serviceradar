@@ -564,6 +564,64 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     assert stored_anomaly(series_key) == {"canonical-open", "canonical-event", "true"}
   end
 
+  test "a later series clear waits until the pending open is admitted" do
+    Application.put_env(:serviceradar_core, :stateful_alert_engine, __MODULE__.CanonicalBodyEngine)
+
+    Application.put_env(
+      :serviceradar_core,
+      :analytics_signals_replay_result,
+      {:error, {:overloaded, :rule_bytes}}
+    )
+
+    series_key = "synthetic:series-order:#{System.unique_integer([:positive])}"
+    started = 1_812_456_000_000_000_000
+
+    open = anomaly_open(series_key, "open-event", "series-open", 4.2, started)
+    clear = anomaly_clear(series_key, "clear-event", "series-clear", started)
+
+    delete_episode_fixture!(series_key)
+
+    on_exit(fn ->
+      Application.delete_env(:serviceradar_core, :analytics_signals_replay_result)
+      delete_episode_fixture!(series_key)
+    end)
+
+    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([open])
+    assert_receive {:alert_evaluation_events, [opened]}
+    assert opened.message == "series-open"
+    assert opened.unmapped["event_id"] == "open-event"
+    assert stored_series_transitions(series_key) == [{"series-open", "false"}]
+
+    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([clear])
+    assert_receive {:alert_evaluation_events, [waiting]}
+    assert waiting.message == "series-open"
+    assert waiting.unmapped["event_id"] == "open-event"
+    refute_receive {:alert_evaluation_events, _events}, 50
+
+    assert stored_series_transitions(series_key) == [
+             {"series-open", "false"},
+             {"series-clear", "false"}
+           ]
+
+    Application.put_env(:serviceradar_core, :analytics_signals_replay_result, :ok)
+    assert {:ok, 1} = AnalyticsSignals.process_batch([clear])
+    assert_receive {:alert_evaluation_events, [admitted_open]}
+    assert admitted_open.message == "series-open"
+    assert admitted_open.unmapped["event_id"] == "open-event"
+    assert_receive {:alert_evaluation_events, [admitted_clear]}
+    assert admitted_clear.message == "series-clear"
+    assert admitted_clear.unmapped["event_id"] == "clear-event"
+
+    assert stored_series_transitions(series_key) == [
+             {"series-open", "true"},
+             {"series-clear", "true"}
+           ]
+
+    assert {:ok, 1} = AnalyticsSignals.process_batch([open])
+    assert {:ok, 1} = AnalyticsSignals.process_batch([clear])
+    refute_receive {:alert_evaluation_events, _events}, 50
+  end
+
   # Activates the real engine with room for one pending occurrence and takes it,
   # so the next admission is refused as overloaded.
   defp fill_alert_evaluation_capacity! do
@@ -1241,6 +1299,19 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     %{raw | data: Jason.encode!(payload)}
   end
 
+  defp anomaly_clear(series_key, event_id, message, started) do
+    raw = anomaly_message(series_key, event_id, started)
+
+    payload =
+      raw.data
+      |> Jason.decode!()
+      |> Map.put("message", message)
+      |> Map.put("time", 1_812_456_060_000)
+      |> put_in(["anomaly", "state"], "anomaly_drift_clear")
+
+    %{raw | data: Jason.encode!(payload)}
+  end
+
   defp canonical_transition?(event) do
     event.message == "canonical-open" and event.unmapped["event_id"] == "canonical-event" and
       canonical_score?(get_in(event.unmapped, ["anomaly", "score"]))
@@ -1278,6 +1349,19 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
       other ->
         other
     end
+  end
+
+  defp stored_series_transitions(series_key) do
+    Repo.query!(
+      """
+      SELECT message, metadata->>'alert_evaluation_admitted'
+      FROM platform.ocsf_events
+      WHERE metadata->'service_radar'->>'series_key' = $1
+      ORDER BY time ASC, created_at ASC, id ASC
+      """,
+      [series_key]
+    ).rows
+    |> Enum.map(fn [message, admitted] -> {message, admitted} end)
   end
 
   defp anomaly_message(

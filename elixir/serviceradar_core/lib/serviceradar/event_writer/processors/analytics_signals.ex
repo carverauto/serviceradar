@@ -190,8 +190,10 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
                withheld =
                  Enum.reject(all_ocsf_rows, &MapSet.member?(returned_ids, ocsf_event_id_key(&1)))
 
+               replayed = unadmitted_replays(withheld)
+
                {bulk_rows, count, persisted, transitions,
-                dedupe_occurrence_rows(admit_rows ++ unadmitted_replays(withheld))}
+                dedupe_occurrence_rows(earlier_unadmitted_rows(admit_rows ++ replayed) ++ admit_rows ++ replayed)}
              end) do
         lifecycle_failures =
           admit_lifecycle_in_order(
@@ -1256,20 +1258,55 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     if binary_ids == [] do
       []
     else
-      columns = Enum.map_join(@persisted_replay_columns, ", ", &persisted_replay_column/1)
-
-      sql = """
-      SELECT #{columns}
-      FROM platform.ocsf_events
-      WHERE id = ANY($1::uuid[])
-        AND COALESCE(metadata ->> 'alert_evaluation_occurrence_id', '') <> ''
-        AND COALESCE(metadata ->> 'alert_evaluation_admitted', 'false') <> 'true'
-      ORDER BY time ASC, id ASC
-      """
-
-      %{rows: rows} = ServiceRadar.Repo.query!(sql, [binary_ids])
-      Enum.map(rows, &persisted_replay_row/1)
+      load_unadmitted_rows("id = ANY($1::uuid[])", [binary_ids])
     end
+  end
+
+  defp earlier_unadmitted_rows([]), do: []
+
+  defp earlier_unadmitted_rows(rows) do
+    series_keys = rows |> Enum.map(&series_key_of/1) |> Enum.reject(&is_nil/1) |> Enum.uniq()
+    owed = MapSet.new(rows, &occurrence_dedupe_key/1)
+
+    series_keys
+    |> unadmitted_rows_for_series()
+    |> earlier_than_owed(owed)
+  end
+
+  defp earlier_than_owed(rows, owed) do
+    rows
+    |> Enum.group_by(&series_key_of/1)
+    |> Enum.flat_map(fn {_series, series_rows} ->
+      case Enum.find_index(series_rows, &MapSet.member?(owed, occurrence_dedupe_key(&1))) do
+        nil -> []
+        index -> Enum.take(series_rows, index)
+      end
+    end)
+  end
+
+  defp unadmitted_rows_for_series([]), do: []
+
+  defp unadmitted_rows_for_series(series_keys) do
+    load_unadmitted_rows(
+      "class_uid = #{@ocsf_detection_finding_class_uid} AND metadata->'service_radar'->>'series_key' = ANY($1::text[])",
+      [series_keys]
+    )
+  end
+
+  defp load_unadmitted_rows(predicate, params) do
+    columns = Enum.map_join(@persisted_replay_columns, ", ", &persisted_replay_column/1)
+
+    sql = """
+    SELECT #{columns}
+    FROM platform.ocsf_events
+    WHERE #{predicate}
+      AND COALESCE(metadata ->> 'alert_evaluation_occurrence_id', '') <> ''
+      AND COALESCE(metadata ->> 'alert_evaluation_admitted', 'false') <> 'true'
+    ORDER BY time ASC, created_at ASC, id ASC
+    """
+
+    %{rows: rows} = ServiceRadar.Repo.query!(sql, params)
+    Enum.map(rows, &persisted_replay_row/1)
   end
 
   defp persisted_replay_column(:id), do: "id::text"
