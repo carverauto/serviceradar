@@ -723,3 +723,62 @@ func TestReaderAdoptsReclaimedSegment(t *testing.T) {
 		t.Fatalf("reader failed to adopt current segment: %v %v", records, err)
 	}
 }
+
+// Settle reports a watched record's terminal outcome only once the resolved
+// prefix covers it: accepted, or not, as the terminal evidence shows. A Watch
+// that arrives after its record resolved still sees a rejection, and a prefix
+// advanced without evidence proves nothing accepted.
+func TestSettleReportsWatchedRecordsOnceResolved(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	evidence := func(through uint64, rejected ...uint64) []byte {
+		t.Helper()
+		ack := &edgev1.EdgeDeliveryAckV1{SpoolId: evid(91), SessionNonce: evid(92), ResolvedThroughSequence: through}
+		for seq := s.Resolved() + 1; seq <= through; seq++ {
+			kind := edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE
+			for _, r := range rejected {
+				if r == seq {
+					kind = edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_REJECTED_PERMANENT
+				}
+			}
+			ack.Dispositions = append(ack.Dispositions, &edgev1.EdgeRecordDisposition{Sequence: seq, EventId: evid(byte(seq)), Kind: kind})
+		}
+		b, err := proto.Marshal(ack)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	settle := func(want bool, wantUnaccepted int, seqs ...uint64) {
+		t.Helper()
+		if resolved, unaccepted := s.Settle(seqs); resolved != want || unaccepted != wantUnaccepted {
+			t.Fatalf("Settle(%v) = %v, %d; want %v, %d", seqs, resolved, unaccepted, want, wantUnaccepted)
+		}
+	}
+
+	for id := byte(1); id <= 4; id++ {
+		mustAppend(t, s, id, "synthetic")
+	}
+	s.Watch(1)
+	s.Watch(2)
+	settle(false, 0, 1, 2)
+	if err := s.ResolveWithEvidence(2, evidence(2, 2)); err != nil {
+		t.Fatal(err)
+	}
+	settle(true, 1, 1, 2)
+
+	if err := s.ResolveWithEvidence(3, evidence(3, 3)); err != nil {
+		t.Fatal(err)
+	}
+	s.Watch(3)
+	settle(true, 1, 3)
+
+	s.Watch(4)
+	if err := s.Resolve(4); err != nil {
+		t.Fatal(err)
+	}
+	settle(true, 1, 4)
+}
