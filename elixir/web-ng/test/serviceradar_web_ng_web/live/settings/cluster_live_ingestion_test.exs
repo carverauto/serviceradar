@@ -205,8 +205,12 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveIngestionTest do
       acknowledgement_ms: 0
     }
 
-    assert [^lane] =
+    assert [merged_old] =
              ClusterLive.merge_ingestion_lane_snapshots([%{node: "core-old", lanes: [lane]}])
+
+    assert merged_old.coalesced_total == 0
+    assert merged_old.expired_total == 0
+    assert Map.drop(merged_old, [:coalesced_total, :expired_total]) == lane
 
     html =
       render_component(&ClusterLive.ingestion_lanes_panel/1,
