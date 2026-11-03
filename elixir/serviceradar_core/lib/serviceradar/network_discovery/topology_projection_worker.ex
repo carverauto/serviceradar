@@ -215,6 +215,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
     Repo.all(
       from(l in TopologyLink,
         where: l.local_device_id == ^device_id,
+        order_by: [asc_nulls_first: l.timestamp],
         select: %{
           timestamp: l.timestamp,
           protocol: l.protocol,

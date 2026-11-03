@@ -119,9 +119,12 @@ edges), however many interfaces or links it carries.
 Each projection job is one device and carries that device id only. When it
 runs it reads the current committed discovered interfaces (including aliases)
 and mapper topology links for that device, and replaces that device's graph
-state through the same batched writes. It does not write another device. A
-retry of an older job therefore leaves the graph equal to that device's latest
-CNPG rows, including when it runs after a newer job has already completed. A
+state through the same batched writes. The newest of that device's link rows
+that sets a field owns its IP and interface fields. The job still creates the
+neighbor vertex and the edge, and does not write that neighbor's IP, name, or
+interface name. A retry of an older job therefore leaves the graph equal to
+that device's latest CNPG rows, including when it runs after a newer job has
+already completed. A
 newer result for the same device still replaces a job that has not started, so
 a pending backlog collapses to one run per device, and a job waits while an
 earlier one for that device is still executing. A failed projection is logged,

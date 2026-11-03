@@ -11,15 +11,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Queries.EdgeLinks do
     MERGE (a:Device {id: '#{Graph.escape(payload.local_device_id)}'})
     #{Utils.set_prop("a", "ip", payload.local_device_ip)}
     MERGE (b:Device {id: '#{Graph.escape(payload.neighbor_device_id)}'})
-    #{Utils.set_prop("b", "name", payload.neighbor_name)}
-    #{Utils.set_prop("b", "ip", payload.neighbor_ip)}
     MERGE (ai:Interface {id: '#{Graph.escape(payload.local_interface_id)}'})
     SET ai.device_id = '#{Graph.escape(payload.local_device_id)}'
     #{Utils.set_prop("ai", "name", payload.local_if_name)}
     #{Utils.set_prop("ai", "ifindex", payload.local_if_index)}
     MERGE (bi:Interface {id: '#{Graph.escape(payload.neighbor_interface_id)}'})
     SET bi.device_id = '#{Graph.escape(payload.neighbor_device_id)}'
-    #{Utils.set_prop("bi", "name", payload.neighbor_port_name)}
     MERGE (a)-[r1:HAS_INTERFACE]->(ai)
     SET r1.source = 'mapper'
     MERGE (b)-[r2:HAS_INTERFACE]->(bi)
@@ -57,15 +54,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Queries.EdgeLinks do
     MERGE (a:Device {id: '#{Graph.escape(payload.local_device_id)}'})
     #{Utils.set_prop("a", "ip", payload.local_device_ip)}
     MERGE (b:Device {id: '#{Graph.escape(payload.neighbor_device_id)}'})
-    #{Utils.set_prop("b", "name", payload.neighbor_name)}
-    #{Utils.set_prop("b", "ip", payload.neighbor_ip)}
     MERGE (ai:Interface {id: '#{Graph.escape(payload.local_interface_id)}'})
     SET ai.device_id = '#{Graph.escape(payload.local_device_id)}'
     #{Utils.set_prop("ai", "name", payload.local_if_name)}
     #{Utils.set_prop("ai", "ifindex", payload.local_if_index)}
     MERGE (bi:Interface {id: '#{Graph.escape(payload.neighbor_interface_id)}'})
     SET bi.device_id = '#{Graph.escape(payload.neighbor_device_id)}'
-    #{Utils.set_prop("bi", "name", payload.neighbor_port_name)}
     MERGE (a)-[r1:HAS_INTERFACE]->(ai)
     SET r1.source = 'mapper'
     MERGE (b)-[r2:HAS_INTERFACE]->(bi)

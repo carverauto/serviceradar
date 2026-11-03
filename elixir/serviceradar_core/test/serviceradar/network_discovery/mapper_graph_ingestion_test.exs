@@ -78,7 +78,14 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
         "sr:it-link-a/10",
         "sr:it-link-a/GigabitEthernet0/1",
         "sr:it-link-b",
-        "sr:it-link-b/Gi0/1"
+        "sr:it-link-b/Gi0/1",
+        "sr:it-own-a",
+        "sr:it-own-a/Gi0/1",
+        "sr:it-own-b",
+        "sr:it-own-b/Gi0/1",
+        "sr:it-own-b/Eth9",
+        "sr:it-own-c",
+        "sr:it-own-c/Gi0/2"
       ] ++ sparse_payload_ids() ++ synthetic_topology_ids()
     )
 
@@ -141,7 +148,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     assert result["score"] == 95
   end
 
-  test "upsert_links reapplies every mutable projected device and interface property" do
+  test "upsert_links refreshes the local device and interface and leaves the neighbor unchanged" do
     now = DateTime.truncate(DateTime.utc_now(), :microsecond)
 
     link = %{
@@ -166,18 +173,14 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     [result] = cypher_rows("MATCH (d:Device {id:'sr:dev-1'}) RETURN {value: d.ip} AS result")
     assert result["value"] == "192.0.2.11"
 
-    link = %{link | neighbor_system_name: "switch-b"}
+    link = %{link | neighbor_system_name: "switch-b", neighbor_mgmt_addr: "192.0.2.21"}
     TopologyGraph.upsert_links([link])
 
     [result] =
-      cypher_rows("MATCH (d:Device {id:'sr:dev-2'}) RETURN {value: d.name} AS result")
+      cypher_rows("MATCH (d:Device {id:'sr:dev-2'}) RETURN {name: d.name, ip: d.ip} AS result")
 
-    assert result["value"] == "switch-b"
-
-    link = %{link | neighbor_mgmt_addr: "192.0.2.21"}
-    TopologyGraph.upsert_links([link])
-    [result] = cypher_rows("MATCH (d:Device {id:'sr:dev-2'}) RETURN {value: d.ip} AS result")
-    assert result["value"] == "192.0.2.21"
+    assert Map.get(result, "name") in [nil, ""]
+    assert Map.get(result, "ip") in [nil, ""]
 
     link = %{link | local_if_index: 11}
     TopologyGraph.upsert_links([link])
@@ -196,16 +199,16 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     assert result["value"] == " eth0 "
 
-    # Both spellings normalize to one vertex ID, but the projected name changed.
     link = %{link | neighbor_port_id: "aabbccddeeff"}
     TopologyGraph.upsert_links([link])
 
     [result] =
       cypher_rows(
-        "MATCH (i:Interface {id:'sr:dev-2/aa:bb:cc:dd:ee:ff'}) RETURN {value: i.name} AS result"
+        "MATCH (i:Interface {id:'sr:dev-2/aa:bb:cc:dd:ee:ff'}) RETURN {device_id: i.device_id, name: i.name} AS result"
       )
 
-    assert result["value"] == "aabbccddeeff"
+    assert result["device_id"] == "sr:dev-2"
+    assert Map.get(result, "name") in [nil, ""]
   end
 
   test "upsert_links falls back when neighbor port metadata is missing" do
@@ -1064,6 +1067,81 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     assert device["ip"] == "192.0.2.41"
   end
 
+  test "newest local link fields win and a neighbor link leaves the other device unchanged" do
+    local = "sr:it-own-a"
+    neighbor = "sr:it-own-b"
+    older = ~U[2026-04-01 00:00:00Z]
+    newer = ~U[2026-04-01 00:05:00Z]
+
+    assert :ok =
+             TopologyGraph.upsert_links([
+               %{
+                 local_device_id: neighbor,
+                 neighbor_device_id: "sr:it-own-c",
+                 local_device_ip: "192.0.2.10",
+                 local_if_name: "Gi0/1",
+                 local_if_index: 5,
+                 neighbor_port_id: "Gi0/2",
+                 protocol: "lldp",
+                 timestamp: older
+               }
+             ])
+
+    cypher_rows(
+      "MATCH (d:Device {id:'sr:it-own-b'}) SET d.name = 'switch-b' RETURN {name: d.name} AS result"
+    )
+
+    assert :ok =
+             TopologyGraph.upsert_links([
+               link_fields(local, neighbor, newer, "192.0.2.41", 1),
+               link_fields(local, neighbor, older, "192.0.2.10", 10)
+             ])
+
+    [device] =
+      cypher_rows("MATCH (d:Device {id:'sr:it-own-a'}) RETURN {ip: d.ip} AS result")
+
+    assert device["ip"] == "192.0.2.41"
+
+    [interface] =
+      cypher_rows(
+        "MATCH (i:Interface {id:'sr:it-own-a/Gi0/1'}) RETURN {name: i.name, ifindex: i.ifindex} AS result"
+      )
+
+    assert interface["name"] == "Gi0/1"
+    assert interface["ifindex"] == 1
+
+    [neighbor_device] =
+      cypher_rows("MATCH (d:Device {id:'sr:it-own-b'}) RETURN {ip: d.ip, name: d.name} AS result")
+
+    assert neighbor_device["ip"] == "192.0.2.10"
+    assert neighbor_device["name"] == "switch-b"
+
+    [neighbor_interface] =
+      cypher_rows(
+        "MATCH (i:Interface {id:'sr:it-own-b/Gi0/1'}) RETURN {name: i.name, ifindex: i.ifindex} AS result"
+      )
+
+    assert neighbor_interface["name"] == "Gi0/1"
+    assert neighbor_interface["ifindex"] == 5
+
+    [created] =
+      cypher_rows(
+        "MATCH (i:Interface {id:'sr:it-own-b/Eth9'}) RETURN {device_id: i.device_id, name: i.name, ifindex: i.ifindex} AS result"
+      )
+
+    assert created["device_id"] == neighbor
+    assert Map.get(created, "name") in [nil, ""]
+    assert Map.get(created, "ifindex") in [nil, 0]
+
+    [edge] =
+      cypher_rows(
+        ~s/MATCH (a:Interface {id:'sr:it-own-a\/Gi0\/1'})-[r:CONNECTS_TO]->(b:Interface {id:'sr:it-own-b\/Eth9'})
+      RETURN {count: count(r)} AS result/
+      )
+
+    assert edge["count"] == 1
+  end
+
   test "router drops low-confidence inferred neighbors when only the uplink is corroborated" do
     now = DateTime.truncate(DateTime.utc_now(), :microsecond)
 
@@ -1240,6 +1318,21 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     )
 
     :ok
+  end
+
+  defp link_fields(local, neighbor, timestamp, ip, if_index) do
+    %{
+      local_device_id: local,
+      neighbor_device_id: neighbor,
+      local_device_ip: ip,
+      local_if_name: "Gi0/1",
+      local_if_index: if_index,
+      neighbor_port_id: "Eth9",
+      neighbor_system_name: "hijack",
+      neighbor_mgmt_addr: "192.0.2.99",
+      protocol: if(if_index == 1, do: "lldp", else: "cdp"),
+      timestamp: timestamp
+    }
   end
 
   defp link_report(local, neighbor, timestamp, if_name, ip, port_descr) do

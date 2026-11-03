@@ -52,6 +52,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
   end
 
   defp do_upsert_links(links) do
+    links = Enum.sort_by(links, &link_observed_unix/1)
+
     {local_device_ids, neighbor_index, diagnostics, dgraph_links} =
       Enum.reduce(
         links,
@@ -125,6 +127,31 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
     |> Application.get_env(TopologyGraph, [])
     |> Keyword.get(:unchanged_report_heartbeat_ms, @default_unchanged_report_heartbeat_ms)
     |> Utils.normalize_positive_int(@default_unchanged_report_heartbeat_ms)
+  end
+
+  defp link_observed_unix(link) when is_map(link) do
+    case Map.get(link, :timestamp) || Map.get(link, "timestamp") do
+      %DateTime{} = timestamp ->
+        DateTime.to_unix(timestamp, :microsecond)
+
+      %NaiveDateTime{} = timestamp ->
+        NaiveDateTime.diff(timestamp, ~N[1970-01-01 00:00:00], :microsecond)
+
+      timestamp when is_binary(timestamp) ->
+        case DateTime.from_iso8601(timestamp) do
+          {:ok, parsed, _offset} ->
+            DateTime.to_unix(parsed, :microsecond)
+
+          _ ->
+            case NaiveDateTime.from_iso8601(timestamp) do
+              {:ok, parsed} -> NaiveDateTime.diff(parsed, ~N[1970-01-01 00:00:00], :microsecond)
+              _ -> 0
+            end
+        end
+
+      _ ->
+        0
+    end
   end
 
   defp reduce_topology_link(link, {local_ids, neighbor_index, diagnostics, dgraph_links}) do

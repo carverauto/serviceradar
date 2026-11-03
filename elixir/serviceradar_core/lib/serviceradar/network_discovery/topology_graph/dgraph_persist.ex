@@ -76,7 +76,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist do
       Enum.flat_map(payloads, fn payload ->
         [
           %{id: payload.local_device_id, ip: payload.local_device_ip},
-          %{id: payload.neighbor_device_id, ip: payload.neighbor_ip}
+          %{id: payload.neighbor_device_id}
         ]
       end)
 
@@ -93,7 +93,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist do
           interface_write(
             payload.neighbor_interface_id,
             payload.neighbor_device_id,
-            payload.neighbor_port_name,
+            nil,
             nil
           )
         ]

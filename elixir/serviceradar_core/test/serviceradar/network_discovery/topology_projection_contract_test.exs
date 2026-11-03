@@ -694,10 +694,20 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
       backbone_query = TopologyGraph.backbone_link_upsert_query(payload)
       auxiliary_query = TopologyGraph.auxiliary_link_upsert_query(payload, "ATTACHED_TO")
 
-      assert backbone_query =~ "SET a.ip = '192.168.1.200'"
-      assert backbone_query =~ "SET b.ip = '192.168.1.62'"
-      assert auxiliary_query =~ "SET a.ip = '192.168.1.200'"
-      assert auxiliary_query =~ "SET b.ip = '192.168.1.62'"
+      for query <- [backbone_query, auxiliary_query] do
+        assert query =~ "SET a.ip = '192.168.1.200'"
+        assert query =~ "MERGE (b:Device {id: 'sr:endpoint-a'})"
+        assert query =~ "MERGE (bi:Interface {id: 'sr:endpoint-a/unknown'})"
+        assert query =~ "SET bi.device_id = 'sr:endpoint-a'"
+        refute query =~ "SET b.ip"
+        refute query =~ "SET b.name"
+        refute query =~ "SET bi.name"
+        refute query =~ "SET bi.ifindex"
+        refute query =~ "192.168.1.62"
+      end
+
+      assert backbone_query =~ "MERGE (ai)-[r:CONNECTS_TO]->(bi)"
+      assert auxiliary_query =~ "MERGE (ai)-[r:ATTACHED_TO]->(bi)"
     end
 
     test "upsert query keeps canonical relation syntax stable" do
