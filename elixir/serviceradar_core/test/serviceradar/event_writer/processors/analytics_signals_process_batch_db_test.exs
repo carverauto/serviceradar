@@ -622,6 +622,66 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     refute_receive {:alert_evaluation_events, _events}, 50
   end
 
+  test "a newer inventory close waits while the open admission is pending" do
+    Application.put_env(:serviceradar_core, :stateful_alert_engine, __MODULE__.CanonicalBodyEngine)
+
+    Application.put_env(
+      :serviceradar_core,
+      :analytics_signals_replay_result,
+      {:error, {:overloaded, :rule_bytes}}
+    )
+
+    event_id = "synthetic-inventory-pending-#{System.unique_integer([:positive])}"
+    opened = assessment_message(event_id, "open", "active", "confirmed", "affected")
+    resolved = assessment_message(event_id, "resolved", "resolved", "confirmed", "fixed")
+    row = AnalyticsSignals.parse_message(opened)
+
+    delete_event!(row)
+
+    on_exit(fn ->
+      Application.delete_env(:serviceradar_core, :analytics_signals_replay_result)
+      delete_event!(row)
+    end)
+
+    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([opened])
+    assert_receive {:alert_evaluation_events, [open_event]}
+    assert open_event.status == "open"
+    assert open_event.activity_name == "Create"
+    assert_receive {:northbound_event, _}
+    assert stored_finding(row) == {"open", 1, "Create", "false"}
+
+    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([resolved])
+    assert_receive {:alert_evaluation_events, [still_open]}
+    assert still_open.status == "open"
+    assert still_open.activity_name == "Create"
+    refute_receive {:alert_evaluation_events, _events}, 50
+    refute_receive {:northbound_event, _event}, 50
+    assert stored_finding(row) == {"open", 1, "Create", "false"}
+
+    Application.put_env(:serviceradar_core, :analytics_signals_replay_result, :ok)
+
+    assert {:error, {:overloaded, :series_pending}} =
+             AnalyticsSignals.process_batch([resolved])
+
+    assert_receive {:alert_evaluation_events, [admitted_open]}
+    assert admitted_open.status == "open"
+    assert admitted_open.activity_name == "Create"
+    refute_receive {:northbound_event, _event}, 50
+    assert stored_finding(row) == {"open", 1, "Create", "true"}
+
+    assert {:ok, 1} = AnalyticsSignals.process_batch([resolved])
+    assert_receive {:alert_evaluation_events, [admitted_close]}
+    assert admitted_close.status == "resolved"
+    assert admitted_close.activity_name == "Close"
+    assert_receive {:northbound_event, northbound_close}
+    assert northbound_close.status == "resolved"
+    assert stored_finding(row) == {"resolved", 3, "Close", "true"}
+
+    assert {:ok, 1} = AnalyticsSignals.process_batch([opened])
+    assert {:ok, 1} = AnalyticsSignals.process_batch([resolved])
+    refute_receive {:alert_evaluation_events, _events}, 50
+  end
+
   # Activates the real engine with room for one pending occurrence and takes it,
   # so the next admission is refused as overloaded.
   defp fill_alert_evaluation_capacity! do
@@ -1442,6 +1502,20 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
       )
 
     [status, activity_id, activity_name]
+  end
+
+  defp stored_finding(row) do
+    %{rows: [[status, activity_id, activity_name, admitted]]} =
+      Repo.query!(
+        """
+        SELECT status, activity_id, activity_name, metadata->>'alert_evaluation_admitted'
+        FROM platform.ocsf_events
+        WHERE id = ($1::text)::uuid AND time = $2
+        """,
+        [uuid_string(row.id), row.time]
+      )
+
+    {status, activity_id, activity_name, admitted}
   end
 
   defp uuid_string(<<_::128>> = id) do
