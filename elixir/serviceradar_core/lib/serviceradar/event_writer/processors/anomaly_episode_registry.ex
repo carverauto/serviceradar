@@ -843,20 +843,20 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
     end
   end
 
-  @doc false
-  def transition_event_id(episode_uid, last_transition, severity_id)
-      when is_binary(episode_uid) and is_binary(last_transition) and is_integer(severity_id) do
-    deterministic_uuid(
-      Enum.join(
-        ["anomaly", "episode-transition", episode_uid, last_transition, severity_id],
-        ":"
-      )
-    )
-  end
-
   defp stamp_transition_identity(row, attrs) do
     transition_id =
-      transition_event_id(attrs.episode_uid, attrs.last_transition, attrs.severity_id)
+      deterministic_uuid(
+        Enum.join(
+          [
+            "anomaly",
+            "episode-transition",
+            attrs.episode_uid,
+            attrs.last_transition,
+            attrs.severity_id
+          ],
+          ":"
+        )
+      )
 
     id = Ecto.UUID.dump!(transition_id)
     metadata = row_metadata(row)

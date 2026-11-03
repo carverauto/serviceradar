@@ -405,7 +405,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     assert event_count(row) == 1
   end
 
-  test "a final delivery does not ack an unadmitted lifecycle tail" do
+  test "an exhausted delivery is dead-lettered and its transition stays pending for admission" do
     rule = fill_alert_evaluation_capacity!()
     parent = self()
 
@@ -441,12 +441,22 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
              Pipeline.handle_batch(:causal_signals, [message], %{batch_key: :default}, %{})
 
     assert :ok = Pipeline.ack(:ack_ref, [], [failed])
-    assert_receive {:ack_action, {:nack, 80_000}}
+    assert_receive {:ack_action, :term}
     refute_receive {:ack_action, :ack}, 50
-    refute_receive {:ack_action, :term}, 50
+    refute_receive {:ack_action, {:nack, _delay}}, 50
     assert event_count(row) == 1
+    assert pending_occurrence_count(row) == 1
 
     assert [%{position: 1}] =
+             AlertEvaluationWork
+             |> Ash.Query.filter(rule_id == ^rule.id)
+             |> Ash.read!(actor: SystemActor.system(:alert_engine))
+
+    assert {:ok, {:processed, :completed}} = Owner.advance(rule.id)
+    assert {:ok, 1} = AnalyticsSignals.process_batch([raw])
+    assert pending_occurrence_count(row) == 0
+
+    assert [%{position: 2}] =
              AlertEvaluationWork
              |> Ash.Query.filter(rule_id == ^rule.id)
              |> Ash.read!(actor: SystemActor.system(:alert_engine))
@@ -929,7 +939,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     assert pending_admission_messages(series_key) == ["forecast-later"]
   end
 
-  test "a newer inventory close is stored while the open admission is pending and survives exhausted deliveries" do
+  test "a newer inventory close queues behind the pending open and survives exhausted deliveries" do
     Application.put_env(
       :serviceradar_core,
       :stateful_alert_engine,
@@ -964,36 +974,45 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     assert_receive {:northbound_event, _}
     assert stored_finding(row) == {"open", 1, "Create", "false"}
 
-    # Every one of the close's five JetStream deliveries is refused admission,
-    # so the source message is never acked and is dropped at max_deliver.
+    # Every one of the close's five JetStream deliveries is refused, so the
+    # source message is never acked and is dropped at max_deliver. The close is
+    # stored on its first delivery and queues behind the open, which keeps
+    # being retried first.
     assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([resolved])
-    assert_receive {:alert_evaluation_events, [pending_close]}
-    assert pending_close.status == "resolved"
-    assert pending_close.activity_name == "Close"
+    assert_receive {:alert_evaluation_events, [blocked_open]}
+    assert blocked_open.status == "open"
+    assert blocked_open.activity_name == "Create"
     assert_receive {:northbound_event, northbound_close}
     assert northbound_close.status == "resolved"
 
     for _redelivery <- 2..5 do
       assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([resolved])
-      assert_receive {:alert_evaluation_events, [retried_close]}
-      assert retried_close.status == "resolved"
-      assert retried_close.activity_name == "Close"
+      assert_receive {:alert_evaluation_events, [retried_open]}
+      assert retried_open.activity_name == "Create"
     end
 
     refute_receive {:alert_evaluation_events, _events}, 50
     refute_receive {:northbound_event, _event}, 50
     assert stored_finding(row) == {"resolved", 3, "Close", "false"}
+    assert pending_occurrence_count(row) == 2
     refute Map.has_key?(stored_metadata(row), "alert_evaluation_admitted")
     refute Map.has_key?(stored_metadata(row), "alert_evaluation_occurrence_id")
 
     Application.put_env(:serviceradar_core, :analytics_signals_replay_result, :ok)
 
-    assert {:ok, 1} = AnalyticsSignals.process_batch([resolved])
+    # A later message for the same finding admits the dropped tail in order,
+    # each occurrence with the payload it had when it was stored.
+    assert {:ok, 1} = AnalyticsSignals.process_batch([opened])
+    assert_receive {:alert_evaluation_events, [admitted_open]}
+    assert admitted_open.status == "open"
+    assert admitted_open.activity_name == "Create"
     assert_receive {:alert_evaluation_events, [admitted_close]}
     assert admitted_close.status == "resolved"
     assert admitted_close.activity_name == "Close"
+    refute_receive {:alert_evaluation_events, _events}, 50
     refute_receive {:northbound_event, _event}, 50
     assert stored_finding(row) == {"resolved", 3, "Close", "true"}
+    assert pending_occurrence_count(row) == 0
 
     assert {:ok, 1} = AnalyticsSignals.process_batch([opened])
     assert {:ok, 1} = AnalyticsSignals.process_batch([resolved])
@@ -1001,7 +1020,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     assert stored_finding(row) == {"resolved", 3, "Close", "true"}
   end
 
-  test "a versioned inventory update during a pending admission is stored and admitted once" do
+  test "a versioned inventory update during a pending admission keeps the open's own payload" do
     Application.put_env(
       :serviceradar_core,
       :stateful_alert_engine,
@@ -1046,9 +1065,9 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     Application.put_env(:serviceradar_core, :analytics_signals_replay_result, :ok)
 
     assert {:ok, 1} = AnalyticsSignals.process_batch([updated])
-    assert_receive {:alert_evaluation_events, [admitted_update]}
-    assert admitted_update.status == "open"
-    assert admitted_update.activity_name == "Update"
+    assert_receive {:alert_evaluation_events, [admitted_open]}
+    assert admitted_open.status == "open"
+    assert admitted_open.activity_name == "Create"
     refute_receive {:alert_evaluation_events, _events}, 50
     refute_receive {:northbound_event, _event}, 50
     assert stored_finding(row) == {"open", 2, "Update", "true"}
@@ -1229,6 +1248,26 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
                |> Ash.read!(actor: actor)
     end
 
+    message = put_in(broadway_message.metadata.jetstream_ack.delivery_count, 5)
+
+    log =
+      ExUnit.CaptureLog.capture_log([level: :info], fn ->
+        assert [%Message{status: {:failed, :alert_evaluation_peer_not_ready}} = failed_msg] =
+                 Pipeline.handle_batch(
+                   :analytics_predictions,
+                   [message],
+                   %{batch_key: :default},
+                   %{}
+                 )
+
+        Pipeline.handle_failed([failed_msg], %{})
+        assert :ok = Pipeline.ack(:ack_ref, [], [failed_msg])
+      end)
+
+    assert_receive {:jetstream_ack, :term}
+    assert log =~ "[error]"
+    assert log =~ "EventWriter message reached terminal JetStream delivery"
+
     Application.put_env(:serviceradar_core, :analytics_signals_peer_ready, true)
     broadway_message = put_in(broadway_message.metadata.jetstream_ack.delivery_count, 4)
 
@@ -1312,7 +1351,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
           :alert_evaluation_capability_unavailable,
           :db_unavailable
         ],
-        delivery_count <- 1..4 do
+        delivery_count <- 1..5 do
       Application.put_env(:serviceradar_core, :analytics_signals_peer_ready, {:error, reason})
       message = put_in(broadway_message.metadata.jetstream_ack.delivery_count, delivery_count)
 
@@ -1330,7 +1369,8 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
           assert :ok = Pipeline.ack(:ack_ref, [], [failed_msg])
         end)
 
-      assert_receive {:jetstream_ack, :nack}
+      action = if delivery_count == 5, do: :term, else: :nack
+      assert_receive {:jetstream_ack, ^action}
       assert log =~ "[error]"
       assert log =~ "Batch processing failed"
       refute log =~ "Batch deferred"
@@ -1925,12 +1965,10 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     Enum.map(
       Repo.query!(
         """
-        SELECT events.message
-        FROM platform.lifecycle_pending_admissions AS pending
-        JOIN platform.ocsf_events AS events
-          ON events.time = pending.event_time AND events.id = pending.event_id
-        WHERE pending.series_key = $1
-        ORDER BY pending.event_time ASC, pending.inserted_at ASC, pending.event_id ASC
+        SELECT occurrence->>'message'
+        FROM platform.lifecycle_pending_admissions
+        WHERE series_key = $1
+        ORDER BY seq ASC
         """,
         [series_key]
       ).rows,
@@ -1942,12 +1980,10 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     Enum.map(
       Repo.query!(
         """
-        SELECT events.message, pending.event_id::text
-        FROM platform.lifecycle_pending_admissions AS pending
-        JOIN platform.ocsf_events AS events
-          ON events.time = pending.event_time AND events.id = pending.event_id
-        WHERE pending.series_key = $1
-        ORDER BY pending.event_time ASC, pending.inserted_at ASC, pending.event_id ASC
+        SELECT occurrence->>'message', event_id::text
+        FROM platform.lifecycle_pending_admissions
+        WHERE series_key = $1
+        ORDER BY seq ASC
         """,
         [series_key]
       ).rows,
@@ -1991,6 +2027,16 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
       )
 
     {status, activity_id, activity_name, admitted}
+  end
+
+  defp pending_occurrence_count(row) do
+    %{rows: [[count]]} =
+      Repo.query!(
+        "SELECT count(*) FROM platform.lifecycle_pending_admissions WHERE event_id = ($1::text)::uuid",
+        [uuid_string(row.id)]
+      )
+
+    count
   end
 
   defp stored_metadata(row) do

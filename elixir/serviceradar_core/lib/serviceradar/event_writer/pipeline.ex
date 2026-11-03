@@ -397,14 +397,11 @@ defmodule ServiceRadar.EventWriter.Pipeline do
       EdgeRecordDeadLetter.applies?(message) ->
         ack_failed_edge_record(message)
 
-      retryable_alert_evaluation_status?(message.status) ->
-        ack_message(message, {:nack, backoff_ms(message)})
-
       JetStreamAck.final_delivery?(message) ->
         emit_dead_letter(message)
         ack_message(message, :term)
 
-      edge_record_message?(message) ->
+      retryable_alert_evaluation_status?(message.status) or edge_record_message?(message) ->
         ack_message(message, {:nack, backoff_ms(message)})
 
       true ->
