@@ -338,7 +338,7 @@ in `choices.md` and the chart README.
     - [x] M2.0i2 Sweeper run spec. `NetworkSweeper.RunPlannedWithObserver` runs
       one execution from a run-scoped copy of the config with networks, modes
       and ports replaced. The run path reads that copy instead of `s.config`,
-      so `UpdateConfig` during the run cannot change it. No caller yet.
+      so `UpdateConfig` during the run cannot change it. M2.0i4 is the caller.
       DONE (reconciled 2026-11-02): #6259:
       `NetworkSweeper.RunPlannedWithObserver` in
       `go/pkg/sweeper/sweeper_lifecycle.go`; `sweeper_planned_run_test.go`
@@ -359,10 +359,9 @@ in `choices.md` and the chart README.
       `sweep_lease_plan_checks:v1`. Core records `SweepLeaseSlotRefusal` as
       `refused`. A refusal for the same assignment and lease moves
       `missed_offline` or `missed_exhausted` to `refused`, and `refused` is
-      terminal, so `LeaseMisses` does not relabel it. Until agents advertise
-      the capability, no agent is leased, and each leased group runs on its
-      local ticker. Release this slice and M2.0i4 together, in either order,
-      so that gap lasts only as long as the agent rollout.
+      terminal, so `LeaseMisses` does not relabel it. An agent that does not
+      advertise the capability is not leased, and each of its groups runs on
+      its local ticker.
       DONE: `LeaseAgents` gates on the capability, `LeaseDelivery` carries
       the agent's `SweepPlan.check_set/1` at `lease_version` 2,
       `LeaseEligibility` applies the IPv6 SYN rule, and
