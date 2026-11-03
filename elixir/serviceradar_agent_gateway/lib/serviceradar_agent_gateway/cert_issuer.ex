@@ -311,7 +311,7 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
   defp admin_or_system_actor?(_actor), do: false
 
   defp generate_bundle(component_id, partition_id, component_type, ca_cert, ca_key, validity_days, opts) do
-    cn = "#{component_id}.#{partition_id}.serviceradar"
+    cn = certificate_common_name(component_type, partition_id, component_id)
     temp_parent_dir = Keyword.get(opts, :temp_parent_dir, System.tmp_dir!())
     temp_dir = create_secure_temp_dir!(temp_parent_dir)
 
@@ -335,7 +335,7 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
                "/CN=#{cn}"
              ]),
            :ok <-
-             write_extfile(ext_path, component_type, partition_id, component_id, cn, Keyword.get(opts, :extra_sans, [])),
+             write_extfile(ext_path, component_type, partition_id, component_id, Keyword.get(opts, :extra_sans, [])),
            :ok <- ensure_serial(serial_path),
            :ok <-
              run_openssl([
@@ -607,12 +607,13 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
   end
 
   defp verify_csr_identity(subject, attributes, component_id, partition_id, component_type, extra_sans) do
-    expected_cn = "#{component_id}.#{partition_id}.serviceradar"
+    expected_cn = certificate_common_name(component_type, partition_id, component_id)
+    identity_dns = "#{component_id}.#{partition_id}.serviceradar"
 
     identity_sans =
       if managed_pkix?(component_type),
-        do: ["DNS:" <> expected_cn],
-        else: ["URI:" <> build_spiffe_id(component_type, partition_id, component_id), "DNS:" <> expected_cn]
+        do: ["DNS:" <> identity_dns],
+        else: ["URI:" <> build_spiffe_id(component_type, partition_id, component_id), "DNS:" <> identity_dns]
 
     allowed_sans = MapSet.new(identity_sans ++ extra_sans)
 
@@ -770,7 +771,7 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
   defp format_ip_san_bytes(_), do: :error
 
   defp sign_csr_certificate(csr_der, component_id, partition_id, component_type, ca_cert, ca_key, validity_days, opts) do
-    cn = "#{component_id}.#{partition_id}.serviceradar"
+    cn = certificate_common_name(component_type, partition_id, component_id)
     temp_parent_dir = Keyword.get(opts, :temp_parent_dir, System.tmp_dir!())
     temp_dir = create_secure_temp_dir!(temp_parent_dir)
 
@@ -783,7 +784,7 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
     try do
       with :ok <- File.write(csr_path, csr_pem),
            :ok <-
-             write_extfile(ext_path, component_type, partition_id, component_id, cn, Keyword.get(opts, :extra_sans, [])),
+             write_extfile(ext_path, component_type, partition_id, component_id, Keyword.get(opts, :extra_sans, [])),
            :ok <- ensure_serial(serial_path),
            :ok <- Keyword.get(opts, :before_sign, fn -> :ok end).(),
            :ok <-
@@ -1052,12 +1053,25 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
       else: build_spiffe_id(component_type, partition_id, component_id)
   end
 
-  defp write_extfile(path, component_type, partition_id, component_id, cn, extra_sans) do
+  defp certificate_common_name(component_type, partition_id, component_id) do
+    identity = "#{component_id}.#{partition_id}.serviceradar"
+
+    # Match the agent's bounded CN; authorization and DNS SANs keep the full identity.
+    if managed_pkix?(component_type) and byte_size(identity) > 64 do
+      Base.encode16(:crypto.hash(:sha256, identity), case: :lower)
+    else
+      identity
+    end
+  end
+
+  defp write_extfile(path, component_type, partition_id, component_id, extra_sans) do
+    identity_dns = "#{component_id}.#{partition_id}.serviceradar"
+
     {names, counters} =
       if managed_pkix?(component_type) do
-        {"DNS.1 = #{cn}\n", %{"URI" => 0, "DNS" => 1, "IP" => 0}}
+        {"DNS.1 = #{identity_dns}\n", %{"URI" => 0, "DNS" => 1, "IP" => 0}}
       else
-        {"URI.1 = #{build_spiffe_id(component_type, partition_id, component_id)}\nDNS.1 = #{cn}\n",
+        {"URI.1 = #{build_spiffe_id(component_type, partition_id, component_id)}\nDNS.1 = #{identity_dns}\n",
          %{"URI" => 1, "DNS" => 1, "IP" => 0}}
       end
 

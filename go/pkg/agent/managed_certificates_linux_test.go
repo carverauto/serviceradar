@@ -337,6 +337,35 @@ func TestManagedCertificatesServeVerifiedIntermediateChain(t *testing.T) {
 	}
 }
 
+func TestManagedCertificatesLongCollectorIdentity(t *testing.T) {
+	f := newManagedCertificateFixture(t)
+	a := ManagedCertificateAssignment{RequestID: "long-collector", ComponentID: "collector-11111111-2222-4333-8444-555555555555", HostAgentID: "agent-synthetic", PartitionID: "default", Generation: 1, Service: "log-collector", ServerHosts: []string{"localhost", "127.0.0.1"}}
+	p, err := f.store.prepare(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	csr, err := x509.ParseCertificateRequest(p.CSRs["client"].CSRDER)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Independent cross-language vector: SHA-256 of the full DNS identity.
+	if csr.Subject.CommonName != "972377158e25ac5f5d62010910da01e3fa7ba0a4006793d5cc501c95355b989a" {
+		t.Fatalf("CSR common name exceeds the X.509 contract: %q", csr.Subject.CommonName)
+	}
+	req := f.issue(t, p, func(_ string, cert *x509.Certificate) {
+		cert.DNSNames = []string{"collector-11111111-2222-4333-8444-555555555555.default.serviceradar", "localhost"}
+		cert.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth}
+	})
+	result, err := f.store.install(context.Background(), req)
+	if err != nil || !result.Activated {
+		t.Fatalf("bounded CN certificate did not activate: %v", err)
+	}
+	leaf := installedManagedLeaf(t, result.Files["client"])
+	if err := leaf.VerifyHostname("collector-11111111-2222-4333-8444-555555555555.default.serviceradar"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestManagedCertificatesCollectorServerIdentity(t *testing.T) {
 	f := newManagedCertificateFixture(t)
 	a := ManagedCertificateAssignment{RequestID: "collector-server", ComponentID: "component-synthetic", HostAgentID: "agent-synthetic", PartitionID: "default", Generation: 1, Service: "trapd", ServerHosts: []string{"collector.example.test", "192.0.2.21"}}

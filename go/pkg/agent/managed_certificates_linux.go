@@ -229,12 +229,21 @@ func (s managedCertificateStore) validateAssignment(a ManagedCertificateAssignme
 	return adapter, nil
 }
 
-func managedCertificateIdentity(a ManagedCertificateAssignment, role string) *x509.CertificateRequest {
+func managedCertificateDNSName(a ManagedCertificateAssignment, role string) string {
 	id := a.ComponentID
 	if role == managedRoleLocalServer {
 		id += "-server"
 	}
-	csr := &x509.CertificateRequest{Subject: pkix.Name{CommonName: id + "." + a.PartitionID + ".serviceradar"}}
+	return id + "." + a.PartitionID + ".serviceradar"
+}
+
+func managedCertificateIdentity(a ManagedCertificateAssignment, role string) *x509.CertificateRequest {
+	cn := managedCertificateDNSName(a, role)
+	// X.509 limits Common Name to 64 characters; the DNS SAN retains the full identity.
+	if len(cn) > 64 {
+		cn = fmt.Sprintf("%x", sha256.Sum256([]byte(cn)))
+	}
+	csr := &x509.CertificateRequest{Subject: pkix.Name{CommonName: cn}}
 	if role == managedRoleLocalServer {
 		csr.DNSNames = []string{"localhost"}
 		csr.IPAddresses = []net.IP{net.ParseIP("127.0.0.1")}
@@ -341,7 +350,7 @@ func (s managedCertificateStore) validateIssued(p *managedPendingCertificate, ro
 		return nil, nil, err
 	}
 	expected := managedCertificateIdentity(p.Assignment, role)
-	if err := issuedIdentityMatches(leaf, expected); err != nil {
+	if err := issuedIdentityMatches(leaf, expected, managedCertificateDNSName(p.Assignment, role)); err != nil {
 		return nil, nil, err
 	}
 	roots := x509.NewCertPool()
@@ -378,14 +387,14 @@ func (s managedCertificateStore) validateIssued(p *managedPendingCertificate, ro
 	return leaf, certificatePEM, nil
 }
 
-func issuedIdentityMatches(leaf *x509.Certificate, expected *x509.CertificateRequest) error {
+func issuedIdentityMatches(leaf *x509.Certificate, expected *x509.CertificateRequest, identityDNSName string) error {
 	if leaf.Subject.CommonName != expected.Subject.CommonName {
 		return fmt.Errorf("%w: issued managed certificate identity differs from its assignment", errManagedCertificates)
 	}
 	if len(leaf.URIs) != 0 {
 		return fmt.Errorf("%w: issued managed certificate identity differs from its assignment", errManagedCertificates)
 	}
-	names := append(append([]string{}, expected.DNSNames...), expected.Subject.CommonName)
+	names := append(append([]string{}, expected.DNSNames...), identityDNSName)
 	if !sameCertificateNames(leaf.DNSNames, names) || !sameCertificateIPs(leaf.IPAddresses, expected.IPAddresses) {
 		return fmt.Errorf("%w: issued managed certificate hosts differ from its assignment", errManagedCertificates)
 	}

@@ -475,6 +475,51 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
     end
   end
 
+  test "managed collector with a UUID identity signs a bounded CN and the full DNS identity" do
+    parent_dir = unique_tmp_dir!("managed-long-collector")
+    on_exit(fn -> File.rm_rf(parent_dir) end)
+    ca_cert = Path.join(parent_dir, "root.pem")
+    ca_key = Path.join(parent_dir, "root-key.pem")
+    assert :ok = generate_ca_bundle(ca_cert, ca_key)
+    component_id = "collector-11111111-2222-4333-8444-555555555555"
+    cn = "972377158e25ac5f5d62010910da01e3fa7ba0a4006793d5cc501c95355b989a"
+
+    csr =
+      generate_csr_der!(
+        ["req", "-new", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes", "-keyout", "/dev/null"],
+        "/CN=#{cn}",
+        "DNS:localhost,IP:127.0.0.1"
+      )
+
+    options = [
+      ca_cert_file: ca_cert,
+      ca_key_file: ca_key,
+      temp_parent_dir: parent_dir,
+      server_hosts: ["localhost", "127.0.0.1"],
+      authorized_component_id: component_id,
+      authorized_partition_id: "default"
+    ]
+
+    assert {:ok, issued} = CertIssuer.issue_from_csr(csr, component_id, "default", :log_collector, options)
+    assert issued.cn == cn
+
+    assert normalized_sans(issued.certificate_pem) ==
+             Enum.sort([
+               {:dns, "collector-11111111-2222-4333-8444-555555555555.default.serviceradar"},
+               {:dns, "localhost"},
+               {:ip, "127.0.0.1"}
+             ])
+
+    assert {:error, :csr_identity_mismatch} =
+             CertIssuer.issue_from_csr(
+               csr,
+               component_id <> "x",
+               "default",
+               :log_collector,
+               Keyword.put(options, :authorized_component_id, component_id <> "x")
+             )
+  end
+
   test "managed leaf certificates contain only the issuer extfile names" do
     parent_dir = unique_tmp_dir!("managed-leaf-csr")
     on_exit(fn -> File.rm_rf(parent_dir) end)
