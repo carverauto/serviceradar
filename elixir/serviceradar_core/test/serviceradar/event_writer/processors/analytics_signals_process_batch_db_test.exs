@@ -682,6 +682,66 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     refute_receive {:alert_evaluation_events, _events}, 50
   end
 
+  test "a versioned inventory redelivery continues a pending admission" do
+    Application.put_env(:serviceradar_core, :stateful_alert_engine, __MODULE__.CanonicalBodyEngine)
+
+    Application.put_env(
+      :serviceradar_core,
+      :analytics_signals_replay_result,
+      {:error, {:overloaded, :rule_bytes}}
+    )
+
+    event_id = "synthetic-inventory-version-#{System.unique_integer([:positive])}"
+    first_seen = DateTime.truncate(DateTime.utc_now(), :microsecond)
+    version = DateTime.shift(first_seen, second: 1)
+    later = DateTime.shift(version, second: 1)
+    opened = versioned_assessment_message(event_id, "open", version, first_seen)
+    updated = versioned_assessment_message(event_id, "open", later, first_seen)
+    row = AnalyticsSignals.parse_message(opened)
+
+    delete_event!(row)
+
+    on_exit(fn ->
+      Application.delete_env(:serviceradar_core, :analytics_signals_replay_result)
+      delete_event!(row)
+    end)
+
+    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([opened])
+    assert_receive {:alert_evaluation_events, [open_event]}
+    assert open_event.status == "open"
+    assert_receive {:northbound_event, _}
+    assert stored_finding(row) == {"open", 1, "Create", "false"}
+    assert stored_finding_version(row) == DateTime.to_iso8601(version)
+
+    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([opened])
+    assert_receive {:alert_evaluation_events, [replayed]}
+    assert replayed.status == "open"
+    assert replayed.activity_name == "Create"
+    refute_receive {:northbound_event, _event}, 50
+    assert stored_finding(row) == {"open", 1, "Create", "false"}
+
+    Application.put_env(:serviceradar_core, :analytics_signals_replay_result, :ok)
+
+    assert {:error, {:overloaded, :series_pending}} =
+             AnalyticsSignals.process_batch([updated])
+
+    assert_receive {:alert_evaluation_events, [admitted_open]}
+    assert admitted_open.activity_name == "Create"
+    refute_receive {:alert_evaluation_events, _events}, 50
+    refute_receive {:northbound_event, _event}, 50
+    assert stored_finding(row) == {"open", 1, "Create", "true"}
+    assert stored_finding_version(row) == DateTime.to_iso8601(version)
+
+    assert {:ok, 1} = AnalyticsSignals.process_batch([opened])
+    refute_receive {:alert_evaluation_events, _events}, 50
+    assert stored_finding_version(row) == DateTime.to_iso8601(version)
+
+    assert {:ok, 1} = AnalyticsSignals.process_batch([updated])
+    refute_receive {:alert_evaluation_events, _events}, 50
+    assert stored_finding(row) == {"open", 2, "Update", "true"}
+    assert stored_finding_version(row) == DateTime.to_iso8601(later)
+  end
+
   # Activates the real engine with room for one pending occurrence and takes it,
   # so the next admission is refused as overloaded.
   defp fill_alert_evaluation_capacity! do
@@ -1516,6 +1576,20 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
       )
 
     {status, activity_id, activity_name, admitted}
+  end
+
+  defp stored_finding_version(row) do
+    %{rows: [[version]]} =
+      Repo.query!(
+        """
+        SELECT unmapped->>'finding_version'
+        FROM platform.ocsf_events
+        WHERE id = ($1::text)::uuid AND time = $2
+        """,
+        [uuid_string(row.id), row.time]
+      )
+
+    version
   end
 
   defp uuid_string(<<_::128>> = id) do
