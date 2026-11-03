@@ -306,9 +306,9 @@ func (p *PushLoop) pushFlowAttributionEdge(
 	return sentAny
 }
 
-// appendEdgeMetricsRecord writes one canonical record through whichever spool
-// surface this tree has. PR #6274 replaced Append with AppendFlow; this branch
-// still builds against Append, and GitHub CI typechecks the merge of both.
+// appendEdgeMetricsRecord writes one canonical record through AppendFlow,
+// keyed by the record's admission flow. A concrete value that only implements
+// Append still receives the same body.
 func appendEdgeMetricsRecord(spoolApp edgeMetricsAppender, record *edgev1.EdgeRecordV1, body []byte) error {
 	if flowApp, ok := any(spoolApp).(interface {
 		AppendFlow(flow string, eventID, body []byte) (uint64, error)
