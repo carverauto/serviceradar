@@ -18,7 +18,7 @@
   DONE (reconciled 2026-11-02): shared grant lookup, record builders, bounded retry queue and durable spool append with counted drops in `go/pkg/agent/edge_output_grants.go`, `go/pkg/agent/edge_record_emitter.go`, `go/pkg/agent/push_loop_metrics_edge.go` and `go/pkg/edge/edgerecord` (#6214, #6247, #6255).
 - [ ] 1.3 Spool admission backpressure (USP-01 M3.2) and byte-fair lane interleaving (USP-01 2.7)
   before any high-volume family moves.
-  TODO (reconciled 2026-11-02): remaining scope is spool admission backpressure and byte-fair lane interleaving (tracked under `unify-sweep-results-proto` M3.2 and 2.7).
+  PARTIAL (reconciled 2026-11-02): high/low-water pause landed as `unify-sweep-results-proto` M3.2 (#6269), and byte-fair admission across producer flows landed at the agent spool as USP-01 2.7 (#6274); remaining scope is the rest of USP-01 2.7.
 - [x] 1.4 Replicate `TELEMETRY_EDGE_RECORD_V1_BULK` and the projector destination streams;
   reconciliation raises the replica count of an existing stream.
   DONE (reconciled 2026-11-02): `TELEMETRY_EDGE_RECORD_V1_BULK` and projector destination streams are configured for R3 replication, and `ServiceRadar.NATS.JetStreamConsumer` reconciles existing stream replica counts upward (#6219).
@@ -39,9 +39,9 @@
   its status-path emission in this release while the agent holds the grant. SNMP, ICMP, rperf,
   MTR, the periodic sweep summary, and unleased sweep-results chunk batches keep the status path.
   DONE (reconciled 2026-11-02): sysmon emits `MetricBatch` records on `serviceradar.metrics.batch` via `go/pkg/agent/push_loop_metrics_edge.go` and stops legacy status-path emission while the grant is held; `ServiceRadar.Edge.MetricsBatchProjection` republishes to `metrics.sysmon.>` with core NATS publish ACL (#6214, #6247).
-- [x] 2.2 SNMP, ICMP, rperf and MTR metrics on the same contract. Each stops its own status-path
+- [ ] 2.2 SNMP, ICMP, rperf and MTR metrics on the same contract. Each stops its own status-path
   emission only in the release that moves it, and only while the agent holds the grant.
-  DONE (reconciled 2026-11-02): SNMP, ICMP and MTR scalar metrics emit on `serviceradar.metrics.batch` via `go/pkg/agent/push_loop_metrics_edge.go` and stop legacy status-path emission while the grant is held, and `ServiceRadar.Edge.MetricsBatchProjection` admits `snmp-metrics`, `icmp-metrics`, `rperf-metrics` and `mtr-metrics` with core NATS publish ACLs (#6247).
+  PARTIAL (reconciled 2026-11-02): SNMP, ICMP and MTR scalar metrics emit on `serviceradar.metrics.batch` via `go/pkg/agent/push_loop_metrics_edge.go` and stop legacy status-path emission while the grant is held (#6247); remaining scope is the rperf agent producer on `serviceradar.metrics.batch` and stopping its status-path `rperf-metrics` emission while the grant is held.
 - [x] 2.3 Periodic sweep summary `MetricBatch` on `serviceradar.metrics.batch`, with no source
   authorization. It stays the status-interval sample of the single newest group, leased or not.
   Do not add a per-group interval emitter. This producer stops its status-path emission only in
@@ -75,20 +75,20 @@
   change.
   TODO (reconciled 2026-11-02): remaining scope is the `TelemetryBatch` contract catalog entry, agent producer, and core projector for `serviceradar_metrics`, `ocsf_event` and `otel_log`.
 - [ ] 5.2 Typed Wasm plugin result batch; producer and projector.
-  PARTIAL (reconciled 2026-11-02): `PluginResultBatchV1` contract and generated bindings landed in `proto/edge/v1/plugin_result.proto` (#6245); remaining scope is the agent producer and core projector into `ResultIngestor`.
+  PARTIAL (reconciled 2026-11-02): `WasmPluginResultBatchV1` contract and generated bindings landed in `proto/edge/v1/plugin_results.proto` (#6245); remaining scope is the agent producer and core projector into `ResultIngestor`.
 - [ ] 5.3 Parity soak.
   TODO (reconciled 2026-11-02): remaining scope is the plugin and add-on telemetry parity soak after tasks 5.1 and 5.2.
 
 ## 6. Unleased sweep results
 
-- [x] 6.1 Sweep results contract for unleased groups, reusing the frozen host observation
+- [ ] 6.1 Sweep results contract for unleased groups, reusing the frozen host observation
   messages without a plan join; projector into today's sweep and inventory tables. The whole
   `MetricBatch` appended to each of those unleased results chunks moves in this same task onto
   `serviceradar.metrics.batch` with no source authorization, keeping every series it carries:
   `sweep.total_hosts`, `sweep.available_hosts`, `sweep.sequence`, `sweep.port.*`, `sweep.host.*`,
   `sweep.scanner.*`, and `sweep.banner_grab.*`. Define the contract and its payload, ship them,
   and pass the farm01 parity soak before cutover task 8.1.
-  DONE (reconciled 2026-11-02): `UnleasedSweepResultsBatchV1` contract in `proto/edge/v1/unleased_sweep.proto` (#6220), agent producer in `go/pkg/agent/push_loop_sweep_results_edge.go` emitting unleased results on `serviceradar.sweep.unleased_results` and each chunk's `MetricBatch` on `serviceradar.metrics.batch`, and `ServiceRadar.Edge.Projectors.UnleasedSweepResults` (#6255); farm01 parity soak remains gated before task 8.1.
+  PARTIAL (reconciled 2026-11-02): `UnleasedSweepResultsBatchV1` contract in `proto/edge/v1/unleased_sweep.proto` (#6220), agent producer in `go/pkg/agent/push_loop_sweep_results_edge.go`, and `ServiceRadar.Edge.Projectors.UnleasedSweepResults` (#6255); remaining scope is the farm01 parity soak before task 8.1.
 
 ## 7. Inventory producers
 
@@ -97,7 +97,7 @@
   are `proto/edge/v1/json_producer_batches.proto`. Workload identity, endpoint inventory,
   bumblebee, and k8s endpoints are `workload_identity.proto`, `endpoint_inventory.proto`,
   `bumblebee.proto`, and `k8s_endpoints.proto`, with checked-in Go and Elixir bindings.
-  DONE (reconciled 2026-11-02): `DiscoveryResultBatchV1`, `NetprobeDiscoveryResultBatchV1` and `IntegrationSyncChunkBatchV1` in `proto/edge/v1/json_producer_batches.proto` (#6215), and `WorkloadIdentitySnapshotBatchV1`, `EndpointInventoryBatchV1`, `BumblebeeReportBatchV1` and `KubernetesInventorySnapshotBatchV1` in `proto/edge/v1/{workload_identity,endpoint_inventory,bumblebee,k8s_endpoints}.proto` (#6215, #6221).
+  DONE (reconciled 2026-11-02): `MapperDeviceBatchV1`, `MapperInterfaceBatchV1`, `MapperTopologyBatchV1`, `MapperResultsBatchV1`, `NetprobeDiscoveryBatchV1` and `SyncPageBatchV1` in `proto/edge/v1/json_producer_batches.proto` (#6215), and `WorkloadIdentitySnapshotV1` in `proto/edge/v1/workload_identity.proto`, `EndpointInventoryScanPayloadV1` in `proto/edge/v1/endpoint_inventory.proto`, `BumblebeeScanPayloadV1` in `proto/edge/v1/bumblebee.proto` and `K8sPublicEndpointsSnapshotV1` in `proto/edge/v1/k8s_endpoints.proto` (#6215, #6221).
 - [ ] 7.2 Producers and projectors; parity soak.
   TODO (reconciled 2026-11-02): remaining scope is the inventory agent producers, core projectors, and parity soak.
 
@@ -107,7 +107,7 @@
   them. It follows task 6.1. It does not remove `GetSweepResults`, the sweep results KV,
   `serviceradar.sweep` on `StreamStatus`, or the gateway sweep publisher until the unleased sweep
   results contract and its payload are defined, shipped, and have passed the farm01 parity soak.
-  TODO (reconciled 2026-11-02): remaining scope is removing legacy agent emissions and gateway publishers after all producer families and their farm01 parity soaks complete.
+  TODO (reconciled 2026-11-02): remaining scope is removing legacy agent emissions and gateway publishers after all producer families and their farm01 parity soaks complete; it also carries `unify-sweep-results-proto` M4.2, 7.4, 7.5 and the `GetSummary` delivery-ownership half of 2.1.
 - [ ] 8.2 Confirm no durable agent data remains on `StreamStatus`/`PushStatus`; only control
   traffic and ephemeral status summaries stay there.
   TODO (reconciled 2026-11-02): remaining scope is verifying after task 8.1 that only control traffic and ephemeral status summaries remain on `StreamStatus`/`PushStatus`.
