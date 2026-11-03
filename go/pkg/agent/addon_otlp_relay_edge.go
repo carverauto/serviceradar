@@ -295,7 +295,7 @@ func (p *otlpRelayPump) appendEdgeRelayParts(
 			p.recordEdgeDrop(edgeDropRefused, rows, err)
 			continue
 		}
-		if _, err := spoolApp.Append(part.record.GetEventId(), body); err != nil {
+		if err := appendEdgeMetricsRecord(spoolApp, part.record, body); err != nil {
 			if permanentSpoolRefusal(err) || errors.Is(err, spool.ErrEventIDLength) {
 				p.recordEdgeDrop(sweepPermanentDropReason(err), rows, err)
 				continue

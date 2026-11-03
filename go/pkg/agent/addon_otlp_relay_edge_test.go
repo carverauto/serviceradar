@@ -225,6 +225,10 @@ type flakyEdgeAppender struct {
 }
 
 func (f *flakyEdgeAppender) Append(eventID, body []byte) (uint64, error) {
+	return f.AppendFlow("", eventID, body)
+}
+
+func (f *flakyEdgeAppender) AppendFlow(_ string, eventID, body []byte) (uint64, error) {
 	f.mu.Lock()
 	f.attempts++
 	attempt := f.attempts
