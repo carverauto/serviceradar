@@ -237,15 +237,12 @@ func (p *PushLoop) spoolDiscovery(
 			payload := q.pending[0]
 			built, dropped, err := buildDiscoveryItem(spec, payload, capability, agentID, partition)
 			p.dropEdgeTelemetry(spec.producer, edgeDropInvalidRecord, dropped)
+			q.pending = q.pending[1:]
 			if err != nil {
 				p.logger.Warn().Err(err).Str("contract", spec.contractID).
 					Msg("Dropping discovery payload that cannot form an edge record")
-				if built == nil || len(built.records) == 0 {
-					q.pending = q.pending[1:]
-					continue
-				}
+				continue
 			}
-			q.pending = q.pending[1:]
 			q.built = built
 		}
 		if !p.appendDiscoveryBuilt(q.built) {
@@ -269,10 +266,8 @@ func (p *PushLoop) appendDiscoveryBuilt(built *discoveryBuiltItem) bool {
 }
 
 // buildDiscoveryItem converts one drained payload's updates and packs them
-// into valid records. A head update that cannot form a valid part for a
-// size, row-ceiling, or record-bound reason is dropped alone (counted) and
-// packing continues. A semantic batch refusal stops the payload: parts
-// already packed are returned so they spool, and the remainder is counted.
+// into valid records. A head update that cannot form a valid part, for any
+// reason, is dropped alone (counted) and packing continues with the rest.
 func buildDiscoveryItem(
 	spec discoverySpec,
 	payload []byte,
@@ -285,14 +280,7 @@ func buildDiscoveryItem(
 	}
 	built = &discoveryBuiltItem{payload: payload}
 	for len(updates) > 0 {
-		n, record, body, packErr := longestDiscoveryPrefix(spec, updates, capability, agentID, partition)
-		if packErr != nil {
-			dropped += len(updates)
-			if len(built.records) == 0 {
-				return nil, dropped, packErr
-			}
-			return built, dropped, packErr
-		}
+		n, record, body := longestDiscoveryPrefix(spec, updates, capability, agentID, partition)
 		if n == 0 {
 			dropped++
 			updates = updates[1:]
@@ -302,6 +290,9 @@ func buildDiscoveryItem(
 		built.bodies = append(built.bodies, body)
 		updates = updates[n:]
 	}
+	if len(built.records) == 0 {
+		return nil, dropped, errors.New("no discovery update forms a valid edge record")
+	}
 	return built, dropped, nil
 }
 
@@ -310,7 +301,7 @@ func longestDiscoveryPrefix(
 	updates []map[string]interface{},
 	capability *edgev1.EdgeSignedCapabilityV1,
 	agentID, partition string,
-) (int, *edgev1.EdgeRecordV1, []byte, error) {
+) (int, *edgev1.EdgeRecordV1, []byte) {
 	maxRows := discoveryMaxRows(spec, capability)
 	limit := len(updates)
 	if uint64(limit) > maxRows {
@@ -320,7 +311,6 @@ func longestDiscoveryPrefix(
 	bestN := 0
 	var bestRecord *edgev1.EdgeRecordV1
 	var bestBody []byte
-	var lastErr error
 	lo, hi := 1, limit
 	for lo <= hi {
 		mid := lo + (hi-lo)/2
@@ -333,19 +323,9 @@ func longestDiscoveryPrefix(
 			lo = mid + 1
 			continue
 		}
-		lastErr = err
 		hi = mid - 1
 	}
-	if bestN == 0 && lastErr != nil && !discoveryHeadMiss(lastErr) {
-		return 0, nil, nil, lastErr
-	}
-	return bestN, bestRecord, bestBody, nil
-}
-
-func discoveryHeadMiss(err error) bool {
-	return errors.Is(err, errDiscoveryRecordTooLarge) ||
-		errors.Is(err, edgerecord.ErrRecordTooLarge) ||
-		errors.Is(err, edgerecord.ErrPayloadTooLarge)
+	return bestN, bestRecord, bestBody
 }
 
 func discoveryMaxRows(spec discoverySpec, capability *edgev1.EdgeSignedCapabilityV1) uint64 {

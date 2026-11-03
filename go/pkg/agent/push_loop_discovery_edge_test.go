@@ -20,6 +20,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -339,6 +340,46 @@ func TestOversizedDiscoveryUpdateDropsAlone(t *testing.T) {
 		"the oversized head is dropped alone; the rest of the drain spools")
 }
 
+func TestAnchorlessDiscoveryUpdateDropsAloneMidDrain(t *testing.T) {
+	sp := openTestEdgeSpool(t)
+	loop := discoveryLoop(t, sp)
+	grantDiscovery(t, loop)
+
+	device := func(id, ip string) map[string]interface{} {
+		return map[string]interface{}{
+			"device_id": id, "ip": ip, "source": "mapper", "agent_id": sysmonEdgeAgentID,
+			"gateway_id": sysmonEdgeAgentID, "partition": "default",
+			"hostname": "host.example.com", "timestamp": "2026-07-14T00:00:00Z",
+		}
+	}
+	payload, err := json.Marshal([]map[string]interface{}{
+		device("sr:00000000-0000-4000-8000-000000000201", "192.0.2.21"),
+		device("sr:00000000-0000-4000-8000-000000000202", "192.0.2.22"),
+		device("", ""),
+		device("sr:00000000-0000-4000-8000-000000000204", "192.0.2.24"),
+		device("sr:00000000-0000-4000-8000-000000000205", "192.0.2.25"),
+	})
+	require.NoError(t, err)
+
+	require.True(t, loop.pushDiscoveryPayloads(discoveryMapperDevices, [][]byte{payload},
+		sysmonEdgeAgentID, "default", func([]byte) bool {
+			t.Fatal("legacy path used while a grant is current")
+			return false
+		}))
+
+	var ips []string
+	for _, record := range spooledRecords(t, sp) {
+		require.NoError(t, edgerecord.ValidateMapperDeviceRecord(record))
+		batch := &edgev1.MapperDeviceBatchV1{}
+		require.NoError(t, gproto.Unmarshal(recordBody(t, record), batch))
+		for _, d := range batch.GetDevices() {
+			ips = append(ips, d.GetIp())
+		}
+	}
+	require.Equal(t, []string{"192.0.2.21", "192.0.2.22", "192.0.2.24", "192.0.2.25"}, ips,
+		"only the anchorless update drops; the updates after it still spool")
+}
+
 type recordingSyncGateway struct{ calls int }
 
 func (g *recordingSyncGateway) StreamStatus(context.Context, []*proto.GatewayStatusChunk) (*proto.GatewayStatusResponse, error) {
@@ -440,6 +481,34 @@ func TestSyncPagesSpoolWithRunMetaAndPopulationOnlyOnFinal(t *testing.T) {
 	require.Empty(t, controlPage.GetDevices())
 	require.Equal(t, syncCollectionFinal, controlPage.GetControlMarker().GetControlType())
 	require.True(t, controlPage.GetSyncMeta().GetIsFinal())
+}
+
+func TestAnchorlessSyncDeviceDropsAloneAndThePageSpools(t *testing.T) {
+	sp := openTestEdgeSpool(t)
+	gateway := &recordingSyncGateway{}
+	loop, runtime := syncTestRuntime(t, sp, gateway)
+	grantDiscovery(t, loop)
+
+	anchorless := syncUpdate("", "")
+	delete(anchorless, "uid")
+	delete(anchorless, "ip")
+	runner := &syncSourceRunner{config: models.SourceConfig{SyncServiceID: "svc-synthetic-1"}}
+	chunks, err := runtime.sendSyncUpdates(context.Background(), runner, []map[string]interface{}{
+		syncUpdate("src-a", "192.0.2.80"),
+		anchorless,
+		syncUpdate("src-c", "192.0.2.82"),
+	}, "run-13", 3, 0, true, nil)
+	require.NoError(t, err, "one anchorless device must not fail the page")
+	require.Positive(t, chunks)
+
+	var uids []string
+	for _, page := range decodeSyncPages(t, sp) {
+		for _, device := range page.GetDevices() {
+			uids = append(uids, device.GetUid())
+		}
+	}
+	require.Equal(t, []string{"src-a", "src-c"}, uids)
+	require.Zero(t, gateway.calls)
 }
 
 func TestSyncRunRefusesToSplitAcrossPaths(t *testing.T) {

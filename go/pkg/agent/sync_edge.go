@@ -150,10 +150,7 @@ func buildSyncPageRecords(
 	maxRows := syncMaxRows(capability)
 	sizingMeta := syncMetaRecord(meta, meta.baseChunkIndex, meta.baseChunkIndex+len(updates), true)
 
-	groups, dropped, err := packSyncGroups(sizingMeta, marker, devices, capability, maxRows)
-	if err != nil {
-		return nil, nil, dropped, err
-	}
+	groups, dropped := packSyncGroups(sizingMeta, marker, devices, capability, maxRows)
 
 	totalChunks := syncMetaTotalChunks(meta, len(groups))
 	for idx, group := range groups {
@@ -179,27 +176,19 @@ func buildSyncPageRecords(
 }
 
 // packSyncGroups splits devices into record-sized groups under the sizing
-// meta. A head device that cannot form a valid record alone is dropped and
-// counted; a semantic refusal stops the page.
+// meta. A head device that cannot form a valid record alone, for any
+// reason, is dropped and counted; packing continues with the rest. A
+// control marker always rides a group, an empty one if every device drops.
 func packSyncGroups(
 	sizingMeta *edgev1.SyncMetaV1,
 	marker *edgev1.SyncControlMarkerV1,
 	devices []*edgev1.SyncDeviceRecordV1,
 	capability *edgev1.EdgeSignedCapabilityV1,
 	maxRows uint64,
-) (groups [][]*edgev1.SyncDeviceRecordV1, dropped int, err error) {
-	if len(devices) == 0 {
-		if marker != nil {
-			return [][]*edgev1.SyncDeviceRecordV1{nil}, 0, nil
-		}
-		return nil, 0, nil
-	}
+) (groups [][]*edgev1.SyncDeviceRecordV1, dropped int) {
 	remaining := devices
 	for len(remaining) > 0 {
-		n, packErr := longestSyncPrefix(sizingMeta, remaining, capability, maxRows)
-		if packErr != nil {
-			return nil, dropped + len(remaining), packErr
-		}
+		n := longestSyncPrefix(sizingMeta, remaining, capability, maxRows)
 		if n == 0 {
 			dropped++
 			remaining = remaining[1:]
@@ -208,7 +197,10 @@ func packSyncGroups(
 		groups = append(groups, remaining[:n])
 		remaining = remaining[n:]
 	}
-	return groups, dropped, nil
+	if len(groups) == 0 && marker != nil {
+		groups = [][]*edgev1.SyncDeviceRecordV1{nil}
+	}
+	return groups, dropped
 }
 
 func longestSyncPrefix(
@@ -216,13 +208,12 @@ func longestSyncPrefix(
 	devices []*edgev1.SyncDeviceRecordV1,
 	capability *edgev1.EdgeSignedCapabilityV1,
 	maxRows uint64,
-) (int, error) {
+) int {
 	limit := len(devices)
 	if uint64(limit) > maxRows {
 		limit = int(maxRows)
 	}
 	best := 0
-	var lastErr error
 	lo, hi := 1, limit
 	for lo <= hi {
 		mid := lo + (hi-lo)/2
@@ -236,19 +227,9 @@ func longestSyncPrefix(
 			lo = mid + 1
 			continue
 		}
-		lastErr = err
 		hi = mid - 1
 	}
-	if best == 0 && lastErr != nil && !syncHeadMiss(lastErr) {
-		return 0, lastErr
-	}
-	return best, nil
-}
-
-func syncHeadMiss(err error) bool {
-	return errors.Is(err, errSyncRecordTooLarge) ||
-		errors.Is(err, edgerecord.ErrRecordTooLarge) ||
-		errors.Is(err, edgerecord.ErrPayloadTooLarge)
+	return best
 }
 
 func syncMaxRows(capability *edgev1.EdgeSignedCapabilityV1) uint64 {
