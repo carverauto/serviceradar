@@ -176,7 +176,7 @@ defmodule ServiceRadarWebNGWeb.Admin.ManagedComponentsLive.Index do
 
     query = if cursor, do: Ash.Query.filter(query, component_id > ^cursor), else: query
 
-    with {:ok, rows} <- Ash.read(query, scope: scope),
+    with {:ok, rows} <- read_authorized(query, scope),
          components = Enum.take(rows, @page_size),
          ids = Enum.map(components, & &1.component_id),
          {:ok, operations} <- open_operations(ids, scope) do
@@ -193,7 +193,19 @@ defmodule ServiceRadarWebNGWeb.Admin.ManagedComponentsLive.Index do
     ManagedCertificateOperation
     |> Ash.Query.for_read(:read, %{}, scope: scope)
     |> Ash.Query.filter(component_id in ^ids and status != :superseded)
-    |> Ash.read(scope: scope)
+    |> read_authorized(scope)
+  end
+
+  # ActorHasPermission is a simple check. With no_filter_static_forbidden_reads?
+  # a denied actor becomes a false filter, the query is skipped, and Ash.read
+  # returns []. This screen must treat that as a failed read: an empty page
+  # would commit the cursor, and an empty history would clear the open dialog.
+  defp read_authorized(query, scope) do
+    if RBAC.can?(scope, "settings.edge.manage") do
+      Ash.read(query, scope: scope, authorize_with: :error)
+    else
+      {:error, :forbidden}
+    end
   end
 
   defp refuse_page(socket) do
@@ -244,7 +256,7 @@ defmodule ServiceRadarWebNGWeb.Admin.ManagedComponentsLive.Index do
     |> Ash.Query.filter(component_id == ^id)
     |> Ash.Query.sort(issued_at: :desc)
     |> Ash.Query.limit(20)
-    |> Ash.read(scope: scope)
+    |> read_authorized(scope)
   end
 
   defp revocation_marks(_id, [], _scope) do
@@ -262,7 +274,7 @@ defmodule ServiceRadarWebNGWeb.Admin.ManagedComponentsLive.Index do
              ((is_nil(fingerprint) and generation in ^generations) or fingerprint in ^fingerprints)
          )
          |> Ash.Query.limit(40)
-         |> Ash.read(scope: scope) do
+         |> read_authorized(scope) do
       {:ok, rows} ->
         {:ok,
          %{
