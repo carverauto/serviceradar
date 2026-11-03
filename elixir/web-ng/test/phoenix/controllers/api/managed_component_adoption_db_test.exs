@@ -318,11 +318,207 @@ defmodule ServiceRadarWebNGWeb.Api.ManagedComponentAdoptionDbTest do
     assert still_one.fingerprint == predecessor
   end
 
-  defp inventory_socket(scope, selected) do
+  test "polling drops a selected component that leaves the page without a history error" do
+    token = page_token()
+    ids = Enum.map(1..25, &page_id(token, &1))
+    Enum.each(ids, &enroll_gateway/1)
+    displaced = List.last(ids)
+
+    {:noreply, loaded} =
+      Inventory.handle_info(
+        :refresh,
+        inventory_socket(operator_scope(), nil, %{cursor: token <> "-"})
+      )
+
+    assert Enum.map(loaded.assigns.components, & &1.component_id) == ids
+
+    opened =
+      put_assigns(loaded,
+        selected: displaced,
+        certificates: [%{fingerprint: "sentinel"}],
+        revoked_fingerprints: MapSet.new(["sentinel"]),
+        revoked_generations: MapSet.new([9])
+      )
+
+    {:noreply, stayed} = Inventory.handle_info(:poll, opened)
+    assert stayed.assigns.selected == displaced
+    assert stayed.assigns.certificates == []
+    assert stayed.assigns.revoked_fingerprints == MapSet.new()
+    assert stayed.assigns.revoked_generations == MapSet.new()
+    refute stayed.assigns.flash["error"]
+
+    enroll_gateway(page_id(token, 0))
+
+    {:noreply, dropped} = Inventory.handle_info(:poll, stayed)
+    assert dropped.assigns.selected == nil
+    assert dropped.assigns.certificates == []
+    assert dropped.assigns.revoked_fingerprints == MapSet.new()
+    assert dropped.assigns.revoked_generations == MapSet.new()
+    refute dropped.assigns.flash["error"]
+    assert Enum.map(dropped.assigns.components, & &1.component_id) == Enum.map(0..24, &page_id(token, &1))
+
+    {:noreply, again} = Inventory.handle_info(:certificate_policy_changed, dropped)
+    assert again.assigns.selected == nil
+    refute again.assigns.flash["error"]
+  end
+
+  test "history errors stay on a visible component and a missing row clears quietly" do
+    id = "visible-history-#{System.unique_integer([:positive])}"
+
+    component = %ManagedComponent{
+      component_id: id,
+      component_type: "agent-gateway",
+      generation: 1,
+      blocked: false
+    }
+
+    kept = [%{fingerprint: "keep"}]
+
+    {:noreply, failed} =
+      Inventory.handle_event(
+        "inspect",
+        %{"id" => id},
+        inventory_socket(denied_scope(), id, %{
+          components: [component],
+          certificates: kept,
+          revoked_fingerprints: MapSet.new(["keep"]),
+          revoked_generations: MapSet.new([4])
+        })
+      )
+
+    assert failed.assigns.flash["error"] == "Could not load certificate history."
+    assert failed.assigns.selected == id
+    assert failed.assigns.certificates == kept
+    assert failed.assigns.revoked_fingerprints == MapSet.new(["keep"])
+    assert failed.assigns.revoked_generations == MapSet.new([4])
+
+    {:noreply, cleared} =
+      Inventory.handle_event(
+        "inspect",
+        %{"id" => "not-on-this-page"},
+        inventory_socket(operator_scope(), id, %{
+          components: [component],
+          certificates: kept,
+          revoked_fingerprints: MapSet.new(["keep"]),
+          revoked_generations: MapSet.new([4])
+        })
+      )
+
+    assert cleared.assigns.selected == nil
+    assert cleared.assigns.certificates == []
+    assert cleared.assigns.revoked_fingerprints == MapSet.new()
+    assert cleared.assigns.revoked_generations == MapSet.new()
+    refute cleared.assigns.flash["error"]
+  end
+
+  test "page controls commit the cursor and clear the open component only after the page read succeeds" do
+    token = page_token()
+    ids = Enum.map(1..26, &page_id(token, &1))
+    Enum.each(ids, &enroll_gateway/1)
+    cursor = token <> "-"
+    page1 = Enum.take(ids, 25)
+    page2_id = List.last(ids)
+    page1_id = List.last(page1)
+
+    {:noreply, loaded} =
+      Inventory.handle_info(:refresh, inventory_socket(operator_scope(), nil, %{cursor: cursor}))
+
+    assert Enum.map(loaded.assigns.components, & &1.component_id) == page1
+    assert loaded.assigns.more?
+
+    opened =
+      put_assigns(loaded,
+        selected: page1_id,
+        certificates: [%{fingerprint: "open"}],
+        revoked_fingerprints: MapSet.new(["open"]),
+        revoked_generations: MapSet.new([2])
+      )
+
+    {:noreply, failed_next} =
+      Inventory.handle_event("next", %{}, put_assigns(opened, %{current_scope: denied_scope()}))
+
+    assert failed_next.assigns.cursor == cursor
+    assert failed_next.assigns.previous_cursors == []
+    assert Enum.map(failed_next.assigns.components, & &1.component_id) == page1
+    assert failed_next.assigns.more?
+    assert failed_next.assigns.selected == page1_id
+    assert failed_next.assigns.certificates == [%{fingerprint: "open"}]
+    assert failed_next.assigns.revoked_fingerprints == MapSet.new(["open"])
+    assert failed_next.assigns.flash["error"] == "Could not refresh managed certificates."
+
+    {:noreply, polled} =
+      Inventory.handle_info(:poll, put_assigns(failed_next, %{current_scope: operator_scope()}))
+
+    assert polled.assigns.cursor == cursor
+    assert polled.assigns.previous_cursors == []
+    assert Enum.map(polled.assigns.components, & &1.component_id) == page1
+    assert polled.assigns.selected == page1_id
+    refute polled.assigns.flash["error"] == "Could not load certificate history."
+
+    {:noreply, advanced} = Inventory.handle_event("next", %{}, polled)
+    assert advanced.assigns.cursor == page1_id
+    assert advanced.assigns.previous_cursors == [cursor]
+    assert hd(Enum.map(advanced.assigns.components, & &1.component_id)) == page2_id
+    refute page1_id in Enum.map(advanced.assigns.components, & &1.component_id)
+    assert advanced.assigns.selected == nil
+    assert advanced.assigns.certificates == []
+    assert advanced.assigns.revoked_fingerprints == MapSet.new()
+    assert advanced.assigns.revoked_generations == MapSet.new()
+
+    reopened = put_assigns(advanced, %{selected: page2_id, certificates: [%{fingerprint: "page-two"}]})
+
+    {:noreply, failed_previous} =
+      Inventory.handle_event("previous", %{}, put_assigns(reopened, %{current_scope: denied_scope()}))
+
+    assert failed_previous.assigns.cursor == page1_id
+    assert failed_previous.assigns.previous_cursors == [cursor]
+    assert failed_previous.assigns.selected == page2_id
+    assert failed_previous.assigns.certificates == [%{fingerprint: "page-two"}]
+    assert hd(Enum.map(failed_previous.assigns.components, & &1.component_id)) == page2_id
+    assert failed_previous.assigns.flash["error"] == "Could not refresh managed certificates."
+
+    {:noreply, returned} =
+      Inventory.handle_event(
+        "previous",
+        %{},
+        put_assigns(failed_previous, %{current_scope: operator_scope()})
+      )
+
+    assert returned.assigns.cursor == cursor
+    assert returned.assigns.previous_cursors == []
+    assert Enum.map(returned.assigns.components, & &1.component_id) == page1
+    assert returned.assigns.selected == nil
+
+    {:noreply, page_two} = Inventory.handle_event("next", %{}, returned)
+    selected_two = put_assigns(page_two, %{selected: page2_id, certificates: [%{fingerprint: "stay"}]})
+
+    {:noreply, failed_first} =
+      Inventory.handle_event("first", %{}, put_assigns(selected_two, %{current_scope: denied_scope()}))
+
+    assert failed_first.assigns.cursor == page1_id
+    assert failed_first.assigns.previous_cursors == [cursor]
+    assert failed_first.assigns.selected == page2_id
+    assert failed_first.assigns.certificates == [%{fingerprint: "stay"}]
+    assert hd(Enum.map(failed_first.assigns.components, & &1.component_id)) == page2_id
+
+    {:noreply, first} =
+      Inventory.handle_event("first", %{}, put_assigns(failed_first, %{current_scope: operator_scope()}))
+
+    assert first.assigns.cursor == nil
+    assert first.assigns.previous_cursors == []
+    assert first.assigns.selected == nil
+    assert first.assigns.certificates == []
+    assert length(first.assigns.components) == 25
+    assert first.assigns.more?
+    refute page2_id in Enum.map(first.assigns.components, & &1.component_id)
+  end
+
+  defp inventory_socket(scope, selected, overrides \\ %{}) do
     socket = %Phoenix.LiveView.Socket{}
     socket = %{socket | assigns: Map.put(socket.assigns, :flash, %{})}
 
-    Phoenix.Component.assign(socket,
+    socket
+    |> Phoenix.Component.assign(
       current_scope: scope,
       components: [],
       operations: %{},
@@ -331,9 +527,46 @@ defmodule ServiceRadarWebNGWeb.Api.ManagedComponentAdoptionDbTest do
       revoked_generations: MapSet.new(),
       selected: selected,
       cursor: nil,
+      previous_cursors: [],
       more?: false,
       loading?: false
     )
+    |> put_assigns(overrides)
+  end
+
+  defp put_assigns(socket, attrs), do: Phoenix.Component.assign(socket, attrs)
+
+  defp page_token do
+    suffix =
+      System.unique_integer([:positive])
+      |> Integer.to_string()
+      |> String.pad_leading(12, "0")
+
+    "zz" <> suffix
+  end
+
+  defp page_id(token, index), do: token <> "-" <> String.pad_leading(Integer.to_string(index), 2, "0")
+
+  defp enroll_gateway(id) do
+    {:ok, _component} =
+      ManagedComponent
+      |> Ash.Changeset.for_create(
+        :adopt_infrastructure,
+        %{
+          component_id: id,
+          component_type: "agent-gateway",
+          partition_id: "example-partition",
+          server_hosts: ["gateway.example.com"],
+          permissions: %{
+            "publish" => ["metrics.example.>"],
+            "publish_deny" => [],
+            "subscribe" => [">"],
+            "subscribe_deny" => ["$SYS.>"]
+          }
+        },
+        scope: operator_scope()
+      )
+      |> Ash.create(scope: operator_scope())
   end
 
   defp denied_scope do

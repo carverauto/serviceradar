@@ -58,38 +58,27 @@ defmodule ServiceRadarWebNGWeb.Admin.ManagedComponentsLive.Index do
   end
 
   @impl true
-  def handle_event("next", _, %{assigns: %{more?: true}} = socket) do
-    cursor = List.last(socket.assigns.components).component_id
-
-    {:noreply,
-     socket
-     |> assign(cursor: cursor, previous_cursors: [socket.assigns.cursor | socket.assigns.previous_cursors], selected: nil)
-     |> reload()}
+  def handle_event("next", _, %{assigns: %{more?: true, components: components}} = socket) do
+    cursor = List.last(components).component_id
+    previous_cursors = [socket.assigns.cursor | socket.assigns.previous_cursors]
+    {:noreply, navigate(socket, cursor, previous_cursors)}
   end
 
   def handle_event("next", _, socket), do: {:noreply, socket}
 
   def handle_event("previous", _, %{assigns: %{previous_cursors: [cursor | rest]}} = socket) do
-    {:noreply, socket |> assign(cursor: cursor, previous_cursors: rest, selected: nil) |> reload()}
+    {:noreply, navigate(socket, cursor, rest)}
   end
 
   def handle_event("previous", _, socket), do: {:noreply, socket}
 
   def handle_event("first", _, socket) do
-    {:noreply, socket |> assign(cursor: nil, previous_cursors: [], selected: nil) |> reload()}
+    {:noreply, navigate(socket, nil, [])}
   end
 
   def handle_event("inspect", %{"id" => id}, socket), do: {:noreply, load_history(socket, id)}
 
-  def handle_event("close", _, socket) do
-    {:noreply,
-     assign(socket,
-       selected: nil,
-       certificates: [],
-       revoked_fingerprints: MapSet.new(),
-       revoked_generations: MapSet.new()
-     )}
-  end
+  def handle_event("close", _, socket), do: {:noreply, clear_selection(socket)}
 
   def handle_event(action, %{"id" => id}, socket) when action in ["rotate", "revoke", "reenroll"] do
     scope = socket.assigns.current_scope
@@ -150,9 +139,34 @@ defmodule ServiceRadarWebNGWeb.Admin.ManagedComponentsLive.Index do
     "Re-enrollment allowed in a new generation. Old certificates remain revoked."
   end
 
+  defp navigate(socket, cursor, previous_cursors) do
+    case read_page(socket, cursor) do
+      {:ok, page} ->
+        socket
+        |> assign(page)
+        |> assign(cursor: cursor, previous_cursors: previous_cursors, loading?: false)
+        |> clear_selection()
+
+      {:error, _} ->
+        refuse_page(socket)
+    end
+  end
+
   defp reload(socket) do
+    case read_page(socket, socket.assigns.cursor) do
+      {:ok, page} ->
+        socket
+        |> assign(page)
+        |> assign(:loading?, false)
+        |> refresh_open_history()
+
+      {:error, _} ->
+        refuse_page(socket)
+    end
+  end
+
+  defp read_page(socket, cursor) do
     scope = socket.assigns.current_scope
-    cursor = socket.assigns.cursor
 
     query =
       ManagedComponent
@@ -162,27 +176,30 @@ defmodule ServiceRadarWebNGWeb.Admin.ManagedComponentsLive.Index do
 
     query = if cursor, do: Ash.Query.filter(query, component_id > ^cursor), else: query
 
-    socket =
-      with {:ok, rows} <- Ash.read(query, scope: scope),
-           components = Enum.take(rows, @page_size),
-           ids = Enum.map(components, & &1.component_id),
-           {:ok, operations} <-
-             ManagedCertificateOperation
-             |> Ash.Query.for_read(:read, %{}, scope: scope)
-             |> Ash.Query.filter(component_id in ^ids and status != :superseded)
-             |> Ash.read(scope: scope) do
-        assign(socket,
-          components: components,
-          operations: Map.new(operations, &{&1.component_id, &1}),
-          more?: length(rows) > @page_size,
-          loading?: false
-        )
-      else
-        {:error, _} ->
-          socket |> assign(:loading?, false) |> put_flash(:error, "Could not refresh managed certificates.")
-      end
+    with {:ok, rows} <- Ash.read(query, scope: scope),
+         components = Enum.take(rows, @page_size),
+         ids = Enum.map(components, & &1.component_id),
+         {:ok, operations} <- open_operations(ids, scope) do
+      {:ok,
+       %{
+         components: components,
+         operations: Map.new(operations, &{&1.component_id, &1}),
+         more?: length(rows) > @page_size
+       }}
+    end
+  end
 
-    refresh_open_history(socket)
+  defp open_operations(ids, scope) do
+    ManagedCertificateOperation
+    |> Ash.Query.for_read(:read, %{}, scope: scope)
+    |> Ash.Query.filter(component_id in ^ids and status != :superseded)
+    |> Ash.read(scope: scope)
+  end
+
+  defp refuse_page(socket) do
+    socket
+    |> assign(:loading?, false)
+    |> put_flash(:error, "Could not refresh managed certificates.")
   end
 
   defp refresh_open_history(socket) do
@@ -195,18 +212,30 @@ defmodule ServiceRadarWebNGWeb.Admin.ManagedComponentsLive.Index do
   defp load_history(socket, id) do
     scope = socket.assigns.current_scope
 
-    with %{} <- Enum.find(socket.assigns.components, &(&1.component_id == id)),
-         {:ok, certificates} <- component_certificates(id, scope),
-         {:ok, revoked} <- revocation_marks(id, certificates, scope) do
-      assign(socket,
-        selected: id,
-        certificates: certificates,
-        revoked_fingerprints: revoked.fingerprints,
-        revoked_generations: revoked.generations
-      )
+    if Enum.any?(socket.assigns.components, &(&1.component_id == id)) do
+      with {:ok, certificates} <- component_certificates(id, scope),
+           {:ok, revoked} <- revocation_marks(id, certificates, scope) do
+        assign(socket,
+          selected: id,
+          certificates: certificates,
+          revoked_fingerprints: revoked.fingerprints,
+          revoked_generations: revoked.generations
+        )
+      else
+        {:error, _} -> put_flash(socket, :error, "Could not load certificate history.")
+      end
     else
-      _ -> put_flash(socket, :error, "Could not load certificate history.")
+      clear_selection(socket)
     end
+  end
+
+  defp clear_selection(socket) do
+    assign(socket,
+      selected: nil,
+      certificates: [],
+      revoked_fingerprints: MapSet.new(),
+      revoked_generations: MapSet.new()
+    )
   end
 
   defp component_certificates(id, scope) do
