@@ -1415,9 +1415,9 @@ change together with the requirements they implement.
   coverage computation (task 2.28); modelling any of them here means inventing
   semantics for an owner that does not exist yet and then keeping two
   definitions in agreement by hand.
-  PARTIAL (reconciled 2026-11-02): unchanged: the admission side is merged, but
-  `go/pkg/edge/admission` has no importers and the end-to-end authorization is
-  task 2.28.
+  PARTIAL (reconciled 2026-11-02): the admission side is merged. M3.2 imports
+  `admission.Gate` from `go/cmd/agent`. `Controller` still has no caller, and
+  the end-to-end reclaim authorization remains task 2.28.
 - [ ] 2.18 **Correct `projection`: use the v2 idempotency and cost model.** It
   applies the wrong idempotency key and cost model for v2 records. Align both with
   the record identities and the versioned cost contract, and test replay
