@@ -62,6 +62,7 @@ const (
 	edgeProducerSweepResultsMetrics
 	edgeProducerPluginTelemetry
 	edgeProducerAddonTelemetry
+	edgeProducerPluginResults
 	edgeProducerCount
 )
 
@@ -79,6 +80,7 @@ func (p edgeProducer) label() string {
 		edgeProducerSweepResultsMetrics: "sweep_results_metrics",
 		edgeProducerPluginTelemetry:     "plugin_telemetry",
 		edgeProducerAddonTelemetry:      "addon_telemetry",
+		edgeProducerPluginResults:       "plugin_results",
 	}[p]
 }
 

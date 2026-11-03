@@ -18,6 +18,7 @@ defmodule ServiceRadar.Edge.ContractCatalog do
   alias ServiceRadar.Edge.Projectors.SweepObservation
   alias ServiceRadar.Edge.Projectors.TelemetryBatch
   alias ServiceRadar.Edge.Projectors.UnleasedSweepResults
+  alias ServiceRadar.Edge.Projectors.WasmPluginResult
 
   @type ref :: {String.t(), pos_integer()}
   @type entry :: %{
@@ -68,6 +69,14 @@ defmodule ServiceRadar.Edge.ContractCatalog do
       max_projected_rows: 1_000,
       write_bytes_per_row: 2_048,
       package_id: "serviceradar.agent.mtr"
+    },
+    %{
+      ref: {"serviceradar.plugin_results.batch", 1},
+      authority: :standing_grant,
+      projector: WasmPluginResult,
+      max_projected_rows: 10_000,
+      write_bytes_per_row: 16_384,
+      package_id: "serviceradar.agent.plugin_results"
     }
   ]
 

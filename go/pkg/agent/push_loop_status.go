@@ -334,9 +334,30 @@ func (p *PushLoop) pushPluginResults(ctx context.Context) bool {
 		results = pluginManager.DrainResults(maxPluginResultsPerStream)
 		p.pendingPluginResults = results
 	}
+
+	// One path per cycle: with a plugin-results grant, drained results move
+	// into the edge queue and only the spool carries them; without one, any
+	// item the spool admitted no part of rejoins the legacy set ahead of the
+	// freshly drained results.
+	if capability := p.edgePluginResultsCapability(time.Now()); capability != nil {
+		if len(results) > 0 {
+			dropped := p.pluginResultsEdge.enqueue(groupPluginResults(results))
+			p.dropEdgeTelemetry(edgeProducerPluginResults, edgeDropRetryBufferFull, dropped)
+			p.pendingPluginResults = nil
+		}
+		return p.spoolPluginResults(capability, agentID, partition)
+	}
+
+	taken := p.pluginResultsEdge.take()
+	queued := make([]PluginResult, 0)
+	for _, item := range taken {
+		queued = append(queued, item.results...)
+	}
+	results = append(queued, results...)
 	if len(results) == 0 {
 		return false
 	}
+	p.pendingPluginResults = results
 
 	// Build status chunks - one per result to isolate failures and handle
 	// potentially large payloads (e.g., error messages with stack traces).

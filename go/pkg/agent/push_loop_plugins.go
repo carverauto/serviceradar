@@ -75,6 +75,27 @@ func (p *PushLoop) normalizePluginPayload(
 	agentID string,
 	partition string,
 ) ([]byte, bool, error) {
+	payload, available, err := p.normalizePluginPayloadMap(result, agentID, partition)
+	if err != nil {
+		return nil, false, err
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return nil, false, fmt.Errorf("marshal payload: %w", err)
+	}
+
+	return data, available, nil
+}
+
+// normalizePluginPayloadMap validates and host-stamps one plugin result
+// payload, returning the map the legacy status path marshals. The edge
+// producer converts this same map, so both paths ingest identical content.
+func (p *PushLoop) normalizePluginPayloadMap(
+	result PluginResult,
+	agentID string,
+	partition string,
+) (map[string]interface{}, bool, error) {
 	if len(result.Payload) == 0 {
 		return nil, false, errPluginEmptyPayload
 	}
@@ -140,12 +161,7 @@ func (p *PushLoop) normalizePluginPayload(
 		labels["partition"] = partition
 	}
 
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return nil, false, fmt.Errorf("marshal payload: %w", err)
-	}
-
-	return data, pluginStatusAvailable(status), nil
+	return payload, pluginStatusAvailable(status), nil
 }
 
 func (p *PushLoop) buildPluginErrorPayload(
