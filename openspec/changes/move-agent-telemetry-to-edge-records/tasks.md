@@ -21,6 +21,12 @@
   JetStream subjects (metrics, logs, OTel).
 - [ ] 1.7 Core issues standing grants for every registry entry marked agent-scheduled instead of
   naming contracts in code.
+- [x] 1.8 Generic dead-letter: a record of any contract whose projection keeps failing is copied
+  with its original bytes and failure metadata to `TELEMETRY_EDGE_RECORD_DLQ_V1_BULK` before its
+  source delivery is acknowledged, with a counter, managed alerts and a replay that republishes
+  it through the ledger (`ServiceRadar.EventWriter.EdgeRecordDeadLetter`,
+  `docs/edge-record-dead-letter-runbook.md`). The DLQ catalog, retention and redrive are
+  `add-edge-record-stream-partitioning`.
 
 ## 2. Metrics
 

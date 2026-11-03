@@ -217,6 +217,164 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
     refute_receive :termed, 50
   end
 
+  describe "edge-record dead-letter" do
+    @record_bytes <<0, 1, 2, 3, "synthetic record", 255>>
+    @source_headers [
+      {"nats-msg-id", "synthetic-publication-0001"},
+      {"nats-expected-stream", "TELEMETRY_EDGE_RECORD_V1_BULK"},
+      {"sr-edge-delivery-id", "synthetic-delivery-0001"},
+      {"sr-edge-transport-provenance", "synthetic-provenance"}
+    ]
+
+    setup do
+      parent = self()
+      handler_id = "pipeline-edge-dead-letter-#{System.unique_integer([:positive])}"
+
+      :telemetry.attach(
+        handler_id,
+        [:serviceradar, :event_writer, :edge_record, :dead_letter],
+        fn _event, measurements, metadata, _config ->
+          send(parent, {:dead_letter_event, measurements, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+    end
+
+    # A failed delivery of a record on the primary edge-record stream. `request` answers the
+    # dead-letter publish; every call to it and to the ack callback is reported in order.
+    defp failed_edge_record(delivery_count, dead_letter_after, max_deliver, request) do
+      parent = self()
+
+      Message.failed(
+        %Message{
+          data: @record_bytes,
+          metadata: %{
+            subject: "telemetry.edge-record.v1.bulk.p07",
+            headers: @source_headers,
+            jetstream_ack: %{
+              stream: "TELEMETRY_EDGE_RECORD_V1_BULK",
+              consumer: "synthetic-writer",
+              delivery_count: delivery_count,
+              stream_sequence: 41,
+              timestamp: 1_700_000_000_000_000_000
+            },
+            max_deliver: max_deliver,
+            dead_letter_after: dead_letter_after
+          },
+          acknowledger:
+            {Pipeline, :ack_ref,
+             %{
+               ack_fun: fn action ->
+                 send(parent, {:step, {:ack, action}})
+                 :ok
+               end,
+               request_fun: fn subject, body, opts ->
+                 send(parent, {:step, {:publish, subject, body, opts}})
+                 request.()
+               end
+             }}
+        },
+        %RuntimeError{message: "edge record publish failed: :timeout"}
+      )
+    end
+
+    defp steps(acc \\ []) do
+      receive do
+        {:step, step} -> steps([step | acc])
+      after
+        50 -> Enum.reverse(acc)
+      end
+    end
+
+    defp stored(seq),
+      do: fn ->
+        {:ok, %{body: ~s({"stream":"TELEMETRY_EDGE_RECORD_DLQ_V1_BULK","seq":#{seq}})}}
+      end
+
+    test "a failure before the threshold is NAKed with backoff and copies nothing" do
+      for {delivery_count, dead_letter_after, max_deliver, delay} <- [
+            {1, 2, -1, 10_000},
+            {3, 20, 5, 40_000}
+          ] do
+        message = failed_edge_record(delivery_count, dead_letter_after, max_deliver, stored(1))
+        assert :ok = Pipeline.ack(:ack_ref, [], [message])
+        assert steps() == [{:ack, {:nack, delay}}]
+      end
+
+      refute_received {:dead_letter_event, _, _}
+    end
+
+    test "at the threshold the record is copied with its failure and ACKed only after the PubAck" do
+      # The stream's own threshold, and max_deliver - 1 when the consumer's limit is lower.
+      for {delivery_count, dead_letter_after, max_deliver} <- [{2, 2, -1}, {4, 20, 5}] do
+        message = failed_edge_record(delivery_count, dead_letter_after, max_deliver, stored(9))
+
+        log = ExUnit.CaptureLog.capture_log(fn -> Pipeline.ack(:ack_ref, [], [message]) end)
+
+        assert [{:publish, subject, body, opts}, {:ack, :ack}] = steps()
+        assert subject == "telemetry.edge-record-dlq.v1.bulk.p07.unknown.v0"
+        assert body == @record_bytes
+
+        headers = Map.new(opts[:headers])
+        # Keyed on the source delivery, so a copy after a replay is not deduplicated against
+        # one the replay deleted; the record's own id travels in a failure header.
+        assert headers["Nats-Msg-Id"] == "edge-dlq:TELEMETRY_EDGE_RECORD_V1_BULK:41"
+        assert headers["Sr-Edge-Dlq-Source-Msg-Id"] == "synthetic-publication-0001"
+        refute Map.has_key?(headers, "nats-msg-id")
+        assert headers["Nats-Expected-Stream"] == "TELEMETRY_EDGE_RECORD_DLQ_V1_BULK"
+        refute Map.has_key?(headers, "nats-expected-stream")
+        assert headers["sr-edge-delivery-id"] == "synthetic-delivery-0001"
+        assert headers["sr-edge-transport-provenance"] == "synthetic-provenance"
+        assert headers["Sr-Edge-Dlq-Source-Subject"] == "telemetry.edge-record.v1.bulk.p07"
+        assert headers["Sr-Edge-Dlq-Source-Stream"] == "TELEMETRY_EDGE_RECORD_V1_BULK"
+        assert headers["Sr-Edge-Dlq-Source-Sequence"] == "41"
+        assert headers["Sr-Edge-Dlq-Stored-At"] == "2023-11-14T22:13:20.000000Z"
+        assert headers["Sr-Edge-Dlq-Attempts"] == Integer.to_string(delivery_count)
+        assert headers["Sr-Edge-Dlq-Reason"] == "RuntimeError"
+        assert headers["Sr-Edge-Dlq-Reason-Detail"] == "edge record publish failed: :timeout"
+        assert {:ok, _, _} = DateTime.from_iso8601(headers["Sr-Edge-Dlq-Last-Failed-At"])
+
+        assert_received {:dead_letter_event, %{count: 1, attempts: ^delivery_count},
+                         %{
+                           contract: "undecodable",
+                           reason_class: "RuntimeError",
+                           result: "stored"
+                         }}
+
+        assert log =~ "Edge record dead-lettered:"
+        assert log =~ "dlq_sequence=9"
+        assert log =~ "source_sequence=41"
+      end
+    end
+
+    test "a dead-letter that is not stored leaves the source unacknowledged and NAKs it" do
+      for request <- [
+            fn -> {:error, :timeout} end,
+            fn ->
+              {:ok,
+               %{
+                 body:
+                   ~s({"error":{"code":503,"err_code":10077,"description":"maximum bytes exceeded"}})
+               }}
+            end,
+            fn -> exit(:noproc) end
+          ] do
+        message = failed_edge_record(2, 2, -1, request)
+
+        log = ExUnit.CaptureLog.capture_log(fn -> Pipeline.ack(:ack_ref, [], [message]) end)
+
+        assert [{:publish, _subject, @record_bytes, _opts}, {:ack, {:nack, 20_000}}] = steps()
+
+        assert_received {:dead_letter_event, %{count: 1},
+                         %{contract: "undecodable", result: "failed"}}
+
+        assert log =~ "the source delivery stays unacknowledged"
+      end
+    end
+  end
+
   test "ack/3 does not crash when ack callback exits" do
     message = %Message{
       data: "",

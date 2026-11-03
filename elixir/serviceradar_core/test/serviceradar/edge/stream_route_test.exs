@@ -58,14 +58,41 @@ defmodule ServiceRadar.Edge.StreamRouteTest do
       assert from_bulk.partition == nil
     end
 
-    test "the DLQ families are normative but NOT resolvable yet" do
-      # The families exist in the spec. There is deliberately no resolve_dlq/2: the version that
-      # existed took the traffic class from a contract supplied alongside the source route, so a
-      # bulk failure could be resolved into the interactive DLQ. A DLQ route must be derived from
-      # the failure context -- the bounded wrapper, source stream/sequence, error cohort -- and
-      # none of that exists yet, so there is nothing to derive one from.
+    test "a dead-letter route keeps the delivered subject's class and partition" do
+      # There is deliberately no resolve_dlq/2: the version that existed took the traffic class
+      # from a contract supplied alongside the source route, so a bulk failure could be resolved
+      # into the interactive DLQ. The class and partition come from the delivered subject.
+      for {source, contract, subject, stream, partition} <- [
+            {"telemetry.edge-record.v1.bulk.p07", {"serviceradar.metrics.batch", 1},
+             "telemetry.edge-record-dlq.v1.bulk.p07.serviceradar_metrics_batch.v1",
+             "TELEMETRY_EDGE_RECORD_DLQ_V1_BULK", 7},
+            {"telemetry.edge-record-audit.v1.interactive.p63", {"Example Contract*>", 2},
+             "telemetry.edge-record-dlq.v1.interactive.p63.example_contract.v2",
+             "TELEMETRY_EDGE_RECORD_DLQ_V1_INTERACTIVE", 63},
+            {"telemetry.edge-record.v1.bulk.p00", nil,
+             "telemetry.edge-record-dlq.v1.bulk.p00.unknown.v0",
+             "TELEMETRY_EDGE_RECORD_DLQ_V1_BULK", 0}
+          ] do
+        assert {:ok, %ResolvedRoute{} = route} = StreamRoute.dead_letter_route(source, contract)
+
+        assert {route.subject, route.expected_stream, route.partition} ==
+                 {subject, stream, partition}
+      end
+
+      # Only the families EventWriter projects dead-letter, and only a well-formed partition.
+      for source <- [
+            "telemetry.edge-record-security-quarantine.v1.bulk.p07",
+            "telemetry.edge-record-dlq.v1.bulk.p07.serviceradar_metrics_batch.v1",
+            "telemetry.edge-record-recovery.v1",
+            "telemetry.edge-record.v1.continuous.p07",
+            "telemetry.edge-record.v1.bulk.p64",
+            "telemetry.edge-record.v1.bulk.p7",
+            "telemetry.edge-record.v2.bulk.p07"
+          ] do
+        assert {:error, :not_dead_letterable} = StreamRoute.dead_letter_route(source, nil)
+      end
+
       refute function_exported?(StreamRoute, :resolve_dlq, 2)
-      refute function_exported?(StreamRoute, :resolve_dlq, 3)
     end
 
     test "no subject outside the seven normative families is emitted" do
@@ -78,7 +105,7 @@ defmodule ServiceRadar.Edge.StreamRouteTest do
 
       for s <- subjects do
         assert s =~
-                 ~r"^telemetry\.(edge-record(-audit|-security-quarantine)?\.v1\.(bulk|interactive)\.p\d{2}|edge-record-recovery\.v1|edge-record-dlq\.v1\.(bulk|interactive)\.p\d{2})$",
+                 ~r"^telemetry\.(edge-record(-audit|-security-quarantine)?\.v1\.(bulk|interactive)\.p\d{2}|edge-record-recovery\.v1|edge-record-dlq\.v1\.(bulk|interactive)\.p\d{2}\.[a-z0-9_-]+\.v\d+)$",
                "#{s} is outside the normative subject families"
       end
 

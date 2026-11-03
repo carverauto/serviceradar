@@ -41,6 +41,9 @@ defmodule ServiceRadar.EventWriter.TelemetryTest do
       assert Telemetry.subject_class("telemetry.edge-record-security-quarantine.v1.bulk.p00") ==
                "edge_record_quarantine"
 
+      assert Telemetry.subject_class("telemetry.edge-record-dlq.v1.bulk.p00.unknown.v0") ==
+               "edge_record_dlq"
+
       assert Telemetry.subject_class("signals.analytics.predictions.cpu") == "analytics"
       assert Telemetry.subject_class("signals.analytics.inventory.added") == "analytics"
       assert Telemetry.subject_class("causal.signal") == "causal"
