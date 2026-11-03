@@ -4,6 +4,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
   import Ecto.Query, only: [from: 2]
 
   alias Ecto.Adapters.SQL
+  alias Ecto.Adapters.SQL.Sandbox
   alias ServiceRadar.Ingestion.LaneSupervisor
   alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
   alias ServiceRadar.NetworkDiscovery.TopologyGraph
@@ -85,7 +86,13 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
         "sr:it-own-b/Gi0/1",
         "sr:it-own-b/Eth9",
         "sr:it-own-c",
-        "sr:it-own-c/Gi0/2"
+        "sr:it-own-c/Gi0/2",
+        "sr:it-win-a",
+        "sr:it-win-a/Gi0/1",
+        "sr:it-win-b",
+        "sr:it-win-b/Gi0/1",
+        "sr:it-win-c",
+        "sr:it-win-c/Gi0/2"
       ] ++ sparse_payload_ids() ++ synthetic_topology_ids()
     )
 
@@ -1013,7 +1020,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     assert :ok = TopologyProjectionWorker.perform(job_b)
     assert interface_alias("#{device_b}/eth0") == "stable-alias"
+
+    release = hold_projection_lock(device_a)
     assert {:snooze, _seconds} = TopologyProjectionWorker.perform(newer_a)
+    release.()
 
     mark_retryable(older_a)
     assert :ok = TopologyProjectionWorker.perform(reload_job(newer_a.id))
@@ -1030,30 +1040,39 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     assert interface_alias("#{device_b}/eth0") == "stable-alias"
   end
 
-  test "a retry of an older job that starts while a newer one executes waits for it" do
+  test "a job that finds another run of its device in progress waits and then projects the newest rows" do
     device = "sr:it-order"
     on_exit(fn -> delete_interface(device) end)
 
     upsert_interface_alias(device, "first-alias")
     assert :ok = TopologyProjectionWorker.enqueue(:interfaces, [%{device_id: device}])
-    [older] = pending_projection_jobs()
+    [job] = pending_projection_jobs()
 
-    mark_executing(older)
+    release = hold_projection_lock(device)
+    assert {:snooze, _seconds} = TopologyProjectionWorker.perform(job)
     upsert_interface_alias(device, "latest-alias")
-    assert :ok = TopologyProjectionWorker.enqueue(:interfaces, [%{device_id: device}])
-    [newer] = pending_projection_jobs()
-    assert newer.id > older.id
+    release.()
 
-    # The older attempt failed, the newer one started, then the older retry started.
-    now = DateTime.utc_now()
-    mark_executing(newer, DateTime.add(now, -1, :second))
-    mark_executing(older, now)
-
-    assert {:snooze, _seconds} = TopologyProjectionWorker.perform(reload_job(older.id))
-
-    mark_retryable(newer)
-    assert :ok = TopologyProjectionWorker.perform(reload_job(older.id))
+    assert :ok = TopologyProjectionWorker.perform(reload_job(job.id))
     assert interface_alias("#{device}/eth0") == "latest-alias"
+  end
+
+  test "an unchanged row set is reapplied when a different row becomes the newest" do
+    local = "sr:it-win-a"
+    t1 = ~U[2026-04-01 00:00:00Z]
+    t2 = ~U[2026-04-01 00:05:00Z]
+    t3 = ~U[2026-04-01 00:10:00Z]
+    l1 = &winner_link(local, "sr:it-win-b", "Gi0/1", &1, &2)
+    l2 = &winner_link(local, "sr:it-win-c", "Gi0/2", &1, &2)
+
+    assert :ok = TopologyGraph.upsert_links([l1.(t1, "192.0.2.62"), l2.(t1, "192.0.2.62")])
+    assert device_ip(local) == "192.0.2.62"
+
+    assert :ok = TopologyGraph.upsert_links([l2.(t1, "192.0.2.62"), l1.(t2, "192.0.2.61")])
+    assert device_ip(local) == "192.0.2.61"
+
+    assert :ok = TopologyGraph.upsert_links([l1.(t2, "192.0.2.61"), l2.(t3, "192.0.2.62")])
+    assert device_ip(local) == "192.0.2.62"
   end
 
   test "a later topology report refreshes the projected interface name and device ip" do
@@ -1449,10 +1468,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
   defp pending_projection_args, do: Enum.map(pending_projection_jobs(), & &1.args)
 
-  defp mark_executing(%Oban.Job{id: id}, attempted_at \\ DateTime.utc_now()) do
+  defp mark_executing(%Oban.Job{id: id}) do
     Repo.update_all(
       from(j in Oban.Job, where: j.id == ^id),
-      [set: [state: "executing", attempted_at: attempted_at, attempt: 1]],
+      [set: [state: "executing", attempted_at: DateTime.utc_now(), attempt: 1]],
       prefix: "platform"
     )
   end
@@ -1466,6 +1485,54 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
   end
 
   defp reload_job(id), do: Repo.get!(Oban.Job, id, prefix: "platform")
+
+  # Another projection run for the device, on its own connection, holding the
+  # device's transaction-scoped lock until released.
+  defp hold_projection_lock(device_id) do
+    test = self()
+
+    holder =
+      Task.async(fn ->
+        Sandbox.unboxed_run(Repo, fn ->
+          Repo.transaction(fn ->
+            Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+              "topology_projection:" <> device_id
+            ])
+
+            send(test, {:projection_lock_held, self()})
+
+            receive do
+              :release -> :ok
+            end
+          end)
+        end)
+      end)
+
+    assert_receive {:projection_lock_held, pid}, 5_000
+
+    fn ->
+      send(pid, :release)
+      Task.await(holder)
+    end
+  end
+
+  defp winner_link(local, neighbor, port, timestamp, ip) do
+    %{
+      local_device_id: local,
+      neighbor_device_id: neighbor,
+      local_device_ip: ip,
+      local_if_name: "Gi0/1",
+      local_if_index: 1,
+      neighbor_port_id: port,
+      protocol: "lldp",
+      timestamp: timestamp
+    }
+  end
+
+  defp device_ip(device_id) do
+    [row] = cypher_rows("MATCH (d:Device {id:'#{device_id}'}) RETURN {ip: d.ip} AS result")
+    row["ip"]
+  end
 
   defp upsert_interface_alias(device_id, if_alias) do
     # discovered_interfaces.device_id references ocsf_devices. The projection

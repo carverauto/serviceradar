@@ -125,10 +125,12 @@ defmodule ServiceRadar.Graph do
   end
 
   defp query_age(repo, graph, cypher, mode) do
+    opts = query_opts(repo)
+
     graph
     |> candidate_sqls(cypher, mode)
     |> Enum.reduce_while(nil, fn sql, first_error ->
-      case repo.query(sql, [], prepare: :unnamed) do
+      case repo.query(sql, [], opts) do
         {:ok, _} = result -> {:halt, result}
         {:error, reason} -> {:cont, first_error || {:error, reason}}
       end
@@ -138,6 +140,15 @@ defmodule ServiceRadar.Graph do
       {:error, _} = error -> error
       nil -> {:error, :age_query_failed}
     end
+  end
+
+  # Inside a transaction a failed statement would abort it, and with it the
+  # quote-style fallback and every later statement; a savepoint confines the
+  # failure to the one statement, as outside a transaction.
+  defp query_opts(repo) do
+    if repo.in_transaction?(),
+      do: [prepare: :unnamed, mode: :savepoint],
+      else: [prepare: :unnamed]
   end
 
   defp cypher_sql(graph, cypher, :execute, quote_style) do

@@ -31,12 +31,13 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
 
   Uniqueness on the device id is only coalescing. A newer result for that
   device replaces a job that has not started, so a pending backlog collapses
-  to one run per device. A job that starts while another job for the same
-  device that started before it is still executing waits for it, including a
-  retry of an older job that starts while a newer one runs. An `executing` job
-  older than this worker's timeout is treated as orphaned, so a node that dies
-  mid-projection does not block the device until Lifeline rescues the row. The
-  rescued job reads CNPG again.
+  to one run per device. Runs for one device are serialized by a
+  transaction-scoped advisory lock on the device id: a job takes
+  `pg_try_advisory_xact_lock` in its transaction, then reads CNPG and writes
+  the graph inside that transaction. A job that finds the lock held snoozes and
+  reads CNPG again when it runs, so whichever run holds the lock last reads the
+  newest committed rows. A node that dies mid-projection releases the lock with
+  its connection.
 
   ## Failure
 
@@ -61,6 +62,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.NetworkDiscovery.TopologyGraph
   alias ServiceRadar.NetworkDiscovery.TopologyLink
+  alias ServiceRadar.Observability.AdvisoryLocks
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
 
@@ -68,9 +70,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
 
   @lane :topology_projection
   @timeout_ms to_timeout(minute: 10)
-  # A live job is killed at its timeout; one still `executing` past this is
-  # orphaned by a node that went away.
-  @orphaned_after_ms @timeout_ms + to_timeout(minute: 1)
   @wait_seconds 5
   @replace [available: [:args], scheduled: [:args], retryable: [:args]]
 
@@ -97,12 +96,10 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"device_id" => device_id}} = job) when is_binary(device_id) do
-    case turn(job) do
-      :wait ->
-        {:snooze, @wait_seconds}
-
-      :apply ->
-        project(device_id, job)
+    case Repo.transaction(fn -> locked_project(device_id, job) end, timeout: @timeout_ms) do
+      {:ok, :busy} -> {:snooze, @wait_seconds}
+      {:ok, result} -> result
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -164,29 +161,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
     end
   end
 
-  # Another run for this device that started first may still be writing the
-  # rows it read. Wait until it finishes, then read CNPG again. Runs are ordered
-  # by when they started, then by id, so a retry of an older job that starts
-  # while a newer one executes waits for it as well.
-  defp turn(%Oban.Job{id: id, args: %{"device_id" => device_id}} = job) do
-    now = DateTime.utc_now()
-    started = job.attempted_at || now
-    orphaned_before = DateTime.add(now, -@orphaned_after_ms, :millisecond)
-
-    blocking =
-      Repo.exists?(
-        from(j in Oban.Job,
-          where:
-            j.worker == ^Oban.Worker.to_string(__MODULE__) and
-              j.queue == ^Atom.to_string(@lane) and j.id != ^id and
-              j.state == "executing" and j.attempted_at > ^orphaned_before and
-              (j.attempted_at < ^started or (j.attempted_at == ^started and j.id < ^id)) and
-              fragment("? ->> 'device_id'", j.args) == ^device_id
-        ),
-        prefix: ObanSupport.prefix()
-      )
-
-    if blocking, do: :wait, else: :apply
+  defp locked_project(device_id, job) do
+    case AdvisoryLocks.try_acquire_ordered(["topology_projection:" <> device_id]) do
+      :ok -> project(device_id, job)
+      {:error, {:advisory_locks_busy, _keys}} -> :busy
+      {:error, reason} -> Repo.rollback(reason)
+    end
   end
 
   defp queue_wait_ms(%Oban.Job{args: %{"enqueued_at" => enqueued_at}, attempted_at: attempted}) do

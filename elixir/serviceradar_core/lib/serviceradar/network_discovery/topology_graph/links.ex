@@ -97,14 +97,17 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
 
   # Scope the fingerprint by the set of reporting (local) devices so concurrent
   # reports from different agents don't thrash a single shared entry. The
-  # fingerprint itself includes every projected input except the observation
-  # timestamp. This deliberately favors a complete fail-safe identity over a
-  # curated field list that could drift when projection gains another mutable
-  # vertex, interface, or edge property. Observation timestamps are excluded so
-  # unchanged heartbeat reports still use the periodic re-apply window.
+  # fingerprint is the set of values the apply would leave: links are taken in
+  # the same observation order do_upsert_links/1 applies them, the newest
+  # non-empty value wins each device IP and interface name or ifindex, and the
+  # newest link between two interfaces wins that edge. A report that changes
+  # which row wins therefore changes the fingerprint even when the set of rows
+  # is the same. Observation timestamps are excluded so unchanged heartbeat
+  # reports still use the periodic re-apply window.
   defp report_structural_fingerprint(links) do
     payloads =
       links
+      |> Enum.sort_by(&link_observed_unix/1)
       |> Enum.map(&Projection.projection_payload/1)
       |> Enum.reject(&is_nil/1)
 
@@ -114,13 +117,38 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
       |> Enum.uniq()
       |> Enum.sort()
 
-    identity =
-      payloads
-      |> Enum.map(&Map.delete(&1, :observed_at))
-      |> Enum.sort()
-
-    {:erlang.phash2(scope), :erlang.phash2(identity)}
+    {:erlang.phash2(scope), :erlang.phash2(resolved_winners(payloads))}
   end
+
+  defp resolved_winners(payloads) do
+    Enum.reduce(payloads, {%{}, %{}, %{}, %{}}, fn payload, {devices, locals, neighbors, edges} ->
+      {
+        put_winner(devices, payload.local_device_id, %{ip: payload.local_device_ip}),
+        put_winner(locals, payload.local_interface_id, %{
+          name: payload.local_if_name,
+          ifindex: payload.local_if_index
+        }),
+        put_winner(neighbors, payload.neighbor_interface_id, %{name: payload.neighbor_port_name}),
+        Map.put(
+          edges,
+          {payload.local_interface_id, payload.neighbor_interface_id},
+          Map.delete(payload, :observed_at)
+        )
+      }
+    end)
+  end
+
+  defp put_winner(winners, key, fields) do
+    Map.update(
+      winners,
+      key,
+      fields,
+      &Map.merge(&1, fields, fn _field, earlier, later -> newer(earlier, later) end)
+    )
+  end
+
+  defp newer(earlier, later) when later in [nil, ""], do: earlier
+  defp newer(_earlier, later), do: later
 
   defp unchanged_report_heartbeat_ms do
     :serviceradar_core

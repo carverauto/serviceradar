@@ -127,10 +127,14 @@ missing value never erases a known one. It does not write the neighbor
 device's IP or name. A retry of an older job therefore leaves the graph equal
 to that device's latest CNPG rows, including when it runs after a newer job has
 already completed. A newer result for the same device replaces a job that has
-not started, so a pending backlog collapses to one run per device. A job waits
-while another job for that device that started before it is still executing,
-so a retry of an older job that starts during a newer run waits for it and
-then reads CNPG again. A failed projection is logged,
+not started, so a pending backlog collapses to one run per device. Runs for one
+device are serialized by a transaction-scoped advisory lock on the device id:
+a job takes the lock in its transaction, then reads CNPG and writes the graph
+inside that transaction. A job that finds the lock held snoozes and reads CNPG
+again when it runs, so whichever run holds the lock last reads the newest
+committed rows. The lock is released when the transaction ends, including when
+a node dies mid-projection. While a projection runs it holds one database
+connection. A failed projection is logged,
 reported as an Oban job exception, and retried with backoff. The ingestion
 runtime metrics
 (`metrics.ingestion_lanes`) carry a `topology_projection` lane (scheduled,
