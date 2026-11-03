@@ -105,7 +105,10 @@ defmodule ServiceRadar.SweepJobs.SweepPubSub do
   end
 
   @doc """
-  Broadcast that an execution has completed successfully.
+  Broadcast that a final results chunk closed an execution.
+
+  `status` is the execution's status after that close: `:completed`, or
+  `:cancelled` when the chunk was ingested with `is_cancelled`.
   """
   def broadcast_completed(execution, stats) do
     event =
