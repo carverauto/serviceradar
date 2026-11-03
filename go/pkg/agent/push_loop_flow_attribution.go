@@ -125,8 +125,9 @@ type flowAttributionDeliveryWindow struct {
 // oversized single event is explicitly quarantined. This is intentionally
 // bounded, but it is not a disk spool and does not survive an agent restart.
 type flowAttributionDeliveryQueue struct {
-	mu      sync.Mutex
-	pending *flowAttributionPendingBatch
+	mu          sync.Mutex
+	pending     *flowAttributionPendingBatch
+	edgePending *flowAttributionPendingEdgeRecord
 	// droppedAcked is the netprobe sidecar's cumulative drop count as of the
 	// last batch the gateway acknowledged, so each batch reports only the
 	// drops since then. It resets across agent restarts, as the sidecar's
@@ -160,6 +161,7 @@ func (q *flowAttributionDeliveryQueue) acknowledgePrefix(
 		batch.events[i] = nil
 	}
 	batch.events = batch.events[eventCount:len(batch.events):len(batch.events)]
+	q.edgePending = nil
 
 	cumulativeDropped := uint64(0)
 	commitDropBaseline := false
@@ -191,6 +193,7 @@ func (q *flowAttributionDeliveryQueue) quarantineFirst(
 	quarantined := batch.events[0]
 	batch.events[0] = nil
 	batch.events = batch.events[1:len(batch.events):len(batch.events)]
+	q.edgePending = nil
 
 	remaining := len(batch.events)
 	if remaining == 0 {
@@ -215,6 +218,7 @@ func (q *flowAttributionDeliveryQueue) dropPrefix(
 		batch.events[i] = nil
 	}
 	batch.events = batch.events[eventCount:len(batch.events):len(batch.events)]
+	q.edgePending = nil
 	remaining := len(batch.events)
 	if remaining == 0 {
 		q.pending = nil
@@ -269,6 +273,11 @@ func (p *PushLoop) pushFlowAttribution(ctx context.Context) bool {
 	if pending == nil {
 		return false
 	}
+
+	if spool, cap := p.edgeFlowAttributionTarget(time.Now()); spool != nil && cap != nil {
+		return p.pushFlowAttributionEdge(ctx, pending, spool, cap)
+	}
+	p.flowAttributionDelivery.clearEdgePending()
 
 	gatewayID := gatewayIDFromClient(p.gateway)
 	runtimeMetadata := currentRuntimeMetadata()

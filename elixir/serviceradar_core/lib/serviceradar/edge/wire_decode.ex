@@ -13,14 +13,16 @@ defmodule ServiceRadar.Edge.WireDecode do
   `decode_frame/1`, `decode_record/1`, `decode_manifest_page/1`, `decode_assignment_record/1`,
   `decode_plan_header/1`, `decode_plan_page/1`, `decode_compiled_assignment/1`,
   `decode_execution_grant/1`, `decode_sweep_batch/1`, `decode_metric_batch/1`,
-  `decode_unleased_sweep_batch/1` and `decode_telemetry_batch/1` -- each bound to exactly one
+  `decode_unleased_sweep_batch/1`, `decode_telemetry_batch/1`,
+  `decode_flow_attribution_batch/1` and `decode_otlp_relay_frame/1` -- each bound to exactly one
   generated message module. The recovery, assignment, plan, and sweep-body stages EXTEND this
   set rather than standing up
   separate raw-bytes ingresses, so each gets the same bound-before-decode discipline and the same
   typed outcomes as the transport stages. The plan entries matter especially: protobuf-elixir ERASES
   an unknown GROUP, so plan wire hygiene is only observable on the raw path.
-  FOUR STAGES ARE NOT PHYSICALLY BOUNDED AT 512 KiB: `decode_sweep_batch/1`,
-  `decode_metric_batch/1`, `decode_unleased_sweep_batch/1` and `decode_telemetry_batch/1` run on
+  SIX STAGES ARE NOT PHYSICALLY BOUNDED AT 512 KiB: `decode_sweep_batch/1`,
+  `decode_metric_batch/1`, `decode_unleased_sweep_batch/1`, `decode_telemetry_batch/1`,
+  `decode_flow_attribution_batch/1` and `decode_otlp_relay_frame/1` run on
   ALREADY-EXTRACTED, uncompressed bytes, where a legitimately decompressed body may exceed
   the record's physical bound. It inherits the 32 MiB extracted-body work ceiling instead.
   See its own doc.
@@ -345,6 +347,29 @@ defmodule ServiceRadar.Edge.WireDecode do
   @spec decode_telemetry_batch(term()) :: outcome()
   def decode_telemetry_batch(bytes),
     do: run(Serviceradar.Agent.Addon.V1.TelemetryBatch, @max_extracted_body_bytes, bytes)
+
+  @doc """
+  Decodes the ALREADY-EXTRACTED body of a `serviceradar.netprobe.flow_attribution` record as a
+  `Serviceradar.Agent.Netprobe.V1.FlowAttributionEventBatch`, under the same extracted-body work
+  ceiling as `decode_sweep_batch/1`.
+  """
+  @spec decode_flow_attribution_batch(term()) :: outcome()
+  def decode_flow_attribution_batch(bytes),
+    do:
+      run(
+        Serviceradar.Agent.Netprobe.V1.FlowAttributionEventBatch,
+        @max_extracted_body_bytes,
+        bytes
+      )
+
+  @doc """
+  Decodes the ALREADY-EXTRACTED body of a `serviceradar.otlp.relay` record as a
+  `Serviceradar.Agent.Addon.V1.OtlpRelayFrame`, under the same extracted-body work ceiling as
+  `decode_sweep_batch/1`.
+  """
+  @spec decode_otlp_relay_frame(term()) :: outcome()
+  def decode_otlp_relay_frame(bytes),
+    do: run(Serviceradar.Agent.Addon.V1.OtlpRelayFrame, @max_extracted_body_bytes, bytes)
 
   @doc """
   Decodes ONE raw `EdgeLossManifestPageV1` -- the recovery-page ingress stage.

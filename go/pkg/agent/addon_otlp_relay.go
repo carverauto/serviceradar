@@ -37,6 +37,7 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
 	addonpb "github.com/carverauto/serviceradar/proto/agent/addon/v1"
+	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 	gproto "google.golang.org/protobuf/proto"
 )
 
@@ -111,10 +112,12 @@ type otlpRelayGateway interface {
 // in NewServer before the gateway client exists, so NewPushLoop binds the
 // gateway once it is available and pumps wait on ready.
 type addonOtlpRelayDeps struct {
-	mu       sync.Mutex
-	gateway  otlpRelayGateway
-	sourceIP func() string
-	ready    chan struct{}
+	mu         sync.Mutex
+	gateway    otlpRelayGateway
+	sourceIP   func() string
+	edgeTarget func(now time.Time) (edgeMetricsAppender, *edgev1.EdgeSignedCapabilityV1)
+	recordDrop func(reason edgeDropReason, count int, err error)
+	ready      chan struct{}
 }
 
 func newAddonOtlpRelayDeps() *addonOtlpRelayDeps {
@@ -137,10 +140,30 @@ func (d *addonOtlpRelayDeps) bind(gateway otlpRelayGateway, sourceIP func() stri
 	}
 }
 
-func (d *addonOtlpRelayDeps) snapshot() (otlpRelayGateway, func() string) {
+func (d *addonOtlpRelayDeps) bindEdge(
+	edgeTarget func(now time.Time) (edgeMetricsAppender, *edgev1.EdgeSignedCapabilityV1),
+	recordDrop func(reason edgeDropReason, count int, err error),
+) {
+	if d == nil {
+		return
+	}
+
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return d.gateway, d.sourceIP
+
+	d.edgeTarget = edgeTarget
+	d.recordDrop = recordDrop
+}
+
+func (d *addonOtlpRelayDeps) snapshot() (
+	otlpRelayGateway,
+	func() string,
+	func(now time.Time) (edgeMetricsAppender, *edgev1.EdgeSignedCapabilityV1),
+	func(reason edgeDropReason, count int, err error),
+) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.gateway, d.sourceIP, d.edgeTarget, d.recordDrop
 }
 
 // bindAddonOtlpRelayGateway hands the gateway client to the add-on OTLP relay
@@ -192,20 +215,22 @@ func (s *Server) runAddonOtlpRelay(ctx context.Context, addonID string, client c
 
 	backoff := otlpRelayReconnectBackoffInitial
 	for ctx.Err() == nil {
-		gateway, sourceIP := deps.snapshot()
+		gateway, sourceIP, edgeTarget, recordDrop := deps.snapshot()
 
 		frames, acks, err := client.RelayOtlp(ctx)
 		if err != nil {
 			log.Warn().Err(err).Str("addon", addonID).Msg("Failed to open OTLP relay stream")
 		} else {
 			pump := &otlpRelayPump{
-				addonID:   addonID,
-				gateway:   gateway,
-				agentID:   agentID,
-				partition: partition,
-				kvStoreID: kvStoreID,
-				sourceIP:  sourceIP,
-				logger:    log,
+				addonID:    addonID,
+				gateway:    gateway,
+				agentID:    agentID,
+				partition:  partition,
+				kvStoreID:  kvStoreID,
+				sourceIP:   sourceIP,
+				edgeTarget: edgeTarget,
+				recordDrop: recordDrop,
+				logger:     log,
 			}
 
 			streamStart := time.Now()
@@ -228,24 +253,28 @@ func (s *Server) runAddonOtlpRelay(ctx context.Context, addonID string, client c
 	}
 }
 
-// otlpRelayPending is one frame pulled from the add-on, built into a
-// GatewayServiceStatus, awaiting gateway acceptance.
+// otlpRelayPending is one frame pulled from the add-on, built into either
+// durable edge records or a GatewayServiceStatus, awaiting acceptance.
 type otlpRelayPending struct {
-	relayID uint64
-	status  *proto.GatewayServiceStatus
-	bytes   int
+	relayID   uint64
+	status    *proto.GatewayServiceStatus
+	edgeSpool edgeMetricsAppender
+	edgeParts []edgeMetricsBuilt
+	bytes     int
 }
 
-// otlpRelayPump drains one open relay stream into the gateway. Zero-valued
-// tuning fields fall back to the package defaults (test seams).
+// otlpRelayPump drains one open relay stream into the gateway or edge spool.
+// Zero-valued tuning fields fall back to the package defaults (test seams).
 type otlpRelayPump struct {
-	addonID   string
-	gateway   otlpRelayGateway
-	agentID   string
-	partition string
-	kvStoreID string
-	sourceIP  func() string
-	logger    logger.Logger
+	addonID    string
+	gateway    otlpRelayGateway
+	agentID    string
+	partition  string
+	kvStoreID  string
+	sourceIP   func() string
+	edgeTarget func(now time.Time) (edgeMetricsAppender, *edgev1.EdgeSignedCapabilityV1)
+	recordDrop func(reason edgeDropReason, count int, err error)
+	logger     logger.Logger
 
 	windowMaxFrames     int
 	windowMaxBytes      int
@@ -384,36 +413,51 @@ func (p *otlpRelayPump) run(ctx context.Context, frames <-chan *addonpb.OtlpRela
 			lastPulled = frame.GetRelayId()
 			havePulled = true
 
-			status, messageByteCount, err := buildOtlpRelayGatewayStatus(
-				frame, p.agentID, p.gateway.GetGatewayID(), p.partition, p.kvStoreID)
-			switch {
-			case err != nil:
-				// A frame that cannot be marshaled can never become
-				// deliverable: skip and ack it so it cannot wedge the stream.
-				p.logger.Warn().Err(err).
-					Str("addon", p.addonID).
-					Uint64("relay_id", frame.GetRelayId()).
-					Msg("Skipping unmarshalable OTLP relay frame")
-				resolvedSinceAck++
-			case messageByteCount > p.maxFrameBytes:
-				// Edge pre-chunking invariant violated. The frame is skipped,
-				// counted, and acked: it can never become deliverable, and
-				// spool-side rejection accounting already counted it.
-				p.stats.skippedOversize.Add(1)
-				p.logger.Warn().
-					Str("addon", p.addonID).
-					Uint64("relay_id", frame.GetRelayId()).
-					Int("message_bytes", messageByteCount).
-					Int("max_bytes", p.maxFrameBytes).
-					Msg("Skipping oversized OTLP relay frame")
-				resolvedSinceAck++
-			default:
-				pending = append(pending, otlpRelayPending{
-					relayID: frame.GetRelayId(),
-					status:  status,
-					bytes:   messageByteCount,
-				})
-				pendingBytes += messageByteCount
+			if spoolApp, cap := p.currentEdgeTarget(time.Now()); spoolApp != nil && cap != nil {
+				parts, messageByteCount, ok := p.prepareEdgeRelayFrame(frame, cap)
+				if !ok {
+					resolvedSinceAck++
+				} else {
+					pending = append(pending, otlpRelayPending{
+						relayID:   frame.GetRelayId(),
+						edgeSpool: spoolApp,
+						edgeParts: parts,
+						bytes:     messageByteCount,
+					})
+					pendingBytes += messageByteCount
+				}
+			} else {
+				status, messageByteCount, err := buildOtlpRelayGatewayStatus(
+					frame, p.agentID, p.gateway.GetGatewayID(), p.partition, p.kvStoreID)
+				switch {
+				case err != nil:
+					// A frame that cannot be marshaled can never become
+					// deliverable: skip and ack it so it cannot wedge the stream.
+					p.logger.Warn().Err(err).
+						Str("addon", p.addonID).
+						Uint64("relay_id", frame.GetRelayId()).
+						Msg("Skipping unmarshalable OTLP relay frame")
+					resolvedSinceAck++
+				case messageByteCount > p.maxFrameBytes:
+					// Edge pre-chunking invariant violated. The frame is skipped,
+					// counted, and acked: it can never become deliverable, and
+					// spool-side rejection accounting already counted it.
+					p.stats.skippedOversize.Add(1)
+					p.logger.Warn().
+						Str("addon", p.addonID).
+						Uint64("relay_id", frame.GetRelayId()).
+						Int("message_bytes", messageByteCount).
+						Int("max_bytes", p.maxFrameBytes).
+						Msg("Skipping oversized OTLP relay frame")
+					resolvedSinceAck++
+				default:
+					pending = append(pending, otlpRelayPending{
+						relayID: frame.GetRelayId(),
+						status:  status,
+						bytes:   messageByteCount,
+					})
+					pendingBytes += messageByteCount
+				}
 			}
 
 			if len(pending) >= p.windowMaxFrames || pendingBytes >= p.windowMaxBytes {
@@ -475,7 +519,24 @@ func (p *otlpRelayPump) flushWithRetry(ctx context.Context, pending []otlpRelayP
 }
 
 func (p *otlpRelayPump) flushOnce(ctx context.Context, pending []otlpRelayPending) error {
-	chunks := p.buildChunks(pending)
+	var legacyPending []otlpRelayPending
+	for i := range pending {
+		if len(pending[i].edgeParts) > 0 {
+			rest, err := p.appendEdgeRelayParts(pending[i].edgeSpool, pending[i].edgeParts)
+			pending[i].edgeParts = rest
+			if err != nil {
+				return err
+			}
+		}
+		if pending[i].status != nil {
+			legacyPending = append(legacyPending, pending[i])
+		}
+	}
+	if len(legacyPending) == 0 {
+		return nil
+	}
+
+	chunks := p.buildChunks(legacyPending)
 
 	pushCtx, cancel := context.WithTimeout(ctx, p.pushTimeout)
 	defer cancel()
@@ -486,6 +547,9 @@ func (p *otlpRelayPump) flushOnce(ctx context.Context, pending []otlpRelayPendin
 	}
 	if resp == nil || !resp.GetReceived() {
 		return errOtlpRelayGatewayRejected
+	}
+	for i := range pending {
+		pending[i].status = nil
 	}
 	return nil
 }

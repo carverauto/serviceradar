@@ -214,7 +214,10 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
         :ok
 
       true ->
-        case projector.publish(record, body, Keyword.take(opts, [:request])) do
+        publish_opts =
+          Keyword.take(opts, [:request, :flow_attribution_publisher, :otlp_relay_publisher])
+
+        case projector.publish(record, body, publish_opts) do
           :ok -> :ok
           {:refused, reason} -> {:error, reason}
           {:error, reason} -> raise "edge record publish failed: #{inspect(reason)}"
@@ -259,8 +262,22 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
     run_test_hook(test_hook, :transaction_result, event_id, result)
 
     case result do
-      {:error, :rollback} -> raise "edge record transaction #{inspect(event_id)} rolled back"
-      result -> result
+      {:ok, ledger_outcome} ->
+        if primary?(provenance, ledger_outcome) and function_exported?(projector, :committed, 3) do
+          projector.committed(record, body, %{
+            ledger: ledger_outcome,
+            primary?: true,
+            gateway_id: gateway_id
+          })
+        end
+
+        result
+
+      {:error, :rollback} ->
+        raise "edge record transaction #{inspect(event_id)} rolled back"
+
+      result ->
+        result
     end
   end
 
