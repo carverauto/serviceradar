@@ -42,14 +42,26 @@ var (
 // contract serviceradar.otlp.relay v1, decompresses its inner OtlpRelayFrame
 // payload, and checks the frame and cost invariants.
 func ValidateOtlpRelayRecord(r *edgev1.EdgeRecordV1) error {
+	if err := ValidateRecord(r); err != nil {
+		return err
+	}
+	contract := r.GetOutputContract()
+	if contract.GetContractId() != OtlpRelayContractID ||
+		contract.GetContractVersion() != OtlpRelayContractVersion {
+		return fmt.Errorf("%w: %s v%d", ErrContractDispatch, contract.GetContractId(), contract.GetContractVersion())
+	}
+	if err := requireFramingFamily(r); err != nil {
+		return err
+	}
+	if r.GetSourceAuthorization() != nil {
+		return ErrOtlpRelaySourceAuthorization
+	}
+	inner, err := innerPayload(r)
+	if err != nil {
+		return err
+	}
 	var frame addonpb.OtlpRelayFrame
-	if err := decodeStandingGrantRecord(
-		r,
-		OtlpRelayContractID,
-		OtlpRelayContractVersion,
-		ErrOtlpRelaySourceAuthorization,
-		&frame,
-	); err != nil {
+	if err := unmarshalPayload(inner, &frame); err != nil {
 		return err
 	}
 	if err := ValidateOtlpRelayFrame(&frame); err != nil {
@@ -93,7 +105,7 @@ func ValidateOtlpRelayFrame(frame *addonpb.OtlpRelayFrame) error {
 		if rec == nil {
 			return fmt.Errorf("%w: records[%d]: nil record", ErrOtlpRelayFrame, i)
 		}
-		if !validOtlpRelayPayloadKind(rec.GetPayloadKind()) {
+		if !ValidOtlpRelayPayloadKind(rec.GetPayloadKind()) {
 			return fmt.Errorf(
 				"%w: records[%d]: unsupported payload_kind %v",
 				ErrOtlpRelayFrame, i, rec.GetPayloadKind(),
@@ -106,13 +118,21 @@ func ValidateOtlpRelayFrame(frame *addonpb.OtlpRelayFrame) error {
 	return nil
 }
 
-func validOtlpRelayPayloadKind(kind addonpb.TelemetryPayloadKind) bool {
+// ValidOtlpRelayPayloadKind reports whether kind is an OTLP relay payload.
+// The other telemetry kinds belong to the telemetry batch contract.
+func ValidOtlpRelayPayloadKind(kind addonpb.TelemetryPayloadKind) bool {
 	switch kind {
 	case addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OTLP_TRACES,
 		addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OTLP_LOGS,
 		addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OTLP_METRICS,
 		addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OTLP_DERIVED_METRIC:
 		return true
+	case addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_UNSPECIFIED,
+		addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OCSF_EVENT,
+		addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OTEL_LOG,
+		addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS,
+		addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_DISCOVERY_V1:
+		return false
 	default:
 		return false
 	}
