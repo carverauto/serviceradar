@@ -72,7 +72,6 @@ go_test(
         "//proto/edge/v1:edgev1",
         "@com_github_rs_zerolog//:zerolog",
         "@org_golang_google_grpc//:grpc",
-        "@org_golang_google_protobuf//proto",
         "@org_golang_google_grpc//codes",
         "@org_golang_google_grpc//credentials/insecure",
         "@org_golang_google_grpc//status",
