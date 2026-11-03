@@ -123,17 +123,22 @@ func (q *pluginResultEdgeQueue) enqueue(items []pluginResultEdgeItem) (dropped i
 	return dropped
 }
 
-// take returns the queued items the legacy path may carry: the built item
-// only when the spool has admitted no part of it, then pending items oldest
-// first.
-func (q *pluginResultEdgeQueue) take() []pluginResultEdgeItem {
-	items := make([]pluginResultEdgeItem, 0, len(q.pending)+1)
-	if q.built != nil && q.built.next == 0 {
+// take returns, oldest first, the queued items the legacy path may carry in
+// one stream of at most limit results: the built item only when the spool has
+// admitted no part of it, then pending items. Items past limit stay queued.
+func (q *pluginResultEdgeQueue) take(limit int) []pluginResultEdgeItem {
+	var items []pluginResultEdgeItem
+	total := 0
+	if q.built != nil && q.built.next == 0 && q.built.item.count() <= limit {
 		items = append(items, q.built.item)
+		total = q.built.item.count()
 		q.built = nil
 	}
-	items = append(items, q.pending...)
-	q.pending = nil
+	for len(q.pending) > 0 && total+q.pending[0].count() <= limit {
+		items = append(items, q.pending[0])
+		total += q.pending[0].count()
+		q.pending = q.pending[1:]
+	}
 	return items
 }
 

@@ -22,6 +22,8 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -292,7 +294,53 @@ func TestPluginResultsTakeLeavesPartiallySpooledGroupQueued(t *testing.T) {
 	require.True(t, loop.appendPluginResultBuilt(built) || built.next > 0)
 	built.next = 1
 
-	taken := loop.pluginResultsEdge.take()
+	taken := loop.pluginResultsEdge.take(maxPluginResultsPerStream)
 	require.Empty(t, taken)
 	require.NotNil(t, loop.pluginResultsEdge.built, "the partially spooled group stays queued")
+}
+
+func TestPluginResultsLegacyFallbackStaysWithinOneStream(t *testing.T) {
+	const groups, perGroup = 3, 5
+	manager := &PluginManager{results: make(chan PluginResult, maxPluginResultsPerStream)}
+	for i := 0; i < maxPluginResultsPerStream; i++ {
+		manager.results <- testPendingPluginResult("fresh", "fresh")
+	}
+
+	var streams [][]string
+	loop := &PushLoop{
+		server: &Server{config: &ServerConfig{AgentID: sysmonEdgeAgentID}, pluginManager: manager},
+		logger: logger.NewTestLogger(),
+		pluginResultStreamStatus: func(
+			_ context.Context,
+			chunks []*proto.GatewayStatusChunk,
+		) (*proto.GatewayStatusResponse, error) {
+			streams = append(streams, pluginResultAssignments(t, chunks))
+			return &proto.GatewayStatusResponse{Received: true}, nil
+		},
+	}
+	for g := 0; g < groups; g++ {
+		queued := make([]PluginResult, 0, perGroup)
+		for i := 0; i < perGroup; i++ {
+			queued = append(queued, testPendingPluginResult(fmt.Sprintf("queued-%d", g), "queued"))
+		}
+		loop.pluginResultsEdge.enqueue(groupPluginResults(queued))
+	}
+
+	for cycle := 0; cycle < 3; cycle++ {
+		require.True(t, loop.pushPluginResults(context.Background()))
+		require.LessOrEqual(t, len(streams[cycle]), maxPluginResultsPerStream,
+			"a legacy stream never exceeds the gateway retained-stream chunk cap")
+		if cycle == 0 {
+			require.Equal(t, perGroup, loop.pluginResultsEdge.queuedResults(), "the remainder stays queued")
+			require.Len(t, manager.results, maxPluginResultsPerStream, "nothing fresh drains while queued items remain")
+		}
+	}
+
+	want := [][]string{
+		append(slices.Repeat([]string{"queued-0"}, perGroup), slices.Repeat([]string{"queued-1"}, perGroup)...),
+		slices.Repeat([]string{"queued-2"}, perGroup),
+		slices.Repeat([]string{"fresh"}, maxPluginResultsPerStream),
+	}
+	require.Equal(t, want, streams)
+	require.Zero(t, loop.pluginResultsEdge.queuedResults())
 }
