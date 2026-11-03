@@ -7,7 +7,7 @@
 ## 2. OCSF Builders
 - [ ] 2.1 Add OCSF finding builders for classes 2002, 2003, 2004, 2005, 2006, and 2007 using OCSF 1.9.0-dev required/recommended fields.
 - [ ] 2.2 Add deterministic finding identity builders per source and class.
-- [ ] 2.3 (delivered by `add-falco-runtime-findings`) Extract shared Falco decomposition used by direct processing and log promotion.
+- [ ] 2.3 (delivered by `add-falco-runtime-findings`) Extract the shared Falco decomposition that change uses for occurrence normalization. That change does not keep a Falco `logs` row or a per-occurrence `ocsf_events` row.
 - [ ] 2.4 (delivered by `add-falco-runtime-findings`) Structure Falco MITRE tags into ATT&CK tactic/technique `attacks` and supporting evidence on detection findings.
 
 ## 3. Producer Mapping
