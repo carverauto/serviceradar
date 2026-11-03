@@ -434,12 +434,8 @@ in `choices.md` and the chart README.
   `addSweepCheckResult` carries ICMP sent/received, hostname and per-port
   errors) with the `go/pkg/edge/obsbatch` byte-bounded builder, appended to the
   shared spool. Known defect, not a task: the slot claim runs before the first
-  append, so a refused append burns the slot. Known defect, not a task: fresh
-  installs lack the 'default' partition row, so
-  `OutputGrants.config_grants/2` and the lease pass get
-  `{:error, :partition_not_found}` and never issue grants or leases; the
-  warning hides the reason in metadata. Being fixed on branch
-  `fix/default-partition-for-edge-grants`.
+  append, so a refused append burns the slot. The missing `default` partition
+  row is seeded by migration `20261102231152_seed_default_partition`.
 - [x] M2.2 Per-agent opt-in. An agent opted in leases a sweep group only when
   that group is enabled, has non-empty `static_targets`, no `target_query`, and
   every static target fits one `TargetRangeV1`: core schedules it (M2.0) and
