@@ -258,15 +258,6 @@ func longestDiscoveryPrefix(
 	return bestN, bestRecord, bestBody
 }
 
-// discoveryUpdateCount is how many updates a set of drained payloads holds.
-func discoveryUpdateCount(payloads [][]byte) int {
-	count := 0
-	for _, payload := range payloads {
-		count += len(decodeUpdateArray(payload))
-	}
-	return count
-}
-
 func discoveryMaxRows(spec discoverySpec, capability *edgev1.EdgeSignedCapabilityV1) uint64 {
 	claims := capability.GetProduction()
 	return min(uint64(claims.GetMaxProjectedRowCount()),

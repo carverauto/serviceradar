@@ -180,16 +180,17 @@ func drainOf(calls *int, payloads ...[]byte) func() [][]byte {
 	}
 }
 
-func TestFailedLegacyDiscoverySendDropsAndCountsTheDrain(t *testing.T) {
+func TestFailedLegacyDiscoverySendDropsTheDrainUncounted(t *testing.T) {
 	sp := openTestEdgeSpool(t)
 	loop := discoveryLoop(t, sp)
 
 	payload, err := buildMapperResultsPayload(mapperDeviceUpdates(), sysmonEdgeAgentID, "default")
 	require.NoError(t, err)
 
-	legacySent := 0
+	legacySent, legacyAttempts := 0, 0
 	legacyOK := true
 	legacySend := func([]byte) bool {
+		legacyAttempts++
 		if legacyOK {
 			legacySent++
 		}
@@ -205,9 +206,12 @@ func TestFailedLegacyDiscoverySendDropsAndCountsTheDrain(t *testing.T) {
 	calls = 0
 	require.False(t, loop.pushDiscovery(discoveryMapperDevices, sysmonEdgeAgentID, "default",
 		drainOf(&calls, payload), legacySend))
+	require.Equal(t, 2, legacyAttempts, "the failed drain is sent once, not retried")
 	require.Nil(t, loop.mapperDevicesEdge.built, "a failed legacy send retains nothing")
-	require.Equal(t, uint64(1), edgeDrops(loop, edgeProducerMapper, edgeDropRetryBufferFull),
-		"the dropped drain's one update is counted")
+	for reason := edgeDropReason(0); reason < edgeDropReasonCount; reason++ {
+		require.Zero(t, edgeDrops(loop, edgeProducerMapper, reason),
+			"a failed legacy send is logged, not counted as an edge drop")
+	}
 
 	// Once a grant is current only the next drain spools; the dropped one
 	// is gone.

@@ -87,7 +87,8 @@ func (p *PushLoop) streamDiscoveryPayload(
 // a drain the spool will not yet admit stays the family's one pending item,
 // and the family's source is not drained again until that item is admitted
 // (backpressure, so nothing queues behind it). Without a grant the drain
-// rides the legacy status path once; a failed send drops it and counts it.
+// rides the legacy status path once; a failed send is logged and the drain
+// dropped, as before.
 func (p *PushLoop) pushDiscovery(
 	kind discoveryKind,
 	agentID string,
@@ -126,9 +127,8 @@ func (p *PushLoop) pushDiscovery(
 		return true
 	}
 
-	for i, payload := range payloads {
+	for _, payload := range payloads {
 		if !legacySend(payload) {
-			p.dropEdgeTelemetry(spec.producer, edgeDropRetryBufferFull, discoveryUpdateCount(payloads[i:]))
 			return sent
 		}
 		sent = true
