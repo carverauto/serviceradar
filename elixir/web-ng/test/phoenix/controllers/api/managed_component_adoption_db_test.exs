@@ -538,7 +538,8 @@ defmodule ServiceRadarWebNGWeb.Api.ManagedComponentAdoptionDbTest do
 
   defp page_token do
     suffix =
-      System.unique_integer([:positive])
+      [:positive]
+      |> System.unique_integer()
       |> Integer.to_string()
       |> String.pad_leading(12, "0")
 
