@@ -73,7 +73,9 @@ message used. Core republishes the metric records onto the same
 `metrics.sysmon.>`, `metrics.snmp.>`,
 `metrics.icmp.>`, `metrics.mtr.>` and `metrics.sweep.>` subjects. Core also
 admits `rperf-metrics` batches onto `metrics.rperf.>`; the agent has no rperf
-producer of its own.
+producer of its own. The Helm chart README documents that opt-in
+(`edgeRecords.agentMetricsEnabled`). The publish rules are
+`ServiceRadar.Edge.MetricsBatchProjection`.
 
 That same spool carries flow-attribution windows and OTLP relay frames, and
 only while the metrics spool is connected (`edgeRecords.agentMetricsEnabled`
@@ -89,11 +91,9 @@ stays on its status path. Core republishes a
 fresh flow-attribution record through the same observation publish the status
 path uses, and republishes an OTLP relay record onto `otel.traces.raw`,
 `logs.otel`, `otel.metrics.raw`, and `otel.metrics.derived`. Payload rules are
-the comments on `FlowAttributionEventBatch` and `OtlpRelayFrame`.
-
-The Helm chart README documents that opt-in
-(`edgeRecords.agentMetricsEnabled`). The publish rules are
-`ServiceRadar.Edge.MetricsBatchProjection`.
+the comments on `FlowAttributionEventBatch` and `OtlpRelayFrame`. The publish
+rules are `ServiceRadar.Edge.Projectors.FlowAttribution` and
+`ServiceRadar.Edge.Projectors.OtlpRelay`.
 
 Plugin and native add-on telemetry follows the same shape under the
 `serviceradar.telemetry.batch` contract (`edgeRecords.agentTelemetryEnabled`).
