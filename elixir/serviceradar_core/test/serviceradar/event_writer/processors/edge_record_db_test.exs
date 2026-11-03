@@ -1373,6 +1373,58 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       )
     end
 
+    test "spool counters are emitted once after ledger commit and not when publish or commit fails" do
+      frame = build_otlp_relay_frame()
+      test_pid = self()
+
+      with_telemetry(
+        [[:serviceradar, :otlp_relay, :spool]],
+        fn _event, measurements, metadata, _config ->
+          if self() == test_pid do
+            send(test_pid, {:otlp_spool, measurements, metadata})
+          end
+        end,
+        fn ->
+          refused_request = fn _subject, _body, _opts -> {:error, :timeout} end
+
+          assert_raise RuntimeError, ~r/edge record publish failed/, fn ->
+            EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: refused_request)
+          end
+
+          refute_received {:otlp_spool, _measurements, _metadata}
+          assert ledger_count(frame.record) == 0
+
+          rollback_hook = fn
+            :before_commit, _event_id, _result -> raise "injected rollback"
+            _point, _event_id, _result -> :ok
+          end
+
+          assert_raise RuntimeError, "injected rollback", fn ->
+            EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo,
+              request: stored_ack(:otlp_published, "otel"),
+              test_hook: rollback_hook
+            )
+          end
+
+          refute_received {:otlp_spool, _measurements, _metadata}
+          assert ledger_count(frame.record) == 0
+
+          assert {:ok, :inserted} =
+                   EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo,
+                     request: stored_ack(:otlp_published, "otel")
+                   )
+
+          assert_received {:otlp_spool, %{received: 14, dropped: 3},
+                           %{partition_id: partition_slug, agent_id: agent_id}}
+
+          assert partition_slug == frame.partition_slug
+          assert agent_id == frame.agent_id
+          refute_received {:otlp_spool, _measurements, _metadata}
+          assert ledger_count(frame.record) == 1
+        end
+      )
+    end
+
     test "duplicate PubAck suppresses the relayed signal counter while unroutable payload kinds emit record_rejected without failing the batch" do
       records = [
         %TelemetryRecord{

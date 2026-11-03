@@ -146,14 +146,14 @@ func validOtlpRelayTelemetryRecord(rec *addonpb.TelemetryRecord) error {
 func (p *otlpRelayPump) prepareEdgeRelayFrame(
 	frame *addonpb.OtlpRelayFrame,
 	capability *edgev1.EdgeSignedCapabilityV1,
-) ([]edgeMetricsBuilt, int, bool) {
+) ([]edgeMetricsBuilt, int, *addonpb.OtlpRelayFrame, bool) {
 	if frame == nil || frame.GetRelayId() == 0 || frame.GetBatch() == nil || len(frame.GetBatch().GetRecords()) == 0 {
 		p.recordEdgeDrop(edgeDropInvalidRecord, 1, edgerecord.ErrOtlpRelayFrame)
 		p.logger.Warn().
 			Str("addon", p.addonID).
 			Uint64("relay_id", frame.GetRelayId()).
 			Msg("Skipping invalid OTLP relay frame for edge spool")
-		return nil, 0, false
+		return nil, 0, nil, false
 	}
 
 	rawRecords := frame.GetBatch().GetRecords()
@@ -170,22 +170,24 @@ func (p *otlpRelayPump) prepareEdgeRelayFrame(
 		validRecords = append(validRecords, rec)
 	}
 	if len(validRecords) == 0 {
-		return nil, 0, false
+		return nil, 0, nil, false
 	}
 
 	maxRows := otlpRelayCapabilityMaxRows(capability)
 	if maxRows <= 0 {
 		p.recordEdgeDrop(edgeDropInvalidRecord, len(validRecords), edgerecord.ErrProductionGrant)
-		return nil, 0, false
+		return nil, 0, nil, false
 	}
 	maxWriteBytes := otlpRelayCapabilityMaxWriteBytes(capability, p.maxFrameBytes)
 
 	var (
-		parts      []edgeMetricsBuilt
-		totalBytes int
-		remaining  = validRecords
-		source     = frame.GetBatch().GetSource()
-		counters   = frame.GetBatch().GetCounters()
+		parts          []edgeMetricsBuilt
+		totalBytes     int
+		remaining      = validRecords
+		source         = frame.GetBatch().GetSource()
+		counters       = frame.GetBatch().GetCounters()
+		gatewayRecords []*addonpb.TelemetryRecord
+		countersOnEdge bool
 	)
 
 	makeFrame := func(slice []*addonpb.TelemetryRecord, partCounters *addonpb.TelemetryCounters) *addonpb.OtlpRelayFrame {
@@ -202,39 +204,30 @@ func (p *otlpRelayPump) prepareEdgeRelayFrame(
 
 	for len(remaining) > 0 {
 		limit := min(len(remaining), maxRows)
-		partCounters := counters
-		if len(parts) > 0 {
-			partCounters = nil
+		countersForPart := counters
+		if countersOnEdge {
+			countersForPart = nil
 		}
 
-		if fullBuilt, err := buildOtlpRelayEdgeRecord(capability, makeFrame(remaining[:limit], partCounters), maxWriteBytes); err == nil {
+		if fullBuilt, err := buildOtlpRelayEdgeRecord(capability, makeFrame(remaining[:limit], countersForPart), maxWriteBytes); err == nil {
 			parts = append(parts, fullBuilt)
 			totalBytes += len(fullBuilt.payload)
+			if countersForPart != nil {
+				countersOnEdge = true
+			}
 			remaining = remaining[limit:]
 			continue
 		} else if limit == 1 {
-			p.stats.skippedOversize.Add(1)
-			p.recordEdgeDrop(edgeDropInvalidRecord, 1, err)
-			p.logger.Warn().Err(err).
-				Str("addon", p.addonID).
-				Uint64("relay_id", frame.GetRelayId()).
-				Int("record_bytes", len(remaining[0].GetPayload())).
-				Int("max_bytes", maxWriteBytes).
-				Msg("Skipping oversized OTLP relay record for edge spool")
+			p.noteEdgeRecordDeferredToGateway(frame, remaining[0], maxWriteBytes, err)
+			gatewayRecords = append(gatewayRecords, remaining[0])
 			remaining = remaining[1:]
 			continue
 		}
 
-		headBuilt, headErr := buildOtlpRelayEdgeRecord(capability, makeFrame(remaining[:1], partCounters), maxWriteBytes)
+		headBuilt, headErr := buildOtlpRelayEdgeRecord(capability, makeFrame(remaining[:1], countersForPart), maxWriteBytes)
 		if headErr != nil {
-			p.stats.skippedOversize.Add(1)
-			p.recordEdgeDrop(edgeDropInvalidRecord, 1, headErr)
-			p.logger.Warn().Err(headErr).
-				Str("addon", p.addonID).
-				Uint64("relay_id", frame.GetRelayId()).
-				Int("record_bytes", len(remaining[0].GetPayload())).
-				Int("max_bytes", maxWriteBytes).
-				Msg("Skipping oversized OTLP relay record for edge spool")
+			p.noteEdgeRecordDeferredToGateway(frame, remaining[0], maxWriteBytes, headErr)
+			gatewayRecords = append(gatewayRecords, remaining[0])
 			remaining = remaining[1:]
 			continue
 		}
@@ -246,7 +239,7 @@ func (p *otlpRelayPump) prepareEdgeRelayFrame(
 			if k == limit {
 				return edgeMetricsBuilt{}, errEdgeMetricsRecordTooLarge
 			}
-			return buildOtlpRelayEdgeRecord(capability, makeFrame(remaining[:k], partCounters), maxWriteBytes)
+			return buildOtlpRelayEdgeRecord(capability, makeFrame(remaining[:k], countersForPart), maxWriteBytes)
 		})
 		if count == 0 {
 			count = 1
@@ -254,13 +247,41 @@ func (p *otlpRelayPump) prepareEdgeRelayFrame(
 		}
 		parts = append(parts, built)
 		totalBytes += len(built.payload)
+		if countersForPart != nil {
+			countersOnEdge = true
+		}
 		remaining = remaining[count:]
 	}
 
-	if len(parts) == 0 {
-		return nil, 0, false
+	var gatewayFrame *addonpb.OtlpRelayFrame
+	if len(gatewayRecords) > 0 {
+		var gatewayCounters *addonpb.TelemetryCounters
+		if !countersOnEdge {
+			gatewayCounters = counters
+		}
+		gatewayFrame = makeFrame(gatewayRecords, gatewayCounters)
 	}
-	return parts, totalBytes, true
+	if len(parts) == 0 && gatewayFrame == nil {
+		return nil, 0, nil, false
+	}
+	return parts, totalBytes, gatewayFrame, true
+}
+
+func (p *otlpRelayPump) noteEdgeRecordDeferredToGateway(
+	frame *addonpb.OtlpRelayFrame,
+	rec *addonpb.TelemetryRecord,
+	maxWriteBytes int,
+	err error,
+) {
+	if p == nil || p.logger == nil {
+		return
+	}
+	p.logger.Info().Err(err).
+		Str("addon", p.addonID).
+		Uint64("relay_id", frame.GetRelayId()).
+		Int("record_bytes", len(rec.GetPayload())).
+		Int("max_bytes", maxWriteBytes).
+		Msg("OTLP relay record exceeds the edge record cap; sending it on the gateway status path")
 }
 
 func (p *otlpRelayPump) appendEdgeRelayParts(

@@ -253,11 +253,11 @@ func (s *Server) runAddonOtlpRelay(ctx context.Context, addonID string, client c
 	}
 }
 
-// otlpRelayPending is one frame pulled from the add-on, built into either
-// durable edge records or a GatewayServiceStatus, awaiting acceptance.
+// otlpRelayPending is one frame pulled from the add-on, built into durable
+// edge records, gateway statuses, or both, awaiting acceptance.
 type otlpRelayPending struct {
 	relayID   uint64
-	status    *proto.GatewayServiceStatus
+	statuses  []*proto.GatewayServiceStatus
 	edgeSpool edgeMetricsAppender
 	edgeParts []edgeMetricsBuilt
 	bytes     int
@@ -414,17 +414,28 @@ func (p *otlpRelayPump) run(ctx context.Context, frames <-chan *addonpb.OtlpRela
 			havePulled = true
 
 			if spoolApp, cap := p.currentEdgeTarget(time.Now()); spoolApp != nil && cap != nil {
-				parts, messageByteCount, ok := p.prepareEdgeRelayFrame(frame, cap)
+				parts, edgeBytes, gatewayFrame, ok := p.prepareEdgeRelayFrame(frame, cap)
 				if !ok {
 					resolvedSinceAck++
 				} else {
-					pending = append(pending, otlpRelayPending{
-						relayID:   frame.GetRelayId(),
-						edgeSpool: spoolApp,
-						edgeParts: parts,
-						bytes:     messageByteCount,
-					})
-					pendingBytes += messageByteCount
+					var statuses []*proto.GatewayServiceStatus
+					statusBytes := 0
+					if gatewayFrame != nil {
+						statuses, statusBytes = p.relayGatewayStatuses(gatewayFrame)
+					}
+					if len(parts) == 0 && len(statuses) == 0 {
+						resolvedSinceAck++
+					} else {
+						messageByteCount := edgeBytes + statusBytes
+						pending = append(pending, otlpRelayPending{
+							relayID:   frame.GetRelayId(),
+							statuses:  statuses,
+							edgeSpool: spoolApp,
+							edgeParts: parts,
+							bytes:     messageByteCount,
+						})
+						pendingBytes += messageByteCount
+					}
 				}
 			} else {
 				status, messageByteCount, err := buildOtlpRelayGatewayStatus(
@@ -452,9 +463,9 @@ func (p *otlpRelayPump) run(ctx context.Context, frames <-chan *addonpb.OtlpRela
 					resolvedSinceAck++
 				default:
 					pending = append(pending, otlpRelayPending{
-						relayID: frame.GetRelayId(),
-						status:  status,
-						bytes:   messageByteCount,
+						relayID:  frame.GetRelayId(),
+						statuses: []*proto.GatewayServiceStatus{status},
+						bytes:    messageByteCount,
 					})
 					pendingBytes += messageByteCount
 				}
@@ -528,7 +539,7 @@ func (p *otlpRelayPump) flushOnce(ctx context.Context, pending []otlpRelayPendin
 				return err
 			}
 		}
-		if pending[i].status != nil {
+		if len(pending[i].statuses) > 0 {
 			legacyPending = append(legacyPending, pending[i])
 		}
 	}
@@ -549,7 +560,7 @@ func (p *otlpRelayPump) flushOnce(ctx context.Context, pending []otlpRelayPendin
 		return errOtlpRelayGatewayRejected
 	}
 	for i := range pending {
-		pending[i].status = nil
+		pending[i].statuses = nil
 	}
 	return nil
 }
@@ -590,11 +601,14 @@ func (p *otlpRelayPump) buildChunks(pending []otlpRelayPending) []*proto.Gateway
 	}
 
 	for _, entry := range pending {
-		if len(statuses) > 0 && chunkBytes+entry.bytes > otlpRelayMaxChunkMessageBytes {
-			appendChunk()
+		for _, status := range entry.statuses {
+			messageBytes := len(status.GetMessage())
+			if len(statuses) > 0 && chunkBytes+messageBytes > otlpRelayMaxChunkMessageBytes {
+				appendChunk()
+			}
+			statuses = append(statuses, status)
+			chunkBytes += messageBytes
 		}
-		statuses = append(statuses, entry.status)
-		chunkBytes += entry.bytes
 	}
 	appendChunk()
 
@@ -628,6 +642,74 @@ func (p *otlpRelayPump) sendAck(ctx context.Context, acks chan<- uint64, waterma
 			Msg("Timed out sending OTLP relay ack watermark; reconnecting stream")
 		return false
 	}
+}
+
+// relayGatewayStatuses packs records that do not fit an edge record into gateway
+// statuses. A batch that fits in maxFrameBytes is one status. A larger batch is
+// split per record. A record whose own status exceeds maxFrameBytes is counted
+// and omitted: it can never be delivered. Counters stay on the first status
+// that is actually sent.
+func (p *otlpRelayPump) relayGatewayStatuses(frame *addonpb.OtlpRelayFrame) ([]*proto.GatewayServiceStatus, int) {
+	if statuses, n, ok := p.oneGatewayStatus(frame); ok {
+		return statuses, n
+	}
+	records := frame.GetBatch().GetRecords()
+	if len(records) <= 1 {
+		p.countUndeliverableRelay(frame)
+		return nil, 0
+	}
+
+	var (
+		statuses []*proto.GatewayServiceStatus
+		total    int
+		attached bool
+	)
+	for _, rec := range records {
+		one := &addonpb.OtlpRelayFrame{
+			RelayId: frame.GetRelayId(),
+			Batch: &addonpb.TelemetryBatch{
+				Source:  frame.GetBatch().GetSource(),
+				Records: []*addonpb.TelemetryRecord{rec},
+			},
+		}
+		if !attached {
+			one.Batch.Counters = frame.GetBatch().GetCounters()
+		}
+		built, n, ok := p.oneGatewayStatus(one)
+		if !ok {
+			p.countUndeliverableRelay(one)
+			continue
+		}
+		attached = true
+		statuses = append(statuses, built...)
+		total += n
+	}
+	return statuses, total
+}
+
+func (p *otlpRelayPump) oneGatewayStatus(frame *addonpb.OtlpRelayFrame) ([]*proto.GatewayServiceStatus, int, bool) {
+	status, n, err := buildOtlpRelayGatewayStatus(
+		frame, p.agentID, p.gateway.GetGatewayID(), p.partition, p.kvStoreID)
+	if err != nil || n > p.maxFrameBytes {
+		return nil, 0, false
+	}
+	return []*proto.GatewayServiceStatus{status}, n, true
+}
+
+func (p *otlpRelayPump) countUndeliverableRelay(frame *addonpb.OtlpRelayFrame) {
+	p.stats.skippedOversize.Add(1)
+	records := frame.GetBatch().GetRecords()
+	recordBytes := 0
+	if len(records) == 1 {
+		recordBytes = len(records[0].GetPayload())
+	}
+	p.logger.Warn().
+		Str("addon", p.addonID).
+		Uint64("relay_id", frame.GetRelayId()).
+		Int("record_bytes", recordBytes).
+		Int("records", len(records)).
+		Int("max_bytes", p.maxFrameBytes).
+		Msg("Skipping oversized OTLP relay frame")
 }
 
 // buildOtlpRelayGatewayStatus wraps one relay frame's TelemetryBatch as a
