@@ -156,9 +156,10 @@ func (p *PushLoop) spoolPluginResults(capability *edgev1.EdgeSignedCapabilityV1,
 			if err != nil {
 				p.logger.Warn().Err(err).Str("assignment_id", item.provenance.GetAssignmentId()).
 					Msg("Dropping plugin results that cannot form an edge record")
-				p.dropEdgeTelemetry(edgeProducerPluginResults, edgeDropInvalidRecord, item.count())
-				q.pending = q.pending[1:]
-				continue
+				if built == nil || len(built.records) == 0 {
+					q.pending = q.pending[1:]
+					continue
+				}
 			}
 			q.pending = q.pending[1:]
 			q.built = built
@@ -189,8 +190,10 @@ func (p *PushLoop) appendPluginResultBuilt(built *pluginResultBuiltItem) bool {
 // buildPluginResultItem converts one provenance group's host results into
 // typed items and packs them into valid records. A result whose payload does
 // not normalize becomes the same UNKNOWN error result the legacy path sends.
-// A head result that cannot form a valid part is dropped alone (counted in
-// dropped); the rest of the group still spools.
+// A head result that cannot form a valid part for a size, row-ceiling, or
+// record-bound reason is dropped alone (counted in dropped) and packing
+// continues. A semantic batch refusal stops the group: parts already packed
+// are returned so they spool, and the unpacked remainder is counted in dropped.
 func (p *PushLoop) buildPluginResultItem(
 	item pluginResultEdgeItem,
 	capability *edgev1.EdgeSignedCapabilityV1,
@@ -204,9 +207,13 @@ func (p *PushLoop) buildPluginResultItem(
 
 	built = &pluginResultBuiltItem{item: item}
 	for len(converted) > 0 {
-		n, record, body, err := longestPluginResultPrefix(item.provenance, converted, capability)
-		if err != nil {
-			return nil, dropped, err
+		n, record, body, packErr := longestPluginResultPrefix(item.provenance, converted, capability)
+		if packErr != nil {
+			dropped += len(converted)
+			if len(built.records) == 0 {
+				return nil, dropped, packErr
+			}
+			return built, dropped, packErr
 		}
 		if n == 0 {
 			dropped++
@@ -221,7 +228,10 @@ func (p *PushLoop) buildPluginResultItem(
 }
 
 // longestPluginResultPrefix packs the longest prefix of results that forms
-// one valid plugin results record under capability.
+// one valid plugin results record under capability. A prefix of length zero
+// and a nil error means the head result alone cannot form a part for a size,
+// row-ceiling, or record-bound reason. Any other refusal, including a
+// semantic batch refusal, is returned.
 func longestPluginResultPrefix(
 	provenance *edgev1.PluginResultProvenanceV1,
 	results []*edgev1.WasmPluginResultItemV1,
@@ -252,11 +262,19 @@ func longestPluginResultPrefix(
 		lastErr = err
 		hi = mid - 1
 	}
-	if bestN == 0 && lastErr != nil && !errors.Is(lastErr, errPluginResultTooLarge) &&
-		!errors.Is(lastErr, edgerecord.ErrPluginResultBatch) {
+	if bestN == 0 && lastErr != nil && !pluginResultHeadMiss(lastErr) {
 		return 0, nil, nil, lastErr
 	}
 	return bestN, bestRecord, bestBody, nil
+}
+
+// pluginResultHeadMiss reports that the head result alone cannot form a part,
+// so the caller drops it and keeps packing. Semantic refusals from
+// ValidatePluginResultBatch are not misses: they fail the rest of the group.
+func pluginResultHeadMiss(err error) bool {
+	return errors.Is(err, errPluginResultTooLarge) ||
+		errors.Is(err, edgerecord.ErrRecordTooLarge) ||
+		errors.Is(err, edgerecord.ErrPayloadTooLarge)
 }
 
 func pluginResultMaxRows(capability *edgev1.EdgeSignedCapabilityV1) uint64 {

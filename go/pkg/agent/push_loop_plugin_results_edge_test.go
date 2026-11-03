@@ -20,6 +20,8 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -175,6 +177,93 @@ func TestPluginResultsInvalidPayloadBecomesUnknownLikeLegacy(t *testing.T) {
 	require.Len(t, batches, 1)
 	require.Equal(t, edgev1.PluginResultStatus_PLUGIN_RESULT_STATUS_UNKNOWN, batches[0].GetResults()[0].GetStatus())
 	require.Contains(t, batches[0].GetResults()[0].GetSummary(), "plugin result invalid")
+}
+
+func TestPluginResultsRecordBoundDropsOnlyTheOversizedResult(t *testing.T) {
+	sp := openTestEdgeSpool(t)
+	loop := pluginResultsLoop(t, sp)
+	capability := pluginResultsCapability(t, loop)
+	details := pluginResultDetailsAtRecordBound(t, loop, capability)
+
+	loop.pendingPluginResults = []PluginResult{
+		hostPluginResult("assignment-9", `{"status":"OK","summary":"small before"}`),
+		hostPluginResult("assignment-9", pluginResultPayload(t, "oversized details", details)),
+		hostPluginResult("assignment-9", `{"status":"OK","summary":"small after"}`),
+	}
+	require.True(t, loop.pushPluginResults(context.Background()))
+	require.Empty(t, loop.pendingPluginResults)
+	require.Zero(t, loop.pluginResultsEdge.queuedResults())
+
+	var summaries []string
+	for _, batch := range spooledPluginResultBatches(t, sp) {
+		require.Equal(t, "assignment-9", batch.GetProvenance().GetAssignmentId())
+		for _, result := range batch.GetResults() {
+			summaries = append(summaries, result.GetSummary())
+			require.Less(t, len(result.GetDetails()), 64)
+		}
+	}
+	require.Equal(t, []string{"small before", "small after"}, summaries)
+	require.Equal(t, uint64(1), edgeDrops(loop, edgeProducerPluginResults, edgeDropInvalidRecord))
+}
+
+// pluginResultDetailsAtRecordBound is the largest high-entropy details string
+// whose one-result batch still fits the 512 KiB payload cap and whose wrapped
+// record ValidateRecord rejects with ErrRecordTooLarge. The oracle is that
+// bound, not the producer's drop counter: a payload over the cap would already
+// have been a per-result miss before the record-bound fix.
+func pluginResultDetailsAtRecordBound(t *testing.T, loop *PushLoop, capability *edgev1.EdgeSignedCapabilityV1) string {
+	t.Helper()
+	best := ""
+	lo, hi := 1, edgePluginResultsMaxPayloadBytes
+	for lo <= hi {
+		mid := lo + (hi-lo)/2
+		details := asciiNoise(mid, 5)
+		payloadLen, err := pluginResultRecordAttempt(t, loop, capability, details)
+		switch {
+		case payloadLen > edgePluginResultsMaxPayloadBytes || errors.Is(err, errPluginResultTooLarge):
+			hi = mid - 1
+		case errors.Is(err, edgerecord.ErrRecordTooLarge):
+			best = details
+			lo = mid + 1
+		case err != nil:
+			t.Fatalf("details %d: %v", mid, err)
+		default:
+			lo = mid + 1
+		}
+	}
+	require.NotEmpty(t, best, "no details length is under the payload cap and over the record bound")
+	require.Greater(t, len(best), 400<<10, "the record-bound window sits just under the 512 KiB payload cap")
+	return best
+}
+
+func pluginResultRecordAttempt(
+	t *testing.T,
+	loop *PushLoop,
+	capability *edgev1.EdgeSignedCapabilityV1,
+	details string,
+) (int, error) {
+	t.Helper()
+	result := hostPluginResult("assignment-9", pluginResultPayload(t, "oversized details", details))
+	item := groupPluginResults([]PluginResult{result})[0]
+	batch := &edgev1.WasmPluginResultBatchV1{
+		Provenance: item.provenance,
+		Results:    []*edgev1.WasmPluginResultItemV1{loop.convertPluginResult(result, sysmonEdgeAgentID, "default")},
+	}
+	payload, err := gproto.MarshalOptions{Deterministic: true}.Marshal(batch)
+	require.NoError(t, err)
+	_, _, recErr := pluginResultEdgeRecord(batch, capability)
+	return len(payload), recErr
+}
+
+func pluginResultPayload(t *testing.T, summary, details string) string {
+	t.Helper()
+	raw, err := json.Marshal(map[string]string{
+		"status":  "OK",
+		"summary": summary,
+		"details": details,
+	})
+	require.NoError(t, err)
+	return string(raw)
 }
 
 func TestPluginResultsTakeLeavesPartiallySpooledGroupQueued(t *testing.T) {
