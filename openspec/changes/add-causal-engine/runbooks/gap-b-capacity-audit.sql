@@ -5,13 +5,54 @@
 -- network_discovery/topology_graph.ex) are populated, and how many canonical
 -- topology edges currently have capacity_bps = 0. After the Gap B
 -- eligibility-contract edit lands AND a full canonical-topology refresh runs,
--- `incorrectly_telemetry_eligible_true` MUST be 0 (an edge with capacity_bps=0
--- must have telemetry_eligible=false so the saturation causaloid C6 skips it).
+-- `incorrectly_eligible` MUST be 0 (an edge with capacity_bps=0 must have
+-- telemetry_eligible=false so the saturation causaloid C6 skips it).
 --
--- Run read-only against CNPG, e.g.:
---   docker compose exec cnpg psql -U serviceradar -d serviceradar -f - < gap-b-capacity-audit.sql
---   kubectl exec <cnpg-pod> -- psql -U postgres -d serviceradar -f - < gap-b-capacity-audit.sql
--- Run BEFORE the edit to size the gap, and AFTER (post topology refresh) to confirm 0 violations.
+-- The audit has two halves, because the inputs and the edges live in
+-- different stores:
+--
+-- 1. Interface speed coverage (CNPG): the SQL below. Run it read-only, e.g.:
+--      docker compose exec cnpg psql -U serviceradar -d serviceradar -f - < gap-b-capacity-audit.sql
+--      kubectl exec <cnpg-pod> -- psql -U postgres -d serviceradar -f - < gap-b-capacity-audit.sql
+--
+-- 2. Canonical edge capacity-eligibility gap (Dgraph): canonical edges are
+--    Dgraph `TopologyEdge` nodes with topo.kind = "CANONICAL_TOPOLOGY". Run
+--    this read-only DQL through SRQL `in:graph` (query bar, query API or MCP;
+--    needs DGRAPH_URL). An absent topo.capacity_bps counts as 0:
+--
+--      in:graph dql:'{
+--        zero_capacity(func: eq(topo.kind, "CANONICAL_TOPOLOGY"))
+--          @filter(eq(topo.capacity_bps, 0) OR NOT has(topo.capacity_bps)) {
+--          count(uid)
+--        }
+--        incorrectly_eligible(func: eq(topo.kind, "CANONICAL_TOPOLOGY"))
+--          @filter((eq(topo.capacity_bps, 0) OR NOT has(topo.capacity_bps))
+--                  AND eq(topo.telemetry_eligible, true)) {
+--          count(uid)
+--        }
+--        correctly_ineligible(func: eq(topo.kind, "CANONICAL_TOPOLOGY"))
+--          @filter((eq(topo.capacity_bps, 0) OR NOT has(topo.capacity_bps))
+--                  AND NOT eq(topo.telemetry_eligible, true)) {
+--          count(uid)
+--        }
+--        violations(func: eq(topo.kind, "CANONICAL_TOPOLOGY"), first: 50)
+--          @filter((eq(topo.capacity_bps, 0) OR NOT has(topo.capacity_bps))
+--                  AND eq(topo.telemetry_eligible, true)) {
+--          topo.link_key
+--          topo.capacity_bps
+--          topo.if_index_ab
+--          topo.if_index_ba
+--          topo.if_name_ab
+--          topo.if_name_ba
+--        }
+--      }'
+--
+--    `incorrectly_eligible` is the Gap B violation count; `violations` lists
+--    a sample of offending edges with the interface indexes to check against
+--    platform.discovered_interfaces.
+--
+-- Run both halves BEFORE the edit to size the gap, and AFTER (post topology
+-- refresh) to confirm 0 violations.
 
 WITH interface_speed_audit AS (
   SELECT
@@ -27,14 +68,6 @@ WITH interface_speed_audit AS (
     ) AS devices_without_any_speed,
     MAX(timestamp) AS latest_discovery
   FROM platform.discovered_interfaces
-),
-capacity_zero_edges AS (
-  SELECT
-    COUNT(*) AS canonical_edges_with_zero_capacity,
-    COUNT(*) FILTER (WHERE telemetry_eligible = true)  AS incorrectly_eligible_zero_cap,
-    COUNT(*) FILTER (WHERE telemetry_eligible = false) AS correctly_ineligible_zero_cap
-  FROM platform_graph."CANONICAL_TOPOLOGY"
-  WHERE capacity_bps = 0
 )
 SELECT 'Interface Speed Audit' AS audit_section,
   jsonb_build_object(
@@ -45,15 +78,4 @@ SELECT 'Interface Speed Audit' AS audit_section,
     'devices_with_zero_capacity_only', i.devices_without_any_speed,
     'latest_discovery_timestamp', i.latest_discovery
   ) AS audit_data
-FROM interface_speed_audit i
-UNION ALL
-SELECT 'Canonical Edge Capacity-Eligibility Gap',
-  jsonb_build_object(
-    'edges_with_zero_capacity_bps', c.canonical_edges_with_zero_capacity,
-    'incorrectly_telemetry_eligible_true', c.incorrectly_eligible_zero_cap,
-    'correctly_telemetry_eligible_false', c.correctly_ineligible_zero_cap,
-    'gap_b_violation_count', c.incorrectly_eligible_zero_cap,
-    'spec_requirement',
-      'capacity_bps=0 (neither endpoint has speed_bps or if_speed) => telemetry_eligible MUST be false'
-  )
-FROM capacity_zero_edges c;
+FROM interface_speed_audit i;
