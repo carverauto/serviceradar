@@ -318,11 +318,11 @@ in `choices.md` and the chart README.
     `SweepCorrelate.ingest_own_payload/1` already gates EventWriter sweep ingest.
     `ServiceRadar.SweepJobs.LeaseMisses` owns the mark, and
     `ServiceRadar.Edge.SweepProjection` reopens a later projecting batch.
-  - [ ] M2.0i Plan-carried checks. A leased slot executes the checks, ports and
+  - [x] M2.0i Plan-carried checks. A leased slot executes the checks, ports and
     targets its signed plan carries, never its sweep config (Decision 12 in
     `design.md`). Each slice lands on its own, in this order:
-    PARTIAL (reconciled 2026-11-02): M2.0i1 (#6260), M2.0i2 (#6259), M2.0i3,
-    and M2.0i5 are done; M2.0i4 remains.
+    DONE (reconciled 2026-11-02): M2.0i1 (#6260), M2.0i2 (#6259), M2.0i3,
+    M2.0i4, and M2.0i5 are done.
     - [x] M2.0i1 Proto. `SweepCheckSetV1`, `SweepLeaseV1.check_sets = 11`,
       `SweepLeaseSlotRefusal` with its reason enum, and
       `ControlStreamRequest.sweep_lease_slot_refusal = 8`, regenerated for Go
@@ -367,7 +367,7 @@ in `choices.md` and the chart README.
       the agent's `SweepPlan.check_set/1` at `lease_version` 2,
       `LeaseEligibility` applies the IPv6 SYN rule, and
       `ExecutionSlots.refuse/2` records refusals the gateway forwards.
-    - [ ] M2.0i4 Agent execution. The install gate accepts `lease_version` 2
+    - [x] M2.0i4 Agent execution. The install gate accepts `lease_version` 2
       for a push that carries slots and `lease_version` 1 for every push with
       no slots. `revoked` true withdraws the lease and the ticker resumes.
       `revoked` false merges by lease id: the same lease id drops installed
@@ -378,9 +378,7 @@ in `choices.md` and the chart README.
       push's `lease_version`. A slot-less same-lease merge keeps the installed
       lease's `lease_version` and the check sets its retained slots reference,
       and never lowers that version. A push that carries slots stores its own
-      `lease_version`, which is 2, as the current clone already does.
-      `mergeSweepLease` currently clones the push's version; this slice changes
-      the slot-less same-lease merge. An installed `lease_version` 2 with a
+      `lease_version`, which is 2. An installed `lease_version` 2 with a
       started slot, after a same-lease empty `lease_version` 1 push, is stored
       at `lease_version` 2, survives reload with the ticker suppressed, and
       that slot resumes from the plan. The ticker stays suppressed while the
@@ -408,10 +406,10 @@ in `choices.md` and the chart README.
       config-versus-plan check-set and network comparisons are deleted. The
       planner does not lease a group whose check set would need IPv6 SYN to
       an agent that reports `tcp_syn_ipv6.unavailable`.
-      TODO (reconciled 2026-11-02): agent install gate, merge rules,
-      `RunPlannedWithObserver` caller, refusal persistence and the
-      `sweep_lease_plan_checks:v1` advertisement; needs M2.0i1, ships with
-      M2.0i3.
+      DONE: agent install gate, merge rules, `RunPlannedWithObserver` caller,
+      refusal persistence and the `sweep_lease_plan_checks:v1` advertisement.
+      M2.0i1 and M2.0i3 are on staging, so core leases agents that advertise
+      the capability.
     - [x] M2.0i5 Batch check-set verification. Core rejects a leased batch whose
       `tested_checks` digest differs from the slot's signed `check_set_sha256`,
       as an authority refusal (`:sweep_check_set_mismatch`: rollback, no

@@ -19,8 +19,10 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -32,6 +34,7 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
+	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	"github.com/carverauto/serviceradar/proto"
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 	"google.golang.org/grpc"
@@ -515,4 +518,795 @@ func uuidBytes(dashed string) []byte {
 		panic(err)
 	}
 	return buf
+}
+
+// A running agent, given a group whose own config is ICMP on a documentation
+// address, runs a leased slot's TCP connect against the plan's address and
+// stays off that group's interval ticker across a restart.
+func TestRunningAgentRunsPlanTCPConnectWhileTheGroupTickerStaysOff(t *testing.T) {
+	binary := agentTestBinary(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer listener.Close()
+	go func() {
+		for {
+			conn, acceptErr := listener.Accept()
+			if acceptErr != nil {
+				return
+			}
+			_ = conn.Close()
+		}
+	}()
+	port := listener.Addr().(*net.TCPAddr).Port
+
+	root := t.TempDir()
+	spoolDir := filepath.Join(root, "spool")
+	groupBytes, err := edgerecord.NewUUIDv7()
+	if err != nil {
+		t.Fatalf("group id: %v", err)
+	}
+	group := dashedUUID(groupBytes)
+	slotAt := time.Now().Add(4 * time.Second)
+	leaseID, err := edgerecord.NewUUIDv7()
+	if err != nil {
+		t.Fatalf("lease id: %v", err)
+	}
+	assignment, err := edgerecord.NewUUIDv7()
+	if err != nil {
+		t.Fatalf("assignment id: %v", err)
+	}
+	lease := executablePlanLease(t, groupBytes, leaseID, assignment, "127.0.0.1/32", 1, []*edgev1.SweepTestV1{{
+		Mode:     edgev1.SweepMode_SWEEP_MODE_TCP_CONNECT,
+		Protocol: edgev1.TransportProtocol_TRANSPORT_PROTOCOL_TCP,
+		Port:     uint32(port),
+	}}, slotAt, slotAt.Add(45*time.Second))
+
+	gw := newExecLeaseGateway()
+	lis, err := (&net.ListenConfig{}).Listen(ctx, "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("gateway listen: %v", err)
+	}
+	server := grpc.NewServer()
+	proto.RegisterAgentGatewayServiceServer(server, gw)
+	go func() { _ = server.Serve(lis) }()
+	t.Cleanup(server.Stop)
+
+	logs := &agentOutput{}
+	cmd := startSweepExecAgent(t, ctx, binary, root, spoolDir, lis.Addr().String(), logs)
+	hello := gw.waitHello(t, logs)
+	requireCapabilities(t, hello, "sweep_lease_v1", "sweep_lease_plan_checks:v1")
+
+	installed := gw.pushLease(t, logs, group, lease)
+	if !installed.GetInstalled() || installed.GetInstalledSlotCount() != 1 || installed.GetError() != "" {
+		t.Fatalf("plan install ack = installed:%t slots:%d err:%q\nlog:\n%s", installed.GetInstalled(), installed.GetInstalledSlotCount(), installed.GetError(), logs.snapshot())
+	}
+	gw.pushConfig(t, logs, icmpGroupConfig(group))
+	waitForLog(t, logs, "Applied sweep group config from gateway", 15*time.Second)
+	waitForLog(t, logs, "Manual schedule active, skipping initial sweep", 15*time.Second)
+	time.Sleep(3 * time.Second)
+	logText := string(logs.snapshot())
+	if strings.Contains(logText, "Initial sweep completed successfully") || strings.Contains(logText, "Ticker fired, starting periodic sweep") {
+		t.Fatalf("leased group ran its local ticker:\n%s", logText)
+	}
+	t.Logf("group config is ICMP on a 1s interval; the leased group skipped its initial sweep and did not tick")
+
+	waitForLog(t, logs, "Ran leased sweep slot", 30*time.Second)
+	stopPlanLeaseAgent(cmd)
+	gw.waitStreamEnd(t, logs)
+
+	batch := readSweepBatch(t, spoolDir)
+	if batch.GetConfiguredModeBits() != uint32(edgev1.SweepModeBit_SWEEP_MODE_BIT_TCP_CONNECT) {
+		t.Fatalf("spooled mode bits = %d, want tcp connect only", batch.GetConfiguredModeBits())
+	}
+	if len(batch.GetTestedChecks()) != 1 || batch.GetTestedChecks()[0].GetMode() != edgev1.SweepMode_SWEEP_MODE_TCP_CONNECT || batch.GetTestedChecks()[0].GetPort() != uint32(port) {
+		t.Fatalf("spooled checks = %v", batch.GetTestedChecks())
+	}
+	if len(batch.GetHosts()) != 1 || !bytes.Equal(batch.GetHosts()[0].GetAddress(), net.ParseIP("127.0.0.1").To4()) {
+		t.Fatalf("spooled hosts = %v", batch.GetHosts())
+	}
+	if batch.GetHosts()[0].GetTcp().GetOpenCount() != 1 {
+		t.Fatalf("tcp connect did not reach the listener: %+v", batch.GetHosts()[0].GetTcp())
+	}
+	t.Logf("planned TCP connect to 127.0.0.1:%d opened; the ICMP group config contributed no mode", port)
+
+	logs = &agentOutput{}
+	cmd = startSweepExecAgent(t, ctx, binary, root, spoolDir, lis.Addr().String(), logs)
+	_ = gw.waitHello(t, logs)
+	gw.pushConfig(t, logs, icmpGroupConfig(group))
+	waitForLog(t, logs, "Manual schedule active, skipping initial sweep", 15*time.Second)
+	time.Sleep(3 * time.Second)
+	reloaded := string(logs.snapshot())
+	if strings.Contains(reloaded, "Initial sweep completed successfully") || strings.Contains(reloaded, "Ticker fired, starting periodic sweep") {
+		t.Fatalf("reloaded lease let the group tick:\n%s", reloaded)
+	}
+	if strings.Contains(reloaded, "Ran leased sweep slot") {
+		t.Fatalf("reloaded agent ran the slot again:\n%s", reloaded)
+	}
+	t.Logf("after restart the started slot stayed executed and the group stayed off its ticker")
+	stopPlanLeaseAgent(cmd)
+}
+
+// A running agent judges an IPv6 TCP SYN slot from the scanner the planned run
+// creates. When that scanner cannot send raw IPv6 SYN, one refusal names every
+// missing marker, a hello carries a new marker before the refusal, and the
+// refusal is sent again on the next control stream until 24 hours past the
+// slot's collection expiry.
+func TestRunningAgentRefusesUnavailablePlannedModesBeforeClaim(t *testing.T) {
+	binary := agentTestBinary(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	root := t.TempDir()
+	spoolDir := filepath.Join(root, "spool")
+	groupBytes, err := edgerecord.NewUUIDv7()
+	if err != nil {
+		t.Fatalf("group id: %v", err)
+	}
+	group := dashedUUID(groupBytes)
+	leaseID, err := edgerecord.NewUUIDv7()
+	if err != nil {
+		t.Fatalf("lease id: %v", err)
+	}
+	assignment, err := edgerecord.NewUUIDv7()
+	if err != nil {
+		t.Fatalf("assignment id: %v", err)
+	}
+	slotAt := time.Now().Add(4 * time.Second)
+	collection := slotAt.Add(2 * time.Minute)
+	lease := executablePlanLease(t, groupBytes, leaseID, assignment, "2001:db8::1/128", 1, []*edgev1.SweepTestV1{
+		{Mode: edgev1.SweepMode_SWEEP_MODE_ICMP, Protocol: edgev1.TransportProtocol_TRANSPORT_PROTOCOL_ICMP},
+		{Mode: edgev1.SweepMode_SWEEP_MODE_TCP_SYN, Protocol: edgev1.TransportProtocol_TRANSPORT_PROTOCOL_TCP, Port: 443},
+	}, slotAt, collection)
+
+	gw := newExecLeaseGateway()
+	lis, err := (&net.ListenConfig{}).Listen(ctx, "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("gateway listen: %v", err)
+	}
+	server := grpc.NewServer()
+	proto.RegisterAgentGatewayServiceServer(server, gw)
+	go func() { _ = server.Serve(lis) }()
+	t.Cleanup(server.Stop)
+
+	logs := &agentOutput{}
+	cmd := startSweepExecAgent(t, ctx, binary, root, spoolDir, lis.Addr().String(), logs)
+	hello := gw.waitHello(t, logs)
+	icmpMissing := containsCap(hello, "icmp.unavailable")
+	if containsCap(hello, "tcp_syn_ipv6.unavailable") {
+		t.Fatalf("hello already carries tcp_syn_ipv6.unavailable before any slot: %v", hello)
+	}
+	t.Logf("startup hello icmp.unavailable=%t", icmpMissing)
+
+	installed := gw.pushLease(t, logs, group, lease)
+	if !installed.GetInstalled() || installed.GetError() != "" {
+		t.Fatalf("install ack = installed:%t err:%q\nlog:\n%s", installed.GetInstalled(), installed.GetError(), logs.snapshot())
+	}
+	gw.pushConfig(t, logs, icmpGroupConfig(group))
+	waitForLog(t, logs, "Applied sweep group config from gateway", 15*time.Second)
+
+	refusal := gw.waitRefusal(t, logs, 30*time.Second)
+	wantMarkers := []string{"tcp_syn_ipv6.unavailable"}
+	if icmpMissing {
+		wantMarkers = []string{"icmp.unavailable", "tcp_syn_ipv6.unavailable"}
+	}
+	if refusal.GetReason() != proto.SweepLeaseSlotRefusalReason_SWEEP_LEASE_SLOT_REFUSAL_REASON_CHECK_UNAVAILABLE {
+		t.Fatalf("refusal reason = %s", refusal.GetReason())
+	}
+	if strings.Join(refusal.GetUnavailableCapabilities(), ",") != strings.Join(wantMarkers, ",") {
+		t.Fatalf("refusal markers = %v, want %v (detail %s)", refusal.GetUnavailableCapabilities(), wantMarkers, refusal.GetDetail())
+	}
+	if !bytes.Equal(refusal.GetExecutionId(), lease.GetSlots()[0].GetExecutionId()) {
+		t.Fatalf("refusal execution = %x", refusal.GetExecutionId())
+	}
+	messages := gw.snapshot()
+	helloAt := -1
+	refusalAt := -1
+	for i, msg := range messages {
+		if h := msg.GetHello(); h != nil && containsCap(h.GetCapabilities(), "tcp_syn_ipv6.unavailable") && helloAt < 0 {
+			helloAt = i
+		}
+		if msg.GetSweepLeaseSlotRefusal() != nil && refusalAt < 0 {
+			refusalAt = i
+		}
+	}
+	if helloAt < 0 || refusalAt < 0 || helloAt > refusalAt {
+		t.Fatalf("marker hello index %d, refusal index %d", helloAt, refusalAt)
+	}
+	if strings.Contains(string(logs.snapshot()), "Ran leased sweep slot") {
+		t.Fatalf("refused slot still ran:\n%s", logs.snapshot())
+	}
+	t.Logf("one refusal before the slot ran, markers %v, detail %s; hello with the new marker preceded it", refusal.GetUnavailableCapabilities(), refusal.GetDetail())
+
+	// Decision 12 / LeaseMisses lookback: keep the refusal until 24 hours past
+	// collection expiry. The bound is that lookback, written here, not a
+	// constant read back from the agent.
+	const leaseMissLookback = 24 * time.Hour
+	stored := readRefusalFile(t, filepath.Join(root, "sweep-leases", group+".refusals.json"))
+	executionKey := dashedUUID(lease.GetSlots()[0].GetExecutionId())
+	record, ok := stored[executionKey]
+	if !ok {
+		t.Fatalf("refusal file keys = %v, want %s", refusalKeys(stored), executionKey)
+	}
+	wantRetain := collection.UnixNano() + int64(leaseMissLookback)
+	if record.RetainUntilUnixNano != wantRetain {
+		t.Fatalf("retain_until = %d, want collection expiry + 24h (%d)", record.RetainUntilUnixNano, wantRetain)
+	}
+	t.Logf("persisted retain_until is the slot collection expiry plus 24h")
+
+	sp, err := spool.Open(spoolDir)
+	if err != nil {
+		t.Fatalf("open spool: %v", err)
+	}
+	records, err := sp.Unresolved()
+	_ = sp.Close()
+	if err != nil {
+		t.Fatalf("spool unresolved: %v", err)
+	}
+	if len(records) != 0 {
+		t.Fatalf("refused slot wrote %d spool records", len(records))
+	}
+
+	gw.disconnect()
+	gw.waitStreamEnd(t, logs)
+	rehello := gw.waitHello(t, logs)
+	if !containsCap(rehello, "tcp_syn_ipv6.unavailable") {
+		t.Fatalf("reconnect hello = %v", rehello)
+	}
+	resent := gw.waitRefusal(t, logs, 20*time.Second)
+	if !goproto.Equal(refusal, resent) {
+		t.Fatalf("resent refusal = %+v", resent)
+	}
+	t.Logf("the next control stream carried the marker and the same refusal")
+	stopPlanLeaseAgent(cmd)
+	gw.waitStreamEnd(t, logs)
+
+	// The reader drops a refusal once its stored retain timestamp is reached.
+	// Moving that timestamp is the clock reaching the bound the writer stored.
+	record.RetainUntilUnixNano = time.Now().Add(30 * time.Second).UnixNano()
+	stored[executionKey] = record
+	writeRefusalFile(t, filepath.Join(root, "sweep-leases", group+".refusals.json"), stored)
+	logs = &agentOutput{}
+	cmd = startSweepExecAgent(t, ctx, binary, root, spoolDir, lis.Addr().String(), logs)
+	_ = gw.waitHello(t, logs)
+	stillHeld := gw.waitRefusal(t, logs, 15*time.Second)
+	if !bytes.Equal(stillHeld.GetExecutionId(), refusal.GetExecutionId()) {
+		t.Fatalf("held refusal execution = %x", stillHeld.GetExecutionId())
+	}
+	t.Logf("a refusal whose retain timestamp is still ahead is sent on connect")
+	stopPlanLeaseAgent(cmd)
+	gw.waitStreamEnd(t, logs)
+
+	record.RetainUntilUnixNano = time.Now().Add(-time.Nanosecond).UnixNano()
+	stored[executionKey] = record
+	writeRefusalFile(t, filepath.Join(root, "sweep-leases", group+".refusals.json"), stored)
+	logs = &agentOutput{}
+	cmd = startSweepExecAgent(t, ctx, binary, root, spoolDir, lis.Addr().String(), logs)
+	defer stopPlanLeaseAgent(cmd)
+	_ = gw.waitHello(t, logs)
+	select {
+	case late := <-gw.refusals:
+		t.Fatalf("refusal was sent after its retain timestamp: %+v", late)
+	case <-time.After(6 * time.Second):
+		t.Logf("a refusal whose retain timestamp has passed is not sent")
+	}
+}
+
+func startSweepExecAgent(t *testing.T, ctx context.Context, binary, root, spoolDir, gateway string, logs *agentOutput) *exec.Cmd {
+	t.Helper()
+	checkers := filepath.Join(root, "checkers")
+	if err := os.MkdirAll(checkers, 0o755); err != nil {
+		t.Fatalf("checkers dir: %v", err)
+	}
+	configPath := filepath.Join(root, "agent.json")
+	config := fmt.Sprintf(`{
+		"agent_id": "plan-lease-exec",
+		"checkers_dir": %q,
+		"partition": "default",
+		"gateway_addr": %q,
+		"push_interval": "1h",
+		"gateway_security": {"mode": "none"},
+		"logging": {"level": "debug", "output": "stdout"},
+		"edge_record_sender": {
+			"enabled": true,
+			"sweep_enabled": true,
+			"max_bytes": %d,
+			"spool_dir": %q,
+			"poll_interval": "1h"
+		}
+	}`, checkers, gateway, 32<<20, spoolDir)
+	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cmd := exec.CommandContext(ctx, binary, "--config", configPath)
+	cmd.Dir = root
+	cmd.Env = append(os.Environ(), "SR_ALLOW_INSECURE=true", "SERVICERADAR_AGENT_RUNTIME_ROOT="+root)
+	cmd.Stdout = logs
+	cmd.Stderr = logs
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start agent: %v\nlog:\n%s", err, logs.snapshot())
+	}
+	t.Cleanup(func() { stopPlanLeaseAgent(cmd) })
+	return cmd
+}
+
+func icmpGroupConfig(group string) *proto.AgentConfigResponse {
+	body := fmt.Sprintf(`{"sweep":{"config_hash":"live-icmp","groups":[{
+		"id": %q,
+		"sweep_group_id": %q,
+		"targets": ["192.0.2.1/32"],
+		"modes": ["icmp"],
+		"schedule": {"type": "interval", "interval": "1s"},
+		"settings": {"concurrency": 4, "timeout": "2s", "scan_timeout": "15s"}
+	}]}}`, group, group)
+	return &proto.AgentConfigResponse{
+		ConfigVersion:   "live-icmp-" + group,
+		ConfigTimestamp: time.Now().Unix(),
+		ConfigJson:      []byte(body),
+	}
+}
+
+func waitForLog(t *testing.T, logs *agentOutput, needle string, budget time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(budget)
+	for time.Now().Before(deadline) {
+		if strings.Contains(string(logs.snapshot()), needle) {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("log never contained %q\nlog:\n%s", needle, logs.snapshot())
+}
+
+func readSweepBatch(t *testing.T, spoolDir string) *edgev1.SweepObservationBatchV1 {
+	t.Helper()
+	sp, err := spool.Open(spoolDir)
+	if err != nil {
+		t.Fatalf("open spool: %v", err)
+	}
+	defer sp.Close()
+	records, err := sp.Unresolved()
+	if err != nil {
+		t.Fatalf("spool unresolved: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("spool records = %d, want 1", len(records))
+	}
+	record := &edgev1.EdgeRecordV1{}
+	if err := goproto.Unmarshal(records[0].Body, record); err != nil {
+		t.Fatalf("decode record: %v", err)
+	}
+	payload := record.GetPayload()
+	if record.GetCompression() == edgev1.EdgeRecordCompression_EDGE_RECORD_COMPRESSION_ZSTD {
+		payload, err = edgerecord.DecompressZstdPayload(payload, record.GetUncompressedSize())
+		if err != nil {
+			t.Fatalf("decompress record: %v", err)
+		}
+	}
+	batch := &edgev1.SweepObservationBatchV1{}
+	if err := goproto.Unmarshal(payload, batch); err != nil {
+		t.Fatalf("decode batch: %v", err)
+	}
+	return batch
+}
+
+type storedRefusal struct {
+	RetainUntilUnixNano int64  `json:"retain_until_unix_nano"`
+	Refusal             []byte `json:"refusal"`
+}
+
+func readRefusalFile(t *testing.T, path string) map[string]storedRefusal {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read refusals: %v", err)
+	}
+	var stored map[string]storedRefusal
+	if err := json.Unmarshal(data, &stored); err != nil {
+		t.Fatalf("decode refusals: %v", err)
+	}
+	return stored
+}
+
+func writeRefusalFile(t *testing.T, path string, stored map[string]storedRefusal) {
+	t.Helper()
+	data, err := json.Marshal(stored)
+	if err != nil {
+		t.Fatalf("encode refusals: %v", err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("write refusals: %v", err)
+	}
+}
+
+func refusalKeys(stored map[string]storedRefusal) []string {
+	keys := make([]string, 0, len(stored))
+	for key := range stored {
+		keys = append(keys, key)
+	}
+	return keys
+}
+
+func containsCap(caps []string, want string) bool {
+	for _, cap := range caps {
+		if cap == want {
+			return true
+		}
+	}
+	return false
+}
+
+func dashedUUID(raw []byte) string {
+	return fmt.Sprintf("%x-%x-%x-%x-%x", raw[0:4], raw[4:6], raw[6:8], raw[8:10], raw[10:16])
+}
+
+// executablePlanLease is a lease the running agent can execute: signed plan,
+// one range, and a production grant large enough for that range. The digests
+// are the public plan grammar, so a lease that does not bind its range fails
+// closed before a scan.
+func executablePlanLease(t *testing.T, group, leaseID, assignment []byte, cidr string, targets uint64, checks []*edgev1.SweepTestV1, slotAt, collection time.Time) *edgev1.SweepLeaseV1 {
+	t.Helper()
+	_, key, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("issuer key: %v", err)
+	}
+	checkKey := edgerecord.CheckSetDigest(checks)
+	rangeID, err := edgerecord.NewUUIDv7()
+	if err != nil {
+		t.Fatalf("range id: %v", err)
+	}
+	planID, err := edgerecord.NewUUIDv7()
+	if err != nil {
+		t.Fatalf("plan id: %v", err)
+	}
+	executionID, err := edgerecord.NewUUIDv7()
+	if err != nil {
+		t.Fatalf("execution id: %v", err)
+	}
+	networkScope, err := edgerecord.NewUUIDv7()
+	if err != nil {
+		t.Fatalf("network scope: %v", err)
+	}
+	targetRange := &edgev1.TargetRangeV1{
+		RangeId:              rangeID,
+		Cidr:                 cidr,
+		TargetCount:          targets,
+		CheckSetSha256:       checkKey,
+		AvailabilityPolicyId: []byte("any-success-v1"),
+		MtrOrdinalCount:      goproto.Uint64(0),
+	}
+	targetRange.RangeSha256 = edgerecord.RangeDigest(targetRange)
+	page := &edgev1.ScheduledPlanPageV1{
+		ExecutionPlanId: planID,
+		PageIndex:       0,
+		PageCount:       1,
+		CheckSetSha256:  checkKey,
+		DigestVersion:   edgerecord.PlanDigestVersion,
+		Ranges:          []*edgev1.TargetRangeV1{targetRange},
+	}
+	page.PageSha256 = edgerecord.PlanPageDigest(page)
+	pages := []*edgev1.ScheduledPlanPageV1{page}
+	commitment, err := edgerecord.PlanMtrOrdinalRangeCommitment(pages)
+	if err != nil {
+		t.Fatalf("mtr commitment: %v", err)
+	}
+	header := &edgev1.ScheduledPlanHeaderV1{
+		ExecutionPlanId:           planID,
+		PageCount:                 1,
+		TotalTargetCount:          targets,
+		PlanRootSha256:            edgerecord.PlanRoot(pages),
+		DigestVersion:             edgerecord.PlanDigestVersion,
+		CheckSetSha256:            checkKey,
+		AvailabilityPolicyId:      []byte("any-success-v1"),
+		NetworkScopeId:            networkScope,
+		MtrOrdinalRangeCommitment: commitment,
+	}
+	header.ExecutionPlanSha256 = edgerecord.PlanHeaderDigest(header)
+
+	start := slotAt.UnixNano()
+	expires := collection.UnixNano()
+	sign := func(capability *edgev1.EdgeSignedCapabilityV1) *edgev1.EdgeSignedCapabilityV1 {
+		capability.CapabilityVersion = 1
+		capability.IssuerId = []byte("live-issuer")
+		capability.IssuerKeyId = []byte("live-issuer-key")
+		capability.Algorithm = "ed25519"
+		edgerecord.SignCapability(capability, key)
+		return capability
+	}
+	digest := sha256.Sum256([]byte("live-sweep-contract"))
+	source := sign(&edgev1.EdgeSignedCapabilityV1{
+		NotBeforeUnixNano: start,
+		ExpiresAtUnixNano: expires,
+		Claims: &edgev1.EdgeSignedCapabilityV1_Source{Source: &edgev1.EdgeSourceClaimsV1{
+			Kind:                        edgev1.EdgeSourceAuthorizationKind_EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP,
+			ContextId:                   executionID,
+			ScopeId:                     rangeID,
+			ScopeSha256:                 targetRange.GetRangeSha256(),
+			NetworkScopeId:              networkScope,
+			CollectionNotBeforeUnixNano: start,
+			CollectionExpiresUnixNano:   expires,
+			ProducerAssignmentId:        assignment,
+			RunId:                       leaseID,
+			AuthorityEpoch:              1,
+			ExecutionPlanSha256:         header.GetExecutionPlanSha256(),
+			TargetRangeSha256:           targetRange.GetRangeSha256(),
+			OriginKind:                  edgev1.EdgeOriginKind_EDGE_ORIGIN_KIND_AGENT,
+			OriginPrincipalId:           []byte("plan-lease-exec"),
+			ProducerInstanceId:          []byte("plan-lease-exec"),
+			RouteProfile:                edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
+			TrafficClass:                edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_BULK,
+		}},
+	})
+	issued := time.Now().Add(-time.Minute).UnixNano()
+	production := sign(&edgev1.EdgeSignedCapabilityV1{
+		NotBeforeUnixNano: issued,
+		ExpiresAtUnixNano: expires,
+		Claims: &edgev1.EdgeSignedCapabilityV1_Production{Production: &edgev1.EdgeProductionClaimsV1{
+			NetworkScopeId:         networkScope,
+			ProducerAssignmentId:   assignment,
+			RunId:                  leaseID,
+			AuthorityEpoch:         1,
+			ScopeId:                group,
+			ContractId:             "serviceradar.sweep.observation",
+			ContractVersion:        1,
+			ContractBundleSha256:   digest[:],
+			RegistryEpoch:          1,
+			RegistrySnapshotSha256: digest[:],
+			EffectiveGrantSha256:   digest[:],
+			OriginKind:             edgev1.EdgeOriginKind_EDGE_ORIGIN_KIND_AGENT,
+			OriginPrincipalId:      []byte("plan-lease-exec"),
+			ProducerInstanceId:     []byte("plan-lease-exec"),
+			PackageId:              "serviceradar.agent.sweep",
+			PackageSha256:          digest[:],
+			ScopeSha256:            digest[:],
+			RouteProfile:           edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
+			TrafficClass:           edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_BULK,
+			CostModelVersion:       1,
+			MaxProjectedRowCount:   64,
+			MaxProjectedWriteBytes: 64 * 2048,
+		}},
+	})
+	return &edgev1.SweepLeaseV1{
+		LeaseVersion:         edgerecord.SweepLeaseCheckSetsVersion,
+		SweepGroupId:         group,
+		LeaseId:              leaseID,
+		ProducerAssignmentId: assignment,
+		AuthorityEpoch:       1,
+		ProductionCapability: production,
+		WindowStartUnixNano:  start - int64(time.Second),
+		WindowEndUnixNano:    expires,
+		CheckSets: []*edgev1.SweepCheckSetV1{{
+			CheckSetSha256: checkKey,
+			DigestVersion:  edgerecord.CheckSetDigestVersion,
+			Checks:         checks,
+		}},
+		Slots: []*edgev1.SweepLeaseSlotV1{{
+			ExecutionId:               executionID,
+			SlotStartUnixNano:         start,
+			CollectionExpiresUnixNano: expires,
+			PlanHeader:                header,
+			PlanPages:                 pages,
+			SourceAuthorizations: []*edgev1.EdgeSourceAuthorizationV1{{
+				Kind:        edgev1.EdgeSourceAuthorizationKind_EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP,
+				Capability:  source,
+				ContextId:   executionID,
+				ScopeId:     rangeID,
+				ScopeSha256: targetRange.GetRangeSha256(),
+			}},
+		}},
+	}
+}
+
+type execLeaseOp struct {
+	chunks []*proto.SweepLeaseChunk
+	config *proto.AgentConfigResponse
+	result chan error
+}
+
+type execLeaseGateway struct {
+	proto.UnimplementedAgentGatewayServiceServer
+	hellos   chan []string
+	refusals chan *proto.SweepLeaseSlotRefusal
+	ops      chan execLeaseOp
+	ended    chan struct{}
+	drop     chan struct{}
+
+	mu   sync.Mutex
+	seen []*proto.ControlStreamRequest
+}
+
+func newExecLeaseGateway() *execLeaseGateway {
+	return &execLeaseGateway{
+		hellos:   make(chan []string, 8),
+		refusals: make(chan *proto.SweepLeaseSlotRefusal, 8),
+		ops:      make(chan execLeaseOp),
+		ended:    make(chan struct{}, 8),
+		drop:     make(chan struct{}, 1),
+	}
+}
+
+func (g *execLeaseGateway) Hello(_ context.Context, req *proto.AgentHelloRequest) (*proto.AgentHelloResponse, error) {
+	return &proto.AgentHelloResponse{
+		Accepted:             true,
+		AgentId:              req.GetAgentId(),
+		GatewayId:            "disposable-gateway",
+		HeartbeatIntervalSec: 30,
+	}, nil
+}
+
+func (g *execLeaseGateway) GetConfig(context.Context, *proto.AgentConfigRequest) (*proto.AgentConfigResponse, error) {
+	return &proto.AgentConfigResponse{NotModified: true}, nil
+}
+
+func (g *execLeaseGateway) PushStatus(context.Context, *proto.GatewayStatusRequest) (*proto.GatewayStatusResponse, error) {
+	return &proto.GatewayStatusResponse{Received: true}, nil
+}
+
+func (g *execLeaseGateway) note(msg *proto.ControlStreamRequest) {
+	g.mu.Lock()
+	g.seen = append(g.seen, msg)
+	g.mu.Unlock()
+	if refusal := msg.GetSweepLeaseSlotRefusal(); refusal != nil {
+		select {
+		case g.refusals <- refusal:
+		default:
+		}
+	}
+}
+
+func (g *execLeaseGateway) snapshot() []*proto.ControlStreamRequest {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	out := make([]*proto.ControlStreamRequest, len(g.seen))
+	copy(out, g.seen)
+	return out
+}
+
+func (g *execLeaseGateway) disconnect() {
+	select {
+	case g.drop <- struct{}{}:
+	default:
+	}
+}
+
+func (g *execLeaseGateway) ControlStream(stream grpc.BidiStreamingServer[proto.ControlStreamRequest, proto.ControlStreamResponse]) error {
+	defer func() { g.ended <- struct{}{} }()
+	incoming := make(chan *proto.ControlStreamRequest, 32)
+	readErr := make(chan error, 1)
+	go func() {
+		for {
+			msg, err := stream.Recv()
+			if err != nil {
+				readErr <- err
+				return
+			}
+			incoming <- msg
+		}
+	}()
+	for {
+		select {
+		case <-g.drop:
+			return nil
+		case err := <-readErr:
+			return err
+		case msg := <-incoming:
+			g.note(msg)
+			if msg.GetHello() != nil {
+				g.hellos <- append([]string(nil), msg.GetHello().GetCapabilities()...)
+				return g.serveExec(stream, incoming, readErr)
+			}
+		}
+	}
+}
+
+func (g *execLeaseGateway) serveExec(
+	stream grpc.BidiStreamingServer[proto.ControlStreamRequest, proto.ControlStreamResponse],
+	incoming <-chan *proto.ControlStreamRequest,
+	readErr <-chan error,
+) error {
+	for {
+		select {
+		case <-g.drop:
+			return nil
+		case err := <-readErr:
+			return err
+		case msg := <-incoming:
+			g.note(msg)
+		case op := <-g.ops:
+			var sendErr error
+			if op.config != nil {
+				sendErr = stream.Send(&proto.ControlStreamResponse{
+					Payload: &proto.ControlStreamResponse_Config{Config: op.config},
+				})
+			} else {
+				sendErr = sendLeaseChunks(stream, op.chunks)
+			}
+			op.result <- sendErr
+			if sendErr != nil {
+				return sendErr
+			}
+		}
+	}
+}
+
+func (g *execLeaseGateway) waitHello(t *testing.T, logs *agentOutput) []string {
+	t.Helper()
+	select {
+	case hello := <-g.hellos:
+		return hello
+	case <-time.After(45 * time.Second):
+		t.Fatalf("agent did not open a control stream\nlog:\n%s", logs.snapshot())
+	}
+	return nil
+}
+
+func (g *execLeaseGateway) waitStreamEnd(t *testing.T, logs *agentOutput) {
+	t.Helper()
+	select {
+	case <-g.ended:
+	case <-time.After(15 * time.Second):
+		t.Fatalf("control stream did not end\nlog:\n%s", logs.snapshot())
+	}
+}
+
+func (g *execLeaseGateway) waitRefusal(t *testing.T, logs *agentOutput, budget time.Duration) *proto.SweepLeaseSlotRefusal {
+	t.Helper()
+	select {
+	case refusal := <-g.refusals:
+		return refusal
+	case <-time.After(budget):
+		t.Fatalf("no slot refusal\nlog:\n%s", logs.snapshot())
+	}
+	return nil
+}
+
+func (g *execLeaseGateway) pushLease(t *testing.T, logs *agentOutput, group string, lease *edgev1.SweepLeaseV1) *proto.SweepLeaseAck {
+	t.Helper()
+	op := execLeaseOp{chunks: planLeaseChunks(t, group, lease), result: make(chan error, 1)}
+	select {
+	case g.ops <- op:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("control stream is not receiving a push\nlog:\n%s", logs.snapshot())
+	}
+	select {
+	case err := <-op.result:
+		if err != nil {
+			t.Fatalf("lease push: %v\nlog:\n%s", err, logs.snapshot())
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatalf("lease push was not sent\nlog:\n%s", logs.snapshot())
+	}
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, msg := range g.snapshot() {
+			if ack := msg.GetSweepLeaseAck(); ack != nil && ack.GetPayloadSha256() == op.chunks[0].GetPayloadSha256() {
+				return ack
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("no sweep lease ack\nlog:\n%s", logs.snapshot())
+	return nil
+}
+
+func (g *execLeaseGateway) pushConfig(t *testing.T, logs *agentOutput, cfg *proto.AgentConfigResponse) {
+	t.Helper()
+	op := execLeaseOp{config: cfg, result: make(chan error, 1)}
+	select {
+	case g.ops <- op:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("control stream is not receiving config\nlog:\n%s", logs.snapshot())
+	}
+	select {
+	case err := <-op.result:
+		if err != nil {
+			t.Fatalf("config push: %v\nlog:\n%s", err, logs.snapshot())
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatalf("config push was not sent\nlog:\n%s", logs.snapshot())
+	}
 }

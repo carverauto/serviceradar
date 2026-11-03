@@ -2534,10 +2534,8 @@ Otherwise a port-heavy profile would repeat thousands of checks across about
   `lease_version`, so no previous-epoch slot keeps running. A slot-less
   same-lease merge keeps the installed lease's `lease_version` and the check
   sets its retained slots reference, and never lowers that version. A push
-  that carries slots stores its own `lease_version`, which is 2, as the
-  current clone already does. `mergeSweepLease` clones the push today and
-  would store a slot-less push at `lease_version` 1; M2.0i4 changes that
-  slot-less same-lease merge. A same-lease clear of an installed `lease_version` 2
+  that carries slots stores its own `lease_version`, which is 2. A
+  same-lease clear of an installed `lease_version` 2
   that still holds a started slot stays `lease_version` 2, so the on-load
   discard of a stored slot lease whose `lease_version` is not 2 does not drop
   it or resume its ticker. A held lease with no slots stays installed and its
