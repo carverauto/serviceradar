@@ -5,6 +5,7 @@
 - [x] 0.4 Delivery confirmation. The agent returns HTTP success only after every part is in its edge spool. Each part stays there until its JetStream PubAck. The projector acknowledges a complete set only after the occurrence and the finding update have both committed, and it skips a duplicate occurrence insert without skipping that finding upsert (design Decision 9).
 - [x] 0.5 The OTLP relay contract is not this path. Falco uses `{"serviceradar.falco.event", 1}` and the agent chunks an event that does not fit in one 512 KiB edge record (design Decision 9).
 - [x] 0.6 Falcosidekick is not in this path. No output extension and no fork.
+- [ ] 0.7 Depend on the generic edge-record dead-letter in the EventWriter edge-record processor (`feat/edge-record-dead-letter`). Falco does not define its own dead-letter subject. Before `max_deliver`, that processor publishes the original edge record durably, retains its object references, counts it, alerts, and supports replay, and only then acknowledges the source. Falco's terminal paths are a spilled record whose occurrence write keeps failing, and an expired incomplete part set.
 
 ## 1. Schema
 - [ ] 1.1 CNPG: `platform.ocsf_findings` (planned common schema) and `finding_info_uid` on `ocsf_events`.
@@ -15,11 +16,11 @@
 - [ ] 1.6 `retired_at` on stateful alert rules; Ash resources in the platform schema only.
 
 ## 2. Normalizer and recognition
-- [ ] 2.1 Falco projector: each part is an `EdgeRecordV1` with a journaled RFC 9562 UUIDv7 `event_id`; `falco_event_id`, `part_index`, `part_total`, and the JSON slice ride in the payload. Stage parts durably by `(falco_event_id, part_index)` and treat a redelivery of that key or edge `event_id` as the same slice. Reassemble one slice per index, verify the digest, and hand one event to the normalizer. Acknowledge a complete set only after the occurrence and the finding update have both committed. An in-window redelivery is not `max_deliver`. An incomplete set is retained until its reassembly window expires, then published to `TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK` with its part payloads and acknowledged. A Falco-shaped `logs.otel` record creates no finding.
+- [ ] 2.1 Falco projector: each part is an `EdgeRecordV1` with a journaled RFC 9562 UUIDv7 `event_id`; `falco_event_id`, `part_index`, `part_total`, and the JSON slice ride in the payload. Stage parts durably by `(falco_event_id, part_index)` and treat a redelivery of that key or edge `event_id` as the same slice. Reassemble one slice per index, verify the digest, and hand one event to the normalizer. Acknowledge a complete set only after the occurrence and the finding update have both committed. An in-window redelivery is not dead-lettered. An incomplete set is retained until its reassembly window expires, then each original edge record is published durably to the generic edge-record dead-letter and acknowledged only after that publication. A Falco-shaped `logs.otel` record creates no finding.
 - [ ] 2.2 `FalcoDecomposition` from the Falco JSON object: entity selection, entity key beginning with the attested partition, finding uid v1 hashing that partition with the entity kind, entity key, and rule, typed occurrence row, finding delta.
 - [ ] 2.3 Enrich container-only records from `workload_identity_current`; partition from the attested edge record, cluster id from the agent-stamped value.
 - [ ] 2.4 Occurrence id from the JSON `uuid`, else from the raw-record digest.
-- [ ] 2.5 Raw evidence: inline up to 1 MiB, otherwise upload to the datasvc object store under the day-keyed reference before the occurrence write. An upload failure fails the batch and is redelivered. An in-window incomplete set is not `max_deliver`. At `max_deliver` on a reassembled event that is still unstored, publish to `TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK` with the staged part payloads and object references, and do not delete those objects.
+- [ ] 2.5 Raw evidence: inline up to 1 MiB, otherwise upload to the datasvc object store under the day-keyed reference before the occurrence write. An upload failure fails the batch and is redelivered. An in-window incomplete set is not dead-lettered. Before `max_deliver` on a reassembled event that is still unstored, publish the original edge record durably to the generic edge-record dead-letter, acknowledge the source only after that publication, and keep the object because the dead-lettered reference stays retained.
 
 ## 3. Binding
 - [ ] 3.1 `DeviceCorrelation` returns `{device_uid, method, candidates}` without changing existing callers.
@@ -33,7 +34,7 @@
 - [ ] 4.2 Lifecycle: auto-resolve after `runtime_findings.auto_resolve_after` (default 24 h), reopen with episode severity starting at the reopening occurrence and then rising within the episode, operator resolve. Store `status_id` 1 for active and 4 for resolved. Do not store 2 or 3.
 - [ ] 4.3 Outbox relay to `ocsf_events` and `StatefulAlertEngine.evaluate_events/1`; relay age and depth published through JetStream.
 - [ ] 4.4 Resolved-finding prune job.
-- [ ] 4.5 `ObjectStore.RetentionWorker` runtime-evidence pass: delete a day prefix only after that day's occurrence partition or chunk is dropped, plus one day. Leave an object that a quarantine record still references.
+- [ ] 4.5 `ObjectStore.RetentionWorker` runtime-evidence pass: delete a day prefix only after that day's occurrence partition or chunk is dropped, plus one day. Leave an object that a dead-lettered edge record still references.
 
 ## 5. Alerting
 - [ ] 5.1 Seed `falco_runtime_finding` template v1 (lifecycle only). Firing `subject_prefix` is `falco.finding.firing.` with `attribute_equals` on `runtime_finding.transition` for opened, reopened, and escalated. Recovery subject is `falco.finding.resolved`. Group by `finding_info.uid`.
@@ -59,7 +60,7 @@
 
 ## 8. Docs
 - [ ] 8.1 Operator docs: finding model, binding states, retention settings, retired rule, replacement queries.
-- [ ] 8.2 Falco ingestion docs: DaemonSet `http_output` settings, mTLS, chart values, chunking and reassembly, HTTP success means the parts are spooled, and an unfinished set or a `max_deliver` delivery is quarantined with its bytes and object references. Do not list a drop, truncation, or oversize refusal.
+- [ ] 8.2 Falco ingestion docs: DaemonSet `http_output` settings, mTLS, chart values, chunking and reassembly, HTTP success means the parts are spooled, and an expired unfinished set or a delivery that would reach `max_deliver` is dead-lettered as the original edge record, with the source acknowledged only after that publication is durable. Do not list a drop, truncation, oversize refusal, or a Falco-specific dead-letter subject.
 - [ ] 8.3 Release notes: breaking visibility changes, the required Falco DaemonSet `http_output` cutover, no NATS fallback, forward-only migration, rollback restores the previous Falco output configuration.
 
 ## 9. Warehouse never-truncate (generic, separate)
@@ -68,14 +69,14 @@
 - [ ] 9.3 Make a failed spill fail the load (no silent filtering) and add regression tests per dataset on both backends. This may become its own OpenSpec change if its scope grows; it is not Falco-specific.
 
 ## 10. Tests (load the `test-audit` skill first; fixtures are synthetic only)
-- [ ] 10.1 Ingest and projector: one JSON event, a multi-part event reassembled before normalize, each part's `event_id` an in-window UUIDv7 reused from the spool journal, a redelivered part index kept as one slice, an in-window wait that is not `max_deliver`, an incomplete set quarantined with its part payloads when its window expires, acknowledgement only after the occurrence and the finding update commit, a non-JSON body rejected with no spool record.
+- [ ] 10.1 Ingest and projector: one JSON event, a multi-part event reassembled before normalize, each part's `event_id` an in-window UUIDv7 reused from the spool journal, a redelivered part index kept as one slice, an in-window wait that is not dead-lettered, an expired incomplete set dead-lettered as its original edge records and acknowledged only after that publication is durable, acknowledgement of a complete set only after the occurrence and the finding update commit, a non-JSON body rejected with no spool record.
 - [ ] 10.2 Normalizer, table-driven: workload, pod, enriched container, host fallback, plugin source; uid stable across container id change and late binding; the same workload in two partitions is two findings.
 - [ ] 10.3 Binding DB tests (boxed sandbox): each method, ambiguous hostname, unbound, re-resolution, merged device, no device created.
 - [ ] 10.4 Aggregation: per-batch fold, bounded samples, no stored window counter, concurrent two-replica upsert (unboxed, deleting its rows in `on_exit`).
 - [ ] 10.5 Lifecycle and outbox: open, configurable auto-resolve, reopen at the new occurrence's severity, later escalation within that episode, crash between commit and relay, idempotent replay.
 - [ ] 10.6 Alerting: a synthetic 10,000-occurrence burst across three workloads gives three `opened` admissions and three alerts; cooldown and recovery; a resolved Critical transition does not take the firing path; no volume rule.
 - [ ] 10.7 Seeder: pristine retire; a customized or unmanaged copy is not rewritten and goes silent once `falco.*` subjects are removed.
-- [ ] 10.8 Storage: StarRocks enabled writes only the warehouse, disabled writes only CNPG; inline evidence round-trips byte-exact; a 600 KiB event is chunked, reassembled, and stored inline; a 1.5 MB event is chunked, reassembled, spilled, and reads back with digest match; a refused upload fails the batch; a `max_deliver` delivery is quarantined with its part payloads and object reference and the object is not deleted; retention never deletes a retained day or a quarantined object.
+- [ ] 10.8 Storage: StarRocks enabled writes only the warehouse, disabled writes only CNPG; inline evidence round-trips byte-exact; a 600 KiB event is chunked, reassembled, and stored inline; a 1.5 MB event is chunked, reassembled, spilled, and reads back with digest match; a refused upload fails the batch; a delivery that would reach `max_deliver` is dead-lettered as the original edge record before the source is acknowledged, and the object is not deleted; retention never deletes a retained day or a dead-lettered object.
 - [ ] 10.9 End-to-end on a disposable broker: Falco JSON POST to the agent, spool, reassembly, occurrence and finding; NATS `falco.*` publish refused.
 - [ ] 10.10 SRQL translation tests and parity fixtures, including `partition` and `node_device_uid`; LiveView tests (device tab shows a node-bound finding with an ambiguous subject, security view, finding detail, no queries in disconnected mount, RBAC on resolve); chart unit tests for the mTLS material, Service port, and network policy.
 

@@ -2,7 +2,7 @@
 
 ### Requirement: Falco occurrences fold into one runtime finding per entity and rule
 The system SHALL maintain exactly one runtime security finding per `(subject entity, Falco rule)` and SHALL update that finding for every Falco occurrence that resolves to the same entity and rule, instead of creating a new record per occurrence.
-A runtime finding is an OCSF Detection Finding (class 2004) stored in `platform.ocsf_findings` with a typed runtime extension row. It carries status, episode severity, first seen, last seen, lifetime occurrence count, episode occurrence count, reopen count, a fixed-window rate counter, bounded samples, and its inventory binding.
+A runtime finding is an OCSF Detection Finding (class 2004) stored in `platform.ocsf_findings` with a typed runtime extension row. It carries status, episode severity, first seen, last seen, lifetime occurrence count, episode occurrence count, reopen count, bounded samples, and its inventory binding.
 
 #### Scenario: A burst from one workload produces one finding
 - **GIVEN** Falco reports 500 occurrences of rule `Terminal shell in container` from pods of Deployment `shop/cart` on three nodes, attested to partition `edge-a` with cluster id `default`
@@ -197,7 +197,7 @@ Runtime finding occurrence counts SHALL be at-least-once: a count MAY exceed the
 
 ### Requirement: Raw Falco evidence is lossless and never dropped
 Each occurrence SHALL retain its raw Falco record losslessly with its SHA-256 digest and byte length. A record up to 1,048,576 bytes SHALL be stored inline on either backend; a larger record SHALL be uploaded to the datasvc object store before its occurrence is written, and the occurrence SHALL carry a reference `{store, key, sha256, bytes, content_type}` with key `runtime-security/raw/<UTC date of the occurrence>/<occurrence id>.json`.
-The system MUST NOT truncate, drop, or merely flag raw evidence. A failed upload, including a full object store bucket, SHALL fail the batch so JetStream redelivers it, and SHALL be counted and raised as a health event. An incomplete part set still inside its reassembly window SHALL NOT be treated as `max_deliver`. A reassembled event that reaches `max_deliver` without both the occurrence and the finding update stored SHALL be published to `TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK` with its staged part payloads and object references intact, and those objects SHALL NOT be deleted because delivery stopped.
+The system MUST NOT truncate, drop, or merely flag raw evidence. A failed upload, including a full object store bucket, SHALL fail the batch so JetStream redelivers it, and SHALL be counted and raised as a health event. An incomplete part set still inside its reassembly window SHALL NOT be dead-lettered. Falco SHALL NOT define its own dead-letter subject. A reassembled event whose occurrence or finding write keeps failing, before that delivery would reach `max_deliver`, SHALL be published as the original edge record to the generic edge-record dead-letter owned by the EventWriter edge-record processor (`feat/edge-record-dead-letter`). That publication SHALL be durable before the source is acknowledged. The retention pass SHALL treat the dead-lettered object reference as still referenced.
 
 #### Scenario: Inline evidence round-trips
 - **GIVEN** a Falco JSON event of 80,000 bytes
@@ -217,15 +217,16 @@ The system MUST NOT truncate, drop, or merely flag raw evidence. A failed upload
 - **THEN** the batch SHALL fail and SHALL NOT be acknowledged
 - **AND** no occurrence row SHALL be written without its evidence
 
-#### Scenario: Max delivery quarantines the evidence
-- **GIVEN** a spilled object was uploaded and the occurrence write then fails until the delivery reaches `max_deliver`
-- **WHEN** the consumer stops redelivery
-- **THEN** the message SHALL be published on `TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK` with that object reference and the staged part payloads
-- **AND** the object SHALL NOT be deleted for that reason
+#### Scenario: A failed occurrence write is dead-lettered before max delivery
+- **GIVEN** a spilled object was uploaded and the occurrence write keeps failing
+- **WHEN** the delivery would reach `max_deliver`
+- **THEN** the original edge record SHALL be published durably to the generic edge-record dead-letter
+- **AND** the source SHALL be acknowledged only after that publication is durable
+- **AND** the object SHALL remain because the retention pass treats the dead-lettered reference as referenced
 
 ### Requirement: Spilled evidence retention follows its occurrence
 A spilled raw evidence object SHALL be deleted only after the occurrence partition (warehouse) or chunk (CNPG) for its UTC day has been dropped on the active backend, plus a one-day grace, by the object store retention worker.
-The retention worker MUST NOT delete an object whose day is still retained, and MUST NOT delete an object that a quarantine record still references.
+The retention worker MUST NOT delete an object whose day is still retained, and MUST NOT delete an object that a dead-lettered edge record still references.
 
 #### Scenario: Retained day keeps its objects
 - **GIVEN** occurrences for a day are still within telemetry retention
@@ -234,10 +235,10 @@ The retention worker MUST NOT delete an object whose day is still retained, and 
 
 #### Scenario: Expired day is cleaned
 - **GIVEN** a day's occurrence partition was dropped two days ago
-- **AND** one object under that prefix is still referenced by a quarantine record
+- **AND** one object under that prefix is still referenced by a dead-lettered edge record
 - **WHEN** the object store retention worker runs
 - **THEN** the other evidence objects under that day's prefix SHALL be deleted
-- **AND** the quarantined object SHALL remain
+- **AND** the dead-lettered object SHALL remain
 
 ### Requirement: Runtime finding retention
 The system SHALL keep active findings, SHALL delete resolved findings a configurable period after resolution (default 90 days) with a bounded prune job, and SHALL age occurrences out on the occurrence dataset's telemetry retention.
@@ -278,7 +279,7 @@ The agent SHALL return success only after every part of that event is in its dur
 ### Requirement: Oversized Falco events are chunked, reassembled, then spilled
 The agent SHALL spool each accepted event under the `{"serviceradar.falco.event", 1}` contract. The OTLP relay contract SHALL NOT carry these events: it refuses one record above the 512 KiB edge-record bound, and wrapping the Falco JSON as an OTLP log would be a second encoding of `output_fields`, `uuid`, and `tags`.
 An event whose edge record would exceed the 512 KiB bound SHALL be split into ordered parts. Each part SHALL be its own `EdgeRecordV1` with a freshly minted RFC 9562 UUIDv7 `event_id` inside the production-capability window. The agent SHALL reuse that `event_id` from its spool journal when it retries the same part. The Falco `uuid`, or the SHA-256 of the posted JSON when `uuid` is absent, plus `part_index`, `part_total`, and the JSON slice, SHALL travel in the contract payload and SHALL NOT be the edge `event_id`. A single-part event SHALL use `part_index` 0 and `part_total` 1. Each encoded edge record SHALL stay within 512 KiB.
-The projector SHALL stage each part durably, keyed by Falco event id and `part_index`, and SHALL concatenate one slice per index before normalizing. A second delivery of the same `(falco_event_id, part_index)` or the same edge `event_id` SHALL replace that staged slice and SHALL NOT be concatenated again. The projector SHALL write an occurrence only when that concatenation equals the posted JSON and matches the carried digest. A duplicate occurrence insert SHALL be skipped when that occurrence id is already stored, and the finding upsert SHALL still run. The parts that completed the set SHALL be acknowledged only after that occurrence and that finding update have both committed. A redelivered part SHALL be acknowledged with no second occurrence insert only when that finding update has already committed. Parts SHALL stay staged until the set completes or the reassembly window for that Falco event expires. A redelivery while that window is open SHALL NOT be a `max_deliver` terminal and SHALL NOT be published to quarantine. An expired incomplete set SHALL be published to `TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK` with its part payloads intact and SHALL then be acknowledged. After reassembly, a raw record up to 1,048,576 bytes SHALL be stored inline and a larger record SHALL be stored out-of-line as this spec requires. Size SHALL NOT refuse, truncate, or drop an event.
+The projector SHALL stage each part durably, keyed by Falco event id and `part_index`, and SHALL concatenate one slice per index before normalizing. A second delivery of the same `(falco_event_id, part_index)` or the same edge `event_id` SHALL replace that staged slice and SHALL NOT be concatenated again. The projector SHALL write an occurrence only when that concatenation equals the posted JSON and matches the carried digest. A duplicate occurrence insert SHALL be skipped when that occurrence id is already stored, and the finding upsert SHALL still run. The parts that completed the set SHALL be acknowledged only after that occurrence and that finding update have both committed. A redelivered part SHALL be acknowledged with no second occurrence insert only when that finding update has already committed. Parts SHALL stay staged until the set completes or the reassembly window for that Falco event expires. A redelivery while that window is open SHALL NOT be dead-lettered. An expired incomplete set SHALL be published as its original edge records, each including its JSON slice, to the generic edge-record dead-letter, and each source part SHALL be acknowledged only after that publication is durable. After reassembly, a raw record up to 1,048,576 bytes SHALL be stored inline and a larger record SHALL be stored out-of-line as this spec requires. Size SHALL NOT refuse, truncate, or drop an event.
 
 #### Scenario: An event above the edge-record bound is reassembled inline
 - **GIVEN** a posted Falco JSON event of 600,000 bytes
@@ -304,7 +305,7 @@ The projector SHALL stage each part durably, keyed by Falco event id and `part_i
 - **WHEN** part 0 is delivered again
 - **THEN** reassembly SHALL concatenate one slice for index 0 and one slice for index 1
 - **AND** the set SHALL stay unacknowledged
-- **AND** the redelivery SHALL NOT be published as a `max_deliver` quarantine
+- **AND** the redelivery SHALL NOT be dead-lettered
 
 #### Scenario: A redelivered part still updates the finding
 - **GIVEN** an occurrence is stored for a Falco event and its finding update has not committed
@@ -319,11 +320,11 @@ The projector SHALL stage each part durably, keyed by Falco event id and `part_i
 - **THEN** that part SHALL be acknowledged
 - **AND** no second occurrence SHALL be written
 
-#### Scenario: An expired incomplete set is quarantined
+#### Scenario: An expired incomplete set is dead-lettered
 - **GIVEN** part 0 of 2 is retained and the reassembly window expires before part 1 arrives
 - **WHEN** the projector runs
-- **THEN** the incomplete set SHALL be published to `TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK` with part 0's payload intact
-- **AND** part 0 SHALL then be acknowledged
+- **THEN** part 0's original edge record, including its JSON slice, SHALL be published durably to the generic edge-record dead-letter
+- **AND** part 0 SHALL be acknowledged only after that publication is durable
 
 ### Requirement: Chart wiring points the Falco DaemonSet at the agent
 When `falcoIngest.enabled` is true, the Helm chart SHALL expose the in-cluster agent's Falco HTTPS port 14318 on the `serviceradar-agent` Service, SHALL NOT offer a port override, SHALL cause core to grant that agent `{"serviceradar.falco.event", 1}`, and SHALL admit `falcoIngest.namespace` to port 14318 in its network policy.
@@ -337,10 +338,10 @@ The chart SHALL render, in `falcoIngest.namespace`, the client certificate, clie
 - **AND** the agent configuration SHALL stamp cluster id `shop-cluster`
 
 ### Requirement: Falco delivery holds every accepted event
-Operator documentation SHALL state that a Falco event is durably held from the moment the agent returns HTTP success, with every part in the agent edge spool. A complete set becomes an occurrence and a finding update, and its parts are acknowledged only after both have committed. A duplicate part index is one staged slice. An incomplete set inside its reassembly window is not a `max_deliver` give-up. An incomplete set whose reassembly window expires, and a reassembled delivery that reaches `max_deliver` without the occurrence and the finding update, is published to the security quarantine route with its part payloads and object references intact. A failed spool admission is a non-success HTTP response. Documentation SHALL state that guarantee and SHALL NOT list a drop, truncation, or oversize refusal.
+Operator documentation SHALL state that a Falco event is durably held from the moment the agent returns HTTP success, with every part in the agent edge spool. A complete set becomes an occurrence and a finding update, and its parts are acknowledged only after both have committed. A duplicate part index is one staged slice. An incomplete set inside its reassembly window is not dead-lettered. An incomplete set whose reassembly window expires, and a reassembled delivery that would reach `max_deliver` without the occurrence and the finding update, is published as the original edge record to the generic edge-record dead-letter, and the source is acknowledged only after that publication is durable. A failed spool admission is a non-success HTTP response. Documentation SHALL state that guarantee and SHALL NOT list a drop, truncation, or oversize refusal, and SHALL NOT name a Falco-specific dead-letter subject.
 
 #### Scenario: Operator reads the delivery guarantee
 - **WHEN** an operator reads the Falco ingestion documentation
 - **THEN** it SHALL state that HTTP success means every part is in the agent edge spool
-- **AND** it SHALL state that an unfinished set is quarantined with its bytes and object references
+- **AND** it SHALL state that an unfinished set is dead-lettered as its original edge records, and that the source is acknowledged only after that publication is durable
 - **AND** it SHALL NOT name a counted drop, truncation, or oversize refusal

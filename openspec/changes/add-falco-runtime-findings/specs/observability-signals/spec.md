@@ -16,7 +16,7 @@ Each transition SHALL carry the next per-finding `transition_seq`, a determinist
 
 ### Requirement: Falco occurrences are not alert inputs
 The Falco ingestion paths SHALL NOT admit individual Falco occurrences to `StatefulAlertEngine`; only runtime finding transitions SHALL be admitted.
-Falco alerting SHALL be lifecycle only: no managed rule SHALL alert on occurrence volume, rate, or window counts.
+Falco alerting SHALL be lifecycle only: no managed rule SHALL alert on occurrence volume or rate.
 
 #### Scenario: Burst admits one transition
 - **GIVEN** 10,000 critical occurrences of one rule from one workload arrive within a minute and no finding exists for it

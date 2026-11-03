@@ -33,12 +33,14 @@ Three structural problems sit underneath that:
   finding per `(subject entity, Falco rule)` in the canonical `platform.ocsf_findings` store
   (OCSF Detection Finding, class 2004) planned by `add-ocsf-finding-model`, with a typed 1:1
   extension table for runtime attributes. Each finding carries status, severity, first/last
-  seen, lifetime and per-episode occurrence counts, a fixed-window rate counter, bounded
-  top-N samples (process, command, image, node, user), and its inventory binding.
+  seen, lifetime and per-episode occurrence counts, bounded top-N samples (process, command,
+  image, node, user), and its inventory binding.
 - **Explicit entity model.** The subject is the most specific stable entity the event supports:
-  Kubernetes workload (cluster, namespace, owner kind, owner name), else Kubernetes pod, else
-  host, else non-syscall Falco source. The finding identity is derived from observed coordinates,
-  never from `container_id`, so a pod restart or rollout does not create a new finding.
+  Kubernetes workload (attested partition, cluster id, namespace, owner kind, owner name), else
+  Kubernetes pod (attested partition, cluster id, namespace, pod name), else host, else
+  non-syscall Falco source. The finding uid hashes the attested partition, the entity kind, the
+  entity key, and the rule. It never includes `container_id`, so a pod restart or rollout does
+  not create a new finding.
 - **Inventory binding with explicit failure states.** Each finding records a device binding
   (`bound` with the resolution method, `ambiguous` with a candidate count, or `unbound`) for the
   subject and for the node it ran on. Ambiguous hostname matches are never resolved by guessing.
@@ -89,7 +91,9 @@ Three structural problems sit underneath that:
   `platform.ocsf_findings` and delivers its Falco tasks 2.3, 2.4, 3.1); keeps the diagnostics
   contract of `update-falco-alert-diagnostics`; does not touch the admission work in
   `refactor-durable-alert-admission`; consumes `platform.workload_identity_current` from
-  `add-workload-identity-enrichment`.
+  `add-workload-identity-enrichment`. Terminal Falco deliveries depend on the generic
+  edge-record dead-letter in the EventWriter edge-record processor
+  (`feat/edge-record-dead-letter`). This change does not define that stream.
 - **BREAKING (operator-visible):** Falco occurrences no longer appear in `in:events` /
   `in:security_findings` or the Logs page; their history moves to
   `in:runtime_security_occurrences`. The `falco_critical_incident` rule is retired. Existing

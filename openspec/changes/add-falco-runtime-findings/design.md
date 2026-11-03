@@ -213,18 +213,20 @@ table, writer and reader stay for installations without StarRocks.
   rather than evicts) fails the batch; JetStream redelivers and the upload is retried under the
   same key. The failure is counted and raised as a health event. There is no "mark oversize and
   continue" path. A part set still inside its reassembly window is not this terminal: a
-  redelivery in that window is a duplicate staged part (Decision 9), not a `max_deliver` give-up.
-  A complete set that reaches `max_deliver` without both the occurrence and the finding update
-  stored, and an incomplete set whose reassembly window has expired, is published to
-  `TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK` with the staged part payloads and any
-  object references intact. That publication is counted and visible. The objects are not deleted
-  because delivery stopped.
-- **Retention coupling.** An object lives as long as the occurrence or quarantine record that
-  references it. The occurrence dataset is day-partitioned on both backends, and the object key
-  carries the same UTC day. `ServiceRadar.ObjectStore.RetentionWorker` gains a runtime-evidence
+  redelivery in that window is a duplicate staged part (Decision 9), not a dead-letter. Falco
+  does not define its own dead-letter subject. A spilled record whose occurrence or finding
+  write keeps failing, and an incomplete part set whose reassembly window has expired, use the
+  generic edge-record dead-letter in the EventWriter edge-record processor
+  (`feat/edge-record-dead-letter`), which covers every contract. Before a record would reach
+  `max_deliver`, that processor publishes the original edge record durably (PubAck), retains
+  its object references, counts it, alerts, and supports replay. The original edge record
+  carries the part payload. The source is acknowledged only after that publication is durable.
+- **Retention coupling.** An object lives as long as the occurrence or dead-lettered edge record
+  that references it. The occurrence dataset is day-partitioned on both backends, and the object
+  key carries the same UTC day. `ServiceRadar.ObjectStore.RetentionWorker` gains a runtime-evidence
   pass that deletes a day prefix only after that day's occurrence partition (warehouse) or chunk
   (CNPG) has been dropped on the active backend, plus a one-day grace. It never deletes a day
-  that is still retained, and it never deletes an object a quarantine record still references.
+  that is still retained, and it treats a dead-lettered object reference as still referenced.
 - **Reads.** SRQL returns `raw_ref` for spilled records. The finding detail page streams the object
   through core and verifies the digest; a missing object or digest mismatch is displayed and raised
   as a health event, never shown as empty.
@@ -319,11 +321,11 @@ The parts of a complete set are acknowledged only after that occurrence and that
 have both committed. A redelivered part is acknowledged with no second occurrence insert only
 when that finding update has already committed. Parts stay staged until the set completes or
 the reassembly window for that `falco_event_id` expires. A redelivery while that window is open
-is the duplicate-slice rule above. It is not a `max_deliver` terminal, and it does not publish
-quarantine. An expired incomplete set is published to
-`TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK` with the staged part payloads intact, then
-acknowledged. It is not discarded. After a complete reassembly, Decision 6 applies: inline up to
-1 MiB, object store above that. Size never refuses, truncates, or drops an event.
+is the duplicate-slice rule above. It is not dead-lettered. An expired incomplete set is handed
+to the generic edge-record dead-letter (Decision 6): each original edge record, including its
+JSON slice, is published durably, and the source part is acknowledged only after that
+publication is durable. It is not discarded. After a complete reassembly, Decision 6 applies:
+inline up to 1 MiB, object store above that. Size never refuses, truncates, or drops an event.
 
 **Endpoint auth.** Falco's `http_output` supports `mtls`, `client_cert`, `client_key`, and
 `ca_cert`. It has no custom-header token. The agent already authenticates callers with
@@ -366,9 +368,9 @@ acknowledged after the occurrence and the finding update are both stored. A dupl
 insert is skipped, and the finding upsert still runs before that acknowledgement. A redelivered
 part is acknowledged with no further occurrence insert only when that finding update has already
 committed. An incomplete set inside its reassembly window stays staged; that wait is not
-`max_deliver`. An incomplete set is acknowledged only after its quarantine publication, and that
-publication carries the part payloads. A spool admission failure is a non-success HTTP response,
-so the agent has not accepted an event it cannot hold.
+`max_deliver`. An expired incomplete set is acknowledged only after the generic edge-record
+dead-letter publication of its original records is durable. A spool admission failure is a
+non-success HTTP response, so the agent has not accepted an event it cannot hold.
 
 ### Decision 10: SRQL entities
 
@@ -448,9 +450,11 @@ transport decision is Falco `http_output` into a chunked Falco edge contract, wi
 partition in the workload uid and in the finding-uid hash, a bound node still showing the
 finding, and no operator suppression or SRQL aliases. Each Falco part uses its own in-window
 UUIDv7 edge `event_id`, and a redelivered part index is one staged slice. An in-window wait is
-not `max_deliver`. An unfinished part set or a `max_deliver` delivery is quarantined with its
-part payloads and object references. Acknowledgement of a complete set follows the finding
-commit. A reopened episode starts at the new occurrence's severity. Active is status_id 1
+not dead-lettered. An expired incomplete set, and a spilled record whose occurrence write keeps
+failing, use the generic edge-record dead-letter (`feat/edge-record-dead-letter`). The source
+is acknowledged only after that publication is durable, and dead-lettered object references stay
+retained. Acknowledgement of a complete set follows the finding commit. A reopened episode
+starts at the new occurrence's severity. Active is status_id 1
 (`status:active` also matches 2) and resolved is status_id 4. The Falco port is 14318 with no
 override, there is no stored window counter, and a customized `falco_critical_incident` copy
 goes silent once `falco.*` subjects are removed. The firing subject is `falco.finding.firing.`.
