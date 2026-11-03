@@ -143,7 +143,7 @@ type refusingLeaseRunner struct {
 	err   error
 }
 
-func (r *refusingLeaseRunner) RunSweepGroupLease(context.Context, string, *edgev1.SweepLeaseV1, *edgev1.SweepLeaseSlotV1, *spool.Spool, sweepSlotClaim) error {
+func (r *refusingLeaseRunner) RunSweepGroupLease(context.Context, string, *edgev1.SweepLeaseV1, *edgev1.SweepLeaseSlotV1, *spool.Spool, bool, sweepSlotClaim) error {
 	r.calls++
 	return r.err
 }
@@ -211,7 +211,13 @@ func TestSweepLeaseExecutorPersistsAndReportsASlotRefusal(t *testing.T) {
 	held := reopened.Refusals(now)
 	require.Len(t, held, 1)
 	require.True(t, goproto.Equal(report, held[0]))
-	require.Empty(t, reopened.Refusals(time.Unix(0, built.lease.GetSlots()[0].GetCollectionExpiresUnixNano()).Add(sweepLeaseRefusalRetention)),
+	// Decision 12 keeps re-sending until 24 hours past collection expiry, the
+	// LeaseMisses lookback. The bound is that lookback, not the store's constant.
+	const leaseMissLookback = 24 * time.Hour
+	expires := time.Unix(0, built.lease.GetSlots()[0].GetCollectionExpiresUnixNano())
+	require.Len(t, reopened.Refusals(expires.Add(leaseMissLookback-time.Nanosecond)), 1,
+		"a refusal is still re-sent until 24 hours past collection expiry")
+	require.Empty(t, reopened.Refusals(expires.Add(leaseMissLookback)),
 		"a refusal is dropped once core can no longer judge its slot")
 }
 
@@ -233,6 +239,55 @@ func TestSweepLeaseExecutorRefusesICMPWithoutSockets(t *testing.T) {
 	require.Len(t, recorder.reported, 1)
 	require.Equal(t, proto.SweepLeaseSlotRefusalReason_SWEEP_LEASE_SLOT_REFUSAL_REASON_CHECK_UNAVAILABLE, recorder.reported[0].GetReason())
 	require.Equal(t, []string{capabilityICMPUnavailable}, recorder.reported[0].GetUnavailableCapabilities())
+}
+
+// ICMP and raw IPv6 SYN are judged together. When both are missing, one refusal
+// names both markers and the slot is not claimed or scanned.
+func TestSweepLeaseExecutorRefusesICMPAndIPv6SYNInOneRefusal(t *testing.T) {
+	fixture := newLeaseExecutorFixture(t)
+	cfg, lease, slot, sp := edgeSweepFixture(t)
+	cfg.SweepModes = []models.SweepMode{models.ModeTCPConnect}
+	cfg.Ports = []int{80}
+	target := slot.PlanPages[0].Ranges[0]
+	target.Cidr = "2001:db8::/128"
+	target.TargetCount = 1
+	slot.PlanHeader.TotalTargetCount = 1
+	carrySweepChecks(lease, slot, sweepTestChecks(edgev1.SweepMode_SWEEP_MODE_ICMP, 0), sweepTestChecks(edgev1.SweepMode_SWEEP_MODE_TCP_SYN, 443))
+
+	group := uuid.UUID(lease.GetSweepGroupId()).String()
+	fixture.group = group
+	fixture.service.sweepGroupID = group
+	fixture.service.config = cfg
+	fixture.multi.groups = map[string]*SweepService{group: fixture.service}
+	fixture.multi.groupSequences = map[string]string{group: ""}
+	fixture.multi.groupOrder = []string{group}
+	scanner := &observingSweep{
+		mockSweeper: fixture.sweeper,
+		effective:   []models.SweepMode{models.ModeICMP, models.ModeTCPConnect},
+	}
+	fixture.service.sweeper = scanner
+	fixture.executor.edgeSpool = sp
+	fixture.executor.icmpUnavailable = true
+	fixture.install(t, lease)
+
+	now := time.Now()
+	recorder := &refusalRecorder{}
+	recorder.wire(fixture.executor, now)
+	fixture.executor.step(context.Background(), func() time.Time { return now })
+
+	require.Equal(t, []string{"2001:db8::/128"}, scanner.cidrs)
+	require.Equal(t, []models.SweepMode{models.ModeICMP, models.ModeTCP}, scanner.planned[0].Modes)
+	require.Empty(t, scanner.specs)
+	require.Zero(t, fixture.sweeper.runCount)
+	require.Len(t, recorder.reported, 1)
+	require.Equal(t, proto.SweepLeaseSlotRefusalReason_SWEEP_LEASE_SLOT_REFUSAL_REASON_CHECK_UNAVAILABLE, recorder.reported[0].GetReason())
+	require.Equal(t, []string{capabilityICMPUnavailable, capabilityTCPSynIPv6Unavailable}, recorder.reported[0].GetUnavailableCapabilities())
+	require.Equal(t, [][]string{{capabilityICMPUnavailable, capabilityTCPSynIPv6Unavailable}}, recorder.noted)
+	require.Equal(t, []int{0}, recorder.heldWhenNoted)
+	require.True(t, fixture.store.Executed(group, uuid.UUID(slot.GetExecutionId()).String()))
+	records, err := sp.Unresolved()
+	require.NoError(t, err)
+	require.Empty(t, records)
 }
 
 // A refusal that adds a marker reaches core after a hello that carries it,

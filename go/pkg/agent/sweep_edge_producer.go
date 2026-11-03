@@ -23,7 +23,9 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -85,21 +87,22 @@ type sweepSlotClaim struct {
 // run is admitted. An interrupted run that already admitted a record stays
 // incomplete, rather than repeating previously emitted host windows
 // with different bytes under the same execution and batch sequence. A run that
-// never gets a record admitted does not consume the slot.
-func (s *MultiSweepService) RunSweepGroupLease(ctx context.Context, groupID string, lease *edgev1.SweepLeaseV1, slot *edgev1.SweepLeaseSlotV1, sp *spool.Spool, claim sweepSlotClaim) error {
+// never gets a record admitted does not consume the slot. icmpUnavailable is
+// the startup socket probe: a carried ICMP check is refused before claim.
+func (s *MultiSweepService) RunSweepGroupLease(ctx context.Context, groupID string, lease *edgev1.SweepLeaseV1, slot *edgev1.SweepLeaseSlotV1, sp *spool.Spool, icmpUnavailable bool, claim sweepSlotClaim) error {
 	s.mu.RLock()
 	svc := s.groups[groupID]
 	s.mu.RUnlock()
 	if svc == nil {
 		return errSweepGroupNotFound
 	}
-	return svc.runLeaseToSpool(ctx, lease, slot, sp, claim)
+	return svc.runLeaseToSpool(ctx, lease, slot, sp, icmpUnavailable, claim)
 }
 
-func (s *SweepService) runLeaseToSpool(ctx context.Context, lease *edgev1.SweepLeaseV1, slot *edgev1.SweepLeaseSlotV1, sp *spool.Spool, claim sweepSlotClaim) error {
+func (s *SweepService) runLeaseToSpool(ctx context.Context, lease *edgev1.SweepLeaseV1, slot *edgev1.SweepLeaseSlotV1, sp *spool.Spool, icmpUnavailable bool, claim sweepSlotClaim) error {
 	runner, ok := s.sweeper.(interface {
 		RunPlannedWithObserver(context.Context, string, sweeper.RunSpec, func(context.Context, *models.Result) error) error
-		EffectiveSweepModes(string, []models.SweepMode) ([]models.SweepMode, error)
+		EffectivePlannedSweepModes(string, sweeper.RunSpec) ([]models.SweepMode, error)
 	})
 	if !ok {
 		return errSweepRunnerUnavailable
@@ -118,18 +121,33 @@ func (s *SweepService) runLeaseToSpool(ctx context.Context, lease *edgev1.SweepL
 		return err
 	}
 	// The scanner may run a signed mode as another one for some ranges (raw
-	// SYN on IPv6 falls back to connect). The records would then claim checks
-	// that never ran, so the slot is refused rather than run as a substitute.
+	// SYN on IPv6 falls back to connect), and this agent may be unable to open
+	// ICMP sockets. Either way the records would claim checks that never ran,
+	// so the slot is refused once before it claims anything.
 	signedModes := producer.spec.Modes
+	var markers []string
+	var details []string
+	if icmpUnavailable && slices.Contains(signedModes, models.ModeICMP) {
+		markers = append(markers, capabilityICMPUnavailable)
+		details = append(details, "ICMP sweep sockets cannot be opened")
+	}
 	for _, r := range producer.ranges {
-		effective, err := runner.EffectiveSweepModes(r.prefix.String(), signedModes)
+		effective, err := runner.EffectivePlannedSweepModes(r.prefix.String(), producer.spec)
 		if err != nil {
 			return err
 		}
-		if !sameSweepModes(effective, signedModes) {
-			return refuseUnavailableChecks(unavailableSweepModeMarkers(signedModes, effective),
-				fmt.Sprintf("%s runs %v, signed %v", r.prefix, effective, signedModes))
+		if sameSweepModes(effective, signedModes) {
+			continue
 		}
+		for _, marker := range unavailableSweepModeMarkers(signedModes, effective) {
+			if !slices.Contains(markers, marker) {
+				markers = append(markers, marker)
+			}
+		}
+		details = append(details, fmt.Sprintf("%s runs %v, signed %v", r.prefix, effective, signedModes))
+	}
+	if len(markers) > 0 {
+		return refuseUnavailableChecks(markers, strings.Join(details, "; "))
 	}
 
 	s.mu.Lock()

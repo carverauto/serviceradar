@@ -28,6 +28,7 @@ import (
 
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
+	"github.com/carverauto/serviceradar/go/pkg/scan"
 )
 
 // reconfiguringScanner reports every target available and, on its first scan,
@@ -369,4 +370,70 @@ func TestRunPlannedWithObserverRefusesAnEmptySpecOrNoObserver(t *testing.T) {
 	require.ErrorIs(t, sweeper.RunPlannedWithObserver(context.Background(), "e", RunSpec{Networks: []string{"192.0.2.0/32"}}, observer), errEmptyRunSpec)
 	require.ErrorIs(t, sweeper.RunPlannedWithObserver(context.Background(), "e",
 		RunSpec{Networks: []string{"192.0.2.0/32"}, Modes: []models.SweepMode{models.ModeICMP}}, nil), errPlannedRunObserver)
+}
+
+func TestEffectivePlannedSweepModesUsesTheScannerThePlanCreates(t *testing.T) {
+	sweeper := &NetworkSweeper{
+		config: &models.Config{
+			SweepModes:  []models.SweepMode{models.ModeICMP},
+			Timeout:     time.Second,
+			Concurrency: 1,
+		},
+		logger: logger.NewTestLogger(),
+	}
+	spec := RunSpec{
+		Networks: []string{"2001:db8::/126"},
+		Modes:    []models.SweepMode{models.ModeTCP},
+		Ports:    []int{443},
+	}
+
+	modes, err := sweeper.EffectivePlannedSweepModes("2001:db8::/126", spec)
+	require.NoError(t, err)
+	require.NotNil(t, sweeper.tcpScanner, "a plan that adds TCP creates the TCP scanner the group config never did")
+	t.Cleanup(func() { _ = sweeper.tcpScanner.Stop() })
+
+	if scannerCapabilities(sweeper.tcpScanner).RawSYNIPv6 {
+		require.Equal(t, []models.SweepMode{models.ModeTCP}, modes)
+		return
+	}
+	require.Equal(t, []models.SweepMode{models.ModeTCPConnect}, modes)
+}
+
+func TestEffectivePlannedSweepModesKeepsIPv6SYNWhenTheScannerCanSendIt(t *testing.T) {
+	sweeper := &NetworkSweeper{
+		config:      &models.Config{SweepModes: []models.SweepMode{models.ModeICMP}},
+		icmpScanner: statsCapabilityScanner{},
+		tcpScanner:  statsCapabilityScanner{caps: scan.ScannerCapabilities{RawSYNIPv6: true}},
+		logger:      logger.NewTestLogger(),
+	}
+	spec := RunSpec{
+		Networks: []string{"2001:db8::/126"},
+		Modes:    []models.SweepMode{models.ModeICMP, models.ModeTCP},
+		Ports:    []int{443},
+	}
+
+	modes, err := sweeper.EffectivePlannedSweepModes("2001:db8::/126", spec)
+	require.NoError(t, err)
+	require.Equal(t, []models.SweepMode{models.ModeICMP, models.ModeTCP}, modes)
+
+	v4, err := sweeper.EffectivePlannedSweepModes("192.0.2.0/30", spec)
+	require.NoError(t, err)
+	require.Equal(t, spec.Modes, v4)
+}
+
+func TestEffectivePlannedSweepModesDoesNotCreateScannersAfterStop(t *testing.T) {
+	sweeper := &NetworkSweeper{
+		config:  &models.Config{SweepModes: []models.SweepMode{models.ModeICMP}},
+		stopped: true,
+		logger:  logger.NewTestLogger(),
+	}
+
+	_, err := sweeper.EffectivePlannedSweepModes("2001:db8::/126", RunSpec{
+		Networks: []string{"2001:db8::/126"},
+		Modes:    []models.SweepMode{models.ModeICMP, models.ModeTCP},
+		Ports:    []int{443},
+	})
+	require.ErrorIs(t, err, errSweeperStopped)
+	require.Nil(t, sweeper.tcpScanner)
+	require.Nil(t, sweeper.icmpScanner)
 }

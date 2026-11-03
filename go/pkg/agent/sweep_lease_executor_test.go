@@ -938,8 +938,8 @@ func (s *snapshotBlockingSweeper) RunOnceWithExecution(ctx context.Context, id s
 	return s.sameSecondSweeper.RunOnceWithExecution(ctx, id)
 }
 
-func (*snapshotBlockingSweeper) EffectiveSweepModes(_ string, modes []models.SweepMode) ([]models.SweepMode, error) {
-	return modes, nil
+func (*snapshotBlockingSweeper) EffectivePlannedSweepModes(_ string, spec sweeper.RunSpec) ([]models.SweepMode, error) {
+	return spec.Modes, nil
 }
 
 func (s *snapshotBlockingSweeper) RunPlannedWithObserver(ctx context.Context, id string, _ sweeper.RunSpec, observe func(context.Context, *models.Result) error) error {
@@ -985,7 +985,7 @@ func TestSweepCallersSerializeThroughSnapshot(t *testing.T) {
 					first <- multi.RunSweepGroupExecution(ctx, group, firstID)
 					return
 				}
-				first <- multi.RunSweepGroupLease(ctx, group, lease, slot, sp, sweepSlotClaim{claim: func() error {
+				first <- multi.RunSweepGroupLease(ctx, group, lease, slot, sp, false, sweepSlotClaim{claim: func() error {
 					select {
 					case <-sw.observerFinished:
 					default:
@@ -1062,9 +1062,9 @@ func (r *queuedLeaseRunner) RunSweepGroupExecution(ctx context.Context, group, e
 	return err
 }
 
-func (r *queuedLeaseRunner) RunSweepGroupLease(ctx context.Context, group string, lease *edgev1.SweepLeaseV1, slot *edgev1.SweepLeaseSlotV1, sp *spool.Spool, claim sweepSlotClaim) error {
+func (r *queuedLeaseRunner) RunSweepGroupLease(ctx context.Context, group string, lease *edgev1.SweepLeaseV1, slot *edgev1.SweepLeaseSlotV1, sp *spool.Spool, icmpUnavailable bool, claim sweepSlotClaim) error {
 	close(r.entered)
-	err := r.MultiSweepService.RunSweepGroupLease(ctx, group, lease, slot, sp, claim)
+	err := r.MultiSweepService.RunSweepGroupLease(ctx, group, lease, slot, sp, icmpUnavailable, claim)
 	r.returned <- err
 	return err
 }

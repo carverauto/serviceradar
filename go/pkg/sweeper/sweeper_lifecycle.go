@@ -147,6 +147,21 @@ type RunSpec struct {
 	Ports    []int
 }
 
+// plannedSweepConfig is the config a planned run scans with: spec's networks,
+// modes and ports, and no device targets. Everything else stays as base.
+func plannedSweepConfig(base *models.Config, spec RunSpec) *models.Config {
+	cfg := models.Config{}
+	if base != nil {
+		cfg = *base
+	}
+	cfg.Networks = slices.Clone(spec.Networks)
+	cfg.SweepModes = slices.Clone(spec.Modes)
+	cfg.Ports = slices.Clone(spec.Ports)
+	cfg.DeviceTargets = nil
+
+	return &cfg
+}
+
 // errEmptyRunSpec refuses a planned run with nothing to probe.
 var errEmptyRunSpec = errors.New("planned sweep run has no networks or modes")
 
@@ -182,13 +197,7 @@ func (s *NetworkSweeper) RunPlannedWithObserver(
 	}
 
 	planned := func(base *models.Config) *models.Config {
-		cfg := *base
-		cfg.Networks = slices.Clone(spec.Networks)
-		cfg.SweepModes = slices.Clone(spec.Modes)
-		cfg.Ports = slices.Clone(spec.Ports)
-		cfg.DeviceTargets = nil
-
-		return &cfg
+		return plannedSweepConfig(base, spec)
 	}
 
 	if err := s.runSweepWithObserver(ctx, executionID, planned, observer); err != nil {
