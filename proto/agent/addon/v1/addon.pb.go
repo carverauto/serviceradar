@@ -1243,8 +1243,12 @@ func (x *TelemetryBatch) GetCounters() *TelemetryCounters {
 //     actor: SystemActor.system/1, and use its slug. Refuse publish/3 only when that
 //     read finds no row. Do not pass the raw scope bytes or substitute "default".
 //     Never take either value from batch.source.metadata or TelemetryRecord.metadata.
-//   - The agent commits each OtlpRelayFrame record to its durable edge spool under the
-//     standing grant before advancing OtlpRelayAck.acked_relay_id to the add-on.
+//   - The agent commits each fitting OtlpRelayFrame record to its durable edge spool
+//     under the standing grant; a single record that exceeds the 512 KiB edge-record
+//     cap falls back to the source=otlp-relay gateway status path when it fits the
+//     gateway frame, and a record that fits neither cap is skipped. OtlpRelayAck.acked_relay_id
+//     advances only after every fitting record is spooled and every fallback status
+//     is accepted.
 //   - On a fresh primary delivery, the projector's publish/3 (before the EdgeRecord
 //     ledger transaction) re-checks OutputGrants.check_current/5 and republishes each
 //     TelemetryRecord.payload verbatim to the JetStream subject
