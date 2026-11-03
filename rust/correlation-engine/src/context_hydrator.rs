@@ -29,7 +29,7 @@ const DEFAULT_MAX_HYDRATION_ROWS: i64 = 50_000;
 /// endpoints carry the canonical `sr:` `device.id` (`ocsf_devices.uid`); the
 /// DQL wrapper turns each into `{start_id,end_id,label}` inside `{nodes,edges}`
 /// (see `parse_topology_edges`).
-const TOPOLOGY_EDGES_QUERY: &str = r#"in:graph dql:'{ edges(func: type(TopologyEdge)) @filter(NOT eq(topo.stale, true) AND (eq(topo.kind, "CONNECTS_TO") OR eq(topo.kind, "CANONICAL_TOPOLOGY") OR eq(topo.kind, "LOGICAL_PEER"))) { topo.kind topo.src { device.id } topo.dst { device.id } } }'"#;
+const TOPOLOGY_EDGES_QUERY: &str = r#"in:graph dql:'{ edges(func: type(TopologyEdge)) @filter(NOT eq(topo.stale, true) AND (eq(topo.kind, "CONNECTS_TO") OR eq(topo.kind, "CANONICAL_TOPOLOGY") OR eq(topo.kind, "LOGICAL_PEER") OR eq(topo.kind, "MANAGED_BY"))) { topo.kind topo.src { device.id } topo.dst { device.id } } }'"#;
 
 /// Interface the reasoner uses to read the latest hydrated `Context`.
 #[async_trait]

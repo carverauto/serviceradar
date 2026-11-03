@@ -64,9 +64,10 @@ The CNPG database (schema `platform`) carries:
   `bgp_routing_info`, `bmp_routing_events`, `service_status`,
   `stateful_alert_rule_histories`, `mtr_traces`/`mtr_hops`, plus continuous
   aggregates (rollups).
-- **Apache AGE graph** — the canonical network topology (devices, interfaces,
-  and the adjacency between them). Projected by
-  `elixir/serviceradar_core/lib/serviceradar/network_discovery/topology_graph.ex`.
+- **Dgraph topology graph** — the canonical network topology (devices,
+  interfaces, and the adjacency between them). Projected by
+  `elixir/serviceradar_core/lib/serviceradar/network_discovery/topology_graph.ex`
+  through the `dgraph-topology` crate (`rust/dgraph-topology`).
 - **pgvector** — embeddings; today used only by the field-survey/RF subsystem.
 - **Relational inventory** — `ocsf_devices`, `ocsf_agents`,
   `device_identifiers`, `device_groups`, `virtualization_*` (Proxmox/hypervisor
@@ -86,7 +87,8 @@ causal model keyed on OCSF fields is automatically signal-source-agnostic.
 SRQL is the read-only `in:<entity> key:value` query language used everywhere in
 the UI. It is the widest API surface in the system. Entity dispatch
 (`rust/srql/src/query/mod.rs`) covers `devices`, `device_updates`,
-`device_graph`, **`graph_cypher`** (raw openCypher into AGE), `events`,
+`device_graph` (one device's neighbourhood from Dgraph), **`graph`**
+(read-only DQL into the Dgraph topology graph), `events`,
 `bmp_events`, `flows`, `interfaces`, `logs`, `otel_metrics`,
 `cpu/memory/disk/process_metrics`, `traces`, `trace_summaries`, `alerts`,
 `services`, plus `virtualization_*`, field-survey and wifi entities. It supports
@@ -119,8 +121,9 @@ impl EmbeddedSrql {
 
 The Elixir `serviceradar_srql` NIF already depends on this crate but uses only
 its parse/translate path; the full `execute_query` path is built and unused —
-exactly what a Rust consumer wants. For topology, use the `graph_cypher` entity
-to run openCypher straight against the AGE graph.
+exactly what a Rust consumer wants. For topology, use `in:graph dql:'...'` to
+run read-only DQL against the Dgraph topology graph, or `in:device_graph
+device_id:"..."` for one device's neighbourhood. Both need `DGRAPH_URL`.
 
 **Not the answer:** `datasvc` / `data_service.proto` (port 50057) is a
 JetStream KV + object-store front end — config and blobs, zero telemetry query.
@@ -165,7 +168,7 @@ hard part is the structural model the reasoning runs on:
 
 ## 4. The structural gap — what SRQL can and cannot give the engine
 
-We audited the schema, the AGE graph, the sysmon/SNMP collectors, the alert
+We audited the schema, the topology graph, the sysmon/SNMP collectors, the alert
 system, and the relevant OpenSpec changes specifically for the five structural
 needs above. Honest assessment:
 
@@ -173,12 +176,12 @@ needs above. Honest assessment:
 |---|---|---|---|
 | **Raw telemetry / utilization** (CPU%, mem, disk%, request rates, link bps) | ✅ `cpu/memory/disk/process_metrics`, `timeseries_metrics`, `otel_metrics` | ✅ yes | **Available.** The observation numerators are all there. |
 | **Binary availability** (up/down) | ✅ `ocsf_devices.is_available`, `service_status.available` | ✅ yes | **Available**, but binary only. |
-| **Network topology / adjacency** | ✅ AGE graph — `Device`/`Interface` vertices; `CONNECTS_TO`, `CANONICAL_TOPOLOGY`, `HAS_INTERFACE`, `MANAGED_BY`, `MTR_PATH`, etc. | ✅ via `graph_cypher` | **Available.** Network adjacency only — see below. |
+| **Network topology / adjacency** | ✅ Dgraph topology graph — `Device`/`Interface` vertices; `TopologyEdge` kinds `CONNECTS_TO`, `CANONICAL_TOPOLOGY`, `MANAGED_BY`/`MANAGES`, `MTR_PATH`, etc. | ✅ via `in:graph` (DQL) and `in:device_graph` | **Available.** Network adjacency only — see below. |
 | **Structured component state** (one row per PSU / fan / disk / array, with a health enum) | ⚠️ Only for hypervisor inventory: `virtualization_host_disks.health`, `virtualization_storage_systems.health` (free-text). Environmental SNMP (PSU/fan/temp) lands as **flat anonymous `timeseries_metrics` rows** — no "PSU #2 of device X" entity. No SMART/RAID for physical hosts. | partial | **Mostly missing.** |
 | **Redundancy groups** ("K of N back each other up") | ❌ Nothing. No `REDUNDANT_WITH` edge, no group entity. | — | **Missing.** Largest gap. |
-| **Dependency edges** (service→service, workload→datastore, traffic direction) | ❌ Nothing. AGE has only *network* adjacency. `service_status` has no inter-service edges. The "dependency catalog" change is about config delivery, not runtime dependency. | — | **Missing.** |
+| **Dependency edges** (service→service, workload→datastore, traffic direction) | ❌ Nothing. The topology graph has only *network* adjacency. `service_status` has no inter-service edges. The "dependency catalog" change is about config delivery, not runtime dependency. | — | **Missing.** |
 | **Device→component containment in the graph** | ❌ Components are not graph vertices. | — | **Missing.** |
-| **Capacity / headroom** | ⚠️ Raw load only. The *one* real headroom signal is AGE interface edges carrying `capacity_bps` vs `flow_bps`. No capacity attribute on services/clusters/devices. | partial | **Mostly missing.** Engine has the numerator, not the denominator. |
+| **Capacity / headroom** | ⚠️ Raw load only. The *one* real headroom signal is topology edges carrying `capacity_bps` vs `flow_bps`. No capacity attribute on services/clusters/devices. | partial | **Mostly missing.** Engine has the numerator, not the denominator. |
 | **Multi-state / degraded health** | ⚠️ Devices & services are binary. Multi-state exists only for *infrastructure* nodes (`health_events`: `healthy/degraded/offline/failing`) and as the God-View `causal_class` overlay. No "reduced-redundancy" state anywhere. | partial | **Mostly missing.** |
 
 **Bottom line:** SRQL gives the engine a complete, uniform feed of
@@ -186,7 +189,7 @@ needs above. Honest assessment:
 model* the predictions require. That structure is a genuine net-new gap — there
 is neither the schema nor the discovery to populate it today.
 
-There are reusable foundations, though: the AGE graph is solid infrastructure
+There are reusable foundations, though: the Dgraph topology graph is solid infrastructure
 (idempotent, confidence-aware edge upsert) and can take new edge labels; the
 `health_events` table is a working multi-state transition pattern; and two
 in-flight OpenSpec changes are near-misses worth steering (see §6).
@@ -200,7 +203,7 @@ maps cleanly onto DeepCausality's own model:
 
 | DeepCausality construct | Carries | Populated from |
 |---|---|---|
-| **Context / Contextoids** (hypergraph) | the structural world-model: components, redundancy groups, dependency edges, capacity | SRQL observations + AGE topology + operator-declared structure |
+| **Context / Contextoids** (hypergraph) | the structural world-model: components, redundancy groups, dependency edges, capacity | SRQL observations + Dgraph topology + operator-declared structure |
 | **Hyperedges** | redundancy groups & multi-party dependencies — *a redundancy group is literally a hyperedge* | inferred (e.g. "device exposes 2 PSU OIDs") or declared |
 | **Causaloids / CausaloidGraph** | the forward-reasoning: "healthy members < required → predict failure on next loss" | the engine — this is the actual causal logic |
 
@@ -230,7 +233,7 @@ ServiceRadar's model grows:
 Stand up a standalone Rust `causal-engine` service (a new `rust/causal-engine`
 crate, or alongside `rust/consumers`). It:
 1. Embeds the `rust/srql` crate → pulls current-state observations, binary
-   availability, and AGE topology (`graph_cypher`) from CNPG.
+   availability from CNPG, and topology (`in:graph` DQL) from Dgraph.
 2. Builds a DeepCausality **Context** from those observations, plus a
    **structure layer** that is initially **inferred + operator-declared**:
    - inferred — "device exposes N PSU OIDs ⇒ provisional redundancy group of
@@ -252,9 +255,9 @@ Recommended schema work, as OpenSpec proposals:
   `add-device-environmental-snmp-metrics` so PSU/fan/temp/sensor polling
   produces **one structured row per component with a health enum**, not flat
   anonymous `timeseries_metrics`. This is the single highest-leverage change.
-- **New AGE edge labels** — `CONTAINS` (device→component), `REDUNDANT_WITH` /
+- **New topology edge kinds** — `CONTAINS` (device→component), `REDUNDANT_WITH` /
   a redundancy-group vertex, `DEPENDS_ON` (service/workload dependency). The
-  AGE graph already supports confidence-weighted idempotent upsert.
+  Dgraph topology graph already supports confidence-weighted idempotent upsert.
 - **Capacity attributes** on services/clusters/devices, so headroom is a real
   computed quantity rather than operator-set static thresholds.
 - **Multi-state health** on devices/services (`add-service-oriented-plugin-
@@ -285,7 +288,7 @@ limits explains the chokepoint above.
   for direct dependencies, the [workspace manifest](https://github.com/carverauto/serviceradar/blob/staging/Cargo.toml) for version
   constraints, and [Cargo.lock](https://github.com/carverauto/serviceradar/blob/staging/Cargo.lock) for resolved versions.
 - **What it does** (`god_view_nif/src/core/causality.rs`): builds a
-  `CausaloidGraph` from the AGE topology, but the propagation step is a **stub**
+  `CausaloidGraph` from the canonical topology, but the propagation step is a **stub**
   — root cause is picked by a heuristic (`max_by_key` on betweenness centrality,
   degree), and "blast radius" is a 3-hop BFS. It is **reactive blast-radius
   classification, not prediction.**
@@ -293,7 +296,7 @@ limits explains the chokepoint above.
   `health_signals: Vec<u8>` (0=OK, 1=FAIL, 2=unknown, one per node) and
   `edges: Vec<(u32,u32)>`. All signal and structural richness is flattened away
   before it reaches the engine.
-- **Data sources:** topology from the AGE graph (polled every 30s); node health
+- **Data sources:** canonical topology from the Dgraph graph (polled every 30s); node health
   from device availability only; an event overlay from `bmp_routing_events` +
   `ocsf_events` filtered to `signal_type IN ('mtr','bmp')`.
 - **Already-built upstream normalizer:**
@@ -345,7 +348,7 @@ limits explains the chokepoint above.
 **Database / data model**
 - `elixir/serviceradar_core/priv/repo/baseline/platform_schema.sql` — baseline
 - `elixir/serviceradar_core/priv/repo/migrations/` — schema migrations
-- `elixir/serviceradar_core/lib/serviceradar/network_discovery/topology_graph.ex` — AGE graph projection
+- `elixir/serviceradar_core/lib/serviceradar/network_discovery/topology_graph.ex` — topology graph projection
 - `platform.virtualization_host_disks` / `virtualization_storage_systems` — the only structured component health today
 
 **Current DeepCausality integration**

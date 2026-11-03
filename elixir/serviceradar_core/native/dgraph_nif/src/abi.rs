@@ -146,6 +146,8 @@ pub enum NifEdgeKind {
     ObservedTo,
     MtrPath,
     ConfigDeclared,
+    ManagedBy,
+    Manages,
 }
 
 impl From<NifEdgeKind> for EdgeKind {
@@ -160,6 +162,8 @@ impl From<NifEdgeKind> for EdgeKind {
             NifEdgeKind::ObservedTo => Self::ObservedTo,
             NifEdgeKind::MtrPath => Self::MtrPath,
             NifEdgeKind::ConfigDeclared => Self::ConfigDeclared,
+            NifEdgeKind::ManagedBy => Self::ManagedBy,
+            NifEdgeKind::Manages => Self::Manages,
         }
     }
 }

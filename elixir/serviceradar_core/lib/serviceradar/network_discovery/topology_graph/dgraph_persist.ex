@@ -84,6 +84,30 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist do
     end)
   end
 
+  @doc "Project a device's management relationship as `MANAGED_BY` and its inverse `MANAGES`."
+  @spec upsert_managed_by(String.t(), String.t()) :: :ok
+  def upsert_managed_by(child, mgmt) when is_binary(child) and is_binary(mgmt) do
+    maybe(fn ->
+      with :ok <- Dgraph.upsert_device(%{id: child}),
+           :ok <- Dgraph.upsert_device(%{id: mgmt}),
+           :ok <- Dgraph.upsert_edge(management_edge(child, mgmt, :managed_by)) do
+        Dgraph.upsert_edge(management_edge(mgmt, child, :manages))
+      end
+    end)
+  end
+
+  defp management_edge(source, target, kind) do
+    %{
+      source: source,
+      target: target,
+      kind: kind,
+      protocol: "management",
+      evidence_class: "managed-by",
+      ingestor: "management_device_v1",
+      telemetry_eligible: false
+    }
+  end
+
   @doc "Project an authoritative virtualization guest/host relationship to Dgraph."
   @spec upsert_hosted_link(map()) :: :ok | {:error, term()}
   def upsert_hosted_link(%{guest_device_id: guest, host_device_id: host} = payload)
@@ -280,6 +304,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist do
   defp edge_kind("OBSERVED_TO"), do: :observed_to
   defp edge_kind("MTR_PATH"), do: :mtr_path
   defp edge_kind("CONFIG_DECLARED"), do: :config_declared
+  defp edge_kind("MANAGED_BY"), do: :managed_by
+  defp edge_kind("MANAGES"), do: :manages
   defp edge_kind(_), do: :inferred_to
 
   defp int_or_nil(value) when is_integer(value), do: value

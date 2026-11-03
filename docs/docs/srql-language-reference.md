@@ -398,6 +398,12 @@ fields; using a field that the entity does not support returns an
 > neighborhood in earlier releases; that entity is now reachable only as
 > `in:device_graph`.
 >
+> The query bar, the query API and MCP run both entities against Dgraph, the
+> same as the standalone Rust engine; neither is SQL. They need the Dgraph
+> connection (`DGRAPH_URL`, or `DGRAPH_HOST`): without it a query returns an
+> error that names Dgraph, never an empty result. Their results are not
+> paginated.
+>
 > `in:graph_cypher` (openCypher against Apache AGE) was retired with AGE and
 > now returns an error that names `in:graph` as its replacement.
 

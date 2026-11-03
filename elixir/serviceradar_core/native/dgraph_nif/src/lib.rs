@@ -22,7 +22,7 @@ mod runtime;
 use std::future::Future;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-use dgraph_topology::{DownstreamFact, TopologyClient, TopologyError};
+use dgraph_topology::{wrap_dql_value, DownstreamFact, TopologyClient, TopologyError};
 use rustler::{Encoder, Env, Term};
 
 use crate::abi::{
@@ -394,6 +394,56 @@ fn query_mtr_paths(env: Env<'_>, url: String, limit: u64, deadline_ms: u64) -> T
         |result| match result {
             Ok(paths) => MtrPathsResult::Ok(paths.iter().map(NifMtrPath::from).collect()),
             Err(reason) => MtrPathsResult::Error(reason),
+        },
+    )
+}
+
+/// The `in:device_graph` neighbourhood as JSON, `null` when no Device has the id.
+#[rustler::nif]
+fn query_device_neighborhood(
+    env: Env<'_>,
+    url: String,
+    device_id: String,
+    include_topology: bool,
+    deadline_ms: u64,
+) -> Term<'_> {
+    dgraph_call(
+        env,
+        url,
+        Pool::Item,
+        deadline_ms,
+        move |client| async move {
+            client
+                .query_device_neighborhood(&device_id, include_topology)
+                .await
+        },
+        |result| match result
+            .and_then(|value| serde_json::to_string(&value).map_err(|err| err.to_string()))
+        {
+            Ok(json) => JsonResult::Ok(json),
+            Err(reason) => JsonResult::Error(reason),
+        },
+    )
+}
+
+/// Read-only DQL as the `in:graph` topology rows (a JSON array). Mutations are
+/// refused here and again in the Elixir facade.
+#[rustler::nif]
+fn query_graph_dql(env: Env<'_>, url: String, dql: String, deadline_ms: u64) -> Term<'_> {
+    if refuses_mutation(&dql) {
+        return rejected(env, "dql escape hatch refuses mutations".to_string());
+    }
+    dgraph_call(
+        env,
+        url,
+        Pool::Item,
+        deadline_ms,
+        move |client| async move { client.query_dql(&dql).await.map(wrap_dql_value) },
+        |result| match result
+            .and_then(|rows| serde_json::to_string(&rows).map_err(|err| err.to_string()))
+        {
+            Ok(json) => JsonResult::Ok(json),
+            Err(reason) => JsonResult::Error(reason),
         },
     )
 }

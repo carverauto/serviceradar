@@ -487,6 +487,101 @@ async fn device_neighborhood_resolves_peer_interfaces_from_connects_to() {
     .await;
 }
 
+#[tokio::test]
+async fn management_edges_are_stored_by_kind_and_stay_out_of_canonical_reads() {
+    with_scratch(Duration::from_secs(120), |client, _target| async move {
+        run_with_client(&client, schema_spec(), Mode::Migrate)
+            .await
+            .expect("apply topology schema");
+        let topology = TopologyClient::new(client);
+        let child = "sr:ap01.example.com";
+        let controller = "sr:wlc01.example.com";
+        for id in [child, controller] {
+            topology
+                .upsert_device(&DeviceWrite::new(id))
+                .await
+                .expect("device");
+        }
+        for (source, target, kind) in [
+            (child, controller, EdgeKind::ManagedBy),
+            (controller, child, EdgeKind::Manages),
+        ] {
+            topology
+                .upsert_edge(&EdgeWrite::new(
+                    source,
+                    target,
+                    kind,
+                    "management",
+                    "managed-by",
+                    "management_device_v1",
+                ))
+                .await
+                .expect("management edge");
+        }
+        topology
+            .upsert_canonical_edge(&EdgeWrite::canonical(
+                child,
+                controller,
+                "lldp",
+                "direct-physical",
+            ))
+            .await
+            .expect("canonical backbone between the same devices");
+
+        let stored: BTreeSet<_> = topology
+            .query_neighbourhood(child)
+            .await
+            .expect("read neighbourhood")
+            .iter()
+            .filter(|edge| edge.kind() != "CANONICAL_TOPOLOGY")
+            .map(|edge| {
+                (
+                    edge.kind().to_owned(),
+                    edge.edge().source().to_owned(),
+                    edge.edge().target().to_owned(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            stored,
+            BTreeSet::from([
+                (
+                    "MANAGED_BY".to_owned(),
+                    child.to_owned(),
+                    controller.to_owned()
+                ),
+                (
+                    "MANAGES".to_owned(),
+                    controller.to_owned(),
+                    child.to_owned()
+                ),
+            ])
+        );
+
+        let graph = topology
+            .query_canonical_graph()
+            .await
+            .expect("canonical graph");
+        assert_eq!(
+            graph
+                .edges()
+                .iter()
+                .map(|edge| (edge.source().to_owned(), edge.target().to_owned()))
+                .collect::<Vec<_>>(),
+            vec![(child.to_owned(), controller.to_owned())],
+            "only the canonical backbone is a canonical relation"
+        );
+
+        let view = topology
+            .query_topology_view("2001-01-01T00:00:00Z")
+            .await
+            .expect("topology view");
+        let view_kinds: BTreeSet<_> = view.edges().iter().map(|edge| edge.kind()).collect();
+        assert_eq!(view_kinds, BTreeSet::from(["CANONICAL_TOPOLOGY"]));
+    })
+    .await;
+}
+
 #[derive(Debug, Deserialize)]
 struct PredicateRow {
     predicate: String,

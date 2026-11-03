@@ -1,13 +1,18 @@
 ## ADDED Requirements
 
 ### Requirement: Dgraph graph entity
-The SRQL service SHALL support `in:graph` (alias `graph_dql`) that executes read-only DQL against Dgraph and returns the same `{nodes, edges}` wrapper as `graph_cypher`.
+The SRQL service SHALL support `in:graph` (alias `graph_dql`) that executes read-only DQL against Dgraph and returns rows in the `{nodes, edges}` wrapper owned by the `dgraph-topology` crate, so the Rust engine and the web-ng query surface emit the same rows.
 
 #### Scenario: Read-only DQL executes
 - **GIVEN** `GRAPH_READ=dgraph` and a populated topology
 - **WHEN** a client sends `in:graph` with a read-only DQL body
 - **THEN** SRQL returns rows wrapped as `{nodes, edges}`
 - **AND** the query does not touch Apache AGE
+
+#### Scenario: The web query surface executes it against Dgraph
+- **WHEN** a client sends `in:graph` with a read-only DQL body through the query bar, the query API or MCP
+- **THEN** the query runs against Dgraph rather than failing SQL translation
+- **AND** without a configured Dgraph endpoint the client receives an error that names Dgraph, not empty results
 
 #### Scenario: Mutations are refused
 - **WHEN** a client sends `in:graph` with a mutation
@@ -37,3 +42,8 @@ The topology graph holds no collector, service or capability vertices, so those 
 - **GIVEN** no `DGRAPH_URL`
 - **WHEN** a client sends `in:device_graph device_id:"<id>"`
 - **THEN** SRQL returns an invalid-request error naming `DGRAPH_URL`
+
+#### Scenario: The web query surface executes it against Dgraph
+- **WHEN** a client sends `in:device_graph device_id:"<id>"` through the query bar, the query API or MCP
+- **THEN** the neighborhood is read from Dgraph with the same `device_id`, `include_topology` and `collector_owned` validation
+- **AND** without a configured Dgraph endpoint the client receives an error that names Dgraph, not empty results

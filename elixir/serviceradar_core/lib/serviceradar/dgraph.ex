@@ -270,6 +270,47 @@ defmodule ServiceRadar.Dgraph do
   end
 
   @doc """
+  The SRQL `in:device_graph` neighbourhood of `device_id`: the device, its
+  interfaces and the peer interfaces current `CONNECTS_TO` evidence reaches.
+  `{:ok, nil}` when no Device carries the id. Not retried.
+  """
+  @spec query_device_neighborhood(String.t(), boolean()) :: {:ok, map() | nil} | {:error, String.t()}
+  def query_device_neighborhood(device_id, include_topology)
+      when is_binary(device_id) and is_boolean(include_topology) do
+    with {:ok, url} <- url(),
+         {:ok, json} <-
+           call(
+             :query_device_neighborhood,
+             :item,
+             false,
+             &Native.query_device_neighborhood(url, device_id, include_topology, &1)
+           ) do
+      decode_json(json)
+    end
+  end
+
+  @doc """
+  Read-only DQL returned as the SRQL `in:graph` `{nodes, edges}` rows. Mutations
+  are refused without contacting Dgraph. Not retried.
+  """
+  @spec query_graph_rows(String.t()) :: {:ok, [map()]} | {:error, String.t()}
+  def query_graph_rows(dql) when is_binary(dql) do
+    cond do
+      String.trim(dql) == "" ->
+        {:error, "dql query is empty"}
+
+      mutation?(dql) ->
+        {:error, "dql escape hatch refuses mutations"}
+
+      true ->
+        with {:ok, url} <- url(),
+             {:ok, json} <- call(:query_graph_dql, :item, false, &Native.query_graph_dql(url, dql, &1)) do
+          decode_json(json)
+        end
+    end
+  end
+
+  @doc """
   Read-only DQL escape hatch. Mutations (`mutation`, `set {`, `delete {`,
   `upsert {`) are refused without contacting Dgraph.
   """

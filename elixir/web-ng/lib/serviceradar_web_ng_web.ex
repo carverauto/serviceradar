@@ -29,7 +29,6 @@ defmodule ServiceRadarWebNGWeb do
       ServiceRadarWebNG.Collectors,
       ServiceRadarWebNG.Dashboards,
       ServiceRadarWebNG.Edge,
-      ServiceRadarWebNG.Graph,
       ServiceRadarWebNG.Homepage,
       ServiceRadarWebNG.Jobs,
       ServiceRadarWebNG.Mcp,

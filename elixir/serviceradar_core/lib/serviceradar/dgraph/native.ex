@@ -103,6 +103,13 @@ defmodule ServiceRadar.Dgraph.Native do
   @spec query_neighbourhood(url(), String.t(), deadline_ms()) :: submission()
   def query_neighbourhood(_url, _device_id, _deadline_ms), do: :erlang.nif_error(:nif_not_loaded)
 
+  @spec query_device_neighborhood(url(), String.t(), boolean(), deadline_ms()) :: submission()
+  def query_device_neighborhood(_url, _device_id, _include_topology, _deadline_ms),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  @spec query_graph_dql(url(), String.t(), deadline_ms()) :: submission()
+  def query_graph_dql(_url, _dql, _deadline_ms), do: :erlang.nif_error(:nif_not_loaded)
+
   @spec query_dql(url(), String.t(), deadline_ms()) :: submission()
   def query_dql(_url, _dql, _deadline_ms), do: :erlang.nif_error(:nif_not_loaded)
 end

@@ -220,6 +220,14 @@ Dgraph-only God View reader does not establish that the extension is unused.
       names `in:graph dql:`. The audit found no shipped saved query, dashboard
       package, seed or SRQL catalog entry using either surface; the only
       in-repo consumer was the correlation hydrator, now Dgraph-only.
+      web-ng executes both `in:device_graph` and `in:graph` against Dgraph
+      (`ServiceRadarWebNG.SRQL.GraphQuery`) instead of SQL translation, and
+      `in:graph` rows come from the crate's shared `wrap_dql_value`. The
+      hydrator reads `CONNECTS_TO`, `CANONICAL_TOPOLOGY`, `LOGICAL_PEER` and
+      `MANAGED_BY`; `MANAGED_BY` / `MANAGES` are now projected to Dgraph
+      (`DgraphPersist.upsert_managed_by`) beside the AGE write that 14.4
+      removes. `CONTAINS`, `BACKED_BY` and `DEPENDS_ON` have no writers in
+      either backend (GitHub issue #6297).
 - [x] 14.2 Move dashboard MTR overlay/count queries in
       `DashboardLive.Data.Mtr` to Dgraph and verify overlays with invented
       MTR paths. Remove the direct `ServiceRadarWebNG.Graph` queries so an

@@ -29,6 +29,8 @@ pub enum EdgeKind {
     ObservedTo,
     MtrPath,
     ConfigDeclared,
+    ManagedBy,
+    Manages,
 }
 
 impl EdgeKind {
@@ -45,6 +47,8 @@ impl EdgeKind {
             Self::ObservedTo => "OBSERVED_TO",
             Self::MtrPath => "MTR_PATH",
             Self::ConfigDeclared => "CONFIG_DECLARED",
+            Self::ManagedBy => "MANAGED_BY",
+            Self::Manages => "MANAGES",
         }
     }
 }

@@ -42,7 +42,21 @@ The system SHALL treat Dgraph canonical topology edges as the authoritative sour
 - **GIVEN** `GRAPH_READ=dgraph`
 - **WHEN** the causal hydrator loads topology
 - **THEN** it queries Dgraph through `in:graph`
+- **AND** the edge kinds it reads are `CONNECTS_TO`, `CANONICAL_TOPOLOGY`, `LOGICAL_PEER` and `MANAGED_BY`
 - **AND** it does not query AGE `graph_cypher` for adjacency
+
+### Requirement: Management relationships in Dgraph
+The system SHALL project a device's management relationship to Dgraph as a `MANAGED_BY` `TopologyEdge` from the managed device to its management device and an inverse `MANAGES` edge, written by the `management_device_v1` ingestor and not telemetry-eligible. These kinds SHALL NOT be pruned by the mapper stale prune and SHALL NOT appear in the canonical graph or the God View topology view.
+
+#### Scenario: Management pair is stored by kind
+- **WHEN** the mapper records that a device is managed by another device
+- **THEN** Dgraph holds a `MANAGED_BY` edge from the managed device and a `MANAGES` edge back to it
+- **AND** the write does not depend on Apache AGE
+
+#### Scenario: Management edges stay out of canonical reads
+- **GIVEN** a `MANAGED_BY` / `MANAGES` pair and a canonical edge between the same devices
+- **WHEN** the canonical graph or the topology view is read
+- **THEN** only the canonical edge is returned
 
 ### Requirement: Canonical directional edge query shape
 The system SHALL project and query canonical topology edges from Dgraph in the render-ready directional format God View already consumes.
