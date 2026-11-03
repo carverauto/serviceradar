@@ -81,7 +81,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   @ocsf_event_conflict_target [:time, :id]
   @occurrence_key :__alert_evaluation_occurrence_id__
   @source_key :__alert_evaluation_source__
-  @admission_keys [@occurrence_key, @source_key]
+  @delivered_envelope_key "__delivered_event_id__"
   @ocsf_event_replace_fields [
     :class_uid,
     :category_uid,
@@ -183,7 +183,11 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
                {ash_rows, bulk_rows} = Enum.split_with(returned_rows, &ash_recorded_row?/1)
 
-               bulk_rows = dedupe_rows_by_conflict_key(bulk_rows, &ocsf_event_conflict_key/1)
+               bulk_rows =
+                 bulk_rows
+                 |> Enum.map(&Map.drop(&1, admission_keys()))
+                 |> dedupe_rows_by_conflict_key(&ocsf_event_conflict_key/1)
+
                count = insert_rows(table_name(), bulk_rows)
                # The transition and its pending admission row commit before
                # admission, so a refused inbox can never roll the transition back.
@@ -198,7 +202,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
         warehouse =
           Destination.persist_after_cnpg(
             :events,
-            bulk_ocsf_rows ++ Enum.map(persisted_ocsf_rows, &Map.drop(&1, @admission_keys))
+            bulk_ocsf_rows ++ Enum.map(persisted_ocsf_rows, &Map.drop(&1, admission_keys()))
           )
 
         dispatch_northbound_inventory_transitions(recorded_ocsf_events)
@@ -289,14 +293,8 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   # An anomaly transition is stored under its episode-transition id, and a
   # redelivery that emits no new transition carries only the delivered row's
   # id, so the occurrence is also owned through the delivered id it records.
-  defp occurrence_owners(%{event_id: event_id, record: record}, by_id) do
-    delivered_id =
-      record
-      |> Map.get(:metadata, %{})
-      |> get_in(["service_radar", "source_event_identity"])
-      |> uuid_conflict_value()
-
-    [event_id, delivered_id]
+  defp occurrence_owners(%{event_id: event_id, delivered_id: delivered_id}, by_id) do
+    [event_id, uuid_conflict_value(delivered_id)]
     |> Enum.reject(&is_nil/1)
     |> Enum.uniq()
     |> Enum.flat_map(&Map.get(by_id, &1, []))
@@ -1179,7 +1177,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   end
 
   defp dispatch_northbound_inventory_transition(row) do
-    event = row |> Map.drop(@admission_keys) |> alert_evaluation_row()
+    event = row |> Map.drop(admission_keys()) |> alert_evaluation_row()
 
     case northbound_event_handler_runner().handle_event(event) do
       {:ok, _results} ->
@@ -1315,11 +1313,14 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
       )
 
     Enum.map(rows, fn [occurrence_id, class_uid, series_key, event_id, occurrence] ->
+      {delivered_id, payload} = Map.pop(occurrence, @delivered_envelope_key)
+
       %{
         occurrence_id: occurrence_id,
         series: {class_uid, series_key},
         event_id: event_id,
-        record: restore_occurrence(occurrence, occurrence_id)
+        delivered_id: delivered_id,
+        record: restore_occurrence(payload, occurrence_id)
       }
     end)
   end
@@ -1343,8 +1344,11 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     :ok
   end
 
+  defp admission_keys,
+    do: [@occurrence_key, @source_key, AnomalyEpisodeRegistry.delivered_event_id_key()]
+
   defp insert_ocsf_rows(rows, opts) do
-    BulkInsert.insert_all(table_name(), Enum.map(rows, &Map.drop(&1, @admission_keys)), opts)
+    BulkInsert.insert_all(table_name(), Enum.map(rows, &Map.drop(&1, admission_keys())), opts)
   end
 
   # Each occurrence gets its own row in event-time order, same-time rows in
@@ -1393,7 +1397,13 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
          %DateTime{} = time <- normalize_existing_time(Map.get(row, :time)),
          event_id when is_binary(event_id) <- uuid_to_binary(ocsf_event_id_key(row)),
          {:ok, %{payload: payload}} <- occurrence_snapshot(row) do
-      [{occurrence_id, class_uid, series_key, time, event_id, Jason.encode!(payload)}]
+      envelope =
+        put_delivered_envelope(
+          payload,
+          Map.get(row, AnomalyEpisodeRegistry.delivered_event_id_key())
+        )
+
+      [{occurrence_id, class_uid, series_key, time, event_id, Jason.encode!(envelope)}]
     else
       {:error, reason} ->
         Logger.warning("Skipping alert evaluation for an unencodable lifecycle occurrence",
@@ -1411,9 +1421,20 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   # The snapshot is exactly the payload the inbox would accept for this
   # occurrence, validated now so a stored row can never be unadmittable.
   defp occurrence_snapshot(row) do
-    [evaluation_row] = alert_evaluation_rows([Map.delete(row, @source_key)])
+    [evaluation_row] =
+      alert_evaluation_rows([
+        Map.drop(row, [@source_key, AnomalyEpisodeRegistry.delivered_event_id_key()])
+      ])
+
     Input.prepare(:event, evaluation_row)
   end
+
+  # The delivered row id that ties a redelivery to this occurrence is admission
+  # bookkeeping: it rides on the pending row's envelope, never in the event.
+  defp put_delivered_envelope(payload, delivered_id) when is_binary(delivered_id),
+    do: Map.put(payload, @delivered_envelope_key, delivered_id)
+
+  defp put_delivered_envelope(payload, _delivered_id), do: payload
 
   defp alert_evaluation_event_row?(row),
     do: inventory_event_row?(row) or causal_prediction_row?(row)

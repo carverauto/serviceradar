@@ -902,6 +902,76 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     assert stored_anomaly(series_key) == {"canonical-open", "canonical-event", "true"}
   end
 
+  test "a redelivered anomaly transition is tied to its message without stored bookkeeping" do
+    Application.put_env(
+      :serviceradar_core,
+      :stateful_alert_engine,
+      __MODULE__.CanonicalBodyEngine
+    )
+
+    Application.put_env(
+      :serviceradar_core,
+      :analytics_signals_replay_result,
+      {:error, {:overloaded, :rule_bytes}}
+    )
+
+    series_key = "synthetic:delivered-identity:#{System.unique_integer([:positive])}"
+
+    open =
+      anomaly_open(
+        series_key,
+        "delivered-event",
+        "delivered-open",
+        4.2,
+        1_812_456_000_000_000_000
+      )
+
+    delete_episode_fixture!(series_key)
+
+    on_exit(fn ->
+      Application.delete_env(:serviceradar_core, :analytics_signals_replay_result)
+      delete_episode_fixture!(series_key)
+    end)
+
+    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([open])
+    assert_receive {:alert_evaluation_events, [first]}
+    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([open])
+    assert_receive {:alert_evaluation_events, [redelivered]}
+
+    for event <- [first, redelivered] do
+      refute Map.has_key?(event.metadata["service_radar"], "source_event_identity")
+    end
+
+    assert [[service_radar]] =
+             Repo.query!(
+               """
+               SELECT metadata->'service_radar'
+               FROM platform.ocsf_events
+               WHERE metadata->'service_radar'->>'series_key' = $1
+               """,
+               [series_key]
+             ).rows
+
+    refute Map.has_key?(service_radar, "source_event_identity")
+
+    assert [[occurrence_service_radar]] =
+             Repo.query!(
+               """
+               SELECT occurrence->'metadata'->'service_radar'
+               FROM platform.lifecycle_pending_admissions
+               WHERE series_key = $1
+               """,
+               [series_key]
+             ).rows
+
+    refute Map.has_key?(occurrence_service_radar, "source_event_identity")
+
+    Application.put_env(:serviceradar_core, :analytics_signals_replay_result, :ok)
+    assert {:ok, 1} = AnalyticsSignals.process_batch([open])
+    assert_receive {:alert_evaluation_events, [_admitted]}
+    assert pending_admission_messages(series_key) == []
+  end
+
   test "a later series clear waits until the pending open is admitted" do
     Application.put_env(
       :serviceradar_core,

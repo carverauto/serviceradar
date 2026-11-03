@@ -36,6 +36,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
   @default_flap_window_seconds 300
   @default_producer_stale_seconds 900
   @rate_reservations_key {__MODULE__, :rate_reservations}
+  @delivered_event_id_key :__alert_evaluation_delivered_id__
 
   @doc "Commits episode transitions. Alert admission runs after this returns."
   def transaction(work) when is_function(work, 0) do
@@ -872,7 +873,6 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
         |> Map.put("episode_uid", attrs.episode_uid)
         |> Map.put("transition", attrs.last_transition)
         |> Map.put("producer_version", attrs.producer_version)
-        |> Map.put("source_event_identity", source_event_identity(row))
       )
       |> Map.put(
         "detection_finding",
@@ -884,10 +884,16 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
     row
     |> Map.put(:id, id)
     |> Map.put(:metadata, metadata)
+    |> Map.put(@delivered_event_id_key, source_event_identity(row))
   end
 
-  # The id of the delivered event row this transition replaces, so a
-  # redelivery that emits no new transition can still be tied to it.
+  @doc """
+  Key of the in-memory field that carries, on a stamped transition row, the id
+  of the delivered event row it replaces, so a redelivery that emits no new
+  transition can still be tied to it. Callers drop it before persisting.
+  """
+  def delivered_event_id_key, do: @delivered_event_id_key
+
   defp source_event_identity(row) do
     case Map.get(row, :id) || Map.get(row, "id") do
       <<_::128>> = id -> Ecto.UUID.load!(id)
