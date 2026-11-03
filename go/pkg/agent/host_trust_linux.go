@@ -8,6 +8,8 @@ import (
 	"encoding/pem"
 	"fmt"
 	"path/filepath"
+
+	"github.com/carverauto/serviceradar/go/pkg/models"
 )
 
 const managedHostConfigRoot = "/etc/serviceradar"
@@ -41,6 +43,16 @@ func loadManagedHostTrust(root string) (ServerConfig, []byte, error) {
 	}
 	binding.AgentID = parsed.AgentID
 	binding.Partition = parsed.Partition
+	// Runtime credentials may renew, but their paths and trust roots are fixed
+	// by packaged enrollment rather than the service-writable agent config.
+	binding.GatewaySecurity = &models.SecurityConfig{
+		Mode: models.SecurityModeMTLS,
+		TLS: models.TLSConfig{
+			CertFile: filepath.Join(root, "certs", "component.pem"),
+			KeyFile:  filepath.Join(root, "certs", "component-key.pem"),
+			CAFile:   filepath.Join(trustDir, "ca.pem"),
+		},
+	}
 	return binding, roots, nil
 }
 

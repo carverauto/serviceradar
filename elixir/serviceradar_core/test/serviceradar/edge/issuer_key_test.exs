@@ -46,7 +46,7 @@ defmodule ServiceRadar.Edge.IssuerKeyTest do
     assert Base.decode64!(entry["public_key"]) == key.public_key
     assert Base.decode64!(entry["issuer_key_id"]) == key.key_id
     assert Base.decode64!(entry["issuer_id"]) == key.issuer_id
-    assert entry["purposes"] == ["production", "source"]
+    assert entry["purposes"] == ["production", "source", "delivery"]
     refute inspect(entry) =~ Base.encode64(@seed)
     refute Map.has_key?(entry, "seed")
     refute inspect(key) =~ "seed"

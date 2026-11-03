@@ -149,7 +149,7 @@ func validateScheduledMtrTraceEvent(i int, tr *edgev1.MtrTraceEventV1) error {
 // Signatures are verified by the gateway, which holds the trust snapshot.
 func ValidateScheduledMtrTraceRecord(r *edgev1.EdgeRecordV1) error {
 	var batch edgev1.AgentScheduledMtrTraceBatchV1
-	if err := decodeStandingGrantRecord(r, ScheduledMtrTraceContractID, ScheduledMtrTraceContractVersion,
+	if err := decodeStandingGrantRecord(r, contractRef{ScheduledMtrTraceContractID, ScheduledMtrTraceContractVersion},
 		ErrScheduledMtrSourceAuthorization, &batch); err != nil {
 		return err
 	}

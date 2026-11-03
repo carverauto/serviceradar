@@ -275,6 +275,10 @@ type EdgeRecordSenderConfig struct {
 	// telemetry batch records while core grants this agent the telemetry
 	// batch contract. Without a grant they keep the legacy status path.
 	TelemetryEnabled bool `json:"telemetry_enabled,omitempty"`
+	// PluginResultsEnabled lets the Wasm plugin results producer emit plugin
+	// result batch records while core grants this agent the plugin results
+	// batch contract. Without a grant it keeps the legacy status path.
+	PluginResultsEnabled bool `json:"plugin_results_enabled,omitempty"`
 	// MaxBytes bounds durable spool admission; zero uses 256 MiB.
 	MaxBytes uint64 `json:"max_bytes,omitempty"`
 	// SpoolDir is the directory holding the agent's edge-record spool segment
@@ -289,7 +293,7 @@ type EdgeRecordSenderConfig struct {
 // records. Such a sender must persist terminal acknowledgements so the spool
 // reclaims what the gateway accepted.
 func (c *EdgeRecordSenderConfig) ProducersEnabled() bool {
-	return c != nil && (c.SweepEnabled || c.MetricsEnabled || c.TelemetryEnabled)
+	return c != nil && (c.SweepEnabled || c.MetricsEnabled || c.TelemetryEnabled || c.PluginResultsEnabled)
 }
 
 type BumblebeeStatusConfig struct {

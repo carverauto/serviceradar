@@ -10,8 +10,10 @@ defmodule ServiceRadar.Edge.ResolvedRoute do
   ## Opaque, and NOT a publisher input
 
   The type is `@opaque` and there is no public constructor: build one only through
-  `ServiceRadar.Edge.StreamRoute.resolve/1`. There is no DLQ constructor -- `resolve_dlq/2` was
-  removed because a DLQ route must be derived from a failure context that does not exist yet.
+  `ServiceRadar.Edge.StreamRoute.resolve/1`, or `ServiceRadar.Edge.StreamRoute.dead_letter_route/2`
+  for a delivered record's dead-letter. There is no `resolve_dlq/2`: it took the traffic class from
+  a supplied contract, and a DLQ route must be derived from the subject the record was delivered
+  on.
 
   Opacity alone would not be enough, because a struct is still a map at runtime and Dialyzer is
   advisory. The real protection is that `ServiceRadarAgentGateway.JetStreamPublisher` does not

@@ -111,6 +111,17 @@ destinations as the legacy path. A discovery record on this contract is
 admitted only from a native add-on. The routing rules are
 `ServiceRadar.Edge.Projectors.TelemetryBatch`.
 
+Wasm plugin results follow the same shape under the
+`serviceradar.plugin_results.batch` contract
+(`edgeRecords.agentPluginResultsEnabled`). With that spool enabled and a
+current grant, drained results are grouped by their host-stamped provenance
+and leave the status path; without the grant, the status path still carries
+them. Core rebuilds each result's payload and status and ingests it through
+`ServiceRadar.Observability.PluginResultIngestor`, so per-assignment service
+identity and the registered platform handlers behave exactly as on the
+legacy path. The projection rules are
+`ServiceRadar.Edge.Projectors.WasmPluginResult`.
+
 ## Data Service (datasvc)
 
 `datasvc` is a gRPC service (port `50057`) that fronts the platform's NATS-backed

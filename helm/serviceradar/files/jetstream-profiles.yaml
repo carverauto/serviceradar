@@ -29,17 +29,19 @@
 # enabled; flows and ARANCINI_CAUSAL are always counted at the collector size.
 #
 #   profile   servers  need (GiB)                          limit (GiB)
-#   small     3        19.6875 + 6/3 + 2 = 23.69           28.50
-#   small     1        25.4375                             28.50
-#   medium    3        57.6875 + 28/3 + 12 = 79.02         79.16
-#   medium    1        77.6875                             79.16
-#   large     3        279.1875 + 128/3 + 64 = 385.85      395.81
-#   large     1        375.1875                            395.81
-#   tenant-2g 3        1.140625 + 0.1875 + 0.25 = 1.58     1.58
+#   small     3        19.71875 + 6/3 + 2 = 23.72          28.50
+#   small     1        25.46875                            28.50
+#   medium    3        57.75 + 28/3 + 12 = 79.08           79.16
+#   medium    1        77.75                               79.16
+#   large     3        279.25 + 128/3 + 64 = 385.92        395.81
+#   large     1        375.25                              395.81
+#   tenant-2g 3        1.14453125 + 0.1875 + 0.25 = 1.58   1.58
 #
 # The edge-record audit and security-quarantine streams are reserved at R3 in
 # every profile (64 MiB each; 8 MiB in tenant-2g), like the primary
-# TELEMETRY_EDGE_RECORD_V1_BULK stream.
+# TELEMETRY_EDGE_RECORD_V1_BULK stream, and so is EventWriter's edge-record
+# dead-letter stream TELEMETRY_EDGE_RECORD_DLQ_V1_BULK (64 MiB; 32 MiB in
+# small, which keeps small inside a 30G max_file_store; 4 MiB in tenant-2g).
 profiles:
   small:
     maxFileStore: 36G
@@ -55,6 +57,7 @@ profiles:
       telemetry_edge_record_v1_bulk: 1Gi
       telemetry_edge_record_audit_v1_bulk: 64Mi
       telemetry_edge_record_security_quarantine_v1_bulk: 64Mi
+      telemetry_edge_record_dlq_v1_bulk: 32Mi
       k8s_inventory: 512Mi
       analytics_predictions: 512Mi
       mtr_results: 512Mi
@@ -78,6 +81,7 @@ profiles:
       telemetry_edge_record_v1_bulk: 1Gi
       telemetry_edge_record_audit_v1_bulk: 64Mi
       telemetry_edge_record_security_quarantine_v1_bulk: 64Mi
+      telemetry_edge_record_dlq_v1_bulk: 32Mi
       k8s_inventory: 1Gi
       analytics_predictions: 1Gi
       mtr_results: 1Gi
@@ -104,6 +108,7 @@ profiles:
       telemetry_edge_record_v1_bulk: 1Gi
       telemetry_edge_record_audit_v1_bulk: 64Mi
       telemetry_edge_record_security_quarantine_v1_bulk: 64Mi
+      telemetry_edge_record_dlq_v1_bulk: 64Mi
       k8s_inventory: 2Gi
       analytics_predictions: 2Gi
       mtr_results: 2Gi
@@ -127,6 +132,7 @@ profiles:
       telemetry_edge_record_v1_bulk: 1Gi
       telemetry_edge_record_audit_v1_bulk: 64Mi
       telemetry_edge_record_security_quarantine_v1_bulk: 64Mi
+      telemetry_edge_record_dlq_v1_bulk: 64Mi
       k8s_inventory: 2Gi
       analytics_predictions: 2Gi
       mtr_results: 2Gi
@@ -153,6 +159,7 @@ profiles:
       telemetry_edge_record_v1_bulk: 1Gi
       telemetry_edge_record_audit_v1_bulk: 64Mi
       telemetry_edge_record_security_quarantine_v1_bulk: 64Mi
+      telemetry_edge_record_dlq_v1_bulk: 64Mi
       k8s_inventory: 8Gi
       analytics_predictions: 8Gi
       mtr_results: 8Gi
@@ -176,6 +183,7 @@ profiles:
       telemetry_edge_record_v1_bulk: 1Gi
       telemetry_edge_record_audit_v1_bulk: 64Mi
       telemetry_edge_record_security_quarantine_v1_bulk: 64Mi
+      telemetry_edge_record_dlq_v1_bulk: 64Mi
       k8s_inventory: 8Gi
       analytics_predictions: 8Gi
       mtr_results: 8Gi
@@ -192,21 +200,21 @@ profiles:
   # 2000000000 bytes = 1.58 GiB), sized for three NATS servers and the replica
   # counts values-tenant.yaml sets: KV, objects, events, plugins,
   # ARANCINI_CAUSAL, metrics, scan_results, NOTIFICATIONS,
-  # TELEMETRY_EDGE_RECORD_V1_BULK, its audit and security-quarantine streams
-  # and EXPOSURE_RECOVERY at R3 (full on every server), flows and the remaining
-  # EventWriter streams at R1 (spread). Every fallback stays at or below its
-  # collector size.
-  #   full   = 32 + 384 + 256 + 128 + 128 + 64 + 32 + 32 + 32 + 8 + 8 + 64 MiB
-  #            = 1168 MiB (KV, objects, events, plugins, ARANCINI_CAUSAL,
-  #            metrics, scan_results, NOTIFICATIONS,
+  # TELEMETRY_EDGE_RECORD_V1_BULK, its audit, security-quarantine and
+  # dead-letter streams and EXPOSURE_RECOVERY at R3 (full on every server),
+  # flows and the remaining EventWriter streams at R1 (spread). Every fallback
+  # stays at or below its collector size.
+  #   full   = 32 + 384 + 256 + 128 + 128 + 64 + 32 + 32 + 32 + 8 + 8 + 4
+  #            + 64 MiB = 1172 MiB (KV, objects, events, plugins,
+  #            ARANCINI_CAUSAL, metrics, scan_results, NOTIFICATIONS,
   #            TELEMETRY_EDGE_RECORD_V1_BULK 32 MiB, its audit and
-  #            security-quarantine streams 8 MiB each, and the fixed 64 MiB
-  #            EXPOSURE_RECOVERY reservation)
+  #            security-quarantine streams 8 MiB each, its dead-letter stream
+  #            4 MiB, and the fixed 64 MiB EXPOSURE_RECOVERY reservation)
   #   spread = 256 + 32 + 32 + 32 + 32 + 32 + 32 + 64 + 64 MiB = 576 MiB,
   #            largest 256 MiB (flows)
-  #   need   = 1168 MiB + ceil(576 MiB / 3) + 256 MiB = 1616 MiB
-  #            = 1694498816 bytes (1.58 GiB), under the 1700000000-byte limit
-  #   account = 1168 MiB * 3 + 576 MiB = 4080 MiB = 3.984375 GiB
+  #   need   = 1172 MiB + ceil(576 MiB / 3) + 256 MiB = 1620 MiB
+  #            = 1698693120 bytes (1.58 GiB), under the 1700000000-byte limit
+  #   account = 1172 MiB * 3 + 576 MiB = 4092 MiB = 3.99609375 GiB
   #            (an un-tiered account limit counts max_bytes * replicas)
   tenant-2g:
     maxFileStore: 2G
@@ -222,6 +230,7 @@ profiles:
       telemetry_edge_record_v1_bulk: 32Mi
       telemetry_edge_record_audit_v1_bulk: 8Mi
       telemetry_edge_record_security_quarantine_v1_bulk: 8Mi
+      telemetry_edge_record_dlq_v1_bulk: 4Mi
       k8s_inventory: 32Mi
       analytics_predictions: 32Mi
       mtr_results: 32Mi
@@ -248,6 +257,7 @@ replicas:
   telemetry_edge_record_v1_bulk: 3
   telemetry_edge_record_audit_v1_bulk: 3
   telemetry_edge_record_security_quarantine_v1_bulk: 3
+  telemetry_edge_record_dlq_v1_bulk: 3
   k8s_inventory: 1
   analytics_predictions: 1
   mtr_results: 1

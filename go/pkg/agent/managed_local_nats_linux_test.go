@@ -29,6 +29,7 @@ import (
 
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
+	"github.com/carverauto/serviceradar/go/pkg/natsutil"
 	"github.com/nats-io/nkeys"
 	"github.com/rs/zerolog"
 )
@@ -325,18 +326,35 @@ func TestLocalNATSReceiverAcceptsBoundedServerCommonName(t *testing.T) {
 func requireLocalNATSAcceptance(t *testing.T, client *tls.Config, server tls.Certificate) {
 	t.Helper()
 	clearLocalReceiverFingerprints()
-	if err := dialManagedLocalNATS(t, client, server); err != nil {
+	state, err := dialManagedLocalNATS(t, client, server)
+	if err != nil {
 		t.Fatalf("authorized server rejected: %v", err)
 	}
 	if got := localReceiverFingerprintHeader(); got != certificateDERFingerprint(server) {
 		t.Fatalf("receiver observation = %q", got)
+	}
+	// The privileged helper is a different process: its TLS observation must
+	// survive the reply, rather than remaining in its private pending set.
+	response := localNATSAuthorizationResponse(&natsutil.CertificateAuthorization{Token: "synthetic-denial", Allowed: false}, false, state)
+	wire, err := json.Marshal(response)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clearLocalReceiverFingerprints()
+	var received managedLocalNATSAuthorization
+	if err := json.Unmarshal(wire, &received); err != nil {
+		t.Fatal(err)
+	}
+	received.noteUse()
+	if got := localReceiverFingerprintHeader(); got != certificateDERFingerprint(server) {
+		t.Fatalf("helper reply lost the verified server observation: %q", got)
 	}
 }
 
 func requireLocalNATSRejection(t *testing.T, client *tls.Config, server tls.Certificate, want error) {
 	t.Helper()
 	clearLocalReceiverFingerprints()
-	err := dialManagedLocalNATS(t, client, server)
+	_, err := dialManagedLocalNATS(t, client, server)
 	if !errors.Is(err, want) {
 		t.Fatalf("receiver error = %v, want %v", err, want)
 	}
@@ -348,7 +366,7 @@ func requireLocalNATSRejection(t *testing.T, client *tls.Config, server tls.Cert
 func requireUntrustedLocalNATS(t *testing.T, client *tls.Config, server tls.Certificate) {
 	t.Helper()
 	clearLocalReceiverFingerprints()
-	err := dialManagedLocalNATS(t, client, server)
+	_, err := dialManagedLocalNATS(t, client, server)
 	var unknown x509.UnknownAuthorityError
 	if err == nil || !errors.As(err, &unknown) {
 		t.Fatalf("PKIX accepted an untrusted server: %v", err)
@@ -358,7 +376,7 @@ func requireUntrustedLocalNATS(t *testing.T, client *tls.Config, server tls.Cert
 	}
 }
 
-func dialManagedLocalNATS(t *testing.T, client *tls.Config, server tls.Certificate) error {
+func dialManagedLocalNATS(t *testing.T, client *tls.Config, server tls.Certificate) (tls.ConnectionState, error) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
@@ -375,7 +393,7 @@ func dialManagedLocalNATS(t *testing.T, client *tls.Config, server tls.Certifica
 			return
 		}
 		defer func() { _ = raw.Close() }()
-		conn := tls.Server(raw, &tls.Config{Certificates: []tls.Certificate{server}, MinVersion: tls.VersionTLS13})
+		conn := tls.Server(raw, &tls.Config{Certificates: []tls.Certificate{server}, MinVersion: tls.VersionTLS13, ClientAuth: tls.RequireAndVerifyClientCert, ClientCAs: client.RootCAs})
 		if err := conn.HandshakeContext(ctx); err != nil {
 			serverErr <- err
 			return
@@ -385,20 +403,20 @@ func dialManagedLocalNATS(t *testing.T, client *tls.Config, server tls.Certifica
 	}()
 	raw, err := (&net.Dialer{}).DialContext(ctx, "tcp", listener.Addr().String())
 	if err != nil {
-		return err
+		return tls.ConnectionState{}, err
 	}
 	defer func() { _ = raw.Close() }()
 	conn := tls.Client(raw, client.Clone())
 	if err := conn.HandshakeContext(ctx); err != nil {
 		if remote := <-serverErr; remote != nil {
-			return fmt.Errorf("%w (server: %w)", err, remote)
+			return tls.ConnectionState{}, fmt.Errorf("%w (server: %w)", err, remote)
 		}
-		return err
+		return tls.ConnectionState{}, err
 	}
 	if remote := <-serverErr; remote != nil {
-		return remote
+		return tls.ConnectionState{}, remote
 	}
-	return nil
+	return conn.ConnectionState(), nil
 }
 
 func prepareLocalNATSPolicyPath(t *testing.T) {
@@ -466,23 +484,28 @@ func syntheticLocalNATSTLS(t *testing.T, component string) (*tls.Config, *x509.C
 		t.Fatal(err)
 	}
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
-	for name, data := range map[string][]byte{"ca.pem": caPEM, "client.pem": certPEM, "client.key": keyPEM} {
+	for _, name := range []string{"host-trust", "certs"} {
+		if err := os.Mkdir(filepath.Join(dir, name), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, data := range map[string][]byte{
+		"host-trust/identity.json": []byte(`{"agent_id":"agent-synthetic","partition":"default"}`),
+		"host-trust/ca.pem":        caPEM,
+		"certs/component.pem":      certPEM,
+		"certs/component-key.pem":  keyPEM,
+		"certs/ca-chain.pem":       []byte("untrusted runtime CA"),
+		"agent.json":               []byte(`{"agent_id":"untrusted-runtime-agent"}`),
+	} {
 		if err := os.WriteFile(filepath.Join(dir, name), data, 0600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	config, err := localNATSTLS(ServerConfig{
-		AgentID:   "agent-synthetic",
-		Partition: "default",
-		GatewaySecurity: &models.SecurityConfig{
-			Mode: models.SecurityModeMTLS,
-			TLS: models.TLSConfig{
-				CertFile: filepath.Join(dir, "client.pem"),
-				KeyFile:  filepath.Join(dir, "client.key"),
-				CAFile:   filepath.Join(dir, "ca.pem"),
-			},
-		},
-	}, &managedLocalNATSMetadata{managedLocalNATSBinding: managedLocalNATSBinding{
+	binding, _, err := loadManagedHostTrust(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := localNATSTLS(binding, &managedLocalNATSMetadata{managedLocalNATSBinding: managedLocalNATSBinding{
 		ComponentID: component, HostAgentID: "agent-synthetic", PartitionID: "default",
 	}})
 	if err != nil {

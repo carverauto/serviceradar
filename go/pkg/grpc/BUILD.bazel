@@ -38,6 +38,7 @@ go_library(
 go_test(
     name = "grpc_test",
     srcs = [
+        "client_retry_test.go",
         "generate_certs_test.go",
         "peer_policy_test.go",
         "security_test.go",
@@ -52,5 +53,7 @@ go_test(
         "@com_github_stretchr_testify//assert",
         "@com_github_stretchr_testify//require",
         "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//status",
     ],
 )

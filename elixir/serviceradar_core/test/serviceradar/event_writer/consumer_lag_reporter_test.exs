@@ -123,7 +123,8 @@ defmodule ServiceRadar.EventWriter.ConsumerLagReporterTest do
       streams: [
         Config.edge_record_stream(),
         Config.edge_record_audit_stream(),
-        Config.edge_record_security_quarantine_stream()
+        Config.edge_record_security_quarantine_stream(),
+        Config.edge_record_dead_letter_stream()
       ]
     }
 
@@ -132,13 +133,15 @@ defmodule ServiceRadar.EventWriter.ConsumerLagReporterTest do
     assert Enum.map(consumers, & &1.subject_class) == [
              "edge_record",
              "edge_record_audit",
-             "edge_record_quarantine"
+             "edge_record_quarantine",
+             "edge_record_dlq"
            ]
 
     assert ConsumerLagReporter.retention_stream_names(consumers) == [
              "TELEMETRY_EDGE_RECORD_V1_BULK",
              "TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK",
-             "TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK"
+             "TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK",
+             "TELEMETRY_EDGE_RECORD_DLQ_V1_BULK"
            ]
   end
 end

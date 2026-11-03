@@ -24,7 +24,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	gproto "google.golang.org/protobuf/proto"
 
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
 	"github.com/carverauto/serviceradar/go/pkg/mtr"
@@ -157,28 +156,12 @@ func scheduledMtrEdgeRecord(
 	capability *edgev1.EdgeSignedCapabilityV1,
 	maxRows uint64,
 ) (edgeMetricsBuilt, error) {
-	rows := len(batch.GetTraces())
-	if rows == 0 || uint64(rows) > maxRows {
-		return edgeMetricsBuilt{}, errEdgeMetricsRecordTooLarge
-	}
-	payload, err := gproto.MarshalOptions{Deterministic: true}.Marshal(batch)
-	if err != nil {
-		return edgeMetricsBuilt{}, err
-	}
-	if len(payload) > edgeMetricsMaxPayloadBytes {
-		return edgeMetricsBuilt{}, errEdgeMetricsRecordTooLarge
-	}
-	record, err := newEdgeRecord(
-		capability,
-		nil,
-		payload,
-		uint32(rows),
-		uint64(rows)*edgerecord.ScheduledMtrTraceProjectedRowBytes,
+	record, _, _, err := edgeBatchRecord(
+		batch, capability, len(batch.GetTraces()), maxRows,
+		edgerecord.ScheduledMtrTraceProjectedRowBytes, errEdgeMetricsRecordTooLarge,
+		edgerecord.ValidateScheduledMtrTraceRecord,
 	)
 	if err != nil {
-		return edgeMetricsBuilt{}, err
-	}
-	if err := edgerecord.ValidateScheduledMtrTraceRecord(record); err != nil {
 		return edgeMetricsBuilt{}, err
 	}
 	return edgeMetricsBuilt{record: record}, nil

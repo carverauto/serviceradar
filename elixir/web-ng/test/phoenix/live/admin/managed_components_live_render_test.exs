@@ -36,7 +36,7 @@ defmodule ServiceRadarWebNGWeb.Admin.ManagedComponentsLiveRenderTest do
         error: nil
       }
 
-      html = render_inventory([component], %{component.component_id => operation})
+      html = render_inventory([component], %{component.component_id => operation}, %{selected: component.component_id})
 
       doc = LazyHTML.from_fragment(html)
       assert LazyHTML.text(doc) =~ "Receiver-observed roles: Not confirmed"
@@ -81,7 +81,7 @@ defmodule ServiceRadarWebNGWeb.Admin.ManagedComponentsLiveRenderTest do
       blocked: false
     }
 
-    html = render_inventory([adopted, unadopted, collector])
+    html = render_inventory([adopted, unadopted, collector], %{}, %{selected: adopted.component_id})
     doc = LazyHTML.from_fragment(html)
 
     gateway = LazyHTML.query(doc, "#managed-component-grant-example-gateway")
@@ -91,10 +91,20 @@ defmodule ServiceRadarWebNGWeb.Admin.ManagedComponentsLiveRenderTest do
     assert LazyHTML.text(gateway) =~ "Subscribe allow: >"
     assert LazyHTML.text(gateway) =~ "Subscribe deny: $SYS.>, flow.example.>"
 
-    core = LazyHTML.query(doc, "#managed-component-grant-example-core")
+    core_doc =
+      [adopted, unadopted, collector]
+      |> render_inventory(%{}, %{selected: unadopted.component_id})
+      |> LazyHTML.from_fragment()
+
+    core = LazyHTML.query(core_doc, "#managed-component-grant-example-core")
     assert LazyHTML.text(core) =~ "No stored NATS grant."
 
-    collector_row = LazyHTML.query(doc, "#managed-component-synthetic-log-collector")
+    collector_doc =
+      [adopted, unadopted, collector]
+      |> render_inventory(%{}, %{selected: collector.component_id})
+      |> LazyHTML.from_fragment()
+
+    collector_row = LazyHTML.query(collector_doc, "#managed-component-synthetic-log-collector")
     refute LazyHTML.text(collector_row) =~ "Stored NATS grant"
     refute LazyHTML.text(collector_row) =~ "No stored NATS grant."
     assert Enum.empty?(LazyHTML.query(doc, "#managed-component-example-gateway [phx-click=rotate]"))
@@ -146,6 +156,37 @@ defmodule ServiceRadarWebNGWeb.Admin.ManagedComponentsLiveRenderTest do
     assert Enum.empty?(LazyHTML.query(generation, "[phx-click=revoke-certificate]"))
   end
 
+  test "inventory keeps details in a dismissible modal and exposes page navigation" do
+    component = %ManagedComponent{
+      component_id: "example-collector",
+      component_type: "log-collector",
+      host_agent_id: "example-host",
+      generation: 1,
+      blocked: false
+    }
+
+    doc = [component] |> render_inventory() |> LazyHTML.from_fragment()
+    assert Enum.count(LazyHTML.query(doc, "#managed-components-table tbody tr")) == 1
+    assert Enum.count(LazyHTML.query(doc, "button[phx-click=inspect][aria-haspopup=dialog]")) == 1
+    assert Enum.empty?(LazyHTML.query(doc, "#component-details-modal"))
+    assert Enum.empty?(LazyHTML.query(doc, "[phx-click=revoke]"))
+    assert Enum.count(LazyHTML.query(doc, "[phx-click=previous][disabled]")) == 1
+    assert Enum.count(LazyHTML.query(doc, "[phx-click=next][disabled]")) == 1
+
+    page =
+      [component]
+      |> render_inventory(%{}, %{cursor: "example-before", previous_cursors: [nil], more?: true})
+      |> LazyHTML.from_fragment()
+
+    assert LazyHTML.text(page) =~ "Page 2"
+    assert Enum.empty?(LazyHTML.query(page, "[phx-click=previous][disabled], [phx-click=next][disabled]"))
+
+    details = [component] |> render_inventory(%{}, %{selected: component.component_id}) |> LazyHTML.from_fragment()
+    assert Enum.count(LazyHTML.query(details, "dialog#component-details-modal[data-cancel=close]")) == 1
+    assert LazyHTML.text(LazyHTML.query(details, "#component-details-modal")) =~ "No certificates issued yet."
+    assert Enum.count(LazyHTML.query(details, "#component-details-modal [phx-click=revoke]")) == 1
+  end
+
   defp certificate(fingerprint, generation) do
     %{role: "client", generation: generation, fingerprint: fingerprint, not_after: "2027-06-01"}
   end
@@ -167,8 +208,9 @@ defmodule ServiceRadarWebNGWeb.Admin.ManagedComponentsLiveRenderTest do
       certificates: Map.get(history, :certificates, []),
       revoked_fingerprints: Map.get(history, :revoked_fingerprints, MapSet.new()),
       revoked_generations: Map.get(history, :revoked_generations, MapSet.new()),
-      cursor: nil,
-      more?: false
+      cursor: Map.get(history, :cursor),
+      previous_cursors: Map.get(history, :previous_cursors, []),
+      more?: Map.get(history, :more?, false)
     )
   end
 end

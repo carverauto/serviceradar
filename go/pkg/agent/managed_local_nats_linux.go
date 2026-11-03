@@ -57,7 +57,20 @@ type managedLocalNATSMetadata struct {
 
 type managedLocalNATSAuthorization struct {
 	*natsutil.CertificateAuthorization
-	PolicyStale bool `json:"policy_stale"`
+	PolicyStale       bool   `json:"policy_stale"`
+	ServerFingerprint string `json:"server_fingerprint,omitempty"`
+}
+
+func localNATSAuthorizationResponse(result *natsutil.CertificateAuthorization, stale bool, state tls.ConnectionState) managedLocalNATSAuthorization {
+	response := managedLocalNATSAuthorization{CertificateAuthorization: result, PolicyStale: stale}
+	if len(state.VerifiedChains) > 0 && len(state.PeerCertificates) > 0 {
+		response.ServerFingerprint = fmt.Sprintf("%x", sha256.Sum256(state.PeerCertificates[0].Raw))
+	}
+	return response
+}
+
+func (response managedLocalNATSAuthorization) noteUse() {
+	noteLocalCertificateUse(response.ServerFingerprint, response.CertificateAuthorization)
 }
 
 func (s managedCertificateStore) bootstrapLocalNATS(binding managedLocalNATSBinding) (*managedLocalNATSMetadata, error) {
@@ -388,7 +401,11 @@ func runManagedLocalNATSAuthorization(ctx context.Context, input io.Reader, outp
 	if err != nil {
 		return err
 	}
-	return json.NewEncoder(output).Encode(managedLocalNATSAuthorization{result, !policy.ValidUntil.After(time.Now())})
+	state, err := broker.TLSConnectionState()
+	if err != nil {
+		return err
+	}
+	return json.NewEncoder(output).Encode(localNATSAuthorizationResponse(result, !policy.ValidUntil.After(time.Now()), state))
 }
 
 func (p *PushLoop) startManagedLocalNATS(ctx context.Context) {
@@ -482,7 +499,7 @@ func (p *PushLoop) serveManagedLocalNATS(ctx context.Context, metadata *managedL
 				p.logger.Warn().Err(err).Msg("Local NATS certificate authorization response failed")
 				return
 			}
-			noteLocalCertificateUse("", response.CertificateAuthorization)
+			response.noteUse()
 		}()
 	})
 	if err != nil {

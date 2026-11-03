@@ -7,8 +7,10 @@ defmodule ServiceRadar.EventWriter.JetStreamAck do
   Domain/account-prefixed variants keep the same numeric suffix, so parsing is
   anchored from the right.
 
-  EventWriter dead-letter handling is a terminal-delivery telemetry/log signal;
-  it does not persist poison payloads into a replayable DLQ.
+  For streams other than the edge-record routes, EventWriter's dead-letter
+  handling is a terminal-delivery telemetry and log signal; it does not persist
+  those payloads. An edge record whose projection keeps failing is copied to
+  its dead-letter stream (`ServiceRadar.EventWriter.EdgeRecordDeadLetter`).
   """
 
   @type t :: %{

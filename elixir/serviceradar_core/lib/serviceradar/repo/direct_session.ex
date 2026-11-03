@@ -16,6 +16,8 @@ defmodule ServiceRadar.Repo.DirectSession do
   alias ServiceRadar.Repo
 
   @direct_host_env "SERVICERADAR_COORDINATOR_DB_HOST"
+  # Postgrex's default `:timeout`, which its connect and handshake timeouts inherit.
+  @default_timeout 15_000
   @repo_keys [
     :hostname,
     :port,
@@ -49,16 +51,30 @@ defmodule ServiceRadar.Repo.DirectSession do
   @doc """
   Runs `fun` with a new direct session and closes it afterwards, which ends the
   backend and releases every session lock it still holds. The session is linked
-  to the caller, so it also closes if the caller dies. When the session cannot
-  start, returns `{:error, {:direct_session_unavailable, reason}}`.
+  to the caller, so it also closes if the caller dies.
+
+  `fun` runs only once the session has connected. Postgrex connects in the
+  background, and a statement issued before then waits in the pool's queue,
+  which drops it after about four seconds. A connection that legitimately takes
+  longer, such as one whose name resolution stalls for five seconds, would fail
+  that first statement with a queue timeout. The wait is bounded by the
+  session's own connect and handshake timeouts. When the session cannot start
+  or connect within them, returns
+  `{:error, {:direct_session_unavailable, reason}}`.
   """
   def run(fun) when is_function(fun, 1) do
-    case Postgrex.start_link(connection_opts()) do
+    tag = make_ref()
+    opts = Keyword.put(connection_opts(), :connection_listeners, {[self()], tag})
+
+    case Postgrex.start_link(opts) do
       {:ok, session} ->
         try do
-          fun.(session)
+          with :ok <- await_connected(tag, connect_budget(opts)) do
+            fun.(session)
+          end
         after
           stop(session)
+          flush_notifications(tag)
         end
 
       {:error, reason} ->
@@ -90,6 +106,30 @@ defmodule ServiceRadar.Repo.DirectSession do
   end
 
   defp replace_url_host(url, _host), do: url
+
+  defp await_connected(tag, budget) do
+    receive do
+      {:connected, _connection, ^tag} -> :ok
+    after
+      budget -> {:error, {:direct_session_unavailable, :connect_timeout}}
+    end
+  end
+
+  # Postgrex bounds one connection attempt by its connect timeout, which covers
+  # name resolution and TCP, and then by its handshake timeout. Both default to
+  # the query timeout.
+  defp connect_budget(opts) do
+    timeout = Keyword.get(opts, :timeout, @default_timeout)
+    Keyword.get(opts, :connect_timeout, timeout) + Keyword.get(opts, :handshake_timeout, timeout)
+  end
+
+  defp flush_notifications(tag) do
+    receive do
+      {_event, _connection, ^tag} -> flush_notifications(tag)
+    after
+      0 -> :ok
+    end
+  end
 
   defp stop(session) do
     GenServer.stop(session, :normal)

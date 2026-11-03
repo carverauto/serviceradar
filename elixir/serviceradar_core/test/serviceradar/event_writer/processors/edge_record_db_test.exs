@@ -14,6 +14,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
   use ServiceRadar.DataCase, async: true
 
+  alias Broadway.Message
   alias ServiceRadar.Actors.SystemActor
   alias Serviceradar.Agent.Addon.V1.OtlpRelayFrame
   alias Serviceradar.Agent.Addon.V1.TelemetryBatch, as: AddonTelemetryBatch
@@ -42,6 +43,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
   alias Serviceradar.Edge.V1.MtrTcpHandshakeDiagnosticsV1
   alias Serviceradar.Edge.V1.MtrTraceEventV1
   alias Serviceradar.Edge.V1.MtrTraceHopV1
+  alias Serviceradar.Edge.V1.PluginResultProvenanceV1
   alias Serviceradar.Edge.V1.SweepHostObservationV1
   alias Serviceradar.Edge.V1.SweepIcmpSummaryV1
   alias Serviceradar.Edge.V1.SweepObservationBatchV1
@@ -53,6 +55,10 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
   alias Serviceradar.Edge.V1.UnleasedSweepPortCountV1
   alias Serviceradar.Edge.V1.UnleasedSweepPortResultV1
   alias Serviceradar.Edge.V1.UnleasedSweepResultsBatchV1
+  alias Serviceradar.Edge.V1.WasmPluginResultBatchV1
+  alias Serviceradar.Edge.V1.WasmPluginResultItemV1
+  alias ServiceRadar.EventWriter.EdgeRecordDeadLetter
+  alias ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay
   alias ServiceRadar.EventWriter.Processors.EdgeRecord
   alias ServiceRadar.FlowAttribution
   alias ServiceRadar.FlowAttribution.Observations
@@ -69,6 +75,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
   alias ServiceRadar.Observability.MtrHop
   alias ServiceRadar.Observability.MtrMetricsIngestor
   alias ServiceRadar.Observability.MtrTrace
+  alias ServiceRadar.Observability.PluginResultRepairAssignmentSupport
   alias ServiceRadar.Observability.ServiceState
   alias ServiceRadar.Observability.ServiceStateRegistry
   alias ServiceRadar.Repo
@@ -90,6 +97,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
   @scheduled_mtr_contract "serviceradar.mtr.scheduled_trace"
   @flow_attribution_contract "serviceradar.netprobe.flow_attribution"
   @otlp_relay_contract "serviceradar.otlp.relay"
+  @plugin_results_contract "serviceradar.plugin_results.batch"
 
   setup_all do
     ServiceRadar.TestSupport.start_core!()
@@ -632,6 +640,67 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       refute_received {:metrics_published, _subject, _body, _opts}
       assert ledger_count(frame.record) == 1
     end
+
+    test "a dead-lettered record replays from its dead-letter copy once, through the ledger" do
+      frame = build_metrics_frame()
+      refused = fn _subject, _body, _opts -> {:error, :timeout} end
+
+      error =
+        assert_raise RuntimeError, fn ->
+          EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: refused)
+        end
+
+      # The delivery as the broker hands it over: lower-cased header names.
+      delivered =
+        Message.failed(
+          %Message{
+            data: frame.record_bytes,
+            metadata: %{
+              subject: "telemetry.edge-record.v1.bulk.p07",
+              headers: Enum.map(frame.headers, fn {k, v} -> {String.downcase(k), v} end),
+              jetstream_ack: %{
+                stream: "TELEMETRY_EDGE_RECORD_V1_BULK",
+                stream_sequence: 7,
+                delivery_count: 20
+              }
+            },
+            acknowledger: {__MODULE__, :ack_ref, %{}}
+          },
+          error
+        )
+
+      letter = EdgeRecordDeadLetter.build(delivered, DateTime.utc_now())
+      event_id = Ecto.UUID.load!(frame.record.event_id)
+
+      assert letter.subject ==
+               "telemetry.edge-record-dlq.v1.bulk.p07.serviceradar_metrics_batch.v1"
+
+      failure = Map.new(letter.headers)
+      assert failure["Sr-Edge-Dlq-Contract"] == "#{@metrics_contract}/1"
+      assert failure["Sr-Edge-Dlq-Event-Id"] == event_id
+      assert failure["Sr-Edge-Dlq-Agent-Id"] == frame.agent_id
+
+      # The copy as the dead-letter stream returns it, then as replay republishes it.
+      stored =
+        Enum.map([{"Nats-Msg-Id", letter.msg_id} | letter.headers], fn {k, v} ->
+          {String.downcase(k), v}
+        end)
+
+      assert {:ok, republished} = Replay.republication(%{data: letter.body, headers: stored})
+      assert republished.subject == "telemetry.edge-record.v1.bulk.p07"
+      replayed = [{"Nats-Msg-Id", republished.msg_id} | republished.headers]
+
+      assert {:ok, :inserted} =
+               EdgeRecord.ingest(republished.body, replayed, Repo, request: stored_ack())
+
+      assert_received {:metrics_published, _subject, _body, _opts}
+
+      assert {:ok, :replay} =
+               EdgeRecord.ingest(republished.body, replayed, Repo, request: stored_ack())
+
+      refute_received {:metrics_published, _subject, _body, _opts}
+      assert ledger_count(frame.record) == 1
+    end
   end
 
   describe "ingest/4 of telemetry batch records" do
@@ -857,6 +926,127 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       frame = build_telemetry_frame([metrics_telemetry_record()], stamp: false)
 
       assert {:error, :telemetry_batch_producer} =
+               EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
+
+      assert ledger_count(frame.record) == 0
+    end
+  end
+
+  describe "ingest/4 of plugin result batch records" do
+    test "a fresh batch ingests under its assignment identity and a replay adds no row" do
+      suffix = System.unique_integer([:positive])
+      name = "synthetic-edge-check-#{suffix}"
+      {agent_id, partition} = plugin_result_agent!()
+
+      status = %{agent_id: agent_id, service_name: name, partition: "default"}
+      package = PluginResultRepairAssignmentSupport.create_repair_package!(name)
+
+      assignment =
+        PluginResultRepairAssignmentSupport.create_repair_assignment_for_package!(status, package)
+
+      frame =
+        build_plugin_result_frame([plugin_result_item(name)],
+          agent_id: agent_id,
+          partition: partition,
+          assignment_id: to_string(assignment.id),
+          plugin_id: package.plugin_id
+        )
+
+      assert {:ok, :inserted} =
+               EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
+
+      assert ledger_count(frame.record) == 1
+      assert [^name] = plugin_service_names(frame.agent_id)
+      assert plugin_service_row_count(frame.agent_id) == 1
+
+      assert {:ok, :replay} =
+               EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
+
+      assert ledger_count(frame.record) == 1
+      assert [^name] = plugin_service_names(frame.agent_id)
+      assert plugin_service_row_count(frame.agent_id) == 1
+    end
+
+    test "a coexisting assignment ingests under its disambiguated service identity" do
+      suffix = System.unique_integer([:positive])
+      name = "synthetic-shared-check-#{suffix}"
+      {agent_id, partition} = plugin_result_agent!()
+
+      status = %{agent_id: agent_id, service_name: name, partition: "default"}
+      package = PluginResultRepairAssignmentSupport.create_repair_package!(name)
+      secondary_package = package
+
+      primary =
+        PluginResultRepairAssignmentSupport.create_repair_assignment_for_package!(
+          status,
+          package,
+          source: :policy,
+          source_key: "coexist-primary-#{suffix}",
+          policy_id: "network-credential-rule:rule-primary-#{suffix}:inventory"
+        )
+
+      # The sandbox runs both creates in one transaction, so their
+      # inserted_at stamps are identical; the primary was enabled first.
+      Repo.query!(
+        "UPDATE platform.plugin_assignments SET inserted_at = inserted_at - interval '1 hour' WHERE id = $1",
+        [Ecto.UUID.dump!(to_string(primary.id))]
+      )
+
+      # Two enabled assignments of one package coexist only under different
+      # credential-rule owners.
+      secondary =
+        PluginResultRepairAssignmentSupport.create_repair_assignment_for_package!(
+          status,
+          secondary_package,
+          source: :policy,
+          source_key: "coexist-secondary-#{suffix}",
+          policy_id: "network-credential-rule:rule-secondary-#{suffix}:inventory"
+        )
+
+      frame =
+        build_plugin_result_frame([plugin_result_item(name)],
+          agent_id: agent_id,
+          partition: partition,
+          assignment_id: to_string(secondary.id),
+          plugin_id: secondary_package.plugin_id
+        )
+
+      assert {:ok, "#{name}##{secondary.id}"} ==
+               ServiceRadar.Observability.ServiceStateRegistry.PluginServiceIdentity.service_name_for_assignment(
+                 agent_id,
+                 to_string(secondary.id)
+               )
+
+      assert {:ok, :inserted} =
+               EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
+
+      expected = "#{name}##{secondary.id}"
+      assert [^expected] = plugin_service_names(frame.agent_id)
+    end
+
+    test "a record whose grant was revoked is refused and ingests nothing" do
+      frame = build_plugin_result_frame([plugin_result_item("synthetic-revoked-check")])
+
+      assert {:ok, _grant} =
+               OutputGrants.reconcile(
+                 frame.agent_id,
+                 @plugin_results_contract,
+                 frame.partition_id,
+                 false
+               )
+
+      assert {:error, :output_grant_not_current} =
+               EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
+
+      assert ledger_count(frame.record) == 0
+      assert [] = plugin_service_names(frame.agent_id)
+    end
+
+    test "a batch without host provenance is refused at decode" do
+      frame =
+        build_plugin_result_frame([plugin_result_item("synthetic-bare-check")], provenance: nil)
+
+      assert {:error, :plugin_result_batch_no_provenance} =
                EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
 
       assert ledger_count(frame.record) == 0
@@ -2984,6 +3174,146 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       network_scope_id: Ecto.UUID.dump!(partition.id),
       projected_row_count: length(records),
       projected_write_bytes: length(records) * 8_192,
+      cost_model_version: 1,
+      payload: payload
+    }
+
+    slot = %{
+      network_scope_id: record.network_scope_id,
+      authenticated_agent_id: agent_id,
+      spool_id: random_uuid(7),
+      sequence: 1
+    }
+
+    record
+    |> encode_frame(batch, slot)
+    |> Map.merge(%{agent_id: agent_id, partition_id: partition.id})
+  end
+
+  defp plugin_result_agent! do
+    actor = SystemActor.system(:edge_record_test)
+    partition = partition!(random_uuid(4), actor)
+    agent_id = "agent-#{System.unique_integer([:positive])}"
+    ensure_agent!(agent_id, partition, actor)
+    {agent_id, partition}
+  end
+
+  defp plugin_result_item(name) do
+    %WasmPluginResultItemV1{
+      schema_version: 1,
+      status: :PLUGIN_RESULT_STATUS_OK,
+      summary: "synthetic plugin result healthy",
+      service_name: name,
+      service_type: "plugin",
+      observed_at_unix_nano:
+        DateTime.utc_now() |> DateTime.shift(second: -30) |> DateTime.to_unix(:nanosecond)
+    }
+  end
+
+  defp plugin_service_names(agent_id) do
+    List.flatten(
+      Repo.query!(
+        "SELECT DISTINCT service_name FROM platform.service_status WHERE agent_id = $1 ORDER BY service_name",
+        [
+          agent_id
+        ]
+      ).rows
+    )
+  end
+
+  defp plugin_service_row_count(agent_id) do
+    [[count]] =
+      Repo.query!("SELECT count(*) FROM platform.service_status WHERE agent_id = $1", [agent_id]).rows
+
+    count
+  end
+
+  defp build_plugin_result_frame(items, opts \\ []) do
+    partition =
+      Keyword.get_lazy(opts, :partition, fn ->
+        partition!(random_uuid(4), SystemActor.system(:edge_record_test))
+      end)
+
+    agent_id = Keyword.get(opts, :agent_id, "agent-#{System.unique_integer([:positive])}")
+
+    if !Keyword.has_key?(opts, :agent_id) do
+      ensure_agent!(agent_id, partition, SystemActor.system(:edge_record_test))
+    end
+
+    {:ok, grant} = OutputGrants.reconcile(agent_id, @plugin_results_contract, partition.id, true)
+
+    provenance =
+      case Keyword.get(opts, :provenance, :default) do
+        nil ->
+          nil
+
+        :default ->
+          %PluginResultProvenanceV1{
+            assignment_id: Keyword.get(opts, :assignment_id, "assignment-plugin-results-1"),
+            plugin_id: Keyword.get(opts, :plugin_id, "synthetic-edge-check"),
+            plugin_package_id: "pkg-synthetic-1",
+            plugin_version: "1.0.0",
+            content_hash: String.duplicate("ab", 32)
+          }
+      end
+
+    batch = %WasmPluginResultBatchV1{provenance: provenance, results: items}
+    payload = WasmPluginResultBatchV1.encode(batch)
+    now = DateTime.utc_now()
+
+    contract = %{
+      contract_id: @plugin_results_contract,
+      contract_version: 1,
+      contract_bundle_sha256: :crypto.hash(:sha256, "plugin-results-bundle"),
+      registry_epoch: 1,
+      registry_snapshot_sha256: :crypto.hash(:sha256, "registry"),
+      cost_model_version: 1,
+      max_projected_row_count: 10_000,
+      max_projected_write_bytes: 163_840_000
+    }
+
+    key = IssuerKey.from_seed(:binary.copy(<<0x5B>>, 32))
+    production = OutputGrants.production_capability(grant, contract, key, now)
+    {:production, claims} = production.claims
+
+    record = %EdgeRecordV1{
+      event_id: Ecto.UUID.dump!(ExecutionSlots.mint_id(now)),
+      output_contract:
+        struct(
+          EdgeOutputContractRef,
+          Map.take(claims, [
+            :contract_id,
+            :contract_version,
+            :contract_bundle_sha256,
+            :registry_epoch,
+            :registry_snapshot_sha256,
+            :effective_grant_sha256
+          ])
+        ),
+      production_capability: production,
+      payload_family: :EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1,
+      compression: :EDGE_RECORD_COMPRESSION_NONE,
+      encoded_size: byte_size(payload),
+      uncompressed_size: byte_size(payload),
+      payload_sha256: :crypto.hash(:sha256, payload),
+      producer_context: %EdgeProducerContext{
+        origin_kind: :EDGE_ORIGIN_KIND_AGENT,
+        origin_principal_id: agent_id,
+        producer_instance_id: agent_id,
+        producer_assignment_id: claims.producer_assignment_id,
+        authority_epoch: claims.authority_epoch,
+        run_id: claims.run_id,
+        run_shard: 0,
+        scope_id: claims.scope_id,
+        scope_sha256: claims.scope_sha256,
+        package_id: claims.package_id,
+        package_sha256: claims.package_sha256
+      },
+      route_profile: :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
+      traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_BULK,
+      network_scope_id: Ecto.UUID.dump!(partition.id),
+      projected_row_count: length(items),
+      projected_write_bytes: length(items) * 16_384,
       cost_model_version: 1,
       payload: payload
     }

@@ -213,10 +213,10 @@ defmodule ServiceRadar.Edge.Projectors.OtlpRelay do
             ]
 
         case publish_chunk(subject, telemetry_record.payload, msg_id, headers, opts) do
-          {:ok, %{duplicate?: true}} ->
+          {:ok, %{duplicate: true}} ->
             {:cont, :ok}
 
-          {:ok, %{duplicate?: false}} ->
+          {:ok, %{duplicate: false}} ->
             SignalTelemetry.emit(signal, :relayed, 1)
             {:cont, :ok}
 
@@ -261,7 +261,7 @@ defmodule ServiceRadar.Edge.Projectors.OtlpRelay do
 
       nil ->
         publish_opts = [msg_id: msg_id, headers: headers] ++ Keyword.take(opts, [:request])
-        JetStreamPublish.publish_with_ack(subject, payload, publish_opts)
+        JetStreamPublish.publish_acked(subject, payload, publish_opts)
     end
   end
 

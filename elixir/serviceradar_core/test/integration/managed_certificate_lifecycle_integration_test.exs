@@ -316,6 +316,33 @@ defmodule ServiceRadar.Edge.ManagedCertificateLifecycleIntegrationTest do
     refute server_old in retired.allowed_fingerprints
     assert upstream_new in retired.allowed_fingerprints
     assert server_new in retired.allowed_fingerprints
+
+    assert {:ok, _} =
+             Authority.revoke_component_certificate(
+               ctx.component.component_id,
+               new,
+               "operator-request",
+               ctx.opts
+             )
+
+    assert {:ok, [^server_new]} = Lifecycle.accept_local_receiver(host, [new, server_new])
+
+    assert {:ok, _} =
+             Authority.revoke_component(ctx.component.component_id, "operator-request", ctx.opts)
+
+    assert {:ok, [^server_new]} = Lifecycle.accept_local_receiver(host, [new, server_new])
+    assert {:ok, revoked} = Authority.snapshot()
+    refute new in revoked.allowed_fingerprints
+    refute old in revoked.allowed_fingerprints
+    assert server_new in revoked.allowed_fingerprints
+
+    assert {:ok, %{blocked: false}} =
+             Authority.reenroll_component(ctx.component.component_id, ctx.opts)
+
+    assert {:ok, [^server_new]} = Lifecycle.accept_local_receiver(host, [new, server_new])
+    assert {:ok, reenrolled} = Authority.snapshot()
+    refute new in reenrolled.allowed_fingerprints
+    assert server_new in reenrolled.allowed_fingerprints
   end
 
   defp issue_pair(ctx, old, new, role) do

@@ -118,5 +118,5 @@ tests:
     agent.runtimeStorage.enabled: false
   asserts:
   - failedTemplate:
-      errorMessage: edgeRecords.agentSweepEnabled, agentMetricsEnabled and agentTelemetryEnabled require persistent agent.runtimeStorage
+      errorMessage: edgeRecords.agentSweepEnabled, agentMetricsEnabled, agentTelemetryEnabled and agentPluginResultsEnabled require persistent agent.runtimeStorage
     template: templates/serviceradar-config.yaml

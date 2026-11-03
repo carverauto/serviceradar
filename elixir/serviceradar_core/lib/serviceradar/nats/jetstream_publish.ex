@@ -23,30 +23,33 @@ defmodule ServiceRadar.NATS.JetStreamPublish do
 
     * `:msg_id` - sets `Nats-Msg-Id`, so a stream with a duplicate window
       stores a retried publish once
-    * `:headers` - additional NATS header `{key, value}` pairs
+    * `:headers` - further `{name, value}` headers, sent after `Nats-Msg-Id`
     * `:timeout` - PubAck wait in milliseconds (default #{@default_timeout_ms})
     * `:request` - `(subject, body, request_opts -> {:ok, %{body: binary}} | {:error, term})`,
-      replacing the NATS request (tests)
+      replacing the NATS request. A caller that owns its own connection passes it here;
+      without it the publish uses `ServiceRadar.NATS.Connection`.
   """
   @spec publish(String.t(), binary(), keyword()) :: :ok | {:error, term()}
   def publish(subject, body, opts \\ []) when is_binary(subject) and is_binary(body) do
-    with {:ok, _ack} <- publish_with_ack(subject, body, opts), do: :ok
+    with {:ok, _ack} <- publish_acked(subject, body, opts), do: :ok
   end
 
   @doc """
-  Publishes `body` to `subject` and returns `{:ok, %{stream: stream, seq: seq, duplicate?: bool}}`
-  from the JetStream PubAck.
+  Like `publish/3`, but returns the PubAck: the stream that stored the message, its
+  sequence there, and whether the stream reported it as a duplicate of a message it
+  already holds (`Nats-Msg-Id` within the duplicate window).
   """
-  @spec publish_with_ack(String.t(), binary(), keyword()) ::
-          {:ok, %{stream: String.t(), seq: integer(), duplicate?: boolean()}} | {:error, term()}
-  def publish_with_ack(subject, body, opts \\ []) when is_binary(subject) and is_binary(body) do
+  @spec publish_acked(String.t(), binary(), keyword()) ::
+          {:ok, %{stream: String.t(), seq: pos_integer(), duplicate: boolean()}}
+          | {:error, term()}
+  def publish_acked(subject, body, opts \\ []) when is_binary(subject) and is_binary(body) do
     request_opts = request_opts(opts)
 
     with {:ok, %{body: ack}} <- request(subject, body, request_opts, opts),
          {:ok, %{"stream" => stream, "seq" => seq} = decoded}
          when is_binary(stream) and is_integer(seq) <-
            Jason.decode(ack) do
-      {:ok, %{stream: stream, seq: seq, duplicate?: Map.get(decoded, "duplicate") == true}}
+      {:ok, %{stream: stream, seq: seq, duplicate: Map.get(decoded, "duplicate") == true}}
     else
       {:ok, %{"error" => error}} -> {:error, {:jetstream, error}}
       {:error, reason} -> {:error, reason}
@@ -56,18 +59,16 @@ defmodule ServiceRadar.NATS.JetStreamPublish do
 
   defp request_opts(opts) do
     base = [receive_timeout: Keyword.get(opts, :timeout, @default_timeout_ms)]
-    extra_headers = Keyword.get(opts, :headers, [])
 
-    headers =
+    msg_id =
       case Keyword.get(opts, :msg_id) do
-        id when is_binary(id) and id != "" -> [{"Nats-Msg-Id", id} | extra_headers]
-        _ -> extra_headers
+        id when is_binary(id) and id != "" -> [{"Nats-Msg-Id", id}]
+        _ -> []
       end
 
-    if headers == [] do
-      base
-    else
-      Keyword.put(base, :headers, headers)
+    case msg_id ++ Keyword.get(opts, :headers, []) do
+      [] -> base
+      headers -> Keyword.put(base, :headers, headers)
     end
   end
 
