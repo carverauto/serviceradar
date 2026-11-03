@@ -37,7 +37,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
   @default_producer_stale_seconds 900
   @rate_reservations_key {__MODULE__, :rate_reservations}
 
-  @doc "Commits episode transitions with their downstream durable admission."
+  @doc "Commits episode transitions. Alert admission runs after this returns."
   def transaction(work) when is_function(work, 0) do
     prior = Process.get(@rate_reservations_key)
     Process.put(@rate_reservations_key, %{})
@@ -843,20 +843,20 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
     end
   end
 
+  @doc false
+  def transition_event_id(episode_uid, last_transition, severity_id)
+      when is_binary(episode_uid) and is_binary(last_transition) and is_integer(severity_id) do
+    deterministic_uuid(
+      Enum.join(
+        ["anomaly", "episode-transition", episode_uid, last_transition, severity_id],
+        ":"
+      )
+    )
+  end
+
   defp stamp_transition_identity(row, attrs) do
     transition_id =
-      deterministic_uuid(
-        Enum.join(
-          [
-            "anomaly",
-            "episode-transition",
-            attrs.episode_uid,
-            attrs.last_transition,
-            attrs.severity_id
-          ],
-          ":"
-        )
-      )
+      transition_event_id(attrs.episode_uid, attrs.last_transition, attrs.severity_id)
 
     id = Ecto.UUID.dump!(transition_id)
     metadata = row_metadata(row)

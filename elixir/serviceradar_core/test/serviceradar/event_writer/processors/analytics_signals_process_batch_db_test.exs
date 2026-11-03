@@ -345,45 +345,159 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
       )
 
     row = AnalyticsSignals.parse_message(message)
-    assert {:error, _} = AnalyticsSignals.process_batch([message])
-    assert event_count(row) == 0
-    assert {:ok, {:processed, :completed}} = Owner.advance(rule.id)
-    assert {:ok, 1} = AnalyticsSignals.process_batch([message])
-    assert {:ok, 1} = AnalyticsSignals.process_batch([message])
-
-    assert [%{position: 2}] =
-             AlertEvaluationWork
-             |> Ash.Query.filter(rule_id == ^rule.id)
-             |> Ash.read!(actor: SystemActor.system(:alert_engine))
-
+    assert {:error, {:overloaded, _}} = AnalyticsSignals.process_batch([message])
     assert event_count(row) == 1
-  end
-
-  test "a transition on its final delivery is stored even when admission rejects it" do
-    rule = fill_alert_evaluation_capacity!()
-
-    message =
-      "synthetic-final-#{Ash.UUID.generate()}"
-      |> assessment_message("open", "active", "confirmed", "affected")
-      |> update_in(
-        [:metadata],
-        &Map.merge(&1, %{jetstream_ack: %{delivery_count: 5}, max_deliver: 5})
-      )
-
-    row = AnalyticsSignals.parse_message(message)
-
-    log =
-      ExUnit.CaptureLog.capture_log(fn ->
-        assert {:ok, 1} = AnalyticsSignals.process_batch([message])
-      end)
-
-    assert event_count(row) == 1
-    assert log =~ "on their final delivery without alert evaluation"
 
     assert [%{position: 1}] =
              AlertEvaluationWork
              |> Ash.Query.filter(rule_id == ^rule.id)
              |> Ash.read!(actor: SystemActor.system(:alert_engine))
+
+    assert {:ok, {:processed, :completed}} = Owner.advance(rule.id)
+    assert {:ok, 1} = AnalyticsSignals.process_batch([message])
+    assert {:ok, 1} = AnalyticsSignals.process_batch([message])
+
+    assert [%{position: 2, source_key: source_key}] =
+             AlertEvaluationWork
+             |> Ash.Query.filter(rule_id == ^rule.id)
+             |> Ash.read!(actor: SystemActor.system(:alert_engine))
+
+    assert is_binary(source_key)
+    assert event_count(row) == 1
+  end
+
+  test "a final delivery does not ack an unadmitted lifecycle tail" do
+    rule = fill_alert_evaluation_capacity!()
+    parent = self()
+
+    raw =
+      assessment_message(
+        "synthetic-final-#{Ash.UUID.generate()}",
+        "open",
+        "active",
+        "confirmed",
+        "affected"
+      )
+
+    message = %Message{
+      data: raw.data,
+      metadata:
+        Map.merge(raw.metadata, %{
+          jetstream_ack: %{delivery_count: 5},
+          max_deliver: 5
+        }),
+      acknowledger:
+        {Pipeline, :ack_ref,
+         %{
+           ack_fun: fn action ->
+             send(parent, {:ack_action, action})
+             :ok
+           end
+         }}
+    }
+
+    row = AnalyticsSignals.parse_message(message)
+
+    assert [%Message{status: {:failed, {:overloaded, _}}} = failed] =
+             Pipeline.handle_batch(:causal_signals, [message], %{batch_key: :default}, %{})
+
+    assert :ok = Pipeline.ack(:ack_ref, [], [failed])
+    assert_receive {:ack_action, {:nack, 80_000}}
+    refute_receive {:ack_action, :ack}, 50
+    refute_receive {:ack_action, :term}, 50
+    assert event_count(row) == 1
+
+    assert [%{position: 1}] =
+             AlertEvaluationWork
+             |> Ash.Query.filter(rule_id == ^rule.id)
+             |> Ash.read!(actor: SystemActor.system(:alert_engine))
+  end
+
+  test "redelivery admits only the lifecycle tail and a sibling message stays acked" do
+    mode = Application.get_env(:serviceradar_core, :alert_evaluation_mode)
+    limits = Application.get_env(:serviceradar_core, :alert_evaluation_limits)
+    Application.put_env(:serviceradar_core, :alert_evaluation_mode, :active)
+    Application.put_env(:serviceradar_core, :stateful_alert_engine, StatefulAlertEngine)
+    Application.put_env(:serviceradar_core, :alert_evaluation_limits, pending_count: 1)
+
+    on_exit(fn ->
+      restore_env(:alert_evaluation_mode, mode)
+      restore_env(:alert_evaluation_limits, limits)
+    end)
+
+    Repo.query!("UPDATE platform.stateful_alert_rules SET enabled = FALSE")
+    actor = SystemActor.system(:alert_engine)
+
+    rule =
+      StatefulAlertRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "synthetic-tail-#{Ash.UUID.generate()}",
+          signal: :event,
+          match: %{"always" => true},
+          group_by: [],
+          threshold: 100,
+          window_seconds: 120,
+          bucket_seconds: 60
+        },
+        actor: actor
+      )
+      |> Ash.create!()
+
+    parent = self()
+
+    first =
+      broadway_assessment("synthetic-tail-a-#{Ash.UUID.generate()}", parent, :first)
+
+    second =
+      broadway_assessment("synthetic-tail-b-#{Ash.UUID.generate()}", parent, :second)
+
+    assert [
+             %Message{status: :ok} = admitted,
+             %Message{status: {:failed, {:overloaded, _}}} = pending
+           ] =
+             Pipeline.handle_batch(
+               :causal_signals,
+               [first, second],
+               %{batch_key: :default},
+               %{}
+             )
+
+    assert :ok = Pipeline.ack(:ack_ref, [admitted], [pending])
+    assert_receive {:ack_action, :first, :ack}
+    assert_receive {:ack_action, :second, {:nack, _}}
+    refute_receive {:ack_action, :first, :nack}, 50
+    refute_receive {:ack_action, :second, :ack}, 50
+
+    assert event_count(AnalyticsSignals.parse_message(first)) == 1
+    assert event_count(AnalyticsSignals.parse_message(second)) == 1
+
+    assert [%{source_key: admitted_key, position: 1}] =
+             AlertEvaluationWork
+             |> Ash.Query.filter(rule_id == ^rule.id)
+             |> Ash.Query.sort(position: :asc)
+             |> Ash.read!(actor: actor)
+
+    assert {:ok, {:processed, :completed}} = Owner.advance(rule.id)
+
+    assert [%Message{status: :ok}] =
+             Pipeline.handle_batch(:causal_signals, [second], %{batch_key: :default}, %{})
+
+    assert [%{source_key: tail_key, position: 2}] =
+             AlertEvaluationWork
+             |> Ash.Query.filter(rule_id == ^rule.id)
+             |> Ash.read!(actor: actor)
+
+    assert tail_key != admitted_key
+
+    assert [%Message{status: :ok}] =
+             Pipeline.handle_batch(:causal_signals, [second], %{batch_key: :default}, %{})
+
+    assert [%{source_key: ^tail_key}] =
+             AlertEvaluationWork
+             |> Ash.Query.filter(rule_id == ^rule.id)
+             |> Ash.read!(actor: actor)
   end
 
   # Activates the real engine with room for one pending occurrence and takes it,
@@ -530,13 +644,13 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
       refute log =~ "MatchError"
       refute log =~ "Causal signals batch insert failed"
 
-      assert [[0]] =
+      assert [[1]] =
                Repo.query!(
                  "SELECT count(*) FROM platform.anomaly_episodes WHERE series_key = $1",
                  [series_key]
                ).rows
 
-      assert [[0]] =
+      assert [[1]] =
                Repo.query!(
                  """
                  SELECT count(*)
@@ -630,8 +744,6 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
          }}
     }
 
-    # The final delivery stores the transition before admitting it, so these
-    # errors cannot fail it; see the final-delivery transition test.
     for reason <- [
           :alert_evaluation_draining,
           :alert_evaluation_capability_unavailable,
@@ -662,9 +774,8 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     end
   end
 
-  # Prepared mode admits nothing, by design. A transition commits together with
-  # its admission, so every batch carrying one used to roll back, and JetStream
-  # dropped it after max_deliver.
+  # Prepared mode admits nothing, by design. The transition still commits, so
+  # the signal is stored while alert rules are not evaluating.
   test "prepared alert evaluation stores the transition and admits nothing" do
     mode = Application.get_env(:serviceradar_core, :alert_evaluation_mode)
     Application.put_env(:serviceradar_core, :alert_evaluation_mode, :prepared)
@@ -989,6 +1100,23 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
       timestamp: first_seen_at,
       version: version
     )
+  end
+
+  defp broadway_assessment(event_id, parent, tag) do
+    raw = assessment_message(event_id, "open", "active", "confirmed", "affected")
+
+    %Message{
+      data: raw.data,
+      metadata: raw.metadata,
+      acknowledger:
+        {Pipeline, :ack_ref,
+         %{
+           ack_fun: fn action ->
+             send(parent, {:ack_action, tag, action})
+             :ok
+           end
+         }}
+    }
   end
 
   defp assessment_message(

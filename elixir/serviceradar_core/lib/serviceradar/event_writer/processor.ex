@@ -34,7 +34,10 @@ defmodule ServiceRadar.EventWriter.Processor do
   Returns `{:ok, count}` on success where count is the number of rows inserted,
   or `{:error, reason}` on failure.
   """
-  @callback process_batch([Broadway.Message.t()]) :: {:ok, non_neg_integer()} | {:error, term()}
+  @callback process_batch([Broadway.Message.t()]) ::
+              {:ok, non_neg_integer()}
+              | {:error, term()}
+              | {:incomplete, non_neg_integer(), [{Broadway.Message.t(), term()}]}
 
   @doc """
   Returns the target table name for this processor.
