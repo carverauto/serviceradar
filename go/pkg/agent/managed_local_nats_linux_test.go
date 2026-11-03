@@ -375,7 +375,7 @@ func dialManagedLocalNATS(t *testing.T, client *tls.Config, server tls.Certifica
 			return
 		}
 		defer func() { _ = raw.Close() }()
-		conn := tls.Server(raw, &tls.Config{Certificates: []tls.Certificate{server}, MinVersion: tls.VersionTLS13})
+		conn := tls.Server(raw, &tls.Config{Certificates: []tls.Certificate{server}, MinVersion: tls.VersionTLS13, ClientAuth: tls.RequireAndVerifyClientCert, ClientCAs: client.RootCAs})
 		if err := conn.HandshakeContext(ctx); err != nil {
 			serverErr <- err
 			return
@@ -466,23 +466,28 @@ func syntheticLocalNATSTLS(t *testing.T, component string) (*tls.Config, *x509.C
 		t.Fatal(err)
 	}
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
-	for name, data := range map[string][]byte{"ca.pem": caPEM, "client.pem": certPEM, "client.key": keyPEM} {
+	for _, name := range []string{"host-trust", "certs"} {
+		if err := os.Mkdir(filepath.Join(dir, name), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, data := range map[string][]byte{
+		"host-trust/identity.json": []byte(`{"agent_id":"agent-synthetic","partition":"default"}`),
+		"host-trust/ca.pem":        caPEM,
+		"certs/component.pem":      certPEM,
+		"certs/component-key.pem":  keyPEM,
+		"certs/ca-chain.pem":       []byte("untrusted runtime CA"),
+		"agent.json":               []byte(`{"agent_id":"untrusted-runtime-agent"}`),
+	} {
 		if err := os.WriteFile(filepath.Join(dir, name), data, 0600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	config, err := localNATSTLS(ServerConfig{
-		AgentID:   "agent-synthetic",
-		Partition: "default",
-		GatewaySecurity: &models.SecurityConfig{
-			Mode: models.SecurityModeMTLS,
-			TLS: models.TLSConfig{
-				CertFile: filepath.Join(dir, "client.pem"),
-				KeyFile:  filepath.Join(dir, "client.key"),
-				CAFile:   filepath.Join(dir, "ca.pem"),
-			},
-		},
-	}, &managedLocalNATSMetadata{managedLocalNATSBinding: managedLocalNATSBinding{
+	binding, _, err := loadManagedHostTrust(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := localNATSTLS(binding, &managedLocalNATSMetadata{managedLocalNATSBinding: managedLocalNATSBinding{
 		ComponentID: component, HostAgentID: "agent-synthetic", PartitionID: "default",
 	}})
 	if err != nil {
