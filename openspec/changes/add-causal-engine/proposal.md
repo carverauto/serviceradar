@@ -8,7 +8,7 @@ The DeepCausality stack's actual value is **automation**: turn events into predi
 
 ### Phase 0 — Pre-V1 (days)
 - **Gap G (`ultragraph` version bump) — ALREADY UPSTREAM:** `ultragraph 0.9.0` (published to crates.io, released 2025-08-27) already ships `StructuralGraphAlgorithms` (`strongly_connected_components` / `articulation_points` / `bridges` / `biconnected_components`), `pathway_betweenness_centrality(pathways, directed, normalized)`, `is_reachable`, and `unfreeze`. The NIF pins `0.8`; the new `rust/causal-engine` simply depends on `ultragraph = "0.9"`. **No upstream PR and no wait** — the six graph causaloids (C4, C5, C5b, C7, C8, C9) are unblocked immediately (the docs' "implement upstream" framing predated 0.9.0).
-- **Gap B coverage audit:** quantify `speed_bps`/`if_speed` population that feeds `capacity_bps` (derived in Elixir at `network_discovery/topology_graph.ex` edge `min_non_zero(src,dst)`, written to the Dgraph `CANONICAL_TOPOLOGY` edge). No `if_high_speed` column and no Rust-side enrichment exist; this is a coverage audit PLUS an edge capacity-eligibility contract (the `age-graph` "Capacity Eligibility Contract" requirement marks capacity-less edges ineligible for C6), adding no new schema column.
+- **Gap B coverage audit:** quantify `speed_bps`/`if_speed` population that feeds `capacity_bps` (derived in Elixir at `network_discovery/topology_graph.ex` edge `min_non_zero(src,dst)`, written to the Dgraph `CANONICAL_TOPOLOGY` edge). No `if_high_speed` column and no Rust-side enrichment exist; this is a coverage audit PLUS an edge capacity-eligibility contract (the `dgraph-topology` "Capacity Eligibility Contract" requirement marks capacity-less edges ineligible for C6), adding no new schema column.
 - **App-level state-change-events feed (DECISION-1):** core-elx publishes `ocsf_devices` / `service_status` / `health_events` (and virtualization + topology-projection) state **transitions** to `signals.state.<table>` NATS subjects. This is NOT pgoutput CDC and NOT logical replication (none exists today). TimescaleDB hypertables are NEVER streamed this way — they are queried on-demand via SRQL.
 
 ### Phase 1 — V1 ship (weeks)
@@ -34,13 +34,13 @@ The DeepCausality stack's actual value is **automation**: turn events into predi
 
 ### Capability deltas (11 total)
 - **ADDED capabilities (6):** `causal-engine`, `causal-reasoning`, `causal-prediction-signals`, `inventory-risk-feed`, `service-flow-bridge`, `device-components`.
-- **MODIFIED capabilities (5):** `observability-signals`, `age-graph`, `health-events`, `topology-causal-overlays`, `topology-god-view`.
+- **MODIFIED capabilities (5):** `observability-signals`, `dgraph-topology`, `health-events`, `topology-causal-overlays`, `topology-god-view`.
 
 ## Impact
 
 ### Affected specs (all 11)
 - ADDED: `causal-engine`, `causal-reasoning`, `causal-prediction-signals`, `inventory-risk-feed`, `service-flow-bridge`, `device-components`.
-- MODIFIED: `observability-signals`, `age-graph`, `health-events`, `topology-causal-overlays`, `topology-god-view`.
+- MODIFIED: `observability-signals`, `dgraph-topology`, `health-events`, `topology-causal-overlays`, `topology-god-view`.
 
 ### Affected code
 - **NEW** `rust/causal-engine` (hydrator / domain_model / reasoner / emitter / snapshot; `ContextStore` trait).

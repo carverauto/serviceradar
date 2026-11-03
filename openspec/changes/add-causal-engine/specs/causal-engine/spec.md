@@ -37,7 +37,7 @@ The engine SHALL hydrate its causal `Context` using the embedded SRQL query engi
 
 ### Requirement: Live Delta Ingestion
 
-The engine SHALL keep its `Context` current by consuming live deltas from two sources. First, it SHALL run a JetStream subscriber on the EXISTING causal subjects (`signals.causal.>`, `arancini.updates.>`, `siem.events.>`, and the zen-consumer OCSF output). Second, it SHALL subscribe to the app-level state-change-events feed in which core-elx publishes `ocsf_devices`, `service_status`, and `health_events` (and virtualization and AGE-projection) state TRANSITIONS to `signals.state.<table>` subjects. This feed is an APPLICATION-LEVEL change-event feed; the engine MUST NOT consume pgoutput CDC, MUST NOT consume logical replication, and MUST NOT stream TimescaleDB hypertables (those are queried on demand per Context Hydration via EmbeddedSrql).
+The engine SHALL keep its `Context` current by consuming live deltas from two sources. First, it SHALL run a JetStream subscriber on the EXISTING causal subjects (`signals.causal.>`, `arancini.updates.>`, `siem.events.>`, and the zen-consumer OCSF output). Second, it SHALL subscribe to the app-level state-change-events feed in which core-elx publishes `ocsf_devices`, `service_status`, and `health_events` (and virtualization and Dgraph topology projection) state TRANSITIONS to `signals.state.<table>` subjects. This feed is an APPLICATION-LEVEL change-event feed; the engine MUST NOT consume pgoutput CDC, MUST NOT consume logical replication, and MUST NOT stream TimescaleDB hypertables (those are queried on demand per Context Hydration via EmbeddedSrql).
 
 #### Scenario: Live causal subjects update the Context
 
@@ -74,13 +74,13 @@ The engine SHALL represent the causal/topology graph using an ultragraph `CsmGra
 
 ### Requirement: Canonical Identity Reuse
 
-The engine SHALL reuse the canonical `sr:`-prefixed entity identifiers produced by `RuntimeGraph.canonical_runtime_id/1`, validated at a single point on ingestion. The engine MUST NOT invent a parallel identifier space. It SHALL treat `ocsf_devices.uid`, the AGE `Device.id`, and `ocsf_events.device.uid` as the same identity for a given device. The engine SHALL handle endpoint-cluster summary nodes: when a device identifier has been summarized into a cluster summary node by the God-View stream, the engine SHALL account for that summarization so that a verdict targeting a clustered device identity is still attributable to a renderable node.
+The engine SHALL reuse the canonical `sr:`-prefixed entity identifiers produced by `RuntimeGraph.canonical_runtime_id/1`, validated at a single point on ingestion. The engine MUST NOT invent a parallel identifier space. It SHALL treat `ocsf_devices.uid`, the Dgraph `device.id`, and `ocsf_events.device.uid` as the same identity for a given device. The engine SHALL handle endpoint-cluster summary nodes: when a device identifier has been summarized into a cluster summary node by the God-View stream, the engine SHALL account for that summarization so that a verdict targeting a clustered device identity is still attributable to a renderable node.
 
 #### Scenario: Canonical identifiers reused across feeds
 
 - **WHEN** the engine ingests state referencing a device from any feed
 - **THEN** it SHALL key that state on the canonical `sr:`-prefixed identifier
-- **AND** `ocsf_devices.uid`, AGE `Device.id`, and `ocsf_events.device.uid` SHALL resolve to the same engine identity
+- **AND** `ocsf_devices.uid`, Dgraph `device.id`, and `ocsf_events.device.uid` SHALL resolve to the same engine identity
 
 #### Scenario: No parallel identity space is created
 

@@ -83,7 +83,7 @@ This delta SHALL author at least one `stateful_alert_rule` configured with
 `group_by ["device.uid"]` targeting causal-prediction events, closing the loop
 from verdict to a device-scoped alert. The `device.uid` value MUST equal the
 canonical `sr:`-prefixed device identifier (`ocsf_devices.uid` ==
-AGE `Device.id` == `ocsf_events.device.uid`) so grouping aligns with the
+Dgraph `device.id` == `ocsf_events.device.uid`) so grouping aligns with the
 identity contract in `causal-engine`.
 
 #### Scenario: Verdict envelope carries groupable device.uid

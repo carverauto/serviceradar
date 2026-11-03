@@ -1,14 +1,14 @@
 # device-components
 
-Gap F (Phase 4). Introduces structured physical component entities beneath devices so the causal engine can reason about intra-device redundancy and component-level failure. This capability supplies the substrate (component rows, per-component health events, AGE containment edges, redundancy groups); causaloid predictions over that substrate land later.
+Gap F (Phase 4). Introduces structured physical component entities beneath devices so the causal engine can reason about intra-device redundancy and component-level failure. This capability supplies the substrate (component rows, per-component health events, Dgraph containment edges, redundancy groups); causaloid predictions over that substrate land later.
 
-This capability coordinates with `add-device-environmental-snmp-metrics` (the environmental/SNMP collector MUST emit structured component rows, not just scalar gauges) and `add-structured-hypervisor-storage-enrichment` (hypervisor/storage enrichment populates disk and memory_module components). It cross-references `age-graph` (containment projection) and `health-events` (per-component health emission).
+This capability coordinates with `add-device-environmental-snmp-metrics` (the environmental/SNMP collector MUST emit structured component rows, not just scalar gauges) and `add-structured-hypervisor-storage-enrichment` (hypervisor/storage enrichment populates disk and memory_module components). It cross-references `dgraph-topology` (containment projection) and `health-events` (per-component health emission).
 
 ## ADDED Requirements
 
 ### Requirement: Structured Physical Component Entities
 
-The platform SHALL persist physical device subcomponents as structured rows in a `platform.device_components` table keyed by the composite identity `(device_uid, component_type, component_index)`. The `device_uid` MUST be the canonical `sr:`-prefixed device identity used everywhere else in the platform (the same identity that keys `ocsf_devices.uid` and the AGE `Device.id`); this capability MUST NOT invent a parallel component identity space. `component_type` MUST be a controlled value drawn from the set `psu | fan | temp_sensor | disk | memory_module | nic`. `component_index` MUST be a stable, deterministic ordinal within `(device_uid, component_type)` so the same physical component resolves to the same row across collection cycles. Each row MAY carry a `parent_index` referencing another component of an enclosing `component_type` to express physical nesting (for example a `temp_sensor` whose `parent_index` points at the `psu` it monitors). Each row SHALL carry a `health` field constrained to a controlled value vocabulary aligned with `health-events`.
+The platform SHALL persist physical device subcomponents as structured rows in a `platform.device_components` table keyed by the composite identity `(device_uid, component_type, component_index)`. The `device_uid` MUST be the canonical `sr:`-prefixed device identity used everywhere else in the platform (the same identity that keys `ocsf_devices.uid` and the Dgraph `Device` `device.id`); this capability MUST NOT invent a parallel component identity space. `component_type` MUST be a controlled value drawn from the set `psu | fan | temp_sensor | disk | memory_module | nic`. `component_index` MUST be a stable, deterministic ordinal within `(device_uid, component_type)` so the same physical component resolves to the same row across collection cycles. Each row MAY carry a `parent_index` referencing another component of an enclosing `component_type` to express physical nesting (for example a `temp_sensor` whose `parent_index` points at the `psu` it monitors). Each row SHALL carry a `health` field constrained to a controlled value vocabulary aligned with `health-events`.
 
 Component rows SHALL be sourced from the ENTITY-MIB `entPhysicalTable` where available, with per-vendor overlays mapping vendor-specific `entPhysicalClass` / `entPhysicalDescr` patterns into the controlled `component_type` set. When ENTITY-MIB is absent for a device, the platform SHALL synthesize a stable `component_index` from whatever vendor-specific enumeration is available (for example an OID instance index or a sensor name), such that re-collection produces the same index for the same physical component.
 
@@ -46,21 +46,21 @@ When a component's health changes, the platform SHALL emit a health event into `
 - **WHEN** a component health event for `entity_type='component'` is persisted
 - **THEN** it is associated with the canonical `device_uid` so device-level consumers can correlate the degradation to its parent device
 
-### Requirement: AGE Containment Edges
+### Requirement: Dgraph Containment Edges
 
-The platform SHALL project structured components into the `age-graph` topology as `Component` vertices and SHALL connect each `Component` to its owning `Device` with a `CONTAINS` edge directed from `Device` to `Component`. Component vertices MUST be keyed by the canonical `(device_uid, component_type, component_index)` identity so the projection is idempotent across refreshes. Where a component declares a `parent_index`, the projection MAY add a `CONTAINS` edge between the parent `Component` and the child `Component` to preserve physical nesting. This projection MUST follow the existing `age-graph` canonical-schema and idempotent-reset conventions and MUST NOT introduce package or other non-component vertices under this edge type.
+The platform SHALL project structured components into the Dgraph topology graph (`dgraph-topology`) as `Component` nodes and SHALL connect each `Component` to its owning `Device` with a `CONTAINS` edge directed from `Device` to `Component`. Component nodes MUST be keyed by the canonical `(device_uid, component_type, component_index)` identity so the projection is idempotent across refreshes. Where a component declares a `parent_index`, the projection MAY add a `CONTAINS` edge between the parent `Component` and the child `Component` to preserve physical nesting. This projection MUST follow the existing `dgraph-topology` canonical-schema and idempotent-reset conventions and MUST NOT introduce package or other non-component nodes under this edge type.
 
 #### Scenario: Device-to-component containment edge projected
-- **WHEN** a `device_components` row exists for a device already present as an AGE `Device` vertex
-- **THEN** the projection creates (or matches) a `Component` vertex keyed by `(device_uid, component_type, component_index)` and a `CONTAINS` edge from the `Device` vertex to that `Component` vertex
+- **WHEN** a `device_components` row exists for a device already present as a Dgraph `Device` node
+- **THEN** the projection creates (or matches) a `Component` node keyed by `(device_uid, component_type, component_index)` and a `CONTAINS` edge from the `Device` node to that `Component` node
 
 #### Scenario: Projection is idempotent on refresh
 - **WHEN** the component projection runs again with unchanged component rows
-- **THEN** no duplicate `Component` vertices or `CONTAINS` edges are created
+- **THEN** no duplicate `Component` nodes or `CONTAINS` edges are created
 
 #### Scenario: Nested component containment preserved
 - **WHEN** a `temp_sensor` component carries a `parent_index` referencing a `psu` component
-- **THEN** the projection adds a `CONTAINS` edge from the `psu` `Component` vertex to the `temp_sensor` `Component` vertex
+- **THEN** the projection adds a `CONTAINS` edge from the `psu` `Component` node to the `temp_sensor` `Component` node
 
 ### Requirement: Redundancy Substrate
 

@@ -1,6 +1,6 @@
 # Tasks: Add Causal Engine (DeepCausality automation loop)
 
-Phased implementation checklist. Each phase maps to one or more capabilities in the decomposition: `causal-engine`, `causal-reasoning`, `causal-prediction-signals`, `inventory-risk-feed`, `service-flow-bridge`, `device-components`, and the MODIFIED specs `observability-signals`, `age-graph`, `health-events`, `topology-causal-overlays`, `topology-god-view`.
+Phased implementation checklist. Each phase maps to one or more capabilities in the decomposition: `causal-engine`, `causal-reasoning`, `causal-prediction-signals`, `inventory-risk-feed`, `service-flow-bridge`, `device-components`, and the MODIFIED specs `observability-signals`, `dgraph-topology`, `health-events`, `topology-causal-overlays`, `topology-god-view`.
 
 Automation-first ordering: the engine exists to turn events into alerts and state enrichment; the God-View render is one optional consumer. Verdicts MUST re-enter the automation loop (alerts/state), not merely paint a graph.
 
@@ -10,10 +10,10 @@ Automation-first ordering: the engine exists to turn events into alerts and stat
 - [x] 0.1.1 Verified upstream: `ultragraph 0.9.0` (tagged `ultragraph-v0.9.0`, published to crates.io, released 2025-08-27) ALREADY implements the full Gap G surface with real (non-stub) code — `StructuralGraphAlgorithms` (strongly_connected_components / articulation_points / bridges / biconnected_components), `pathway_betweenness_centrality(pathways, directed, normalized)`, `is_reachable`, and `unfreeze`. The "upstream PR" framing was an artifact of the docs being written against the `0.8` the NIF pins. No DeepCausality PR is needed; see `runbooks/gap-g-resolution.md`.
 - [ ] 0.1.2 ServiceRadar action: depend on `ultragraph = "0.9"` in `rust/causal-engine` (task 1.1.3) and implement causaloids C4/C5/C5b/C7/C8/C9 against the existing trait methods (task 1.4.2). API notes: `articulation_points()`/`bridges()` use the undirected view (matches `CONNECTS_TO`); `is_reachable(start_index, stop_index)` and `pathway_betweenness_centrality(pathways, directed, normalized)` take node-index args.
 
-### 0.2 Gap B — capacity coverage audit + eligibility contract (capability: age-graph) — IMPLEMENTED
+### 0.2 Gap B — capacity coverage audit + eligibility contract (capability: dgraph-topology) — IMPLEMENTED
 - [x] 0.2.1 Audit SQL authored: `runbooks/gap-b-capacity-audit.sql` (sizes `platform.discovered_interfaces` speed_bps/if_speed coverage + canonical-edge capacity-eligibility violations). NOTE: run read-only against CNPG before/after deploy; the audit RUN itself is pending DB access.
 - [x] 0.2.2 Eligibility contract implemented in `network_discovery/topology_graph.ex`: `telemetry_status_fields/4` now requires `capacity_bps > 0` (min-of-both-ends from speed_bps/if_speed) AND observed flow for `telemetry_eligible`; capacity-less edges are skipped by the saturation causaloid (C6). Refines the existing field; no new schema column.
-- [x] 0.2.3 Coverage-gap + eligibility predicate documented in the runbook header and the `age-graph` "Capacity Eligibility Contract" requirement.
+- [x] 0.2.3 Coverage-gap + eligibility predicate documented in the runbook header and the `dgraph-topology` "Capacity Eligibility Contract" requirement.
 - [ ] 0.2.4 Post-deploy: run a full canonical-topology refresh so stored `telemetry_eligible` reconciles (the edit changes computed eligibility, not existing rows retroactively).
 
 ### 0.3 App-level state-change-events publisher in core-elx (Decision 1) (capability: observability-signals) — PARTIAL
@@ -106,7 +106,7 @@ Automation-first ordering: the engine exists to turn events into alerts and stat
 
 ## 4. Phase 4 — Gap F device-components (multi-quarter)
 
-### 4.1 Structured components + redundancy substrate (capability: device-components, age-graph)
+### 4.1 Structured components + redundancy substrate (capability: device-components, dgraph-topology)
 - [ ] 4.1.1 Add a `device-components` model (structured sub-device components: PSUs, line cards, fans, links) feeding redundancy reasoning.
 - [ ] 4.1.2 Add a Dgraph `CONTAINS` edge from `Device` to its components in `network_discovery/topology_graph.ex` (alongside existing `CONNECTS_TO`, `HAS_INTERFACE`, `MANAGED_BY`, `CANONICAL_TOPOLOGY`).
 - [ ] 4.1.3 Provide the redundancy substrate the structural causaloids (C4/C5/C5b/C8) need to distinguish single-point-of-failure from redundant components.
@@ -114,12 +114,12 @@ Automation-first ordering: the engine exists to turn events into alerts and stat
 
 ## 5. Phase 5 — Gap E OOB flag + Gap D reverse MANAGES (when convenient)
 
-### 5.1 Out-of-band gateway flag (capability: age-graph, topology-causal-overlays)
+### 5.1 Out-of-band gateway flag (capability: dgraph-topology, topology-causal-overlays)
 > ENGINE-READY: C3 already consumes `Device.gateway_class` (`InBand|OutOfBand|Management`) and suppresses OOB/management gateways from data-plane root-cause blame (task 1.4.1). 5.1.1/5.1.2 are the DATA-SOURCE side — a `gateways.network_class` column migration + Dgraph topology projection so the hydrator can populate `gateway_class`. Deferred (migration-bearing; the engine no-ops safely with `gateway_class = None`).
 - [ ] 5.1.1 Gap E: add `gateways.network_class` enum (`in-band|out-of-band|management`) so causaloids do not treat a management/OOB path as in-band reachability.
 - [ ] 5.1.2 Surface `network_class` into the Dgraph topology projection / overlay evidence + the hydrator's `map_device` so structural causaloids weight OOB paths correctly.
 
-### 5.2 Reverse MANAGES edge (capability: age-graph)
+### 5.2 Reverse MANAGES edge (capability: dgraph-topology)
 - [x] 5.2.1 Gap D: `TopologyGraph.upsert_managed_by/2` now also writes the reverse `(mgmt)-[:MANAGES]->(child)` edge (additive, mirrors `MANAGED_BY`; Dgraph-only via `topology_graph/dgraph_persist.ex`) so the engine can traverse manager -> managed directly. A dedicated edge index is a follow-on optimization (the reverse edge already avoids the full reverse scan).
 
 ## 6. Validation

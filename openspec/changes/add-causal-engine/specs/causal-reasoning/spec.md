@@ -11,7 +11,7 @@ Device, Interface, and Service nodes identified by their `sr:`-prefixed
 canonical IDs (see capability `causal-engine`). The reasoner MUST NOT invent a
 parallel node space, parallel identifiers, or shadow entities; every observation
 MUST resolve to a node that already exists in the hydrated Context graph derived
-from `age-graph` topology and CNPG state.
+from `dgraph-topology` topology and CNPG state.
 
 The observation model SHALL treat each signal as a scalar or vector measurement
 (e.g., `risk_score` 0-100, `flow_bps`, `flow_pps`, `capacity_bps`, headroom
@@ -42,7 +42,7 @@ heterogeneous source payloads.
 
 - **WHEN** attributed-flow severity (see capability `service-flow-bridge`) and
   per-interface `capacity_bps`/`flow_bps` arrive for canonical Interface/edge
-  identities sourced from `age-graph`
+  identities sourced from `dgraph-topology`
 - **THEN** the reasoner SHALL represent them as numeric edge observations
 - **AND** downstream causaloids SHALL read those numeric values rather than
   re-parsing source payloads
@@ -79,7 +79,7 @@ its failure or unreachability would explain a cluster of downstream
 observations. The classification SHALL distinguish an in-band gateway (whose
 failure removes the management/observation path to the devices behind it) from an
 out-of-band gateway (whose failure does not by itself imply downstream data-plane
-loss), using the gateway network-class distinction defined in `age-graph` (Gap E:
+loss), using the gateway network-class distinction defined in `dgraph-topology` (Gap E:
 `gateways.network_class` in-band|out-of-band|management).
 
 #### Scenario: In-band gateway failure classified as cascade root cause (C3)
@@ -104,7 +104,7 @@ loss), using the gateway network-class distinction defined in `age-graph` (Gap E
 
 Causaloid C4 SHALL suppress false root-cause and false-down conclusions for
 devices that have become structurally unobservable. Using `is_reachable` over the
-`MANAGED_BY` relationship in `age-graph`, the reasoner SHALL determine whether a
+`MANAGED_BY` relationship in `dgraph-topology`, the reasoner SHALL determine whether a
 device's apparent failure is instead loss of its management/observation path; if
 so, the device's state SHALL be marked unknown/unobservable rather than failed.
 This causaloid is GATED on the upstream ultragraph `is_reachable` capability (see
@@ -132,7 +132,7 @@ The reasoner SHALL emit standing structural warnings for single points of
 failure even in the absence of an active fault. Causaloid C5 SHALL flag
 articulation-point devices whose loss would partition reachability. Causaloid C5b
 SHALL flag bridge edges whose loss would partition reachability. Both SHALL run
-over the `age-graph` topology and are GATED on the upstream ultragraph
+over the `dgraph-topology` topology and are GATED on the upstream ultragraph
 `articulation_points` / `bridges` capability (see capability `causal-engine`,
 Decision Gap G).
 
@@ -163,7 +163,7 @@ Decision Gap G).
 Causaloid C6 SHALL project interface/link saturation by comparing numeric
 `flow_bps` against `capacity_bps` headroom on canonical edges. C6 SHALL evaluate
 ONLY on capacity-eligible edges — edges that carry a populated, non-zero
-`capacity_bps` per the capacity-eligibility rules in `age-graph` (Gap B coverage)
+`capacity_bps` per the capacity-eligibility rules in `dgraph-topology` (Gap B coverage)
 — and SHALL NOT project saturation on edges lacking a trustworthy capacity
 denominator.
 
@@ -200,7 +200,7 @@ canonical identity.
 
 Causaloid C8 SHALL predict reachability degradation arising from BGP route
 withdrawals, reasoning over withdrawn prefixes and the affected next-hop/border
-structure in `age-graph`. C8 SHALL determine which downstream destinations lose
+structure in `dgraph-topology`. C8 SHALL determine which downstream destinations lose
 or degrade reachability and is GATED on the upstream ultragraph `is_reachable`
 capability (see capability `causal-engine`).
 
@@ -215,7 +215,7 @@ capability (see capability `causal-engine`).
 ### Requirement: Shared-Hop Bottleneck Detection
 
 Causaloid C9 SHALL identify shared-hop bottlenecks using
-`pathway_betweenness_centrality` over the `age-graph` topology, flagging nodes or
+`pathway_betweenness_centrality` over the `dgraph-topology` topology, flagging nodes or
 edges that carry a disproportionate share of paths and would therefore amplify a
 fault's blast radius. C9 is GATED on the upstream ultragraph
 `pathway_betweenness_centrality` capability (see capability `causal-engine`).
@@ -311,8 +311,8 @@ management-unobservable handling in causaloid C4.
 
 The reasoner SHALL compose per-device package/vulnerability risk into the
 predicted severity of structural causaloids. Specifically, the per-device
-`risk_score` and bounded `pkg_*` AGE scalars (see capability `inventory-risk-feed`
-and `age-graph`) SHALL raise the predicted severity of causaloids C5
+`risk_score` and bounded `device.pkg_*` Dgraph scalars (see capability `inventory-risk-feed`
+and `dgraph-topology`) SHALL raise the predicted severity of causaloids C5
 (single-point-of-failure), C7 (service-stack collapse), and C10 (blast radius)
 for the affected nodes, without altering the structural conclusion itself.
 
