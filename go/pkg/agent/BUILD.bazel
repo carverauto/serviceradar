@@ -276,6 +276,7 @@ go_library(
         "//proto",
         "//proto/agent/addon/v1:addonpb",
         "//proto/agent/netprobe/v1:netprobepb",
+        "//proto/discovery",
         "//proto/edge/v1:edgev1",
         "//proto/metric/v1:metricpb",
         "@com_github_bluenviron_gortsplib_v5//:gortsplib",

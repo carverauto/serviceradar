@@ -62,11 +62,12 @@ type SyncRuntime struct {
 	// keeps sync pages on their legacy status path.
 	edgeSpool  edgeMetricsAppender
 	edgeGrants *edgeOutputGrants
-	// edgeRuns names the sync runs that have spooled at least one page.
-	// A run never splits across paths: pages arrive in run order on one
-	// path or the run fails, so core never sees a legacy page overtake
-	// spooled pages of the same run.
-	edgeRuns map[string]struct{}
+	// edgeRuns names the in-flight sync runs that have spooled at least
+	// one page; a run's entry lives until the run ends. A run never splits
+	// across paths: pages arrive in run order on one path or the run
+	// fails, so core never sees a legacy page overtake spooled pages of
+	// the same run.
+	edgeRuns sync.Map
 }
 
 const (
@@ -363,6 +364,8 @@ func (r *SyncRuntime) runSourceOnce(
 	_ string,
 	runID string,
 ) (int, error) {
+	defer r.edgeRuns.Delete(runID)
+
 	sourceType := syncsources.NormalizeType(runner.config.Type)
 	ctor, ok := r.drivers.Lookup(sourceType)
 	if !ok {
@@ -562,7 +565,7 @@ func (r *SyncRuntime) sendSyncUpdates(
 		return r.spoolSyncUpdates(ctx, updates, runner.config, runID,
 			runTotalDevices, baseChunkIndex, runFinalPage, population, capability)
 	}
-	if r.runSpooled(runID) {
+	if _, spooled := r.edgeRuns.Load(runID); spooled {
 		return 0, fmt.Errorf("sync run %s already spooled pages; refusing to split it across paths", runID)
 	}
 

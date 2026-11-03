@@ -108,37 +108,18 @@ func (r *SyncRuntime) spoolSyncUpdates(
 	}
 
 	appended := 0
+	var appendErr error
 	for i, record := range records {
 		if _, err := r.edgeSpool.AppendFlow(edgeAdmissionFlow(record), record.GetEventId(), bodies[i]); err != nil {
-			r.markEdgeRun(runID, appended > 0 && !runFinalPage)
-			return appended, fmt.Errorf("spool sync page chunk %d: %w", i, err)
+			appendErr = fmt.Errorf("spool sync page chunk %d: %w", i, err)
+			break
 		}
 		appended++
 	}
-	r.markEdgeRun(runID, appended > 0 && !runFinalPage)
-	return appended, nil
-}
-
-// markEdgeRun records (or, for a run-final page, clears) that a run has
-// durable pages in the spool.
-func (r *SyncRuntime) markEdgeRun(runID string, spooled bool) {
-	r.stateMu.Lock()
-	defer r.stateMu.Unlock()
-	if r.edgeRuns == nil {
-		r.edgeRuns = make(map[string]struct{})
+	if appended > 0 {
+		r.edgeRuns.Store(runID, struct{}{})
 	}
-	if spooled {
-		r.edgeRuns[runID] = struct{}{}
-	} else {
-		delete(r.edgeRuns, runID)
-	}
-}
-
-func (r *SyncRuntime) runSpooled(runID string) bool {
-	r.stateMu.Lock()
-	defer r.stateMu.Unlock()
-	_, spooled := r.edgeRuns[runID]
-	return spooled
+	return appended, appendErr
 }
 
 // buildSyncPageRecords packs a page into records. Group boundaries are

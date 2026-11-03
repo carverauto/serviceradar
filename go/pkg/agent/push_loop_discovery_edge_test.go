@@ -136,7 +136,7 @@ func TestMapperDevicesWithAGrantGoOnlyToTheEdgeSpool(t *testing.T) {
 	payload, err := buildMapperResultsPayload(mapperDeviceUpdates(), sysmonEdgeAgentID, "default")
 	require.NoError(t, err)
 
-	sent := loop.pushDiscoveryPayload(context.Background(), discoveryMapperDevices, payload,
+	sent := loop.pushDiscoveryPayloads(discoveryMapperDevices, [][]byte{payload},
 		sysmonEdgeAgentID, "default", func([]byte) bool {
 			t.Fatal("legacy path used while a grant is current")
 			return false
@@ -176,22 +176,60 @@ func TestDiscoveryWithoutAGrantUsesLegacyThenRetainsOrderOnceGranted(t *testing.
 		return legacyOK
 	}
 
-	require.True(t, loop.pushDiscoveryPayload(context.Background(), discoveryMapperDevices,
-		payload, sysmonEdgeAgentID, "default", legacySend))
+	require.True(t, loop.pushDiscoveryPayloads(discoveryMapperDevices, [][]byte{payload}, sysmonEdgeAgentID, "default", legacySend))
 	require.Len(t, legacySeen, 1)
 
 	// A failed legacy send retains the drain instead of losing it.
 	legacyOK = false
-	require.False(t, loop.pushDiscoveryPayload(context.Background(), discoveryMapperDevices,
-		payload, sysmonEdgeAgentID, "default", legacySend))
+	require.False(t, loop.pushDiscoveryPayloads(discoveryMapperDevices, [][]byte{payload}, sysmonEdgeAgentID, "default", legacySend))
 	require.Len(t, legacySeen, 1)
 
 	// Once a grant is current the retained payload spools (and only spools).
 	grantDiscovery(t, loop)
-	require.True(t, loop.pushDiscoveryPayload(context.Background(), discoveryMapperDevices,
-		payload, sysmonEdgeAgentID, "default", legacySend))
+	require.True(t, loop.pushDiscoveryPayloads(discoveryMapperDevices, [][]byte{payload}, sysmonEdgeAgentID, "default", legacySend))
 	require.Len(t, legacySeen, 1, "retained payload must not ride legacy after the grant")
 	require.Len(t, spooledRecords(t, sp), 2, "retained payload and the new drain both spool")
+}
+
+func TestRetainedDiscoveryFlushesOnACycleWithNoNewDrain(t *testing.T) {
+	sp := openTestEdgeSpool(t)
+	loop := discoveryLoop(t, sp)
+
+	devices, err := buildMapperResultsPayload(mapperDeviceUpdates(), sysmonEdgeAgentID, "default")
+	require.NoError(t, err)
+	topology, err := buildMapperTopologyPayload([]map[string]interface{}{{
+		"agent_id": sysmonEdgeAgentID, "gateway_id": "gw-test", "partition": "default",
+		"protocol": "LLDP", "local_device_ip": "192.0.2.10", "local_device_id": "sr:00000000-0000-4000-8000-000000000101",
+		"local_if_index": 3, "local_if_name": "Gi0/3",
+		"neighbor_mgmt_addr": "192.0.2.20", "neighbor_system_name": "sw-edge-02.example.com",
+		"neighbor_port_id": "Gi0/1", "timestamp": "2026-07-14T00:00:00Z",
+	}}, sysmonEdgeAgentID, "default")
+	require.NoError(t, err)
+
+	// No grant and the gateway is down: both drains are retained.
+	legacyDown := func([]byte) bool { return false }
+	require.False(t, loop.pushDiscoveryPayloads(discoveryMapperDevices, [][]byte{devices},
+		sysmonEdgeAgentID, "default", legacyDown))
+	require.False(t, loop.pushDiscoveryPayloads(discoveryMapperTopology, [][]byte{topology},
+		sysmonEdgeAgentID, "default", legacyDown))
+	require.Empty(t, spooledRecords(t, sp))
+
+	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{
+		discoveryGrant(t, edgerecord.MapperDevicesContractID, edgerecord.MapperDevicesContractVersion, edgerecord.MapperDevicesProjectedWriteBytesPerRecord, "serviceradar.agent.mapper"),
+		discoveryGrant(t, edgerecord.MapperTopologyContractID, edgerecord.MapperTopologyContractVersion, edgerecord.MapperTopologyProjectedWriteBytesPerRecord, "serviceradar.agent.mapper"),
+	}, time.Now())
+
+	// The next cycles drain nothing new (no mapper service is running);
+	// the retained payloads must still reach the spool on them.
+	require.True(t, loop.pushMapperResults(context.Background()))
+	require.True(t, loop.pushMapperTopology(context.Background()))
+
+	records := spooledRecords(t, sp)
+	require.Len(t, records, 2)
+	require.Equal(t, edgerecord.MapperDevicesContractID, records[0].GetOutputContract().GetContractId())
+	require.Equal(t, edgerecord.MapperTopologyContractID, records[1].GetOutputContract().GetContractId())
+	require.True(t, loop.mapperDevicesEdge.empty())
+	require.True(t, loop.mapperTopologyEdge.empty())
 }
 
 func TestNetprobeDiscoverySpoolsMetadataVerbatim(t *testing.T) {
@@ -216,11 +254,10 @@ func TestNetprobeDiscoverySpoolsMetadataVerbatim(t *testing.T) {
 	require.Zero(t, skipped)
 	require.Len(t, payloads, 1)
 
-	require.True(t, loop.pushDiscoveryPayload(context.Background(), discoveryNetprobe,
-		payloads[0], sysmonEdgeAgentID, "default", func([]byte) bool {
-			t.Fatal("legacy path used while a grant is current")
-			return false
-		}))
+	require.True(t, loop.pushDiscoveryPayloads(discoveryNetprobe, [][]byte{payloads[0]}, sysmonEdgeAgentID, "default", func([]byte) bool {
+		t.Fatal("legacy path used while a grant is current")
+		return false
+	}))
 
 	records := spooledRecords(t, sp)
 	require.Len(t, records, 1)
@@ -251,11 +288,10 @@ func TestOversizedDiscoveryUpdateDropsAlone(t *testing.T) {
 	payload, err := buildMapperResultsPayload(updates, sysmonEdgeAgentID, "default")
 	require.NoError(t, err)
 
-	require.True(t, loop.pushDiscoveryPayload(context.Background(), discoveryMapperDevices,
-		payload, sysmonEdgeAgentID, "default", func([]byte) bool {
-			t.Fatal("legacy path used while a grant is current")
-			return false
-		}))
+	require.True(t, loop.pushDiscoveryPayloads(discoveryMapperDevices, [][]byte{payload}, sysmonEdgeAgentID, "default", func([]byte) bool {
+		t.Fatal("legacy path used while a grant is current")
+		return false
+	}))
 
 	records := spooledRecords(t, sp)
 	require.Len(t, records, 1)
@@ -381,17 +417,50 @@ func TestSyncRunRefusesToSplitAcrossPaths(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, spooledRecords(t, sp), 1)
 
+	// A later page whose every update is oversized appends nothing; the
+	// run has still spooled a page.
+	oversized := syncUpdate("src-x", "192.0.2.69")
+	oversized["metadata"] = map[string]string{"bulk": strings.Repeat("0123456789abcdef", 48*1024)}
+	chunks, err := runtime.sendSyncUpdates(context.Background(), runner,
+		[]map[string]interface{}{oversized}, "run-9", 2, 1, false, nil)
+	require.NoError(t, err)
+	require.Zero(t, chunks)
+
 	// The grant lapses mid-run: the next page must fail rather than ride
 	// the legacy path past the spooled page.
 	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, nil, time.Now())
 	_, err = runtime.sendSyncUpdates(context.Background(), runner,
-		[]map[string]interface{}{syncUpdate("src-b", "192.0.2.61")}, "run-9", 2, 1, true, nil)
+		[]map[string]interface{}{syncUpdate("src-b", "192.0.2.61")}, "run-9", 3, 1, true, nil)
 	require.ErrorContains(t, err, "refusing to split")
 	require.Zero(t, gateway.calls)
 
 	// A different run still takes the legacy path.
 	_, err = runtime.sendSyncUpdates(context.Background(), runner,
 		[]map[string]interface{}{syncUpdate("src-b", "192.0.2.61")}, "run-10", 1, 0, true, nil)
+	require.NoError(t, err)
+	require.Equal(t, 1, gateway.calls)
+}
+
+func TestFailedSpooledSyncRunForgetsItsSplitGuard(t *testing.T) {
+	sp := openTestEdgeSpool(t)
+	gateway := &recordingSyncGateway{}
+	loop, runtime := syncTestRuntime(t, sp, gateway)
+	runtime.drivers = fakeSyncDrivers()
+	grantDiscovery(t, loop)
+
+	runner := newFakeSourceRunner(map[string]string{"pages": "3", "fail_after_pages": "2"})
+	_, err := runtime.runSourceOnce(context.Background(), runner, "scheduled", "run-12")
+	require.ErrorIs(t, err, errFakeSyncDriverFailed)
+	require.NotEmpty(t, spooledRecords(t, sp), "the failed run spooled pages before failing")
+
+	inFlight := 0
+	runtime.edgeRuns.Range(func(any, any) bool { inFlight++; return true })
+	require.Zero(t, inFlight, "a finished run must not keep its split guard")
+
+	// Without a grant the same run id is no longer held to the spool.
+	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, nil, time.Now())
+	_, err = runtime.sendSyncUpdates(context.Background(), runner,
+		[]map[string]interface{}{syncUpdate("src-z", "192.0.2.70")}, "run-12", 1, 0, true, nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, gateway.calls)
 }
