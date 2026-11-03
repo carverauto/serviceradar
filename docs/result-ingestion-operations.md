@@ -13,7 +13,7 @@ an older pending projection. On the `service_state` lane, that replacement is
 counted as `coalesced`, and a reservation that times out or whose caller exits
 before publish is counted as `expired`. Admitted work on that lane reconciles
 against accepted completions, those two counts, and entries still pending.
-Settings → Cluster shows the counts as Coalesced / Expired.
+Settings -> Cluster shows the counts as Coalesced / Expired.
 
 ## Acknowledgements and version pairing
 
