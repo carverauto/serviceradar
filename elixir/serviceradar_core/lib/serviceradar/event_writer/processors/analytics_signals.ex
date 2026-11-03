@@ -530,6 +530,8 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     duplicates =
       Enum.reject(rows, &MapSet.member?(inserted_keys, ocsf_event_conflict_key(&1)))
 
+    insert_pending_admissions(persisted)
+
     {persisted, persisted, persisted ++ unadmitted_replays(duplicates), [], []}
   end
 
@@ -611,6 +613,9 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
     transitions =
       Enum.filter(persisted, &MapSet.member?(transition_keys, ocsf_event_conflict_key(&1)))
+
+    insert_pending_admissions(persisted)
+    remember_held_admissions(held_rows, existing)
 
     {persisted, transitions, Enum.filter(persisted, &unadmitted_occurrence?/1), held_rows,
      waiting_ids}
@@ -848,6 +853,9 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
       held_rows
       |> Enum.map(&ocsf_event_id_key/1)
       |> Enum.reject(&is_nil/1)
+
+    insert_pending_admissions(persisted)
+    remember_held_admissions(held_rows, markers)
 
     {persisted, transitions, Enum.filter(persisted, &unadmitted_occurrence?/1), held_rows,
      waiting_ids}
@@ -1341,8 +1349,16 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     if binary_ids == [] do
       []
     else
-      load_unadmitted_rows("id = ANY($1::uuid[])", [binary_ids])
+      load_pending_admissions("pending.event_id = ANY($1::uuid[])", [binary_ids])
     end
+  end
+
+  defp last_owed_index(series_rows, owed_events) do
+    series_rows
+    |> Enum.with_index()
+    |> Enum.reduce(nil, fn {row, index}, acc ->
+      if MapSet.member?(owed_events, ocsf_event_id_key(row)), do: index, else: acc
+    end)
   end
 
   defp earlier_unadmitted_rows([]), do: []
@@ -1362,10 +1378,10 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     |> Enum.flat_map(fn {_series, series_rows} ->
       case Enum.find_index(series_rows, &MapSet.member?(owed_keys, occurrence_dedupe_key(&1))) do
         nil ->
-          Enum.filter(series_rows, fn row ->
-            MapSet.member?(owed_events, ocsf_event_id_key(row)) and
-              not MapSet.member?(owed_keys, occurrence_dedupe_key(row))
-          end)
+          case last_owed_index(series_rows, owed_events) do
+            nil -> []
+            index -> Enum.take(series_rows, index + 1)
+          end
 
         index ->
           Enum.take(series_rows, index)
@@ -1399,9 +1415,9 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
         []
 
       pairs ->
-        load_unadmitted_rows(
+        load_pending_admissions(
           """
-          (class_uid, metadata->'service_radar'->>'series_key') IN (
+          (pending.class_uid, pending.series_key) IN (
             SELECT * FROM unnest($1::int[], $2::text[])
           )
           """,
@@ -1414,24 +1430,26 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     {Map.get(row, :class_uid), series_key_of(row) || ocsf_event_id_key(row)}
   end
 
-  defp load_unadmitted_rows(predicate, params) do
+  defp load_pending_admissions(predicate, params) do
     columns = Enum.map_join(@persisted_replay_columns, ", ", &persisted_replay_column/1)
 
     sql = """
     SELECT #{columns}
-    FROM platform.ocsf_events
+    FROM platform.lifecycle_pending_admissions AS pending
+    JOIN platform.ocsf_events AS events
+      ON events.time = pending.event_time AND events.id = pending.event_id
     WHERE #{predicate}
-      AND COALESCE(metadata ->> 'alert_evaluation_occurrence_id', '') <> ''
-      AND COALESCE(metadata ->> 'alert_evaluation_admitted', 'false') <> 'true'
-    ORDER BY time ASC, created_at ASC, id ASC
+      AND COALESCE(events.metadata ->> 'alert_evaluation_occurrence_id', '') <> ''
+      AND COALESCE(events.metadata ->> 'alert_evaluation_admitted', 'false') <> 'true'
+    ORDER BY pending.event_time ASC, pending.inserted_at ASC, pending.event_id ASC
     """
 
     %{rows: rows} = ServiceRadar.Repo.query!(sql, params)
     Enum.map(rows, &persisted_replay_row/1)
   end
 
-  defp persisted_replay_column(:id), do: "id::text"
-  defp persisted_replay_column(column), do: Atom.to_string(column)
+  defp persisted_replay_column(:id), do: "events.id::text"
+  defp persisted_replay_column(column), do: "events.#{column}"
 
   defp persisted_replay_row(values) do
     row =
@@ -1534,23 +1552,119 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   defp mark_alert_evaluation_admitted([]), do: :ok
 
   defp mark_alert_evaluation_admitted(rows) do
-    Enum.each(rows, fn row ->
-      ServiceRadar.Repo.query!(
-        """
-        UPDATE platform.ocsf_events
-        SET metadata = jsonb_set(
-          COALESCE(metadata, '{}'::jsonb),
-          '{alert_evaluation_admitted}',
-          'true'::jsonb,
-          true
-        )
-        WHERE id = ($1::text)::uuid
-        """,
-        [ocsf_event_id_key(row)]
-      )
-    end)
+    ids =
+      rows
+      |> Enum.map(&ocsf_event_id_key/1)
+      |> Enum.map(&uuid_to_binary/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    {:ok, :ok} =
+      ServiceRadar.Repo.transaction(fn ->
+        Enum.each(rows, fn row ->
+          ServiceRadar.Repo.query!(
+            """
+            UPDATE platform.ocsf_events
+            SET metadata = jsonb_set(
+              COALESCE(metadata, '{}'::jsonb),
+              '{alert_evaluation_admitted}',
+              'true'::jsonb,
+              true
+            )
+            WHERE id = ($1::text)::uuid
+            """,
+            [ocsf_event_id_key(row)]
+          )
+        end)
+
+        release_pending_admissions(ids)
+        :ok
+      end)
 
     :ok
+  end
+
+  defp release_pending_admissions([]), do: :ok
+
+  defp release_pending_admissions(ids) do
+    ServiceRadar.Repo.query!(
+      """
+      DELETE FROM platform.lifecycle_pending_admissions
+      WHERE event_id = ANY($1::uuid[])
+      """,
+      [ids]
+    )
+
+    :ok
+  end
+
+  defp remember_held_admissions(rows, markers) do
+    rows
+    |> Enum.map(fn row -> held_pending_row(row, Map.get(markers, ocsf_event_id_key(row))) end)
+    |> insert_pending_admissions()
+  end
+
+  defp held_pending_row(row, %{occurrence_id: id, time: %DateTime{} = time})
+       when is_binary(id) and id != "" do
+    row
+    |> Map.put(:time, time)
+    |> put_occurrence_metadata(id, false)
+  end
+
+  defp held_pending_row(row, %{occurrence_id: id}) when is_binary(id) and id != "" do
+    put_occurrence_metadata(row, id, false)
+  end
+
+  defp held_pending_row(row, _marker), do: row
+
+  defp insert_pending_admissions(rows) do
+    entries =
+      Enum.flat_map(rows, fn row ->
+        with true <- unadmitted_occurrence?(row),
+             class_uid when is_integer(class_uid) <- Map.get(row, :class_uid),
+             series_key when is_binary(series_key) and series_key != "" <- pending_series_key(row),
+             %DateTime{} = time <- normalize_existing_time(Map.get(row, :time)),
+             event_id when is_binary(event_id) <- uuid_to_binary(ocsf_event_id_key(row)),
+             occurrence_id when is_binary(occurrence_id) <-
+               uuid_to_binary(pending_occurrence_id(row)) do
+          [{class_uid, series_key, time, event_id, occurrence_id}]
+        else
+          _ -> []
+        end
+      end)
+
+    case entries do
+      [] ->
+        :ok
+
+      entries ->
+        ServiceRadar.Repo.query!(
+          """
+          INSERT INTO platform.lifecycle_pending_admissions (
+            class_uid, series_key, event_time, event_id, occurrence_id
+          )
+          SELECT * FROM unnest(
+            $1::int[], $2::text[], $3::timestamptz[], $4::uuid[], $5::uuid[]
+          )
+          ON CONFLICT DO NOTHING
+          """,
+          [
+            Enum.map(entries, &elem(&1, 0)),
+            Enum.map(entries, &elem(&1, 1)),
+            Enum.map(entries, &elem(&1, 2)),
+            Enum.map(entries, &elem(&1, 3)),
+            Enum.map(entries, &elem(&1, 4))
+          ]
+        )
+
+        :ok
+    end
+  end
+
+  defp pending_series_key(row), do: series_key_of(row) || ocsf_event_id_key(row)
+
+  defp pending_occurrence_id(row) do
+    (Map.get(row, :metadata) || %{})["alert_evaluation_occurrence_id"]
   end
 
   defp alert_evaluation_event_row?(row),

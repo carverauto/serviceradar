@@ -622,6 +622,52 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     refute_receive {:alert_evaluation_events, _events}, 50
   end
 
+  test "a held forecast redelivery admits the earlier pending series row first" do
+    Application.put_env(:serviceradar_core, :stateful_alert_engine, __MODULE__.CanonicalBodyEngine)
+
+    Application.put_env(
+      :serviceradar_core,
+      :analytics_signals_replay_result,
+      {:error, {:overloaded, :rule_bytes}}
+    )
+
+    series_key = "synthetic:forecast-order:#{System.unique_integer([:positive])}"
+    earlier = capacity_forecast_message(series_key, "forecast-a", "forecast-earlier", 1_812_456_000_000)
+    later = capacity_forecast_message(series_key, "forecast-b", "forecast-later", 1_812_456_060_000)
+
+    delete_episode_fixture!(series_key)
+
+    on_exit(fn ->
+      Application.delete_env(:serviceradar_core, :analytics_signals_replay_result)
+      delete_episode_fixture!(series_key)
+    end)
+
+    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([earlier])
+    assert_receive {:alert_evaluation_events, [first]}
+    assert first.message == "forecast-earlier"
+    assert pending_admission_messages(series_key) == ["forecast-earlier"]
+
+    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([later])
+    assert_receive {:alert_evaluation_events, [waiting]}
+    assert waiting.message == "forecast-earlier"
+    refute_receive {:alert_evaluation_events, _events}, 50
+    assert pending_admission_messages(series_key) == ["forecast-earlier", "forecast-later"]
+
+    Application.put_env(:serviceradar_core, :analytics_signals_replay_result, :ok)
+
+    assert {:error, {:overloaded, :series_pending}} = AnalyticsSignals.process_batch([later])
+    assert_receive {:alert_evaluation_events, [admitted_earlier]}
+    assert admitted_earlier.message == "forecast-earlier"
+    assert_receive {:alert_evaluation_events, [admitted_later]}
+    assert admitted_later.message == "forecast-later"
+    refute_receive {:alert_evaluation_events, _events}, 50
+    assert pending_admission_messages(series_key) == []
+
+    assert {:ok, 1} = AnalyticsSignals.process_batch([later])
+    refute_receive {:alert_evaluation_events, _events}, 50
+    assert pending_admission_messages(series_key) == []
+  end
+
   test "a newer inventory close waits while the open admission is pending" do
     Application.put_env(:serviceradar_core, :stateful_alert_engine, __MODULE__.CanonicalBodyEngine)
 
@@ -1522,15 +1568,30 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
   defp delete_event!(nil), do: :ok
 
   defp delete_event!(row) do
+    id = uuid_string(row.id)
+
+    Repo.query!(
+      """
+      DELETE FROM platform.lifecycle_pending_admissions
+      WHERE event_id = ($1::text)::uuid OR series_key = $1
+      """,
+      [id]
+    )
+
     Repo.query!(
       "DELETE FROM platform.ocsf_events WHERE id = ($1::text)::uuid AND time = $2",
-      [uuid_string(row.id), row.time]
+      [id, row.time]
     )
 
     :ok
   end
 
   defp delete_episode_fixture!(series_key) do
+    Repo.query!(
+      "DELETE FROM platform.lifecycle_pending_admissions WHERE series_key = $1",
+      [series_key]
+    )
+
     Repo.query!(
       """
       DELETE FROM platform.ocsf_events
@@ -1542,6 +1603,46 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
 
     Repo.query!("DELETE FROM platform.anomaly_episodes WHERE series_key = $1", [series_key])
     :ok
+  end
+
+  defp capacity_forecast_message(series_key, event_id, message, time) do
+    payload = %{
+      "event_id" => event_id,
+      "signal_type" => "prediction",
+      "event_type" => "capacity_forecast",
+      "class_uid" => 2004,
+      "time" => time,
+      "severity_id" => 3,
+      "message" => message,
+      "device_uid" => "sr:capacity-forecast-device",
+      "capacity_forecast" => %{
+        "resource_key" => series_key,
+        "metric_name" => "disk.used_percent"
+      }
+    }
+
+    %{
+      data: Jason.encode!(payload),
+      metadata: %{
+        subject: "signals.analytics.predictions.#{series_key}",
+        received_at: DateTime.utc_now()
+      }
+    }
+  end
+
+  defp pending_admission_messages(series_key) do
+    Repo.query!(
+      """
+      SELECT events.message
+      FROM platform.lifecycle_pending_admissions AS pending
+      JOIN platform.ocsf_events AS events
+        ON events.time = pending.event_time AND events.id = pending.event_id
+      WHERE pending.series_key = $1
+      ORDER BY pending.event_time ASC, pending.inserted_at ASC, pending.event_id ASC
+      """,
+      [series_key]
+    ).rows
+    |> Enum.map(fn [message] -> message end)
   end
 
   defp event_count(row) do
