@@ -29,21 +29,19 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay do
       (`telemetry.edge-record-dlq.v1.bulk.>`); one contract is
       `telemetry.edge-record-dlq.v1.bulk.*.serviceradar_metrics_batch.v1`
     * `:from_sequence` -- the first dead-letter stream sequence to read (default 1)
-    * `:sequences` -- exactly these sequences, instead of `:subject`/`:from_sequence`
     * `:limit` -- at most this many messages (default 100)
     * `:stream` -- the dead-letter stream (default `TELEMETRY_EDGE_RECORD_DLQ_V1_BULK`)
     * `:request` -- `(subject, body, opts -> {:ok, %{body: binary}} | {:error, term})`, a NATS
       request on a connection the caller owns; default `ServiceRadar.NATS.Connection`
 
-  A walk over `:subject` reads only the messages the stream held when it started, so a record
-  this replay republishes that is dead-lettered again is left for the next run.
-
-  `replay/1` also takes `:delete` (default `true`): `false` republishes and leaves the
-  dead-letter message in place.
+  The walk reads only the messages the stream held when it started (`last_seq` at the start,
+  then `:subject`, `:from_sequence` and `:limit`), so a record this replay republishes that is
+  dead-lettered again is left for the next run. `replay/1` deletes each dead-letter message
+  only after the source PubAck. A failed delete leaves it in place (`:replayed_kept`).
 
   Both return `{:ok, %{entries: [...], next_sequence: n}}`, where each entry names its
   dead-letter sequence, source and failure headers, and, for `replay/1`, its `:result`:
-  `:replayed`, `:replayed_kept` (`delete: false`, or the delete failed: see `:delete_error`), or
+  `:replayed`, `:replayed_kept` (the delete failed: see `:delete_error`), or
   `{:error, reason}` (the message is kept). Pass `next_sequence` as `:from_sequence` to continue.
   """
 
@@ -107,21 +105,14 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay do
     request = Keyword.get(opts, :request) || (&connection_request/3)
     stream = Keyword.get(opts, :stream, @stream)
     limit = Keyword.get(opts, :limit, @default_limit)
-    ctx = %{request: request, stream: stream, opts: opts}
+    from = Keyword.get(opts, :from_sequence, 1)
+    ctx = %{request: request, stream: stream}
 
-    case Keyword.get(opts, :sequences) do
-      sequences when is_list(sequences) ->
-        walk_sequences(ctx, Enum.take(sequences, limit), fun, [])
-
-      nil ->
-        from = Keyword.get(opts, :from_sequence, 1)
-
-        # Only the messages already held when the walk starts: a record a replay republishes
-        # that fails again is dead-lettered after it, and must not be replayed in the same run.
-        with {:ok, last} <- last_sequence(ctx) do
-          filter = Keyword.get(opts, :subject, @subject)
-          walk_subject(Map.put(ctx, :last, last), filter, from, limit, fun, [])
-        end
+    # Only the messages already held when the walk starts: a record a replay republishes
+    # that fails again is dead-lettered after it, and must not be replayed in the same run.
+    with {:ok, last} <- last_sequence(ctx) do
+      filter = Keyword.get(opts, :subject, @subject)
+      walk_subject(Map.put(ctx, :last, last), filter, from, limit, fun, [])
     end
   end
 
@@ -129,17 +120,6 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay do
     case api_request(ctx, "$JS.API.STREAM.INFO.#{ctx.stream}", %{}) do
       {:ok, %{"state" => %{"last_seq" => last}}} when is_integer(last) -> {:ok, last}
       {:ok, other} -> {:error, {:unexpected_reply, other}}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp walk_sequences(_ctx, [], _fun, acc),
-    do: {:ok, %{entries: Enum.reverse(acc), next_sequence: next_after(acc)}}
-
-  defp walk_sequences(ctx, [seq | rest], fun, acc) do
-    case get_message(ctx, %{"seq" => seq}) do
-      {:ok, message} -> walk_sequences(ctx, rest, fun, [fun.(ctx, message) | acc])
-      :none -> walk_sequences(ctx, rest, fun, [%{dlq_sequence: seq, result: :not_found} | acc])
       {:error, reason} -> {:error, reason}
     end
   end
@@ -165,9 +145,6 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay do
         {:error, reason}
     end
   end
-
-  defp next_after([]), do: 1
-  defp next_after(acc), do: (acc |> Enum.map(& &1.dlq_sequence) |> Enum.max()) + 1
 
   defp describe(_ctx, message) do
     {_transport, failure} = EdgeRecordDeadLetter.split_headers(message.headers)
@@ -202,22 +179,18 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay do
     end
   end
 
-  defp delete_after_replay(%{opts: opts} = ctx, seq) do
-    if Keyword.get(opts, :delete, true) do
-      case delete_message(ctx, seq) do
-        :ok ->
-          %{result: :replayed}
+  defp delete_after_replay(ctx, seq) do
+    case delete_message(ctx, seq) do
+      :ok ->
+        %{result: :replayed}
 
-        {:error, reason} ->
-          Logger.warning("Replayed edge-record dead-letter could not be deleted",
-            dlq_sequence: seq,
-            reason: inspect(reason)
-          )
+      {:error, reason} ->
+        Logger.warning("Replayed edge-record dead-letter could not be deleted",
+          dlq_sequence: seq,
+          reason: inspect(reason)
+        )
 
-          %{result: :replayed_kept, delete_error: reason}
-      end
-    else
-      %{result: :replayed_kept}
+        %{result: :replayed_kept, delete_error: reason}
     end
   end
 

@@ -734,6 +734,12 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
         assert stream.stream_discard == "new"
         assert stream.stream_max_age == 0
       end
+
+      assert Config.edge_record_dead_letter_stream().stream_duplicate_window ==
+               Config.edge_record_stream().stream_max_age
+
+      assert Config.edge_record_dead_letter_stream().stream_duplicate_window ==
+               86_400_000_000_000
     end
 
     test "routes MTR trace results to the Mtr processor from a dedicated stream" do

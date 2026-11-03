@@ -59,9 +59,8 @@ defmodule ServiceRadar.Edge.StreamRouteTest do
     end
 
     test "a dead-letter route keeps the delivered subject's class and partition" do
-      # There is deliberately no resolve_dlq/2: the version that existed took the traffic class
-      # from a contract supplied alongside the source route, so a bulk failure could be resolved
-      # into the interactive DLQ. The class and partition come from the delivered subject.
+      # The class and partition come from the delivered subject, so a bulk failure stays on
+      # the bulk dead-letter and a quarantine subject is not accepted as a source.
       for {source, contract, subject, stream, partition} <- [
             {"telemetry.edge-record.v1.bulk.p07", {"serviceradar.metrics.batch", 1},
              "telemetry.edge-record-dlq.v1.bulk.p07.serviceradar_metrics_batch.v1",
@@ -91,8 +90,6 @@ defmodule ServiceRadar.Edge.StreamRouteTest do
           ] do
         assert {:error, :not_dead_letterable} = StreamRoute.dead_letter_route(source, nil)
       end
-
-      refute function_exported?(StreamRoute, :resolve_dlq, 2)
     end
 
     test "no subject outside the seven normative families is emitted" do

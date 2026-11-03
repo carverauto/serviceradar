@@ -48,8 +48,14 @@ holds records that are valid but could not be projected.
 | `Sr-Edge-Dlq-Attempts` | the delivery count when it was dead-lettered |
 | `Sr-Edge-Dlq-First-Failed-At`, `-Last-Failed-At` | the first failure the dead-lettering node saw, and the last failure |
 
-The copy's own `Nats-Msg-Id` is `edge-dlq:<source stream>:<source sequence>`,
-so a delivery redelivered after a lost source ACK is stored once.
+The copy's own `Nats-Msg-Id` is `edge-dlq:<source stream>:<source sequence>`.
+The stream's duplicate window is 24 hours, the source stream's `MaxAge`, so a
+delivery redelivered after a lost source ACK is stored once for as long as the
+source can still redeliver it. EventWriter treats a duplicate PubAck as that
+held copy only while the sequence is still in the stream. If the sequence was
+removed, it publishes the same bytes again as
+`edge-dlq:<source stream>:<source sequence>:restored`. If that copy is gone
+too, the source stays unacknowledged.
 
 ## Alerts and metrics
 
@@ -92,9 +98,9 @@ bin/serviceradar_core_elx rpc 'IO.inspect(ServiceRadar.EventWriter.EdgeRecordDea
 ```
 
 `list/1` and `replay/1` take `subject:` (a filter on the dead-letter
-subjects, for one contract as above), `from_sequence:`, `sequences: [..]`
-and `limit:` (default 100). Each returns `next_sequence`; pass it back as
-`from_sequence` to page.
+subjects, for one contract as above), `from_sequence:` and `limit:` (default
+100). A run reads only the messages the stream held when it started. Each
+returns `next_sequence`; pass it back as `from_sequence` to page.
 
 ## Replay
 
@@ -121,8 +127,7 @@ projects the record as it does any delivery:
 Entry results:
 
 - `:replayed`: republished and deleted;
-- `:replayed_kept`: republished, but kept, either because of `delete: false`
-  or because the delete failed (see `delete_error`);
+- `:replayed_kept`: republished, but the delete failed (see `delete_error`);
 - `{:error, :source_duplicate}`: the edge-record stream reported the record's
   `Nats-Msg-Id` as a duplicate within its duplicate window, so nothing new was
   stored. The message is kept; replay it again a few minutes later;

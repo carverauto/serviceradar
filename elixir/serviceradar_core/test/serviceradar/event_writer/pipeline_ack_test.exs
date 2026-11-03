@@ -272,7 +272,10 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
                end,
                request_fun: fn subject, body, opts ->
                  send(parent, {:step, {:publish, subject, body, opts}})
-                 request.()
+
+                 if is_function(request, 3),
+                   do: request.(subject, body, opts),
+                   else: request.()
                end
              }}
         },
@@ -373,7 +376,103 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
         assert log =~ "the source delivery stays unacknowledged"
       end
     end
+
+    test "a duplicate PubAck acks the source only while that dead-letter sequence still exists" do
+      duplicate = ~s({"stream":"TELEMETRY_EDGE_RECORD_DLQ_V1_BULK","seq":9,"duplicate":true})
+      present = ~s({"message":{"seq":9}})
+      missing = ~s({"error":{"code":404,"err_code":10037,"description":"no message found"}})
+      canonical = "edge-dlq:TELEMETRY_EDGE_RECORD_V1_BULK:41"
+      restored = canonical <> ":restored"
+
+      held = fn subject, _body, _opts ->
+        if String.starts_with?(subject, "$JS.API.STREAM.MSG.GET."),
+          do: {:ok, %{body: present}},
+          else: {:ok, %{body: duplicate}}
+      end
+
+      message = failed_edge_record(2, 2, -1, held)
+      assert :ok = Pipeline.ack(:ack_ref, [], [message])
+
+      assert [
+               {:publish, "telemetry.edge-record-dlq.v1.bulk.p07.unknown.v0", @record_bytes, opts},
+               {:publish, "$JS.API.STREAM.MSG.GET.TELEMETRY_EDGE_RECORD_DLQ_V1_BULK", get_body,
+                _get_opts},
+               {:ack, :ack}
+             ] = steps()
+
+      assert Jason.decode!(get_body) == %{"seq" => 9}
+      assert header(opts, "Nats-Msg-Id") == canonical
+
+      replaced = fn subject, _body, opts ->
+        cond do
+          String.starts_with?(subject, "$JS.API.STREAM.MSG.GET.") ->
+            {:ok, %{body: missing}}
+
+          header(opts, "Nats-Msg-Id") == canonical ->
+            {:ok, %{body: duplicate}}
+
+          header(opts, "Nats-Msg-Id") == restored ->
+            {:ok, %{body: ~s({"stream":"TELEMETRY_EDGE_RECORD_DLQ_V1_BULK","seq":10})}}
+        end
+      end
+
+      message = failed_edge_record(2, 2, -1, replaced)
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert :ok = Pipeline.ack(:ack_ref, [], [message])
+        end)
+
+      assert [
+               {:publish, _, @record_bytes, first},
+               {:publish, "$JS.API.STREAM.MSG.GET.TELEMETRY_EDGE_RECORD_DLQ_V1_BULK", _, _},
+               {:publish, _, @record_bytes, second},
+               {:ack, :ack}
+             ] = steps()
+
+      assert header(first, "Nats-Msg-Id") == canonical
+      assert header(second, "Nats-Msg-Id") == restored
+      assert log =~ "dlq_sequence=10"
+
+      gone = fn subject, _body, opts ->
+        cond do
+          String.starts_with?(subject, "$JS.API.STREAM.MSG.GET.") ->
+            {:ok, %{body: missing}}
+
+          header(opts, "Nats-Msg-Id") in [canonical, restored] ->
+            {:ok, %{body: duplicate}}
+        end
+      end
+
+      message = failed_edge_record(2, 2, -1, gone)
+      assert :ok = Pipeline.ack(:ack_ref, [], [message])
+
+      assert [
+               {:publish, _, _, _},
+               {:publish, "$JS.API.STREAM.MSG.GET." <> _, _, _},
+               {:publish, _, _, _},
+               {:publish, "$JS.API.STREAM.MSG.GET." <> _, _, _},
+               {:ack, {:nack, 20_000}}
+             ] = steps()
+
+      unknown = fn subject, _body, _opts ->
+        if String.starts_with?(subject, "$JS.API.STREAM.MSG.GET."),
+          do: {:error, :timeout},
+          else: {:ok, %{body: duplicate}}
+      end
+
+      message = failed_edge_record(2, 2, -1, unknown)
+      assert :ok = Pipeline.ack(:ack_ref, [], [message])
+
+      assert [
+               {:publish, _, @record_bytes, _},
+               {:publish, "$JS.API.STREAM.MSG.GET." <> _, _, _},
+               {:ack, {:nack, 20_000}}
+             ] = steps()
+    end
   end
+
+  defp header(opts, name), do: opts |> Keyword.fetch!(:headers) |> Map.new() |> Map.fetch!(name)
 
   test "ack/3 does not crash when ack callback exits" do
     message = %Message{
