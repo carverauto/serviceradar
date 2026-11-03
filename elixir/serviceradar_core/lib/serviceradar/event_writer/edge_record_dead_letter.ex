@@ -442,8 +442,6 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter do
         %{"error" => error} -> {:error, {:jetstream, error}}
         other -> {:error, {:unexpected_reply, other}}
       end
-    else
-      {:error, reason} -> {:error, reason}
     end
   end
 
