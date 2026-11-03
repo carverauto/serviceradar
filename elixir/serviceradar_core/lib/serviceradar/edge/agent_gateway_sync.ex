@@ -186,6 +186,19 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   end
 
   @doc """
+  Records an agent's refusal to run one leased sweep slot
+  (`ServiceRadar.SweepJobs.ExecutionSlots.refuse/2`).
+  """
+  @spec record_sweep_lease_slot_refusal(String.t(), map()) :: :ok | {:error, term()}
+  def record_sweep_lease_slot_refusal(agent_id, refusal)
+      when is_binary(agent_id) and is_map(refusal) do
+    case ServiceRadar.SweepJobs.ExecutionSlots.refuse(agent_id, refusal) do
+      {:ok, _count} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
   Records the config version most recently pushed to an agent over the control
   stream.
 

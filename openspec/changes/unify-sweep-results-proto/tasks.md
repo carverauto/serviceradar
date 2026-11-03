@@ -339,12 +339,9 @@ in `choices.md` and the chart README.
       `NetworkSweeper.RunPlannedWithObserver` in
       `go/pkg/sweeper/sweeper_lifecycle.go`; `sweeper_planned_run_test.go`
       covers a config update during the run and modes the config lacks.
-    - [ ] M2.0i3 Core carrier. Depends on
-      `fix/lease-plan-agent-capability-checks` (not yet on staging). Until that
-      change lands, the planner uses one group-level check set. The branch
-      adds `SweepCompiler.agent_scan_modes/3` and
-      `LeaseEligibility.agent_checks/3`, which this task then uses for
-      per-agent check sets. `icmp.unavailable` and `mtr.unavailable` withhold
+    - [x] M2.0i3 Core carrier. Builds on
+      `SweepCompiler.agent_scan_modes/3` and `LeaseEligibility.agent_checks/3`
+      (per-agent check sets). `icmp.unavailable` and `mtr.unavailable` withhold
       those modes. The planner does not lease a group whose check set would
       need IPv6 SYN to an agent reporting `tcp_syn_ipv6.unavailable`.
       `sweep_lease_plan_checks:v1` names digest grammar 1, and core does not
@@ -362,11 +359,10 @@ in `choices.md` and the chart README.
       the capability, no agent is leased, and each leased group runs on its
       local ticker. Release this slice and M2.0i4 together, in either order,
       so that gap lasts only as long as the agent rollout.
-      TODO (reconciled 2026-11-02): the dependency landed: #6257 put
-      `SweepCompiler.agent_scan_modes/3` and `LeaseEligibility.agent_checks/3`
-      on `staging`. Remaining: carry the check sets, `lease_version` 2, the
-      refusal record and the capability gate in `LeaseDelivery`/`LeaseAgents`;
-      needs M2.0i1.
+      DONE: `LeaseAgents` gates on the capability, `LeaseDelivery` carries
+      the agent's `SweepPlan.check_set/1` at `lease_version` 2,
+      `LeaseEligibility` applies the IPv6 SYN rule, and
+      `ExecutionSlots.refuse/2` records refusals the gateway forwards.
     - [ ] M2.0i4 Agent execution. The install gate accepts `lease_version` 2
       for a push that carries slots and `lease_version` 1 for every push with
       no slots. `revoked` true withdraws the lease and the ticker resumes.

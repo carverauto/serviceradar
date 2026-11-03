@@ -10,12 +10,17 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.SweepJobs.ExecutionSlots
   alias ServiceRadar.SweepJobs.LeaseDelivery
+  alias ServiceRadar.SweepJobs.LeaseEligibility
   alias ServiceRadar.SweepJobs.LeasePass
   alias ServiceRadar.SweepJobs.ProducerAssignments
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepLeaseSetting
 
   @moduletag :integration
+
+  # Go sweepCheckSetDigest (domain serviceradar.edge.check_set.v1) for ICMP alone.
+  # Not computed by SweepPlan.
+  @icmp_check_set "5f6c98de96c9219b10bd509a42e23615a44ad939481c1dc4178f2650dfacfd13"
 
   @key IssuerKey.from_seed(:binary.copy(<<0x5A>>, 32))
   @contract %{
@@ -63,6 +68,19 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
     assert lease.window_start_unix_nano == DateTime.to_unix(now, :nanosecond)
     refute lease.revoked
     assert Enum.map(lease.slots, & &1.execution_id) == Enum.map(slots, &Ecto.UUID.dump!(&1.id))
+
+    # A push with slots carries the one check set their plan headers name.
+    assert lease.lease_version == 2
+
+    assert [
+             %{
+               digest_version: 1,
+               checks: [%{mode: :SWEEP_MODE_ICMP, protocol: :TRANSPORT_PROTOCOL_ICMP, port: 0}]
+             } = carried
+           ] = lease.check_sets
+
+    assert Base.encode16(carried.check_set_sha256, case: :lower) == @icmp_check_set
+    assert Enum.all?(lease.slots, &(&1.plan_header.check_set_sha256 == carried.check_set_sha256))
 
     cap = lease.production_capability
     assert CapabilitySigning.verify(cap, :production, @key.public_key)
@@ -265,7 +283,13 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
 
     # Still inside the ack grace, so only the short cursor forces this resend.
     assert {:ok, :pushed} =
-             LeaseDelivery.deliver(assignment, ctx.delivery.authority, later, ctx.delivery.sender)
+             LeaseDelivery.deliver(
+               assignment,
+               ctx.delivery.authority,
+               later,
+               ctx.delivery.sender,
+               checks!(group)
+             )
 
     assert_receive {:pushed, _, _, resent, _}
     assert resent.lease_id == first.lease_id
@@ -314,6 +338,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
     assert cleared.lease_id == first.lease_id
     refute cleared.revoked
     assert cleared.slots == []
+    assert {cleared.lease_version, cleared.check_sets} == {1, []}
     assert cleared.production_capability == nil
     assert cleared.window_start_unix_nano == DateTime.to_unix(now, :nanosecond)
     assert cleared.window_end_unix_nano == first.window_end_unix_nano
@@ -415,7 +440,13 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
              )
 
     assert {:ok, :pushed} =
-             LeaseDelivery.deliver(assignment, ctx.delivery.authority, now, ctx.delivery.sender)
+             LeaseDelivery.deliver(
+               assignment,
+               ctx.delivery.authority,
+               now,
+               ctx.delivery.sender,
+               checks!(group)
+             )
 
     assert_receive {:pushed, _, _, lease, payload}
     assert lease.window_start_unix_nano == DateTime.to_unix(now, :nanosecond)
@@ -432,7 +463,13 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
              })
 
     assert {:ok, :up_to_date} =
-             LeaseDelivery.deliver(assignment, ctx.delivery.authority, now, ctx.delivery.sender)
+             LeaseDelivery.deliver(
+               assignment,
+               ctx.delivery.authority,
+               now,
+               ctx.delivery.sender,
+               checks!(group)
+             )
   end
 
   test "an unacknowledged full window is resent before the acknowledgement grace", ctx do
@@ -697,6 +734,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
     assert revocation.revoked
     assert revocation.lease_id == first.lease_id
     assert revocation.slots == []
+    assert {revocation.lease_version, revocation.check_sets} == {1, []}
     assert revocation.production_capability == nil
     assert {:ok, [pending]} = LeaseDelivery.list_for_group(group.id)
     assert pending.revoked_at
@@ -1042,7 +1080,9 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
 
     assert {:ok, _agent} =
              Agent
-             |> Ash.Changeset.for_create(:register, %{uid: uid, device_uid: device_uid},
+             |> Ash.Changeset.for_create(
+               :register,
+               %{uid: uid, device_uid: device_uid, capabilities: ["sweep_lease_plan_checks:v1"]},
                actor: admin
              )
              |> Ash.create()
@@ -1074,6 +1114,13 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
       end)
     end)
     |> Enum.uniq()
+  end
+
+  defp checks!(group) do
+    assert {:ok, %{checks: checks}} =
+             LeaseEligibility.agent_checks(group, nil, ["sweep_lease_plan_checks:v1"])
+
+    checks
   end
 
   defp assignment!(group, agent_id) do

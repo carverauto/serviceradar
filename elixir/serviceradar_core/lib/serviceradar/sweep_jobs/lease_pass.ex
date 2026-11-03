@@ -362,7 +362,7 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
          {:ok, unrun} <- ExecutionSlots.list_unrun(assignment.id, now) do
       assignment
       |> sync_slots(agent.inputs, agent.slots, unrun)
-      |> add(deliver(assignment, now, delivery))
+      |> add(deliver(assignment, agent.inputs.checks, now, delivery))
     else
       {:error, reason} ->
         Logger.warning(
@@ -384,10 +384,10 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
     end
   end
 
-  defp deliver(_assignment, _now, nil), do: empty()
+  defp deliver(_assignment, _checks, _now, nil), do: empty()
 
-  defp deliver(assignment, now, %{authority: authority, sender: sender}) do
-    case LeaseDelivery.deliver(assignment, authority, now, sender) do
+  defp deliver(assignment, checks, now, %{authority: authority, sender: sender}) do
+    case LeaseDelivery.deliver(assignment, authority, now, sender, checks) do
       {:ok, :pushed} ->
         %{empty() | pushed: 1}
 

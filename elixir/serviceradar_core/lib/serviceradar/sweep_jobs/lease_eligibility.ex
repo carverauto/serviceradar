@@ -13,10 +13,13 @@ defmodule ServiceRadar.SweepJobs.LeaseEligibility do
   group as one agent runs it (`agent_checks/3`): the modes and ports that agent's delivered
   sweep config carries for the group (`SweepCompiler.agent_scan_modes/3`, so profile as base,
   group overrides on top, and the modes the agent reports it cannot run withheld), which must
-  reduce to ICMP and TCP checks with no MTR. The agent compares that config's check set with
-  the plan's `check_set_sha256` and refuses a slot whose sets differ, so the plan is built
-  from the same function and never from the group's modes alone. An agent that can run none
-  of the group's modes is not leased the group, as it is not sent the group at all.
+  reduce to ICMP and TCP checks with no MTR. The lease carries those checks and the agent runs
+  exactly them, so a mode it reports it cannot run must not be in them. An agent that can run
+  none of the group's modes is not leased the group, as it is not sent the group at all. An
+  agent reporting `tcp_syn_ipv6.unavailable` would run TCP SYN on an IPv6 range as a connect
+  scan, which the plan does not sign, so a group whose checks include TCP SYN and whose
+  targets include an IPv6 range is not leased to it. One plan carries one check set, so that
+  mode cannot be withheld for the IPv6 ranges alone.
 
   A group that fails any of these stays on the legacy path, for that agent or, for a group
   property, for every agent. One execution is never split across the two paths.
@@ -24,9 +27,13 @@ defmodule ServiceRadar.SweepJobs.LeaseEligibility do
 
   alias ServiceRadar.AgentConfig.Compilers.SweepCompiler
   alias ServiceRadar.Edge.SweepPlan
+  alias Serviceradar.Edge.V1.SweepMode
   alias ServiceRadar.SweepJobs.LeaseSchedule
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepProfile
+
+  @ipv6_syn_unavailable "tcp_syn_ipv6.unavailable"
+  @mode_tcp_syn SweepMode.value(:SWEEP_MODE_TCP_SYN)
 
   @type plan_inputs :: %{
           targets: [String.t()],
@@ -47,6 +54,7 @@ defmodule ServiceRadar.SweepJobs.LeaseEligibility do
           | :has_target_query
           | :banner_grab_enabled
           | :all_modes_withheld
+          | :ipv6_syn_unavailable
           | SweepPlan.reason()
           | LeaseSchedule.reason()
 
@@ -84,16 +92,49 @@ defmodule ServiceRadar.SweepJobs.LeaseEligibility do
   @doc """
   The checks of the group as an agent reporting `capabilities` runs it, and their
   `check_set_sha256`: exactly the checks of that agent's delivered sweep config for the group.
-  `{:error, :all_modes_withheld}` when the agent can run none of the group's modes.
+  `{:error, :all_modes_withheld}` when the agent can run none of the group's modes, and
+  `{:error, :ipv6_syn_unavailable}` when the checks need raw IPv6 SYN on one of the group's
+  IPv6 ranges and the agent reports it cannot run it.
   """
   @spec agent_checks(SweepGroup.t(), SweepProfile.t() | nil, capabilities()) ::
           {:ok, agent_inputs()} | {:error, reason()}
   def agent_checks(%SweepGroup{} = group, profile, capabilities) do
     with {:ok, %{modes: modes, ports: ports}} <- agent_scan_modes(group, profile, capabilities),
-         {:ok, checks} <- SweepPlan.checks(modes, ports) do
+         {:ok, checks} <- SweepPlan.checks(modes, ports),
+         :ok <- ipv6_syn_runnable(group, checks, capabilities) do
       {:ok, %{checks: checks, check_set_sha256: SweepPlan.check_set_sha256(checks)}}
     end
   end
+
+  defp ipv6_syn_runnable(group, checks, capabilities) do
+    if reports?(capabilities, @ipv6_syn_unavailable) and
+         Enum.any?(checks, &match?({@mode_tcp_syn, _, _}, &1)) and ipv6_target?(group) do
+      {:error, :ipv6_syn_unavailable}
+    else
+      :ok
+    end
+  end
+
+  defp reports?(capabilities, marker),
+    do: Enum.any?(List.wrap(capabilities), &(to_string(&1) == marker))
+
+  # An IPv4-mapped address is IPv4 to the agent's scanner, as `net.IP.To4` reads it.
+  defp ipv6_target?(%{static_targets: targets}) when is_list(targets) do
+    Enum.any?(targets, fn target ->
+      with {:ok, %{cidr: cidr}} <- SweepPlan.canonical_target(target),
+           [address | _] = String.split(cidr, "/"),
+           {:ok, ip} <- :inet.parse_address(String.to_charlist(address)) do
+        ipv6_address?(ip)
+      else
+        _ -> false
+      end
+    end)
+  end
+
+  defp ipv6_target?(_group), do: false
+
+  defp ipv6_address?({0, 0, 0, 0, 0, 0xFFFF, _, _}), do: false
+  defp ipv6_address?(ip), do: tuple_size(ip) == 8
 
   defp agent_scan_modes(group, profile, capabilities) do
     case SweepCompiler.agent_scan_modes(group, profile, capabilities) do

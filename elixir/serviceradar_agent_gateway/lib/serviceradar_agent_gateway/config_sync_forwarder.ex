@@ -142,6 +142,23 @@ defmodule ServiceRadarAgentGateway.ConfigSyncForwarder do
     ])
   end
 
+  @doc "Persists an agent's refusal to run one leased sweep slot on core."
+  @spec record_sweep_lease_slot_refusal(String.t(), Monitoring.SweepLeaseSlotRefusal.t()) ::
+          :ok | {:error, term()}
+  def record_sweep_lease_slot_refusal(agent_id, %Monitoring.SweepLeaseSlotRefusal{} = refusal) do
+    core_call(:record_sweep_lease_slot_refusal, [
+      agent_id,
+      %{
+        sweep_group_id: refusal.sweep_group_id,
+        lease_id: refusal.lease_id,
+        execution_id: refusal.execution_id,
+        reason: refusal.reason,
+        unavailable_capabilities: refusal.unavailable_capabilities,
+        detail: refusal.detail
+      }
+    ])
+  end
+
   defp section_statuses([_ | _] = statuses) do
     Enum.map(statuses, fn status ->
       %{

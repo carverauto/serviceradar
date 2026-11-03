@@ -239,6 +239,10 @@ defmodule ServiceRadar.Edge.HashGrammar do
     :crypto.hash(:sha256, io)
   end
 
+  @doc "The version of the check-set digest grammar, as a `SweepCheckSetV1` names it."
+  @spec check_set_digest_version() :: pos_integer()
+  def check_set_digest_version, do: @check_set_digest_version
+
   @doc """
   Identity of an exact set of `(mode, protocol, port)` checks: the `check_set_sha256` a plan,
   its pages and its ranges carry.

@@ -39,6 +39,8 @@ defmodule ServiceRadar.Edge.SweepPlan do
   alias ServiceRadar.Edge.PlanValidate
   alias Serviceradar.Edge.V1.ScheduledPlanHeaderV1
   alias Serviceradar.Edge.V1.ScheduledPlanPageV1
+  alias Serviceradar.Edge.V1.SweepCheckSetV1
+  alias Serviceradar.Edge.V1.SweepTestV1
   alias Serviceradar.Edge.V1.TargetRangeV1
 
   @max_ranges_per_page 256
@@ -95,6 +97,25 @@ defmodule ServiceRadar.Edge.SweepPlan do
   @doc "The `check_set_sha256` of a set of checks."
   @spec check_set_sha256([check()]) :: binary()
   def check_set_sha256(checks), do: HashGrammar.check_set_digest(checks)
+
+  @doc """
+  The `SweepCheckSetV1` a sweep lease carries for a set of checks: its checks sorted and
+  de-duplicated, keyed by their `check_set_sha256`.
+  """
+  @spec check_set([check()]) :: SweepCheckSetV1.t()
+  def check_set(checks) when is_list(checks) do
+    %SweepCheckSetV1{
+      check_set_sha256: check_set_sha256(checks),
+      digest_version: HashGrammar.check_set_digest_version(),
+      checks:
+        checks
+        |> Enum.uniq()
+        |> Enum.sort()
+        |> Enum.map(fn {mode, protocol, port} ->
+          %SweepTestV1{mode: mode, protocol: protocol, port: port}
+        end)
+    }
+  end
 
   @doc """
   The canonical form of one static target: its CIDR spelling, its address count, and the

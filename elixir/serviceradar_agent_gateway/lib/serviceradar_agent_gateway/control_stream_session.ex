@@ -962,22 +962,20 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
       else: {:error, :sweep_lease_unsupported}
   end
 
-  # Record the agent's answer to a lease push on core. Fire-and-forget, like a config ack: a
-  # core outage must not stall the control stream, and an unrecorded ack only makes core resend
-  # the whole lease window later.
-  defp handle_sweep_lease_payload({:sweep_lease_ack, ack}, state), do: forward_sweep_lease_ack(state, ack)
+  # Record the agent's lease reports on core. Fire-and-forget, like a config ack: a core outage
+  # must not stall the control stream. An unrecorded ack only makes core resend the whole lease
+  # window later, and the agent re-sends every refusal it holds on each reconnect.
+  defp handle_sweep_lease_payload({:sweep_lease_ack, ack}, state),
+    do: forward_to_core(state, &ConfigSyncForwarder.record_sweep_lease_ack(&1, ack))
 
-  # Nothing on core records a slot refusal yet, so it is dropped here exactly as a
-  # gateway without the message drops it. The agent re-sends every refusal it holds
-  # on each reconnect, so a later gateway still delivers it.
-  defp handle_sweep_lease_payload({:sweep_lease_slot_refusal, _refusal}, state), do: state
+  defp handle_sweep_lease_payload({:sweep_lease_slot_refusal, refusal}, state),
+    do: forward_to_core(state, &ConfigSyncForwarder.record_sweep_lease_slot_refusal(&1, refusal))
 
-  defp forward_sweep_lease_ack(state, ack) do
+  defp forward_to_core(state, record) do
     if registered_agent?(state) do
       agent_id = state.agent_id
 
-      {:ok, _pid} =
-        Task.start(fn -> ConfigSyncForwarder.record_sweep_lease_ack(agent_id, ack) end)
+      {:ok, _pid} = Task.start(fn -> record.(agent_id) end)
     end
 
     state

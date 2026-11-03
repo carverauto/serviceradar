@@ -3,8 +3,8 @@ defmodule ServiceRadar.Edge.SweepLeaseCheckSetsCorpusTest do
   M2.0i1: the plan-carried check-set corpus, the encoding half.
 
   Each `sweep_lease_check_sets_*.bin` fixture is a `SweepLeaseV1` push that this runtime
-  encodes from plans built by `ServiceRadar.Edge.SweepPlan`, with check sets keyed by
-  `SweepPlan.check_set_sha256/1`. The committed bytes must equal this encoding, and
+  encodes from plans and check sets built by `ServiceRadar.Edge.SweepPlan`
+  (`SweepPlan.check_set/1`, the set a lease push carries). The committed bytes must equal this encoding, and
   `go/pkg/edge/edgerecord/sweep_lease_check_sets_corpus_test.go` decodes the same files and
   asserts each one's verdict, so a drift in either the Elixir encoding or the Go carrier
   contract fails a test instead of a push the agent refuses.
@@ -14,10 +14,8 @@ defmodule ServiceRadar.Edge.SweepLeaseCheckSetsCorpusTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Edge.SweepPlan
-  alias Serviceradar.Edge.V1.SweepCheckSetV1
   alias Serviceradar.Edge.V1.SweepLeaseSlotV1
   alias Serviceradar.Edge.V1.SweepLeaseV1
-  alias Serviceradar.Edge.V1.SweepTestV1
 
   @testdata Path.expand("../../../../../proto/edge/v1/testdata", __DIR__)
 
@@ -31,17 +29,6 @@ defmodule ServiceRadar.Edge.SweepLeaseCheckSetsCorpusTest do
   defp checks!(modes, ports) do
     {:ok, checks} = SweepPlan.checks(modes, ports)
     checks
-  end
-
-  defp check_set(checks, digest_version \\ 1) do
-    %SweepCheckSetV1{
-      check_set_sha256: SweepPlan.check_set_sha256(checks),
-      digest_version: digest_version,
-      checks:
-        Enum.map(checks, fn {mode, protocol, port} ->
-          %SweepTestV1{mode: mode, protocol: protocol, port: port}
-        end)
-    }
   end
 
   defp slot(index, check_set_sha256) do
@@ -90,14 +77,14 @@ defmodule ServiceRadar.Edge.SweepLeaseCheckSetsCorpusTest do
   end
 
   defp corpus do
-    tcp = check_set(checks!(["icmp", "tcp"], [443, 22]))
-    icmp = check_set(checks!(["icmp"], []))
-    unreferenced = check_set(checks!(["tcp"], [80]))
+    tcp = SweepPlan.check_set(checks!(["icmp", "tcp"], [443, 22]))
+    icmp = SweepPlan.check_set(checks!(["icmp"], []))
+    unreferenced = SweepPlan.check_set(checks!(["tcp"], [80]))
     [_icmp_check, ssh, https] = tcp.checks
     tampered = %{tcp | checks: [hd(tcp.checks), ssh, %{https | port: 8443}]}
     # TCP SYN on 22 and 443 but TCP connect on 80 only: a valid set the scanner, which runs
     # every TCP mode on every port, cannot express.
-    mixed = check_set(checks!(["tcp"], [22, 443]) ++ checks!(["tcp_connect"], [80]))
+    mixed = SweepPlan.check_set(checks!(["tcp"], [22, 443]) ++ checks!(["tcp_connect"], [80]))
     future = %{icmp | digest_version: 2}
 
     slots = [

@@ -125,13 +125,20 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       assert Repo.get!(SweepGroupExecution, execution_id).status == :completed
     end
 
-    test "a batch for a dropped slot is refused" do
-      %{record_bytes: record_bytes, headers: headers, batch: batch} = build_frame()
-      execution_id = Ecto.UUID.cast!(batch.execution_id)
-      set_slot_state!(execution_id, "dropped")
+    # A dropped slot was withdrawn, and a refused slot is the agent's report that it did not
+    # run it. Neither reopens the way a missed slot does.
+    for state <- ["dropped", "refused"] do
+      test "a batch for a #{state} slot is refused" do
+        %{record_bytes: record_bytes, headers: headers, batch: batch} = build_frame()
+        execution_id = Ecto.UUID.cast!(batch.execution_id)
+        set_slot_state!(execution_id, unquote(state))
 
-      assert {:error, :sweep_slot_mismatch} = EdgeRecord.ingest(record_bytes, headers, Repo)
-      refute Repo.get(SweepGroupExecution, execution_id)
+        assert {:error, :sweep_slot_mismatch} = EdgeRecord.ingest(record_bytes, headers, Repo)
+        refute Repo.get(SweepGroupExecution, execution_id)
+
+        assert Repo.get!(SweepExecutionSlot, execution_id).state ==
+                 String.to_existing_atom(unquote(state))
+      end
     end
 
     test "a late-fenced batch records its batch coordinate and does not project" do

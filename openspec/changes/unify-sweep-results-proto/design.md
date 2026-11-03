@@ -2655,22 +2655,16 @@ gateway -> `AgentGatewaySync` -> `ServiceRadar.SweepJobs`):
   reopen it.
 - The next pass excludes a mode only through the agent's reported
   capabilities. Core does not turn refusals into exclusions of its own.
-  Per-agent check sets are not on staging. They come from the dependency
-  change on branch `fix/lease-plan-agent-capability-checks`
-  (`SweepCompiler.agent_scan_modes/3` and `LeaseEligibility.agent_checks/3`).
-  Until that change lands, the planner uses one group-level check set.
-  M2.0i3 depends on that change. Once it has landed, the agent reports the
-  marker before it refuses the slot. `icmp.unavailable` and `mtr.unavailable`
+  Per-agent check sets come from `SweepCompiler.agent_scan_modes/3` and
+  `LeaseEligibility.agent_checks/3`. The agent reports the marker before it
+  refuses the slot. `icmp.unavailable` and `mtr.unavailable`
   withhold that mode on the next pass. `tcp_syn_ipv6.unavailable` means the
   planner does not lease a group whose check set would need IPv6 SYN to that
   agent. The changed check set then re-plans that agent's unrun slots, and
   the drop-and-full-push rule replaces them on the agent.
 
-**Core planner changes.** Until `fix/lease-plan-agent-capability-checks`
-lands, the lease pass plans one group-level check set and applies that digest
-to every candidate. That branch is not on staging. It adds
-`SweepCompiler.agent_scan_modes/3` and `LeaseEligibility.agent_checks/3`, and
-M2.0i3 depends on it. After it lands, `LeaseDelivery.deliver` receives that
+**Core planner changes.** The lease pass plans each agent's own check set
+(`LeaseEligibility.agent_checks/3`). `LeaseDelivery.deliver` receives that
 agent's checks, carries them as the push's `check_sets` entry, and pushes
 only slots whose stored `check_set_sha256` equals their digest. `sync_slots`
 then drops every other unrun slot of that agent in the same pass, so no slot
