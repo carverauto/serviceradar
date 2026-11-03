@@ -145,8 +145,10 @@ type PushLoop struct {
 	configSectionFailures map[string]configSectionFailure // persistent config-section apply failure, by section name (drives skip + escalate-once + per-section ack)
 
 	edgeSweepSpool *spool.Spool
-	// edgeMetricsSpool receives metrics batch records while the agent holds a
-	// standing grant for that contract; nil keeps every metric on its legacy path.
+	// edgeMetricsSpool is the sender's one open bulk spool. Metric batches,
+	// flow-attribution windows, and OTLP relay frames append here while the
+	// agent holds the matching standing grant. Nil keeps each of those on its
+	// legacy path.
 	edgeMetricsSpool edgeMetricsAppender
 	// edgeTelemetrySpool is the same one open spool, connected for plugin and
 	// add-on telemetry while telemetry emission is enabled; nil keeps

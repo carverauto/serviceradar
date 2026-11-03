@@ -453,7 +453,13 @@ base64-encoded 32-byte seed (the Secret's data encoding wraps that text).
 
 `edgeRecords.agentSweepEnabled` enables the bundled agent's sweep producer.
 `edgeRecords.agentMetricsEnabled` enables its sysmon, SNMP, ICMP, MTR scalar
-and periodic sweep summary metrics producers on the same spool.
+and periodic sweep summary metrics producers on the same spool. That spool is
+also where flow-attribution windows and OTLP relay frames go while the agent
+holds a current `serviceradar.netprobe.flow_attribution` version 1 or
+`serviceradar.otlp.relay` version 1 grant. Without `agentMetricsEnabled`, those
+stay on the status path even if core has issued the grant. The gateway still
+has to admit the contract, so `contractRegistry` must include an active entry
+for each one in use.
 `edgeRecords.agentTelemetryEnabled` enables its plugin and native add-on
 telemetry producer on that spool. Each of these flags requires
 `edgeRecords.enabled` and `agent.runtimeStorage.enabled=true`. The spool lives

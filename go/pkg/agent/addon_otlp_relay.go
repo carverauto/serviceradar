@@ -51,9 +51,10 @@ const (
 	otlpRelaySource      = "otlp-relay"
 
 	// otlpRelayWindowMaxFrames/Bytes bound the in-flight window: frames pulled
-	// from the add-on but not yet accepted by the gateway. When either bound
-	// is reached the pump stops pulling and flushes; pulling resumes only
-	// after the gateway accepted the window and the cumulative ack was sent.
+	// from the add-on but not yet resolved. When either bound is reached the
+	// pump stops pulling and flushes; pulling resumes only after the window
+	// is accepted (edge spool append, and gateway status when a record took
+	// that path) and the cumulative ack was sent.
 	otlpRelayWindowMaxFrames = 64
 	otlpRelayWindowMaxBytes  = 8 * 1024 * 1024
 
@@ -72,15 +73,15 @@ const (
 	otlpRelayMaxChunkMessageBytes = 6 * 1024 * 1024
 
 	// otlpRelayFlushInterval is the maximum latency between pulling the first
-	// pending frame and flushing it to the gateway; the pump flushes earlier
-	// when the window fills.
+	// pending frame and flushing it; the pump flushes earlier when the window
+	// fills.
 	otlpRelayFlushInterval = 100 * time.Millisecond
 
 	// otlpRelayPushTimeout bounds a single StreamStatus call.
 	otlpRelayPushTimeout = 30 * time.Second
 
 	// otlpRelayRetryBackoff* drive the exponential backoff between failed
-	// gateway flushes. Frames stay pending (and unacked) across retries.
+	// flushes. Frames stay pending (and unacked) across retries.
 	otlpRelayRetryBackoffInitial = time.Second
 	otlpRelayRetryBackoffMax     = 30 * time.Second
 
@@ -358,11 +359,12 @@ func (p *otlpRelayPump) run(ctx context.Context, frames <-chan *addonpb.OtlpRela
 	}
 	defer stopTimer()
 
-	// flush delivers pending statuses (retrying until the gateway accepts
-	// them), then advances the cumulative ack watermark: at this point every
-	// frame pulled so far is resolved (delivered or skipped), so the
-	// watermark is the highest pulled relay_id. Returns false when the pump
-	// must stop (ctx done or broken ack channel).
+	// flush appends pending edge records and delivers any gateway statuses
+	// (retrying until both succeed), then advances the cumulative ack
+	// watermark: at this point every frame pulled so far is resolved
+	// (delivered or skipped), so the watermark is the highest pulled
+	// relay_id. Returns false when the pump must stop (ctx done or broken
+	// ack channel).
 	flush := func() bool {
 		stopTimer()
 
@@ -496,10 +498,10 @@ func (p *otlpRelayPump) run(ctx context.Context, frames <-chan *addonpb.OtlpRela
 	}
 }
 
-// flushWithRetry delivers pending statuses to the gateway, retrying with
-// exponential backoff until the gateway accepts them or ctx ends. Frames are
-// never dropped here: on persistent failure they stay pending and unacked, so
-// the add-on's durable spool retains them.
+// flushWithRetry appends pending edge records and delivers any gateway
+// statuses, retrying with exponential backoff until both succeed or ctx ends.
+// Frames are never dropped here: on persistent failure they stay pending and
+// unacked, so the add-on's durable spool retains them.
 func (p *otlpRelayPump) flushWithRetry(ctx context.Context, pending []otlpRelayPending) bool {
 	backoff := p.retryBackoffInitial
 	for {

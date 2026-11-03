@@ -152,8 +152,9 @@ type edgeMetricsAppender interface {
 	AppendFlow(flow string, eventID, body []byte) (uint64, error)
 }
 
-// SetEdgeMetricsSpool connects metric producers to the sender's one open spool.
-// Call before Start; a nil spool keeps every metric on its legacy path.
+// SetEdgeMetricsSpool connects metric, flow-attribution, and OTLP relay
+// producers to the sender's one open spool. Call before Start; a nil spool
+// keeps each of those on its legacy path.
 func (p *PushLoop) SetEdgeMetricsSpool(sp *spool.Spool) {
 	if sp == nil {
 		p.edgeMetricsSpool = nil

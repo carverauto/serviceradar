@@ -18,17 +18,23 @@
 //
 // The netprobe sidecar emits FlowAttributionEvent records on its
 // flowEvents channel. This file drains those events on each push
-// loop tick and forwards them to the agent-gateway inside the existing
-// GatewayServiceStatus envelope, keyed by Source="flow-attribution".
+// loop tick. With a current serviceradar.netprobe.flow_attribution
+// grant and the bulk spool connected, pushFlowAttributionEdge commits
+// the batch and does not call StreamStatus. Otherwise it forwards the
+// batch to the agent-gateway inside GatewayServiceStatus, keyed by
+// Source="flow-attribution". Payload rules live on
+// FlowAttributionEventBatch in proto/agent/netprobe/v1/netprobe.proto.
 //
-// The core-side 5-tuple join consumer reads these batches and pairs
-// them with AttributedFlowMessage records published by the host-slice
-// flow collector on `flow.host-slice.<agent_id>`.
+// The core-side 5-tuple join consumer reads the published observations
+// and pairs them with AttributedFlowMessage records published by the
+// host-slice flow collector on `flow.host-slice.<agent_id>`.
 //
 // Partition guard (B-4 defeater): the agent does NOT populate any
-// partition field inside the batch payload. The cert-derived
-// partition_id attached at the agent-gateway is the only value used
-// by core; the envelope's Partition field is informational only.
+// partition field inside the batch payload. On the status path, the
+// cert-derived partition_id attached at the agent-gateway is the only
+// value used by core; the envelope's Partition field is informational
+// only. On the edge path, core resolves the partition from the record's
+// network_scope_id.
 package agent
 
 import (
