@@ -9,7 +9,11 @@ callers, so its two workers can run two chunks from the same agent at once.
 Per-agent item and byte caps still apply, and the plugin lane has two database
 permits. Type ingestion and irreversible transitions are never coalesced. Only
 completed service-state projections with all five identity fields may replace
-an older pending projection.
+an older pending projection. On the `service_state` lane, that replacement is
+counted as `coalesced`, and a reservation that times out or whose caller exits
+before publish is counted as `expired`. Admitted work on that lane reconciles
+against accepted completions, those two counts, and entries still pending.
+Settings → Cluster shows the counts as Coalesced / Expired.
 
 ## Acknowledgements and version pairing
 
@@ -287,9 +291,12 @@ in-memory coordinator state:
   byte occupancy, and both caps are
   summed across connected cores, so pending / max is cluster occupancy over
   cluster capacity. Admitted, rejected, accepted, not-accepted, timeout, crash,
-  and incomplete-run totals are summed the same way. Those outcome columns are
-  cumulative for the life of each core process; the summary card does not use
-  them.
+  coalesced, expired, and incomplete-run totals are summed the same way. The
+  Coalesced / Expired column is the `service_state` counts above; other lanes
+  show zero. Those outcome columns are cumulative for the life of each core
+  process; the summary card does not use them. The `topology_projection` and
+  `dgraph` lanes are published on `metrics.ingestion_lanes` and are not rows in
+  this table; see [Projection lag](docs/network-topology.md#projection-lag).
 
 Two synthetic harnesses are selected by ordinary PR BazelCI:
 
