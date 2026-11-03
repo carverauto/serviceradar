@@ -83,8 +83,6 @@ _TAG_ATTRIBUTE_RE = re.compile(r"^[ \t]*@(moduletag|tag)[ \t]+:([A-Za-z0-9_]+)[ 
 UNROUTED_TEST_SOURCES = {
     "test/integration/srql_nif_integration_test.exs":
         "env-gated (SRQL_INTEGRATION=1); needs a live database and the SRQL NIF",
-    "test/integration/graph_cypher_integration_test.exs":
-        "env-gated (SRQL_INTEGRATION=1); needs a live database with the AGE graph",
     "test/property/srql_property_test.exs":
         "property suite; exercises SRQL compilation paths that need the SRQL NIF",
 }

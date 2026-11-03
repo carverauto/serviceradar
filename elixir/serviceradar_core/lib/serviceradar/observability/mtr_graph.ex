@@ -129,12 +129,24 @@ defmodule ServiceRadar.Observability.MtrGraph do
           from_kind: mtr_node_kind(from_label),
           to_kind: mtr_node_kind(to_label),
           agent_id: agent_id,
-          observed_at: observed_at
+          observed_at: observed_at,
+          mtr: path_metrics(from_hop, to_hop)
         })
 
       {:error, reason} ->
         Logger.warning("MTR graph edge upsert failed: #{inspect(reason)}")
     end
+  end
+
+  # The far hop's measurements describe the segment that ends there.
+  defp path_metrics(from_hop, to_hop) do
+    %{
+      avg_us: hop_int(to_hop, "avg_us", 0),
+      loss_pct: hop_float(to_hop, "loss_pct", 0.0),
+      jitter_us: hop_int(to_hop, "jitter_us", 0),
+      from_hop: hop_int(from_hop, "hop_number", 0),
+      to_hop: hop_int(to_hop, "hop_number", 0)
+    }
   end
 
   defp mtr_node_kind("MtrHop"), do: :hop

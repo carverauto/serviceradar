@@ -113,7 +113,6 @@ fn has_availability_filter(plan: &QueryPlan, expected: bool) -> bool {
 fn test_config() -> AppConfig {
     AppConfig {
         database_url: "postgres://example/db".to_string(),
-        age_graph_name: "platform_graph".to_string(),
         starrocks_database: "serviceradar".to_string(),
         dgraph_url: None,
         max_pool_size: 1,

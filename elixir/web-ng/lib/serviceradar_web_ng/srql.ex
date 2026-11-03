@@ -29,6 +29,7 @@ defmodule ServiceRadarWebNG.SRQL do
   alias ServiceRadar.Repo
   alias ServiceRadarWebNG.SRQL.EntityAccess
   alias ServiceRadarWebNG.SRQL.FleetQuery
+  alias ServiceRadarWebNG.SRQL.GraphQuery
   alias ServiceRadarWebNG.SRQL.Native
 
   require Logger
@@ -104,29 +105,28 @@ defmodule ServiceRadarWebNG.SRQL do
           denied
 
         {:ok, permitted_signals} ->
-          if entity == "dashboards" do
-            {:ok,
-             %{
-               "results" => dashboard_search_rows(scope, query, limit),
-               "pagination" => %{"next_cursor" => nil, "previous_cursor" => nil},
-               "viz" => nil,
-               "error" => nil
-             }}
-          else
-            with {:ok, mode} <- resolve_backend_mode(query),
-                 {:ok, translation} <-
-                   translate(query, limit, cursor, direction, mode, permitted_signals),
-                 {:ok, translation, mode} <-
-                   RollupFreshness.settle(
-                     translation,
-                     mode,
-                     &translate(query, limit, cursor, direction, &1, permitted_signals)
-                   ) do
-              translation
-              |> Map.put("_query", query)
-              |> Map.put("_scope", scope)
-              |> execute_backend(mode)
-            end
+          cond do
+            entity == "dashboards" ->
+              {:ok, unpaged_response(dashboard_search_rows(scope, query, limit))}
+
+            GraphQuery.entity?(entity) ->
+              with {:ok, rows} <- GraphQuery.execute(query), do: {:ok, unpaged_response(rows)}
+
+            true ->
+              with {:ok, mode} <- resolve_backend_mode(query),
+                   {:ok, translation} <-
+                     translate(query, limit, cursor, direction, mode, permitted_signals),
+                   {:ok, translation, mode} <-
+                     RollupFreshness.settle(
+                       translation,
+                       mode,
+                       &translate(query, limit, cursor, direction, &1, permitted_signals)
+                     ) do
+                translation
+                |> Map.put("_query", query)
+                |> Map.put("_scope", scope)
+                |> execute_backend(mode)
+              end
           end
       end
 
@@ -134,6 +134,15 @@ defmodule ServiceRadarWebNG.SRQL do
     emit_telemetry(entity, start_time, status)
 
     result
+  end
+
+  defp unpaged_response(rows) do
+    %{
+      "results" => rows,
+      "pagination" => %{"next_cursor" => nil, "previous_cursor" => nil},
+      "viz" => nil,
+      "error" => nil
+    }
   end
 
   defp dashboard_search_rows(scope, query, limit) do

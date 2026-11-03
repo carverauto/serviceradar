@@ -8,7 +8,7 @@
 
 use dgraph_topology::{
     CanonicalDevice, CanonicalEdge, CanonicalGraph, ChangeWrite, DeviceWrite, EdgeKind, EdgeWrite,
-    HopWrite, InterfaceWrite, NeighbourhoodEdge, PrefixWrite,
+    HopWrite, InterfaceWrite, MtrMetrics, MtrPath, NeighbourhoodEdge, PrefixWrite,
 };
 use rustler::{NifMap, NifTaggedEnum, NifUnitEnum};
 
@@ -31,6 +31,47 @@ pub enum CountResult {
 pub enum KeysResult {
     Ok(Vec<String>),
     Error(String),
+}
+
+/// Elixir `{:ok, [path]}` / `{:error, reason}`.
+#[derive(Clone, Debug, NifTaggedEnum)]
+pub enum MtrPathsResult {
+    Ok(Vec<NifMtrPath>),
+    Error(String),
+}
+
+/// One `MTR_PATH` edge as the overlays render it.
+#[derive(Clone, Debug, PartialEq, NifMap)]
+pub struct NifMtrPath {
+    pub source: String,
+    pub target: String,
+    pub source_addr: String,
+    pub target_addr: String,
+    pub avg_us: i64,
+    pub loss_pct: f64,
+    pub jitter_us: i64,
+    pub from_hop: i64,
+    pub to_hop: i64,
+    pub agent_id: String,
+    pub last_seen: String,
+}
+
+impl From<&MtrPath> for NifMtrPath {
+    fn from(path: &MtrPath) -> Self {
+        Self {
+            source: path.source.clone(),
+            target: path.target.clone(),
+            source_addr: path.source_addr.clone(),
+            target_addr: path.target_addr.clone(),
+            avg_us: path.avg_rtt_us,
+            loss_pct: path.loss_pct,
+            jitter_us: path.jitter_us,
+            from_hop: path.from_hop,
+            to_hop: path.to_hop,
+            agent_id: path.agent_id.clone(),
+            last_seen: path.last_seen.clone(),
+        }
+    }
 }
 
 /// Elixir `{:ok, json}` / `{:error, reason}`.
@@ -105,6 +146,8 @@ pub enum NifEdgeKind {
     ObservedTo,
     MtrPath,
     ConfigDeclared,
+    ManagedBy,
+    Manages,
 }
 
 impl From<NifEdgeKind> for EdgeKind {
@@ -119,6 +162,8 @@ impl From<NifEdgeKind> for EdgeKind {
             NifEdgeKind::ObservedTo => Self::ObservedTo,
             NifEdgeKind::MtrPath => Self::MtrPath,
             NifEdgeKind::ConfigDeclared => Self::ConfigDeclared,
+            NifEdgeKind::ManagedBy => Self::ManagedBy,
+            NifEdgeKind::Manages => Self::Manages,
         }
     }
 }
@@ -266,6 +311,17 @@ pub struct NifEdgeWrite {
     pub mutation_id: Option<String>,
     pub agent_id: Option<String>,
     pub pair_support_rank: Option<i64>,
+    pub mtr: Option<NifMtrMetrics>,
+}
+
+/// Far-hop measurements carried by an `MTR_PATH` edge.
+#[derive(Clone, Copy, Debug, PartialEq, NifMap)]
+pub struct NifMtrMetrics {
+    pub avg_us: i64,
+    pub loss_pct: f64,
+    pub jitter_us: i64,
+    pub from_hop: i64,
+    pub to_hop: i64,
 }
 
 impl NifEdgeWrite {
@@ -305,6 +361,15 @@ impl NifEdgeWrite {
             write = write.with_agent_id(agent_id);
         }
         write = write.with_pair_support_rank(self.pair_support_rank.unwrap_or(0));
+        if let Some(mtr) = self.mtr {
+            write = write.with_mtr_metrics(MtrMetrics {
+                avg_rtt_us: mtr.avg_us,
+                loss_pct: mtr.loss_pct,
+                jitter_us: mtr.jitter_us,
+                from_hop: mtr.from_hop,
+                to_hop: mtr.to_hop,
+            });
+        }
         write
     }
 }
@@ -512,6 +577,7 @@ mod tests {
             mutation_id: None,
             agent_id: None,
             pair_support_rank: Some(1),
+            mtr: None,
         }
         .into_write();
         assert_eq!(write.kind().as_str(), "CANONICAL_TOPOLOGY");

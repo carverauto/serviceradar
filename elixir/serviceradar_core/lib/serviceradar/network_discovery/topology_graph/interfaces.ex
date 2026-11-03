@@ -38,6 +38,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Interfaces do
         :ok -> :ok
         {:error, reason} -> Logger.warning("MANAGED_BY graph upsert failed: #{inspect(reason)}")
       end
+
+      DgraphPersist.upsert_managed_by(device_uid, management_device_uid)
     end
   end
 

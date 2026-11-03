@@ -153,8 +153,8 @@ Lab graphs with no evidence tables may use `dump-load` with
 `AGE_TO_DGRAPH_ALLOW_LAB_DUMP=1` and a synthetic JSON fixture. Live AGE dumps
 must not enter git.
 
-`in:graph_cypher` continues to query AGE until AGE is retired. `in:graph` /
-`in:graph_dql` query Dgraph. Both entities are described in the
+`in:graph` / `in:graph_dql` and `in:device_graph` query Dgraph;
+`in:graph_cypher` was retired with AGE. The entities are described in the
 [SRQL Language Reference](./srql-language-reference.md).
 
 ## Operator Controls

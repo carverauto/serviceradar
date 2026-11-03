@@ -29,6 +29,8 @@ pub enum EdgeKind {
     ObservedTo,
     MtrPath,
     ConfigDeclared,
+    ManagedBy,
+    Manages,
 }
 
 impl EdgeKind {
@@ -45,6 +47,8 @@ impl EdgeKind {
             Self::ObservedTo => "OBSERVED_TO",
             Self::MtrPath => "MTR_PATH",
             Self::ConfigDeclared => "CONFIG_DECLARED",
+            Self::ManagedBy => "MANAGED_BY",
+            Self::Manages => "MANAGES",
         }
     }
 }
@@ -351,8 +355,18 @@ impl HopWrite {
     }
 }
 
+/// Path measurements an `MTR_PATH` edge carries from its far hop.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MtrMetrics {
+    pub avg_rtt_us: i64,
+    pub loss_pct: f64,
+    pub jitter_us: i64,
+    pub from_hop: i64,
+    pub to_hop: i64,
+}
+
 /// Reified topology edge upsert payload.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct EdgeWrite {
     source: String,
     target: String,
@@ -375,6 +389,7 @@ pub struct EdgeWrite {
     mutation_id: String,
     agent_id: Option<String>,
     pair_support_rank: i64,
+    mtr: Option<MtrMetrics>,
 }
 
 impl EdgeWrite {
@@ -423,6 +438,7 @@ impl EdgeWrite {
             mutation_id: String::new(),
             agent_id: None,
             pair_support_rank: 0,
+            mtr: None,
         }
     }
 
@@ -550,6 +566,12 @@ impl EdgeWrite {
     }
 
     #[must_use]
+    pub fn with_mtr_metrics(mut self, metrics: MtrMetrics) -> Self {
+        self.mtr = Some(metrics);
+        self
+    }
+
+    #[must_use]
     pub fn with_pair_support_rank(mut self, rank: i64) -> Self {
         self.pair_support_rank = rank;
         self
@@ -669,5 +691,10 @@ impl EdgeWrite {
     #[must_use]
     pub fn pair_support_rank(&self) -> i64 {
         self.pair_support_rank
+    }
+
+    #[must_use]
+    pub fn mtr_metrics(&self) -> Option<&MtrMetrics> {
+        self.mtr.as_ref()
     }
 }

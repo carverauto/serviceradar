@@ -1063,6 +1063,13 @@ fn edge_node(edge: &EdgeWrite, suffix: &str) -> Value {
     if let Some(agent_id) = edge.agent_id() {
         node["topo.agent_id"] = json!(agent_id);
     }
+    if let Some(mtr) = edge.mtr_metrics() {
+        node["topo.avg_rtt_us"] = json!(mtr.avg_rtt_us);
+        node["topo.loss_pct"] = json!(mtr.loss_pct);
+        node["topo.jitter_us"] = json!(mtr.jitter_us);
+        node["topo.from_hop"] = json!(mtr.from_hop);
+        node["topo.to_hop"] = json!(mtr.to_hop);
+    }
     node
 }
 
