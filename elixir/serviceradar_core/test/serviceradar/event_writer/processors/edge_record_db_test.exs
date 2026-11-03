@@ -766,37 +766,35 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
         nil
       )
 
-      try do
-        Application.put_env(:serviceradar_core, ServiceRadar.StatusHandler,
-          addon_telemetry_publisher: fn _subject, _payload -> {:error, :not_connected} end
-        )
+      on_exit(fn -> :telemetry.detach(handler) end)
 
-        assert_raise RuntimeError, ~r/telemetry_route_failed/, fn ->
-          EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
-        end
+      Application.put_env(:serviceradar_core, ServiceRadar.StatusHandler,
+        addon_telemetry_publisher: fn _subject, _payload -> {:error, :not_connected} end
+      )
 
-        refute_received {:telemetry_routed, _subject, _payload}
-        refute_received {:plugin_metrics_spool, _measurements, _metadata}
-        assert ledger_count(frame.record) == 0
-
-        test = self()
-
-        Application.put_env(:serviceradar_core, ServiceRadar.StatusHandler,
-          addon_telemetry_publisher: fn subject, payload ->
-            send(test, {:telemetry_routed, subject, payload})
-            :ok
-          end
-        )
-
-        assert {:ok, :inserted} =
-                 EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
-
-        assert_received {:telemetry_routed, "events.ocsf.processed", _routed}
-        assert_received {:plugin_metrics_spool, %{received: 1, emitted: 1}, _metadata}
-        assert ledger_count(frame.record) == 1
-      after
-        :telemetry.detach(handler)
+      assert_raise RuntimeError, ~r/telemetry_route_failed/, fn ->
+        EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
       end
+
+      refute_received {:telemetry_routed, _subject, _payload}
+      refute_received {:plugin_metrics_spool, _measurements, _metadata}
+      assert ledger_count(frame.record) == 0
+
+      test = self()
+
+      Application.put_env(:serviceradar_core, ServiceRadar.StatusHandler,
+        addon_telemetry_publisher: fn subject, payload ->
+          send(test, {:telemetry_routed, subject, payload})
+          :ok
+        end
+      )
+
+      assert {:ok, :inserted} =
+               EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
+
+      assert_received {:telemetry_routed, "events.ocsf.processed", _routed}
+      assert_received {:plugin_metrics_spool, %{received: 1, emitted: 1}, _metadata}
+      assert ledger_count(frame.record) == 1
     end
 
     test "a failed metric publish counts no spool sample and keeps its message id" do
@@ -818,32 +816,30 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
         nil
       )
 
-      try do
-        failing = fn subject, body, request_opts ->
-          send(parent, {:metrics_published, subject, body, request_opts})
-          {:error, :not_connected}
-        end
+      on_exit(fn -> :telemetry.detach(handler) end)
 
-        assert_raise RuntimeError, ~r/telemetry_metrics_publish_failed/, fn ->
-          EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: failing)
-        end
-
-        assert_received {:metrics_published, _subject, _body, failed_opts}
-        refute_received {:plugin_metrics_spool, _measurements, _metadata}
-        assert ledger_count(frame.record) == 0
-
-        assert {:ok, :inserted} =
-                 EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
-
-        assert_received {:metrics_published, _subject, _body, recovered_opts}
-        assert_received {:plugin_metrics_spool, %{received: 4, emitted: 4}, _metadata}
-        assert ledger_count(frame.record) == 1
-
-        assert {"Nats-Msg-Id", msg_id} = List.keyfind(failed_opts[:headers], "Nats-Msg-Id", 0)
-        assert {"Nats-Msg-Id", ^msg_id} = List.keyfind(recovered_opts[:headers], "Nats-Msg-Id", 0)
-      after
-        :telemetry.detach(handler)
+      failing = fn subject, body, request_opts ->
+        send(parent, {:metrics_published, subject, body, request_opts})
+        {:error, :not_connected}
       end
+
+      assert_raise RuntimeError, ~r/telemetry_metrics_publish_failed/, fn ->
+        EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: failing)
+      end
+
+      assert_received {:metrics_published, _subject, _body, failed_opts}
+      refute_received {:plugin_metrics_spool, _measurements, _metadata}
+      assert ledger_count(frame.record) == 0
+
+      assert {:ok, :inserted} =
+               EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
+
+      assert_received {:metrics_published, _subject, _body, recovered_opts}
+      assert_received {:plugin_metrics_spool, %{received: 4, emitted: 4}, _metadata}
+      assert ledger_count(frame.record) == 1
+
+      assert {"Nats-Msg-Id", msg_id} = List.keyfind(failed_opts[:headers], "Nats-Msg-Id", 0)
+      assert {"Nats-Msg-Id", ^msg_id} = List.keyfind(recovered_opts[:headers], "Nats-Msg-Id", 0)
     end
 
     test "a batch without a host producer stamp is refused at decode" do
