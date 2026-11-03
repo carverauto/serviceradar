@@ -33,7 +33,8 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter do
   deleted. JetStream reports a duplicate only for an id it already stored, so a duplicate
   PubAck means this delivery was dead-lettered before: its copy is still held, was restored to
   the source stream by a replay, or was removed by an operator. The source is acknowledged, and
-  the duplicate is logged as a warning and counted as `result="duplicate"`. The record's own `Nats-Msg-Id` travels in `Sr-Edge-Dlq-Source-Msg-Id`, and replay restores it.
+  the duplicate is logged as a warning and counted as `result="duplicate"`. The record's own
+  `Nats-Msg-Id` travels in `Sr-Edge-Dlq-Source-Msg-Id`, and replay restores it.
 
   ## Failure headers
 

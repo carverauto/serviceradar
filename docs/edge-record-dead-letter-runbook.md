@@ -64,8 +64,8 @@ or was removed by an operator. EventWriter acknowledges the source, logs
 - `serviceradar_event_writer_edge_record_dead_letter_count{contract, reason_class, result}`:
   `result="stored"` counts records moved to the dead-letter,
   `result="duplicate"` counts redeliveries of a record that was already
-  dead-lettered (acknowledged without a new copy), and `result="failed"` counts copies that were not stored and left the source
-  retrying.
+  dead-lettered (acknowledged without a new copy), and `result="failed"`
+  counts copies that were not stored and left the source retrying.
 - `ServiceRadarEdgeRecordDeadLettered` (warning): records were dead-lettered in
   the last 15 minutes, by contract and reason.
 - `ServiceRadarEdgeRecordDeadLetterPublishFailed` (critical): a copy failed.
