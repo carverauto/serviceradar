@@ -19,7 +19,6 @@ package agent
 import (
 	"errors"
 	"fmt"
-	"math"
 	"net/netip"
 	"strings"
 	"time"
@@ -256,9 +255,6 @@ func buildScheduledMtrTrace(r mtrCheckResult) (*edgev1.AgentScheduledMtrTraceV1,
 	}
 
 	targetReached := r.Available
-	if r.Trace != nil && r.Trace.TargetReached {
-		targetReached = true
-	}
 
 	outcome := edgev1.MtrOutcome_MTR_OUTCOME_TARGET_UNREACHABLE
 	switch {
@@ -274,7 +270,6 @@ func buildScheduledMtrTrace(r mtrCheckResult) (*edgev1.AgentScheduledMtrTraceV1,
 	var resolvedAddr []byte
 	var hops []*edgev1.MtrTraceHopV1
 	var hopDiags []*edgev1.MtrHopReplyDiagnosticsV1
-	var maxHop uint32
 
 	if r.Trace != nil {
 		if r.Trace.IPVersion == 4 || r.Trace.IPVersion == 6 {
@@ -301,11 +296,7 @@ func buildScheduledMtrTrace(r mtrCheckResult) (*edgev1.AgentScheduledMtrTraceV1,
 
 		hops = make([]*edgev1.MtrTraceHopV1, 0, len(r.Trace.Hops))
 		for _, hop := range r.Trace.Hops {
-			protoHop := buildScheduledMtrHop(hop)
-			if protoHop.GetHopNumber() > maxHop {
-				maxHop = protoHop.GetHopNumber()
-			}
-			hops = append(hops, protoHop)
+			hops = append(hops, buildScheduledMtrHop(hop))
 			if diag, ok := buildScheduledMtrHopDiagnostics(hop); ok {
 				hopDiags = append(hopDiags, diag)
 			}
@@ -318,12 +309,9 @@ func buildScheduledMtrTrace(r mtrCheckResult) (*edgev1.AgentScheduledMtrTraceV1,
 		}
 	}
 
-	totalHops := maxHop
-	if r.Trace != nil && uint32(max(r.Trace.TotalHops, 0)) > totalHops {
+	var totalHops uint32
+	if r.Trace != nil {
 		totalHops = uint32(max(r.Trace.TotalHops, 0))
-	}
-	if targetReached && totalHops == 0 {
-		totalHops = 1
 	}
 
 	var deviceHint []byte
@@ -352,20 +340,15 @@ func buildScheduledMtrTrace(r mtrCheckResult) (*edgev1.AgentScheduledMtrTraceV1,
 }
 
 func buildScheduledMtrHop(hop mtr.HopSnapshot) *edgev1.MtrTraceHopV1 {
-	sent := uint32(max(hop.Sent, 0))
-	received := uint32(max(hop.Received, 0))
-	if received > sent {
-		sent = received
-	}
 	out := &edgev1.MtrTraceHopV1{
-		HopNumber:               uint32(max(hop.HopNumber, 1)),
+		HopNumber:               uint32(max(hop.HopNumber, 0)),
 		Address:                 parseMtrAddrBytes(hop.Addr),
 		Hostname:                hop.Hostname,
 		Asn:                     uint32(max(hop.ASN.ASN, 0)),
 		AsnOrg:                  hop.ASN.Org,
-		Sent:                    sent,
-		Received:                received,
-		LossPct:                 clampLossPct(hop.LossPct),
+		Sent:                    uint32(max(hop.Sent, 0)),
+		Received:                uint32(max(hop.Received, 0)),
+		LossPct:                 hop.LossPct,
 		LastMicro:               optionalPositiveUint64(hop.LastUs),
 		AvgMicro:                optionalPositiveUint64(hop.AvgUs),
 		MinMicro:                optionalPositiveUint64(hop.MinUs),
@@ -398,7 +381,7 @@ func buildScheduledMtrHopDiagnostics(hop mtr.HopSnapshot) (*edgev1.MtrHopReplyDi
 		return nil, false
 	}
 	diag := &edgev1.MtrHopReplyDiagnosticsV1{
-		HopNumber:          uint32(max(hop.HopNumber, 1)),
+		HopNumber:          uint32(max(hop.HopNumber, 0)),
 		HasUnreachableCode: hasUnreachable,
 		ReplyTimeExceeded:  uint32(max(hop.ReplyTimeExceeded, 0)),
 		ReplyUnreachable:   uint32(max(hop.ReplyUnreachable, 0)),
@@ -444,16 +427,6 @@ func optionalPositiveUint64(v int64) *uint64 {
 	}
 	u := uint64(v)
 	return &u
-}
-
-func clampLossPct(v float64) float64 {
-	if math.IsNaN(v) || math.IsInf(v, 0) || v < 0 {
-		return 0
-	}
-	if v > 100 {
-		return 100
-	}
-	return v
 }
 
 func parseMtrAddrBytes(raw string) []byte {
