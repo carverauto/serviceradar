@@ -3185,6 +3185,6 @@ contract. The Go check lives in `go/pkg/edge/edgerecord` (`CheckSetDigest`,
 `SweepLeaseCheckSets`, `SweepCheckSetRun`). Golden pushes under
 `proto/edge/v1/testdata/sweep_lease_check_sets_*.bin` are encoded by Elixir
 from `SweepPlan` and decoded by that Go check; regenerate with
-`EDGE_GOLDEN_UPDATE=1`. The agent calls the check when it runs a slot, and
-core records refusals, in later slices. Until core records them, the gateway
-decodes `SweepLeaseSlotRefusal` and drops it.
+`EDGE_GOLDEN_UPDATE=1`. The agent calls the check when it runs a slot in a
+later slice. Core records a refusal now: the gateway forwards
+`SweepLeaseSlotRefusal`, and `ExecutionSlots.refuse/2` stores the terminal slot.

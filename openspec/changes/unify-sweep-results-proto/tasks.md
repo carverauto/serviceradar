@@ -318,8 +318,8 @@ in `choices.md` and the chart README.
   - [ ] M2.0i Plan-carried checks. A leased slot executes the checks, ports and
     targets its signed plan carries, never its sweep config (Decision 12 in
     `design.md`). Each slice lands on its own, in this order:
-    PARTIAL (reconciled 2026-11-02): M2.0i2 (#6259) and M2.0i5 are done; M2.0i1
-    is #6260 (open); M2.0i3 and M2.0i4 remain.
+    PARTIAL (reconciled 2026-11-02): M2.0i2 (#6259), M2.0i3, and M2.0i5 are
+    done; M2.0i1 is #6260 (open); M2.0i4 remains.
     - [ ] M2.0i1 Proto. `SweepCheckSetV1`, `SweepLeaseV1.check_sets = 11`,
       `SweepLeaseSlotRefusal` with its reason enum, and
       `ControlStreamRequest.sweep_lease_slot_refusal = 8`, regenerated for Go
