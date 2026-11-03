@@ -261,9 +261,11 @@ type EdgeRecordSenderConfig struct {
 	Enabled bool `json:"enabled"`
 	// SweepEnabled opts leased static sweeps into durable edge records.
 	SweepEnabled bool `json:"sweep_enabled,omitempty"`
-	// MetricsEnabled lets metric producers emit metrics batch records while core
-	// grants this agent the metrics batch contract. Without a grant they keep the
-	// legacy status path.
+	// MetricsEnabled connects the metrics spool. Metric producers emit metrics
+	// batch records while core grants the metrics batch contract. Flow-attribution
+	// windows and OTLP relay frames use that same spool while core grants their
+	// contracts. Without the spool or the matching grant, each producer keeps
+	// its legacy status path.
 	MetricsEnabled bool `json:"metrics_enabled,omitempty"`
 	// TelemetryEnabled lets plugin and add-on telemetry producers emit
 	// telemetry batch records while core grants this agent the telemetry

@@ -210,12 +210,15 @@ have TCP/UDP ports.
 The normal data path is:
 
 ```text
-netprobe -> base agent -> agent-gateway -> core -> JetStream flows.attribution.observations
+netprobe -> base agent -> edge record or agent-gateway -> core -> JetStream flows.attribution.observations
 NetFlow collector -> JetStream flows.raw.* -> EventWriter -> warehouse (observations + ocsf_network_activity)
 correlator joins observations to flows in the warehouse ------------------^
 Workload Identity -> base agent -> agent-gateway -> core (CNPG workload_identity_current, matched-row enrichment)
 k8s-inventory -> NATS -> EventWriter -> public_endpoints_current (VIP mapping)
 ```
+
+Which of those two agent exits is used is in [Data Pipeline](./data-pipeline.md).
+Both still publish on `flows.attribution.observations`.
 
 Each observation also keeps netprobe's `executable_ownership` reference in the
 `executable_ownership` column of `flow_process_attribution_observations`: the
