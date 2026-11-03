@@ -29,20 +29,13 @@ import (
 
 // Mapper and netprobe discovery ride standing-grant contracts
 // (serviceradar.mapper.*.batch, serviceradar.netprobe.discovery.batch)
-// through this producer. A retained item is the exact JSON payload the
-// legacy builder produced for one drain, so an item the spool has admitted
-// no part of can still ride the legacy status path byte for byte; built
-// parts keep the event ids they were first built with across spool
-// retries. One update that cannot form a valid part is dropped alone and
-// counted, never taking its drain down with it (the legacy path dropped a
-// whole drain when its single send failed).
-
-const (
-	// maxEdgeDiscoveryQueuedPayloads bounds each discovery retry queue, in
-	// drained payloads. The head payload is kept when it alone exceeds the
-	// bound; the bound drops the oldest backlog behind it.
-	maxEdgeDiscoveryQueuedPayloads = 256
-)
+// through this producer. Conversion starts from the exact JSON payloads
+// the legacy builders produced for one drain. A drain the spool has not
+// yet admitted is held as the family's one pending item, its built parts
+// keeping the event ids they were first built with across retries, and
+// the family is not drained again until it is admitted. One update that
+// cannot form a valid part is dropped alone and counted, never taking its
+// drain down with it.
 
 var (
 	errDiscoveryRecordTooLarge  = errors.New("discovery update exceeds the durable record body bound")
@@ -174,89 +167,17 @@ func (p *PushLoop) discoveryCapability(kind discoveryKind, now time.Time) *edgev
 	return p.edgeOutputGrants.current(kind.spec().contractID, now)
 }
 
-// discoveryBuiltItem is one drained payload expanded into its spooled parts.
+// discoveryBuiltItem is one drain expanded into its spooled parts.
 type discoveryBuiltItem struct {
-	payload []byte
 	records []*edgev1.EdgeRecordV1
 	bodies  [][]byte
 	next    int
 }
 
-// discoveryEdgeQueue is one discovery family's bounded retry queue. Only
-// the push loop goroutine touches it.
+// discoveryEdgeQueue holds a discovery family's one drain the spool has
+// not yet fully admitted. Only the push loop goroutine touches it.
 type discoveryEdgeQueue struct {
-	pending [][]byte
-	built   *discoveryBuiltItem
-}
-
-// enqueue adds a drained payload behind anything already queued, dropping
-// the oldest backlog past the bound. It returns how many payloads dropped.
-func (q *discoveryEdgeQueue) enqueue(payload []byte) (dropped int) {
-	q.pending = append(q.pending, payload)
-	for len(q.pending) > maxEdgeDiscoveryQueuedPayloads && len(q.pending) > 1 {
-		q.pending = q.pending[1:]
-		dropped++
-	}
-	return dropped
-}
-
-func (q *discoveryEdgeQueue) empty() bool {
-	return q.built == nil && len(q.pending) == 0
-}
-
-// takeLegacy returns the oldest payload the legacy path may carry: the
-// built item's payload only when the spool admitted no part of it, else
-// the head pending payload. It reports false when nothing may move.
-func (q *discoveryEdgeQueue) takeLegacy() ([]byte, bool) {
-	if q.built != nil {
-		if q.built.next != 0 {
-			return nil, false
-		}
-		payload := q.built.payload
-		q.built = nil
-		return payload, true
-	}
-	if len(q.pending) == 0 {
-		return nil, false
-	}
-	payload := q.pending[0]
-	q.pending = q.pending[1:]
-	return payload, true
-}
-
-// spoolDiscovery packs and appends one family's queued payloads under
-// capability until the queue drains or the spool refuses a part. It
-// reports whether the spool admitted anything this cycle.
-func (p *PushLoop) spoolDiscovery(
-	kind discoveryKind,
-	capability *edgev1.EdgeSignedCapabilityV1,
-	agentID, partition string,
-) bool {
-	spec := kind.spec()
-	q := p.discoveryQueue(kind)
-	sent := false
-	for {
-		if q.built == nil {
-			if len(q.pending) == 0 {
-				return sent
-			}
-			payload := q.pending[0]
-			built, dropped, err := buildDiscoveryItem(spec, payload, capability, agentID, partition)
-			p.dropEdgeTelemetry(spec.producer, edgeDropInvalidRecord, dropped)
-			q.pending = q.pending[1:]
-			if err != nil {
-				p.logger.Warn().Err(err).Str("contract", spec.contractID).
-					Msg("Dropping discovery payload that cannot form an edge record")
-				continue
-			}
-			q.built = built
-		}
-		if !p.appendDiscoveryBuilt(q.built) {
-			return sent
-		}
-		sent = true
-		q.built = nil
-	}
+	built *discoveryBuiltItem
 }
 
 func (p *PushLoop) appendDiscoveryBuilt(built *discoveryBuiltItem) bool {
@@ -271,20 +192,23 @@ func (p *PushLoop) appendDiscoveryBuilt(built *discoveryBuiltItem) bool {
 	return true
 }
 
-// buildDiscoveryItem converts one drained payload's updates and packs them
-// into valid records. A head update that cannot form a valid part, for any
-// reason, is dropped alone (counted) and packing continues with the rest.
+// buildDiscoveryItem converts one drain's payloads and packs their
+// updates into valid records. A head update that cannot form a valid part,
+// for any reason, is dropped alone (counted) and packing continues.
 func buildDiscoveryItem(
 	spec discoverySpec,
-	payload []byte,
+	payloads [][]byte,
 	capability *edgev1.EdgeSignedCapabilityV1,
 	agentID, partition string,
 ) (built *discoveryBuiltItem, dropped int, err error) {
-	updates := decodeUpdateArray(payload)
+	updates := make([]map[string]interface{}, 0, len(payloads))
+	for _, payload := range payloads {
+		updates = append(updates, decodeUpdateArray(payload)...)
+	}
 	if len(updates) == 0 {
 		return nil, 0, errDiscoveryPayloadNotArray
 	}
-	built = &discoveryBuiltItem{payload: payload}
+	built = &discoveryBuiltItem{}
 	for len(updates) > 0 {
 		n, record, body := longestDiscoveryPrefix(spec, updates, capability, agentID, partition)
 		if n == 0 {
@@ -332,6 +256,15 @@ func longestDiscoveryPrefix(
 		hi = mid - 1
 	}
 	return bestN, bestRecord, bestBody
+}
+
+// discoveryUpdateCount is how many updates a set of drained payloads holds.
+func discoveryUpdateCount(payloads [][]byte) int {
+	count := 0
+	for _, payload := range payloads {
+		count += len(decodeUpdateArray(payload))
+	}
+	return count
 }
 
 func discoveryMaxRows(spec discoverySpec, capability *edgev1.EdgeSignedCapabilityV1) uint64 {

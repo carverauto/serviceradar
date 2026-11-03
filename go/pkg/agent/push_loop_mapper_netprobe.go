@@ -36,36 +36,16 @@ const (
 )
 
 func (p *PushLoop) pushMapperResults(ctx context.Context) bool {
-	p.server.mu.RLock()
-	mapperSvc := p.server.mapperService
-	agentID := p.server.config.AgentID
-	partition := p.server.config.Partition
-	p.server.mu.RUnlock()
-
-	var payloads [][]byte
-	updateCount := 0
-	if mapperSvc != nil {
-		if updates, ok := mapperSvc.DrainResults(1000); ok && len(updates) > 0 {
-			payload, err := buildMapperResultsPayload(updates, agentID, partition)
-			if err != nil {
-				p.logger.Error().Err(err).Msg("Failed to build mapper results payload")
-			} else if len(payload) > 0 {
-				payloads = append(payloads, payload)
-				updateCount = len(updates)
-			}
-		}
-	}
-
-	sent := p.pushDiscoveryPayloads(discoveryMapperDevices, payloads, agentID, partition,
-		func(data []byte) bool {
-			return p.streamDiscoveryPayload(ctx, data, "mapper", mapperServiceType)
-		})
-	if sent {
-		p.logger.Info().
-			Int("update_count", updateCount).
-			Msg("Streamed mapper results to gateway")
-	}
-	return sent
+	return p.pushMapperFamily(
+		ctx,
+		func(svc *MapperService) ([]map[string]interface{}, bool) {
+			return svc.DrainResults(1000)
+		},
+		buildMapperResultsPayload,
+		discoveryMapperDevices,
+		mapperServiceType,
+		"update_count",
+	)
 }
 
 // streamDiscoveryPayload carries one built discovery payload on the legacy
@@ -102,60 +82,58 @@ func (p *PushLoop) streamDiscoveryPayload(
 	return true
 }
 
-// pushDiscoveryPayloads moves a family's retained queue and its freshly
-// drained payloads down exactly one path: the spool while the family's
-// standing grant is current, else the legacy status path in queue order.
-// It runs every cycle, drained or not, so a retained payload never waits
-// for unrelated new data. On the legacy path the retained queue drains
-// before fresh payloads join it, so a full queue never drops its oldest
-// payload on the cycle the gateway recovers. A payload neither path
-// accepts stays queued (bounded) instead of being lost the way a failed
-// legacy send loses a drain today.
-func (p *PushLoop) pushDiscoveryPayloads(
+// pushDiscovery moves one discovery family down exactly one path. While
+// the family's standing grant is current its drain goes only to the spool;
+// a drain the spool will not yet admit stays the family's one pending item,
+// and the family's source is not drained again until that item is admitted
+// (backpressure, so nothing queues behind it). Without a grant the drain
+// rides the legacy status path once; a failed send drops it and counts it.
+func (p *PushLoop) pushDiscovery(
 	kind discoveryKind,
-	payloads [][]byte,
 	agentID string,
 	partition string,
+	drain func() [][]byte,
 	legacySend func([]byte) bool,
 ) bool {
+	spec := kind.spec()
 	q := p.discoveryQueue(kind)
-	enqueueAll := func() {
-		for _, payload := range payloads {
-			p.dropEdgeTelemetry(kind.spec().producer, edgeDropRetryBufferFull, q.enqueue(payload))
+	sent := false
+	if q.built != nil {
+		if !p.appendDiscoveryBuilt(q.built) {
+			return false
 		}
+		q.built = nil
+		sent = true
+	}
+
+	payloads := drain()
+	if len(payloads) == 0 {
+		return sent
 	}
 
 	if capability := p.discoveryCapability(kind, time.Now()); capability != nil {
-		enqueueAll()
-		return p.spoolDiscovery(kind, capability, agentID, partition)
+		built, dropped, err := buildDiscoveryItem(spec, payloads, capability, agentID, partition)
+		p.dropEdgeTelemetry(spec.producer, edgeDropInvalidRecord, dropped)
+		if err != nil {
+			p.logger.Warn().Err(err).Str("contract", spec.contractID).
+				Msg("Dropping discovery drain that cannot form an edge record")
+			return sent
+		}
+		if !p.appendDiscoveryBuilt(built) {
+			q.built = built
+			return sent
+		}
+		return true
 	}
 
-	sent := flushDiscoveryLegacy(q, legacySend)
-	drained := q.empty()
-	enqueueAll()
-	if drained && flushDiscoveryLegacy(q, legacySend) {
+	for i, payload := range payloads {
+		if !legacySend(payload) {
+			p.dropEdgeTelemetry(spec.producer, edgeDropRetryBufferFull, discoveryUpdateCount(payloads[i:]))
+			return sent
+		}
 		sent = true
 	}
 	return sent
-}
-
-// flushDiscoveryLegacy sends a family's queue down the legacy status path
-// in order until it drains or a send fails. A partially spooled item
-// blocks the legacy path: its admitted parts are already durable, so
-// nothing may overtake or repeat it.
-func flushDiscoveryLegacy(q *discoveryEdgeQueue, legacySend func([]byte) bool) bool {
-	sent := false
-	for {
-		retained, ok := q.takeLegacy()
-		if !ok {
-			return sent
-		}
-		if !legacySend(retained) {
-			q.pending = append([][]byte{retained}, q.pending...)
-			return sent
-		}
-		sent = true
-	}
 }
 
 func (p *PushLoop) pushNetprobeResults(ctx context.Context) bool {
@@ -164,8 +142,13 @@ func (p *PushLoop) pushNetprobeResults(ctx context.Context) bool {
 	partition := p.server.config.Partition
 	p.server.mu.RUnlock()
 
-	payloads, logEvent := p.drainNetprobePayloads(agentID, partition)
-	sent := p.pushDiscoveryPayloads(discoveryNetprobe, payloads, agentID, partition,
+	var logEvent func()
+	sent := p.pushDiscovery(discoveryNetprobe, agentID, partition,
+		func() [][]byte {
+			var payloads [][]byte
+			payloads, logEvent = p.drainNetprobePayloads(agentID, partition)
+			return payloads
+		},
 		func(data []byte) bool {
 			return p.streamDiscoveryPayload(ctx, data,
 				string(models.DiscoverySourcePassiveNetprobe),
@@ -393,7 +376,7 @@ func netprobeDiscoverySource(metadata map[string]string) string {
 }
 
 func (p *PushLoop) pushMapperInterfaces(ctx context.Context) bool {
-	return p.pushMapperDerivedResults(
+	return p.pushMapperFamily(
 		ctx,
 		func(svc *MapperService) ([]map[string]interface{}, bool) {
 			return svc.DrainInterfaces(1000)
@@ -406,7 +389,7 @@ func (p *PushLoop) pushMapperInterfaces(ctx context.Context) bool {
 }
 
 func (p *PushLoop) pushMapperTopology(ctx context.Context) bool {
-	return p.pushMapperDerivedResults(
+	return p.pushMapperFamily(
 		ctx,
 		func(svc *MapperService) ([]map[string]interface{}, bool) {
 			return svc.DrainTopology(1000)
@@ -418,7 +401,7 @@ func (p *PushLoop) pushMapperTopology(ctx context.Context) bool {
 	)
 }
 
-func (p *PushLoop) pushMapperDerivedResults(
+func (p *PushLoop) pushMapperFamily(
 	ctx context.Context,
 	drain func(*MapperService) ([]map[string]interface{}, bool),
 	buildPayload func([]map[string]interface{}, string, string) ([]byte, error),
@@ -432,25 +415,31 @@ func (p *PushLoop) pushMapperDerivedResults(
 	partition := p.server.config.Partition
 	p.server.mu.RUnlock()
 
-	var payloads [][]byte
 	updateCount := 0
-	if mapperSvc != nil {
-		if updates, ok := drain(mapperSvc); ok && len(updates) > 0 {
+	sent := p.pushDiscovery(kind, agentID, partition,
+		func() [][]byte {
+			if mapperSvc == nil {
+				return nil
+			}
+			updates, ok := drain(mapperSvc)
+			if !ok || len(updates) == 0 {
+				return nil
+			}
 			payload, err := buildPayload(updates, agentID, partition)
 			if err != nil {
 				p.logger.Error().Err(err).Msg("Failed to build mapper payload")
-			} else if len(payload) > 0 {
-				payloads = append(payloads, payload)
-				updateCount = len(updates)
+				return nil
 			}
-		}
-	}
-
-	sent := p.pushDiscoveryPayloads(kind, payloads, agentID, partition,
+			if len(payload) == 0 {
+				return nil
+			}
+			updateCount = len(updates)
+			return [][]byte{payload}
+		},
 		func(data []byte) bool {
 			return p.streamDiscoveryPayload(ctx, data, "mapper", serviceType)
 		})
-	if sent {
+	if sent && updateCount > 0 {
 		p.logger.Info().Int(countField, updateCount).Msg("Streamed mapper results to gateway")
 	}
 	return sent
