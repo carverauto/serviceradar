@@ -15,9 +15,14 @@ defmodule ServiceRadar.Edge.ContractCatalog do
 
   alias ServiceRadar.Edge.MetricsBatchProjection
   alias ServiceRadar.Edge.Projectors.FlowAttribution
+  alias ServiceRadar.Edge.Projectors.MapperDevices
+  alias ServiceRadar.Edge.Projectors.MapperInterfaces
+  alias ServiceRadar.Edge.Projectors.MapperTopology
+  alias ServiceRadar.Edge.Projectors.NetprobeDiscovery
   alias ServiceRadar.Edge.Projectors.OtlpRelay
   alias ServiceRadar.Edge.Projectors.ScheduledMtrTrace
   alias ServiceRadar.Edge.Projectors.SweepObservation
+  alias ServiceRadar.Edge.Projectors.SyncPage
   alias ServiceRadar.Edge.Projectors.TelemetryBatch
   alias ServiceRadar.Edge.Projectors.UnleasedSweepResults
   alias ServiceRadar.Edge.Projectors.WasmPluginResult
@@ -97,6 +102,46 @@ defmodule ServiceRadar.Edge.ContractCatalog do
       max_projected_rows: 10_000,
       write_bytes_per_row: 16_384,
       package_id: "serviceradar.agent.plugin_results"
+    },
+    %{
+      ref: {"serviceradar.mapper.devices.batch", 1},
+      authority: :standing_grant,
+      projector: MapperDevices,
+      max_projected_rows: 10_000,
+      write_bytes_per_row: 16_384,
+      package_id: "serviceradar.agent.mapper"
+    },
+    %{
+      ref: {"serviceradar.mapper.interfaces.batch", 1},
+      authority: :standing_grant,
+      projector: MapperInterfaces,
+      max_projected_rows: 10_000,
+      write_bytes_per_row: 8_192,
+      package_id: "serviceradar.agent.mapper"
+    },
+    %{
+      ref: {"serviceradar.mapper.topology.batch", 1},
+      authority: :standing_grant,
+      projector: MapperTopology,
+      max_projected_rows: 10_000,
+      write_bytes_per_row: 8_192,
+      package_id: "serviceradar.agent.mapper"
+    },
+    %{
+      ref: {"serviceradar.netprobe.discovery.batch", 1},
+      authority: :standing_grant,
+      projector: NetprobeDiscovery,
+      max_projected_rows: 10_000,
+      write_bytes_per_row: 8_192,
+      package_id: "serviceradar.agent.netprobe"
+    },
+    %{
+      ref: {"serviceradar.sync.page.batch", 1},
+      authority: :standing_grant,
+      projector: SyncPage,
+      max_projected_rows: 10_000,
+      write_bytes_per_row: 16_384,
+      package_id: "serviceradar.agent.sync"
     }
   ]
 

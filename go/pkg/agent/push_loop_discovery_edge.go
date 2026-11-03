@@ -1,0 +1,355 @@
+/*
+ * Copyright 2026 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package agent
+
+import (
+	"errors"
+	"time"
+
+	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
+	"google.golang.org/protobuf/proto"
+
+	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
+	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
+)
+
+// Mapper and netprobe discovery ride standing-grant contracts
+// (serviceradar.mapper.*.batch, serviceradar.netprobe.discovery.batch)
+// through this producer. A retained item is the exact JSON payload the
+// legacy builder produced for one drain, so an item the spool has admitted
+// no part of can still ride the legacy status path byte for byte; built
+// parts keep the event ids they were first built with across spool
+// retries. One update that cannot form a valid part is dropped alone and
+// counted, never taking its drain down with it (the legacy path dropped a
+// whole drain when its single send failed).
+
+const (
+	// maxEdgeDiscoveryQueuedPayloads bounds each discovery retry queue, in
+	// drained payloads. The head payload is kept when it alone exceeds the
+	// bound; the bound drops the oldest backlog behind it.
+	maxEdgeDiscoveryQueuedPayloads = 256
+)
+
+var errDiscoveryRecordTooLarge = errors.New("discovery update exceeds the durable record body bound")
+
+// SetEdgeDiscoverySpool connects the mapper and netprobe discovery
+// producers to the sender's one open spool. Call before Start; a nil spool
+// keeps discovery on its legacy path.
+func (p *PushLoop) SetEdgeDiscoverySpool(sp *spool.Spool) {
+	if sp == nil {
+		p.edgeDiscoverySpool = nil
+		return
+	}
+	p.edgeDiscoverySpool = sp
+}
+
+// discoveryKind selects one discovery contract family.
+type discoveryKind int
+
+const (
+	discoveryMapperDevices discoveryKind = iota
+	discoveryMapperInterfaces
+	discoveryMapperTopology
+	discoveryNetprobe
+)
+
+type discoverySpec struct {
+	contractID  string
+	bytesPerRow uint64
+	producer    edgeProducer
+	validate    func(*edgev1.EdgeRecordV1) error
+	batchFor    func(updates []map[string]interface{}, agentID, partition string) proto.Message
+}
+
+func (k discoveryKind) spec() discoverySpec {
+	switch k {
+	case discoveryMapperInterfaces:
+		return discoverySpec{
+			contractID:  edgerecord.MapperInterfacesContractID,
+			bytesPerRow: edgerecord.MapperInterfacesProjectedWriteBytesPerRecord,
+			producer:    edgeProducerMapper,
+			validate:    edgerecord.ValidateMapperInterfaceRecord,
+			batchFor: func(updates []map[string]interface{}, agentID, partition string) proto.Message {
+				batch := &edgev1.MapperInterfaceBatchV1{AgentId: agentID, Partition: partition}
+				for _, update := range updates {
+					record := mapperInterfaceRecord(update)
+					if batch.GatewayId == "" {
+						batch.GatewayId = record.GetGatewayId()
+					}
+					batch.Interfaces = append(batch.Interfaces, record)
+				}
+				return batch
+			},
+		}
+	case discoveryMapperTopology:
+		return discoverySpec{
+			contractID:  edgerecord.MapperTopologyContractID,
+			bytesPerRow: edgerecord.MapperTopologyProjectedWriteBytesPerRecord,
+			producer:    edgeProducerMapper,
+			validate:    edgerecord.ValidateMapperTopologyRecord,
+			batchFor: func(updates []map[string]interface{}, agentID, partition string) proto.Message {
+				batch := &edgev1.MapperTopologyBatchV1{AgentId: agentID, Partition: partition}
+				for _, update := range updates {
+					record := mapperTopologyRecord(update)
+					if batch.GatewayId == "" {
+						batch.GatewayId = record.GetGatewayId()
+					}
+					batch.Links = append(batch.Links, record)
+				}
+				return batch
+			},
+		}
+	case discoveryNetprobe:
+		return discoverySpec{
+			contractID:  edgerecord.NetprobeDiscoveryContractID,
+			bytesPerRow: edgerecord.NetprobeDiscoveryProjectedWriteBytesPerRecord,
+			producer:    edgeProducerNetprobe,
+			validate:    edgerecord.ValidateNetprobeDiscoveryRecord,
+			batchFor: func(updates []map[string]interface{}, _, _ string) proto.Message {
+				batch := &edgev1.NetprobeDiscoveryBatchV1{}
+				for _, update := range updates {
+					batch.Records = append(batch.Records, netprobeDiscoveryRecord(update))
+				}
+				return batch
+			},
+		}
+	default:
+		return discoverySpec{
+			contractID:  edgerecord.MapperDevicesContractID,
+			bytesPerRow: edgerecord.MapperDevicesProjectedWriteBytesPerRecord,
+			producer:    edgeProducerMapper,
+			validate:    edgerecord.ValidateMapperDeviceRecord,
+			batchFor: func(updates []map[string]interface{}, agentID, partition string) proto.Message {
+				batch := &edgev1.MapperDeviceBatchV1{AgentId: agentID, Partition: partition}
+				for _, update := range updates {
+					record := mapperDeviceRecord(update)
+					if batch.GatewayId == "" {
+						batch.GatewayId = record.GetGatewayId()
+					}
+					batch.Devices = append(batch.Devices, record)
+				}
+				return batch
+			},
+		}
+	}
+}
+
+func (p *PushLoop) discoveryQueue(kind discoveryKind) *discoveryEdgeQueue {
+	switch kind {
+	case discoveryMapperInterfaces:
+		return &p.mapperInterfacesEdge
+	case discoveryMapperTopology:
+		return &p.mapperTopologyEdge
+	case discoveryNetprobe:
+		return &p.netprobeEdge
+	default:
+		return &p.mapperDevicesEdge
+	}
+}
+
+func (p *PushLoop) discoveryCapability(kind discoveryKind, now time.Time) *edgev1.EdgeSignedCapabilityV1 {
+	if p == nil || p.edgeDiscoverySpool == nil {
+		return nil
+	}
+	return p.edgeOutputGrants.current(kind.spec().contractID, now)
+}
+
+// discoveryBuiltItem is one drained payload expanded into its spooled parts.
+type discoveryBuiltItem struct {
+	payload []byte
+	records []*edgev1.EdgeRecordV1
+	bodies  [][]byte
+	next    int
+}
+
+// discoveryEdgeQueue is one discovery family's bounded retry queue. Only
+// the push loop goroutine touches it.
+type discoveryEdgeQueue struct {
+	pending [][]byte
+	built   *discoveryBuiltItem
+}
+
+// enqueue adds a drained payload behind anything already queued, dropping
+// the oldest backlog past the bound. It returns how many payloads dropped.
+func (q *discoveryEdgeQueue) enqueue(payload []byte) (dropped int) {
+	q.pending = append(q.pending, payload)
+	for len(q.pending) > maxEdgeDiscoveryQueuedPayloads && len(q.pending) > 1 {
+		q.pending = q.pending[1:]
+		dropped++
+	}
+	return dropped
+}
+
+func (q *discoveryEdgeQueue) empty() bool {
+	return q.built == nil && len(q.pending) == 0
+}
+
+// takeLegacy returns the oldest payload the legacy path may carry: the
+// built item's payload only when the spool admitted no part of it, else
+// the head pending payload. It reports false when nothing may move.
+func (q *discoveryEdgeQueue) takeLegacy() ([]byte, bool) {
+	if q.built != nil {
+		if q.built.next != 0 {
+			return nil, false
+		}
+		payload := q.built.payload
+		q.built = nil
+		return payload, true
+	}
+	if len(q.pending) == 0 {
+		return nil, false
+	}
+	payload := q.pending[0]
+	q.pending = q.pending[1:]
+	return payload, true
+}
+
+// spoolDiscovery packs and appends one family's queued payloads under
+// capability until the queue drains or the spool refuses a part. It
+// reports whether the spool admitted anything this cycle.
+func (p *PushLoop) spoolDiscovery(
+	kind discoveryKind,
+	capability *edgev1.EdgeSignedCapabilityV1,
+	agentID, partition string,
+) bool {
+	spec := kind.spec()
+	q := p.discoveryQueue(kind)
+	sent := false
+	for {
+		if q.built == nil {
+			if len(q.pending) == 0 {
+				return sent
+			}
+			payload := q.pending[0]
+			built, dropped, err := buildDiscoveryItem(spec, payload, capability, agentID, partition)
+			p.dropEdgeTelemetry(spec.producer, edgeDropInvalidRecord, dropped)
+			if err != nil {
+				p.logger.Warn().Err(err).Str("contract", spec.contractID).
+					Msg("Dropping discovery payload that cannot form an edge record")
+				if built == nil || len(built.records) == 0 {
+					q.pending = q.pending[1:]
+					continue
+				}
+			}
+			q.pending = q.pending[1:]
+			q.built = built
+		}
+		if !p.appendDiscoveryBuilt(q.built) {
+			return sent
+		}
+		sent = true
+		q.built = nil
+	}
+}
+
+func (p *PushLoop) appendDiscoveryBuilt(built *discoveryBuiltItem) bool {
+	for built.next < len(built.records) {
+		record := built.records[built.next]
+		if _, err := p.edgeDiscoverySpool.AppendFlow(edgeAdmissionFlow(record), record.GetEventId(), built.bodies[built.next]); err != nil {
+			p.logger.Warn().Err(err).Msg("Failed to spool discovery part; will retry")
+			return false
+		}
+		built.next++
+	}
+	return true
+}
+
+// buildDiscoveryItem converts one drained payload's updates and packs them
+// into valid records. A head update that cannot form a valid part for a
+// size, row-ceiling, or record-bound reason is dropped alone (counted) and
+// packing continues. A semantic batch refusal stops the payload: parts
+// already packed are returned so they spool, and the remainder is counted.
+func buildDiscoveryItem(
+	spec discoverySpec,
+	payload []byte,
+	capability *edgev1.EdgeSignedCapabilityV1,
+	agentID, partition string,
+) (built *discoveryBuiltItem, dropped int, err error) {
+	updates := decodeUpdateArray(payload)
+	if len(updates) == 0 {
+		return nil, 0, errors.New("discovery payload is not a JSON update array")
+	}
+	built = &discoveryBuiltItem{payload: payload}
+	for len(updates) > 0 {
+		n, record, body, packErr := longestDiscoveryPrefix(spec, updates, capability, agentID, partition)
+		if packErr != nil {
+			dropped += len(updates)
+			if len(built.records) == 0 {
+				return nil, dropped, packErr
+			}
+			return built, dropped, packErr
+		}
+		if n == 0 {
+			dropped++
+			updates = updates[1:]
+			continue
+		}
+		built.records = append(built.records, record)
+		built.bodies = append(built.bodies, body)
+		updates = updates[n:]
+	}
+	return built, dropped, nil
+}
+
+func longestDiscoveryPrefix(
+	spec discoverySpec,
+	updates []map[string]interface{},
+	capability *edgev1.EdgeSignedCapabilityV1,
+	agentID, partition string,
+) (int, *edgev1.EdgeRecordV1, []byte, error) {
+	maxRows := discoveryMaxRows(spec, capability)
+	limit := len(updates)
+	if uint64(limit) > maxRows {
+		limit = int(maxRows)
+	}
+
+	bestN := 0
+	var bestRecord *edgev1.EdgeRecordV1
+	var bestBody []byte
+	var lastErr error
+	lo, hi := 1, limit
+	for lo <= hi {
+		mid := lo + (hi-lo)/2
+		batch := spec.batchFor(updates[:mid], agentID, partition)
+		record, body, _, err := edgeBatchRecord(
+			batch, capability, mid, maxRows, spec.bytesPerRow,
+			errDiscoveryRecordTooLarge, spec.validate)
+		if err == nil {
+			bestN, bestRecord, bestBody = mid, record, body
+			lo = mid + 1
+			continue
+		}
+		lastErr = err
+		hi = mid - 1
+	}
+	if bestN == 0 && lastErr != nil && !discoveryHeadMiss(lastErr) {
+		return 0, nil, nil, lastErr
+	}
+	return bestN, bestRecord, bestBody, nil
+}
+
+func discoveryHeadMiss(err error) bool {
+	return errors.Is(err, errDiscoveryRecordTooLarge) ||
+		errors.Is(err, edgerecord.ErrRecordTooLarge) ||
+		errors.Is(err, edgerecord.ErrPayloadTooLarge)
+}
+
+func discoveryMaxRows(spec discoverySpec, capability *edgev1.EdgeSignedCapabilityV1) uint64 {
+	claims := capability.GetProduction()
+	return min(uint64(claims.GetMaxProjectedRowCount()),
+		claims.GetMaxProjectedWriteBytes()/spec.bytesPerRow)
+}

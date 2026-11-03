@@ -65,6 +65,9 @@ const (
 	edgeProducerPluginResults
 	edgeProducerFlowAttribution
 	edgeProducerOtlpRelay
+	edgeProducerMapper
+	edgeProducerNetprobe
+	edgeProducerSync
 	edgeProducerCount
 )
 
@@ -85,6 +88,9 @@ func (p edgeProducer) label() string {
 		edgeProducerPluginResults:       "plugin_results",
 		edgeProducerFlowAttribution:     "flow_attribution",
 		edgeProducerOtlpRelay:           "otlp_relay",
+		edgeProducerMapper:              "mapper",
+		edgeProducerNetprobe:            "netprobe",
+		edgeProducerSync:                "sync",
 	}[p]
 }
 

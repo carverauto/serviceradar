@@ -59,9 +59,28 @@ func (p *PushLoop) pushMapperResults(ctx context.Context) bool {
 		return false
 	}
 
-	seq := fmt.Sprintf("%d", time.Now().UnixNano())
+	sent := p.pushDiscoveryPayload(ctx, discoveryMapperDevices, payload, agentID, partition,
+		func(data []byte) bool {
+			return p.streamDiscoveryPayload(ctx, data, "mapper", mapperServiceType)
+		})
+	if sent {
+		p.logger.Info().
+			Int("update_count", len(updates)).
+			Msg("Streamed mapper results to gateway")
+	}
+	return sent
+}
 
-	response := mapperResultsResponse(payload, seq, "mapper", mapperServiceType)
+// streamDiscoveryPayload carries one built discovery payload on the legacy
+// status path as a single-chunk results stream.
+func (p *PushLoop) streamDiscoveryPayload(
+	ctx context.Context,
+	payload []byte,
+	serviceName string,
+	serviceType string,
+) bool {
+	seq := fmt.Sprintf("%d", time.Now().UnixNano())
+	response := mapperResultsResponse(payload, seq, serviceName, serviceType)
 	chunks := []*proto.ResultsChunk{{
 		Data:            response.Data,
 		IsFinal:         true,
@@ -79,17 +98,58 @@ func (p *PushLoop) pushMapperResults(ctx context.Context) bool {
 	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	_, err = p.gateway.StreamStatus(pushCtx, statusChunks)
-	if err != nil {
-		p.logger.Error().Err(err).Msg("Failed to stream mapper results to gateway")
+	if _, err := p.gateway.StreamStatus(pushCtx, statusChunks); err != nil {
+		p.logger.Error().Err(err).Msg("Failed to stream discovery results to gateway")
 		return false
 	}
-
-	p.logger.Info().
-		Int("update_count", len(updates)).
-		Msg("Streamed mapper results to gateway")
-
 	return true
+}
+
+// pushDiscoveryPayload routes one drained discovery payload down exactly
+// one path: the spool while the family's standing grant is current, else
+// the legacy status path, which first drains anything retained while a
+// grant was current. A payload neither path accepts stays queued (bounded)
+// instead of being lost the way a failed legacy send loses a drain today.
+func (p *PushLoop) pushDiscoveryPayload(
+	_ context.Context,
+	kind discoveryKind,
+	payload []byte,
+	agentID string,
+	partition string,
+	legacySend func([]byte) bool,
+) bool {
+	spec := kind.spec()
+	q := p.discoveryQueue(kind)
+
+	if capability := p.discoveryCapability(kind, time.Now()); capability != nil {
+		p.dropEdgeTelemetry(spec.producer, edgeDropRetryBufferFull, q.enqueue(payload))
+		return p.spoolDiscovery(kind, capability, agentID, partition)
+	}
+
+	sent := false
+	for {
+		retained, ok := q.takeLegacy()
+		if !ok {
+			break
+		}
+		if !legacySend(retained) {
+			q.pending = append([][]byte{retained}, q.pending...)
+			p.dropEdgeTelemetry(spec.producer, edgeDropRetryBufferFull, q.enqueue(payload))
+			return sent
+		}
+		sent = true
+	}
+	if !q.empty() {
+		// A partially spooled item blocks the legacy path: its admitted
+		// parts are already durable, so nothing may overtake or repeat it.
+		p.dropEdgeTelemetry(spec.producer, edgeDropRetryBufferFull, q.enqueue(payload))
+		return sent
+	}
+	if legacySend(payload) {
+		return true
+	}
+	p.dropEdgeTelemetry(spec.producer, edgeDropRetryBufferFull, q.enqueue(payload))
+	return sent
 }
 
 func (p *PushLoop) pushNetprobeResults(ctx context.Context) bool {
@@ -202,39 +262,18 @@ func (p *PushLoop) pushNetprobeResults(ctx context.Context) bool {
 		return false
 	}
 
-	seq := fmt.Sprintf("%d", time.Now().UnixNano())
-	chunks := make([]*proto.ResultsChunk, 0, len(payloads))
-	for idx, payload := range payloads {
-		response := mapperResultsResponse(
-			payload,
-			seq,
-			string(models.DiscoverySourcePassiveNetprobe),
-			string(models.DiscoverySourcePassiveNetprobe),
-		)
-		chunks = append(chunks, &proto.ResultsChunk{
-			Data:            response.Data,
-			IsFinal:         idx == len(payloads)-1,
-			ChunkIndex:      int32(idx),
-			TotalChunks:     int32(len(payloads)),
-			CurrentSequence: response.CurrentSequence,
-			Timestamp:       response.Timestamp,
-		})
+	sent := false
+	for _, payload := range payloads {
+		if p.pushDiscoveryPayload(ctx, discoveryNetprobe, payload, agentID, partition,
+			func(data []byte) bool {
+				return p.streamDiscoveryPayload(ctx, data,
+					string(models.DiscoverySourcePassiveNetprobe),
+					string(models.DiscoverySourcePassiveNetprobe))
+			}) {
+			sent = true
+		}
 	}
-
-	statusChunks := p.buildResultsStatusChunks(
-		chunks,
-		string(models.DiscoverySourcePassiveNetprobe),
-		string(models.DiscoverySourcePassiveNetprobe),
-	)
-	if len(statusChunks) == 0 {
-		return false
-	}
-
-	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	if _, err := p.gateway.StreamStatus(pushCtx, statusChunks); err != nil {
-		p.logger.Error().Err(err).Msg("Failed to stream netprobe results to gateway")
+	if !sent {
 		return false
 	}
 
@@ -247,7 +286,7 @@ func (p *PushLoop) pushNetprobeResults(ctx context.Context) bool {
 		Int("dpi_event_count", len(dpiEvents)).
 		Int("process_snapshot_count", len(processSnapshots)).
 		Int("update_count", len(updates)).
-		Int("status_chunk_count", len(statusChunks)).
+		Int("payload_count", len(payloads)).
 		Msg("Streamed netprobe results to gateway")
 
 	return true
@@ -362,6 +401,7 @@ func (p *PushLoop) pushMapperInterfaces(ctx context.Context) bool {
 			return svc.DrainInterfaces(1000)
 		},
 		buildMapperInterfacePayload,
+		discoveryMapperInterfaces,
 		"mapper_interfaces",
 		"interface_count",
 	)
@@ -374,6 +414,7 @@ func (p *PushLoop) pushMapperTopology(ctx context.Context) bool {
 			return svc.DrainTopology(1000)
 		},
 		buildMapperTopologyPayload,
+		discoveryMapperTopology,
 		"mapper_topology",
 		"topology_count",
 	)
@@ -383,6 +424,7 @@ func (p *PushLoop) pushMapperDerivedResults(
 	ctx context.Context,
 	drain func(*MapperService) ([]map[string]interface{}, bool),
 	buildPayload func([]map[string]interface{}, string, string) ([]byte, error),
+	kind discoveryKind,
 	serviceType string,
 	countField string,
 ) bool {
@@ -411,32 +453,12 @@ func (p *PushLoop) pushMapperDerivedResults(
 		return false
 	}
 
-	seq := fmt.Sprintf("%d", time.Now().UnixNano())
-	response := mapperResultsResponse(payload, seq, "mapper", serviceType)
-	chunks := []*proto.ResultsChunk{{
-		Data:            response.Data,
-		IsFinal:         true,
-		ChunkIndex:      0,
-		TotalChunks:     1,
-		CurrentSequence: response.CurrentSequence,
-		Timestamp:       response.Timestamp,
-	}}
-
-	statusChunks := p.buildResultsStatusChunks(chunks, response.ServiceName, response.ServiceType)
-	if len(statusChunks) == 0 {
-		return false
+	sent := p.pushDiscoveryPayload(ctx, kind, payload, agentID, partition,
+		func(data []byte) bool {
+			return p.streamDiscoveryPayload(ctx, data, "mapper", serviceType)
+		})
+	if sent {
+		p.logger.Info().Int(countField, len(updates)).Msg("Streamed mapper results to gateway")
 	}
-
-	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	_, err = p.gateway.StreamStatus(pushCtx, statusChunks)
-	if err != nil {
-		p.logger.Error().Err(err).Msg("Failed to stream mapper results to gateway")
-		return false
-	}
-
-	p.logger.Info().Int(countField, len(updates)).Msg("Streamed mapper results to gateway")
-
-	return true
+	return sent
 }

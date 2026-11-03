@@ -56,6 +56,17 @@ type SyncRuntime struct {
 	// runTimeout overrides the per-run deadline derived from the source's
 	// interval. Zero means derive it (see syncRunTimeout).
 	runTimeout time.Duration
+
+	// edgeSpool and edgeGrants connect sync pages to the durable
+	// edge-record pipeline while sync emission is enabled; a nil spool
+	// keeps sync pages on their legacy status path.
+	edgeSpool  edgeMetricsAppender
+	edgeGrants *edgeOutputGrants
+	// edgeRuns names the sync runs that have spooled at least one page.
+	// A run never splits across paths: pages arrive in run order on one
+	// path or the run fails, so core never sees a legacy page overtake
+	// spooled pages of the same run.
+	edgeRuns map[string]struct{}
 }
 
 const (
@@ -547,6 +558,14 @@ func (r *SyncRuntime) sendSyncUpdates(
 	runFinalPage bool,
 	population *syncsources.PopulationStats,
 ) (int, error) {
+	if capability := r.syncCapability(time.Now()); capability != nil {
+		return r.spoolSyncUpdates(ctx, updates, runner.config, runID,
+			runTotalDevices, baseChunkIndex, runFinalPage, population, capability)
+	}
+	if r.runSpooled(runID) {
+		return 0, fmt.Errorf("sync run %s already spooled pages; refusing to split it across paths", runID)
+	}
+
 	chunks, err := buildSyncResultsChunks(
 		updates,
 		runner.config,
