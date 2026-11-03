@@ -584,4 +584,3 @@ SHALL NOT resolve over evidence it could not read or could not reconcile.
 - **WHEN** a conflict is resolved
 - **THEN** an append-only resolution record SHALL select one authoritative value
 - **AND** the rejected value SHALL be retained as audit evidence
-

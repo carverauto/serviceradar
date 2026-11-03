@@ -29,4 +29,3 @@ rollout configuration SHALL affect only new runs while pinned backlog drains.
 - **WHEN** a new registry epoch activates while an old run has spooled records
 - **THEN** the old run SHALL drain under its pinned historical bundle and route
 - **AND** only new runs SHALL use the new effective grant
-

@@ -108,4 +108,3 @@ declared horizons and correctness holds close.
 - **THEN** it SHALL be fenced from new production and authoritative projection
 - **AND** it SHALL NOT roll the deployment backward or reinterpret records under
   its local latest-known bundle
-

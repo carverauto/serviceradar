@@ -54,4 +54,3 @@ exact coverage scope. Without that proof, the run SHALL be upsert-only.
   action and SHALL NOT execute from EventWriter replay
 - **AND** only bounded receipts, audit, progress, and telemetry MAY return
   through the durable record plane
-

@@ -23,4 +23,3 @@ requires an explicit benchmarked platform change.
 - **WHEN** a bulk lane exhausts its HTTP/2, publisher, stream, or database credits
 - **THEN** separately pooled interactive and recovery lanes SHALL continue
 - **AND** no unresolved bulk sequence SHALL be skipped or promoted
-

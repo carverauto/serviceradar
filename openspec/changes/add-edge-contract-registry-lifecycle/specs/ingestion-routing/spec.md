@@ -29,4 +29,3 @@ neither duplicates domain side effects nor reinstates compromised trust.
 - **AND** an authorized redrive SHALL republish through a durable synthetic spool with
   a fresh delivery/map envelope and a capability bound to the immutable catalog
   record, while the ingest ledger makes already-committed events harmless
-

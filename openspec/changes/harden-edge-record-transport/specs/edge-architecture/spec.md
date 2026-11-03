@@ -81,4 +81,3 @@ the agent-local reclaim watermark or authorize spool deletion.
   disposition evidence exceeds its documented frame-and-byte bound
 - **AND** SHALL NOT cross the gap or discard evidence that the idempotent
   publication and validated PubAck path cannot reproduce
-

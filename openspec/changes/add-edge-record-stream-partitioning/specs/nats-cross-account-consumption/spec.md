@@ -214,4 +214,3 @@ network scope, agent, traffic class, or authorization context from a subject tok
   legacy stream, and mappable without ambiguity, MAY be drained by a
   compatibility consumer from retained trusted legacy authority metadata, as
   described in "Legacy prefixed backlog exists at cutover"
-

@@ -94,4 +94,3 @@ telemetry SHALL remain JetStream-first.
   requires a future version
 - **AND** a fresh service record whose provenance carries no `delivery_proof_digest`
   SHALL remain valid
-
