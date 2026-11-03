@@ -283,8 +283,7 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetterNatsTest do
   end
 
   defp header_value(headers, name) do
-    headers
-    |> Enum.find_value(fn {key, value} ->
+    Enum.find_value(headers, fn {key, value} ->
       if String.downcase(key) == name, do: value
     end)
   end

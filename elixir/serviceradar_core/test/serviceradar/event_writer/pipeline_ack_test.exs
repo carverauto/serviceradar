@@ -406,7 +406,8 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
 
     test "a non-ASCII failure detail is bounded to 256 bytes at a character boundary" do
       message =
-        failed_edge_record(2, 2, -1, stored(9))
+        2
+        |> failed_edge_record(2, -1, stored(9))
         |> Message.failed(%RuntimeError{message: String.duplicate("é", 200)})
 
       ExUnit.CaptureLog.capture_log(fn -> Pipeline.ack(:ack_ref, [], [message]) end)

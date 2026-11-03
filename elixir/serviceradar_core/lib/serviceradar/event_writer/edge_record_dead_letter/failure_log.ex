@@ -25,7 +25,7 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter.FailureLog do
   @doc "Records `at_ms` as the first failure of `key`, unless an earlier one is recorded."
   @spec note(term(), integer()) :: :ok
   def note(key, at_ms) do
-    unless :ets.member(@table, key) do
+    if !:ets.member(@table, key) do
       if :ets.info(@table, :size) >= @max_entries, do: evict_earliest()
       if :ets.insert_new(@table, {key, at_ms}), do: :ets.insert(@order, {{at_ms, key}})
     end
