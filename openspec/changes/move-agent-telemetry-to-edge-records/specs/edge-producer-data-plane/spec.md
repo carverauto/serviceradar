@@ -127,9 +127,10 @@ module SHALL be added only when the destination is genuinely new. Core SHALL iss
 grants for every registry entry marked as agent-scheduled. Native add-ons and Wasm plugins
 SHALL emit through the shared plugin telemetry and plugin result contracts and SHALL NOT be
 given contracts of their own. Routing SHALL key off the SDK's closed TelemetryBatch payload
-kinds (`serviceradar_metrics`, `ocsf_event`, `otel_log`). Manifest `signal_schemas` SHALL
-describe only event and log schemas (`ocsf_event`, `otel_log`). A new payload kind SHALL be
-an SDK and core change.
+kinds (`serviceradar_metrics`, `ocsf_event`, `otel_log`, `discovery_v1`). A `discovery_v1`
+record SHALL be admitted only from a native add-on; a plugin-stamped discovery record SHALL be
+refused. Manifest `signal_schemas` SHALL describe only event and log schemas (`ocsf_event`,
+`otel_log`). A new payload kind SHALL be an SDK and core change.
 
 #### Scenario: A plugin emits metrics on a closed payload kind
 - **GIVEN** a Wasm plugin that emits a TelemetryBatch with payload kind serviceradar_metrics

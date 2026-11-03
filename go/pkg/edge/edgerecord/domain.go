@@ -1133,12 +1133,11 @@ func sweepContextOperandValue(rule sweepSourceRule, b *edgev1.SweepObservationBa
 //
 // The GENERIC validator stays permissive across the known non-recovery families on purpose: it
 // has no entry-point context and cannot choose one of them.
-func requireFramingFamily(
-	r *edgev1.EdgeRecordV1, want edgev1.EdgeRecordPayloadFamily, sentinel error,
-) error {
+func requireFramingFamily(r *edgev1.EdgeRecordV1) error {
+	const want = edgev1.EdgeRecordPayloadFamily_EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1
 	if r.GetPayloadFamily() != want {
 		return fmt.Errorf("%w: payload family %v may not enter this ingress, want %v",
-			sentinel, r.GetPayloadFamily(), want)
+			ErrPayloadFraming, r.GetPayloadFamily(), want)
 	}
 
 	return nil
@@ -1157,9 +1156,7 @@ func ValidateSweepRecord(r *edgev1.EdgeRecordV1, expected *edgev1.EdgeOutputCont
 	if err := dispatchContract(r, expected); err != nil {
 		return err
 	}
-	if err := requireFramingFamily(r,
-		edgev1.EdgeRecordPayloadFamily_EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1,
-		ErrPayloadFraming); err != nil {
+	if err := requireFramingFamily(r); err != nil {
 		return err
 	}
 	inner, err := innerPayload(r)
@@ -1186,9 +1183,7 @@ func ValidateMtrRecord(r *edgev1.EdgeRecordV1, expected *edgev1.EdgeOutputContra
 	if err := dispatchContract(r, expected); err != nil {
 		return err
 	}
-	if err := requireFramingFamily(r,
-		edgev1.EdgeRecordPayloadFamily_EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1,
-		ErrPayloadFraming); err != nil {
+	if err := requireFramingFamily(r); err != nil {
 		return err
 	}
 	inner, err := innerPayload(r)

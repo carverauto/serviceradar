@@ -14,10 +14,9 @@ This is the Rust counterpart of the Go SDK (`go/pkg/addon`,
 Rust native add-ons that produce ServiceRadar metrics should emit them through
 `AddonService.StreamTelemetry` with `addon_sdk::serviceradar_metric_record`.
 The helper wraps one encoded `serviceradar.metric.v1.MetricBatch` in a
-`TelemetryRecord` with payload kind `SERVICERADAR_METRICS`. The agent and
-gateway preserve that payload and publish it to JetStream `metrics.*`; add-ons
-must not smuggle metrics through JSON plugin results or source-specific JSON
-arrays.
+`TelemetryRecord` with payload kind `SERVICERADAR_METRICS`. Publish routing is
+in [Data Pipeline](../../docs/docs/data-pipeline.md). Add-ons must not smuggle
+metrics through JSON plugin results or source-specific JSON arrays.
 
 ## Quick start
 

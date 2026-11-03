@@ -117,9 +117,7 @@ func decodeStandingGrantRecord(
 	if contract.GetContractId() != contractID || contract.GetContractVersion() != contractVersion {
 		return fmt.Errorf("%w: %s v%d", ErrContractDispatch, contract.GetContractId(), contract.GetContractVersion())
 	}
-	if err := requireFramingFamily(r,
-		edgev1.EdgeRecordPayloadFamily_EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1,
-		ErrPayloadFraming); err != nil {
+	if err := requireFramingFamily(r); err != nil {
 		return err
 	}
 	if r.GetSourceAuthorization() != nil {

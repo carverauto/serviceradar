@@ -3,14 +3,17 @@ defmodule ServiceRadar.Inventory.DiscoveryIngestor do
   Turns a `DiscoveryEnvelope` from a native add-on into device updates.
 
   This is the point where an add-on's observations become inventory, and the
-  place identity is decided. Everything upstream -- add-on, agent, gateway --
-  treats the payload as opaque bytes.
+  place identity is decided. Everything upstream of this module treats the
+  payload as opaque bytes.
 
   ## Identity is stamped here, never read from the payload
 
-  `agent_id`, `gateway_id` and `partition` come from the GATEWAY-ATTESTED status
-  metadata. `source` and `identity_source` come from the schema registry. A
-  value the add-on put in its own payload for any of these is ignored.
+  `agent_id`, `gateway_id` and `partition` come from the caller's attested
+  status metadata, never from the payload. The status path's caller is the
+  gateway. `ServiceRadar.Edge.Projectors.TelemetryBatch` is the caller on the
+  durable path and leaves `gateway_id` unset. `source` and `identity_source`
+  come from the schema registry. A value the add-on put in its own payload
+  for any of these is ignored.
 
   That is not defensive coding for its own sake: `SourcePolicy` decides whether
   a MAC may anchor a device and whether a source may create one, and it keys on

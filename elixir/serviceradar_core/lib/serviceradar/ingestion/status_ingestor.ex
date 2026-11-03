@@ -83,12 +83,12 @@ defmodule ServiceRadar.Ingestion.StatusIngestor do
     ServiceRadar.WorkloadIdentity.persist_snapshot(status)
   end
 
-  defp process(%{source: @addon_source_prefix <> addon_id} = status, _opts) do
-    handle_package_telemetry(status, :addon, addon_id)
+  defp process(%{source: @addon_source_prefix <> addon_id} = status, opts) do
+    handle_package_telemetry(status, :addon, addon_id, opts)
   end
 
-  defp process(%{source: @plugin_source_prefix <> plugin_id} = status, _opts) do
-    handle_package_telemetry(status, :plugin, plugin_id)
+  defp process(%{source: @plugin_source_prefix <> plugin_id} = status, opts) do
+    handle_package_telemetry(status, :plugin, plugin_id, opts)
   end
 
   defp process(%{service_name: service_name} = status, _opts)
@@ -197,7 +197,7 @@ defmodule ServiceRadar.Ingestion.StatusIngestor do
     )
   end
 
-  defp handle_package_telemetry(status, producer_type, producer_id) do
+  defp handle_package_telemetry(status, producer_type, producer_id, opts) do
     partition_id = status[:partition] || "default"
     agent_id = status[:agent_id]
     message = status[:message]
@@ -213,7 +213,7 @@ defmodule ServiceRadar.Ingestion.StatusIngestor do
 
     case decode_addon_telemetry_batch(message) do
       {:ok, %TelemetryBatch{records: records} = batch} ->
-        publish_package_telemetry_records(records || [], batch, metadata)
+        publish_package_telemetry_records(records || [], batch, metadata, opts)
 
       :error ->
         Logger.warning(
@@ -241,24 +241,28 @@ defmodule ServiceRadar.Ingestion.StatusIngestor do
 
   defp decode_addon_telemetry_batch(_), do: :error
 
-  defp publish_package_telemetry_records(records, batch, metadata) do
-    Enum.each(records, fn %TelemetryRecord{} = record ->
-      publish_package_telemetry_record(record, batch, metadata)
+  defp publish_package_telemetry_records(records, batch, metadata, opts) do
+    Enum.reduce_while(records, :ok, fn %TelemetryRecord{} = record, :ok ->
+      case publish_package_telemetry_record(record, batch, metadata, opts) do
+        :ok -> {:cont, :ok}
+        {:error, _reason} = error -> {:halt, error}
+      end
     end)
-
-    :ok
   end
 
-  defp publish_package_telemetry_record(%TelemetryRecord{} = record, batch, metadata) do
+  defp publish_package_telemetry_record(%TelemetryRecord{} = record, batch, metadata, opts) do
     cond do
       ocsf_record?(record) ->
-        publish_ocsf_telemetry_record(record, batch, metadata)
+        publish_ocsf_telemetry_record(record, batch, metadata, opts)
 
       otel_log_record?(record) ->
-        publish_otel_log_telemetry_record(record, batch, metadata)
+        publish_otel_log_telemetry_record(record, batch, metadata, opts)
 
       discovery_record?(record) ->
-        DiscoveryIngestor.ingest(record.payload, metadata)
+        case DiscoveryIngestor.ingest(record.payload, metadata) do
+          {:error, reason} -> maybe_return_transport_error(reason, opts)
+          _other -> :ok
+        end
 
       handled_off_this_path?(record) ->
         count_unpublished_payload_kind(record, metadata, :handled_elsewhere)
@@ -271,11 +275,12 @@ defmodule ServiceRadar.Ingestion.StatusIngestor do
   # Payload kinds that legitimately reach this function and are consumed
   # somewhere else, so arriving here is not a fault.
   #
-  # SERVICERADAR_METRICS is the volume case: the Rust add-on SDK sends metrics
-  # through StreamTelemetry, the gateway's PluginMetricsPublisher publishes them
-  # to JetStream, and the status is still forwarded here with those records
-  # intact. Treating them as unknown would log a warning per metric record from
-  # every Rust add-on in the fleet.
+  # SERVICERADAR_METRICS is the volume case. On the status path the gateway's
+  # PluginMetricsPublisher publishes them to JetStream and still forwards the
+  # status here with those records intact. On the telemetry edge-record path
+  # `ServiceRadar.Edge.Projectors.TelemetryBatch` publishes them before this
+  # route and then calls in with the same records. Treating them as unknown
+  # would log a warning per metric record from every Rust add-on in the fleet.
   #
   # The OTLP kinds ride AddonService.RelayOtlp rather than StreamTelemetry, so
   # they should not appear in a batch at all -- but they are a known kind that
@@ -346,13 +351,18 @@ defmodule ServiceRadar.Ingestion.StatusIngestor do
     :ok
   end
 
-  defp publish_ocsf_telemetry_record(%TelemetryRecord{payload: payload} = record, batch, metadata) do
+  defp publish_ocsf_telemetry_record(
+         %TelemetryRecord{payload: payload} = record,
+         batch,
+         metadata,
+         opts
+       ) do
     with {:ok, event} <- decode_json_payload(payload),
          :ok <- ensure_ocsf_shape(event, metadata) do
       if anomaly_verdict?(event) do
-        publish_edge_anomaly_verdict(event, metadata)
+        publish_edge_anomaly_verdict(event, metadata, opts)
       else
-        publish_generic_ocsf_event(event, record, batch, metadata)
+        publish_generic_ocsf_event(event, record, batch, metadata, opts)
       end
     else
       # A mis-bucketed metric is dropped at the source, not republished. It is not
@@ -365,11 +375,10 @@ defmodule ServiceRadar.Ingestion.StatusIngestor do
     end
   end
 
-  defp publish_generic_ocsf_event(event, record, batch, metadata) do
+  defp publish_generic_ocsf_event(event, record, batch, metadata, opts) do
     with {:ok, enriched} <- enrich_ocsf_event(event, record, batch, metadata),
-         {:ok, json} <- Jason.encode(enriched),
-         :ok <- publish(addon_telemetry_publisher(), ocsf_subject(metadata, enriched), json) do
-      :ok
+         {:ok, json} <- Jason.encode(enriched) do
+      publish_or_report("OCSF", ocsf_subject(metadata, enriched), json, metadata, opts)
     else
       {:error, reason} ->
         log_package_telemetry_publish_failure("OCSF", reason, metadata)
@@ -391,7 +400,7 @@ defmodule ServiceRadar.Ingestion.StatusIngestor do
 
   defp anomaly_verdict?(_), do: false
 
-  defp publish_edge_anomaly_verdict(event, metadata) do
+  defp publish_edge_anomaly_verdict(event, metadata, opts) do
     # The edge add-on routes on a provisional producer hint; re-key the verdict to
     # the canonical series_key central derives from the attested source_identity so
     # it lands on the same subject/series central would (the basis for the
@@ -403,10 +412,10 @@ defmodule ServiceRadar.Ingestion.StatusIngestor do
     event = rekey_anomaly_verdict(event, series_key)
     subject = causal_prediction_subject(series_key)
 
-    with {:ok, json} <- Jason.encode(event),
-         :ok <- publish(addon_telemetry_publisher(), subject, json) do
-      :ok
-    else
+    case Jason.encode(event) do
+      {:ok, json} ->
+        publish_or_report("anomaly_verdict", subject, json, metadata, opts)
+
       {:error, reason} ->
         log_package_telemetry_publish_failure("anomaly_verdict", reason, metadata)
     end
@@ -494,16 +503,35 @@ defmodule ServiceRadar.Ingestion.StatusIngestor do
   defp publish_otel_log_telemetry_record(
          %TelemetryRecord{payload: payload} = record,
          batch,
-         metadata
+         metadata,
+         opts
        ) do
     with {:ok, log} <- decode_json_payload(payload),
          {:ok, enriched} <- enrich_otel_log(log, record, batch, metadata),
-         {:ok, json} <- Jason.encode(enriched),
-         :ok <- publish(addon_telemetry_publisher(), otel_log_subject(metadata), json) do
-      :ok
+         {:ok, json} <- Jason.encode(enriched) do
+      publish_or_report("OTEL log", otel_log_subject(metadata), json, metadata, opts)
     else
       {:error, reason} ->
         log_package_telemetry_publish_failure("OTEL log", reason, metadata)
+    end
+  end
+
+  defp publish_or_report(signal_type, subject, payload, metadata, opts) do
+    case publish(addon_telemetry_publisher(), subject, payload) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        log_package_telemetry_publish_failure(signal_type, reason, metadata)
+        maybe_return_transport_error(reason, opts)
+    end
+  end
+
+  defp maybe_return_transport_error(reason, opts) do
+    if Keyword.get(opts, :return_transport_errors, false) do
+      {:error, reason}
+    else
+      :ok
     end
   end
 

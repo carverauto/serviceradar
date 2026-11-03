@@ -148,7 +148,14 @@ type PushLoop struct {
 	// edgeMetricsSpool receives metrics batch records while the agent holds a
 	// standing grant for that contract; nil keeps every metric on its legacy path.
 	edgeMetricsSpool edgeMetricsAppender
-	edgeOutputGrants edgeOutputGrants
+	// edgeTelemetrySpool is the same one open spool, connected for plugin and
+	// add-on telemetry while telemetry emission is enabled; nil keeps
+	// telemetry on its legacy status path.
+	edgeTelemetrySpool edgeMetricsAppender
+	// Each telemetry producer's bounded retry queue, oldest first.
+	pluginTelemetryEdge telemetryEdgeQueue
+	addonTelemetryEdge  telemetryEdgeQueue
+	edgeOutputGrants    edgeOutputGrants
 	// Each metric producer's bounded retry queue, oldest first. An entry is either
 	// an item no part of which the spool has admitted, or one built record of an
 	// item that already has a part in the spool.

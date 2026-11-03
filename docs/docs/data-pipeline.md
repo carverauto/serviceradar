@@ -79,6 +79,18 @@ The Helm chart README documents that opt-in
 (`edgeRecords.agentMetricsEnabled`). The publish rules are
 `ServiceRadar.Edge.MetricsBatchProjection`.
 
+Plugin and native add-on telemetry follows the same shape under the
+`serviceradar.telemetry.batch` contract (`edgeRecords.agentTelemetryEnabled`).
+With that spool enabled and a current grant, the batch leaves the status path;
+without the grant, the status path still carries it. The agent host stamps
+the producing assignment or add-on into each batch; plugins and add-ons never
+hold a contract of their own. Core attests and republishes
+`serviceradar_metrics` records onto `metrics.timeseries.>`, and routes OCSF
+event, OTel log and discovery records through the same status ingestor
+destinations as the legacy path. A discovery record on this contract is
+admitted only from a native add-on. The routing rules are
+`ServiceRadar.Edge.Projectors.TelemetryBatch`.
+
 ## Data Service (datasvc)
 
 `datasvc` is a gRPC service (port `50057`) that fronts the platform's NATS-backed

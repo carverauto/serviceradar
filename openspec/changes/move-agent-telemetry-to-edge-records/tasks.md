@@ -51,9 +51,10 @@
 
 ## 5. Plugin and add-on telemetry
 
-- [ ] 5.1 `TelemetryBatch` contract for plugin signals and native add-on telemetry. Routing keys
+- [x] 5.1 `TelemetryBatch` contract for plugin signals and native add-on telemetry. Routing keys
   off the SDK's closed TelemetryBatch payload kinds (`serviceradar_metrics`, `ocsf_event`,
-  `otel_log`). Manifest `signal_schemas` describe only event and log schemas (`ocsf_event`,
+  `otel_log`, `discovery_v1`). `discovery_v1` is add-on-only; a plugin-stamped discovery record
+  is refused. Manifest `signal_schemas` describe only event and log schemas (`ocsf_event`,
   `otel_log`). One projector routes each closed payload kind to its existing destination.
   Plugins and add-ons never get contracts of their own. A new payload kind is an SDK and core
   change.

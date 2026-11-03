@@ -1052,6 +1052,91 @@ defmodule ServiceRadar.StatusHandlerTest do
 
       assert {:error, :addon_telemetry_decode_failed} = StatusIngestor.ingest(status)
     end
+
+    test "package telemetry publish failures stay best-effort unless transport errors are requested" do
+      attempts = :counters.new(1, [:atomics])
+
+      Application.put_env(:serviceradar_core, StatusHandler,
+        addon_telemetry_publisher: fn _subject, _payload ->
+          :counters.add(attempts, 1, 1)
+          {:error, :not_connected}
+        end
+      )
+
+      status =
+        addon_status_with([
+          %TelemetryRecord{
+            payload_kind: :TELEMETRY_PAYLOAD_KIND_OCSF_EVENT,
+            payload: ~s({"class_uid":4003,"message":"one"})
+          },
+          %TelemetryRecord{
+            payload_kind: :TELEMETRY_PAYLOAD_KIND_OTEL_LOG,
+            payload: ~s({"body":"two"})
+          }
+        ])
+
+      assert :ok = StatusIngestor.ingest(status)
+      assert :counters.get(attempts, 1) == 2
+
+      :counters.put(attempts, 1, 0)
+
+      assert {:error, :not_connected} =
+               StatusIngestor.ingest(status, return_transport_errors: true)
+
+      assert :counters.get(attempts, 1) == 1
+    end
+
+    test "an anomaly verdict publish failure stays best-effort unless transport errors are requested" do
+      attempts = :counters.new(1, [:atomics])
+
+      Application.put_env(:serviceradar_core, StatusHandler,
+        addon_telemetry_publisher: fn _subject, _payload ->
+          :counters.add(attempts, 1, 1)
+          {:error, :not_connected}
+        end
+      )
+
+      status =
+        addon_status_with([
+          %TelemetryRecord{
+            payload_kind: :TELEMETRY_PAYLOAD_KIND_OCSF_EVENT,
+            payload: """
+            {"class_uid":2004,"signal_type":"causal","event_type":"anomaly","anomaly":{"series_key":"sysmon:cpu:host-a:0"}}
+            """
+          },
+          %TelemetryRecord{
+            payload_kind: :TELEMETRY_PAYLOAD_KIND_OTEL_LOG,
+            payload: ~s({"body":"after-verdict"})
+          }
+        ])
+
+      assert :ok = StatusIngestor.ingest(status)
+      assert :counters.get(attempts, 1) == 2
+
+      :counters.put(attempts, 1, 0)
+
+      assert {:error, :not_connected} =
+               StatusIngestor.ingest(status, return_transport_errors: true)
+
+      assert :counters.get(attempts, 1) == 1
+
+      test_pid = self()
+
+      Application.put_env(:serviceradar_core, StatusHandler,
+        addon_telemetry_publisher: fn subject, payload ->
+          send(test_pid, {:published, subject, payload})
+          :ok
+        end
+      )
+
+      assert :ok = StatusIngestor.ingest(status, return_transport_errors: true)
+
+      assert_receive {:published, subject, payload}
+      assert String.starts_with?(subject, "signals.analytics.predictions.")
+      assert {:ok, decoded} = Jason.decode(payload)
+      assert decoded["event_type"] == "anomaly"
+      assert_receive {:published, "logs.otel.addon", _log}
+    end
   end
 
   def persist_flow_attribution(events, partition_id, agent_id, pid) do

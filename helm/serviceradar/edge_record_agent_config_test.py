@@ -45,6 +45,14 @@ METRICS_ONLY = {
     "edgeRecords.agentMetricsEnabled": True,
 }
 
+# Operator values for a telemetry-only agent.
+TELEMETRY_ONLY = {
+    "edgeRecords.enabled": True,
+    "edgeRecords.contractRegistry": {"registry_epoch": 1},
+    "edgeRecords.agentTelemetryEnabled": True,
+    "agent.runtimeStorage.enabled": True,
+}
+
 
 def render_agent_config(overrides):
     """Consume helm-unittest's generated ConfigMap snapshot, without golden files."""
@@ -116,6 +124,14 @@ class EdgeRecordAgentConfigTest(unittest.TestCase):
         self.assertIs(sender["enabled"], True)
         self.assertIs(sender["sweep_enabled"], False)
         self.assertIs(sender["metrics_enabled"], True)
+        self.assertIs(sender["telemetry_enabled"], False)
+
+    def test_telemetry_only_sender_enables_telemetry_and_leaves_the_rest_off(self):
+        sender = render_agent_config(TELEMETRY_ONLY)["edge_record_sender"]
+        self.assertIs(sender["enabled"], True)
+        self.assertIs(sender["sweep_enabled"], False)
+        self.assertIs(sender["metrics_enabled"], False)
+        self.assertIs(sender["telemetry_enabled"], True)
 
 
 if __name__ == "__main__":

@@ -47,6 +47,41 @@ func (p *PushLoop) pushAddonTelemetry(ctx context.Context) bool {
 	}
 
 	envelopes, droppedDelta, droppedTotal := buffer.drain(addonTelemetryMaxDrainPerPush)
+
+	// One path per producer: while the agent holds the telemetry standing
+	// grant, batches are spooled as durable records and never also sent on
+	// the legacy status path. Without it, items the spool admitted no part
+	// of go back on the legacy path.
+	if capability := p.edgeTelemetryCapability(time.Now()); capability != nil {
+		if droppedDelta > 0 {
+			p.logger.Warn().
+				Uint64("dropped_since_last", droppedDelta).
+				Uint64("dropped_total", droppedTotal).
+				Msg("Dropped add-on telemetry before push")
+		}
+		items := make([]telemetryEdgeItem, 0, len(envelopes))
+		for _, envelope := range envelopes {
+			items = append(items, telemetryEdgeItem{
+				producerType: "addon",
+				producerID:   addonTelemetryProducerID(envelope.addonID),
+				batch:        envelope.batch,
+				envelope:     &envelope,
+			})
+		}
+		if dropped := p.addonTelemetryEdge.enqueue(items); dropped > 0 {
+			p.dropEdgeTelemetry(edgeProducerAddonTelemetry, edgeDropRetryBufferFull, dropped)
+		}
+		return p.spoolTelemetry(edgeProducerAddonTelemetry, &p.addonTelemetryEdge, capability)
+	}
+
+	taken := p.addonTelemetryEdge.take()
+	queued := make([]addonTelemetryEnvelope, 0, len(taken))
+	for _, item := range taken {
+		if item.envelope != nil {
+			queued = append(queued, *item.envelope)
+		}
+	}
+	envelopes = append(queued, envelopes...)
 	if len(envelopes) == 0 {
 		if droppedDelta > 0 {
 			p.logger.Warn().
@@ -55,6 +90,24 @@ func (p *PushLoop) pushAddonTelemetry(ctx context.Context) bool {
 				Msg("Dropped add-on telemetry before push")
 		}
 		return false
+	}
+
+	// Batches the chunk build skips are dropped for good, as before; batches
+	// that made a chunk but could not be delivered return to the edge queue.
+	var chunkedEnvelopes []addonTelemetryEnvelope
+	restoreUndelivered := func() {
+		items := make([]telemetryEdgeItem, 0, len(chunkedEnvelopes))
+		for _, envelope := range chunkedEnvelopes {
+			items = append(items, telemetryEdgeItem{
+				producerType: "addon",
+				producerID:   addonTelemetryProducerID(envelope.addonID),
+				batch:        envelope.batch,
+				envelope:     &envelope,
+			})
+		}
+		if dropped := p.addonTelemetryEdge.restore(items); dropped > 0 {
+			p.dropEdgeTelemetry(edgeProducerAddonTelemetry, edgeDropRetryBufferFull, dropped)
+		}
 	}
 
 	gatewayID := p.gateway.GetGatewayID()
@@ -77,6 +130,7 @@ func (p *PushLoop) pushAddonTelemetry(ctx context.Context) bool {
 			continue
 		}
 
+		chunkedEnvelopes = append(chunkedEnvelopes, envelope)
 		chunks = append(chunks, &proto.GatewayStatusChunk{
 			Services:  []*proto.GatewayServiceStatus{status},
 			GatewayId: gatewayID,
@@ -108,10 +162,12 @@ func (p *PushLoop) pushAddonTelemetry(ctx context.Context) bool {
 	resp, err := p.gateway.StreamStatus(pushCtx, chunks)
 	if err != nil {
 		p.logger.Error().Err(err).Int("chunk_count", len(chunks)).Msg("Failed to stream add-on telemetry")
+		restoreUndelivered()
 		return false
 	}
 	if !resp.Received {
 		p.logger.Warn().Int("chunk_count", len(chunks)).Msg("Gateway did not acknowledge add-on telemetry")
+		restoreUndelivered()
 		return false
 	}
 
@@ -148,10 +204,16 @@ func buildAddonTelemetryGatewayStatus(
 	}, len(messageBytes), nil
 }
 
-func addonTelemetrySource(addonID string) string {
+// addonTelemetryProducerID is the host-stamped telemetry producer id of an
+// envelope: the same instance the legacy status source names after `addon:`.
+func addonTelemetryProducerID(addonID string) string {
 	clean := strings.TrimSpace(addonID)
 	if clean == "" {
 		clean = unknownTelemetrySource
 	}
-	return fmt.Sprintf("%s%s", addonTelemetrySourcePrefix, clean)
+	return clean
+}
+
+func addonTelemetrySource(addonID string) string {
+	return fmt.Sprintf("%s%s", addonTelemetrySourcePrefix, addonTelemetryProducerID(addonID))
 }

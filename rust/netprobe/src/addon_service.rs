@@ -751,8 +751,8 @@ mod tests {
 
     #[test]
     fn the_envelope_carries_no_identity() {
-        // agent_id, gateway_id and partition are stamped by the control plane
-        // from gateway-attested metadata. producer_id is for display only, and
+        // Identity is stamped by the control plane from the authenticated
+        // producer. producer_id is for display only, and
         // TelemetrySource.metadata stays empty rather than becoming a place
         // where identity accidentally accretes.
         let snapshot = census_snapshot();
