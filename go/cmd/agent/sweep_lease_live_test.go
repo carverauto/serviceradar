@@ -51,19 +51,58 @@ func TestRunningAgentInstallsPlanCarriedSweepLeases(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	root := t.TempDir()
-	leaseDir := filepath.Join(root, "sweep-leases")
+	root, leaseDir := preparePlanLeaseDir(t)
+	staleGroup := "22222222-3333-4444-8555-666666666666"
+	heldGroup := "33333333-4444-4555-8666-777777777777"
+	seedStoredPlanLeases(t, leaseDir, staleGroup, heldGroup)
+
+	gw, gatewayAddr := servePlanLeaseGateway(t, ctx)
+	group := "11111111-2222-3333-4444-555555555555"
+	leaseID := fixedID("6666666677774888")
+	otherLeaseID := fixedID("7777777788884999")
+	assignment := fixedID("aaaaaaaabbbb4ccc")
+	slotID := fixedID("1212121234344565")
+	otherSlotID := fixedID("1313131335354575")
+	now := time.Now()
+	slotAt := now.Add(time.Hour)
+
+	logs := &agentOutput{}
+	cmd := startPlanLeaseAgent(t, ctx, binary, root, gatewayAddr, logs)
+	assertStartupKeepsOnlySlotlessLease(t, gw, logs, leaseDir, staleGroup, heldGroup)
+	onDisk := assertCarriedLeaseInstalls(t, gw, logs, leaseDir, group, leaseID, assignment, slotID, slotAt)
+	assertUnknownDigestRefusesPush(t, gw, logs, leaseDir, group, leaseID, assignment, slotID, slotAt, onDisk)
+	assertSlotlessPushKeepsCarriedSlot(t, gw, logs, leaseDir, group, leaseID, slotID, now)
+
+	stopPlanLeaseAgent(cmd)
+	gw.waitStreamEnd(t, logs)
+	logs = &agentOutput{}
+	cmd = startPlanLeaseAgent(t, ctx, binary, root, gatewayAddr, logs)
+	assertReloadedLeaseKeepsCarriedSlot(t, gw, logs, leaseDir, group, leaseID, slotID, now)
+	assertDifferentLeaseReplacesInstalled(t, gw, logs, leaseDir, group, otherLeaseID, assignment, otherSlotID, slotAt)
+	stopPlanLeaseAgent(cmd)
+}
+
+func preparePlanLeaseDir(t *testing.T) (root, leaseDir string) {
+	t.Helper()
+	root = t.TempDir()
+	leaseDir = filepath.Join(root, "sweep-leases")
 	if err := os.MkdirAll(leaseDir, 0o755); err != nil {
 		t.Fatalf("lease dir: %v", err)
 	}
-	staleGroup := "22222222-3333-4444-8555-666666666666"
-	heldGroup := "33333333-4444-4555-8666-777777777777"
+	return root, leaseDir
+}
+
+func seedStoredPlanLeases(t *testing.T, leaseDir, staleGroup, heldGroup string) {
+	t.Helper()
 	writeLeaseFile(t, leaseDir, staleGroup, prePlanSlotLease(staleGroup))
 	if err := os.WriteFile(filepath.Join(leaseDir, staleGroup+".executed.json"), []byte(`{}`), 0o600); err != nil {
 		t.Fatalf("stale sidecar: %v", err)
 	}
 	writeLeaseFile(t, leaseDir, heldGroup, slotlessLease(heldGroup, fixedID("aaaaaaaaaaaabbbb"), time.Now()))
+}
 
+func servePlanLeaseGateway(t *testing.T, ctx context.Context) (*planLeaseGateway, string) {
+	t.Helper()
 	gw := newPlanLeaseGateway()
 	lis, err := (&net.ListenConfig{}).Listen(ctx, "tcp", "127.0.0.1:0")
 	if err != nil {
@@ -77,18 +116,11 @@ func TestRunningAgentInstallsPlanCarriedSweepLeases(t *testing.T) {
 		}
 	}()
 	t.Cleanup(server.Stop)
+	return gw, lis.Addr().String()
+}
 
-	group := "11111111-2222-3333-4444-555555555555"
-	leaseID := fixedID("6666666677774888")
-	otherLeaseID := fixedID("7777777788884999")
-	assignment := fixedID("aaaaaaaabbbb4ccc")
-	slotID := fixedID("1212121234344565")
-	otherSlotID := fixedID("1313131335354575")
-	now := time.Now()
-	slotAt := now.Add(time.Hour)
-
-	logs := &agentOutput{}
-	cmd := startPlanLeaseAgent(t, ctx, binary, root, lis.Addr().String(), logs)
+func assertStartupKeepsOnlySlotlessLease(t *testing.T, gw *planLeaseGateway, logs *agentOutput, leaseDir, staleGroup, heldGroup string) {
+	t.Helper()
 	hello := gw.waitHello(t, logs)
 	requireCapabilities(t, hello, "sweep_lease_v1", "sweep_lease_plan_checks:v1")
 	t.Logf("control hello carries sweep_lease_v1 and sweep_lease_plan_checks:v1")
@@ -104,8 +136,11 @@ func TestRunningAgentInstallsPlanCarriedSweepLeases(t *testing.T) {
 		t.Fatalf("slot-less held lease = version %d slots %d, want version 1 and no slots", held.GetLeaseVersion(), len(held.GetSlots()))
 	}
 	t.Logf("startup discarded the pre-plan slot lease and kept the slot-less lease")
+}
 
-	installed := gw.push(t, logs, group, carriedLease(group, leaseID, assignment, slotID, slotAt))
+func assertCarriedLeaseInstalls(t *testing.T, gw *planLeaseGateway, logs *agentOutput, leaseDir, group string, leaseID, assignment, slotID []byte, slotAt time.Time) *edgev1.SweepLeaseV1 {
+	t.Helper()
+	installed := gw.push(t, logs, carriedLease(group, leaseID, assignment, slotID, slotAt))
 	if !installed.GetInstalled() || installed.GetInstalledSlotCount() != 1 || installed.GetError() != "" {
 		t.Fatalf("v2 install ack = installed:%t slots:%d err:%q", installed.GetInstalled(), installed.GetInstalledSlotCount(), installed.GetError())
 	}
@@ -114,20 +149,27 @@ func TestRunningAgentInstallsPlanCarriedSweepLeases(t *testing.T) {
 		t.Fatalf("installed lease = version %d execution %x", onDisk.GetLeaseVersion(), onDisk.GetSlots()[0].GetExecutionId())
 	}
 	t.Logf("v2 push installed lease_version %d with the carried slot", onDisk.GetLeaseVersion())
+	return onDisk
+}
 
+func assertUnknownDigestRefusesPush(t *testing.T, gw *planLeaseGateway, logs *agentOutput, leaseDir, group string, leaseID, assignment, slotID []byte, slotAt time.Time, installed *edgev1.SweepLeaseV1) {
+	t.Helper()
 	broken := carriedLease(group, leaseID, assignment, slotID, slotAt)
 	broken.CheckSets[0].DigestVersion = 2
-	refused := gw.push(t, logs, group, broken)
+	refused := gw.push(t, logs, broken)
 	if refused.GetInstalled() || !strings.Contains(refused.GetError(), "digest_version") {
 		t.Fatalf("unknown digest ack = installed:%t err:%q", refused.GetInstalled(), refused.GetError())
 	}
 	afterRefusal := readLeaseFile(t, leaseDir, group)
-	if !goproto.Equal(onDisk, afterRefusal) {
+	if !goproto.Equal(installed, afterRefusal) {
 		t.Fatalf("refused push changed the installed lease")
 	}
 	t.Logf("unknown digest_version refused the push and left the installed lease in place: %s", refused.GetError())
+}
 
-	kept := gw.push(t, logs, group, slotlessLease(group, leaseID, now))
+func assertSlotlessPushKeepsCarriedSlot(t *testing.T, gw *planLeaseGateway, logs *agentOutput, leaseDir, group string, leaseID, slotID []byte, now time.Time) {
+	t.Helper()
+	kept := gw.push(t, logs, slotlessLease(group, leaseID, now))
 	if !kept.GetInstalled() || kept.GetInstalledSlotCount() != 1 {
 		t.Fatalf("slot-less same-lease ack = installed:%t slots:%d err:%q", kept.GetInstalled(), kept.GetInstalledSlotCount(), kept.GetError())
 	}
@@ -139,13 +181,13 @@ func TestRunningAgentInstallsPlanCarriedSweepLeases(t *testing.T) {
 		t.Fatalf("slot-less push dropped the carried slot")
 	}
 	t.Logf("slot-less same-lease push kept lease_version 2, the slot, and its check set")
+}
 
-	stopPlanLeaseAgent(cmd)
-	gw.waitStreamEnd(t, logs)
-	cmd = startPlanLeaseAgent(t, ctx, binary, root, lis.Addr().String(), logs)
+func assertReloadedLeaseKeepsCarriedSlot(t *testing.T, gw *planLeaseGateway, logs *agentOutput, leaseDir, group string, leaseID, slotID []byte, now time.Time) {
+	t.Helper()
 	reloadedHello := gw.waitHello(t, logs)
 	requireCapabilities(t, reloadedHello, "sweep_lease_v1", "sweep_lease_plan_checks:v1")
-	reloaded := gw.push(t, logs, group, slotlessLease(group, leaseID, now))
+	reloaded := gw.push(t, logs, slotlessLease(group, leaseID, now))
 	if !reloaded.GetInstalled() || reloaded.GetInstalledSlotCount() != 1 {
 		t.Fatalf("reload ack = installed:%t slots:%d err:%q", reloaded.GetInstalled(), reloaded.GetInstalledSlotCount(), reloaded.GetError())
 	}
@@ -154,8 +196,11 @@ func TestRunningAgentInstallsPlanCarriedSweepLeases(t *testing.T) {
 		t.Fatalf("reloaded lease = version %d execution %x", survived.GetLeaseVersion(), survived.GetSlots()[0].GetExecutionId())
 	}
 	t.Logf("after restart a same-lease slot-less push still resolved the carried slot at lease_version 2")
+}
 
-	replaced := gw.push(t, logs, group, carriedLease(group, otherLeaseID, assignment, otherSlotID, slotAt.Add(time.Hour)))
+func assertDifferentLeaseReplacesInstalled(t *testing.T, gw *planLeaseGateway, logs *agentOutput, leaseDir, group string, otherLeaseID, assignment, otherSlotID []byte, slotAt time.Time) {
+	t.Helper()
+	replaced := gw.push(t, logs, carriedLease(group, otherLeaseID, assignment, otherSlotID, slotAt.Add(time.Hour)))
 	if !replaced.GetInstalled() || replaced.GetInstalledSlotCount() != 1 {
 		t.Fatalf("replacement ack = installed:%t slots:%d err:%q", replaced.GetInstalled(), replaced.GetInstalledSlotCount(), replaced.GetError())
 	}
@@ -167,7 +212,6 @@ func TestRunningAgentInstallsPlanCarriedSweepLeases(t *testing.T) {
 		t.Fatalf("replacement lease_version = %d, want 2", fresh.GetLeaseVersion())
 	}
 	t.Logf("a different lease id replaced the installed lease outright")
-	stopPlanLeaseAgent(cmd)
 }
 
 func startPlanLeaseAgent(t *testing.T, ctx context.Context, binary, root, gateway string, logs *agentOutput) *exec.Cmd {
@@ -357,9 +401,9 @@ func (g *planLeaseGateway) waitStreamEnd(t *testing.T, logs *agentOutput) {
 	}
 }
 
-func (g *planLeaseGateway) push(t *testing.T, logs *agentOutput, group string, lease *edgev1.SweepLeaseV1) *proto.SweepLeaseAck {
+func (g *planLeaseGateway) push(t *testing.T, logs *agentOutput, lease *edgev1.SweepLeaseV1) *proto.SweepLeaseAck {
 	t.Helper()
-	op := planLeaseOp{chunks: planLeaseChunks(t, group, lease), result: make(chan planLeaseResult, 1)}
+	op := planLeaseOp{chunks: planLeaseChunks(t, dashedUUID(lease.GetSweepGroupId()), lease), result: make(chan planLeaseResult, 1)}
 	select {
 	case g.ops <- op:
 	case <-time.After(5 * time.Second):
@@ -532,7 +576,11 @@ func TestRunningAgentRunsPlanTCPConnectWhileTheGroupTickerStaysOff(t *testing.T)
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	defer listener.Close()
+	t.Cleanup(func() {
+		if err := listener.Close(); err != nil {
+			t.Errorf("close listener: %v", err)
+		}
+	})
 	go func() {
 		for {
 			conn, acceptErr := listener.Accept()
@@ -643,11 +691,32 @@ func TestRunningAgentRefusesUnavailablePlannedModesBeforeClaim(t *testing.T) {
 
 	root := t.TempDir()
 	spoolDir := filepath.Join(root, "spool")
+	group, lease, collection := unavailableICMPAndTCPSYNLease(t)
+	gw, gatewayAddr := serveExecLeaseGateway(t, ctx)
+
+	logs := &agentOutput{}
+	cmd := startSweepExecAgent(t, ctx, binary, root, spoolDir, gatewayAddr, logs)
+	icmpMissing := assertNoIPv6MarkerBeforeSlot(t, gw, logs)
+	assertUnavailablePlanInstalled(t, gw, logs, group, lease)
+	refusal := assertOneRefusalBeforeClaim(t, gw, logs, lease, icmpMissing)
+	assertRefusalRetainedForLookback(t, root, spoolDir, group, lease, collection)
+	assertRefusalResentOnReconnect(t, gw, logs, refusal)
+	stopPlanLeaseAgent(cmd)
+	gw.waitStreamEnd(t, logs)
+
+	// The reader drops a refusal once its stored retain timestamp is reached.
+	// Moving that timestamp is the clock reaching the bound the writer stored.
+	assertRefusalHeldWhileTimestampAhead(t, ctx, binary, root, spoolDir, gatewayAddr, gw, group, lease, refusal)
+	assertRefusalDroppedWhenTimestampPassed(t, ctx, binary, root, spoolDir, gatewayAddr, gw, group, lease)
+}
+
+func unavailableICMPAndTCPSYNLease(t *testing.T) (group string, lease *edgev1.SweepLeaseV1, collection time.Time) {
+	t.Helper()
 	groupBytes, err := edgerecord.NewUUIDv7()
 	if err != nil {
 		t.Fatalf("group id: %v", err)
 	}
-	group := dashedUUID(groupBytes)
+	group = dashedUUID(groupBytes)
 	leaseID, err := edgerecord.NewUUIDv7()
 	if err != nil {
 		t.Fatalf("lease id: %v", err)
@@ -657,12 +726,16 @@ func TestRunningAgentRefusesUnavailablePlannedModesBeforeClaim(t *testing.T) {
 		t.Fatalf("assignment id: %v", err)
 	}
 	slotAt := time.Now().Add(4 * time.Second)
-	collection := slotAt.Add(2 * time.Minute)
-	lease := executablePlanLease(t, groupBytes, leaseID, assignment, "2001:db8::1/128", 1, []*edgev1.SweepTestV1{
+	collection = slotAt.Add(2 * time.Minute)
+	lease = executablePlanLease(t, groupBytes, leaseID, assignment, "2001:db8::1/128", 1, []*edgev1.SweepTestV1{
 		{Mode: edgev1.SweepMode_SWEEP_MODE_ICMP, Protocol: edgev1.TransportProtocol_TRANSPORT_PROTOCOL_ICMP},
 		{Mode: edgev1.SweepMode_SWEEP_MODE_TCP_SYN, Protocol: edgev1.TransportProtocol_TRANSPORT_PROTOCOL_TCP, Port: 443},
 	}, slotAt, collection)
+	return group, lease, collection
+}
 
+func serveExecLeaseGateway(t *testing.T, ctx context.Context) (*execLeaseGateway, string) {
+	t.Helper()
 	gw := newExecLeaseGateway()
 	lis, err := (&net.ListenConfig{}).Listen(ctx, "tcp", "127.0.0.1:0")
 	if err != nil {
@@ -672,23 +745,32 @@ func TestRunningAgentRefusesUnavailablePlannedModesBeforeClaim(t *testing.T) {
 	proto.RegisterAgentGatewayServiceServer(server, gw)
 	go func() { _ = server.Serve(lis) }()
 	t.Cleanup(server.Stop)
+	return gw, lis.Addr().String()
+}
 
-	logs := &agentOutput{}
-	cmd := startSweepExecAgent(t, ctx, binary, root, spoolDir, lis.Addr().String(), logs)
+func assertNoIPv6MarkerBeforeSlot(t *testing.T, gw *execLeaseGateway, logs *agentOutput) bool {
+	t.Helper()
 	hello := gw.waitHello(t, logs)
 	icmpMissing := containsCap(hello, "icmp.unavailable")
 	if containsCap(hello, "tcp_syn_ipv6.unavailable") {
 		t.Fatalf("hello already carries tcp_syn_ipv6.unavailable before any slot: %v", hello)
 	}
 	t.Logf("startup hello icmp.unavailable=%t", icmpMissing)
+	return icmpMissing
+}
 
+func assertUnavailablePlanInstalled(t *testing.T, gw *execLeaseGateway, logs *agentOutput, group string, lease *edgev1.SweepLeaseV1) {
+	t.Helper()
 	installed := gw.pushLease(t, logs, group, lease)
 	if !installed.GetInstalled() || installed.GetError() != "" {
 		t.Fatalf("install ack = installed:%t err:%q\nlog:\n%s", installed.GetInstalled(), installed.GetError(), logs.snapshot())
 	}
 	gw.pushConfig(t, logs, icmpGroupConfig(group))
 	waitForLog(t, logs, "Applied sweep group config from gateway", 15*time.Second)
+}
 
+func assertOneRefusalBeforeClaim(t *testing.T, gw *execLeaseGateway, logs *agentOutput, lease *edgev1.SweepLeaseV1, icmpMissing bool) *proto.SweepLeaseSlotRefusal {
+	t.Helper()
 	refusal := gw.waitRefusal(t, logs, 30*time.Second)
 	wantMarkers := []string{"tcp_syn_ipv6.unavailable"}
 	if icmpMissing {
@@ -703,9 +785,20 @@ func TestRunningAgentRefusesUnavailablePlannedModesBeforeClaim(t *testing.T) {
 	if !bytes.Equal(refusal.GetExecutionId(), lease.GetSlots()[0].GetExecutionId()) {
 		t.Fatalf("refusal execution = %x", refusal.GetExecutionId())
 	}
-	messages := gw.snapshot()
-	helloAt := -1
-	refusalAt := -1
+	helloAt, refusalAt := refusalFollowsMarkerHello(gw.snapshot())
+	if helloAt < 0 || refusalAt < 0 || helloAt > refusalAt {
+		t.Fatalf("marker hello index %d, refusal index %d", helloAt, refusalAt)
+	}
+	if strings.Contains(string(logs.snapshot()), "Ran leased sweep slot") {
+		t.Fatalf("refused slot still ran:\n%s", logs.snapshot())
+	}
+	t.Logf("one refusal before the slot ran, markers %v, detail %s; hello with the new marker preceded it", refusal.GetUnavailableCapabilities(), refusal.GetDetail())
+	return refusal
+}
+
+func refusalFollowsMarkerHello(messages []*proto.ControlStreamRequest) (helloAt, refusalAt int) {
+	helloAt = -1
+	refusalAt = -1
 	for i, msg := range messages {
 		if h := msg.GetHello(); h != nil && containsCap(h.GetCapabilities(), "tcp_syn_ipv6.unavailable") && helloAt < 0 {
 			helloAt = i
@@ -714,14 +807,11 @@ func TestRunningAgentRefusesUnavailablePlannedModesBeforeClaim(t *testing.T) {
 			refusalAt = i
 		}
 	}
-	if helloAt < 0 || refusalAt < 0 || helloAt > refusalAt {
-		t.Fatalf("marker hello index %d, refusal index %d", helloAt, refusalAt)
-	}
-	if strings.Contains(string(logs.snapshot()), "Ran leased sweep slot") {
-		t.Fatalf("refused slot still ran:\n%s", logs.snapshot())
-	}
-	t.Logf("one refusal before the slot ran, markers %v, detail %s; hello with the new marker preceded it", refusal.GetUnavailableCapabilities(), refusal.GetDetail())
+	return helloAt, refusalAt
+}
 
+func assertRefusalRetainedForLookback(t *testing.T, root, spoolDir, group string, lease *edgev1.SweepLeaseV1, collection time.Time) {
+	t.Helper()
 	// Decision 12 / LeaseMisses lookback: keep the refusal until 24 hours past
 	// collection expiry. The bound is that lookback, written here, not a
 	// constant read back from the agent.
@@ -737,20 +827,30 @@ func TestRunningAgentRefusesUnavailablePlannedModesBeforeClaim(t *testing.T) {
 		t.Fatalf("retain_until = %d, want collection expiry + 24h (%d)", record.RetainUntilUnixNano, wantRetain)
 	}
 	t.Logf("persisted retain_until is the slot collection expiry plus 24h")
+	assertSpoolHasNoRecords(t, spoolDir)
+}
 
+func assertSpoolHasNoRecords(t *testing.T, spoolDir string) {
+	t.Helper()
 	sp, err := spool.Open(spoolDir)
 	if err != nil {
 		t.Fatalf("open spool: %v", err)
 	}
 	records, err := sp.Unresolved()
-	_ = sp.Close()
+	closeErr := sp.Close()
 	if err != nil {
 		t.Fatalf("spool unresolved: %v", err)
+	}
+	if closeErr != nil {
+		t.Fatalf("close spool: %v", closeErr)
 	}
 	if len(records) != 0 {
 		t.Fatalf("refused slot wrote %d spool records", len(records))
 	}
+}
 
+func assertRefusalResentOnReconnect(t *testing.T, gw *execLeaseGateway, logs *agentOutput, refusal *proto.SweepLeaseSlotRefusal) {
+	t.Helper()
 	gw.disconnect()
 	gw.waitStreamEnd(t, logs)
 	rehello := gw.waitHello(t, logs)
@@ -762,16 +862,13 @@ func TestRunningAgentRefusesUnavailablePlannedModesBeforeClaim(t *testing.T) {
 		t.Fatalf("resent refusal = %+v", resent)
 	}
 	t.Logf("the next control stream carried the marker and the same refusal")
-	stopPlanLeaseAgent(cmd)
-	gw.waitStreamEnd(t, logs)
+}
 
-	// The reader drops a refusal once its stored retain timestamp is reached.
-	// Moving that timestamp is the clock reaching the bound the writer stored.
-	record.RetainUntilUnixNano = time.Now().Add(30 * time.Second).UnixNano()
-	stored[executionKey] = record
-	writeRefusalFile(t, filepath.Join(root, "sweep-leases", group+".refusals.json"), stored)
-	logs = &agentOutput{}
-	cmd = startSweepExecAgent(t, ctx, binary, root, spoolDir, lis.Addr().String(), logs)
+func assertRefusalHeldWhileTimestampAhead(t *testing.T, ctx context.Context, binary, root, spoolDir, gateway string, gw *execLeaseGateway, group string, lease *edgev1.SweepLeaseV1, refusal *proto.SweepLeaseSlotRefusal) {
+	t.Helper()
+	rewriteRefusalRetain(t, root, group, lease, time.Now().Add(30*time.Second).UnixNano())
+	logs := &agentOutput{}
+	cmd := startSweepExecAgent(t, ctx, binary, root, spoolDir, gateway, logs)
 	_ = gw.waitHello(t, logs)
 	stillHeld := gw.waitRefusal(t, logs, 15*time.Second)
 	if !bytes.Equal(stillHeld.GetExecutionId(), refusal.GetExecutionId()) {
@@ -780,12 +877,13 @@ func TestRunningAgentRefusesUnavailablePlannedModesBeforeClaim(t *testing.T) {
 	t.Logf("a refusal whose retain timestamp is still ahead is sent on connect")
 	stopPlanLeaseAgent(cmd)
 	gw.waitStreamEnd(t, logs)
+}
 
-	record.RetainUntilUnixNano = time.Now().Add(-time.Nanosecond).UnixNano()
-	stored[executionKey] = record
-	writeRefusalFile(t, filepath.Join(root, "sweep-leases", group+".refusals.json"), stored)
-	logs = &agentOutput{}
-	cmd = startSweepExecAgent(t, ctx, binary, root, spoolDir, lis.Addr().String(), logs)
+func assertRefusalDroppedWhenTimestampPassed(t *testing.T, ctx context.Context, binary, root, spoolDir, gateway string, gw *execLeaseGateway, group string, lease *edgev1.SweepLeaseV1) {
+	t.Helper()
+	rewriteRefusalRetain(t, root, group, lease, time.Now().Add(-time.Nanosecond).UnixNano())
+	logs := &agentOutput{}
+	cmd := startSweepExecAgent(t, ctx, binary, root, spoolDir, gateway, logs)
 	defer stopPlanLeaseAgent(cmd)
 	_ = gw.waitHello(t, logs)
 	select {
@@ -794,6 +892,20 @@ func TestRunningAgentRefusesUnavailablePlannedModesBeforeClaim(t *testing.T) {
 	case <-time.After(6 * time.Second):
 		t.Logf("a refusal whose retain timestamp has passed is not sent")
 	}
+}
+
+func rewriteRefusalRetain(t *testing.T, root, group string, lease *edgev1.SweepLeaseV1, retainUntil int64) {
+	t.Helper()
+	path := filepath.Join(root, "sweep-leases", group+".refusals.json")
+	stored := readRefusalFile(t, path)
+	executionKey := dashedUUID(lease.GetSlots()[0].GetExecutionId())
+	record, ok := stored[executionKey]
+	if !ok {
+		t.Fatalf("refusal file keys = %v, want %s", refusalKeys(stored), executionKey)
+	}
+	record.RetainUntilUnixNano = retainUntil
+	stored[executionKey] = record
+	writeRefusalFile(t, path, stored)
 }
 
 func startSweepExecAgent(t *testing.T, ctx context.Context, binary, root, spoolDir, gateway string, logs *agentOutput) *exec.Cmd {
@@ -868,7 +980,11 @@ func readSweepBatch(t *testing.T, spoolDir string) *edgev1.SweepObservationBatch
 	if err != nil {
 		t.Fatalf("open spool: %v", err)
 	}
-	defer sp.Close()
+	t.Cleanup(func() {
+		if err := sp.Close(); err != nil {
+			t.Errorf("close spool: %v", err)
+		}
+	})
 	records, err := sp.Unresolved()
 	if err != nil {
 		t.Fatalf("spool unresolved: %v", err)
