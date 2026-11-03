@@ -43,6 +43,12 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
 
   @moduletag :integration
 
+  # Bound for one asynchronous step. Most steps open a fresh direct session,
+  # whose connect alone can take five seconds when name resolution stalls (as
+  # it does on the CI executors), so a five-second bound would fail a step that
+  # is still within DirectSession's connect budget.
+  @step_timeout 15_000
+
   setup_all do
     TestSupport.start_core!()
     :ok
@@ -1011,15 +1017,15 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
     ])
 
     task = Task.async(fn -> ExposureTerminalCompactionWorker.perform(job) end)
-    assert_receive {:load, http, _, first_headers, [_]}, 5_000
+    assert_receive {:load, http, _, first_headers, [_]}, @step_timeout
     send(http, :commit)
-    assert_receive {:load, http, _, failed_headers, [_]}, 5_000
+    assert_receive {:load, http, _, failed_headers, [_]}, @step_timeout
     send(http, :filtered)
     assert {:error, {:warehouse_load, :exposure_compacted_facts, _}} = Task.await(task, 10_000)
     assert Repo.get!(Oban.Job, job.id).args["cursor"] == [4_294_964_001, 20_240_000_040, 40]
 
     retry = Task.async(fn -> ExposureTerminalCompactionWorker.perform(job) end)
-    assert_receive {:load, http, _, retry_headers, [_]}, 5_000
+    assert_receive {:load, http, _, retry_headers, [_]}, @step_timeout
     assert retry_headers["label"] == failed_headers["label"]
     refute retry_headers["label"] == first_headers["label"]
     send(http, :commit)
@@ -1184,7 +1190,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
       snapshot_query!(fn _ -> warehouse_rows([]) end)
       publisher = Task.async(fn -> ExposureSnapshotWorker.perform(%Oban.Job{args: args}) end)
       {pages, loads} = consume_snapshot_until_end(conn, [])
-      assert :ok = Task.await(publisher, 5_000)
+      assert :ok = Task.await(publisher, @step_timeout)
       id = hd(pages)["generation"]
       assert :ok = ExposureSnapshotFinalizer.step(id)
 
@@ -1820,6 +1826,16 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
     assert :ok = check.(other_scope)
   end
 
+  # Like DirectSession.run/1, use a test-owned direct connection only after it
+  # has connected, so a slow connect cannot drop its first query from the queue.
+  defp start_direct_connection! do
+    tag = make_ref()
+    opts = Keyword.put(DirectSession.connection_opts(), :connection_listeners, {[self()], tag})
+    connection = start_supervised!({Postgrex, opts}, id: tag)
+    assert_receive {:connected, _connection, ^tag}, 30_000
+    connection
+  end
+
   defp reconciliation_source!(ctx, cve, mock_warehouse? \\ true) do
     if mock_warehouse?, do: snapshot_http!()
     Repo.query!("INSERT INTO platform.ocsf_devices(uid) VALUES ($1)", [ctx.device_uid])
@@ -1947,7 +1963,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
       task = Task.async(fn -> ExposureSnapshots.process_batch(message) end)
 
       assert_receive {:load, http, "/api/serviceradar/exposure_facts/_stream_load", _, [row]},
-                     5_000
+                     @step_timeout
 
       assert row["snapshot_generation"] == id
       assert {:ok, pending} = ExposureSnapshotState.get(id)
@@ -1959,7 +1975,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
 
       refute Task.yield(task, 20)
       send(http, :commit)
-      assert {:ok, 1} = Task.await(task)
+      assert {:ok, 1} = Task.await(task, @step_timeout)
       assert {:ok, received} = ExposureSnapshotState.get(id)
       assert received["receipts"][lane] == %{"page" => 1, "count" => 1, "digest" => hash}
       assert received["pending"] == %{}
@@ -2250,7 +2266,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
       {:ok, _} = Gnat.sub(conn, self(), "exposure.snapshots.>")
       args = %{"device_ord" => scope}
       publisher = Task.async(fn -> ExposureSnapshotWorker.perform(%Oban.Job{args: args}) end)
-      assert_receive {:msg, %{topic: start_subject, body: start_body}}, 5_000
+      assert_receive {:msg, %{topic: start_subject, body: start_body}}, @step_timeout
       {:ok, start, _} = Snapshot.decode(start_body)
       assert start["kind"] == "start"
       first_id = start["generation"]
@@ -2260,7 +2276,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
       assert later["transition_seq"] > original["transition_seq"]
       assert {:ok, 1} = consume_retained(conn, start_subject, start_body)
       {pages, loads} = consume_snapshot_until_end(conn, [])
-      assert :ok = Task.await(publisher, 5_000)
+      assert :ok = Task.await(publisher, @step_timeout)
       facts = pages |> Enum.filter(&(&1["phase"] == "facts")) |> Enum.flat_map(& &1["records"])
       assert facts == [original]
 
@@ -2275,7 +2291,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
       assert :ok = ExposureSnapshotFinalizer.step(first_id)
 
       lost = Task.async(fn -> ExposureSnapshotWorker.perform(%Oban.Job{args: args}) end)
-      assert_receive {:msg, %{body: lost_body}}, 5_000
+      assert_receive {:msg, %{body: lost_body}}, @step_timeout
       {:ok, lost_start, _} = Snapshot.decode(lost_body)
       assert lost_start["kind"] == "start"
       # Kill the reader while it waits for start receipt, before any load.
@@ -2283,13 +2299,13 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
       assert :ok = ExposureSnapshotWorker.recover_reader()
       assert {:ok, %{"status" => "aborted"}} = ExposureSnapshotState.get(lost_start["generation"])
       replacement = Task.async(fn -> ExposureSnapshotWorker.perform(%Oban.Job{args: args}) end)
-      assert_receive {:msg, %{topic: replacement_subject, body: replacement_body}}, 5_000
+      assert_receive {:msg, %{topic: replacement_subject, body: replacement_body}}, @step_timeout
       {:ok, replacement_start, _} = Snapshot.decode(replacement_body)
       assert replacement_start["generation"] > lost_start["generation"]
       assert replacement_start["snapshot"] != lost_start["snapshot"]
       assert {:ok, 1} = consume_retained(conn, replacement_subject, replacement_body)
       {replacement_pages, _} = consume_snapshot_until_end(conn, [])
-      assert :ok = Task.await(replacement, 5_000)
+      assert :ok = Task.await(replacement, @step_timeout)
 
       assert replacement_pages
              |> Enum.filter(&(&1["phase"] == "facts"))
@@ -2770,13 +2786,13 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
       task = Task.async(fn -> ExposureSnapshots.process_batch(snapshot_message(page)) end)
 
       assert_receive {:load, http, "/api/serviceradar/exposure_facts/_stream_load", _, [row]},
-                     5_000
+                     @step_timeout
 
       assert row["transition_seq"] == 40
       assert row["state"] == 1
       assert row["snapshot_generation"] == id
       send(http, :commit)
-      assert {:ok, 1} = Task.await(task)
+      assert {:ok, 1} = Task.await(task, @step_timeout)
 
       assert {:ok, 1} =
                deliver_transition!(
@@ -2980,7 +2996,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
       end)
 
     assert_receive {:load, http, "/api/serviceradar/exposure_facts/_stream_load", _, [fact]},
-                   5_000
+                   @step_timeout
 
     assert fact["transition_seq"] == payload["transition_seq"]
     assert fact["state"] == if(payload["state"] == "resolved", do: 0, else: 1)
@@ -2989,11 +3005,11 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
 
     assert_receive {:load, log_http, "/api/serviceradar/exposure_transitions_log/_stream_load", _,
                     [history]},
-                   5_000
+                   @step_timeout
 
     assert history["transition_seq"] == payload["transition_seq"]
     send(log_http, :commit)
-    Task.await(task)
+    Task.await(task, @step_timeout)
   end
 
   defp stall_applying_snapshot!(ctx, payload) do
@@ -3022,9 +3038,9 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
     {:ok, _body, hash} = Snapshot.encode(page)
     assert {:ok, _} = ExposureSnapshotState.reserve(id, owner, page, hash)
     task = Task.async(fn -> ExposureSnapshots.process_batch(snapshot_message(page)) end)
-    assert_receive {:load, http, _path, _headers, _rows}, 5_000
+    assert_receive {:load, http, _path, _headers, _rows}, @step_timeout
     send(http, :failure)
-    assert {:error, _} = Task.await(task)
+    assert {:error, _} = Task.await(task, @step_timeout)
 
     assert {:ok, %{"pending" => %{^lane => %{"state" => "applying"}}}} =
              ExposureSnapshotState.get(id)
@@ -3455,7 +3471,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
         end)
       end)
 
-    assert_receive {:terminal, terminal}, 5_000
+    assert_receive {:terminal, terminal}, @step_timeout
     creator = Task.async(fn -> insert_assessment!(ctx, package, cve) end)
     refute Task.yield(creator, 200)
     send(repair.pid, :commit)
@@ -3489,7 +3505,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
         end)
       end)
 
-    assert_receive :created, 5_000
+    assert_receive :created, @step_timeout
     repair = Task.async(fn -> repair_publication(ctx, second_cve, 10) end)
     refute Task.yield(repair, 200)
     send(creator.pid, :commit)
@@ -3776,7 +3792,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
         end)
       end)
 
-    assert_receive :fact_published, 5_000
+    assert_receive :fact_published, @step_timeout
 
     retire =
       Task.async(fn ->
@@ -3826,7 +3842,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
           end)
         end)
 
-      assert_receive :warehouse_load_started, 5_000
+      assert_receive :warehouse_load_started, @step_timeout
 
       assert {:error, :exposure_delivery_busy} =
                ExposureDelivery.run([second], fn _, _ ->
@@ -3834,7 +3850,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
                end)
 
       send(owner.pid, :uncertain)
-      assert {:error, :load_uncertain} = Task.await(owner)
+      assert {:error, :load_uncertain} = Task.await(owner, @step_timeout)
 
       assert [["applying"]] =
                Repo.query!(
@@ -3891,7 +3907,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
           end)
         end)
 
-      assert_receive {:load, http, _path, _headers, [row]}, 5_000
+      assert_receive {:load, http, _path, _headers, [row]}, @step_timeout
       assert row["snapshot_generation"] == stalled.id
       refute_received {:owner, _}
       send(http, :commit)
@@ -3928,7 +3944,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
           end)
         end)
 
-      assert_receive {:load, http, _path, _headers, [row]}, 5_000
+      assert_receive {:load, http, _path, _headers, [row]}, @step_timeout
       assert row["snapshot_generation"] == again.id
       refute_received :live_write
       send(http, :commit)
@@ -4111,7 +4127,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
 
       # A pooled server connection that kept the pre-fix bucket lock after its
       # unlock ran on a different backend.
-      stranded = start_supervised!({Postgrex, DirectSession.connection_opts()})
+      stranded = start_direct_connection!()
       Postgrex.query!(stranded, "SELECT pg_advisory_lock(74523, $1)", [bucket])
 
       parent = self()
@@ -4244,7 +4260,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
     foreign = [ctx.unique * 10 + 1]
     parent = self()
 
-    holder = start_supervised!({Postgrex, DirectSession.connection_opts()})
+    holder = start_direct_connection!()
 
     on_exit(fn ->
       try do
@@ -4303,7 +4319,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
   end
 
   defp await_journal_insert_waiter!(deadline \\ nil) do
-    deadline = deadline || System.monotonic_time(:millisecond) + 5_000
+    deadline = deadline || System.monotonic_time(:millisecond) + @step_timeout
 
     waiting? =
       Repo.query!("""
@@ -4404,7 +4420,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
         end)
       end)
 
-    assert_receive :first_locked, 5_000
+    assert_receive :first_locked, @step_timeout
 
     second =
       Task.async(fn ->
@@ -4621,7 +4637,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
           end)
         end)
 
-      assert_receive {:created, first_seq}, 5_000
+      assert_receive {:created, first_seq}, @step_timeout
 
       second =
         Task.async(fn ->
