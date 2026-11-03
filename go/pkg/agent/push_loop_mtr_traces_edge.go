@@ -31,6 +31,11 @@ import (
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 )
 
+const (
+	mtrProtocolTCP = "tcp"
+	mtrProtocolUDP = "udp"
+)
+
 var errMTRNoTraces = errors.New("no MTR traces to encode")
 
 // edgeScheduledMtrCapability returns the standing grant new scheduled MTR trace
@@ -429,9 +434,9 @@ func parseMtrAddrBytes(raw string) []byte {
 
 func scheduledMtrTransportProtocol(protoName string) edgev1.TransportProtocol {
 	switch strings.ToLower(strings.TrimSpace(protoName)) {
-	case "tcp":
+	case mtrProtocolTCP:
 		return edgev1.TransportProtocol_TRANSPORT_PROTOCOL_TCP
-	case "udp":
+	case mtrProtocolUDP:
 		return edgev1.TransportProtocol_TRANSPORT_PROTOCOL_UDP
 	default:
 		return edgev1.TransportProtocol_TRANSPORT_PROTOCOL_ICMP
