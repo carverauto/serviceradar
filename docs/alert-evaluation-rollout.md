@@ -69,7 +69,8 @@ returns an error so the pipeline retries the remainder. The acceptance rules
 are the durable admission requirement in
 `openspec/changes/refactor-durable-alert-admission/specs/observability-signals/spec.md`.
 Accepted work is never evicted. An occurrence larger than the byte budget is
-skipped for evaluation, counted, and left stored.
+skipped for evaluation, counted, and left stored. The skip commits a cancelled
+receipt (reason `record_too_large`), so a redelivery counts it only once.
 
 Set `SERVICERADAR_ALERT_EVALUATION_REPLAY_DAYS` to cover the longest supported
 source redelivery and operator replay window. `SERVICERADAR_ALERT_EVALUATION_RECEIPT_DAYS`

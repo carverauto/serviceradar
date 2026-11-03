@@ -933,18 +933,20 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
     last = %{event() | message: "synthetic after"}
     skipped_before = runtime_count({:rejection, :alert_event, :record_too_large})
 
-    log =
-      capture_log(fn ->
-        assert {:ok, [_, _]} = Inbox.admit(:event, [first, oversized, last])
-      end)
+    {{:ok, [_, _, _] = keys}, log} =
+      with_log(fn -> Inbox.admit(:event, [first, oversized, last]) end)
 
     assert messages(rule, actor) == ["synthetic before", "synthetic after"]
     assert log =~ "skipped 1 event occurrence(s) larger than the 2048-byte admission budget"
     assert runtime_count({:rejection, :alert_event, :record_too_large}) == skipped_before + 1
 
-    # A redelivery skips it again and admits nothing twice.
-    capture_log(fn -> assert {:ok, [_, _]} = Inbox.admit(:event, [first, oversized, last]) end)
+    # A redelivery admits nothing twice and neither recounts nor relogs the skip.
+    redelivery_log =
+      capture_log(fn -> assert {:ok, ^keys} = Inbox.admit(:event, [first, oversized, last]) end)
+
     assert length(work(rule, actor)) == 2
+    refute redelivery_log =~ "admission budget"
+    assert runtime_count({:rejection, :alert_event, :record_too_large}) == skipped_before + 1
   end
 
   test "an invalid timestamp rejects every occurrence before durable admission", %{

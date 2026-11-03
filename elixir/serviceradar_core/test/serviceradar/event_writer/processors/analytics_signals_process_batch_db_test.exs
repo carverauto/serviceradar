@@ -943,8 +943,11 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     )
 
     event_id = "synthetic-inventory-pending-#{System.unique_integer([:positive])}"
-    opened = assessment_message(event_id, "open", "active", "confirmed", "affected")
-    resolved = assessment_message(event_id, "resolved", "resolved", "confirmed", "fixed")
+    first_seen = DateTime.truncate(DateTime.utc_now(), :microsecond)
+    open_version = DateTime.shift(first_seen, second: 1)
+    resolved_version = DateTime.shift(open_version, second: 1)
+    opened = versioned_assessment_message(event_id, "open", open_version, first_seen)
+    resolved = versioned_assessment_message(event_id, "resolved", resolved_version, first_seen)
     row = AnalyticsSignals.parse_message(opened)
 
     delete_event!(row)

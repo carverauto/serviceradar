@@ -12,7 +12,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
 
   An occurrence that alone exceeds `rule_bytes` or `pending_bytes` can never
   fit. It is skipped, counted as `:record_too_large` and logged, never
-  truncated: callers persist the record itself before admitting it.
+  truncated: callers persist the record itself before admitting it. The skip
+  commits a `:cancelled` receipt, so a redelivery treats it as a replay and
+  counts and logs it once.
 
   The admission mutex only covers capacity, replay lookup and committed input
   order. Evaluators use a different fence and never acquire this mutex, so a
@@ -106,7 +108,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
     rules = active_rules(signal, limits.batch_work)
     require_ok(within(length(rules), limits.batch_work, :rule_inventory))
     plan = plan(rules, prepared, limits)
-    insert(plan.admitted, signal)
+    insert(plan.admitted, plan.skipped, signal)
     enqueue_hints(plan.admitted)
     plan
   end
@@ -172,7 +174,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
     require_ok(within(length(candidates), limits.batch_work, :batch_work))
     pending = reject_replays(candidates)
     require_capacity(pending, limits)
-    insert(pending, signal)
+    insert(pending, [], signal)
     enqueue_hints(pending)
     {Enum.map(candidates, &{&1.rule_id, &1.source_key}), length(pending)}
   end
@@ -478,7 +480,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
         acc
 
       candidate.payload_bytes > min(limits.rule_bytes, limits.pending_bytes) ->
-        %{acc | skipped: [candidate | acc.skipped]}
+        %{acc | skipped: [candidate | acc.skipped], keys: [key(candidate) | acc.keys]}
 
       true ->
         case over_budget(candidate, acc, limits) do
@@ -630,12 +632,14 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
     {count, bytes, by_rule}
   end
 
-  defp insert(candidates, signal) do
+  defp insert(admitted, skipped, signal) do
     now = DateTime.utc_now()
 
-    params =
-      candidates
-      |> Enum.group_by(& &1.rule_id)
+    entries = Enum.map(admitted, &{:work, &1}) ++ Enum.map(skipped, &{:skipped, &1})
+
+    {work, receipts} =
+      entries
+      |> Enum.group_by(fn {_kind, candidate} -> candidate.rule_id end)
       |> Enum.sort_by(&elem(&1, 0))
       |> Enum.flat_map(fn {rule_id, records} ->
         {lane, registered} =
@@ -654,14 +658,33 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
 
         notify_after_commit(registered ++ reserved)
 
-        records
-        |> Enum.with_index(lane.next_position + 1)
-        |> Enum.map(fn {record, position} ->
-          Map.merge(record, %{position: position, signal: signal, available_at: now})
-        end)
+        Enum.with_index(records, lane.next_position + 1)
       end)
+      |> Enum.split_with(fn {{kind, _candidate}, _position} -> kind == :work end)
 
-    case Ash.bulk_create(params, Work, :admit,
+    work
+    |> Enum.map(fn {{:work, record}, position} ->
+      Map.merge(record, %{position: position, signal: signal, available_at: now})
+    end)
+    |> bulk_create(Work, :admit)
+
+    receipts
+    |> Enum.map(fn {{:skipped, candidate}, position} ->
+      %{
+        rule_id: candidate.rule_id,
+        source_key: candidate.source_key,
+        position: position,
+        disposition: :cancelled,
+        details: %{reason: "record_too_large", payload_bytes: candidate.payload_bytes}
+      }
+    end)
+    |> bulk_create(Receipt, :record)
+  end
+
+  defp bulk_create([], _resource, _action), do: :ok
+
+  defp bulk_create(params, resource, action) do
+    case Ash.bulk_create(params, resource, action,
            actor: actor(),
            return_errors?: true,
            stop_on_error?: true

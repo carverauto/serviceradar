@@ -21,6 +21,7 @@ Stateful alert evaluation SHALL return success only after every matching-rule oc
 - **WHEN** one occurrence alone exceeds the per-rule or pending byte budget
 - **THEN** alert evaluation SHALL skip that occurrence, count the skip, and leave the payload untruncated
 - **AND** the stored signal SHALL remain
+- **AND** a redelivery of the same occurrence SHALL NOT count or log the skip again
 
 #### Scenario: Unavailable store or invalid payload rejects the slice
 - **WHEN** the store is unavailable or a slice is invalid
