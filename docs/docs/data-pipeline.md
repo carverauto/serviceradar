@@ -87,7 +87,8 @@ the producing assignment or add-on into each batch; plugins and add-ons never
 hold a contract of their own. Core attests and republishes
 `serviceradar_metrics` records onto `metrics.timeseries.>`, and routes OCSF
 event, OTel log and discovery records through the same status ingestor
-destinations as the legacy path. The routing rules are
+destinations as the legacy path. A discovery record on this contract is
+admitted only from a native add-on. The routing rules are
 `ServiceRadar.Edge.Projectors.TelemetryBatch`.
 
 ## Data Service (datasvc)
