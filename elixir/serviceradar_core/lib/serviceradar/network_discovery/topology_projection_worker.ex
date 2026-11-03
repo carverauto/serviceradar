@@ -38,12 +38,13 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
   ## Convergence
 
   Each graph statement commits on its own; no transaction spans a projection.
-  When a job reads the device's rows it records a watermark: the row count and
-  newest `timestamp` of the device's interfaces and of its links. After a
-  successful projection it reads the watermark again. If a write landed in
-  between, or another run for the device read newer rows and finished first,
-  the watermark differs and the job enqueues one follow-up projection for the
-  device, which reads CNPG again. The graph therefore converges to the newest
+  When a job reads the device's rows it records a watermark: an md5 of the full
+  content of the device's interface rows and of its link rows, computed in
+  SQL, so any committed change to a row, an added row or a removed row changes
+  it. After a successful projection it reads the watermark again. If a write
+  landed in between, or another run for the device read newer rows and
+  finished first, the watermark differs and the job enqueues one follow-up
+  projection for the device, which reads CNPG again. The graph therefore converges to the newest
   committed rows, however runs for one device overlap.
 
   ## Failure
@@ -77,6 +78,16 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
   @lane :topology_projection
   @timeout_ms to_timeout(minute: 10)
   @replace [available: [:args], scheduled: [:args], retryable: [:args]]
+
+  @watermark_sql """
+  SELECT
+    (SELECT md5(coalesce(string_agg(row_to_json(i)::text, ',' ORDER BY i.interface_uid), ''))
+     FROM platform.discovered_interfaces i
+     WHERE i.device_id = $1),
+    (SELECT md5(coalesce(string_agg(row_to_json(l)::text, ',' ORDER BY l.id), ''))
+     FROM platform.mapper_topology_links l
+     WHERE l.local_device_id = $1)
+  """
 
   @type kind :: :interfaces | :links
 
@@ -168,23 +179,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
   end
 
   defp watermark(device_id) do
-    interfaces =
-      Repo.one(
-        from(i in Interface,
-          where: i.device_id == ^device_id,
-          select: {count(), max(i.timestamp)}
-        )
-      )
-
-    links =
-      Repo.one(
-        from(l in TopologyLink,
-          where: l.local_device_id == ^device_id,
-          select: {count(), max(l.timestamp)}
-        )
-      )
-
-    {interfaces, links}
+    %Postgrex.Result{rows: [watermark]} = Repo.query!(@watermark_sql, [device_id])
+    watermark
   end
 
   defp queue_wait_ms(%Oban.Job{args: %{"enqueued_at" => enqueued_at}, attempted_at: attempted}) do

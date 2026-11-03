@@ -131,8 +131,9 @@ not started, so a pending backlog collapses to one run per device. Oban keeps at
 most one pending job per device; an executing job is not pending, so a result
 that lands during a run still schedules the next one. Each graph statement
 commits on its own. When a job reads the device's rows it records a watermark
-(the row count and newest timestamp of the device's interfaces and of its
-links), and after a successful projection it reads the watermark again. If it
+(an md5, computed in SQL, of the full content of the device's interface rows
+and of its link rows, so any change to, addition of or removal of a row
+changes it), and after a successful projection it reads the watermark again. If it
 changed, because a write landed during the run or another run for the device
 read newer rows and finished first, the job schedules one follow-up projection
 for the device. The graph therefore converges to the newest committed rows. A failed projection is logged,
