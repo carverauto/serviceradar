@@ -21,8 +21,10 @@ defmodule ServiceRadar.EventWriter.Supervisor do
      service catalog upsert; started before the pipelines that use it
   2. `EventWriter.AnomalyEpisodeGuardTables` - owner of the anomaly episode
      rate-guard and flood-tripwire counters; started before the pipelines
-  3. `EventWriter.Pipeline` - the shared Broadway pipeline
-  4. `EventWriter.FlowPipeline` - the raw-flow Broadway pipeline
+  3. `EventWriter.EdgeRecordDeadLetter.FailureLog` - first failure of each
+     edge-record delivery still being retried, named by its dead-letter
+  4. `EventWriter.Pipeline` - the shared Broadway pipeline
+  5. `EventWriter.FlowPipeline` - the raw-flow Broadway pipeline
   """
 
   use Supervisor
@@ -69,7 +71,8 @@ defmodule ServiceRadar.EventWriter.Supervisor do
     children =
       [
         ServiceRadar.EventWriter.ServiceCatalogCache,
-        ServiceRadar.EventWriter.AnomalyEpisodeGuardTables
+        ServiceRadar.EventWriter.AnomalyEpisodeGuardTables,
+        ServiceRadar.EventWriter.EdgeRecordDeadLetter.FailureLog
       ]
       |> maybe_pipeline(config, Pipeline)
       |> maybe_pipeline(flow_config, ServiceRadar.EventWriter.FlowPipeline)

@@ -14,6 +14,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
   use ServiceRadar.DataCase, async: true
 
+  alias Broadway.Message
   alias ServiceRadar.Actors.SystemActor
   alias Serviceradar.Agent.Addon.V1.TelemetryBatch, as: AddonTelemetryBatch
   alias Serviceradar.Agent.Addon.V1.TelemetryCounters
@@ -48,6 +49,8 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
   alias Serviceradar.Edge.V1.UnleasedSweepPortCountV1
   alias Serviceradar.Edge.V1.UnleasedSweepPortResultV1
   alias Serviceradar.Edge.V1.UnleasedSweepResultsBatchV1
+  alias ServiceRadar.EventWriter.EdgeRecordDeadLetter
+  alias ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay
   alias ServiceRadar.EventWriter.Processors.EdgeRecord
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Infrastructure.Partition
@@ -619,6 +622,67 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
                EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
 
       assert_received {:metrics_published, _subject, _body, _opts}
+      refute_received {:metrics_published, _subject, _body, _opts}
+      assert ledger_count(frame.record) == 1
+    end
+
+    test "a dead-lettered record replays from its dead-letter copy once, through the ledger" do
+      frame = build_metrics_frame()
+      refused = fn _subject, _body, _opts -> {:error, :timeout} end
+
+      error =
+        assert_raise RuntimeError, fn ->
+          EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: refused)
+        end
+
+      # The delivery as the broker hands it over: lower-cased header names.
+      delivered =
+        Message.failed(
+          %Message{
+            data: frame.record_bytes,
+            metadata: %{
+              subject: "telemetry.edge-record.v1.bulk.p07",
+              headers: Enum.map(frame.headers, fn {k, v} -> {String.downcase(k), v} end),
+              jetstream_ack: %{
+                stream: "TELEMETRY_EDGE_RECORD_V1_BULK",
+                stream_sequence: 7,
+                delivery_count: 20
+              }
+            },
+            acknowledger: {__MODULE__, :ack_ref, %{}}
+          },
+          error
+        )
+
+      letter = EdgeRecordDeadLetter.build(delivered, DateTime.utc_now())
+      event_id = Ecto.UUID.load!(frame.record.event_id)
+
+      assert letter.subject ==
+               "telemetry.edge-record-dlq.v1.bulk.p07.serviceradar_metrics_batch.v1"
+
+      failure = Map.new(letter.headers)
+      assert failure["Sr-Edge-Dlq-Contract"] == "#{@metrics_contract}/1"
+      assert failure["Sr-Edge-Dlq-Event-Id"] == event_id
+      assert failure["Sr-Edge-Dlq-Agent-Id"] == frame.agent_id
+
+      # The copy as the dead-letter stream returns it, then as replay republishes it.
+      stored =
+        Enum.map([{"Nats-Msg-Id", letter.msg_id} | letter.headers], fn {k, v} ->
+          {String.downcase(k), v}
+        end)
+
+      assert {:ok, republished} = Replay.republication(%{data: letter.body, headers: stored})
+      assert republished.subject == "telemetry.edge-record.v1.bulk.p07"
+      replayed = [{"Nats-Msg-Id", republished.msg_id} | republished.headers]
+
+      assert {:ok, :inserted} =
+               EdgeRecord.ingest(republished.body, replayed, Repo, request: stored_ack())
+
+      assert_received {:metrics_published, _subject, _body, _opts}
+
+      assert {:ok, :replay} =
+               EdgeRecord.ingest(republished.body, replayed, Repo, request: stored_ack())
+
       refute_received {:metrics_published, _subject, _body, _opts}
       assert ledger_count(frame.record) == 1
     end

@@ -721,14 +721,19 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
 
     # A dead-letter stream that aged or evicted records would delete the only copy of a resolved
     # sequence's bytes once the agent reclaims its spool.
-    test "keeps the edge-record security quarantine as an R3 stream that never ages or evicts" do
-      quarantine = Config.edge_record_security_quarantine_stream()
-
-      assert quarantine.stream_name == "TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK"
-      assert quarantine.subject == "telemetry.edge-record-security-quarantine.v1.bulk.>"
-      assert quarantine.stream_replicas == 3
-      assert quarantine.stream_discard == "new"
-      assert quarantine.stream_max_age == 0
+    test "keeps the edge-record security quarantine and dead-letter as R3 streams that never age or evict" do
+      for {stream, name, subject} <- [
+            {Config.edge_record_security_quarantine_stream(),
+             "TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK",
+             "telemetry.edge-record-security-quarantine.v1.bulk.>"},
+            {Config.edge_record_dead_letter_stream(), "TELEMETRY_EDGE_RECORD_DLQ_V1_BULK",
+             "telemetry.edge-record-dlq.v1.bulk.>"}
+          ] do
+        assert {stream.stream_name, stream.subject} == {name, subject}
+        assert stream.stream_replicas == 3
+        assert stream.stream_discard == "new"
+        assert stream.stream_max_age == 0
+      end
     end
 
     test "routes MTR trace results to the Mtr processor from a dedicated stream" do
@@ -1058,7 +1063,8 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
                  "trivy_reports" => @gib,
                  "TELEMETRY_EDGE_RECORD_V1_BULK" => @gib,
                  "TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK" => 67_108_864,
-                 "TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK" => 67_108_864
+                 "TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK" => 67_108_864,
+                 "TELEMETRY_EDGE_RECORD_DLQ_V1_BULK" => 67_108_864
                },
                replicas: %{
                  "metrics" => 3,
@@ -1069,7 +1075,8 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
                  "trivy_reports" => 1,
                  "TELEMETRY_EDGE_RECORD_V1_BULK" => 3,
                  "TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK" => 3,
-                 "TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK" => 3
+                 "TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK" => 3,
+                 "TELEMETRY_EDGE_RECORD_DLQ_V1_BULK" => 3
                },
                fallbacks: %{
                  "events" => %{max_bytes: 2 * @gib, replicas: 1},
@@ -1090,6 +1097,7 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
         "SERVICERADAR_JS_TELEMETRY_EDGE_RECORD_V1_BULK_MAX_BYTES" => "33554432",
         "SERVICERADAR_JS_TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK_MAX_BYTES" => "17",
         "SERVICERADAR_JS_TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK_MAX_BYTES" => "18",
+        "SERVICERADAR_JS_TELEMETRY_EDGE_RECORD_DLQ_V1_BULK_MAX_BYTES" => "19",
         "SERVICERADAR_JS_METRICS_REPLICAS" => "1",
         "SERVICERADAR_JS_K8S_INVENTORY_REPLICAS" => "3",
         "SERVICERADAR_JS_ANALYTICS_PREDICTIONS_REPLICAS" => "3",
@@ -1099,6 +1107,7 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
         "SERVICERADAR_JS_TELEMETRY_EDGE_RECORD_V1_BULK_REPLICAS" => "1",
         "SERVICERADAR_JS_TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK_REPLICAS" => "1",
         "SERVICERADAR_JS_TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK_REPLICAS" => "1",
+        "SERVICERADAR_JS_TELEMETRY_EDGE_RECORD_DLQ_V1_BULK_REPLICAS" => "1",
         "SERVICERADAR_JS_EVENTS_FALLBACK_MAX_BYTES" => "21",
         "SERVICERADAR_JS_EVENTS_FALLBACK_REPLICAS" => "3",
         "SERVICERADAR_JS_FLOWS_FALLBACK_MAX_BYTES" => "22",
@@ -1117,7 +1126,8 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
                  "trivy_reports" => 16,
                  "TELEMETRY_EDGE_RECORD_V1_BULK" => 33_554_432,
                  "TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK" => 17,
-                 "TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK" => 18
+                 "TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK" => 18,
+                 "TELEMETRY_EDGE_RECORD_DLQ_V1_BULK" => 19
                },
                replicas: %{
                  "metrics" => 1,
@@ -1128,7 +1138,8 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
                  "trivy_reports" => 3,
                  "TELEMETRY_EDGE_RECORD_V1_BULK" => 1,
                  "TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK" => 1,
-                 "TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK" => 1
+                 "TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK" => 1,
+                 "TELEMETRY_EDGE_RECORD_DLQ_V1_BULK" => 1
                },
                fallbacks: %{
                  "events" => %{max_bytes: 21, replicas: 3},

@@ -95,7 +95,8 @@ defmodule ServiceRadar.EventWriter.Config do
     "trivy_reports" => @gib,
     "TELEMETRY_EDGE_RECORD_V1_BULK" => @gib,
     "TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK" => 67_108_864,
-    "TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK" => 67_108_864
+    "TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK" => 67_108_864,
+    "TELEMETRY_EDGE_RECORD_DLQ_V1_BULK" => 67_108_864
   }
 
   # Compiled default `num_replicas` for streams only EventWriter creates.
@@ -110,7 +111,8 @@ defmodule ServiceRadar.EventWriter.Config do
     "trivy_reports" => 1,
     "TELEMETRY_EDGE_RECORD_V1_BULK" => 3,
     "TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK" => 3,
-    "TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK" => 3
+    "TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK" => 3,
+    "TELEMETRY_EDGE_RECORD_DLQ_V1_BULK" => 3
   }
 
   # EventWriter's fallback shape for the streams a collector may own (design D3,
@@ -227,6 +229,7 @@ defmodule ServiceRadar.EventWriter.Config do
           optional(:stream_max_age) => pos_integer() | nil,
           optional(:stream_duplicate_window) => pos_integer() | nil,
           optional(:consumer_max_deliver) => integer() | nil,
+          optional(:dead_letter_after_deliveries) => pos_integer() | nil,
           optional(:consumer_max_ack_pending) => pos_integer() | nil,
           optional(:consumer_ack_wait_ns) => pos_integer() | nil,
           optional(:consumer_pull_batch_size) => pos_integer() | nil,
@@ -614,8 +617,9 @@ defmodule ServiceRadar.EventWriter.Config do
 
   * `SERVICERADAR_JS_<STREAM>_MAX_BYTES` for `metrics`, `k8s_inventory`,
     `analytics_predictions`, `mtr_results`, `scan_results`, `trivy_reports`,
-    `TELEMETRY_EDGE_RECORD_V1_BULK`, `TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK` and
-    `TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK`;
+    `TELEMETRY_EDGE_RECORD_V1_BULK`, `TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK`,
+    `TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK` and
+    `TELEMETRY_EDGE_RECORD_DLQ_V1_BULK`;
   * `SERVICERADAR_JS_<STREAM>_REPLICAS` for the same streams;
   * `SERVICERADAR_JS_<STREAM>_FALLBACK_MAX_BYTES` and `_FALLBACK_REPLICAS` for
     `events`, `flows` and `ARANCINI_CAUSAL`.
@@ -850,7 +854,13 @@ defmodule ServiceRadar.EventWriter.Config do
   all-or-nothing CNPG transaction per record -- a redelivered message must
   never be folded into another record's batch outcome. The gateway has already
   acknowledged a stored record to its agent, so a failed projection is retried
-  without a delivery limit (`consumer_max_deliver: -1`), with backoff.
+  without a delivery limit (`consumer_max_deliver: -1`), with backoff, until its
+  `dead_letter_after_deliveries`-th delivery fails too. That delivery copies the
+  record to the dead-letter stream (`edge_record_dead_letter_stream/0`) and is
+  acknowledged only once the copy is stored; see
+  `ServiceRadar.EventWriter.EdgeRecordDeadLetter`. With the redelivery backoff
+  capped at 80 seconds, 20 deliveries keep retrying a record for about 25
+  minutes, well inside the stream's 24-hour `MaxAge`.
   """
   @spec edge_record_stream() :: stream_config()
   def edge_record_stream do
@@ -868,7 +878,8 @@ defmodule ServiceRadar.EventWriter.Config do
       stream_replicas: 3,
       stream_max_bytes: 1_073_741_824,
       stream_max_age: 86_400_000_000_000,
-      consumer_max_deliver: -1
+      consumer_max_deliver: -1,
+      dead_letter_after_deliveries: 20
     }
   end
 
@@ -922,6 +933,34 @@ defmodule ServiceRadar.EventWriter.Config do
       stream_max_bytes: 67_108_864,
       stream_max_age: 0,
       consumer_max_deliver: -1
+    }
+  end
+
+  @doc """
+  The dead-letter stream for edge records whose projection kept failing
+  (`ServiceRadar.EventWriter.EdgeRecordDeadLetter`): each message is the
+  record's original bytes and transport headers plus `Sr-Edge-Dlq-*` failure
+  headers, on `telemetry.edge-record-dlq.v1.bulk.pNN.<contract>.v<version>`.
+
+  Shaped like the security-quarantine stream and for the same reason: a held
+  record must not age or be evicted out, so `MaxAge` is disabled and `DiscardNew`
+  refuses a dead-letter once the stream is full. A refused dead-letter leaves the
+  source delivery unacknowledged, so the record keeps retrying on the edge-record
+  stream instead of being lost. Only a replay
+  (`ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay`) or an operator deletes
+  a message. The `EdgeRecordDeadLetter` processor binds this stream's durable and
+  writes nothing; an acknowledgement does not remove a message under limits
+  retention. The DLQ catalog, retention and redrive are
+  `add-edge-record-stream-partitioning`.
+  """
+  @spec edge_record_dead_letter_stream() :: stream_config()
+  def edge_record_dead_letter_stream do
+    %{
+      edge_record_security_quarantine_stream()
+      | name: "EDGE_RECORD_DLQ",
+        stream_name: "TELEMETRY_EDGE_RECORD_DLQ_V1_BULK",
+        subject: "telemetry.edge-record-dlq.v1.bulk.>",
+        processor: ServiceRadar.EventWriter.Processors.EdgeRecordDeadLetter
     }
   end
 
@@ -1165,7 +1204,8 @@ defmodule ServiceRadar.EventWriter.Config do
       analytics_predictions_stream(),
       edge_record_stream(),
       edge_record_audit_stream(),
-      edge_record_security_quarantine_stream()
+      edge_record_security_quarantine_stream(),
+      edge_record_dead_letter_stream()
       # Raw flows live in default_flow_streams/0 (dedicated Broadway demand domain).
     ]
   end

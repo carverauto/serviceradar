@@ -61,10 +61,16 @@ defmodule ServiceRadar.EventWriter.ConsumerLagReporter do
     |> Enum.uniq()
   end
 
-  # Classes whose stream retention state is polled. The security-quarantine class is here so its
-  # stream depth (`stream_bytes`) is reported: its consumer only reports, so consumer lag says
-  # nothing about how many quarantined records the stream holds.
-  @retention_classes ["flows", "edge_record", "edge_record_audit", "edge_record_quarantine"]
+  # Classes whose stream retention state is polled. The security-quarantine and dead-letter
+  # classes are here so their stream depth (`stream_bytes`) is reported: their consumers write
+  # nothing, so consumer lag says nothing about how many records those streams hold.
+  @retention_classes [
+    "flows",
+    "edge_record",
+    "edge_record_audit",
+    "edge_record_quarantine",
+    "edge_record_dlq"
+  ]
 
   defp retention_subject?(class) when class in @retention_classes, do: true
   defp retention_subject?(_class), do: false

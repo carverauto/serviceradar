@@ -2394,6 +2394,8 @@ change together with the requirements they implement.
   fires on any held record, and `docs/edge-record-quarantine-runbook.md` gives
   the `nats stream get` path. The catalog, stable DLQ IDs, states, deleter and
   redrive above remain open.
+  MINIMAL GENERIC DEAD-LETTER LANDED (2026-11-02, epic #6271) for EventWriter
+  projection failures; recorded on `add-edge-record-stream-partitioning` 1.10.
 - [x] 5.8 Derive required low-cardinality execution/scanner/availability/trace
   metrics from the canonical event without recreating per-host/per-hop generic
   metric expansion.

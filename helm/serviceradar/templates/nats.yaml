@@ -405,11 +405,22 @@ spec:
                       "exposure.snapshots.>",
                       "metrics.exposure_transitions",
                       "metrics.exposure_dimensions",
+                      # EventWriter's edge-record dead-letter
+                      # (EdgeRecordDeadLetter) copies a record whose projection
+                      # kept failing here and ACKs the source only after the
+                      # PubAck, so a missing entry leaves the record retrying.
+                      # Replay republishes it to the edge-record subject it came
+                      # from. The deny below withholds purge and deletion of the
+                      # dead-letter stream; deleting one replayed message stays on
+                      # the JetStream API allow.
+                      "telemetry.edge-record-dlq.v1.bulk.>",
+                      "telemetry.edge-record.v1.bulk.>",
+                      "telemetry.edge-record-audit.v1.bulk.>",
                       "\$JS.API.>",
                       "\$JS.ACK.>",
                       "_INBOX.>"
                     ]
-                    deny: ["\$SYS.>", "\$JS.API.STREAM.PURGE.EXPOSURE_RECOVERY", "\$JS.API.STREAM.DELETE.EXPOSURE_RECOVERY"]
+                    deny: ["\$SYS.>", "\$JS.API.STREAM.PURGE.EXPOSURE_RECOVERY", "\$JS.API.STREAM.DELETE.EXPOSURE_RECOVERY", "\$JS.API.STREAM.PURGE.TELEMETRY_EDGE_RECORD_DLQ_V1_BULK", "\$JS.API.STREAM.DELETE.TELEMETRY_EDGE_RECORD_DLQ_V1_BULK"]
                   }
                   subscribe: {
                     allow: [

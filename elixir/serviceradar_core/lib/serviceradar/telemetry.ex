@@ -888,6 +888,14 @@ defmodule ServiceRadar.Telemetry do
         tags: [:subject_class, :stream, :consumer, :reason_class],
         description: "EventWriter messages terminally acked at JetStream max_deliver"
       ),
+      counter("serviceradar.event_writer.edge_record.dead_letter.count",
+        event_name: [:serviceradar, :event_writer, :edge_record, :dead_letter],
+        measurement: :count,
+        tags: [:contract, :reason_class, :result],
+        description:
+          "Edge records copied to the dead-letter stream (result=stored) or whose copy failed " <>
+            "and stays unacknowledged on the edge-record stream (result=failed)"
+      ),
       distribution("serviceradar.event_writer.ack.duration",
         event_name: [:serviceradar, :event_writer, :ack],
         measurement: :duration,

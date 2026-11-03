@@ -16,8 +16,8 @@ defmodule ServiceRadar.Edge.StreamRoute do
       telemetry.edge-record-audit.v1.{bulk|interactive}.pNN
       telemetry.edge-record-security-quarantine.v1.{bulk|interactive}.pNN
       telemetry.edge-record-recovery.v1
-      telemetry.edge-record-dlq.v1.bulk.pNN
-      telemetry.edge-record-dlq.v1.interactive.pNN
+      telemetry.edge-record-dlq.v1.bulk.pNN.<contract>.v<version>
+      telemetry.edge-record-dlq.v1.interactive.pNN.<contract>.v<version>
 
   The data subject keys on TRAFFIC CLASS; the route profile selects which FAMILY applies and
   never appears as a token. Recovery is one singular reserved lane -- no class token, no partition
@@ -35,19 +35,22 @@ defmodule ServiceRadar.Edge.StreamRoute do
   of which one it was. The recovery lane has neither; a recovery record with either decision is
   unroutable.
 
-  ## The DLQ families are normative, and NOT resolvable here yet
+  ## The DLQ family is derived from the delivered source subject
 
   `telemetry.edge-record-dlq.v1.{bulk|interactive}.pNN` are part of the normative topology, and a
-  recovery failure preserves its ORIGINAL traffic class rather than getting a DLQ family of its
-  own -- neither initial routing nor redrive may promote or demote a record's class.
+  failure preserves its ORIGINAL traffic class rather than getting a DLQ family of its own --
+  neither initial routing nor redrive may promote or demote a record's class.
 
   There is deliberately NO `resolve_dlq/2`. The version that existed took the traffic class from a
   contract supplied alongside the source route, so a bulk failure could be resolved into the
-  interactive DLQ; a test named "cannot be reclassified" in fact demonstrated exactly that. The
-  honest fix is not a tighter signature but waiting for the failure context that a DLQ route is
-  derived FROM: the canonical bounded DLQ wrapper, the source stream/sequence, and the error
-  cohort. Until those exist there is nothing to derive a DLQ route from, so offering one would be
-  a production-looking API with no correct caller.
+  interactive DLQ; a test named "cannot be reclassified" in fact demonstrated exactly that.
+  `dead_letter_route/2` instead takes the class and partition from the subject the broker
+  delivered the failed record on, which is the failure context a DLQ route is derived FROM, so it
+  cannot reclassify. It serves EventWriter's dead-letter for a record whose projection keeps
+  failing (`ServiceRadar.EventWriter.EdgeRecordDeadLetter`). The subject appends the record's
+  contract as two trailing tokens, `<contract>.v<version>`, so the stream can be read and
+  replayed one contract at a time. The full DLQ catalog, its retention and its redrive belong to
+  `add-edge-record-stream-partitioning`.
 
   ## Two versions, deliberately separate
 
@@ -131,6 +134,11 @@ defmodule ServiceRadar.Edge.StreamRoute do
       {"telemetry.edge-record-security-quarantine.v1",
        "TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1"}
   }
+
+  # The source families whose records EventWriter projects, and so can dead-letter.
+  @dead_letter_sources ["edge-record", "edge-record-audit"]
+  @dead_letter_family "telemetry.edge-record-dlq.v1"
+  @dead_letter_stream "TELEMETRY_EDGE_RECORD_DLQ_V1"
 
   # The frozen partition rules. One today; the rest arrive with the contract registry.
   @partition_rules [:network_scope_v1]
@@ -216,6 +224,54 @@ defmodule ServiceRadar.Edge.StreamRoute do
   end
 
   def resolve(_), do: {:error, :contract}
+
+  @doc """
+  Resolves the dead-letter route of an edge record delivered on `source_subject`.
+
+  The traffic class and partition are the source subject's, so the dead-letter keeps the
+  record's class and lands in the partition it was delivered from. Only the two families
+  EventWriter projects (primary and audit) dead-letter; any other subject is refused
+  `:not_dead_letterable`. `contract` is the record's `{contract_id, contract_version}`, or `nil`
+  when the record could not be decoded; it becomes the subject's last two tokens (`unknown.v0`
+  when absent), lower-cased and reduced to `[a-z0-9_-]` so a contract id's dots do not add
+  tokens.
+  """
+  @spec dead_letter_route(String.t(), {String.t(), non_neg_integer()} | nil) ::
+          {:ok, ResolvedRoute.t()} | {:error, :not_dead_letterable}
+  def dead_letter_route(source_subject, contract) when is_binary(source_subject) do
+    with ["telemetry", family, "v1", token, "p" <> digits] when family in @dead_letter_sources <-
+           String.split(source_subject, "."),
+         true <- token in Map.values(@class_tokens),
+         {partition, ""} when partition in 0..(@num_partitions - 1)//1 <- Integer.parse(digits),
+         true <- byte_size(digits) == 2 do
+      {:ok,
+       route(
+         "#{@dead_letter_family}.#{token}.#{pad(partition)}.#{contract_tokens(contract)}",
+         partition,
+         "#{@dead_letter_stream}_#{String.upcase(token)}"
+       )}
+    else
+      _ -> {:error, :not_dead_letterable}
+    end
+  end
+
+  def dead_letter_route(_source_subject, _contract), do: {:error, :not_dead_letterable}
+
+  defp contract_tokens({id, version}) when is_binary(id) and is_integer(version) and version >= 0,
+    do: "#{contract_token(id)}.v#{version}"
+
+  defp contract_tokens(_contract), do: "unknown.v0"
+
+  defp contract_token(id) do
+    id
+    |> String.downcase()
+    |> String.replace(~r/[^a-z0-9_-]+/, "_")
+    |> String.trim("_")
+    |> case do
+      "" -> "unknown"
+      token -> token
+    end
+  end
 
   @doc """
   Maps a routing key to a stable partition in `[0, num_partitions)`.
