@@ -14,20 +14,27 @@
  * limitations under the License.
  */
 
-// Package admission is the scanner byte-pressure controller: it gates how much
-// unresolved result state the agent may hold, connecting scanner admission to
-// spool/network pressure. It reserves worst-case bytes per target window before
-// scanning it, caps active result state by bytes, applies high/low-water
-// hysteresis so bulk work pauses and only resumes after real relief (including
-// across a restart, which resumes nothing by itself), stops all
-// non-recovery admission at hard-full, and reserves unborrowable floors so an
-// interactive probe or a recovery/control frame is never starved by a large
-// bulk sweep. This is the decision core of task 2.6; it holds no I/O.
+// Package admission is the scanner byte-pressure decision core of task 2.6. It
+// holds no I/O. Controller and Gate share one bulk high/low-water hysteresis:
+// bulk pauses once held bytes reach the high water and resumes only once they
+// fall to the low water, and a first reading above the low water starts paused.
 //
-// # Scope: this package is byte accounting, not durability
+// Controller reserves worst-case bytes per target window, caps active result
+// state by bytes, stops all non-recovery admission at hard-full, and keeps
+// unborrowable floors so an interactive probe or a recovery frame is never
+// starved by a bulk sweep. It has no production caller. Charging through it
+// would pause at high water and never resume, because it frees bytes only
+// through a sealed reclaim authorization that task 2.28 has not yet produced.
 //
-// It charges bytes to an immutable slot identity and releases them ONLY when the
-// durable journal/coverage owner authorizes it. That is the whole boundary.
+// Gate applies that same hysteresis to a byte count another component owns and
+// releases. The agent spool uses it on the allocator's ordinary usage (M3.2).
+// Gate pauses only ClassBulk; the byte owner's hard ceiling still refuses what
+// does not fit.
+//
+// # Scope: Controller is byte accounting, not durability
+//
+// Controller charges bytes to an immutable slot identity and releases them ONLY
+// when the durable journal/coverage owner authorizes it. That is its boundary.
 //
 // The corrected defect (task 2.17) was that `Resolve(bytes)` freed committed
 // bytes when the GATEWAY resolved them. A gateway PubAck says the gateway holds
@@ -41,7 +48,7 @@
 // exist yet:
 //
 //   - producing the reclaim authorization, and proving it survives a crash --
-//     task 2.28. This package consumes an authorization it cannot construct;
+//     task 2.28. Controller consumes an authorization it cannot construct;
 //     it does not compute coverage, and it does not verify the claim.
 //   - spool generation lifecycle: identity issuance, lane binding, open/sealed
 //     rotation, retirement -- task 2.21. SpoolID is an opaque identifier here.
@@ -778,7 +785,7 @@ func (c *Controller) restoreHysteresisLocked() {
 		total = c.lim.Capacity
 	}
 
-	c.bulkPaused = total > c.lim.LowWater
+	c.bulkPaused = c.watermarks().initial(total)
 }
 
 // Ready reports whether a snapshot has been installed. An unready controller
@@ -860,9 +867,9 @@ func (c *Controller) updateHysteresisLocked() {
 		total = c.lim.Capacity
 	}
 
-	if !c.bulkPaused && total >= c.lim.HighWater {
-		c.bulkPaused = true
-	} else if c.bulkPaused && total <= c.lim.LowWater {
-		c.bulkPaused = false
-	}
+	c.bulkPaused = c.watermarks().next(c.bulkPaused, total)
+}
+
+func (c *Controller) watermarks() watermarks {
+	return watermarks{high: c.lim.HighWater, low: c.lim.LowWater}
 }

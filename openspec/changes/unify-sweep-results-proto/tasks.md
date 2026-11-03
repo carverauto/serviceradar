@@ -548,9 +548,18 @@ in `choices.md` and the chart README.
 - [ ] M3.2 Backpressure. Sweep admission pauses at the spool high-water mark and
   resumes at the low-water mark, and an execution is never reported complete
   while its records are unresolved (narrows 2.6).
-  TODO (reconciled 2026-11-02): `go/pkg/edge/admission` has no importers. Wire
-  spool high/low-water admission into the sweep producer and the standing-grant
-  producers, and hold completion while records are unresolved.
+  PARTIALLY LANDED: `admission.Gate` applies the bulk high/low-water hysteresis
+  to the spool allocator's ordinary usage (80 and 50 percent of the ordinary
+  ceiling), and `spool.WithAdmissionGate` refuses a commit while it is paused
+  with `ErrAdmissionPaused`, which matches `ErrAdmissionRefused` and writes
+  nothing. Every producer on the agent spool is bulk, so leased sweeps wait,
+  and metrics and unleased sweep results keep their records queued, until
+  reclaim brings the spool to the low water. The agent exports
+  `agent_edge_spool_admission_paused`. `admission.Controller` stays unwired:
+  it frees charged bytes only through a reclaim authorization nothing can
+  mint before task 2.28. This item stays unchecked until the farm01
+  verification; byte-fair lanes remain task 2.7. Holding execution completion
+  while records are unresolved remains TODO.
 - [ ] M3.3 Fault drill. During active sweeps on farm01, restart the gateway,
   core (EventWriter), NATS and the canary agent, each at least once
   mid-execution. Afterwards CNPG shows zero missing and zero duplicated host
@@ -1406,9 +1415,9 @@ change together with the requirements they implement.
   coverage computation (task 2.28); modelling any of them here means inventing
   semantics for an owner that does not exist yet and then keeping two
   definitions in agreement by hand.
-  PARTIAL (reconciled 2026-11-02): unchanged: the admission side is merged, but
-  `go/pkg/edge/admission` has no importers and the end-to-end authorization is
-  task 2.28.
+  PARTIAL (reconciled 2026-11-02): the admission side is merged. M3.2 imports
+  `admission.Gate` from `go/cmd/agent`. `Controller` still has no caller, and
+  the end-to-end reclaim authorization remains task 2.28.
 - [ ] 2.18 **Correct `projection`: use the v2 idempotency and cost model.** It
   applies the wrong idempotency key and cost model for v2 records. Align both with
   the record identities and the versioned cost contract, and test replay

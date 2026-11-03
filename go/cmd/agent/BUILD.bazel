@@ -15,6 +15,7 @@ go_library(
     deps = [
         "//go/pkg/agent",
         "//go/pkg/agentgateway",
+        "//go/pkg/edge/admission",
         "//go/pkg/edge/sender",
         "//go/pkg/edge/spool",
         "//go/pkg/grpc",
@@ -72,6 +73,7 @@ go_test(
         "@org_golang_google_grpc//credentials/insecure",
         "@org_golang_google_grpc//status",
         "@org_golang_google_grpc//test/bufconn",
+        "@org_golang_google_protobuf//proto",
     ] + select({
         "@io_bazel_rules_go//go/platform:windows": [
             "@org_golang_x_sys//windows/svc",

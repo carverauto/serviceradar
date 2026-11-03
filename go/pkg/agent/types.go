@@ -101,6 +101,9 @@ type EdgeSpoolHealth struct {
 	PermanentRejections uint64
 	QuarantineEvicted   uint64
 	QuarantineDropped   uint64
+	// AdmissionPaused is set while producer admission is paused at the spool
+	// high water (go/pkg/edge/admission).
+	AdmissionPaused bool
 }
 
 // EdgeSpoolSampler reads edge-spool health. ok is false when the spool cannot
