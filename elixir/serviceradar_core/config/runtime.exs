@@ -1761,6 +1761,10 @@ if config_env() == :prod do
       alert_recovery: String.to_integer(System.get_env("OBAN_QUEUE_ALERT_RECOVERY") || "1"),
       # Each world builder owns a complete native graph. Keep one per core.
       topology_world: 1,
+      # Mapper graph projection (TopologyProjectionWorker): bounded so a slow
+      # graph backend backs up jobs, not the result-ingestion lane.
+      topology_projection:
+        String.to_integer(System.get_env("OBAN_QUEUE_TOPOLOGY_PROJECTION") || "2"),
       monitoring: String.to_integer(System.get_env("OBAN_QUEUE_MONITORING") || "5"),
       alerts: String.to_integer(System.get_env("OBAN_QUEUE_ALERTS") || "5"),
       service_checks: String.to_integer(System.get_env("OBAN_QUEUE_SERVICE_CHECKS") || "10"),

@@ -84,6 +84,9 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Projection do
   defdelegate projection_payload(link),
     to: Payload
 
+  defdelegate projection_input(link),
+    to: Payload
+
   defdelegate drop_reason(link),
     to: Payload
 

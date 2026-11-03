@@ -15,8 +15,22 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
   @type projection_payload :: Projection.projection_payload()
 
-  @spec upsert_links([map()]) :: :ok
+  @doc """
+  Projects one mapper topology report: AGE (when written) per link, then every
+  link into Dgraph in one batch, then pruning and the canonical rebuild.
+  Returns `{:error, reason}` when the Dgraph batch fails, so the caller can
+  retry the whole idempotent apply.
+  """
+  @spec upsert_links([map()]) :: :ok | {:error, term()}
   defdelegate upsert_links(links), to: Links
+
+  @doc "The part of a mapper link `upsert_links/1` reads, in a JSON-safe form."
+  @spec link_projection_input(map()) :: map()
+  defdelegate link_projection_input(link), to: Projection, as: :projection_input
+
+  @doc "The part of an interface record `upsert_interfaces/1` reads."
+  @spec interface_projection_input(map()) :: map()
+  defdelegate interface_projection_input(interface), to: Interfaces, as: :projection_input
 
   @doc """
   Rebuilds canonical device-level topology edges from current mapper evidence in AGE.
@@ -61,7 +75,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
           | {:error, :missing_ids}
   defdelegate classify_projection(link), to: Projection
 
-  @spec upsert_interfaces([map()]) :: :ok
+  @doc """
+  Projects mapper interfaces: AGE (when written) per interface, then one Dgraph
+  request that writes each device once with all of its interfaces. Returns
+  `{:error, reason}` when the Dgraph request fails.
+  """
+  @spec upsert_interfaces([map()]) :: :ok | {:error, term()}
   defdelegate upsert_interfaces(interfaces), to: Interfaces
 
   @doc """

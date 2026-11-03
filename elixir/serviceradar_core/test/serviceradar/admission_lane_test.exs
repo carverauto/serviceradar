@@ -1079,6 +1079,9 @@ defmodule ServiceRadar.AdmissionLaneTest do
     })
 
     RuntimeMetrics.record(:sync, :incomplete_run, %{count: 1})
+    RuntimeMetrics.record(:service_state, :admitted, %{count: 5})
+    RuntimeMetrics.record(:service_state, :coalesced, %{count: 2})
+    RuntimeMetrics.record(:service_state, :expired, %{count: 1})
 
     assert {:ok, %{node: node_name, lanes: lanes}} = RuntimeMetrics.lane_stats()
     assert is_binary(node_name)
@@ -1096,6 +1099,56 @@ defmodule ServiceRadar.AdmissionLaneTest do
 
     sync = Enum.find(lanes, &(&1.lane == :sync))
     assert sync.incomplete_run_total == 1
+
+    # Entries released without a commit are counted, so admitted reconciles.
+    service_state = Enum.find(lanes, &(&1.lane == :service_state))
+    assert service_state.admitted_total == 5
+    assert service_state.coalesced_total == 2
+    assert service_state.expired_total == 1
+  end
+
+  test "Dgraph call telemetry is published on the dgraph lane" do
+    parent = self()
+
+    request = fn subject, body, _opts ->
+      send(parent, {:metric_publish, subject, body})
+      {:ok, %{body: Jason.encode!(%{stream: "METRICS", seq: 1})}}
+    end
+
+    start_supervised!({RuntimeMetrics, interval_ms: 60_000, publish_opts: [request: request]})
+    stop = [:serviceradar, :dgraph, :call, :stop]
+    duration = System.convert_time_unit(40, :millisecond, :native)
+    queue_wait = System.convert_time_unit(3, :millisecond, :native)
+
+    :telemetry.execute(stop, %{duration: duration, queue_wait: queue_wait}, %{
+      operation: :upsert_device_graphs,
+      attempt: 1,
+      kind: :ok
+    })
+
+    :telemetry.execute(stop, %{duration: duration, queue_wait: 0}, %{
+      operation: :upsert_edges,
+      attempt: 1,
+      kind: :transient
+    })
+
+    :telemetry.execute([:serviceradar, :dgraph, :call, :timeout], %{duration: duration}, %{
+      operation: :upsert_edges,
+      attempt: 2
+    })
+
+    send(RuntimeMetrics, :publish)
+    assert_receive {:metric_publish, "metrics.ingestion_lanes", body}, 1_000
+    batch = MetricBatch.decode(body)
+
+    assert point!(find_metric!(batch, "result_ingestion_terminals_accepted", "dgraph")).value ==
+             1.0
+
+    assert point!(find_metric!(batch, "result_ingestion_terminals_not_accepted", "dgraph")).value ==
+             1.0
+
+    assert point!(find_metric!(batch, "result_ingestion_events_timeout", "dgraph")).value == 1.0
+    assert point!(find_metric!(batch, "result_ingestion_duration_ms", "dgraph")).value == 40.0
   end
 
   test "invalid deadline and non-positive configurations fail startup" do

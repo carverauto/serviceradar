@@ -1,10 +1,14 @@
 defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
   use ServiceRadar.DataCase, async: false
 
+  import Ecto.Query, only: [from: 2]
+
   alias Ecto.Adapters.SQL
+  alias ServiceRadar.Ingestion.LaneSupervisor
   alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
   alias ServiceRadar.NetworkDiscovery.TopologyGraph
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Links
+  alias ServiceRadar.NetworkDiscovery.TopologyProjectionWorker
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
@@ -65,7 +69,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
         "sr:dev-dist/xe-0/0/1",
         "sr:aruba/23",
         "sr:tonka/eth4",
-        "sr:zz-mikrotik/ether1"
+        "sr:zz-mikrotik/ether1",
+        "sr:it-order",
+        "sr:it-order/eth0"
       ] ++ sparse_payload_ids() ++ synthetic_topology_ids()
     )
 
@@ -638,6 +644,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     payload = Jason.encode!(fixture.links)
 
     assert :ok = MapperResultsIngestor.ingest_topology(payload, %{})
+    project_pending_topology()
 
     [count_result] =
       cypher_rows(
@@ -897,6 +904,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     ]
 
     assert :ok = MapperResultsIngestor.ingest_topology(Jason.encode!(payload), %{})
+    project_pending_topology()
 
     lldp_rows = topology_rows("sr:it-mix-a")
     assert Enum.any?(lldp_rows, &(&1["protocol"] == "LLDP" and &1["neighbor_port_id"] == "Gi0/1"))
@@ -912,6 +920,83 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
       )
 
     assert edge["count"] == 1
+  end
+
+  test "a large mapper interface result commits within the lane worker budget while Dgraph does not answer" do
+    # Accepts connections from its backlog and never answers: a wedged Dgraph.
+    {:ok, listener} = :gen_tcp.listen(0, [:binary, active: false, backlog: 1024])
+    {:ok, port} = :inet.port(listener)
+    with_graph_backend(:dgraph, "dgraph://127.0.0.1:#{port}?sslmode=disable")
+    on_exit(fn -> :gen_tcp.close(listener) end)
+
+    device_ip = "192.0.2.#{rem(System.unique_integer([:positive]), 200) + 20}"
+    ts = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+
+    payload =
+      Jason.encode!(
+        for index <- 1..200 do
+          %{
+            "device_id" => "default:#{device_ip}",
+            "partition" => "default",
+            "device_ip" => device_ip,
+            "if_index" => index,
+            "if_name" => "eth#{index}",
+            "if_alias" => "port #{index}",
+            "timestamp" => ts
+          }
+        end
+      )
+
+    budget = Keyword.fetch!(LaneSupervisor.limits(:mapper), :worker_timeout_ms)
+    ingest = Task.async(fn -> MapperResultsIngestor.ingest_interfaces(payload, %{}) end)
+
+    assert {:ok, :ok} = Task.yield(ingest, budget) || Task.shutdown(ingest, :brutal_kill),
+           "mapper interface ingestion must not wait on the graph backend"
+
+    assert %Postgrex.Result{rows: [[200]]} =
+             SQL.query!(
+               Repo,
+               "SELECT count(DISTINCT if_index) FROM platform.discovered_interfaces WHERE device_ip = $1",
+               [device_ip]
+             )
+
+    assert [%{"kind" => "interfaces", "records" => records}] = pending_projection_args()
+    assert length(records) == 200
+  end
+
+  test "a newer mapper result replaces a pending projection and an older one never lands over it" do
+    run = fn alias_name ->
+      [%{device_id: "sr:it-order", if_name: "eth0", if_index: 1, if_alias: alias_name}]
+    end
+
+    # Two results before the projection runs: only the newer one is projected.
+    assert :ok = TopologyProjectionWorker.enqueue(:interfaces, run.("first"))
+    assert :ok = TopologyProjectionWorker.enqueue(:interfaces, run.("second"))
+    assert [%{"records" => [%{"if_alias" => "second"}]}] = pending_projection_args()
+    project_pending_topology()
+    assert interface_alias("sr:it-order/eth0") == "second"
+
+    # A result arrives while an earlier projection of the same scope is still
+    # executing: it waits for that projection instead of racing it.
+    assert :ok = TopologyProjectionWorker.enqueue(:interfaces, run.("third"))
+    [older] = pending_projection_jobs()
+    mark_executing(older)
+    assert :ok = TopologyProjectionWorker.enqueue(:interfaces, run.("fourth"))
+    [newer] = pending_projection_jobs()
+    assert newer.id > older.id
+    assert {:snooze, _seconds} = TopologyProjectionWorker.perform(newer)
+
+    # The earlier projection, run (or rescued) after the newer result arrived,
+    # is superseded and never writes its older state.
+    assert {:cancel, :superseded} = TopologyProjectionWorker.perform(older)
+    assert interface_alias("sr:it-order/eth0") == "second"
+
+    Repo.update_all(from(j in Oban.Job, where: j.id == ^older.id), [set: [state: "cancelled"]],
+      prefix: "platform"
+    )
+
+    project_pending_topology()
+    assert interface_alias("sr:it-order/eth0") == "fourth"
   end
 
   test "router drops low-confidence inferred neighbors when only the uplink is corroborated" do
@@ -1118,6 +1203,58 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
       """,
       [uid, type]
     )
+  end
+
+  defp project_pending_topology do
+    assert %{failure: 0, discard: 0} = Oban.drain_queue(queue: :topology_projection)
+  end
+
+  defp pending_projection_jobs do
+    Repo.all(
+      from(j in Oban.Job,
+        where:
+          j.worker == "ServiceRadar.NetworkDiscovery.TopologyProjectionWorker" and
+            j.state in ["available", "scheduled", "retryable"],
+        order_by: j.id
+      ),
+      prefix: "platform"
+    )
+  end
+
+  defp pending_projection_args, do: Enum.map(pending_projection_jobs(), & &1.args)
+
+  defp mark_executing(%Oban.Job{id: id}) do
+    Repo.update_all(
+      from(j in Oban.Job, where: j.id == ^id),
+      [set: [state: "executing", attempted_at: DateTime.utc_now(), attempt: 1]],
+      prefix: "platform"
+    )
+  end
+
+  defp interface_alias(interface_id) do
+    [row] =
+      cypher_rows("MATCH (i:Interface {id:'#{interface_id}'}) RETURN {alias: i.alias} AS result")
+
+    row["alias"]
+  end
+
+  defp with_graph_backend(backend, dgraph_url) do
+    env = Map.new(~w(GRAPH_BACKEND DGRAPH_URL), &{&1, System.get_env(&1)})
+    previous_backend = Application.get_env(:serviceradar_core, :graph_backend)
+    System.delete_env("GRAPH_BACKEND")
+    System.put_env("DGRAPH_URL", dgraph_url)
+    Application.put_env(:serviceradar_core, :graph_backend, backend)
+
+    on_exit(fn ->
+      Enum.each(env, fn
+        {name, nil} -> System.delete_env(name)
+        {name, value} -> System.put_env(name, value)
+      end)
+
+      if previous_backend,
+        do: Application.put_env(:serviceradar_core, :graph_backend, previous_backend),
+        else: Application.delete_env(:serviceradar_core, :graph_backend)
+    end)
   end
 
   defp age_available? do

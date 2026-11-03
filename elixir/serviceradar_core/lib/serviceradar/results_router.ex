@@ -132,8 +132,12 @@ defmodule ServiceRadar.ResultsRouter do
 
   def handle_info({:publish_reservation_expired, id}, state) do
     case state.reservations[id] do
-      %{phase: :reserved} -> {:noreply, release(state, [id])}
-      _ -> {:noreply, state}
+      %{phase: :reserved} ->
+        emit(:expired, %{count: 1}, %{reason: :reservation_expired})
+        {:noreply, release(state, [id])}
+
+      _ ->
+        {:noreply, state}
     end
   end
 
@@ -190,13 +194,16 @@ defmodule ServiceRadar.ResultsRouter do
 
   def handle_info({:DOWN, ref, :process, _pid, _reason}, state) do
     ids = for {id, %{monitor: monitor}} <- state.reservations, monitor == ref, do: id
+    if ids != [], do: emit(:expired, %{count: length(ids)}, %{reason: :caller_down})
     {:noreply, release(state, ids)}
   end
 
   def handle_info(_message, state), do: {:noreply, state}
 
   # Only completed current-state projections may coalesce; type ingestion and
-  # retained markers have already run and never enter this buffer.
+  # retained markers have already run and never enter this buffer. The entry
+  # that loses is released uncommitted and counted as `coalesced`, so admitted
+  # entries reconcile against completed, coalesced and expired ones.
   defp coalesce_pending(state, id, status, nil),
     do: %{state | buffer: :queue.in({id, status}, state.buffer)}
 
@@ -215,6 +222,8 @@ defmodule ServiceRadar.ResultsRouter do
 
       {old_id, _old_status} ->
         {_key, old_observed_at} = state.reservations[old_id].observation
+
+        emit(:coalesced, %{count: 1})
 
         if DateTime.before?(observed_at, old_observed_at) do
           release(state, [id])

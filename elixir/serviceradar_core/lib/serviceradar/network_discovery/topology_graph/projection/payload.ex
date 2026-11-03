@@ -3,6 +3,39 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Projection.Payload do
 
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Utils
 
+  # Every link field projection_payload/1 and drop_reason/1 read.
+  @input_keys [
+    :local_device_id,
+    :local_device_ip,
+    :neighbor_device_id,
+    :local_if_name,
+    :local_if_index,
+    :neighbor_port_id,
+    :neighbor_port_descr,
+    :neighbor_chassis_id,
+    :neighbor_system_name,
+    :neighbor_mgmt_addr,
+    :metadata,
+    :protocol,
+    :confidence_tier,
+    :confidence_score,
+    :confidence_reason
+  ]
+
+  @doc """
+  The part of a link that projection reads, in a JSON-safe form, so it can be
+  carried to a later projection and yield the same payload there.
+
+  The observation timestamp is resolved now, as projection_payload/1 would
+  resolve it: a link without one is observed when its projection is scheduled,
+  not when it later runs.
+  """
+  def projection_input(link) when is_map(link) do
+    @input_keys
+    |> Map.new(&{&1, Utils.link_value(link, &1)})
+    |> Map.put(:timestamp, observed_at(link))
+  end
+
   def projection_payload(link) when is_map(link) do
     with local_device_id when is_binary(local_device_id) <-
            Utils.non_blank(Utils.link_value(link, :local_device_id)),

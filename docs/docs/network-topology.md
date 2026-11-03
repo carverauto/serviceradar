@@ -101,6 +101,31 @@ predicate has one definition in
 `RuntimeTopologyProjection.canonical_edge_predicate/3`; the migrator's Cypher
 repeats it verbatim.
 
+### Projection lag
+
+Mapper ingestion commits interface and topology evidence to CNPG first, inside
+the result-ingestion lane's worker budget. The graph write (AGE when written,
+Dgraph when written, then pruning and canonical reconciliation) runs afterwards
+as a `TopologyProjectionWorker` job on the `topology_projection` Oban queue
+(`OBAN_QUEUE_TOPOLOGY_PROJECTION`, default 2 per core node). A slow or
+unavailable Dgraph therefore delays the graph instead of timing the mapper
+result out.
+
+Topology views read the graph, so they trail the CNPG interface and evidence
+tables by the job's queue wait plus its run time. One device's interfaces are
+written in one Dgraph request, and the links of a topology report in two
+(endpoints, then edges), however many interfaces or links it carries.
+
+Projection jobs are keyed by the set of devices a result reports. A newer
+result replaces a job that has not started, a job never runs beside an earlier
+one for the same devices, and a job that starts after a newer result arrived is
+cancelled rather than applied. A failed projection is logged, reported as an
+Oban job exception, and retried with backoff. The ingestion runtime metrics
+(`metrics.ingestion_lanes`) carry a `topology_projection` lane (scheduled,
+coalesced, superseded, accepted, not accepted and failed projections, with
+`queue_wait_ms` and `duration_ms`) and a `dgraph` lane (every Dgraph call's
+outcome, timeouts and retries, with `duration_ms` and `queue_wait_ms`).
+
 ### Reconciliation after the backend cutover
 
 With `GRAPH_BACKEND=dgraph` (`graph.backend: dgraph` in Helm), core's

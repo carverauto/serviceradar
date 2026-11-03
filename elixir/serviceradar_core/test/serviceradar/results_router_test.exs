@@ -1313,8 +1313,12 @@ defmodule ServiceRadar.ResultsRouterTest do
       older =
         Map.merge(completed_status("ordered"), %{agent_timestamp: older_at, available: true})
 
+      attach_lane_events([:coalesced])
       assert :ok = ResultsRouter.publish_completed(latest)
       assert :ok = ResultsRouter.publish_completed(older)
+      # The losing observation is released uncommitted and counted, so the two
+      # admissions reconcile against one completion and one coalesced entry.
+      assert_receive {:lane, :coalesced, %{count: 1}, %{lane: :service_state}}
       {_timer, token} = :sys.get_state(ResultsRouter).timer
       send(ResultsRouter, {:flush_results, token})
       assert_receive {:service_statuses_updated, [^latest]}, 1_000
@@ -1334,6 +1338,20 @@ defmodule ServiceRadar.ResultsRouterTest do
       assert persisted_at == latest_at
     end
 
+    test "a reservation that is never published expires and is counted" do
+      attach_lane_events([:expired])
+      status = completed_status("abandoned")
+      descriptor = Lane.descriptor(status, 15_000)
+      assert {:ok, id} = GenServer.call(ResultsRouter, {:reserve_publish, descriptor})
+
+      assert_receive {:lane, :expired, %{count: 1},
+                      %{reason: :reservation_expired, lane: :service_state}},
+                     5_000
+
+      assert {:error, :service_state_reservation_expired} =
+               GenServer.call(ResultsRouter, {:publish_completed, id, status})
+    end
+
     test "a full completed-state batch flushes and releases admission capacity" do
       Application.put_env(:serviceradar_core, :results_router_max_buffer, 2)
       first = completed_status("first")
@@ -1349,6 +1367,23 @@ defmodule ServiceRadar.ResultsRouterTest do
         ResultsRouter.publish_completed(completed_status("third")) == :ok
       end)
     end
+  end
+
+  defp attach_lane_events(events) do
+    parent = self()
+    handler = {__MODULE__, make_ref()}
+
+    :ok =
+      :telemetry.attach_many(
+        handler,
+        Enum.map(events, &[:serviceradar, :admission_lane, &1]),
+        fn event, measurements, metadata, _config ->
+          send(parent, {:lane, List.last(event), measurements, metadata})
+        end,
+        nil
+      )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
   end
 
   defp assert_state_persisted(name) do

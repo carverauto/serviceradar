@@ -30,7 +30,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
   # and never persisted, so OTP-upgrade instability cannot survive a restart.
   @default_unchanged_report_heartbeat_ms 3_600_000
 
-  @spec upsert_links([map()]) :: :ok
+  @spec upsert_links([map()]) :: :ok | {:error, term()}
   def upsert_links([]), do: :ok
 
   def upsert_links(links) when is_list(links) do
@@ -40,39 +40,40 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
         :ok
 
       {:proceed, key, fingerprint} ->
-        result = do_upsert_links(links)
-
-        # do_upsert_links/1 returns :ok and raises on failure, so reaching this
-        # line means the apply succeeded. Recording the fingerprint only after a
-        # successful apply ensures a failed report is retried next cycle rather
-        # than cached as "done" and skipped.
-        :persistent_term.put(
-          {__MODULE__, :report_fingerprint, key},
-          {fingerprint, System.monotonic_time(:millisecond)}
-        )
-
-        result
+        with :ok <- do_upsert_links(links) do
+          # Recording the fingerprint only after a successful apply ensures a
+          # failed report is retried rather than cached as "done" and skipped.
+          :persistent_term.put(
+            {__MODULE__, :report_fingerprint, key},
+            {fingerprint, System.monotonic_time(:millisecond)}
+          )
+        end
     end
   end
 
   defp do_upsert_links(links) do
-    {local_device_ids, neighbor_index, diagnostics} =
+    {local_device_ids, neighbor_index, diagnostics, dgraph_links} =
       Enum.reduce(
         links,
-        {MapSet.new(), %{}, Projection.empty_projection_diagnostics()},
+        {MapSet.new(), %{}, Projection.empty_projection_diagnostics(), []},
         &reduce_topology_link/2
       )
 
-    Pruning.maybe_prune_unseen_projected_links(neighbor_index)
-    Pruning.maybe_prune_stale_projected_links(MapSet.to_list(local_device_ids))
-    Pruning.maybe_prune_stale_mapper_evidence_links()
-    Pruning.reconcile_legacy_single_identifier_attachment_links()
-    Pruning.purge_legacy_single_identifier_canonical_links()
-    CanonicalRebuild.rebuild_canonical_device_links()
+    # Dgraph receives every link whose AGE write succeeded in one batch, before
+    # pruning and the canonical rebuild read the graph back, as when each link
+    # was written in turn.
+    with :ok <- DgraphPersist.upsert_links(Enum.reverse(dgraph_links)) do
+      Pruning.maybe_prune_unseen_projected_links(neighbor_index)
+      Pruning.maybe_prune_stale_projected_links(MapSet.to_list(local_device_ids))
+      Pruning.maybe_prune_stale_mapper_evidence_links()
+      Pruning.reconcile_legacy_single_identifier_attachment_links()
+      Pruning.purge_legacy_single_identifier_canonical_links()
+      CanonicalRebuild.rebuild_canonical_device_links()
 
-    Logger.info("Topology projection diagnostics: #{inspect(diagnostics)}")
+      Logger.info("Topology projection diagnostics: #{inspect(diagnostics)}")
 
-    :ok
+      :ok
+    end
   end
 
   # Returns {:skip, key} when this report's structural link set matches the last
@@ -126,20 +127,20 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
     |> Utils.normalize_positive_int(@default_unchanged_report_heartbeat_ms)
   end
 
-  defp reduce_topology_link(link, {local_ids, neighbor_index, diagnostics}) do
+  defp reduce_topology_link(link, {local_ids, neighbor_index, diagnostics, dgraph_links}) do
     case Projection.projection_payload(link) do
       nil ->
         reason = Projection.drop_reason(link) || :missing_ids
         emit_neighbor_dropped(link, reason)
         Logger.debug("Skipping topology link missing device identifiers")
         diagnostics = Projection.increment_diagnostic(diagnostics, :rejected, reason)
-        {local_ids, neighbor_index, diagnostics}
+        {local_ids, neighbor_index, diagnostics, dgraph_links}
 
       payload ->
         case Projection.projection_mode(payload) do
           {:backbone, reason} ->
             local_ids = MapSet.put(local_ids, payload.local_device_id)
-            upsert_backbone_link_payload(payload)
+            dgraph_links = upsert_backbone_link_payload(payload) ++ dgraph_links
             diagnostics = Projection.increment_diagnostic(diagnostics, :accepted, reason)
 
             neighbor_index =
@@ -149,16 +150,16 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
                 payload.neighbor_device_id
               )
 
-            {local_ids, neighbor_index, diagnostics}
+            {local_ids, neighbor_index, diagnostics, dgraph_links}
 
           {:auxiliary, reason} ->
-            upsert_auxiliary_link_payload(payload)
+            dgraph_links = upsert_auxiliary_link_payload(payload) ++ dgraph_links
             diagnostics = Projection.increment_diagnostic(diagnostics, :accepted, reason)
-            {local_ids, neighbor_index, diagnostics}
+            {local_ids, neighbor_index, diagnostics, dgraph_links}
 
           {:skip, reason} ->
             diagnostics = Projection.increment_diagnostic(diagnostics, :rejected, reason)
-            {local_ids, neighbor_index, diagnostics}
+            {local_ids, neighbor_index, diagnostics, dgraph_links}
         end
     end
   end
@@ -186,15 +187,18 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
     end)
   end
 
+  # Each returns the `{payload, relation}` the Dgraph batch receives once the
+  # AGE write (when AGE is written at all) has succeeded.
   defp upsert_backbone_link_payload(payload) do
     cypher = Queries.backbone_link_upsert_query(payload)
 
     case Persist.execute_age(cypher) do
       :ok ->
-        DgraphPersist.upsert_link(payload, "CONNECTS_TO")
+        [{payload, "CONNECTS_TO"}]
 
       {:error, reason} ->
         Logger.warning("Topology graph upsert failed: #{inspect(reason)}")
+        []
     end
   end
 
@@ -204,10 +208,11 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
 
     case Persist.execute_age(cypher) do
       :ok ->
-        DgraphPersist.upsert_link(payload, relation)
+        [{payload, relation}]
 
       {:error, reason} ->
         Logger.warning("Auxiliary topology graph upsert failed: #{inspect(reason)}")
+        []
     end
   end
 end

@@ -8,6 +8,20 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
   accumulate. Each frame reports gauges at their latest values and counters as
   deltas since the previous acknowledged frame; reporting watermarks advance
   only on PubAck. No agent, device, run, or payload identifier becomes a label.
+
+  Two lanes describe work that continues after a result-ingestion lane has
+  committed, and are published but not listed by `lane_stats/0`:
+
+    * `topology_projection` - mapper graph projection jobs
+      (`ServiceRadar.NetworkDiscovery.TopologyProjectionWorker`): scheduled
+      (`admitted`), replaced by a newer result before running (`coalesced`),
+      superseded (`cancellation`), completed (`completion`, `accepted` or
+      `not_accepted`), and exhausted or unschedulable (`failed`), with the last
+      projection's `queue_wait_ms` and `duration_ms`.
+    * `dgraph` - every Dgraph call, from the `[:serviceradar, :dgraph, :call, *]`
+      telemetry of `ServiceRadar.Dgraph.Call`: replies (`completion`,
+      `accepted` when the reply kind is `:ok`), backstop `timeout`s and
+      `retry`s, with the last reply's `duration_ms` and `queue_wait_ms`.
   """
   use GenServer
 
@@ -56,7 +70,14 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
     :sync,
     :service_state
   ]
-  @lanes @result_ingestion_lanes ++ @alert_lanes
+  @continuation_lanes [:topology_projection, :dgraph]
+  @lanes @result_ingestion_lanes ++ @alert_lanes ++ @continuation_lanes
+  @dgraph_handler {__MODULE__, :dgraph_call}
+  @dgraph_events [
+    [:serviceradar, :dgraph, :call, :stop],
+    [:serviceradar, :dgraph, :call, :timeout],
+    [:serviceradar, :dgraph, :call, :retry]
+  ]
   @events [
     :state,
     :admission,
@@ -75,6 +96,8 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
     :delivery,
     :publish_failure,
     :coalesced_interval,
+    :coalesced,
+    :expired,
     :crash,
     :retry,
     :failed,
@@ -206,6 +229,31 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
 
   def record(_lane, _event, _measurements), do: :ok
 
+  @doc false
+  # Telemetry handler for `ServiceRadar.Dgraph.Call`; attached by init/1.
+  def handle_dgraph_call([:serviceradar, :dgraph, :call, :stop], measurements, metadata, _) do
+    outcome = if metadata[:kind] == :ok, do: :accepted, else: :not_accepted
+
+    record(:dgraph, :completion, %{
+      outcome: outcome,
+      duration_ms: native_ms(measurements[:duration]),
+      queue_wait_ms: native_ms(measurements[:queue_wait])
+    })
+  end
+
+  def handle_dgraph_call([:serviceradar, :dgraph, :call, :timeout], measurements, _, _) do
+    record(:dgraph, :timeout, %{duration_ms: native_ms(measurements[:duration])})
+  end
+
+  def handle_dgraph_call([:serviceradar, :dgraph, :call, :retry], _measurements, _, _) do
+    record(:dgraph, :retry, %{})
+  end
+
+  defp native_ms(value) when is_integer(value),
+    do: System.convert_time_unit(value, :native, :millisecond)
+
+  defp native_ms(_value), do: nil
+
   @impl true
   def init(opts) do
     :ets.new(@table, [
@@ -226,6 +274,17 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
     if !(is_integer(interval) and interval > 0) do
       raise ArgumentError, "invalid metric cadence"
     end
+
+    # A restarted process re-attaches; the handler only writes the public table.
+    :telemetry.detach(@dgraph_handler)
+
+    :ok =
+      :telemetry.attach_many(
+        @dgraph_handler,
+        @dgraph_events,
+        &__MODULE__.handle_dgraph_call/4,
+        nil
+      )
 
     Process.send_after(self(), :publish, interval)
 
@@ -449,6 +508,8 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
         lookup_int(:events, lane, :crash) +
           lookup_int(:events, lane, :worker_crash),
       incomplete_run_total: lookup_int(:events, lane, :incomplete_run),
+      coalesced_total: lookup_int(:events, lane, :coalesced),
+      expired_total: lookup_int(:events, lane, :expired),
       queue_wait_ms: lookup_int(:gauge, lane, :queue_wait_ms),
       execution_ms:
         max(lookup_int(:gauge, lane, :duration_ms), lookup_int(:gauge, lane, :execution_ms)),
