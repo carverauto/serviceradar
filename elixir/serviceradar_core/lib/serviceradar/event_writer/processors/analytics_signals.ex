@@ -556,20 +556,23 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   defp record_inventory_vulnerability_ocsf_events_locked(rows) do
     existing = existing_inventory_vulnerability_lifecycle(rows)
 
+    {continuations, rows} = Enum.split_with(rows, &pending_equal_version?(&1, existing))
+
     aligned_rows =
       rows
       |> Enum.filter(&persist_inventory_vulnerability_lifecycle?(&1, existing))
       |> Enum.map(&prepare_inventory_vulnerability_lifecycle(&1, existing))
       |> dedupe_rows_by_conflict_key(&ocsf_event_conflict_key/1)
 
-    {held_rows, writable_rows} =
+    {held_replacements, writable_rows} =
       Enum.split_with(aligned_rows, fn row ->
         pending_admission?(Map.get(existing, ocsf_event_id_key(row)))
       end)
 
+    held_rows = continuations ++ held_replacements
+
     waiting_ids =
-      held_rows
-      |> Enum.filter(&inventory_vulnerability_transition?(&1, existing))
+      held_replacements
       |> Enum.map(&ocsf_event_id_key/1)
       |> Enum.reject(&is_nil/1)
 
@@ -700,6 +703,28 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     end
   end
 
+  defp pending_equal_version?(row, existing) do
+    case Map.get(existing, ocsf_event_id_key(row)) do
+      %{status: status} = marker ->
+        pending_admission?(marker) and equal_finding_version?(row, marker) and
+          vulnerability_lifecycle_status(status) ==
+            vulnerability_lifecycle_status(Map.get(row, :status))
+
+      _ ->
+        false
+    end
+  end
+
+  defp equal_finding_version?(row, %{version: %DateTime{} = stored}) do
+    case row_finding_version(row) do
+      %DateTime{} = version -> DateTime.compare(version, stored) == :eq
+      _ -> false
+    end
+  end
+
+  defp equal_finding_version?(row, %{version: nil}), do: row_finding_version(row) == nil
+  defp equal_finding_version?(_row, _marker), do: false
+
   defp row_finding_version(row), do: parse_finding_version(row_value(row, "finding_version"))
 
   defp parse_finding_version(version) when is_binary(version) do
@@ -819,7 +844,13 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     transitions =
       Enum.reject(persisted, &MapSet.member?(existing_id_keys, ocsf_event_id_key(&1)))
 
-    {persisted, transitions, Enum.filter(persisted, &unadmitted_occurrence?/1), held_rows, []}
+    waiting_ids =
+      held_rows
+      |> Enum.map(&ocsf_event_id_key/1)
+      |> Enum.reject(&is_nil/1)
+
+    {persisted, transitions, Enum.filter(persisted, &unadmitted_occurrence?/1), held_rows,
+     waiting_ids}
   end
 
   defp pending_admission?(%{occurrence_id: id, admitted: admitted})
