@@ -555,6 +555,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   defp record_insert_only_ocsf_events(rows) when is_list(rows) do
     rows =
       rows
+      |> stamp_pending_inserted_at()
       |> dedupe_rows_by_conflict_key(&ocsf_event_conflict_key/1)
       |> Enum.map(&stamp_new_occurrence_for_alert_row/1)
 
@@ -563,7 +564,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     # load-bearing normalization on this hot path. `on_conflict: :nothing` keeps
     # the occurrence id written by the first delivery.
     {_count, inserted_rows} =
-      BulkInsert.insert_all(table_name(), rows,
+      insert_ocsf_rows(rows,
         on_conflict: :nothing,
         conflict_target: @ocsf_event_conflict_target,
         returning: @ocsf_event_conflict_target
@@ -589,6 +590,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   defp record_inventory_vulnerability_ocsf_events(rows) when is_list(rows) do
     rows =
       rows
+      |> stamp_pending_inserted_at()
       |> Enum.sort_by(&finding_version_sort_key/1)
       |> dedupe_rows_by_conflict_key(&ocsf_event_id_key/1)
 
@@ -647,7 +649,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
       end)
 
     {_count, upserted_rows} =
-      BulkInsert.insert_all(table_name(), aligned_rows,
+      insert_ocsf_rows(aligned_rows,
         on_conflict: {:replace, @ocsf_event_replace_fields},
         conflict_target: @ocsf_event_conflict_target,
         returning: @ocsf_event_conflict_target
@@ -855,6 +857,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   defp record_causal_prediction_ocsf_events([]), do: {[], [], [], [], []}
 
   defp record_causal_prediction_ocsf_events(rows) when is_list(rows) do
+    rows = stamp_pending_inserted_at(rows)
     {rows, existing_id_keys} = align_existing_ocsf_event_times_with_existing_ids(rows)
 
     rows = dedupe_rows_by_conflict_key(rows, &ocsf_event_id_key/1)
@@ -882,7 +885,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
       end)
 
     {_count, upserted_rows} =
-      BulkInsert.insert_all(table_name(), rows,
+      insert_ocsf_rows(rows,
         on_conflict: {:replace, @ocsf_event_replace_fields},
         conflict_target: @ocsf_event_conflict_target,
         returning: @ocsf_event_conflict_target
@@ -1667,6 +1670,24 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
   defp held_pending_row(row, _marker), do: row
 
+  defp insert_ocsf_rows(rows, opts) do
+    rows = Enum.map(rows, &Map.delete(&1, :pending_inserted_at))
+    BulkInsert.insert_all(table_name(), rows, opts)
+  end
+
+  defp stamp_pending_inserted_at(rows) do
+    base = DateTime.truncate(DateTime.utc_now(), :microsecond)
+
+    rows
+    |> Enum.with_index()
+    |> Enum.map(fn {row, index} ->
+      case Map.get(row, :pending_inserted_at) do
+        %DateTime{} -> row
+        _ -> Map.put(row, :pending_inserted_at, DateTime.add(base, index, :microsecond))
+      end
+    end)
+  end
+
   defp insert_pending_admissions(rows) do
     entries =
       Enum.flat_map(rows, fn row ->
@@ -1676,8 +1697,9 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
              %DateTime{} = time <- normalize_existing_time(Map.get(row, :time)),
              event_id when is_binary(event_id) <- uuid_to_binary(ocsf_event_id_key(row)),
              occurrence_id when is_binary(occurrence_id) <-
-               uuid_to_binary(pending_occurrence_id(row)) do
-          [{class_uid, series_key, time, event_id, occurrence_id}]
+               uuid_to_binary(pending_occurrence_id(row)),
+             %DateTime{} = inserted_at <- pending_inserted_at(row) do
+          [{class_uid, series_key, time, event_id, occurrence_id, inserted_at}]
         else
           _ -> []
         end
@@ -1691,10 +1713,10 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
         ServiceRadar.Repo.query!(
           """
           INSERT INTO platform.lifecycle_pending_admissions (
-            class_uid, series_key, event_time, event_id, occurrence_id
+            class_uid, series_key, event_time, event_id, occurrence_id, inserted_at
           )
           SELECT * FROM unnest(
-            $1::int[], $2::text[], $3::timestamptz[], $4::uuid[], $5::uuid[]
+            $1::int[], $2::text[], $3::timestamptz[], $4::uuid[], $5::uuid[], $6::timestamptz[]
           )
           ON CONFLICT DO NOTHING
           """,
@@ -1703,11 +1725,19 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
             Enum.map(entries, &elem(&1, 1)),
             Enum.map(entries, &elem(&1, 2)),
             Enum.map(entries, &elem(&1, 3)),
-            Enum.map(entries, &elem(&1, 4))
+            Enum.map(entries, &elem(&1, 4)),
+            Enum.map(entries, &elem(&1, 5))
           ]
         )
 
         :ok
+    end
+  end
+
+  defp pending_inserted_at(row) do
+    case Map.get(row, :pending_inserted_at) do
+      %DateTime{} = inserted_at -> DateTime.truncate(inserted_at, :microsecond)
+      _ -> DateTime.truncate(DateTime.utc_now(), :microsecond)
     end
   end
 

@@ -885,6 +885,51 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     assert pending_admission_messages(series_key) == []
   end
 
+  test "same-time forecasts in one batch admit in message order" do
+    Application.put_env(:serviceradar_core, :stateful_alert_engine, __MODULE__.OneSlotEngine)
+    Application.put_env(:serviceradar_core, :analytics_signals_admission_slots, 1)
+
+    series_key = "synthetic:forecast-same-time-batch:#{System.unique_integer([:positive])}"
+    time = 1_812_456_000_000
+    earlier = capacity_forecast_message(series_key, "forecast-earlier", "forecast-earlier", time)
+
+    delete_episode_fixture!(series_key)
+
+    on_exit(fn ->
+      Application.delete_env(:serviceradar_core, :analytics_signals_admission_slots)
+      delete_episode_fixture!(series_key)
+    end)
+
+    {earlier, later} =
+      Enum.find_value(1..80, fn n ->
+        later = capacity_forecast_message(series_key, "forecast-later-#{n}", "forecast-later", time)
+
+        if forecast_event_id(later) < forecast_event_id(earlier) do
+          {earlier, later}
+        else
+          nil
+        end
+      end) || flunk("no same-time forecast pair inverted event-id order")
+
+    assert forecast_event_id(later) < forecast_event_id(earlier)
+
+    assert {:incomplete, 2, [{^later, {:overloaded, :rule_bytes}}]} =
+             AnalyticsSignals.process_batch([earlier, later])
+
+    assert_receive {:alert_evaluation_events, [admitted]}
+    assert admitted.message == "forecast-earlier"
+    assert_receive {:alert_evaluation_events, [refused]}
+    assert refused.message == "forecast-later"
+    refute_receive {:alert_evaluation_events, _events}, 50
+
+    assert Map.new(stored_series_transitions(series_key)) == %{
+             "forecast-earlier" => "true",
+             "forecast-later" => "false"
+           }
+
+    assert pending_admission_messages(series_key) == ["forecast-later"]
+  end
+
   test "a newer inventory close waits while the open admission is pending" do
     Application.put_env(
       :serviceradar_core,
@@ -1830,6 +1875,13 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
 
     Repo.query!("DELETE FROM platform.anomaly_episodes WHERE series_key = $1", [series_key])
     :ok
+  end
+
+  defp forecast_event_id(message) do
+    case AnalyticsSignals.parse_message(message) do
+      %{id: id} -> id
+      _ -> nil
+    end
   end
 
   defp capacity_forecast_message(series_key, event_id, message, time) do
