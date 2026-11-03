@@ -193,8 +193,16 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     [result] =
       cypher_rows("MATCH (d:Device {id:'sr:dev-2'}) RETURN {name: d.name, ip: d.ip} AS result")
 
-    assert Map.get(result, "name") in [nil, ""]
-    assert Map.get(result, "ip") in [nil, ""]
+    assert result["name"] == "switch-b"
+    assert result["ip"] == "192.0.2.21"
+
+    TopologyGraph.upsert_links([%{link | neighbor_system_name: nil, neighbor_mgmt_addr: nil}])
+
+    [result] =
+      cypher_rows("MATCH (d:Device {id:'sr:dev-2'}) RETURN {name: d.name, ip: d.ip} AS result")
+
+    assert result["name"] == "switch-b"
+    assert result["ip"] == "192.0.2.21"
 
     link = %{link | local_if_index: 11}
     TopologyGraph.upsert_links([link])
@@ -1169,7 +1177,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     assert device["ip"] == "192.0.2.41"
   end
 
-  test "newest local link fields win and a neighbor link leaves the other device unchanged" do
+  test "newest local link fields win and a missing neighbor value never erases a reported one" do
     local = "sr:it-own-a"
     neighbor = "sr:it-own-b"
     # Inside the stale-link cutoff, so the projected edge survives pruning.
@@ -1196,8 +1204,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     assert :ok =
              TopologyGraph.upsert_links([
-               link_fields(local, neighbor, newer, "192.0.2.41", 1),
-               link_fields(local, neighbor, older, "192.0.2.10", 10)
+               link_fields(local, neighbor, newer, "192.0.2.41", 1, nil),
+               link_fields(local, neighbor, older, "192.0.2.10", 10, "switch-b-peer")
              ])
 
     [device] =
@@ -1216,8 +1224,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     [neighbor_device] =
       cypher_rows("MATCH (d:Device {id:'sr:it-own-b'}) RETURN {ip: d.ip, name: d.name} AS result")
 
-    assert neighbor_device["ip"] == "192.0.2.10"
-    assert neighbor_device["name"] == "switch-b"
+    assert neighbor_device["ip"] == "192.0.2.99"
+    assert neighbor_device["name"] == "switch-b-peer"
 
     [neighbor_interface] =
       cypher_rows(
@@ -1427,7 +1435,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     :ok
   end
 
-  defp link_fields(local, neighbor, timestamp, ip, if_index) do
+  defp link_fields(local, neighbor, timestamp, ip, if_index, neighbor_name) do
     %{
       local_device_id: local,
       neighbor_device_id: neighbor,
@@ -1435,8 +1443,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
       local_if_name: "Gi0/1",
       local_if_index: if_index,
       neighbor_port_id: "Eth9",
-      neighbor_system_name: "hijack",
-      neighbor_mgmt_addr: "192.0.2.99",
+      neighbor_system_name: neighbor_name,
+      neighbor_mgmt_addr: neighbor_name && "192.0.2.99",
       protocol: if(if_index == 1, do: "lldp", else: "cdp"),
       timestamp: timestamp
     }

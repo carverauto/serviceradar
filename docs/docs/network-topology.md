@@ -122,9 +122,9 @@ and mapper topology links for that device, and replaces that device's graph
 state through the same batched writes. The newest of that device's link rows
 that sets a field owns its IP and interface fields. For each link the job also
 creates the neighbor vertex, the neighbor interface and the edge, and writes
-the neighbor interface name the reporting device observed when it has one; a
-missing value never erases a known one. It does not write the neighbor
-device's IP or name. A retry of an older job therefore leaves the graph equal
+the neighbor device's IP and name and the neighbor interface name the reporting
+device observed when it has them; a missing value never erases a known one. A
+retry of an older job therefore leaves the graph equal
 to that device's latest CNPG rows, including when it runs after a newer job has
 already completed. A newer result for the same device replaces a job that has
 not started, so a pending backlog collapses to one run per device. Oban keeps at

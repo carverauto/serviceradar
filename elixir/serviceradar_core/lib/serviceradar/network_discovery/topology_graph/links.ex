@@ -114,7 +114,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
   # reports from different agents don't thrash a single shared entry. The
   # fingerprint is the set of values the apply would leave: links are taken in
   # the same observation order do_upsert_links/1 applies them, the newest
-  # non-empty value wins each device IP and interface name or ifindex, and the
+  # non-empty value wins each device IP or name and interface name or ifindex,
+  # including the neighbor's as the reporting device observed it, and the
   # newest link between two interfaces wins that pair's edge of each relation.
   # Links the apply skips write nothing and are left out. A report that changes
   # which row wins therefore changes the fingerprint even when the set of rows
@@ -150,7 +151,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
     Enum.reduce(written, {%{}, %{}, %{}, %{}}, fn {payload, relation},
                                                   {devices, locals, neighbors, edges} ->
       {
-        put_winner(devices, payload.local_device_id, %{ip: payload.local_device_ip}),
+        devices
+        |> put_winner(payload.local_device_id, %{ip: payload.local_device_ip})
+        |> put_winner(payload.neighbor_device_id, %{
+          ip: payload.neighbor_ip,
+          name: payload.neighbor_name
+        }),
         put_winner(locals, payload.local_interface_id, %{
           name: payload.local_if_name,
           ifindex: payload.local_if_index

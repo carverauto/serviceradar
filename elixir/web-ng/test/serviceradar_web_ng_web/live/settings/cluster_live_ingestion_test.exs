@@ -197,8 +197,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveIngestionTest do
       rejected_total: 0,
       accepted_total: 2,
       not_accepted_total: 0,
-      timeout_total: 0,
-      crash_total: 0,
+      timeout_total: 5,
+      crash_total: 6,
       incomplete_run_total: 0,
       queue_wait_ms: 0,
       execution_ms: 0,
@@ -219,6 +219,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveIngestionTest do
       )
 
     assert html =~ "cluster-ingestion-lane-mapper"
+    assert html =~ "5 / 6"
     assert html =~ "0 / 0"
 
     newer = Map.merge(lane, %{coalesced_total: 3, expired_total: 4})

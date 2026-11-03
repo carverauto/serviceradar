@@ -11,6 +11,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Queries.EdgeLinks do
     MERGE (a:Device {id: '#{Graph.escape(payload.local_device_id)}'})
     #{Utils.set_prop("a", "ip", payload.local_device_ip)}
     MERGE (b:Device {id: '#{Graph.escape(payload.neighbor_device_id)}'})
+    #{Utils.set_prop("b", "name", payload.neighbor_name)}
+    #{Utils.set_prop("b", "ip", payload.neighbor_ip)}
     MERGE (ai:Interface {id: '#{Graph.escape(payload.local_interface_id)}'})
     SET ai.device_id = '#{Graph.escape(payload.local_device_id)}'
     #{Utils.set_prop("ai", "name", payload.local_if_name)}
@@ -55,6 +57,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Queries.EdgeLinks do
     MERGE (a:Device {id: '#{Graph.escape(payload.local_device_id)}'})
     #{Utils.set_prop("a", "ip", payload.local_device_ip)}
     MERGE (b:Device {id: '#{Graph.escape(payload.neighbor_device_id)}'})
+    #{Utils.set_prop("b", "name", payload.neighbor_name)}
+    #{Utils.set_prop("b", "ip", payload.neighbor_ip)}
     MERGE (ai:Interface {id: '#{Graph.escape(payload.local_interface_id)}'})
     SET ai.device_id = '#{Graph.escape(payload.local_device_id)}'
     #{Utils.set_prop("ai", "name", payload.local_if_name)}

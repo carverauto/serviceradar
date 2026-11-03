@@ -700,22 +700,30 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
         assert query =~ "MERGE (bi:Interface {id: 'sr:endpoint-a/unknown'})"
         assert query =~ "SET bi.device_id = 'sr:endpoint-a'"
         assert query =~ "SET bi.name = 'unknown'"
-        refute query =~ "SET b.ip"
+        assert query =~ "SET b.ip = '192.168.1.62'"
         refute query =~ "SET b.name"
         refute query =~ "SET bi.ifindex"
-        refute query =~ "192.168.1.62"
       end
 
       assert backbone_query =~ "MERGE (ai)-[r:CONNECTS_TO]->(bi)"
       assert auxiliary_query =~ "MERGE (ai)-[r:ATTACHED_TO]->(bi)"
 
-      without_port = %{payload | neighbor_port_name: nil}
+      without_neighbor_values = %{payload | neighbor_port_name: nil, neighbor_ip: nil}
+      named = %{payload | neighbor_name: "endpoint-a"}
 
       for query <- [
-            TopologyGraph.backbone_link_upsert_query(without_port),
-            TopologyGraph.auxiliary_link_upsert_query(without_port, "ATTACHED_TO")
+            TopologyGraph.backbone_link_upsert_query(without_neighbor_values),
+            TopologyGraph.auxiliary_link_upsert_query(without_neighbor_values, "ATTACHED_TO")
           ] do
         refute query =~ "SET bi.name"
+        refute query =~ "SET b.ip"
+      end
+
+      for query <- [
+            TopologyGraph.backbone_link_upsert_query(named),
+            TopologyGraph.auxiliary_link_upsert_query(named, "ATTACHED_TO")
+          ] do
+        assert query =~ "SET b.name = 'endpoint-a'"
       end
     end
 
