@@ -30,6 +30,9 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
 	"github.com/carverauto/serviceradar/go/pkg/natsutil"
+	"github.com/nats-io/jwt/v2"
+	natsserver "github.com/nats-io/nats-server/v2/server"
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nkeys"
 	"github.com/rs/zerolog"
 )
@@ -586,4 +589,212 @@ func localNATSLogLevels(t *testing.T, output string) map[string]int {
 		levels[entry.Level]++
 	}
 	return levels
+}
+
+// The packaged helper persists which running broker proved targeted KICK and
+// lengthens grants only for that broker. The expected lifetimes come from the
+// operator contract: 30 seconds until proof, then the configured TTL +/-20%.
+func TestLocalNATSHelperLengthensGrantsOnlyAfterProvenRevocation(t *testing.T) {
+	dir := t.TempDir()
+	authority := localNATSAuthority(filepath.Join(dir, ".nats-auth"))
+	if err := os.Mkdir(string(authority), 0700); err != nil {
+		t.Fatal(err)
+	}
+	issuer, err := nkeys.CreateAccount()
+	if err != nil {
+		t.Fatal(err)
+	}
+	issuerSeed, _ := issuer.Seed()
+	if err := os.WriteFile(filepath.Join(string(authority), "issuer.seed"), issuerSeed, 0600); err != nil {
+		t.Fatal(err)
+	}
+	issuerPublic, _ := issuer.PublicKey()
+	const configuredTTL = 7200
+	metadata := &managedLocalNATSMetadata{IssuerPublicKey: issuerPublic, GrantTTLSeconds: configuredTTL}
+	ca, caKey := syntheticCertificateAuthority(t)
+	roots := x509.NewCertPool()
+	roots.AddCert(ca)
+	server := localNATSHelperTestLeaf(t, ca, caKey, x509.ExtKeyUsageServerAuth)
+	client := localNATSHelperTestLeaf(t, ca, caKey, x509.ExtKeyUsageClientAuth)
+	files := map[string][]byte{
+		"ca.pem":     pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.Raw}),
+		"server.pem": pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Leaf.Raw}),
+	}
+	serverKey, err := x509.MarshalECPrivateKey(server.PrivateKey.(*ecdsa.PrivateKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+	files["server-key.pem"] = pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: serverKey})
+	for name, data := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), data, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	clientTLS := &tls.Config{RootCAs: roots, Certificates: []tls.Certificate{client}, MinVersion: tls.VersionTLS12}
+	permissions := map[string]natsutil.CertificatePermissions{certificateDERFingerprint(client): {Publish: []string{"synthetic.ingest"}}}
+	authKey, _ := nkeys.CreateUser()
+	authPublic, _ := authKey.PublicKey()
+	systemKey, _ := nkeys.CreateUser()
+	systemPublic, _ := systemKey.PublicKey()
+	brokerTLS := fmt.Sprintf("tls: {cert_file: %q, key_file: %q, ca_file: %q, verify: true}\n",
+		filepath.Join(dir, "server.pem"), filepath.Join(dir, "server-key.pem"), filepath.Join(dir, "ca.pem"))
+	legacy := startLocalNATSHelperTestBroker(t, brokerTLS+fmt.Sprintf(`accounts: {
+  EDGE: {}
+  AUTH: {users: [{nkey: %q, permissions: {subscribe: ["$SYS.REQ.USER.AUTH"], publish: ["$SYS._INBOX.>"]}}]}
+}
+authorization: {auth_callout: {issuer: %q, account: AUTH, auth_users: [%q]}}
+`, authPublic, issuerPublic, authPublic))
+	activated := startLocalNATSHelperTestBroker(t, brokerTLS+natsutil.LocalCertificateBrokerAccounts(issuerPublic, authPublic, systemPublic))
+
+	type grant struct {
+		lifetime int64
+		err      error
+	}
+	serve := func(url string) chan grant {
+		grants := make(chan grant, 16)
+		auth, err := nats.Connect(url, nats.Secure(clientTLS), nats.Nkey(authPublic, authKey.Sign), nats.NoReconnect())
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(auth.Close)
+		_, err = auth.Subscribe("$SYS.REQ.USER.AUTH", func(message *nats.Msg) {
+			now := time.Now()
+			authorizer, err := authority.authorizer(metadata, auth.ConnectedServerId(), roots, permissions)
+			var result *natsutil.CertificateAuthorization
+			if err == nil {
+				result, err = authorizer.Authorize(string(message.Data), now)
+			}
+			var lifetime int64
+			if err == nil && result.Allowed {
+				var response *jwt.AuthorizationResponseClaims
+				var user *jwt.UserClaims
+				if response, err = jwt.DecodeAuthorizationResponseClaims(result.Token); err == nil {
+					if user, err = jwt.DecodeUserClaims(response.Jwt); err == nil {
+						lifetime = user.Expires - now.Unix()
+					}
+				}
+			}
+			grants <- grant{lifetime, err}
+			if err == nil {
+				_ = message.Respond([]byte(result.Token))
+			}
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := auth.FlushTimeout(time.Second); err != nil {
+			t.Fatal(err)
+		}
+		return grants
+	}
+	legacyGrants, activatedGrants := serve(legacy), serve(activated)
+	collectorLifetime := func(url string, grants chan grant) int64 {
+		t.Helper()
+		for len(grants) > 0 {
+			<-grants
+		}
+		collector, err := nats.Connect(url, nats.Secure(clientTLS), nats.NoReconnect())
+		if err != nil {
+			t.Fatalf("collector denied: %v", err)
+		}
+		defer collector.Close()
+		select {
+		case issued := <-grants:
+			if issued.err != nil {
+				t.Fatal(issued.err)
+			}
+			return issued.lifetime
+		case <-time.After(5 * time.Second):
+			t.Fatal("collector grant was not issued")
+		}
+		return 0
+	}
+	requireShort := func(state string, lifetime int64) {
+		t.Helper()
+		if lifetime < 29 || lifetime > 31 {
+			t.Fatalf("%s: grant lifetime %ds is not the 30-second authorization lifetime", state, lifetime)
+		}
+	}
+	reconcile := func(url string) error {
+		t.Helper()
+		system, err := nats.Connect(url, nats.Secure(clientTLS), nats.Nkey(systemPublic, systemKey.Sign), nats.NoReconnect())
+		if err != nil {
+			return err
+		}
+		defer system.Close()
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+		defer cancel()
+		_, err = authority.reconcile(ctx, system, permissions)
+		return err
+	}
+	proofPath := filepath.Join(string(authority), localNATSRevocationProof)
+
+	requireShort("no activation proof", collectorLifetime(activated, activatedGrants))
+	if err := reconcile(legacy); err == nil {
+		t.Fatal("reconciliation succeeded on a broker without the system account")
+	}
+	if _, err := os.Lstat(proofPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("failed reconciliation recorded activation: %v", err)
+	}
+	requireShort("after failed reconciliation", collectorLifetime(legacy, legacyGrants))
+	if err := reconcile(activated); err != nil {
+		t.Fatalf("activated system account could not reconcile: %v", err)
+	}
+	if lifetime := collectorLifetime(activated, activatedGrants); lifetime < configuredTTL*4/5-1 || lifetime > configuredTTL*6/5+1 {
+		t.Fatalf("proven broker grant lifetime %ds is outside the configured %ds +/-20%%", lifetime, configuredTTL)
+	}
+	requireShort("proof for a different broker", collectorLifetime(legacy, legacyGrants))
+}
+
+func startLocalNATSHelperTestBroker(t *testing.T, config string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "nats.conf")
+	if err := os.WriteFile(path, []byte("host: \"127.0.0.1\"\nport: -1\n"+config), 0600); err != nil {
+		t.Fatal(err)
+	}
+	opts, err := natsserver.ProcessConfigFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts.NoLog, opts.NoSigs = true, true
+	broker, err := natsserver.NewServer(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { broker.Shutdown(); broker.WaitForShutdown() })
+	go broker.Start()
+	if !broker.ReadyForConnections(5 * time.Second) {
+		t.Fatal("embedded broker not ready")
+	}
+	return fmt.Sprintf("tls://127.0.0.1:%d", broker.Addr().(*net.TCPAddr).Port)
+}
+
+func localNATSHelperTestLeaf(t *testing.T, ca *x509.Certificate, caKey *ecdsa.PrivateKey, usage x509.ExtKeyUsage) tls.Certificate {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serial, err := rand.Int(rand.Reader, big.NewInt(1<<62))
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := &x509.Certificate{
+		SerialNumber: serial,
+		Subject:      pkix.Name{CommonName: "synthetic-local-nats"},
+		NotBefore:    time.Now().Add(-time.Minute),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{usage},
+		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, ca, &key.PublicKey, caKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaf, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key, Leaf: leaf}
 }

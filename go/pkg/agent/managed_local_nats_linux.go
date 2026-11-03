@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -424,33 +425,13 @@ func runManagedLocalNATSAuthorization(ctx context.Context, input io.Reader, outp
 		return err
 	}
 	defer broker.Close()
-	privateDir := filepath.Join(managedCertificateRoot, ".nats-auth")
-	if err := validatePrivilegedAddonRootOwnership(privateDir); err != nil {
-		return err
-	}
-	signer, err := readLocalNATSKey(filepath.Join(privateDir, "issuer.seed"), true, 0600)
-	if err != nil {
-		return err
-	}
-	public, err := signer.PublicKey()
-	if err != nil || public != metadata.IssuerPublicKey {
-		return errLocalNATSIssuer
-	}
 	tlsConfig, err := localNATSTLS(binding, metadata)
 	if err != nil {
 		return err
 	}
-	// Only a reconciliation that listed sessions through this running broker's
-	// system account proves targeted revocation. Until then grants stay short.
-	// Reading its record avoids connecting here, which would recurse through
-	// the callout on a broker that has not activated the system account.
-	revocationBroker := ""
-	if proof, err := readManagedTrustedFile(filepath.Join(privateDir, localNATSRevocationProof)); err == nil {
-		revocationBroker = string(proof)
-	}
-	authorizer := natsutil.LocalCertificateAuthorizer{
-		BrokerID: broker.ConnectedServerId(), Roots: tlsConfig.RootCAs, Signer: signer, Permissions: policy.NATSPermissions,
-		GrantTTL: time.Duration(metadata.GrantTTLSeconds) * time.Second, RevocationBrokerID: revocationBroker,
+	authorizer, err := managedLocalNATSAuthority.authorizer(metadata, broker.ConnectedServerId(), tlsConfig.RootCAs, policy.NATSPermissions)
+	if err != nil {
+		return err
 	}
 	result, err := authorizer.Authorize(request.Token, time.Now())
 	if err != nil {
@@ -485,26 +466,62 @@ func runManagedLocalNATSReconciliation(ctx context.Context, output io.Writer) er
 		return err
 	}
 	defer broker.Close()
-	disconnected, err := natsutil.RevokeUnauthorizedLocalClients(ctx, broker, policy.NATSPermissions)
+	disconnected, err := managedLocalNATSAuthority.reconcile(ctx, broker, policy.NATSPermissions)
 	if err != nil {
-		return err
-	}
-	if err := recordLocalNATSRevocationProof(broker.ConnectedServerId()); err != nil {
 		return err
 	}
 	return json.NewEncoder(output).Encode(struct{ Disconnected int }{disconnected})
 }
 
-func recordLocalNATSRevocationProof(brokerID string) error {
-	privateDir := filepath.Join(managedCertificateRoot, ".nats-auth")
-	if err := validatePrivilegedAddonRootOwnership(privateDir); err != nil {
-		return err
+// localNATSAuthority is the root-only directory holding the local broker's
+// issuer seed and the record of which running broker proved targeted KICK.
+type localNATSAuthority string
+
+var managedLocalNATSAuthority = localNATSAuthority(filepath.Join(managedCertificateRoot, ".nats-auth"))
+
+// authorizer issues long grants only for the broker recorded by a successful
+// system-account reconciliation. It reads that record instead of connecting,
+// which would recurse through the callout before the system account activates.
+func (a localNATSAuthority) authorizer(metadata *managedLocalNATSMetadata, brokerID string, roots *x509.CertPool, permissions map[string]natsutil.CertificatePermissions) (natsutil.LocalCertificateAuthorizer, error) {
+	dir := string(a)
+	if err := validatePrivilegedAddonRootOwnership(dir); err != nil {
+		return natsutil.LocalCertificateAuthorizer{}, err
 	}
-	path := filepath.Join(privateDir, localNATSRevocationProof)
+	signer, err := readLocalNATSKey(filepath.Join(dir, "issuer.seed"), true, 0600)
+	if err != nil {
+		return natsutil.LocalCertificateAuthorizer{}, err
+	}
+	public, err := signer.PublicKey()
+	if err != nil || public != metadata.IssuerPublicKey {
+		return natsutil.LocalCertificateAuthorizer{}, errLocalNATSIssuer
+	}
+	revocationBroker := ""
+	if proof, err := readManagedTrustedFile(filepath.Join(dir, localNATSRevocationProof)); err == nil {
+		revocationBroker = string(proof)
+	}
+	return natsutil.LocalCertificateAuthorizer{
+		BrokerID: brokerID, Roots: roots, Signer: signer, Permissions: permissions,
+		GrantTTL: time.Duration(metadata.GrantTTLSeconds) * time.Second, RevocationBrokerID: revocationBroker,
+	}, nil
+}
+
+// reconcile records the broker as revocation-capable only after its system
+// account has listed sessions and every required disconnect succeeded.
+func (a localNATSAuthority) reconcile(ctx context.Context, system *nats.Conn, permissions map[string]natsutil.CertificatePermissions) (int, error) {
+	disconnected, err := natsutil.RevokeUnauthorizedLocalClients(ctx, system, permissions)
+	if err != nil {
+		return 0, err
+	}
+	dir := string(a)
+	if err := validatePrivilegedAddonRootOwnership(dir); err != nil {
+		return 0, err
+	}
+	path := filepath.Join(dir, localNATSRevocationProof)
+	brokerID := system.ConnectedServerId()
 	if current, err := readManagedTrustedFile(path); err == nil && string(current) == brokerID {
-		return nil
+		return disconnected, nil
 	}
-	return writeManagedLocalNATSFile(path, []byte(brokerID), 0600, 0)
+	return disconnected, writeManagedLocalNATSFile(path, []byte(brokerID), 0600, 0)
 }
 
 func (p *PushLoop) startManagedLocalNATS(ctx context.Context) {
