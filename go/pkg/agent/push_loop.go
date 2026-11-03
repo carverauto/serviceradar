@@ -163,6 +163,7 @@ type PushLoop struct {
 	snmpEdge     edgeMetricsQueue[snmpMetricResult]
 	icmpEdge     edgeMetricsQueue[icmpCheckResult]
 	mtrEdge      edgeMetricsQueue[mtrCheckResult]
+	mtrTraceEdge edgeMetricsQueue[mtrCheckResult]
 	sweepSummary edgeMetricsQueue[map[string]any]
 	// sweepResultsEdge is the records of the unleased sweep results response
 	// being spooled.

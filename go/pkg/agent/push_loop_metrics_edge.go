@@ -56,6 +56,7 @@ const (
 	edgeProducerSNMP
 	edgeProducerICMP
 	edgeProducerMTR
+	edgeProducerMTRTraces
 	edgeProducerSweepSummary
 	edgeProducerSweepResults
 	edgeProducerSweepResultsMetrics
@@ -66,10 +67,11 @@ const (
 
 func (p edgeProducer) label() string {
 	return [edgeProducerCount]string{
-		edgeProducerSysmon: "sysmon",
-		edgeProducerSNMP:   "snmp",
-		edgeProducerICMP:   "icmp",
-		edgeProducerMTR:    "mtr",
+		edgeProducerSysmon:    "sysmon",
+		edgeProducerSNMP:      "snmp",
+		edgeProducerICMP:      "icmp",
+		edgeProducerMTR:       "mtr",
+		edgeProducerMTRTraces: "mtr_traces",
 		// The periodic sweep summary sample, not the batch carried with sweep results.
 		edgeProducerSweepSummary: "sweep",
 		// Unleased sweep results records, and the metric batch each results chunk carries.
