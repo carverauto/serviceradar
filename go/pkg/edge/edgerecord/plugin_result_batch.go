@@ -82,7 +82,7 @@ func ValidatePluginResultBatch(batch *edgev1.WasmPluginResultBatchV1) error {
 // Signatures are verified by the gateway, which holds the trust snapshot.
 func ValidatePluginResultRecord(r *edgev1.EdgeRecordV1) error {
 	var batch edgev1.WasmPluginResultBatchV1
-	if err := decodeStandingGrantRecord(r, PluginResultsContractID, PluginResultsContractVersion,
+	if err := decodeStandingGrantRecord(r, contractRef{PluginResultsContractID, PluginResultsContractVersion},
 		ErrPluginResultSourceAuthorization, &batch); err != nil {
 		return err
 	}

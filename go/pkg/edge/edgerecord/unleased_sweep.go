@@ -87,7 +87,7 @@ func ValidateUnleasedSweepResultsBatch(batch *edgev1.UnleasedSweepResultsBatchV1
 // count. Signatures are verified by the gateway, which holds the trust snapshot.
 func ValidateUnleasedSweepResultsRecord(r *edgev1.EdgeRecordV1) error {
 	var batch edgev1.UnleasedSweepResultsBatchV1
-	if err := decodeStandingGrantRecord(r, UnleasedSweepResultsContractID, UnleasedSweepResultsContractVersion,
+	if err := decodeStandingGrantRecord(r, contractRef{UnleasedSweepResultsContractID, UnleasedSweepResultsContractVersion},
 		ErrUnleasedSweepSourceAuthorization, &batch); err != nil {
 		return err
 	}
