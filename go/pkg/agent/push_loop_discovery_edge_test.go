@@ -20,6 +20,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -230,6 +231,42 @@ func TestRetainedDiscoveryFlushesOnACycleWithNoNewDrain(t *testing.T) {
 	require.Equal(t, edgerecord.MapperTopologyContractID, records[1].GetOutputContract().GetContractId())
 	require.True(t, loop.mapperDevicesEdge.empty())
 	require.True(t, loop.mapperTopologyEdge.empty())
+}
+
+func TestLegacyRecoveryDeliversAFullRetainedQueueBeforeTheFreshDrain(t *testing.T) {
+	loop := discoveryLoop(t, openTestEdgeSpool(t))
+
+	payloadFor := func(i int) []byte {
+		updates := mapperDeviceUpdates()
+		updates[0]["ip"] = fmt.Sprintf("198.51.100.%d", i%250)
+		updates[0]["device_id"] = fmt.Sprintf("sr:00000000-0000-4000-8000-%012d", i)
+		payload, err := buildMapperResultsPayload(updates, sysmonEdgeAgentID, "default")
+		require.NoError(t, err)
+		return payload
+	}
+
+	// No grant and a long gateway outage: the queue fills to its bound.
+	var want [][]byte
+	legacyDown := func([]byte) bool { return false }
+	for i := 0; i < maxEdgeDiscoveryQueuedPayloads; i++ {
+		payload := payloadFor(i)
+		want = append(want, payload)
+		require.False(t, loop.pushDiscoveryPayloads(discoveryMapperDevices, [][]byte{payload},
+			sysmonEdgeAgentID, "default", legacyDown))
+	}
+	require.Len(t, loop.mapperDevicesEdge.pending, maxEdgeDiscoveryQueuedPayloads)
+
+	// The gateway recovers on a cycle that also drains new data.
+	fresh := payloadFor(maxEdgeDiscoveryQueuedPayloads)
+	want = append(want, fresh)
+	var delivered [][]byte
+	require.True(t, loop.pushDiscoveryPayloads(discoveryMapperDevices, [][]byte{fresh},
+		sysmonEdgeAgentID, "default", func(data []byte) bool {
+			delivered = append(delivered, data)
+			return true
+		}))
+	require.Equal(t, want, delivered, "every retained payload, then the fresh one, in order")
+	require.True(t, loop.mapperDevicesEdge.empty())
 }
 
 func TestNetprobeDiscoverySpoolsMetadataVerbatim(t *testing.T) {

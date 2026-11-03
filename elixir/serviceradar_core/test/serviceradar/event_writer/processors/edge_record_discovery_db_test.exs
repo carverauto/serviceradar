@@ -37,11 +37,15 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDiscoveryDbTest do
   alias ServiceRadar.EventWriter.Processors.EdgeRecord
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Infrastructure.Partition
+  alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.Interface
+  alias ServiceRadar.Inventory.SyncIngestRun
+  alias ServiceRadar.Inventory.SyncRunLedger
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ExecutionSlots
 
+  require Ash.Query
   require Ecto.Query
 
   @mapper_devices_contract "serviceradar.mapper.devices.batch"
@@ -245,32 +249,35 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDiscoveryDbTest do
       assert {:ok, :inserted} =
                EdgeRecord.ingest(first.record_bytes, first.headers, Repo, request: stored_ack())
 
-      final_batch =
-        sync_page(source_id, ["src-b", "src-c"],
-          chunk_index: 1,
-          total_chunks: 2,
-          is_final: true,
-          population: true
-        )
-
-      final =
-        discovery_frame(@sync_page_contract, final_batch, 2,
+      second =
+        discovery_frame(
+          @sync_page_contract,
+          sync_page(source_id, ["src-b", "src-c"], chunk_index: 1),
+          2,
           bytes_per_row: 16_384,
           agent_id: first.agent_id,
           partition: first.partition
         )
 
       assert {:ok, :inserted} =
-               EdgeRecord.ingest(final.record_bytes, final.headers, Repo, request: stored_ack())
+               EdgeRecord.ingest(second.record_bytes, second.headers, Repo, request: stored_ack())
+
+      assert %{received_chunks: [0, 1], total_chunks: 0, incomplete: false} =
+               sync_run_row(source_id)
 
       control_batch = %SyncPageBatchV1{
         sync_meta: %SyncMetaV1{
           sync_service_id: source_id,
-          sync_run_id: "run-synthetic-empty",
-          chunk_index: 0,
-          total_chunks: 1,
+          sync_run_id: "run-synthetic-1",
+          chunk_index: 2,
+          total_chunks: 3,
+          total_devices: 3,
           is_final: true,
-          population: %SyncPopulationReportV1{raw_rows: 0}
+          population: %SyncPopulationReportV1{
+            raw_rows: 3,
+            valid_occurrences: 3,
+            distinct_source_ids: 3
+          }
         },
         control_marker: %SyncControlMarkerV1{
           control_type: "collection_final",
@@ -289,6 +296,22 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDiscoveryDbTest do
                EdgeRecord.ingest(control.record_bytes, control.headers, Repo,
                  request: stored_ack()
                )
+
+      assert %{received_chunks: [0, 1, 2], total_chunks: 3, incomplete: false} =
+               sync_run_row(source_id)
+
+      assert :ok =
+               SyncRunLedger.complete(%{
+                 "sync_service_id" => source_id,
+                 "sync_run_id" => "run-synthetic-1",
+                 "total_chunks" => 3
+               })
+
+      source =
+        IntegrationSource.get_by_id!(source_id, actor: SystemActor.system(:edge_record_test))
+
+      assert source.last_sync_result == :success
+      assert source.last_device_count == 3
 
       ips = first |> partition_devices() |> Enum.map(& &1.ip) |> Enum.sort()
       assert ips == ["192.0.2.60", "192.0.2.61", "192.0.2.62"]
@@ -353,7 +376,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDiscoveryDbTest do
     |> Ash.create!(actor: actor)
 
     source =
-      ServiceRadar.Integrations.IntegrationSource
+      IntegrationSource
       |> Ash.Changeset.new()
       |> Ash.Changeset.set_argument(:credentials, %{
         secret_key: "synthetic-sync-secret",
@@ -400,30 +423,20 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDiscoveryDbTest do
     meta = %SyncMetaV1{
       sync_service_id: source_id,
       sync_run_id: "run-synthetic-1",
-      chunk_index: Keyword.get(opts, :chunk_index, 0),
-      total_chunks: Keyword.get(opts, :total_chunks, 0),
-      total_devices: 3,
-      is_final: Keyword.get(opts, :is_final, false)
+      chunk_index: chunk_offset(opts),
+      total_devices: 3
     }
-
-    meta =
-      if Keyword.get(opts, :population, false) do
-        %{
-          meta
-          | population: %SyncPopulationReportV1{
-              raw_rows: 3,
-              valid_occurrences: 3,
-              distinct_source_ids: 3
-            }
-        }
-      else
-        meta
-      end
 
     %SyncPageBatchV1{sync_meta: meta, devices: devices}
   end
 
   defp chunk_offset(opts), do: Keyword.get(opts, :chunk_index, 0)
+
+  defp sync_run_row(source_id) do
+    SyncIngestRun
+    |> Ash.Query.filter(sync_service_id == ^source_id and sync_run_id == "run-synthetic-1")
+    |> Ash.read_one!(actor: SystemActor.system(:sync_ingestor))
+  end
 
   defp devices_by_ip(frame, ip) do
     frame

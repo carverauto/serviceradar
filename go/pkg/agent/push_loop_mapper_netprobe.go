@@ -102,10 +102,15 @@ func (p *PushLoop) streamDiscoveryPayload(
 	return true
 }
 
-// pushDiscoveryPayloads queues a family's freshly drained payloads behind
-// anything retained and flushes the queue down exactly one path. It runs
-// every cycle, drained or not, so a retained payload never waits for
-// unrelated new data.
+// pushDiscoveryPayloads moves a family's retained queue and its freshly
+// drained payloads down exactly one path: the spool while the family's
+// standing grant is current, else the legacy status path in queue order.
+// It runs every cycle, drained or not, so a retained payload never waits
+// for unrelated new data. On the legacy path the retained queue drains
+// before fresh payloads join it, so a full queue never drops its oldest
+// payload on the cycle the gateway recovers. A payload neither path
+// accepts stays queued (bounded) instead of being lost the way a failed
+// legacy send loses a drain today.
 func (p *PushLoop) pushDiscoveryPayloads(
 	kind discoveryKind,
 	payloads [][]byte,
@@ -114,29 +119,31 @@ func (p *PushLoop) pushDiscoveryPayloads(
 	legacySend func([]byte) bool,
 ) bool {
 	q := p.discoveryQueue(kind)
-	for _, payload := range payloads {
-		p.dropEdgeTelemetry(kind.spec().producer, edgeDropRetryBufferFull, q.enqueue(payload))
+	enqueueAll := func() {
+		for _, payload := range payloads {
+			p.dropEdgeTelemetry(kind.spec().producer, edgeDropRetryBufferFull, q.enqueue(payload))
+		}
 	}
-	return p.flushDiscovery(kind, agentID, partition, legacySend)
-}
 
-// flushDiscovery moves a family's queue down exactly one path: the spool
-// while the family's standing grant is current, else the legacy status
-// path in queue order. A payload neither path accepts stays queued
-// (bounded) instead of being lost the way a failed legacy send loses a
-// drain today. A partially spooled item blocks the legacy path: its
-// admitted parts are already durable, so nothing may overtake or repeat it.
-func (p *PushLoop) flushDiscovery(
-	kind discoveryKind,
-	agentID string,
-	partition string,
-	legacySend func([]byte) bool,
-) bool {
 	if capability := p.discoveryCapability(kind, time.Now()); capability != nil {
+		enqueueAll()
 		return p.spoolDiscovery(kind, capability, agentID, partition)
 	}
 
-	q := p.discoveryQueue(kind)
+	sent := flushDiscoveryLegacy(q, legacySend)
+	drained := q.empty()
+	enqueueAll()
+	if drained && flushDiscoveryLegacy(q, legacySend) {
+		sent = true
+	}
+	return sent
+}
+
+// flushDiscoveryLegacy sends a family's queue down the legacy status path
+// in order until it drains or a send fails. A partially spooled item
+// blocks the legacy path: its admitted parts are already durable, so
+// nothing may overtake or repeat it.
+func flushDiscoveryLegacy(q *discoveryEdgeQueue, legacySend func([]byte) bool) bool {
 	sent := false
 	for {
 		retained, ok := q.takeLegacy()
