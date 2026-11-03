@@ -84,6 +84,22 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     end
   end
 
+  defmodule SaturatedRuleEngine do
+    @moduledoc false
+
+    def evaluate_events(events) do
+      send(test_pid(), {:alert_evaluation_events, events})
+
+      if Enum.any?(events, &(&1.message == "saturated-forecast")),
+        do: {:error, {:overloaded, :rule_count}},
+        else: :ok
+    end
+
+    defp test_pid do
+      Application.fetch_env!(:serviceradar_core, :analytics_signals_process_batch_test_pid)
+    end
+  end
+
   defmodule OneSlotEngine do
     @moduledoc false
 
@@ -478,6 +494,72 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
 
     assert :ok = LifecycleAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
     refute_receive {:alert_evaluation_events, _events}, 50
+  end
+
+  test "one drain run scans past series stuck behind a saturated rule" do
+    Application.put_env(
+      :serviceradar_core,
+      :stateful_alert_engine,
+      __MODULE__.CanonicalBodyEngine
+    )
+
+    Application.put_env(
+      :serviceradar_core,
+      :analytics_signals_replay_result,
+      {:error, {:overloaded, :rule_bytes}}
+    )
+
+    stamp = System.unique_integer([:positive])
+    saturated = for n <- 1..4, do: "synthetic:drain-saturated:#{stamp}:#{n}"
+    quiet = "synthetic:drain-quiet:#{stamp}"
+    series = saturated ++ [quiet]
+
+    Enum.each(series, &delete_episode_fixture!/1)
+
+    on_exit(fn ->
+      Application.delete_env(:serviceradar_core, :analytics_signals_replay_result)
+      Enum.each(series, &delete_episode_fixture!/1)
+    end)
+
+    for {series_key, n} <- Enum.with_index(saturated, 1) do
+      message =
+        capacity_forecast_message(
+          series_key,
+          "drain-saturated-#{n}",
+          "saturated-forecast",
+          1_812_456_000_000
+        )
+
+      assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([message])
+      assert_receive {:alert_evaluation_events, [_refused]}
+    end
+
+    quiet_message =
+      capacity_forecast_message(quiet, "drain-quiet", "quiet-forecast", 1_812_456_000_000)
+
+    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([quiet_message])
+    assert_receive {:alert_evaluation_events, [_refused]}
+
+    Application.put_env(
+      :serviceradar_core,
+      :stateful_alert_engine,
+      __MODULE__.SaturatedRuleEngine
+    )
+
+    # Two full pages of saturated series come before the quiet one.
+    assert AnalyticsSignals.drain_pending_admissions(page_size: 2) == 1
+
+    for _series_key <- saturated do
+      assert_receive {:alert_evaluation_events, [%{message: "saturated-forecast"}]}
+    end
+
+    assert_receive {:alert_evaluation_events, [%{message: "quiet-forecast"}]}
+    refute_receive {:alert_evaluation_events, _events}, 50
+    assert pending_admission_messages(quiet) == []
+
+    for series_key <- saturated do
+      assert pending_admission_messages(series_key) == ["saturated-forecast"]
+    end
   end
 
   test "a rejected transition stays replayable and its retry is admitted once" do

@@ -320,37 +320,79 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   end
 
   @doc """
-  Admits the pending lifecycle occurrences of the `series_limit` series that
-  have waited longest, each series in `seq` order and stopping at its first
-  refusal, so a series that gets no later message never strands an
-  evaluation. Returns the number of occurrences admitted.
+  Admits pending lifecycle occurrences of the series that have waited longest,
+  so a series that gets no later message never strands an evaluation.
+
+  Series are paged by `(min(seq), class_uid, series_key)`. Each series is
+  admitted in `seq` order and stops at its first refusal, and the run moves on
+  to the next series, so series stuck behind a saturated rule never starve the
+  ones behind them. The run ends when every page is scanned, after
+  `:max_admissions` admissions, or once `:budget_ms` has elapsed. Returns the
+  number of occurrences admitted.
   """
-  @spec drain_pending_admissions(pos_integer()) :: non_neg_integer()
-  def drain_pending_admissions(series_limit) when is_integer(series_limit) and series_limit > 0 do
-    %{rows: rows} =
+  @spec drain_pending_admissions(keyword()) :: non_neg_integer()
+  def drain_pending_admissions(opts \\ []) do
+    budget = %{
+      page_size: Keyword.get(opts, :page_size, 100),
+      max_admissions: Keyword.get(opts, :max_admissions, 1_000),
+      deadline: System.monotonic_time(:millisecond) + Keyword.get(opts, :budget_ms, 30_000)
+    }
+
+    drain_series_from({0, 0, ""}, 0, budget)
+  end
+
+  defp drain_series_from({head, class_uid, series_key}, admitted, budget) do
+    %{rows: page} =
       ServiceRadar.Repo.query!(
         """
-        SELECT class_uid, series_key
+        SELECT min(seq), class_uid, series_key
         FROM platform.lifecycle_pending_admissions
         GROUP BY class_uid, series_key
-        ORDER BY min(seq)
-        LIMIT $1
+        HAVING (min(seq), class_uid, series_key) > ($1::bigint, $2::int, $3::text)
+        ORDER BY min(seq), class_uid, series_key
+        LIMIT $4
         """,
-        [series_limit]
+        [head, class_uid, series_key, budget.page_size]
       )
 
-    rows
-    |> Enum.map(fn [class_uid, series_key] -> {class_uid, series_key} end)
-    |> load_pending_occurrences()
-    |> Enum.chunk_by(& &1.series)
-    |> Enum.reduce(0, fn occurrences, admitted ->
-      admitted +
-        Enum.reduce_while(occurrences, 0, fn occurrence, count ->
-          case admit_occurrence(occurrence) do
-            :ok -> {:cont, count + 1}
-            {:error, _reason} -> {:halt, count}
-          end
-        end)
+    occurrences =
+      page
+      |> Enum.map(fn [_head, class_uid, series_key] -> {class_uid, series_key} end)
+      |> load_pending_occurrences()
+      |> Enum.group_by(& &1.series)
+
+    result =
+      Enum.reduce_while(page, admitted, fn [_head, class_uid, series_key], count ->
+        if drain_exhausted?(count, budget) do
+          {:halt, {:exhausted, count}}
+        else
+          {:cont, count + admit_series_prefix(Map.get(occurrences, {class_uid, series_key}, []))}
+        end
+      end)
+
+    case result do
+      {:exhausted, count} ->
+        count
+
+      count when length(page) < budget.page_size ->
+        count
+
+      count ->
+        [last_head, last_class, last_key] = List.last(page)
+        drain_series_from({last_head, last_class, last_key}, count, budget)
+    end
+  end
+
+  defp drain_exhausted?(admitted, budget) do
+    admitted >= budget.max_admissions or System.monotonic_time(:millisecond) >= budget.deadline
+  end
+
+  defp admit_series_prefix(occurrences) do
+    Enum.reduce_while(occurrences, 0, fn occurrence, count ->
+      case admit_occurrence(occurrence) do
+        :ok -> {:cont, count + 1}
+        {:error, _reason} -> {:halt, count}
+      end
     end)
   end
 

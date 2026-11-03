@@ -49,8 +49,11 @@ Recovery before then lets admission continue the remainder in order. After the
 final delivery, the stored signal and the committed transition remain. A
 lifecycle occurrence keeps its pending admission row. The next message for the
 same series admits it, and so does `ServiceRadar.EventWriter.LifecycleAdmissionDrainWorker`,
-which runs every minute on the `maintenance` queue and admits the 200
-longest-waiting series per run, each in `seq` order. Other unadmitted
+which runs every minute on the `maintenance` queue. A run pages through the
+pending series longest-waiting first, admits each in `seq` order up to its
+first refusal, and continues with the next series, so series stuck behind a
+saturated rule do not starve the rest. It stops after 1,000 admissions or 30
+seconds. Other unadmitted
 evaluation is lost. This is a
 bounded recovery window, not an indefinite retry guarantee. Consumer delivery
 limits are unchanged.
