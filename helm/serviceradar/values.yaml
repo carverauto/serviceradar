@@ -1846,8 +1846,10 @@ agent:
 # and the agent's leasing switch on); without a grant it keeps the status path. With it,
 # results of sweep groups the agent runs without a lease also move to edge records once
 # contractRegistry holds an active serviceradar.sweep.unleased_results contract as well.
-# agentTelemetryEnabled does the same for plugin and add-on telemetry under the
-# serviceradar.telemetry.batch contract.
+# agentTelemetryEnabled lets the in-cluster agent emit plugin and native add-on
+# telemetry as edge records once core grants it the serviceradar.telemetry.batch
+# contract (registered in contractRegistry and the agent's leasing switch on);
+# without a grant it keeps the status path.
 edgeRecords:
   enabled: false
   contractRegistry: {}
