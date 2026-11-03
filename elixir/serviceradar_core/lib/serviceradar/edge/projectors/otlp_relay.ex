@@ -171,11 +171,9 @@ defmodule ServiceRadar.Edge.Projectors.OtlpRelay do
   transaction commits. A partition read failure misses that sample and returns `:ok`.
   """
   @impl true
-  def committed(
-        %EdgeRecordV1{} = record,
-        %OtlpRelayFrame{batch: %TelemetryBatch{} = batch},
-        %{primary?: true}
-      ) do
+  def committed(%EdgeRecordV1{} = record, %OtlpRelayFrame{batch: %TelemetryBatch{} = batch}, %{
+        primary?: true
+      }) do
     network_scope_id = Ecto.UUID.load!(record.network_scope_id)
     agent_id = record.producer_context.origin_principal_id
 
