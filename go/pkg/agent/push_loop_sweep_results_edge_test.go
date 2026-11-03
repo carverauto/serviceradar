@@ -171,47 +171,13 @@ func reachableHost(addr string) models.HostResult {
 }
 
 // unleasedSweepLoop is a push loop with sp as its edge spool, svc as its sweep
-// results provider, and the given standing grants. Every record it spools is
-// accepted as soon as it is appended (acceptedOnAppend), so a response completes
-// within one push; a test of completion against the real resolution sets
-// loop.edgeMetricsSpool back to sp.
+// results provider, and the given standing grants.
 func unleasedSweepLoop(t *testing.T, sp *spool.Spool, svc *scriptedSweepResults, grants ...*proto.EdgeOutputGrant) (*PushLoop, *sysmonStatusGateway) {
 	t.Helper()
 	loop, gw, _ := sysmonEdgeLoop(t, sp)
-	loop.edgeMetricsSpool = acceptedOnAppend{sp}
 	loop.server.services = []Service{svc}
 	require.Empty(t, loop.edgeOutputGrants.replace(sysmonEdgeAgentID, grants, time.Now()))
 	return loop, gw
-}
-
-// acceptedOnAppend is a spool whose every record the gateway accepts as soon as
-// it is appended.
-type acceptedOnAppend struct{ *spool.Spool }
-
-func (acceptedOnAppend) Watch(uint64) {}
-
-func (acceptedOnAppend) Settle([]uint64) (bool, int) { return true, 0 }
-
-// resolveSpooled resolves every unresolved record of sp as the gateway would:
-// accepted, or permanently rejected when reject says so. It returns the records
-// it resolved, in sequence order.
-func resolveSpooled(t *testing.T, sp *spool.Spool, reject func(spool.Record) bool) []spool.Record {
-	t.Helper()
-	stored, err := sp.Unresolved()
-	require.NoError(t, err)
-	require.NotEmpty(t, stored)
-	ack := &edgev1.EdgeDeliveryAckV1{ResolvedThroughSequence: stored[len(stored)-1].Sequence}
-	for _, rec := range stored {
-		kind := edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE
-		if reject != nil && reject(rec) {
-			kind = edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_REJECTED_PERMANENT
-		}
-		ack.Dispositions = append(ack.Dispositions, &edgev1.EdgeRecordDisposition{Sequence: rec.Sequence, EventId: rec.EventID, Kind: kind})
-	}
-	evidence, err := gproto.Marshal(ack)
-	require.NoError(t, err)
-	require.NoError(t, sp.ResolveWithEvidence(ack.GetResolvedThroughSequence(), evidence))
-	return stored
 }
 
 // spooledUnleasedSweep decodes the spool's unleased results records, each of
@@ -825,7 +791,8 @@ func TestSweepResultsPermanentRefusalAfterAdmissionDropsAndAcks(t *testing.T) {
 
 // The final results record is spooled with the other records of the response,
 // carrying the execution's chunk count. A sender that reopens the spool still
-// has it, and no later response is read while those records are unresolved.
+// has it. The response is acknowledged once its records are in the spool, and
+// the next response is read while the gateway has resolved none of them.
 func TestUnleasedSweepFinalIsSpooledImmediatelyAndSurvivesRestart(t *testing.T) {
 	dir := t.TempDir()
 	sp, err := spool.Open(dir)
@@ -841,11 +808,20 @@ func TestUnleasedSweepFinalIsSpooledImmediatelyAndSurvivesRestart(t *testing.T) 
 		sweepResultsResponse(t, unleasedTestGroupID, "6", []models.HostResult{reachableHost("192.0.2.40")}, nil),
 	}}
 	loop, _ := unleasedSweepLoop(t, sp, svc, currentMetricsGrant(t), unleasedSweepGrant(t, 2))
-	loop.edgeMetricsSpool = sp
 
 	require.True(t, loop.pushSweepResults(t.Context()))
-	_, batches, metrics := spooledUnleasedSweep(t, sp)
-	require.Equal(t, 1, metrics)
+	require.Zero(t, sp.Resolved(), "the gateway has resolved nothing")
+	require.Equal(t, []string{unleasedTestGroupID + "/5", unleasedTestGroupID + "/6"}, svc.acked())
+
+	_, all, metrics := spooledUnleasedSweep(t, sp)
+	require.Equal(t, 2, metrics)
+	var batches []*edgev1.UnleasedSweepResultsBatchV1
+	for _, batch := range all {
+		if batch.GetSequence() == 5 {
+			batches = append(batches, batch)
+		}
+	}
+	require.Len(t, all, len(batches)+1)
 	finals := 0
 	var total uint32
 	for _, batch := range batches {
@@ -859,9 +835,6 @@ func TestUnleasedSweepFinalIsSpooledImmediatelyAndSurvivesRestart(t *testing.T) 
 	}
 	require.Equal(t, 1, finals)
 	require.Greater(t, total, uint32(1))
-	require.False(t, loop.pushSweepResults(t.Context()), "nothing more is appended while the records are unresolved")
-	require.Empty(t, svc.acked())
-	require.Equal(t, 1, svc.reads)
 
 	require.NoError(t, sp.Close())
 	reopened, err := spool.Open(dir)
@@ -869,9 +842,12 @@ func TestUnleasedSweepFinalIsSpooledImmediatelyAndSurvivesRestart(t *testing.T) 
 	t.Cleanup(func() { _ = reopened.Close() })
 	_, after, afterMetrics := spooledUnleasedSweep(t, reopened)
 	require.Equal(t, metrics, afterMetrics)
-	require.Len(t, after, len(batches))
+	require.Len(t, after, len(all))
 	reopenedFinals := 0
 	for _, batch := range after {
+		if batch.GetSequence() != 5 {
+			continue
+		}
 		require.False(t, batch.GetIsCancelled())
 		if batch.GetIsFinal() {
 			reopenedFinals++
@@ -882,124 +858,42 @@ func TestUnleasedSweepFinalIsSpooledImmediatelyAndSurvivesRestart(t *testing.T) 
 	require.Equal(t, 1, reopenedFinals)
 }
 
-// A sibling the gateway rejects permanently, or the spool refuses permanently
-// after admission, is not a chunk core will ever ingest. The agent appends a
-// cancel record for that execution; the record stays in the spool across a
-// sender restart. The final results record is still spooled, with its hosts.
-func TestPermanentSiblingRejectionSpolesADurableCancelRecord(t *testing.T) {
+// A sibling the spool refuses permanently after admission is not a chunk core
+// will ever ingest. The agent appends a cancel record for that execution, which
+// stays in the spool across a sender restart, and the final results record is
+// still spooled with its hosts. The response is then acknowledged.
+func TestPermanentSiblingRefusalSpoolsADurableCancelRecord(t *testing.T) {
 	hosts := make([]models.HostResult, 5)
 	for i := range hosts {
 		hosts[i] = reachableHost(fmt.Sprintf("192.0.2.%d", 50+i))
 	}
-
-	t.Run("rejected by the gateway", func(t *testing.T) {
-		dir := t.TempDir()
-		sp, err := spool.Open(dir)
-		require.NoError(t, err)
-		t.Cleanup(func() { _ = sp.Close() })
-		svc := &scriptedSweepResults{responses: []*proto.ResultsResponse{
-			sweepResultsResponse(t, unleasedTestGroupID, "9", hosts, nil),
-			sweepResultsResponse(t, unleasedTestGroupID, "10", []models.HostResult{reachableHost("192.0.2.60")}, nil),
-		}}
-		loop, _ := unleasedSweepLoop(t, sp, svc, currentMetricsGrant(t), unleasedSweepGrant(t, 2))
-		loop.edgeMetricsSpool = sp
-
-		require.True(t, loop.pushSweepResults(t.Context()))
-		first := true
-		resolveSpooled(t, sp, func(spool.Record) bool {
-			rejected := first
-			first = false
-			return rejected
-		})
-		require.True(t, loop.pushSweepResults(t.Context()))
-		requireCancelRecord(t, sp, 3)
-		require.Empty(t, svc.acked())
-		require.Equal(t, 1, svc.reads)
-
-		require.NoError(t, sp.Close())
-		reopened, err := spool.Open(dir)
-		require.NoError(t, err)
-		t.Cleanup(func() { _ = reopened.Close() })
-		requireCancelRecord(t, reopened, 3)
-	})
-
-	t.Run("refused by the spool after admission", func(t *testing.T) {
-		dir := t.TempDir()
-		sp, err := spool.Open(dir)
-		require.NoError(t, err)
-		t.Cleanup(func() { _ = sp.Close() })
-		svc := &scriptedSweepResults{responses: []*proto.ResultsResponse{
-			sweepResultsResponse(t, unleasedTestGroupID, "11", hosts, nil),
-		}}
-		loop, _ := unleasedSweepLoop(t, sp, svc, currentMetricsGrant(t), unleasedSweepGrant(t, 2))
-		loop.edgeMetricsSpool = settledBy{&appendScript{inner: sp, refuseAfter: -1, permanentOn: 2, permanentErr: spool.ErrBodyTooLarge}, sp}
-
-		require.True(t, loop.pushSweepResults(t.Context()))
-		_, batches, _ := spooledUnleasedSweep(t, sp)
-		var finalHosts, cancels int
-		for _, batch := range batches {
-			if batch.GetIsCancelled() {
-				cancels++
-				require.Empty(t, batch.GetHosts())
-				continue
-			}
-			if batch.GetIsFinal() {
-				finalHosts = len(batch.GetHosts())
-				require.Positive(t, batch.GetTotalChunks())
-			}
-		}
-		require.Equal(t, 1, cancels)
-		require.Positive(t, finalHosts)
-		require.Empty(t, svc.acked())
-
-		require.NoError(t, sp.Close())
-		reopened, err := spool.Open(dir)
-		require.NoError(t, err)
-		t.Cleanup(func() { _ = reopened.Close() })
-		_, after, _ := spooledUnleasedSweep(t, reopened)
-		cancels = 0
-		finalHosts = 0
-		for _, batch := range after {
-			if batch.GetIsCancelled() {
-				cancels++
-				require.Empty(t, batch.GetHosts())
-			}
-			if batch.GetIsFinal() && !batch.GetIsCancelled() {
-				finalHosts = len(batch.GetHosts())
-			}
-		}
-		require.Equal(t, 1, cancels)
-		require.Positive(t, finalHosts)
-	})
-}
-
-// A permanently rejected record must not pin every later response. Once the
-// cancel record has resolved, the response is acknowledged and the next one is
-// read.
-func TestRejectedSweepRecordReleasesTheResponseAfterItsCancelResolves(t *testing.T) {
-	sp := openTestEdgeSpool(t)
-	hosts := make([]models.HostResult, 5)
-	for i := range hosts {
-		hosts[i] = reachableHost(fmt.Sprintf("192.0.2.%d", 70+i))
-	}
+	dir := t.TempDir()
+	sp, err := spool.Open(dir)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sp.Close() })
 	svc := &scriptedSweepResults{responses: []*proto.ResultsResponse{
-		sweepResultsResponse(t, unleasedTestGroupID, "12", hosts, nil),
-		sweepResultsResponse(t, unleasedTestGroupID, "13", []models.HostResult{reachableHost("192.0.2.80")}, nil),
+		sweepResultsResponse(t, unleasedTestGroupID, "11", hosts, nil),
 	}}
 	loop, _ := unleasedSweepLoop(t, sp, svc, currentMetricsGrant(t), unleasedSweepGrant(t, 2))
-	loop.edgeMetricsSpool = sp
+	loop.edgeMetricsSpool = &appendScript{inner: sp, refuseAfter: -1, permanentOn: 2, permanentErr: spool.ErrBodyTooLarge}
 
 	require.True(t, loop.pushSweepResults(t.Context()))
-	resolveSpooled(t, sp, func(spool.Record) bool { return true })
-	require.True(t, loop.pushSweepResults(t.Context()))
+	require.Equal(t, []string{unleasedTestGroupID + "/11"}, svc.acked())
 	requireCancelRecord(t, sp, 3)
-	require.Empty(t, svc.acked())
-	require.Equal(t, 1, svc.reads)
 
-	resolveSpooled(t, sp, nil)
-	loop.pushSweepResults(t.Context())
-	require.Equal(t, []string{unleasedTestGroupID + "/12"}, svc.acked())
-	require.Equal(t, 2, svc.reads, "the next response stays unread until the cancel record is resolved")
+	require.NoError(t, sp.Close())
+	reopened, err := spool.Open(dir)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = reopened.Close() })
+	requireCancelRecord(t, reopened, 3)
+	_, after, _ := spooledUnleasedSweep(t, reopened)
+	finalHosts := 0
+	for _, batch := range after {
+		if batch.GetIsFinal() && !batch.GetIsCancelled() {
+			finalHosts = len(batch.GetHosts())
+		}
+	}
+	require.Positive(t, finalHosts)
 }
 
 func requireCancelRecord(t *testing.T, sp *spool.Spool, dataChunks uint32) {
@@ -1029,16 +923,6 @@ func requireCancelRecord(t *testing.T, sp *spool.Spool, dataChunks uint32) {
 	require.Zero(t, marker.GetChunkIndex())
 	require.LessOrEqual(t, data, dataChunks)
 }
-
-// settledBy appends through a script and settles through the real spool.
-type settledBy struct {
-	*appendScript
-	sp *spool.Spool
-}
-
-func (s settledBy) Watch(seq uint64) { s.sp.Watch(seq) }
-
-func (s settledBy) Settle(seqs []uint64) (bool, int) { return s.sp.Settle(seqs) }
 
 func spooledEventIDs(t *testing.T, sp *spool.Spool) [][]byte {
 	t.Helper()

@@ -58,7 +58,6 @@ import (
 	"sync"
 
 	"github.com/carverauto/serviceradar/go/pkg/durablefs"
-	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
 )
 
 const (
@@ -201,15 +200,6 @@ type Spool struct {
 	bindings BindingInspector
 	alloc    *Allocator
 	admitNew func(flow string, cost uint64) bool
-	// watched holds each sequence a producer waits on (Watch) and whether it
-	// resolved without being accepted. unwatchedUnaccepted keeps the latest
-	// such sequences no one watched yet, for a Watch that races its record's
-	// resolution. Once that list drops a sequence, unwatchedDroppedThrough is
-	// the highest one dropped, and a Watch at or below it is unaccepted.
-	watched                 map[uint64]bool
-	unwatchedUnaccepted     []uint64
-	unwatchedDroppedThrough uint64
-	unwatchedOverflow       bool
 
 	mu      sync.Mutex
 	seg     segmentHandle
@@ -711,12 +701,6 @@ func (s *Spool) Resolve(through uint64) error {
 	if err := s.writeResolved(through); err != nil {
 		return err
 	}
-	// No terminal evidence proves any of these accepted.
-	for seq := range s.watched {
-		if seq > s.resolved && seq <= through {
-			s.watched[seq] = true
-		}
-	}
 	s.resolved = through
 	return nil
 }
@@ -766,85 +750,8 @@ func (s *Spool) ResolveWithEvidence(through uint64, evidence []byte) error {
 		s.failErr = asFailStop(err)
 		return s.failErr
 	}
-	s.noteUnacceptedLocked(unacceptedSequences(evidence, s.resolved, through))
 	s.resolved = through
 	return s.reclaimLocked()
-}
-
-// maxUnwatchedUnaccepted bounds the unaccepted sequences kept for a Watch that
-// arrives after its record resolved. One acknowledgement may name this many
-// dispositions. A sequence trimmed from the list is still unaccepted: Watch
-// cannot tell a dropped rejection from a sequence that was accepted.
-const maxUnwatchedUnaccepted = edgerecord.DefaultMaxDispositions
-
-func (s *Spool) noteUnacceptedLocked(unaccepted []uint64) {
-	for _, seq := range unaccepted {
-		if _, ok := s.watched[seq]; ok {
-			s.watched[seq] = true
-			continue
-		}
-		s.unwatchedUnaccepted = append(s.unwatchedUnaccepted, seq)
-	}
-	if over := len(s.unwatchedUnaccepted) - maxUnwatchedUnaccepted; over > 0 {
-		dropped := s.unwatchedUnaccepted[:over]
-		var through uint64
-		for _, seq := range dropped {
-			if seq > through {
-				through = seq
-			}
-		}
-		s.unwatchedOverflow = true
-		if through > s.unwatchedDroppedThrough {
-			s.unwatchedDroppedThrough = through
-		}
-		s.unwatchedUnaccepted = append([]uint64(nil), s.unwatchedUnaccepted[over:]...)
-	}
-}
-
-// Watch makes the spool remember whether the committed record at seq is
-// accepted once ResolveWithEvidence resolves it, for a later Settle. A
-// producer calls it with the sequence Append returned, for each record whose
-// fate decides what it reports, and Settle forgets it again. The memory is
-// the process's: a restarted spool watches nothing.
-func (s *Spool) Watch(seq uint64) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.watched == nil {
-		s.watched = make(map[uint64]bool)
-	}
-	unaccepted := false
-	if seq <= s.resolved {
-		for _, u := range s.unwatchedUnaccepted {
-			if u == seq {
-				unaccepted = true
-				break
-			}
-		}
-		if !unaccepted && s.unwatchedOverflow && seq <= s.unwatchedDroppedThrough {
-			unaccepted = true
-		}
-	}
-	s.watched[seq] = unaccepted
-}
-
-// Settle reports whether every watched sequence in seqs is resolved and, if
-// so, how many of them the terminal evidence did not show accepted: the
-// permanently rejected records. Once every one is resolved it forgets them.
-func (s *Spool) Settle(seqs []uint64) (resolved bool, unaccepted int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, seq := range seqs {
-		if seq > s.resolved {
-			return false, 0
-		}
-	}
-	for _, seq := range seqs {
-		if s.watched[seq] {
-			unaccepted++
-		}
-		delete(s.watched, seq)
-	}
-	return true, unaccepted
 }
 
 func (s *Spool) persistResolution(through uint64, evidence []byte) error {

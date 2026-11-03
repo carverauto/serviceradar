@@ -543,12 +543,6 @@ func (a *appendScript) AppendFlow(flow string, eventID, body []byte) (uint64, er
 	return a.inner.AppendFlow(flow, eventID, body)
 }
 
-func (a *appendScript) Watch(uint64) {}
-
-// Settle reports every record the gateway's: accepted as soon as it is
-// appended, so a sweep results response completes within one push.
-func (a *appendScript) Settle([]uint64) (bool, int) { return true, 0 }
-
 // admitAll starts a new phase in which every append is admitted.
 func (a *appendScript) admitAll() {
 	a.refuseAfter = -1
