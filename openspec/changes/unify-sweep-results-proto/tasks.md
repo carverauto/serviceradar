@@ -5,7 +5,7 @@
 > Work on runtime trust, agent emission, normal sweep domain projection and
 > deployment wiring concurrently. Close this checkpoint only with fresh
 > post-rollout execution, ledger and domain-row evidence. The 24-hour parallel
-> comparison, reconnect grants and fault drills remain owed, as do the DLQ
+> comparison and fault drills remain owed, as do the DLQ
 > routes other than the narrowed audit and security-quarantine streams
 > (task 3.5, and task 5.7 now in `add-edge-record-stream-partitioning`). They
 > do not block the first current-epoch canary run.
@@ -1252,15 +1252,15 @@ change together with the requirements they implement.
   stalled bulk connection while interactive and recovery frames progress.
   PARTIALLY LANDED: commit `2c816c114e` added
   `go/pkg/edge/sender`, a minimum single-lane sender over the spool with
-  credit-based flow control, wired into `go/cmd/agent`. Per-lane RPCs and pools,
-  reconnect/replay and capability renewal are not implemented, so this task
-  stays unchecked. Permanent-rejection quarantine landed in its interim form
+  credit-based flow control, wired into `go/cmd/agent`. That commit did not
+  include per-lane RPCs and pools, reconnect/replay, or capability renewal.
+  Permanent-rejection quarantine landed in its interim form
   (see design "Interim local quarantine"): reclaim copies each permanently
   rejected record into a bounded lane quarantine before it checkpoints past the
   segment, so one rejection no longer stops the spool from reclaiming.
   MOVED to `harden-edge-record-transport` (2026-11-02); remaining: a single-lane sender with reconnect replay
-  and stale-nonce ack rejection. Per-lane RPCs and pools and delivery-capability
-  renewal (M2.0g) remain.
+  and stale-nonce ack rejection. Delivery-capability renewal for a lapsed
+  production grant landed with M2.0g. Per-lane RPCs and pools remain.
 - [ ] 2.6 Connect scanner admission to spool and network pressure: pause/defer
   lower-priority or overlapping work at high-water, reserve worst-case bytes per
   target window, cap active result state by bytes, use high/low-water hysteresis,
@@ -1772,7 +1772,8 @@ change together with the requirements they implement.
   AUDIT and SECURITY-QUARANTINE decisions are published on the routes task 3.5 owns.
   EventWriter keeps a late-fenced audit record ledger-only and refuses an audit record
   that is not late-fenced; the security-quarantine consumer reports the record and writes
-  nothing (task 5.7). A stale-epoch replay still needs the delivery grant M2.0g issues.
+  nothing (task 5.7). A stale-epoch replay under the delivery grant M2.0g issues
+  is that audit publication.
   Every authorized record is then admitted by `EdgeContractRegistry`
   (task 3.8's narrowed slice) before it is offered; a registry withhold or hold is withheld like any
   other frame, and loading a signed registry snapshot stays open under task 3.8.
@@ -1786,8 +1787,8 @@ change together with the requirements they implement.
   as current, and its new one as future, until restart.
   PARTIAL (reconciled 2026-11-02): Group G's record-level identity refusal is in
   the required composed target, and the runtime trust refresh exists (#6181), so
-  the DEFERRED FOLLOW-UP above is closed. Remaining: stale-epoch replay under a
-  delivery capability (M2.0f, M2.0g).
+  the DEFERRED FOLLOW-UP above is closed. A stale-epoch replay is published on
+  the audit route (task 3.5) under the delivery grant M2.0g issues.
 - [x] 3.3 PARTIALLY LANDED: **`usp-19`** is MERGED into `usp-01-proposal`.
   Check what it actually delivered before starting -- duplicating it is how the
   earlier 22-PR chain accumulated, and its scope is NARROWER than this task.
@@ -2019,11 +2020,13 @@ change together with the requirements they implement.
   `EdgeOutputContractRef` fields: it rejects a missing contract, a route or cost
   model the bundle does not pin, and provenance that contradicts the
   authenticated session; withholds (no publish, sequence unresolved) on no
-  registry, an epoch or snapshot the gateway does not hold, an unknown or
-  digest-mismatched contract, and any non-active bundle; holds security-revoked
-  bundles; and takes the published route profile, traffic class and partition
-  rule from the registry entry. The edge-records:v1 capability is not ready
-  without a loaded snapshot.
+  registry, an epoch ahead of the snapshot, a current-epoch snapshot digest the
+  gateway does not hold, an older epoch whose exact bundle is no longer
+  registered, an unknown or digest-mismatched contract, and any non-active
+  bundle; admits an older epoch whose exact bundle is still registered; holds
+  security-revoked bundles; and takes the published route profile, traffic class
+  and partition rule from the registry entry. The edge-records:v1 capability is
+  not ready without a loaded snapshot.
   STILL OPEN and blocked on tasks 1.10/1.11 defining the signed format: signed
   snapshot loading, signed readiness reporting, the atomic epoch switch and
   stale-generation fencing, planned-retirement drain under the exact bundle and

@@ -18,8 +18,9 @@ defmodule ServiceRadar.Edge.DeliveryGrants do
   agent still holds. A grant is issued only for a record whose producer assignment exists,
   belongs to the requesting agent under the record's network scope and run shard, and is
   `active`. A revoked assignment gets no delivery grant: its records are then refused at the
-  gateway as a stale fence. An active assignment whose epoch has moved on does get one, and the
-  gateway publishes such a record for audit only (`LATE_FENCED_DELIVERY`).
+  gateway as a stale fence. An active assignment whose epoch has moved on does get one.
+  Authorization classifies that record as audit-only (`LATE_FENCED_DELIVERY`), and the gateway
+  publishes it on the audit route (task 3.5).
 
   A grant is short-lived (`ttl_seconds/0`): it authorizes a drain that is happening now, and the
   agent asks again for whatever it has not delivered when the grant lapses.
