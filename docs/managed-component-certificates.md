@@ -100,8 +100,8 @@ service once to activate its system-account configuration. Bootstrap preserves
 the existing issuer and callout keys. Grants keep the 30-second lifetime until a
 reconciliation has listed sessions through the running broker's system account;
 the helper records that broker and issues long grants only to it, so it never
-extends sessions without targeted revocation support. Later certificate rotations continue using the supported
-reload path. A default grant surviving the old 30-second boundary, scheduled
+extends sessions without targeted revocation support. Later certificate
+rotations continue using the supported reload path. A default grant surviving the old 30-second boundary, scheduled
 expiry with durable-consumer progress, targeted revocation and permission
 narrowing preserving another collector, and short grants before system-account
 activation are covered by the stock-broker regression.
