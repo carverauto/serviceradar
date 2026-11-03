@@ -313,9 +313,12 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 
 	// The add-on OTLP relay pumps are registered with the add-on manager at
 	// server construction, before the gateway client exists; hand them the
-	// gateway now that it does.
-	if gateway != nil && server != nil {
-		bindAddonOtlpRelayGateway(server, gateway, pushLoop.getSourceIP)
+	// gateway and edge spool target now that they do.
+	if server != nil {
+		bindAddonOtlpRelayEdge(server, pushLoop)
+		if gateway != nil {
+			bindAddonOtlpRelayGateway(server, gateway, pushLoop.getSourceIP)
+		}
 	}
 
 	// Take already-leased groups off their local ticker before the server
