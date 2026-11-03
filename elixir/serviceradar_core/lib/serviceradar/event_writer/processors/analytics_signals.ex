@@ -300,7 +300,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   # returned as a value and keeps the pending row for the redelivery that
   # continues it. Any other refusal accepted nothing and rolls back.
   defp admit_occurrence(%{occurrence_id: occurrence_id, record: record}) do
-    Inbox.with_notification_queue(fn ->
+    fn ->
       ServiceRadar.Repo.transaction(fn ->
         case StatefulEvaluationLedger.evaluate_events([record]) do
           :ok ->
@@ -313,7 +313,8 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
             ServiceRadar.Repo.rollback(reason)
         end
       end)
-    end)
+    end
+    |> Inbox.with_notification_queue()
     |> case do
       {:ok, :ok} -> :ok
       {:ok, {:error, reason}} -> {:error, reason}
