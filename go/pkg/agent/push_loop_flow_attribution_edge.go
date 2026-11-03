@@ -307,22 +307,10 @@ func (p *PushLoop) pushFlowAttributionEdge(
 }
 
 // appendEdgeMetricsRecord writes one canonical record through AppendFlow,
-// keyed by the record's admission flow. A concrete value that only implements
-// Append still receives the same body.
+// keyed by the record's admission flow.
 func appendEdgeMetricsRecord(spoolApp edgeMetricsAppender, record *edgev1.EdgeRecordV1, body []byte) error {
-	if flowApp, ok := any(spoolApp).(interface {
-		AppendFlow(flow string, eventID, body []byte) (uint64, error)
-	}); ok {
-		_, err := flowApp.AppendFlow(edgeRecordAdmissionFlow(record), record.GetEventId(), body)
-		return err
-	}
-	if app, ok := any(spoolApp).(interface {
-		Append(eventID, body []byte) (uint64, error)
-	}); ok {
-		_, err := app.Append(record.GetEventId(), body)
-		return err
-	}
-	return spool.ErrAdmissionRefused
+	_, err := spoolApp.AppendFlow(edgeRecordAdmissionFlow(record), record.GetEventId(), body)
+	return err
 }
 
 // edgeRecordAdmissionFlow matches edgeAdmissionFlow: length-prefixed identity
