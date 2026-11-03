@@ -41,6 +41,9 @@ cross-cluster durable-record aggregation path.
 - **THEN** its replication and site-loss RPO SHALL be configured and surfaced
 - **AND** no account export, import, mirror, or source SHALL be treated as a
   substitute for authoritative PubAck
+
+## MODIFIED Requirements
+
 ### Requirement: Tenant Stream Exports
 
 The ServiceRadar runtime SHALL NOT export data streams based on an in-runtime
@@ -211,6 +214,4 @@ network scope, agent, traffic class, or authorization context from a subject tok
   legacy stream, and mappable without ambiguity, MAY be drained by a
   compatibility consumer from retained trusted legacy authority metadata, as
   described in "Legacy prefixed backlog exists at cutover"
-
-## ADDED Requirements
 
