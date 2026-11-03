@@ -113,7 +113,7 @@ defmodule ServiceRadar.SweepJobs.SweepPubSub do
        %{
          execution_id: execution.id,
          sweep_group_id: execution.sweep_group_id,
-         status: :completed,
+         status: execution.status,
          started_at: execution.started_at,
          completed_at: execution.completed_at,
          duration_ms: execution.duration_ms,

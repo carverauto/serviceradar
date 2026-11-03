@@ -3106,6 +3106,42 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     end
   end
 
+  describe "a final chunk the agent marked cancelled" do
+    test "closes the execution as cancelled instead of completed", %{
+      actor: actor,
+      agent_id: agent_id
+    } do
+      unique_id = Ash.UUID.generate()
+      group = reporter_group!(actor, unique_id, "cancelled-final", [])
+      execution_id = Ash.UUID.generate()
+      ip = unique_ip("cancelled-final-#{unique_id}")
+      :ok = SweepPubSub.subscribe()
+
+      assert {:ok, _stats} =
+               ingest_chunk(
+                 actor,
+                 group.id,
+                 agent_id,
+                 execution_id,
+                 [available_result(ip)],
+                 chunk_index: 1,
+                 total_chunks: 2,
+                 is_final: true,
+                 is_cancelled: true
+               )
+
+      cancelled = execution_snapshot(execution_id)
+      assert cancelled.status == :cancelled
+      assert %DateTime{} = cancelled.completed_at
+      assert cancelled.hosts_available == 1
+
+      assert_receive {:sweep_execution_completed,
+                      %{execution_id: ^execution_id, status: :cancelled}}
+
+      assert [%{ip: ^ip, status: :available}] = host_result_snapshots(actor, execution_id)
+    end
+  end
+
   describe "device discovery scope" do
     test "a device-query group records an answering unknown host without seeding a device", %{
       actor: actor,
