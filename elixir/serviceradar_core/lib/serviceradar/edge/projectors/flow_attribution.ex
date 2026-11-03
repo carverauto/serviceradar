@@ -147,14 +147,15 @@ defmodule ServiceRadar.Edge.Projectors.FlowAttribution do
 
   @doc """
   Emits `[:serviceradar, :event_writer, :attributed_flow, :batch_received]` after the
-  primary EdgeRecord ledger transaction commits.
+  primary EdgeRecord ledger transaction commits. A partition read failure misses that
+  sample and returns `:ok`.
   """
   @impl true
   def committed(%EdgeRecordV1{} = record, %FlowAttributionEventBatch{} = batch, %{primary?: true}) do
     network_scope_id = Ecto.UUID.load!(record.network_scope_id)
     agent_id = record.producer_context.origin_principal_id
 
-    case fetch_partition(network_scope_id) do
+    case partition_for_committed_sample(network_scope_id) do
       {:ok, %Partition{slug: partition_slug}} ->
         StatusHandler.emit_flow_attribution_committed(%{
           event_count: length(batch.events || []),
@@ -163,11 +164,11 @@ defmodule ServiceRadar.Edge.Projectors.FlowAttribution do
           agent_id: agent_id
         })
 
-        :ok
-
-      {:error, _reason} ->
+      :miss ->
         :ok
     end
+
+    :ok
   end
 
   def committed(_record, _batch, _context), do: :ok
@@ -266,6 +267,28 @@ defmodule ServiceRadar.Edge.Projectors.FlowAttribution do
   end
 
   defp fetch_partition(network_scope_id) do
+    case read_partition(network_scope_id) do
+      {:ok, %Partition{} = partition} ->
+        {:ok, partition}
+
+      {:error, :flow_attribution_partition_not_found} = error ->
+        error
+
+      {:error, error} ->
+        raise error
+    end
+  end
+
+  defp partition_for_committed_sample(network_scope_id) do
+    case read_partition(network_scope_id) do
+      {:ok, %Partition{} = partition} -> {:ok, partition}
+      {:error, _reason} -> :miss
+    end
+  rescue
+    _exception -> :miss
+  end
+
+  defp read_partition(network_scope_id) do
     case Partition.get_by_id(network_scope_id, actor: actor()) do
       {:ok, %Partition{} = partition} ->
         {:ok, partition}
@@ -277,7 +300,7 @@ defmodule ServiceRadar.Edge.Projectors.FlowAttribution do
         if partition_not_found?(error) do
           {:error, :flow_attribution_partition_not_found}
         else
-          raise error
+          {:error, error}
         end
     end
   end

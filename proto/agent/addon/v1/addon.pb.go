@@ -1246,10 +1246,7 @@ func (x *TelemetryBatch) GetCounters() *TelemetryCounters {
 //   - The agent commits each OtlpRelayFrame record to its durable edge spool under the
 //     standing grant before advancing OtlpRelayAck.acked_relay_id to the add-on.
 //   - On a fresh primary delivery, the projector's publish/3 (before the EdgeRecord
-//     ledger transaction) re-checks OutputGrants.check_current/5, emits
-//     [:serviceradar, :otlp_relay, :spool] with measurements received, filtered,
-//     emitted, dropped, and queue_depth from batch.counters and metadata agent_id
-//     (origin_principal_id) and partition_id (the resolved slug), and republishes each
+//     ledger transaction) re-checks OutputGrants.check_current/5 and republishes each
 //     TelemetryRecord.payload verbatim to the JetStream subject
 //     OtlpRelayPublisher.subjects/1 uses for that payload kind. Defaults, overridable
 //     by AGENT_GATEWAY_OTLP_RELAY_TRACES_SUBJECT, AGENT_GATEWAY_OTLP_RELAY_LOGS_SUBJECT,
@@ -1266,6 +1263,12 @@ func (x *TelemetryBatch) GetCounters() *TelemetryCounters {
 //     :logs, :metric_points, or :metrics for traces, logs, OTLP metrics, and derived
 //     metrics only when that PubAck is not a duplicate.
 //     Replays and late-fenced deliveries skip publish/3.
+//     [:serviceradar, :otlp_relay, :spool] is emitted from committed/3 only after that
+//     ledger commit, with measurements received, filtered, emitted, dropped, and
+//     queue_depth from batch.counters and metadata agent_id (origin_principal_id) and
+//     partition_id (the resolved slug). A failed attempt does not emit it. A partition
+//     read failure in committed/3 misses that sample and returns :ok. The same read in
+//     publish/3 still raises when it is not a not-found.
 type OtlpRelayFrame struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RelayId       uint64                 `protobuf:"varint,1,opt,name=relay_id,json=relayId,proto3" json:"relay_id,omitempty"`

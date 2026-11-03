@@ -12,9 +12,10 @@ defmodule ServiceRadar.Edge.Projectors.OtlpRelay do
   This projector decodes an `OtlpRelayFrame` from an authenticated `EdgeRecordV1`, resolves
   the partition slug from `record.network_scope_id` via `Partition.get_by_id/2` (refusing the
   record when no partition row exists, never substituting `"default"` or raw scope bytes),
-  takes `agent_id` from `record.producer_context.origin_principal_id`, emits the spool
-  telemetry from `frame.batch.counters`, and republishes each routable `TelemetryRecord`
-  before the EdgeRecord ledger transaction. Each published chunk carries `Nats-Msg-Id` set to
+  takes `agent_id` from `record.producer_context.origin_principal_id`, and republishes each
+  routable `TelemetryRecord` before the EdgeRecord ledger transaction. Spool telemetry from
+  `frame.batch.counters` is emitted from `committed/3` only after that ledger commit.
+  Each published chunk carries `Nats-Msg-Id` set to
   that `TelemetryRecord`'s `event_id` and waits for a JetStream PubAck; the `:relayed` signal
   counter is emitted only when the PubAck is not a duplicate. An unroutable `payload_kind` is
   dropped with `[:serviceradar, :otlp_relay, :record_rejected]` rather than failing the batch.
@@ -94,8 +95,8 @@ defmodule ServiceRadar.Edge.Projectors.OtlpRelay do
   @doc """
   Publishes the OTLP relay chunks of a fresh primary delivery before the ledger transaction.
   Re-checks the standing output grant (`OutputGrants.check_current/5`), resolves the partition
-  slug from `record.network_scope_id`, emits spool counters when present, and publishes each
-  routable record waiting for its JetStream PubAck.
+  slug from `record.network_scope_id`, and publishes each routable record waiting for its
+  JetStream PubAck.
   """
   @impl true
   def publish(%EdgeRecordV1{} = record, %OtlpRelayFrame{batch: %TelemetryBatch{} = batch}, opts) do
@@ -112,7 +113,6 @@ defmodule ServiceRadar.Edge.Projectors.OtlpRelay do
              context.authority_epoch
            ),
          {:ok, %Partition{slug: partition_slug}} <- fetch_partition(network_scope_id) do
-      emit_spool_counters(batch.counters, partition_slug, agent_id)
       metadata = %{partition_id: partition_slug, agent_id: agent_id}
       base_headers = base_headers(partition_slug, agent_id)
       subjects = subjects(opts)
@@ -165,6 +165,32 @@ defmodule ServiceRadar.Edge.Projectors.OtlpRelay do
   end
 
   def project(_repo, _record, _frame, _context), do: :ok
+
+  @doc """
+  Emits `[:serviceradar, :otlp_relay, :spool]` after the primary EdgeRecord ledger
+  transaction commits. A partition read failure misses that sample and returns `:ok`.
+  """
+  @impl true
+  def committed(
+        %EdgeRecordV1{} = record,
+        %OtlpRelayFrame{batch: %TelemetryBatch{} = batch},
+        %{primary?: true}
+      ) do
+    network_scope_id = Ecto.UUID.load!(record.network_scope_id)
+    agent_id = record.producer_context.origin_principal_id
+
+    case partition_for_committed_sample(network_scope_id) do
+      {:ok, %Partition{slug: partition_slug}} ->
+        emit_spool_counters(batch.counters, partition_slug, agent_id)
+
+      :miss ->
+        :ok
+    end
+
+    :ok
+  end
+
+  def committed(_record, _frame, _context), do: :ok
 
   defp publish_record(
          %TelemetryRecord{} = telemetry_record,
@@ -339,6 +365,28 @@ defmodule ServiceRadar.Edge.Projectors.OtlpRelay do
   defp emit_spool_counters(_counters, _partition_id, _agent_id), do: :ok
 
   defp fetch_partition(network_scope_id) do
+    case read_partition(network_scope_id) do
+      {:ok, %Partition{} = partition} ->
+        {:ok, partition}
+
+      {:error, :otlp_relay_partition_not_found} = error ->
+        error
+
+      {:error, error} ->
+        raise error
+    end
+  end
+
+  defp partition_for_committed_sample(network_scope_id) do
+    case read_partition(network_scope_id) do
+      {:ok, %Partition{} = partition} -> {:ok, partition}
+      {:error, _reason} -> :miss
+    end
+  rescue
+    _exception -> :miss
+  end
+
+  defp read_partition(network_scope_id) do
     case Partition.get_by_id(network_scope_id, actor: actor()) do
       {:ok, %Partition{} = partition} ->
         {:ok, partition}
@@ -350,7 +398,7 @@ defmodule ServiceRadar.Edge.Projectors.OtlpRelay do
         if partition_not_found?(error) do
           {:error, :otlp_relay_partition_not_found}
         else
-          raise error
+          {:error, error}
         end
     end
   end

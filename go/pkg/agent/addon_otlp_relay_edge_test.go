@@ -98,15 +98,19 @@ func spooledOtlpRelayRecords(t *testing.T, sp *spool.Spool) ([]*edgev1.EdgeRecor
 }
 
 type fakeOtlpRelayGateway struct {
-	mu    sync.Mutex
-	calls int
+	mu       sync.Mutex
+	calls    int
+	statuses []*proto.GatewayServiceStatus
 }
 
 func (g *fakeOtlpRelayGateway) GetGatewayID() string { return "gateway-test-01" }
 
-func (g *fakeOtlpRelayGateway) StreamStatus(_ context.Context, _ []*proto.GatewayStatusChunk) (*proto.GatewayStatusResponse, error) {
+func (g *fakeOtlpRelayGateway) StreamStatus(_ context.Context, chunks []*proto.GatewayStatusChunk) (*proto.GatewayStatusResponse, error) {
 	g.mu.Lock()
 	g.calls++
+	for _, chunk := range chunks {
+		g.statuses = append(g.statuses, chunk.GetServices()...)
+	}
 	g.mu.Unlock()
 	return &proto.GatewayStatusResponse{Received: true}, nil
 }
@@ -276,15 +280,17 @@ func TestOtlpRelayPumpRetryableSpoolRefusalRetainsBuiltEventIDBeforeAck(t *testi
 	flaky.mu.Unlock()
 }
 
-func TestOtlpRelayPumpSkipsOversizedSingleRecordAndAcksFrame(t *testing.T) {
+func TestOtlpRelayPumpSendsOversizedSingleRecordOnGatewayPath(t *testing.T) {
 	sp := openTestEdgeSpool(t)
 	now := time.Now()
 	cap := otlpRelayCapability(t, sysmonEdgeAgentID, now.Add(-time.Hour), now.Add(8*24*time.Hour), 1024, 524_288)
+	gw := &fakeOtlpRelayGateway{}
 	dropped := 0
+	payload := bytes.Repeat([]byte("x"), edgerecord.MaxRecordBytes+1024)
 
 	pump := &otlpRelayPump{
 		addonID:         "otel-collector",
-		gateway:         &fakeOtlpRelayGateway{},
+		gateway:         gw,
 		agentID:         sysmonEdgeAgentID,
 		partition:       "default",
 		windowMaxFrames: 1,
@@ -305,10 +311,11 @@ func TestOtlpRelayPumpSkipsOversizedSingleRecordAndAcksFrame(t *testing.T) {
 	frames <- &addonpb.OtlpRelayFrame{
 		RelayId: 12,
 		Batch: &addonpb.TelemetryBatch{
+			Counters: &addonpb.TelemetryCounters{Received: 4, Dropped: 1},
 			Records: []*addonpb.TelemetryRecord{
 				{
 					PayloadKind: addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OTLP_TRACES,
-					Payload:     bytes.Repeat([]byte("x"), edgerecord.MaxRecordBytes+1024),
+					Payload:     payload,
 				},
 			},
 		},
@@ -318,8 +325,121 @@ func TestOtlpRelayPumpSkipsOversizedSingleRecordAndAcksFrame(t *testing.T) {
 	pump.run(context.Background(), frames, acks)
 
 	require.Equal(t, uint64(12), <-acks)
+	require.Equal(t, 1, gw.calls)
+	require.Zero(t, pump.stats.skippedOversize.Load())
+	require.Zero(t, dropped)
+	records, _ := spooledOtlpRelayRecords(t, sp)
+	require.Empty(t, records)
+	require.Len(t, gw.statuses, 1)
+	var decoded addonpb.TelemetryBatch
+	require.NoError(t, gproto.Unmarshal(gw.statuses[0].GetMessage(), &decoded))
+	require.Len(t, decoded.GetRecords(), 1)
+	require.True(t, bytes.Equal(payload, decoded.GetRecords()[0].GetPayload()))
+	require.Equal(t, uint64(4), decoded.GetCounters().GetReceived())
+	require.Equal(t, uint64(1), decoded.GetCounters().GetDropped())
+}
+
+func TestOtlpRelayPumpSpoolsFittingRecordAndGatewaysOversizedSibling(t *testing.T) {
+	sp := openTestEdgeSpool(t)
+	now := time.Now()
+	cap := otlpRelayCapability(t, sysmonEdgeAgentID, now.Add(-time.Hour), now.Add(8*24*time.Hour), 1024, 524_288)
+	gw := &fakeOtlpRelayGateway{}
+	oversized := bytes.Repeat([]byte("y"), edgerecord.MaxRecordBytes+2048)
+
+	pump := &otlpRelayPump{
+		addonID:         "otel-collector",
+		gateway:         gw,
+		agentID:         sysmonEdgeAgentID,
+		partition:       "default",
+		windowMaxFrames: 1,
+		flushInterval:   5 * time.Millisecond,
+		edgeTarget: func(_ time.Time) (edgeMetricsAppender, *edgev1.EdgeSignedCapabilityV1) {
+			return sp, cap
+		},
+		logger: logger.NewTestLogger(),
+	}
+
+	frames := make(chan *addonpb.OtlpRelayFrame, 1)
+	acks := make(chan uint64, 1)
+	frames <- &addonpb.OtlpRelayFrame{
+		RelayId: 18,
+		Batch: &addonpb.TelemetryBatch{
+			Counters: &addonpb.TelemetryCounters{Received: 9, Emitted: 2},
+			Records: []*addonpb.TelemetryRecord{
+				{
+					EventId:     "fit-1",
+					PayloadKind: addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OTLP_LOGS,
+					Payload:     []byte("log-fits"),
+				},
+				{
+					EventId:     "over-2",
+					PayloadKind: addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OTLP_TRACES,
+					Payload:     oversized,
+				},
+			},
+		},
+	}
+	close(frames)
+
+	pump.run(context.Background(), frames, acks)
+
+	require.Equal(t, uint64(18), <-acks)
+	require.Equal(t, 1, gw.calls)
+	require.Zero(t, pump.stats.skippedOversize.Load())
+	_, decodedFrames := spooledOtlpRelayRecords(t, sp)
+	require.Len(t, decodedFrames, 1)
+	require.Len(t, decodedFrames[0].GetBatch().GetRecords(), 1)
+	require.Equal(t, "fit-1", decodedFrames[0].GetBatch().GetRecords()[0].GetEventId())
+	require.Equal(t, uint64(9), decodedFrames[0].GetBatch().GetCounters().GetReceived())
+	require.Len(t, gw.statuses, 1)
+	var decoded addonpb.TelemetryBatch
+	require.NoError(t, gproto.Unmarshal(gw.statuses[0].GetMessage(), &decoded))
+	require.Len(t, decoded.GetRecords(), 1)
+	require.Equal(t, "over-2", decoded.GetRecords()[0].GetEventId())
+	require.True(t, bytes.Equal(oversized, decoded.GetRecords()[0].GetPayload()))
+	require.Nil(t, decoded.GetCounters())
+}
+
+func TestOtlpRelayPumpAcksSingleRecordThatExceedsGatewayFrameCap(t *testing.T) {
+	sp := openTestEdgeSpool(t)
+	now := time.Now()
+	cap := otlpRelayCapability(t, sysmonEdgeAgentID, now.Add(-time.Hour), now.Add(8*24*time.Hour), 1024, 524_288)
+	gw := &fakeOtlpRelayGateway{}
+
+	pump := &otlpRelayPump{
+		addonID:         "otel-collector",
+		gateway:         gw,
+		agentID:         sysmonEdgeAgentID,
+		partition:       "default",
+		windowMaxFrames: 1,
+		maxFrameBytes:   1024,
+		flushInterval:   5 * time.Millisecond,
+		edgeTarget: func(_ time.Time) (edgeMetricsAppender, *edgev1.EdgeSignedCapabilityV1) {
+			return sp, cap
+		},
+		logger: logger.NewTestLogger(),
+	}
+
+	frames := make(chan *addonpb.OtlpRelayFrame, 1)
+	acks := make(chan uint64, 1)
+	frames <- &addonpb.OtlpRelayFrame{
+		RelayId: 19,
+		Batch: &addonpb.TelemetryBatch{
+			Records: []*addonpb.TelemetryRecord{
+				{
+					PayloadKind: addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OTLP_TRACES,
+					Payload:     bytes.Repeat([]byte("z"), 4096),
+				},
+			},
+		},
+	}
+	close(frames)
+
+	pump.run(context.Background(), frames, acks)
+
+	require.Equal(t, uint64(19), <-acks)
+	require.Zero(t, gw.calls)
 	require.Equal(t, uint64(1), pump.stats.skippedOversize.Load())
-	require.Equal(t, 1, dropped)
 	records, _ := spooledOtlpRelayRecords(t, sp)
 	require.Empty(t, records)
 }
