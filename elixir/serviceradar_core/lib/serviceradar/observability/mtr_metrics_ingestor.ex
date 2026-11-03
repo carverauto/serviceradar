@@ -62,7 +62,7 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
       {:ok, %{results: results, traces: trace_rows, hops: hop_rows}} ->
         case insert_results(trace_rows, hop_rows, opts) do
           :ok ->
-            unless Keyword.get(opts, :skip_graph, false) do
+            if !Keyword.get(opts, :skip_graph, false) do
               MtrGraph.project_traces(results, status)
             end
 

@@ -1,12 +1,16 @@
 defmodule ServiceRadar.EventWriter.Processors.Mtr do
   @moduledoc """
-  Persists MTR trace results from the `mtr.results.>` stream.
+  Persists MTR trace results from the `mtr.results.>` stream, and the rows for
+  agent-scheduled traces that arrive as edge records.
 
   `ServiceRadar.Observability.MtrResultPublisher` publishes one message per
-  trace for scheduled checks, on-demand runs and bulk jobs, and
-  `ServiceRadar.EventWriter.Processors.AdhocScan` hands over the traces of
-  ad-hoc scans. This module is the only writer of MTR traces and hops, and
-  stores them in exactly one backend (`persist_all/2`):
+  trace for on-demand runs, bulk jobs, and scheduled checks that still arrive
+  on the status path. `ServiceRadar.EventWriter.Processors.AdhocScan` hands
+  over the traces of ad-hoc scans. Both of those callers use `persist_all/2`.
+  `ServiceRadar.Edge.Projectors.ScheduledMtrTrace` calls
+  `persist_outside_ledger/2` before the ledger transaction and
+  `persist_ledger_rows/2` inside it. This module is the only writer of MTR
+  traces and hops, and stores them in exactly one backend:
 
     * StarRocks enabled (`analytics.starrocks.enabled`): the warehouse tables
       `mtr_traces` and `mtr_hops`, and nothing in CNPG. A batch is one Stream

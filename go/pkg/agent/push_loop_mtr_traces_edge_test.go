@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	gproto "google.golang.org/protobuf/proto"
 
@@ -238,6 +239,23 @@ func TestScheduledMtrTraceBatchParity(t *testing.T) {
 	require.True(t, tr.GetTargetReached())
 	require.Equal(t, uint32(2), tr.GetTotalHops())
 	require.Len(t, tr.GetHops(), 2)
+
+	hop1 := tr.GetHops()[0]
+	require.Equal(t, uint32(64512), hop1.GetAsn())
+	require.Equal(t, "Example Transit AS64512", hop1.GetAsnOrg())
+	require.Equal(t, [][]byte{{198, 51, 100, 2}}, hop1.GetEcmpAddresses())
+	require.Len(t, hop1.GetMplsLabels(), 1)
+	require.Equal(t, uint32(24001), hop1.GetMplsLabels()[0].GetLabel())
+	require.True(t, hop1.GetMplsLabels()[0].GetBottomOfStack())
+	require.Equal(t, uint32(63), hop1.GetMplsLabels()[0].GetTtl())
+	require.Equal(t, uint32(10), hop1.GetSent())
+	require.Equal(t, uint32(10), hop1.GetReceived())
+	hop2 := tr.GetHops()[1]
+	require.Equal(t, uint32(64513), hop2.GetAsn())
+	require.Equal(t, "Example Edge AS64513", hop2.GetAsnOrg())
+	require.Equal(t, uint32(10), hop2.GetSent())
+	require.Equal(t, uint32(9), hop2.GetReceived())
+	require.InDelta(t, 10, hop2.GetLossPct(), 0.001)
 }
 
 func TestMtrGrantsFourWayCutoffNoDoubleCounting(t *testing.T) {
@@ -398,4 +416,133 @@ func TestScheduledMtrRetryPreservesEventIDAndFallbackOnGrantRevocation(t *testin
 		require.Empty(t, loop.mtrTraceEdge.pending)
 		require.Equal(t, 1, gw.statusesFrom("results"))
 	})
+}
+
+// The encoder must keep the check's values. The validator, not a rewrite, is
+// what refuses a trace Tracer.Run cannot emit. Legacy failed starts have no
+// trace object, so the stored event keeps IPv4 and a zero packet size.
+func TestScheduledMtrEncoderPreservesIllegalStatsAndFailedStartDefaults(t *testing.T) {
+	t.Run("check identity and execution source are copied", func(t *testing.T) {
+		res := syntheticMtrCheckResult()
+		res.CommandID = "cmd-synthetic-01"
+		res.SweepGroupID = "0197f8a0-0000-7000-8000-0000000000aa"
+		res.ExecutionID = "0197f8a0-0000-7000-8000-0000000000bb"
+		res.ExecutionSource = "scheduled_sweep"
+		entry := mustScheduledMtrEntry(t, res)
+		require.Equal(t, "cmd-synthetic-01", entry.GetCommandId())
+		require.Equal(t, "0197f8a0-0000-7000-8000-0000000000aa", uuidString(t, entry.GetSweepGroupId()))
+		require.Equal(t, "0197f8a0-0000-7000-8000-0000000000bb", uuidString(t, entry.GetExecutionId()))
+		require.Equal(t, edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_SCHEDULED_SWEEP, entry.GetExecutionSource())
+		require.NoError(t, edgerecord.ValidateScheduledMtrTraceBatch(mustScheduledMtrBatch(t, res)))
+	})
+
+	t.Run("bulk_job is not an ad hoc alias", func(t *testing.T) {
+		bulk := syntheticMtrCheckResult()
+		bulk.ExecutionSource = "bulk_job"
+		require.Equal(t,
+			edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_SCHEDULED_CHECK,
+			mustScheduledMtrEntry(t, bulk).GetExecutionSource())
+
+		adHoc := syntheticMtrCheckResult()
+		adHoc.ExecutionSource = "ad_hoc"
+		require.Equal(t,
+			edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_AD_HOC,
+			mustScheduledMtrEntry(t, adHoc).GetExecutionSource())
+	})
+
+	t.Run("a tracer that never starts keeps ipv4 and a zero packet size", func(t *testing.T) {
+		res := mtrCheckResult{
+			CheckID:   "mtr-check-fail",
+			CheckName: "Failed Start",
+			Target:    "2001:db8::1",
+			Timestamp: 1_780_000_000_000_000_000,
+			Error:     "tracer did not start",
+		}
+		entry := mustScheduledMtrEntry(t, res)
+		tr := entry.GetTrace()
+		require.Equal(t, uint32(4), tr.GetIpVersion())
+		require.Equal(t, uint32(0), tr.GetPacketSize())
+		require.Len(t, tr.GetResolvedAddress(), 16)
+		require.Equal(t, "2001:db8::1", tr.GetTarget())
+		require.False(t, tr.GetTargetReached())
+		require.Empty(t, tr.GetHops())
+		require.Equal(t, edgev1.MtrOutcome_MTR_OUTCOME_PROBE_FAILED, tr.GetOutcome())
+		require.NoError(t, edgerecord.ValidateScheduledMtrTraceBatch(mustScheduledMtrBatch(t, res)))
+	})
+
+	t.Run("a missing timestamp is left at zero and rejected", func(t *testing.T) {
+		res := mtrCheckResult{Target: "192.0.2.10", Error: "tracer did not start"}
+		entry := mustScheduledMtrEntry(t, res)
+		require.Equal(t, int64(0), entry.GetTrace().GetObservedAtUnixNano())
+		err := edgerecord.ValidateScheduledMtrTraceBatch(mustScheduledMtrBatch(t, res))
+		require.Error(t, err)
+		require.ErrorIs(t, err, edgerecord.ErrScheduledMtrBatch)
+	})
+
+	t.Run("received greater than sent is stored and rejected", func(t *testing.T) {
+		res := illegalHopResult(t, func(hop *mtr.HopSnapshot) { hop.Sent, hop.Received = 1, 5 })
+		hop := mustScheduledMtrEntry(t, res).GetTrace().GetHops()[0]
+		require.Equal(t, uint32(1), hop.GetSent())
+		require.Equal(t, uint32(5), hop.GetReceived())
+		require.ErrorIs(t, edgerecord.ValidateScheduledMtrTraceBatch(mustScheduledMtrBatch(t, res)), edgerecord.ErrMtrHop)
+	})
+
+	t.Run("hop number zero is stored and rejected", func(t *testing.T) {
+		res := illegalHopResult(t, func(hop *mtr.HopSnapshot) { hop.HopNumber = 0 })
+		require.Equal(t, uint32(0), mustScheduledMtrEntry(t, res).GetTrace().GetHops()[0].GetHopNumber())
+		require.ErrorIs(t, edgerecord.ValidateScheduledMtrTraceBatch(mustScheduledMtrBatch(t, res)), edgerecord.ErrMtrHop)
+	})
+
+	t.Run("loss outside 0 to 100 is stored and rejected", func(t *testing.T) {
+		res := illegalHopResult(t, func(hop *mtr.HopSnapshot) { hop.LossPct = 150 })
+		require.InDelta(t, 150, mustScheduledMtrEntry(t, res).GetTrace().GetHops()[0].GetLossPct(), 0.001)
+		require.ErrorIs(t, edgerecord.ValidateScheduledMtrTraceBatch(mustScheduledMtrBatch(t, res)), edgerecord.ErrMtrHop)
+	})
+
+	t.Run("target reached with no hops is stored and rejected", func(t *testing.T) {
+		res := syntheticMtrCheckResult()
+		res.Available = true
+		res.Trace.TargetReached = true
+		res.Trace.TotalHops = 0
+		res.Trace.Hops = nil
+		tr := mustScheduledMtrEntry(t, res).GetTrace()
+		require.True(t, tr.GetTargetReached())
+		require.Equal(t, uint32(0), tr.GetTotalHops())
+		err := edgerecord.ValidateScheduledMtrTraceBatch(mustScheduledMtrBatch(t, res))
+		require.Error(t, err)
+		require.ErrorIs(t, err, edgerecord.ErrScheduledMtrBatch)
+	})
+}
+
+func mustScheduledMtrBatch(t *testing.T, res mtrCheckResult) *edgev1.AgentScheduledMtrTraceBatchV1 {
+	t.Helper()
+	batch, err := buildScheduledMtrTraceBatch([]mtrCheckResult{res}, metricEnvelopeContext{})
+	require.NoError(t, err)
+	return batch
+}
+
+func mustScheduledMtrEntry(t *testing.T, res mtrCheckResult) *edgev1.AgentScheduledMtrTraceV1 {
+	t.Helper()
+	traces := mustScheduledMtrBatch(t, res).GetTraces()
+	require.Len(t, traces, 1)
+	return traces[0]
+}
+
+func illegalHopResult(t *testing.T, mutate func(*mtr.HopSnapshot)) mtrCheckResult {
+	t.Helper()
+	res := syntheticMtrCheckResult()
+	res.Trace.TotalHops = 1
+	res.Trace.ProbedHops = 1
+	res.Trace.LastRespondingHop = 1
+	hop := res.Trace.Hops[0]
+	mutate(&hop)
+	res.Trace.Hops = []mtr.HopSnapshot{hop}
+	return res
+}
+
+func uuidString(t *testing.T, raw []byte) string {
+	t.Helper()
+	id, err := uuid.FromBytes(raw)
+	require.NoError(t, err)
+	return id.String()
 }

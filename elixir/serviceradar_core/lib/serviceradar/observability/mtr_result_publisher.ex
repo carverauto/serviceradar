@@ -1,12 +1,14 @@
 defmodule ServiceRadar.Observability.MtrResultPublisher do
   @moduledoc """
-  Publishes MTR trace results to JetStream for EventWriter to persist.
+  Publishes status-path MTR trace results to JetStream for EventWriter to persist.
 
-  Scheduled checks, on-demand runs and bulk jobs all deliver full MTR traces to
-  core. Core does not write them: it publishes one message per trace to
-  `mtr.results.ingest`, and `ServiceRadar.EventWriter.Processors.Mtr` persists
-  it. That keeps MTR on the JetStream-first path every other telemetry dataset
-  uses, and gives EventWriter single ownership of MTR storage.
+  On-demand runs, bulk jobs, and scheduled checks that still arrive on the
+  status path deliver full MTR traces to core. Core publishes one message per
+  trace to `mtr.results.ingest`, and `ServiceRadar.EventWriter.Processors.Mtr`
+  persists it. A scheduled check whose agent holds a current
+  `serviceradar.mtr.scheduled_trace` grant is stored by
+  `ServiceRadar.Edge.Projectors.ScheduledMtrTrace` and never reaches this
+  publisher.
 
   Each message carries a `trace_uuid` generated here. The processor stores the
   trace under that id and skips ids it has already stored, so a redelivered

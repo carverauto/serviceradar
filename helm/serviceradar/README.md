@@ -471,7 +471,11 @@ switch is on. Results of sweep groups the agent runs from its own config,
 without a lease, move to edge records only when `contractRegistry` also
 includes an active `serviceradar.sweep.unleased_results` version 1 contract;
 each results response and its metric batch then take the edge path together,
-and otherwise both keep the legacy results path.
+and otherwise both keep the legacy results path. Full
+traces from agent-scheduled MTR checks leave the status path only when
+`contractRegistry` also includes an active `serviceradar.mtr.scheduled_trace`
+version 1 contract. The metrics grant does not carry those traces. Without the
+trace contract they stay on the status path.
 
 Use complete terminal ICMP/TCP host windows for this first canary. Partial-mode
 and MTR windows are not supported by this projection yet. Keep the issuer key
