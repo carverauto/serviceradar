@@ -72,7 +72,9 @@ Admission bounds use `SERVICERADAR_ALERT_EVALUATION_` followed by
 `ADMISSION_TIMEOUT_MS`, `BATCH_RECORDS`, `BATCH_WORK`, `PENDING_COUNT`,
 `PENDING_BYTES`, `RULE_COUNT`, or `RULE_BYTES`. Every supplied value must be a
 positive integer. Overload commits the longest in-order prefix that fits and
-returns an error so the pipeline retries the remainder. The acceptance rules
+returns an error so the pipeline retries the remainder. `BATCH_WORK` only caps
+one admission transaction: a prefix cut by it continues in another transaction
+within the same call, so it never costs a redelivery. The acceptance rules
 are the durable admission requirement in
 `openspec/changes/refactor-durable-alert-admission/specs/observability-signals/spec.md`.
 Accepted work is never evicted. An occurrence larger than the byte budget is

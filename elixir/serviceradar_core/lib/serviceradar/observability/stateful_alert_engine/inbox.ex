@@ -93,7 +93,12 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
     case result do
       {:ok, %{skipped: skipped} = plan} ->
         log_skipped(signal, skipped, limits)
-        if plan.overloaded, do: {:error, {:overloaded, plan.overloaded}}, else: {:ok, plan.keys}
+
+        cond do
+          plan.batch_full? -> admit_slice(signal, records, limits)
+          plan.overloaded -> {:error, {:overloaded, plan.overloaded}}
+          true -> {:ok, plan.keys}
+        end
 
       {:error, _} = error ->
         error
@@ -433,7 +438,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
         admitted: Enum.reverse(acc.admitted),
         keys: Enum.reverse(acc.keys),
         skipped: Enum.reverse(acc.skipped),
-        overloaded: acc.overloaded
+        overloaded: acc.overloaded,
+        batch_full?: acc.full? and acc.admitted_count >= limits.batch_work
       }
     end)
   end

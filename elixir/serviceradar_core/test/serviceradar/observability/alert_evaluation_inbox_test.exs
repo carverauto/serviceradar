@@ -895,6 +895,40 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
     assert [] = Ash.read!(AlertEvaluationReceipt, actor: actor)
   end
 
+  test "a batch larger than one transaction's work limit is admitted in one call",
+       %{rule: rule, actor: actor} do
+    ensure_metric_publisher!()
+    inputs = for index <- 1..5, do: %{event() | message: "synthetic work #{index}"}
+    Application.put_env(:serviceradar_core, :alert_evaluation_limits, batch_work: 2)
+
+    chunked_before = runtime_count({:events, :alert_event, :chunked})
+    rejected_before = runtime_count({:rejection, :alert_event, :count_full})
+
+    assert {:ok, keys} = Inbox.admit(:event, inputs)
+    assert length(keys) == 5
+    assert messages(rule, actor) == Enum.map(1..5, &"synthetic work #{&1}")
+    assert Enum.map(work(rule, actor), & &1.position) == [1, 2, 3, 4, 5]
+    assert runtime_count({:events, :alert_event, :chunked}) == chunked_before + 2
+    assert runtime_count({:rejection, :alert_event, :count_full}) == rejected_before
+  end
+
+  test "a refused retry that admits nothing is not counted as a chunk",
+       %{rule: rule, actor: actor} do
+    ensure_metric_publisher!()
+    Application.put_env(:serviceradar_core, :alert_evaluation_limits, rule_count: 1)
+    assert {:ok, [_]} = Inbox.admit(:event, [%{event() | message: "synthetic holder"}])
+
+    chunked_before = runtime_count({:events, :alert_event, :chunked})
+    rejected_before = runtime_count({:rejection, :alert_event, :count_full})
+
+    assert {:error, {:overloaded, :rule_count}} =
+             Inbox.admit(:event, [%{event() | message: "synthetic waiting"}])
+
+    assert messages(rule, actor) == ["synthetic holder"]
+    assert runtime_count({:events, :alert_event, :chunked}) == chunked_before
+    assert runtime_count({:rejection, :alert_event, :count_full}) == rejected_before + 1
+  end
+
   test "a batch over its rule's byte budget is admitted in order, one budget-sized chunk per retry",
        %{rule: rule, actor: actor} do
     ensure_metric_publisher!()

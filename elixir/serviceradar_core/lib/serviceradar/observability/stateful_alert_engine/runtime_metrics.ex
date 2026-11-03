@@ -19,15 +19,16 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.RuntimeMetrics do
     Publisher.record(lane, :admission, %{acknowledgement_ms: elapsed(started)})
 
     case result do
-      {:ok, %{admitted: admitted, overloaded: overloaded}} ->
+      {:ok, %{admitted: admitted, overloaded: overloaded, batch_full?: batch_full?}} ->
         record_admitted(lane, length(admitted))
 
-        # A partial admission is one chunk of a larger batch: the remainder
+        # A partial admission is one chunk of a larger batch. A chunk cut by the
+        # per-transaction work limit continues at once; any other remainder
         # waits for capacity and its retry continues in order.
-        if overloaded do
-          Publisher.record(lane, :chunked, %{})
-          Publisher.record(lane, :rejected, %{reason: rejection({:overloaded, overloaded})})
-        end
+        if overloaded && admitted != [], do: Publisher.record(lane, :chunked, %{})
+
+        if overloaded && not batch_full?,
+          do: Publisher.record(lane, :rejected, %{reason: rejection({:overloaded, overloaded})})
 
       {:error, reason} ->
         Publisher.record(lane, :rejected, %{reason: rejection(reason)})
