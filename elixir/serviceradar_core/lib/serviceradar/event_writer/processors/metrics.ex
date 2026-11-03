@@ -15,9 +15,11 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
   alias ServiceRadar.EventWriter.Processors.Telemetry
   alias ServiceRadar.EventWriter.SignalTelemetry
   alias ServiceRadar.Identity.DeviceLookup
+  alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.DeviceSNMPFactWriter
   alias ServiceRadar.Observability.MetricEnvelope
 
+  require Ash.Query
   require Logger
 
   @impl true
@@ -74,7 +76,8 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
   Decode failures are still emitted per message from `parse_message/1`.
 
   Rows from a wasm plugin that name a plugin-scoped device carry a transient
-  `:plugin_assignment_id`; pass them through `attribute_device_ids/1` before
+  `:plugin_assignment_id`, and unattributed host readings carry a transient
+  `:agent_host_metric`; pass them through `attribute_device_ids/1` before
   persisting.
   """
   @spec decode_batch([map()]) :: {[map()], non_neg_integer()}
@@ -87,8 +90,8 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
   @impl true
   def parse_message(message), do: decode_message(message, [])
 
-  # decode_batch/1 marks plugin-scoped device references for
-  # attribute_device_ids/1; parse_message/1 keeps returning insert-ready rows.
+  # decode_batch/1 marks plugin-scoped device references and agent host readings
+  # for attribute_device_ids/1; parse_message/1 keeps returning insert-ready rows.
   defp decode_message(%{data: data, metadata: metadata}, decode_opts) do
     # Per-message decode WITHOUT per-message SUCCESS telemetry. Firing two
     # :telemetry.execute calls for every successfully decoded message dominated
@@ -133,14 +136,66 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
 
   A plugin-scoped `device_id` (`<source>:<...>`) from a wasm plugin is mapped to
   the canonical uid through `PluginDeviceAttribution`, and is otherwise kept as
-  emitted -- it is never replaced by an IP match. Rows with no `device_id` are
-  then backfilled by target IP. `sr:` uids pass through untouched.
+  emitted -- it is never replaced by an IP match. A reading of the reporting
+  agent's own host (sysmon) is attributed to the live device that agent is linked
+  to. Rows still without a `device_id` are then backfilled by target IP. `sr:`
+  uids pass through untouched.
   """
   @spec attribute_device_ids([map()]) :: [map()]
   def attribute_device_ids(rows) do
     rows
     |> PluginDeviceAttribution.attribute_metric_rows()
+    |> attribute_agent_host_rows()
     |> backfill_device_ids()
+  end
+
+  # A host reading describes the machine the attested agent runs on, so the
+  # agent's device link owns its attribution. The host IP is not an identity:
+  # a host's management address is often neither the device's primary IP nor a
+  # confirmed alias (multi-homed hypervisors, dual-stack nodes, an alias aged to
+  # stale), and matching it either loses the reading or lands it on whichever
+  # device holds that address. A tombstoned link is not followed; those rows fall
+  # through to the IP backfill until the agent link is repaired.
+  defp attribute_agent_host_rows(rows) do
+    agent_ids =
+      for %{agent_host_metric: true, agent_id: agent_id} <- rows,
+          is_binary(agent_id),
+          uniq: true,
+          do: agent_id
+
+    devices = if agent_ids == [], do: %{}, else: agent_device_uids(agent_ids)
+
+    Enum.map(rows, fn
+      %{agent_host_metric: true} = row ->
+        row = Map.delete(row, :agent_host_metric)
+
+        case Map.get(devices, row.agent_id) do
+          uid when is_binary(uid) -> %{row | device_id: uid}
+          nil -> row
+        end
+
+      row ->
+        row
+    end)
+  end
+
+  defp agent_device_uids(agent_ids) do
+    actor = SystemActor.system(:metric_envelope_ingestor)
+
+    Agent
+    |> Ash.Query.filter(
+      uid in ^agent_ids and not is_nil(device_uid) and is_nil(device.deleted_at)
+    )
+    |> Ash.Query.select([:uid, :device_uid])
+    |> Ash.read(actor: actor, page: false)
+    |> case do
+      {:ok, agents} ->
+        Map.new(agents, &{&1.uid, &1.device_uid})
+
+      {:error, error} ->
+        Logger.warning("agent host metric attribution failed", error: inspect(error))
+        %{}
+    end
   end
 
   defp backfill_device_ids(rows) do
@@ -195,7 +250,7 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
     |> Enum.reduce({[], 0, %{}}, fn message, {timeseries, rejected, stats} ->
       started_at = System.monotonic_time()
 
-      case decode_message(message, plugin_producer: true) do
+      case decode_message(message, plugin_producer: true, agent_host_producer: true) do
         rows when is_list(rows) ->
           duration = System.monotonic_time() - started_at
           stats = accumulate_decode_stats(stats, message, rows, length(rows), duration)
