@@ -207,6 +207,7 @@ def ordinary_core_test_sources() -> tuple[str, ...]:
         "test/serviceradar/edge/agent_command_bus_rpc_registry_test.exs",
         "test/serviceradar/observability/stateful_alert_engine/peer_readiness_test.exs",
         "test/serviceradar/event_writer/shared_durable_nats_test.exs",
+        "test/serviceradar/flow_attribution/observations_nats_test.exs",
     }
     sources = []
 

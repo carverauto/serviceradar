@@ -216,7 +216,8 @@ func (p *PushLoop) spoolTelemetry(
 
 func (p *PushLoop) appendTelemetryBuilt(producer edgeProducer, built *telemetryBuiltItem) bool {
 	for built.next < len(built.records) {
-		if _, err := p.edgeTelemetrySpool.Append(built.records[built.next].GetEventId(), built.bodies[built.next]); err != nil {
+		record := built.records[built.next]
+		if _, err := p.edgeTelemetrySpool.AppendFlow(edgeAdmissionFlow(record), record.GetEventId(), built.bodies[built.next]); err != nil {
 			p.logger.Warn().Err(err).Msg("Failed to spool telemetry batch part; will retry")
 			return false
 		}
