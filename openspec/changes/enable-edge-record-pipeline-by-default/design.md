@@ -270,8 +270,7 @@ retired unactivated. An epoch is retired unactivated when it is `retired` with n
   monotonic, a revert never makes a newer node look older than its records.
 - **Records no live core can project.** When core finds a bundle that no live
   core node can project under the projection rule, it holds that bundle's
-  records at three layers. The hold never relies on the bulk stream's
-  `max_age`, discard policy or `max_deliver`.
+  records at three layers.
   1. *Production stops.* Core revokes the grants and leases for that bundle,
      with the revocation authority it already uses for superseded agents.
   2. *Admission stops.* Core publishes the set of projectable bundles with the
@@ -287,9 +286,20 @@ retired unactivated. An epoch is retired unactivated when it is `retired` with n
      node that can project it returns, it is redriven through the ingest
      ledger, so a redrive is idempotent.
 
-  The bound on the hold is the agent spool budget for records not yet admitted,
-  and the dead-letter stream's retention for records already admitted. Pipeline
-  status shows `awaiting_roll_forward` counts for both. No record is dropped or
+  The bound is honest, not absolute. Only records admitted between the
+  rollback and the gateways' next projectable-set refresh (about one 5-second
+  trust refresh), plus anything admitted ahead of revocation, reach the bulk
+  stream. They are preserved up to the free capacity of
+  `TELEMETRY_EDGE_RECORD_DLQ_V1_BULK`, which is `DiscardNew` with `MaxAge`
+  disabled and is shared with genuine poison records: 64 MiB by default, 32 MiB
+  on `small` and 4 MiB on `tenant-2g` (docs/edge-record-dead-letter-runbook.md).
+  A copy the full dead-letter stream refuses stays on the bulk stream, where its
+  24-hour `MaxAge` eventually evicts it. That overflow is counted per contract
+  and bundle, raises a managed alert, and shows in pipeline status as
+  `awaiting_roll_forward_overflow`; it is never silent. After the refresh window
+  the agent spools hold everything, bounded by the agent spool budget, so no
+  loss is possible past the window. Pipeline status shows `awaiting_roll_forward`
+  counts for the spool refusals and the dead-lettered records. No record is
   rejected because of a digest mismatch alone.
 - **Redeploying an abandoned catalog.** The one exception: a node whose digest
   matches only an epoch retired unactivated, while no candidate exists, inserts

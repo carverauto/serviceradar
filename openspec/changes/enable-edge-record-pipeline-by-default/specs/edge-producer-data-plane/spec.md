@@ -103,17 +103,23 @@ core node SHALL be able to project a record when its catalog holds an entry with
 the record's contract id and contract version whose `projection_revision` is
 greater than or equal to the record's bundle revision, read from the entry of the
 epoch the record names. When no live core node can project a bundle, core SHALL
-hold its records without relying on the bulk stream's age, discard or
-redelivery limits: it SHALL revoke the grants and leases for that bundle; it SHALL
+hold its records: it SHALL revoke the grants and leases for that bundle; it SHALL
 publish the set of projectable bundles with the trust and registry delivery, and
 gateways SHALL refuse records under any other bundle with a retryable refusal so
 the agent keeps them in its spool; and EventWriter SHALL publish any such record
 already in `TELEMETRY_EDGE_RECORD_V1_BULK`, with its original bytes, to
 `TELEMETRY_EDGE_RECORD_DLQ_V1_BULK` under the reason `awaiting_roll_forward`, and
-redrive it through the ingest ledger when a node that can project it returns. The
-hold SHALL be bounded by the agent spool budget and the dead-letter stream's
-retention, and pipeline status SHALL report `awaiting_roll_forward` counts. No
-record SHALL be dropped or rejected because of a bundle digest mismatch alone. A superseded core node SHALL
+redrive it through the ingest ledger when a node that can project it returns.
+Only records admitted between the loss of projectability and the gateways' next
+projectable-set refresh, plus any admitted ahead of revocation, SHALL be exposed
+to loss; they SHALL be preserved up to the free capacity of
+`TELEMETRY_EDGE_RECORD_DLQ_V1_BULK`. A record whose dead-letter copy is refused
+SHALL be counted per contract and bundle, SHALL raise a managed alert, and SHALL
+be reported in pipeline status as `awaiting_roll_forward_overflow`; overflow
+SHALL never be silent. After that refresh window the agent spools SHALL hold
+every such record within the agent spool budget. Pipeline status SHALL report
+`awaiting_roll_forward` counts. No record SHALL be rejected because of a bundle
+digest mismatch alone. A superseded core node SHALL
 NOT sign under its own catalog, insert or claim a candidate, count toward activation readiness, or
 change the active epoch. The one exception is a core node whose digest matches
 only an epoch retired without activation while no candidate exists: it SHALL
@@ -151,7 +157,13 @@ exists, core SHALL activate the first candidate immediately.
 - **AND** records under the bumped bundle already in the bulk stream move to the
   dead-letter stream with their original bytes under `awaiting_roll_forward`
 - **AND** pipeline status reports `awaiting_roll_forward` counts, and no record
-  is dropped or rejected
+  is rejected
+- **AND** if the dead-letter stream lacks free capacity for a record admitted
+  before the gateways' next projectable-set refresh, that record is counted per
+  contract and bundle, a managed alert is raised, and pipeline status reports
+  `awaiting_roll_forward_overflow`
+- **AND** records produced after that refresh stay in agent spools and none is
+  lost
 - **AND** once a core node that can project them returns, gateways admit the
   spooled records and the dead-lettered records are redriven through the ledger
 

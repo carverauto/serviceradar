@@ -72,7 +72,9 @@
   live core can project: revoke its grants and leases, publish the projectable
   bundle set with the trust document, and move bulk-stream records to
   `TELEMETRY_EDGE_RECORD_DLQ_V1_BULK` under `awaiting_roll_forward` with their
-  original bytes, redriving them through the ledger on roll-forward. Refresh `last_matched_at` from the
+  original bytes, redriving them through the ledger on roll-forward. Count a
+  refused dead-letter copy per contract and bundle as
+  `awaiting_roll_forward_overflow` and raise a managed alert. Refresh `last_matched_at` from the
   coordinator while a live core node matches the candidate, retire the candidate unactivated once it
   is older than a full capability-lifetime window, and drop it from the trust
   document.
@@ -89,7 +91,8 @@
 - [ ] 1.7 Compute `drain_until` at activation and retire on schedule. Keep issuing
   delivery grants for draining epochs, and never issue them for retired ones.
 - [ ] 1.8 Add pipeline status: the `awaiting_roll_forward` counts (agent spool
-  refusals and dead-lettered records), the active,
+  refusals and dead-lettered records) and `awaiting_roll_forward_overflow`, the
+  active,
   candidate and draining epochs, the components not holding a candidate, and the issuer key presence. Expose it
   through core's health API.
 
@@ -185,7 +188,8 @@ Load the `test-audit` skill before writing these.
     revoked grants for the bumped entry, unchanged entries still signed, gateway
     retryable refusals, bulk-stream records dead-lettered as
     `awaiting_roll_forward` with original bytes, and all of them drained or
-    redriven after roll-forward;
+    redriven after roll-forward; with a full dead-letter stream, the refused
+    copy counted as `awaiting_roll_forward_overflow` with an alert;
   - a forward upgrade that changes a bundle at the same contract version: the old
     backlog gets delivery grants, projects on the new release and nothing awaits
     roll-forward;

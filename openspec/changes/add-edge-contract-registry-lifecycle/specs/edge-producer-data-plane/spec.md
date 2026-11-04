@@ -122,7 +122,8 @@ close.
   to the record's bundle revision
 - **AND** records no live core node can project SHALL be held as
   `awaiting_roll_forward` (grants revoked, retryable gateway refusal, bulk-stream
-  backlog dead-lettered with original bytes and redriven), never dropped or
-  rejected
+  backlog dead-lettered with original bytes and redriven), never rejected; a
+  dead-letter overflow during the gateways' refresh window SHALL be counted,
+  alerted and reported as `awaiting_roll_forward_overflow`
 - **AND** it SHALL NOT roll the deployment backward or reinterpret records under
   its local latest-known bundle
