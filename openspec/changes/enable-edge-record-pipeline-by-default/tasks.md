@@ -232,7 +232,7 @@ Load the `test-audit` skill before writing these.
   `SERVICERADAR_EDGE_ISSUER_KEY_FILE` and the registry env vars, and add an epoch
   change across a core restart with spooled backlog that drains.
   - [x] Off `SERVICERADAR_EDGE_ISSUER_KEY_FILE`: the harness stores its synthetic
-    key in CNPG before core starts.
+    key in CNPG through the core release, before trust is connected.
 
 ## 7. Cutover release coupling (design Decision 13)
 
