@@ -3,6 +3,7 @@ defmodule ServiceRadar.Edge.SweepContractTest do
 
   alias ServiceRadar.Edge.ContractCatalog
   alias ServiceRadar.Edge.Projectors.ScheduledMtrTrace
+  alias ServiceRadar.Edge.Projectors.WorkloadIdentity
   alias ServiceRadar.Edge.SweepContract
   alias Serviceradar.Edge.V1.AgentScheduledMtrTraceBatchV1
   alias Serviceradar.Edge.V1.AgentScheduledMtrTraceV1
@@ -12,6 +13,9 @@ defmodule ServiceRadar.Edge.SweepContractTest do
   alias Serviceradar.Edge.V1.MtrTcpHandshakeDiagnosticsV1
   alias Serviceradar.Edge.V1.MtrTraceEventV1
   alias Serviceradar.Edge.V1.MtrTraceHopV1
+  alias Serviceradar.Edge.V1.WorkloadIdentityContainerLookupV1
+  alias Serviceradar.Edge.V1.WorkloadIdentityRecordV1
+  alias Serviceradar.Edge.V1.WorkloadIdentitySnapshotV1
   alias ServiceRadar.Observability.MtrMetricsIngestor
 
   @bundle String.duplicate("ab", 32)
@@ -309,6 +313,92 @@ defmodule ServiceRadar.Edge.SweepContractTest do
 
       assert edge_traces == legacy_traces
       assert edge_hops == legacy_hops
+    end
+  end
+
+  describe "serviceradar.workload_identity.snapshot contract and projector" do
+    test "is registered in ContractCatalog as a standing-grant contract" do
+      assert {:ok, spec} = ContractCatalog.fetch({"serviceradar.workload_identity.snapshot", 1})
+      assert spec.authority == :standing_grant
+      assert spec.projector == WorkloadIdentity
+      assert spec.max_projected_rows == 10_000
+      assert spec.write_bytes_per_row == 8_192
+      assert spec.package_id == "serviceradar.agent.workload_identity"
+    end
+
+    test "decodes populated and empty disabled snapshots and refuses malformed records" do
+      populated = %WorkloadIdentitySnapshotV1{
+        observed_at_unix_nano: 1_780_000_000_000_000_000,
+        enabled: true,
+        count: 1,
+        identities: [
+          %WorkloadIdentityContainerLookupV1{
+            container_id: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            identity: %WorkloadIdentityRecordV1{
+              container_id: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+              pod_name: "api-server-0",
+              has_runtime_pid: true,
+              runtime_pid: 4242
+            }
+          }
+        ]
+      }
+
+      populated_payload = WorkloadIdentitySnapshotV1.encode(populated)
+
+      populated_record = %EdgeRecordV1{
+        payload_family: :EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1,
+        compression: :EDGE_RECORD_COMPRESSION_NONE,
+        encoded_size: byte_size(populated_payload),
+        uncompressed_size: byte_size(populated_payload),
+        projected_row_count: 1,
+        projected_write_bytes: 8_192,
+        payload: populated_payload
+      }
+
+      assert {:ok, ^populated} = WorkloadIdentity.decode(populated_record)
+
+      empty = %WorkloadIdentitySnapshotV1{
+        observed_at_unix_nano: 1_780_000_000_000_000_000,
+        enabled: false,
+        degradation_reason: "Disabled"
+      }
+
+      empty_payload = WorkloadIdentitySnapshotV1.encode(empty)
+
+      empty_record = %EdgeRecordV1{
+        payload_family: :EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1,
+        compression: :EDGE_RECORD_COMPRESSION_NONE,
+        encoded_size: byte_size(empty_payload),
+        uncompressed_size: byte_size(empty_payload),
+        projected_row_count: 1,
+        projected_write_bytes: 8_192,
+        payload: empty_payload
+      }
+
+      assert {:ok, ^empty} = WorkloadIdentity.decode(empty_record)
+
+      assert {:error, :workload_identity_snapshot_row_count} =
+               WorkloadIdentity.decode(%{empty_record | projected_row_count: 2})
+
+      missing_container = %WorkloadIdentitySnapshotV1{
+        observed_at_unix_nano: 1_780_000_000_000_000_000,
+        enabled: true,
+        identities: [%WorkloadIdentityContainerLookupV1{container_id: ""}]
+      }
+
+      missing_payload = WorkloadIdentitySnapshotV1.encode(missing_container)
+
+      assert {:error, :workload_identity_no_container_id} =
+               WorkloadIdentity.decode(%EdgeRecordV1{
+                 payload_family: :EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1,
+                 compression: :EDGE_RECORD_COMPRESSION_NONE,
+                 encoded_size: byte_size(missing_payload),
+                 uncompressed_size: byte_size(missing_payload),
+                 projected_row_count: 1,
+                 projected_write_bytes: 8_192,
+                 payload: missing_payload
+               })
     end
   end
 end
