@@ -1229,23 +1229,24 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
       {:error, {:overloaded, :rule_bytes}}
     )
 
-    series_key = "synthetic:forecast-inserted-at:#{System.unique_integer([:positive])}"
+    series_prefix = "synthetic:forecast-inserted-at:#{System.unique_integer([:positive])}"
+    attempt_keys = Enum.map(1..40, &"#{series_prefix}:#{&1}")
     time = 1_812_456_000_000
 
-    delete_episode_fixture!(series_key)
+    Enum.each(attempt_keys, &delete_episode_fixture!/1)
 
     on_exit(fn ->
       Application.delete_env(:serviceradar_core, :analytics_signals_replay_result)
-      delete_episode_fixture!(series_key)
+      Enum.each(attempt_keys, &delete_episode_fixture!/1)
     end)
 
-    {_older, newer} =
-      Enum.find_value(1..40, fn n ->
-        delete_episode_fixture!(series_key)
+    # A pending row's event_id is the episode transition identity, derived from
+    # the series and time rather than the message's own event_id, so each
+    # attempt needs a fresh series to draw a different id pair.
+    {series_key, newer} =
+      Enum.find_value(attempt_keys, fn series_key ->
         older = capacity_forecast_message(series_key, "forecast-older", "forecast-older", time)
-
-        newer =
-          capacity_forecast_message(series_key, "forecast-newer-#{n}", "forecast-newer", time)
+        newer = capacity_forecast_message(series_key, "forecast-newer", "forecast-newer", time)
 
         assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([older])
         assert_receive {:alert_evaluation_events, [_ignored]}
@@ -1254,7 +1255,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
         refute_receive {:alert_evaluation_events, _events}, 50
 
         case pending_admission_ids(series_key) do
-          [{_, first_id}, {_, second_id}] when first_id > second_id -> {older, newer}
+          [{_, first_id}, {_, second_id}] when first_id > second_id -> {series_key, newer}
           _ -> nil
         end
       end) || flunk("no same-time forecast pair inverted event-id order")
