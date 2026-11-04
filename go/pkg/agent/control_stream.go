@@ -389,6 +389,7 @@ func (p *PushLoop) buildControlHelloRequest() *proto.ControlStreamRequest {
 				HostInterfaces:        host.interfaces,
 				HostTlsFingerprints:   p.helloHostTLSFingerprints(),
 				ConfigSectionStatuses: p.helloConfigSectionStatuses(),
+				EdgeRecordSpool:       p.edgeSpoolStatus(),
 			},
 		},
 	}

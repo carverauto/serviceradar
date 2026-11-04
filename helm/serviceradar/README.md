@@ -453,42 +453,24 @@ replacement for it. If `secrets.autoGenerate=false`,
 the operator must supply the key in the configured existing Secret as a
 base64-encoded 32-byte seed (the Secret's data encoding wraps that text).
 
-`edgeRecords.agentSweepEnabled` enables the bundled agent's sweep producer.
-`edgeRecords.agentMetricsEnabled` enables its sysmon, SNMP, ICMP, MTR scalar
-and periodic sweep summary metrics producers on the same spool. That spool is
-also where flow-attribution windows and OTLP relay frames go while the agent
-holds a current `serviceradar.netprobe.flow_attribution` version 1 or
-`serviceradar.otlp.relay` version 1 grant. Core issues a standing grant for a
-catalog contract when the contract is in the signed active registry epoch, the
-core node's release catalog holds its exact bundle, and the agent's partition
-has a row. The gateway rejects records for any contract the signed epoch
-they name does not carry.
-Without `agentMetricsEnabled`, those stay on the status path even if core has
-issued the grant.
-`edgeRecords.agentTelemetryEnabled` enables its plugin and native add-on
-telemetry producer on that spool.
-`edgeRecords.agentPluginResultsEnabled` enables its Wasm plugin results
-producer on that spool. `edgeRecords.agentDiscoveryEnabled` enables its mapper
-and netprobe discovery producers on that spool. `edgeRecords.agentSyncEnabled`
-enables its integration sync page producer on that spool. Each of these flags requires
-`edgeRecords.enabled` and `agent.runtimeStorage.enabled=true`. The spool lives
-under that volume's base path and `edgeRecords.maxSpoolBytes` bounds it.
+The agent's edge-record sender and spool always run, so the bundled agent no
+longer reads `edgeRecords.agentSweepEnabled`, `agentMetricsEnabled`,
+`agentTelemetryEnabled`, `agentPluginResultsEnabled`, `agentDiscoveryEnabled`,
+`agentSyncEnabled` or `maxSpoolBytes`; the chart still renders them until the
+block is removed. Each producer emits edge records exactly while it holds
+core's grant for its contract and keeps the status path otherwise. Core sends
+the spool byte budget in the agent config. Flow-attribution windows and OTLP
+relay frames use the same spool while the agent holds a current
+`serviceradar.netprobe.flow_attribution` version 1 or `serviceradar.otlp.relay`
+version 1 grant. Core issues a standing grant for a catalog contract when the
+contract is in the signed active registry epoch, the core node's release
+catalog holds its exact bundle, and the agent's partition has a row. The
+gateway rejects records for any contract the signed epoch they name does not
+carry.
 Core's agent-scoped sweep lease settings select which agent receives signed
 slots. Enable leasing only for the canary, and use an enabled static-target
 group without a target query. Other agents continue using the legacy results
-path. With `agentMetricsEnabled` set, those metrics stay on the status path
-until core grants that agent `serviceradar.metrics.batch` version 1. With
-`agentTelemetryEnabled` set, plugin and add-on telemetry stays on the status
-path until core grants `serviceradar.telemetry.batch` version 1. With
-`agentPluginResultsEnabled` set, Wasm plugin results stay on the status path
-until core grants `serviceradar.plugin_results.batch` version 1. With
-`agentDiscoveryEnabled` set, mapper devices, interfaces, topology and netprobe
-discovery stay on the status path until core grants
-`serviceradar.mapper.devices.batch`, `serviceradar.mapper.interfaces.batch`,
-`serviceradar.mapper.topology.batch` and
-`serviceradar.netprobe.discovery.batch` version 1. With `agentSyncEnabled`
-set, integration sync pages stay on the status path until core grants
-`serviceradar.sync.page.batch` version 1. Results of sweep groups the agent
+path. Results of sweep groups the agent
 runs from its own config, without a lease, move to edge records only when the
 agent also holds a `serviceradar.sweep.unleased_results` version 1 grant;
 each results response and its metric batch then take the edge path together,

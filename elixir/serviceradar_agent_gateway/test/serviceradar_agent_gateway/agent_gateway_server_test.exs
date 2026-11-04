@@ -261,7 +261,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
 
     for transport <- [:unary, :control] do
       @transport transport
-      test "#{transport} hello forwards announced host MACs and peer certificate metadata through core RPC",
+      test "#{transport} hello forwards announced host MACs, spool status and peer certificate metadata through core RPC",
            context do
         request = host_hello(@transport, context.agent_id)
         assert_enrolled(@transport, request, context.stream)
@@ -273,6 +273,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
         assert DateTime.diff(agent_attrs.cert_expires_at, agent_attrs.cert_not_before, :second) == 90 * 86_400
         assert byte_size(agent_attrs.cert_serial) > 0
         assert byte_size(agent_attrs.cert_fingerprint_sha256) == 64
+        # Core shows a spool that did not open as spool_unavailable.
+        assert agent_attrs.metadata.edge_record_spool == %{available: false, error: "spool: mkdir: denied"}
 
         assert_receive {:core_rpc, :ensure_device_for_agent, [^agent_id, attrs]}, 1_000
         assert attrs.source_ip == "192.0.2.37"
@@ -863,7 +865,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
       host_macs: ["02:00:00:00:01:03"],
       hostname: "host01.example.com",
       os: "linux",
-      arch: "amd64"
+      arch: "amd64",
+      edge_record_spool: %Monitoring.EdgeRecordSpoolStatus{available: false, error: "spool: mkdir: denied"}
     ]
 
     case transport do

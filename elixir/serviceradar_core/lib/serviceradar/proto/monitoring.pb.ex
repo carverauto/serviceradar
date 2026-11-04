@@ -536,6 +536,23 @@ defmodule Monitoring.AgentHelloRequest do
     proto3_optional: true,
     type: Serviceradar.Edge.V1.EdgeRecordCapabilitiesV1,
     json_name: "edgeRecordCapabilities"
+
+  field :edge_record_spool, 16,
+    proto3_optional: true,
+    type: Monitoring.EdgeRecordSpoolStatus,
+    json_name: "edgeRecordSpool"
+end
+
+defmodule Monitoring.EdgeRecordSpoolStatus do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.EdgeRecordSpoolStatus",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :available, 1, type: :bool
+  field :error, 2, type: :string
 end
 
 defmodule Monitoring.HostInterface do
@@ -792,6 +809,11 @@ defmodule Monitoring.ControlStreamHello do
     proto3_optional: true,
     type: Serviceradar.Edge.V1.EdgeRecordCapabilitiesV1,
     json_name: "edgeRecordCapabilities"
+
+  field :edge_record_spool, 18,
+    proto3_optional: true,
+    type: Monitoring.EdgeRecordSpoolStatus,
+    json_name: "edgeRecordSpool"
 end
 
 defmodule Monitoring.CommandRequest do

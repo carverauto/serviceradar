@@ -68,6 +68,37 @@ func TestGateBulkHysteresisFollowsTheOwnersBytes(t *testing.T) {
 	}
 }
 
+// Moving the marks moves the hysteresis from the next reading; inconsistent
+// marks are refused and leave the old ones in place.
+func TestGateSetWatermarksMovesTheHysteresis(t *testing.T) {
+	var held uint64 = 500
+	g, err := NewGate(800, 400, func() uint64 { return held })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.Admit(ClassBulk) != Defer {
+		t.Fatal("a first reading between the marks must start paused")
+	}
+	if err := g.SetWatermarks(200, 100); err != nil {
+		t.Fatal(err)
+	}
+	held = 150
+	if got := g.Admit(ClassBulk); got != Defer {
+		t.Fatalf("bulk at 150 held under marks 200/100 = %v, want Defer", got)
+	}
+	held = 100
+	if got := g.Admit(ClassBulk); got != Admit {
+		t.Fatalf("bulk at the new low water = %v, want Admit", got)
+	}
+	if err := g.SetWatermarks(100, 100); !errors.Is(err, ErrInvalidGate) {
+		t.Fatalf("SetWatermarks(100, 100) = %v, want ErrInvalidGate", err)
+	}
+	held = 199
+	if got := g.Admit(ClassBulk); got != Admit {
+		t.Fatalf("a refused SetWatermarks moved the marks: bulk at 199 = %v, want Admit", got)
+	}
+}
+
 // A gate first read between the marks starts paused: those bytes may belong to
 // a pause the process never saw relieved. At or below the low water it starts
 // open.

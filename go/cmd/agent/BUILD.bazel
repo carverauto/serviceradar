@@ -49,6 +49,7 @@ go_test(
     srcs = [
         "edge_delivery_grant_live_test.go",
         "edge_record_sender_test.go",
+        "edge_spool_default_on_live_test.go",
         "edge_spool_metrics_live_test.go",
         "main_test.go",
         "main_windows_test.go",
@@ -63,6 +64,7 @@ go_test(
     },
     deps = [
         "//go/pkg/agent",
+        "//go/pkg/edge/admission",
         "//go/pkg/edge/edgerecord",
         "//go/pkg/edge/sender",
         "//go/pkg/edge/spool",

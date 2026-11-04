@@ -259,8 +259,6 @@ type harness struct {
 	coreProc *ReleaseProcess
 	agent    *AgentProcess
 
-	sp *spool.Spool
-
 	gatewayAddr       string
 	gatewayServerName string
 
@@ -276,6 +274,14 @@ type harness struct {
 	// depends on this exact state.
 	groupAFixture  *FixtureRecord
 	groupASequence uint64
+
+	// withheldFixture/withheldSequence are the entry Group D's
+	// NATSCutAfterSpoolCommit appended to the agent's spool, set only once
+	// that subtest saw the entry stay unreclaimed while the gateway withheld
+	// its ack. PositiveAckResolvesAndReclaimsSpool uses it as the negative
+	// control for reclaim-after-terminal-disposition.
+	withheldFixture  *FixtureRecord
+	withheldSequence uint64
 }
 
 // preservedLogName is the flattened, h.dir-relative name a process log file
@@ -461,13 +467,6 @@ func newHarness(t *testing.T) *harness {
 	}
 	t.Cleanup(agentProc.Stop)
 	h.agent = agentProc
-
-	sp, err := spool.Open(agentProc.SpoolDir)
-	if err != nil {
-		t.Fatalf("open agent spool: %v", err)
-	}
-	h.sp = sp
-	t.Cleanup(func() { _ = sp.Close() })
 
 	spoolID, err := waitForSpoolID(agentProc.SpoolDir, pollTimeout)
 	if err != nil {
@@ -682,7 +681,7 @@ func (h *harness) testGroupA(t *testing.T) {
 		t.Fatalf("event_ledger row already present before send (count=%d) -- fixture ids not fresh", n)
 	}
 
-	seq, err := h.sp.Append(fx.EventID, fx.RecordBytes)
+	seq, err := h.appendAgentSpool(fx.EventID, fx.RecordBytes)
 	if err != nil {
 		t.Fatalf("append fixture to real spool: %v", err)
 	}
@@ -877,10 +876,12 @@ func (h *harness) testMismatchedIdentityControl(t *testing.T, fx *FixtureRecord)
 // ---------------------------------------------------------------------------
 // Group B: exact bytes.
 //
-// Proves: the exact bytes read back through the spool's public read path
-// equal the exact bytes fetched independently through the JetStream
-// consumer for the SAME committed record -- two independent reads, not two
-// aliases of the same helper's output.
+// Proves: the exact bytes Group A handed to spool.Append equal the exact
+// bytes fetched independently through the JetStream consumer for the SAME
+// committed record. The agent's sender read the record back through the
+// spool's public read path to send it, and the sender reclaims a record
+// once its acceptance is persisted, so the JetStream copy is what that read
+// returned: a verbatim match proves the spool stored and read it unchanged.
 // ---------------------------------------------------------------------------
 func (h *harness) testGroupB(t *testing.T) {
 	fx := h.groupAFixture
@@ -888,23 +889,7 @@ func (h *harness) testGroupB(t *testing.T) {
 		t.Skip("Group A fixture unavailable")
 	}
 
-	// Read 1: the spool's own public read path.
-	var spoolBytes []byte
-	found := false
-	if err := h.sp.ScanFrom(0, func(rec spool.Record) bool {
-		if rec.Sequence == h.groupASequence {
-			spoolBytes = append([]byte(nil), rec.Body...)
-			found = true
-		}
-		return true
-	}); err != nil {
-		t.Fatalf("scan spool: %v", err)
-	}
-	if !found {
-		t.Fatalf("spool no longer has sequence %d on its public read path", h.groupASequence)
-	}
-
-	// Read 2: the JetStream consumer, independently, over a fresh NATS
+	// The JetStream consumer, independently, over a fresh NATS
 	// client connection using the same real .creds file the gateway/core
 	// releases authenticate with.
 	nc, err := nats.Connect(h.nats.URL, nats.UserCredentials(h.nats.CredsPath))
@@ -938,11 +923,8 @@ func (h *harness) testGroupB(t *testing.T) {
 		t.Fatalf("get first stored message (seq %d): %v", info.State.FirstSeq, err)
 	}
 
-	if !bytes.Equal(spoolBytes, raw.Data) {
-		t.Errorf("spool-read bytes and JetStream-read bytes differ: spool=%d bytes, jetstream=%d bytes", len(spoolBytes), len(raw.Data))
-	}
-	if !bytes.Equal(spoolBytes, fx.RecordBytes) {
-		t.Errorf("spool-read bytes differ from the fixture's own RecordBytes (unexpected: spool.Append should have stored them verbatim)")
+	if !bytes.Equal(fx.RecordBytes, raw.Data) {
+		t.Errorf("appended bytes and JetStream-read bytes differ: appended=%d bytes, jetstream=%d bytes", len(fx.RecordBytes), len(raw.Data))
 	}
 }
 
@@ -1474,13 +1456,17 @@ func (h *harness) waitIngestObservation(t *testing.T, eventID []byte, point stri
 //     only coverage here of core crashing before it acknowledges and then
 //     consuming again after a restart. The replacement core gets the ingest
 //     probe reinstalled.
-//  4. PositiveAckDoesNotReclaimSpool reads the gateway's EdgeDeliveryAckV1s on
-//     a real session and checks their spool-ID/session-nonce binding and
-//     cumulative resolved_through_sequence with the agent's own
-//     edgerecord.ValidateAck. It waits for the real agent to report a remote
-//     resolved prefix covering every spool entry. Then it confirms neither
-//     one moved the agent's local reclaim watermark or removed a record from
-//     the spool's public read path.
+//  4. PositiveAckResolvesAndReclaimsSpool reads the gateway's
+//     EdgeDeliveryAckV1s on a real session and checks their
+//     spool-ID/session-nonce binding and cumulative resolved_through_sequence
+//     with the agent's own edgerecord.ValidateAck. Every agent spool entry
+//     must have a committed delivery slot binding its sequence to the bytes
+//     appended there, and NATSCutAfterSpoolCommit must have seen its withheld
+//     entry stay unreclaimed (the negative control). The real agent must have
+//     logged a successful sender run whose remote resolved prefix covers every
+//     spool entry. The agent persists that positive ack as terminal evidence:
+//     a freshly opened spool's local watermark covers every entry, and none is
+//     left on the spool's public read path.
 //
 // ---------------------------------------------------------------------------
 func (h *harness) testGroupD(t *testing.T) {
@@ -1495,6 +1481,15 @@ func (h *harness) testGroupD(t *testing.T) {
 		if err := h.nats.DisableJetStream(); err != nil {
 			t.Fatalf("disable jetstream: %v", err)
 		}
+		// A failure before the explicit re-enable below must not leave the
+		// broker without JetStream for every later group.
+		defer func() {
+			if !h.nats.Server.JetStreamEnabled() {
+				if err := h.nats.EnableJetStream(); err != nil {
+					t.Errorf("re-enable jetstream after failed cut probe: %v", err)
+				}
+			}
+		}()
 		cutAt := h.agent.logOffset(t)
 
 		fx2, err := BuildSweepFixtureInScope(fx.NetworkScopeID, []byte(h.certSet.AgentComponentID))
@@ -1502,7 +1497,7 @@ func (h *harness) testGroupD(t *testing.T) {
 			t.Fatalf("build fixture: %v", err)
 		}
 		h.prepareFixture(t, fx2)
-		seq, err := h.sp.Append(fx2.EventID, fx2.RecordBytes)
+		seq, err := h.appendAgentSpool(fx2.EventID, fx2.RecordBytes)
 		if err != nil {
 			t.Fatalf("append: %v", err)
 		}
@@ -1529,6 +1524,10 @@ func (h *harness) testGroupD(t *testing.T) {
 		h.requireSpoolEntryUnreclaimed(t, seq)
 		if n := h.rpcQueryCount(t, eventLedgerExistsSQL(fx2.NetworkScopeID, fx2.EventID)); n != 0 {
 			t.Errorf("event_ledger row appeared for an entry that should have been withheld by a JetStream outage")
+		}
+		if !t.Failed() {
+			h.withheldFixture = fx2
+			h.withheldSequence = seq
 		}
 
 		if err := h.nats.EnableJetStream(); err != nil {
@@ -1670,7 +1669,7 @@ func (h *harness) testGroupD(t *testing.T) {
 		}
 		// Registered on the HARNESS test, not this subtest: a subtest-scoped
 		// Cleanup would stop the replacement core the moment this subtest
-		// returns, and every later query (PositiveAckDoesNotReclaimSpool,
+		// returns, and every later query (PositiveAckResolvesAndReclaimsSpool,
 		// Groups E and F) would then hit a node that no longer exists.
 		h.t.Cleanup(restarted.Stop)
 		h.coreProc = restarted
@@ -1704,13 +1703,42 @@ func (h *harness) testGroupD(t *testing.T) {
 		}
 	})
 
-	t.Run("PositiveAckDoesNotReclaimSpool", func(t *testing.T) {
-		agentOffset := h.agent.logOffset(t)
-
+	t.Run("PositiveAckResolvesAndReclaimsSpool", func(t *testing.T) {
 		h.assertCumulativeDeliveryAck(t)
 
-		highest := h.sp.NextSequence() - 1
-		h.waitAgentSenderRuns(t, agentOffset, pollTimeout,
+		// The agent's runs that carried these entries ended in the earlier
+		// groups, and a drained spool logs no further runs, so read the whole
+		// log.
+		highest := h.agentSpoolHighWater(t)
+
+		// Negative control: NATSCutAfterSpoolCommit must have seen its entry
+		// stay on the read path while its ack was withheld. Without that, a
+		// sender that reclaims on send rather than on a terminal disposition
+		// would pass every check below.
+		if h.withheldFixture == nil {
+			t.Fatal("NATSCutAfterSpoolCommit did not confirm a withheld entry stays unreclaimed; reclaim-only-after-terminal-disposition is unproven")
+		}
+
+		// Every agent-spool entry has a terminal ACCEPTED disposition: the
+		// committed delivery slot binds (spool, sequence) to exactly the bytes
+		// appended at that sequence. Only Group A and NATSCutAfterSpoolCommit
+		// append to the agent's spool.
+		accepted := map[uint64]*FixtureRecord{
+			h.groupASequence:   h.groupAFixture,
+			h.withheldSequence: h.withheldFixture,
+		}
+		for seq := uint64(1); seq <= highest; seq++ {
+			fxN, ok := accepted[seq]
+			if !ok {
+				t.Fatalf("agent spool sequence %d was appended by no known fixture; the harness lost track of what it spooled", seq)
+			}
+			slotRow := h.rpcQueryRow(t, deliverySlotSQL(fxN.NetworkScopeID, []byte(h.certSet.AgentComponentID), h.spoolID, seq))
+			if !strings.Contains(slotRow, hexInspect(fxN.RecordSHA256)) {
+				t.Errorf("agent spool sequence %d has no committed delivery slot for its record (row=%s, want digest=%x); it may not be reclaimed without a terminal accepted disposition", seq, slotRow, fxN.RecordSHA256)
+			}
+		}
+
+		h.waitAgentSenderRuns(t, 0, pollTimeout,
 			fmt.Sprintf("a successful sender run with remote_resolved_through >= %d", highest),
 			func(runs []agentSenderRun) bool {
 				for _, run := range runs {
@@ -1721,19 +1749,24 @@ func (h *harness) testGroupD(t *testing.T) {
 				return false
 			})
 
-		// The gateway's acks and the agent's remote prefix are remote progress
-		// only: neither may physically reclaim the local spool.
+		// The positive ack is persisted as terminal evidence before the run
+		// ends, so a fresh handle sees every accepted entry resolved and off
+		// the public read path.
 		freshSp, err := spool.Open(h.agent.SpoolDir)
 		if err != nil {
 			t.Fatalf("reopen spool: %v", err)
 		}
-		resolved := freshSp.Resolved()
-		_ = freshSp.Close()
-		if resolved != 0 {
-			t.Errorf("spool local watermark advanced to %d even though nothing in this harness ever calls spool.Resolve -- ack alone must never physically reclaim the spool", resolved)
+		defer func() { _ = freshSp.Close() }()
+		if resolved := freshSp.Resolved(); resolved < highest {
+			t.Errorf("spool local watermark is %d after the agent reported remote_resolved_through >= %d; the positive ack was not persisted as terminal evidence", resolved, highest)
 		}
-		for seq := uint64(1); seq <= highest; seq++ {
-			h.requireSpoolEntryUnreclaimed(t, seq)
+		if err := freshSp.ScanFrom(0, func(rec spool.Record) bool {
+			if rec.Sequence <= highest {
+				t.Errorf("accepted sequence %d is still on the spool's public read path", rec.Sequence)
+			}
+			return true
+		}); err != nil {
+			t.Fatalf("scan spool: %v", err)
 		}
 
 		if n := h.rpcQueryCount(t, eventLedgerExistsSQL(h.groupAFixture.NetworkScopeID, h.groupAFixture.EventID)); n != 1 {
@@ -2073,6 +2106,34 @@ func (h *harness) requireJetStream(t *testing.T) {
 	if !h.nats.Server.JetStreamEnabled() {
 		t.Fatalf("JetStream is unavailable when %s runs -- NATSCutAfterSpoolCommit must re-enable it via NATSHarness.EnableJetStream; a missing JetStream must fail loudly, never skip", t.Name())
 	}
+}
+
+// appendAgentSpool appends one record to the running agent's spool through a
+// handle opened for this append alone. The agent's sender reclaims drained
+// segments under any long-lived handle, and the spool refuses writes through a
+// handle whose segment was reclaimed by another one.
+func (h *harness) appendAgentSpool(eventID, body []byte) (uint64, error) {
+	sp, err := spool.Open(h.agent.SpoolDir)
+	if err != nil {
+		return 0, fmt.Errorf("open agent spool: %w", err)
+	}
+	seq, appendErr := sp.Append(eventID, body)
+	if err := sp.Close(); err != nil && appendErr == nil {
+		return seq, fmt.Errorf("close agent spool: %w", err)
+	}
+	return seq, appendErr
+}
+
+// agentSpoolHighWater reopens the agent's spool and returns the highest
+// sequence ever appended to it, including reclaimed ones.
+func (h *harness) agentSpoolHighWater(t *testing.T) uint64 {
+	t.Helper()
+	sp, err := spool.Open(h.agent.SpoolDir)
+	if err != nil {
+		t.Fatalf("reopen spool: %v", err)
+	}
+	defer func() { _ = sp.Close() }()
+	return sp.NextSequence() - 1
 }
 
 // requireSpoolEntryUnreclaimed reopens the agent's spool and fails t unless

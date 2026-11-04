@@ -156,7 +156,8 @@
   - [x] The `edge_pipeline_conditions` calculation on the agent (JSON:API and
     `GET /api/admin/agents`) and the agent detail card, with `partition_not_found`
     and the readiness reasons of 7.1.
-  - [ ] `spool_unavailable` (needs the agent report of 4.3).
+  - [x] `spool_unavailable`, from the spool status the agent reports in its hello
+    (4.3), for connected agents.
   - [ ] `no_live_gateway_on_active_epoch` (needs the epochs of 1.3 and the gateway
     installed-digest report of 2.6 and 3.4).
 - [x] 2.6 Extend `RecordTrust.snapshot/0` with the `contract_registry` member
@@ -189,13 +190,23 @@
 
 ## 4. Agent
 
-- [ ] 4.1 Make the sender and spool unconditional. Default `spool_dir` to
+- [x] 4.1 Make the sender and spool unconditional. Default `spool_dir` to
   `<runtime base>/edge-records`. Delete `Enabled`, `SweepEnabled`,
   `MetricsEnabled`, `TelemetryEnabled` and `PluginResultsEnabled`, and wire
   every producer's spool unconditionally. Keep the grant as the only gate.
   Delete `ProducersEnabled()` and persist terminal dispositions always.
-- [ ] 4.2 Apply the config-delivered spool budget at admission.
-- [ ] 4.3 Report `spool_unavailable` in agent status when the spool cannot be opened.
+  - The `DiscoveryEnabled`, `SyncEnabled` and `MaxBytes` fields went too. The
+    default directory is `DefaultEdgeRecordSpoolDir()`. A spool that cannot be
+    opened does not stop the agent. An older config that still sets the removed
+    keys loads, and the removed keys are ignored.
+- [x] 4.2 Apply the config-delivered spool budget at admission.
+  - The agent starts on 1 GiB. `AgentConfigResponse.edge_spool_max_bytes` moves
+    the allocator ceiling (`Allocator.SetCapacity`) and the gate marks
+    (`Gate.SetWatermarks`) together. A lower budget evicts nothing.
+- [x] 4.3 Report `spool_unavailable` in agent status when the spool cannot be opened.
+  - `EdgeRecordSpoolStatus` on both hellos (`AgentHelloRequest.edge_record_spool`,
+    `ControlStreamHello.edge_record_spool`). The gateway records it in the agent's
+    metadata.
 
 ## 5. Chart, Compose, docs
 
@@ -305,6 +316,12 @@ Load the `test-audit` skill before writing these.
 - [ ] 7.4 Add `agent_upgrade_pending` to the per-agent conditions, for agents still
   on a pre-cutover build after core upgrades. Make the release rollout target
   every agent at core upgrade.
+  - [x] `agent_upgrade_pending`: a connected agent whose hello carries no spool status
+    runs a build from before the default-on sender.
+  - [ ] Target every agent with the release rollout at core upgrade. Not started: the
+    core has no automatic publication of its own agent release to roll out (releases
+    are imported by an operator), so this needs a design for which release and
+    artifacts core targets.
 
 ## 8. Rollout
 

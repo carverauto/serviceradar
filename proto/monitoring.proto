@@ -329,6 +329,17 @@ message AgentHelloRequest {
   repeated HostInterface host_interfaces = 13; // The host's own interface inventory, classified
   repeated HostTlsFingerprint host_tls_fingerprints = 14; // Certificates the host's own services present
   optional serviceradar.edge.v1.EdgeRecordCapabilitiesV1 edge_record_capabilities = 15;
+  // The agent's edge-record spool. Every agent with the default-on sender
+  // reports it; an agent that predates it leaves it unset.
+  optional EdgeRecordSpoolStatus edge_record_spool = 16;
+}
+
+// EdgeRecordSpoolStatus is whether the agent's durable edge-record spool opened
+// at startup. A spool that did not open leaves the agent off the edge pipeline,
+// so core shows the agent as spool_unavailable.
+message EdgeRecordSpoolStatus {
+  bool available = 1;
+  string error = 2; // Why the spool could not be opened; empty when available
 }
 
 // The kind of a local interface, as the agent's operating system describes it.
@@ -571,6 +582,7 @@ message ControlStreamHello {
   repeated HostInterface host_interfaces = 15; // The host's own interface inventory, classified
   repeated HostTlsFingerprint host_tls_fingerprints = 16; // Certificates the host's own services present
   optional serviceradar.edge.v1.EdgeRecordCapabilitiesV1 edge_record_capabilities = 17;
+  optional EdgeRecordSpoolStatus edge_record_spool = 18; // As in AgentHelloRequest
 }
 
 // CommandRequest represents a command sent to the agent.

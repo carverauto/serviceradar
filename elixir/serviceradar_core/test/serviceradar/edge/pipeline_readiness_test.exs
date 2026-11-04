@@ -37,8 +37,11 @@ defmodule ServiceRadar.Edge.PipelineReadinessTest do
     )
   end
 
+  # The spool status the gateway records from a default-on agent's hello, as jsonb reads it.
+  @open_spool %{"edge_record_spool" => %{"available" => true, "error" => ""}}
+
   defp agent(overrides \\ %{}),
-    do: struct!(%Agent{uid: "agent-1", status: :connected, metadata: %{}}, overrides)
+    do: struct!(%Agent{uid: "agent-1", status: :connected, metadata: @open_spool}, overrides)
 
   defp reasons(agent, facts),
     do: agent |> PipelineReadiness.conditions(facts) |> Enum.map(& &1.reason)
@@ -48,7 +51,7 @@ defmodule ServiceRadar.Edge.PipelineReadinessTest do
   end
 
   test "the authenticated partition recorded on the agent decides partition_not_found" do
-    agent = agent(%{metadata: %{"partition_id" => "site-missing"}})
+    agent = agent(%{metadata: Map.put(@open_spool, "partition_id", "site-missing")})
 
     assert [%{reason: :partition_not_found, detail: %{partition: "site-missing"}}] =
              PipelineReadiness.conditions(agent, facts())
@@ -99,5 +102,26 @@ defmodule ServiceRadar.Edge.PipelineReadinessTest do
   test "a superseded identity has no condition" do
     assert PipelineReadiness.conditions(agent(%{status: :superseded}), facts(%{runtime: %{}})) ==
              []
+  end
+
+  test "an agent whose spool did not open is spool_unavailable, with the error it reported" do
+    spool = %{"edge_record_spool" => %{"available" => false, "error" => "spool: mkdir: denied"}}
+
+    assert [%{reason: :spool_unavailable, detail: %{error: "spool: mkdir: denied"}}] =
+             PipelineReadiness.conditions(agent(%{metadata: spool}), facts())
+  end
+
+  test "a connected agent that reports no spool status runs a build from before the cutover" do
+    old = agent(%{metadata: %{}, version: "1.4.0"})
+
+    assert [%{reason: :agent_upgrade_pending, detail: %{version: "1.4.0"}}] =
+             PipelineReadiness.conditions(old, facts())
+
+    # An image-delivered agent still has to be upgraded, by its image.
+    image = facts(%{runtime: %{"agent-1" => runtime(%{deployment_type: "kubernetes"})}})
+    assert reasons(old, image) == [:agent_upgrade_pending]
+
+    # A disconnected agent's last check-in says nothing current about its build.
+    assert reasons(old, facts(%{runtime: %{}})) == [:agent_disconnected]
   end
 end

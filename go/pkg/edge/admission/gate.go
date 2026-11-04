@@ -102,6 +102,18 @@ func NewGate(highWater, lowWater uint64, held func() uint64) (*Gate, error) {
 	return &Gate{marks: watermarks{high: highWater, low: lowWater}, held: held, flows: make(map[string]*fairFlow)}, nil
 }
 
+// SetWatermarks moves the bulk hysteresis marks, as NewGate validates them. The
+// pause state follows the new marks from the next reading of held.
+func (g *Gate) SetWatermarks(highWater, lowWater uint64) error {
+	if lowWater >= highWater {
+		return ErrInvalidGate
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.marks = watermarks{high: highWater, low: lowWater}
+	return nil
+}
+
 // Admit reports whether class may add bytes now: Defer for bulk while the
 // gate is paused, Reject for an unknown class, and Admit otherwise. It reads
 // held first. The first reading starts paused anywhere above the low water.

@@ -68,10 +68,9 @@ type FixtureRecord struct {
 	// RecordBytes is the exact encoded EdgeRecordV1 -- hand this directly to
 	// spool.Append(EventID, RecordBytes) as the entry body. It is also what
 	// the sender embeds verbatim as EdgeDeliveryFrameV1.record_bytes
-	// (go/pkg/edge/sender/sender.go's buildFrame), so re-reading it back
-	// through the spool's public read path (group B) and re-reading the
-	// stored JetStream message (group B) must both equal this slice
-	// byte-for-byte.
+	// (go/pkg/edge/sender/sender.go's buildFrame) after reading it back
+	// through the spool's public read path, so the stored JetStream message
+	// (group B) must equal this slice byte-for-byte.
 	RecordBytes []byte
 
 	// RecordSHA256 is sha256(RecordBytes), computed here independently of

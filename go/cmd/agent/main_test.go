@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -116,6 +117,8 @@ func TestLoadConfigAcceptsDeprecatedRemoteAccessKnownHostsFile(t *testing.T) {
 	}
 }
 
+// A block rendered for an older agent, with the removed switch and opt-ins,
+// still loads: only its local layout is read.
 func TestLoadConfigParsesEdgeRecordSender(t *testing.T) {
 	t.Parallel()
 
@@ -124,7 +127,9 @@ func TestLoadConfigParsesEdgeRecordSender(t *testing.T) {
 		"checkers_dir": "/var/lib/serviceradar/checkers",
 		"gateway_addr": "serviceradar-agent-gateway:50052",
 		"edge_record_sender": {
-			"enabled": true,
+			"enabled": false,
+			"metrics_enabled": false,
+			"max_bytes": 1048576,
 			"spool_dir": "/var/lib/serviceradar/edge-spool",
 			"poll_interval": "45s"
 		}
@@ -138,11 +143,8 @@ func TestLoadConfigParsesEdgeRecordSender(t *testing.T) {
 	if cfg.EdgeRecordSender == nil {
 		t.Fatal("EdgeRecordSender = nil, want non-nil")
 	}
-	if !cfg.EdgeRecordSender.Enabled {
-		t.Error("EdgeRecordSender.Enabled = false, want true")
-	}
-	if cfg.EdgeRecordSender.SpoolDir != "/var/lib/serviceradar/edge-spool" {
-		t.Errorf("SpoolDir = %q, want /var/lib/serviceradar/edge-spool", cfg.EdgeRecordSender.SpoolDir)
+	if got := cfg.EdgeRecordSpoolDir(); got != "/var/lib/serviceradar/edge-spool" {
+		t.Errorf("EdgeRecordSpoolDir() = %q, want /var/lib/serviceradar/edge-spool", got)
 	}
 	if time.Duration(cfg.EdgeRecordSender.PollInterval) != 45*time.Second {
 		t.Errorf("PollInterval = %v, want 45s", time.Duration(cfg.EdgeRecordSender.PollInterval))
@@ -164,6 +166,13 @@ func TestLoadConfigDefaultsEdgeRecordSenderToNil(t *testing.T) {
 	}
 	if cfg.EdgeRecordSender != nil {
 		t.Fatalf("EdgeRecordSender = %+v, want nil when unconfigured", cfg.EdgeRecordSender)
+	}
+	// A package-installed agent has no block and still runs its spool, under the
+	// agent runtime directory the packages, chart and Compose provide.
+	if runtime.GOOS != "windows" {
+		if got, want := cfg.EdgeRecordSpoolDir(), "/var/lib/serviceradar/agent/edge-records"; got != want {
+			t.Errorf("EdgeRecordSpoolDir() = %q, want %q", got, want)
+		}
 	}
 }
 
