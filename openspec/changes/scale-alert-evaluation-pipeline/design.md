@@ -480,14 +480,22 @@ through the DurablePublish outbox in the transaction that made the change:
   deadline the evaluator reads): a message to the alert's virtual partition,
   computed from the incident rule and group key in its metadata, carrying
   the alert's resulting status, `suppressed_until` and `snooze_until`. The
-  group records them, each later action replacing the earlier one. As
-  today, a resolved incident (`operator_terminal`) does not re-fire until
-  the group recovers, and renotify follows today's rule with event time in
-  place of `now`: it is sent only while the recorded status is pending or
-  escalated and neither recorded deadline is after the candidate's event
+  group records them, each later action replacing the earlier one. A
+  resolved incident (`operator_terminal`) is not renotified and does not
+  re-fire until the group recovers. A group recovers when it falls below
+  threshold, receives a recovery match, or receives no matching candidate
+  for longer than `cooldown_seconds` (event time); the next match after
+  recovery fires a new incident, as today's rollover does, so continuous
+  matching after a resolve opens nothing. Renotify uses event time in place
+  of `now` and is sent only while the recorded status is pending or
+  escalated, or is suppressed with a recorded `suppressed_until` before the
+  candidate's event time, and neither recorded deadline is after that event
   time. A passed snooze or suppress deadline therefore releases the hold
   without waiting for recovery, and a later action that changes the status
-  or a deadline takes effect at once.
+  or a deadline takes effect at once. Accepting an expired suppress is a
+  deliberate change from today's renotify gate, which accepts only pending
+  and escalated, so a suppressed alert stayed silent after its deadline
+  until a later action; a suppress with no deadline still holds.
 - **Stale-anomaly maintenance:** `resolve_stale_anomalies/4` stores the
   live-series key set in CNPG as an immutable snapshot, kept until every
   block's committed checkpoint `applied_count` reaches the `applied_count`
@@ -747,9 +755,9 @@ either way. Owner rebalancing after adding a node is always automatic.
 | Grouping (`group_by`) | `Record.build_group/2` in the owner | same function at the router; group key in the candidate |
 | Windows and buckets | `Bucketing` advance/prune by event time | unchanged |
 | Cooldown | after resolve, a breach within `cooldown_seconds` records `:cooldown` history | unchanged; history id is a fire key |
-| Incident rollover | gap greater than `cooldown_seconds` resolves and refires | unchanged; new `incident_seq`; `last_seen_at` never moves backward (defense in depth, D4) |
+| Incident rollover | gap greater than `cooldown_seconds` resolves and refires | unchanged, including after an operator resolve: that gap is a recovery (D9) and the next match is a new incident; new `incident_seq`; `last_seen_at` never moves backward (defense in depth, D4) |
 | Recovery (below threshold, or recovery match) | `handle_recovery` resolves | unchanged; recovery-match flag stamped at the router |
-| Renotify | every `renotify_seconds` on a matching record | unchanged; ordinal fire key; operator-terminal alerts skipped by control input instead of a row read |
+| Renotify | every `renotify_seconds` on a matching record, only for pending or escalated alerts past their deadlines | ordinal fire key; operator state from control input instead of a row read; a suppressed alert whose `suppressed_until` is before the event time is also eligible (deliberate change, D9) |
 | Incident metadata | load and update the alert on every record | counters in state; one guarded write per commit |
 | Seasonal and edge anomaly disposition | CNPG lookup in the owner | the same lookup at the router, stamped; suppress, escalate and pass-through unchanged |
 | Anomaly-open subject guard | pending `RuleMatcher.event_candidate?/2` fix | the index anchor for anomaly-open rules |
@@ -937,15 +945,17 @@ that evaluates through both designs.
       pending outbox entry addressed to the block's live subjects, awaiting
       each PubAck, and then applies every live control stored for that block
       and commits its effects and checkpoint with each drained entry's
-      completion (D9). The record is then applied in a transaction that
-      locks the block's checkpoint row and, under that lock, checks for a
-      pending D9 entry of the block; if one exists it rolls the record back,
-      drains again and retries. With the pending set empty, and without
-      releasing the lock, it applies every live control stored for the
-      block above its checkpoint (an entry its job already published and
-      completed) in the same transaction, then commits the record. A D9 control write during the import takes
-      a share lock on the checkpoint rows of the blocks it addresses in its
-      own transaction. A disable, resolve or maintenance marker whose
+      completion (D9). The record is then applied in one transaction that
+      first takes an exclusive lock on the block's checkpoint row and holds
+      it until commit. Under that lock the owner checks for a pending D9
+      entry of the block; if one exists it rolls back, drains again and
+      retries. Otherwise it applies every live control stored for the block
+      above its checkpoint (an entry its job already published and
+      completed) to the block state, and only then evaluates the record
+      against that state and commits both. A D9 control write during the
+      import takes the same exclusive lock on the checkpoint rows of the
+      blocks it addresses in its own transaction, so it commits either
+      before the pending check or after the record. A disable, resolve or maintenance marker whose
       transaction committed before the record's commit therefore takes
       effect before it, even while its outbox job is still queued, and one
       that commits later is ordered after it. During the import
