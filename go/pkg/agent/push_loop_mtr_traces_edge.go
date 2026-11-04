@@ -519,7 +519,7 @@ func scheduledMtrTcpProbeMode(mode string) edgev1.MtrTcpProbeModeV1 {
 
 func scheduledMtrExecutionSource(src string) edgev1.SweepExecutionSource {
 	switch strings.ToLower(strings.TrimSpace(src)) {
-	case "scheduled_sweep":
+	case mtrExecutionSourceScheduledSweep:
 		return edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_SCHEDULED_SWEEP
 	case "sweep_profile":
 		return edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_SWEEP_PROFILE

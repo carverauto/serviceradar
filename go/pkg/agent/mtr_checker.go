@@ -33,7 +33,6 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/models"
 	"github.com/carverauto/serviceradar/go/pkg/mtr"
 	"github.com/carverauto/serviceradar/go/pkg/scan"
-	"github.com/carverauto/serviceradar/go/pkg/sweeper"
 	"github.com/carverauto/serviceradar/proto"
 )
 
@@ -50,6 +49,13 @@ const (
 
 	// mtrResultsPushTimeout bounds streaming one batch of MTR results to the gateway.
 	mtrResultsPushTimeout = 30 * time.Second
+
+	mtrExecutionSourceScheduledSweep = "scheduled_sweep"
+
+	// Bounds for MTR checks derived from sweep groups whose modes include mtr.
+	sweepMtrMaxTargetsPerGroup = 256
+	sweepMtrMaxChecksPerTick   = 8
+	sweepMtrMinInterval        = 5 * time.Minute
 )
 
 type mtrCheckConfig struct {
@@ -115,14 +121,14 @@ func (p *PushLoop) pushMtrResults(ctx context.Context) bool {
 		spooled = flushed
 	}
 
-	results := p.collectDueMtrResults(ctx)
-	if len(results) == 0 {
-		return spooled
-	}
-
 	now := time.Now()
 	metricsCapability := p.edgeMetricsCapability(now)
 	traceCapability := p.edgeScheduledMtrCapability(now)
+
+	results := p.collectDueMtrResults(ctx, traceCapability != nil)
+	if len(results) == 0 {
+		return spooled
+	}
 
 	// Scalar metrics and full hop traces each take one path at a time: the edge
 	// spool while the agent holds that contract's standing grant, or StreamStatus
@@ -142,9 +148,19 @@ func (p *PushLoop) pushMtrResults(ctx context.Context) bool {
 		return spooled
 	}
 
+	legacyResults := make([]mtrCheckResult, 0, len(results))
+	for _, r := range results {
+		if r.ExecutionSource != mtrExecutionSourceScheduledSweep {
+			legacyResults = append(legacyResults, r)
+		}
+	}
+	if len(legacyResults) == 0 {
+		return spooled
+	}
+
 	statusChunks, ok := p.buildMtrLegacyStatusChunks(
-		results,
-		results,
+		legacyResults,
+		legacyResults,
 		traceCapability == nil,
 		metricsCapability == nil,
 	)
@@ -165,7 +181,7 @@ func (p *PushLoop) pushMtrResults(ctx context.Context) bool {
 		return spooled
 	}
 
-	p.logger.Info().Int("result_count", len(results)).Msg("Streamed MTR results to gateway")
+	p.logger.Info().Int("result_count", len(legacyResults)).Msg("Streamed MTR results to gateway")
 
 	return true
 }
@@ -253,7 +269,10 @@ func (p *PushLoop) mtrMetricStatus(results []mtrCheckResult) (*proto.GatewayServ
 	}, nil
 }
 
-func (p *PushLoop) collectDueMtrResults(ctx context.Context) []mtrCheckResult {
+// collectDueMtrResults runs due MTR checks. Sweep-group checks run only when
+// includeSweep is set, at most sweepMtrMaxChecksPerTick per call, least
+// recently run first.
+func (p *PushLoop) collectDueMtrResults(ctx context.Context, includeSweep bool) []mtrCheckResult {
 	if p.mtrState == nil {
 		return nil
 	}
@@ -261,12 +280,16 @@ func (p *PushLoop) collectDueMtrResults(ctx context.Context) []mtrCheckResult {
 	now := time.Now()
 
 	p.mtrState.mu.RLock()
-	checks := make([]*mtrCheckConfig, 0, len(p.mtrState.checks)+len(p.mtrState.sweepChecks))
+	checks := make([]*mtrCheckConfig, 0, len(p.mtrState.checks))
 	for _, check := range p.mtrState.checks {
 		checks = append(checks, check)
 	}
-	for _, check := range p.mtrState.sweepChecks {
-		checks = append(checks, check)
+	var sweepChecks []*mtrCheckConfig
+	if includeSweep {
+		sweepChecks = make([]*mtrCheckConfig, 0, len(p.mtrState.sweepChecks))
+		for _, check := range p.mtrState.sweepChecks {
+			sweepChecks = append(sweepChecks, check)
+		}
 	}
 
 	lastRun := make(map[string]time.Time, len(p.mtrState.lastRun))
@@ -274,32 +297,42 @@ func (p *PushLoop) collectDueMtrResults(ctx context.Context) []mtrCheckResult {
 	runOverride := p.mtrState.runCheck
 	p.mtrState.mu.RUnlock()
 
-	if len(checks) == 0 {
+	if len(checks) == 0 && len(sweepChecks) == 0 {
 		return nil
 	}
 
-	slices.SortFunc(checks, func(a, b *mtrCheckConfig) int {
-		if a == nil || b == nil {
-			return 0
-		}
-		return strings.Compare(a.ID, b.ID)
-	})
-
-	results := make([]mtrCheckResult, 0, len(checks))
-
-	for _, check := range checks {
+	isDue := func(check *mtrCheckConfig) bool {
 		if check == nil || !check.Enabled || check.Target == "" {
-			continue
+			return false
 		}
-
 		interval := check.Interval
 		if interval <= 0 {
 			interval = p.getInterval()
 		}
+		last, ok := lastRun[check.ID]
+		return !ok || now.Sub(last) >= interval
+	}
 
-		if last, ok := lastRun[check.ID]; ok && now.Sub(last) < interval {
-			continue
+	checks = slices.DeleteFunc(checks, func(c *mtrCheckConfig) bool { return !isDue(c) })
+	slices.SortFunc(checks, func(a, b *mtrCheckConfig) int {
+		return strings.Compare(a.ID, b.ID)
+	})
+
+	sweepChecks = slices.DeleteFunc(sweepChecks, func(c *mtrCheckConfig) bool { return !isDue(c) })
+	slices.SortFunc(sweepChecks, func(a, b *mtrCheckConfig) int {
+		if c := lastRun[a.ID].Compare(lastRun[b.ID]); c != 0 {
+			return c
 		}
+		return strings.Compare(a.ID, b.ID)
+	})
+	if len(sweepChecks) > sweepMtrMaxChecksPerTick {
+		sweepChecks = sweepChecks[:sweepMtrMaxChecksPerTick]
+	}
+	checks = append(checks, sweepChecks...)
+
+	results := make([]mtrCheckResult, 0, len(checks))
+
+	for _, check := range checks {
 
 		run := p.runMtrCheck
 		if runOverride != nil {
@@ -485,6 +518,11 @@ func deriveSweepGroupMtrChecks(groups []SweepGroupConfig) []*mtrCheckConfig {
 			continue
 		}
 
+		interval := time.Duration(group.Interval)
+		if interval < sweepMtrMinInterval {
+			continue
+		}
+
 		var targets []string
 		seen := make(map[string]struct{})
 		deviceByTarget := make(map[string]string)
@@ -494,6 +532,9 @@ func deriveSweepGroupMtrChecks(groups []SweepGroupConfig) []*mtrCheckConfig {
 				return
 			}
 			if _, ok := seen[target]; !ok {
+				if len(targets) >= sweepMtrMaxTargetsPerGroup {
+					return
+				}
 				seen[target] = struct{}{}
 				targets = append(targets, target)
 			}
@@ -504,7 +545,7 @@ func deriveSweepGroupMtrChecks(groups []SweepGroupConfig) []*mtrCheckConfig {
 
 		if sweepModesIncludeMTR(group.SweepModes) {
 			for _, network := range group.Networks {
-				for _, ip := range expandSweepMtrTarget(network) {
+				for _, ip := range expandSweepMtrTarget(network, sweepMtrMaxTargetsPerGroup-len(targets)) {
 					addTarget(ip, "")
 				}
 			}
@@ -522,7 +563,7 @@ func deriveSweepGroupMtrChecks(groups []SweepGroupConfig) []*mtrCheckConfig {
 			if deviceID == "" {
 				deviceID = strings.TrimSpace(dt.Metadata["device_uid"])
 			}
-			for _, ip := range expandSweepMtrTarget(dt.Network) {
+			for _, ip := range expandSweepMtrTarget(dt.Network, sweepMtrMaxTargetsPerGroup) {
 				addTarget(ip, deviceID)
 			}
 		}
@@ -531,16 +572,9 @@ func deriveSweepGroupMtrChecks(groups []SweepGroupConfig) []*mtrCheckConfig {
 			continue
 		}
 
-		interval := time.Duration(group.Interval)
-		if interval <= 0 {
-			interval = time.Minute
-		}
 		timeout := time.Duration(group.Timeout)
-		if timeout <= 0 {
+		if timeout <= 0 || timeout > mtr.DefaultTimeout {
 			timeout = mtr.DefaultTimeout
-		}
-		if timeout > interval {
-			timeout = interval
 		}
 
 		checkName := strings.TrimSpace(group.Name)
@@ -555,7 +589,7 @@ func deriveSweepGroupMtrChecks(groups []SweepGroupConfig) []*mtrCheckConfig {
 				Target:          target,
 				DeviceID:        deviceByTarget[target],
 				SweepGroupID:    sweepGroupID,
-				ExecutionSource: "scheduled_sweep",
+				ExecutionSource: mtrExecutionSourceScheduledSweep,
 				Interval:        interval,
 				Timeout:         timeout,
 				Enabled:         true,
@@ -582,9 +616,11 @@ func sweepModesIncludeMTR(modes []models.SweepMode) bool {
 	return false
 }
 
-func expandSweepMtrTarget(raw string) []string {
+// expandSweepMtrTarget expands raw into host addresses, skipping any network
+// with more than budget addresses.
+func expandSweepMtrTarget(raw string, budget int) []string {
 	raw = strings.TrimSpace(raw)
-	if raw == "" {
+	if raw == "" || budget <= 0 {
 		return nil
 	}
 	networks, err := normalizeSweepNetwork(raw)
@@ -596,11 +632,13 @@ func expandSweepMtrTarget(raw string) []string {
 	}
 	var out []string
 	for _, network := range networks {
-		if prefix, pErr := netip.ParsePrefix(network); pErr == nil && prefix.Addr().Is6() {
-			hostBits := 128 - prefix.Bits()
-			if hostBits >= 64 || (uint64(1)<<hostBits) > sweeper.MaxIPv6NetworkHosts {
-				continue
-			}
+		prefix, pErr := netip.ParsePrefix(network)
+		if pErr != nil {
+			continue
+		}
+		hostBits := prefix.Addr().BitLen() - prefix.Bits()
+		if hostBits >= 63 || (uint64(1)<<hostBits) > uint64(budget-len(out)) {
+			continue
 		}
 		ips, expandErr := scan.ExpandCIDR(network)
 		if expandErr != nil {
