@@ -183,6 +183,9 @@ type PushLoop struct {
 	// collected again until it is empty.
 	mtrEdge      mtrEdgePending
 	sweepSummary edgeMetricsQueue[map[string]any]
+	// rperfEdge holds the built records of at most one drained rperf metrics
+	// status while the spool refuses admission; polling is paused until empty.
+	rperfEdge rperfEdgePending
 	// sweepResultsEdge is the records of the unleased sweep results response
 	// being spooled, including its final record and, after a permanent spool
 	// refusal of a sibling, its cancel record.

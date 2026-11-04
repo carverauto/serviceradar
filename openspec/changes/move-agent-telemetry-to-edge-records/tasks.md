@@ -45,9 +45,9 @@
   its status-path emission in this release while the agent holds the grant. SNMP, ICMP, rperf,
   MTR, the periodic sweep summary, and unleased sweep-results chunk batches keep the status path.
   DONE (reconciled 2026-11-02): sysmon emits `MetricBatch` records on `serviceradar.metrics.batch` via `go/pkg/agent/push_loop_metrics_edge.go` and stops legacy status-path emission while the grant is held; `ServiceRadar.Edge.MetricsBatchProjection` republishes to `metrics.sysmon.>` with core NATS publish ACL (#6214, #6247).
-- [ ] 2.2 SNMP, ICMP, rperf and MTR metrics on the same contract. Each stops its own status-path
+- [x] 2.2 SNMP, ICMP, rperf and MTR metrics on the same contract. Each stops its own status-path
   emission only in the release that moves it, and only while the agent holds the grant.
-  PARTIAL (reconciled 2026-11-02): SNMP, ICMP and MTR scalar metrics emit on `serviceradar.metrics.batch` via `go/pkg/agent/push_loop_metrics_edge.go` and stop legacy status-path emission while the grant is held (#6247); remaining scope is the rperf agent producer on `serviceradar.metrics.batch` and stopping its status-path `rperf-metrics` emission while the grant is held.
+  DONE (reconciled 2026-11-03): SNMP, ICMP, rperf and MTR scalar metrics emit on `serviceradar.metrics.batch` via `go/pkg/agent/push_loop_metrics_edge.go` and `go/pkg/agent/push_loop_status.go` and stop legacy status-path emission while the grant is held, with `ServiceRadar.Edge.MetricsBatchProjection` republishing onto `metrics.snmp.>`, `metrics.icmp.>`, `metrics.rperf.>` and `metrics.mtr.>` (#6247 and this branch).
 - [x] 2.3 Periodic sweep summary `MetricBatch` on `serviceradar.metrics.batch`, with no source
   authorization. It stays the status-interval sample of the single newest group, leased or not.
   Do not add a per-group interval emitter. This producer stops its status-path emission only in

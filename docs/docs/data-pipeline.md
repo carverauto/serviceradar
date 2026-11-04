@@ -59,9 +59,9 @@ payload-budget and per-part deduplication contracts live in
 `ServiceRadarAgentGateway.MetricBatchSplit`.
 
 When the agent's metrics spool is enabled and it holds a current
-`serviceradar.metrics.batch` grant, its sysmon, SNMP, ICMP and MTR scalar metrics
-and its periodic sweep summary leave the status path on that one grant. Each
-producer keeps its own queue. Full MTR traces from agent-scheduled checks leave
+`serviceradar.metrics.batch` grant, its sysmon, SNMP, ICMP, rperf and MTR scalar
+metrics and its periodic sweep summary leave the status path on that one grant.
+Each producer keeps its own queue or pending-item state. Full MTR traces from agent-scheduled checks leave
 the status path on their own queue when the agent holds a current
 `serviceradar.mtr.scheduled_trace` version 1 grant, and are projected by
 `ServiceRadar.Edge.Projectors.ScheduledMtrTrace`; without that grant they stay
@@ -76,11 +76,9 @@ The agent splits each metrics record at 512 KiB. An unleased sweep results
 record is split by halving the host list so it stays within that grant's row
 ceiling and 512 KiB, and core ingests it on the results path the status
 message used. Core republishes the metric records onto the same
-`metrics.sysmon.>`, `metrics.snmp.>`,
-`metrics.icmp.>`, `metrics.mtr.>` and `metrics.sweep.>` subjects. Core also
-admits `rperf-metrics` batches onto `metrics.rperf.>`; the agent has no rperf
-producer of its own. The Helm chart README documents that opt-in
-(`edgeRecords.agentMetricsEnabled`). The publish rules are
+`metrics.sysmon.>`, `metrics.snmp.>`, `metrics.icmp.>`, `metrics.rperf.>`,
+`metrics.mtr.>` and `metrics.sweep.>` subjects. The Helm chart README documents
+that opt-in (`edgeRecords.agentMetricsEnabled`). The publish rules are
 `ServiceRadar.Edge.MetricsBatchProjection`.
 
 That same spool carries flow-attribution windows and OTLP relay frames, and
