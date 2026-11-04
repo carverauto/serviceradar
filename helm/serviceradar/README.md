@@ -458,12 +458,14 @@ base64-encoded 32-byte seed (the Secret's data encoding wraps that text).
 and periodic sweep summary metrics producers on the same spool. That spool is
 also where flow-attribution windows and OTLP relay frames go while the agent
 holds a current `serviceradar.netprobe.flow_attribution` version 1 or
-`serviceradar.otlp.relay` version 1 grant. Core issues every standing grant in
-its release contract catalog to an agent whose leasing switch is on; it does
-not consult `contractRegistry`. The gateway withholds records for any contract
-that `contractRegistry` does not list as active, so list each enabled
-producer's contract there before turning its leasing switch on. Without `agentMetricsEnabled`, those stay on the status path
-even if core has issued the grant.
+`serviceradar.otlp.relay` version 1 grant. Core issues a standing grant for a
+catalog contract when the contract is in the signed active registry epoch, the
+core node's release catalog holds its exact bundle, and the agent's partition
+has a row; it does not consult `contractRegistry`. The gateway withholds
+records for any contract that `contractRegistry` does not list as active, so
+list each enabled producer's contract there before enabling that producer.
+Without `agentMetricsEnabled`, those stay on the status path even if core has
+issued the grant.
 `edgeRecords.agentTelemetryEnabled` enables its plugin and native add-on
 telemetry producer on that spool.
 `edgeRecords.agentPluginResultsEnabled` enables its Wasm plugin results
@@ -495,7 +497,8 @@ and otherwise both keep the legacy results path. Full
 traces from agent-scheduled MTR checks leave the status path only when the
 agent also holds a `serviceradar.mtr.scheduled_trace` version 1 grant. The
 metrics grant does not carry those traces. Without the trace grant they stay
-on the status path. Each of these grants follows the agent's leasing switch.
+on the status path. Each of these grants follows the signed active registry
+epoch.
 
 Use complete terminal ICMP/TCP host windows for this first canary. Partial-mode
 and MTR windows are not supported by this projection yet. Keep the issuer key
