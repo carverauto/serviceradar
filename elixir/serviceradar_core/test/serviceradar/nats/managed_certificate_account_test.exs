@@ -59,7 +59,7 @@ defmodule ServiceRadar.NATS.ManagedCertificateAccountTest do
 
     def handle_call({:request, %{topic: "$SYS.REQ.SERVER.hub-a.KICK"} = request}, _from, state) do
       %{"cid" => cid} = Jason.decode!(request.body)
-      send(request.recipient, {:msg, %{topic: "kick-reply", body: ~s({"data":{}})}})
+      send(request.recipient, {:msg, %{topic: "kick-reply", body: ~s({"server":{"id":"hub-a"}})}})
       {:reply, {:ok, "kick-reply"}, %{state | kicked: state.kicked ++ [cid]}}
     end
 
@@ -205,9 +205,11 @@ defmodule ServiceRadar.NATS.ManagedCertificateAccountTest do
     user = verify_response(allowed.claims["nats"]["jwt"], allowed.issuer_nkey)
     assert user["aud"] == "EDGE"
     assert user["sub"] == allowed.user_nkey
-    assert [fingerprint, digest] = String.split(user["name"], ".")
-    assert fingerprint == allowed.fingerprint
-    assert digest =~ ~r/^[0-9a-f]{64}$/
+
+    assert user["name"] ==
+             allowed.fingerprint <>
+               ".bbcf9abc89cd17e12ace4aeb6ca3714f8f89d3360d56b540fc49225582c64703"
+
     assert user["nats"]["type"] == "user"
     assert user["nats"]["pub"]["allow"] == ["metrics.example.>"]
     assert user["nats"]["sub"]["allow"] == ["events.example.>"]
@@ -217,6 +219,33 @@ defmodule ServiceRadar.NATS.ManagedCertificateAccountTest do
     assert session.fingerprint == allowed.fingerprint
     assert session.expires_at == user["exp"]
     assert Enum.sort(Map.keys(session)) == [:expires_at, :fingerprint]
+  end
+
+  test "grant names match the Go local-leaf callout golden vectors" do
+    fingerprint = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
+
+    assert Token.grant_name(fingerprint, %{
+             publish: ["metrics.example.>", "telemetry.edge-record.v1.bulk.>"],
+             subscribe: ["_INBOX.>"],
+             publish_deny: ["metrics.example.private.>"]
+           }) ==
+             fingerprint <>
+               ".0a927de9431ea74d4030390481597ca690d23f9779e0c35944cb79d78eca8033"
+
+    assert Token.grant_name(fingerprint, %{
+             publish: ["metrics.example.>"],
+             subscribe: ["events.example.>"]
+           }) ==
+             fingerprint <>
+               ".bbcf9abc89cd17e12ace4aeb6ca3714f8f89d3360d56b540fc49225582c64703"
+
+    assert Token.grant_name(fingerprint, %{
+             publish: ["events.example.*"],
+             subscribe: [],
+             subscribe_deny: ["events.example.private"]
+           }) ==
+             fingerprint <>
+               ".88a5e2cd34fdb8076c88999d2853429aab8889d249b3cbc0c63c207d3df8873c"
   end
 
   test "default grants are jittered around twelve hours independently of policy freshness" do

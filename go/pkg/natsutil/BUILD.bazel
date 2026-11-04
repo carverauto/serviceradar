@@ -25,7 +25,10 @@ go_library(
 
 go_test(
     name = "natsutil_test",
-    srcs = ["events_test.go"],
+    srcs = [
+        "certificate_grant_name_test.go",
+        "events_test.go",
+    ],
     embed = [":natsutil"],
     deps = [
         "@com_github_nats_io_nats_go//:nats_go",

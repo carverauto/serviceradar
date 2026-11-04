@@ -727,7 +727,7 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
       {:ok, %{body: body}} ->
         case Jason.decode(body) do
           {:ok, %{"error" => _}} -> false
-          {:ok, %{"data" => _}} -> true
+          {:ok, %{}} -> true
           _ -> false
         end
 

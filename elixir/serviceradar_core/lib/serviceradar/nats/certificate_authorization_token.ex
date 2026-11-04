@@ -148,8 +148,9 @@ defmodule ServiceRadar.NATS.CertificateAuthorizationToken do
     {publish, subscribe} = user_permissions(permissions)
 
     digest =
-      [publish["allow"], publish["deny"], subscribe["allow"], subscribe["deny"]]
+      [grant_permission(publish), grant_permission(subscribe)]
       |> Jason.encode!()
+      |> go_html_escape()
       |> then(&:crypto.hash(:sha256, &1))
       |> Base.encode16(case: :lower)
 
@@ -163,8 +164,28 @@ defmodule ServiceRadar.NATS.CertificateAuthorizationToken do
 
   # An empty JWT allow list means unrestricted access to NATS, while the
   # managed policy uses an empty list to grant no subjects.
-  defp subject_permissions([], _deny), do: %{"deny" => [">"]}
+  defp subject_permissions([], deny), do: %{"deny" => [">" | deny]}
   defp subject_permissions(allow, deny), do: %{"allow" => allow, "deny" => deny}
+
+  defp grant_permission(permission) do
+    ["allow", "deny"]
+    |> Enum.flat_map(fn key ->
+      case Map.get(permission, key, []) do
+        [] -> []
+        subjects -> [{key, subjects}]
+      end
+    end)
+    |> Jason.OrderedObject.new()
+  end
+
+  defp go_html_escape(json) do
+    json
+    |> String.replace("&", "\\u0026")
+    |> String.replace("<", "\\u003c")
+    |> String.replace(">", "\\u003e")
+    |> String.replace("\u2028", "\\u2028")
+    |> String.replace("\u2029", "\\u2029")
+  end
 
   defp encode(claims, signer, now) do
     claims = Map.merge(claims, %{"iss" => Keypair.public_key(signer), "iat" => now})
