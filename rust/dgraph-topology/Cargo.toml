@@ -28,6 +28,16 @@ name = "world_worker"
 path = "tests/world_worker.rs"
 required-features = ["integration-tests"]
 
+# Not a test: the Elixir core integration lanes drive this binary to own a
+# scratch namespace (see tests/support/scratch_cli.rs). Declared as a
+# harness-free test target so it can use the dev-dependencies the fixture
+# needs; Bazel builds the same file as //rust/dgraph-topology:dgraph_scratch_cli.
+[[test]]
+name = "dgraph_scratch_cli"
+path = "tests/support/scratch_cli.rs"
+harness = false
+required-features = ["integration-tests"]
+
 [features]
 default = []
 integration-tests = [
