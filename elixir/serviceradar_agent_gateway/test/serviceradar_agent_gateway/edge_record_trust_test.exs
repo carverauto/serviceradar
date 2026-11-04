@@ -1,6 +1,8 @@
 defmodule ServiceRadarAgentGateway.EdgeRecordTrustTest do
   use ExUnit.Case, async: false
 
+  alias ServiceRadar.Edge.ContractRegistry
+  alias ServiceRadar.Edge.IssuerKey
   alias ServiceRadarAgentGateway.EdgeRecordTrust
   alias ServiceRadarAgentGateway.TestSupport.EdgeRecordFactory
 
@@ -51,7 +53,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrustTest do
 
   test "rejects documents that could not authorize a decision", %{keys: keys} do
     valid = EdgeRecordFactory.trust_document(keys.public)
-    [key] = valid["keys"]
+    [key | _registry_key] = valid["keys"]
 
     assert {:error, :document} = EdgeRecordTrust.new([valid])
     assert {:error, :no_keys} = EdgeRecordTrust.new(%{valid | "keys" => []})
@@ -109,23 +111,132 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrustTest do
              )
   end
 
-  test "installs from a JSON file, and an invalid file leaves nothing installed", %{keys: keys} do
-    dir = Path.join(System.tmp_dir!(), "edge-record-trust-#{System.unique_integer([:positive])}")
-    File.mkdir_p!(dir)
-    on_exit(fn -> File.rm_rf(dir) end)
+  describe "the contract registry installed with the trust" do
+    test "a verified member installs with the document's trust, and the next report names its epochs", %{keys: keys} do
+      epoch = EdgeRecordFactory.registry_epoch()
+      assert :ok = EdgeRecordTrust.install(EdgeRecordFactory.trust_document(keys.public))
 
-    good = Path.join(dir, "trust.json")
-    File.write!(good, Jason.encode!(EdgeRecordFactory.trust_document(keys.public)))
-    bad = Path.join(dir, "bad.json")
-    File.write!(bad, ~s({"keys": []}))
+      assert {:ok, %{registry: %{epochs: %{1_000_000 => _}}, registry_refused: []}} = EdgeRecordTrust.snapshot()
 
-    EdgeRecordTrust.clear()
-    refute EdgeRecordTrust.available?()
+      assert EdgeRecordTrust.registry_report("gateway-test-1") == %{
+               "gateway_id" => "gateway-test-1",
+               "installed" => [
+                 %{
+                   "registry_epoch" => 1_000_000,
+                   "registry_snapshot_sha256" => Base.encode16(epoch.snapshot_sha256, case: :lower)
+                 }
+               ],
+               "refused" => []
+             }
+    end
 
-    assert {:error, :no_keys} = EdgeRecordTrust.load_file(bad)
-    refute EdgeRecordTrust.available?()
+    # Decision 12: refuse the member whole, keep the registry verified last, still install trust,
+    # and surface the refusal.
+    test "a bad signature keeps the previous registry, installs the new trust and reports the refusal",
+         %{keys: keys} do
+      attach_refusals()
+      assert :ok = EdgeRecordTrust.install(EdgeRecordFactory.trust_document(keys.public))
 
-    assert :ok = EdgeRecordTrust.load_file(good)
-    assert EdgeRecordTrust.available?()
+      forged = EdgeRecordFactory.registry_epoch(epoch: 1_000_001, key: IssuerKey.from_seed(:binary.copy(<<0x77>>, 32)))
+      forged = %{forged | signing_key_id: EdgeRecordFactory.registry_key().key_id}
+      later_fence = {EdgeRecordFactory.uuidv7(), EdgeRecordFactory.uuidv7(), 0, 9}
+
+      bad =
+        EdgeRecordFactory.trust_document(keys.public,
+          fences: [later_fence],
+          contract_registry: EdgeRecordFactory.registry_member([EdgeRecordFactory.registry_epoch(), forged])
+        )
+
+      assert :ok = EdgeRecordTrust.install(bad)
+      assert {:ok, snapshot} = EdgeRecordTrust.snapshot()
+
+      {scope, assignment, shard, authority} = later_fence
+      assert EdgeRecordTrust.fence_relation(snapshot, {scope, assignment, shard}, authority) == :current
+      assert Map.keys(snapshot.registry.epochs) == [1_000_000]
+
+      assert %{"installed" => [%{"registry_epoch" => 1_000_000}], "refused" => [refused]} =
+               EdgeRecordTrust.registry_report("gateway-test-1")
+
+      assert refused == %{
+               "registry_epoch" => 1_000_001,
+               "signing_key_id" => Base.encode64(EdgeRecordFactory.registry_key().key_id),
+               "reason" => "registry_epoch_signature_invalid"
+             }
+
+      assert_received {:registry_refused, %{reason: "registry_epoch_signature_invalid"}}
+    end
+
+    test "a fresh gateway whose only document is refused holds no registry", %{keys: keys} do
+      tampered = Map.update!(EdgeRecordFactory.registry_epoch(), :epoch, &(&1 + 7))
+
+      document =
+        EdgeRecordFactory.trust_document(keys.public, contract_registry: EdgeRecordFactory.registry_member([tampered]))
+
+      assert :ok = EdgeRecordTrust.install(document)
+      assert EdgeRecordTrust.available?()
+      refute EdgeRecordTrust.registry_available?()
+      assert %{"installed" => [], "refused" => [%{"registry_epoch" => 1_000_007}]} = EdgeRecordTrust.registry_report("gw")
+    end
+
+    test "an unparseable or missing member is refused like a bad signature", %{keys: keys} do
+      assert :ok = EdgeRecordTrust.install(EdgeRecordFactory.trust_document(keys.public))
+
+      for member <- [nil, %{"format_version" => 1, "epochs" => []}, %{"format_version" => 2, "epochs" => [%{}]}] do
+        assert :ok = EdgeRecordTrust.install(EdgeRecordFactory.trust_document(keys.public, contract_registry: member))
+        assert {:ok, %{registry: %{epochs: %{1_000_000 => _}}}} = EdgeRecordTrust.snapshot()
+      end
+    end
+
+    # The held registry is the one copy reused across documents, so it is verified again under the
+    # keys the new document trusts before it is kept.
+    test "a held registry whose key the new document no longer trusts is dropped, not kept", %{keys: keys} do
+      assert :ok = EdgeRecordTrust.install(EdgeRecordFactory.trust_document(keys.public))
+      without_registry_key = EdgeRecordFactory.trust_document(keys.public, contract_registry: nil)
+      without_registry_key = %{without_registry_key | "keys" => Enum.take(without_registry_key["keys"], 1)}
+
+      assert :ok = EdgeRecordTrust.install(without_registry_key)
+      assert EdgeRecordTrust.available?()
+      refute EdgeRecordTrust.registry_available?()
+    end
+
+    # The report crosses into core, whose coordinator reads it as readiness evidence; a shape core
+    # does not accept would leave every candidate unactivated.
+    test "core accepts the installation report the gateway sends", %{keys: keys} do
+      {:ok, _} = Application.ensure_all_started(:phoenix_pubsub)
+      if !Process.whereis(ServiceRadar.PubSub), do: start_supervised!({Phoenix.PubSub, name: ServiceRadar.PubSub})
+      :ok = Phoenix.PubSub.subscribe(ServiceRadar.PubSub, ContractRegistry.reports_topic())
+
+      forged = %{EdgeRecordFactory.registry_epoch(epoch: 1_000_001) | signature: :binary.copy(<<0>>, 64)}
+      member = EdgeRecordFactory.registry_member([EdgeRecordFactory.registry_epoch(), forged])
+      assert :ok = EdgeRecordTrust.install(EdgeRecordFactory.trust_document(keys.public))
+      assert :ok = EdgeRecordTrust.install(EdgeRecordFactory.trust_document(keys.public, contract_registry: member))
+
+      assert :ok = ContractRegistry.record_gateway_report(EdgeRecordTrust.registry_report("gateway-test-1"))
+
+      epoch = EdgeRecordFactory.registry_epoch()
+
+      assert_receive {:edge_registry_gateway_report,
+                      %{
+                        gateway_id: "gateway-test-1",
+                        installed: [%{epoch: 1_000_000, snapshot_sha256: snapshot}],
+                        refused: [%{epoch: 1_000_001, reason: "registry_epoch_signature_invalid"}]
+                      }}
+
+      assert snapshot == epoch.snapshot_sha256
+    end
+  end
+
+  defp attach_refusals do
+    handler = {__MODULE__, self()}
+    test_pid = self()
+
+    :telemetry.attach(
+      handler,
+      [:serviceradar, :agent_gateway, :edge_registry, :signature_rejected],
+      fn _event, _measurements, metadata, _config -> send(test_pid, {:registry_refused, metadata}) end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
   end
 end

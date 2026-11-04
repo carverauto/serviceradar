@@ -97,10 +97,6 @@ defmodule ServiceRadarAgentGateway.Application do
       capabilities: capabilities
     )
 
-    # The edge-record lane verifies every frame against this local snapshot; without it
-    # `edge-records:v1` never becomes ready (see EdgeRecordTrust).
-    _ = ServiceRadarAgentGateway.EdgeRecordTrust.load_configured()
-
     # Attach OTEL auto-instrumentation handlers (SDK configured in runtime.exs)
     OtelSetup.attach_instrumentations(instrumentations: [])
 
@@ -142,25 +138,20 @@ defmodule ServiceRadarAgentGateway.Application do
           ServiceRadarAgentGateway.RuntimeMetrics,
           ServiceRadarAgentGateway.CameraMediaSessionTracker,
           ServiceRadarAgentGateway.DesktopMediaSessionTracker,
-          ServiceRadarAgentGateway.DesktopMediaCloseReconciler
+          ServiceRadarAgentGateway.DesktopMediaCloseReconciler,
+          # The edge-record lane verifies every frame against the trust snapshot, and the contract
+          # registry it carries, that this refreshes from core (see EdgeRecordTrust).
+          ServiceRadarAgentGateway.EdgeRecordTrustRefresh
 
           # NOTE: Legacy polling modules (AgentClient, TaskExecutor) have been deleted.
           # In the new push-only architecture, agents push status to the gateway.
           # The gateway never initiates connections to agents.
-        ] ++ trust_refresh_children() ++ edge_listener_children(grpc_port) ++ registration_children
+        ] ++ edge_listener_children(grpc_port) ++ registration_children
 
     children = core_children ++ gateway_children
 
     opts = [strategy: :one_for_one, name: ServiceRadarAgentGateway.Supervisor]
     Supervisor.start_link(children, opts)
-  end
-
-  defp trust_refresh_children do
-    config = Application.get_env(:serviceradar_agent_gateway, :edge_record_trust, [])
-
-    if Keyword.get(config, :source, :file) == :core,
-      do: [ServiceRadarAgentGateway.EdgeRecordTrustRefresh],
-      else: []
   end
 
   @doc """
@@ -321,44 +312,21 @@ defmodule ServiceRadarAgentGateway.Application do
     end
   end
 
+  # The edge-record publisher always runs (the pipeline has no switch), so the shared NATS
+  # connection and the edge publisher lanes are always composed.
   defp nats_connection_child do
-    if gateway_publisher_enabled?() do
-      if Process.whereis(Connection.connection_name()) do
-        nil
-      else
-        ServiceRadar.NATS.Supervisor
-      end
+    if Process.whereis(Connection.connection_name()) do
+      nil
+    else
+      ServiceRadar.NATS.Supervisor
     end
   end
 
-  # Use the same enablement gate as the shared NATS connection. PublisherSupervisor owns
-  # lane connections, pools and publish pipelines; LaneSupervisor owns their startup and readiness
-  # ordering. The publisher is handed in here because core cannot name JetStreamPublisher.
+  # PublisherSupervisor owns lane connections, pools and publish pipelines; LaneSupervisor owns
+  # their startup and readiness ordering. The publisher is handed in here because core cannot name
+  # JetStreamPublisher.
   defp edge_publisher_pools_child do
-    if gateway_publisher_enabled?() do
-      {PublisherSupervisor, publisher: &JetStreamPublisher.publish_record/2}
-    end
-  end
-
-  defp gateway_publisher_enabled? do
-    Enum.any?(
-      [
-        :sysmon_metrics_publisher,
-        :snmp_metrics_publisher,
-        :icmp_metrics_publisher,
-        :plugin_metrics_publisher,
-        :rperf_metrics_publisher,
-        :mtr_metrics_publisher,
-        :sweep_metrics_publisher,
-        :otlp_relay_publisher,
-        :edge_records_publisher
-      ],
-      fn key ->
-        :serviceradar_agent_gateway
-        |> Application.get_env(key, [])
-        |> Keyword.get(:enabled, false)
-      end
-    )
+    {PublisherSupervisor, publisher: &JetStreamPublisher.publish_record/2}
   end
 
   defp process_registry_child do

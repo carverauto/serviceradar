@@ -40,7 +40,6 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerMtlsIdentityTest do
   alias ServiceRadarAgentGateway.CertIssuer
   alias ServiceRadarAgentGateway.EdgeRecordIngestServer
   alias ServiceRadarAgentGateway.EdgeRecordTrust
-  alias ServiceRadarAgentGateway.TestSupport.EdgeContractRegistryStub
   alias ServiceRadarAgentGateway.TestSupport.EdgeRecordCapabilityStub
   alias ServiceRadarAgentGateway.TestSupport.EdgeRecordFactory, as: Factory
   alias ServiceRadarAgentGateway.TestSupport.EdgeRecordPublisherStub
@@ -56,11 +55,8 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerMtlsIdentityTest do
       pipelines: Application.get_env(:serviceradar_agent_gateway, :edge_record_ingest_pipelines),
       capability: Application.get_env(:serviceradar_agent_gateway, :edge_record_ingest_capability),
       supervisor: Application.get_env(:serviceradar_agent_gateway, :edge_record_ingest_task_supervisor),
-      registry: Application.get_env(:serviceradar_agent_gateway, :edge_record_contract_registry_impl),
       ca_file: Application.get_env(:serviceradar_agent_gateway, :edge_deployment_ca_file)
     }
-
-    Application.put_env(:serviceradar_agent_gateway, :edge_record_contract_registry_impl, EdgeContractRegistryStub)
 
     _supervisor = start_supervised!({Task.Supervisor, name: __MODULE__.TaskSupervisor})
 
@@ -106,7 +102,6 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerMtlsIdentityTest do
       restore_env(:edge_record_ingest_pipelines, previous.pipelines)
       restore_env(:edge_record_ingest_capability, previous.capability)
       restore_env(:edge_record_ingest_task_supervisor, previous.supervisor)
-      restore_env(:edge_record_contract_registry_impl, previous.registry)
       restore_env(:edge_deployment_ca_file, previous.ca_file)
     end)
 

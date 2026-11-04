@@ -1,16 +1,24 @@
 defmodule ServiceRadarAgentGateway.EdgeRecordTrustRefresh do
   @moduledoc """
-  Refreshes the gateway's local edge trust from core every five seconds.
+  Refreshes the gateway's local edge trust, and the contract registry it carries, from core every
+  five seconds. It always runs: core is the only trust source.
 
   Requests are serialized and bounded; ingest reads the installed snapshot directly. A snapshot
   expires thirty seconds after its request started, so a disconnected or stalled refresher
   cannot authorize indefinitely using an old fence. Failed fetches leave the last snapshot
-  usable only until that deadline. Boot-time files are a separate, explicitly selected mode.
+  usable only until that deadline.
+
+  Each refresh calls `ServiceRadar.Edge.RecordTrust.refresh/1` with this gateway's report of the
+  registry it installed on the previous refresh (`EdgeRecordTrust.registry_report/1`): the epochs
+  it holds and any it refused. Core's transition coordinator activates a candidate epoch only
+  once every live gateway reports holding it, so the report is keyed by the id this gateway
+  registers with `ServiceRadar.GatewayTracker`.
   """
 
   use GenServer
 
   alias ServiceRadar.Edge.RecordTrust
+  alias ServiceRadarAgentGateway.Config
   alias ServiceRadarAgentGateway.CoreNodeForwarder
   alias ServiceRadarAgentGateway.EdgeRecordTrust
 
@@ -53,7 +61,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrustRefresh do
   defp refresh do
     expires_at = System.monotonic_time(:millisecond) + @max_age_ms
 
-    with {:ok, document} <- fetch(),
+    with {:ok, document} <- fetch(EdgeRecordTrust.registry_report(Config.gateway_id())),
          :ok <- EdgeRecordTrust.install(document, expires_at) do
       :ok
     else
@@ -65,10 +73,10 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrustRefresh do
 
   defp schedule, do: Process.send_after(self(), :refresh, @interval_ms)
 
-  defp fetch do
+  defp fetch(report) do
     core = CoreNodeForwarder.select_core_node("edge record trust")
 
-    case :rpc.call(core, RecordTrust, :snapshot, [], @rpc_timeout_ms) do
+    case :rpc.call(core, RecordTrust, :refresh, [report], @rpc_timeout_ms) do
       {:badrpc, reason} -> {:error, reason}
       result -> result
     end

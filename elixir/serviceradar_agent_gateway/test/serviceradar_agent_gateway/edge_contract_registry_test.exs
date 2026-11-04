@@ -1,21 +1,23 @@
 defmodule ServiceRadarAgentGateway.EdgeContractRegistryTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
+  alias ServiceRadar.Edge.IssuerKey
   alias Serviceradar.Edge.V1.EdgeProducerContext
   alias Serviceradar.Edge.V1.EdgeRecordV1
   alias ServiceRadarAgentGateway.EdgeContractRegistry
-  alias ServiceRadarAgentGateway.EdgeContractRegistry.Static
-  alias ServiceRadarAgentGateway.TestSupport.EdgeContractRegistryStub
+  alias ServiceRadarAgentGateway.TestSupport.EdgeRecordFactory, as: Factory
 
   @session %{
     authenticated_agent_id: "agent-1",
     route_profile: :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
     traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_BULK
   }
+  @draining 1_000_000
+  @active 1_000_001
 
   describe "admit/3" do
-    test "admits an active bundle and returns only the route its entry pins" do
-      assert {:ok, route} = admit(record())
+    test "admits a record under its epoch's entry and returns only the route that entry pins" do
+      assert {:ok, route} = admit(record(), registry!())
 
       assert route == %{
                route_profile: :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
@@ -24,229 +26,189 @@ defmodule ServiceRadarAgentGateway.EdgeContractRegistryTest do
              }
     end
 
-    test "withholds while no registry is loaded" do
-      assert {:withhold, :registry_unavailable} =
-               EdgeContractRegistry.admit(record(), @session, {:error, :registry_not_configured})
+    # Decision 5: a draining epoch's backlog drains under ITS exact bundle after the active epoch
+    # changed that contract, and neither epoch's bundle is accepted under the other.
+    test "admits a draining epoch's record under that epoch's bundle after a newer epoch changed it" do
+      {draining, active} = changed_bundle_epochs()
+      registry = registry!([draining, active])
+
+      assert {:ok, _route} = admit(record(Factory.contract_ref(draining)), registry)
+      assert {:ok, _route} = admit(record(Factory.contract_ref(active)), registry)
+
+      old_bundle_under_new_epoch = %{Factory.contract_ref(active) | contract_bundle_sha256: bundle(draining)}
+      assert {:reject, :contract_digest_mismatch} = admit(record(old_bundle_under_new_epoch), registry)
     end
 
-    test "withholds an epoch the gateway does not hold yet rather than poisoning it" do
-      assert {:withhold, :registry_epoch_ahead} = admit(with_contract(record(), registry_epoch: 2))
+    test "admits under a candidate epoch, since lifecycle is per epoch and core decides what it signs" do
+      candidate = Factory.registry_epoch(epoch: @active, state: :candidate)
+
+      assert {:ok, _route} =
+               admit(record(Factory.contract_ref(candidate)), registry!([Factory.registry_epoch(), candidate]))
     end
 
-    # An epoch never comes back, so withholding an older epoch's record capped its lane for good.
-    test "admits a record from an older epoch whose exact bundle the held snapshot still registers" do
-      newer = %{
-        EdgeContractRegistryStub.snapshot_with(:active)
-        | registry_epoch: 2,
-          registry_snapshot_sha256: :binary.copy(<<0xC2>>, 32)
-      }
-
-      assert {:ok, %{partition_rule: :network_scope_v1}} =
-               EdgeContractRegistry.admit(with_contract(record(), registry_epoch: 1), @session, {:ok, newer})
+    test "withholds an epoch newer than every epoch held, rather than poisoning it" do
+      ahead = %{Factory.contract_ref() | registry_epoch: @active}
+      assert {:withhold, :registry_epoch_ahead} = admit(record(ahead), registry!())
     end
 
-    test "withholds an older epoch's record whose bundle the held snapshot no longer registers" do
-      newer = %{EdgeContractRegistryStub.snapshot_with(:active) | registry_epoch: 2}
+    test "rejects a retired epoch permanently, whether the document drops it or marks it retired" do
+      {draining, active} = changed_bundle_epochs()
 
-      assert {:withhold, :historical_bundle_not_registered} =
-               EdgeContractRegistry.admit(
-                 with_contract(record(), registry_epoch: 1, contract_bundle_sha256: :binary.copy(<<0xEE>>, 32)),
-                 @session,
-                 {:ok, newer}
-               )
+      assert {:reject, :registry_epoch_retired} =
+               admit(record(Factory.contract_ref(draining)), registry!([active]))
 
-      assert {:withhold, :historical_bundle_not_registered} =
-               EdgeContractRegistry.admit(
-                 with_contract(record(), registry_epoch: 1, contract_id: "serviceradar.test.retired"),
-                 @session,
-                 {:ok, newer}
-               )
+      assert {:reject, :registry_epoch_retired} =
+               admit(record(Factory.contract_ref(draining)), registry!([%{draining | state: :retired}, active]))
     end
 
-    test "an older epoch's record still passes the lifecycle and route checks of its entry" do
-      draining = %{EdgeContractRegistryStub.snapshot_with(:draining) | registry_epoch: 2}
+    test "rejects an installation-static epoch permanently, even with no registry held" do
+      static = %{Factory.contract_ref() | registry_epoch: 2}
 
-      assert {:withhold, {:contract_not_active, :draining}} =
-               EdgeContractRegistry.admit(with_contract(record(), registry_epoch: 1), @session, {:ok, draining})
-
-      newer = %{EdgeContractRegistryStub.snapshot_with(:active) | registry_epoch: 2}
-
-      assert {:reject, :cost_model_mismatch} =
-               EdgeContractRegistry.admit(
-                 %{with_contract(record(), registry_epoch: 1) | cost_model_version: 9},
-                 @session,
-                 {:ok, newer}
-               )
+      assert {:reject, :static_registry_epoch} = admit(record(static), registry!())
+      assert {:reject, :static_registry_epoch} = admit(record(static), nil)
     end
 
-    test "withholds a same-epoch record naming a different snapshot" do
-      assert {:withhold, :registry_snapshot_mismatch} =
-               admit(with_contract(record(), registry_snapshot_sha256: :binary.copy(<<0xEE>>, 32)))
+    test "withholds every other record while no registry is verified" do
+      assert {:withhold, :registry_unavailable} = admit(record(), nil)
     end
 
-    test "withholds a contract the held snapshot does not contain, even under the same epoch and digest" do
-      assert {:withhold, :unknown_contract} = admit(with_contract(record(), contract_id: "serviceradar.test.other"))
-      assert {:withhold, :unknown_contract} = admit(with_contract(record(), contract_version: 2))
-    end
+    # The epoch's document is signed and immutable, so a mismatch under a held epoch can never
+    # clear; withholding it would cap the lane for good.
+    test "rejects what a held epoch does not sign: its snapshot, contract or bundle" do
+      registry = registry!()
+      ref = Factory.contract_ref()
 
-    test "withholds a bundle digest that differs from the registered one, even under the same epoch and digest" do
-      assert {:withhold, :contract_digest_mismatch} =
-               admit(with_contract(record(), contract_bundle_sha256: :binary.copy(<<0xEE>>, 32)))
+      for {fields, reason} <- [
+            {%{registry_snapshot_sha256: :binary.copy(<<0xEE>>, 32)}, :registry_snapshot_mismatch},
+            {%{contract_id: "serviceradar.test.other"}, :unknown_contract},
+            {%{contract_version: 2}, :unknown_contract},
+            {%{contract_bundle_sha256: :binary.copy(<<0xEE>>, 32)}, :contract_digest_mismatch}
+          ] do
+        assert {:reject, ^reason} = admit(record(struct(ref, fields)), registry)
+      end
     end
 
     test "rejects a record with no output contract" do
-      assert {:reject, :contract_missing} = admit(%{record() | output_contract: nil})
+      assert {:reject, :contract_missing} = admit(%{record() | output_contract: nil}, registry!())
     end
 
-    test "withholds every non-active, non-revoked lifecycle state" do
-      for state <- [:candidate, :ready, :draining, :retired] do
-        loaded = {:ok, EdgeContractRegistryStub.snapshot_with(state)}
-
-        assert {:withhold, {:contract_not_active, ^state}} =
-                 EdgeContractRegistry.admit(record(), @session, loaded)
-      end
-    end
-
-    test "holds a security-revoked bundle, distinct from a withhold" do
-      loaded = {:ok, EdgeContractRegistryStub.snapshot_with(:security_revoked)}
-      assert {:hold, :security_revoked} = EdgeContractRegistry.admit(record(), @session, loaded)
-    end
-
-    test "rejects a route the bundle does not pin, even when the record and lane agree" do
+    test "rejects a route or cost model the entry does not pin, even when the record and lane agree" do
       interactive = %{record() | traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_INTERACTIVE}
       session = %{@session | traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_INTERACTIVE}
 
-      assert {:reject, :route_conflict} =
-               EdgeContractRegistry.admit(interactive, session, {:ok, EdgeContractRegistryStub.snapshot_with(:active)})
+      assert {:reject, :route_conflict} = EdgeContractRegistry.admit(interactive, session, registry!())
+      assert {:reject, :cost_model_mismatch} = admit(%{record() | cost_model_version: 2}, registry!())
     end
 
-    test "rejects a cost model the bundle does not pin" do
-      assert {:reject, :cost_model_mismatch} = admit(%{record() | cost_model_version: 2})
+    test "withholds a bundle outside the projectable set, and admits one inside it" do
+      {draining, active} = changed_bundle_epochs()
+      registry = registry!([draining, active], projectable_bundles: [bundle(active)])
+
+      assert {:withhold, :bundle_not_projectable} = admit(record(Factory.contract_ref(draining)), registry)
+      assert {:ok, _route} = admit(record(Factory.contract_ref(active)), registry)
     end
 
-    test "never trusts provenance the authenticated session contradicts" do
-      assert {:reject, :principal_mismatch} =
-               admit(%{record() | producer_context: %EdgeProducerContext{origin_principal_id: "agent-2"}})
+    test "never trusts provenance the authenticated session contradicts, with or without a registry" do
+      impostor = %{record() | producer_context: %EdgeProducerContext{origin_principal_id: "agent-2"}}
 
-      assert {:reject, :principal_mismatch} = admit(%{record() | producer_context: nil})
+      assert {:reject, :principal_mismatch} = admit(impostor, registry!())
+      assert {:reject, :principal_mismatch} = admit(impostor, nil)
+      assert {:reject, :principal_mismatch} = admit(%{record() | producer_context: nil}, registry!())
 
       assert {:reject, :lane_conflict} =
-               admit(%{record() | traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_INTERACTIVE})
-    end
-
-    test "checks provenance before the registry, so a mismatched session is rejected even with no registry" do
-      forged = %{record() | producer_context: %EdgeProducerContext{origin_principal_id: "agent-2"}}
-
-      assert {:reject, :principal_mismatch} =
-               EdgeContractRegistry.admit(forged, @session, {:error, :registry_not_configured})
+               admit(%{record() | traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_INTERACTIVE}, registry!())
     end
   end
 
-  describe "Static.parse/1" do
-    test "parses a snapshot into entries keyed by contract id and version" do
-      assert {:ok, snapshot} = Static.parse(json())
+  describe "verify_member/2" do
+    test "refuses the whole member when one epoch's signed contents were altered" do
+      {draining, active} = changed_bundle_epochs()
+      [_draining_item, active_item] = Factory.registry_member([draining, active])["epochs"]
+      [entry] = active_item["contracts"]
 
-      assert snapshot.registry_epoch == 1
-      assert snapshot.registry_snapshot_sha256 == :binary.copy(<<0xB2>>, 32)
-
-      assert %{
-               state: :active,
-               contract_bundle_sha256: bundle,
-               route_profile: :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
-               traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_BULK,
-               partition_rule: :network_scope_v1,
-               cost_model_version: 1
-             } = snapshot.contracts[{"serviceradar.test.sweep", 1}]
-
-      assert bundle == :binary.copy(<<0xB1>>, 32)
-    end
-
-    test "an unset registry is not configured" do
-      assert {:error, :registry_not_configured} = Static.parse(nil)
-      assert {:error, :registry_not_configured} = Static.parse("")
-    end
-
-    test "fails closed on the whole snapshot for any malformed part" do
-      for {label, doc} <- [
-            not_json: "{",
-            unknown_key: json(extra: 1),
-            missing_key: Jason.encode!(%{"registry_epoch" => 1, "contracts" => []}),
-            zero_epoch: json(registry_epoch: 0),
-            uppercase_digest: json(registry_snapshot_sha256: String.upcase(hex(0xB2))),
-            unknown_state: json_contract(state: "paused"),
-            inactive_route: json_contract(route_profile: "EDGE_RECORD_ROUTE_PROFILE_CONTINUOUS_V1"),
-            unknown_rule: json_contract(partition_rule: "execution_v1"),
-            unknown_contract_key: json_contract(subject: "telemetry.anything"),
-            duplicate: json(contracts: [contract_doc(), contract_doc()])
+      for tampered <- [
+            %{entry | "cost_model_version" => 2},
+            %{entry | "projection_revision" => 1},
+            %{entry | "contract_bundle_sha256" => Base.encode16(bundle(draining), case: :lower)}
           ] do
-        assert {:error, {:invalid_registry, _reason}} = Static.parse(doc), "#{label} was accepted"
+        member = member_with([draining, active], 1, %{active_item | "contracts" => [tampered]})
+
+        assert {:error, :registry_epoch_signature_invalid, [%{epoch: @active}]} =
+                 EdgeContractRegistry.verify_member(member, trusted_keys())
       end
     end
 
-    test "snapshot/0 reads the configured document and re-parses when it changes" do
-      previous = Application.get_env(:serviceradar_agent_gateway, :edge_record_contract_registry)
+    test "refuses an epoch signed under a key id the document does not trust" do
+      stranger = IssuerKey.from_seed(:binary.copy(<<0x6A>>, 32))
+      epoch = Factory.registry_epoch(key: stranger)
 
-      on_exit(fn ->
-        case previous do
-          nil -> Application.delete_env(:serviceradar_agent_gateway, :edge_record_contract_registry)
-          value -> Application.put_env(:serviceradar_agent_gateway, :edge_record_contract_registry, value)
-        end
-      end)
+      assert {:error, :registry_epoch_signing_key_unknown, [%{epoch: @draining, signing_key_id: key_id}]} =
+               EdgeContractRegistry.verify_member(Factory.registry_member([epoch]), trusted_keys())
 
-      Application.put_env(:serviceradar_agent_gateway, :edge_record_contract_registry, json())
-      assert {:ok, %{registry_epoch: 1}} = Static.snapshot()
+      assert key_id == stranger.key_id
+    end
 
-      Application.put_env(:serviceradar_agent_gateway, :edge_record_contract_registry, json(registry_epoch: 7))
-      assert {:ok, %{registry_epoch: 7}} = Static.snapshot()
+    test "fails closed on a malformed member" do
+      valid = Factory.registry_member()
+      [item] = valid["epochs"]
 
-      Application.delete_env(:serviceradar_agent_gateway, :edge_record_contract_registry)
-      assert {:error, :registry_not_configured} = Static.snapshot()
+      for {label, member, reason} <- [
+            {:not_a_map, [valid], :registry_member},
+            {:missing, nil, :registry_member_missing},
+            {:unknown_key, Map.put(valid, "extra", 1), :registry_member},
+            {:format_version, %{valid | "format_version" => 1}, :registry_format_version},
+            {:duplicate_epoch, %{valid | "epochs" => [item, item]}, :registry_epoch_duplicate},
+            {:malformed_epoch, %{valid | "epochs" => [Map.delete(item, "state")]}, :registry_epoch_malformed},
+            {:projectable_not_hex, Map.put(valid, "projectable_bundles", ["zz"]), :registry_projectable_bundles},
+            {:projectable_duplicate, Map.put(valid, "projectable_bundles", List.duplicate(String.duplicate("ab", 32), 2)),
+             :registry_projectable_bundles}
+          ] do
+        assert {:error, ^reason, _refused} = EdgeContractRegistry.verify_member(member, trusted_keys()),
+               "#{label} was accepted"
+      end
     end
   end
 
-  defp admit(record) do
-    EdgeContractRegistry.admit(record, @session, {:ok, EdgeContractRegistryStub.snapshot_with(:active)})
+  # Epoch @draining holds the default contract; epoch @active changed it at the same contract
+  # version, with a new bundle and a higher projection revision.
+  defp changed_bundle_epochs do
+    draining = Factory.registry_epoch(epoch: @draining, state: :draining)
+
+    active =
+      Factory.registry_epoch(
+        epoch: @active,
+        entries: [Factory.contract_entry(%{contract_bundle_sha256: :binary.copy(<<0xC1>>, 32), projection_revision: 2})]
+      )
+
+    {draining, active}
   end
 
-  defp record do
+  defp bundle(epoch), do: epoch.contracts |> Map.values() |> hd() |> Map.fetch!(:contract_bundle_sha256)
+
+  defp member_with(epochs, index, item) do
+    member = Factory.registry_member(epochs)
+    %{member | "epochs" => List.replace_at(member["epochs"], index, item)}
+  end
+
+  defp trusted_keys do
+    key = Factory.registry_key()
+    %{key.key_id => key.public_key}
+  end
+
+  defp registry!(epochs \\ [Factory.registry_epoch()], opts \\ []) do
+    {:ok, registry} = EdgeContractRegistry.verify_member(Factory.registry_member(epochs, opts), trusted_keys())
+    registry
+  end
+
+  defp admit(record, registry), do: EdgeContractRegistry.admit(record, @session, registry)
+
+  defp record(contract \\ Factory.contract_ref()) do
     %EdgeRecordV1{
       route_profile: :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
       traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_BULK,
-      output_contract: EdgeContractRegistryStub.contract_ref(),
+      output_contract: contract,
       producer_context: %EdgeProducerContext{origin_principal_id: "agent-1"},
       cost_model_version: 1
     }
   end
-
-  defp with_contract(record, fields), do: %{record | output_contract: struct(record.output_contract, fields)}
-
-  defp hex(byte), do: Base.encode16(:binary.copy(<<byte>>, 32), case: :lower)
-
-  defp contract_doc(overrides \\ []) do
-    Map.merge(
-      %{
-        "contract_id" => "serviceradar.test.sweep",
-        "contract_version" => 1,
-        "contract_bundle_sha256" => hex(0xB1),
-        "state" => "active",
-        "route_profile" => "EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1",
-        "traffic_class" => "EDGE_RECORD_TRAFFIC_CLASS_BULK",
-        "partition_rule" => "network_scope_v1",
-        "cost_model_version" => 1
-      },
-      Map.new(overrides, fn {k, v} -> {Atom.to_string(k), v} end)
-    )
-  end
-
-  defp json(overrides \\ []) do
-    %{
-      "registry_epoch" => 1,
-      "registry_snapshot_sha256" => hex(0xB2),
-      "contracts" => [contract_doc()]
-    }
-    |> Map.merge(Map.new(overrides, fn {k, v} -> {Atom.to_string(k), v} end))
-    |> Jason.encode!()
-  end
-
-  defp json_contract(overrides), do: json(contracts: [contract_doc(overrides)])
 end

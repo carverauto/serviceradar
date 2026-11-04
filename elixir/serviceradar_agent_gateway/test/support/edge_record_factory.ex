@@ -5,25 +5,35 @@ defmodule ServiceRadarAgentGateway.TestSupport.EdgeRecordFactory do
   # capabilities and trust documents. Every identifier is generated here; nothing is captured from
   # a running system. The record is sealed (semantic digest) LAST, so it covers the capabilities it
   # ships with, and `:mutate` runs just before sealing to model a signed grant whose record was
-  # altered afterwards. A record names the contract `EdgeContractRegistryStub` holds active unless
-  # `:output_contract` names another, so the gateway's registry admission passes by default and a
-  # test that wants a registry withhold still gets a grant signed over the contract it names.
+  # altered afterwards. A record names the contract of the default signed registry epoch
+  # (`registry_epoch/1`) unless `:output_contract` names another, so the gateway's registry
+  # admission passes by default and a test that wants a registry refusal still gets a grant signed
+  # over the contract it names.
+  #
+  # The registry is signed the way core signs it (`ContractRegistryEpochDocument.sign/3` and
+  # `to_trust/1`) by a synthetic registry key whose trust entry every `trust_document/2` carries.
 
   alias ServiceRadar.Edge.CapabilitySigning
+  alias ServiceRadar.Edge.ContractRegistryEpochDocument
+  alias ServiceRadar.Edge.IssuerKey
   alias ServiceRadar.Edge.SemanticDigest
   alias Serviceradar.Edge.V1.EdgeDeliveryClaimsV1
   alias Serviceradar.Edge.V1.EdgeDeliveryFrameV1
   alias Serviceradar.Edge.V1.EdgeDeliveryRenewalV1
+  alias Serviceradar.Edge.V1.EdgeOutputContractRef
   alias Serviceradar.Edge.V1.EdgeProducerContext
   alias Serviceradar.Edge.V1.EdgeProductionClaimsV1
   alias Serviceradar.Edge.V1.EdgeRecordV1
   alias Serviceradar.Edge.V1.EdgeSignedCapabilityV1
   alias Serviceradar.Edge.V1.EdgeSourceAuthorizationV1
   alias Serviceradar.Edge.V1.EdgeSourceClaimsV1
-  alias ServiceRadarAgentGateway.TestSupport.EdgeContractRegistryStub
 
   @issuer_id "test-edge-issuer"
   @issuer_key_id "test-edge-key-1"
+  # Synthetic seed of the key that signs the factory's registry epochs.
+  @registry_seed :binary.copy(<<0x5E>>, 32)
+  @registry_epoch 1_000_000
+  @contract_id "serviceradar.test.sweep"
   @hour_nanos 3_600 * 1_000_000_000
 
   # The producer a record is attributed to unless a test names another. `trust_document/2` fences it
@@ -42,9 +52,65 @@ defmodule ServiceRadarAgentGateway.TestSupport.EdgeRecordFactory do
     %{public: public, private: private}
   end
 
+  def registry_key, do: IssuerKey.from_seed(@registry_seed)
+
+  def contract_entry(overrides \\ %{}) do
+    Map.merge(
+      %{
+        contract_id: @contract_id,
+        contract_version: 1,
+        contract_bundle_sha256: :binary.copy(<<0xB1>>, 32),
+        route_profile: :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
+        traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_BULK,
+        partition_rule: :network_scope_v1,
+        cost_model_version: 1,
+        projection_revision: 1
+      },
+      overrides
+    )
+  end
+
+  # One signed epoch in `state`, over `entries`, as core's reader holds it.
+  def registry_epoch(opts \\ []) do
+    opts
+    |> Keyword.get(:epoch, @registry_epoch)
+    |> ContractRegistryEpochDocument.sign(
+      Keyword.get_lazy(opts, :entries, fn -> [contract_entry()] end),
+      Keyword.get_lazy(opts, :key, &registry_key/0)
+    )
+    |> Map.put(:state, Keyword.get(opts, :state, :active))
+  end
+
+  # The trust document's `contract_registry` member carrying `epochs`.
+  def registry_member(epochs \\ [registry_epoch()], opts \\ []) do
+    member = %{"format_version" => 2, "epochs" => Enum.map(epochs, &ContractRegistryEpochDocument.to_trust/1)}
+
+    case Keyword.fetch(opts, :projectable_bundles) do
+      {:ok, bundles} -> Map.put(member, "projectable_bundles", Enum.map(bundles, &Base.encode16(&1, case: :lower)))
+      :error -> member
+    end
+  end
+
+  # The output contract a record stamps for entry `{contract_id, version}` of `epoch`.
+  def contract_ref(epoch \\ registry_epoch(), key \\ {@contract_id, 1}) do
+    entry = Map.fetch!(epoch.contracts, key)
+
+    %EdgeOutputContractRef{
+      contract_id: entry.contract_id,
+      contract_version: entry.contract_version,
+      contract_bundle_sha256: entry.contract_bundle_sha256,
+      registry_epoch: epoch.epoch,
+      registry_snapshot_sha256: epoch.snapshot_sha256,
+      effective_grant_sha256: :binary.copy(<<0xB3>>, 32)
+    }
+  end
+
   def trust_document(public_key, opts \\ []) do
     %{
-      "keys" => [key_entry(public_key, opts) | Keyword.get(opts, :extra_keys, [])],
+      "keys" => [
+        key_entry(public_key, opts) | Keyword.get(opts, :extra_keys, []) ++ [IssuerKey.trust_entry(registry_key())]
+      ],
+      "contract_registry" => Keyword.get_lazy(opts, :contract_registry, &registry_member/0),
       "fences" =>
         opts
         |> Keyword.get(:fences, [{@network_scope_id, @producer_assignment_id, 0, 1}])
@@ -93,7 +159,7 @@ defmodule ServiceRadarAgentGateway.TestSupport.EdgeRecordFactory do
       encoded_size: byte_size(payload),
       uncompressed_size: byte_size(payload),
       payload_sha256: :crypto.hash(:sha256, payload),
-      output_contract: Keyword.get_lazy(opts, :output_contract, &EdgeContractRegistryStub.contract_ref/0),
+      output_contract: Keyword.get_lazy(opts, :output_contract, &contract_ref/0),
       producer_context: %EdgeProducerContext{
         origin_kind: :EDGE_ORIGIN_KIND_AGENT,
         origin_principal_id: Keyword.get(opts, :principal, "agent-1"),

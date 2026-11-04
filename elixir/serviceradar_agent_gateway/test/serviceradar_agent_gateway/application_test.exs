@@ -2,6 +2,7 @@ defmodule ServiceRadarAgentGateway.ApplicationTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.Edge.PublisherSupervisor
+  alias ServiceRadar.NATS.Connection
 
   @publisher_keys [
     :sysmon_metrics_publisher,
@@ -11,8 +12,7 @@ defmodule ServiceRadarAgentGateway.ApplicationTest do
     :rperf_metrics_publisher,
     :mtr_metrics_publisher,
     :sweep_metrics_publisher,
-    :otlp_relay_publisher,
-    :edge_records_publisher
+    :otlp_relay_publisher
   ]
 
   test "fails closed when edge listener certs are missing" do
@@ -40,48 +40,31 @@ defmodule ServiceRadarAgentGateway.ApplicationTest do
     # failed there -- proving where it ran, not what it composed.
     setup do
       previous = Map.new(@publisher_keys, &{&1, Application.get_env(:serviceradar_agent_gateway, &1)})
-
-      Application.put_env(:serviceradar_agent_gateway, :sysmon_metrics_publisher, enabled: true)
-
       on_exit(fn -> Enum.each(previous, fn {key, value} -> restore_env(key, value) end) end)
-
       :ok
     end
 
-    test "ensures the edge publisher lanes are supervised when publishing is enabled" do
-      assert edge_publisher_lanes_composed?(),
-             "the gateway does not compose the edge publisher lanes; publishes fail closed"
-    end
-
-    test "omits them entirely when no publisher is enabled" do
-      # NOT VACUOUS: the entry is conditional, so a test that only ever saw it present could not
-      # tell a real gate from an unconditional one. Disabling every publisher must remove it.
+    # The edge-record pipeline has no switch (enable-edge-record-pipeline-by-default, Decision 1),
+    # so the lanes and their NATS connection are composed whatever the other publishers are set to.
+    test "always composes the edge publisher lanes and the NATS connection, even with every other publisher off" do
       for key <- @publisher_keys do
         Application.put_env(:serviceradar_agent_gateway, key, enabled: false)
       end
 
-      refute Enum.any?(
-               ServiceRadarAgentGateway.Application.core_children(),
-               &(&1 == PublisherSupervisor or match?({PublisherSupervisor, _opts}, &1))
-             )
-    end
+      children = ServiceRadarAgentGateway.Application.core_children()
 
-    test "composes the edge publisher lanes when edge_records_publisher alone is enabled" do
-      for key <- @publisher_keys -- [:edge_records_publisher] do
-        Application.put_env(:serviceradar_agent_gateway, key, enabled: false)
-      end
+      assert edge_publisher_lanes_composed?(children),
+             "the gateway does not compose the edge publisher lanes; publishes fail closed"
 
-      Application.put_env(:serviceradar_agent_gateway, :edge_records_publisher, enabled: true)
-
-      assert edge_publisher_lanes_composed?(),
-             "edge_records_publisher alone must be sufficient to start the edge publisher lanes"
+      assert ServiceRadar.NATS.Supervisor in children or Process.whereis(Connection.connection_name()),
+             "the gateway composes no NATS connection for the edge publisher lanes"
     end
   end
 
   # Composed WITH a publisher. A bare PublisherSupervisor starts every lane's accountant and
   # transport but no PublishPipeline, which leaves the edge record ingest server nothing to offer to.
-  defp edge_publisher_lanes_composed? do
-    Enum.any?(ServiceRadarAgentGateway.Application.core_children(), fn
+  defp edge_publisher_lanes_composed?(children) do
+    Enum.any?(children, fn
       {PublisherSupervisor, [publisher: publisher]} -> is_function(publisher, 2)
       _child -> false
     end)

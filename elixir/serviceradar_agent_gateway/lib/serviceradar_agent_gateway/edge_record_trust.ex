@@ -43,10 +43,12 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrust do
 
   ## Loading
 
-  `load_configured/0` reads the `:serviceradar_agent_gateway, :edge_record_trust` `:file` (set from
-  `AGENT_GATEWAY_EDGE_RECORD_TRUST_FILE`). These are verifying PUBLIC keys for ServiceRadar talking
-  to itself, not device or integration credentials. The file is JSON; byte fields are standard
-  base64:
+  Trust comes only from core. `ServiceRadarAgentGateway.EdgeRecordTrustRefresh` fetches it every
+  five seconds (`ServiceRadar.Edge.RecordTrust.refresh/1`) and installs it with `install/2`; each
+  installed snapshot expires thirty seconds after its request started, bounding how long an
+  unavailable core can leave old fences in use. These are verifying PUBLIC keys for ServiceRadar
+  talking to itself, not device or integration credentials. The document is JSON-shaped; byte
+  fields are standard base64:
 
       {
         "clock_tolerance_nano": 0,
@@ -60,21 +62,34 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrust do
         ],
         "scopes": [
           {"agent_id": "<certificate component id>", "network_scope_ids": ["<b64, 16-byte UUID>"]}
-        ]
+        ],
+        "contract_registry": {"format_version": 2, "epochs": [...]}
       }
 
   `"status"` is `"valid"` (includes a normally rotated key retained for history) or
   `"historically_revoked"` (compromise-revoked: the signature still verifies, but trust is
   deliberately withdrawn and the record can only reach security quarantine).
 
-  With `AGENT_GATEWAY_EDGE_RECORD_TRUST_SOURCE=core`, `EdgeRecordTrustRefresh` replaces the
-  snapshot from core every five seconds. Each fetched snapshot expires after thirty seconds,
-  bounding how long an unavailable core can leave old fences in use. The explicit `file` mode
-  loads once at boot for isolated tests. Ingest always reads one coherent local snapshot.
+  ## The contract registry is installed with the trust that verifies it
+
+  `:registry` is the document's `"contract_registry"` member, every epoch of it verified against
+  the `"valid"` keys of the same document (`ServiceRadarAgentGateway.EdgeContractRegistry`), so a
+  frame's keys, fences and registry always come from one core read. A member that does not
+  parse or verify is refused whole (design Decision 12): the document's trust is still
+  installed, and the snapshot keeps the registry this gateway verified last, after verifying it
+  again under the new document's keys. The refusal is logged at error with each epoch and key
+  id, counted as `edge_registry_signature_rejected`, and kept in `:registry_refused` for the
+  next refresh's report (`registry_report/1`). A gateway that has never verified a registry has
+  `:registry` `nil`, and every record is withheld as `:registry_unavailable`.
+
+  The installed snapshot lives in `:persistent_term` and is written only by `install/2`, after
+  verification, so the frame path uses it as it is. A registry carried forward from an earlier
+  snapshot is the one copy reused across documents, and it is verified again before that.
   """
 
   alias ServiceRadar.Edge.PlanValidate
   alias ServiceRadar.Edge.PublicationIdentity
+  alias ServiceRadarAgentGateway.EdgeContractRegistry
 
   require Logger
 
@@ -94,7 +109,9 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrust do
           clock_tolerance_nano: non_neg_integer(),
           keys: %{{binary(), binary()} => %{public_key: binary(), purposes: MapSet.t(), status: key_status()}},
           fences: %{fence_key() => non_neg_integer()},
-          scopes: %{String.t() => MapSet.t()}
+          scopes: %{String.t() => MapSet.t()},
+          registry: EdgeContractRegistry.t() | nil,
+          registry_refused: [EdgeContractRegistry.refused()]
         }
 
   @doc "The installed snapshot, or `{:error, :trust_unavailable}` when none is loaded."
@@ -118,13 +135,18 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrust do
   @spec available?() :: boolean()
   def available?, do: match?({:ok, _}, snapshot())
 
+  @doc "Whether the installed snapshot carries a verified contract registry."
+  @spec registry_available?() :: boolean()
+  def registry_available?, do: match?({:ok, %{registry: %{}}}, snapshot())
+
   @doc """
   Validates and installs a snapshot given in the decoded JSON shape (string keys, base64 bytes).
-  An invalid document installs nothing and leaves any previous snapshot in place.
+  An invalid trust document installs nothing and leaves any previous snapshot in place; a refused
+  registry member still installs the document's trust (see the moduledoc).
   """
   @spec install(map(), integer() | :infinity) :: :ok | {:error, term()}
   def install(document, expires_at \\ :infinity) do
-    with {:ok, snapshot} <- new(document) do
+    with {:ok, snapshot} <- build(document, held_registry()) do
       :persistent_term.put(@pt_key, {snapshot, expires_at})
       :ok
     end
@@ -132,7 +154,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrust do
 
   @doc "Validates a decoded trust document into a snapshot WITHOUT installing it."
   @spec new(map()) :: {:ok, snapshot()} | {:error, term()}
-  def new(document), do: parse(document)
+  def new(document), do: build(document, nil)
 
   @doc "Removes the installed snapshot, so nothing authorizes."
   @spec clear() :: :ok
@@ -142,37 +164,33 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrust do
   end
 
   @doc """
-  Loads the configured trust file, if any. A missing configuration leaves the snapshot
-  unavailable, which keeps `edge-records:v1` from becoming ready. A configured but unreadable or
-  invalid file is logged and also leaves it unavailable: failing closed at readiness rather than
-  crashing a gateway whose other lanes do not depend on it.
+  The registry installation report `ServiceRadar.Edge.RecordTrust.refresh/1` takes: the epochs
+  the installed snapshot holds, and the epochs its document's registry member was refused for.
+  An expired or absent snapshot holds nothing.
   """
-  @spec load_configured() :: :ok | {:error, term()}
-  def load_configured do
-    config = Application.get_env(:serviceradar_agent_gateway, :edge_record_trust, [])
+  @spec registry_report(String.t()) :: map()
+  def registry_report(gateway_id) do
+    {registry, refused} =
+      case snapshot() do
+        {:ok, snapshot} -> {snapshot.registry, snapshot.registry_refused}
+        {:error, _reason} -> {nil, []}
+      end
 
-    case {Keyword.get(config, :source, :file), Keyword.get(config, :file)} do
-      {:file, path} when is_binary(path) and path != "" ->
-        load_file(path)
-
-      _ ->
-        clear()
-        {:error, :not_configured}
-    end
-  end
-
-  @doc "Reads, validates and installs the trust file at `path`."
-  @spec load_file(Path.t()) :: :ok | {:error, term()}
-  def load_file(path) do
-    with {:ok, body} <- File.read(path),
-         {:ok, document} <- Jason.decode(body),
-         :ok <- install(document) do
-      :ok
-    else
-      {:error, reason} = error ->
-        Logger.error("edge record trust file #{path} was not installed: #{inspect(reason)}")
-        error
-    end
+    %{
+      "gateway_id" => gateway_id,
+      "installed" =>
+        for %{epoch: epoch, snapshot_sha256: digest} <- EdgeContractRegistry.installed(registry) do
+          %{"registry_epoch" => epoch, "registry_snapshot_sha256" => Base.encode16(digest, case: :lower)}
+        end,
+      "refused" =>
+        for %{epoch: epoch, signing_key_id: key_id, reason: reason} <- refused do
+          %{
+            "registry_epoch" => epoch,
+            "signing_key_id" => Base.encode64(key_id),
+            "reason" => Atom.to_string(reason)
+          }
+        end
+    }
   end
 
   @doc """
@@ -218,6 +236,81 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrust do
   @spec with_network_scopes(snapshot(), map()) :: map()
   def with_network_scopes(%{scopes: scopes}, identity) do
     Map.put(identity, :network_scope_ids, Map.get(scopes, Map.get(identity, :component_id)))
+  end
+
+  # --- registry --------------------------------------------------------------------------------
+
+  defp build(document, previous) do
+    with {:ok, trust} <- parse(document) do
+      keys = registry_keys(trust.keys)
+
+      case EdgeContractRegistry.verify_member(document["contract_registry"], keys) do
+        {:ok, registry} ->
+          {:ok, Map.merge(trust, %{registry: registry, registry_refused: []})}
+
+        {:error, reason, refused} ->
+          kept = carry_forward(previous, keys)
+          surface_refusal(reason, refused, kept)
+          {:ok, Map.merge(trust, %{registry: kept, registry_refused: refused})}
+      end
+    end
+  end
+
+  # The registry the installed snapshot holds, whatever its expiry: an expired snapshot's
+  # registry is still the last one this gateway verified.
+  defp held_registry do
+    case :persistent_term.get(@pt_key, nil) do
+      {%{registry: registry}, _deadline} -> registry
+      _ -> nil
+    end
+  end
+
+  # Registry epochs are verified under the document's valid issuer keys, by key id.
+  defp registry_keys(keys) do
+    for {{_issuer_id, key_id}, %{public_key: public_key, status: :valid}} <- keys,
+        into: %{},
+        do: {key_id, public_key}
+  end
+
+  defp carry_forward(nil, _keys), do: nil
+
+  defp carry_forward(registry, keys) do
+    case EdgeContractRegistry.reverify(registry, keys) do
+      {:ok, registry} ->
+        registry
+
+      {:error, reason, refused} ->
+        Logger.error(
+          "edge contract registry held from an earlier document no longer verifies and was dropped: " <>
+            "#{reason} #{describe(refused)}"
+        )
+
+        nil
+    end
+  end
+
+  defp surface_refusal(reason, refused, kept) do
+    outcome = if kept, do: "keeping the registry verified last", else: "no verified registry is held"
+    Logger.error("edge contract registry refused (#{outcome}): #{reason} #{describe(refused)}")
+
+    case refused do
+      [] -> count_refusal(reason)
+      _ -> Enum.each(refused, &count_refusal(&1.reason))
+    end
+  end
+
+  defp count_refusal(reason) do
+    :telemetry.execute(
+      [:serviceradar, :agent_gateway, :edge_registry, :signature_rejected],
+      %{count: 1},
+      %{reason: Atom.to_string(reason)}
+    )
+  end
+
+  defp describe(refused) do
+    Enum.map_join(refused, " ", fn %{epoch: epoch, signing_key_id: key_id, reason: reason} ->
+      "(epoch=#{epoch} key_id=#{Base.encode16(key_id, case: :lower)} reason=#{reason})"
+    end)
   end
 
   # --- parsing ---------------------------------------------------------------------------------
