@@ -159,7 +159,9 @@ Routing never changes. A candidate's virtual partition is
 `vp = H_v1(rule_id, group_key) mod 1024`, and its block is `b = vp div 8`. It
 is published on `alerts.candidates.v1.b<b>.v<vp>`. The hash function and the
 1,024 size are frozen by the version tag, so a key's subject is the same for
-the life of the installation.
+the life of the installation. The virtual partition count is not a runtime
+setting. Changing it would be a versioned-hash migration (`v2`), with its own
+cutover, and is out of scope for this change.
 
 What changes is which physical stream holds a block. `alert_stream_map` in
 CNPG assigns every one of the 128 blocks to exactly one physical stream,
@@ -177,7 +179,9 @@ leaders across NATS servers.
 Stream shape: file storage, R3 (capped to `nats.replicas`), S2 compression,
 Limits retention, DiscardNew, `MaxAge` 0, finite `max_bytes` from a CNPG
 runtime setting whose code default is derived from the active JetStream
-profile (1 h outage budget at the target, resolved Q4), and the duplicate
+profile (1 h outage budget at the target, sized from p99 candidate sizes
+that include the full projected payload, about 180 GB uncompressed at the
+design point, `capacity.md` 1.3-1.4, resolved Q4), and the duplicate
 window at its minimum, because deduplication belongs to the evaluator (D6).
 Owners delete consumed messages by purging each block's subjects up to that
 block's committed checkpoint (a purge filtered to `...b<b>.*`), so an idle
@@ -411,7 +415,9 @@ references, computed when the index is compiled, plus a fixed core
 (identity, time, severity, device, subject, message, observables). It also
 carries a reference to the stored record. Each projected value is carried
 whole. Fields that no rule reads are not copied, and the stored record keeps
-them. That is projection, not truncation. A rule edit that references a new
+them. A candidate is therefore as large as the fields it carries: stream
+sizes use the p99 candidate size per signal, 12.7 KB for an event candidate
+such as a Falco trace (`capacity.md` 1.3), not a mean envelope. That is projection, not truncation. A rule edit that references a new
 field recompiles the projection, and candidates routed afterwards carry it.
 
 The rule itself is referenced by (rule_id, revision). Revisions are

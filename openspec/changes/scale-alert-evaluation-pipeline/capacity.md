@@ -60,9 +60,14 @@ it is why A8 is a requirement, not a tuning option (see S1).
   **1,000/s** sustained.
 - Total candidates: about 33,000/s. **Design target: 40,000 candidates/s
   sustained and 100,000/s for a 5-minute burst.**
-- Candidate envelope (design D8): about 400 B mean, so 16 MB/s sustained and
-  40 MB/s in a burst. Today's inbox copies about 12.7 KB jsonb per
-  (event, rule) pair instead.
+- Candidate size (design D8). A candidate carries its projected fields
+  whole, so it is sized from the payload it carries, at p99 per signal: an
+  event candidate at 12.7 KB (a Falco trace), a log candidate at 1.4 KB (A3
+  plus the envelope), a metric candidate at 400 B. At the 40,000/s target in
+  the derived mix (about 2,540 event, 1,210 log and 36,250 metric candidates/s)
+  that is about **50 MB/s sustained**. The A10 burst mix (10,500 event, 5,000
+  log and 36,000 metric candidates/s) is about **155 MB/s**. Today's inbox
+  copies about 12.7 KB jsonb per (event, rule) pair, for every candidate.
 - Records that match no rule (about 93% of events, 95% of points and 99% of
   logs) cost one index lookup and produce nothing.
 
@@ -88,8 +93,8 @@ candidates, and whatever core nodes it has (design D11, gate G7).
 | Alert lifecycle writes | about 30/s | about 300/s | A15 |
 | Coalesced incident metadata updates | about 170/s | about 500/s | 5,000 open incidents, one write per commit window |
 | Failover replay | 9.4k candidates/block | 23k | checkpoint interval x block rate; under 2 s at replay speed |
-| Candidate stream steady footprint | about 0.5 GB per NATS server | about 1.2 GB | since-checkpoint only, purged behind each checkpoint |
-| Candidate stream outage budget | 58 GB per server for 1 h uncompressed; 15-20 GB with S2 | | resolved Q4 |
+| Candidate stream steady footprint | about 1.5 GB per NATS server | about 4.6 GB | 30 s since checkpoint at 50 MB/s and 155 MB/s; purged behind each checkpoint |
+| Candidate stream outage budget | 180 GB per server for 1 h, uncompressed | | 50 MB/s x 3,600 s at p99 candidate sizes (resolved Q4); about 45 GB per stream at 4 streams; S2 savings are headroom, not budget |
 
 Core CPU at the design point (estimates, to be replaced by gate G4 numbers):
 

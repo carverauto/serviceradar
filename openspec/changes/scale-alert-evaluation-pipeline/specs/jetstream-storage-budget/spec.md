@@ -23,7 +23,7 @@ The signal-separated telemetry streams, the alert candidate streams and the tele
 #### Scenario: The xlarge profile holds the fleet-scale outage budget
 - **GIVEN** `nats.jetstream.profile` is `xlarge` on a matching `nats.persistence.size`
 - **WHEN** the chart renders
-- **THEN** the code defaults derived for the alert candidate stream sizes SHALL hold one hour at the documented sustained candidate rate
+- **THEN** the code defaults derived for the alert candidate stream sizes SHALL hold one hour at the documented sustained candidate rate and p99 candidate size per signal, uncompressed
 - **AND** rendering SHALL succeed with every producer enabled
 
 ### Requirement: Stream owners reconcile max_bytes by discard policy

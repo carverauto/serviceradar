@@ -18,7 +18,7 @@ The final match decision SHALL use the same predicate semantics as the current r
 - **AND** records routed afterwards SHALL be matched against the new revision
 
 ### Requirement: Candidates use a fixed key space and a dynamic stream map
-Each match SHALL be published as a candidate on a subject derived from a fixed space of 1,024 virtual partitions, selected by a versioned hash of the rule id and group key, and grouped into fixed blocks of consecutive virtual partitions, so that a key's subject never changes.
+Each match SHALL be published as a candidate on a subject derived from a fixed space of 1,024 virtual partitions, selected by a versioned hash of the rule id and group key, and grouped into fixed blocks of consecutive virtual partitions, so that a key's subject never changes. The virtual partition count SHALL NOT be a runtime setting.
 CNPG SHALL hold a generation-numbered map that assigns every block to exactly one physical candidate stream, and that map SHALL be changeable at runtime without changing any key's subject.
 Candidate streams SHALL use Limits retention, DiscardNew, no maximum age and a finite size from a CNPG runtime setting whose code default is derived from the active JetStream profile. A candidate SHALL carry every field that any compiled rule or the alert builder reads, each value whole, together with a reference to the stored record. No per-candidate inbox row SHALL be written to CNPG.
 
