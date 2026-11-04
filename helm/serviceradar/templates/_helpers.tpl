@@ -1179,11 +1179,17 @@ is about the disk, and nats.jetstream.allowOvercommit does not skip it.
 {{- $ewArancini := default (dict) (index $ewStreams "ARANCINI_CAUSAL") -}}
 {{- $ewNotifications := default (dict) (index $ewStreams "notifications") -}}
 {{- $ewEdgeRecord := default (dict) (index $ewStreams "telemetry_edge_record_v1_bulk") -}}
+{{- $ewEdgeRecordAudit := default (dict) (index $ewStreams "telemetry_edge_record_audit_v1_bulk") -}}
+{{- $ewEdgeRecordQuarantine := default (dict) (index $ewStreams "telemetry_edge_record_security_quarantine_v1_bulk") -}}
+{{- $ewEdgeRecordDeadLetter := default (dict) (index $ewStreams "telemetry_edge_record_dlq_v1_bulk") -}}
 {{- $ewExposureTransitions := default (dict) (index $ewStreams "exposure_transitions") -}}
 {{- $ewExposureDimensions := default (dict) (index $ewStreams "exposure_dimensions") -}}
 {{- $entries = concat $entries (list
   (dict "id" "notifications" "stream" "NOTIFICATIONS" "source" "core.eventWriter.streams.notifications.maxBytes" "value" $ewNotifications.maxBytes "replicaSource" "core.eventWriter.streams.notifications.replicas" "replicaValue" $ewNotifications.replicas "counted" true)
   (dict "id" "telemetry_edge_record_v1_bulk" "stream" "TELEMETRY_EDGE_RECORD_V1_BULK" "source" "core.eventWriter.streams.telemetry_edge_record_v1_bulk.maxBytes" "value" $ewEdgeRecord.maxBytes "replicaSource" "core.eventWriter.streams.telemetry_edge_record_v1_bulk.replicas" "replicaValue" $ewEdgeRecord.replicas "counted" true)
+  (dict "id" "telemetry_edge_record_audit_v1_bulk" "stream" "TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK" "source" "core.eventWriter.streams.telemetry_edge_record_audit_v1_bulk.maxBytes" "value" $ewEdgeRecordAudit.maxBytes "replicaSource" "core.eventWriter.streams.telemetry_edge_record_audit_v1_bulk.replicas" "replicaValue" $ewEdgeRecordAudit.replicas "counted" true)
+  (dict "id" "telemetry_edge_record_security_quarantine_v1_bulk" "stream" "TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK" "source" "core.eventWriter.streams.telemetry_edge_record_security_quarantine_v1_bulk.maxBytes" "value" $ewEdgeRecordQuarantine.maxBytes "replicaSource" "core.eventWriter.streams.telemetry_edge_record_security_quarantine_v1_bulk.replicas" "replicaValue" $ewEdgeRecordQuarantine.replicas "counted" true)
+  (dict "id" "telemetry_edge_record_dlq_v1_bulk" "stream" "TELEMETRY_EDGE_RECORD_DLQ_V1_BULK" "source" "core.eventWriter.streams.telemetry_edge_record_dlq_v1_bulk.maxBytes" "value" $ewEdgeRecordDeadLetter.maxBytes "replicaSource" "core.eventWriter.streams.telemetry_edge_record_dlq_v1_bulk.replicas" "replicaValue" $ewEdgeRecordDeadLetter.replicas "counted" true)
   (dict "id" "exposureTransitions" "stream" "EXPOSURE_TRANSITIONS" "source" "core.eventWriter.streams.exposure_transitions.maxBytes" "value" $ewExposureTransitions.maxBytes "replicaSource" "core.eventWriter.streams.exposure_transitions.replicas" "replicaValue" $ewExposureTransitions.replicas "counted" true)
   (dict "id" "exposureDimensions" "stream" "EXPOSURE_DIMENSIONS" "source" "core.eventWriter.streams.exposure_dimensions.maxBytes" "value" $ewExposureDimensions.maxBytes "replicaSource" "core.eventWriter.streams.exposure_dimensions.replicas" "replicaValue" $ewExposureDimensions.replicas "counted" true)
   (dict "id" "exposureRecovery" "stream" "EXPOSURE_RECOVERY" "source" "fixed exposure recovery reservation" "value" "64Mi" "replicaSource" "fixed exposure recovery replicas" "replicaValue" 3 "counted" true)
@@ -1432,30 +1438,17 @@ connection fails the handshake.
 {{- end -}}
 
 {{/*
-GRAPH_BACKEND / GRAPH_READ / DGRAPH_* for topology writers (core, web-ng).
-With no Dgraph configured this stays on AGE and emits no DGRAPH_* at all.
+DGRAPH_* for the topology graph clients (core, web-ng). Dgraph is the only
+topology graph, so a release with neither the in-chart cluster nor an external
+endpoint fails to render instead of running without topology.
 The in-chart cluster's groot password is the generated ACL Secret, never a
 literal: kubelet expands $(DGRAPH_PASSWORD) from the preceding entry.
 */}}
 {{- define "serviceradar.graph.env" -}}
-{{- $graph := default (dict) .Values.graph -}}
 {{- $d := default (dict) .Values.dgraph -}}
 {{- if not (include "serviceradar.dgraph.configured" .) }}
-- name: GRAPH_BACKEND
-  value: "age"
-- name: GRAPH_READ
-  value: "age"
-{{- else }}
-{{- /*
-Dual-write is the default only for the cluster this chart provisions, where it
-also mints the ACL credential and applies the topology schema. An external
-endpoint is neither, so writing to it has to be an explicit opt-in through
-graph.backend rather than a side effect of naming a host.
-*/}}
-- name: GRAPH_BACKEND
-  value: {{ default (ternary "dual" "age" (not (not $d.enabled))) $graph.backend | quote }}
-- name: GRAPH_READ
-  value: {{ default "age" $graph.read | quote }}
+{{- fail "The topology graph requires Dgraph: set dgraph.enabled=true, or dgraph.external.host for an existing cluster." }}
+{{- end }}
 - name: DGRAPH_HOST
   value: {{ include "serviceradar.dgraph.host" . | quote }}
 - name: DGRAPH_PORT
@@ -1481,7 +1474,6 @@ graph.backend rather than a side effect of naming a host.
 {{- end }}
 - name: DGRAPH_URL
   value: {{ printf "dgraph://%s%s:%s?sslmode=%s%s" (include "serviceradar.dgraph.externalUserinfo" .) (include "serviceradar.dgraph.host" .) (include "serviceradar.dgraph.port" .) (include "serviceradar.dgraph.appTlsMode" .) (include "serviceradar.dgraph.appSslRootCert" .) | quote }}
-{{- end }}
 {{- end }}
 {{- end -}}
 

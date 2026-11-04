@@ -432,42 +432,62 @@ core:
 
 ### Durable edge-record canary
 
-`edgeRecords.enabled` enables the gateway's durable bulk publisher and runtime
-trust refresh from core. Supply `edgeRecords.contractRegistry` with the
-installation's registry document: core and gateway receive the same JSON.
-The sweep entry must be the active `serviceradar.sweep.observation` version 1
-contract on the durable bulk route. Its bundle digest and registry snapshot
-digest identify the reviewed installation contract; do not use test-fixture
-identities in a deployment.
-
-The current registry is installation-static and unsigned. For the canary,
-derive its bundle fingerprint from the reviewed schema and cost/projection
-sources, recording the file list and commit alongside the deployment values.
-Hash the canonical registry body before adding `registry_snapshot_sha256`.
-Keep that exact document on core and every gateway throughout the run.
+`edgeRecords.enabled` gives the gateway's durable bulk publisher its NATS
+connection and bulk-subject permissions, and mounts the issuer key on core.
+The gateway always runs the publisher and refreshes its trust from core; it
+has no edge-record settings of its own. Core derives its contract registry
+from the release's contract catalog and signs each registry epoch with the
+issuer key. The gateway installs those signed epochs from core's trust
+document, verifies each signature, and admits a record only against the exact
+epoch it names. Neither core nor the gateway reads
+`edgeRecords.contractRegistry`; the chart still requires it when
+`edgeRecords.enabled=true`.
 
 The secret generator creates an `edge-issuer-seed` once and preserves it on
-upgrade. Only core mounts this Ed25519 seed. If `secrets.autoGenerate=false`,
+upgrade. Only core mounts this Ed25519 seed. Core stores the issuer key in
+CNPG: the first boot that finds no stored key imports this seed when it is
+mounted (`edgeRecords.enabled`). From then on the stored key wins, so changing
+the Secret value does not rotate the key. A mounted seed that is not a private,
+well-formed seed stops core from storing a key; core never generates a
+replacement for it. If `secrets.autoGenerate=false`,
 the operator must supply the key in the configured existing Secret as a
 base64-encoded 32-byte seed (the Secret's data encoding wraps that text).
 
-`edgeRecords.agentSweepEnabled` enables the bundled agent's sweep producer.
-`edgeRecords.agentMetricsEnabled` enables its sysmon, SNMP, ICMP, MTR scalar
-and periodic sweep summary metrics producers on the same spool. Either flag
-requires `edgeRecords.enabled` and `agent.runtimeStorage.enabled=true`. The spool lives under that volume's base
-path and `edgeRecords.maxSpoolBytes` bounds it. Core's agent-scoped
-sweep lease settings select which agent receives signed slots. Enable leasing
-only for the canary, and use an enabled static-target group without a target
-query. Other agents continue using the legacy results path. With
-`agentMetricsEnabled` set, those metrics stay on the status path until
-`contractRegistry` includes an active `serviceradar.metrics.batch` version 1
-contract and that agent's leasing switch is on.
+The agent's edge-record sender and spool always run, so the bundled agent no
+longer reads `edgeRecords.agentSweepEnabled`, `agentMetricsEnabled`,
+`agentTelemetryEnabled`, `agentPluginResultsEnabled`, `agentDiscoveryEnabled`,
+`agentSyncEnabled` or `maxSpoolBytes`; the chart still renders them until the
+block is removed. Each producer emits edge records exactly while it holds
+core's grant for its contract and keeps the status path otherwise. Core sends
+the spool byte budget in the agent config. Flow-attribution windows and OTLP
+relay frames use the same spool while the agent holds a current
+`serviceradar.netprobe.flow_attribution` version 1 or `serviceradar.otlp.relay`
+version 1 grant. Core issues a standing grant for a catalog contract when the
+contract is in the signed active registry epoch, the core node's release
+catalog holds its exact bundle, and the agent's partition has a row. The
+gateway rejects records for any contract the signed epoch they name does not
+carry.
+Core's agent-scoped sweep lease settings select which agent receives signed
+slots. Enable leasing only for the canary, and use an enabled static-target
+group without a target query. Other agents continue using the legacy results
+path. Results of sweep groups the agent
+runs from its own config, without a lease, move to edge records only when the
+agent also holds a `serviceradar.sweep.unleased_results` version 1 grant;
+each results response and its metric batch then take the edge path together,
+and otherwise both keep the legacy results path. Full
+traces from agent-scheduled MTR checks leave the status path only when the
+agent also holds a `serviceradar.mtr.scheduled_trace` version 1 grant. The
+metrics grant does not carry those traces. Without the trace grant they stay
+on the status path. Each of these grants follows the signed active registry
+epoch.
 
 Use complete terminal ICMP/TCP host windows for this first canary. Partial-mode
 and MTR windows are not supported by this projection yet. Keep the issuer key
-and agent network scope fixed while records remain in the spool: historical
-key/scope trust and audit publication are later milestones. A sender with
-sweep or metrics producers enabled persists terminal resolutions. It reclaims
+and agent network scope fixed while records remain in the spool. Historical
+key and scope trust for a change of either is still a later milestone. A
+stale-fence record that carries a valid delivery grant is published on the
+audit route; see `docs/edge-record-quarantine-runbook.md`. A sender with sweep, metrics, telemetry, or plugin-results producers
+enabled persists terminal resolutions. It reclaims
 a fully drained segment when durable dispositions cover every retained
 sequence. Permanently rejected records are
 copied into a bounded local quarantine in the lane directory before that
@@ -479,8 +499,10 @@ Partial-tail compaction is not implemented. Reaching the configured byte bound
 still stops further appends. Quarantine occupancy, permanent rejections, and
 quarantine drops are counted on the agent's `/metrics` endpoint beside the
 existing unresolved-byte and age gauges.
-An interrupted run remains incomplete and is not rescanned once the agent has
-durably claimed its first append attempt, even if that first append fails.
+An interrupted run remains incomplete and is not rescanned once a record from
+that run has been admitted. A first append the spool refuses for admission
+writes nothing and leaves the slot runnable, so the executor can try the slot
+again. Any other first-append failure keeps the slot consumed.
 
 Upgrade core and the gateways before the agent. The agent's edge-record builder
 compresses each sweep or sysmon metrics payload as one Zstandard level 1 frame

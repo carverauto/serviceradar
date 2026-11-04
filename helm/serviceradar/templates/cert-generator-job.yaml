@@ -102,7 +102,7 @@ spec:
         - name: CERT_DIR
           value: "/tmp/certs"
         - name: DEFAULT_PARTITION_ID
-          # B-5 partition_id coalesce chain — keep in sync with nats.yaml
+          # B-5 partition_id coalesce chain — keep in sync with _nats_static_users.tpl
           value: {{ coalesce .Values.partitionId (default (dict) .Values.agent).partitionId "default" | quote }}
         - name: DEFAULT_AGENT_COMPONENT_ID
           value: {{ default "k8s-agent" (default (dict) .Values.agent).agentId | quote }}
