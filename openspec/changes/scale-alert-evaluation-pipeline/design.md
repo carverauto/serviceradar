@@ -792,16 +792,23 @@ that evaluates through both designs.
    1. Convert every `stateful_alert_rule_states` row into block state
       (compute `virtual_partition`, set `incident_seq` and `renotify_ordinal`
       bases, keep open alert ids) and write an initial checkpoint per block.
-   2. Create the release-N import stream `ALERT_IMPORT_V1` bound to
-      `alerts.import.v1.>` (R3, Limits, DiscardNew, no MaxAge), sized from
-      the residual rows it measures first. A refusal fails the task, which
-      retries before writing any marker, so nothing is lost. Publish residual
+   2. Build every import message in memory first: residual
       `alert_evaluation_work` rows, in (rule, position) order, as candidates
-      on `alerts.import.v1.b<b>.v<vp>`, awaiting each PubAck. They already
-      carry their rule and revision.
-   3. Route residual `lifecycle_pending_admissions` rows, in (series, seq)
-      order, through the index onto the same import subjects.
-   4. Publish an import-end marker per block and write the cutover marker.
+      on `alerts.import.v1.b<b>.v<vp>` (they already carry their rule and
+      revision); residual `lifecycle_pending_admissions` rows, in (series,
+      seq) order, routed through the index onto the same import subjects;
+      and one import-end marker per block. The inbox's own pending budget
+      bounds this set.
+   3. Create the release-N import stream `ALERT_IMPORT_V1` bound to
+      `alerts.import.v1.>` (R3, Limits, DiscardNew, no MaxAge), with
+      `max_bytes` twice the summed encoded size of those messages including
+      subjects and headers. Publish them in order, awaiting each PubAck.
+   4. Write the cutover marker.
+   Any failure in steps 2-4 (a refusal, a lost PubAck, a crash) makes the
+   task delete `ALERT_IMPORT_V1` and rerun from step 2. The source tables are
+   untouched and no owner reads the stream until the marker exists, so a
+   rerun republishes the whole import exactly once and cannot fill the
+   stream with a partial earlier attempt.
    Owners consume each block's import subject to its end marker, then its
    live subject from the start. Imported candidates carry the candidate id
    the router would compute, so a source message the old replicas admitted
@@ -826,8 +833,8 @@ the `alerts` and `alert_recovery` queues, and the Helm env
 
 ### What happens to `alert_evaluation_work` and `lifecycle_pending_admissions`
 
-Both are drained into the candidate stream by the cutover task in their own
-order, then dropped in the same release. No row is discarded: each residual
+Both are published to the `ALERT_IMPORT_V1` import stream by the cutover
+task in their own order, then dropped in the same release. No row is discarded: each residual
 row becomes a candidate that is evaluated before newer input. The receipts
 table is dropped too. Its replay role moves to candidate ids (D6) and
 deterministic fire keys (D5), and its 7-day volume would be billions of rows

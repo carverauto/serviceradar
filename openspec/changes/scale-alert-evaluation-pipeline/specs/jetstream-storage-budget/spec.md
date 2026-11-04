@@ -95,6 +95,58 @@ For a discard-new telemetry or evaluation stream (the signal-separated logs, eve
 - **AND** no candidate SHALL be removed
 - **AND** the log SHALL record the configured 8 GiB, the stored 12 GiB and the current 16 GiB
 
+### Requirement: NATS file store is rendered as an exact byte count
+The Helm chart SHALL render `max_file_store` as an integer number of bytes.
+The chart SHALL take the value from `nats.jetstream.maxFileStore` when set and otherwise from the selected sizing profile, and SHALL NOT derive it from `nats.persistence.size`. `G` SHALL mean 10^9 bytes and `Gi` SHALL mean 2^30 bytes, matching NATS.
+
+#### Scenario: Chart default
+- **GIVEN** no `nats.jetstream.maxFileStore` and the default `small` profile
+- **WHEN** the chart renders the NATS configuration
+- **THEN** `max_file_store` SHALL be `36000000000`
+
+#### Scenario: Binary suffix override
+- **GIVEN** `nats.jetstream.maxFileStore` is `30Gi` and `nats.persistence.size` is `40Gi`
+- **WHEN** the chart renders the NATS configuration
+- **THEN** `max_file_store` SHALL be `32212254720`
+
+#### Scenario: Persistence size does not change the cap
+- **GIVEN** `nats.persistence.size` is raised and neither `maxFileStore` nor the profile changes
+- **WHEN** the chart renders the NATS configuration
+- **THEN** `max_file_store` SHALL be unchanged
+
+### Requirement: NATS file store fits the disk
+The Helm chart SHALL fail to render when `max_file_store` exceeds 94% of the byte size of `nats.persistence.size`, and the message SHALL point at the volume-expansion runbook. `nats.jetstream.allowOvercommit` SHALL NOT skip this check.
+
+#### Scenario: Larger profile on an unexpanded PVC
+- **GIVEN** an existing install with `nats.persistence.size` of `30Gi`
+- **AND** `nats.jetstream.profile` is `medium`
+- **WHEN** `helm upgrade` renders the chart
+- **THEN** rendering SHALL fail with a message that points at the volume-expansion runbook
+
+#### Scenario: Larger profile through the volume-expansion runbook
+- **GIVEN** a live `small` install on a StorageClass with `allowVolumeExpansion`
+- **WHEN** the operator patches each `serviceradar-nats` PVC to `100Gi`, waits for the resize, deletes the StatefulSet with `--cascade=orphan`, and runs `helm upgrade` with `nats.persistence.size` of `100Gi` and `nats.jetstream.profile` of `medium`
+- **THEN** rendering SHALL succeed
+- **AND** the StatefulSet SHALL be recreated with the new `volumeClaimTemplates`
+- **AND** the PVCs SHALL be the same objects, now `100Gi`
+- **AND** every NATS pod SHALL become ready after a one-at-a-time roll
+
+#### Scenario: Storage without expansion
+- **GIVEN** a StorageClass without `allowVolumeExpansion`
+- **WHEN** the operator wants a larger profile
+- **THEN** the runbook SHALL state that the install needs a new install or a data migration
+- **AND** the chart SHALL NOT attempt to automate it
+
+#### Scenario: Shipped profiles fit their PVC
+- **GIVEN** `tenant-2g` on `3Gi`, `small` on `36Gi`, `medium` on `100Gi`, `large` on `500Gi` and `xlarge` on `2000Gi`
+- **WHEN** the chart renders each
+- **THEN** each SHALL pass this check
+
+#### Scenario: Overcommit does not bypass the disk check
+- **GIVEN** `nats.jetstream.allowOvercommit: true` and `max_file_store` above 94% of `nats.persistence.size`
+- **WHEN** the chart renders
+- **THEN** rendering SHALL fail
+
 ## ADDED Requirements
 
 ### Requirement: Alert candidate streams are inside the JetStream budget
