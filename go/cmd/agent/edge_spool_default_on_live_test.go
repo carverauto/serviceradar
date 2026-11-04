@@ -290,3 +290,32 @@ func TestRunningAgentAppliesTheSpoolBudgetFromConfig(t *testing.T) {
 		})
 	}
 }
+
+// A package- or Ansible-installed agent whose config has no edge_record_sender
+// block still runs the spool, at the documented default directory
+// /var/lib/serviceradar/agent/edge-records (OpenSpec
+// enable-edge-record-pipeline-by-default, task 4.1). The hello always carries a
+// spool status: available when that directory could be created, otherwise
+// unavailable with an error that names it. A build that skipped the sender
+// without a block would send no status at all.
+func TestRunningAgentWithoutASenderBlockUsesTheDefaultSpoolDir(t *testing.T) {
+	const wantDir = "/var/lib/serviceradar/agent/edge-records"
+	gw, addr := listenSpoolHelloGateway(t, false, 0)
+	logs, _ := runSpoolAgent(t, addr, "null")
+
+	hello := waitForHello(t, gw, logs)
+	spoolStatus := hello.GetEdgeRecordSpool()
+	if spoolStatus == nil {
+		t.Fatalf("hello carried no edge_record_spool status\nlog:\n%s", logs.snapshot())
+	}
+	if spoolStatus.GetAvailable() {
+		if info, err := os.Stat(wantDir); err != nil || !info.IsDir() {
+			t.Fatalf("spool reported available but %s is not a directory: %v", wantDir, err)
+		}
+	} else if !strings.Contains(spoolStatus.GetError(), wantDir) {
+		t.Fatalf("hello spool error %q does not name the default directory %s\nlog:\n%s",
+			spoolStatus.GetError(), wantDir, logs.snapshot())
+	}
+	t.Logf("no sender block: hello edge_record_spool = {available:%v error:%q}",
+		spoolStatus.GetAvailable(), spoolStatus.GetError())
+}
