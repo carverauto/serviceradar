@@ -207,6 +207,12 @@ defmodule ServiceRadar.Edge.EdgeSite do
   end
 
   relationships do
+    has_one :managed_component, ServiceRadar.Edge.ManagedComponent do
+      source_attribute :id
+      destination_attribute :edge_site_id
+      filter expr(component_type == "nats-leaf")
+    end
+
     has_one :nats_leaf_server, NatsLeafServer do
       source_attribute :id
       destination_attribute :edge_site_id
@@ -216,6 +222,10 @@ defmodule ServiceRadar.Edge.EdgeSite do
       source_attribute :id
       destination_attribute :edge_site_id
     end
+  end
+
+  calculations do
+    calculate :deployment_status, :string, ServiceRadar.Edge.ManagedDeploymentStatus
   end
 
   identities do

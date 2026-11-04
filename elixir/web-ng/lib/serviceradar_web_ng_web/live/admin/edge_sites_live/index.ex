@@ -9,6 +9,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
   """
   use ServiceRadarWebNGWeb, :live_view
 
+  import ServiceRadarWebNGWeb.ManagedDeploymentComponents
+
   alias ServiceRadar.Edge.EdgeSite
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Settings.Shell
@@ -25,7 +27,15 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
         |> assign(:page_title, "Edge Sites & NATS")
         |> assign(:show_create_modal, false)
         |> assign(:filter_status, nil)
-        |> load_sites()
+        |> assign(:sites, [])
+
+      socket =
+        if connected?(socket) do
+          Process.send_after(self(), :refresh_deployments, 10_000)
+          load_sites(socket)
+        else
+          socket
+        end
 
       {:ok, socket}
     else
@@ -92,6 +102,12 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
   end
 
   @impl true
+  def handle_info(:refresh_deployments, socket) do
+    Process.send_after(self(), :refresh_deployments, 10_000)
+    {:noreply, load_sites(socket)}
+  end
+
+  @impl true
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
@@ -140,6 +156,12 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
               >
                 <option value="">All Statuses</option>
                 <option value="pending" selected={@filter_status == "pending"}>Pending</option>
+                <option value="installed" selected={@filter_status == "installed"}>Installed</option>
+                <option value="installing" selected={@filter_status == "installing"}>
+                  Installing
+                </option>
+                <option value="failed" selected={@filter_status == "failed"}>Failed</option>
+                <option value="revoked" selected={@filter_status == "revoked"}>Revoked</option>
                 <option value="active" selected={@filter_status == "active"}>Active</option>
                 <option value="offline" selected={@filter_status == "offline"}>Offline</option>
               </select>
@@ -167,28 +189,28 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
                 <thead>
                   <tr class="text-xs uppercase tracking-wide text-sr-muted">
                     <th>Site</th>
-                    <th>Status</th>
+                    <th>Deployment</th>
                     <th>NATS Leaf</th>
-                    <th>Last Seen</th>
+                    <th>Last Update</th>
                     <th>Created</th>
                     <th></th>
                   </tr>
                 </thead>
                 <tbody>
                   <%= for site <- @sites do %>
-                    <tr class="hover:bg-sr-subtle/30">
+                    <tr id={"edge-site-#{site.id}"} class="hover:bg-sr-subtle/30">
                       <td>
                         <div class="font-medium">{site.name}</div>
                         <div class="text-xs text-sr-muted font-mono">{site.slug}</div>
                       </td>
                       <td>
-                        <.site_status_badge status={site.status} />
+                        <.deployment_badge record={site} />
                       </td>
                       <td>
                         <.leaf_status site={site} />
                       </td>
                       <td class="text-xs text-sr-muted">
-                        {format_relative_time(site.last_seen_at)}
+                        {format_relative_time(last_update(site))}
                       </td>
                       <td class="text-xs text-sr-muted">
                         <.user_time
@@ -307,50 +329,38 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
     """
   end
 
-  defp site_status_badge(assigns) do
-    variant =
-      case assigns.status do
-        :pending -> "warning"
-        :active -> "success"
-        :offline -> "error"
-        _ -> "ghost"
-      end
-
-    assigns = assign(assigns, :variant, variant)
-
-    ~H"""
-    <.ui_badge variant={@variant}>{@status}</.ui_badge>
-    """
-  end
-
   defp leaf_status(assigns) do
     leaf_server = assigns.site.nats_leaf_server
 
     assigns = assign(assigns, :leaf_server, leaf_server)
 
     ~H"""
-    <%= if @leaf_server do %>
-      <div class="flex items-center gap-2">
-        <%= case @leaf_server.status do %>
-          <% :connected -> %>
-            <span class="status status-success"></span>
-            <span class="text-xs">Connected</span>
-          <% :provisioned -> %>
-            <span class="status status-warning"></span>
-            <span class="text-xs">Ready</span>
-          <% :disconnected -> %>
-            <span class="status status-error"></span>
-            <span class="text-xs">Disconnected</span>
-          <% :pending -> %>
-            <.ui_spinner size="xs" />
-            <span class="text-xs">Provisioning</span>
-          <% _ -> %>
-            <span class="status status-neutral"></span>
-            <span class="text-xs">Unknown</span>
-        <% end %>
-      </div>
+    <%= if managed?(@site) do %>
+      <.deployment_badge record={@site} />
     <% else %>
-      <span class="text-xs text-sr-muted">-</span>
+      <%= if @leaf_server do %>
+        <div class="flex items-center gap-2">
+          <%= case @leaf_server.status do %>
+            <% :connected -> %>
+              <span class="status status-success"></span>
+              <span class="text-xs">Connected</span>
+            <% :provisioned -> %>
+              <span class="status status-warning"></span>
+              <span class="text-xs">Ready</span>
+            <% :disconnected -> %>
+              <span class="status status-error"></span>
+              <span class="text-xs">Disconnected</span>
+            <% :pending -> %>
+              <.ui_spinner size="xs" />
+              <span class="text-xs">Provisioning</span>
+            <% _ -> %>
+              <span class="status status-neutral"></span>
+              <span class="text-xs">Unknown</span>
+          <% end %>
+        </div>
+      <% else %>
+        <span class="text-xs text-sr-muted">-</span>
+      <% end %>
     <% end %>
     """
   end
@@ -364,14 +374,13 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
     query =
       EdgeSite
       |> Ash.Query.for_read(:read)
-      |> Ash.Query.load(:nats_leaf_server)
+      |> Ash.Query.load([:nats_leaf_server, :deployment_status, managed_component: :current_operation])
       |> Ash.Query.sort(inserted_at: :desc)
       |> Ash.Query.limit(50)
 
     query =
       if filter_status do
-        status_atom = String.to_existing_atom(filter_status)
-        Ash.Query.filter(query, status == ^status_atom)
+        Ash.Query.filter(query, deployment_status == ^filter_status)
       else
         query
       end

@@ -12,6 +12,8 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
   """
   use ServiceRadarWebNGWeb, :live_view
 
+  import ServiceRadarWebNGWeb.ManagedDeploymentComponents
+
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.EdgeSite
   alias ServiceRadar.Edge.NatsCredential
@@ -43,6 +45,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
       if connected?(socket) do
         CollectorPubSub.subscribe_collectors()
         CollectorPubSub.subscribe_nats()
+        Process.send_after(self(), :refresh_deployments, 10_000)
       end
 
       socket =
@@ -59,9 +62,14 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
         |> assign(:filter_status, nil)
         |> assign(:filter_type, nil)
         |> load_account_status(actor)
-        |> load_packages(actor)
-        |> load_credentials(actor)
-        |> load_edge_sites(actor)
+        |> assign(packages: [], credentials: [], edge_sites: [])
+
+      socket =
+        if connected?(socket) do
+          socket |> load_packages(actor) |> load_credentials(actor) |> load_edge_sites(actor)
+        else
+          socket
+        end
 
       {:ok, socket}
     else
@@ -80,6 +88,10 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
   defp apply_action(socket, :index, _params), do: socket
 
   defp apply_action(socket, :show, %{"id" => id}) do
+    if connected?(socket), do: load_package_details(socket, id), else: socket
+  end
+
+  defp load_package_details(socket, id) do
     actor = get_actor(socket)
 
     case get_package(id, actor) do
@@ -203,6 +215,21 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
   # PubSub event handlers for real-time updates
 
   @impl true
+  def handle_info(:refresh_deployments, socket) do
+    Process.send_after(self(), :refresh_deployments, 10_000)
+    actor = get_actor(socket)
+    socket = socket |> load_packages(actor) |> load_edge_sites(actor)
+
+    socket =
+      if socket.assigns.selected_package && socket.assigns.show_details_modal do
+        load_package_details(socket, socket.assigns.selected_package.id)
+      else
+        socket
+      end
+
+    {:noreply, socket}
+  end
+
   def handle_info({:package_created, _package}, socket) do
     actor = get_actor(socket)
     {:noreply, load_packages(socket, actor)}
@@ -309,6 +336,11 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
               >
                 <option value="">All Statuses</option>
                 <option value="pending" selected={@filter_status == "pending"}>Pending</option>
+                <option value="installed" selected={@filter_status == "installed"}>Installed</option>
+                <option value="installing" selected={@filter_status == "installing"}>
+                  Installing
+                </option>
+                <option value="failed" selected={@filter_status == "failed"}>Failed</option>
                 <option value="ready" selected={@filter_status == "ready"}>Ready</option>
                 <option value="downloaded" selected={@filter_status == "downloaded"}>
                   Downloaded
@@ -346,7 +378,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
                   <tr class="text-xs uppercase tracking-wide text-sr-muted">
                     <th>Collector</th>
                     <th>Type</th>
-                    <th>Status</th>
+                    <th>Deployment</th>
                     <th>Site</th>
                     <th>Edge Site</th>
                     <th>Created</th>
@@ -355,7 +387,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
                 </thead>
                 <tbody>
                   <%= for package <- @packages do %>
-                    <tr class="hover:bg-sr-subtle/30">
+                    <tr id={"collector-#{package.id}"} class="hover:bg-sr-subtle/30">
                       <td>
                         <div class="font-medium font-mono text-xs">{package.user_name}</div>
                         <div class="text-xs text-sr-muted">
@@ -366,7 +398,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
                         <.collector_type_badge type={package.collector_type} />
                       </td>
                       <td>
-                        <.status_badge status={package.status} />
+                        <.deployment_badge record={package} />
                       </td>
                       <td class="text-xs">{package.site || "-"}</td>
                       <td class="text-xs">
@@ -399,7 +431,15 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
                             View
                           </.ui_button>
                           <.ui_button
-                            :if={package.status in [:pending, :ready, :downloaded]}
+                            :if={managed?(package)}
+                            variant="ghost"
+                            size="xs"
+                            navigate={~p"/admin/service-certificates"}
+                          >Certificates</.ui_button>
+                          <.ui_button
+                            :if={
+                              !managed?(package) && package.status in [:pending, :ready, :downloaded]
+                            }
                             variant="ghost"
                             size="xs"
                             phx-click="revoke_package"
@@ -734,7 +774,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
           </div>
           <div>
             <div class="text-xs uppercase tracking-wide text-sr-muted">Status</div>
-            <.status_badge status={@package.status} />
+            <.deployment_badge record={@package} />
           </div>
           <div>
             <div class="text-xs uppercase tracking-wide text-sr-muted">Type</div>
@@ -765,7 +805,9 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
           <code class="text-sm font-mono bg-sr-subtle p-2 rounded block">{@package.id}</code>
         </div>
 
-        <%= if @package.error_message do %>
+        <.managed_deployment_details record={@package} />
+
+        <%= if @package.error_message && !managed?(@package) do %>
           <div class={ui_alert_class(variant: "error", class: "text-sm")}>
             <.icon name="hero-exclamation-triangle" class="size-4" />
             {@package.error_message}
@@ -774,7 +816,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
       </div>
 
       <div class="flex justify-end gap-2 pt-1">
-        <%= if @package.status in [:pending, :ready, :downloaded] do %>
+        <%= if !managed?(@package) && @package.status in [:pending, :ready, :downloaded] do %>
           <.ui_button
             type="button"
             phx-click="revoke_package"
@@ -857,14 +899,13 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
     query =
       CollectorPackage
       |> Ash.Query.for_read(:read)
-      |> Ash.Query.load(:edge_site)
+      |> Ash.Query.load([:edge_site, :deployment_status, managed_component: :current_operation])
       |> Ash.Query.sort(inserted_at: :desc)
       |> Ash.Query.limit(50)
 
     query =
       if filter_status do
-        status_atom = String.to_existing_atom(filter_status)
-        Ash.Query.filter(query, status == ^status_atom)
+        Ash.Query.filter(query, deployment_status == ^filter_status)
       else
         query
       end
@@ -904,7 +945,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
     sites =
       case EdgeSite
            |> Ash.Query.for_read(:read)
-           |> Ash.Query.filter(status == :active)
+           |> Ash.Query.filter(deployment_status in ["active", "installed"])
            |> Ash.Query.sort(name: :asc)
            |> Ash.read(actor: actor) do
         {:ok, sites} -> sites
@@ -975,6 +1016,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
   defp get_package(id, actor) do
     case CollectorPackage
          |> Ash.Query.for_read(:read)
+         |> Ash.Query.load([:deployment_status, managed_component: :current_operation])
          |> Ash.Query.filter(id == ^id)
          |> Ash.read_one(actor: actor) do
       {:ok, nil} -> {:error, :not_found}

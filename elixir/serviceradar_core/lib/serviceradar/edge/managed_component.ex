@@ -159,6 +159,12 @@ defmodule ServiceRadar.Edge.ManagedComponent do
   end
 
   relationships do
+    has_one :current_operation, ServiceRadar.Edge.ManagedCertificateOperation do
+      source_attribute :component_id
+      destination_attribute :component_id
+      filter expr(status != :superseded)
+    end
+
     belongs_to :edge_site, ServiceRadar.Edge.EdgeSite do
       public? true
     end

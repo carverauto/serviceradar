@@ -50,6 +50,15 @@ retains predecessors until independently authenticated receiver observations cov
 all successor roles. A leaf has upstream-client and local-server roles, so hub-side
 observation alone cannot retire its previous pair.
 
+The Edge Sites and Data Collectors pages show managed deployment state from the
+current enrollment's installation operation. `installed` means the host acknowledged
+installation and activation; it is not a connection heartbeat. A blocked component
+shows `revoked`, and re-enrollment shows `pending` until a new operation starts.
+An older enrollment's receipt cannot mark the new enrollment installed. Lists,
+details, and status filters use this same state and refresh every ten seconds.
+Unmanaged deployments retain their existing provisioning status. Use Service
+Certificates for managed rotation, revocation, and re-enrollment.
+
 Core persists the operation before sending commands. Lost replies reuse the same
 preparation request, and the agent returns its durable CSR/installation receipt.
 A minute-based reconciliation job discovers unfinished operations and due renewals;

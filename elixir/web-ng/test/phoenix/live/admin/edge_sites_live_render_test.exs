@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLiveRenderTest do
   import Phoenix.LiveViewTest
 
   alias ServiceRadar.Edge.EdgeSite
+  alias ServiceRadar.Edge.ManagedComponent
   alias ServiceRadar.Edge.NatsLeafServer
   alias ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index
   alias ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show
@@ -20,18 +21,21 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLiveRenderTest do
   end
 
   test "site rows render their optional single leaf server" do
-    for {leaf, label} <- [
-          {nil, "-"},
-          {%NatsLeafServer{status: :pending}, "Provisioning"},
-          {%NatsLeafServer{status: :provisioned}, "Ready"},
-          {%NatsLeafServer{status: :connected}, "Connected"},
-          {%NatsLeafServer{status: :disconnected}, "Disconnected"}
+    for {leaf, label, managed?} <- [
+          {nil, "-", false},
+          {%NatsLeafServer{status: :pending}, "Provisioning", false},
+          {%NatsLeafServer{status: :provisioned}, "Ready", false},
+          {%NatsLeafServer{status: :connected}, "Connected", false},
+          {%NatsLeafServer{status: :disconnected}, "Disconnected", false},
+          {%NatsLeafServer{status: :provisioned}, "installed", true}
         ] do
       site = %EdgeSite{
         id: "00000000-0000-4000-8000-000000000021",
         name: "Example edge site",
         slug: "example-edge",
         status: :pending,
+        deployment_status: if(managed?, do: "installed", else: "pending"),
+        managed_component: if(managed?, do: %ManagedComponent{}),
         inserted_at: ~U[2026-01-01 00:00:00Z],
         nats_leaf_server: leaf
       }
@@ -54,6 +58,12 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLiveRenderTest do
         )
 
       assert html =~ "Example edge site"
+
+      assert html
+             |> LazyHTML.from_fragment()
+             |> LazyHTML.query("tbody tr td:nth-child(2)")
+             |> LazyHTML.text()
+             |> String.trim() == site.deployment_status
 
       assert html
              |> LazyHTML.from_fragment()
@@ -80,6 +90,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLiveRenderTest do
         name: "Example detail site",
         slug: "example-detail",
         status: :active,
+        deployment_status: "active",
+        managed_component: nil,
         inserted_at: ~U[2026-01-01 00:00:00Z],
         nats_leaf_server: leaf
       }
