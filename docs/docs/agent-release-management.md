@@ -231,6 +231,7 @@ Use these surfaces first during rollout triage:
 - `/settings/agents/releases`: published releases, supported platform badges, rollout compatibility preview, disabled invalid rollout submission, rollout-creation validation, recent rollouts, pause/resume/cancel actions, and per-target diagnostics.
 - `/agents`: version distribution, rollout-state counts, target-version filtering, per-agent last update error.
 - `/agents/:uid`: current version, desired version, rollout state, last update error, and recent rollout targets.
+- `/settings/agents/edge-pipeline` (also `GET /api/admin/agents/edge-pipeline-readiness`): read-only list of agents that would be off the durable edge-record pipeline, with the reason `partition_not_found`, `agent_disconnected`, or `agent_upgrade_blocked` (`rollout_paused`, `no_published_release`, or `no_release_artifact` for the agent's platform). Agents running from a container image are upgraded with the image and are never reported as upgrade-blocked. The same conditions appear on `/agents/:uid` and in `GET /api/admin/agents`.
 
 Common failure patterns:
 

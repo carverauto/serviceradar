@@ -909,6 +909,7 @@ defmodule ServiceRadarWebNGWeb.Router do
 
     # Read-only edge views for the CLI
     get("/agents", AdminAgentController, :index)
+    get("/agents/edge-pipeline-readiness", AdminAgentController, :edge_pipeline_readiness)
     get("/version", ProductVersionController, :show)
   end
 
@@ -1419,6 +1420,7 @@ defmodule ServiceRadarWebNGWeb.Router do
 
       # Agent deployment
       live("/settings/agents/releases", Settings.AgentsLive.Releases, :index)
+      live("/settings/agents/edge-pipeline", Settings.AgentsLive.EdgePipelineReadiness, :index)
       live("/settings/agents/deploy", Settings.AgentsLive.Deploy, :index)
       live("/settings/agents/plugins", Plugins.InstalledLive, :index)
       live("/settings/agents/plugins/updates", Plugins.UpdatesLive, :index)

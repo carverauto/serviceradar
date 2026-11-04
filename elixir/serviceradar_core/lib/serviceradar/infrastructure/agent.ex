@@ -1085,6 +1085,14 @@ defmodule ServiceRadar.Infrastructure.Agent do
                 end
               )
 
+    calculate :edge_pipeline_conditions,
+              {:array, :map},
+              ServiceRadar.Infrastructure.Calculations.EdgePipelineConditions do
+      public? true
+
+      description "Why the agent is off the durable edge-record pipeline; empty when it is ready"
+    end
+
     calculate :endpoint,
               :string,
               expr(

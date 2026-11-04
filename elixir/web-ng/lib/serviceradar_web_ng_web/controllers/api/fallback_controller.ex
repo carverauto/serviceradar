@@ -81,6 +81,10 @@ defmodule ServiceRadarWebNGWeb.Api.FallbackController do
     conn |> put_status(:service_unavailable) |> json(%{error: "idempotency_unavailable"})
   end
 
+  def call(conn, {:error, :agent_tracker_unavailable}) do
+    conn |> put_status(:service_unavailable) |> json(%{error: "agent_tracker_unavailable"})
+  end
+
   # Handle Ash authorization errors (policy failures)
   def call(conn, {:error, %Forbidden{} = error}) do
     AuthorizationAudit.log_failure(conn, error)

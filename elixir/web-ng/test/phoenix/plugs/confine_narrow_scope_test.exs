@@ -103,6 +103,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.ConfineNarrowScopeTest do
             {"DELETE", "/api/admin/edge-sites/#{id}"},
             {"POST", "/api/admin/edge-sites/#{id}/bundle"},
             {"GET", "/api/admin/agents"},
+            {"GET", "/api/admin/agents/edge-pipeline-readiness"},
             {"GET", "/api/admin/version"}
           ] do
         refute run(method, path, "edge.manage").halted, "expected #{method} #{path} to pass for edge.manage"

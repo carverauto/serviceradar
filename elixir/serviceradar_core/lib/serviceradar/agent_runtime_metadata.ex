@@ -52,34 +52,60 @@ defmodule ServiceRadar.AgentRuntimeMetadata do
 
   defp hydrate_agent(agent, _runtime_by_id), do: agent
 
-  defp runtime_by_agent_id do
-    [Node.self() | Node.list()]
-    |> Task.async_stream(
-      &list_node_agents/1,
-      timeout: @task_timeout,
-      on_timeout: :kill_task,
-      max_concurrency: 4
-    )
-    |> Enum.flat_map(fn
-      {:ok, agents} -> agents
-      _ -> []
-    end)
-    |> Enum.reduce(%{}, fn runtime_agent, acc ->
-      case runtime_agent_id(runtime_agent) do
-        nil ->
-          acc
+  @doc """
+  The live AgentTracker entry of every agent any connected core node tracks, by agent id.
 
-        agent_id ->
-          normalized = normalize_runtime_agent(runtime_agent)
-          Map.update(acc, agent_id, normalized, &prefer_runtime_agent(&1, normalized))
-      end
-    end)
+  `active` is whether any node saw the agent within the tracker's stale window. An agent
+  tracked on more than one node takes its most recently seen active entry, else its most
+  recently seen entry. A node whose tracker cannot be read fails the whole read with
+  `{:error, :agent_tracker_unavailable}` rather than leaving that node's agents out.
+  """
+  @spec runtime_agents() :: {:ok, %{String.t() => map()}} | {:error, :agent_tracker_unavailable}
+  def runtime_agents do
+    case read_runtime_agents() do
+      {runtime_by_id, false} -> {:ok, runtime_by_id}
+      {_runtime_by_id, true} -> {:error, :agent_tracker_unavailable}
+    end
+  end
+
+  defp runtime_by_agent_id do
+    {runtime_by_id, _any_node_failed?} = read_runtime_agents()
+    runtime_by_id
+  end
+
+  defp read_runtime_agents do
+    {agents, any_node_failed?} =
+      [Node.self() | Node.list()]
+      |> Task.async_stream(
+        &list_node_agents/1,
+        timeout: @task_timeout,
+        on_timeout: :kill_task,
+        max_concurrency: 4
+      )
+      |> Enum.reduce({[], false}, fn
+        {:ok, {:ok, node_agents}}, {acc, failed?} -> {node_agents ++ acc, failed?}
+        _failed_read, {acc, _failed?} -> {acc, true}
+      end)
+
+    runtime_by_id =
+      Enum.reduce(agents, %{}, fn runtime_agent, acc ->
+        case runtime_agent_id(runtime_agent) do
+          nil ->
+            acc
+
+          agent_id ->
+            normalized = normalize_runtime_agent(runtime_agent)
+            Map.update(acc, agent_id, normalized, &prefer_runtime_agent(&1, normalized))
+        end
+      end)
+
+    {runtime_by_id, any_node_failed?}
   end
 
   defp list_node_agents(node) do
     case :rpc.call(node, ServiceRadar.AgentTracker, :list_agents, [], @rpc_timeout) do
-      agents when is_list(agents) -> agents
-      _ -> []
+      agents when is_list(agents) -> {:ok, agents}
+      _ -> :error
     end
   end
 
@@ -94,6 +120,7 @@ defmodule ServiceRadar.AgentRuntimeMetadata do
       agent_id: runtime_agent_id(agent),
       last_seen: runtime_field(agent, :last_seen),
       last_seen_mono: runtime_field(agent, :last_seen_mono),
+      active: runtime_field(agent, :active) == true,
       version: runtime_field(agent, :version),
       gateway_id: runtime_field(agent, :gateway_id),
       hostname: runtime_field(agent, :hostname),
@@ -124,6 +151,9 @@ defmodule ServiceRadar.AgentRuntimeMetadata do
     incoming_mono = Map.get(incoming, :last_seen_mono)
 
     cond do
+      incoming.active != existing.active ->
+        if incoming.active, do: {incoming, existing}, else: {existing, incoming}
+
       is_integer(incoming_ms) and is_integer(existing_ms) and incoming_ms >= existing_ms ->
         {incoming, existing}
 
