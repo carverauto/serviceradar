@@ -787,7 +787,7 @@ if config_env() == :prod do
   end
 
   pool_size = parse_int.(System.get_env("POOL_SIZE") || "10") || 10
-  search_path = System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")
+  search_path = System.get_env("CNPG_SEARCH_PATH", "platform, public")
 
   database_timeout =
     "DATABASE_TIMEOUT_MS"

@@ -14,10 +14,9 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
   require Logger
 
   @default_marker_path "/tmp/serviceradar_migrations_complete"
-  @default_search_path "platform, public, ag_catalog"
+  @default_search_path "platform, public"
   @default_app_user "serviceradar"
   @max_migration_repair_attempts 500
-  @managed_public_function "public.age_device_neighborhood(text,boolean,boolean)"
   @cnpg_pooler_auth_function "public.user_search(text)"
   @cnpg_pooler_auth_language "sql"
   @cnpg_pooler_auth_result "TABLE(usename name, passwd text)"
@@ -85,7 +84,6 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
     ensure_database_search_path!(app_user, app_database(), search_path())
     set_session_search_path!(search_path())
     ensure_managed_database_ownership!(app_user)
-    ensure_ag_catalog_privileges!(app_user)
 
     run_bootstrap_or_migrations!(app_user)
 
@@ -94,7 +92,6 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
     SchemaBootstrap.sync_migration_ledgers!(ServiceRadar.Repo)
 
     ensure_managed_database_ownership!(app_user)
-    ensure_ag_catalog_privileges!(app_user)
   end
 
   defp migrations_enabled? do
@@ -311,8 +308,8 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
   end
 
   # Format search_path as comma-separated quoted identifiers.
-  # Input: "platform, public, ag_catalog"
-  # Output: "platform", "public", "ag_catalog"
+  # Input: "platform, public"
+  # Output: "platform", "public"
   defp format_search_path(search_path) do
     search_path
     |> String.split(",")
@@ -320,7 +317,7 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
   end
 
   # Fix existing misconfigured search_path where the entire value was stored as a single
-  # quoted identifier (e.g., "platform, public, ag_catalog" with quotes in the value).
+  # quoted identifier (e.g., "platform, public" with quotes in the value).
   defp fix_search_path!(app_user, database) do
     # Check if the current search_path has the bug (contains literal double quotes)
     case ServiceRadar.Repo.query!("SELECT current_setting('search_path')") do
@@ -339,178 +336,6 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
       _ ->
         :ok
     end
-  end
-
-  defp ensure_ag_catalog_privileges!(app_user) do
-    if repo_enabled?() and schema_exists?("ag_catalog") do
-      graph_name = Application.get_env(:serviceradar_core, :age_graph_name, "platform_graph")
-
-      if age_privileges_already_satisfied?(app_user, graph_name) do
-        :ok
-      else
-        # AGE privileges must be granted by superuser when the schema was created by postgres.
-        with_admin_connection(fn conn ->
-          Postgrex.query!(
-            conn,
-            "GRANT USAGE ON SCHEMA ag_catalog TO #{quote_ident(app_user)}",
-            []
-          )
-
-          Postgrex.query!(
-            conn,
-            "GRANT ALL ON ALL TABLES IN SCHEMA ag_catalog TO #{quote_ident(app_user)}",
-            []
-          )
-
-          Postgrex.query!(
-            conn,
-            "GRANT ALL ON ALL SEQUENCES IN SCHEMA ag_catalog TO #{quote_ident(app_user)}",
-            []
-          )
-
-          Postgrex.query!(
-            conn,
-            "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ag_catalog TO #{quote_ident(app_user)}",
-            []
-          )
-
-          ensure_age_graph_privileges!(conn, app_user, graph_name)
-        end)
-      end
-    end
-  end
-
-  defp age_privileges_already_satisfied?(app_user, graph_name) do
-    has_ag_catalog_usage?() and age_graph_owner(graph_name) == app_user
-  end
-
-  defp has_ag_catalog_usage? do
-    case ServiceRadar.Repo.query!(
-           "SELECT has_schema_privilege(current_user, 'ag_catalog', 'USAGE')"
-         ) do
-      %{rows: [[true]]} -> true
-      _ -> false
-    end
-  rescue
-    _ -> false
-  end
-
-  defp age_graph_owner(graph_name) do
-    case ServiceRadar.Repo.query!(
-           "SELECT schema_owner FROM information_schema.schemata WHERE schema_name = $1",
-           [graph_name]
-         ) do
-      %{rows: [[owner]]} when is_binary(owner) -> owner
-      _ -> nil
-    end
-  rescue
-    _ -> nil
-  end
-
-  # Grant privileges on an AGE graph schema using an admin connection.
-  # AGE creates a schema with the same name as the graph to store vertex/edge tables.
-  # The schema is owned by whoever ran create_graph(), which may be postgres superuser.
-  defp ensure_age_graph_privileges!(conn, app_user, graph_name) do
-    # Check if schema exists using the admin connection
-    case Postgrex.query!(conn, "SELECT 1 FROM pg_namespace WHERE nspname = $1", [graph_name]) do
-      %{rows: []} ->
-        Logger.debug(
-          "[StartupMigrations] AGE graph schema #{graph_name} does not exist; skipping privileges"
-        )
-
-      _ ->
-        Logger.info("[StartupMigrations] Granting privileges on AGE graph schema #{graph_name}")
-
-        Postgrex.query!(
-          conn,
-          "GRANT USAGE, CREATE ON SCHEMA #{quote_ident(graph_name)} TO #{quote_ident(app_user)}",
-          []
-        )
-
-        Postgrex.query!(
-          conn,
-          "GRANT ALL ON ALL TABLES IN SCHEMA #{quote_ident(graph_name)} TO #{quote_ident(app_user)}",
-          []
-        )
-
-        Postgrex.query!(
-          conn,
-          "GRANT ALL ON ALL SEQUENCES IN SCHEMA #{quote_ident(graph_name)} TO #{quote_ident(app_user)}",
-          []
-        )
-
-        # Set default privileges for future objects created in this graph
-        Postgrex.query!(
-          conn,
-          "ALTER DEFAULT PRIVILEGES IN SCHEMA #{quote_ident(graph_name)} GRANT ALL ON TABLES TO #{quote_ident(app_user)}",
-          []
-        )
-
-        Postgrex.query!(
-          conn,
-          "ALTER DEFAULT PRIVILEGES IN SCHEMA #{quote_ident(graph_name)} GRANT ALL ON SEQUENCES TO #{quote_ident(app_user)}",
-          []
-        )
-
-        # Ensure ownership matches app user to satisfy AGE label-table ownership requirements.
-        ensure_age_graph_ownership!(conn, app_user, graph_name)
-    end
-  end
-
-  defp ensure_age_graph_ownership!(conn, app_user, graph_name) do
-    Logger.info("[StartupMigrations] Ensuring ownership for AGE graph schema #{graph_name}")
-
-    Postgrex.query!(
-      conn,
-      "ALTER SCHEMA #{quote_ident(graph_name)} OWNER TO #{quote_ident(app_user)}",
-      []
-    )
-
-    %{rows: table_rows} =
-      Postgrex.query!(
-        conn,
-        "SELECT c.relname\n" <>
-          "FROM pg_class c\n" <>
-          "JOIN pg_namespace n ON n.oid = c.relnamespace\n" <>
-          "WHERE n.nspname = $1\n" <>
-          "AND c.relkind IN ('r', 'p')",
-        [graph_name]
-      )
-
-    Enum.each(table_rows, fn [relname] ->
-      Postgrex.query!(
-        conn,
-        "ALTER TABLE #{quote_ident(graph_name)}.#{quote_ident(relname)} OWNER TO #{quote_ident(app_user)}",
-        []
-      )
-    end)
-
-    # Skip sequences owned by tables; PostgreSQL forbids changing their owner directly.
-    # Both dependency kinds, for the reason spelled out on admin_sequence_owned_by_table?/2:
-    # serial gives deptype 'a', an identity column gives 'i', and only the pair is complete.
-    %{rows: seq_rows} =
-      Postgrex.query!(
-        conn,
-        "SELECT c.relname\n" <>
-          "FROM pg_class c\n" <>
-          "JOIN pg_namespace n ON n.oid = c.relnamespace\n" <>
-          "WHERE n.nspname = $1\n" <>
-          "AND c.relkind = 'S'\n" <>
-          "AND NOT EXISTS (\n" <>
-          "  SELECT 1 FROM pg_depend d\n" <>
-          "  WHERE d.objid = c.oid\n" <>
-          "  AND d.deptype IN ('a', 'i')\n" <>
-          ")",
-        [graph_name]
-      )
-
-    Enum.each(seq_rows, fn [relname] ->
-      Postgrex.query!(
-        conn,
-        "ALTER SEQUENCE #{quote_ident(graph_name)}.#{quote_ident(relname)} OWNER TO #{quote_ident(app_user)}",
-        []
-      )
-    end)
   end
 
   # Execute a function with a temporary admin (superuser) database connection.
@@ -636,10 +461,7 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
         ON d.classid = 'pg_proc'::regclass
        AND d.objid = p.oid
        AND d.deptype = 'e'
-      WHERE (
-          n.nspname = 'platform'
-          OR p.oid = to_regprocedure('#{@managed_public_function}')
-        )
+      WHERE n.nspname = 'platform'
         AND d.objid IS NULL
         AND p.proowner <> r.oid
 
@@ -1033,10 +855,7 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
       ON d.classid = 'pg_proc'::regclass
      AND d.objid = p.oid
      AND d.deptype = 'e'
-    WHERE (
-        n.nspname = 'platform'
-        OR p.oid = to_regprocedure('#{@managed_public_function}')
-      )
+    WHERE n.nspname = 'platform'
       AND d.objid IS NULL
       AND p.proowner <> r.oid
     ORDER BY n.nspname, p.proname, pg_get_function_identity_arguments(p.oid)
@@ -1095,13 +914,6 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
   end
 
   def scram_verifier_matches?(_verifier, _password), do: false
-
-  defp schema_exists?(schema_name) do
-    case ServiceRadar.Repo.query!("SELECT 1 FROM pg_namespace WHERE nspname = $1", [schema_name]) do
-      %{rows: []} -> false
-      _ -> true
-    end
-  end
 
   defp quote_ident(value) do
     ~s("#{String.replace(value, "\"", "\"\"")}")

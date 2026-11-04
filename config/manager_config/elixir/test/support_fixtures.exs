@@ -27,7 +27,7 @@ defmodule ServiceradarConfig.ManagerFixtures do
         owning_role: "srql_test",
         tls_mode: :TLS_MODE_VERIFY_FULL,
         tls_server_name: "db",
-        search_path: "platform, ag_catalog",
+        search_path: "platform",
         pool_size: 10,
         queue_target_ms: 500,
         queue_interval_ms: 1000,

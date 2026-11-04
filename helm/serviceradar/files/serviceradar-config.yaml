@@ -22,7 +22,7 @@
 {{- $appSchema := default "platform" .Values.cnpg.schema -}}
 {{- $searchPath := index $cnpgRuntime "search_path" -}}
 {{- if not $searchPath -}}
-  {{- $searchPath = printf "%s,ag_catalog" $appSchema -}}
+  {{- $searchPath = $appSchema -}}
 {{- end -}}
 {{- $cnpgClusterName := include "serviceradar.cnpgClusterName" . -}}
 {{- $logCollectorSA := (include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "logCollector")) -}}

@@ -157,7 +157,7 @@ defmodule ServiceRadar.Postgres.SchemaSql do
 
   defp maybe_normalize_timescaledb_schema(statements, opts) do
     if Keyword.get(opts, :normalize_timescaledb_schema?, false) do
-      search_path = Keyword.get(opts, :timescaledb_search_path, "platform, public, ag_catalog")
+      search_path = Keyword.get(opts, :timescaledb_search_path, "platform, public")
 
       Enum.map(statements, fn statement ->
         statement

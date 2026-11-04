@@ -77,8 +77,8 @@
 {{- $superPass := include "serviceradar.reuseSecretPassword" (dict "namespace" $ns "name" $superSecretName "fromValues" (default "" $cnpg.superuserPassword)) -}}
 {{- /* No extension is created at initdb by default (#454). The core schema baseline and the
        migrations create every extension in the schema they reference -- `CREATE EXTENSION
-       ... WITH SCHEMA platform`, and ag_catalog for age -- and the migrations job runs them
-       as the CNPG superuser, so nothing has to exist beforehand.
+       ... WITH SCHEMA platform` -- and the migrations job runs them as the CNPG superuser,
+       so nothing has to exist beforehand.
 
        Creating one here first is what breaks a brand-new database. initdb runs this SQL
        before any `platform` schema exists, so an unqualified CREATE EXTENSION lands in
@@ -87,9 +87,6 @@
        postgis and age cannot be relocated at all), so every `platform.create_hypertable(...)`
        the baseline issues fails and the migrations hook never succeeds. Databases that were
        already initialized are unaffected: CNPG runs postInitApplicationSQL once, at creation.
-
-       The ag_catalog grants that used to follow here are made by core once age exists
-       (StartupMigrations.ensure_ag_catalog_privileges!).
 
        cnpg.extensionsSQL remains for SQL that genuinely must run at initdb. An extension
        created through it must be placed where the baseline expects it. An empty list and an

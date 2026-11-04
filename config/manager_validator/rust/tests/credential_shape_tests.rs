@@ -92,7 +92,7 @@ fn legitimate_configuration_values_are_not_flagged() {
     let clean = pairs(&[
         ("database.host", "\"cnpg-rw.serviceradar.svc.cluster.local\""),
         ("database.connecting_role", "\"serviceradar\""),
-        ("database.search_path", "\"platform, ag_catalog\""),
+        ("database.search_path", "\"platform\""),
         ("database.port", "5432"),
         ("nats.url", "\"tls://serviceradar-nats.demo.svc.cluster.local:4222\""),
         ("core.api_url", "\"http://serviceradar-core:8090\""),

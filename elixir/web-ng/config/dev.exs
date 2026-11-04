@@ -151,7 +151,7 @@ config :serviceradar_core, ServiceRadar.Repo,
   pool_size: cnpg_pool_size,
   queue_target: cnpg_queue_target,
   queue_interval: cnpg_queue_interval,
-  parameters: [search_path: System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")],
+  parameters: [search_path: System.get_env("CNPG_SEARCH_PATH", "platform, public")],
   types: ServiceRadar.PostgresTypes
 
 # Do not open a datasvc gRPC client in local Phoenix unless explicitly configured.

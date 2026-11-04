@@ -190,7 +190,7 @@ config :serviceradar_core,
                  "300000"
              ),
            parameters: [
-             search_path: System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")
+             search_path: System.get_env("CNPG_SEARCH_PATH", "platform, public")
            ],
            types: ServiceRadar.PostgresTypes,
            # Ecto logs every query, with its parameters, at :debug. `mix test` hides that behind
