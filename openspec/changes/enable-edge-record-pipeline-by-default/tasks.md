@@ -21,7 +21,7 @@
     returns the refused rows with that reason and logs them at error.)
   - [x] 0.2.3 Carry the signature and key id per epoch, and `projection_revision`
     on every contract entry, in the trust document's `contract_registry` member.
-  - [ ] 0.2.4 Gateway verification: verify every epoch against the issuer public
+  - [x] 0.2.4 Gateway verification: verify every epoch against the issuer public
     key its key id names before installing the registry member, and re-verify any
     persisted or `:persistent_term` copy on load. On a bad signature:
     - refuse the whole member, keep the previously verified registry, and still
@@ -30,7 +30,12 @@
       `edge_registry_signature_rejected`, and report the refusal on the next
       refresh;
     - do not count as holding the candidate.
-  - [ ] 0.2.5 Tests:
+
+    (`ServiceRadarAgentGateway.EdgeRecordTrust` and `EdgeContractRegistry.verify_member/2`.
+    The `:persistent_term` snapshot is written only by `install/2` after verification and read
+    as-is on the frame path; the one copy reused across documents, the registry kept after a
+    refusal, is re-verified under the new document's keys first and dropped if it fails.)
+  - [x] 0.2.5 Tests:
     - a golden preimage and signature vector;
     - a tampered admission field, projection revision, epoch number or bundle
       digest each failing verification;
@@ -39,8 +44,8 @@
     - a fresh gateway with only a bad document withholding as
       `registry_unavailable`.
 
-    (Core vectors done: `contract_registry_epoch_document_test.exs` and
-    `contract_registry_db_test.exs`. The two gateway cases land with 0.2.4.)
+    (Core vectors: `contract_registry_epoch_document_test.exs` and
+    `contract_registry_db_test.exs`. Gateway cases: `edge_record_trust_test.exs`.)
 - [x] 0.3 Re-scope `add-edge-contract-registry-lifecycle` tasks 1.1, 1.5, 1.6 and
   1.7 to what remains after this change (cost API, security revocation, Hello
   advertisement). Amend its lifecycle requirement: no `ready` state, readiness
@@ -160,19 +165,27 @@
 
 ## 3. Gateway
 
-- [ ] 3.1 Install trust and registry together in `EdgeRecordTrust`. Delete
+- [x] 3.1 Install trust and registry together in `EdgeRecordTrust`. Delete
   `EdgeContractRegistry.Static` and `AGENT_GATEWAY_EDGE_RECORD_CONTRACT_REGISTRY`.
-- [ ] 3.2 Admit each record against the entry of the epoch it names, across all held
+- [x] 3.2 Admit each record against the entry of the epoch it names, across all held
   epochs. Replace `:historical_bundle_not_registered` with the per-epoch lookup.
   Reject `registry_epoch_retired` and `static_registry_epoch` permanently, and
   order the static-era check ahead of any withhold, including issuer key id
   lookup.
-- [ ] 3.3 Delete `AGENT_GATEWAY_EDGE_RECORDS_ENABLED` so the publisher always
+- [x] 3.3 Delete `AGENT_GATEWAY_EDGE_RECORDS_ENABLED` so the publisher always
   starts, and make core the default trust source. Rewrite the `runtime.exs`
-  comment that says the pipeline stays off.
-- [ ] 3.4 Report installed snapshot digests on each refresh.
+  comment that says the pipeline stays off. (No harness used the boot-time file
+  source, so it is deleted with `AGENT_GATEWAY_EDGE_RECORD_TRUST_SOURCE` and
+  `AGENT_GATEWAY_EDGE_RECORD_TRUST_FILE`: core is the only trust source.)
+- [x] 3.4 Report installed snapshot digests on each refresh.
 - [ ] 3.5 Refuse a record whose bundle is outside the projectable set in the
   trust document with a retryable refusal, so the agent keeps it spooled.
+  (Gateway side done: the member's optional `"projectable_bundles"`, a list of
+  lowercase-hex bundle digests, withholds any other bundle as
+  `:bundle_not_projectable`. Core does not publish the set yet (1.4), so an
+  absent key means no restriction. When 1.4 lands, make the key required in
+  `EdgeContractRegistry.verify_member/2` and delete the `nil` clause of its
+  `projectable/2`, then check this.)
 
 ## 4. Agent
 
@@ -256,7 +269,7 @@ Load the `test-audit` skill before writing these.
   - a fresh install issuing grants with zero settings rows.
 
   Unboxed tests delete what they create.
-- [ ] 6.2 Gateway tests: draining-epoch admission with a changed bundle, retired
+- [x] 6.2 Gateway tests: draining-epoch admission with a changed bundle, retired
   and static-era permanent rejection (including with an unknown key id), and an
   expired or unparseable registry withholding.
 - [ ] 6.3 Agent tests: no `edge_record_sender` block opens the default spool and

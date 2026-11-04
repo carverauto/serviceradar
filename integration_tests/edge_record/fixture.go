@@ -505,11 +505,11 @@ const (
 	fixtureCostModel       = 1
 )
 
-// FixtureContractRegistryJSON is a static contract registry snapshot in the gateway's
-// AGENT_GATEWAY_EDGE_RECORD_CONTRACT_REGISTRY format (parsed by
-// ServiceRadarAgentGateway.EdgeContractRegistry.Static): exactly the one contract every fixture
-// record names as built, active on the durable bulk route, built from the same constants. The
-// live gateway boots with core's derived epoch instead (recordRegistryEpoch).
+// FixtureContractRegistryJSON is a static contract registry snapshot in the installation-static
+// registry format: exactly the one contract every fixture record names as built, active on the
+// durable bulk route, built from the same constants. Neither live release admits against it:
+// core signs under its derived epoch (recordRegistryEpoch), and the gateway receives that epoch
+// with its trust refresh.
 func FixtureContractRegistryJSON() (string, error) {
 	type contract struct {
 		ContractID           string `json:"contract_id"`

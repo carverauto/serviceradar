@@ -9,40 +9,9 @@ defmodule ServiceRadarAgentGateway.EdgeRecordCapabilityTest do
   alias ServiceRadar.Edge.PublishPipeline
   alias ServiceRadarAgentGateway.EdgeRecordCapability
   alias ServiceRadarAgentGateway.EdgeRecordTrust
-  alias ServiceRadarAgentGateway.TestSupport.EdgeContractRegistryStub
   alias ServiceRadarAgentGateway.TestSupport.EdgeRecordFactory
 
   setup do
-    previous = Application.get_env(:serviceradar_agent_gateway, :edge_records_publisher)
-
-    previous_registry =
-      Application.get_env(:serviceradar_agent_gateway, :edge_record_contract_registry_impl)
-
-    Application.put_env(
-      :serviceradar_agent_gateway,
-      :edge_record_contract_registry_impl,
-      EdgeContractRegistryStub
-    )
-
-    on_exit(fn ->
-      case previous do
-        nil -> Application.delete_env(:serviceradar_agent_gateway, :edge_records_publisher)
-        value -> Application.put_env(:serviceradar_agent_gateway, :edge_records_publisher, value)
-      end
-
-      case previous_registry do
-        nil ->
-          Application.delete_env(:serviceradar_agent_gateway, :edge_record_contract_registry_impl)
-
-        value ->
-          Application.put_env(
-            :serviceradar_agent_gateway,
-            :edge_record_contract_registry_impl,
-            value
-          )
-      end
-    end)
-
     install_trust!()
 
     Enum.each(PublisherLane.lanes(), fn lane ->
@@ -58,27 +27,13 @@ defmodule ServiceRadarAgentGateway.EdgeRecordCapabilityTest do
     assert EdgeRecordCapability.id() == "edge-records:v1"
   end
 
-  test "not ready when the publisher flag is disabled, even if every lane is alive" do
-    Application.put_env(:serviceradar_agent_gateway, :edge_records_publisher, enabled: true)
-    start_every_lane!()
-    assert EdgeRecordCapability.ready?()
-    Application.put_env(:serviceradar_agent_gateway, :edge_records_publisher, enabled: false)
-
-    refute EdgeRecordCapability.enabled?()
-    refute EdgeRecordCapability.ready?()
-  end
-
-  test "not ready when enabled but no lane is alive" do
-    Application.put_env(:serviceradar_agent_gateway, :edge_records_publisher, enabled: true)
-
-    assert EdgeRecordCapability.enabled?()
+  test "not ready when no lane is alive" do
     refute EdgeRecordCapability.ready?()
     start_every_lane!()
     assert EdgeRecordCapability.ready?()
   end
 
-  test "not ready when enabled but only some lanes are alive" do
-    Application.put_env(:serviceradar_agent_gateway, :edge_records_publisher, enabled: true)
+  test "not ready when only some lanes are alive" do
     [first | rest] = PublisherLane.lanes()
     start_lane!(first)
 
@@ -87,15 +42,13 @@ defmodule ServiceRadarAgentGateway.EdgeRecordCapabilityTest do
     assert EdgeRecordCapability.ready?()
   end
 
-  test "ready when enabled, trust is installed, and every lane's accountant, transport and pipeline are alive" do
-    Application.put_env(:serviceradar_agent_gateway, :edge_records_publisher, enabled: true)
+  test "ready when trust is installed and every lane's accountant, transport and pipeline are alive" do
     start_every_lane!()
 
     assert EdgeRecordCapability.ready?()
   end
 
-  test "not ready without a trust snapshot, even when enabled with every lane alive" do
-    Application.put_env(:serviceradar_agent_gateway, :edge_records_publisher, enabled: true)
+  test "not ready without a trust snapshot, even with every lane alive" do
     start_every_lane!()
     assert EdgeRecordCapability.ready?()
     EdgeRecordTrust.clear()
@@ -104,7 +57,6 @@ defmodule ServiceRadarAgentGateway.EdgeRecordCapabilityTest do
   end
 
   test "each lane requires its accountant, transport and pipeline" do
-    Application.put_env(:serviceradar_agent_gateway, :edge_records_publisher, enabled: true)
     start_every_lane!()
 
     for lane <- PublisherLane.lanes(),
@@ -120,18 +72,19 @@ defmodule ServiceRadarAgentGateway.EdgeRecordCapabilityTest do
     end
   end
 
-  test "not ready when trust is installed and every lane is alive but no contract registry is loaded" do
-    Application.put_env(:serviceradar_agent_gateway, :edge_records_publisher, enabled: true)
+  test "not ready when trust is installed and every lane is alive but no contract registry verified" do
     start_every_lane!()
     assert EdgeRecordCapability.ready?()
-    Process.put(:edge_contract_registry_snapshot, {:error, :registry_not_configured})
+    EdgeRecordTrust.clear()
+    install_trust!(contract_registry: nil)
 
+    assert EdgeRecordTrust.available?()
     refute EdgeRecordCapability.ready?()
   end
 
-  defp install_trust! do
+  defp install_trust!(opts \\ []) do
     %{public: public} = EdgeRecordFactory.keypair()
-    :ok = EdgeRecordTrust.install(EdgeRecordFactory.trust_document(public))
+    :ok = EdgeRecordTrust.install(EdgeRecordFactory.trust_document(public, opts))
     on_exit(fn -> EdgeRecordTrust.clear() end)
   end
 

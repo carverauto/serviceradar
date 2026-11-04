@@ -432,24 +432,16 @@ core:
 
 ### Durable edge-record canary
 
-`edgeRecords.enabled` enables the gateway's durable bulk publisher and runtime
-trust refresh from core. Core derives its contract registry from the release's
-contract catalog and signs each registry epoch with the issuer key; it does not
-read `edgeRecords.contractRegistry`. That document is still the gateway's
-static admission registry: supply the installation's registry document there.
-The sweep entry must be the active `serviceradar.sweep.observation` version 1
-contract on the durable bulk route. Its bundle digest and registry snapshot
-digest identify the reviewed installation contract; do not use test-fixture
-identities in a deployment.
-
-The gateway's registry is installation-static and unsigned. Until the gateway
-admits against core's signed registry epochs, it withholds records core signs
-under an epoch newer than its static document's (`registry_epoch_ahead`).
-Copy the signed active epoch into the static document: its `registry_epoch`,
-its `registry_snapshot_sha256`, and each contract's bundle digest. A hash of
-the document body matches neither, so the gateway withholds every record as
-`registry_snapshot_mismatch`. Keep that exact document on every gateway
-throughout the run.
+`edgeRecords.enabled` gives the gateway's durable bulk publisher its NATS
+connection and bulk-subject permissions, and mounts the issuer key on core.
+The gateway always runs the publisher and refreshes its trust from core; it
+has no edge-record settings of its own. Core derives its contract registry
+from the release's contract catalog and signs each registry epoch with the
+issuer key. The gateway installs those signed epochs from core's trust
+document, verifies each signature, and admits a record only against the exact
+epoch it names. Neither core nor the gateway reads
+`edgeRecords.contractRegistry`; the chart still requires it when
+`edgeRecords.enabled=true`.
 
 The secret generator creates an `edge-issuer-seed` once and preserves it on
 upgrade. Only core mounts this Ed25519 seed. Core stores the issuer key in
@@ -469,9 +461,8 @@ holds a current `serviceradar.netprobe.flow_attribution` version 1 or
 `serviceradar.otlp.relay` version 1 grant. Core issues a standing grant for a
 catalog contract when the contract is in the signed active registry epoch, the
 core node's release catalog holds its exact bundle, and the agent's partition
-has a row; it does not consult `contractRegistry`. The gateway withholds
-records for any contract that `contractRegistry` does not list as active, so
-list each enabled producer's contract there before enabling that producer.
+has a row. The gateway rejects records for any contract the signed epoch
+they name does not carry.
 Without `agentMetricsEnabled`, those stay on the status path even if core has
 issued the grant.
 `edgeRecords.agentTelemetryEnabled` enables its plugin and native add-on

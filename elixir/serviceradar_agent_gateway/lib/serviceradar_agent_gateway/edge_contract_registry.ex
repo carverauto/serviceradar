@@ -1,109 +1,98 @@
 defmodule ServiceRadarAgentGateway.EdgeContractRegistry do
   @moduledoc """
-  The output-contract registry snapshot the gateway admits edge records against, and the
-  admission decision itself (unify-sweep-results-proto task 3.8, NARROWED SLICE).
+  The contract registry the gateway admits edge records against, and the admission decision
+  itself (enable-edge-record-pipeline-by-default, design Decisions 3, 4, 5, 7 and 12).
 
-  ## What this slice is, and what it deliberately is not
+  ## Where the registry comes from
 
-  Task 3.8 asks the gateway to load "the same signed output-contract/route registry epoch as the
-  agent and EventWriter". No such signed format exists yet: tasks 1.10/1.11 DEFINE the signed
-  snapshot, the bundle digest contents, the lifecycle transitions and the readiness attestation,
-  and neither is done. Neither the agent nor EventWriter loads a registry today. Inventing that
-  format inside the gateway would silently decide 1.10/1.11, so this module does not.
+  Core derives the registry from its release catalog and signs every epoch with the edge issuer
+  key (`ServiceRadar.Edge.ContractRegistryEpochDocument`). It sends every non-retired epoch in the
+  `"contract_registry"` member of the trust document the gateway refreshes every five seconds
+  (`ServiceRadar.Edge.RecordTrust`), and `ServiceRadarAgentGateway.EdgeRecordTrust` installs
+  trust and registry together from that one read. `verify_member/2` is the only way a registry
+  is built: it parses each epoch with the encoder core uses (`from_trust/1`) and verifies its
+  signature (`verify/2`) under the issuer key the epoch names, taken from the same document's
+  trust keys. One epoch that does not parse or verify refuses the whole member. There is no
+  installation-static registry.
 
-  What it does instead is the part that does not depend on the format:
+  ## Projectable bundles
 
-    * a `c:snapshot/0` behaviour, so a later signed loader replaces the SOURCE without touching
-      the admission rules or their caller;
-    * `ServiceRadarAgentGateway.EdgeContractRegistry.Static`, an installation-static
-      implementation configured per deployment (for task 0.12, exactly the Sweep contract);
-    * `admit/3`, which classifies every frame BEFORE anything is published.
+  The member may carry `"projectable_bundles"`, the lowercase-hex bundle digests some live core
+  node can project (Decision 4). When it is present, a record under any other bundle is
+  withheld as `:bundle_not_projectable`, so the agent keeps it spooled until a node that can
+  project it returns.
 
-  DEFERRED until 1.10/1.11 define the format, and NOT implemented here: signed snapshot loading
-  and verification, signed readiness reporting, the atomic active-epoch switch and stale
-  generation fencing that goes with it, and planned-retirement backlog continuation under an
-  exact draining bundle and watermark. Task 3.8 therefore stays unchecked.
+  Core does not publish the set yet (task 1.4, "For a bundle no live core can project"). Until
+  it does, the key is optional and its absence means "no projectability restriction", which is
+  what every gateway did before the set existed. Once core always sends it, make the key
+  required in `verify_member/2` and delete the `nil` clause of `projectable/2`.
 
   ## The decision
 
-  `admit/3` returns one of four classes, and the caller treats each differently:
+  `admit/3` classifies one authorized record for one authenticated session:
 
-    * `{:ok, route}` -- publish, using ONLY the route the registry entry pins
-      (`route_profile`, `traffic_class`, `partition_rule`). Nothing on the frame selects them.
-    * `{:reject, reason}` -- proven invalid for this session and snapshot; resolves as a
-      permanent rejection. Only claims that cannot be explained by rollout lag land here: a record
-      naming no output contract, a route or cost model the bundle does not pin, or provenance
-      that disagrees with the authenticated session.
-    * `{:withhold, reason}` -- not publishable NOW, but not proof of poison: no registry loaded,
-      an epoch ahead of the held snapshot, a current-epoch snapshot digest the gateway does not
-      hold, a contract the held snapshot does not contain or registers under a different bundle
-      digest, an older epoch whose exact bundle the held snapshot no longer registers (below),
-      or a bundle that is not `active` (candidate, ready, draining, retired). An older epoch
-      whose exact bundle is still registered is admitted, not withheld. The sequence stays
-      unresolved. A rollout mismatch is never converted into poison. Until 1.10/1.11 define a
-      signed snapshot, the epoch and snapshot digest are operator-supplied labels nothing
-      verifies against the contract list, so two documents can carry the same labels and differ
-      in their contracts; a record naming the held labels but a contract or bundle digest this
-      snapshot lacks is therefore still lag.
+    * `{:ok, route}` -- publish, using ONLY the route the epoch entry pins (`route_profile`,
+      `traffic_class`, `partition_rule`). Nothing on the frame selects them.
+    * `{:reject, reason}` -- provably unpublishable, resolved as a permanent rejection:
+      provenance that disagrees with the session; a record naming no output contract; an
+      installation-static epoch (`:static_registry_epoch`, below `floor/0`); a retired epoch
+      (`:registry_epoch_retired`); and, under an epoch the gateway holds, a snapshot digest,
+      contract or bundle digest that epoch does not sign, or a route or cost model its entry
+      does not pin. An epoch's document is signed and immutable, so none of these can clear by
+      waiting, and withholding them would cap the lane for good.
+    * `{:withhold, reason}` -- not publishable now, but not proof of poison: no verified registry
+      or one holding no epoch (`:registry_unavailable`), an epoch newer than any the gateway holds
+      (`:registry_epoch_ahead`), or a bundle outside the projectable set
+      (`:bundle_not_projectable`). The sequence stays unresolved.
 
-  ## A record from an older registry epoch drains under its unchanged bundle
+  ## Each record is admitted against the epoch it names
 
-  A record carries the registry epoch it was produced under, and its bytes are immutable: the
-  production grant signs that epoch, and a renewal or re-signing may not change the record. So a
-  registry epoch activated while an agent still holds records from the previous one must not
-  strand them, which withholding every stale epoch did -- the old epoch never comes back, so that
-  gap capped the lane's watermark for good. The rule is the spec's ("the old run SHALL drain under
-  its pinned historical bundle and route"):
+  The gateway holds every non-retired epoch, and a record is admitted against the entry of the
+  epoch it names, never the newest one. A draining epoch's backlog therefore drains under its
+  exact bundle after a newer epoch changed that contract, until the epoch retires (Decision 5).
+  Lifecycle is per epoch: a record is admitted under a `candidate`, `active` or `draining` epoch
+  alike, because the gateway admits under every epoch whose signed document it has verified and
+  core alone decides what it signs under.
 
-    * a record whose epoch is OLDER than the held snapshot is admitted when the held snapshot
-      still registers its exact contract -- the same id, version and bundle digest -- and that
-      entry passes the same lifecycle and route checks as a current record. The bundle digest
-      covers the complete processing bundle, so an equal digest is the same contract, and the
-      route the record publishes on is still the registry entry's. The old snapshot digest is not
-      compared: it names a snapshot this gateway no longer holds;
-    * one whose contract the held snapshot no longer registers, or registers under another
-      digest, is withheld as `:historical_bundle_not_registered`. That is a registry that dropped
-      a bundle with backlog still outstanding, not poison, and it clears when the entry returns.
+  An epoch the gateway does not hold is either newer than everything it holds, which is lag and
+  withheld, or older than the newest one it holds. Core numbers epochs upward and every document
+  carries every non-retired epoch, so an older epoch missing from the document has retired, and
+  its record is rejected as `:registry_epoch_retired`.
 
-  Quarantining stale-epoch records instead would turn an ordinary epoch change into poison, and
-  re-signing them is impossible without changing the bytes.
-    * `{:hold, reason}` -- a `security_revoked` bundle. Never published and never resolved, and
-      reported separately from a withhold: compromise is not ordinary retirement.
+  `epoch_refusal/2` is the part of that classification that needs no capability: the static-era
+  and retired rejections. `ServiceRadarAgentGateway.EdgeRecordAuthorization` runs it before it
+  looks up any issuer key (Decision 7), so an unknown or rotated key id cannot turn either
+  rejection into a withhold.
 
   ## Provenance is compared, never trusted
 
   The session -- the authenticated agent identity and the opened lane -- is the authority. The
   record's `origin_principal_id` must equal the authenticated component id, and its route
-  profile and traffic class must equal both the lane and the bundle. The gateway takes the
-  published route profile, traffic class and partition rule from the registry entry and the agent
-  identity from the authenticated session, so a guest-supplied principal, route or contract claim
-  can at most keep the record from publishing, never place it differently.
-
-  Network scope is the exception and is NOT compared against the session here: the record's
-  `network_scope_id` still selects the partition, the session carries no network scope, and
-  binding scope to the agent is the effective-grant verification of task 3.2.
+  profile and traffic class must equal both the lane and the bundle. Network scope is bound to
+  the agent by `EdgeRecordAuthorization`, not here.
   """
 
+  alias ServiceRadar.Edge.ContractRegistry
+  alias ServiceRadar.Edge.ContractRegistryEpochDocument
   alias Serviceradar.Edge.V1.EdgeRecordV1
 
-  @type state :: :candidate | :ready | :active | :draining | :retired | :security_revoked
+  @format_version 2
+  @member_keys ~w(format_version epochs)
+  @optional_member_keys ~w(projectable_bundles)
+  # Core's report bound (`ServiceRadar.Edge.ContractRegistry`): a gateway never holds more epochs
+  # than it can report.
+  @max_epochs 64
+  @max_projectable_bundles 1_024
 
-  @type entry :: %{
-          contract_id: String.t(),
-          contract_version: pos_integer(),
-          contract_bundle_sha256: <<_::256>>,
-          state: state(),
-          route_profile: atom(),
-          traffic_class: atom(),
-          partition_rule: atom(),
-          cost_model_version: pos_integer()
+  @type epoch :: map()
+
+  @type t :: %{
+          epochs: %{pos_integer() => epoch()},
+          newest: pos_integer() | nil,
+          projectable: MapSet.t() | nil
         }
 
-  @type snapshot :: %{
-          registry_epoch: pos_integer(),
-          registry_snapshot_sha256: <<_::256>>,
-          contracts: %{optional({String.t(), pos_integer()}) => entry()}
-        }
+  @type refused :: %{epoch: pos_integer(), signing_key_id: <<_::128>>, reason: atom()}
 
   @type session :: %{
           authenticated_agent_id: String.t(),
@@ -113,47 +102,96 @@ defmodule ServiceRadarAgentGateway.EdgeContractRegistry do
 
   @type route :: %{route_profile: atom(), traffic_class: atom(), partition_rule: atom()}
 
-  @type decision ::
-          {:ok, route()}
-          | {:reject, atom()}
-          | {:withhold, atom() | {atom(), state()}}
-          | {:hold, :security_revoked}
+  @type decision :: {:ok, route()} | {:reject, atom()} | {:withhold, atom()}
 
-  @doc "The snapshot this gateway currently admits against, or why none is available."
-  @callback snapshot() :: {:ok, snapshot()} | {:error, term()}
+  @doc "The first derived epoch number; every epoch below it is installation-static."
+  @spec floor() :: pos_integer()
+  def floor, do: ContractRegistry.floor()
 
-  @doc "The configured registry implementation."
-  @spec impl() :: module()
-  def impl do
-    Application.get_env(
-      :serviceradar_agent_gateway,
-      :edge_record_contract_registry_impl,
-      __MODULE__.Static
-    )
+  @doc """
+  Parses and verifies a trust document's `"contract_registry"` member under `public_keys`
+  (issuer public keys by key id).
+
+  `{:ok, registry}` only when every epoch parses and verifies. Otherwise
+  `{:error, reason, refused}`: the member is refused whole, and `refused` names each epoch that
+  could be identified, with the reason it was refused.
+  """
+  @spec verify_member(term(), %{optional(binary()) => <<_::256>>}) ::
+          {:ok, t()} | {:error, atom(), [refused()]}
+  def verify_member(%{} = member, public_keys) when is_map(public_keys) do
+    with :ok <- member_shape(member),
+         {:ok, projectable} <- projectable_bundles(Map.get(member, "projectable_bundles")),
+         {:ok, epochs} <- parse_epochs(member["epochs"]),
+         :ok <- verify_epochs(epochs, public_keys) do
+      {:ok, build(epochs, projectable)}
+    end
   end
 
-  @doc "Whether a snapshot is loaded. A gateway without one would withhold every frame."
-  @spec available?() :: boolean()
-  def available? do
-    match?({:ok, _snapshot}, impl().snapshot())
+  def verify_member(nil, _public_keys), do: {:error, :registry_member_missing, []}
+  def verify_member(_member, _public_keys), do: {:error, :registry_member, []}
+
+  @doc """
+  Re-verifies a registry held from an earlier document under `public_keys` before it is used
+  again, so a held copy is reused only while its signatures verify under the keys now trusted.
+  """
+  @spec reverify(t(), %{optional(binary()) => <<_::256>>}) :: {:ok, t()} | {:error, atom(), [refused()]}
+  def reverify(%{epochs: epochs} = registry, public_keys) do
+    with :ok <- verify_epochs(Map.values(epochs), public_keys), do: {:ok, registry}
+  end
+
+  @doc "The epochs a registry holds, by number and snapshot digest, in ascending order."
+  @spec installed(t() | nil) :: [%{epoch: pos_integer(), snapshot_sha256: <<_::256>>}]
+  def installed(nil), do: []
+
+  def installed(%{epochs: epochs}) do
+    epochs
+    |> Map.values()
+    |> Enum.sort_by(& &1.epoch)
+    |> Enum.map(&%{epoch: &1.epoch, snapshot_sha256: &1.snapshot_sha256})
   end
 
   @doc """
-  Classifies one decoded record for one authenticated session against the current snapshot.
-
-  See the moduledoc for the four classes. Session checks run first: they need no registry, and a
-  frame whose provenance disagrees with its session is invalid whatever the registry says.
+  Whether `registry` holds an epoch to admit under. A verified member with no epochs replaces
+  the held registry but admits nothing, so it is unavailable exactly like no registry.
   """
-  @spec admit(EdgeRecordV1.t(), session(), {:ok, snapshot()} | {:error, term()}) :: decision()
-  def admit(%EdgeRecordV1{} = record, session, loaded) do
+  @spec available?(t() | nil) :: boolean()
+  def available?(%{epochs: epochs}), do: map_size(epochs) > 0
+  def available?(nil), do: false
+
+  @doc """
+  The epoch rejections that need no capability: an installation-static epoch, and an epoch
+  `registry` shows as retired. `:ok` means only that neither applies.
+  """
+  @spec epoch_refusal(struct() | nil, t() | nil) :: :ok | {:reject, atom()}
+  def epoch_refusal(nil, _registry), do: {:reject, :contract_missing}
+
+  def epoch_refusal(%{registry_epoch: epoch}, registry) do
+    cond do
+      epoch < floor() -> {:reject, :static_registry_epoch}
+      registry != nil and retired?(epoch, registry) -> {:reject, :registry_epoch_retired}
+      true -> :ok
+    end
+  end
+
+  @doc """
+  Classifies one authorized record for one authenticated session against `registry` (`nil`
+  when no verified registry is installed). See the moduledoc for the three classes. Session
+  checks run first: a frame whose provenance disagrees with its session is invalid whatever the
+  registry says.
+  """
+  @spec admit(EdgeRecordV1.t(), session(), t() | nil) :: decision()
+  def admit(%EdgeRecordV1{} = record, session, registry) do
     with :ok <- provenance(record, session),
-         {:ok, snapshot} <- available(loaded),
-         {:ok, entry} <- lookup(record.output_contract, snapshot),
-         :ok <- lifecycle(entry),
-         :ok <- pinned(record, entry) do
+         :ok <- epoch_refusal(record.output_contract, registry),
+         {:ok, registry} <- available(registry),
+         {:ok, entry} <- lookup(record.output_contract, registry),
+         :ok <- pinned(record, entry),
+         :ok <- projectable(entry, registry) do
       {:ok, Map.take(entry, [:route_profile, :traffic_class, :partition_rule])}
     end
   end
+
+  # --- admission ---------------------------------------------------------------------------
 
   defp provenance(record, session) do
     principal = record.producer_context && record.producer_context.origin_principal_id
@@ -166,51 +204,38 @@ defmodule ServiceRadarAgentGateway.EdgeContractRegistry do
     end
   end
 
-  defp available({:ok, snapshot}), do: {:ok, snapshot}
-  defp available(_), do: {:withhold, :registry_unavailable}
+  defp available(registry) do
+    if available?(registry), do: {:ok, registry}, else: {:withhold, :registry_unavailable}
+  end
 
-  defp lookup(nil, _snapshot), do: {:reject, :contract_missing}
-
-  defp lookup(contract, snapshot) do
-    cond do
-      contract.registry_epoch > snapshot.registry_epoch ->
-        {:withhold, :registry_epoch_ahead}
-
-      contract.registry_epoch < snapshot.registry_epoch ->
-        historical_entry(contract, snapshot)
-
-      contract.registry_snapshot_sha256 != snapshot.registry_snapshot_sha256 ->
-        {:withhold, :registry_snapshot_mismatch}
-
-      true ->
-        case registered_entry(contract, snapshot) do
-          {:ok, entry} -> {:ok, entry}
-          :unknown -> {:withhold, :unknown_contract}
-          :digest_mismatch -> {:withhold, :contract_digest_mismatch}
-        end
+  # Static-era and retired epochs were already rejected by `epoch_refusal/2`, so an epoch this
+  # registry does not hold is newer than all of them.
+  defp lookup(contract, %{epochs: epochs}) do
+    case Map.fetch(epochs, contract.registry_epoch) do
+      {:ok, epoch} -> entry(contract, epoch)
+      :error -> {:withhold, :registry_epoch_ahead}
     end
   end
 
-  # An older epoch's record drains under the held snapshot's entry only while that entry is still
-  # its exact bundle. See "A record from an older registry epoch" in the moduledoc.
-  defp historical_entry(contract, snapshot) do
-    case registered_entry(contract, snapshot) do
-      {:ok, entry} -> {:ok, entry}
-      _absent_or_changed -> {:withhold, :historical_bundle_not_registered}
-    end
-  end
+  defp entry(%{registry_snapshot_sha256: snapshot}, %{snapshot_sha256: held}) when snapshot != held,
+    do: {:reject, :registry_snapshot_mismatch}
 
-  defp registered_entry(contract, snapshot) do
-    case Map.fetch(snapshot.contracts, {contract.contract_id, contract.contract_version}) do
-      :error -> :unknown
+  defp entry(contract, epoch) do
+    case Map.fetch(epoch.contracts, {contract.contract_id, contract.contract_version}) do
+      :error -> {:reject, :unknown_contract}
       {:ok, %{contract_bundle_sha256: digest} = entry} when digest == contract.contract_bundle_sha256 -> {:ok, entry}
-      {:ok, _entry} -> :digest_mismatch
+      {:ok, _entry} -> {:reject, :contract_digest_mismatch}
     end
   end
 
-  defp lifecycle(%{state: :active}), do: :ok
-  defp lifecycle(%{state: :security_revoked}), do: {:hold, :security_revoked}
-  defp lifecycle(%{state: state}), do: {:withhold, {:contract_not_active, state}}
+  # An epoch below the newest one held that the document does not carry has retired: core numbers
+  # epochs upward and sends every non-retired one.
+  defp retired?(epoch, %{epochs: epochs, newest: newest}) do
+    case Map.fetch(epochs, epoch) do
+      {:ok, %{state: state}} -> state == :retired
+      :error -> newest != nil and epoch < newest
+    end
+  end
 
   # The session already equals the record's lane (provenance/2), so comparing the record here also
   # binds the lane to the bundle's pinned route.
@@ -221,5 +246,99 @@ defmodule ServiceRadarAgentGateway.EdgeContractRegistry do
       record.cost_model_version != entry.cost_model_version -> {:reject, :cost_model_mismatch}
       true -> :ok
     end
+  end
+
+  defp projectable(_entry, %{projectable: nil}), do: :ok
+
+  defp projectable(entry, %{projectable: bundles}) do
+    if MapSet.member?(bundles, entry.contract_bundle_sha256),
+      do: :ok,
+      else: {:withhold, :bundle_not_projectable}
+  end
+
+  # --- parsing and verification ------------------------------------------------------------
+
+  defp member_shape(member) do
+    keys = Map.keys(member)
+
+    cond do
+      @member_keys -- keys != [] -> {:error, :registry_member, []}
+      keys -- (@member_keys ++ @optional_member_keys) != [] -> {:error, :registry_member, []}
+      member["format_version"] != @format_version -> {:error, :registry_format_version, []}
+      true -> :ok
+    end
+  end
+
+  defp projectable_bundles(nil), do: {:ok, nil}
+
+  defp projectable_bundles(list) when is_list(list) and length(list) <= @max_projectable_bundles do
+    digests = Enum.map(list, &decode_digest/1)
+    set = MapSet.new(digests)
+
+    if Enum.all?(digests, &is_binary/1) and MapSet.size(set) == length(list),
+      do: {:ok, set},
+      else: {:error, :registry_projectable_bundles, []}
+  end
+
+  defp projectable_bundles(_list), do: {:error, :registry_projectable_bundles, []}
+
+  defp decode_digest(hex) when is_binary(hex) and byte_size(hex) == 64 do
+    case Base.decode16(hex, case: :lower) do
+      {:ok, digest} -> digest
+      :error -> :error
+    end
+  end
+
+  defp decode_digest(_hex), do: :error
+
+  defp parse_epochs(items) when is_list(items) and length(items) <= @max_epochs do
+    results = Enum.map(items, &{&1, ContractRegistryEpochDocument.from_trust(&1)})
+    epochs = for {_item, {:ok, epoch}} <- results, do: epoch
+    numbers = Enum.map(epochs, & &1.epoch)
+
+    cond do
+      length(epochs) != length(items) ->
+        {:error, :registry_epoch_malformed, Enum.flat_map(results, &identify/1)}
+
+      length(Enum.uniq(numbers)) != length(numbers) ->
+        {:error, :registry_epoch_duplicate, []}
+
+      true ->
+        {:ok, epochs}
+    end
+  end
+
+  defp parse_epochs(_items), do: {:error, :registry_epochs, []}
+
+  # A malformed epoch is reported when its number and key id can still be read, so core's pipeline
+  # status can name it.
+  defp identify({%{"registry_epoch" => epoch, "signing_key_id" => key_id}, {:error, _reason}})
+       when is_integer(epoch) and epoch > 0 and is_binary(key_id) do
+    case Base.decode64(key_id) do
+      {:ok, <<_::128>> = id} -> [%{epoch: epoch, signing_key_id: id, reason: :registry_epoch_malformed}]
+      _ -> []
+    end
+  end
+
+  defp identify(_result), do: []
+
+  defp verify_epochs(epochs, public_keys) do
+    refused =
+      for epoch <- epochs,
+          {:error, reason} <- [ContractRegistryEpochDocument.verify(epoch, public_keys)],
+          do: %{epoch: epoch.epoch, signing_key_id: epoch.signing_key_id, reason: reason}
+
+    case Enum.sort_by(refused, & &1.epoch) do
+      [] -> :ok
+      [%{reason: reason} | _] = sorted -> {:error, reason, sorted}
+    end
+  end
+
+  defp build(epochs, projectable) do
+    %{
+      epochs: Map.new(epochs, &{&1.epoch, &1}),
+      newest: epochs |> Enum.map(& &1.epoch) |> Enum.max(fn -> nil end),
+      projectable: projectable
+    }
   end
 end

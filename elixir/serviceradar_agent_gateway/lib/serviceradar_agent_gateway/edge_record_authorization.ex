@@ -26,18 +26,24 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorization do
        envelope, and its plan/range digests are well-formed, required for scheduler scan kinds.
        Source authorization is verified WHEN THE RECORD CARRIES ONE; nothing here requires a
        generic telemetry, event or inventory record to present a scanner collection capability.
-    6. SIGNATURES -- production and (if present) source capabilities verify under keys the trust
+    6. REGISTRY EPOCH -- a record stamped with an installation-static registry epoch, or with an
+       epoch the snapshot's contract registry shows as retired, is rejected permanently
+       (`ServiceRadarAgentGateway.EdgeContractRegistry.epoch_refusal/2`). This runs before any
+       issuer key is looked up, so an unknown or rotated key id cannot turn either rejection into
+       a withhold that would cap the lane for good. Everything else the registry decides runs
+       after authorization (`EdgeContractRegistry.admit/3`).
+    7. SIGNATURES -- production and (if present) source capabilities verify under keys the trust
        snapshot authorizes for exactly that role. A key id the snapshot does not hold, or holds
        without that role, is withheld as unavailable: a snapshot loaded at boot cannot tell a key
        or role issued since from one never issued. The worst status wins: a compromise-revoked key
        on either makes the frame a SECURITY QUARANTINE, before fence or window classification.
-    7. NETWORK SCOPE -- the record's network scope is one the trust snapshot binds to its principal
+    8. NETWORK SCOPE -- the record's network scope is one the trust snapshot binds to its principal
        (`EdgeRecordTrust.with_network_scopes/2`). The production grant names the same principal and
        scope (step 2), so a scope needs both the local binding and the signed grant. It is checked
        only after the signatures verify, so an unsigned scope claim is refused on its signature. A
        principal with no binding, and a signed scope its binding lacks, are withheld: the binding
        may predate the assignment.
-    8. AUTHORITY -- the producer fence and the production window decide publication. A producer
+    9. AUTHORITY -- the producer fence and the production window decide publication. A producer
        with no fence entry, or one ahead of its entry, is withheld: this gateway does not know its
        authority is current. Current authority under a current fence publishes PRIMARY (a valid
        attached delivery grant only
@@ -60,6 +66,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorization do
   alias ServiceRadar.Edge.RecordValidate
   alias ServiceRadar.Edge.SemanticValidate
   alias ServiceRadar.Edge.WireDecode
+  alias ServiceRadarAgentGateway.EdgeContractRegistry
   alias ServiceRadarAgentGateway.EdgeRecordTrust
 
   @agent_origin :EDGE_ORIGIN_KIND_AGENT
@@ -92,6 +99,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorization do
          :ok <- with_event(origin_identity(record, identity), record),
          :ok <- with_event(route_class(record, lane), record),
          :ok <- with_event(source_shape(record), record),
+         :ok <- with_event(registry_epoch(record, snapshot), record),
          {:ok, status} <- with_event(record_key_status(record, snapshot), record),
          :ok <- with_event(network_scope(record, identity), record) do
       record
@@ -238,7 +246,16 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorization do
 
   defp digest_or_empty?(value), do: byte_size(value) in [0, 32]
 
-  # --- 6. signatures ---------------------------------------------------------------------------
+  # --- 6. registry epoch -----------------------------------------------------------------------
+
+  defp registry_epoch(record, snapshot) do
+    case EdgeContractRegistry.epoch_refusal(record.output_contract, snapshot.registry) do
+      :ok -> :ok
+      {:reject, reason} -> {:error, :permanent, reason, ""}
+    end
+  end
+
+  # --- 7. signatures ---------------------------------------------------------------------------
 
   defp record_key_status(record, snapshot) do
     with {:ok, production} <- verify(record.production_capability, :production, snapshot),
@@ -268,7 +285,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorization do
   defp worst(_, :historically_revoked), do: :historically_revoked
   defp worst(status, _), do: status
 
-  # --- 7. network scope ------------------------------------------------------------------------
+  # --- 8. network scope ------------------------------------------------------------------------
 
   defp network_scope(record, identity) do
     case Map.get(identity, :network_scope_ids) do
@@ -277,7 +294,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorization do
     end
   end
 
-  # --- 8. authority ----------------------------------------------------------------------------
+  # --- 9. authority ----------------------------------------------------------------------------
 
   # A compromise-revoked production or source key is a security downgrade that needs no delivery
   # grant and precedes fence and window classification.

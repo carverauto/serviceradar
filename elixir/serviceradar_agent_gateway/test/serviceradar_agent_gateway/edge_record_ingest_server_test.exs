@@ -12,7 +12,6 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
   alias ServiceRadarAgentGateway.EdgeRecordIngestServer
   alias ServiceRadarAgentGateway.EdgeRecordTrust
   alias ServiceRadarAgentGateway.TestSupport.CameraMediaAdapterStub
-  alias ServiceRadarAgentGateway.TestSupport.EdgeContractRegistryStub
   alias ServiceRadarAgentGateway.TestSupport.EdgeRecordCapabilityStub
   alias ServiceRadarAgentGateway.TestSupport.EdgeRecordFactory, as: Factory
   alias ServiceRadarAgentGateway.TestSupport.EdgeRecordIdentityResolverStub
@@ -26,7 +25,6 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
   @permanent :EDGE_RECORD_DISPOSITION_KIND_REJECTED_PERMANENT
   @audit_only :EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUDIT_ONLY
   @quarantine :EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_QUARANTINE
-  @second_contract_id "serviceradar.test.second"
   # The keypair the installed trust snapshot verifies, which the record helpers sign with.
   @signing_keys {__MODULE__, :signing_keys}
 
@@ -36,11 +34,8 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
       resolver: Application.get_env(:serviceradar_agent_gateway, :edge_record_ingest_identity_resolver),
       capability: Application.get_env(:serviceradar_agent_gateway, :edge_record_ingest_capability),
       supervisor: Application.get_env(:serviceradar_agent_gateway, :edge_record_ingest_task_supervisor),
-      drain: Application.get_env(:serviceradar_agent_gateway, :edge_record_ingest_drain_timeout_ms),
-      registry: Application.get_env(:serviceradar_agent_gateway, :edge_record_contract_registry_impl)
+      drain: Application.get_env(:serviceradar_agent_gateway, :edge_record_ingest_drain_timeout_ms)
     }
-
-    Application.put_env(:serviceradar_agent_gateway, :edge_record_contract_registry_impl, EdgeContractRegistryStub)
 
     _supervisor = start_supervised!({Task.Supervisor, name: __MODULE__.TaskSupervisor})
 
@@ -67,7 +62,6 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
       restore_env(:edge_record_ingest_capability, previous.capability)
       restore_env(:edge_record_ingest_task_supervisor, previous.supervisor)
       restore_env(:edge_record_ingest_drain_timeout_ms, previous.drain)
-      restore_env(:edge_record_contract_registry_impl, previous.registry)
     end)
 
     %{pipeline: EdgeRecordPublisherStub.start_pipeline!(EdgeRecordPublisherStub.publisher(self()))}
@@ -270,28 +264,22 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
     refute_received {:edge_record_published, _}
   end
 
-  test "publishes with the route the registry entry pins, not a hardcoded rule" do
-    # StreamRoute evaluates only one rule today, so a sentinel the stub publisher records is what
-    # distinguishes "taken from the entry" from the old hardcoded :network_scope_v1.
-    Process.put(
-      :edge_contract_registry_snapshot,
-      {:ok, EdgeContractRegistryStub.snapshot_with(:active, %{partition_rule: :registry_pinned_rule})}
-    )
+  test "permanently rejects a contract the epoch it names does not sign, filling its place" do
+    unknown = record(output_contract: %{Factory.contract_ref() | contract_id: "serviceradar.test.unknown"})
 
-    assert :ok = run_one_frame(record())
-
-    assert_receive {:edge_record_published, publication}
-    assert publication.partition_rule == :registry_pinned_rule
+    assert_rejected_then_accepted(unknown)
   end
 
-  test "withholds a contract the loaded snapshot does not contain: nothing published, nothing resolved" do
-    assert_caps_later_sequences(record_for_contract("serviceradar.test.unknown"))
+  # An installation-static epoch can never verify against a derived registry, so withholding it
+  # would cap the lane for good (design Decision 7).
+  test "permanently rejects a record stamped with a static registry epoch, and the lane continues" do
+    assert_rejected_then_accepted(record(output_contract: %{Factory.contract_ref() | registry_epoch: 2}))
   end
 
   test "never acks past a withheld sequence, even for a later record that published durably" do
-    stale = %{EdgeContractRegistryStub.contract_ref() | registry_epoch: 2}
+    ahead = %{Factory.contract_ref() | registry_epoch: Factory.contract_ref().registry_epoch + 1}
 
-    assert_caps_later_sequences(record(output_contract: stale))
+    assert_caps_later_sequences(record(output_contract: ahead))
   end
 
   test "permanently rejects a record whose principal is not the authenticated agent, filling its place" do
@@ -309,20 +297,10 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
     refute_received {:edge_record_published, %{slot: %{sequence: 1}}}
   end
 
-  test "withholds a record on a candidate bundle: nothing published, nothing resolved" do
-    Process.put(:edge_contract_registry_snapshot, snapshot_with_second_contract(:candidate))
-
-    assert_caps_later_sequences(record_for_contract(@second_contract_id))
-  end
-
-  test "holds a record on a security-revoked bundle: nothing published, nothing resolved" do
-    Process.put(:edge_contract_registry_snapshot, snapshot_with_second_contract(:security_revoked))
-
-    assert_caps_later_sequences(record_for_contract(@second_contract_id))
-  end
-
-  test "withholds every record while no registry is loaded" do
-    Process.put(:edge_contract_registry_snapshot, {:error, :registry_not_configured})
+  # A gateway that never verified a registry; one that has keeps it across a refused document.
+  test "withholds every record while no registry is verified" do
+    EdgeRecordTrust.clear()
+    install_trust(contract_registry: nil)
 
     assert :ok = run_one_frame(record())
 
@@ -823,7 +801,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
   end
 
   # A signed, locally authorizable record for "agent-1" on the default network scope, naming the
-  # contract the registry stub holds active unless `opts` say otherwise.
+  # contract of the factory's signed registry epoch unless `opts` say otherwise.
   defp record(opts \\ []), do: Factory.record(signing_keys().private, opts)
 
   defp expired_record do
@@ -864,17 +842,19 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
     refute_received {:edge_record_stream_reply, %EdgeRecordServerMessage{payload: {:ack, _}}}
   end
 
-  defp record_for_contract(contract_id) do
-    record(output_contract: %{EdgeContractRegistryStub.contract_ref() | contract_id: contract_id})
-  end
+  # Sequence 1 is `rejected`, sequence 2 a record authorization and the registry both admit, so the
+  # rejection fills its place in the prefix and the ack covers both.
+  defp assert_rejected_then_accepted(rejected) do
+    valid = record()
 
-  # The stub's active contract plus a second one in `state`, so one stream carries both a record the
-  # registry admits and one it does not.
-  defp snapshot_with_second_contract(state) do
-    active = EdgeContractRegistryStub.snapshot_with(:active)
-    second = EdgeContractRegistryStub.snapshot_with(state, %{contract_id: @second_contract_id})
+    assert :ok = EdgeRecordIngestServer.stream(open_and_records([rejected, valid]), stream())
 
-    {:ok, %{active | contracts: Map.merge(active.contracts, second.contracts)}}
+    assert_receive {:edge_record_stream_reply, %EdgeRecordServerMessage{payload: {:lane_open_ack, _}}}
+
+    assert Enum.map(acks_through(2), &{&1.sequence, &1.event_id, &1.kind}) ==
+             [{1, rejected.event_id, @permanent}, {2, valid.event_id, @accepted}]
+
+    refute_received {:edge_record_published, %{slot: %{sequence: 1}}}
   end
 
   defp frame(sequence, record, opts \\ []) do

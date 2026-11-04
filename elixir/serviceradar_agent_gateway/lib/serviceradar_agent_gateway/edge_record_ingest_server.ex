@@ -18,8 +18,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
       SPIFFE is not required; a certificate naming another role is `:permission_denied`, one that
       does not authenticate at all is `:unauthenticated`;
     * the `edge-records:v1` capability is ready (`ServiceRadarAgentGateway.EdgeRecordCapability`),
-      which includes an installed local trust snapshot and a loaded output-contract registry
-      snapshot;
+      which includes an installed local trust snapshot carrying a verified contract registry;
     * `lane_open` names a routable `{route_profile, traffic_class}` pair
       (`ServiceRadar.Edge.PublisherLane.for_lane/2`) whose `PublishPipeline` is running.
 
@@ -36,12 +35,13 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
       network scopes the trust snapshot binds to its certificate principal, read from the same
       snapshot as the rest of that frame's decision;
     * the authorized record is admitted by `ServiceRadarAgentGateway.EdgeContractRegistry.admit/3`
-      BEFORE it is offered to the pipeline (task 3.8, narrowed): its provenance must match the
-      authenticated session, its output contract must be an `active` bundle of the loaded
-      snapshot, and the published route profile, traffic class and partition rule come from that
-      registry entry. A rejection resolves REJECTED_PERMANENT; a withhold (rollout lag, a bundle
-      that is not active) and a hold (security-revoked bundle) are never offered and record
-      nothing, so the sequence stays unresolved.
+      BEFORE it is offered to the pipeline, against the contract registry of the same trust
+      snapshot: its provenance must match the authenticated session, its output contract must be
+      the exact entry of the signed registry epoch it names, and the published route profile,
+      traffic class and partition rule come from that entry. A rejection resolves
+      REJECTED_PERMANENT; a withhold (an epoch this gateway has not learned yet, no verified
+      registry, a bundle no live core node can project) is never offered and records nothing, so
+      the sequence stays unresolved.
 
   ## Deliberately narrow scope
 
@@ -85,7 +85,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
   what the agent has durably done.
 
   The watermark is cumulative, and the agent sends each sequence once per session. So the first
-  sequence a session leaves unresolved -- withheld by local authorization, withheld or held by the
+  sequence a session leaves unresolved -- withheld by local authorization, withheld by the
   contract registry, paused, or retryable -- caps the lane: no later sequence of that session is
   acked, even one that published durably, and the agent's next session replays from it. Nothing
   here tracks that sequence: it is a gap in the pipeline's prefix, and the gap is what stops the
@@ -122,7 +122,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
   waiting behind a gap is replayed into it.
 
   The lane is bound before the record is admitted, so an authorized record the contract registry
-  rejects, withholds or holds still binds it and still has its scope checked: which scope a spool
+  rejects or withholds still binds it and still has its scope checked: which scope a spool
   carries does not depend on whether this gateway admits the record's contract.
 
   ## Ending a stream
@@ -348,6 +348,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
         # `event_id` is empty only for a refusal made before the record decoded, the one case the
         # agent accepts a disposition without an id.
         Logger.warning("edge record permanently rejected: #{inspect(reason)}")
+        count_epoch_rejection(reason)
         reject_frame(stream, remember_event_id(state, sequence, event_id), sequence)
 
       {:error, :retryable, reason, _event_id} ->
@@ -369,18 +370,35 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
   end
 
   # The snapshot is read once per frame from local memory, and the lane's identity takes its
-  # network scopes from that same snapshot. An absent snapshot withholds rather than rejects,
-  # because installing trust makes the same frame authorizable.
+  # network scopes from that same snapshot, as does the registry the record is admitted against.
+  # An absent snapshot withholds rather than rejects, because installing trust makes the same
+  # frame authorizable.
   defp authorize(frame, state) do
     case EdgeRecordTrust.snapshot() do
       {:ok, snapshot} ->
         identity = EdgeRecordTrust.with_network_scopes(snapshot, state.identity)
-        EdgeRecordAuthorization.authorize_frame(frame, state, identity, snapshot, System.os_time(:nanosecond))
+
+        with {:ok, decision} <-
+               EdgeRecordAuthorization.authorize_frame(frame, state, identity, snapshot, System.os_time(:nanosecond)) do
+          {:ok, Map.put(decision, :registry, snapshot.registry)}
+        end
 
       {:error, reason} ->
         {:error, :retryable, reason, ""}
     end
   end
+
+  # A record stamped with an installation-static or retired registry epoch is a counted permanent
+  # rejection, never a withhold (design Decisions 5 and 7).
+  defp count_epoch_rejection(reason) when reason in [:static_registry_epoch, :registry_epoch_retired] do
+    :telemetry.execute(
+      [:serviceradar, :agent_gateway, :edge_record, :registry_epoch_rejected],
+      %{count: 1},
+      %{reason: Atom.to_string(reason)}
+    )
+  end
+
+  defp count_epoch_rejection(_reason), do: :ok
 
   defp bind_lane!(%{lane: nil} = state, network_scope_id) do
     lane = {network_scope_id, state.identity.component_id, state.spool_id}
@@ -427,26 +445,21 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
       traffic_class: state.traffic_class
     }
 
-    case EdgeContractRegistry.admit(record, session, EdgeContractRegistry.impl().snapshot()) do
+    case EdgeContractRegistry.admit(record, session, decision.registry) do
       {:ok, route} ->
         offer_frame(state, stream, sequence, frame, decision, route)
 
       {:reject, reason} ->
-        # Proven invalid for this session and snapshot: it resolves in the prefix exactly like an
+        # Proven invalid for this session and registry: it resolves in the prefix exactly like an
         # integrity failure, but under the decoded record's event id.
         Logger.warning("edge record rejected by contract registry: #{inspect(reason)}")
+        count_epoch_rejection(reason)
         reject_frame(stream, remember_event_id(state, sequence, record.event_id), sequence)
 
       {:withhold, reason} ->
         # Not proof of poison: nothing is offered or recorded, so the sequence stays a gap that caps
         # the watermark, exactly like a retryable publish outcome.
         Logger.warning("edge record withheld by contract registry: #{inspect(reason)}")
-        state
-
-      {:hold, reason} ->
-        # A security-revoked bundle is never published and never resolved, and is reported apart
-        # from an ordinary withhold.
-        Logger.error("edge record held for a security-revoked contract: #{inspect(reason)}")
         state
     end
   end

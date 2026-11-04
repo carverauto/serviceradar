@@ -90,6 +90,16 @@ defmodule ServiceRadarAgentGateway.Telemetry do
         event_name: [:serviceradar, :agent_gateway, :edge_record, :non_authoritative_publication],
         measurement: :count,
         tags: [:publication]
+      ),
+      counter("serviceradar.agent_gateway.edge_record.registry_epoch_rejected.count",
+        event_name: [:serviceradar, :agent_gateway, :edge_record, :registry_epoch_rejected],
+        measurement: :count,
+        tags: [:reason]
+      ),
+      counter("serviceradar.agent_gateway.edge_registry_signature_rejected.count",
+        event_name: [:serviceradar, :agent_gateway, :edge_registry, :signature_rejected],
+        measurement: :count,
+        tags: [:reason]
       )
     ] ++ ServiceRadar.Telemetry.audit_metrics()
   end

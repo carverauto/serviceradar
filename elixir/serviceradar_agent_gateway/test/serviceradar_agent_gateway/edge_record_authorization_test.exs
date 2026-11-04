@@ -172,6 +172,29 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorizationTest do
     end
   end
 
+  # Decision 7: these classifications run before any issuer key lookup, so a key id the snapshot
+  # does not hold -- which alone would withhold the record -- cannot turn them into a withhold.
+  describe "registry epochs that can never publish" do
+    test "a static-era epoch is rejected permanently, even under a key id the snapshot does not hold", ctx do
+      record = Factory.record(ctx.keys.private, output_contract: %{Factory.contract_ref() | registry_epoch: 2})
+      trust = snapshot(ctx, issuer_key_id: "test-edge-key-2")
+
+      assert {:error, :permanent, :static_registry_epoch, event_id} = authorize(ctx, record, snapshot: trust)
+      assert event_id == record.event_id
+    end
+
+    test "a retired epoch is rejected permanently, even under a key id the snapshot does not hold", ctx do
+      newer = Factory.registry_epoch(epoch: Factory.contract_ref().registry_epoch + 1)
+      record = Factory.record(ctx.keys.private)
+
+      trust =
+        snapshot(ctx, issuer_key_id: "test-edge-key-2", contract_registry: Factory.registry_member([newer]))
+
+      assert {:error, :permanent, :registry_epoch_retired, event_id} = authorize(ctx, record, snapshot: trust)
+      assert event_id == record.event_id
+    end
+  end
+
   describe "authority" do
     test "expired production authority without a delivery grant is withheld", ctx do
       record = expired_record(ctx)

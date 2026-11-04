@@ -32,7 +32,6 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
   alias ServiceRadarAgentGateway.StatusBuffer
   alias ServiceRadarAgentGateway.StatusProcessor
   alias ServiceRadarAgentGateway.TestSupport.CameraMediaAdapterStub
-  alias ServiceRadarAgentGateway.TestSupport.EdgeContractRegistryStub
   alias ServiceRadarAgentGateway.TestSupport.EdgeRecordCapabilityStub
   alias ServiceRadarAgentGateway.TestSupport.EdgeRecordFactory
   alias ServiceRadarAgentGateway.TestSupport.EdgeRecordIdentityResolverStub
@@ -93,8 +92,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
       :edge_record_ingest_pipelines,
       :edge_record_ingest_identity_resolver,
       :edge_record_ingest_capability,
-      :edge_record_ingest_task_supervisor,
-      :edge_record_contract_registry_impl
+      :edge_record_ingest_task_supervisor
     ]
 
     previous = Map.new(keys, &{&1, Application.get_env(:serviceradar_agent_gateway, &1)})
@@ -104,7 +102,6 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
     put_env(:edge_record_ingest_identity_resolver, EdgeRecordIdentityResolverStub)
     put_env(:edge_record_ingest_capability, EdgeRecordCapabilityStub)
     put_env(:edge_record_ingest_task_supervisor, __MODULE__.TaskSupervisor)
-    put_env(:edge_record_contract_registry_impl, EdgeContractRegistryStub)
 
     # Every frame is authorized locally before it is offered, so the lane needs a trust snapshot
     # that verifies the records `delivery/1` signs, fences their producer and binds their agent to
