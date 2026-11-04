@@ -5,6 +5,7 @@ import (
 	"debug/pe"
 	"encoding/binary"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"os"
@@ -387,6 +388,114 @@ func TestWXSInstallsServiceWithoutStartingIt(t *testing.T) {
 	upgrade := between(wxs, `<Component Id="StartAfterUpgrade"`, "</Component>")
 	if !strings.Contains(upgrade, `Condition="WIX_UPGRADE_DETECTED"`) || !strings.Contains(upgrade, `Start="install"`) {
 		t.Errorf("an upgrade must restart the service it stopped: %q", upgrade)
+	}
+}
+
+type wxsNode struct {
+	XMLName  xml.Name
+	Attrs    []xml.Attr `xml:",any,attr"`
+	Children []*wxsNode `xml:",any"`
+}
+
+func (n *wxsNode) attr(name string) string {
+	for _, a := range n.Attrs {
+		if a.Name.Local == name {
+			return a.Value
+		}
+	}
+
+	return ""
+}
+
+func (n *wxsNode) walk(parent *wxsNode, visit func(node, parent *wxsNode)) {
+	visit(n, parent)
+
+	for _, child := range n.Children {
+		child.walk(n, visit)
+	}
+}
+
+// directoryPath resolves a WiX directory Id to its path from the standard root.
+func directoryPath(t *testing.T, root *wxsNode, id string) string {
+	t.Helper()
+
+	parents := map[*wxsNode]*wxsNode{}
+	var target *wxsNode
+	root.walk(nil, func(node, parent *wxsNode) {
+		parents[node] = parent
+		if node.XMLName.Local == "Directory" && node.attr("Id") == id {
+			target = node
+		}
+	})
+	if target == nil {
+		t.Fatalf("no Directory with Id %q", id)
+	}
+
+	var parts []string
+	for node := target; node != nil; node = parents[node] {
+		switch node.XMLName.Local {
+		case "Directory":
+			parts = append([]string{node.attr("Name")}, parts...)
+		case "StandardDirectory":
+			return strings.Join(append([]string{node.attr("Id")}, parts...), "/")
+		}
+	}
+
+	t.Fatalf("Directory %q is not under a StandardDirectory", id)
+
+	return ""
+}
+
+// The agent's default edge-record spool is <state dir>/agent/edge-records, where
+// the Windows state dir is C:\ProgramData\ServiceRadar\data. The MSI must
+// create the agent directory and leave the edge-records leaf to the agent.
+func TestWXSCreatesPermanentAgentRuntimeDirectory(t *testing.T) {
+	src, err := renderWXS(wxsValues{MSIVersion: "1.2.3", UpgradeCode: upgradeCodes["amd64"], AgentPath: `C:\in\a.exe`, SrctlPath: `C:\in\srctl.exe`, ConfigPath: `C:\in\agent.json`})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var root wxsNode
+	if err := xml.Unmarshal(src, &root); err != nil {
+		t.Fatalf("rendered WiX is not XML: %v", err)
+	}
+
+	const want = "CommonAppDataFolder/ServiceRadar/data/agent"
+
+	found := false
+	root.walk(nil, func(node, parent *wxsNode) {
+		if node.XMLName.Local == "Directory" && strings.EqualFold(node.attr("Name"), "edge-records") {
+			t.Errorf("the installer must not create the edge-records spool directory: %q", node.attr("Id"))
+		}
+
+		if node.XMLName.Local != "Component" || parent == nil || parent.XMLName.Local != "ComponentGroup" || parent.attr("Id") != "AgentComponents" {
+			return
+		}
+		if directoryPath(t, &root, node.attr("Directory")) != want {
+			return
+		}
+
+		found = true
+		if node.attr("Permanent") != "yes" {
+			t.Errorf("the runtime directory component must be Permanent so upgrade and uninstall keep spooled records")
+		}
+
+		creates := 0
+		for _, child := range node.Children {
+			switch child.XMLName.Local {
+			case "CreateFolder":
+				creates++
+			case "File", "Directory":
+				t.Errorf("the runtime directory component must only create the folder, found %s", child.XMLName.Local)
+			}
+		}
+		if creates != 1 {
+			t.Errorf("the runtime directory component must create its folder once, found %d CreateFolder", creates)
+		}
+	})
+
+	if !found {
+		t.Errorf("AgentComponents has no component for %s", want)
 	}
 }
 

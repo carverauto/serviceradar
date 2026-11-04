@@ -124,6 +124,8 @@ The installer:
 - installs `serviceradar-agent.exe` and `srctl.exe` under `C:\Program Files\ServiceRadar\`, and adds
   that folder to the system `PATH`
 - writes `C:\ProgramData\ServiceRadar\config\agent.json` only when that file does not exist
+- creates the agent runtime directory `C:\ProgramData\ServiceRadar\data\agent`, which upgrades and
+  uninstalls leave in place
 - registers the `ServiceRadarAgent` service to run as LocalSystem, start automatically, and restart
   10 s after a failure
 - does not start the service on a fresh install, because the default configuration names a

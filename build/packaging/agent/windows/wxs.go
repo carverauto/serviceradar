@@ -38,6 +38,9 @@ var wxsTemplate = template.Must(template.New("agent.wxs").Parse(`<?xml version="
     <StandardDirectory Id="CommonAppDataFolder">
       <Directory Id="DATAFOLDER" Name="ServiceRadar">
         <Directory Id="CONFIGFOLDER" Name="config" />
+        <Directory Id="STATEDATAFOLDER" Name="data">
+          <Directory Id="RUNTIMEDATAFOLDER" Name="agent" />
+        </Directory>
       </Directory>
     </StandardDirectory>
   </Fragment>
@@ -61,6 +64,10 @@ var wxsTemplate = template.Must(template.New("agent.wxs").Parse(`<?xml version="
       </Component>
       <Component Directory="CONFIGFOLDER" NeverOverwrite="yes" Permanent="yes">
         <File Id="AgentConfig" Source="{{.ConfigPath}}" Name="agent.json" KeyPath="yes" />
+      </Component>
+      <Component Id="AgentRuntimeDir" Directory="RUNTIMEDATAFOLDER" Permanent="yes">
+        <CreateFolder />
+        <RegistryValue Root="HKLM" Key="Software\ServiceRadar\Agent" Name="RuntimeDir" Type="integer" Value="1" KeyPath="yes" />
       </Component>
     </ComponentGroup>
   </Fragment>
