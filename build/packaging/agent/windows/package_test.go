@@ -373,6 +373,10 @@ func TestWXSInstallsServiceWithoutStartingIt(t *testing.T) {
 		`<MajorUpgrade AllowSameVersionUpgrades="yes"`,
 		`<File Id="SrctlExe" Source="C:\in\srctl.exe" Name="srctl.exe"`,
 		`<Environment Id="SrctlOnPath" Name="PATH" Value="[INSTALLFOLDER]" Action="set" Part="last" System="yes"`,
+		`<Directory Id="STATEDATAFOLDER" Name="data">`,
+		`<Directory Id="RUNTIMEDATAFOLDER" Name="agent" />`,
+		`<Component Id="AgentRuntimeDir" Directory="RUNTIMEDATAFOLDER" Permanent="yes">`,
+		`<CreateFolder />`,
 	} {
 		if !strings.Contains(wxs, want) {
 			t.Errorf("rendered WiX source lacks %s", want)

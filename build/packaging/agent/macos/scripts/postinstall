@@ -41,6 +41,16 @@ fi
 # Ensure proper permissions on log directory
 chmod 755 "${LOG_DIR}"
 
+# Create the agent runtime directory. The edge-record spool lives under it
+# (agent/edge-records, created by the agent on first start), so the package
+# provides the parent, writable by the account the daemon runs as.
+RUNTIME_DIR="/var/lib/serviceradar/agent"
+if [ ! -d "${RUNTIME_DIR}" ]; then
+    log "Creating agent runtime directory: ${RUNTIME_DIR}"
+    mkdir -p "${RUNTIME_DIR}"
+fi
+chmod 755 "${RUNTIME_DIR}"
+
 # Restore pre-upgrade config if it exists (preserves user customizations)
 if [ -f "${CONFIG_BACKUP}" ]; then
     log "Restoring previous config from backup"
