@@ -452,7 +452,12 @@ the document body matches neither, so the gateway withholds every record as
 throughout the run.
 
 The secret generator creates an `edge-issuer-seed` once and preserves it on
-upgrade. Only core mounts this Ed25519 seed. If `secrets.autoGenerate=false`,
+upgrade. Only core mounts this Ed25519 seed. Core stores the issuer key in
+CNPG: the first boot that finds no stored key imports this seed when it is
+mounted (`edgeRecords.enabled`). From then on the stored key wins, so changing
+the Secret value does not rotate the key. A mounted seed that is not a private,
+well-formed seed stops core from storing a key; core never generates a
+replacement for it. If `secrets.autoGenerate=false`,
 the operator must supply the key in the configured existing Secret as a
 base64-encoded 32-byte seed (the Secret's data encoding wraps that text).
 
