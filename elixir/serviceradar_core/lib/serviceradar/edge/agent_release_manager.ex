@@ -755,15 +755,27 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
 
   defp select_artifact(release, agent) do
     agent = AgentRuntimeMetadata.hydrate_agent(agent)
+    metadata = agent.metadata || %{}
 
+    artifact_for_platform(
+      release,
+      map_get_any(metadata, [:os, "os"], nil),
+      map_get_any(metadata, [:arch, "arch"], nil)
+    )
+  end
+
+  @doc """
+  The enabled artifact of `release` an agent on `os`/`arch` would install, or
+  `{:error, {:no_matching_release_artifact, os, arch}}`. An artifact that names no os or no
+  arch matches any.
+  """
+  @spec artifact_for_platform(AgentRelease.t(), String.t() | nil, String.t() | nil) ::
+          {:ok, map()} | {:error, {:no_matching_release_artifact, term(), term()}}
+  def artifact_for_platform(release, os, arch) do
     artifacts =
       release.manifest
       |> map_get_any([:artifacts, "artifacts"], [])
       |> List.wrap()
-
-    metadata = agent.metadata || %{}
-    os = map_get_any(metadata, [:os, "os"], nil)
-    arch = map_get_any(metadata, [:arch, "arch"], nil)
 
     selected =
       Enum.find(artifacts, fn artifact ->

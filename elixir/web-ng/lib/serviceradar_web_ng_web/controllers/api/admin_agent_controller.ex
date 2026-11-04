@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.Api.AdminAgentController do
   @moduledoc """
-  Read-only edge view of registered agents for the CLI (`GET /api/admin/agents`).
+  Read-only edge view of registered agents for the CLI (`GET /api/admin/agents`)
+  and the edge pipeline readiness report
+  (`GET /api/admin/agents/edge-pipeline-readiness`).
 
   Requires `settings.edge.manage`, so a CLI token scoped to `edge.manage` can
   confirm an agent enrolled without needing the full `/api/v2` JSON:API surface.
@@ -8,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.Api.AdminAgentController do
 
   use ServiceRadarWebNGWeb, :controller
 
+  alias ServiceRadar.Edge.PipelineReadiness
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.RBAC
@@ -27,10 +30,24 @@ defmodule ServiceRadarWebNGWeb.Api.AdminAgentController do
         |> Ash.Query.for_read(:read)
         |> Ash.Query.sort(last_seen_time: :desc_nils_last)
         |> Ash.Query.limit(limit(params["limit"]))
+        |> Ash.Query.load(:edge_pipeline_conditions)
 
       with {:ok, agents} <- Ash.read(query, actor: actor(conn)) do
         json(conn, %{data: Enum.map(agents, &agent_to_json/1)})
       end
+    end
+  end
+
+  @doc """
+  GET /api/admin/agents/edge-pipeline-readiness
+
+  Every agent that would be off the durable edge-record pipeline, with each reason
+  (`ServiceRadar.Edge.PipelineReadiness`). `ready` is true when none would be. Read-only.
+  """
+  def edge_pipeline_readiness(conn, _params) do
+    with :ok <- authorize(conn),
+         {:ok, entries} <- PipelineReadiness.report() do
+      json(conn, %{ready: entries == [], data: entries})
     end
   end
 
@@ -43,7 +60,8 @@ defmodule ServiceRadarWebNGWeb.Api.AdminAgentController do
       status: agent.status,
       last_seen: agent.last_seen_time,
       version: agent.version,
-      partition: partition(agent.metadata)
+      partition: partition(agent.metadata),
+      edge_pipeline_conditions: agent.edge_pipeline_conditions
     }
   end
 

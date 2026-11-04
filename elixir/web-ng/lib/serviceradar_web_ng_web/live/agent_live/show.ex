@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   """
   use ServiceRadarWebNGWeb, :live_view
 
+  import ServiceRadarWebNGWeb.EdgePipelineComponents, only: [edge_pipeline_conditions: 1]
   import ServiceRadarWebNGWeb.UIComponents
 
   alias ServiceRadar.Edge.AgentReleaseTarget
@@ -49,6 +50,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
      |> assign(:addon_reconciliation, [])
      |> assign(:release_targets, [])
      |> assign(:config_status, nil)
+     |> assign(:edge_pipeline_conditions, nil)
      |> assign(:live_agent, nil)
      |> assign(:node_info, nil)
      |> assign(:gateway_node_info, nil)
@@ -133,6 +135,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
     addon_statuses = load_addon_statuses_for_agent(uid, scope)
     release_targets = load_release_targets_for_agent(uid, scope)
     config_status = load_config_status_for_agent(uid, scope)
+    edge_pipeline_conditions = if connected?(socket), do: load_edge_pipeline_conditions(uid, scope)
     agent = hydrate_agent_release_fields(agent, release_targets)
     addon_reconciliation = build_addon_reconciliation(addon_assignments, addon_statuses, agent)
 
@@ -147,6 +150,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
      |> assign(:addon_reconciliation, addon_reconciliation)
      |> assign(:release_targets, release_targets)
      |> assign(:config_status, config_status)
+     |> assign(:edge_pipeline_conditions, edge_pipeline_conditions)
      |> assign(:live_agent, live_agent)
      |> assign(:gateway_node_info, gateway_node_info)
      |> assign(:details_form, details_form(agent))
@@ -392,6 +396,26 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
     end
   end
 
+  # Reads the installation state behind the conditions (agent trackers on every core node), so
+  # it runs only once the socket is connected.
+  defp load_edge_pipeline_conditions(agent_uid, scope) do
+    InfrastructureAgent
+    |> Ash.Query.filter(uid == ^agent_uid)
+    |> Ash.Query.load(:edge_pipeline_conditions)
+    |> Ash.read_one(scope: scope)
+    |> case do
+      {:ok, %InfrastructureAgent{edge_pipeline_conditions: conditions}} ->
+        conditions
+
+      {:error, reason} ->
+        Logger.warning("Failed to load edge pipeline conditions for #{agent_uid}: #{inspect(reason)}")
+        nil
+
+      _ ->
+        nil
+    end
+  end
+
   defp hydrate_agent_release_fields(nil, _targets), do: nil
   defp hydrate_agent_release_fields(agent, []), do: agent
 
@@ -507,6 +531,10 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
             agent_uid={@agent_uid}
           />
           <.agent_summary agent={@agent} live_agent={@live_agent} />
+          <.edge_pipeline_card
+            :if={is_list(@edge_pipeline_conditions)}
+            conditions={@edge_pipeline_conditions}
+          />
           <.config_apply_card
             config_status={@config_status}
             agent_uid={@agent_uid}
@@ -1168,6 +1196,27 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
       style={:compact}
       class="font-mono text-sm"
     />
+    """
+  end
+
+  attr :conditions, :list, required: true
+
+  defp edge_pipeline_card(assigns) do
+    ~H"""
+    <div id="edge-pipeline" class="rounded-xl border border-sr-line bg-sr-surface">
+      <div class="px-4 py-3 border-b border-sr-line flex items-center gap-2">
+        <span class="text-sm font-semibold">Edge Pipeline</span>
+        <.ui_badge variant={if @conditions == [], do: "success", else: "error"} size="xs">
+          {if @conditions == [], do: "ready", else: "not ready"}
+        </.ui_badge>
+      </div>
+      <div class="p-4">
+        <p :if={@conditions == []} class="text-sm text-sr-muted">
+          Nothing keeps this agent off the durable edge-record pipeline.
+        </p>
+        <.edge_pipeline_conditions :if={@conditions != []} conditions={@conditions} />
+      </div>
+    </div>
     """
   end
 

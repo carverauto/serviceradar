@@ -52,6 +52,15 @@ defmodule ServiceRadar.AgentRuntimeMetadata do
 
   defp hydrate_agent(agent, _runtime_by_id), do: agent
 
+  @doc """
+  The live AgentTracker entry of every agent any connected core node tracks, by agent id.
+
+  An agent tracked on more than one node takes its most recently seen entry. `active` is
+  whether that entry was seen within the tracker's stale window.
+  """
+  @spec runtime_agents() :: %{String.t() => map()}
+  def runtime_agents, do: runtime_by_agent_id()
+
   defp runtime_by_agent_id do
     [Node.self() | Node.list()]
     |> Task.async_stream(
@@ -94,6 +103,7 @@ defmodule ServiceRadar.AgentRuntimeMetadata do
       agent_id: runtime_agent_id(agent),
       last_seen: runtime_field(agent, :last_seen),
       last_seen_mono: runtime_field(agent, :last_seen_mono),
+      active: runtime_field(agent, :active) == true,
       version: runtime_field(agent, :version),
       gateway_id: runtime_field(agent, :gateway_id),
       hostname: runtime_field(agent, :hostname),

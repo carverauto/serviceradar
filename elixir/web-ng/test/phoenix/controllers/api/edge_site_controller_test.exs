@@ -130,11 +130,47 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeSiteControllerTest do
 
       assert agent["name"] == "Edge Agent"
       assert agent["partition"] == "acme"
-      assert agent |> Map.keys() |> Enum.sort() == ~w(gateway_id last_seen name partition status uid version)
+
+      assert agent |> Map.keys() |> Enum.sort() ==
+               ~w(edge_pipeline_conditions gateway_id last_seen name partition status uid version)
+
+      assert %{"reason" => "partition_not_found", "detail" => %{"partition" => "acme"}} in agent[
+               "edge_pipeline_conditions"
+             ]
     end
 
     test "requires settings.edge.manage" do
       assert build_conn() |> authed(viewer_user_fixture()) |> get(~p"/api/admin/agents") |> json_response(403)
+    end
+  end
+
+  describe "GET /api/admin/agents/edge-pipeline-readiness" do
+    test "lists an agent whose partition has no row, with each reason", %{conn: conn} do
+      uid = "edge-readiness-agent-#{System.unique_integer([:positive])}"
+      partition = "readiness-missing-#{System.unique_integer([:positive])}"
+
+      {:ok, _agent} =
+        ServiceRadar.Infrastructure.Agent
+        |> Ash.Changeset.for_create(:register, %{uid: uid, metadata: %{"partition_id" => partition}})
+        |> Ash.create(actor: system_actor())
+
+      body = conn |> get(~p"/api/admin/agents/edge-pipeline-readiness") |> json_response(200)
+      entry = Enum.find(body["data"], &(&1["agent_id"] == uid))
+
+      refute body["ready"]
+      assert entry["partition"] == partition
+
+      assert entry["conditions"] == [
+               %{"reason" => "partition_not_found", "detail" => %{"partition" => partition}},
+               %{"reason" => "agent_disconnected", "detail" => %{}}
+             ]
+    end
+
+    test "requires settings.edge.manage" do
+      assert build_conn()
+             |> authed(viewer_user_fixture())
+             |> get(~p"/api/admin/agents/edge-pipeline-readiness")
+             |> json_response(403)
     end
   end
 
