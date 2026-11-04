@@ -80,6 +80,7 @@ defmodule ServiceRadarWebNGWeb.Auth.NarrowScopes do
       {"DELETE", ~r{^/api/admin/edge-sites/[^/]+$}},
       {"POST", ~r{^/api/admin/edge-sites/[^/]+/bundle$}},
       {"GET", ~r{^/api/admin/agents$}},
+      {"GET", ~r{^/api/admin/agents/edge-pipeline-readiness$}},
       {"GET", ~r{^/api/admin/version$}}
     ],
     "plugins.manage" => [

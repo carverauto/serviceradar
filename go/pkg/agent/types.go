@@ -169,6 +169,7 @@ type BannerGrabConfig struct {
 type SweepGroupConfig struct {
 	ID              string
 	SweepGroupID    string
+	Name            string
 	Networks        []string
 	Ports           []int
 	SweepModes      []models.SweepMode
@@ -279,8 +280,9 @@ type EdgeRecordSenderConfig struct {
 	// result batch records while core grants this agent the plugin results
 	// batch contract. Without a grant it keeps the legacy status path.
 	PluginResultsEnabled bool `json:"plugin_results_enabled,omitempty"`
-	// DiscoveryEnabled lets the mapper and netprobe discovery producers emit
-	// discovery batch records while core grants this agent those contracts.
+	// DiscoveryEnabled lets the mapper and netprobe discovery producers and
+	// the workload identity snapshot producer emit their records while core
+	// grants this agent those contracts.
 	// Without a grant each family keeps its legacy status path.
 	DiscoveryEnabled bool `json:"discovery_enabled,omitempty"`
 	// SyncEnabled lets the integration sync runtime emit sync page records

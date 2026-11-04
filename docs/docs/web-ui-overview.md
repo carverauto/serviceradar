@@ -143,8 +143,9 @@ groups:
     plus GeoIP / ipinfo enrichment), BGP / BMP, MTR, Integrations, and Prefix
     Tags.
 - **Edge Ops**
-  - **Agents**: Agent Releases, Agent Deploy (`/settings/agents/deploy`), and
-    Edge Onboarding.
+  - **Agents**: Agent Releases, Edge Pipeline Readiness
+    (`/settings/agents/edge-pipeline`), Agent Deploy (`/settings/agents/deploy`),
+    and Edge Onboarding.
   - **Add-ons**: the native add-ons catalog and fleet, and the plugins manager.
   - **Fleet Health**: Host Health (`/settings/sysmon`).
   - **Sites & Collectors**: Edge Sites, Data Collectors, and Telemetry

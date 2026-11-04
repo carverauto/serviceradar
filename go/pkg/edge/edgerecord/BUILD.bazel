@@ -30,6 +30,7 @@ go_library(
         "unleased_sweep.go",
         "uuidv7.go",
         "validate.go",
+        "workload_identity.go",
     ],
     importpath = "github.com/carverauto/serviceradar/go/pkg/edge/edgerecord",
     visibility = ["//visibility:public"],
@@ -90,6 +91,7 @@ go_test(
         "validate_test.go",
         "version_corpus_test.go",
         "wire_compat_corpus_test.go",
+        "workload_identity_test.go",
     ],
     data = [
         "//proto/edge/v1:edge_testdata",

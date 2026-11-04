@@ -1940,6 +1940,36 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       hidden_from_nav: false
     },
     %{
+      id: :edge_pipeline_readiness,
+      category: :edge_ops,
+      parent_group: :edge_agents,
+      subgroup: nil,
+      title: "Edge Pipeline Readiness",
+      description: "Agents that would be off the durable edge-record pipeline, and why.",
+      icon: "hero-clipboard-document-check",
+      route: "/settings/agents/edge-pipeline",
+      live_view: ServiceRadarWebNGWeb.Settings.AgentsLive.EdgePipelineReadiness,
+      permission: "settings.edge.manage",
+      order: 15,
+      has_own_stats: false,
+      feature_flag: nil,
+      capability: nil,
+      match_prefixes: nil,
+      keywords: [
+        "agents",
+        "edge",
+        "pipeline",
+        "edge records",
+        "readiness",
+        "upgrade",
+        "partition",
+        "rollout",
+        "disconnected"
+      ],
+      badge: nil,
+      hidden_from_nav: false
+    },
+    %{
       id: :agent_deploy,
       category: :edge_ops,
       parent_group: :edge_agents,

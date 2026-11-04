@@ -65,7 +65,9 @@ producer keeps its own queue. Full MTR traces from agent-scheduled checks leave
 the status path on their own queue when the agent holds a current
 `serviceradar.mtr.scheduled_trace` version 1 grant, and are projected by
 `ServiceRadar.Edge.Projectors.ScheduledMtrTrace`; without that grant they stay
-on the status path. Results of a
+on the status path. Traces from a sweep group's `mtr` mode take only that edge
+path and do not run without the grant (see
+[Network Sweeps](./network-sweeps.md)). Results of a
 sweep group the agent runs from its own config, and the metric batch on each of
 those results chunks, leave the status path together only while the agent also
 holds a current `serviceradar.sweep.unleased_results` version 1 grant. Without
@@ -138,6 +140,15 @@ conflicting-identity refusal are unchanged. A sync run never splits across
 paths: once a page spools, later pages of that run spool or the run fails.
 The projection rules are the discovery projectors under
 `ServiceRadar.Edge.Projectors`.
+
+Workload identity snapshots ride the
+`serviceradar.workload_identity.snapshot` contract under the same
+`edgeRecords.agentDiscoveryEnabled` switch. While the agent holds that grant
+the snapshot file is not sent on the status path; the agent holds at most one
+built snapshot until the spool admits all of its records, and spools the file
+again only when its content changes. Core rebuilds the legacy snapshot payload
+and writes it through `ServiceRadar.WorkloadIdentity.persist_snapshot/1`
+(`ServiceRadar.Edge.Projectors.WorkloadIdentity`).
 
 ## Data Service (datasvc)
 

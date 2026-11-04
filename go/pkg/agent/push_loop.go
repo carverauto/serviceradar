@@ -163,22 +163,25 @@ type PushLoop struct {
 	edgePluginResultSpool edgeMetricsAppender
 	pluginResultsEdge     pluginResultEdgeQueue
 	// edgeDiscoverySpool is the same one open spool, connected for mapper
-	// and netprobe discovery while discovery emission is enabled; nil keeps
-	// discovery on its legacy status path.
+	// and netprobe discovery and workload identity snapshots while discovery
+	// emission is enabled; nil keeps them on their legacy status paths.
 	edgeDiscoverySpool   edgeMetricsAppender
 	mapperDevicesEdge    discoveryEdgeQueue
 	mapperInterfacesEdge discoveryEdgeQueue
 	mapperTopologyEdge   discoveryEdgeQueue
 	netprobeEdge         discoveryEdgeQueue
+	workloadIdentityEdge workloadIdentityEdgeQueue
 	edgeOutputGrants     edgeOutputGrants
 	// Each metric producer's bounded retry queue, oldest first. An entry is either
 	// an item no part of which the spool has admitted, or one built record of an
 	// item that already has a part in the spool.
-	sysmonEdge   edgeMetricsQueue[*sysmon.MetricSample]
-	snmpEdge     edgeMetricsQueue[snmpMetricResult]
-	icmpEdge     edgeMetricsQueue[icmpCheckResult]
-	mtrEdge      edgeMetricsQueue[mtrCheckResult]
-	mtrTraceEdge edgeMetricsQueue[mtrCheckResult]
+	sysmonEdge edgeMetricsQueue[*sysmon.MetricSample]
+	snmpEdge   edgeMetricsQueue[snmpMetricResult]
+	icmpEdge   edgeMetricsQueue[icmpCheckResult]
+	// mtrEdge holds at most one undelivered MTR collection's built trace and
+	// metric records while the spool refuses admission; due MTR checks are not
+	// collected again until it is empty.
+	mtrEdge      mtrEdgePending
 	sweepSummary edgeMetricsQueue[map[string]any]
 	// sweepResultsEdge is the records of the unleased sweep results response
 	// being spooled, including its final record and, after a permanent spool
@@ -223,13 +226,14 @@ type PushLoop struct {
 	ephemeralHelpersMu        sync.Mutex
 	availableEphemeralHelpers map[string]string // ephemeral-helper addon id -> resolved staged binary path
 
-	workloadIdentityMu          sync.Mutex
-	lastWorkloadIdentityFile    workloadIdentityFileSignature
-	flowAttributionDelivery     flowAttributionDeliveryQueue
-	pluginResultDeliveryMu      sync.Mutex
-	pendingPluginResults        []PluginResult
-	pluginResultStreamStatus    pluginResultStatusStreamer
-	flowAttributionStreamStatus pluginResultStatusStreamer
+	workloadIdentityMu           sync.Mutex
+	lastWorkloadIdentityFile     workloadIdentityFileSignature
+	flowAttributionDelivery      flowAttributionDeliveryQueue
+	pluginResultDeliveryMu       sync.Mutex
+	pendingPluginResults         []PluginResult
+	pluginResultStreamStatus     pluginResultStatusStreamer
+	flowAttributionStreamStatus  pluginResultStatusStreamer
+	workloadIdentityStreamStatus pluginResultStatusStreamer
 
 	stateMu  sync.RWMutex // Protects interval, configPollInterval, enrolled, configVersion, lastAttemptedConfigVersion, started
 	cancelMu sync.Mutex

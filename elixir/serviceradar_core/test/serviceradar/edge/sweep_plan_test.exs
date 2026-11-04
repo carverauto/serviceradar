@@ -122,15 +122,19 @@ defmodule ServiceRadar.Edge.SweepPlanTest do
   describe "checks/2" do
     test "ICMP once and each TCP mode on every port, in a stable order" do
       assert {:ok, [{1, 1, 0}, {2, 2, 22}, {2, 2, 443}, {3, 2, 22}, {3, 2, 443}]} =
-               SweepPlan.checks(["tcp_connect", "TCP", "icmp", "arp", ""], [443, 22, 443])
+               SweepPlan.checks(["tcp_connect", "TCP", "icmp", "arp", "mtr", ""], [443, 22, 443])
     end
 
     test "ICMP alone needs no ports" do
       assert {:ok, [{1, 1, 0}]} = SweepPlan.checks(["icmp"], [])
     end
 
+    test "ignores MTR when reachability or port checks remain" do
+      assert {:ok, [{1, 1, 0}]} = SweepPlan.checks(["icmp", "mtr"], [])
+    end
+
     test "refuses what a plan built here cannot carry" do
-      assert {:error, :mtr_unsupported} = SweepPlan.checks(["icmp", "mtr"], [])
+      assert {:error, :no_checks} = SweepPlan.checks(["mtr"], [])
       assert {:error, :no_ports} = SweepPlan.checks(["tcp"], [])
       assert {:error, :no_checks} = SweepPlan.checks(["arp"], [80])
       assert {:error, {:unsupported_mode, "udp"}} = SweepPlan.checks(["udp"], [])

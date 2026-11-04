@@ -57,16 +57,23 @@ func (s workloadIdentityFileSignature) zero() bool {
 }
 
 func (p *PushLoop) pushWorkloadIdentity(ctx context.Context) bool {
-	snapshotPath := p.workloadIdentitySnapshotPath()
-	payload, sig, err := readWorkloadIdentitySnapshot(snapshotPath, maxWorkloadIdentitySnapshotBytes)
-	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			p.logger.Warn().Err(err).Str("path", snapshotPath).Msg("Failed to read workload identity snapshot")
+	if capability := p.edgeWorkloadIdentityCapability(time.Now()); capability != nil {
+		return p.spoolWorkloadIdentity(capability)
+	}
+	if p.workloadIdentityEdge.built != nil {
+		if p.workloadIdentityEdge.built.next > 0 {
+			if p.edgeDiscoverySpool != nil && p.appendWorkloadIdentityBuilt(p.workloadIdentityEdge.built) {
+				p.commitWorkloadIdentitySignature(p.workloadIdentityEdge.built.sig)
+				p.workloadIdentityEdge.built = nil
+				return true
+			}
+			return false
 		}
-		return false
+		p.workloadIdentityEdge.built = nil
 	}
 
-	if !p.shouldForwardWorkloadIdentity(sig) {
+	payload, sig, ok := p.nextWorkloadIdentitySnapshot()
+	if !ok {
 		return false
 	}
 
@@ -76,7 +83,7 @@ func (p *PushLoop) pushWorkloadIdentity(ctx context.Context) bool {
 	kvStoreID := p.server.config.KVAddress
 	p.server.mu.RUnlock()
 
-	gatewayID := p.gateway.GetGatewayID()
+	gatewayID := gatewayIDFromClient(p.gateway)
 	runtimeMetadata := currentRuntimeMetadata()
 	status := &proto.GatewayServiceStatus{
 		ServiceName:  WorkloadIdentityServiceName,
@@ -110,7 +117,7 @@ func (p *PushLoop) pushWorkloadIdentity(ctx context.Context) bool {
 	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	resp, err := p.gateway.StreamStatus(pushCtx, []*proto.GatewayStatusChunk{chunk})
+	resp, err := p.streamWorkloadIdentityStatus(pushCtx, []*proto.GatewayStatusChunk{chunk})
 	if err != nil {
 		p.logger.Error().Err(err).Int("snapshot_bytes", len(payload)).Msg("Failed to stream workload identity snapshot")
 		return false
@@ -125,6 +132,33 @@ func (p *PushLoop) pushWorkloadIdentity(ctx context.Context) bool {
 	p.logger.Info().Int("snapshot_bytes", len(payload)).Msg("Streamed workload identity snapshot to gateway")
 
 	return true
+}
+
+func (p *PushLoop) streamWorkloadIdentityStatus(
+	ctx context.Context,
+	chunks []*proto.GatewayStatusChunk,
+) (*proto.GatewayStatusResponse, error) {
+	if p.workloadIdentityStreamStatus != nil {
+		return p.workloadIdentityStreamStatus(ctx, chunks)
+	}
+	return p.gateway.StreamStatus(ctx, chunks)
+}
+
+func (p *PushLoop) nextWorkloadIdentitySnapshot() ([]byte, workloadIdentityFileSignature, bool) {
+	snapshotPath := p.workloadIdentitySnapshotPath()
+	payload, sig, err := readWorkloadIdentitySnapshot(snapshotPath, maxWorkloadIdentitySnapshotBytes)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			p.logger.Warn().Err(err).Str("path", snapshotPath).Msg("Failed to read workload identity snapshot")
+		}
+		return nil, workloadIdentityFileSignature{}, false
+	}
+
+	if !p.shouldForwardWorkloadIdentity(sig) {
+		return nil, workloadIdentityFileSignature{}, false
+	}
+
+	return payload, sig, true
 }
 
 func (p *PushLoop) workloadIdentitySnapshotPath() string {

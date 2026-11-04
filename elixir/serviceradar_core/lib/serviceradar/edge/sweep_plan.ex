@@ -63,7 +63,6 @@ defmodule ServiceRadar.Edge.SweepPlan do
           :no_targets
           | :no_checks
           | :no_ports
-          | :mtr_unsupported
           | :plan_total_overflow
           | {:invalid_option, atom()}
           | {:unsupported_mode, String.t()}
@@ -79,8 +78,9 @@ defmodule ServiceRadar.Edge.SweepPlan do
 
   @doc """
   The checks the given modes and ports run: ICMP once, and each TCP mode on every port.
-  `arp` and blank modes are ignored, as the agent ignores them; `mtr` is refused because
-  a plan built here admits no MTR.
+  `arp`, `mtr`, and blank modes are ignored because a sweep plan carries reachability and
+  port checks only; `{:error, :no_checks}` is returned when no reachability or port checks
+  remain.
   """
   @spec checks([String.t()], [integer()]) :: {:ok, [check()]} | {:error, reason()}
   def checks(modes, ports) when is_list(modes) and is_list(ports) do
@@ -223,8 +223,7 @@ defmodule ServiceRadar.Edge.SweepPlan do
         "icmp" -> {:cont, {:ok, [:icmp | acc]}}
         "tcp" -> {:cont, {:ok, [:tcp_syn | acc]}}
         "tcp_connect" -> {:cont, {:ok, [:tcp_connect | acc]}}
-        "mtr" -> {:halt, {:error, :mtr_unsupported}}
-        blank when blank in ["", "arp"] -> {:cont, {:ok, acc}}
+        ignored when ignored in ["", "arp", "mtr"] -> {:cont, {:ok, acc}}
         other -> {:halt, {:error, {:unsupported_mode, other}}}
       end
     end)

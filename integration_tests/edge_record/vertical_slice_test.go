@@ -434,7 +434,6 @@ func newHarness(t *testing.T) *harness {
 	}
 	t.Cleanup(gwProc.Stop)
 	h.gwProc = gwProc
-	seedIssuerKey(t, gwProc)
 
 	coreProc, err := StartRelease(
 		coreTarPath, "serviceradar_core_elx", filepath.Join(dir, "core"),
@@ -445,6 +444,7 @@ func newHarness(t *testing.T) *harness {
 	}
 	t.Cleanup(coreProc.Stop)
 	h.coreProc = coreProc
+	seedIssuerKey(t, coreProc)
 	h.connectTrustCore(t)
 	h.installIngestProbe(t)
 
@@ -475,22 +475,27 @@ func newHarness(t *testing.T) *harness {
 	return h
 }
 
-// seedIssuerKey stores the synthetic fixture issuer key as the installation's edge issuer
-// key, through the gateway release's embedded serviceradar_core (same database and cloak
-// key as core), before the core release starts. Core reads its key from CNPG and the store
-// is insert-only, so core then signs and publishes trust under the key the fixture records
-// are signed with. The rpc fails when a different key was stored first.
+// seedIssuerKey makes the synthetic fixture issuer key the installation's edge issuer key,
+// through the core release (the gateway's embedded serviceradar_core does not start
+// ServiceRadar.Repo), right after core boots and before anything asks core to sign or
+// publish trust. Core could already have generated and cached a random key in the moment
+// between boot and this rpc, so the seed is deterministic rather than insert-only: it
+// deletes any stored row, erases core's node cache, inserts the fixture key and then
+// requires IssuerKey.configured/0 to return exactly it. A restarted core reads the stored
+// fixture key from CNPG.
 func seedIssuerKey(t *testing.T, proc *ReleaseProcess) {
 	t.Helper()
 	expr := fmt.Sprintf(`
 alias ServiceRadar.Edge.{EdgeIssuerKeyRecord, IssuerKey}
 key = IssuerKey.from_seed(Base.decode64!(%q))
+ServiceRadar.Repo.query!("DELETE FROM platform.edge_issuer_key", [])
+:persistent_term.erase({ServiceRadar.Edge.IssuerKey, :key})
 EdgeIssuerKeyRecord
 |> Ash.Changeset.for_create(:generate,
   %%{public_key: Base.encode64(key.public_key), seed: Base.encode64(key.seed)},
   actor: ServiceRadar.Actors.SystemActor.system(:vertical_slice))
 |> Ash.create!()
-{:ok, ^key} = IssuerKey.ensure_stored()
+{:ok, ^key} = IssuerKey.configured()
 IO.puts("ISSUER_KEY_SEEDED")
 `, base64.StdEncoding.EncodeToString(fixtureIssuerSeed()))
 	out, err := proc.RPC(expr, rpcTimeout)

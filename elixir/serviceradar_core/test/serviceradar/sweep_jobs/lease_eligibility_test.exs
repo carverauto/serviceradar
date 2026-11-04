@@ -79,10 +79,13 @@ defmodule ServiceRadar.SweepJobs.LeaseEligibilityTest do
              SweepPlan.check_set_sha256([{1, 1, 0}, {2, 2, 22}, {2, 2, 443}])
   end
 
-  test "an agent that cannot run MTR is planned the remaining ICMP checks" do
+  test "a group with MTR plus ICMP is planned its ICMP checks regardless of MTR capability" do
     icmp_mtr = group(%{sweep_modes: ["icmp", "mtr"], ports: []})
 
-    assert {:error, :mtr_unsupported} = LeaseEligibility.agent_checks(icmp_mtr, nil, nil)
+    assert {:ok, %{checks: [{1, 1, 0}], check_set_sha256: digest_with_mtr}} =
+             LeaseEligibility.agent_checks(icmp_mtr, nil, nil)
+
+    assert Base.encode16(digest_with_mtr, case: :lower) == @icmp_check_set
 
     assert {:ok, %{modes: ["icmp"], ports: [], withheld: ["mtr"]}} =
              SweepCompiler.agent_scan_modes(icmp_mtr, nil, ["mtr.unavailable"])
@@ -124,7 +127,7 @@ defmodule ServiceRadar.SweepJobs.LeaseEligibilityTest do
         {"a static target and an SRQL query", %{target_query: "in:devices"}, :has_target_query},
         {"no static targets", %{static_targets: []}, :no_static_targets},
         {"only blank static targets", %{static_targets: ["", "  "]}, :no_static_targets},
-        {"MTR mode", %{sweep_modes: ["icmp", "mtr"]}, :mtr_unsupported},
+        {"MTR-only mode", %{sweep_modes: ["mtr"], ports: []}, :no_checks},
         {"an interval under five minutes", %{interval: "2m"}, :interval_too_short},
         {"an unreadable interval", %{interval: "often"}, :invalid_interval},
         {"a bad cron expression", %{schedule_type: :cron, cron_expression: "x"}, :invalid_cron}

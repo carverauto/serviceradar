@@ -126,6 +126,12 @@
 - [ ] 2.5 Record the per-agent edge pipeline condition (`partition_not_found`,
   `no_live_gateway_on_active_epoch`, `spool_unavailable`). Expose it in the agent
   API representation and in web-ng's agent detail.
+  - [x] The `edge_pipeline_conditions` calculation on the agent (JSON:API and
+    `GET /api/admin/agents`) and the agent detail card, with `partition_not_found`
+    and the readiness reasons of 7.1.
+  - [ ] `spool_unavailable` (needs the agent report of 4.3).
+  - [ ] `no_live_gateway_on_active_epoch` (needs the epochs of 1.3 and the gateway
+    installed-digest report of 2.6 and 3.4).
 - [ ] 2.6 Extend `RecordTrust.snapshot/0` with the `contract_registry` member
   (format 2, every non-retired epoch), and accept the gateway's
   installed-digest report on the refresh call.
@@ -230,11 +236,17 @@ Load the `test-audit` skill before writing these.
 
 ## 7. Cutover release coupling (design Decision 13)
 
-- [ ] 7.1 Ahead of the cutover release, ship the read-only edge pipeline readiness
+- [x] 7.1 Ahead of the cutover release, ship the read-only edge pipeline readiness
   report. It lists every agent that would be off the pipeline after the upgrade,
   with the reasons `partition_not_found`, `agent_upgrade_blocked` (pinned,
   rollout paused, or no artifact for its platform) and `agent_disconnected`.
   Show it in the API and in web-ng, and change no behavior.
+  - `ServiceRadar.Edge.PipelineReadiness`; `GET /api/admin/agents/edge-pipeline-readiness`;
+    Settings > Agents > Edge Pipeline Readiness. `agent_upgrade_blocked` reports a
+    paused rollout, no published release, or no artifact in the newest published
+    release for the agent's platform. The product has no agent version pin, so
+    "pinned" has nothing to read and is not reported. Agents that run from a
+    container image are upgraded with the image and are never blocked.
 - [ ] 7.2 Put `move-agent-telemetry-to-edge-records` tasks 8.1 and 8.2 (remove
   every legacy agent emission and the gateway publishers that serve them, except
   RTSP and live media) in the same release as this change. Confirm its family
