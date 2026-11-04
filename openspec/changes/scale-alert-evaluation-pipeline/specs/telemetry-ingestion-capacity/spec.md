@@ -14,7 +14,8 @@ ServiceRadar SHALL document its supported ingestion target as explicit per-signa
 
 ### Requirement: Telemetry streams are signal-separated and elastic
 Logs, events, OpenTelemetry signals and metrics SHALL be carried on separate JetStream streams, replicated as the profile's replica count allows. Their subjects SHALL carry a block from the same fixed block layout as alert candidates, hashed from the source device or address.
-A CNPG runtime setting per signal SHALL set the number of physical streams, defaulting to one. A change SHALL move blocks between streams online with the candidate-stream move protocol, so that a source's records keep their order and no record is lost.
+A CNPG runtime setting per signal SHALL set the number of physical streams, defaulting to one, and another SHALL set each stream's size, with a code default derived from the active JetStream profile.
+Each block of a stream whose records feed alert evaluation SHALL be consumed by one EventWriter replica at a time, through that block's own durable, under a fenced lease. A change SHALL move blocks between streams online with the candidate-stream move protocol, so that a source's records keep their order and no record is lost.
 
 #### Scenario: A log burst does not consume the events buffer
 - **GIVEN** a synthetic log burst that fills the logs stream

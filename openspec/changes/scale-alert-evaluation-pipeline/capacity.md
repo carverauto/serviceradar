@@ -123,7 +123,8 @@ With 5-10x columnar compression that is about 1.5-3 TB/day of object storage.
 steady state.** At 50,000 devices it is half that. The figure scales
 linearly with A3, A6 and A7, and per-dataset retention settings are the
 operator's lever to reduce it. The operator documentation states this figure
-(task 7.3).
+(task 7.3,
+the capacity planning page).
 
 CNPG at the design point holds only the control plane: alert lifecycle,
 checkpoints, leases, rule configuration. The alert path's budget is under

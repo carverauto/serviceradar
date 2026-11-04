@@ -73,13 +73,13 @@ Non-Goals:
    | batched publish to block-partitioned subjects (logs.v1.bNNN.*, events.v1.bNNN.*, ...)
    v
  JetStream telemetry streams (R3, DiscardNew; 1 per signal on small installs, split by setting)
-   | shared durables, every core replica
+   | one durable per source block; each source block leased to one replica
    v
- EventWriter worker (per replica)
+ EventWriter router (single writer per source block)
    decode -> normalize -> promote
      |-- store: warehouse coalescer (StarRocks) or CNPG ------------+
      |-- route: compiled rule index -> candidates                   |
-     |      async publish to alerts.candidates.v1.bNNN.vNNNN        |
+     |      publish to alerts.candidates.v1.bNNN.vNNNN, serial per key |
      +-- ack source message only after BOTH complete <--------------+
    v
  JetStream candidate streams ALERT_CANDIDATES_V1_*
@@ -91,7 +91,7 @@ Non-Goals:
    dedupe ring -> deterministic state machine (ETS) -> effects as data
      |-- effect commit (CNPG, fenced by block epochs, idempotent by fire key)
      |-- checkpoint commit (CNPG, fenced: dirty groups + dedupe slices + block seqs)
-     +-- purge stream up to the lowest committed block sequence
+     +-- purge each block's subjects up to its committed checkpoint
    v
  alerts, history, notification routing jobs, DurablePublish outbox
 ```
@@ -147,7 +147,7 @@ The router also computes, per candidate rule, the group key (`Record.build_group
 the metric violation increment (`MetricCondition.tag_metric_violation/2`),
 the recovery-match flag (`rule_recovers_event?/2`), and, for anomaly-open
 rules, the seasonal disposition (`SeasonalStateStore.lookup_window_disposition`,
-behind a small TTL cache). It stamps all of them into the candidate. The
+read at route time). It stamps all of them into the candidate. The
 evaluator then never reads an external store to decide (D5).
 
 Rejected: matching inside the evaluator against every rule. That puts every
@@ -175,11 +175,13 @@ each. Each physical stream is a separate Raft group, so streams spread
 leaders across NATS servers.
 
 Stream shape: file storage, R3 (capped to `nats.replicas`), S2 compression,
-Limits retention, DiscardNew, `MaxAge` 0, finite `max_bytes` from the
-JetStream profile (1 h outage budget at the target, resolved Q4), and the
-duplicate window at its minimum, because deduplication belongs to the
-evaluator (D6). Owners delete consumed messages by purging the stream up to
-the lowest committed sequence of its blocks. Nothing ages out unprocessed.
+Limits retention, DiscardNew, `MaxAge` 0, finite `max_bytes` from a CNPG
+runtime setting whose code default is derived from the active JetStream
+profile (1 h outage budget at the target, resolved Q4), and the duplicate
+window at its minimum, because deduplication belongs to the evaluator (D6).
+Owners delete consumed messages by purging each block's subjects up to that
+block's committed checkpoint (a purge filtered to `...b<b>.*`), so an idle
+block never holds back another block's purge. Nothing ages out unprocessed.
 
 Per-rule CNPG inbox rows are gone. The candidate is a protobuf
 `serviceradar.alerts.v1.Candidate`: rule id and revision, virtual partition,
@@ -233,7 +235,12 @@ Each owner keeps ETS state keyed by `{rule_id, group_key}`. The value is
 today's snapshot shape (bucket counts, current bucket, last seen, last fired,
 last notification, cooldown, alert id, first seen, diagnostics) plus five
 fields: the virtual partition, `incident_seq` and `renotify_ordinal` for fire
-keys (D5), `operator_terminal` (D9), and the applied sequence. The existing
+keys (D5), `operator_terminal` (D9), and the applied sequence. A group's
+`last_seen_at` never moves backward: an applied candidate whose event time
+precedes it is counted in its bucket and leaves `last_seen_at` unchanged.
+Per-key order already holds by construction (D6); this guard is defense in
+depth for one group fed by several sources, whose candidates are ordered by
+arrival at the stream rather than by event time. The existing
 `StateMachine`, `Bucketing`, `Diagnostics`, `MetricCondition` and
 `EdgeAnomalyDisposition` decisions are reused. They are refactored so that
 they return effects as data instead of performing Ash writes (D5).
@@ -255,7 +262,8 @@ transaction:
 2. inserts the closed dedupe slices (D6) and deletes slices older than the
    horizon;
 3. advances `alert_block_checkpoints(block, stream, seq, epoch)` for the
-   blocks that moved.
+   blocks that moved. A block's `seq` is the stream sequence of the last of
+   that block's own messages the owner applied.
 
 Writes scale with dirty groups, not total state. Rejected: a whole-partition
 state blob per checkpoint. Its write volume grows with total state rather
@@ -298,11 +306,16 @@ Decisions never depend on an effect's outcome. A transient failure (store
 unavailable, lock timeout, fence lost) aborts the commit, and the owner
 recovers the affected blocks from their checkpoint and replays: one
 crash-only path, tested by G3. A permanent per-effect failure (a constraint
-or validation error) is written to `alert_effect_failures` with diagnostics
-and raises a health signal, and the state keeps its planned identity. Today,
-a failed create leaves the snapshot without an alert id and re-fires on every
-match without paging anyone (the `resolved_device_uid/1` comment). That loop
-goes away.
+or validation error) rolls back only that effect to a savepoint and is
+written, keyed by its fire key, to `alert_effect_failures` with diagnostics
+in the same fenced effect transaction, which commits the batch's other
+effects. It raises a health signal. The in-memory state keeps the planned
+state F produced, including the planned alert id, and the next checkpoint
+commits it as usual. The applier treats an effect whose fire key already has
+a recorded permanent failure as a no-op, so a replay that re-emits it neither
+retries it nor stalls the block, and F stays pure. Today, a failed create
+leaves the snapshot without an alert id and re-fires on every match without
+paging anyone (the `resolved_device_uid/1` comment). That loop goes away.
 
 Content may depend on external reads, for example device attribution at
 fire time. The first committed write of a fire key wins and a replay is a
@@ -332,14 +345,33 @@ occurrence. The one residual case needs a candidate stream full for longer
 than H together with a router crash; it costs at most one extra count per
 affected group and is counted in health.
 
-Publishing: the router publishes a batch's candidates asynchronously and
-awaits every PubAck. A refusal (stream full, NATS unavailable, timeout, no
-stream for the subject during a block move) is retried in place for the
-unacknowledged subset, with capped backoff and no attempt limit. The router
-sends `+WPI` progress acknowledgements on the source messages so they are not
-redelivered while it waits. It never NAKs for a publish failure, so
-candidates of one source batch keep their order. A health event is raised
+Per-key order holds by construction. Each block of an alert-feeding source
+stream is leased, with the D3 primitive, to one EventWriter replica, which
+consumes it through that block's own durable and is the only router for the
+block's sources (D10). Within a replica, one block's messages pass through
+one batcher at a time, in stream order. The router publishes candidates
+pipelined across keys but serially within a key: the next candidate for a
+(rule, group) key is published only after the previous candidate for that
+key has its PubAck. A key's candidates from one source therefore reach the
+candidate stream in source order, and two sources feeding one key are ordered
+by their arrival at the stream, which every replay sees identically.
+
+Publishing: a refusal (stream full, NATS unavailable, timeout, no stream for
+the subject during a block move) is retried in place, with capped backoff
+(`publish_retry_backoff_max_ms`) and no attempt limit. A retried candidate
+keeps its place at the head of its key, so later candidates of that key wait
+behind it and retries keep per-key order. The router sends `+WPI` progress
+acknowledgements on the source messages so they are not redelivered while it
+waits, and it never NAKs for a publish failure. A health event is raised
 after 30 s of continuous retry.
+
+Router crash: a source message is acknowledged only after its candidates
+have PubAcks, and a later candidate of a key is published only after the
+earlier one's PubAck. A crash can therefore leave a key's earlier candidate
+stored and its later one unpublished, never the reverse. The replica that
+takes the source block over processes the block's unacknowledged messages in
+stream-sequence order before newer ones. The republished earlier candidate
+is suppressed by its candidate id, and the later one is stored after it.
 
 When a stream is full, publishers are refused; accepted messages are never
 evicted. The chain of buffers is in `capacity.md` 1.5: candidate streams,
@@ -347,8 +379,12 @@ then source-stream lag, then refusal at the collector (resolved Q8).
 
 Poison: a candidate that crashes the pure evaluator at the same sequence on
 three consecutive attempts is copied to `ALERT_CANDIDATES_DLQ_V1` (DiscardNew,
-no MaxAge) with its error. Its sequence is recorded as a skipped disposition
-in the block checkpoint, health turns critical, and the block continues. The
+no MaxAge) with its error. The owner awaits the DLQ PubAck and retries a
+refused copy in place, with capped backoff and no attempt limit, without
+advancing that block's checkpoint; a full DLQ therefore stalls the block as
+lag rather than losing the audit entry. Once the copy is acknowledged, its
+sequence is recorded as a skipped disposition in the block checkpoint, health
+turns critical, and the block continues. The
 underlying record is already stored, and redrive replays the DLQ entry
 through the evaluator after a fix. This is the audited terminal disposition,
 not a silent drop. Only exceptions inside F qualify; store errors are
@@ -420,13 +456,25 @@ Findings and changes, keyed to `capacity.md` S1-S5 and S13:
   or address (`logs.v1.b<b>.<source>`). Each signal has its own dynamic block
   map, with `telemetry_stream_count` per signal as a setting. The default is
   1 stream per signal on small installs and 4 at the design point. Streams are
-  R3 and DiscardNew, sized for a 30-minute outage window per profile. A block
-  moves between telemetry streams with the same protocol as candidate
-  streams (D12), so a source's records keep their order through a split.
+  R3 and DiscardNew, with `max_bytes` from a CNPG runtime setting whose code
+  default is derived from the active JetStream profile (a 30-minute outage
+  window). A block moves between telemetry streams with the same protocol as
+  candidate streams (D12), so a source's records keep their order through a
+  split.
+- **Source blocks have one router (per-key order).** Each block of an
+  alert-feeding stream is leased to one EventWriter replica with the D3
+  primitive (`telemetry_block_leases`, rendezvous placement, planned
+  handoffs). The holder consumes the block through that block's own durable
+  (filter `logs.v1.b<b>.>`), so no two replicas route one source. A new
+  holder processes the block's unacknowledged messages in stream-sequence
+  order before newer ones (D6).
 - **EventWriter batching (S3).** Batchers per signal get configurable
-  concurrency (default `System.schedulers_online/0 / 2`). Their batch size
-  and timeout become CNPG runtime settings with code defaults. Pull batch and
-  `max_ack_pending` per stream are sized from the coalescing window below.
+  concurrency (default `System.schedulers_online/0 / 2`). Messages are
+  partitioned to batchers by source block, so concurrency comes from distinct
+  blocks and one block's messages are batched in stream order. Batch size and
+  timeout become CNPG runtime settings with code defaults. Pull batch and
+  `max_ack_pending` per block durable are sized from the coalescing window
+  below.
 - **Warehouse loads (S4).** A per-dataset coalescer per replica gathers rows
   from many Broadway batches. It flushes at 50,000 rows, 32 MB or 5 s, and
   acknowledges the contributing source messages only after the load succeeds,
@@ -474,15 +522,22 @@ sized for a small install:
 | `batch_max_candidates` / `batch_max_wait_ms` | 500 / 50 | same |
 | `dedupe_horizon_s` | 600 | 600 |
 | `max_concurrent_moves` (handoffs and block moves) | 2 | 4 |
+| `publish_retry_backoff_max_ms` (publish attempts are never capped) | 5,000 | same |
 | lag degraded / critical thresholds | 60 s / 600 s | same |
+| `unowned_block_grace_s` (degraded) | 30 | 30 |
+| stream fill degraded / critical bounds | 60% / 85% | same |
+| `move_stall_critical_s` | 600 | 600 |
+| candidate stream and alert DLQ `max_bytes` | derived from the active JetStream profile | derived from `xlarge` (1 h budget) |
 | `auto_reshard` | `false` | `false` (D12) |
 
-EventWriter batching, coalescer limits and `telemetry_stream_count` per
-signal join the existing EventWriter runtime settings with the same rule.
-Stream byte sizes stay in the JetStream profile contract
-(`jetstream-storage-budget`), the only place that knows the volume size, plus
-a new `xlarge` profile. `SERVICERADAR_ALERT_EVALUATION_MODE` and its Helm
-rendering are removed.
+EventWriter batching, coalescer limits, `telemetry_stream_count` per signal
+and the telemetry stream and telemetry DLQ `max_bytes` join the existing
+EventWriter runtime settings with the same rule. Every stream byte size is a
+CNPG setting whose code default is derived from the active JetStream profile.
+Helm supplies only the NATS server volume and `max_file_store`
+(`jetstream-storage-budget`), plus a new `xlarge` profile. A size setting
+that would exceed the JetStream file store is rejected when saved.
+`SERVICERADAR_ALERT_EVALUATION_MODE` and its Helm rendering are removed.
 
 ### D12: Online block moves for split and merge, with health recommendations
 
@@ -500,20 +555,25 @@ Moving block b from stream A to stream B:
    to the journal (state `prepared`, generation g+1).
 2. **Cut.** Update A's subject list to remove `...b<b>.*`. From this moment
    the A stream leader refuses every publish to b's subjects, because no
-   stream binds them. Read A's last sequence after the update; that is
-   `cut_seq`. Every candidate for b ever stored in A has a sequence at or
-   below `cut_seq`. Record `cut_seq` in the journal (state `cut`).
+   stream binds them. After the update, read the greatest stored sequence
+   among b's own subjects in A, or 0 when A holds none; that is `cut_seq`.
+   Every candidate for b ever stored in A has a sequence at or below
+   `cut_seq`, and messages of other blocks do not affect it. Record `cut_seq`
+   in the journal (state `cut`).
 3. **Rebind.** Update B to add `...b<b>.*` and record the journal state
    `bound`. Publishes for b that were refused between steps 2 and 3 were
    retried in place by the router (D6) and now land in B, after every b
-   candidate already stored in A, in publish order.
+   candidate already stored in A. Per-key serial publishing keeps each key's
+   order across the gap.
 4. **Drain and switch.** The owner of b keeps applying b's messages from A up
-   to `cut_seq`. Only after its committed checkpoint for b reaches `cut_seq` on
-   A does it start consuming b from B's first sequence. The checkpoint row
-   records the switch (stream B, sequence 0), atomically with the last A
-   position. Journal state `switched`.
-5. **Reclaim.** A's purge floor ignores b once b has switched. A stream with
-   no blocks left is deleted after its floor passes its last sequence.
+   to `cut_seq`. Only once every b message at or below `cut_seq` is inside
+   its committed checkpoint for b (immediately when `cut_seq` is 0) does it
+   start consuming b from B's first sequence. The checkpoint row records the
+   switch (stream B, sequence 0), atomically with the last A position.
+   Journal state `switched`.
+5. **Reclaim.** b's remaining messages in A, all at or below `cut_seq` and
+   applied, are purged by b's per-block purge. A stream with no blocks left
+   is deleted once it holds no messages.
 
 Ownership is unaffected: a move changes where b's messages are, not who
 evaluates b. A block move and an owner handoff may overlap; they compose
@@ -525,8 +585,8 @@ Why it is exactly-once and order-preserving:
   is a prefix in A (sequences up to `cut_seq`) followed by a suffix in B. The
   owner applies the prefix before the suffix (step 4), so per-key order holds.
 - Nothing is lost. Publishes during the gap are refused, never dropped, and
-  retried. A's b messages are not purged until b's checkpoint passes
-  `cut_seq` (I5).
+  retried. A's b messages are not purged until b's checkpoint covers them
+  (I5).
 - A refused publish that A had in fact stored before the cut, with its PubAck
   lost, is retried into B and arrives twice. It has the same candidate id and
   the block's dedupe ring, which spans both streams, suppresses it (I6).
@@ -534,10 +594,11 @@ Why it is exactly-once and order-preserving:
   stream updates; `cut_seq` is read once and stored; step 4 is driven by b's
   checkpoint.
 
-Telemetry streams use the same five steps. Their "owner" is the shared
-EventWriter durable on each stream: a durable on B excludes b from its filter
-until A's durable ack floor passes `cut_seq`, then adds it. A source's
-records therefore keep their order through a split.
+Telemetry streams use the same five steps, with the same per-block
+`cut_seq`. Their "owner" is the replica holding the source block: it keeps
+consuming b's durable on A until that durable's ack floor reaches `cut_seq`,
+and only then creates and consumes b's durable on B. A source's records
+therefore keep their order through a split.
 
 **Health recommendations, not silent auto-resharding** (the user's question
 "recommend which"). The coordinator compares each stream's sustained message
@@ -564,7 +625,7 @@ either way. Owner rebalancing after adding a node is always automatic.
 | Grouping (`group_by`) | `Record.build_group/2` in the owner | same function at the router; group key in the candidate |
 | Windows and buckets | `Bucketing` advance/prune by event time | unchanged |
 | Cooldown | after resolve, a breach within `cooldown_seconds` records `:cooldown` history | unchanged; history id is a fire key |
-| Incident rollover | gap greater than `cooldown_seconds` resolves and refires | unchanged; new `incident_seq` |
+| Incident rollover | gap greater than `cooldown_seconds` resolves and refires | unchanged; new `incident_seq`; `last_seen_at` never moves backward (defense in depth, D4) |
 | Recovery (below threshold, or recovery match) | `handle_recovery` resolves | unchanged; recovery-match flag stamped at the router |
 | Renotify | every `renotify_seconds` on a matching record | unchanged; ordinal fire key; operator-terminal alerts skipped by control input instead of a row read |
 | Incident metadata | load and update the alert on every record | counters in state; one guarded write per commit |
@@ -601,18 +662,27 @@ Invariants:
   and F reads no wall clock and generates no random ids. Effect outcomes do
   not feed back into S (D5).
 - **I3, idempotent effects.** Each effect is applied by insert-if-absent or
-  a guarded update keyed by its fire key.
+  a guarded update keyed by its fire key, and an effect whose fire key has a
+  recorded permanent failure is a no-op.
 - **I4, effects before checkpoint.** A checkpoint at k commits only after the
   effects of every message of b up to k have committed. Effect commits run at
   batch end, and checkpoints run between batches.
 - **I5, retention.** A message stays in its stream until a checkpoint of its
-  block at or past it commits (DiscardNew, no MaxAge, purge floor equals the
-  lowest block checkpoint in the stream).
+  block at or past it commits (DiscardNew, no MaxAge, each block's subjects
+  purged only up to that block's committed checkpoint).
 - **I6, dedupe continuity.** The candidate ids seen within H are part of the
   block's checkpoint (persisted slices), across owners and across streams.
 - **I7, single binding.** A block's subjects are bound to at most one stream
-  at a time, and a move switches consumption only after the checkpoint
-  reaches `cut_seq` (D12). L_b is therefore one well-defined sequence.
+  at a time, and a move switches consumption only after b's checkpoint
+  covers every b message at or below `cut_seq`, the greatest sequence of b's
+  own messages in the source stream (D12). L_b is therefore one well-defined
+  sequence.
+- **I8, per-key publish order.** Each source block has one router (a fenced
+  lease), which publishes a key's candidates serially, each after the
+  previous one's PubAck, and retries in place at the head of the key. A
+  router crash can leave only a suffix of a key's candidates unpublished,
+  and the next holder republishes in source order (D6). Within L_b, a key's
+  candidates from one source are therefore in source order.
 
 No duplicate effects: take any two owners that process message j after k in
 L_b, starting from the same committed (k, S_k). By I2 and induction on the
@@ -665,8 +735,8 @@ check I1-I7 by fault injection and property-based replay.
   order. Its ceiling is one owner's single-key throughput (at least 10,000/s,
   G2). Rule validation warns about ungrouped rules on high-rate signals, and
   per-block lag makes a hot block visible.
-- **Stuck block.** A block whose owner cannot progress holds its stream's
-  purge floor. It turns health critical at 10 min. If it is never fixed it
+- **Stuck block.** A block whose owner cannot progress keeps its own messages
+  unpurged. It turns health critical at 10 min. If it is never fixed it
   eventually fills its stream and stalls routing, by design, because the
   alternative is losing its evaluations.
 - **Re-layout** (changing the 128-block layout or the hash version) is the
@@ -680,11 +750,14 @@ Release N ships the new schema, the router, the owners, one candidate stream
 and the cutover task, and deletes the inbox code. There is no runtime path
 that evaluates through both designs.
 
-1. **Rolling upgrade.** New replicas start routing candidates to the stream
-   at once (durable, so nothing waits on the cutover). Their owners do not
-   start until the cutover marker exists. New replicas do not run the
+1. **Rolling upgrade.** New replicas do not consume alert-feeding source
+   streams, route candidates or start owners until the cutover marker
+   exists; their other consumers run at once. New replicas do not run the
    `alerts` or `alert_recovery` Oban queues. Pre-cutover replicas keep
-   admitting to and draining the inbox until they stop.
+   consuming sources, admitting to and draining the inbox until they stop.
+   Between the last pre-cutover replica stopping and the marker, alert-feeding
+   sources lag; nothing is lost. A key's history is therefore one sequence:
+   everything admitted to the inbox, then everything routed after the marker.
 2. **Cutover task** (coordinator, release N). It waits until no pre-cutover
    core replica remains in the cluster, by capability, and no `alerts` job is
    executing. Then, in order:
@@ -698,8 +771,11 @@ that evaluates through both designs.
       order, through the index onto the same import subjects.
    4. Publish an import-end marker per block and write the cutover marker.
    Owners consume each block's import subject to its end marker, then its
-   live subject from the start. Residual work is therefore evaluated before
-   anything routed after the upgrade began.
+   live subject from the start. Imported candidates carry the candidate id
+   the router would compute, so a source message the old replicas admitted
+   but did not acknowledge, redelivered and routed after the marker, is
+   suppressed as a duplicate. Residual work is therefore evaluated before
+   anything routed after the cutover, and no live candidate precedes it.
 3. **Post-cutover migration** (release N). It refuses to run before the
    marker exists. It drops `alert_evaluation_work`, `alert_evaluation_lanes`,
    `alert_evaluation_receipts`, `stateful_evaluation_ledger` and
@@ -743,19 +819,18 @@ and block ids are never metric labels. Per-block detail is served on demand.
 - Router: records routed per signal, no-match ratio, candidates per signal,
   index version and compile time, in-place publish retry seconds, refusals by
   reason.
-- Streams: fill percentage, bytes, messages, purge floor lag; block moves in
+- Streams: fill percentage, bytes, messages, purge lag; block moves in
   progress and their state. Telemetry streams report the same, and
   collectors report refusals, spool depth and UDP drops.
-- Per-block and per-rule cost (candidates/s, lag, groups) are served by an RPC
-  to the owners and shown on the diagnostics page.
-- Health: degraded at lag age over 60 s, any block unowned over 30 s, or
-  stream fill over 60%. Critical at lag age over 10 min, fill over 85%, poison
-  skipped, permanent effect failures, or a block move stalled over 10 min.
-  Capacity recommendations (D12) are reported as health advisories with the
-  setting value to apply. One health event per transition, from the
-  coordinator.
-- web-ng: an alert pipeline diagnostics page lists streams, blocks, owners,
-  lag, age, checkpoint age, moves and recommendations.
+- Per-block and per-rule cost (candidates/s, lag, groups) are served on
+  demand by an RPC to the owners.
+- Health: degraded at lag age over 60 s, any block unowned over 30 s
+  (`unowned_block_grace_s`, which outlasts a lease expiry), or stream fill
+  over 60%. Critical at lag age over 10 min, fill over 85%, poison skipped,
+  permanent effect failures, or a block move stalled over 10 min. Every
+  threshold is a CNPG setting (D11). Capacity recommendations (D12) are
+  reported as health advisories with the setting value to apply. One health
+  event per transition, from the coordinator.
 
 ## Benchmark gates
 
@@ -770,7 +845,7 @@ an order violation is detectable.
 |---|---|---|---|
 | G1 router | RBE, per PR (BazelCI) | 500 stateful + 200 promotion synthetic rules; 1M synthetic logs, events and points | under 200k records/s per core, or p99 per-record cost over 20 us for logs/events or 5 us for metric points |
 | G2 owner | RBE, per PR, real `nats-server` + srql-fixtures CNPG | one owner at 10,000 candidates/s for 10 min, 200k active groups | lag age p99 over 2 s, checkpoint commit p99 over 500 ms, or memory over 1.5 KB per group plus the dedupe ring |
-| G3 exactly-once | RBE, per PR | fault injection: kill before effect commit, after effect commit and before checkpoint, mid checkpoint, mid replay; steal a lease; duplicate publishes inside and outside H; poison candidate; property-based replay from random checkpoints | any fire key missing or applied twice against the single-run oracle, any occurrence counted twice within H, or a stale epoch commit accepted |
+| G3 exactly-once | RBE, per PR | fault injection: kill before effect commit, after effect commit and before checkpoint, mid checkpoint, mid replay; kill a router between two publishes of one key; steal a lease; duplicate publishes inside and outside H; poison candidate with a full DLQ; permanent effect failure; property-based replay from random checkpoints | any fire key missing or applied twice against the single-run oracle, any occurrence counted twice within H, or a stale epoch commit accepted |
 | G4 fleet scale | in-cluster disposable namespace (resolved Q7), nightly and required before every release cut | 50k then 100k synthetic devices at the `capacity.md` sustained rates for 30 min, a 5 min burst at A10, then one core replica killed mid-burst | any discarded or terminally delivered message, any DLQ entry, any fired-alert set that differs from the generator's oracle, any per-key order violation, sustained lag age p99 over 30 s, alert fire latency p99 over 15 s, burst not drained to lag age under 5 s within 10 min, takeover over 30 s, core CPU over 70% or RSS over 75% of limit at sustained, alert-path CNPG writes over 5,000 rows/s, or more than 2 Stream Loads/s per table per replica |
 | G5 semantics | RBE, per PR | golden effect traces for every row of the semantics table, captured from the current engine on synthetic scenarios before it is deleted, replayed through the new evaluator | any trace difference |
 | G6 resharding under load | in-cluster, with G4 | at the 100k sustained rate: split the candidate stream 1 -> 2 -> 4, merge 4 -> 2, split each telemetry stream 1 -> 4, add and remove a core node, and kill the coordinator mid-move | any loss, duplicate alert or per-key order violation against the oracle, any terminal or discarded message, a move that does not complete after a coordinator kill, or lag age over 60 s for more than 2 min per move |
@@ -799,10 +874,15 @@ report records the measured numbers that replace the estimates in
 - **Alert visibility can precede warehouse queryability** by up to the
   coalescing age.
 - **Forward-only cutover.**
+- **Per-block source durables.** Each alert-feeding telemetry stream carries
+  one durable per block, 128 per stream. G7 measures their idle cost on a
+  small install.
 - **Scope.** This touches EventWriter, collectors, NATS profiles, web-ng and
-  core. Tasks are ordered so that the alert path ships first on one stream,
-  which is enough for every current install. Resharding, the telemetry stream
-  split and the collector work follow behind the same gates.
+  core. Tasks are ordered so that the alert path ships first on one candidate
+  stream, together with the block-subject source streams and their leased
+  routers, because per-key order depends on them; that is enough for every
+  current install. Resharding, telemetry stream counts above one and the
+  collector work follow behind the same gates.
 
 ## Resolved Questions
 
@@ -811,7 +891,8 @@ Answered by the user on 2026-11-04.
 **Q1. Target rates and retention.** Adopt `capacity.md` A1-A16 as the
 target. StarRocks keeps the one-year default retention. The storage
 implication at 100,000 devices, about 0.5-1 PB of object storage, is stated
-in `capacity.md` 1.4 and goes into the operator documentation (task 7.3).
+in `capacity.md` 1.4 and goes into the operator documentation (task 7.3,
+the capacity planning page).
 
 **Q2 and Q3. Partitioning and checkpoints.** Elastic, not a fixed 64: 1,024
 fixed virtual partitions under a versioned hash, 128 blocks, a dynamic block
@@ -824,7 +905,8 @@ mode (D12). The same elasticity applies to the telemetry streams (D10). Gates
 G6 and G7 were added.
 
 **Q4. Candidate stream outage budget.** 1 h at the sustained candidate rate
-with S2 compression, in the JetStream profiles.
+with S2 compression, as the profile-derived code default of the CNPG stream
+size setting.
 
 **Q5. Duplicate suppression.** The persisted 128-bit candidate-id ring with a
 10 min horizon (D6), with the NATS duplicate window at its minimum.

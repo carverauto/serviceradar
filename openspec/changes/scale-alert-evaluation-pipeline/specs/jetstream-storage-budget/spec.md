@@ -2,7 +2,8 @@
 
 ### Requirement: JetStream sizing profiles
 The Helm chart SHALL provide sizing profiles `small`, `medium`, `large` and `xlarge`, selected by `nats.jetstream.profile` with `small` as the default, and Docker Compose SHALL select the same profiles with `SERVICERADAR_NATS_PROFILE`.
-A profile SHALL set `max_file_store` (30G, 100G, 500G and 2000G) and the default `max_bytes` of every stream, KV bucket and object store that ServiceRadar creates, including `flows`, `ARANCINI_CAUSAL`, the signal-separated telemetry streams and the alert candidate and dead-letter streams. An explicit value for a single size or for `maxFileStore` SHALL override the profile value. Every profile SHALL pass the render-time budget check with flow-collector, bmp-collector and the trivy sidecar all enabled, and with all of them disabled.
+A profile SHALL set `max_file_store` (30G, 100G, 500G and 2000G) and the default `max_bytes` of every stream, KV bucket and object store that ServiceRadar creates through the chart, including `flows` and `ARANCINI_CAUSAL`. An explicit value for a single size or for `maxFileStore` SHALL override the profile value.
+The signal-separated telemetry streams, the alert candidate streams and the telemetry and alert dead-letter streams SHALL take `max_bytes` from CNPG runtime settings whose code defaults are derived from the active profile; the chart SHALL supply only the NATS volume and `max_file_store` for them, and a size setting that would exceed the JetStream file store SHALL be rejected when it is saved. Every profile SHALL pass the render-time budget check with flow-collector, bmp-collector and the trivy sidecar all enabled, and with all of them disabled.
 
 #### Scenario: Default profile
 - **GIVEN** no profile is set
@@ -22,7 +23,7 @@ A profile SHALL set `max_file_store` (30G, 100G, 500G and 2000G) and the default
 #### Scenario: The xlarge profile holds the fleet-scale outage budget
 - **GIVEN** `nats.jetstream.profile` is `xlarge` on a matching `nats.persistence.size`
 - **WHEN** the chart renders
-- **THEN** the alert candidate streams SHALL be sized for one hour at the documented sustained candidate rate
+- **THEN** the code defaults derived for the alert candidate stream sizes SHALL hold one hour at the documented sustained candidate rate
 - **AND** rendering SHALL succeed with every producer enabled
 
 ### Requirement: Stream owners reconcile max_bytes by discard policy
@@ -91,7 +92,7 @@ For a discard-new telemetry or evaluation stream (the signal-separated logs, eve
 ## ADDED Requirements
 
 ### Requirement: Alert candidate streams are inside the JetStream budget
-The render-time budget check SHALL include every alert candidate stream and the alert dead-letter stream at their configured size and replica count.
+The render-time budget check SHALL include every alert candidate stream and the alert dead-letter stream at their profile-derived default size and replica count.
 When a candidate stream cannot be created or placed, EventWriter SHALL keep every other consumer subscribed, SHALL retry only that stream's setup with backoff, and SHALL hold unacknowledged only the source messages whose candidates target its blocks.
 
 #### Scenario: A candidate stream cannot be placed
