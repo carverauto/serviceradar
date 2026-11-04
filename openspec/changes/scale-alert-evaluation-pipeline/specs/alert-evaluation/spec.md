@@ -209,7 +209,7 @@ Store or fence failures SHALL NOT be classified as poison.
 
 ### Requirement: External state reaches evaluation as ordered control input
 Rule disable and delete, operator alert actions that an evaluation decision depends on, stale-anomaly maintenance, block moves and the cutover import segment ends SHALL reach each affected block as messages on its subjects, published through the transactional outbox in the transaction that made the change.
-Candidates of a disabled rule that follow its marker and name the disabled revision or an older one SHALL be dropped and counted, while candidates naming a newer revision SHALL be evaluated. An incident resolved by an operator SHALL NOT be renotified or re-fired until its group recovers, where a group recovers when it falls below threshold, receives a recovery match, or receives no matching candidate for longer than its cooldown in event time; the next match after recovery SHALL fire a new incident. Renotify SHALL be sent only while the status carried by the latest operator action is pending or escalated, or is suppressed with a suppress deadline before the candidate's event time, and neither its suppress nor its snooze deadline is after that event time, so that a passed deadline releases the hold without waiting for recovery; this deliberately extends today's gate, which never renotified a suppressed alert. Each later operator action SHALL replace the recorded one.
+Candidates of a disabled rule that follow its marker and name the disabled revision or an older one SHALL be dropped and counted, while candidates naming a newer revision SHALL be evaluated. An incident resolved by an operator SHALL NOT be renotified, and no new incident SHALL open for its group while the group keeps matching with no gap longer than its cooldown in event time, even with the window at or above threshold; after such a gap, the record that brings the window to threshold SHALL open a new incident as today's rollover does, and a match that leaves the window below threshold SHALL open nothing. Falling below threshold, a breach inside the cooldown and a recovery match SHALL behave as today. Renotify SHALL be sent only while the status carried by the latest operator action is pending or escalated, or is suppressed with a suppress deadline strictly before the candidate's event time, and each of its suppress and snooze deadlines is absent or strictly before that event time, so that a passed deadline releases the hold without waiting for recovery; this deliberately extends today's gate, which never renotified a suppressed alert. Each later operator action SHALL replace the recorded one.
 
 #### Scenario: Disabling a rule is ordered with its candidates
 - **GIVEN** candidates for rule R at the disabled revision or older queued behind a disable marker for R
@@ -220,25 +220,26 @@ Candidates of a disabled rule that follow its marker and name the disabled revis
 
 #### Scenario: An operator resolve is honoured on replay
 - **GIVEN** an operator resolves an open incident and the block is later replayed across that point
-- **WHEN** further matching candidates arrive before the group recovers
+- **WHEN** further matching candidates arrive with no gap longer than the cooldown
 - **THEN** the incident SHALL NOT be renotified
 - **AND** no new incident SHALL fire for that group
 
 #### Scenario: Continuous matching after a resolve opens nothing
 - **GIVEN** an operator resolves an open incident for a group
-- **WHEN** matching candidates keep arriving with no gap longer than the cooldown
+- **WHEN** matching candidates keep arriving with no gap longer than the cooldown, with the window at or above threshold
 - **THEN** no renotify SHALL be sent and no new incident SHALL fire
 
 #### Scenario: A quiet gap after a resolve lets the group fire again
 - **GIVEN** an operator resolves an open incident for a group
-- **WHEN** no matching candidate arrives for longer than the cooldown and then a match crosses the threshold
-- **THEN** a new incident SHALL fire for that group
+- **WHEN** no matching candidate arrives for longer than the cooldown and then matches bring the window to the threshold
+- **THEN** a new incident SHALL fire for that group on the record that reaches the threshold
+- **AND** a match after the gap that leaves the window below the threshold SHALL NOT fire one
 
 #### Scenario: A passed suppress deadline releases renotify
 - **GIVEN** an open incident suppressed until time T while matches continue
 - **WHEN** a matching candidate with an event time after T arrives once the renotify interval has elapsed
 - **THEN** the incident SHALL be renotified
-- **AND** a candidate with an event time before T SHALL NOT renotify it
+- **AND** a candidate with an event time at or before T SHALL NOT renotify it
 
 ### Requirement: Stale-anomaly maintenance keeps its synchronous count
 Stale-anomaly resolution SHALL store its live-series key set in CNPG as an immutable snapshot kept until every block's committed evaluation position reaches the position at which that block applied the marker, SHALL publish a maintenance marker carrying its cutoff, time and the snapshot id to every block, SHALL wait with a bounded timeout for one receipt per block, and SHALL return the summed count of resolved incidents.
