@@ -5,9 +5,9 @@ defmodule ServiceRadar.EventWriter.ConsumerLagReporter do
   The EventWriter producer exposes local Broadway/backpressure state. This
   process emits the server-side view so operators can distinguish a controlled
   pull-consumer slowdown from an accumulating JetStream backlog. It also polls
-  each consumer's JetStream stream once per interval and combines
-  MaxBytes/current bytes plus MaxAge/oldest retained-message age into the
-  retention-risk telemetry event.
+  each consumer's JetStream stream once per interval. For flow and edge-record
+  consumers it combines MaxBytes/current bytes plus MaxAge/oldest
+  retained-message age into the retention-risk telemetry event.
 
   The stream's first sequence also shows a durable losing messages it never
   received (`ServiceRadar.EventWriter.Telemetry.expired_before_delivery/2`):
@@ -114,14 +114,7 @@ defmodule ServiceRadar.EventWriter.ConsumerLagReporter do
   defp poll_consumer(conn, consumer, stream_info, state) do
     case safe_consumer_info(conn, consumer.stream, consumer.durable) do
       {:ok, info} ->
-        info_for_stream = Map.get(stream_info, consumer.stream)
-        EventWriterTelemetry.emit_consumer_state(info, info_for_stream, consumer)
-
-        track_expiry(
-          state,
-          consumer,
-          EventWriterTelemetry.expired_before_delivery(info, info_for_stream)
-        )
+        report_consumer(state, consumer, info, stream_info)
 
       {:error, reason} ->
         Logger.debug("Failed to poll EventWriter JetStream consumer state",
@@ -135,10 +128,53 @@ defmodule ServiceRadar.EventWriter.ConsumerLagReporter do
     end
   end
 
+  @doc false
+  # Emits one consumer's state from its INFO and the polled stream INFO by stream name, and
+  # returns the reporter state with that durable's loss flag updated.
+  @spec report_consumer(%__MODULE__{}, consumer_ref(), map(), %{
+          optional(String.t()) => map() | nil
+        }) ::
+          %__MODULE__{}
+  def report_consumer(%__MODULE__{} = state, consumer, info, stream_info) do
+    expired =
+      EventWriterTelemetry.expired_before_delivery(info, Map.get(stream_info, consumer.stream))
+
+    EventWriterTelemetry.emit_consumer_state(
+      info,
+      retention_info_for_consumer(consumer, stream_info),
+      expired,
+      consumer
+    )
+
+    track_expiry(state, consumer, expired)
+  end
+
+  # Classes whose stream retention state feeds the retention gauges and risk level. Every other
+  # class reads its stream only for the first sequence: a MaxAge stream's oldest message sits
+  # near MaxAge for its whole life, so its age would mark any in-flight ack as critical risk.
+  # The security-quarantine and dead-letter classes are here so their stream depth
+  # (`stream_bytes`) is reported: their consumers write nothing, so consumer lag says nothing
+  # about how many records those streams hold.
+  @retention_classes [
+    "flows",
+    "edge_record",
+    "edge_record_audit",
+    "edge_record_quarantine",
+    "edge_record_dlq"
+  ]
+
+  defp retention_info_for_consumer(%{subject_class: class, stream: stream}, stream_info)
+       when class in @retention_classes,
+       do: Map.get(stream_info, stream)
+
+  defp retention_info_for_consumer(_consumer, _stream_info), do: nil
+
   # Logs a durable's loss once when it starts and once when it ends; the gauge carries it in
-  # between. Returns the state with the durable's flag updated.
+  # between. A durable name is unique only within its stream (a drain reuses the live name on
+  # another stream), so the flag is keyed by both. Returns the state with the flag updated.
   defp track_expiry(%__MODULE__{expiring: expiring} = state, consumer, expired) do
-    flagged? = MapSet.member?(expiring, consumer.durable)
+    key = {consumer.stream, consumer.durable}
+    flagged? = MapSet.member?(expiring, key)
 
     cond do
       expired > 0 and not flagged? ->
@@ -149,7 +185,7 @@ defmodule ServiceRadar.EventWriter.ConsumerLagReporter do
           expired_sequences: expired
         )
 
-        %{state | expiring: MapSet.put(expiring, consumer.durable)}
+        %{state | expiring: MapSet.put(expiring, key)}
 
       expired == 0 and flagged? ->
         Logger.info("EventWriter durable no longer trails its stream's first sequence",
@@ -157,7 +193,7 @@ defmodule ServiceRadar.EventWriter.ConsumerLagReporter do
           durable: consumer.durable
         )
 
-        %{state | expiring: MapSet.delete(expiring, consumer.durable)}
+        %{state | expiring: MapSet.delete(expiring, key)}
 
       true ->
         state

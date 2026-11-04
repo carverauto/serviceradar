@@ -160,16 +160,29 @@ defmodule ServiceRadar.EventWriter.Telemetry do
   Emits consumer state together with authoritative JetStream stream retention state.
 
   `stream_info` is the response from `Gnat.Jetstream.API.Stream.info/2`. It is
-  optional so a temporary stream-info failure still emits the consumer backlog
-  gauges. `ServiceRadar.EventWriter.ConsumerLagReporter` polls the stream of
-  every consumer.
+  optional so a consumer outside the retention poll, and a temporary stream-info
+  failure, still emit the existing consumer backlog gauges. The retention poll
+  covers flow and edge-record consumers.
   """
   @spec emit_consumer_state(map(), map() | nil, map()) :: :ok
   def emit_consumer_state(info, stream_info, metadata)
       when is_map(info) and (is_map(stream_info) or is_nil(stream_info)) and is_map(metadata) do
+    emit_consumer_state(info, stream_info, expired_before_delivery(info, stream_info), metadata)
+  end
+
+  @doc """
+  Emits consumer state with `expired` sequences lost before delivery, reported apart from the
+  retention inputs in `stream_info` because every durable's loss is measured while only some
+  classes report stream retention.
+  """
+  @spec emit_consumer_state(map(), map() | nil, non_neg_integer(), map()) :: :ok
+  def emit_consumer_state(info, stream_info, expired, metadata)
+      when is_map(info) and (is_map(stream_info) or is_nil(stream_info)) and is_integer(expired) and
+             expired >= 0 and
+             is_map(metadata) do
     :telemetry.execute(
       [:serviceradar, :event_writer, :consumer, :state],
-      consumer_state_measurements(info, stream_info),
+      %{consumer_state_measurements(info, stream_info) | expired_before_delivery: expired},
       %{
         stream: metadata[:stream] || "unknown",
         durable: metadata[:durable] || "unknown",
