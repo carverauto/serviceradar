@@ -155,6 +155,11 @@ func (h *harness) prepareFixture(t *testing.T, fx *FixtureRecord) {
 		AuthorityEpoch: proto.Uint64(p.AuthorityEpoch), ScopeId: p.ScopeId, ScopeSha256: p.ScopeSha256,
 		PackageId: p.PackageId, PackageSha256: p.PackageSha256,
 	}
+	// Core signs under its active registry epoch: the record names the epoch, snapshot and
+	// bundle the capability binds.
+	record.OutputContract.ContractBundleSha256 = p.ContractBundleSha256
+	record.OutputContract.RegistryEpoch = p.RegistryEpoch
+	record.OutputContract.RegistrySnapshotSha256 = p.RegistrySnapshotSha256
 	record.OutputContract.EffectiveGrantSha256 = p.EffectiveGrantSha256
 	batch := fx.Batch
 	batch.ExecutionId = source.ContextId

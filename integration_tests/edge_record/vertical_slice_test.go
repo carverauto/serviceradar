@@ -403,7 +403,6 @@ func newHarness(t *testing.T) *harness {
 	if err != nil {
 		t.Fatalf("contract registry: %v", err)
 	}
-	h.gatewayEnv.ContractRegistryJSON = registryJSON
 
 	h.coreEnv = CoreEnvConfig{
 		ContractRegistryJSON: registryJSON,
@@ -425,16 +424,6 @@ func newHarness(t *testing.T) *harness {
 	coreTarPath := mustRlocation(t, coreReleaseTarRlocation)
 	agentBinaryPath := mustRlocation(t, agentBinaryRlocation)
 
-	gwProc, err := StartRelease(
-		gatewayTarPath, "serviceradar_agent_gateway", filepath.Join(dir, "gateway"),
-		h.gatewayEnv, fmt.Sprintf("http://127.0.0.1:%d/health", gwMetricsPort), 90*time.Second,
-	)
-	if err != nil {
-		t.Fatalf("start gateway release: %v", err)
-	}
-	t.Cleanup(gwProc.Stop)
-	h.gwProc = gwProc
-
 	coreProc, err := StartRelease(
 		coreTarPath, "serviceradar_core_elx", filepath.Join(dir, "core"),
 		h.coreEnv, fmt.Sprintf("http://127.0.0.1:%d/health", coreMetricsPort), 90*time.Second,
@@ -445,6 +434,20 @@ func newHarness(t *testing.T) *harness {
 	t.Cleanup(coreProc.Stop)
 	h.coreProc = coreProc
 	seedIssuerKey(t, coreProc)
+	// Core derives its contract registry from the release catalog. The gateway still admits
+	// against the static document it boots with, so it boots with core's active epoch.
+	h.gatewayEnv.ContractRegistryJSON = recordRegistryEpoch(t, coreProc)
+
+	gwProc, err := StartRelease(
+		gatewayTarPath, "serviceradar_agent_gateway", filepath.Join(dir, "gateway"),
+		h.gatewayEnv, fmt.Sprintf("http://127.0.0.1:%d/health", gwMetricsPort), 90*time.Second,
+	)
+	if err != nil {
+		t.Fatalf("start gateway release: %v", err)
+	}
+	t.Cleanup(gwProc.Stop)
+	h.gwProc = gwProc
+
 	h.connectTrustCore(t)
 	h.installIngestProbe(t)
 
@@ -502,6 +505,42 @@ IO.puts("ISSUER_KEY_SEEDED")
 	if err != nil || !strings.Contains(out, "ISSUER_KEY_SEEDED") {
 		t.Fatalf("seed synthetic edge issuer key: %v\n%s", err, out)
 	}
+}
+
+// recordRegistryEpoch makes core's release-catalog epoch, signed with the fixture issuer key,
+// the installation's active registry epoch, and returns it as the static registry document the
+// gateway boots with. Core recorded an epoch at boot, possibly signed with a key it generated
+// before seedIssuerKey replaced it; that row would no longer verify, so every row is deleted and
+// the epoch recorded again. A core started later finds its catalog active and inserts nothing.
+func recordRegistryEpoch(t *testing.T, proc *ReleaseProcess) string {
+	t.Helper()
+	const expr = `
+alias ServiceRadar.Edge.{ContractRegistry, ContractRegistryEpochDocument}
+ServiceRadar.Repo.query!("DELETE FROM platform.edge_contract_registry_epochs", [])
+:ok = ContractRegistry.invalidate()
+{:ok, %{role: :active}} = ContractRegistry.ensure_local_epoch()
+{:ok, epoch} = ContractRegistry.active_epoch()
+trust = ContractRegistryEpochDocument.to_trust(epoch)
+contracts = Enum.map(trust["contracts"], fn entry ->
+  entry |> Map.delete("projection_revision") |> Map.put("state", "active")
+end)
+IO.puts("GATEWAY_REGISTRY:" <> Jason.encode!(%{
+  "registry_epoch" => trust["registry_epoch"],
+  "registry_snapshot_sha256" => trust["registry_snapshot_sha256"],
+  "contracts" => contracts
+}))
+`
+	out, err := proc.RPC(expr, rpcTimeout)
+	if err != nil {
+		t.Fatalf("record core's registry epoch: %v\n%s", err, out)
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if doc, ok := strings.CutPrefix(line, "GATEWAY_REGISTRY:"); ok {
+			return doc
+		}
+	}
+	t.Fatalf("record core's registry epoch: no registry document in output:\n%s", out)
+	return ""
 }
 
 // resolveCNPG creates this test's own clone of the CI schema generation by
