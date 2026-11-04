@@ -118,10 +118,6 @@ type GatewayEnvConfig struct {
 	// to the SAME database with a mismatched key would be a needless
 	// divergence from how these two processes are actually deployed together.
 	CloakKey string
-	// ContractRegistryJSON is the static output-contract registry snapshot
-	// (core's active epoch, recordRegistryEpoch). Without it the gateway's
-	// edge-records:v1 capability is never ready and every lane_open is refused.
-	ContractRegistryJSON string
 }
 
 // Env returns the environment variables StartRelease should merge in to boot
@@ -145,25 +141,22 @@ func (c GatewayEnvConfig) Env() map[string]string {
 	)
 
 	return map[string]string{
-		"CLUSTER_ENABLED":                             "false",
-		"AGENT_GATEWAY_EDGE_RECORDS_ENABLED":          "true",
-		"GATEWAY_GRPC_PORT":                           fmt.Sprintf("%d", c.GRPCPort),
-		"GATEWAY_METRICS_PORT":                        fmt.Sprintf("%d", c.MetricsPort),
-		"GATEWAY_CERT_DIR":                            c.CertDir,
-		"AGENT_GATEWAY_NATS_URL":                      c.NATSURL,
-		"NATS_URL":                                    c.NATSURL,
-		"AGENT_GATEWAY_NATS_TLS":                      "false",
-		"AGENT_GATEWAY_NATS_CREDS_FILE":               c.NATSCredsFile,
-		"GATEWAY_PARTITION_ID":                        c.PartitionID,
-		"GATEWAY_ID":                                  c.GatewayID,
-		"GATEWAY_DOMAIN":                              c.Domain,
-		"DATABASE_URL":                                databaseURL,
-		"CNPG_SSL_MODE":                               sslMode,
-		"CLOAK_KEY":                                   c.CloakKey,
-		"POOL_SIZE":                                   "2",
-		"CONTROL_REPO_POOL_SIZE":                      "2",
-		"AGENT_GATEWAY_EDGE_RECORD_TRUST_SOURCE":      "core",
-		"AGENT_GATEWAY_EDGE_RECORD_CONTRACT_REGISTRY": c.ContractRegistryJSON,
+		"CLUSTER_ENABLED":               "false",
+		"GATEWAY_GRPC_PORT":             fmt.Sprintf("%d", c.GRPCPort),
+		"GATEWAY_METRICS_PORT":          fmt.Sprintf("%d", c.MetricsPort),
+		"GATEWAY_CERT_DIR":              c.CertDir,
+		"AGENT_GATEWAY_NATS_URL":        c.NATSURL,
+		"NATS_URL":                      c.NATSURL,
+		"AGENT_GATEWAY_NATS_TLS":        "false",
+		"AGENT_GATEWAY_NATS_CREDS_FILE": c.NATSCredsFile,
+		"GATEWAY_PARTITION_ID":          c.PartitionID,
+		"GATEWAY_ID":                    c.GatewayID,
+		"GATEWAY_DOMAIN":                c.Domain,
+		"DATABASE_URL":                  databaseURL,
+		"CNPG_SSL_MODE":                 sslMode,
+		"CLOAK_KEY":                     c.CloakKey,
+		"POOL_SIZE":                     "2",
+		"CONTROL_REPO_POOL_SIZE":        "2",
 	}
 }
 

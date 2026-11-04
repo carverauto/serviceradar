@@ -434,9 +434,9 @@ func newHarness(t *testing.T) *harness {
 	t.Cleanup(coreProc.Stop)
 	h.coreProc = coreProc
 	seedIssuerKey(t, coreProc)
-	// Core derives its contract registry from the release catalog. The gateway still admits
-	// against the static document it boots with, so it boots with core's active epoch.
-	h.gatewayEnv.ContractRegistryJSON = recordRegistryEpoch(t, coreProc)
+	// Core derives its contract registry from the release catalog and signs each epoch; the
+	// gateway receives the active epoch with its trust refresh and verifies it there.
+	recordRegistryEpoch(t, coreProc)
 
 	gwProc, err := StartRelease(
 		gatewayTarPath, "serviceradar_agent_gateway", filepath.Join(dir, "gateway"),
@@ -508,39 +508,24 @@ IO.puts("ISSUER_KEY_SEEDED")
 }
 
 // recordRegistryEpoch makes core's release-catalog epoch, signed with the fixture issuer key,
-// the installation's active registry epoch, and returns it as the static registry document the
-// gateway boots with. Core recorded an epoch at boot, possibly signed with a key it generated
-// before seedIssuerKey replaced it; that row would no longer verify, so every row is deleted and
-// the epoch recorded again. A core started later finds its catalog active and inserts nothing.
-func recordRegistryEpoch(t *testing.T, proc *ReleaseProcess) string {
+// the installation's active registry epoch, which core's trust document then carries to the
+// gateway. Core recorded an epoch at boot, possibly signed with a key it generated before
+// seedIssuerKey replaced it; that row would no longer verify, so every row is deleted and the
+// epoch recorded again. A core started later finds its catalog active and inserts nothing.
+func recordRegistryEpoch(t *testing.T, proc *ReleaseProcess) {
 	t.Helper()
 	const expr = `
-alias ServiceRadar.Edge.{ContractRegistry, ContractRegistryEpochDocument}
+alias ServiceRadar.Edge.ContractRegistry
 ServiceRadar.Repo.query!("DELETE FROM platform.edge_contract_registry_epochs", [])
 :ok = ContractRegistry.invalidate()
 {:ok, %{role: :active}} = ContractRegistry.ensure_local_epoch()
-{:ok, epoch} = ContractRegistry.active_epoch()
-trust = ContractRegistryEpochDocument.to_trust(epoch)
-contracts = Enum.map(trust["contracts"], fn entry ->
-  entry |> Map.delete("projection_revision") |> Map.put("state", "active")
-end)
-IO.puts("GATEWAY_REGISTRY:" <> Jason.encode!(%{
-  "registry_epoch" => trust["registry_epoch"],
-  "registry_snapshot_sha256" => trust["registry_snapshot_sha256"],
-  "contracts" => contracts
-}))
+{:ok, %{state: :active}} = ContractRegistry.active_epoch()
+IO.puts("REGISTRY_EPOCH_ACTIVE")
 `
 	out, err := proc.RPC(expr, rpcTimeout)
-	if err != nil {
+	if err != nil || !strings.Contains(out, "REGISTRY_EPOCH_ACTIVE") {
 		t.Fatalf("record core's registry epoch: %v\n%s", err, out)
 	}
-	for _, line := range strings.Split(out, "\n") {
-		if doc, ok := strings.CutPrefix(line, "GATEWAY_REGISTRY:"); ok {
-			return doc
-		}
-	}
-	t.Fatalf("record core's registry epoch: no registry document in output:\n%s", out)
-	return ""
 }
 
 // resolveCNPG creates this test's own clone of the CI schema generation by
