@@ -440,6 +440,13 @@ geolite_dbs = base_geolite_dbs ++ city_geolite_dbs ++ ipinfo_dbs
 
 config :geolix, databases: ServiceRadar.Observability.GeoIP.present_databases(geolite_dbs)
 
+# The file-based edge issuer key of releases before the key moved into CNPG. Core imports its
+# seed once, on the first boot that finds no stored key (ServiceRadar.Edge.IssuerKey), so
+# signatures made with it keep verifying. Never read again once a key is stored.
+config :serviceradar_core,
+       :edge_issuer_key_import_file,
+       System.get_env("SERVICERADAR_EDGE_ISSUER_KEY_FILE")
+
 # The installation's edge-record contract registry document: the same JSON the agent gateway
 # reads from AGENT_GATEWAY_EDGE_RECORD_CONTRACT_REGISTRY. Core signs sweep lease capabilities
 # against its sweep contract entry (ServiceRadar.Edge.SweepContract).

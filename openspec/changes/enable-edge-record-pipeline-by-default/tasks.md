@@ -103,6 +103,11 @@
   modeled on `ManagedCertificatePolicyKey`. Make `IssuerKey.configured/0`
   ensure-then-cache. Delete `load_file!/1` and the `SERVICERADAR_EDGE_ISSUER_KEY_FILE`
   reads.
+  - Revised (design Decision 6, 2026-11-04): the first store imports the seed of
+    `SERVICERADAR_EDGE_ISSUER_KEY_FILE` when one is configured, so epochs, grants and
+    leases signed with the file key keep verifying. `load_file!/1` stays deleted;
+    the runtime config passes only the path. The chart (5.2) keeps the mount and the
+    env var for the cutover release.
 - [x] 2.2 Rename `platform.sweep_lease_settings` to `platform.edge_pipeline_settings`.
   Drop `leasing_enabled` and add `spool_max_bytes`. Remove `enabled?` from
   `LeaseSettings`, and remove its uses in `LeasePass` and `OutputGrants`. Grants
