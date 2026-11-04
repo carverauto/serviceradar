@@ -32,7 +32,7 @@ pub fn valid_ci() -> EnvironmentConfig {
             tls_mode: Some(TlsMode::VerifyFull as i32),
             tls_server_name: Some("db".into()),
             ca_bundle_url: Some("https://ca.example/ca.crt".into()),
-            search_path: Some("platform, ag_catalog".into()),
+            search_path: Some("platform".into()),
             pool_size: Some(10),
             queue_target_ms: Some(500),
             queue_interval_ms: Some(1000),

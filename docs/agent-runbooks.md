@@ -536,7 +536,7 @@ kubectl get secret cnpg-staging-superuser -n demo-staging -o jsonpath='{.data.pa
 ### 3. Connect via psql
 
 ```bash
-# Using serviceradar user (has search_path=platform, ag_catalog)
+# Using serviceradar user (has search_path=platform)
 PGPASSWORD=$(kubectl get secret serviceradar-db-credentials -n demo-staging -o jsonpath='{.data.password}' | base64 -d) \
   psql -h <node-ip> -p 30432 -U serviceradar -d serviceradar
 
@@ -574,7 +574,7 @@ SHOW search_path;
 
 ### Notes
 
-- The `serviceradar` user has `search_path=platform, ag_catalog` set, so tables in the `platform` schema are accessed without prefix.
+- The `serviceradar` user has `search_path=platform` set, so tables in the `platform` schema are accessed without prefix.
 - For production debugging, prefer `kubectl exec` over exposing the service externally.
 - Remember to clean up NodePort services when done: `kubectl delete svc cnpg-staging-external -n demo-staging`
 

@@ -305,31 +305,36 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   defp admit_occurrences([occurrence | rest] = occurrences) do
     case admit_occurrence(occurrence) do
       :ok -> admit_occurrences(rest)
+      :already_admitted -> admit_occurrences(rest)
       {:error, reason} -> {reason, occurrences}
     end
   end
 
+  # The pending row is claimed under a row lock before the engine sees the
+  # occurrence, so two workers admitting the same series (a redelivery racing
+  # the first delivery, or the drain racing either) dispatch it once: the
+  # second waits for the first transaction and finds the row gone if it was
+  # admitted, or still pending if it rolled back. Waiting rather than skipping
+  # a locked row keeps per-series FIFO; both walk a series in `seq` order and
+  # hold one row at a time.
+  #
   # An overloaded inbox commits the prefix it accepted, so that refusal is
   # returned as a value and keeps the pending row for the redelivery that
   # continues it. Any other refusal accepted nothing and rolls back.
   defp admit_occurrence(%{occurrence_id: occurrence_id, record: record}) do
     fn ->
       ServiceRadar.Repo.transaction(fn ->
-        case StatefulEvaluationLedger.evaluate_events([record]) do
-          :ok ->
-            release_pending_admission(occurrence_id)
-
-          {:error, {:overloaded, _dimension}} = overloaded ->
-            overloaded
-
-          {:error, reason} ->
-            ServiceRadar.Repo.rollback(reason)
+        if claim_pending_admission(occurrence_id) do
+          evaluate_claimed_occurrence(occurrence_id, record)
+        else
+          :already_admitted
         end
       end)
     end
     |> Inbox.with_notification_queue()
     |> case do
       {:ok, :ok} -> :ok
+      {:ok, :already_admitted} -> :already_admitted
       {:ok, {:error, reason}} -> {:error, reason}
       {:error, reason} -> {:error, reason}
     end
@@ -407,6 +412,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     Enum.reduce_while(occurrences, 0, fn occurrence, count ->
       case admit_occurrence(occurrence) do
         :ok -> {:cont, count + 1}
+        :already_admitted -> {:cont, count}
         {:error, _reason} -> {:halt, count}
       end
     end)
@@ -1333,6 +1339,33 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
       entry -> entry
     end)
     |> Map.put(@occurrence_key, occurrence_id)
+  end
+
+  defp evaluate_claimed_occurrence(occurrence_id, record) do
+    case StatefulEvaluationLedger.evaluate_events([record]) do
+      :ok ->
+        release_pending_admission(occurrence_id)
+
+      {:error, {:overloaded, _dimension}} = overloaded ->
+        overloaded
+
+      {:error, reason} ->
+        ServiceRadar.Repo.rollback(reason)
+    end
+  end
+
+  defp claim_pending_admission(occurrence_id) do
+    %{num_rows: num_rows} =
+      ServiceRadar.Repo.query!(
+        """
+        SELECT 1 FROM platform.lifecycle_pending_admissions
+        WHERE occurrence_id = ($1::text)::uuid
+        FOR UPDATE
+        """,
+        [occurrence_id]
+      )
+
+    num_rows == 1
   end
 
   defp release_pending_admission(occurrence_id) do

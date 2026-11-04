@@ -440,7 +440,7 @@ pub(crate) async fn install_extensions(database: &str, owner: &str) -> Result<()
     // Create the platform schema BEFORE any migration runs, or Ecto's bookkeeping table
     // moves between runs.
     //
-    // config/test.exs sets search_path = "platform, public, ag_catalog" and
+    // config/test.exs sets search_path = "platform, public" and
     // migration_default_prefix: "platform". On a database where `platform` does not exist
     // yet, the first migration's unqualified `schema_migrations` falls through the search
     // path and is created in `public`. Every later run then finds `platform` present, creates

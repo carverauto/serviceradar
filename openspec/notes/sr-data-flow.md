@@ -49,7 +49,7 @@ direct-to-DB metric writes.
 └──────────────────────────────────────┘      │         │  │  → BulkInsert      │──── insert_all ────▶ CNPG
                                                └─────────────▶└────────────────────┘    (Ecto/Repo)    │  Postgres
                                             JetStream streams:                          │              │  + Timescale
-                                            EVENTS/METRICS/LOGS/OTEL_*/                  │              │  + Apache AGE
+                                            EVENTS/METRICS/LOGS/OTEL_*/                  │              │
                                             FLOWS/*_CAUSAL                               │              │
                                                         │  ┌────────────────────┐       │              │
    User ──HTTPS──▶ Caddy/ingress ─────────────────────────▶│ web-ng (Phoenix    │       │              │
@@ -77,7 +77,7 @@ Which opted-in agent metric producers use the durable edge-record lane is in [Da
 | `otel` | Rust (`rust/otel`) | OTLP receiver → publishes traces/metrics/logs to NATS. |
 | `log-collector` / `flowgger` | Rust | Syslog/log ingestion. |
 | `netprobe`, `rperf-client/server`, `bmp-collector`, `powerdns`, anomaly/correlation addons | Rust | Additional probes/collectors and analytics addons. |
-| CNPG | Postgres + TimescaleDB + Apache AGE | System of record for inventory, telemetry, analytics. |
+| CNPG | Postgres + TimescaleDB | System of record for inventory, telemetry, analytics. |
 | NATS JetStream | — | Bulk telemetry bus between collectors and core. |
 
 ---
@@ -133,12 +133,12 @@ Retention: `events` stream file storage, discard=old, 8 GiB / 24h (`runtime.exs:
 
 SRQL (ServiceRadar Query Language) is a faceted query language
 (`in:<entity> field:value stats:count() by field bucket:1h time:24h`) that the Rust crate `rust/srql`
-parses → AST → query plan → per-entity SQL builder → **parameterized Postgres SQL** (and Cypher for the
+parses → AST → query plan → per-entity SQL builder → **parameterized Postgres SQL** (and DQL for the
 graph entity). Pipeline: `parser.rs:30` → `parser/ast.rs` → `query/plan.rs:11` → `query/engine.rs:35`.
 
-**Single physical backend: CNPG Postgres** (Diesel + diesel-async + bb8 pool, `db.rs:23`). Inside it,
-SRQL routes to multiple logical backends:
-- **Apache AGE** — `graph_cypher` entity runs read-only Cypher via `ag_catalog.cypher('<graph>', ...)`; graph defaults to `platform_graph`/`serviceradar` (`query/graph_cypher.rs:60-65`, guard `:114`).
+**Primary backend: CNPG Postgres** (Diesel + diesel-async + bb8 pool, `db.rs:23`). The `graph_dql` entity
+is the exception: it runs DQL against Dgraph (`query/graph_dql.rs`); `graph_cypher` was retired with
+Apache AGE. Inside CNPG, SRQL routes to multiple logical backends:
 - **Timescale continuous aggregates** — metric/stats/downsample queries route to hourly CAGGs (`cpu_metrics_hourly`, `memory_metrics_hourly`, `timeseries_metrics_hourly`, …) via `query/cagg.rs:26,112,141`.
 - OCSF / relational tables queried as normal SQL.
 
@@ -161,8 +161,8 @@ was never deployed and was removed (issue #4873). The Go core's `SRQLConfig`/`sr
 
 ## 5. Database schema (CNPG, `platform` schema)
 
-One Postgres cluster; three engines layered in: relational tables + TimescaleDB
-hypertables/continuous-aggregates + one Apache AGE graph. **Schema is managed exclusively through
+One Postgres cluster; two engines layered in: relational tables + TimescaleDB
+hypertables/continuous-aggregates. **Schema is managed exclusively through
 Elixir/Ecto migrations** in `elixir/serviceradar_core/priv/repo/migrations/` (~325 files, ~200 tables).
 web-ng has no migrations of its own. Ingestion services never run DDL.
 
@@ -170,7 +170,7 @@ Foundational migrations:
 - `20260117080000_bootstrap_extensions.exs` — extensions
 - `20260117090000_rebuild_schema.exs` — ~60 base config/inventory tables + SQL helpers (`uuid_generate_v7`, …) + Oban tables
 - `20260117100000_create_timeseries_tables.exs` — core TimescaleDB hypertables
-- `20260119090000_add_age_graph_serviceradar.exs` — AGE graph
+- `20260119090000_add_age_graph_serviceradar.exs` — AGE graph (retired by `20261104004947_retire_apache_age_graph_storage`)
 
 ### 5.1 Device / entity inventory (regular tables)
 
@@ -188,7 +188,7 @@ Foundational migrations:
 | `discovered_interfaces` (`:1026`) | `(timestamp, device_id, if_index)` | **Hypertable** — SNMP interface inventory over time: if_name/descr/alias, if_speed, if_phys_address, `ip_addresses[]`, admin/oper status, metadata (GIN). |
 | `interface_classification_rules` (`20260121013000`) | — | Interface classification. |
 | `mapper_topology_links` (`20260119051352`) | `id` uuid | LLDP/CDP neighbor links (local/neighbor chassis/port/system/mgmt). |
-| `runtime_topology_links` + `runtime_topology_projection_meta` (`20260620224500`) | — | Projected topology (plane, local/neighbor device, relation_type, evidence_class) + projection refresh metadata. |
+| `runtime_topology_projection_meta` (`20260620224500`) | — | Topology projection refresh metadata (the `runtime_topology_links` table was dropped by `20261104004947`). |
 
 ### 5.2 Metrics / time-series (TimescaleDB hypertables — `create_timeseries_tables.exs` unless noted)
 
@@ -277,16 +277,13 @@ StarRocks (`serviceradar.ocsf_network_activity`); see
 
 These are the rollups SRQL routes metric/stats queries to.
 
-### 5.9 Graph (Apache AGE)
+### 5.9 Graph (retired Apache AGE)
 
-Single AGE graph **`platform_graph`** (migration `20260204090000_use_platform_age_graph`, superseding
-the original `serviceradar` graph from `20260119090000`), search_path `ag_catalog,platform,...`,
-property indexes (`20260622210000`, targeting `platform_graph`). The SRQL default and all causal-engine
-Cypher queries must use `platform_graph`. Vertex labels **Device / Collector / Service / Interface**; edges express
-device↔collector membership, neighbor/peer interface adjacency, and service relations. It is a
-**projection** over the relational topology tables (`mapper_topology_links`, `runtime_topology_links`),
-not a primary store — `runtime_topology_projection_meta` tracks freshness. SRQL's `graph_cypher` entity
-queries it read-only.
+The Apache AGE graph storage is retired: migration `20261104004947_retire_apache_age_graph_storage`
+drops every AGE graph, `public.age_device_neighborhood`, `platform.runtime_topology_links` and the `age`
+extension, and `ag_catalog` is no longer on any search_path. Dgraph is the only topology graph; see
+[Network topology](../../docs/docs/network-topology.md#dgraph-topology-store). Mapper evidence stays in
+CNPG (`mapper_topology_links`) and `runtime_topology_projection_meta` still tracks projection freshness.
 
 ---
 

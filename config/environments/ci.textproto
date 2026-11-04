@@ -61,7 +61,7 @@ database {
   # being served, not the certificate that terminates this hop.
   ca_bundle_url: "https://srql-fixture-ca.carverauto.dev/ca.crt"
 
-  search_path: "platform, ag_catalog"
+  search_path: "platform"
   pool_size: 10
   queue_target_ms: 500
   queue_interval_ms: 1000

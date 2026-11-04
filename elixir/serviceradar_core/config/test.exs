@@ -202,7 +202,7 @@ pool_size = if pool_size, do: parse_int.(pool_size)
 queue_target = if queue_target, do: parse_int.(queue_target)
 queue_interval = if queue_interval, do: parse_int.(queue_interval)
 ownership_timeout = if ownership_timeout, do: parse_int.(ownership_timeout)
-search_path = System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")
+search_path = System.get_env("CNPG_SEARCH_PATH", "platform, public")
 # The stateful alert engine fans evaluation across N sharded GenServers
 # (`StatefulAlertEngine`, default 8 shards). Batches are routed only to shards
 # that own a rule for the signal, but on startup every shard concurrently

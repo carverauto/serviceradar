@@ -61,6 +61,22 @@ PLUGIN_RESULTS_ONLY = {
     "agent.runtimeStorage.enabled": True,
 }
 
+# Operator values for a discovery-only agent.
+DISCOVERY_ONLY = {
+    "edgeRecords.enabled": True,
+    "edgeRecords.contractRegistry": {"registry_epoch": 1},
+    "edgeRecords.agentDiscoveryEnabled": True,
+    "agent.runtimeStorage.enabled": True,
+}
+
+# Operator values for a sync-only agent.
+SYNC_ONLY = {
+    "edgeRecords.enabled": True,
+    "edgeRecords.contractRegistry": {"registry_epoch": 1},
+    "edgeRecords.agentSyncEnabled": True,
+    "agent.runtimeStorage.enabled": True,
+}
+
 
 def render_agent_config(overrides):
     """Consume helm-unittest's generated ConfigMap snapshot, without golden files."""
@@ -149,6 +165,28 @@ class EdgeRecordAgentConfigTest(unittest.TestCase):
         self.assertIs(sender["metrics_enabled"], False)
         self.assertIs(sender["telemetry_enabled"], False)
         self.assertIs(sender["plugin_results_enabled"], True)
+        self.assertIs(sender["discovery_enabled"], False)
+        self.assertIs(sender["sync_enabled"], False)
+
+    def test_discovery_only_sender_enables_discovery_and_leaves_the_rest_off(self):
+        sender = render_agent_config(DISCOVERY_ONLY)["edge_record_sender"]
+        self.assertIs(sender["enabled"], True)
+        self.assertIs(sender["sweep_enabled"], False)
+        self.assertIs(sender["metrics_enabled"], False)
+        self.assertIs(sender["telemetry_enabled"], False)
+        self.assertIs(sender["plugin_results_enabled"], False)
+        self.assertIs(sender["discovery_enabled"], True)
+        self.assertIs(sender["sync_enabled"], False)
+
+    def test_sync_only_sender_enables_sync_and_leaves_the_rest_off(self):
+        sender = render_agent_config(SYNC_ONLY)["edge_record_sender"]
+        self.assertIs(sender["enabled"], True)
+        self.assertIs(sender["sweep_enabled"], False)
+        self.assertIs(sender["metrics_enabled"], False)
+        self.assertIs(sender["telemetry_enabled"], False)
+        self.assertIs(sender["plugin_results_enabled"], False)
+        self.assertIs(sender["discovery_enabled"], False)
+        self.assertIs(sender["sync_enabled"], True)
 
 
 if __name__ == "__main__":

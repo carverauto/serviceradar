@@ -122,6 +122,23 @@ identity and the registered platform handlers behave exactly as on the
 legacy path. The projection rules are
 `ServiceRadar.Edge.Projectors.WasmPluginResult`.
 
+Mapper discovery (devices, interfaces, topology), netprobe discovery, and
+integration sync pages follow the same shape under the
+`serviceradar.mapper.devices.batch`, `serviceradar.mapper.interfaces.batch`,
+`serviceradar.mapper.topology.batch`, `serviceradar.netprobe.discovery.batch`
+and `serviceradar.sync.page.batch` contracts
+(`edgeRecords.agentDiscoveryEnabled`, `edgeRecords.agentSyncEnabled`). The
+agent converts the exact update payloads the legacy builders produced into
+the typed batches of `proto/edge/v1/json_producer_batches.proto`; core
+rebuilds those payloads and hands them to the same destinations as the
+legacy result routes (the sync ingestion pipeline for devices, netprobe
+and sync pages, `MapperResultsIngestor` for interfaces and topology), so
+the DIRE run ledgers, incomplete-run population guard and
+conflicting-identity refusal are unchanged. A sync run never splits across
+paths: once a page spools, later pages of that run spool or the run fails.
+The projection rules are the discovery projectors under
+`ServiceRadar.Edge.Projectors`.
+
 ## Data Service (datasvc)
 
 `datasvc` is a gRPC service (port `50057`) that fronts the platform's NATS-backed

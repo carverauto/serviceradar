@@ -52,6 +52,9 @@ spool backlog survives an outage of about a week, and Ed25519 signatures are det
 the config changes once a day or on an epoch move. A grant exists when the contract is active in
 the installation registry and the agent's operator switch (the existing leasing setting, agent
 then partition then global) is on. Turning the switch off revokes the grant and moves its epoch.
+Superseded by `enable-edge-record-pipeline-by-default` (Decision 1): the switch is removed, the
+registry is derived by core, and a grant exists whenever the contract is active in the active
+epoch and the agent's partition resolves.
 
 ### Decision 3: One typed contract per producer and schedule
 

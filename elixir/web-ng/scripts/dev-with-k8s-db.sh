@@ -37,7 +37,7 @@ LOCAL_PG_PORT="${LOCAL_PG_PORT:-${CNPG_LOCAL_PORT:-15432}}"
 REMOTE_PG_PORT="${REMOTE_PG_PORT:-5432}"
 PHX_PORT="${PHX_PORT:-4000}"
 CNPG_DATABASE="${CNPG_DATABASE:-serviceradar}"
-CNPG_SEARCH_PATH="${CNPG_SEARCH_PATH:-platform, public, ag_catalog}"
+CNPG_SEARCH_PATH="${CNPG_SEARCH_PATH:-platform, public}"
 # Must match a SAN on the CNPG server cert (cnpg-rw is listed for demo).
 CNPG_TLS_SERVER_NAME="${CNPG_TLS_SERVER_NAME:-cnpg-rw}"
 CERT_DIR="${CNPG_CERT_DIR:-${WEB_NG_DIR}/.local-dev-certs}"

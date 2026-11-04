@@ -279,6 +279,14 @@ type EdgeRecordSenderConfig struct {
 	// result batch records while core grants this agent the plugin results
 	// batch contract. Without a grant it keeps the legacy status path.
 	PluginResultsEnabled bool `json:"plugin_results_enabled,omitempty"`
+	// DiscoveryEnabled lets the mapper and netprobe discovery producers emit
+	// discovery batch records while core grants this agent those contracts.
+	// Without a grant each family keeps its legacy status path.
+	DiscoveryEnabled bool `json:"discovery_enabled,omitempty"`
+	// SyncEnabled lets the integration sync runtime emit sync page records
+	// while core grants this agent the sync page contract. Without a grant
+	// sync pages keep the legacy status path.
+	SyncEnabled bool `json:"sync_enabled,omitempty"`
 	// MaxBytes bounds durable spool admission; zero uses 256 MiB.
 	MaxBytes uint64 `json:"max_bytes,omitempty"`
 	// SpoolDir is the directory holding the agent's edge-record spool segment
@@ -293,7 +301,7 @@ type EdgeRecordSenderConfig struct {
 // records. Such a sender must persist terminal acknowledgements so the spool
 // reclaims what the gateway accepted.
 func (c *EdgeRecordSenderConfig) ProducersEnabled() bool {
-	return c != nil && (c.SweepEnabled || c.MetricsEnabled || c.TelemetryEnabled || c.PluginResultsEnabled)
+	return c != nil && (c.SweepEnabled || c.MetricsEnabled || c.TelemetryEnabled || c.PluginResultsEnabled || c.DiscoveryEnabled || c.SyncEnabled)
 }
 
 type BumblebeeStatusConfig struct {

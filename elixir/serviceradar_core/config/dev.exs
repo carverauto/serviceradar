@@ -4,7 +4,7 @@ import Config
 # Host applications should override this with their actual connection details
 # If DATABASE_URL is set, use it; otherwise use defaults
 database_url = System.get_env("DATABASE_URL")
-search_path = System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")
+search_path = System.get_env("CNPG_SEARCH_PATH", "platform, public")
 
 if database_url do
   # Support SSL options via environment

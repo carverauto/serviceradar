@@ -263,17 +263,57 @@ Dgraph-only God View reader does not establish that the extension is unused.
       writes. AGE-only maintenance (unseen-link prune, legacy attachment
       reconciliation) is dropped. Elixir integration coverage of graph
       contents moves to a Dgraph fixture tracked in #6298.
-- [ ] 14.5 Audit schema/bootstrap and migration dependencies before disabling
+- [x] 14.5 Audit schema/bootstrap and migration dependencies before disabling
       AGE: CNPG extension creation, `shared_preload_libraries`, startup graph
       ownership/catalog checks, database search paths, neighborhood functions,
       and the retained historical migrations. Define a migrations-only
       retirement path that preserves relational evidence and unrelated data;
       do not rewrite historical migrations or use an unreviewed cascade drop.
+      Migration `20261104004947_retire_apache_age_graph_storage` drops
+      `public.age_device_neighborhood`, `platform.runtime_topology_links`
+      (the projection meta table stays: canonical rebuild uses it), every
+      graph registered in `ag_catalog.ag_graph` via `drop_graph(name, true)`,
+      and then `DROP EXTENSION age RESTRICT` and the empty `ag_catalog`. The
+      cascade is bounded at run time: the migration refuses, naming them, if
+      `pg_depend` shows any object outside the graph schemas depending on
+      one. Baseline-built databases hold the graph schemas WITHOUT
+      `ag_graph` rows (the dump never calls `create_graph`), so schemas made
+      only of AGE-typed tables are removed with explicit non-cascading
+      `DROP TABLE` / `DROP SEQUENCE` / `DROP SCHEMA`. A role that does not
+      own the extension (the CI schema generation, migrated as `srql`)
+      removes the graphs and leaves the empty extension with a warning.
+      `StartupMigrations` no longer grants on `ag_catalog`, re-owns graph
+      schemas or manages `age_device_neighborhood`; `ag_catalog` is gone from
+      every default and configured search_path (Elixir configs, environment
+      textprotos and their embedded `.binpb`, config fixtures, the Helm
+      config and dev scripts), and Helm no longer preloads `age`. Historical
+      migrations are unchanged.
 - [ ] 14.6 After active consumers are migrated, update the CNPG image and
       extension ABI/build checks, Helm/bootstrap tests, and Compose startup
       configuration to remove the AGE runtime dependency. Verify fresh install
       and upgrade behavior before removing the extension from deployed images.
+      Partial: the Helm chart no longer preloads `age`. Still open, blocked on
+      carverauto/serviceradar-control#192: regenerating the schema baseline
+      without AGE objects, then removing AGE from the CNPG image and its
+      ABI/build checks (`docker/images/cnpg_image.bzl`,
+      `check_extension_abi.py`), the Compose `shared_preload_libraries` and
+      PG16-to-PG18 scripts, the srql-fixtures cluster preload/extension, the
+      `//rust/integration-db` extension and graph setup, and the bootstrap
+      test's AGE install. Each is still needed while the baseline and the
+      historical migrations create AGE objects.
 - [ ] 14.7 Run focused replacement-path and retirement integration tests with
       independently invented data, verify the Dgraph scratch namespace and
       database cleanup, and run the complete required repository gate. Record
       which compatibility consumers remain before marking retirement complete.
+      Retirement-migration evidence (srql-fixtures scratch databases, all
+      dropped): a baseline-built database (staging `mix
+      serviceradar.db.migrate`) and a full-replay database seeded with
+      invented topology (`platform_graph` labels, property indexes and edges,
+      plus the legacy graphs) both end with no `age` extension, no graph or
+      `ag_catalog` schema and no AGE-typed column, relational evidence rows
+      intact; a second run is a no-op. A probe database showed the guard
+      refusing a `platform` view over a label table, and the non-owner
+      warning path. `make test` ran green. Left unchecked: the Dgraph
+      scratch-namespace integration coverage is tracked in #6298, and the
+      compatibility consumers listed under 14.6 remain until
+      carverauto/serviceradar-control#192 lands.

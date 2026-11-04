@@ -65,7 +65,7 @@ defmodule ServiceRadar.Postgres.SchemaSqlTest do
       """)
 
       assert [
-               "SELECT pg_catalog.set_config('search_path', 'platform, public, ag_catalog', false)",
+               "SELECT pg_catalog.set_config('search_path', 'platform, public', false)",
                "CREATE VIEW platform.example AS\nSELECT time_bucket('1 hour', observed_at) AS bucket\nFROM platform.samples"
              ] =
                SchemaSql.load_statements(path, normalize_timescaledb_schema?: true)

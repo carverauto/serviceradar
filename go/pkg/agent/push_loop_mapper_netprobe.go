@@ -26,6 +26,8 @@ import (
 	agentnetprobe "github.com/carverauto/serviceradar/go/pkg/agent/netprobe"
 	"github.com/carverauto/serviceradar/go/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
+	netprobepb "github.com/carverauto/serviceradar/proto/agent/netprobe/v1"
+	discoverypb "github.com/carverauto/serviceradar/proto/discovery"
 )
 
 const (
@@ -34,34 +36,28 @@ const (
 )
 
 func (p *PushLoop) pushMapperResults(ctx context.Context) bool {
-	p.server.mu.RLock()
-	mapperSvc := p.server.mapperService
-	agentID := p.server.config.AgentID
-	partition := p.server.config.Partition
-	p.server.mu.RUnlock()
+	return p.pushMapperFamily(
+		ctx,
+		func(svc *MapperService) ([]map[string]interface{}, bool) {
+			return svc.DrainResults(1000)
+		},
+		buildMapperResultsPayload,
+		discoveryMapperDevices,
+		mapperServiceType,
+		"update_count",
+	)
+}
 
-	if mapperSvc == nil {
-		return false
-	}
-
-	updates, ok := mapperSvc.DrainResults(1000)
-	if !ok || len(updates) == 0 {
-		return false
-	}
-
-	payload, err := buildMapperResultsPayload(updates, agentID, partition)
-	if err != nil {
-		p.logger.Error().Err(err).Msg("Failed to build mapper results payload")
-		return false
-	}
-
-	if len(payload) == 0 {
-		return false
-	}
-
+// streamDiscoveryPayload carries one built discovery payload on the legacy
+// status path as a single-chunk results stream.
+func (p *PushLoop) streamDiscoveryPayload(
+	ctx context.Context,
+	payload []byte,
+	serviceName string,
+	serviceType string,
+) bool {
 	seq := fmt.Sprintf("%d", time.Now().UnixNano())
-
-	response := mapperResultsResponse(payload, seq, "mapper", mapperServiceType)
+	response := mapperResultsResponse(payload, seq, serviceName, serviceType)
 	chunks := []*proto.ResultsChunk{{
 		Data:            response.Data,
 		IsFinal:         true,
@@ -79,24 +75,96 @@ func (p *PushLoop) pushMapperResults(ctx context.Context) bool {
 	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	_, err = p.gateway.StreamStatus(pushCtx, statusChunks)
-	if err != nil {
-		p.logger.Error().Err(err).Msg("Failed to stream mapper results to gateway")
+	if _, err := p.gateway.StreamStatus(pushCtx, statusChunks); err != nil {
+		p.logger.Error().Err(err).Msg("Failed to stream discovery results to gateway")
 		return false
 	}
-
-	p.logger.Info().
-		Int("update_count", len(updates)).
-		Msg("Streamed mapper results to gateway")
-
 	return true
+}
+
+// pushDiscovery moves one discovery family down exactly one path. While
+// the family's standing grant is current its drain goes only to the spool;
+// a drain the spool will not yet admit stays the family's one pending item,
+// and the family's source is not drained again until that item is admitted
+// (backpressure, so nothing queues behind it). Without a grant the drain
+// rides the legacy status path once; a failed send is logged and the drain
+// dropped, as before.
+func (p *PushLoop) pushDiscovery(
+	kind discoveryKind,
+	agentID string,
+	partition string,
+	drain func() [][]byte,
+	legacySend func([]byte) bool,
+) bool {
+	spec := kind.spec()
+	q := p.discoveryQueue(kind)
+	sent := false
+	if q.built != nil {
+		if !p.appendDiscoveryBuilt(q.built) {
+			return false
+		}
+		q.built = nil
+		sent = true
+	}
+
+	payloads := drain()
+	if len(payloads) == 0 {
+		return sent
+	}
+
+	if capability := p.discoveryCapability(kind, time.Now()); capability != nil {
+		built, dropped, err := buildDiscoveryItem(spec, payloads, capability, agentID, partition)
+		p.dropEdgeTelemetry(spec.producer, edgeDropInvalidRecord, dropped)
+		if err != nil {
+			p.logger.Warn().Err(err).Str("contract", spec.contractID).
+				Msg("Dropping discovery drain that cannot form an edge record")
+			return sent
+		}
+		if !p.appendDiscoveryBuilt(built) {
+			q.built = built
+			return sent
+		}
+		return true
+	}
+
+	for _, payload := range payloads {
+		if !legacySend(payload) {
+			return sent
+		}
+		sent = true
+	}
+	return sent
 }
 
 func (p *PushLoop) pushNetprobeResults(ctx context.Context) bool {
 	p.server.mu.RLock()
-	netprobeSidecar := p.server.netprobeSidecar
 	agentID := p.server.config.AgentID
 	partition := p.server.config.Partition
+	p.server.mu.RUnlock()
+
+	var logEvent func()
+	sent := p.pushDiscovery(discoveryNetprobe, agentID, partition,
+		func() [][]byte {
+			var payloads [][]byte
+			payloads, logEvent = p.drainNetprobePayloads(agentID, partition)
+			return payloads
+		},
+		func(data []byte) bool {
+			return p.streamDiscoveryPayload(ctx, data,
+				string(models.DiscoverySourcePassiveNetprobe),
+				string(models.DiscoverySourcePassiveNetprobe))
+		})
+	if sent && logEvent != nil {
+		logEvent()
+	}
+	return sent
+}
+
+// drainNetprobePayloads drains the netprobe sidecar and builds its
+// size-bounded update payloads, with a logger for a delivered drain.
+func (p *PushLoop) drainNetprobePayloads(agentID, partition string) ([][]byte, func()) {
+	p.server.mu.RLock()
+	netprobeSidecar := p.server.netprobeSidecar
 	p.server.mu.RUnlock()
 
 	// Outside the RLock on purpose: getSourceIP() takes p.server.mu.RLock
@@ -107,14 +175,14 @@ func (p *PushLoop) pushNetprobeResults(ctx context.Context) bool {
 	collectorIP := p.getSourceIP()
 
 	if netprobeSidecar == nil {
-		return false
+		return nil, nil
 	}
 
 	fingerprintEvents := netprobeSidecar.DrainEvents(1000)
 	dpiEvents := netprobeSidecar.DrainDPIEvents(1000)
 	processSnapshots := netprobeSidecar.DrainProcessSnapshots(1000)
 	if len(fingerprintEvents) == 0 && len(dpiEvents) == 0 && len(processSnapshots) == 0 {
-		return false
+		return nil, nil
 	}
 
 	opts := agentnetprobe.TranslationOptions{
@@ -122,66 +190,9 @@ func (p *PushLoop) pushNetprobeResults(ctx context.Context) bool {
 		GatewayID:   p.gateway.GetGatewayID(),
 		CollectorIP: collectorIP,
 	}
-	updates := make([]map[string]any, 0, len(fingerprintEvents)+len(dpiEvents)+len(processSnapshots))
-
-	for _, event := range fingerprintEvents {
-		device, err := agentnetprobe.FingerprintEventToDiscoveredDevice(event, opts)
-		if err != nil {
-			p.logger.Warn().Err(err).Msg("Skipping invalid netprobe fingerprint event")
-			continue
-		}
-
-		update := map[string]any{
-			"ip":         device.GetIp(),
-			"agent_id":   agentID,
-			"gateway_id": opts.GatewayID,
-			"partition":  partition,
-			"source":     netprobeDiscoverySource(device.GetMetadata()),
-			"metadata":   device.GetMetadata(),
-			"timestamp":  time.Now().UTC().Format(time.RFC3339Nano),
-		}
-		updates = append(updates, update)
-	}
-	for _, event := range dpiEvents {
-		device, err := agentnetprobe.DpiEventToDiscoveredDevice(event, opts)
-		if err != nil {
-			p.logger.Warn().Err(err).Msg("Skipping invalid netprobe DPI event")
-			continue
-		}
-
-		update := map[string]any{
-			"ip":         device.GetIp(),
-			"agent_id":   agentID,
-			"gateway_id": opts.GatewayID,
-			"partition":  partition,
-			"source":     string(models.DiscoverySourcePassiveNetprobe),
-			"metadata":   device.GetMetadata(),
-			"timestamp":  time.Now().UTC().Format(time.RFC3339Nano),
-		}
-		updates = append(updates, update)
-	}
-
-	for _, snapshot := range processSnapshots {
-		device, err := agentnetprobe.ProcessSnapshotToDiscoveredDevice(snapshot, opts)
-		if err != nil {
-			p.logger.Warn().Err(err).Msg("Skipping invalid netprobe process snapshot")
-			continue
-		}
-
-		update := map[string]any{
-			"ip":         device.GetIp(),
-			"agent_id":   agentID,
-			"gateway_id": opts.GatewayID,
-			"partition":  partition,
-			"source":     string(models.DiscoverySourcePassiveNetprobe),
-			"metadata":   device.GetMetadata(),
-			"timestamp":  time.Now().UTC().Format(time.RFC3339Nano),
-		}
-		updates = append(updates, update)
-	}
-
+	updates := p.netprobeUpdates(fingerprintEvents, dpiEvents, processSnapshots, opts, partition)
 	if len(updates) == 0 {
-		return false
+		return nil, nil
 	}
 
 	payloads, skippedUpdates, err := buildNetprobeResultsPayloads(
@@ -191,7 +202,7 @@ func (p *PushLoop) pushNetprobeResults(ctx context.Context) bool {
 	)
 	if err != nil {
 		p.logger.Error().Err(err).Msg("Failed to marshal netprobe results")
-		return false
+		return nil, nil
 	}
 	if len(payloads) == 0 {
 		if skippedUpdates > 0 {
@@ -199,58 +210,67 @@ func (p *PushLoop) pushNetprobeResults(ctx context.Context) bool {
 				Int("skipped_update_count", skippedUpdates).
 				Msg("Skipped oversized netprobe result updates")
 		}
-		return false
+		return nil, nil
 	}
 
-	seq := fmt.Sprintf("%d", time.Now().UnixNano())
-	chunks := make([]*proto.ResultsChunk, 0, len(payloads))
-	for idx, payload := range payloads {
-		response := mapperResultsResponse(
-			payload,
-			seq,
-			string(models.DiscoverySourcePassiveNetprobe),
-			string(models.DiscoverySourcePassiveNetprobe),
-		)
-		chunks = append(chunks, &proto.ResultsChunk{
-			Data:            response.Data,
-			IsFinal:         idx == len(payloads)-1,
-			ChunkIndex:      int32(idx),
-			TotalChunks:     int32(len(payloads)),
-			CurrentSequence: response.CurrentSequence,
-			Timestamp:       response.Timestamp,
+	return payloads, func() {
+		event := p.logger.Info()
+		if skippedUpdates > 0 {
+			event = p.logger.Warn().Int("skipped_update_count", skippedUpdates)
+		}
+		event.
+			Int("fingerprint_event_count", len(fingerprintEvents)).
+			Int("dpi_event_count", len(dpiEvents)).
+			Int("process_snapshot_count", len(processSnapshots)).
+			Int("update_count", len(updates)).
+			Int("payload_count", len(payloads)).
+			Msg("Streamed netprobe results to gateway")
+	}
+}
+
+// netprobeUpdates translates one netprobe drain into discovery updates,
+// skipping (and logging) anything the translator rejects.
+func (p *PushLoop) netprobeUpdates(
+	fingerprintEvents []*netprobepb.FingerprintEvent,
+	dpiEvents []*netprobepb.DpiEvent,
+	processSnapshots []*netprobepb.ProcessSnapshot,
+	opts agentnetprobe.TranslationOptions,
+	partition string,
+) []map[string]any {
+	updates := make([]map[string]any, 0, len(fingerprintEvents)+len(dpiEvents)+len(processSnapshots))
+	add := func(device *discoverypb.DiscoveredDevice, err error, invalidMsg string, source string) {
+		if err != nil {
+			p.logger.Warn().Err(err).Msg(invalidMsg)
+			return
+		}
+		if source == "" {
+			source = netprobeDiscoverySource(device.GetMetadata())
+		}
+		updates = append(updates, map[string]any{
+			"ip":         device.GetIp(),
+			"agent_id":   opts.AgentID,
+			"gateway_id": opts.GatewayID,
+			"partition":  partition,
+			"source":     source,
+			"metadata":   device.GetMetadata(),
+			"timestamp":  time.Now().UTC().Format(time.RFC3339Nano),
 		})
 	}
 
-	statusChunks := p.buildResultsStatusChunks(
-		chunks,
-		string(models.DiscoverySourcePassiveNetprobe),
-		string(models.DiscoverySourcePassiveNetprobe),
-	)
-	if len(statusChunks) == 0 {
-		return false
+	passive := string(models.DiscoverySourcePassiveNetprobe)
+	for _, event := range fingerprintEvents {
+		device, err := agentnetprobe.FingerprintEventToDiscoveredDevice(event, opts)
+		add(device, err, "Skipping invalid netprobe fingerprint event", "")
 	}
-
-	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	if _, err := p.gateway.StreamStatus(pushCtx, statusChunks); err != nil {
-		p.logger.Error().Err(err).Msg("Failed to stream netprobe results to gateway")
-		return false
+	for _, event := range dpiEvents {
+		device, err := agentnetprobe.DpiEventToDiscoveredDevice(event, opts)
+		add(device, err, "Skipping invalid netprobe DPI event", passive)
 	}
-
-	event := p.logger.Info()
-	if skippedUpdates > 0 {
-		event = p.logger.Warn().Int("skipped_update_count", skippedUpdates)
+	for _, snapshot := range processSnapshots {
+		device, err := agentnetprobe.ProcessSnapshotToDiscoveredDevice(snapshot, opts)
+		add(device, err, "Skipping invalid netprobe process snapshot", passive)
 	}
-	event.
-		Int("fingerprint_event_count", len(fingerprintEvents)).
-		Int("dpi_event_count", len(dpiEvents)).
-		Int("process_snapshot_count", len(processSnapshots)).
-		Int("update_count", len(updates)).
-		Int("status_chunk_count", len(statusChunks)).
-		Msg("Streamed netprobe results to gateway")
-
-	return true
+	return updates
 }
 
 func buildNetprobeResultsPayloads(
@@ -356,33 +376,36 @@ func netprobeDiscoverySource(metadata map[string]string) string {
 }
 
 func (p *PushLoop) pushMapperInterfaces(ctx context.Context) bool {
-	return p.pushMapperDerivedResults(
+	return p.pushMapperFamily(
 		ctx,
 		func(svc *MapperService) ([]map[string]interface{}, bool) {
 			return svc.DrainInterfaces(1000)
 		},
 		buildMapperInterfacePayload,
+		discoveryMapperInterfaces,
 		"mapper_interfaces",
 		"interface_count",
 	)
 }
 
 func (p *PushLoop) pushMapperTopology(ctx context.Context) bool {
-	return p.pushMapperDerivedResults(
+	return p.pushMapperFamily(
 		ctx,
 		func(svc *MapperService) ([]map[string]interface{}, bool) {
 			return svc.DrainTopology(1000)
 		},
 		buildMapperTopologyPayload,
+		discoveryMapperTopology,
 		"mapper_topology",
 		"topology_count",
 	)
 }
 
-func (p *PushLoop) pushMapperDerivedResults(
+func (p *PushLoop) pushMapperFamily(
 	ctx context.Context,
 	drain func(*MapperService) ([]map[string]interface{}, bool),
 	buildPayload func([]map[string]interface{}, string, string) ([]byte, error),
+	kind discoveryKind,
 	serviceType string,
 	countField string,
 ) bool {
@@ -392,51 +415,32 @@ func (p *PushLoop) pushMapperDerivedResults(
 	partition := p.server.config.Partition
 	p.server.mu.RUnlock()
 
-	if mapperSvc == nil {
-		return false
+	updateCount := 0
+	sent := p.pushDiscovery(kind, agentID, partition,
+		func() [][]byte {
+			if mapperSvc == nil {
+				return nil
+			}
+			updates, ok := drain(mapperSvc)
+			if !ok || len(updates) == 0 {
+				return nil
+			}
+			payload, err := buildPayload(updates, agentID, partition)
+			if err != nil {
+				p.logger.Error().Err(err).Msg("Failed to build mapper payload")
+				return nil
+			}
+			if len(payload) == 0 {
+				return nil
+			}
+			updateCount = len(updates)
+			return [][]byte{payload}
+		},
+		func(data []byte) bool {
+			return p.streamDiscoveryPayload(ctx, data, "mapper", serviceType)
+		})
+	if sent && updateCount > 0 {
+		p.logger.Info().Int(countField, updateCount).Msg("Streamed mapper results to gateway")
 	}
-
-	updates, ok := drain(mapperSvc)
-	if !ok || len(updates) == 0 {
-		return false
-	}
-
-	payload, err := buildPayload(updates, agentID, partition)
-	if err != nil {
-		p.logger.Error().Err(err).Msg("Failed to build mapper payload")
-		return false
-	}
-
-	if len(payload) == 0 {
-		return false
-	}
-
-	seq := fmt.Sprintf("%d", time.Now().UnixNano())
-	response := mapperResultsResponse(payload, seq, "mapper", serviceType)
-	chunks := []*proto.ResultsChunk{{
-		Data:            response.Data,
-		IsFinal:         true,
-		ChunkIndex:      0,
-		TotalChunks:     1,
-		CurrentSequence: response.CurrentSequence,
-		Timestamp:       response.Timestamp,
-	}}
-
-	statusChunks := p.buildResultsStatusChunks(chunks, response.ServiceName, response.ServiceType)
-	if len(statusChunks) == 0 {
-		return false
-	}
-
-	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	_, err = p.gateway.StreamStatus(pushCtx, statusChunks)
-	if err != nil {
-		p.logger.Error().Err(err).Msg("Failed to stream mapper results to gateway")
-		return false
-	}
-
-	p.logger.Info().Int(countField, len(updates)).Msg("Streamed mapper results to gateway")
-
-	return true
+	return sent
 }

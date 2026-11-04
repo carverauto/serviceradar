@@ -11,6 +11,7 @@ defmodule ServiceRadar.Edge.ManagedComponent do
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.Edge.Changes.StampCertificateActor
+  alias ServiceRadar.Edge.ManagedCertificateOperation
   alias ServiceRadar.Edge.Validations.InfrastructureNatsPermissions
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
@@ -159,6 +160,22 @@ defmodule ServiceRadar.Edge.ManagedComponent do
   end
 
   relationships do
+    has_one :current_operation, ManagedCertificateOperation do
+      source_attribute :component_id
+      destination_attribute :component_id
+      filter expr(status != :superseded)
+    end
+
+    has_many :installed_operations, ManagedCertificateOperation do
+      source_attribute :component_id
+      destination_attribute :component_id
+
+      filter expr(
+               generation == parent(generation) and status in [:activated, :superseded] and
+                 is_nil(error) and fragment("(? ->> 'activated') = 'true'", receipt)
+             )
+    end
+
     belongs_to :edge_site, ServiceRadar.Edge.EdgeSite do
       public? true
     end
