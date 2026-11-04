@@ -2,8 +2,22 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   @moduledoc """
   Broadway pipeline for processing NATS JetStream messages.
 
-  This pipeline consumes messages from multiple NATS JetStream streams,
-  batches them, and writes them to CNPG hypertables via dedicated processors.
+  Each pipeline consumes the JetStream durables of one consumer group (see
+  `consumer_pipelines/2`), batches their messages, and writes them through the
+  processor of each batcher.
+
+  ## Demand isolation
+
+  Broadway hands processor output to batchers through
+  `GenStage.PartitionDispatcher`, which spends upstream demand on events for
+  any partition. Events for a batcher that has stopped asking queue in that
+  partition, and their demand returns only when it drains. One stalled batcher
+  therefore takes the demand of every stream that shares its pipeline: a
+  republish that never got a PubAck once left the producer of a shared pipeline
+  asking for nothing, and every other durable's messages aged out of their
+  streams unread. Every consumer group is therefore its own pipeline, with its
+  own producer, processors and batchers, and a stall stays inside the group
+  that has it.
 
   ## Message Flow
 
@@ -48,8 +62,9 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   Starts the Broadway pipeline.
 
   Options:
-  - `:name` — Broadway process name (default `__MODULE__`). Use a distinct name
-    for the dedicated flow pipeline so GenStage demand is not shared.
+  - `:name` — Broadway process name (default `__MODULE__`). Every consumer group
+    runs under its own name from `consumer_pipelines/2`, so no two groups share
+    GenStage demand.
   """
   def start_link(%Config{} = config, opts \\ []) do
     name = Keyword.get(opts, :name, __MODULE__)
@@ -84,10 +99,65 @@ defmodule ServiceRadar.EventWriter.Pipeline do
     child_spec({config, []})
   end
 
+  @doc """
+  The pipelines that consume `config`'s streams: `{name, config}` for each consumer group, in
+  the order the groups first appear in `config.streams`. Each name is `prefix` followed by the
+  group's home batcher (`ServiceRadar.EventWriter.Pipeline.Metrics`), and each config holds
+  only that group's streams.
+
+  A group is the streams whose filter subject routes to the same batcher (`home_batcher/1`).
+  Nearly every stream is a group of its own. Streams that share a batcher (every raw-flow
+  consumer lands on `:flows_raw`, live and drain alike) stay together: split up, each would
+  bring its own active copy of that batcher, multiplying its processor's write concurrency, and
+  a stall in that batcher would stop all of them anyway.
+
+  The configured `processor_concurrency` is the total for `config`, divided evenly between the
+  groups, at least one each. Processors only route a message to its batcher. The database and
+  warehouse writes run in the batch processors, one per batcher as before, and only a group's
+  own pipeline delivers messages to its batcher, so the split adds no write concurrency.
+  """
+  @spec consumer_pipelines(Config.t(), module()) :: [{module(), Config.t()}]
+  def consumer_pipelines(%Config{streams: streams} = config, prefix)
+      when is_list(streams) and is_atom(prefix) do
+    batchers = streams |> Enum.map(&home_batcher/1) |> Enum.uniq()
+    concurrency = max(div(processor_concurrency(config), max(length(batchers), 1)), 1)
+
+    Enum.map(batchers, fn batcher ->
+      name = pipeline_name(prefix, batcher)
+
+      {name,
+       %{
+         config
+         | streams: Enum.filter(streams, &(home_batcher(&1) == batcher)),
+           producer_name: name,
+           processor_concurrency: concurrency
+       }}
+    end)
+  end
+
+  def consumer_pipelines(%Config{}, _prefix), do: []
+
+  @doc """
+  The batcher a stream's own filter subject routes to, which names the stream's consumer group
+  in `consumer_pipelines/2`. Routing matches subject prefixes, and the literal tokens leading a
+  filter subject prefix every subject it delivers, so the stream's messages land here unless a
+  narrower rule claims them (`events.>` delivers `events.flow.attribution` to
+  `:flow_attribution`). Every pipeline builds every batcher, so such a message still has its
+  batcher in its own group's pipeline.
+  """
+  @spec home_batcher(map()) :: atom()
+  def home_batcher(%{subject: subject}) when is_binary(subject), do: determine_batcher(subject)
+  def home_batcher(_stream), do: :default
+
+  # Batcher names are compile-time literals in `batcher_rules/0`, so the pipeline names this
+  # creates are a bounded set.
+  defp pipeline_name(prefix, batcher),
+    do: Module.concat(prefix, batcher |> Atom.to_string() |> Macro.camelize())
+
   # Processor concurrency was 4 in the Go->Elixir migration, which under-utilized
   # the pipeline. Raised to a configurable default (Config.processor_concurrency,
-  # default 10) so DB writes parallelize. The producer's bounded in-flight keeps
-  # this from translating into unbounded memory.
+  # default 10). `consumer_pipelines/2` divides it between the consumer groups. The
+  # producer's bounded in-flight keeps this from translating into unbounded memory.
   defp processor_concurrency(%Config{processor_concurrency: concurrency})
        when is_integer(concurrency) and concurrency > 0, do: concurrency
 

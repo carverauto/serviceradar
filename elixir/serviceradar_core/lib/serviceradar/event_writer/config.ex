@@ -266,7 +266,7 @@ defmodule ServiceRadar.EventWriter.Config do
       |> load_non_flow_streams()
       |> apply_jetstream_sizes(load_jetstream_sizes(config))
 
-    # Shared pipeline must also fail closed on durable/inbox collisions after
+    # Non-flow streams must also fail closed on durable/inbox collisions after
     # canonicalization (long EVENT_WRITER_CONSUMER_NAME prefixes included).
     assert_no_canonical_consumer_collisions!(streams, consumer_name)
 
@@ -284,7 +284,7 @@ defmodule ServiceRadar.EventWriter.Config do
       ack_wait_ns: load_ack_wait_ns(config),
       max_deliver: load_max_deliver(config),
       consumer_lag_poll_interval_ms: load_consumer_lag_poll_interval_ms(config),
-      # Shared pipeline keeps the legacy no_wait + timer path (pull_expires_ns nil/0).
+      # Non-flow pipelines keep the legacy no_wait + timer path (pull_expires_ns nil/0).
       pull_expires_ns: 0,
       ownership_reconcile_interval_ms: load_ownership_reconcile_interval_ms(config),
       ownership_grace_period_ms: load_ownership_grace_period_ms(config),
@@ -337,13 +337,8 @@ defmodule ServiceRadar.EventWriter.Config do
 
   @doc "The config the coordinator-only pipeline consumes: the streams kept on the coordinator."
   @spec for_coordinator(t()) :: t()
-  def for_coordinator(%__MODULE__{streams: streams} = config) do
-    %{
-      config
-      | streams: Enum.filter(streams, &coordinator_stream?/1),
-        producer_name: ServiceRadar.EventWriter.CoordinatorProducer
-    }
-  end
+  def for_coordinator(%__MODULE__{streams: streams} = config),
+    do: %{config | streams: Enum.filter(streams, &coordinator_stream?/1)}
 
   @doc """
   How many EventWriter pipelines bind a stream's durable: one for a coordinator
@@ -409,8 +404,6 @@ defmodule ServiceRadar.EventWriter.Config do
     %{
       base
       | streams: streams,
-        producer_name:
-          Keyword.get(config, :flow_producer_name, ServiceRadar.EventWriter.FlowProducer),
         consumer_pull_batch_size: pull_batch,
         max_ack_pending: max_ack,
         pull_expires_ns: pull_expires

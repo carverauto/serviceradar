@@ -748,6 +748,51 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
     assert %Message{batcher: :flows_raw} = Pipeline.handle_message(:default, message, %{})
   end
 
+  # Streams that share a batcher share one pipeline, or each pipeline would feed its own copy of
+  # that batcher; every other stream gets a demand domain of its own.
+  test "consumer pipelines group the streams that share a batcher and split the processors" do
+    config = %Config{
+      enabled: true,
+      nats: %{},
+      batch_size: 100,
+      batch_timeout: 500,
+      consumer_name: "test-consumer",
+      processor_concurrency: 10,
+      streams: [
+        %{name: "NETFLOW_RAW", stream_name: "flows", subject: "flows.raw.netflow"},
+        %{
+          name: "FLOW_ATTRIBUTION_OBSERVATIONS",
+          stream_name: "flows",
+          subject: "flows.attribution.observations"
+        },
+        %{
+          name: "NETFLOW_RAW_EVENTS_DRAIN",
+          stream_name: "events",
+          subject: "flows.raw.netflow",
+          durable_source_name: "NETFLOW_RAW"
+        },
+        %{name: "SFLOW_RAW", stream_name: "flows", subject: "flows.raw.sflow"}
+      ]
+    }
+
+    groups = Pipeline.consumer_pipelines(config, ServiceRadar.EventWriter.FlowPipeline)
+
+    assert [
+             {ServiceRadar.EventWriter.FlowPipeline.FlowsRaw, raw},
+             {ServiceRadar.EventWriter.FlowPipeline.FlowAttributionObservations, observations}
+           ] = groups
+
+    assert Enum.map(raw.streams, & &1.name) == [
+             "NETFLOW_RAW",
+             "NETFLOW_RAW_EVENTS_DRAIN",
+             "SFLOW_RAW"
+           ]
+
+    assert Enum.map(observations.streams, & &1.name) == ["FLOW_ATTRIBUTION_OBSERVATIONS"]
+    assert raw.processor_concurrency == 5
+    assert observations.processor_concurrency == 5
+  end
+
   # A subject without a routing rule falls to :default, whose processor acks and
   # drops it: observations would never reach the warehouse.
   test "flow pipeline routes attribution observations to their own processor" do

@@ -145,7 +145,6 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       flow = Config.load_flow()
 
       assert Enum.all?(flow.streams, &Config.flows_stream_consumer?/1)
-      assert flow.producer_name == ServiceRadar.EventWriter.FlowProducer
       assert flow.pull_expires_ns == Config.default_flow_pull_expires_ns()
       assert flow.consumer_pull_batch_size == Config.default_flow_pull_batch_size()
       assert flow.max_ack_pending == Config.default_flow_max_ack_pending()
