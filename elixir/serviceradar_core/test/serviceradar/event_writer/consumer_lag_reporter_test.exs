@@ -82,37 +82,23 @@ defmodule ServiceRadar.EventWriter.ConsumerLagReporterTest do
            ]
   end
 
-  test "retention stream INFO polling is limited to unique flow streams" do
+  # Every consumer's stream is polled once: its first sequence is what shows a durable losing
+  # messages before delivery, whatever the durable consumes.
+  test "stream INFO is polled once for each stream any consumer reads" do
     consumers = [
       %{stream: "flows", durable: "netflow", subject_class: "flows"},
       %{stream: "flows", durable: "sflow", subject_class: "flows"},
       %{stream: "events", durable: "netflow-drain", subject_class: "flows"},
-      %{stream: "events", durable: "otel", subject_class: "otel_metrics"}
+      %{stream: "events", durable: "otel", subject_class: "otel_metrics"},
+      %{stream: "metrics", durable: "metrics", subject_class: "metrics"}
     ]
 
-    assert ConsumerLagReporter.retention_stream_names(consumers) == ["flows", "events"]
-  end
-
-  test "retention stream INFO polling includes the edge record stream" do
-    consumers = [
-      %{stream: "flows", durable: "netflow", subject_class: "flows"},
-      %{
-        stream: "TELEMETRY_EDGE_RECORD_V1_BULK",
-        durable: "edge-record",
-        subject_class: "edge_record"
-      },
-      %{stream: "events", durable: "otel", subject_class: "otel_metrics"}
-    ]
-
-    assert ConsumerLagReporter.retention_stream_names(consumers) == [
-             "flows",
-             "TELEMETRY_EDGE_RECORD_V1_BULK"
-           ]
+    assert ConsumerLagReporter.polled_stream_names(consumers) == ["flows", "events", "metrics"]
   end
 
   # The security-quarantine alert reads this stream's retained bytes, and its consumer only reports,
   # so stream INFO is the only place its depth appears.
-  test "retention stream INFO polling covers every configured edge-record route" do
+  test "stream INFO polling covers every configured edge-record route" do
     config = %Config{
       enabled: true,
       nats: %{host: "localhost", port: 4222, tls: false},
@@ -137,7 +123,7 @@ defmodule ServiceRadar.EventWriter.ConsumerLagReporterTest do
              "edge_record_dlq"
            ]
 
-    assert ConsumerLagReporter.retention_stream_names(consumers) == [
+    assert ConsumerLagReporter.polled_stream_names(consumers) == [
              "TELEMETRY_EDGE_RECORD_V1_BULK",
              "TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK",
              "TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK",

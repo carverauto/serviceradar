@@ -71,6 +71,7 @@ defmodule ServiceRadar.EventWriter.TelemetryTest do
       }
 
       assert Telemetry.consumer_state_measurements(info, stream_info, now) == %{
+               expired_before_delivery: 0,
                pending_messages: 10,
                ack_pending_messages: 3,
                redelivered_messages: 1,
@@ -114,8 +115,28 @@ defmodule ServiceRadar.EventWriter.TelemetryTest do
                )
     end
 
+    test "counts the sequences a durable lost when it trails its stream's first sequence" do
+      stream_info = %{config: %{}, state: %{first_seq: 151, messages: 50}}
+      stalled = %{num_pending: 40, delivered: %{stream_seq: 100}}
+
+      for {info, stream_info, expired} <- [
+            # Sequences 101..150 left the stream before this durable was given them.
+            {stalled, stream_info, 50},
+            # Caught up to the stream's first sequence: nothing lost.
+            {%{stalled | delivered: %{stream_seq: 150}}, stream_info, 0},
+            # Nothing pending for it: the discarded sequences were not its own.
+            {%{stalled | num_pending: 0}, stream_info, 0},
+            # No stream INFO this poll: unknown, reported as nothing lost.
+            {stalled, nil, 0}
+          ] do
+        assert %{expired_before_delivery: ^expired} =
+                 Telemetry.consumer_state_measurements(info, stream_info)
+      end
+    end
+
     test "accepts string-keyed info and clamps missing values" do
       assert Telemetry.consumer_state_measurements(%{"num_pending" => 0}) == %{
+               expired_before_delivery: 0,
                pending_messages: 0,
                ack_pending_messages: 0,
                redelivered_messages: 0,

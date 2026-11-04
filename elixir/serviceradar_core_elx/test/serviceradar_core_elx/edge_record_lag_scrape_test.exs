@@ -8,6 +8,9 @@ defmodule ServiceRadarCoreElx.EdgeRecordLagScrapeTest do
   Lag is pending messages plus delivered-but-unacked messages, the sum
   `consumer_state_measurements/3` documents. 4 pending and 2 unacked must
   scrape as 6. A sweep subject must stay out of the edge_record series.
+
+  The expired-before-delivery gauge is scraped under the name the
+  `ServiceRadarEventWriterMessagesExpiredBeforeDelivery` alert reads.
   """
 
   use ExUnit.Case, async: false
@@ -71,11 +74,13 @@ defmodule ServiceRadarCoreElx.EdgeRecordLagScrapeTest do
     assert edge.durable == "serviceradar-event-writer-edge-record"
     assert sweep.subject_class == "sweep"
 
-    assert ConsumerLagReporter.retention_stream_names(refs) == ["TELEMETRY_EDGE_RECORD_V1_BULK"]
+    assert ConsumerLagReporter.polled_stream_names(refs) == ["TELEMETRY_EDGE_RECORD_V1_BULK", "events"]
 
     # JetStream consumer INFO fields. Lag must be pending + ack pending.
+    # Delivered up to 10 while the stream now starts at 31: 20 sequences lost.
     EventWriterTelemetry.emit_consumer_state(
-      %{num_pending: 4, num_ack_pending: 2},
+      %{num_pending: 4, num_ack_pending: 2, delivered: %{stream_seq: 10}},
+      %{config: %{}, state: %{first_seq: 31, messages: 4}},
       edge
     )
 
@@ -89,6 +94,14 @@ defmodule ServiceRadarCoreElx.EdgeRecordLagScrapeTest do
     assert_gauge(body, "edge_record", "serviceradar-event-writer-edge-record", 6)
     assert_gauge(body, "sweep", sweep.durable, 9)
 
+    assert_gauge(
+      body,
+      "serviceradar_event_writer_consumer_expired_before_delivery_value",
+      "edge_record",
+      "serviceradar-event-writer-edge-record",
+      20
+    )
+
     edge_lines =
       body
       |> String.split("\n")
@@ -100,16 +113,19 @@ defmodule ServiceRadarCoreElx.EdgeRecordLagScrapeTest do
     refute Enum.any?(edge_lines, &(&1 =~ ~s(subject_class="sweep")))
   end
 
-  defp assert_gauge(body, subject_class, durable, value) do
+  defp assert_gauge(body, subject_class, durable, value),
+    do: assert_gauge(body, "serviceradar_event_writer_consumer_lag_messages_value", subject_class, durable, value)
+
+  defp assert_gauge(body, metric, subject_class, durable, value) do
     line =
       body
       |> String.split("\n")
       |> Enum.find(fn row ->
-        String.starts_with?(row, "serviceradar_event_writer_consumer_lag_messages_value{") and
+        String.starts_with?(row, metric <> "{") and
           row =~ ~s(subject_class="#{subject_class}") and row =~ ~s(durable="#{durable}")
       end)
 
-    assert line != nil, "missing lag series subject_class=#{subject_class}:\n#{body}"
+    assert line != nil, "missing #{metric} series subject_class=#{subject_class}:\n#{body}"
 
     scraped =
       line

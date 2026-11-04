@@ -948,12 +948,21 @@ defmodule ServiceRadar.Telemetry do
         description:
           "EventWriter durable lag: pending plus delivered-but-unacked JetStream messages"
       ),
+      last_value("serviceradar.event_writer.consumer.expired_before_delivery.value",
+        event_name: [:serviceradar, :event_writer, :consumer, :state],
+        measurement: :expired_before_delivery,
+        tags: [:stream, :durable, :subject_class],
+        description:
+          "Stream sequences an EventWriter durable lost before delivery: its delivered stream " <>
+            "sequence trails the stream's first retained sequence while messages are pending " <>
+            "(an upper bound for a durable filtering a shared stream)"
+      ),
       last_value("serviceradar.event_writer.consumer.retention_risk.level",
         event_name: [:serviceradar, :event_writer, :consumer, :state],
         measurement: :retention_risk_level,
         tags: [:stream, :durable, :subject_class],
         description:
-          "EventWriter flow retention risk: 0 clear, 1 warning, 2 critical from backlog plus stream byte/age utilization"
+          "EventWriter retention risk: 0 clear, 1 warning, 2 critical from backlog plus stream byte/age utilization"
       ),
       last_value("serviceradar.event_writer.consumer.stream_info_available.value",
         event_name: [:serviceradar, :event_writer, :consumer, :state],

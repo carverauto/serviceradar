@@ -160,9 +160,9 @@ defmodule ServiceRadar.EventWriter.Telemetry do
   Emits consumer state together with authoritative JetStream stream retention state.
 
   `stream_info` is the response from `Gnat.Jetstream.API.Stream.info/2`. It is
-  optional so a consumer outside the retention poll, and a temporary stream-info
-  failure, still emit the existing consumer backlog gauges. The retention poll
-  covers flow and edge-record consumers.
+  optional so a temporary stream-info failure still emits the consumer backlog
+  gauges. `ServiceRadar.EventWriter.ConsumerLagReporter` polls the stream of
+  every consumer.
   """
   @spec emit_consumer_state(map(), map() | nil, map()) :: :ok
   def emit_consumer_state(info, stream_info, metadata)
@@ -293,6 +293,7 @@ defmodule ServiceRadar.EventWriter.Telemetry do
 
     Map.merge(
       %{
+        expired_before_delivery: expired_before_delivery(info, stream_info),
         pending_messages: pending,
         ack_pending_messages: ack_pending,
         redelivered_messages: redelivered,
@@ -307,6 +308,29 @@ defmodule ServiceRadar.EventWriter.Telemetry do
       retention
     )
   end
+
+  @doc """
+  How many stream sequences a durable lost before they were delivered, or 0.
+
+  A durable that keeps pulling moves its delivered stream sequence past every message it does
+  not want, so it never trails the stream's first retained sequence by much. One whose
+  delivered sequence trails the first sequence while messages are still pending for it has not
+  pulled while the stream discarded (aged out or evicted) the messages in between: messages it
+  never received are gone. The count is the sequences between the two. For a durable that
+  filters a stream shared with other subjects it is an upper bound, since some of those
+  sequences carried subjects it does not consume. Without stream INFO it is 0.
+  """
+  @spec expired_before_delivery(map(), map() | nil) :: non_neg_integer()
+  def expired_before_delivery(info, stream_info) when is_map(info) and is_map(stream_info) do
+    first_seq = stream_info |> get_value(:state) |> get_value(:first_seq) |> non_negative()
+    delivered = nested_non_negative(info, :delivered, :stream_seq)
+
+    if non_negative(get_value(info, :num_pending)) > 0,
+      do: max(first_seq - delivered - 1, 0),
+      else: 0
+  end
+
+  def expired_before_delivery(_info, _stream_info), do: 0
 
   defp stream_retention_measurements(nil, _now) do
     %{

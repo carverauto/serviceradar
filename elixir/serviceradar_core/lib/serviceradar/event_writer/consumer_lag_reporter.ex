@@ -4,10 +4,15 @@ defmodule ServiceRadar.EventWriter.ConsumerLagReporter do
 
   The EventWriter producer exposes local Broadway/backpressure state. This
   process emits the server-side view so operators can distinguish a controlled
-  pull-consumer slowdown from an accumulating JetStream backlog. For flow and
-  edge-record consumers it also polls each unique JetStream stream once per
-  interval and combines MaxBytes/current bytes plus MaxAge/oldest
-  retained-message age into the retention-risk telemetry event.
+  pull-consumer slowdown from an accumulating JetStream backlog. It also polls
+  each consumer's JetStream stream once per interval and combines
+  MaxBytes/current bytes plus MaxAge/oldest retained-message age into the
+  retention-risk telemetry event.
+
+  The stream's first sequence also shows a durable losing messages it never
+  received (`ServiceRadar.EventWriter.Telemetry.expired_before_delivery/2`):
+  reported as `expired_before_delivery`, alerted on, and logged once when a
+  durable starts losing messages and once when it stops.
   """
 
   use GenServer
@@ -20,7 +25,7 @@ defmodule ServiceRadar.EventWriter.ConsumerLagReporter do
 
   require Logger
 
-  defstruct [:config, :interval_ms, :consumers]
+  defstruct [:config, :interval_ms, :consumers, expiring: MapSet.new()]
 
   @type consumer_ref :: %{
           required(:stream) => String.t(),
@@ -53,27 +58,16 @@ defmodule ServiceRadar.EventWriter.ConsumerLagReporter do
   end
 
   @doc false
-  @spec retention_stream_names([consumer_ref()]) :: [String.t()]
-  def retention_stream_names(consumers) when is_list(consumers) do
+  # Each stream once, however many consumers read it. Every consumer's stream is polled: its
+  # first sequence is what shows messages expiring before delivery, and the security-quarantine
+  # and dead-letter streams report their depth (`stream_bytes`) only here, because their
+  # consumers write nothing and consumer lag says nothing about how many records they hold.
+  @spec polled_stream_names([consumer_ref()]) :: [String.t()]
+  def polled_stream_names(consumers) when is_list(consumers) do
     consumers
-    |> Enum.filter(&retention_subject?(&1.subject_class))
     |> Enum.map(& &1.stream)
     |> Enum.uniq()
   end
-
-  # Classes whose stream retention state is polled. The security-quarantine and dead-letter
-  # classes are here so their stream depth (`stream_bytes`) is reported: their consumers write
-  # nothing, so consumer lag says nothing about how many records those streams hold.
-  @retention_classes [
-    "flows",
-    "edge_record",
-    "edge_record_audit",
-    "edge_record_quarantine",
-    "edge_record_dlq"
-  ]
-
-  defp retention_subject?(class) when class in @retention_classes, do: true
-  defp retention_subject?(_class), do: false
 
   @impl true
   def init(%Config{} = config) do
@@ -89,7 +83,7 @@ defmodule ServiceRadar.EventWriter.ConsumerLagReporter do
 
   @impl true
   def handle_info(:poll, state) do
-    poll(state)
+    state = poll(state)
     schedule_next_poll(state.interval_ms)
 
     {:noreply, state}
@@ -97,28 +91,36 @@ defmodule ServiceRadar.EventWriter.ConsumerLagReporter do
 
   def handle_info(_message, state), do: {:noreply, state}
 
-  defp poll(%__MODULE__{consumers: []}), do: :ok
+  defp poll(%__MODULE__{consumers: []} = state), do: state
 
-  defp poll(%__MODULE__{consumers: consumers}) do
+  defp poll(%__MODULE__{consumers: consumers} = state) do
     case Connection.get() do
       {:ok, conn} ->
-        stream_info = poll_flow_streams(conn, consumers)
-        Enum.each(consumers, &poll_consumer(conn, &1, stream_info))
+        stream_info = poll_streams(conn, consumers)
+
+        Enum.reduce(consumers, state, fn consumer, acc ->
+          poll_consumer(conn, consumer, stream_info, acc)
+        end)
 
       {:error, reason} ->
         Enum.each(consumers, fn consumer ->
           EventWriterTelemetry.emit_consumer_state_error(reason, consumer)
         end)
+
+        state
     end
   end
 
-  defp poll_consumer(conn, consumer, stream_info) do
+  defp poll_consumer(conn, consumer, stream_info, state) do
     case safe_consumer_info(conn, consumer.stream, consumer.durable) do
       {:ok, info} ->
-        EventWriterTelemetry.emit_consumer_state(
-          info,
-          retention_info_for_consumer(consumer, stream_info),
-          consumer
+        info_for_stream = Map.get(stream_info, consumer.stream)
+        EventWriterTelemetry.emit_consumer_state(info, info_for_stream, consumer)
+
+        track_expiry(
+          state,
+          consumer,
+          EventWriterTelemetry.expired_before_delivery(info, info_for_stream)
         )
 
       {:error, reason} ->
@@ -129,18 +131,42 @@ defmodule ServiceRadar.EventWriter.ConsumerLagReporter do
         )
 
         EventWriterTelemetry.emit_consumer_state_error(reason, consumer)
+        state
     end
   end
 
-  defp retention_info_for_consumer(%{subject_class: class, stream: stream}, stream_info)
-       when class in @retention_classes,
-       do: Map.get(stream_info, stream)
+  # Logs a durable's loss once when it starts and once when it ends; the gauge carries it in
+  # between. Returns the state with the durable's flag updated.
+  defp track_expiry(%__MODULE__{expiring: expiring} = state, consumer, expired) do
+    flagged? = MapSet.member?(expiring, consumer.durable)
 
-  defp retention_info_for_consumer(_consumer, _stream_info), do: nil
+    cond do
+      expired > 0 and not flagged? ->
+        Logger.error(
+          "EventWriter durable is losing messages: its stream discarded them before delivery",
+          stream: consumer.stream,
+          durable: consumer.durable,
+          expired_sequences: expired
+        )
 
-  defp poll_flow_streams(conn, consumers) do
+        %{state | expiring: MapSet.put(expiring, consumer.durable)}
+
+      expired == 0 and flagged? ->
+        Logger.info("EventWriter durable no longer trails its stream's first sequence",
+          stream: consumer.stream,
+          durable: consumer.durable
+        )
+
+        %{state | expiring: MapSet.delete(expiring, consumer.durable)}
+
+      true ->
+        state
+    end
+  end
+
+  defp poll_streams(conn, consumers) do
     consumers
-    |> retention_stream_names()
+    |> polled_stream_names()
     |> Map.new(fn stream ->
       case safe_stream_info(conn, stream) do
         {:ok, info} ->
