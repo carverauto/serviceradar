@@ -119,8 +119,9 @@
   `go/pkg/agent/push_loop_k8s_public_endpoints_edge.go`, and
   `ServiceRadar.Edge.Projectors.K8sPublicEndpoints`. Endpoint inventory has the standing-grant
   contract `serviceradar.endpoint_inventory.scan`, an agent producer and the `EndpointInventory`
-  projector writing through `EndpointInventoryIngestor`. Remaining scope is the other inventory
-  producers (bumblebee) and the parity soak.
+  projector writing through `EndpointInventoryIngestor`. Bumblebee scans have
+  `serviceradar.bumblebee.scan` v1 with an agent producer and the `BumblebeeScan` projector
+  writing through `BumblebeeIngestor`. Remaining scope is the parity soak.
 
 ## 8. Cutover
 

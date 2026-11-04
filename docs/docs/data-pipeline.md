@@ -166,6 +166,16 @@ rebuilds the legacy payload and ingests it through
 `EndpointInventoryIngestor`. The projection rules are
 `ServiceRadar.Edge.Projectors.EndpointInventory`.
 
+Bumblebee scans follow the same shape under the `serviceradar.bumblebee.scan`
+contract. While the agent holds a current grant, each scan it reads from
+the spool file is sent as one `BumblebeeScanPayloadV1` record from
+`proto/edge/v1/bumblebee.proto`, and the status path does not carry it.
+An unchanged scan is re-sent every 15 minutes so core can re-resolve its
+device. Without a grant, the status path still carries it. While one scan
+waits for spool admission, the agent stops polling the bumblebee spool. Core feeds the scan to `BumblebeeIngestor`, so
+posture, findings and device risk behave as on the legacy path. The
+projection rules are `ServiceRadar.Edge.Projectors.BumblebeeScan`.
+
 ## Data Service (datasvc)
 
 `datasvc` is a gRPC service (port `50057`) that fronts the platform's NATS-backed

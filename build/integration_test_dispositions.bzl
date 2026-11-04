@@ -272,6 +272,7 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/serviceradar/event_writer/processors/analytics_signals_process_batch_db_test.exs": 1,
     "test/serviceradar/event_writer/processors/analytics_signals_test.exs": 1,
     "test/serviceradar/event_writer/processors/anomaly_episode_registry_db_test.exs": 1,
+    "test/serviceradar/event_writer/processors/edge_record_bumblebee_db_test.exs": 1,
     "test/serviceradar/event_writer/processors/edge_record_discovery_db_test.exs": 1,
     "test/serviceradar/event_writer/processors/edge_record_endpoint_inventory_db_test.exs": 1,
     "test/serviceradar/event_writer/processors/edge_record_workload_identity_db_test.exs": 1,

@@ -22,7 +22,9 @@ Bumblebee scanning is an optional native capability split across two processes:
   bounded one-shot scan, sanitizes the output, and writes a spool file under
   `/var/lib/serviceradar/bumblebee/spool/`.
 - `serviceradar-agent` remains non-root. It only reads the sanitized spool file
-  and reports the result through the normal agent result path.
+  and reports the result to core, as a `serviceradar.bumblebee.scan` edge
+  record when the agent holds that grant and through the normal agent result
+  path otherwise (see [Data Pipeline](./data-pipeline.md)).
 
 This split lets a Linux host scan all local users and `/root` without giving the
 main agent broad filesystem privileges.

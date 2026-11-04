@@ -164,8 +164,8 @@ type PushLoop struct {
 	pluginResultsEdge     pluginResultEdgeQueue
 	// edgeDiscoverySpool is the same one open spool, connected for mapper
 	// and netprobe discovery, workload identity snapshots, k8s public endpoint
-	// snapshots and endpoint inventory scans; nil (the spool did not open)
-	// keeps them on their legacy status paths.
+	// snapshots, endpoint inventory scans and bumblebee scans; nil (the spool
+	// did not open) keeps them on their legacy status paths.
 	edgeDiscoverySpool     edgeMetricsAppender
 	mapperDevicesEdge      discoveryEdgeQueue
 	mapperInterfacesEdge   discoveryEdgeQueue
@@ -174,6 +174,7 @@ type PushLoop struct {
 	workloadIdentityEdge   workloadIdentityEdgeQueue
 	k8sPublicEndpointsEdge k8sPublicEndpointsEdgeQueue
 	endpointInventoryEdge  endpointInventoryEdgeQueue
+	bumblebeeEdge          bumblebeeEdgeState
 	edgeOutputGrants       edgeOutputGrants
 	edgeSpool              edgeSpoolRuntime
 	// Each metric producer's bounded retry queue, oldest first. An entry is either
