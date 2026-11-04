@@ -35,24 +35,35 @@ type bumblebeePendingRecord struct {
 	hash   [32]byte
 }
 
+// bumblebeeEdgeRefreshInterval is how long an admitted scan is deduplicated
+// before it is re-emitted, so core re-runs device resolution and risk
+// contribution for an unchanged scan. A dropped scan is never re-emitted.
+const bumblebeeEdgeRefreshInterval = 15 * time.Minute
+
 type bumblebeeEdgeState struct {
-	mu           sync.Mutex
-	built        *bumblebeePendingRecord
-	lastSentHash [32]byte
-	hasSentHash  bool
+	mu          sync.Mutex
+	built       *bumblebeePendingRecord
+	handledHash [32]byte
+	hasHandled  bool
+	admittedAt  time.Time
+}
+
+func (s *bumblebeeEdgeState) markHandled(hash [32]byte, admittedAt time.Time) {
+	s.handledHash = hash
+	s.hasHandled = true
+	s.admittedAt = admittedAt
+}
+
+func (s *bumblebeeEdgeState) alreadyHandled(hash [32]byte, now time.Time) bool {
+	if !s.hasHandled || s.handledHash != hash {
+		return false
+	}
+	return s.admittedAt.IsZero() || now.Sub(s.admittedAt) < bumblebeeEdgeRefreshInterval
 }
 
 func isBumblebeeService(svc Service) bool {
-	if svc == nil {
-		return false
-	}
-	if strings.TrimSpace(svc.Name()) == bumblebee.ServiceName {
-		return true
-	}
-	if routing, ok := svc.(StatusRoutingProvider); ok && strings.TrimSpace(routing.StatusServiceType()) == bumblebee.ServiceType {
-		return true
-	}
-	return false
+	routing, ok := svc.(StatusRoutingProvider)
+	return ok && strings.TrimSpace(routing.StatusServiceType()) == bumblebee.ServiceType
 }
 
 func (p *PushLoop) edgeBumblebeeCapability(now time.Time) *edgev1.EdgeSignedCapabilityV1 {
@@ -92,7 +103,7 @@ func (p *PushLoop) handleBumblebeeEdgeOrPause(
 	defer p.bumblebeeEdge.mu.Unlock()
 
 	if p.bumblebeeEdge.built != nil {
-		if p.edgeDiscoverySpool == nil || !p.tryFlushPendingBumblebeeEdgeLocked() {
+		if p.edgeDiscoverySpool == nil || !p.tryFlushPendingBumblebeeEdgeLocked(now) {
 			return true
 		}
 	}
@@ -122,11 +133,11 @@ func (p *PushLoop) handleBumblebeeEdgeOrPause(
 			p.server.handleAddonTelemetry(addonID, batch)
 		}
 	}
-	p.emitBumblebeeEdgeLocked(status, capability)
+	p.emitBumblebeeEdgeLocked(status, capability, now)
 	return true
 }
 
-func (p *PushLoop) tryFlushPendingBumblebeeEdgeLocked() bool {
+func (p *PushLoop) tryFlushPendingBumblebeeEdgeLocked(now time.Time) bool {
 	pending := p.bumblebeeEdge.built
 	if pending == nil {
 		return true
@@ -138,6 +149,7 @@ func (p *PushLoop) tryFlushPendingBumblebeeEdgeLocked() bool {
 	); err != nil {
 		if permanentSpoolRefusal(err) {
 			p.dropEdgeMetrics(edgeProducerBumblebee, edgeDropRefused, 1, err)
+			p.bumblebeeEdge.markHandled(pending.hash, time.Time{})
 			p.bumblebeeEdge.built = nil
 			return true
 		}
@@ -147,8 +159,7 @@ func (p *PushLoop) tryFlushPendingBumblebeeEdgeLocked() bool {
 			Msg("Edge spool still backpressured for bumblebee scan; keeping bumblebee spool polling paused")
 		return false
 	}
-	p.bumblebeeEdge.lastSentHash = pending.hash
-	p.bumblebeeEdge.hasSentHash = true
+	p.bumblebeeEdge.markHandled(pending.hash, now)
 	p.bumblebeeEdge.built = nil
 	return true
 }
@@ -156,18 +167,20 @@ func (p *PushLoop) tryFlushPendingBumblebeeEdgeLocked() bool {
 func (p *PushLoop) emitBumblebeeEdgeLocked(
 	status *proto.StatusResponse,
 	capability *edgev1.EdgeSignedCapabilityV1,
+	now time.Time,
 ) {
-	if status == nil || !status.GetAvailable() || len(status.GetMessage()) == 0 {
+	if status == nil || len(status.GetMessage()) == 0 {
 		return
 	}
 	hash := sha256.Sum256(status.GetMessage())
-	if p.bumblebeeEdge.hasSentHash && p.bumblebeeEdge.lastSentHash == hash {
+	if p.bumblebeeEdge.alreadyHandled(hash, now) {
 		return
 	}
 
 	scan, err := bumblebeeScanPayloadFromJSON(status.GetMessage(), p.bumblebeeAgentID())
 	if err != nil {
 		p.dropEdgeMetrics(edgeProducerBumblebee, edgeDropInvalidRecord, 1, err)
+		p.bumblebeeEdge.markHandled(hash, time.Time{})
 		return
 	}
 
@@ -184,6 +197,7 @@ func (p *PushLoop) emitBumblebeeEdgeLocked(
 	)
 	if err != nil {
 		p.dropEdgeMetrics(edgeProducerBumblebee, edgeDropInvalidRecord, 1, err)
+		p.bumblebeeEdge.markHandled(hash, time.Time{})
 		return
 	}
 
@@ -194,6 +208,7 @@ func (p *PushLoop) emitBumblebeeEdgeLocked(
 	); err != nil {
 		if permanentSpoolRefusal(err) {
 			p.dropEdgeMetrics(edgeProducerBumblebee, edgeDropRefused, 1, err)
+			p.bumblebeeEdge.markHandled(hash, time.Time{})
 			return
 		}
 		p.bumblebeeEdge.built = &bumblebeePendingRecord{
@@ -208,6 +223,5 @@ func (p *PushLoop) emitBumblebeeEdgeLocked(
 		return
 	}
 
-	p.bumblebeeEdge.lastSentHash = hash
-	p.bumblebeeEdge.hasSentHash = true
+	p.bumblebeeEdge.markHandled(hash, now)
 }

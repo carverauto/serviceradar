@@ -62,17 +62,6 @@ type rawBumblebeeFinding struct {
 	Metadata       json.RawMessage `json:"metadata"`
 }
 
-func bumblebeeScanPayloadToProto(payload *bumblebee.ScanPayload, agentID string) (*edgev1.BumblebeeScanPayloadV1, error) {
-	if payload == nil {
-		return nil, fmt.Errorf("bumblebee scan payload is nil")
-	}
-	raw, err := json.Marshal(payload)
-	if err != nil {
-		return nil, err
-	}
-	return bumblebeeScanPayloadFromJSON(raw, agentID)
-}
-
 func bumblebeeScanPayloadFromJSON(raw []byte, agentID string) (*edgev1.BumblebeeScanPayloadV1, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return nil, fmt.Errorf("empty bumblebee scan payload")

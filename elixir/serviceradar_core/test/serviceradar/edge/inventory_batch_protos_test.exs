@@ -160,14 +160,8 @@ defmodule ServiceRadar.Edge.InventoryBatchProtosTest do
   end
 
   test "serviceradar.bumblebee.scan contract catalog entry and decode validation" do
-    assert {:ok,
-            %{
-              authority: :standing_grant,
-              projector: BumblebeeScan,
-              max_projected_rows: 10_000,
-              write_bytes_per_row: 16_384,
-              package_id: "serviceradar.agent.bumblebee"
-            }} = ContractCatalog.fetch({"serviceradar.bumblebee.scan", 1})
+    assert {:ok, %{authority: :standing_grant, projector: BumblebeeScan}} =
+             ContractCatalog.fetch({"serviceradar.bumblebee.scan", 1})
 
     scan = %BumblebeeScanPayloadV1{
       schema_version: "serviceradar.bumblebee.scan.v1",

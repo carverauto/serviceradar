@@ -218,15 +218,43 @@ func TestPushLoopBumblebeeEdgeSpoolsValidatedRecordAndSuppressesLegacyStatus(t *
 	pl.collectAllStatusesSeparated(context.Background())
 	require.Len(t, spooledRecords(t, sp), 1)
 
-	// Unavailable status is not spooled.
-	fakeSvc.status = &proto.StatusResponse{
-		Available:   false,
-		Message:     []byte(`{"error":"spool missing"}`),
-		ServiceName: bumblebee.ServiceName,
-		ServiceType: bumblebee.ServiceType,
+	// An unchanged scan is re-emitted once the refresh interval has passed, so
+	// core re-runs device resolution for it.
+	later := time.Now().Add(bumblebeeEdgeRefreshInterval + time.Minute)
+	require.True(t, pl.handleBumblebeeEdgeOrPause(context.Background(), fakeSvc, fakeSvc, later))
+	refreshed := spooledRecords(t, sp)
+	require.Len(t, refreshed, 2)
+	var refreshedScan edgev1.BumblebeeScanPayloadV1
+	require.NoError(t, gproto.Unmarshal(recordBody(t, refreshed[1]), &refreshedScan))
+	require.Equal(t, "run-101", refreshedScan.GetRunId())
+}
+
+func TestPushLoopBumblebeeEdgeSpoolsNotScannedPostureWhenSpoolFileIsMissing(t *testing.T) {
+	t.Parallel()
+
+	spoolSvc := NewBumblebeeSpoolService(sysmonEdgeAgentID, &BumblebeeStatusConfig{
+		SpoolPath: filepath.Join(t.TempDir(), "latest-scan.json"),
+	})
+	sp := openTestEdgeSpool(t)
+	server := &Server{
+		config:   &ServerConfig{AgentID: sysmonEdgeAgentID, Partition: "default"},
+		services: []Service{spoolSvc},
+		logger:   logger.NewTestLogger(),
 	}
+	pl := NewPushLoop(server, nil, time.Second, logger.NewTestLogger())
+	pl.SetEdgeDiscoverySpool(sp)
+	pl.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{bumblebeeGrant(t, 64)}, time.Now())
+
 	pl.collectAllStatusesSeparated(context.Background())
-	require.Len(t, spooledRecords(t, sp), 1)
+
+	records := spooledRecords(t, sp)
+	require.Len(t, records, 1)
+	require.NoError(t, edgerecord.ValidateBumblebeeScanRecord(records[0]))
+	var decoded edgev1.BumblebeeScanPayloadV1
+	require.NoError(t, gproto.Unmarshal(recordBody(t, records[0]), &decoded))
+	require.Equal(t, "not_scanned", decoded.GetState())
+	require.Equal(t, sysmonEdgeAgentID, decoded.GetAgentId())
+	require.Empty(t, decoded.GetFindings())
 }
 
 func TestPushLoopBumblebeeEdgeBackpressurePausesSpoolServicePollingAndRetainsEventID(t *testing.T) {
@@ -321,8 +349,12 @@ func TestPushLoopBumblebeeEdgeCountsInvalidRecordsAndFallsBackWithoutGrant(t *te
 	pl.SetEdgeDiscoverySpool(sp)
 	pl.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{bumblebeeGrant(t, 1)}, time.Now())
 
-	// Missing run_id is counted as an invalid record and not spooled.
+	// Missing run_id is counted as an invalid record once, not on every poll.
 	pl.collectAllStatusesSeparated(context.Background())
+	pl.collectAllStatusesSeparated(context.Background())
+	require.Equal(t, uint64(1), edgeDrops(pl, edgeProducerBumblebee, edgeDropInvalidRecord))
+	later := time.Now().Add(bumblebeeEdgeRefreshInterval + time.Minute)
+	require.True(t, pl.handleBumblebeeEdgeOrPause(context.Background(), fakeSvc, fakeSvc, later))
 	require.Equal(t, uint64(1), edgeDrops(pl, edgeProducerBumblebee, edgeDropInvalidRecord))
 
 	// Exceeding capability row limit is counted as an invalid record and not truncated.
