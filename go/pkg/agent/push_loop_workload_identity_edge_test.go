@@ -73,7 +73,7 @@ func newWorkloadIdentityTestLoop(t *testing.T, sp *spool.Spool, grants ...*proto
 	return loop, configDir, streamCalls
 }
 
-func writeWorkloadIdentityTestSnapshot(t *testing.T, configDir, content string) string {
+func writeWorkloadIdentityTestSnapshot(t *testing.T, configDir, content string) {
 	t.Helper()
 	dir := filepath.Join(configDir, "workload-identity", "spool")
 	require.NoError(t, os.MkdirAll(dir, 0o755))
@@ -81,7 +81,6 @@ func writeWorkloadIdentityTestSnapshot(t *testing.T, configDir, content string) 
 	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
 	overrideFile := filepath.Join(configDir, "workload-identity-snapshot.path")
 	require.NoError(t, os.WriteFile(overrideFile, []byte(path+"\n"), 0o600))
-	return path
 }
 
 func TestWorkloadIdentityWithAGrantGoesOnlyToTheEdgeSpool(t *testing.T) {
