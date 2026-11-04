@@ -110,7 +110,8 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordK8sPublicEndpointsDbTest
               name: "app-svc",
               port: 8080,
               weight: 100
-            }
+            },
+            %K8sBackendRefV1{kind: "Service", namespace: "app-ns", name: "app-svc-unported"}
           ],
           endpoint_targets: [
             %K8sEndpointTargetV1{
@@ -119,6 +120,14 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordK8sPublicEndpointsDbTest
               protocol: "TCP",
               pod_namespace: "app-ns",
               pod_name: "app-pod-1",
+              node_name: "node-1",
+              ready: true
+            },
+            %K8sEndpointTargetV1{
+              ip: "192.0.2.51",
+              protocol: "TCP",
+              pod_namespace: "app-ns",
+              pod_name: "app-pod-2",
               node_name: "node-1",
               ready: true
             }
@@ -183,6 +192,22 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordK8sPublicEndpointsDbTest
                """,
                [cluster_id]
              )
+
+    assert %{rows: [[backend_refs, endpoint_targets]]} =
+             Repo.query!(
+               """
+               SELECT backend_refs, endpoint_targets
+               FROM platform.public_endpoints_current
+               WHERE cluster_id = $1 AND ip = '192.0.2.10'
+               """,
+               [cluster_id]
+             )
+
+    assert [%{"port" => 8080, "weight" => 100}, unported_ref] = backend_refs
+    refute Map.has_key?(unported_ref, "port")
+    refute Map.has_key?(unported_ref, "weight")
+    assert [%{"port" => 8080}, unported_target] = endpoint_targets
+    refute Map.has_key?(unported_target, "port")
 
     assert %{rows: [[^cluster_id, "agent", ^agent_id, ^partition_slug]]} =
              Repo.query!(

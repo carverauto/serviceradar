@@ -206,7 +206,7 @@ defmodule ServiceRadar.Edge.Projectors.K8sPublicEndpoints do
       "annotations" => ep.annotations || %{},
       "observed_at" => ep.observed_at
     }
-    |> DiscoveryCommon.put_present("service_target_port", ep.service_target_port)
+    |> put_nonzero("service_target_port", ep.service_target_port)
     |> DiscoveryCommon.put_present("service_target_name", ep.service_target_name)
     |> DiscoveryCommon.compact()
   end
@@ -218,8 +218,8 @@ defmodule ServiceRadar.Edge.Projectors.K8sPublicEndpoints do
       "namespace" => ref.namespace,
       "name" => ref.name
     }
-    |> DiscoveryCommon.put_present("port", ref.port)
-    |> DiscoveryCommon.put_present("weight", ref.weight)
+    |> put_nonzero("port", ref.port)
+    |> put_nonzero("weight", ref.weight)
     |> DiscoveryCommon.compact()
   end
 
@@ -232,7 +232,7 @@ defmodule ServiceRadar.Edge.Projectors.K8sPublicEndpoints do
       "node_name" => target.node_name,
       "ready" => target.ready
     }
-    |> DiscoveryCommon.put_present("port", target.port)
+    |> put_nonzero("port", target.port)
     |> DiscoveryCommon.compact()
   end
 
@@ -253,7 +253,10 @@ defmodule ServiceRadar.Edge.Projectors.K8sPublicEndpoints do
       "route_name" => hint.route_name,
       "exposure_class" => hint.exposure_class
     }
-    |> DiscoveryCommon.put_present("backend_port", hint.backend_port)
+    |> put_nonzero("backend_port", hint.backend_port)
     |> DiscoveryCommon.compact()
   end
+
+  defp put_nonzero(map, _key, value) when value in [nil, 0], do: map
+  defp put_nonzero(map, key, value), do: Map.put(map, key, value)
 end
