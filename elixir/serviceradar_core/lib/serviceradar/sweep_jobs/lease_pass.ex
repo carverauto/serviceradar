@@ -1,16 +1,17 @@
 defmodule ServiceRadar.SweepJobs.LeasePass do
   @moduledoc """
-  Keeps every sweep schedule lease matching its group, its agents and the operator settings.
+  Keeps every sweep schedule lease matching its group, its agents and the edge pipeline
+  settings.
 
   For each group the pass decides who holds a lease and what its unrun slots are:
 
     * a group that is not eligible (`ServiceRadar.SweepJobs.LeaseEligibility`) holds no lease:
       every active assignment is revoked, which drops its unrun slots and returns the agents to
       their local ticker;
-    * an agent the group no longer runs on (`ServiceRadar.SweepJobs.LeaseAgents`), for which
-      leasing is off (`ServiceRadar.SweepJobs.LeaseSettings`), or whose reported capabilities
-      leave it no check it can lease (`LeaseEligibility.agent_checks/3`), is revoked the same
-      way;
+    * an agent the group no longer runs on (`ServiceRadar.SweepJobs.LeaseAgents`), whose
+      partition has no row, or whose reported capabilities leave it no check it can lease
+      (`LeaseEligibility.agent_checks/3`), is revoked the same way. Leasing has no switch: the
+      horizon comes from `ServiceRadar.Edge.PipelineSettings`;
     * every other agent holds an active assignment (`ProducerAssignments.ensure/3`) whose unrun
       slots are exactly the schedule's slots between now and the agent's horizon, planned under
       the assignment's current epoch, that agent's check set and the group's targets.
@@ -33,9 +34,8 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   one shorter than `LeaseSchedule.min_interval_seconds/0` (a dense cron) is not leased.
 
   The pass is idempotent and keeps no state of its own: running it twice, or after a crash
-  part-way through, converges on the same slots. With no leasing enabled, no active
-  assignment and no delivery row it reads nothing else. A delivery row outlives its group, so
-  a pass with one still revokes it.
+  part-way through, converges on the same slots. A delivery row outlives its group, so a pass
+  with one still revokes it.
 
   After the horizon is refilled, `LeaseMisses.mark/2` closes scheduled slots that
   are past grace with no sweep execution. A group that hit any error in this pass
@@ -49,6 +49,7 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   alias Ash.Error.Query.NotFound
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.AgentCommandBus
+  alias ServiceRadar.Edge.PipelineSettings
   alias ServiceRadar.Edge.SweepPlan
   alias Serviceradar.Edge.V1.ScheduledPlanPageV1
   alias ServiceRadar.SweepJobs.ExecutionSlots
@@ -57,11 +58,8 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   alias ServiceRadar.SweepJobs.LeaseEligibility
   alias ServiceRadar.SweepJobs.LeaseMisses
   alias ServiceRadar.SweepJobs.LeaseSchedule
-  alias ServiceRadar.SweepJobs.LeaseSettings
   alias ServiceRadar.SweepJobs.ProducerAssignments
   alias ServiceRadar.SweepJobs.SweepGroup
-  alias ServiceRadar.SweepJobs.SweepLeaseDelivery
-  alias ServiceRadar.SweepJobs.SweepLeaseSetting
   alias ServiceRadar.SweepJobs.SweepProducerAssignment
   alias ServiceRadar.SweepJobs.SweepProfile
 
@@ -95,7 +93,7 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   With a delivery context, each group is delivered and then deliveries whose assignment or
   group is gone are revoked. `delivery` overrides `delivery_context/0`.
   """
-  @spec run(DateTime.t(), delivery() | nil) :: {:ok, summary() | :idle} | {:error, term()}
+  @spec run(DateTime.t(), delivery() | nil) :: {:ok, summary()} | {:error, term()}
   def run(now \\ DateTime.utc_now(), delivery \\ :context)
 
   def run(%DateTime{} = now, :context), do: execute(now, delivery_context())
@@ -183,15 +181,7 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
 
   def classify_lease({:ok, _scope_id}, {:error, reason}, _schedule, _now), do: {:failed, reason}
 
-  def classify_lease({:ok, _scope_id}, {:ok, %{enabled?: false}}, _schedule, _now),
-    do: :not_leased
-
-  def classify_lease(
-        {:ok, scope_id},
-        {:ok, %{enabled?: true, horizon_seconds: horizon}},
-        schedule,
-        now
-      ) do
+  def classify_lease({:ok, scope_id}, {:ok, %{horizon_seconds: horizon}}, schedule, now) do
     slots = desired_slots(schedule, now, horizon)
 
     if too_dense?(slots) do
@@ -201,38 +191,13 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
     end
   end
 
-  # Leasing is on somewhere, an assignment is still active, or a delivery row still has to
-  # reach its agent. The row outlives the group, so it keeps the pass alive on its own.
-  defp active? do
-    with {:ok, enabled} <-
-           SweepLeaseSetting
-           |> Ash.Query.filter(leasing_enabled == true)
-           |> Ash.exists(actor: actor()),
-         {:ok, assigned} <-
-           SweepProducerAssignment
-           |> Ash.Query.filter(state == :active)
-           |> Ash.exists(actor: actor()),
-         {:ok, delivered} <-
-           SweepLeaseDelivery
-           |> Ash.Query.filter(true)
-           |> Ash.exists(actor: actor()) do
-      {:ok, enabled or assigned or delivered}
-    end
-  end
-
   defp execute(now, delivery) do
     planned =
-      with {:ok, true} <- active?(),
-           {:ok, groups} <- Ash.read(SweepGroup, actor: actor()) do
-        summary =
-          groups
-          |> Enum.reduce(empty(), &add(&2, plan_group(&1, now, delivery)))
-          |> add(orphan_withdrawals(now, delivery))
-
-        {:ok, summary}
-      else
-        {:ok, false} -> {:ok, :idle}
-        {:error, reason} -> {:error, reason}
+      with {:ok, groups} <- Ash.read(SweepGroup, actor: actor()) do
+        {:ok,
+         groups
+         |> Enum.reduce(empty(), &add(&2, plan_group(&1, now, delivery)))
+         |> add(orphan_withdrawals(now, delivery))}
       end
 
     finish(planned, now)
@@ -245,12 +210,6 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
     log_failed_groups(skipped)
 
     case LeaseMisses.mark(now, skipped) do
-      {:ok, %{missed_offline: 0, missed_exhausted: 0}} when planned == :idle ->
-        {:ok, :idle}
-
-      {:ok, misses} when planned == :idle ->
-        {:ok, add(Map.delete(empty(), :failed_groups), misses)}
-
       {:ok, misses} ->
         {:ok, add(planned, misses)}
 
@@ -314,7 +273,7 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
 
     settings =
       case scope do
-        {:ok, scope_id} -> LeaseSettings.resolve(agent_id, scope_id)
+        {:ok, scope_id} -> PipelineSettings.resolve(agent_id, scope_id)
         _ -> :unread
       end
 
@@ -557,8 +516,6 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
       errors: 0,
       failed_groups: MapSet.new()
     }
-
-  defp failed_groups(:idle), do: {MapSet.new(), :idle}
 
   defp failed_groups(summary), do: Map.pop(summary, :failed_groups, MapSet.new())
 

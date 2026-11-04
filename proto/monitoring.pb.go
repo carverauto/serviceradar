@@ -3000,12 +3000,17 @@ type AgentConfigResponse struct {
 	EndpointInventoryConfig *EndpointInventoryConfig `protobuf:"bytes,14,opt,name=endpoint_inventory_config,json=endpointInventoryConfig,proto3" json:"endpoint_inventory_config,omitempty"`
 	// Standing edge-record output grants: the core-signed authority under which the
 	// agent may emit records of a passive output contract (one entry per contract).
-	// The agent emits that family only as edge records when its local metrics sender
-	// is enabled and it holds a current grant. Without a grant it keeps the legacy
-	// status path. An empty list withdraws every grant.
+	// The agent emits that family as edge records while it holds a current grant.
+	// An empty list withdraws every grant.
 	EdgeOutputGrants []*EdgeOutputGrant `protobuf:"bytes,15,rep,name=edge_output_grants,json=edgeOutputGrants,proto3" json:"edge_output_grants,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// The agent's edge-record spool byte budget, resolved by core from the edge
+	// pipeline settings (agent, then partition, then global, else 1 GiB). The agent
+	// applies it at spool admission: a budget below current usage blocks only new
+	// appends until the spool drains below it. Zero means the sender predates the
+	// setting, and the agent keeps the budget it runs with.
+	EdgeSpoolMaxBytes uint64 `protobuf:"varint,16,opt,name=edge_spool_max_bytes,json=edgeSpoolMaxBytes,proto3" json:"edge_spool_max_bytes,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *AgentConfigResponse) Reset() {
@@ -3141,6 +3146,13 @@ func (x *AgentConfigResponse) GetEdgeOutputGrants() []*EdgeOutputGrant {
 		return x.EdgeOutputGrants
 	}
 	return nil
+}
+
+func (x *AgentConfigResponse) GetEdgeSpoolMaxBytes() uint64 {
+	if x != nil {
+		return x.EdgeSpoolMaxBytes
+	}
+	return 0
 }
 
 // EdgeOutputGrant is one standing output grant. `production_capability` is an
@@ -9566,7 +9578,7 @@ const file_monitoring_proto_rawDesc = "" +
 	"\x0enot_after_unix\x18\x06 \x01(\x03R\fnotAfterUnix\"V\n" +
 	"\x12AgentConfigRequest\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12%\n" +
-	"\x0econfig_version\x18\x02 \x01(\tR\rconfigVersion\"\x81\a\n" +
+	"\x0econfig_version\x18\x02 \x01(\tR\rconfigVersion\"\xb2\a\n" +
 	"\x13AgentConfigResponse\x12!\n" +
 	"\fnot_modified\x18\x01 \x01(\bR\vnotModified\x12%\n" +
 	"\x0econfig_version\x18\x02 \x01(\tR\rconfigVersion\x12)\n" +
@@ -9585,7 +9597,8 @@ const file_monitoring_proto_rawDesc = "" +
 	"\x10bumblebee_config\x18\f \x01(\v2\x1b.monitoring.BumblebeeConfigR\x0fbumblebeeConfig\x129\n" +
 	"\x06addons\x18\r \x03(\v2!.monitoring.AddonAssignmentConfigR\x06addons\x12_\n" +
 	"\x19endpoint_inventory_config\x18\x0e \x01(\v2#.monitoring.EndpointInventoryConfigR\x17endpointInventoryConfig\x12I\n" +
-	"\x12edge_output_grants\x18\x0f \x03(\v2\x1b.monitoring.EdgeOutputGrantR\x10edgeOutputGrants\"\x92\x01\n" +
+	"\x12edge_output_grants\x18\x0f \x03(\v2\x1b.monitoring.EdgeOutputGrantR\x10edgeOutputGrants\x12/\n" +
+	"\x14edge_spool_max_bytes\x18\x10 \x01(\x04R\x11edgeSpoolMaxBytes\"\x92\x01\n" +
 	"\x0fEdgeOutputGrant\x12\x1f\n" +
 	"\vcontract_id\x18\x01 \x01(\tR\n" +
 	"contractId\x12)\n" +

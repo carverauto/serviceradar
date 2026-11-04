@@ -3,6 +3,7 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.Compilers.SweepCompiler
+  alias ServiceRadar.Edge.PipelineSetting
   alias Serviceradar.Edge.V1.ScheduledPlanHeaderV1
   alias Serviceradar.Edge.V1.ScheduledPlanPageV1
   alias ServiceRadar.Infrastructure.Agent
@@ -15,7 +16,6 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
   alias ServiceRadar.SweepJobs.LeaseSchedule
   alias ServiceRadar.SweepJobs.ProducerAssignments
   alias ServiceRadar.SweepJobs.SweepGroup
-  alias ServiceRadar.SweepJobs.SweepLeaseSetting
 
   # Go sweepCheckSetDigest (domain serviceradar.edge.check_set.v1) for TCP SYN on
   # ports 22 and 443. Not computed by SweepCompiler.
@@ -33,20 +33,22 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
     {:ok, admin: admin, suffix: suffix, partition: partition, agent: agent}
   end
 
-  test "with leasing off the pass leases nothing to the group's agent", ctx do
+  test "with no settings rows the agent is leased to the default seven-day horizon", ctx do
     group = leased_group!(ctx)
+    now = DateTime.utc_now()
 
-    assert %{leases: 0, scheduled: 0, errors: 0} =
-             LeasePass.reconcile_group(group, DateTime.utc_now())
+    assert %{leases: 1, errors: 0} = LeasePass.reconcile_group(group, now)
+
+    assert starts(unrun!(assignment!(group, ctx.agent), now)) ==
+             expected_starts({:interval, 900}, now, 7 * 86_400)
 
     assert {:ok, _summary} = LeasePass.run()
     assert :ok = LeasePassWorker.perform(%Oban.Job{args: %{}})
-    assert {:ok, nil} = ProducerAssignments.get(group.id, ctx.agent)
   end
 
-  test "an agent with leasing on gets the slots of its horizon, and a second pass changes nothing",
+  test "an agent gets the slots of its horizon, and a second pass changes nothing",
        ctx do
-    lease_on!(ctx, 3_600)
+    horizon!(ctx, 3_600)
     group = leased_group!(ctx)
     now = DateTime.utc_now()
 
@@ -68,7 +70,7 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
   end
 
   test "a fence bump re-plans every unrun slot under the new epoch and a new lease", ctx do
-    lease_on!(ctx, 3_600)
+    horizon!(ctx, 3_600)
     group = leased_group!(ctx)
     now = DateTime.utc_now()
 
@@ -91,31 +93,8 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
     refute LeasePass.lease_id(bumped) == LeasePass.lease_id(before)
   end
 
-  test "turning leasing off for the agent revokes its lease, and turning it on is a new lease",
-       ctx do
-    lease_on!(ctx, 3_600)
-    group = leased_group!(ctx)
-    now = DateTime.utc_now()
-
-    LeasePass.reconcile_group(group, now)
-    first = assignment!(group, ctx.agent)
-
-    setting!(ctx.admin, :agent, ctx.agent, leasing_enabled: false)
-    assert %{revoked: 1, leases: 0} = LeasePass.reconcile_group(group, now)
-    assert %{state: :revoked} = assignment!(group, ctx.agent)
-    assert [] == unrun!(first, now)
-
-    setting!(ctx.admin, :agent, ctx.agent, leasing_enabled: true)
-    assert %{leases: 1} = LeasePass.reconcile_group(group, now)
-    again = assignment!(group, ctx.agent)
-
-    assert again.state == :active
-    assert again.authority_epoch > first.authority_epoch
-    assert starts(unrun!(again, now)) == expected_starts({:interval, 900}, now, 3_600)
-  end
-
   test "a group that stops being eligible holds no lease", ctx do
-    lease_on!(ctx, 3_600)
+    horizon!(ctx, 3_600)
     group = leased_group!(ctx)
     now = DateTime.utc_now()
 
@@ -133,7 +112,7 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
   # mode the agent reports it cannot run: the check set of the config it is delivered.
   test "an agent that cannot run ICMP is planned the check set of the config it is delivered",
        ctx do
-    lease_on!(ctx, 3_600)
+    horizon!(ctx, 3_600)
 
     agent =
       agent_with_device!(
@@ -175,7 +154,7 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
   # An agent that cannot execute a slot from the checks its lease carries would run it from
   # config, so it is not leased: its assignment is revoked and it runs the group on its ticker.
   test "an agent that stops reporting plan-carried execution loses its lease", ctx do
-    lease_on!(ctx, 3_600)
+    horizon!(ctx, 3_600)
     group = leased_group!(ctx)
     now = DateTime.utc_now()
 
@@ -203,7 +182,7 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
 
   test "changed targets re-plan every unrun slot onto the new ranges without an epoch bump",
        ctx do
-    lease_on!(ctx, 3_600)
+    horizon!(ctx, 3_600)
     group = leased_group!(ctx)
     now = DateTime.utc_now()
 
@@ -236,7 +215,7 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
 
   test "contained static targets merge before planning and unmergeable ranges are refused on save",
        ctx do
-    lease_on!(ctx, 3_600)
+    horizon!(ctx, 3_600)
 
     group =
       leased_group!(ctx,
@@ -276,7 +255,7 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
 
   test "a missing profile is no profile, and an unreadable profile leaves the lease untouched",
        ctx do
-    lease_on!(ctx, 3_600)
+    horizon!(ctx, 3_600)
     group = leased_group!(ctx)
     now = DateTime.utc_now()
 
@@ -303,14 +282,14 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
   end
 
   test "a shorter horizon or a new interval drops the slots that no longer fit", ctx do
-    lease_on!(ctx, 7_200)
+    horizon!(ctx, 7_200)
     group = leased_group!(ctx)
     now = DateTime.utc_now()
 
     LeasePass.reconcile_group(group, now)
     assignment = assignment!(group, ctx.agent)
 
-    lease_on!(ctx, 3_600)
+    horizon!(ctx, 3_600)
     LeasePass.reconcile_group(group, now)
     assert starts(unrun!(assignment, now)) == expected_starts({:interval, 900}, now, 3_600)
 
@@ -319,7 +298,7 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
   end
 
   test "a cron that fires more often than every five minutes is not leased", ctx do
-    lease_on!(ctx, 3_600)
+    horizon!(ctx, 3_600)
     group = leased_group!(ctx)
 
     assert %{leases: 0} =
@@ -332,7 +311,7 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
   end
 
   test "a partition-wide group leases only the agents whose device is in its partition", ctx do
-    lease_on!(ctx, 3_600)
+    horizon!(ctx, 3_600)
     elsewhere = partition!(ctx.admin, "lease-other-#{ctx.suffix}")
 
     outsider =
@@ -351,7 +330,7 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
 
     interval = 900
     horizon = 800
-    lease_on!(ctx, horizon)
+    horizon!(ctx, horizon)
     group = leased_group!(ctx, static_targets: ["192.0.2.0/24"])
     enable_group!(group)
 
@@ -414,7 +393,7 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
   end
 
   test "an agent without a device is not leased", ctx do
-    lease_on!(ctx, 3_600)
+    horizon!(ctx, 3_600)
     deviceless = "deviceless-#{ctx.suffix}"
 
     assert {:ok, _agent} =
@@ -455,16 +434,13 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
     %{group | enabled: true}
   end
 
-  defp lease_on!(ctx, horizon) do
-    setting!(ctx.admin, :partition, ctx.partition.id,
-      leasing_enabled: true,
-      horizon_seconds: horizon
-    )
+  defp horizon!(ctx, horizon) do
+    setting!(ctx.admin, :partition, ctx.partition.id, horizon_seconds: horizon)
   end
 
   defp setting!(admin, scope, scope_key, attrs) do
     assert {:ok, _row} =
-             SweepLeaseSetting
+             PipelineSetting
              |> Ash.Changeset.for_create(
                :upsert,
                Map.merge(%{scope: scope, scope_key: scope_key}, Map.new(attrs)),

@@ -63,6 +63,7 @@ defmodule ServiceRadar.Edge do
   resources do
     resource ServiceRadar.Edge.ManagedCertificateOperation
     resource ServiceRadar.Edge.ManagedCertificatePolicyKey
+    resource ServiceRadar.Edge.EdgeIssuerKeyRecord
     resource ServiceRadar.Edge.ManagedCertificateNatsConfig
     resource ServiceRadar.Edge.ManagedComponent
     resource ServiceRadar.Edge.ComponentCertificate
@@ -88,6 +89,7 @@ defmodule ServiceRadar.Edge do
     resource ServiceRadar.Edge.RemoteAccessTcpTarget
     resource ServiceRadar.Edge.ProxmoxConsoleSession
     resource ServiceRadar.Edge.OutputGrant
+    resource ServiceRadar.Edge.PipelineSetting
   end
 
   authorization do

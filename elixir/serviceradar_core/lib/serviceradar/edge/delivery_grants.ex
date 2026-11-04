@@ -65,7 +65,7 @@ defmodule ServiceRadar.Edge.DeliveryGrants do
   Issues a grant, or a refusal, for each item, in order, using the configured issuer key.
 
   Refusals: `:unknown_assignment`, `:assignment_revoked`, `:not_assignment_owner` (another agent,
-  network scope or run shard). `{:error, :not_configured}` when core has no issuer key and
+  network scope or run shard). An error when the issuer key cannot be read, and
   `{:error, :too_many_items}` past `max_items/0`.
   """
   @spec issue(String.t(), [item()]) :: {:ok, [result()]} | {:error, term()}

@@ -18,9 +18,6 @@ defmodule ServiceRadar.SweepJobs.LeasePassWorker do
   @impl Oban.Worker
   def perform(_job) do
     case LeasePass.run() do
-      {:ok, :idle} ->
-        :ok
-
       {:ok, summary} ->
         if summary.scheduled + summary.dropped + summary.revoked + summary.pushed +
              summary.withdrawn + summary.missed_offline + summary.missed_exhausted +

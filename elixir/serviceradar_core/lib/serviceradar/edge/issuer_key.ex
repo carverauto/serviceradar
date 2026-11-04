@@ -1,20 +1,23 @@
 defmodule ServiceRadar.Edge.IssuerKey do
   @moduledoc """
   Core's edge-record issuer key: the Ed25519 key that signs the production capabilities and
-  source authorizations of sweep schedule leases, and the delivery grants of a spool backlog.
+  source authorizations of sweep schedule leases, standing output grants, and the delivery
+  grants of a spool backlog.
 
-  The private half is a 32-byte seed, stored base64-encoded in a file only core can read and
-  named by `SERVICERADAR_EDGE_ISSUER_KEY_FILE`. It is ServiceRadar talking to itself, not a
-  device or integration credential. The gateway receives only `trust_entry/1`: the issuer id,
-  the key id and the public key.
+  The private half is a 32-byte seed that core generates on first use and stores in CNPG
+  (`ServiceRadar.Edge.EdgeIssuerKeyRecord`), encrypted by AshCloak. It is ServiceRadar
+  talking to itself, not a device or integration credential, and no file, environment
+  variable, Helm value or Kubernetes Secret supplies it. The gateway receives only
+  `trust_entry/1`: the issuer id, the key id and the public key.
 
   The issuer id is fixed (`"serviceradar-core"`). The key id is the first 16 bytes of
-  SHA-256 over a domain tag and the public key, so rotating the seed rotates the key id and a
+  SHA-256 over a domain tag and the public key, so a rotated seed gets a new key id and a
   verifier can hold the old and new keys side by side.
   """
 
-  alias ServiceRadar.Automation.CallbackGrants.RuntimeConfig
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.CapabilitySigning
+  alias ServiceRadar.Edge.EdgeIssuerKeyRecord
   alias Serviceradar.Edge.V1.EdgeSignedCapabilityV1
 
   @derive {Inspect, except: [:seed]}
@@ -30,7 +33,7 @@ defmodule ServiceRadar.Edge.IssuerKey do
 
   @issuer_id "serviceradar-core"
   @key_id_domain "serviceradar.edge.issuer_key.v1"
-  @max_key_file_bytes 128
+  @cache_key {__MODULE__, :key}
 
   @doc "The key made from a 32-byte Ed25519 seed."
   @spec from_seed(<<_::256>>) :: t()
@@ -46,29 +49,76 @@ defmodule ServiceRadar.Edge.IssuerKey do
   end
 
   @doc """
-  Loads the key from a secure file holding the base64 seed. Raises on a missing, loose,
-  oversized or malformed file, so a misconfigured issuer fails at boot rather than at signing.
+  The installation's issuer key, cached on the node after the first `ensure_stored/0`: the
+  key never changes once stored. Nothing is cached on an error, so the next call retries.
   """
-  @spec load_file!(String.t()) :: t()
-  def load_file!(path) when is_binary(path) and path != "" do
-    with {:ok, bytes} <- RuntimeConfig.read_secure_file(path, @max_key_file_bytes),
-         {:ok, <<_::256>> = seed} <- Base.decode64(String.trim(bytes)) do
-      from_seed(seed)
-    else
-      _ -> raise "invalid edge issuer key file"
-    end
-  end
-
-  def load_file!(_path), do: raise("edge issuer key file is required")
-
-  @doc "The configured issuer key, or `{:error, :not_configured}` when core issues nothing."
-  @spec configured() :: {:ok, t()} | {:error, :not_configured}
+  @spec configured() :: {:ok, t()} | {:error, term()}
   def configured do
-    case Application.get_env(:serviceradar_core, :edge_issuer_key) do
-      %__MODULE__{} = key -> {:ok, key}
-      _ -> {:error, :not_configured}
+    case :persistent_term.get(@cache_key, nil) do
+      %__MODULE__{} = key ->
+        {:ok, key}
+
+      nil ->
+        with {:ok, key} <- ensure_stored() do
+          :persistent_term.put(@cache_key, key)
+          {:ok, key}
+        end
     end
   end
+
+  @doc """
+  Reads the stored issuer key, generating and storing one when none exists. The store is
+  insert-only: when replicas race, one insert wins the singleton row and every replica reads
+  that winner back, so all of them sign with one key. An error means the database could not
+  be read or written, or the stored row does not hold a valid key.
+  """
+  @spec ensure_stored() :: {:ok, t()} | {:error, term()}
+  def ensure_stored do
+    with {:ok, nil} <- read_stored() do
+      inserted = insert_generated()
+
+      case {read_stored(), inserted} do
+        {{:ok, nil}, {:error, reason}} -> {:error, reason}
+        {{:ok, nil}, _inserted} -> {:error, :edge_issuer_key_not_stored}
+        {result, _inserted} -> result
+      end
+    end
+  end
+
+  defp read_stored do
+    case Ash.read_one(EdgeIssuerKeyRecord, load: [:seed], actor: actor()) do
+      {:ok, nil} -> {:ok, nil}
+      {:ok, record} -> from_record(record)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp from_record(%EdgeIssuerKeyRecord{public_key: public_key, seed: seed}) do
+    with {:ok, <<_::256>> = seed} <- decode(seed),
+         {:ok, <<_::256>> = public_key} <- decode(public_key),
+         %__MODULE__{public_key: ^public_key} = key <- from_seed(seed) do
+      {:ok, key}
+    else
+      _ -> {:error, :invalid_edge_issuer_key}
+    end
+  end
+
+  defp decode(value) when is_binary(value), do: Base.decode64(value)
+  defp decode(_value), do: :error
+
+  defp insert_generated do
+    key = from_seed(:crypto.strong_rand_bytes(32))
+
+    EdgeIssuerKeyRecord
+    |> Ash.Changeset.for_create(
+      :generate,
+      %{public_key: Base.encode64(key.public_key), seed: Base.encode64(key.seed)},
+      actor: actor()
+    )
+    |> Ash.create()
+  end
+
+  defp actor, do: SystemActor.system(:edge_issuer_key)
 
   @doc """
   Signs a capability whose claims and window are set: fills the version, issuer, key id and

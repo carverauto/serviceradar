@@ -1,22 +1,25 @@
-defmodule ServiceRadar.SweepJobs.SweepLeaseSetting do
+defmodule ServiceRadar.Edge.PipelineSetting do
   @moduledoc """
-  Operator settings for sweep schedule leases at one scope.
+  Operator settings for the durable edge-record pipeline at one scope.
 
   `scope` is `:global` (`scope_key` empty), `:partition` (`scope_key` is the partition id,
   which is also the network scope of its agents) or `:agent` (`scope_key` is the agent uid).
   A field left `nil` inherits from the wider scope, and `max_horizon_seconds` lives only on
-  the global row. `ServiceRadar.SweepJobs.LeaseSettings.resolve/2` combines them.
+  the global row. `ServiceRadar.Edge.PipelineSettings.resolve/2` combines them.
+
+  The pipeline itself has no switch; these are its knobs: how far ahead sweeps are leased,
+  and the agent spool byte budget. No row is needed for either.
   """
 
   use Ash.Resource,
-    domain: ServiceRadar.SweepJobs,
+    domain: ServiceRadar.Edge,
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
-  @fields [:scope, :scope_key, :leasing_enabled, :horizon_seconds, :max_horizon_seconds]
+  @fields [:scope, :scope_key, :horizon_seconds, :max_horizon_seconds, :spool_max_bytes]
 
   postgres do
-    table "sweep_lease_settings"
+    table "edge_pipeline_settings"
     repo ServiceRadar.Repo
     schema "platform"
     migrate? false
@@ -26,11 +29,11 @@ defmodule ServiceRadar.SweepJobs.SweepLeaseSetting do
     defaults [:read, :destroy]
 
     create :upsert do
-      description "Set the lease settings of one scope"
+      description "Set the edge pipeline settings of one scope"
       accept @fields
       upsert? true
       upsert_identity :unique_scope
-      upsert_fields [:leasing_enabled, :horizon_seconds, :max_horizon_seconds, :updated_at]
+      upsert_fields [:horizon_seconds, :max_horizon_seconds, :spool_max_bytes, :updated_at]
     end
   end
 
@@ -60,12 +63,6 @@ defmodule ServiceRadar.SweepJobs.SweepLeaseSetting do
       description "Empty for the global scope, the partition id, or the agent uid"
     end
 
-    attribute :leasing_enabled, :boolean do
-      public? true
-
-      description "Whether core schedules sweeps ahead of time; nil inherits, and the default is off"
-    end
-
     attribute :horizon_seconds, :integer do
       public? true
       constraints min: 1
@@ -76,6 +73,13 @@ defmodule ServiceRadar.SweepJobs.SweepLeaseSetting do
       public? true
       constraints min: 1
       description "Administrator ceiling on any horizon (global scope only)"
+    end
+
+    attribute :spool_max_bytes, :integer do
+      public? true
+      constraints min: 16 * 1024 * 1024
+
+      description "The agent edge-record spool byte budget; nil inherits, and the default is 1 GiB"
     end
 
     create_timestamp :inserted_at

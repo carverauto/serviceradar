@@ -9,8 +9,6 @@ defmodule ServiceRadar.Edge.IssuerKeyTest do
   @seed :binary.copy(<<0x5A>>, 32)
   @other_seed :binary.copy(<<0x3C>>, 32)
 
-  @moduletag :tmp_dir
-
   test "a seed makes the same key, and the key id is the first 16 bytes of the domain hash" do
     key = IssuerKey.from_seed(@seed)
 
@@ -51,50 +49,6 @@ defmodule ServiceRadar.Edge.IssuerKeyTest do
     refute Map.has_key?(entry, "seed")
     refute inspect(key) =~ "seed"
     refute inspect(key) =~ Base.encode64(@seed)
-  end
-
-  test "a key file must be a private, well-formed base64 seed", %{tmp_dir: dir} do
-    good = write!(dir, "good", Base.encode64(@seed) <> "\n", 0o600)
-    assert IssuerKey.load_file!(good) == IssuerKey.from_seed(@seed)
-
-    loose = write!(dir, "loose", Base.encode64(@seed), 0o644)
-
-    assert_raise RuntimeError, ~r/invalid edge issuer key file/, fn ->
-      IssuerKey.load_file!(loose)
-    end
-
-    short = write!(dir, "short", Base.encode64(:binary.copy(<<1>>, 16)), 0o600)
-
-    assert_raise RuntimeError, ~r/invalid edge issuer key file/, fn ->
-      IssuerKey.load_file!(short)
-    end
-
-    garbage = write!(dir, "garbage", "not base64!", 0o600)
-
-    assert_raise RuntimeError, ~r/invalid edge issuer key file/, fn ->
-      IssuerKey.load_file!(garbage)
-    end
-
-    missing = Path.join(dir, "missing")
-
-    assert_raise RuntimeError, ~r/invalid edge issuer key file/, fn ->
-      IssuerKey.load_file!(missing)
-    end
-
-    oversized = write!(dir, "oversized", String.duplicate("A", 200), 0o600)
-
-    assert_raise RuntimeError, ~r/invalid edge issuer key file/, fn ->
-      IssuerKey.load_file!(oversized)
-    end
-
-    assert_raise RuntimeError, ~r/required/, fn -> IssuerKey.load_file!("") end
-  end
-
-  defp write!(dir, name, contents, mode) do
-    path = Path.join(dir, name)
-    File.write!(path, contents)
-    File.chmod!(path, mode)
-    path
   end
 
   defp capability do

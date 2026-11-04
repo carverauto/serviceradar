@@ -99,20 +99,30 @@
 
 ## 2. Core: issuer key, switch removal, settings, conditions
 
-- [ ] 2.1 Add `ServiceRadar.Edge.EdgeIssuerKeyRecord`, an AshCloak singleton
+- [x] 2.1 Add `ServiceRadar.Edge.EdgeIssuerKeyRecord`, an AshCloak singleton
   modeled on `ManagedCertificatePolicyKey`. Make `IssuerKey.configured/0`
   ensure-then-cache. Delete `load_file!/1` and the `SERVICERADAR_EDGE_ISSUER_KEY_FILE`
   reads.
-- [ ] 2.2 Rename `platform.sweep_lease_settings` to `platform.edge_pipeline_settings`.
+- [x] 2.2 Rename `platform.sweep_lease_settings` to `platform.edge_pipeline_settings`.
   Drop `leasing_enabled` and add `spool_max_bytes`. Remove `enabled?` from
   `LeaseSettings`, and remove its uses in `LeasePass` and `OutputGrants`. Grants
   and leases now depend on partition resolution and agent capability.
-- [ ] 2.3 Revoke an agent's standing grants when its identity is superseded
+  - The resource and resolver are now `ServiceRadar.Edge.PipelineSetting` and
+    `ServiceRadar.Edge.PipelineSettings`. `spool_max_bytes` has a 16 MiB floor.
+- [x] 2.3 Revoke an agent's standing grants when its identity is superseded
   (`Infrastructure.Agent` `:supersede`) or its certificate is revoked. Find
   every writer of those states, not just the obvious action, and reactivate on
   `:revive_superseded`.
-- [ ] 2.4 Deliver the resolved spool budget in `AgentConfigResponse`. Default it
+  - `:supersede` is the only way into `:superseded` (state machine); a change on it
+    revokes in the same transaction. Certificate revocation has two writers: the
+    managed component authority (`revoke_component`, `revoke_component_certificate`;
+    a renewal's `successor-observed` retirement is not a revocation) and the
+    gateway agent-certificate revoke API. Reactivation is the next config the agent
+    fetches after it authenticates again, as for a partition move.
+- [x] 2.4 Deliver the resolved spool budget in `AgentConfigResponse`. Default it
   to 1 GiB.
+  - `AgentConfigResponse.edge_spool_max_bytes`; the budget is part of the config
+    version.
 - [ ] 2.5 Record the per-agent edge pipeline condition (`partition_not_found`,
   `no_live_gateway_on_active_epoch`, `spool_unavailable`). Expose it in the agent
   API representation and in web-ng's agent detail.
@@ -215,6 +225,8 @@ Load the `test-audit` skill before writing these.
 - [ ] 6.4 Integration: move `integration_tests/edge_record` off
   `SERVICERADAR_EDGE_ISSUER_KEY_FILE` and the registry env vars, and add an epoch
   change across a core restart with spooled backlog that drains.
+  - [x] Off `SERVICERADAR_EDGE_ISSUER_KEY_FILE`: the harness stores its synthetic
+    key in CNPG before core starts.
 
 ## 7. Cutover release coupling (design Decision 13)
 

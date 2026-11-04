@@ -3,6 +3,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
 
   alias ServiceRadar.Edge.CapabilitySigning
   alias ServiceRadar.Edge.IssuerKey
+  alias ServiceRadar.Edge.PipelineSetting
   alias Serviceradar.Edge.V1.ScheduledPlanPageV1
   alias Serviceradar.Edge.V1.SweepLeaseV1
   alias ServiceRadar.Infrastructure.Agent
@@ -14,7 +15,6 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
   alias ServiceRadar.SweepJobs.LeasePass
   alias ServiceRadar.SweepJobs.ProducerAssignments
   alias ServiceRadar.SweepJobs.SweepGroup
-  alias ServiceRadar.SweepJobs.SweepLeaseSetting
 
   @moduletag :integration
 
@@ -52,7 +52,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
   end
 
   test "the first pass pushes the whole lease, signed, and a second pass pushes nothing", ctx do
-    lease_on!(ctx, 3_600)
+    horizon!(ctx, 3_600)
     group = leased_group!(ctx)
     now = DateTime.utc_now()
 
@@ -117,7 +117,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
 
   test "shrinking the horizon and growing it back delivers the re-minted slots as a tail",
        ctx do
-    lease_on!(ctx, 7_200)
+    horizon!(ctx, 7_200)
     group = leased_group!(ctx)
     now = DateTime.utc_now()
 
@@ -135,10 +135,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
     # since, and growing the horizon back is a tail from the short cursor.
     later = DateTime.shift(now, minute: 2)
 
-    setting!(ctx.admin, :partition, ctx.partition.id,
-      leasing_enabled: true,
-      horizon_seconds: 1_800
-    )
+    setting!(ctx.admin, :partition, ctx.partition.id, horizon_seconds: 1_800)
 
     assert %{pushed: 1} = LeasePass.reconcile_group(group, later, ctx.delivery)
     assert_receive {:pushed, _, _, shrunk, shrunk_payload}
@@ -165,10 +162,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
                installed: true
              })
 
-    setting!(ctx.admin, :partition, ctx.partition.id,
-      leasing_enabled: true,
-      horizon_seconds: 7_200
-    )
+    setting!(ctx.admin, :partition, ctx.partition.id, horizon_seconds: 7_200)
 
     assert %{pushed: 1} = LeasePass.reconcile_group(group, later, ctx.delivery)
     assert_receive {:pushed, _, _, tail, _}
@@ -185,7 +179,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
   end
 
   test "a refused shrink is retried out to the window the agent already holds", ctx do
-    lease_on!(ctx, 7_200)
+    horizon!(ctx, 7_200)
     group = leased_group!(ctx)
     now = DateTime.utc_now()
 
@@ -199,10 +193,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
                installed: true
              })
 
-    setting!(ctx.admin, :partition, ctx.partition.id,
-      leasing_enabled: true,
-      horizon_seconds: 1_800
-    )
+    setting!(ctx.admin, :partition, ctx.partition.id, horizon_seconds: 1_800)
 
     assert %{pushed: 1} = LeasePass.reconcile_group(group, now, ctx.delivery)
     assert_receive {:pushed, _, _, shrunk, shrunk_payload}
@@ -236,7 +227,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
   end
 
   test "an unacked shrink is resent in full out to the high water", ctx do
-    lease_on!(ctx, 7_200)
+    horizon!(ctx, 7_200)
     group = leased_group!(ctx)
     now = DateTime.utc_now()
 
@@ -252,10 +243,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
 
     later = DateTime.shift(now, minute: 2)
 
-    setting!(ctx.admin, :partition, ctx.partition.id,
-      leasing_enabled: true,
-      horizon_seconds: 1_800
-    )
+    setting!(ctx.admin, :partition, ctx.partition.id, horizon_seconds: 1_800)
 
     assert %{pushed: 1} = LeasePass.reconcile_group(group, later, ctx.delivery)
     assert_receive {:pushed, _, _, shrunk, _}
@@ -313,7 +301,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
 
   test "an empty horizon replaces the delivered window with no slots and no capability",
        ctx do
-    lease_on!(ctx, 7_200)
+    horizon!(ctx, 7_200)
     group = leased_group!(ctx)
     now = clear_now()
 
@@ -328,10 +316,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
                installed: true
              })
 
-    setting!(ctx.admin, :partition, ctx.partition.id,
-      leasing_enabled: true,
-      horizon_seconds: 1
-    )
+    setting!(ctx.admin, :partition, ctx.partition.id, horizon_seconds: 1)
 
     assert %{pushed: 1} = LeasePass.reconcile_group(group, now, ctx.delivery)
     assert_receive {:pushed, _, _, cleared, _}
@@ -353,7 +338,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
   end
 
   test "restoring the horizon after an empty clear delivers the re-minted slots", ctx do
-    lease_on!(ctx, 7_200)
+    horizon!(ctx, 7_200)
     group = leased_group!(ctx)
     now = clear_now()
 
@@ -372,10 +357,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
     # are since and the restore is judged on the cursor alone.
     later = clear_at(DateTime.shift(now, minute: 2))
 
-    setting!(ctx.admin, :partition, ctx.partition.id,
-      leasing_enabled: true,
-      horizon_seconds: 1
-    )
+    setting!(ctx.admin, :partition, ctx.partition.id, horizon_seconds: 1)
 
     assert %{pushed: 1} = LeasePass.reconcile_group(group, later, ctx.delivery)
     assert_receive {:pushed, _, _, cleared, cleared_payload}
@@ -388,10 +370,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
                installed: true
              })
 
-    setting!(ctx.admin, :partition, ctx.partition.id,
-      leasing_enabled: true,
-      horizon_seconds: 7_200
-    )
+    setting!(ctx.admin, :partition, ctx.partition.id, horizon_seconds: 7_200)
 
     assert %{pushed: 1} = LeasePass.reconcile_group(group, later, ctx.delivery)
     assert_receive {:pushed, _, _, restored, _}
@@ -411,7 +390,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
   end
 
   test "a slot minted behind the cursor is carried by a full push, not passed by", ctx do
-    lease_on!(ctx, 7_200)
+    horizon!(ctx, 7_200)
     group = leased_group!(ctx)
     now = DateTime.utc_now()
 
@@ -473,7 +452,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
   end
 
   test "an unacknowledged full window is resent before the acknowledgement grace", ctx do
-    lease_on!(ctx, 3_600)
+    horizon!(ctx, 3_600)
     group = leased_group!(ctx)
     now = DateTime.utc_now()
 
@@ -497,7 +476,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
   end
 
   test "a later pass pushes only the newly minted tail under the first issuance time", ctx do
-    lease_on!(ctx, 3_600)
+    horizon!(ctx, 3_600)
     group = leased_group!(ctx)
     now = DateTime.utc_now()
 
@@ -535,7 +514,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
   end
 
   test "a refused push, a fence bump and a lost ack each resend the whole window", ctx do
-    lease_on!(ctx, 3_600)
+    horizon!(ctx, 3_600)
     group = leased_group!(ctx)
     now = DateTime.utc_now()
 
@@ -574,7 +553,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
   end
 
   test "an installed ack records how far the agent can run", ctx do
-    lease_on!(ctx, 3_600)
+    horizon!(ctx, 3_600)
     group = leased_group!(ctx)
     LeasePass.reconcile_group(group, DateTime.utc_now(), ctx.delivery)
     assert {:ok, [row]} = LeaseDelivery.list_for_group(group.id)
@@ -602,7 +581,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
   end
 
   test "horizons show the acknowledged run time left and track an unacked resend", ctx do
-    lease_on!(ctx, 3_600)
+    horizon!(ctx, 3_600)
     group = leased_group!(ctx)
     now = DateTime.utc_now()
 
@@ -665,7 +644,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
   end
 
   test "a late ack for an older push does not overwrite the current push's ack", ctx do
-    lease_on!(ctx, 3_600)
+    horizon!(ctx, 3_600)
     group = leased_group!(ctx)
     now = DateTime.utc_now()
 
@@ -710,7 +689,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
   end
 
   test "destroying a leased group revokes the delivery on the next pass", ctx do
-    lease_on!(ctx, 3_600)
+    horizon!(ctx, 3_600)
     group = leased_group!(ctx)
     now = DateTime.utc_now()
 
@@ -719,11 +698,6 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
     assert {:ok, [_row]} = LeaseDelivery.list_for_group(group.id)
 
     assert :ok = Ash.destroy(group, actor: ctx.admin)
-
-    setting!(ctx.admin, :partition, ctx.partition.id,
-      leasing_enabled: false,
-      horizon_seconds: 3_600
-    )
 
     group_id = group.id
     assert {:ok, %{withdrawn: withdrawn}} = LeasePass.run(now, ctx.delivery)
@@ -750,14 +724,25 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
   end
 
   test "an agent the group stops leasing to gets a revocation and loses its delivery", ctx do
-    lease_on!(ctx, 3_600)
+    horizon!(ctx, 3_600)
     group = leased_group!(ctx)
     now = DateTime.utc_now()
 
     LeasePass.reconcile_group(group, now, ctx.delivery)
     assert_receive {:pushed, _, _, first, _}
 
-    setting!(ctx.admin, :agent, ctx.agent, leasing_enabled: false)
+    # Moved to an agent with no device, which core cannot lease to.
+    elsewhere = "agent-elsewhere-#{ctx.suffix}"
+
+    Agent
+    |> Ash.Changeset.for_create(:register, %{uid: elsewhere})
+    |> Ash.create!(actor: ctx.admin)
+
+    assert {:ok, group} =
+             group
+             |> Ash.Changeset.for_update(:update, %{agent_ids: [elsewhere]}, actor: ctx.admin)
+             |> Ash.update()
+
     assert %{withdrawn: 1} = LeasePass.reconcile_group(group, now, ctx.delivery)
     assert_receive {:pushed, _, _, revocation, payload}
 
@@ -809,7 +794,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
 
   test "resuming leasing supersedes a pending revocation and ignores its late acknowledgement",
        ctx do
-    lease_on!(ctx, 3_600)
+    horizon!(ctx, 3_600)
     group = leased_group!(ctx)
     now = DateTime.utc_now()
     assert %{pushed: 1} = LeasePass.reconcile_group(group, now, ctx.delivery)
@@ -838,7 +823,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
   end
 
   test "an agent that cannot be reached is sent the whole window once it can", ctx do
-    lease_on!(ctx, 3_600)
+    horizon!(ctx, 3_600)
     group = leased_group!(ctx)
     now = DateTime.utc_now()
 
@@ -858,7 +843,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
   end
 
   test "an installation ack that arrives while the push is being sent is kept", ctx do
-    lease_on!(ctx, 3_600)
+    horizon!(ctx, 3_600)
     group = leased_group!(ctx)
     test_pid = self()
 
@@ -887,7 +872,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
   end
 
   test "without a delivery context the pass plans leases and sends nothing", ctx do
-    lease_on!(ctx, 3_600)
+    horizon!(ctx, 3_600)
     group = leased_group!(ctx)
 
     assert %{leases: 1, pushed: 0} = LeasePass.reconcile_group(group, DateTime.utc_now())
@@ -896,7 +881,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
   end
 
   test "a target update through the group action re-plans, re-signs, and re-delivers", ctx do
-    lease_on!(ctx, 3_600)
+    horizon!(ctx, 3_600)
     group = leased_group!(ctx)
     now = DateTime.utc_now()
 
@@ -953,7 +938,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
   end
 
   test "an agent the group update no longer selects has its unrun slots dropped", ctx do
-    lease_on!(ctx, 3_600)
+    horizon!(ctx, 3_600)
 
     other =
       agent_with_device!(ctx.admin, "other-#{ctx.suffix}", ctx.partition.slug, "198.51.100.10")
@@ -1039,16 +1024,13 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
     %{group | enabled: true}
   end
 
-  defp lease_on!(ctx, horizon) do
-    setting!(ctx.admin, :partition, ctx.partition.id,
-      leasing_enabled: true,
-      horizon_seconds: horizon
-    )
+  defp horizon!(ctx, horizon) do
+    setting!(ctx.admin, :partition, ctx.partition.id, horizon_seconds: horizon)
   end
 
   defp setting!(admin, scope, scope_key, attrs) do
     assert {:ok, _row} =
-             SweepLeaseSetting
+             PipelineSetting
              |> Ash.Changeset.for_create(
                :upsert,
                Map.merge(%{scope: scope, scope_key: scope_key}, Map.new(attrs)),

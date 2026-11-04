@@ -613,6 +613,11 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
           conn
           |> put_status(:bad_request)
           |> json(%{error: "invalid identity"})
+
+        {:error, :output_grant_revocation_failed} ->
+          conn
+          |> put_status(:internal_server_error)
+          |> json(%{error: "certificate revoked, but its edge output grants were not revoked; retry"})
       end
     end
   end

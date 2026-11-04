@@ -53,6 +53,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   alias ServiceRadar.Edge.DirectLeafEligibility
   alias ServiceRadar.Edge.DirectLeafScope
   alias ServiceRadar.Edge.OutputGrants
+  alias ServiceRadar.Edge.PipelineSettings
   alias ServiceRadar.Edge.RemoteConsoleTargetResolver
   alias ServiceRadar.Edge.SNMPProtoMapper
   alias ServiceRadar.Infrastructure.Agent
@@ -75,6 +76,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   alias ServiceRadar.Plugins.RunOverrides
   alias ServiceRadar.Plugins.SecretRefs
   alias ServiceRadar.Plugins.StorageToken
+  alias ServiceRadar.SweepJobs.ProducerAssignments
 
   require Ash.Query
   require Logger
@@ -322,7 +324,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       bumblebee_config: Map.get(config, :bumblebee_config),
       endpoint_inventory_config: Map.get(config, :endpoint_inventory_config),
       addons: to_proto_addons(Map.get(config, :addons, []), Map.get(config, :agent_id)),
-      edge_output_grants: Map.get(config, :edge_output_grants, [])
+      edge_output_grants: Map.get(config, :edge_output_grants, []),
+      edge_spool_max_bytes: Map.get(config, :edge_spool_max_bytes, 0)
     }
   end
 
@@ -383,6 +386,32 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     # config-change detection.
     |> Map.put(:agent_id, agent_id)
     |> put_edge_output_grants(OutputGrants.config_grants(agent_id, partition_id))
+    |> put_edge_spool_max_bytes(edge_spool_max_bytes!(agent_id, partition_id))
+  end
+
+  # The agent's spool budget from the edge pipeline settings. An agent whose partition has no
+  # row still gets the agent and global settings; any other read failure fails the config, as
+  # every other section read does, so the agent keeps its current config and retries.
+  defp edge_spool_max_bytes!(agent_id, partition_id) do
+    scope_id =
+      case ProducerAssignments.network_scope_id_for_partition(partition_id) do
+        {:ok, scope_id} -> scope_id
+        {:error, :partition_not_found} -> nil
+        {:error, reason} -> raise "edge pipeline partition read failed: #{inspect(reason)}"
+      end
+
+    case PipelineSettings.resolve(agent_id, scope_id) do
+      {:ok, %{spool_max_bytes: bytes}} -> bytes
+      {:error, reason} -> raise "edge pipeline settings read failed: #{inspect(reason)}"
+    end
+  end
+
+  # The budget is part of the version, so changing it reaches the agent on its next poll.
+  defp put_edge_spool_max_bytes(config, bytes) do
+    version =
+      "v" <> Compiler.content_hash(%{base: config.config_version, edge_spool_max_bytes: bytes})
+
+    Map.put(%{config | config_version: version}, :edge_spool_max_bytes, bytes)
   end
 
   # A standing grant is re-signed once a UTC day (see `ServiceRadar.Edge.OutputGrants`), so

@@ -351,11 +351,6 @@ func newHarness(t *testing.T) *harness {
 	h.certSet = certSet
 	h.gatewayServerName = certSet.GatewayServerName
 
-	issuerFile := filepath.Join(dir, "edge-issuer-seed")
-	if err := os.WriteFile(issuerFile, []byte(base64.StdEncoding.EncodeToString(fixtureIssuerSeed())), 0o600); err != nil {
-		t.Fatalf("write synthetic core issuer seed: %v", err)
-	}
-
 	natsH, err := StartEmbeddedNATS(filepath.Join(dir, "nats-store"), filepath.Join(dir, "nats-creds"))
 	if err != nil {
 		t.Fatalf("start embedded nats: %v", err)
@@ -411,7 +406,6 @@ func newHarness(t *testing.T) *harness {
 	h.gatewayEnv.ContractRegistryJSON = registryJSON
 
 	h.coreEnv = CoreEnvConfig{
-		IssuerKeyFile:        issuerFile,
 		ContractRegistryJSON: registryJSON,
 		MetricsPort:          coreMetricsPort,
 		CNPGHost:             cnpg.Host,
@@ -440,6 +434,7 @@ func newHarness(t *testing.T) *harness {
 	}
 	t.Cleanup(gwProc.Stop)
 	h.gwProc = gwProc
+	seedIssuerKey(t, gwProc)
 
 	coreProc, err := StartRelease(
 		coreTarPath, "serviceradar_core_elx", filepath.Join(dir, "core"),
@@ -478,6 +473,30 @@ func newHarness(t *testing.T) *harness {
 	h.spoolID = spoolID
 
 	return h
+}
+
+// seedIssuerKey stores the synthetic fixture issuer key as the installation's edge issuer
+// key, through the gateway release's embedded serviceradar_core (same database and cloak
+// key as core), before the core release starts. Core reads its key from CNPG and the store
+// is insert-only, so core then signs and publishes trust under the key the fixture records
+// are signed with. The rpc fails when a different key was stored first.
+func seedIssuerKey(t *testing.T, proc *ReleaseProcess) {
+	t.Helper()
+	expr := fmt.Sprintf(`
+alias ServiceRadar.Edge.{EdgeIssuerKeyRecord, IssuerKey}
+key = IssuerKey.from_seed(Base.decode64!(%q))
+EdgeIssuerKeyRecord
+|> Ash.Changeset.for_create(:generate,
+  %%{public_key: Base.encode64(key.public_key), seed: Base.encode64(key.seed)},
+  actor: ServiceRadar.Actors.SystemActor.system(:vertical_slice))
+|> Ash.create!()
+{:ok, ^key} = IssuerKey.ensure_stored()
+IO.puts("ISSUER_KEY_SEEDED")
+`, base64.StdEncoding.EncodeToString(fixtureIssuerSeed()))
+	out, err := proc.RPC(expr, rpcTimeout)
+	if err != nil || !strings.Contains(out, "ISSUER_KEY_SEEDED") {
+		t.Fatalf("seed synthetic edge issuer key: %v\n%s", err, out)
+	}
 }
 
 // resolveCNPG creates this test's own clone of the CI schema generation by

@@ -654,6 +654,8 @@ defmodule Monitoring.AgentConfigResponse do
     repeated: true,
     type: Monitoring.EdgeOutputGrant,
     json_name: "edgeOutputGrants"
+
+  field :edge_spool_max_bytes, 16, type: :uint64, json_name: "edgeSpoolMaxBytes"
 end
 
 defmodule Monitoring.EdgeOutputGrant do

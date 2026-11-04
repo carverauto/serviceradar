@@ -5,18 +5,16 @@ defmodule ServiceRadar.Edge.OutputGrants do
 
   A producer the agent schedules from its own config has no execution core schedules, so
   instead of a lease it emits under a standing production capability. Core issues grants
-  for every `:standing_grant` contract in `ServiceRadar.Edge.ContractCatalog`. An agent
-  holds a grant for such a contract when:
+  for every `:standing_grant` contract in `ServiceRadar.Edge.ContractCatalog`. The pipeline
+  has no switch: an agent holds a grant for such a contract whenever the contract is active in
+  the installation's registry, the same document the gateway admits records against
+  (`ServiceRadar.Edge.OutputContract.current/1`), and the agent's partition has a row.
 
-    * the contract is active in the installation's registry, the same document the gateway
-      admits records against (`ServiceRadar.Edge.OutputContract.current/1`); and
-    * the agent is on the durable edge-record pipeline, which is the operator's per-agent
-      leasing switch (`ServiceRadar.SweepJobs.LeaseSettings`), resolved agent, then partition,
-      then global.
-
-  Turning the switch off revokes the grant, which moves its epoch so the gateway refuses
-  records signed before the revocation. Turning it back on, or moving the agent to another
-  partition, reactivates the grant under a new epoch.
+  `revoke_agent/1` revokes every grant of an agent whose identity is superseded or whose
+  certificate is revoked. Revoking moves a grant's epoch, so the gateway refuses records signed
+  before it. The agent's next config, which it can only fetch after authenticating again (a
+  revived identity, a new certificate), reactivates the grant under a new epoch, as does moving
+  the agent to another partition.
 
   The capability is delivered in the agent config (`AgentConfigResponse.edge_output_grants`).
   Its validity window starts five minutes before the UTC day the config is generated in and
@@ -36,7 +34,6 @@ defmodule ServiceRadar.Edge.OutputGrants do
   alias ServiceRadar.Edge.OutputGrant
   alias Serviceradar.Edge.V1.EdgeProductionClaimsV1
   alias Serviceradar.Edge.V1.EdgeSignedCapabilityV1
-  alias ServiceRadar.SweepJobs.LeaseSettings
   alias ServiceRadar.SweepJobs.ProducerAssignments
 
   require Ash.Query
@@ -53,8 +50,8 @@ defmodule ServiceRadar.Edge.OutputGrants do
   @type authority :: %{key: IssuerKey.t(), contracts: [OutputContract.t()]}
 
   @doc """
-  The issuer key and the standing-grant contracts to sign, or why core issues no grants: no
-  issuer key is configured. A catalog contract the registry does not hold, or holds but not
+  The issuer key and the standing-grant contracts to sign, or why core issues no grants: the
+  issuer key cannot be read. A catalog contract the registry does not hold, or holds but not
   active, is left out; a registry that cannot be read leaves every contract out.
   """
   @spec authority() :: {:ok, authority()} | {:error, term()}
@@ -74,23 +71,21 @@ defmodule ServiceRadar.Edge.OutputGrants do
 
   @doc """
   The grants to put in an agent's config: one `Monitoring.EdgeOutputGrant` per passive contract
-  the agent currently holds. Reconciles the grant row first, so the config generator is where a
-  grant is created, reactivated or revoked. Any failure leaves the agent without a grant (it
-  keeps the status path) and is logged.
+  the agent holds. Reconciles the grant row first, so the config generator is where a grant is
+  created or reactivated. An agent whose partition has no row gets no grant: core never creates
+  a partition from an agent's claim, and the agent shows `partition_not_found`
+  (`ServiceRadar.Edge.PipelineReadiness`). Any failure leaves the agent without a grant and is
+  logged.
   """
   @spec config_grants(String.t(), String.t(), DateTime.t(), {:ok, authority()} | {:error, term()}) ::
           [Monitoring.EdgeOutputGrant.t()]
   def config_grants(agent_id, partition, now \\ DateTime.utc_now(), authority \\ authority())
       when is_binary(agent_id) and is_binary(partition) do
     with {:ok, %{key: key, contracts: [_ | _] = contracts}} <- authority,
-         {:ok, scope} <- ProducerAssignments.network_scope_id_for_partition(partition),
-         {:ok, %{enabled?: enabled?}} <- LeaseSettings.resolve(agent_id, scope) do
-      Enum.flat_map(contracts, &contract_grant(&1, agent_id, scope, enabled?, key, now))
+         {:ok, scope} <- ProducerAssignments.network_scope_id_for_partition(partition) do
+      Enum.flat_map(contracts, &contract_grant(&1, agent_id, scope, key, now))
     else
       {:ok, %{contracts: []}} ->
-        []
-
-      {:error, :not_configured} ->
         []
 
       {:error, reason} ->
@@ -106,8 +101,8 @@ defmodule ServiceRadar.Edge.OutputGrants do
     end
   end
 
-  defp contract_grant(contract, agent_id, scope, enabled?, key, now) do
-    case reconcile(agent_id, contract.contract_id, scope, enabled?) do
+  defp contract_grant(contract, agent_id, scope, key, now) do
+    case reconcile(agent_id, contract.contract_id, scope) do
       {:ok, %OutputGrant{} = grant} ->
         capability = production_capability(grant, contract, key, now)
 
@@ -118,9 +113,6 @@ defmodule ServiceRadar.Edge.OutputGrants do
             production_capability: EdgeSignedCapabilityV1.encode(capability)
           }
         ]
-
-      {:ok, nil} ->
-        []
 
       {:error, reason} ->
         Logger.warning(
@@ -136,22 +128,19 @@ defmodule ServiceRadar.Edge.OutputGrants do
   end
 
   @doc """
-  Makes the agent's grant for `contract_id` match `enabled?`: an enabled agent gets an active
-  grant under `network_scope_id` (created, or reactivated under a new epoch when it was revoked
-  or its scope changed); a disabled agent's active grant is revoked. Returns the active grant,
-  or `nil` when there is none.
+  Makes the agent's grant for `contract_id` active under `network_scope_id`: created, or
+  reactivated under a new epoch when it was revoked or its scope changed. An active grant
+  under the same scope is returned unchanged, so reconciling again never moves the epoch.
   """
-  @spec reconcile(String.t(), String.t(), Ecto.UUID.t(), boolean()) ::
-          {:ok, OutputGrant.t() | nil} | {:error, term()}
-  def reconcile(agent_id, contract_id, network_scope_id, enabled?) do
+  @spec reconcile(String.t(), String.t(), Ecto.UUID.t()) ::
+          {:ok, OutputGrant.t()} | {:error, term()}
+  def reconcile(agent_id, contract_id, network_scope_id) do
     with {:ok, existing} <- get(agent_id, contract_id) do
-      reconcile_existing(existing, agent_id, contract_id, network_scope_id, enabled?)
+      reconcile_existing(existing, agent_id, contract_id, network_scope_id)
     end
   end
 
-  defp reconcile_existing(nil, _agent, _contract, _scope, false), do: {:ok, nil}
-
-  defp reconcile_existing(nil, agent_id, contract_id, network_scope_id, true) do
+  defp reconcile_existing(nil, agent_id, contract_id, network_scope_id) do
     attrs = %{agent_id: agent_id, contract_id: contract_id, network_scope_id: network_scope_id}
 
     case OutputGrant
@@ -164,7 +153,7 @@ defmodule ServiceRadar.Edge.OutputGrants do
         # A concurrent reconcile won the unique (agent, contract) row: use it.
         case get(agent_id, contract_id) do
           {:ok, %OutputGrant{} = existing} ->
-            reconcile_existing(existing, agent_id, contract_id, network_scope_id, true)
+            reconcile_existing(existing, agent_id, contract_id, network_scope_id)
 
           _ ->
             {:error, error}
@@ -174,14 +163,13 @@ defmodule ServiceRadar.Edge.OutputGrants do
 
   defp reconcile_existing(
          %OutputGrant{state: :active, network_scope_id: scope} = grant,
-         _a,
-         _c,
-         scope,
-         true
+         _agent,
+         _contract,
+         scope
        ),
        do: {:ok, grant}
 
-  defp reconcile_existing(%OutputGrant{} = grant, _agent, _contract, network_scope_id, true) do
+  defp reconcile_existing(%OutputGrant{} = grant, _agent, _contract, network_scope_id) do
     grant
     |> Ash.Changeset.for_update(:reactivate, %{network_scope_id: network_scope_id},
       actor: actor()
@@ -189,14 +177,26 @@ defmodule ServiceRadar.Edge.OutputGrants do
     |> Ash.update()
   end
 
-  defp reconcile_existing(%OutputGrant{state: :active} = grant, _agent, _contract, _scope, false) do
-    with {:ok, _revoked} <-
-           grant |> Ash.Changeset.for_update(:revoke, %{}, actor: actor()) |> Ash.update() do
-      {:ok, nil}
+  @doc """
+  Revokes every active grant of an agent, moving each one's epoch so the gateway's next trust
+  document fences the records signed before. Called when the agent's identity is superseded or
+  its certificate is revoked; grants already revoked are left alone. Returns how many were
+  revoked.
+  """
+  @spec revoke_agent(String.t()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def revoke_agent(agent_id) when is_binary(agent_id) do
+    with {:ok, grants} <-
+           OutputGrant
+           |> Ash.Query.filter(agent_id == ^agent_id and state == :active)
+           |> Ash.read(actor: actor()) do
+      Enum.reduce_while(grants, {:ok, 0}, fn grant, {:ok, count} ->
+        case grant |> Ash.Changeset.for_update(:revoke, %{}, actor: actor()) |> Ash.update() do
+          {:ok, _revoked} -> {:cont, {:ok, count + 1}}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+      end)
     end
   end
-
-  defp reconcile_existing(%OutputGrant{}, _agent, _contract, _scope, false), do: {:ok, nil}
 
   @doc "The agent's grant for a contract, or `nil`."
   @spec get(String.t(), String.t()) :: {:ok, OutputGrant.t() | nil} | {:error, term()}

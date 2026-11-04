@@ -42,6 +42,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
 
   alias ServiceRadar.Infrastructure.Changes.EnsureStateMonitor
   alias ServiceRadar.Infrastructure.Changes.PublishStateChange
+  alias ServiceRadar.Infrastructure.Changes.RevokeEdgeOutputGrants
   alias ServiceRadar.Infrastructure.Preparations.AgentPicker
 
   @capability_definitions %{
@@ -607,6 +608,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
       change set_attribute(:modified_time, &DateTime.utc_now/0)
 
       change {PublishStateChange, entity_type: :agent, new_state: :superseded}
+      change RevokeEdgeOutputGrants
     end
 
     update :revive_superseded do
