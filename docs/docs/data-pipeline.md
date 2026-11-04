@@ -155,9 +155,8 @@ partition. The projection rules are
 `ServiceRadar.Edge.Projectors.K8sPublicEndpoints`.
 
 Endpoint inventory scans follow the same shape under the
-`serviceradar.endpoint_inventory.scan` contract, enabled by
-`edgeRecords.agentDiscoveryEnabled`. With a current grant, each changed
-scan or `not_scanned` report becomes one
+`serviceradar.endpoint_inventory.scan` contract. With a current grant, each
+changed scan or `not_scanned` report becomes one
 `EndpointInventoryScanPayloadV1` record. The agent holds at most one
 pending record and pauses polling until the spool admits it. A scan that
 cannot form a record within the body bound, or that the spool refuses, is
