@@ -55,6 +55,31 @@ The system SHALL persist certificate and component revocations and enforce them 
 - **AND** new connections cannot obtain authorization
 - **AND** ordinary revocation or de-adoption uses targeted disconnects without waiting for that expiry
 
+### Requirement: Hub session grant convergence
+The hub authorizer SHALL name each grant it issues by the certificate fingerprint and a digest of the permissions the grant carries. It SHALL disconnect an admitted hub session whose broker-reported grant name differs from the grant the presented certificate would receive now, so the session reconnects under the current grant within a bounded number of policy refreshes rather than at grant expiry. A session whose grant is current SHALL NOT be disconnected. Admission SHALL be unchanged.
+
+#### Scenario: A session holds a grant other than the current grant
+- **WHEN** a hub session was granted under an earlier static identity list, an earlier stored grant, an earlier release's unnamed grant, or by another authorizer replica with a different view
+- **THEN** a later presented-certificate scan disconnects that session
+- **AND** its reconnect receives the current grant
+- **AND** sessions of the same certificate holding the current grant stay connected
+
+#### Scenario: A rolling upgrade or a disagreeing authorizer
+- **WHEN** many sessions hold a grant other than the current grant
+- **THEN** each scan disconnects a bounded number of them
+- **AND** a certificate whose reconnect returns with the same grant is not disconnected again for that grant until a retry window passes
+
+#### Scenario: The static identity list has not been read
+- **WHEN** an authorizer has not yet read the configured static identity list
+- **THEN** it refuses an admitted infrastructure certificate rather than granting its stored permissions
+- **AND** host-enrolled components are granted as before
+- **AND** the scan disconnects no admitted session for its grant
+
+#### Scenario: The database is unavailable during a policy refresh
+- **WHEN** a configuration or policy read fails
+- **THEN** the authorizer keeps its last snapshot, static identity list and tracked sessions
+- **AND** a stale snapshot stops admitting new connections by its own freshness bound
+
 ### Requirement: Operator certificate lifecycle controls
 The UI SHALL expose certificate identity, host binding, expiry, renewal health, and scoped Revoke, Rotate, and Re-enroll actions with authorization, audit, and distinct requested/enforced/failed states.
 

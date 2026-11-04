@@ -80,6 +80,22 @@ as a working adapter. Per-service reload behavior still needs executable proof.
    session-expiry timer. Prove resubscription and durable consumer continuity
    across scheduled expiry, and prompt targeted rejection. Local leaf policy
    keeps its existing offline contract.
+7a. **Hub grants converge to the current grant.** A session keeps its grant
+   until the grant expires, so a grant issued under an earlier static identity
+   list or stored grant, by an earlier release, or by a replica with a different
+   view would otherwise persist for up to the grant lifetime. Each user JWT's
+   `name` is the certificate fingerprint and a SHA-256 of its publish and
+   subscribe permissions; NATS 2.14 reports a callout user's `name` as the
+   connection's `authorized_user` in an authenticated CONNZ listing (JWT tags
+   are not reported for callout users). The presented-certificate scan computes
+   the grant each listed certificate would receive now, selecting a static
+   identity from the listed subject exactly as the callout selects it from the
+   DER, and disconnects a session whose name differs. Each scan disconnects at
+   most 64 such sessions, and a certificate whose reconnect returned with the
+   same grant waits five minutes before another such disconnect, so a
+   disagreeing responder cannot cause a reconnect loop. An authorizer refuses
+   infrastructure certificates until it has read the static list once, and a
+   failed database read keeps its last state instead of restarting it.
 8. **Honest operational state.** UI shows desired revocation and enforcement
    acknowledgements separately, including failures and offline enforcement points.
    Proposed online enforcement bound: 60 seconds from accepted revoke to rejection
