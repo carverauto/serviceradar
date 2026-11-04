@@ -52,7 +52,7 @@ defmodule ServiceRadar.Notifications.Telemetry do
   attaches - the same mechanism `ServiceRadar.Telemetry`,
   `ServiceRadar.Actors.Telemetry`, and `ServiceRadarAgentGateway.Telemetry` use.
   No row is written, no subject is published, and no NATS per-CN allowlist in
-  `helm/serviceradar/templates/nats.yaml` needs a new namespace. If a later phase
+  `helm/serviceradar/templates/_nats_static_users.tpl` needs a new namespace. If a later phase
   wants these persisted as a time series, that is a JetStream publisher attached
   to these events, not a change to the emission sites.
 
