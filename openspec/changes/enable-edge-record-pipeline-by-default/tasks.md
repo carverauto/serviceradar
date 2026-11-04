@@ -73,8 +73,9 @@
   bundle set with the trust document, and move bulk-stream records to
   `TELEMETRY_EDGE_RECORD_DLQ_V1_BULK` under `awaiting_roll_forward` with their
   original bytes, redriving them through the ledger on roll-forward. Count a
-  refused dead-letter copy per contract and bundle as
-  `awaiting_roll_forward_overflow` and raise a managed alert. Refresh `last_matched_at` from the
+  refused dead-letter copy once per distinct record (by `Sr-Edge-Delivery-Id`,
+  not per redelivery), per contract and bundle, as
+  `awaiting_roll_forward_overflow`, and raise a managed alert. Refresh `last_matched_at` from the
   coordinator while a live core node matches the candidate, retire the candidate unactivated once it
   is older than a full capability-lifetime window, and drop it from the trust
   document.
@@ -189,7 +190,9 @@ Load the `test-audit` skill before writing these.
     retryable refusals, bulk-stream records dead-lettered as
     `awaiting_roll_forward` with original bytes, and all of them drained or
     redriven after roll-forward; with a full dead-letter stream, the refused
-    copy counted as `awaiting_roll_forward_overflow` with an alert;
+    record counted once as `awaiting_roll_forward_overflow` across repeated
+    redeliveries, with an alert, and projected from the bulk stream if a
+    projecting node returns before eviction;
   - a forward upgrade that changes a bundle at the same contract version: the old
     backlog gets delivery grants, projects on the new release and nothing awaits
     roll-forward;

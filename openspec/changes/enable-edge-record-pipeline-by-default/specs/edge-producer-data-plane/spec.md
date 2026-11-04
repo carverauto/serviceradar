@@ -114,9 +114,11 @@ Only records admitted between the loss of projectability and the gateways' next
 projectable-set refresh, plus any admitted ahead of revocation, SHALL be exposed
 to loss; they SHALL be preserved up to the free capacity of
 `TELEMETRY_EDGE_RECORD_DLQ_V1_BULK`. A record whose dead-letter copy is refused
-SHALL be counted per contract and bundle, SHALL raise a managed alert, and SHALL
-be reported in pipeline status as `awaiting_roll_forward_overflow`; overflow
-SHALL never be silent. After that refresh window the agent spools SHALL hold
+SHALL be counted once per distinct record, keyed by `Sr-Edge-Delivery-Id` and not
+per redelivery attempt, per contract and bundle; it SHALL raise a managed alert
+and SHALL be reported in pipeline status as `awaiting_roll_forward_overflow`;
+overflow SHALL never be silent. Such a record that is still in the bulk stream
+when a core node that can project it returns SHALL be projected from there. After that refresh window the agent spools SHALL hold
 every such record within the agent spool budget. Pipeline status SHALL report
 `awaiting_roll_forward` counts. No record SHALL be rejected because of a bundle
 digest mismatch alone. A superseded core node SHALL
@@ -159,9 +161,12 @@ exists, core SHALL activate the first candidate immediately.
 - **AND** pipeline status reports `awaiting_roll_forward` counts, and no record
   is rejected
 - **AND** if the dead-letter stream lacks free capacity for a record admitted
-  before the gateways' next projectable-set refresh, that record is counted per
-  contract and bundle, a managed alert is raised, and pipeline status reports
+  before the gateways' next projectable-set refresh, that record is counted once
+  by `Sr-Edge-Delivery-Id`, per contract and bundle, however often it is
+  redelivered, a managed alert is raised, and pipeline status reports
   `awaiting_roll_forward_overflow`
+- **AND** if a projecting core node returns before the bulk stream evicts that
+  record, it is projected from the bulk stream
 - **AND** records produced after that refresh stay in agent spools and none is
   lost
 - **AND** once a core node that can project them returns, gateways admit the

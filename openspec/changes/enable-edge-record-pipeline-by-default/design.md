@@ -293,10 +293,13 @@ retired unactivated. An epoch is retired unactivated when it is `retired` with n
   `TELEMETRY_EDGE_RECORD_DLQ_V1_BULK`, which is `DiscardNew` with `MaxAge`
   disabled and is shared with genuine poison records: 64 MiB by default, 32 MiB
   on `small` and 4 MiB on `tenant-2g` (docs/edge-record-dead-letter-runbook.md).
-  A copy the full dead-letter stream refuses stays on the bulk stream, where its
-  24-hour `MaxAge` eventually evicts it. That overflow is counted per contract
-  and bundle, raises a managed alert, and shows in pipeline status as
-  `awaiting_roll_forward_overflow`; it is never silent. After the refresh window
+  A record whose copy the full dead-letter stream refuses is NAKed and
+  redelivered with backoff from the bulk stream until its 24-hour `MaxAge`
+  evicts it. If a core node that can project it returns before then, it projects
+  normally from the bulk stream. That overflow is counted once per distinct
+  record, keyed by `Sr-Edge-Delivery-Id` and not per redelivery attempt, per
+  contract and bundle; it raises a managed alert and shows in pipeline status as
+  `awaiting_roll_forward_overflow`, so it is never silent. After the refresh window
   the agent spools hold everything, bounded by the agent spool budget, so no
   loss is possible past the window. Pipeline status shows `awaiting_roll_forward`
   counts for the spool refusals and the dead-lettered records. No record is
