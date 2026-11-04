@@ -91,7 +91,8 @@ ones.
 ## Impact
 
 - Affected specs: `alert-evaluation` (new), `telemetry-ingestion-capacity`
-  (new), `observability-signals`, `jetstream-storage-budget`.
+  (new), `observability-signals`, `jetstream-storage-budget`,
+  `docker-compose-stack`.
 - Affected code: `ServiceRadar.Observability.StatefulAlertEngine.*`,
   `StatefulEvaluationLedger`, `LogPromotion`, the alert/rule Ash resources and
   migrations, every EventWriter processor that evaluates (`Events`,
