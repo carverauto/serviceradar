@@ -107,8 +107,9 @@ defmodule ServiceRadar.Edge.ContractBundle do
     if MapSet.member?(seen, name) do
       state
     else
-      fields = message.__message_props__().field_props |> Map.values() |> Enum.sort_by(& &1.fnum)
-      state = {[{name, Enum.map(fields, &field/1)} | acc], MapSet.put(seen, name)}
+      props = message.__message_props__()
+      fields = props.field_props |> Map.values() |> Enum.sort_by(& &1.fnum)
+      state = {[{name, Enum.map(fields, &field(&1, props.syntax))} | acc], MapSet.put(seen, name)}
 
       fields
       |> Enum.filter(& &1.embedded?)
@@ -116,14 +117,14 @@ defmodule ServiceRadar.Edge.ContractBundle do
     end
   end
 
-  defp field(props) do
+  defp field(props, syntax) do
     {type, type_name} = field_type(props)
 
     %{
       number: props.fnum,
       name: props.name,
       type: type,
-      label: label(props),
+      label: label(props, syntax),
       type_name: type_name
     }
   end
@@ -132,9 +133,10 @@ defmodule ServiceRadar.Edge.ContractBundle do
   defp field_type(%{type: {:enum, enum}}), do: {"enum", enum.full_name()}
   defp field_type(%{type: scalar}) when is_atom(scalar), do: {Atom.to_string(scalar), nil}
 
-  defp label(%{repeated?: true}), do: "repeated"
-  defp label(%{required?: true}), do: "required"
-  defp label(%{proto3_optional?: true}), do: "optional"
-  defp label(%{optional?: true}), do: "optional"
-  defp label(_props), do: "singular"
+  defp label(%{repeated?: true}, _syntax), do: "repeated"
+  defp label(%{map?: true}, _syntax), do: "repeated"
+  defp label(%{required?: true}, _syntax), do: "required"
+  defp label(%{proto3_optional?: true}, _syntax), do: "optional"
+  defp label(%{optional?: true}, :proto2), do: "optional"
+  defp label(_props, _syntax), do: "singular"
 end

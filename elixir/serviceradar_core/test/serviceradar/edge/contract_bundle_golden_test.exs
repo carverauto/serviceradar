@@ -104,9 +104,58 @@ defmodule ServiceRadar.Edge.ContractBundleGoldenTest do
       field :leaf, 1, type: RenamedLeaf
     end
 
+    defmodule Plain do
+      @moduledoc false
+      use Protobuf, full_name: "example.fingerprint.Presence", syntax: :proto3
+
+      field :value, 1, type: :uint64
+    end
+
+    defmodule Optional do
+      @moduledoc false
+      use Protobuf, full_name: "example.fingerprint.Presence", syntax: :proto3
+
+      field :value, 1, proto3_optional: true, type: :uint64
+    end
+
+    defmodule LabelsEntry do
+      @moduledoc false
+      use Protobuf,
+        full_name: "example.fingerprint.Holder.LabelsEntry",
+        map: true,
+        syntax: :proto3
+
+      field :key, 1, type: :string
+      field :value, 2, type: :string
+    end
+
+    defmodule SingleEntry do
+      @moduledoc false
+      use Protobuf, full_name: "example.fingerprint.Holder", syntax: :proto3
+
+      field :labels, 1, type: LabelsEntry
+    end
+
+    defmodule MapOfEntries do
+      @moduledoc false
+      use Protobuf, full_name: "example.fingerprint.Holder", syntax: :proto3
+
+      field :labels, 1, repeated: true, type: LabelsEntry, map: true
+    end
+
     test "a change to a nested message moves the payload's fingerprint" do
       assert ContractBundle.schema_fingerprint(Root) !=
                ContractBundle.schema_fingerprint(RootOfRenamedLeaf)
+    end
+
+    test "adding proto3 optional presence to a singular field moves the fingerprint" do
+      assert ContractBundle.schema_fingerprint(Plain) !=
+               ContractBundle.schema_fingerprint(Optional)
+    end
+
+    test "a map field and a singular field of its entry message fingerprint differently" do
+      assert ContractBundle.schema_fingerprint(MapOfEntries) !=
+               ContractBundle.schema_fingerprint(SingleEntry)
     end
   end
 end
