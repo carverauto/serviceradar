@@ -114,8 +114,11 @@
   ingestors. Workload identity snapshots have `serviceradar.workload_identity.snapshot`, an
   agent producer in `go/pkg/agent/push_loop_workload_identity_edge.go`, and
   `ServiceRadar.Edge.Projectors.WorkloadIdentity` writing through
-  `ServiceRadar.WorkloadIdentity.persist_snapshot/1`. Remaining scope is the other inventory
-  producers (endpoint inventory, bumblebee, k8s endpoints) and the parity soak.
+  `ServiceRadar.WorkloadIdentity.persist_snapshot/1`. K8s public endpoints have
+  `serviceradar.k8s.public_endpoints.snapshot`, an agent producer in
+  `go/pkg/agent/push_loop_k8s_public_endpoints_edge.go`, and
+  `ServiceRadar.Edge.Projectors.K8sPublicEndpoints`. Remaining scope is the other inventory
+  producers (endpoint inventory, bumblebee) and the parity soak.
 
 ## 8. Cutover
 
