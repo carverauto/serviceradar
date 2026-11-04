@@ -40,11 +40,12 @@ import (
 func discoveryGrant(t *testing.T, contractID string, bytesPerRow uint64, packageID string) *proto.EdgeOutputGrant {
 	t.Helper()
 	version, ok := map[string]uint32{
-		edgerecord.MapperDevicesContractID:     edgerecord.MapperDevicesContractVersion,
-		edgerecord.MapperInterfacesContractID:  edgerecord.MapperInterfacesContractVersion,
-		edgerecord.MapperTopologyContractID:    edgerecord.MapperTopologyContractVersion,
-		edgerecord.NetprobeDiscoveryContractID: edgerecord.NetprobeDiscoveryContractVersion,
-		edgerecord.SyncPageContractID:          edgerecord.SyncPageContractVersion,
+		edgerecord.MapperDevicesContractID:      edgerecord.MapperDevicesContractVersion,
+		edgerecord.MapperInterfacesContractID:   edgerecord.MapperInterfacesContractVersion,
+		edgerecord.MapperTopologyContractID:     edgerecord.MapperTopologyContractVersion,
+		edgerecord.NetprobeDiscoveryContractID:  edgerecord.NetprobeDiscoveryContractVersion,
+		edgerecord.SyncPageContractID:           edgerecord.SyncPageContractVersion,
+		edgerecord.K8sPublicEndpointsContractID: edgerecord.K8sPublicEndpointsContractVersion,
 	}[contractID]
 	require.True(t, ok, "unknown discovery contract %s", contractID)
 	_, key, err := ed25519.GenerateKey(nil)

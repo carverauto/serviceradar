@@ -30,6 +30,7 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/endpointinventory"
 	"github.com/carverauto/serviceradar/go/pkg/sysmon"
 	"github.com/carverauto/serviceradar/proto"
+	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 	gproto "google.golang.org/protobuf/proto"
 )
 
@@ -618,6 +619,14 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 			if isRperfMetricsService(svc) && p.rperfEdge.hasPending() && !p.flushRperfEdgeMetrics() {
 				continue
 			}
+			isK8sEndpoints := isK8sPublicEndpointsService(svc)
+			var k8sCapability *edgev1.EdgeSignedCapabilityV1
+			if isK8sEndpoints {
+				k8sCapability = p.edgeK8sPublicEndpointsCapability(now)
+				if k8sCapability != nil && !p.flushPendingK8sPublicEndpointsEdge() {
+					continue
+				}
+			}
 
 			var metricPayload map[string]any
 			var status *proto.StatusResponse
@@ -655,6 +664,11 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 			}
 			if source == "" {
 				source = defaultStatusSource(status, serviceName, serviceType)
+			}
+
+			if isK8sEndpoints && k8sCapability != nil {
+				p.spoolK8sPublicEndpointsStatus(status, k8sCapability, cfg)
+				continue
 			}
 
 			if telemetry, ok := svc.(StatusAddonTelemetryProvider); ok {
