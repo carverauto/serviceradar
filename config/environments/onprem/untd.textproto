@@ -33,7 +33,7 @@ database {
   tls_mode: TLS_MODE_VERIFY_FULL
   tls_server_name: "cnpg-rw.serviceradar.svc.cluster.local"
 
-  search_path: "platform, ag_catalog"
+  search_path: "platform"
 
   pool_size: 25
   queue_target_ms: 500

@@ -962,7 +962,7 @@ core:
     #
     # Set to "" to fall back to the old existence-only check (for operators
     # running the chart against a deliberately pinned schema).
-    expectedVersion: "20261103050000"
+    expectedVersion: "20261104004947"
   # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
   reaper:
     # How often to run the reaper job
@@ -1247,7 +1247,6 @@ cnpg:
     extensions: []
   sharedPreloadLibraries:
     - timescaledb
-    - age
     - pg_stat_statements
   postgresqlParameters:
     max_connections: "500"
@@ -1291,8 +1290,8 @@ cnpg:
   # Empty on purpose: the schema baseline and migrations create every extension in the
   # schema they reference, and an extension created here first lands in `public`, where
   # the baseline cannot move it, so a fresh database fails to bootstrap (#454). If you add
-  # an extension here, create it where the baseline expects it (`platform`, or
-  # `ag_catalog` for age). sharedPreloadLibraries above is unrelated and stays as is.
+  # an extension here, create it in `platform`, where the baseline expects it.
+  # sharedPreloadLibraries above is unrelated and stays as is.
   extensionsSQL: []
   superuserSecret: cnpg-superuser
   superuserUsername: postgres

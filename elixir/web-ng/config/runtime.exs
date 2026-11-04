@@ -1806,7 +1806,7 @@ if config_env() == :prod do
       pool_timeout: String.to_integer(System.get_env("DATABASE_POOL_TIMEOUT_MS") || "120000"),
       socket_options: maybe_ipv6,
       parameters: [
-        search_path: System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")
+        search_path: System.get_env("CNPG_SEARCH_PATH", "platform, public")
       ],
       types: ServiceRadar.PostgresTypes
     ]

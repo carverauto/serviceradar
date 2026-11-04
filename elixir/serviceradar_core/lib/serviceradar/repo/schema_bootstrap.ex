@@ -22,7 +22,7 @@ defmodule ServiceRadar.Repo.SchemaBootstrap do
 
   @baseline_dir "priv/repo/baseline"
   @baseline_metadata_file "metadata.json"
-  @default_search_path "platform, public, ag_catalog"
+  @default_search_path "platform, public"
 
   @type state :: :empty | :migrated | {:ambiguous, map()}
 

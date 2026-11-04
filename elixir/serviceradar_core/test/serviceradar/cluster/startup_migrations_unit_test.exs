@@ -21,10 +21,6 @@ defmodule ServiceRadar.Cluster.StartupMigrationsUnitTest do
     sql = StartupMigrations.managed_database_ownership_repair_needed_sql()
 
     assert sql =~ "n.nspname = 'platform'"
-
-    assert sql =~
-             "p.oid = to_regprocedure('public.age_device_neighborhood(text,boolean,boolean)')"
-
     refute sql =~ "n.nspname IN ('platform', 'public')"
     assert sql =~ "c.relkind IN ('r', 'p', 'S', 'v', 'm', 'f')"
     assert sql =~ "d.deptype = 'e'"
@@ -61,21 +57,17 @@ defmodule ServiceRadar.Cluster.StartupMigrationsUnitTest do
     sql = StartupMigrations.managed_function_ownership_query_sql()
 
     assert sql =~ "n.nspname = 'platform'"
-
-    assert sql =~
-             "p.oid = to_regprocedure('public.age_device_neighborhood(text,boolean,boolean)')"
-
     refute sql =~ "n.nspname IN ('platform', 'public')"
   end
 
   test "function ownership statement quotes identifiers and preserves identity args" do
     assert StartupMigrations.function_ownership_statement(
-             "public",
-             "age_device_neighborhood",
-             "p_device_id text, p_collector_owned_only boolean, p_include_topology boolean",
+             "platform",
+             "device_rollup",
+             "p_device_id text, p_include_children boolean",
              "service\"radar"
            ) ==
-             ~s{ALTER FUNCTION "public"."age_device_neighborhood"(p_device_id text, p_collector_owned_only boolean, p_include_topology boolean) OWNER TO "service""radar"}
+             ~s{ALTER FUNCTION "platform"."device_rollup"(p_device_id text, p_include_children boolean) OWNER TO "service""radar"}
   end
 
   test "CNPG pooler auth recovery inspects an app-owned function before promotion" do

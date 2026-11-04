@@ -5,7 +5,6 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-
 // A valid ci instance, the baseline every mutation starts from.
 func validCI() *configpb.EnvironmentConfig {
 	str := func(s string) *string { return &s }
@@ -21,7 +20,7 @@ func validCI() *configpb.EnvironmentConfig {
 			Host: str("db"), Port: u32(5432), Database: str("srql_fixture"),
 			ConnectingRole: str("srql_test"), OwningRole: str("srql_test"),
 			TlsMode: &tls, TlsServerName: str("db"),
-			SearchPath: str("platform, ag_catalog"), PoolSize: u32(10),
+			SearchPath: str("platform"), PoolSize: u32(10),
 			QueueTargetMs: u32(500), QueueIntervalMs: u32(1000), OwnershipTimeoutMs: u32(60000),
 		},
 		Nats: &configpb.NatsConfig{Url: str("nats://nats:4222"), ServerName: str("nats")},
