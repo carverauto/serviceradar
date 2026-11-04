@@ -653,20 +653,18 @@ func (p *PushLoop) metricEnvelopeContext() metricEnvelopeContext {
 type rperfEdgePending struct {
 	mu    sync.Mutex
 	built []edgeMetricsBuilt
-	next  int
 }
 
 func (r *rperfEdgePending) hasPending() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.next < len(r.built)
+	return len(r.built) > 0
 }
 
 func (r *rperfEdgePending) set(parts []edgeMetricsBuilt) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.built = parts
-	r.next = 0
 }
 
 // flushRperfEdgeMetrics appends any unsent parts of the pending rperf item to
@@ -675,40 +673,20 @@ func (p *PushLoop) flushRperfEdgeMetrics() bool {
 	p.rperfEdge.mu.Lock()
 	defer p.rperfEdge.mu.Unlock()
 
-	if p.rperfEdge.next >= len(p.rperfEdge.built) {
-		p.rperfEdge.built = nil
-		p.rperfEdge.next = 0
+	if len(p.rperfEdge.built) == 0 {
 		return true
 	}
 	if p.edgeMetricsSpool == nil {
 		return false
 	}
 
-	for p.rperfEdge.next < len(p.rperfEdge.built) {
-		part := p.rperfEdge.built[p.rperfEdge.next]
-		body, err := edgerecord.CanonicalRecordBytes(part.record)
-		if err != nil {
-			p.dropEdgeMetrics(edgeProducerRperf, edgeDropRefused, 1, err)
-			p.rperfEdge.next++
-			continue
-		}
-		if _, err := p.edgeMetricsSpool.AppendFlow(edgeAdmissionFlow(part.record), part.record.GetEventId(), body); err != nil {
-			if permanentSpoolRefusal(err) {
-				p.dropEdgeMetrics(edgeProducerRperf, edgeDropRefused, 1, err)
-				p.rperfEdge.next++
-				continue
-			}
-			p.logger.Warn().Err(err).Str("producer", edgeProducerRperf.label()).
-				Int("pending", len(p.rperfEdge.built)-p.rperfEdge.next).
-				Msg("Edge spool refused metrics; retrying on the next push")
-			return false
-		}
-		p.publishAddonMetricFeed("rperf", part.payload)
-		p.rperfEdge.next++
+	m := edgeMetricsProducer[struct{}]{producer: edgeProducerRperf, feed: "rperf"}
+	_, rest := appendEdgeMetricsParts(p, m, p.rperfEdge.built, 1)
+	p.rperfEdge.built = rest
+	if len(rest) > 0 {
+		return false
 	}
 
-	p.rperfEdge.built = nil
-	p.rperfEdge.next = 0
 	p.logger.Debug().Str("producer", edgeProducerRperf.label()).Int("count", 1).
 		Msg("Spooled metrics as edge records")
 	return true
