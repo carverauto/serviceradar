@@ -4,6 +4,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
   """
   use ServiceRadarWebNGWeb, :live_view
 
+  import ServiceRadarWebNGWeb.ManagedDeploymentComponents
+
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.EdgeSite
   alias ServiceRadarWebNG.Capabilities
@@ -18,29 +20,46 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
     scope = socket.assigns.current_scope
 
     if RBAC.can?(scope, "settings.edge.manage") do
-      case load_site(id, scope) do
-        {:ok, site} ->
-          socket =
-            socket
-            |> assign(:page_title, site.name)
-            |> assign(:collectors_enabled, Capabilities.collectors_enabled?())
-            |> assign(:site, site)
-            |> assign(:leaf_server, site.nats_leaf_server)
-            |> load_collectors(id, scope)
+      socket = assign(socket, page_title: "Edge Site", site: nil, site_id: id)
 
-          {:ok, socket}
-
-        {:error, :not_found} ->
-          {:ok,
-           socket
-           |> put_flash(:error, "Edge site not found")
-           |> push_navigate(to: ~p"/admin/edge-sites")}
+      if connected?(socket) do
+        Process.send_after(self(), :refresh_deployments, 10_000)
+        {:ok, reload_site(socket)}
+      else
+        {:ok, socket}
       end
     else
       {:ok,
        socket
        |> put_flash(:error, "You don't have permission to access Edge Sites.")
        |> push_navigate(to: ~p"/dashboard")}
+    end
+  end
+
+  @impl true
+  def handle_info(:refresh_deployments, socket) do
+    Process.send_after(self(), :refresh_deployments, 10_000)
+    {:noreply, reload_site(socket)}
+  end
+
+  defp reload_site(socket) do
+    scope = socket.assigns.current_scope
+
+    case load_site(socket.assigns.site_id, scope) do
+      {:ok, site} ->
+        socket
+        |> assign(
+          page_title: site.name,
+          site: site,
+          leaf_server: site.nats_leaf_server,
+          collectors_enabled: Capabilities.collectors_enabled?()
+        )
+        |> load_collectors(site.id, scope)
+
+      {:error, _} ->
+        socket
+        |> put_flash(:error, "Unable to load edge site")
+        |> push_navigate(to: ~p"/admin/edge-sites")
     end
   end
 
@@ -137,47 +156,52 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
         palette={@settings_palette}
         stats={@settings_stats}
       >
-        <div class="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <div class="text-sm ">
-              <ul>
-                <li><.link navigate={~p"/admin/edge-sites"}>Edge Sites</.link></li>
-                <li>{@site.name}</li>
-              </ul>
+        <%= if @site do %>
+          <div class="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <div class="text-sm ">
+                <ul>
+                  <li><.link navigate={~p"/admin/edge-sites"}>Edge Sites</.link></li>
+                  <li>{@site.name}</li>
+                </ul>
+              </div>
+              <h1 class="text-2xl font-semibold text-sr-ink">{@site.name}</h1>
+              <p class="text-sm text-sr-muted font-mono">{@site.slug}</p>
             </div>
-            <h1 class="text-2xl font-semibold text-sr-ink">{@site.name}</h1>
-            <p class="text-sm text-sr-muted font-mono">{@site.slug}</p>
+            <div class="flex gap-2">
+              <.ui_button
+                variant="primary"
+                size="sm"
+                phx-click="download_bundle"
+                disabled={@leaf_server == nil or @leaf_server.status == :pending}
+              >
+                <.icon name="hero-arrow-down-tray" class="size-4" /> Download Bundle
+              </.ui_button>
+            </div>
           </div>
-          <div class="flex gap-2">
-            <.ui_button
-              variant="primary"
-              size="sm"
-              phx-click="download_bundle"
-              disabled={@leaf_server == nil or @leaf_server.status == :pending}
-            >
-              <.icon name="hero-arrow-down-tray" class="size-4" /> Download Bundle
-            </.ui_button>
-          </div>
-        </div>
 
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <.site_details_card site={@site} current_scope={@current_scope} />
-          <.leaf_server_card
-            leaf_server={@leaf_server}
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <.site_details_card site={@site} current_scope={@current_scope} />
+            <.leaf_server_card
+              leaf_server={@leaf_server}
+              site={@site}
+              current_scope={@current_scope}
+            />
+          </div>
+
+          <.managed_deployment_details record={@site} />
+          <.nats_url_card site={@site} />
+
+          <.collectors_card
+            collectors={@collectors}
             site={@site}
-            current_scope={@current_scope}
+            collectors_enabled={@collectors_enabled}
           />
-        </div>
 
-        <.nats_url_card site={@site} />
-
-        <.collectors_card
-          collectors={@collectors}
-          site={@site}
-          collectors_enabled={@collectors_enabled}
-        />
-
-        <.danger_zone_card site={@site} />
+          <.danger_zone_card site={@site} />
+        <% else %>
+          <p class="text-sr-muted">Loading edge site...</p>
+        <% end %>
       </Shell.settings_chrome>
     </Layouts.app>
     """
@@ -195,8 +219,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
 
       <div class="grid grid-cols-2 gap-4 text-sm">
         <div>
-          <div class="text-xs uppercase tracking-wide text-sr-muted">Status</div>
-          <.site_status_badge status={@site.status} />
+          <div class="text-xs uppercase tracking-wide text-sr-muted">Deployment</div>
+          <.deployment_badge record={@site} />
         </div>
         <div>
           <div class="text-xs uppercase tracking-wide text-sr-muted">Created</div>
@@ -208,8 +232,10 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
           />
         </div>
         <div>
-          <div class="text-xs uppercase tracking-wide text-sr-muted">Last Seen</div>
-          <span>{format_relative_time(@site.last_seen_at)}</span>
+          <div class="text-xs uppercase tracking-wide text-sr-muted">Last Update</div>
+          <span title="Latest installation update for managed deployments; not a heartbeat">{format_relative_time(
+            last_update(@site)
+          )}</span>
         </div>
         <div>
           <div class="text-xs uppercase tracking-wide text-sr-muted">Site ID</div>
@@ -243,7 +269,11 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
           <div class="grid grid-cols-2 gap-4 text-sm">
             <div>
               <div class="text-xs uppercase tracking-wide text-sr-muted">Status</div>
-              <.leaf_status_badge status={@leaf_server.status} />
+              <%= if managed?(@site) do %>
+                <.deployment_badge record={@site} />
+              <% else %>
+                <.leaf_status_badge status={@leaf_server.status} />
+              <% end %>
             </div>
             <div>
               <div class="text-xs uppercase tracking-wide text-sr-muted">Upstream URL</div>
@@ -259,10 +289,12 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
               />
             </div>
             <div>
-              <div class="text-xs uppercase tracking-wide text-sr-muted">Connected</div>
+              <div class="text-xs uppercase tracking-wide text-sr-muted">
+                {if managed?(@site), do: "Installation Updated", else: "Connected"}
+              </div>
               <.user_time
                 id={"admin-edge-site-#{@site.id}-leaf-connected-at"}
-                value={@leaf_server.connected_at}
+                value={if managed?(@site), do: last_update(@site), else: @leaf_server.connected_at}
                 timezone={@current_scope.user.timezone || "Etc/UTC"}
                 style={:compact}
               />
@@ -354,7 +386,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
               <tr class="text-[11px] uppercase tracking-wide text-sr-muted">
                 <th>Collector</th>
                 <th>Type</th>
-                <th>Status</th>
+                <th>Deployment</th>
               </tr>
             </thead>
             <tbody>
@@ -362,7 +394,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
                 <tr>
                   <td class="font-mono text-xs">{collector.user_name}</td>
                   <td><.collector_type_badge type={collector.collector_type} /></td>
-                  <td><.status_badge status={collector.status} /></td>
+                  <td><.deployment_badge record={collector} /></td>
                 </tr>
               <% end %>
             </tbody>
@@ -438,22 +470,6 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
     """
   end
 
-  defp site_status_badge(assigns) do
-    variant =
-      case assigns.status do
-        :pending -> "warning"
-        :active -> "success"
-        :offline -> "error"
-        _ -> "ghost"
-      end
-
-    assigns = assign(assigns, :variant, variant)
-
-    ~H"""
-    <.ui_badge variant={@variant}>{@status}</.ui_badge>
-    """
-  end
-
   defp leaf_status_badge(assigns) do
     variant =
       case assigns.status do
@@ -468,26 +484,6 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
 
     ~H"""
     <.ui_badge variant={@variant}>{@status}</.ui_badge>
-    """
-  end
-
-  defp status_badge(assigns) do
-    variant =
-      case assigns.status do
-        :pending -> "warning"
-        :provisioning -> "info"
-        :ready -> "success"
-        :downloaded -> "success"
-        :installed -> "success"
-        :revoked -> "error"
-        :failed -> "error"
-        _ -> "ghost"
-      end
-
-    assigns = assign(assigns, :variant, variant)
-
-    ~H"""
-    <.ui_badge variant={@variant} size="xs">{@status}</.ui_badge>
     """
   end
 
@@ -515,7 +511,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
     case EdgeSite
          |> Ash.Query.for_read(:read)
          |> Ash.Query.filter(id == ^id)
-         |> Ash.Query.load(:nats_leaf_server)
+         |> Ash.Query.load([:nats_leaf_server, :deployment_status, managed_component: :current_operation])
          |> Ash.read_one(scope: scope) do
       {:ok, nil} -> {:error, :not_found}
       {:ok, site} -> {:ok, site}
@@ -527,6 +523,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
     collectors =
       case CollectorPackage
            |> Ash.Query.for_read(:read)
+           |> Ash.Query.load([:deployment_status, managed_component: :current_operation])
            |> Ash.Query.filter(edge_site_id == ^site_id)
            |> Ash.Query.sort(inserted_at: :desc)
            |> Ash.read(scope: scope) do

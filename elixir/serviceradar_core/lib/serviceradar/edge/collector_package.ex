@@ -459,6 +459,11 @@ defmodule ServiceRadar.Edge.CollectorPackage do
   end
 
   relationships do
+    has_one :managed_component, ServiceRadar.Edge.ManagedComponent do
+      source_attribute :id
+      destination_attribute :collector_id
+    end
+
     belongs_to :nats_credential, NatsCredential do
       source_attribute :nats_credential_id
       allow_nil? true
@@ -471,6 +476,8 @@ defmodule ServiceRadar.Edge.CollectorPackage do
   end
 
   calculations do
+    calculate :deployment_status, :string, ServiceRadar.Edge.ManagedDeploymentStatus
+
     calculate :is_downloadable?,
               :boolean,
               expr(
