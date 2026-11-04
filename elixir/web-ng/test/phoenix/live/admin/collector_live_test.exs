@@ -191,14 +191,14 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLiveTest do
 
     {:ok, sites, _} = live(conn, ~p"/admin/edge-sites")
     assert has_element?(sites, "#edge-site-#{site.id} td:nth-child(2)", "installed")
-    sites |> form("form[phx-change='filter']") |> render_change(%{"status" => "installed"})
+    sites |> element("select[name='status']") |> render_change(%{"status" => "installed"})
     assert has_element?(sites, "#edge-site-#{site.id}")
 
     {:ok, collectors, _} = live(conn, ~p"/admin/collectors")
     assert has_element?(collectors, "#collector-#{package.id} td:nth-child(3)", "installed")
     assert has_element?(collectors, "#collector-#{legacy.id} td:nth-child(3)", "failed")
     refute has_element?(collectors, "#collector-#{package.id} button[phx-click='revoke_package']")
-    collectors |> form("form[phx-change='filter']") |> render_change(%{"status" => "installed", "type" => ""})
+    collectors |> element("select[name='status']") |> render_change(%{"status" => "installed"})
     assert has_element?(collectors, "#collector-#{package.id}")
     refute has_element?(collectors, "#collector-#{legacy.id}")
 
@@ -265,7 +265,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLiveTest do
     assert_deployment_filter(revoked, "revoked", scope)
     send(collectors.pid, :refresh_deployments)
     refute has_element?(collectors, "#collector-#{package.id}")
-    collectors |> form("form[phx-change='filter']") |> render_change(%{"status" => "revoked", "type" => ""})
+    collectors |> element("select[name='status']") |> render_change(%{"status" => "revoked"})
     assert has_element?(collectors, "#collector-#{package.id} td:nth-child(3)", "revoked")
 
     for {_record, component} <- revoked do
