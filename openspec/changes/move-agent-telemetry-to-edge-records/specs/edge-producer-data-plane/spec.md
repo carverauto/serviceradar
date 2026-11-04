@@ -46,13 +46,15 @@ A producer that runs on the agent's own schedule from the config core delivered 
 only under a standing output grant: a production capability that core signs per agent, contract
 and authority epoch and delivers in the agent config. A record emitted under a standing grant
 SHALL carry no source authorization. That rule SHALL NOT apply to a lease-signed record. Core
-SHALL issue a grant only while the contract is active in the installation
-registry and the agent's operator switch is on, and SHALL revoke it by moving its epoch when the
-switch is turned off.
+SHALL issue a grant only while the contract is active in the active registry epoch and the
+agent's partition resolves. It SHALL revoke the grant by moving its epoch when the agent's
+identity is superseded or its certificate is revoked, and SHALL reactivate it under a new epoch
+when the agent moves to another partition. No operator switch gates a grant
+(`enable-edge-record-pipeline-by-default`).
 
 #### Scenario: Revoking a grant stops new authoritative output
 - **GIVEN** an agent holding a standing grant for a contract
-- **WHEN** an operator turns the agent's switch off
+- **WHEN** the agent's identity is superseded or its certificate is revoked
 - **THEN** core moves the grant's authority epoch
 - **AND** later records under the old epoch are not projected
 

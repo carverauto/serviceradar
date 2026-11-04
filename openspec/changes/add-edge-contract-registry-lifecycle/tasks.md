@@ -19,6 +19,11 @@ when it moved.
   bundles and holds security-revoked ones against a static registry document;
   the signed lifecycle, readiness evidence and atomic epoch switch are not built
   (an epoch change is a manual leasing-off procedure). Follow-up.
+  Re-scoped 2026-11-03 by `enable-edge-record-pipeline-by-default`, which owns the
+  signed candidate/active/draining/retired lifecycle, readiness from live core nodes
+  and gateways (no `ready` state, no agent cohort), the atomic switch, drain,
+  candidate retirement and stale-component fencing. Remaining here: the
+  `security-revoked` state and its fail-closed remediation.
 - [ ] 1.2 (was `unify-sweep-results-proto` 1.12) Define a deterministic platform-owned cost API and golden fixtures
   for each output contract. The agent SHALL compute the trusted conservative
   charge or reserve the grant maximum, the gateway SHALL validate that trusted
@@ -72,6 +77,10 @@ when it moved.
   watermark, and binding network scope to the session (task 3.2's grant).
   Remaining as of the move (2026-11-02): unchanged narrowed slice (static registry
   document, epoch 2 deployed); the signed format and lifecycle remain with 1.11.
+  Re-scoped 2026-11-03 by `enable-edge-record-pipeline-by-default`, which owns
+  signed epoch loading, readiness reporting, the atomic switch, fencing and the
+  exact-bundle drain. Remaining here: holding security-revoked backlog and binding
+  network scope to the session.
 - [ ] 1.6 (was `unify-sweep-results-proto` 5.10) Add registry-driven dispatch that verifies the exact output contract,
   complete bundle digest, cost model, route, and approved platform-owned
   validator/projector before decode. Preload candidate bundles and publish
@@ -86,6 +95,9 @@ when it moved.
   `ServiceRadar.Edge.Projector` behaviour dispatch by `{contract_id,
   contract_version}` (#6247, #6216). Readiness, the atomic epoch switch and cost
   recompute remain.
+  Re-scoped 2026-11-03 by `enable-edge-record-pipeline-by-default`, which owns
+  readiness and epoch selection. Remaining here: cost recompute and holding
+  security-revoked records.
 - [ ] 1.7 (was `unify-sweep-results-proto` 7.7) Roll out each registry epoch as candidate, collect target-cohort agent,
   gateway-route, and EventWriter readiness, and switch it active atomically
   before issuing producer grants. Canary output contracts independently, seal
@@ -94,6 +106,9 @@ when it moved.
   Rollback MUST fence the failed epoch and MUST NOT reactivate a
   security-revoked bundle.
   Remaining as of the move (2026-11-02): follow-up (needs 1.11).
+  Re-scoped 2026-11-03 by `enable-edge-record-pipeline-by-default`, which owns
+  candidate rollout, readiness, activation, drain and retirement. Remaining here:
+  never reactivating a security-revoked bundle.
 
 ## 2. Validate
 
