@@ -108,8 +108,10 @@ Three layers keep routing stable while capacity changes:
 | Physical stream and owner | 1 to 128 streams; 1 owner process per core node per stream | online, by settings and node count | NATS placement, CPU |
 
 Control inputs (rule disable/delete, stale-anomaly maintenance, operator
-alert actions, block moves, cutover import segment ends) are messages on the same
-block subjects, so they are ordered with the candidates they affect.
+alert actions) are messages on the same block subjects, so they are ordered
+with the candidates they affect. Block moves follow the move journal (D12),
+and cutover import segment ends travel only on the import subjects
+(Migration).
 
 ## Decisions
 
@@ -524,7 +526,10 @@ through the DurablePublish outbox in the transaction that made the change:
   snapshot before F; a failed load is transient, never a live re-query. It then awaits one `alert_maintenance_receipts` row
   per block with a bounded timeout, and returns their summed resolved count,
   which keeps today's synchronous contract.
-- **Block move and cutover import segment ends:** see D12 and Migration.
+- Block moves are not outbox messages; they follow the D12 journal. Cutover
+  import segment ends are not outbox messages either; they are published
+  only on the block's import subjects, after that block's records, and are
+  honoured only there (Migration).
 
 D9 control messages are always published to the block's live candidate
 subjects, including during the cutover import (Migration). Each carries its
@@ -1002,14 +1007,17 @@ that evaluates through both designs.
       marker; the task then records it in CNPG (`alert_cutover_progress`)
       and purges the stream, every message of which the committed
       checkpoints now cover.
-   3. After the final segment is committed, write the cutover marker, a
-      row in `alert_cutover_progress` and not a stream message, so it takes
-      no room in `ALERT_IMPORT_V1`. Owners
-      stop reading import subjects and continue on their live subjects from
-      their checkpointed live sequence, with `applied_count` and
-      `import_ordinal` unchanged; routers start. Once every block has
-      stopped reading it, no uncheckpointed import message remains and the
-      task deletes `ALERT_IMPORT_V1`.
+   3. After the final segment is committed, the task switches every owner:
+      each stops reading import subjects and continues on its live subjects
+      from its checkpointed live sequence, with `applied_count` and
+      `import_ordinal` unchanged, and the task waits until every block has
+      done so. Only then does it write the cutover marker: a completion row
+      in `alert_cutover_progress`, distinct from the segment rows, which no
+      segment commit sets, and not a stream message, so it takes no room in
+      `ALERT_IMPORT_V1`. "The marker exists" means this row exists, and the
+      import-id retention horizon is measured from its commit time. Routers
+      start only once it exists. No uncheckpointed import message then
+      remains and the task deletes `ALERT_IMPORT_V1`.
    A crash before the marker resumes from the last committed segment:
    owners recover their blocks from their checkpoints, discarding anything
    applied after them; the task purges the import stream and rebuilds the
@@ -1017,12 +1025,11 @@ that evaluates through both designs.
    message above a checkpoint is therefore always republished, and a block
    skips what its checkpoint already includes, so every residual record is
    applied exactly once; live controls are re-read from the live
-   checkpoint. The source tables are untouched until the marker. Once the
-   marker commit has succeeded, a rerun of the task builds and publishes no
-   segment: it only completes step 3.3, switching every block that is still
-   reading the import subjects to its checkpointed live sequence and
-   starting routers, and deletes `ALERT_IMPORT_V1` only once every block
-   has stopped reading it.
+   checkpoint. The source tables are untouched until the marker. A rerun
+   after the final segment is committed builds and publishes no segment: it
+   repeats step 3.3, switching every block that is still reading the import
+   subjects to its checkpointed live sequence, writes the marker if it is
+   absent once every block has switched, and deletes `ALERT_IMPORT_V1`.
    Imported candidates carry the candidate id the router would compute, so a
    source message the old replicas admitted but did not acknowledge,
    redelivered and routed after the marker, is suppressed as a duplicate.
