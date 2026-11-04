@@ -143,8 +143,8 @@ and writes it through `ServiceRadar.WorkloadIdentity.persist_snapshot/1`
 (`ServiceRadar.Edge.Projectors.WorkloadIdentity`).
 
 Kubernetes public endpoint snapshots use the
-`serviceradar.k8s.public_endpoints.snapshot` contract under the same
-`edgeRecords.agentDiscoveryEnabled` switch. While the grant is current, each
+`serviceradar.k8s.public_endpoints.snapshot` contract. While the grant is
+current, each
 snapshot travels only as an edge record. The agent holds at most one pending
 snapshot when the spool refuses it and skips polling the k8s inventory
 service until that record is admitted. Core writes the snapshot through
