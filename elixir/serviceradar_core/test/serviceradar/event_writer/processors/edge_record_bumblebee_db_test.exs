@@ -4,7 +4,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordBumblebeeDbTest do
   (`serviceradar.bumblebee.scan` v1).
   """
 
-  use ServiceRadar.DataCase, async: true
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.IssuerKey
