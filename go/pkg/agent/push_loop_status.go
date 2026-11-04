@@ -17,6 +17,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"math"
@@ -42,6 +43,10 @@ const (
 	pluginResultStreamTimeoutPerWave         = 30 * time.Second
 	pluginResultStreamTimeoutGrace           = 15 * time.Second
 	pluginResultRetainedDeliveryCapabilityV1 = "plugin-result-retained:v1"
+
+	rperfServiceType   = "rperf"
+	rperfCheckerName   = "rperf-checker"
+	rperfMetricsSource = "rperf-metrics"
 )
 
 // pushRegularStatuses sends non-sysmon statuses via PushStatus.
@@ -607,8 +612,13 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 		statuses = append(statuses, status)
 	}
 
+	now := time.Now()
 	for _, svc := range services {
 		if provider, ok := svc.(SweepStatusProvider); ok {
+			if isRperfMetricsService(svc) && p.rperfEdge.hasPending() && !p.flushRperfEdgeMetrics() {
+				continue
+			}
+
 			var metricPayload map[string]any
 			var status *proto.StatusResponse
 			var err error
@@ -627,26 +637,40 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 				p.logger.Warn().Str("service", svc.Name()).Msg("Status provider returned nil response")
 				continue
 			}
-			serviceType := sweepType
-			source := "status"
+			serviceName := firstMetricNonEmpty(svc.Name(), status.GetServiceName())
+			serviceType := strings.TrimSpace(status.GetServiceType())
+			var source string
 			if routing, ok := svc.(StatusRoutingProvider); ok {
 				if value := strings.TrimSpace(routing.StatusServiceType()); value != "" {
 					serviceType = value
 				}
-				if value := strings.TrimSpace(routing.StatusSource()); value != "" {
-					source = value
+				source = strings.TrimSpace(routing.StatusSource())
+			}
+			if serviceType == "" {
+				if rperfStatus(serviceName, "") {
+					serviceType = rperfServiceType
+				} else {
+					serviceType = sweepType
 				}
+			}
+			if source == "" {
+				source = defaultStatusSource(status, serviceName, serviceType)
+			}
+
+			if telemetry, ok := svc.(StatusAddonTelemetryProvider); ok {
+				if addonID, batch := telemetry.AddonTelemetryBatch(status); addonID != "" && batch != nil {
+					p.server.handleAddonTelemetry(addonID, batch)
+				}
+			}
+			if isRperfMetricsPayload(status, serviceName, serviceType, source) &&
+				p.spoolRperfMetricsStatus(status, serviceName, serviceType, now) {
+				continue
 			}
 
 			converted := p.convertToGatewayStatusWithSource(status, svc.Name(), serviceType, source)
 			if converted == nil {
 				p.logger.Warn().Str("service", svc.Name()).Msg("Converted status is nil")
 				continue
-			}
-			if telemetry, ok := svc.(StatusAddonTelemetryProvider); ok {
-				if addonID, batch := telemetry.AddonTelemetryBatch(status); addonID != "" && batch != nil {
-					p.server.handleAddonTelemetry(addonID, batch)
-				}
 			}
 			statuses = append(statuses, converted)
 
@@ -749,7 +773,7 @@ func (p *PushLoop) convertToGatewayStatus(resp *proto.StatusResponse, serviceNam
 
 func defaultStatusSource(resp *proto.StatusResponse, serviceName string, serviceType string) string {
 	if rperfStatus(serviceName, serviceType) && metricEnvelopePayload(resp.GetMessage()) {
-		return "rperf-metrics"
+		return rperfMetricsSource
 	}
 
 	return "status"
@@ -759,10 +783,40 @@ func rperfStatus(serviceName string, serviceType string) bool {
 	serviceName = strings.ToLower(strings.TrimSpace(serviceName))
 	serviceType = strings.ToLower(strings.TrimSpace(serviceType))
 
-	return serviceType == "rperf" ||
+	return serviceType == rperfServiceType ||
+		serviceType == rperfCheckerName ||
 		serviceType == "network_performance" ||
-		serviceName == "rperf" ||
-		serviceName == "rperf-checker"
+		serviceName == rperfServiceType ||
+		serviceName == rperfCheckerName
+}
+
+func isRperfMetricsService(svc Service) bool {
+	if svc == nil {
+		return false
+	}
+	if rperfStatus(svc.Name(), "") {
+		return true
+	}
+	if routing, ok := svc.(StatusRoutingProvider); ok {
+		if rperfStatus(svc.Name(), routing.StatusServiceType()) {
+			return true
+		}
+		if strings.EqualFold(strings.TrimSpace(routing.StatusSource()), rperfMetricsSource) {
+			return true
+		}
+	}
+	return false
+}
+
+func isRperfMetricsPayload(resp *proto.StatusResponse, serviceName, serviceType, source string) bool {
+	if source == rperfMetricsSource {
+		return true
+	}
+	if !rperfStatus(serviceName, serviceType) || resp == nil {
+		return false
+	}
+	trimmed := bytes.TrimSpace(resp.GetMessage())
+	return len(trimmed) > 0 && trimmed[0] != '{'
 }
 
 func (p *PushLoop) convertToGatewayStatusWithSource(

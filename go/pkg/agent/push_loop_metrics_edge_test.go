@@ -1485,3 +1485,187 @@ func TestEdgeAdmissionFlowFollowsTheSignedProducerRun(t *testing.T) {
 		require.NotEqual(t, run, edgeAdmissionFlow(record(edit)), name)
 	}
 }
+
+type fakeRperfMetricsService struct {
+	queued []*proto.StatusResponse
+	polls  int
+}
+
+func (f *fakeRperfMetricsService) Start(context.Context) error       { return nil }
+func (f *fakeRperfMetricsService) Stop(context.Context) error        { return nil }
+func (f *fakeRperfMetricsService) Name() string                      { return "rperf" }
+func (f *fakeRperfMetricsService) UpdateConfig(*models.Config) error { return nil }
+func (f *fakeRperfMetricsService) GetStatus(context.Context) (*proto.StatusResponse, error) {
+	f.polls++
+	if len(f.queued) == 0 {
+		return nil, nil
+	}
+	next := f.queued[0]
+	f.queued = f.queued[1:]
+	return next, nil
+}
+
+func syntheticRperfStatus(t *testing.T, metricsCount int) *proto.StatusResponse {
+	t.Helper()
+	observedAt := uint64(time.Now().UnixNano())
+	metrics := make([]*metricpb.Metric, metricsCount)
+	for i := range metrics {
+		metrics[i] = &metricpb.Metric{
+			Name:       fmt.Sprintf("rperf.bits_per_second.%d", i),
+			MetricType: "rperf",
+			Kind:       metricpb.MetricKind_METRIC_KIND_GAUGE,
+			Unit:       "bit/s",
+			Points: []*metricpb.MetricPoint{{
+				Value:              float64(1_000_000 + i),
+				RawValue:           strconv.Itoa(1_000_000 + i),
+				RawValueType:       metricpb.MetricValueType_METRIC_VALUE_TYPE_INT64,
+				ObservedAtUnixNano: observedAt,
+				Attributes: []*metricpb.StringMapEntry{
+					{Key: "target", Value: "192.0.2.50"},
+				},
+			}},
+		}
+	}
+	payload, err := gproto.Marshal(&metricpb.MetricBatch{
+		SchemaVersion: metricEnvelopeSchemaVersion,
+		Metrics:       metrics,
+	})
+	require.NoError(t, err)
+	return &proto.StatusResponse{
+		Available:   true,
+		Message:     payload,
+		ServiceName: "rperf",
+		ServiceType: "rperf",
+	}
+}
+
+func rperfMetricStatuses(statuses []*proto.GatewayServiceStatus) int {
+	count := 0
+	for _, status := range statuses {
+		if status.GetSource() == "rperf-metrics" {
+			count++
+		}
+	}
+	return count
+}
+
+func TestRperfMetricsTakeOnePath(t *testing.T) {
+	for name, granted := range map[string]bool{"with a grant": true, "without a grant": false} {
+		t.Run(name, func(t *testing.T) {
+			sp := openTestEdgeSpool(t)
+			loop, _, _ := sysmonEdgeLoop(t, sp)
+			svc := &fakeRperfMetricsService{queued: []*proto.StatusResponse{syntheticRperfStatus(t, 2)}}
+			loop.server.services = []Service{svc}
+			if granted {
+				loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentMetricsGrant(t)}, time.Now())
+			}
+
+			statuses, _ := loop.collectAllStatusesSeparated(context.Background())
+
+			batches := spooledMetricBatches(t, sp)
+			if granted {
+				require.Zero(t, rperfMetricStatuses(statuses), "no rperf-metrics status while the agent holds a grant")
+				require.Len(t, batches, 1)
+				require.Equal(t, "rperf-metrics", batches[0].GetIngestIdentity().GetSource())
+				require.Equal(t, "rperf-checker", batches[0].GetIngestIdentity().GetProducerKind())
+				require.Equal(t, sysmonEdgeAgentID, batches[0].GetResource().GetAgentId())
+				require.Equal(t, "rperf", batches[0].GetResource().GetServiceName())
+				require.Equal(t, "rperf", batches[0].GetResource().GetServiceType())
+				require.Len(t, batches[0].GetMetrics(), 2)
+				return
+			}
+			require.Equal(t, 1, rperfMetricStatuses(statuses))
+			require.Empty(t, batches)
+		})
+	}
+}
+
+func TestRperfEdgeSpoolBackpressurePausesPollingAndPreservesEventID(t *testing.T) {
+	inner := openTestEdgeSpool(t)
+	script := &appendScript{inner: inner, refuseAfter: 0}
+	loop, _, _ := sysmonEdgeLoop(t, nil)
+	loop.edgeMetricsSpool = script
+	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentMetricsGrant(t)}, time.Now())
+
+	svc := &fakeRperfMetricsService{
+		queued: []*proto.StatusResponse{
+			syntheticRperfStatus(t, 1),
+			syntheticRperfStatus(t, 2),
+		},
+	}
+	loop.server.services = []Service{svc}
+
+	// First push polls the first rperf status, builds its edge record, and holds
+	// it in rperfEdge when the spool refuses admission.
+	statuses, _ := loop.collectAllStatusesSeparated(context.Background())
+	require.Zero(t, rperfMetricStatuses(statuses))
+	require.Equal(t, 1, svc.polls)
+	require.Len(t, svc.queued, 1, "second status remains in the service until the first is admitted")
+	require.True(t, loop.rperfEdge.hasPending())
+	require.Len(t, script.ids, 1)
+	firstEventID := bytes.Clone(script.ids[0])
+	require.Empty(t, spooledMetricBatches(t, inner))
+
+	// Second push while the spool still refuses retries the held record with its
+	// original event_id and does not poll the rperf service again.
+	statuses, _ = loop.collectAllStatusesSeparated(context.Background())
+	require.Zero(t, rperfMetricStatuses(statuses))
+	require.Equal(t, 1, svc.polls, "rperf polling is paused while rperfEdge holds an undelivered item")
+	require.Len(t, svc.queued, 1)
+	require.True(t, loop.rperfEdge.hasPending())
+	require.Len(t, script.ids, 2)
+	require.Equal(t, firstEventID, script.ids[1])
+	require.Zero(t, edgeDrops(loop, edgeProducerRperf, edgeDropRetryBufferFull))
+	require.Zero(t, edgeDrops(loop, edgeProducerRperf, edgeDropInvalidRecord))
+
+	// Once the spool admits, the retained record is written with its original
+	// event_id and polling resumes for the next queued status.
+	script.admitAll()
+	statuses, _ = loop.collectAllStatusesSeparated(context.Background())
+	require.Zero(t, rperfMetricStatuses(statuses))
+	require.False(t, loop.rperfEdge.hasPending())
+	require.Equal(t, 2, svc.polls)
+	require.Empty(t, svc.queued)
+	require.Len(t, script.ids, 2)
+	require.Equal(t, firstEventID, script.ids[0], "retained record keeps its original event_id")
+
+	batches := spooledMetricBatches(t, inner)
+	require.Len(t, batches, 2)
+	require.Len(t, batches[0].GetMetrics(), 1)
+	require.Len(t, batches[1].GetMetrics(), 2)
+}
+
+func TestRperfSplitAndDropInvalidPoint(t *testing.T) {
+	sp := openTestEdgeSpool(t)
+	loop, _, _ := sysmonEdgeLoop(t, sp)
+	now := time.Now()
+	grant := metricsGrantRows(t, sysmonEdgeAgentID, now.Add(-time.Hour), now.Add(8*24*time.Hour), 2)
+	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{grant}, now)
+
+	status := syntheticRperfStatus(t, 3)
+	var batch metricpb.MetricBatch
+	require.NoError(t, gproto.Unmarshal(status.GetMessage(), &batch))
+	batch.Metrics = append(batch.Metrics, &metricpb.Metric{
+		Name:       "rperf.oversized",
+		MetricType: "rperf",
+		Kind:       metricpb.MetricKind_METRIC_KIND_GAUGE,
+		Points: []*metricpb.MetricPoint{{
+			Value:              1,
+			RawValue:           asciiNoise(edgeMetricsMaxPayloadBytes+1024, 3),
+			RawValueType:       metricpb.MetricValueType_METRIC_VALUE_TYPE_STRING,
+			ObservedAtUnixNano: uint64(now.UnixNano()),
+		}},
+	})
+	encoded, err := gproto.Marshal(&batch)
+	require.NoError(t, err)
+	status.Message = encoded
+
+	loop.server.services = []Service{&fakeRperfMetricsService{queued: []*proto.StatusResponse{status}}}
+
+	statuses, _ := loop.collectAllStatusesSeparated(context.Background())
+	require.Zero(t, rperfMetricStatuses(statuses))
+	require.Equal(t, uint64(1), edgeDrops(loop, edgeProducerRperf, edgeDropInvalidRecord))
+	batches := spooledMetricBatches(t, sp)
+	require.Len(t, batches, 2, "three valid metrics split across two maxRows=2 records")
+	assertMetricsRecordsWithinCaps(t, sp, batches, 2)
+}
