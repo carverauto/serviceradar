@@ -1182,7 +1182,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     neighbor = "sr:it-own-b"
     # Inside the stale-link cutoff, so the projected edge survives pruning.
     newer = DateTime.truncate(DateTime.utc_now(), :second)
-    older = DateTime.add(newer, -300, :second)
+    older = DateTime.shift(newer, minute: -5)
 
     assert :ok =
              TopologyGraph.upsert_links([
