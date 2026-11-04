@@ -452,7 +452,7 @@ the operator must supply the key in the configured existing Secret as a
 base64-encoded 32-byte seed (the Secret's data encoding wraps that text).
 
 `edgeRecords.agentSweepEnabled` enables the bundled agent's sweep producer.
-`edgeRecords.agentMetricsEnabled` enables its sysmon, SNMP, ICMP, rperf, MTR scalar
+`edgeRecords.agentMetricsEnabled` enables its sysmon, SNMP, ICMP, MTR scalar
 and periodic sweep summary metrics producers on the same spool. That spool is
 also where flow-attribution windows and OTLP relay frames go while the agent
 holds a current `serviceradar.netprobe.flow_attribution` version 1 or
