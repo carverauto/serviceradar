@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"net/netip"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -36,6 +37,48 @@ const (
 )
 
 var errMTRNoTraces = errors.New("no MTR traces to encode")
+
+// mtrEdgePending holds at most one MTR collection's built trace and metric
+// records that the spool has not yet admitted. While either slice is
+// non-empty, due MTR checks are not collected again until the pending records
+// are admitted.
+type mtrEdgePending struct {
+	mu      sync.Mutex
+	traces  []edgeMetricsBuilt
+	metrics []edgeMetricsBuilt
+}
+
+func (q *mtrEdgePending) hasPending() bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return len(q.traces) > 0 || len(q.metrics) > 0
+}
+
+func (p *PushLoop) flushPendingMtrEdge() (admittedAny bool, empty bool) {
+	p.mtrEdge.mu.Lock()
+	defer p.mtrEdge.mu.Unlock()
+
+	if p.edgeMetricsSpool == nil {
+		return false, len(p.mtrEdge.traces) == 0 && len(p.mtrEdge.metrics) == 0
+	}
+
+	admittedTraces := 0
+	if len(p.mtrEdge.traces) > 0 {
+		admittedTraces, p.mtrEdge.traces = appendEdgeMetricsParts(
+			p, mtrTraceEdgeQueueProducer(), p.mtrEdge.traces, len(p.mtrEdge.traces),
+		)
+	}
+
+	admittedMetrics := 0
+	if len(p.mtrEdge.metrics) > 0 {
+		admittedMetrics, p.mtrEdge.metrics = appendEdgeMetricsParts(
+			p, mtrEdgeMetrics(), p.mtrEdge.metrics, len(p.mtrEdge.metrics),
+		)
+	}
+
+	return admittedTraces > 0 || admittedMetrics > 0,
+		len(p.mtrEdge.traces) == 0 && len(p.mtrEdge.metrics) == 0
+}
 
 // edgeScheduledMtrCapability returns the standing grant new scheduled MTR trace
 // records are emitted under at now, or nil when traces take the legacy path.
@@ -53,64 +96,101 @@ func mtrTraceEdgeQueueProducer() edgeMetricsProducer[mtrCheckResult] {
 	}
 }
 
-// spoolScheduledMtrTraces appends queued and newly collected MTR check results
-// as serviceradar.mtr.scheduled_trace edge records under capability.
+func buildScheduledMtrTraceParts(
+	p *PushLoop,
+	results []mtrCheckResult,
+	capability *edgev1.EdgeSignedCapabilityV1,
+) []edgeMetricsBuilt {
+	m := mtrTraceEdgeQueueProducer()
+	ctx := p.metricEnvelopeContext()
+	remaining := results
+	var parts []edgeMetricsBuilt
+	for len(remaining) > 0 {
+		taken, built, err := nextScheduledMtrTraceRecords(remaining, capability, ctx)
+		if err != nil {
+			if !errors.Is(err, errMTRNoTraces) {
+				p.dropEdgeMetrics(m.producer, edgeDropInvalidRecord, taken, err)
+			}
+			remaining = remaining[taken:]
+			continue
+		}
+		parts = append(parts, built...)
+		remaining = remaining[taken:]
+	}
+	return parts
+}
+
+// spoolScheduledMtrTraces builds and appends newly collected MTR check results
+// as serviceradar.mtr.scheduled_trace edge records under capability, holding
+// any un-admitted suffix in p.mtrEdge.traces so due checks pause until
+// admitted.
 func spoolScheduledMtrTraces(
 	p *PushLoop,
 	drained []mtrCheckResult,
 	capability *edgev1.EdgeSignedCapabilityV1,
 ) bool {
+	parts := buildScheduledMtrTraceParts(p, drained, capability)
+	if len(parts) == 0 {
+		return false
+	}
 	m := mtrTraceEdgeQueueProducer()
-	q := &p.mtrTraceEdge
-	q.mu.Lock()
-	defer q.mu.Unlock()
+	p.mtrEdge.mu.Lock()
+	admitted, rest := appendEdgeMetricsParts(p, m, parts, len(parts))
+	p.mtrEdge.traces = rest
+	p.mtrEdge.mu.Unlock()
 
-	pending := append([]edgeMetricsQueued[mtrCheckResult](nil), q.pending...)
-	for _, item := range drained {
-		pending = append(pending, edgeMetricsQueued[mtrCheckResult]{item: item, hasItem: true})
-	}
-
-	ctx := p.metricEnvelopeContext()
-	appended := 0
-	for len(pending) > 0 {
-		head := pending[0]
-		taken, parts := 1, head.ready
-		if head.hasItem && len(head.ready) == 0 {
-			var err error
-			items := unbuiltItems(pending)
-			taken, parts, err = nextScheduledMtrTraceRecords(items, capability, ctx)
-			if err != nil {
-				if !errors.Is(err, errMTRNoTraces) {
-					p.dropEdgeMetrics(m.producer, edgeDropInvalidRecord, taken, err)
-				}
-				pending = pending[taken:]
-				continue
-			}
-		}
-
-		admitted, rest := appendEdgeMetricsParts(p, m, parts, len(pending))
-		if admitted == 0 && len(rest) > 0 {
-			if taken == 1 && head.hasItem {
-				pending[0].ready = rest
-			}
-			break
-		}
-		if admitted > 0 {
-			appended += taken
-		}
-		pending = append(partEntries[mtrCheckResult](rest), pending[taken:]...)
-		if len(rest) > 0 {
-			break
-		}
-	}
-
-	q.pending = trimEdgeMetrics(p, m, pending)
-
-	if appended > 0 {
-		p.logger.Debug().Str("producer", m.producer.label()).Int("count", appended).
+	if admitted > 0 {
+		p.logger.Debug().Str("producer", m.producer.label()).Int("count", admitted).
 			Msg("Spooled scheduled MTR traces as edge records")
 	}
-	return appended > 0
+	return admitted > 0
+}
+
+func buildMtrMetricParts(
+	p *PushLoop,
+	results []mtrCheckResult,
+	capability *edgev1.EdgeSignedCapabilityV1,
+) []edgeMetricsBuilt {
+	m := mtrEdgeMetrics()
+	ctx := p.metricEnvelopeContext()
+	remaining := results
+	var parts []edgeMetricsBuilt
+	for len(remaining) > 0 {
+		taken, built, dropped, err := nextEdgeMetricsRecords(remaining, m.build, capability, ctx)
+		if err != nil {
+			if !errors.Is(err, m.nothing) {
+				p.dropEdgeMetrics(m.producer, edgeDropInvalidRecord, taken, err)
+			}
+			remaining = remaining[taken:]
+			continue
+		}
+		p.dropEdgeMetrics(m.producer, edgeDropInvalidRecord, dropped, errEdgeMetricsRecordTooLarge)
+		parts = append(parts, built...)
+		remaining = remaining[taken:]
+	}
+	return parts
+}
+
+func spoolMtrMetricsBatch(
+	p *PushLoop,
+	drained []mtrCheckResult,
+	capability *edgev1.EdgeSignedCapabilityV1,
+) bool {
+	parts := buildMtrMetricParts(p, drained, capability)
+	if len(parts) == 0 {
+		return false
+	}
+	m := mtrEdgeMetrics()
+	p.mtrEdge.mu.Lock()
+	admitted, rest := appendEdgeMetricsParts(p, m, parts, len(parts))
+	p.mtrEdge.metrics = rest
+	p.mtrEdge.mu.Unlock()
+
+	if admitted > 0 {
+		p.logger.Debug().Str("producer", m.producer.label()).Int("count", admitted).
+			Msg("Spooled metrics as edge records")
+	}
+	return admitted > 0
 }
 
 func nextScheduledMtrTraceRecords(
@@ -439,7 +519,7 @@ func scheduledMtrTcpProbeMode(mode string) edgev1.MtrTcpProbeModeV1 {
 
 func scheduledMtrExecutionSource(src string) edgev1.SweepExecutionSource {
 	switch strings.ToLower(strings.TrimSpace(src)) {
-	case "scheduled_sweep":
+	case mtrExecutionSourceScheduledSweep:
 		return edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_SCHEDULED_SWEEP
 	case "sweep_profile":
 		return edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_SWEEP_PROFILE

@@ -1096,11 +1096,6 @@ func netprobeConfigPath(provider sidecarStatusProvider) string {
 }
 
 func (p *PushLoop) applySweepConfig(ctx context.Context, configJSON []byte) {
-	sweepSvc := p.findSweepResultsProvider()
-	if sweepSvc == nil {
-		return
-	}
-
 	sweepConfig, err := parseGatewaySweepConfig(configJSON, p.logger)
 	if err != nil {
 		p.logger.Warn().Err(err).Msg("Failed to parse sweep config from gateway")
@@ -1108,6 +1103,13 @@ func (p *PushLoop) applySweepConfig(ctx context.Context, configJSON []byte) {
 	}
 
 	if sweepConfig == nil {
+		return
+	}
+
+	p.updateSweepMtrChecks(deriveSweepGroupMtrChecks(sweepConfig.Groups, p.logger))
+
+	sweepSvc := p.findSweepResultsProvider()
+	if sweepSvc == nil {
 		return
 	}
 

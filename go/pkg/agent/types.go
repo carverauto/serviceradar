@@ -169,6 +169,7 @@ type BannerGrabConfig struct {
 type SweepGroupConfig struct {
 	ID              string
 	SweepGroupID    string
+	Name            string
 	Networks        []string
 	Ports           []int
 	SweepModes      []models.SweepMode

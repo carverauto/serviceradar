@@ -63,7 +63,7 @@
   per-run source join. Every MTR trace, including a trace from a sweep group whose modes include
   mtr, moves here under the standing grant, with no sweep-lease dependency. Producer and projector
   into `mtr_traces`; parity soak.
-  PARTIAL (reconciled 2026-11-03): the agent producer in `go/pkg/agent/push_loop_mtr_traces_edge.go` and `ServiceRadar.Edge.Projectors.ScheduledMtrTrace` store agent-scheduled checks from `serviceradar.mtr.scheduled_trace` v1 into `mtr_traces` while that grant is held (#6256 and this branch). Remaining scope is a trace from a sweep group whose modes include mtr, and the parity soak.
+  PARTIAL (reconciled 2026-11-03): the agent producer in `go/pkg/agent/push_loop_mtr_traces_edge.go`, sweep-group MTR check derivation in `go/pkg/agent/mtr_checker.go` (with `mtr` ignored by `ServiceRadar.Edge.SweepPlan.checks/2` so reachability and port checks stay eligible for sweep leases), and `ServiceRadar.Edge.Projectors.ScheduledMtrTrace` store agent-scheduled checks and sweep-group MTR traces from `serviceradar.mtr.scheduled_trace` v1 into `mtr_traces` while that grant is held (#6256, #6284 and this branch). Remaining scope is the parity soak.
 
 ## 4. Flow attribution and OTLP relay
 

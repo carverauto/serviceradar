@@ -726,6 +726,9 @@ func (p *PushLoop) settleSweepSummaryLegacy(delivered bool) {
 }
 
 func (p *PushLoop) findSweepResultsProvider() SweepResultsProvider {
+	if p.server == nil {
+		return nil
+	}
 	p.server.mu.RLock()
 	services := append([]Service(nil), p.server.services...)
 	p.server.mu.RUnlock()

@@ -101,7 +101,7 @@ the application pods.
 Profiles define reusable scan settings:
 
 - **Ports**: List of TCP ports to scan.
-- **Sweep modes**: One or more of the three supported modes (see below).
+- **Sweep modes**: One or more of the supported modes (see below).
 - **Concurrency**: Parallel scan worker count.
 - **Timeout**: Per-target scan timeout.
 - **Scan timeout**: Total wall-clock limit for a single sweep execution (e.g.
@@ -122,6 +122,14 @@ The agent runs these sweep modes:
   the handshake so it is conntrack-safe and works without raw-socket privileges.
 - **`icmp`**: ICMP echo (ping) sweeps for host reachability. The sweep scanner
   needs raw ICMP sockets (`CAP_NET_RAW` or root).
+- **`mtr`**: Traces the path to each target with MTR. The agent derives one
+  trace per target address from the group (at most 256 per group; a network
+  larger than the remaining budget is skipped) and runs them only while it holds
+  the `serviceradar.mtr.scheduled_trace` grant, publishing them as scheduled
+  trace edge records rather than under the sweep lease. Groups on a cron
+  schedule or an interval under 5 minutes get no traces, and each skip is
+  logged by the agent. `mtr` adds no checks to the sweep itself, so an
+  `mtr`-only group is not eligible for a sweep lease.
 
 An agent probes its ICMP sockets once at startup. If it cannot open raw ICMP
 sockets it reports `icmp.unavailable`, and core leaves the `icmp` mode out of

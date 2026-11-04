@@ -175,11 +175,13 @@ type PushLoop struct {
 	// Each metric producer's bounded retry queue, oldest first. An entry is either
 	// an item no part of which the spool has admitted, or one built record of an
 	// item that already has a part in the spool.
-	sysmonEdge   edgeMetricsQueue[*sysmon.MetricSample]
-	snmpEdge     edgeMetricsQueue[snmpMetricResult]
-	icmpEdge     edgeMetricsQueue[icmpCheckResult]
-	mtrEdge      edgeMetricsQueue[mtrCheckResult]
-	mtrTraceEdge edgeMetricsQueue[mtrCheckResult]
+	sysmonEdge edgeMetricsQueue[*sysmon.MetricSample]
+	snmpEdge   edgeMetricsQueue[snmpMetricResult]
+	icmpEdge   edgeMetricsQueue[icmpCheckResult]
+	// mtrEdge holds at most one undelivered MTR collection's built trace and
+	// metric records while the spool refuses admission; due MTR checks are not
+	// collected again until it is empty.
+	mtrEdge      mtrEdgePending
 	sweepSummary edgeMetricsQueue[map[string]any]
 	// sweepResultsEdge is the records of the unleased sweep results response
 	// being spooled, including its final record and, after a permanent spool

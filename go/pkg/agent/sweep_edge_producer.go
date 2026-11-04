@@ -191,6 +191,9 @@ func sameSweepModes(a, b []models.SweepMode) bool {
 	set := func(modes []models.SweepMode) map[models.SweepMode]struct{} {
 		out := make(map[models.SweepMode]struct{}, len(modes))
 		for _, m := range modes {
+			if m == models.ModeMTR {
+				continue
+			}
 			out[m] = struct{}{}
 		}
 		return out

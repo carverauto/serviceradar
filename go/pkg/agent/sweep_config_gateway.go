@@ -168,6 +168,7 @@ func parseGatewaySweepConfig(configJSON []byte, log logger.Logger) (*SweepGroups
 		groupConfig := SweepGroupConfig{
 			ID:             group.ID,
 			SweepGroupID:   sweepGroupID,
+			Name:           group.Name,
 			Networks:       normalizeTargets(group.Targets, log),
 			Ports:          group.Ports,
 			SweepModes:     parseSweepModes(group.Modes, log),

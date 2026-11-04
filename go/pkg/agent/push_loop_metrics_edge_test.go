@@ -1161,26 +1161,6 @@ func TestQueuedItemsSurviveAFailedLegacySend(t *testing.T) {
 				head:     func() bool { return loop.icmpEdge.pending[0].hasItem },
 			}
 		},
-		"mtr": func(t *testing.T, loop *PushLoop, gw *sysmonStatusGateway) legacyCase {
-			t.Helper()
-			loop.mtrState = newMtrCheckerState()
-			loop.mtrState.checks["mtr-check-01"] = &mtrCheckConfig{
-				ID: "mtr-check-01", Name: "wan-path", Target: "192.0.2.1", Enabled: true,
-				Interval: time.Nanosecond, Timeout: 200 * time.Millisecond, MaxHops: 2, ProbesPerHop: 1, Protocol: mtr.ProtocolICMP,
-			}
-			items := syntheticMTRResults(2)
-			loop.mtrEdge.pending = []edgeMetricsQueued[mtrCheckResult]{
-				{item: items[0], hasItem: true}, {ready: []edgeMetricsBuilt{{}}}, {item: items[1], hasItem: true},
-			}
-			return legacyCase{
-				push:     func() bool { return loop.pushMtrResults(context.Background()) },
-				queued:   func() int { return len(loop.mtrEdge.pending) },
-				items:    func() int { return len(queuedItemsOf(&loop.mtrEdge)) },
-				delivers: func() int { return gw.statusesFrom("mtr-metrics") },
-				drops:    func() uint64 { return edgeDrops(loop, edgeProducerMTR, edgeDropRetryBufferFull) },
-				head:     func() bool { return loop.mtrEdge.pending[0].hasItem },
-			}
-		},
 	}
 	for name, setup := range cases {
 		for _, mode := range []sysmonStreamMode{sysmonStreamError, sysmonStreamUnacked} {
