@@ -375,10 +375,14 @@ issuer key id. Such a record SHALL NOT be withheld.
 - **AND** the agent quarantines them and later records on the lane are delivered
 
 ### Requirement: Core generates and stores its edge issuer key
-Core SHALL generate its edge issuer Ed25519 seed on first use, and SHALL store it
-in one CNPG row with the seed encrypted at rest by AshCloak and readable only by
-core. Generation SHALL be insert-only, so concurrent replicas converge on one key
-and a restart never changes it. Core SHALL NOT read the issuer key from a file,
+Core SHALL store its edge issuer Ed25519 seed in one CNPG row, with the seed
+encrypted at rest by AshCloak and readable only by core. The first store SHALL
+import the seed of a configured file-based key
+(`SERVICERADAR_EDGE_ISSUER_KEY_FILE`) and SHALL generate a seed only when no file
+is configured. A configured file that is not a private, well-formed 32-byte
+base64 seed SHALL store nothing and return an error. The store SHALL be
+insert-only, so concurrent replicas converge on one key and a restart never
+changes it. Once a key is stored, core SHALL NOT read the issuer key from a file,
 the process environment, Helm values, or a Kubernetes Secret. Trust documents SHALL
 carry only the public trust entry.
 
@@ -387,6 +391,19 @@ carry only the public trust entry.
 - **WHEN** core first signs a standing grant
 - **THEN** it generates and stores a seed and signs with it
 - **AND** the gateway's next trust document carries that key's public entry
+
+#### Scenario: An upgrade imports the file-based key
+- **GIVEN** an installation with no issuer key row and a private, well-formed key file
+- **WHEN** core first stores its issuer key
+- **THEN** it stores the file's seed, so the public key and key id are unchanged
+- **AND** signatures made with the file key before the upgrade still verify
+- **AND** a later change to the file does not change the stored key
+
+#### Scenario: An invalid key file stores nothing
+- **GIVEN** no issuer key row and a configured key file that is world-readable or
+  not a 32-byte base64 seed
+- **WHEN** core first stores its issuer key
+- **THEN** it returns `{:error, :invalid_edge_issuer_key_file}` and stores no row
 
 #### Scenario: Replicas race to generate the key
 - **WHEN** two core replicas both find no issuer key row and generate seeds at once

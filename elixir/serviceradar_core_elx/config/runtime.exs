@@ -222,6 +222,13 @@ nats_certificate_grant_ttl =
 config :serviceradar, :nats_account_name, nats_account_name
 config :serviceradar, :nats_certificate_grant_ttl_seconds, nats_certificate_grant_ttl
 
+# The file-based edge issuer key of releases before the key moved into CNPG. Core imports its
+# seed once, on the first boot that finds no stored key (ServiceRadar.Edge.IssuerKey), so
+# signatures made with it keep verifying. Never read again once a key is stored.
+config :serviceradar_core,
+       :edge_issuer_key_import_file,
+       System.get_env("SERVICERADAR_EDGE_ISSUER_KEY_FILE")
+
 # =============================================================================
 # Logger level override
 # =============================================================================
