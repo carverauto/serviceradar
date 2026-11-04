@@ -36,8 +36,8 @@ nothing reported that messages were expiring before delivery.
 - The consumer lag reporter polls every consumer's stream and reports
   `expired_before_delivery`: the stream sequences a durable lost because its delivered
   sequence trails the stream's first sequence while messages are pending for it. A
-  Prometheus rule alerts on it, and the reporter logs each durable's start and end of
-  loss once.
+  Prometheus rule alerts on it, and the reporter logs the start and end of loss once
+  per stream and durable.
 
 ## Impact
 - Affected specs: `observability-signals`

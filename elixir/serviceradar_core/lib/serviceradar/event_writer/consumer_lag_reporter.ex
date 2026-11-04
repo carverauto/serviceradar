@@ -11,8 +11,8 @@ defmodule ServiceRadar.EventWriter.ConsumerLagReporter do
 
   The stream's first sequence also shows a durable losing messages it never
   received (`ServiceRadar.EventWriter.Telemetry.expired_before_delivery/2`):
-  reported as `expired_before_delivery`, alerted on, and logged once when a
-  durable starts losing messages and once when it stops.
+  reported as `expired_before_delivery`, alerted on, and logged once per stream and
+  durable when it starts losing messages and once when it stops.
   """
 
   use GenServer

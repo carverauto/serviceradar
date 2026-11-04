@@ -33,7 +33,7 @@ A JetStream publish on the shared connection that the NATS broker denies for per
 - **THEN** the publish SHALL fail as a timeout and the record SHALL be retried with backoff
 
 ### Requirement: Messages expiring before delivery are reported
-The EventWriter lag reporter SHALL poll the stream of every configured consumer and SHALL report, per stream and durable, the stream sequences the durable lost before delivery: the gap between its delivered stream sequence and the stream's first retained sequence while messages are pending for it. Labels SHALL be limited to the stream, durable and subject class. A Prometheus rule SHALL alert while the value is above zero, and the reporter SHALL log once when a durable starts losing messages and once when it stops.
+The EventWriter lag reporter SHALL poll the stream of every configured consumer and SHALL report, per stream and durable, the stream sequences the durable lost before delivery: the gap between its delivered stream sequence and the stream's first retained sequence while messages are pending for it. Labels SHALL be limited to the stream, durable and subject class. A Prometheus rule SHALL alert while the value is above zero, and the reporter SHALL log once when a durable starts losing messages on a stream and once when it stops, keyed by stream and durable so consumers of different streams that share a durable name are tracked apart.
 
 #### Scenario: A durable stops being pulled
 - **WHEN** a durable's delivered stream sequence trails its stream's first sequence and messages are pending for it

@@ -38,6 +38,11 @@ holds records that are valid but could not be projected.
    NAKed and retried, and the next delivery tries the copy again. Nothing is
    dropped while the source stream still holds the record.
 
+A projector republish the NATS broker denied (`Permissions Violation for
+Publish`, surfaced as `ServiceRadar.NATS.PublishDeniedError`) is dead-lettered
+on its first delivery instead: no retry succeeds until core's NATS grant
+covers the subject. Fix the grant, then replay.
+
 | Header | Meaning |
 | --- | --- |
 | `Sr-Edge-Dlq-Source-Subject`, `-Source-Stream`, `-Source-Sequence` | where the record was delivered from |
@@ -74,7 +79,9 @@ or was removed by an operator. EventWriter acknowledges the source, logs
 - `ServiceRadarEdgeRecordDeadLetterFull` (critical): the dead-letter stream is
   above 80% of `MaxBytes`. When full it refuses new copies.
 
-For every record EventWriter logs one line naming both stream sequences:
+For every record EventWriter logs one line naming both stream sequences, at
+error level (at debug for a denied republish, whose broker denial is logged
+once per subject per 60-second hold as `NATS broker error on connection ...`):
 
 ```
 Edge record dead-lettered: source_stream=TELEMETRY_EDGE_RECORD_V1_BULK source_sequence=<seq> source_subject=<subject> dlq_subject=<subject> contract=<id>/<version> event_id=<uuid> agent_id=<agent> attempts=<n> reason=<class> reason_detail=<message> dlq_stream=TELEMETRY_EDGE_RECORD_DLQ_V1_BULK dlq_sequence=<seq>
