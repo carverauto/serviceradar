@@ -173,6 +173,12 @@ As defense in depth, an owner SHALL NOT move a group's last-seen time backward.
 - **THEN** it SHALL be counted in its bucket
 - **AND** the group's last-seen time SHALL remain t+120 s
 
+#### Scenario: A late earlier event does not roll an incident over
+- **GIVEN** a rule with a cooldown of 60 s and an incident opened by an event at t=120 s
+- **WHEN** a later-arriving event for the same group with event time t=0 is applied, followed by an event at t=130 s
+- **THEN** the event at t=130 s SHALL be applied to the same incident
+- **AND** no rollover SHALL occur and no new incident SHALL fire
+
 ### Requirement: Evaluation backpressure is lag and never loss
 Alert evaluation SHALL NOT lose a candidate or a signal's evaluation because of load, a slow owner, an unavailable store, a full stream or a stream move.
 Owners SHALL read with ordered consumers that need no acknowledgement and have no delivery limit. Publishers SHALL retry refused publishes in place, without NAK and without an attempt limit, while signalling progress on the source message. A full stream SHALL refuse new publishes rather than evict accepted messages, and consumed messages SHALL be removed only behind committed checkpoints.
