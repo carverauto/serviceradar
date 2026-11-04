@@ -289,7 +289,11 @@ transaction:
    that block's own messages the owner applied from that stream; cutover
    import records never advance it. `applied_count` is the block's
    evaluation position (D5) and `import_ordinal` the last cutover import
-   record it applied (Migration).
+   record it applied (Migration). During the cutover the same transaction
+   that records a block's final import checkpoint inserts that block's
+   switched row in `alert_cutover_progress` (block, cutover epoch,
+   `switched_at`), which records that the block no longer reads import
+   subjects.
 
 Writes scale with dirty groups, not total state. Rejected: a whole-partition
 state blob per checkpoint. Its write volume grows with total state rather
@@ -964,7 +968,9 @@ that evaluates through both designs.
       candidate routed after the marker names a revision the owner can load;
       lifecycle rows are routed against the current revision. Each block's
       initial checkpoint is on its live candidate stream at sequence 0.
-      Owners start for import: they consume `alerts.import.v1.b<b>.*` and
+      Owners start for import, except for a block whose switched row
+      exists, which never reopens an import consumer: they consume
+      `alerts.import.v1.b<b>.*` and
       their live subjects, which before the marker hold only D9 control
       messages because routers are held. Before applying each import
       record, an owner drains that block's D9 outbox: it publishes every
@@ -1008,10 +1014,15 @@ that evaluates through both designs.
       and purges the stream, every message of which the committed
       checkpoints now cover.
    3. After the final segment is committed, the task switches every owner:
-      each stops reading import subjects and continues on its live subjects
-      from its checkpointed live sequence, with `applied_count` and
-      `import_ordinal` unchanged, and the task waits until every block has
-      done so. Only then does it write the cutover marker: a completion row
+      each commits its block's switched row in the same transaction as its
+      final import checkpoint, then stops reading import subjects and
+      continues on its live subjects from its checkpointed live sequence,
+      with `applied_count` and `import_ordinal` unchanged. An owner that
+      starts for a switched block, after a restart or a lease takeover,
+      reads the row and goes straight to its live subjects. The task waits
+      until every block's switched row is committed and JetStream reports no
+      consumer bound to `ALERT_IMPORT_V1`. Only then does it write the
+      cutover marker: a completion row
       in `alert_cutover_progress`, distinct from the segment rows, which no
       segment commit sets, and not a stream message, so it takes no room in
       `ALERT_IMPORT_V1`. "The marker exists" means this row exists, and the
@@ -1027,9 +1038,9 @@ that evaluates through both designs.
    applied exactly once; live controls are re-read from the live
    checkpoint. The source tables are untouched until the marker. A rerun
    after the final segment is committed builds and publishes no segment: it
-   repeats step 3.3, switching every block that is still reading the import
-   subjects to its checkpointed live sequence, writes the marker if it is
-   absent once every block has switched, and deletes `ALERT_IMPORT_V1`.
+   repeats step 3.3 for every block without a switched row, writes the
+   marker if it is absent once every block's switched row is committed and
+   no import consumer is bound, and deletes `ALERT_IMPORT_V1`.
    Imported candidates carry the candidate id the router would compute, so a
    source message the old replicas admitted but did not acknowledge,
    redelivered and routed after the marker, is suppressed as a duplicate.
