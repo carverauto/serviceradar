@@ -106,7 +106,13 @@
   `bumblebee.proto`, and `k8s_endpoints.proto`, with checked-in Go and Elixir bindings.
   DONE (reconciled 2026-11-02): `MapperDeviceBatchV1`, `MapperInterfaceBatchV1`, `MapperTopologyBatchV1`, `MapperResultsBatchV1`, `NetprobeDiscoveryBatchV1` and `SyncPageBatchV1` in `proto/edge/v1/json_producer_batches.proto` (#6215), and `WorkloadIdentitySnapshotV1` in `proto/edge/v1/workload_identity.proto`, `EndpointInventoryScanPayloadV1` in `proto/edge/v1/endpoint_inventory.proto`, `BumblebeeScanPayloadV1` in `proto/edge/v1/bumblebee.proto` and `K8sPublicEndpointsSnapshotV1` in `proto/edge/v1/k8s_endpoints.proto` (#6215, #6221).
 - [ ] 7.2 Producers and projectors; parity soak.
-  TODO (reconciled 2026-11-02): remaining scope is the inventory agent producers, core projectors, and parity soak.
+  PARTIAL: mapper devices/interfaces/topology, netprobe discovery and sync pages now have
+  standing-grant contracts (`serviceradar.mapper.devices.batch`,
+  `serviceradar.mapper.interfaces.batch`, `serviceradar.mapper.topology.batch`,
+  `serviceradar.netprobe.discovery.batch`, `serviceradar.sync.page.batch`), agent producers on
+  the shared emitter, and core projectors that rebuild the legacy payloads into the same
+  ingestors. Remaining scope is the other inventory producers (workload identity, endpoint
+  inventory, bumblebee, k8s endpoints) and the parity soak.
 
 ## 8. Cutover
 

@@ -463,7 +463,9 @@ even if core has issued the grant.
 `edgeRecords.agentTelemetryEnabled` enables its plugin and native add-on
 telemetry producer on that spool.
 `edgeRecords.agentPluginResultsEnabled` enables its Wasm plugin results
-producer on that spool. Each of these flags requires
+producer on that spool. `edgeRecords.agentDiscoveryEnabled` enables its mapper
+and netprobe discovery producers on that spool. `edgeRecords.agentSyncEnabled`
+enables its integration sync page producer on that spool. Each of these flags requires
 `edgeRecords.enabled` and `agent.runtimeStorage.enabled=true`. The spool lives
 under that volume's base path and `edgeRecords.maxSpoolBytes` bounds it.
 Core's agent-scoped sweep lease settings select which agent receives signed
@@ -478,7 +480,15 @@ path until `contractRegistry` includes an active
 switch is on. With `agentPluginResultsEnabled` set, Wasm plugin results stay
 on the status path until `contractRegistry` includes an active
 `serviceradar.plugin_results.batch` version 1 contract and that agent's
-leasing switch is on. Results of sweep groups the agent runs from its own config,
+leasing switch is on. With `agentDiscoveryEnabled` set, mapper devices,
+interfaces, topology and netprobe discovery stay on the status path until
+`contractRegistry` includes active `serviceradar.mapper.devices.batch`,
+`serviceradar.mapper.interfaces.batch`, `serviceradar.mapper.topology.batch`
+and `serviceradar.netprobe.discovery.batch` version 1 contracts and that
+agent's leasing switch is on. With `agentSyncEnabled` set, integration sync
+pages stay on the status path until `contractRegistry` includes an active
+`serviceradar.sync.page.batch` version 1 contract and that agent's leasing
+switch is on. Results of sweep groups the agent runs from its own config,
 without a lease, move to edge records only when `contractRegistry` also
 includes an active `serviceradar.sweep.unleased_results` version 1 contract;
 each results response and its metric batch then take the edge path together,

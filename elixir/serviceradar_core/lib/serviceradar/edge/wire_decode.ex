@@ -15,16 +15,22 @@ defmodule ServiceRadar.Edge.WireDecode do
   `decode_execution_grant/1`, `decode_sweep_batch/1`, `decode_metric_batch/1`,
   `decode_unleased_sweep_batch/1`, `decode_telemetry_batch/1`,
   `decode_scheduled_mtr_batch/1`, `decode_plugin_result_batch/1`,
-  `decode_flow_attribution_batch/1`, and `decode_otlp_relay_frame/1` -- each bound to exactly one
+  `decode_flow_attribution_batch/1`, `decode_otlp_relay_frame/1`,
+  `decode_mapper_device_batch/1`, `decode_mapper_interface_batch/1`,
+  `decode_mapper_topology_batch/1`, `decode_netprobe_discovery_batch/1`, and
+  `decode_sync_page_batch/1` -- each bound to exactly one
   generated message module. The recovery, assignment, plan, and sweep-body stages EXTEND this
   set rather than standing up
   separate raw-bytes ingresses, so each gets the same bound-before-decode discipline and the same
   typed outcomes as the transport stages. The plan entries matter especially: protobuf-elixir ERASES
   an unknown GROUP, so plan wire hygiene is only observable on the raw path.
-  EIGHT STAGES ARE NOT PHYSICALLY BOUNDED AT 512 KiB: `decode_sweep_batch/1`,
+  THIRTEEN STAGES ARE NOT PHYSICALLY BOUNDED AT 512 KiB: `decode_sweep_batch/1`,
   `decode_metric_batch/1`, `decode_unleased_sweep_batch/1`, `decode_telemetry_batch/1`,
   `decode_scheduled_mtr_batch/1`, `decode_plugin_result_batch/1`,
-  `decode_flow_attribution_batch/1`, and `decode_otlp_relay_frame/1` run on
+  `decode_flow_attribution_batch/1`, `decode_otlp_relay_frame/1`,
+  `decode_mapper_device_batch/1`, `decode_mapper_interface_batch/1`,
+  `decode_mapper_topology_batch/1`, `decode_netprobe_discovery_batch/1`, and
+  `decode_sync_page_batch/1` run on
   ALREADY-EXTRACTED, uncompressed bytes, where a legitimately decompressed body may exceed
   the record's physical bound. It inherits the 32 MiB extracted-body work ceiling instead.
   See its own doc.
@@ -389,6 +395,47 @@ defmodule ServiceRadar.Edge.WireDecode do
   @spec decode_plugin_result_batch(term()) :: outcome()
   def decode_plugin_result_batch(bytes),
     do: run(Serviceradar.Edge.V1.WasmPluginResultBatchV1, @max_extracted_body_bytes, bytes)
+
+  @doc """
+  Decodes the ALREADY-EXTRACTED body of a `serviceradar.mapper.devices.batch` record as a
+  `MapperDeviceBatchV1`, under the same extracted-body work ceiling as `decode_sweep_batch/1`.
+  """
+  @spec decode_mapper_device_batch(term()) :: outcome()
+  def decode_mapper_device_batch(bytes),
+    do: run(Serviceradar.Edge.V1.MapperDeviceBatchV1, @max_extracted_body_bytes, bytes)
+
+  @doc """
+  Decodes the ALREADY-EXTRACTED body of a `serviceradar.mapper.interfaces.batch` record as a
+  `MapperInterfaceBatchV1`, under the same extracted-body work ceiling as `decode_sweep_batch/1`.
+  """
+  @spec decode_mapper_interface_batch(term()) :: outcome()
+  def decode_mapper_interface_batch(bytes),
+    do: run(Serviceradar.Edge.V1.MapperInterfaceBatchV1, @max_extracted_body_bytes, bytes)
+
+  @doc """
+  Decodes the ALREADY-EXTRACTED body of a `serviceradar.mapper.topology.batch` record as a
+  `MapperTopologyBatchV1`, under the same extracted-body work ceiling as `decode_sweep_batch/1`.
+  """
+  @spec decode_mapper_topology_batch(term()) :: outcome()
+  def decode_mapper_topology_batch(bytes),
+    do: run(Serviceradar.Edge.V1.MapperTopologyBatchV1, @max_extracted_body_bytes, bytes)
+
+  @doc """
+  Decodes the ALREADY-EXTRACTED body of a `serviceradar.netprobe.discovery.batch` record as a
+  `NetprobeDiscoveryBatchV1`, under the same extracted-body work ceiling as
+  `decode_sweep_batch/1`.
+  """
+  @spec decode_netprobe_discovery_batch(term()) :: outcome()
+  def decode_netprobe_discovery_batch(bytes),
+    do: run(Serviceradar.Edge.V1.NetprobeDiscoveryBatchV1, @max_extracted_body_bytes, bytes)
+
+  @doc """
+  Decodes the ALREADY-EXTRACTED body of a `serviceradar.sync.page.batch` record as a
+  `SyncPageBatchV1`, under the same extracted-body work ceiling as `decode_sweep_batch/1`.
+  """
+  @spec decode_sync_page_batch(term()) :: outcome()
+  def decode_sync_page_batch(bytes),
+    do: run(Serviceradar.Edge.V1.SyncPageBatchV1, @max_extracted_body_bytes, bytes)
 
   @doc """
   Decodes ONE raw `EdgeLossManifestPageV1` -- the recovery-page ingress stage.

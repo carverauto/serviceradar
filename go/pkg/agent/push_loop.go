@@ -162,7 +162,15 @@ type PushLoop struct {
 	// plugin results on their legacy status path.
 	edgePluginResultSpool edgeMetricsAppender
 	pluginResultsEdge     pluginResultEdgeQueue
-	edgeOutputGrants      edgeOutputGrants
+	// edgeDiscoverySpool is the same one open spool, connected for mapper
+	// and netprobe discovery while discovery emission is enabled; nil keeps
+	// discovery on its legacy status path.
+	edgeDiscoverySpool   edgeMetricsAppender
+	mapperDevicesEdge    discoveryEdgeQueue
+	mapperInterfacesEdge discoveryEdgeQueue
+	mapperTopologyEdge   discoveryEdgeQueue
+	netprobeEdge         discoveryEdgeQueue
+	edgeOutputGrants     edgeOutputGrants
 	// Each metric producer's bounded retry queue, oldest first. An entry is either
 	// an item no part of which the spool has admitted, or one built record of an
 	// item that already has a part in the spool.

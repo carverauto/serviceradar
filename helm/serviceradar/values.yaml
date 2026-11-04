@@ -1854,6 +1854,12 @@ agent:
 # as edge records once core grants it the serviceradar.plugin_results.batch
 # contract (registered in contractRegistry and the agent's leasing switch on);
 # without a grant it keeps the status path.
+# agentDiscoveryEnabled lets the in-cluster agent emit mapper and netprobe
+# discovery as edge records once core grants it the mapper and netprobe
+# discovery contracts; without a grant each family keeps the status path.
+# agentSyncEnabled lets the in-cluster agent emit integration sync pages as
+# edge records once core grants it the serviceradar.sync.page.batch contract;
+# without a grant sync pages keep the status path.
 edgeRecords:
   enabled: false
   contractRegistry: {}
@@ -1861,6 +1867,8 @@ edgeRecords:
   agentMetricsEnabled: false
   agentTelemetryEnabled: false
   agentPluginResultsEnabled: false
+  agentDiscoveryEnabled: false
+  agentSyncEnabled: false
   maxSpoolBytes: 1073741824
 
 agentGateway:

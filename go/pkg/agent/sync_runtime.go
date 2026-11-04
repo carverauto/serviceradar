@@ -34,6 +34,7 @@ const (
 var (
 	errSyncRuntimeNoContext      = errors.New("sync runtime requires context")
 	errUnsupportedSyncSourceType = errors.New("unsupported sync source type")
+	errSyncRunSplit              = errors.New("sync run already spooled pages; refusing to split it across paths")
 )
 
 // SyncRuntime executes integration sources delivered via GetConfig. It is
@@ -56,6 +57,18 @@ type SyncRuntime struct {
 	// runTimeout overrides the per-run deadline derived from the source's
 	// interval. Zero means derive it (see syncRunTimeout).
 	runTimeout time.Duration
+
+	// edgeSpool and edgeGrants connect sync pages to the durable
+	// edge-record pipeline while sync emission is enabled; a nil spool
+	// keeps sync pages on their legacy status path.
+	edgeSpool  edgeMetricsAppender
+	edgeGrants *edgeOutputGrants
+	// edgeRuns names the in-flight sync runs that have spooled at least
+	// one page; a run's entry lives until the run ends. A run never splits
+	// across paths: pages arrive in run order on one path or the run
+	// fails, so core never sees a legacy page overtake spooled pages of
+	// the same run.
+	edgeRuns sync.Map
 }
 
 const (
@@ -352,6 +365,8 @@ func (r *SyncRuntime) runSourceOnce(
 	_ string,
 	runID string,
 ) (int, error) {
+	defer r.edgeRuns.Delete(runID)
+
 	sourceType := syncsources.NormalizeType(runner.config.Type)
 	ctor, ok := r.drivers.Lookup(sourceType)
 	if !ok {
@@ -547,6 +562,14 @@ func (r *SyncRuntime) sendSyncUpdates(
 	runFinalPage bool,
 	population *syncsources.PopulationStats,
 ) (int, error) {
+	if capability := r.syncCapability(time.Now()); capability != nil {
+		return r.spoolSyncUpdates(ctx, updates, runner.config, runID,
+			runTotalDevices, baseChunkIndex, runFinalPage, population, capability)
+	}
+	if _, spooled := r.edgeRuns.Load(runID); spooled {
+		return 0, fmt.Errorf("%w: run %s", errSyncRunSplit, runID)
+	}
+
 	chunks, err := buildSyncResultsChunks(
 		updates,
 		runner.config,
