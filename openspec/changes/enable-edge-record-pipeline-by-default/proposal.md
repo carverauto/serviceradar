@@ -69,10 +69,11 @@ longer registers is withheld for good and caps the lane watermark.
   bundles until its capability horizon closes, then retires.
 - A record stamped with an installation-static (pre-derivation) epoch resolves
   as a counted permanent rejection, never as a withhold, so it cannot cap a lane.
-- Core generates its edge issuer key on first use and stores the seed in CNPG,
-  encrypted with AshCloak, following `ManagedCertificatePolicyKey`. The
-  `edge-issuer-seed` Secret key, its mount and `SERVICERADAR_EDGE_ISSUER_KEY_FILE`
-  are removed.
+- Core stores its edge issuer seed in CNPG, encrypted with AshCloak, following
+  `ManagedCertificatePolicyKey`. An upgrade imports the existing file seed once;
+  a fresh install generates one. The cutover release keeps the `edge-issuer-seed`
+  Secret key, its mount and `SERVICERADAR_EDGE_ISSUER_KEY_FILE` as the import
+  input, and the release after cutover removes them (design Decision 6).
 - Any condition that keeps an agent off the pipeline is visible on that agent:
   a partition with no row, a spool that cannot be opened, or no live gateway
   holding the active epoch. The `default` partition seed (#6270) gets a spec.
