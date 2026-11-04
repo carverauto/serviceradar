@@ -661,3 +661,14 @@ func TestEdgeSweepReturnsOtherAppendErrorsWithoutWaiting(t *testing.T) {
 	require.Zero(t, releases, "a non-admission append error keeps the slot claim")
 	require.Less(t, elapsed, sweepAdmissionInitialBackoff, "a non-admission append error must not enter the backoff")
 }
+
+func TestEdgeSweepIgnoresMtrModeWhenComparingPlannedModes(t *testing.T) {
+	require.True(t, sameSweepModes(
+		[]models.SweepMode{models.ModeICMP, models.ModeMTR},
+		[]models.SweepMode{models.ModeICMP},
+	))
+	require.False(t, sameSweepModes(
+		[]models.SweepMode{models.ModeMTR},
+		[]models.SweepMode{models.ModeICMP},
+	))
+}

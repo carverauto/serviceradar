@@ -13,7 +13,8 @@ defmodule ServiceRadar.SweepJobs.LeaseEligibility do
   group as one agent runs it (`agent_checks/3`): the modes and ports that agent's delivered
   sweep config carries for the group (`SweepCompiler.agent_scan_modes/3`, so profile as base,
   group overrides on top, and the modes the agent reports it cannot run withheld), which must
-  reduce to ICMP and TCP checks with no MTR. The lease carries those checks and the agent runs
+  reduce to at least one ICMP or TCP check (`mtr` is ignored here so reachability and port modes
+  run under the sweep lease). The lease carries those checks and the agent runs
   exactly them, so a mode it reports it cannot run must not be in them. An agent that can run
   none of the group's modes is not leased the group, as it is not sent the group at all. An
   agent reporting `tcp_syn_ipv6.unavailable` would run TCP SYN on an IPv6 range as a connect

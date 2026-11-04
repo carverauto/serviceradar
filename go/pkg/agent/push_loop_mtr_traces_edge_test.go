@@ -362,80 +362,167 @@ func TestMtrGrantsFourWayCutoffNoDoubleCounting(t *testing.T) {
 	}
 }
 
-func TestScheduledMtrRetryPreservesEventIDAndFallbackOnGrantRevocation(t *testing.T) {
-	t.Run("retryable spool refusal preserves built event_id across retries", func(t *testing.T) {
-		refusing := refusingEdgeSpool(t)
-		loop, gw, _ := sysmonEdgeLoop(t, refusing)
-		loop.mtrState = newMtrCheckerState()
-		loop.mtrState.runCheck = func(context.Context, *mtrCheckConfig) mtrCheckResult {
-			return syntheticMtrCheckResult()
+func TestScheduledMtrSpoolBackpressurePausesDueChecksAndPreservesEventIDs(t *testing.T) {
+	refusing := refusingEdgeSpool(t)
+	loop, gw, _ := sysmonEdgeLoop(t, refusing)
+	loop.mtrState = newMtrCheckerState()
+	runs := 0
+	loop.mtrState.runCheck = func(_ context.Context, cfg *mtrCheckConfig) mtrCheckResult {
+		runs++
+		res := syntheticMtrCheckResult()
+		res.CheckID = cfg.ID
+		res.CheckName = cfg.Name
+		res.Target = cfg.Target
+		return res
+	}
+	loop.mtrState.checks["mtr-check-01"] = &mtrCheckConfig{
+		ID:       "mtr-check-01",
+		Name:     "Synthetic Edge Core Link",
+		Target:   "target.example.com",
+		Enabled:  true,
+		Interval: time.Nanosecond,
+	}
+	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{
+		currentMetricsGrant(t),
+		currentScheduledMtrGrant(t),
+	}, time.Now())
+
+	require.False(t, loop.pushMtrResults(context.Background()))
+	require.Equal(t, 1, runs)
+	require.Zero(t, gw.statusesFrom("results"))
+	require.Zero(t, gw.statusesFrom("mtr-metrics"))
+	require.True(t, loop.mtrEdge.hasPending())
+	require.Len(t, loop.mtrEdge.traces, 1)
+	require.Len(t, loop.mtrEdge.metrics, 1)
+	preservedTraceEventID := append([]byte(nil), loop.mtrEdge.traces[0].record.GetEventId()...)
+	preservedMetricEventID := append([]byte(nil), loop.mtrEdge.metrics[0].record.GetEventId()...)
+
+	// While the pending batch is un-admitted, due checks are paused and nothing is
+	// dropped or sent over StreamStatus, even if grants lapse.
+	delete(loop.mtrState.lastRun, "mtr-check-01")
+	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, nil, time.Now())
+	require.False(t, loop.pushMtrResults(context.Background()))
+	require.Equal(t, 1, runs, "collectDueMtrResults must pause while a pending batch is held")
+	require.Zero(t, gw.statusesFrom("results"))
+	require.Zero(t, gw.statusesFrom("mtr-metrics"))
+	require.Zero(t, edgeDrops(loop, edgeProducerMTRTraces, edgeDropRetryBufferFull))
+	require.Zero(t, edgeDrops(loop, edgeProducerMTR, edgeDropRetryBufferFull))
+
+	// Switch to a roomy spool with no due checks; the held trace and metric records
+	// are admitted with their original event_ids and due checks can resume on later ticks.
+	loop.mtrState.lastRun["mtr-check-01"] = time.Now()
+	loop.mtrState.checks["mtr-check-01"].Interval = time.Hour
+	roomy := openTestEdgeSpool(t)
+	loop.SetEdgeMetricsSpool(roomy)
+
+	require.True(t, loop.pushMtrResults(context.Background()))
+	require.False(t, loop.mtrEdge.hasPending())
+	require.Equal(t, 1, runs)
+
+	stored, err := roomy.Unresolved()
+	require.NoError(t, err)
+	require.Len(t, stored, 2)
+	gotIDs := [][]byte{stored[0].EventID, stored[1].EventID}
+	require.Contains(t, gotIDs, preservedTraceEventID)
+	require.Contains(t, gotIDs, preservedMetricEventID)
+}
+
+func TestSweepGroupMtrEmitsScheduledTraceEdgeRecordsWithoutSweepLease(t *testing.T) {
+	sp := openTestEdgeSpool(t)
+	loop, gw, _ := sysmonEdgeLoop(t, sp)
+	loop.mtrState = newMtrCheckerState()
+	loop.mtrState.runCheck = func(_ context.Context, cfg *mtrCheckConfig) mtrCheckResult {
+		res := syntheticMtrCheckResult()
+		res.CheckID = cfg.ID
+		res.CheckName = cfg.Name
+		res.Target = cfg.Target
+		res.DeviceID = cfg.DeviceID
+		res.SweepGroupID = cfg.SweepGroupID
+		res.ExecutionSource = cfg.ExecutionSource
+		res.Trace.Target = cfg.Target
+		res.Trace.TargetIP = cfg.Target
+		return res
+	}
+	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{
+		currentMetricsGrant(t),
+		currentScheduledMtrGrant(t),
+	}, time.Now())
+
+	const groupID = "0197f8a0-0000-7000-8000-000000000042"
+	configJSON := []byte(`{
+		"sweep": {
+			"config_hash": "hash-mtr-1",
+			"groups": [
+				{
+					"id": "` + groupID + `",
+					"sweep_group_id": "` + groupID + `",
+					"name": "Synthetic Edge WAN Sweep",
+					"targets": ["192.0.2.10", "198.51.100.0/30"],
+					"modes": ["icmp", "mtr"],
+					"schedule": {"type": "interval", "interval": "5m"},
+					"settings": {"concurrency": 4, "timeout": "5s"},
+					"device_targets": [
+						{
+							"network": "192.0.2.20/32",
+							"sweep_modes": ["mtr"],
+							"metadata": {"device_id": "sr:0197f8a0-0000-7000-8000-000000000020"}
+						},
+						{
+							"network": "192.0.2.30/32",
+							"sweep_modes": ["icmp"],
+							"metadata": {"device_id": "sr:0197f8a0-0000-7000-8000-000000000030"}
+						}
+					]
+				}
+			]
 		}
-		loop.mtrState.checks["mtr-check-01"] = &mtrCheckConfig{
-			ID:       "mtr-check-01",
-			Name:     "Synthetic Edge Core Link",
-			Target:   "target.example.com",
-			Enabled:  true,
-			Interval: time.Hour,
+	}`)
+
+	loop.applySweepConfig(context.Background(), configJSON)
+	require.Len(t, loop.mtrState.sweepChecks, 4)
+
+	require.True(t, loop.pushMtrResults(context.Background()))
+	require.Zero(t, gw.statusesFrom("results"))
+	require.Zero(t, gw.statusesFrom("mtr-metrics"))
+
+	traceBatches, metricBatches := spooledMtrAndMetricBatches(t, sp)
+	require.Len(t, traceBatches, 1)
+	require.Len(t, metricBatches, 1)
+
+	traces := traceBatches[0].GetTraces()
+	require.Len(t, traces, 4)
+
+	targets := make([]string, 0, len(traces))
+	deviceByTarget := make(map[string]string, len(traces))
+	for _, entry := range traces {
+		require.Equal(t, groupID, uuidString(t, entry.GetSweepGroupId()))
+		require.Equal(t, edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_SCHEDULED_SWEEP, entry.GetExecutionSource())
+		require.Equal(t, "Synthetic Edge WAN Sweep", entry.GetCheckName())
+		targets = append(targets, entry.GetTrace().GetTarget())
+		deviceByTarget[entry.GetTrace().GetTarget()] = entry.GetDeviceId()
+	}
+	require.Equal(t, []string{"192.0.2.10", "192.0.2.20", "198.51.100.1", "198.51.100.2"}, targets)
+	require.Equal(t, "sr:0197f8a0-0000-7000-8000-000000000020", deviceByTarget["192.0.2.20"])
+	require.Empty(t, deviceByTarget["192.0.2.10"])
+
+	// Removing MTR from the sweep group clears the derived sweep MTR checks.
+	noMtrJSON := []byte(`{
+		"sweep": {
+			"config_hash": "hash-mtr-2",
+			"groups": [
+				{
+					"id": "` + groupID + `",
+					"sweep_group_id": "` + groupID + `",
+					"name": "Synthetic Edge WAN Sweep",
+					"targets": ["192.0.2.10"],
+					"modes": ["icmp"],
+					"schedule": {"type": "interval", "interval": "5m"}
+				}
+			]
 		}
-		loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{
-			currentMetricsGrant(t),
-			currentScheduledMtrGrant(t),
-		}, time.Now())
-
-		require.False(t, loop.pushMtrResults(context.Background()))
-		require.Zero(t, gw.statusesFrom("results"))
-		require.Len(t, loop.mtrTraceEdge.pending, 1)
-		require.Len(t, loop.mtrTraceEdge.pending[0].ready, 1)
-		preservedEventID := append([]byte(nil), loop.mtrTraceEdge.pending[0].ready[0].record.GetEventId()...)
-
-		// Switch to a roomy spool and push again with no new due checks; the queued trace
-		// record is admitted with its original event_id.
-		roomy := openTestEdgeSpool(t)
-		loop.SetEdgeMetricsSpool(roomy)
-		loop.mtrEdge.take()
-		loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{
-			currentScheduledMtrGrant(t),
-		}, time.Now())
-
-		require.True(t, loop.pushMtrResults(context.Background()))
-		require.Empty(t, loop.mtrTraceEdge.pending)
-		stored, err := roomy.Unresolved()
-		require.NoError(t, err)
-		require.Len(t, stored, 1)
-		require.Equal(t, preservedEventID, stored[0].EventID)
-	})
-
-	t.Run("revoked trace grant falls back to StreamStatus for un-admitted trace", func(t *testing.T) {
-		refusing := refusingEdgeSpool(t)
-		loop, gw, _ := sysmonEdgeLoop(t, refusing)
-		loop.mtrState = newMtrCheckerState()
-		loop.mtrState.runCheck = func(context.Context, *mtrCheckConfig) mtrCheckResult {
-			return syntheticMtrCheckResult()
-		}
-		loop.mtrState.checks["mtr-check-01"] = &mtrCheckConfig{
-			ID:       "mtr-check-01",
-			Name:     "Synthetic Edge Core Link",
-			Target:   "target.example.com",
-			Enabled:  true,
-			Interval: time.Hour,
-		}
-		loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{
-			currentMetricsGrant(t),
-			currentScheduledMtrGrant(t),
-		}, time.Now())
-
-		require.False(t, loop.pushMtrResults(context.Background()))
-		require.Len(t, loop.mtrTraceEdge.pending, 1)
-		require.Zero(t, gw.statusesFrom("results"))
-
-		// Revoke trace grant only: the un-admitted trace is taken back and sent via StreamStatus.
-		loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{
-			currentMetricsGrant(t),
-		}, time.Now())
-		require.True(t, loop.pushMtrResults(context.Background()))
-		require.Empty(t, loop.mtrTraceEdge.pending)
-		require.Equal(t, 1, gw.statusesFrom("results"))
-	})
+	}`)
+	loop.applySweepConfig(context.Background(), noMtrJSON)
+	require.Empty(t, loop.mtrState.sweepChecks)
 }
 
 // The encoder must keep the check's values. The validator, not a rewrite, is
