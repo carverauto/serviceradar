@@ -359,9 +359,9 @@ func TestRunningAgentStillDeliversWhenGrantRenewalIsUnavailable(t *testing.T) {
 			t.Fatalf("sequence %d carried a grant after renewal failed", frame.GetSequence())
 		}
 	}
-	if !bytes.Contains(logs.snapshot(), []byte("could not obtain delivery grants")) {
-		t.Fatalf("agent log did not report the renewal failure:\n%s", logs.snapshot())
-	}
+	// The sender logs the renewal failure when its run ends, which can be
+	// after the gateway has already received both frames.
+	waitForLog(t, logs, "could not obtain delivery grants", 25*time.Second)
 	t.Logf("renewal unavailable; requests=%d frames=%d still delivered", len(requests), len(frames))
 }
 

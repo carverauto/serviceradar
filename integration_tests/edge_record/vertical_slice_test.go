@@ -259,8 +259,6 @@ type harness struct {
 	coreProc *ReleaseProcess
 	agent    *AgentProcess
 
-	sp *spool.Spool
-
 	gatewayAddr       string
 	gatewayServerName string
 
@@ -469,13 +467,6 @@ func newHarness(t *testing.T) *harness {
 	}
 	t.Cleanup(agentProc.Stop)
 	h.agent = agentProc
-
-	sp, err := spool.Open(agentProc.SpoolDir)
-	if err != nil {
-		t.Fatalf("open agent spool: %v", err)
-	}
-	h.sp = sp
-	t.Cleanup(func() { _ = sp.Close() })
 
 	spoolID, err := waitForSpoolID(agentProc.SpoolDir, pollTimeout)
 	if err != nil {
@@ -690,7 +681,7 @@ func (h *harness) testGroupA(t *testing.T) {
 		t.Fatalf("event_ledger row already present before send (count=%d) -- fixture ids not fresh", n)
 	}
 
-	seq, err := h.sp.Append(fx.EventID, fx.RecordBytes)
+	seq, err := h.appendAgentSpool(fx.EventID, fx.RecordBytes)
 	if err != nil {
 		t.Fatalf("append fixture to real spool: %v", err)
 	}
@@ -1490,6 +1481,15 @@ func (h *harness) testGroupD(t *testing.T) {
 		if err := h.nats.DisableJetStream(); err != nil {
 			t.Fatalf("disable jetstream: %v", err)
 		}
+		// A failure before the explicit re-enable below must not leave the
+		// broker without JetStream for every later group.
+		defer func() {
+			if !h.nats.Server.JetStreamEnabled() {
+				if err := h.nats.EnableJetStream(); err != nil {
+					t.Errorf("re-enable jetstream after failed cut probe: %v", err)
+				}
+			}
+		}()
 		cutAt := h.agent.logOffset(t)
 
 		fx2, err := BuildSweepFixtureInScope(fx.NetworkScopeID, []byte(h.certSet.AgentComponentID))
@@ -1497,7 +1497,7 @@ func (h *harness) testGroupD(t *testing.T) {
 			t.Fatalf("build fixture: %v", err)
 		}
 		h.prepareFixture(t, fx2)
-		seq, err := h.sp.Append(fx2.EventID, fx2.RecordBytes)
+		seq, err := h.appendAgentSpool(fx2.EventID, fx2.RecordBytes)
 		if err != nil {
 			t.Fatalf("append: %v", err)
 		}
@@ -1709,7 +1709,7 @@ func (h *harness) testGroupD(t *testing.T) {
 		// The agent's runs that carried these entries ended in the earlier
 		// groups, and a drained spool logs no further runs, so read the whole
 		// log.
-		highest := h.sp.NextSequence() - 1
+		highest := h.agentSpoolHighWater(t)
 
 		// Negative control: NATSCutAfterSpoolCommit must have seen its entry
 		// stay on the read path while its ack was withheld. Without that, a
@@ -2106,6 +2106,34 @@ func (h *harness) requireJetStream(t *testing.T) {
 	if !h.nats.Server.JetStreamEnabled() {
 		t.Fatalf("JetStream is unavailable when %s runs -- NATSCutAfterSpoolCommit must re-enable it via NATSHarness.EnableJetStream; a missing JetStream must fail loudly, never skip", t.Name())
 	}
+}
+
+// appendAgentSpool appends one record to the running agent's spool through a
+// handle opened for this append alone. The agent's sender reclaims drained
+// segments under any long-lived handle, and the spool refuses writes through a
+// handle whose segment was reclaimed by another one.
+func (h *harness) appendAgentSpool(eventID, body []byte) (uint64, error) {
+	sp, err := spool.Open(h.agent.SpoolDir)
+	if err != nil {
+		return 0, fmt.Errorf("open agent spool: %w", err)
+	}
+	seq, appendErr := sp.Append(eventID, body)
+	if err := sp.Close(); err != nil && appendErr == nil {
+		return seq, fmt.Errorf("close agent spool: %w", err)
+	}
+	return seq, appendErr
+}
+
+// agentSpoolHighWater reopens the agent's spool and returns the highest
+// sequence ever appended to it, including reclaimed ones.
+func (h *harness) agentSpoolHighWater(t *testing.T) uint64 {
+	t.Helper()
+	sp, err := spool.Open(h.agent.SpoolDir)
+	if err != nil {
+		t.Fatalf("reopen spool: %v", err)
+	}
+	defer func() { _ = sp.Close() }()
+	return sp.NextSequence() - 1
 }
 
 // requireSpoolEntryUnreclaimed reopens the agent's spool and fails t unless
