@@ -546,7 +546,8 @@ The evaluator uses no wall clock. Time comes from event time or from the
 Findings and changes, keyed to `capacity.md` S1-S5 and S13:
 
 - **Source streams (S2).** Split the shared `events` stream by signal:
-  `LOGS_V1`, `EVENTS_V1`, `OTEL_V1`, and the existing `metrics`. Subjects
+  `LOGS_V1`, `EVENTS_V1`, `OTEL_V1`, and `METRICS_V1`, which replaces the
+  existing `metrics` stream. Subjects
   carry a block of the same 128-block layout, hashed from the source device
   or address (`logs.v1.b<b>.<source>`). Each signal has its own dynamic block
   map, with `telemetry_stream_count` per signal as a setting. The default is
@@ -711,8 +712,9 @@ Moving block b from stream A to stream B:
    its committed checkpoint for b (immediately when `cut_seq` is 0) does it
    start consuming b from B's first sequence. The checkpoint row records the
    switch (stream B, sequence 0), atomically with the last A position, and
-   keeps b's `applied_count` and `import_ordinal` unchanged.
-   Journal state `switched`.
+   keeps b's `applied_count` and `import_ordinal` unchanged; the same fenced
+   transaction sets the journal state `switched`, so a checkpoint that names
+   B never coexists with a journal still in `bound`.
 5. **Reclaim.** b's remaining messages in A, all at or below `cut_seq` and
    applied, are purged by b's subjects up to the journalled `cut_seq`. Only
    once A holds none of b's messages is the journal state `reclaimed` and the
@@ -911,9 +913,11 @@ that evaluates through both designs.
    the old telemetry streams are deleted (the telemetry replacements use the
    reservation those streams free, D10). A minimal segment is one import
    record at `candidate_inline_max_bytes` plus one segment-end marker per
-   block, each counted at its stored size as published (subject, headers,
-   import ordinal and framing included); step 3.2 bounds every import record
-   by that size. Only if `max_bytes` would be smaller
+   block at the maximum stored marker size, the size of a marker as
+   published (subject, headers and framing included) carrying the largest
+   import ordinal the encoding allows; step 3.2 bounds every import record
+   by `candidate_inline_max_bytes` and reserves markers at that same
+   maximum size. Only if `max_bytes` would be smaller
    than that does the step fail: the upgrade is refused before any pod is
    replaced, and the failure names the remaining reservation, the reserve
    and the bytes required. The stream is outside the profile carve, which
@@ -980,8 +984,8 @@ that evaluates through both designs.
       `import_ordinal`), so committed effects always match one persisted
       order.
       Each segment is built after the previous one is committed and purged.
-      It first reserves the encoded bytes of one segment-end marker per
-      block, then takes the next records in ordinal order while their
+      It first reserves one segment-end marker per block at the maximum
+      stored marker size used by the preflight, then takes the next records in ordinal order while their
       encoded bytes still fit in the import stream's free stored bytes (at
       most its `max_bytes`); the first record that does not fit waits for
       the next segment. The preflight minimum guarantees that at least one
@@ -1012,8 +1016,11 @@ that evaluates through both designs.
    skips what its checkpoint already includes, so every residual record is
    applied exactly once; live controls are re-read from the live
    checkpoint. The source tables are untouched until the marker. Once the
-   marker commit has succeeded, a rerun of the task only completes the
-   stream deletion and does nothing else.
+   marker commit has succeeded, a rerun of the task builds and publishes no
+   segment: it only completes step 3.3, switching every block that is still
+   reading the import subjects to its checkpointed live sequence and
+   starting routers, and deletes `ALERT_IMPORT_V1` only once every block
+   has stopped reading it.
    Imported candidates carry the candidate id the router would compute, so a
    source message the old replicas admitted but did not acknowledge,
    redelivered and routed after the marker, is suppressed as a duplicate.
