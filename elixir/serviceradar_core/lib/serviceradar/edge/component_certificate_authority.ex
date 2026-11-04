@@ -18,6 +18,7 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
   alias ServiceRadar.Edge.InfrastructureCertificateAdoption
   alias ServiceRadar.Edge.ManagedCertificatePolicyKey
   alias ServiceRadar.Edge.ManagedComponent
+  alias ServiceRadar.Edge.OutputGrants
   alias ServiceRadar.Edge.RevokedComponentCertificate
 
   require Ash.Query
@@ -162,7 +163,8 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
   def revoke_component(component_id, reason, opts \\ []) do
     fn ->
       with {:ok, component} <- lock_component(component_id, opts),
-           {:ok, _decision} <- record_revocation(component, nil, reason, opts) do
+           {:ok, _decision} <- record_revocation(component, nil, reason, opts),
+           :ok <- revoke_agent_grants(component) do
         component |> Ash.Changeset.for_update(:block, %{}, opts) |> Ash.update(opts)
       end
     end
@@ -197,13 +199,16 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
     fn ->
       with {:ok, component} <- lock_component(component_id, opts),
            {:ok, certificate} <- find_certificate(fingerprint, opts),
-           :ok <- certificate_owner(certificate, component.component_id) do
-        record_revocation(
-          %{component | generation: certificate.generation},
-          fingerprint,
-          reason,
-          opts
-        )
+           :ok <- certificate_owner(certificate, component.component_id),
+           {:ok, decision} <-
+             record_revocation(
+               %{component | generation: certificate.generation},
+               fingerprint,
+               reason,
+               opts
+             ),
+           :ok <- revoke_agent_grants(component) do
+        {:ok, decision}
       end
     end
     |> transaction()
@@ -516,6 +521,16 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
       error -> error
     end
   end
+
+  # An agent's standing edge output grants end with its certificate: revoking them moves their
+  # epochs, so the gateway fences the records signed before. A certificate retired because its
+  # successor was observed (`revoke_certificate/3` from the renewal lifecycle) is a renewal,
+  # not a revocation of the agent, and keeps them.
+  defp revoke_agent_grants(%ManagedComponent{component_type: "agent", component_id: agent_id}) do
+    with {:ok, _revoked} <- OutputGrants.revoke_agent(agent_id), do: :ok
+  end
+
+  defp revoke_agent_grants(_component), do: :ok
 
   defp certificate_owner(%{component_id: component_id}, component_id), do: :ok
   defp certificate_owner(_certificate, _component_id), do: {:error, :unknown_certificate}

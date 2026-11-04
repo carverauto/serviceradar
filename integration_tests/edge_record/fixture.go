@@ -418,8 +418,9 @@ func fixtureCapability(r *edgev1.EdgeRecordV1) *edgev1.EdgeSignedCapabilityV1 {
 	return capability
 }
 
-// The private seed is invented solely for this harness and supplied to core's
-// normal issuer-key file loader. The key id follows IssuerKey.key_id/1's wire identity.
+// The private seed is invented solely for this harness, which stores it as the
+// installation's edge issuer key through core right after core starts (seedIssuerKey). The key id follows
+// IssuerKey.key_id/1's wire identity.
 const fixtureIssuerID = "serviceradar-core"
 
 func fixtureIssuerSeed() []byte {

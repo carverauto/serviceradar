@@ -25,8 +25,7 @@ defmodule ServiceRadar.SweepJobs.LeasePassTest do
   test "a failed scope or settings read is not a decision to drop the lease" do
     now = ~U[2026-01-01 00:00:00Z]
     schedule = {:interval, 900}
-    on = {:ok, %{enabled?: true, horizon_seconds: 3_600}}
-    off = {:ok, %{enabled?: false, horizon_seconds: 3_600}}
+    settings = {:ok, %{horizon_seconds: 3_600, spool_max_bytes: 1_073_741_824}}
 
     assert :not_leased =
              LeasePass.classify_lease(
@@ -42,14 +41,12 @@ defmodule ServiceRadar.SweepJobs.LeasePassTest do
     assert {:failed, :unavailable} =
              LeasePass.classify_lease({:ok, "scope-1"}, {:error, :unavailable}, schedule, now)
 
-    assert :not_leased = LeasePass.classify_lease({:ok, "scope-1"}, off, schedule, now)
-
     assert {:leased, %{scope_id: "scope-1", slots: [_ | _]}} =
-             LeasePass.classify_lease({:ok, "scope-1"}, on, schedule, now)
+             LeasePass.classify_lease({:ok, "scope-1"}, settings, schedule, now)
 
     assert {:ok, cron} =
              LeaseSchedule.parse(%{schedule_type: :cron, cron_expression: "* * * * *"})
 
-    assert :not_leased = LeasePass.classify_lease({:ok, "scope-1"}, on, cron, now)
+    assert :not_leased = LeasePass.classify_lease({:ok, "scope-1"}, settings, cron, now)
   end
 end

@@ -453,10 +453,16 @@ message AgentConfigResponse {
 
   // Standing edge-record output grants: the core-signed authority under which the
   // agent may emit records of a passive output contract (one entry per contract).
-  // The agent emits that family only as edge records when its local metrics sender
-  // is enabled and it holds a current grant. Without a grant it keeps the legacy
-  // status path. An empty list withdraws every grant.
+  // The agent emits that family as edge records while it holds a current grant.
+  // An empty list withdraws every grant.
   repeated EdgeOutputGrant edge_output_grants = 15;
+
+  // The agent's edge-record spool byte budget, resolved by core from the edge
+  // pipeline settings (agent, then partition, then global, else 1 GiB). The agent
+  // applies it at spool admission: a budget below current usage blocks only new
+  // appends until the spool drains below it. Zero means the sender predates the
+  // setting, and the agent keeps the budget it runs with.
+  uint64 edge_spool_max_bytes = 16;
 }
 
 // EdgeOutputGrant is one standing output grant. `production_capability` is an

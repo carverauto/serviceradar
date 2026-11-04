@@ -184,7 +184,6 @@ func (c GatewayEnvConfig) Secrets() []string {
 // generation, created and described by //rust/integration-db binaries the
 // harness executes (vertical_slice_test.go's provisionAndDescribeShard).
 type CoreEnvConfig struct {
-	IssuerKeyFile        string
 	ContractRegistryJSON string
 	MetricsPort          int
 	CNPGHost             string
@@ -248,7 +247,6 @@ func (c CoreEnvConfig) Env() map[string]string {
 	env := map[string]string{
 		"CLUSTER_ENABLED":                            "false",
 		"SERVICERADAR_CORE_METRICS_PORT":             fmt.Sprintf("%d", c.MetricsPort),
-		"SERVICERADAR_EDGE_ISSUER_KEY_FILE":          c.IssuerKeyFile,
 		"SERVICERADAR_EDGE_RECORD_CONTRACT_REGISTRY": c.ContractRegistryJSON,
 		"CNPG_HOST":                    c.CNPGHost,
 		"CNPG_PORT":                    fmt.Sprintf("%d", c.CNPGPort),

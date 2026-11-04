@@ -12,6 +12,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.ConfigInstance
   alias ServiceRadar.Edge.AgentConfigGenerator
+  alias ServiceRadar.Edge.PipelineSetting
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Inventory.BumblebeeCatalogSnapshot
@@ -336,6 +337,33 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       # Only enabled check should be included
       assert length(config.checks) == 1
       assert hd(config.checks).name == "Enabled Check #{unique_id}"
+    end
+  end
+
+  describe "edge spool budget" do
+    test "the config carries the resolved budget, and changing it changes the version", %{
+      actor: actor,
+      agent_uid: agent_uid
+    } do
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
+
+      assert config.edge_spool_max_bytes == 1024 * 1024 * 1024
+
+      assert %Monitoring.AgentConfigResponse{edge_spool_max_bytes: 1_073_741_824} =
+               AgentConfigGenerator.to_proto_response(config)
+
+      PipelineSetting
+      |> Ash.Changeset.for_create(
+        :upsert,
+        %{scope: :agent, scope_key: agent_uid, spool_max_bytes: 256 * 1024 * 1024},
+        actor: actor
+      )
+      |> Ash.create!()
+
+      {:ok, lowered} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
+
+      assert lowered.edge_spool_max_bytes == 256 * 1024 * 1024
+      refute lowered.config_version == config.config_version
     end
   end
 

@@ -210,13 +210,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordWorkloadIdentityDbTest d
 
     frame = build_frame(ctx, snap, 1)
 
-    {:ok, _grant} =
-      OutputGrants.reconcile(
-        ctx.agent_id,
-        @workload_identity_contract,
-        ctx.partition.id,
-        false
-      )
+    assert {:ok, 1} = OutputGrants.revoke_agent(ctx.agent_id)
 
     assert {:error, :output_grant_not_current} =
              EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
@@ -268,12 +262,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordWorkloadIdentityDbTest d
 
   defp build_frame(ctx, %WorkloadIdentitySnapshotV1{} = snap, rows) do
     {:ok, grant} =
-      OutputGrants.reconcile(
-        ctx.agent_id,
-        @workload_identity_contract,
-        ctx.partition.id,
-        true
-      )
+      OutputGrants.reconcile(ctx.agent_id, @workload_identity_contract, ctx.partition.id)
 
     payload = WorkloadIdentitySnapshotV1.encode(snap)
     now = DateTime.utc_now()

@@ -440,6 +440,13 @@ geolite_dbs = base_geolite_dbs ++ city_geolite_dbs ++ ipinfo_dbs
 
 config :geolix, databases: ServiceRadar.Observability.GeoIP.present_databases(geolite_dbs)
 
+# The installation's edge-record contract registry document: the same JSON the agent gateway
+# reads from AGENT_GATEWAY_EDGE_RECORD_CONTRACT_REGISTRY. Core signs sweep lease capabilities
+# against its sweep contract entry (ServiceRadar.Edge.SweepContract).
+config :serviceradar_core,
+       :edge_record_contract_registry,
+       System.get_env("SERVICERADAR_EDGE_RECORD_CONTRACT_REGISTRY")
+
 config :serviceradar_core,
        :endpoint_inventory_native_addon_package,
        endpoint_inventory_addon_config
@@ -456,23 +463,6 @@ config :serviceradar_core,
   # AshCloak encryption key (required for PII encryption)
   geolite_mmdb_dir: geolite_dir,
   egress_proxy: ServiceRadar.HTTP.EgressProxy.from_env()
-
-# Core's edge-record issuer key (sweep schedule leases), as in serviceradar_core_elx's
-# runtime.exs. Optional: without it core issues no lease authority.
-case System.get_env("SERVICERADAR_EDGE_ISSUER_KEY_FILE") do
-  path when is_binary(path) and path != "" ->
-    config :serviceradar_core, edge_issuer_key: ServiceRadar.Edge.IssuerKey.load_file!(path)
-
-  _ ->
-    :ok
-end
-
-# The installation's edge-record contract registry document: the same JSON the agent gateway
-# reads from AGENT_GATEWAY_EDGE_RECORD_CONTRACT_REGISTRY. Core signs sweep lease capabilities
-# against its sweep contract entry (ServiceRadar.Edge.SweepContract).
-config :serviceradar_core,
-       :edge_record_contract_registry,
-       System.get_env("SERVICERADAR_EDGE_RECORD_CONTRACT_REGISTRY")
 
 if is_map(remote_access_ssh_certificate_policy) and
      map_size(remote_access_ssh_certificate_policy) > 0 do

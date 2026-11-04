@@ -1,6 +1,9 @@
 defmodule ServiceRadarWebNG.Edge.GatewayCertificateIssuerTest do
   use ServiceRadarWebNG.DataCase, async: false
 
+  import ServiceRadarWebNG.AshTestHelpers, only: [system_actor: 0]
+
+  alias ServiceRadar.Edge.OutputGrants
   alias ServiceRadarWebNG.Edge.GatewayCertificateIssuer
   alias ServiceRadarWebNG.TestSupport.PublishedMessages
 
@@ -191,9 +194,11 @@ defmodule ServiceRadarWebNG.Edge.GatewayCertificateIssuerTest do
     assert audit["actor"]["user"]["email_addr"] == "operator@example.test"
   end
 
-  test "revokes agent certificates on the selected gateway" do
+  test "revokes agent certificates on the selected gateway, and the agent's output grants" do
     gateway_id = "revoke-gateway-#{System.unique_integer([:positive])}"
     component_id = "agent-revoked-#{System.unique_integer([:positive])}"
+    {:ok, %{id: scope}} = ServiceRadar.Infrastructure.Partition.get_by_slug("default", actor: system_actor())
+    {:ok, grant} = OutputGrants.reconcile(component_id, "serviceradar.metrics.batch", scope)
 
     ServiceRadar.GatewayTracker.register(gateway_id, %{
       node: Node.self(),
@@ -216,5 +221,10 @@ defmodule ServiceRadarWebNG.Edge.GatewayCertificateIssuerTest do
     assert result.gateway_id == gateway_id
     assert result.component_id == component_id
     assert {^component_id, [reason: "compromised"]} = RevokeProbe.last_revoke()
+
+    assert {:ok, %{state: :revoked, authority_epoch: epoch}} =
+             OutputGrants.get(component_id, "serviceradar.metrics.batch")
+
+    assert epoch == grant.authority_epoch + 1
   end
 end

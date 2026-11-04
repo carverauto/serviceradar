@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNG.Edge.GatewayCertificateIssuer do
 
   alias ServiceRadar.Edge.CertificateIssuanceAudit
   alias ServiceRadar.Edge.CertificateLifetimePolicy
+  alias ServiceRadar.Edge.OutputGrants
   alias ServiceRadar.GatewayRegistry
   alias ServiceRadar.GatewayTracker
 
@@ -34,8 +35,23 @@ defmodule ServiceRadarWebNG.Edge.GatewayCertificateIssuer do
 
   def revoke_agent_certificate(gateway_id, component_id, opts) when is_binary(gateway_id) and is_binary(component_id) do
     with {:ok, node} <- lookup_gateway_node(gateway_id),
-         :ok <- rpc_revoke(node, component_id, opts) do
+         :ok <- rpc_revoke(node, component_id, opts),
+         :ok <- revoke_output_grants(component_id) do
       {:ok, %{gateway_id: gateway_id, component_id: component_id, revoked: true}}
+    end
+  end
+
+  # The agent's standing edge output grants end with its certificate: revoking them moves
+  # their epochs, so every gateway's next trust document fences the records signed before.
+  defp revoke_output_grants(agent_id) do
+    case OutputGrants.revoke_agent(agent_id) do
+      {:ok, _revoked} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("[GatewayCertificateIssuer] Revoking output grants of #{agent_id} failed: #{inspect(reason)}")
+
+        {:error, :output_grant_revocation_failed}
     end
   end
 

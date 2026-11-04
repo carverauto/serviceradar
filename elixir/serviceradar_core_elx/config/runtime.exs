@@ -165,16 +165,6 @@ if is_map(callback_deployment) do
     automation_launch_envelope_key_id: System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_ID", "current")
 end
 
-# Core's edge-record issuer key (sweep schedule leases). Optional: without it core issues no
-# lease authority. Loaded at boot so a loose or malformed key file fails the release early.
-case System.get_env("SERVICERADAR_EDGE_ISSUER_KEY_FILE") do
-  path when is_binary(path) and path != "" ->
-    config :serviceradar_core, edge_issuer_key: ServiceRadar.Edge.IssuerKey.load_file!(path)
-
-  _ ->
-    :ok
-end
-
 parse_int_env = fn env_name, default ->
   case System.get_env(env_name) do
     nil ->
@@ -1387,8 +1377,7 @@ if config_env() == :prod do
       # minute; each job runs the full pass when it is due and the incremental
       # pass otherwise. Kept in step with serviceradar_core's runtime.exs.
       {"* * * * *", ServiceRadar.CompositeChecks.TickWorker, queue: :monitoring},
-      # Keeps sweep schedule leases full and in step with their groups. Inert until
-      # an operator enables sweep leasing (sweep_lease_settings).
+      # Keeps sweep schedule leases full and in step with their groups and agents.
       {"*/5 * * * *", ServiceRadar.SweepJobs.LeasePassWorker, queue: :maintenance}
     ] ++
       object_store_retention_crontab ++

@@ -569,8 +569,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
     test "a record whose grant was revoked is refused and not published" do
       frame = build_metrics_frame()
 
-      {:ok, nil} =
-        OutputGrants.reconcile(frame.agent_id, @metrics_contract, frame.partition_id, false)
+      assert {:ok, 1} = OutputGrants.revoke_agent(frame.agent_id)
 
       assert {:error, :output_grant_not_current} =
                EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
@@ -796,8 +795,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
     test "a record whose grant was revoked is refused and routes nothing" do
       frame = build_telemetry_frame([metrics_telemetry_record()])
 
-      {:ok, nil} =
-        OutputGrants.reconcile(frame.agent_id, @telemetry_contract, frame.partition_id, false)
+      assert {:ok, 1} = OutputGrants.revoke_agent(frame.agent_id)
 
       assert {:error, :output_grant_not_current} =
                EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
@@ -1027,13 +1025,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
     test "a record whose grant was revoked is refused and ingests nothing" do
       frame = build_plugin_result_frame([plugin_result_item("synthetic-revoked-check")])
 
-      assert {:ok, _grant} =
-               OutputGrants.reconcile(
-                 frame.agent_id,
-                 @plugin_results_contract,
-                 frame.partition_id,
-                 false
-               )
+      assert {:ok, 1} = OutputGrants.revoke_agent(frame.agent_id)
 
       assert {:error, :output_grant_not_current} =
                EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
@@ -1108,13 +1100,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
     test "a record whose grant was revoked is refused and ingests nothing" do
       frame = build_unleased_sweep_frame()
 
-      {:ok, nil} =
-        OutputGrants.reconcile(
-          frame.agent_id,
-          @unleased_sweep_contract,
-          frame.partition_id,
-          false
-        )
+      assert {:ok, 1} = OutputGrants.revoke_agent(frame.agent_id)
 
       assert {:error, :output_grant_not_current} =
                EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo)
@@ -1436,13 +1422,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
     test "revoked grants, missing partitions, and malformed batch bounds are refused without publishing" do
       frame = build_flow_attribution_frame()
 
-      {:ok, nil} =
-        OutputGrants.reconcile(
-          frame.agent_id,
-          @flow_attribution_contract,
-          frame.partition_id,
-          false
-        )
+      assert {:ok, 1} = OutputGrants.revoke_agent(frame.agent_id)
 
       assert {:error, :output_grant_not_current} =
                EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo,
@@ -1722,13 +1702,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
       revoked_frame = build_otlp_relay_frame()
 
-      {:ok, nil} =
-        OutputGrants.reconcile(
-          revoked_frame.agent_id,
-          @otlp_relay_contract,
-          revoked_frame.partition_id,
-          false
-        )
+      assert {:ok, 1} = OutputGrants.revoke_agent(revoked_frame.agent_id)
 
       assert {:error, :output_grant_not_current} =
                EdgeRecord.ingest(revoked_frame.record_bytes, revoked_frame.headers, Repo,
@@ -1857,13 +1831,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
     test "a record whose grant was revoked is refused and ingests nothing" do
       frame = build_scheduled_mtr_frame(gateway_header: "gw-mtr-publish")
 
-      {:ok, nil} =
-        OutputGrants.reconcile(
-          frame.agent_id,
-          @scheduled_mtr_contract,
-          frame.partition_id,
-          false
-        )
+      assert {:ok, 1} = OutputGrants.revoke_agent(frame.agent_id)
 
       assert {:error, :output_grant_not_current} =
                EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo)
@@ -2079,7 +2047,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
     gateway_id = if gateway?, do: attach_gateway!(agent_id, actor)
 
     {:ok, grant} =
-      OutputGrants.reconcile(agent_id, @scheduled_mtr_contract, partition.id, true)
+      OutputGrants.reconcile(agent_id, @scheduled_mtr_contract, partition.id)
 
     key = IssuerKey.from_seed(:binary.copy(<<0x5A>>, 32))
     now = DateTime.utc_now()
@@ -2525,7 +2493,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       |> Ash.create!()
 
     {:ok, grant} =
-      OutputGrants.reconcile(agent_id, @unleased_sweep_contract, partition.id, true)
+      OutputGrants.reconcile(agent_id, @unleased_sweep_contract, partition.id)
 
     key = IssuerKey.from_seed(:binary.copy(<<0x5A>>, 32))
     now = DateTime.utc_now()
@@ -2741,7 +2709,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
     ensure_agent!(agent_id, partition, actor)
 
     {:ok, grant} =
-      OutputGrants.reconcile(agent_id, @flow_attribution_contract, partition.id, true)
+      OutputGrants.reconcile(agent_id, @flow_attribution_contract, partition.id)
 
     key = IssuerKey.from_seed(:binary.copy(<<0x5A>>, 32))
     now = DateTime.utc_now()
@@ -2860,7 +2828,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
     agent_id = "agent-#{System.unique_integer([:positive])}"
     ensure_agent!(agent_id, partition, actor)
 
-    {:ok, grant} = OutputGrants.reconcile(agent_id, @otlp_relay_contract, partition.id, true)
+    {:ok, grant} = OutputGrants.reconcile(agent_id, @otlp_relay_contract, partition.id)
     key = IssuerKey.from_seed(:binary.copy(<<0x5A>>, 32))
     now = DateTime.utc_now()
 
@@ -2989,7 +2957,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
     agent_id = "agent-#{System.unique_integer([:positive])}"
     ensure_agent!(agent_id, partition, actor)
 
-    {:ok, grant} = OutputGrants.reconcile(agent_id, @metrics_contract, partition.id, true)
+    {:ok, grant} = OutputGrants.reconcile(agent_id, @metrics_contract, partition.id)
     key = IssuerKey.from_seed(:binary.copy(<<0x5A>>, 32))
     now = DateTime.utc_now()
 
@@ -3100,7 +3068,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
     agent_id = "agent-#{System.unique_integer([:positive])}"
     ensure_agent!(agent_id, partition, actor)
 
-    {:ok, grant} = OutputGrants.reconcile(agent_id, @telemetry_contract, partition.id, true)
+    {:ok, grant} = OutputGrants.reconcile(agent_id, @telemetry_contract, partition.id)
 
     metadata =
       if Keyword.get(opts, :stamp, true) do
@@ -3240,7 +3208,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       ensure_agent!(agent_id, partition, SystemActor.system(:edge_record_test))
     end
 
-    {:ok, grant} = OutputGrants.reconcile(agent_id, @plugin_results_contract, partition.id, true)
+    {:ok, grant} = OutputGrants.reconcile(agent_id, @plugin_results_contract, partition.id)
 
     provenance =
       case Keyword.get(opts, :provenance, :default) do

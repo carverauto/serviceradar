@@ -99,13 +99,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDiscoveryDbTest do
           bytes_per_row: 16_384
         )
 
-      assert {:ok, _grant} =
-               OutputGrants.reconcile(
-                 frame.agent_id,
-                 @mapper_devices_contract,
-                 frame.partition_id,
-                 false
-               )
+      assert {:ok, 1} = OutputGrants.revoke_agent(frame.agent_id)
 
       assert {:error, :output_grant_not_current} =
                EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
@@ -467,7 +461,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDiscoveryDbTest do
       ensure_agent!(agent_id, partition, SystemActor.system(:edge_record_test))
     end
 
-    {:ok, grant} = OutputGrants.reconcile(agent_id, contract_id, partition.id, true)
+    {:ok, grant} = OutputGrants.reconcile(agent_id, contract_id, partition.id)
 
     batch = stamp_batch_agent(batch, agent_id, partition.slug)
     payload = encode_batch(batch)

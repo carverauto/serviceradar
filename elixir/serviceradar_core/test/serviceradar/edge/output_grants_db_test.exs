@@ -8,12 +8,13 @@ defmodule ServiceRadar.Edge.OutputGrantsDbTest do
   use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Edge.CapabilitySigning
+  alias ServiceRadar.Edge.ComponentCertificateAuthority
   alias ServiceRadar.Edge.IssuerKey
   alias ServiceRadar.Edge.OutputGrants
   alias ServiceRadar.Edge.RecordTrust
   alias Serviceradar.Edge.V1.EdgeSignedCapabilityV1
+  alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Infrastructure.Partition
-  alias ServiceRadar.SweepJobs.SweepLeaseSetting
 
   @moduletag :integration
   @contract "serviceradar.metrics.batch"
@@ -37,7 +38,7 @@ defmodule ServiceRadar.Edge.OutputGrantsDbTest do
   test "a missing or mismatched grant is refused and any other lookup failure is raised", ctx do
     scope = ctx.partition.id
 
-    assert {:ok, grant} = OutputGrants.reconcile(ctx.agent, @contract, scope, true)
+    assert {:ok, grant} = OutputGrants.reconcile(ctx.agent, @contract, scope)
 
     assert :ok ==
              OutputGrants.check_current(
@@ -80,27 +81,26 @@ defmodule ServiceRadar.Edge.OutputGrantsDbTest do
     other_scope = Ash.UUID.generate()
 
     assert {:ok, %{authority_epoch: 1, state: :active} = grant} =
-             OutputGrants.reconcile(ctx.agent, @contract, scope, true)
+             OutputGrants.reconcile(ctx.agent, @contract, scope)
 
     assert {:ok, %{id: id, authority_epoch: 1}} =
-             OutputGrants.reconcile(ctx.agent, @contract, scope, true)
+             OutputGrants.reconcile(ctx.agent, @contract, scope)
 
     assert id == grant.id
 
-    assert {:ok, nil} = OutputGrants.reconcile(ctx.agent, @contract, scope, false)
+    assert {:ok, 1} = OutputGrants.revoke_agent(ctx.agent)
     assert {:ok, %{state: :revoked, authority_epoch: 2}} = OutputGrants.get(ctx.agent, @contract)
-    assert {:ok, nil} = OutputGrants.reconcile(ctx.agent, @contract, scope, false)
+    assert {:ok, 0} = OutputGrants.revoke_agent(ctx.agent)
     assert {:ok, %{authority_epoch: 2}} = OutputGrants.get(ctx.agent, @contract)
 
     assert {:ok, %{id: ^id, state: :active, authority_epoch: 3}} =
-             OutputGrants.reconcile(ctx.agent, @contract, scope, true)
+             OutputGrants.reconcile(ctx.agent, @contract, scope)
 
     assert {:ok, %{id: ^id, authority_epoch: 4, network_scope_id: ^other_scope}} =
-             OutputGrants.reconcile(ctx.agent, @contract, other_scope, true)
+             OutputGrants.reconcile(ctx.agent, @contract, other_scope)
   end
 
-  test "an agent on the edge-record pipeline gets one grant, signed for the UTC day", ctx do
-    enable_leasing!(ctx)
+  test "an agent gets one grant per standing contract, signed for the UTC day", ctx do
     morning = ~U[2026-11-01 01:00:00Z]
     evening = ~U[2026-11-01 23:00:00Z]
 
@@ -133,9 +133,8 @@ defmodule ServiceRadar.Edge.OutputGrantsDbTest do
 
   test "an agent in the default partition gets a grant on an install that created no partition",
        ctx do
-    # Agents that report no partition report "default"; no test or operator created it here.
-    enable_leasing!(ctx)
-
+    # Agents that report no partition report "default"; no test or operator created it here,
+    # and no settings row exists.
     assert [_grant] =
              OutputGrants.config_grants(ctx.agent, "default", DateTime.utc_now(), authority(ctx))
 
@@ -145,20 +144,35 @@ defmodule ServiceRadar.Edge.OutputGrantsDbTest do
              OutputGrants.get(ctx.agent, @contract)
   end
 
-  test "an agent off the edge-record pipeline gets no grant, and turning it off revokes one",
-       ctx do
-    assert [] =
-             OutputGrants.config_grants(
-               ctx.agent,
-               ctx.partition.slug,
-               DateTime.utc_now(),
-               authority(ctx)
-             )
+  test "an agent whose partition has no row gets no grant, and core creates no partition", ctx do
+    slug = "missing-#{System.unique_integer([:positive])}"
 
+    assert [] = OutputGrants.config_grants(ctx.agent, slug, DateTime.utc_now(), authority(ctx))
     assert {:ok, nil} = OutputGrants.get(ctx.agent, @contract)
+    assert {:error, _} = Partition.get_by_slug(slug, actor: ctx.actor)
 
-    enable_leasing!(ctx)
+    # Once an operator creates the partition, the next config carries the grant.
+    Partition
+    |> Ash.Changeset.for_create(:create, %{name: slug, slug: slug}, actor: ctx.actor)
+    |> Ash.create!()
 
+    assert [_grant] =
+             OutputGrants.config_grants(ctx.agent, slug, DateTime.utc_now(), authority(ctx))
+  end
+
+  test "superseding an agent's identity revokes its grants, and its next config reissues them",
+       ctx do
+    agent = register_agent!(ctx)
+    {:ok, before} = OutputGrants.reconcile(ctx.agent, @contract, ctx.partition.id)
+
+    agent
+    |> Ash.Changeset.for_update(:supersede, %{superseded_by: "replacement-#{ctx.agent}"})
+    |> Ash.update!(actor: ctx.actor)
+
+    assert {:ok, %{state: :revoked} = revoked} = OutputGrants.get(ctx.agent, @contract)
+    assert revoked.authority_epoch == before.authority_epoch + 1
+
+    # A revived identity fetches its config again, which reactivates the grant under a new epoch.
     assert [_grant] =
              OutputGrants.config_grants(
                ctx.agent,
@@ -167,22 +181,30 @@ defmodule ServiceRadar.Edge.OutputGrantsDbTest do
                authority(ctx)
              )
 
-    set_leasing!(ctx, false)
+    assert {:ok, %{state: :active, authority_epoch: epoch}} =
+             OutputGrants.get(ctx.agent, @contract)
 
-    assert [] =
-             OutputGrants.config_grants(
-               ctx.agent,
-               ctx.partition.slug,
-               DateTime.utc_now(),
-               authority(ctx)
+    assert epoch == revoked.authority_epoch + 1
+  end
+
+  test "revoking a managed agent's certificate revokes its grants", ctx do
+    component = managed_agent!(ctx)
+    {:ok, before} = OutputGrants.reconcile(ctx.agent, @contract, ctx.partition.id)
+
+    assert {:ok, _component} =
+             ComponentCertificateAuthority.revoke_component(
+               component.component_id,
+               "operator-request",
+               actor: ctx.actor
              )
 
-    assert {:ok, %{state: :revoked}} = OutputGrants.get(ctx.agent, @contract)
+    assert {:ok, %{state: :revoked} = revoked} = OutputGrants.get(ctx.agent, @contract)
+    assert revoked.authority_epoch == before.authority_epoch + 1
   end
 
   test "the gateway trust document fences a grant and binds its agent to the grant's scope",
        ctx do
-    {:ok, grant} = OutputGrants.reconcile(ctx.agent, @contract, ctx.partition.id, true)
+    {:ok, grant} = OutputGrants.reconcile(ctx.agent, @contract, ctx.partition.id)
     encoded_grant = grant.id |> Ecto.UUID.dump!() |> Base.encode64()
     encoded_scope = ctx.partition.id |> Ecto.UUID.dump!() |> Base.encode64()
 
@@ -195,22 +217,33 @@ defmodule ServiceRadar.Edge.OutputGrantsDbTest do
     assert Enum.find(document["scopes"], &(&1["agent_id"] == ctx.agent)) ==
              %{"agent_id" => ctx.agent, "network_scope_ids" => [encoded_scope]}
 
-    {:ok, nil} = OutputGrants.reconcile(ctx.agent, @contract, ctx.partition.id, false)
+    {:ok, 1} = OutputGrants.revoke_agent(ctx.agent)
     assert {:ok, revoked} = RecordTrust.snapshot(ctx.key)
     fence = Enum.find(revoked["fences"], &(&1["producer_assignment_id"] == encoded_grant))
     assert fence["authority_epoch"] == 2
   end
 
-  defp enable_leasing!(ctx), do: set_leasing!(ctx, true)
+  defp register_agent!(ctx) do
+    Agent
+    |> Ash.Changeset.for_create(:register, %{uid: ctx.agent, name: ctx.agent})
+    |> Ash.create!(actor: ctx.actor)
+  end
 
-  defp set_leasing!(ctx, enabled?) do
-    SweepLeaseSetting
-    |> Ash.Changeset.for_create(
-      :upsert,
-      %{scope: :agent, scope_key: ctx.agent, leasing_enabled: enabled?},
-      actor: ctx.actor
-    )
-    |> Ash.create!()
+  defp managed_agent!(ctx) do
+    register_agent!(ctx)
+
+    {:ok, component} =
+      ComponentCertificateAuthority.enroll_component(
+        %{
+          component_id: ctx.agent,
+          component_type: "agent",
+          partition_id: ctx.partition.slug,
+          host_agent_id: ctx.agent
+        },
+        actor: ctx.actor
+      )
+
+    component
   end
 
   defp authority(ctx) do
