@@ -62,9 +62,11 @@
   immediately when none is active. Superseded-catalog nodes sign only under the
   active epoch's verified document, and never insert or claim a candidate or
   count toward readiness. Every node signs under the active epoch only entries
-  whose exact bundle digest its own catalog holds. Hold records whose bundle no
-  live core holds, unacknowledged and counted as awaiting roll-forward. Refresh `last_matched_at` from the coordinator while a
-  live core node matches the candidate, retire the candidate unactivated once it
+  whose exact bundle digest its own catalog holds. Project by compatibility: same
+  contract id and version, and the node's bundle introduced in the record's
+  bundle's epoch or later. Hold records no live core can project, unacknowledged
+  and counted as awaiting roll-forward. Refresh `last_matched_at` from the
+  coordinator while a live core node matches the candidate, retire the candidate unactivated once it
   is older than a full capability-lifetime window, and drop it from the trust
   document.
 - [ ] 1.5 Replace `ContractRegistryDocument.parse/1` from the environment with one
@@ -172,6 +174,8 @@ Load the `test-audit` skill before writing these.
   - a whole-fleet rollback after a contract version bump: no new signatures for
     the bumped entry, unchanged entries still signed, in-flight records held as
     awaiting roll-forward and drained after roll-forward;
+  - a forward upgrade that changes a bundle at the same contract version: the old
+    backlog projects on the new release and nothing awaits roll-forward;
   - a newer candidate retiring the older one unactivated, and roll-forward then
     rollback retiring the abandoned candidate after the capability-lifetime
     window, measured from `last_matched_at` across a coordinator failover, while

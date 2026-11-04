@@ -92,12 +92,16 @@ capabilities, leases, and delivery grants under the active epoch using that
 epoch's persisted, signature-verified document. Every core node SHALL sign under
 the active epoch only for contract entries whose exact bundle digest its own
 catalog holds; it SHALL give entries it does not hold no new signatures, and their
-existing grants SHALL run to expiry. A record in flight under a bundle that no
-live core node's catalog holds SHALL be held durably and SHALL NOT be dropped or
-rejected; it SHALL be counted, reported as awaiting roll-forward in pipeline
-status, and drained when a node holding that bundle returns. A superseded core
-node SHALL NOT sign under its own
-catalog, insert or claim a candidate, count toward activation readiness, or
+existing grants SHALL run to expiry. A core node SHALL be able to project a
+record when its catalog holds an entry with the record's contract id and contract
+version whose bundle was introduced in the same epoch as the record's bundle or a
+later one, where a bundle's introducing epoch is the lowest-numbered epoch whose
+document lists its digest. A record that no live core node can project SHALL be
+held durably and SHALL NOT be acknowledged, dropped or rejected; it SHALL be
+counted, reported as awaiting roll-forward in pipeline status, and drained when a
+node that can project it returns. No record SHALL be acknowledged, dropped or
+rejected because of a bundle digest mismatch alone. A superseded core node SHALL
+NOT sign under its own catalog, insert or claim a candidate, count toward activation readiness, or
 change the active epoch. The one exception is a core node whose digest matches
 only an epoch retired without activation while no candidate exists: it SHALL
 insert its catalog as a new candidate under a new epoch number. A core node SHALL
@@ -131,7 +135,7 @@ exists, core SHALL activate the first candidate immediately.
 - **AND** entries whose bundle digest is unchanged keep being signed under 1_000_002
 - **AND** in-flight records under the bumped bundle are held durably, counted and
   reported as awaiting roll-forward, never dropped or rejected
-- **AND** they drain once a core node holding the bumped bundle returns
+- **AND** they drain once a core node that can project them returns
 
 #### Scenario: A rollback past a superseded candidate keeps signing
 - **GIVEN** epoch 1_000_000 is active
@@ -208,7 +212,10 @@ SHALL name the candidate epoch and each component that does not yet hold it.
 The agent gateway SHALL hold every non-retired epoch it receives from core, and
 SHALL admit a record against the entry of the epoch the record names. It SHALL NOT
 admit a record against the entry of the current epoch instead. EventWriter SHALL
-validate and project a draining-epoch record with that epoch's entry. Core SHALL
+validate a draining-epoch record with that epoch's entry and SHALL project it on
+any core node that can project it under the projection rule of "Registry epochs
+are persisted and only move forward". A delivery grant for a draining-epoch
+backlog record SHALL be issued while the epoch drains. Core SHALL
 compute a draining epoch's retirement time at activation. That time SHALL be no
 earlier than the longest lifetime of any production capability core could have
 signed under it, plus the maximum delivery-grant lifetime. Core SHALL retire the
@@ -221,6 +228,16 @@ permanent rejection, `registry_epoch_retired`. It SHALL NOT be withheld.
 - **WHEN** the agent reconnects before 1_000_000 retires
 - **THEN** the gateway admits those records under 1_000_000's entry
 - **AND** EventWriter projects them
+- **AND** the lane watermark advances
+
+#### Scenario: A forward upgrade changes a bundle at the same contract version
+- **GIVEN** epoch 1_000_000 is active and agents spooled records for contract X
+  under its bundle
+- **AND** a new release changes X's bundle without bumping its contract version
+- **WHEN** every core node runs the new release and epoch 1_000_001 activates
+- **THEN** the backlog under 1_000_000's X bundle is admitted and projected by the
+  new release's nodes, because their X bundle was introduced in a later epoch
+- **AND** none of it is reported as awaiting roll-forward
 - **AND** the lane watermark advances
 
 #### Scenario: A record arrives after its epoch retired

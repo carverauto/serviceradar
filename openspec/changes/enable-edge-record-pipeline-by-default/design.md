@@ -234,19 +234,27 @@ retired unactivated. An epoch is retired unactivated when it is `retired` with n
   document, exactly as a candidate-release node does (Decision 5 step 1), subject
   to the per-entry signing rule below. It never signs under its own catalog,
   never inserts or claims a candidate, and never counts toward activation
-  readiness. It still projects records for epochs whose contracts its catalog
-  holds. A downgrade therefore never moves the active epoch backward.
+  readiness. It projects records under the projection rule below. A downgrade
+  therefore never moves the active epoch backward.
 - **Per-entry signing rule.** Every core node, whatever its catalog, signs a
   grant, lease or delivery grant under the active epoch only for contract entries
   whose exact bundle digest its own catalog holds, so a node never authorizes
   production of records it cannot project. Entries it does not hold get no new
   signatures from that node. Their existing grants run to expiry, and producers
-  back-pressure as they do without a grant.
-- **Records no live core can project.** A record already in flight under a bundle
-  that no live core node's catalog holds is held durably: EventWriter leaves it
-  unacknowledged and never drops or rejects it. It is counted and reported as
-  `awaiting roll-forward` in pipeline status, and it drains when a node holding
-  that bundle returns.
+  back-pressure as they do without a grant. Signing is keyed on the exact bundle;
+  projection is not.
+- **Projection rule.** A core node can project a record when its catalog holds
+  an entry with the record's `contract_id` and `contract_version`, and the node's
+  bundle for that contract was introduced in the same epoch as the record's
+  bundle or a later one. A bundle's introducing epoch is the lowest-numbered
+  epoch whose document lists its digest. This is the direction Decision 2's
+  compatibility rule guarantees: a new projector reads old bundles of the same
+  version, and an old projector is never assumed to read a newer one.
+- **Records no live core can project.** A record that no live core node can
+  project under the projection rule is held durably: EventWriter leaves it
+  unacknowledged. It is counted and reported as `awaiting roll-forward` in
+  pipeline status, and it drains when a node that can project it returns. No
+  record is acknowledged, dropped or rejected because of a digest mismatch alone.
 - **Redeploying an abandoned catalog.** The one exception: a node whose digest
   matches only an epoch retired unactivated, while no candidate exists, inserts
   its catalog as a new candidate under a new epoch number, so redeploying a
@@ -283,8 +291,8 @@ transition:
    it in the next trust document alongside active `n`. Core keeps signing under
    `n`, using `n`'s persisted document rather than its own catalog, so its
    signatures match what it advertises. It signs only entries whose exact bundle
-   digest its catalog holds (Decision 4, per-entry signing rule). Readiness is only ever evaluated for the
-   one candidate.
+   digest its catalog holds (Decision 4, per-entry signing rule). Readiness is
+   only ever evaluated for the one candidate.
 2. **Readiness.** Activation requires two facts, read fresh on each evaluation:
    - Every live core node reports the candidate digest as its catalog digest.
      A live core node is a connected node running the core application.
@@ -307,9 +315,12 @@ transition:
      contract and format are sticky per producer run").
 4. **Draining.** The gateway holds `n` and admits a record under it against
    `n`'s exact entry. This replaces today's rule, which looked the record up in
-   the current snapshot. EventWriter validates and projects it with `n`'s entry.
-   Core issues no new production capability under `n`. A delivery grant for an
-   `n` backlog record is still issued while `n` drains.
+   the current snapshot. EventWriter validates it with `n`'s entry and projects
+   it on a node that can project it (Decision 4, projection rule). After a
+   forward upgrade that changed a bundle at the same `contract_version`, every
+   node on the new release qualifies, so the backlog drains normally. Core issues
+   no new production capability under `n`. A delivery grant for an `n` backlog
+   record is still issued while `n` drains, by a node that can project it.
 5. **Retirement.** At `drain_until`, `n` moves to `retired`.
    - `drain_until` is `activated_at(n+1)` plus the longest lifetime of any
      capability core could have signed under `n`. That is the larger of the
