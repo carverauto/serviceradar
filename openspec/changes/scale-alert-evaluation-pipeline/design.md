@@ -268,9 +268,11 @@ transaction:
 
 1. upserts the dirty groups into `stateful_alert_rule_states`, which gains a
    `virtual_partition` column, and deletes evicted ones;
-2. inserts the closed dedupe slices (D6), upserts the ids of the open slice
-   so every id the checkpoint covers is durable, and deletes slices older
-   than the horizon, except that slices holding ids applied from the cutover import
+2. upserts every dedupe slice (D6) that gained ids since the last
+   checkpoint, open or closed, as one row per (block, slice), so every id
+   the checkpoint covers is durable and a slice written while open is
+   rewritten in place when it closes, and deletes slices older than the
+   horizon, except that slices holding ids applied from the cutover import
    are kept until one horizon after the cutover marker;
 3. advances `alert_block_checkpoints(block, stream, seq, epoch,
    applied_count, import_ordinal)` for the blocks that moved. A block's `seq`
@@ -479,10 +481,13 @@ through the DurablePublish outbox in the transaction that made the change:
   computed from the incident rule and group key in its metadata, carrying
   the alert's resulting status, `suppressed_until` and `snooze_until`. The
   group records them, each later action replacing the earlier one. As
-  today, a resolved or suppressed incident (`operator_terminal`) is not
-  renotified and does not re-fire until the group recovers, and renotify is
-  held while a suppress or snooze deadline is after the candidate's event
-  time, so a passed deadline or a later action releases it.
+  today, a resolved incident (`operator_terminal`) does not re-fire until
+  the group recovers, and renotify follows today's rule with event time in
+  place of `now`: it is sent only while the recorded status is pending or
+  escalated and neither recorded deadline is after the candidate's event
+  time. A passed snooze or suppress deadline therefore releases the hold
+  without waiting for recovery, and a later action that changes the status
+  or a deadline takes effect at once.
 - **Stale-anomaly maintenance:** `resolve_stale_anomalies/4` stores the
   live-series key set in CNPG as an immutable snapshot, kept until every
   block's committed checkpoint `applied_count` reaches the `applied_count`
@@ -754,7 +759,7 @@ either way. Owner rebalancing after adding a node is always automatic.
 | Lifecycle signals | `lifecycle_pending_admissions` FIFO per series | block order plus in-place publish retry |
 | Metric conditions | violation tag, then counting | violation increment stamped at the router; counting unchanged |
 | Rule edit | captured revision per work row | revision per candidate; immutable revisions |
-| Rule disable or delete | durable cancellation of pending work | ordered marker; later candidates dropped and counted |
+| Rule disable or delete | durable cancellation of pending work | ordered marker; later candidates at the disabled revision or older (any revision on delete) dropped and counted |
 | Synthetic liveness check | awaits the persisted alert | unchanged (publishes through the router) |
 | Notification routing | routing job in the owner transaction | same, unique by fire key |
 | Fired OCSF event publication | DurablePublish outbox | unchanged, with a deterministic event id |
@@ -935,7 +940,10 @@ that evaluates through both designs.
       completion (D9). The record is then applied in a transaction that
       locks the block's checkpoint row and, under that lock, checks for a
       pending D9 entry of the block; if one exists it rolls the record back,
-      drains again and retries. A D9 control write during the import takes
+      drains again and retries. With the pending set empty, and without
+      releasing the lock, it applies every live control stored for the
+      block above its checkpoint (an entry its job already published and
+      completed) in the same transaction, then commits the record. A D9 control write during the import takes
       a share lock on the checkpoint rows of the blocks it addresses in its
       own transaction. A disable, resolve or maintenance marker whose
       transaction committed before the record's commit therefore takes
