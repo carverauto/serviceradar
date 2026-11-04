@@ -5,7 +5,6 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-
 // A valid ci instance, the baseline every mutation starts from.
 func validCI() *configpb.EnvironmentConfig {
 	str := func(s string) *string { return &s }
