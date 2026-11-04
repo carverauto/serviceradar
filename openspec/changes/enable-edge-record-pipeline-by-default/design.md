@@ -137,7 +137,9 @@ disagree with it. The registry therefore becomes a function of the catalog:
   - `contract_id` and `contract_version`;
   - the authority kind and `package_id` (presence-marked);
   - `route_profile`, `traffic_class` and `partition_rule`;
-  - `cost_model_version`, `max_projected_rows` and `write_bytes_per_row`;
+  - `cost_model_version`, `max_projected_rows` and `write_bytes_per_row`, then
+    `max_projected_write_bytes` (presence-marked: only a contract with its own
+    projected write ceiling carries it), so every per-record bound is covered;
   - the payload message's full protobuf name;
   - the payload schema fingerprint;
   - `projection_revision`.
@@ -154,9 +156,14 @@ disagree with it. The registry therefore becomes a function of the catalog:
   also bumped by hand when projection semantics change without a wire or bound
   change. That one hand-maintained value is reviewed code, not deployment data.
 - **Snapshot digest.** `registry_snapshot_sha256` is SHA-256 over the domain tag
-  `serviceradar.edge.contract_registry.v1`, digest version 1, and the
-  `(contract_id, contract_version, contract_bundle_sha256)` triples sorted by
-  `(contract_id, contract_version)`.
+  `serviceradar.edge.contract_registry.v1`, digest version 1, the triple count
+  (u64), and the `(contract_id, contract_version, contract_bundle_sha256)`
+  triples sorted by `(contract_id, contract_version)`.
+- **Schema fingerprint framing.** Domain tag `serviceradar.edge.payload_schema.v1`,
+  version 1, the message count, then per message its full name, field count and
+  fields; a field is its number, name, type (`message`, `enum` or the scalar
+  name), label (`singular`, `optional`, `required` or `repeated`) and the
+  presence-marked full name of a message or enum type.
 - **What the digests omit.** The digests exclude the epoch number and every
   lifecycle state. Two installs, and every replica of one install, on the same
   release therefore compute the same snapshot digest.
@@ -184,7 +191,10 @@ Rejected: comments and refactors would move the digest and force needless epochs
   holds a format version (2) and every non-retired epoch: its number, state,
   snapshot digest, contract entries in the parser's existing entry shape extended
   with each entry's `projection_revision`, and the epoch's signature and signing
-  key id (Decision 12). The gateway rebuilds the signed preimage, including each
+  key id (Decision 12). An entry carries no per-entry `state`: lifecycle is per
+  epoch. The encoding and the verifier both gateways and core use are
+  `ServiceRadar.Edge.ContractRegistryEpochDocument` (`to_trust/1`, `from_trust/1`,
+  `verify/2`). The gateway rebuilds the signed preimage, including each
   `projection_revision`, from these entries. The gateway verifies every
   epoch signature before it installs anything from the registry member, and it
   installs trust and the verified registry from the same core read. The member

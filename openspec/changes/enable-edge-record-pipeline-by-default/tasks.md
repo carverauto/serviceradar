@@ -5,7 +5,7 @@
 - [x] 0.1 Get product-owner answers to the open questions and record them in
   design.md ("Resolved Questions", 2026-11-03).
 - [ ] 0.2 Sign registry epochs (design Decision 12):
-  - [ ] 0.2.1 Implement the epoch signing preimage in `HashGrammar` framing. It
+  - [x] 0.2.1 Implement the epoch signing preimage in `HashGrammar` framing. It
     covers the domain tag `serviceradar.edge.contract_registry_epoch.v1`, the
     format version, the epoch number, the snapshot digest, and each contract
     sorted by `(contract_id, contract_version)`: its id, version, bundle digest,
@@ -17,7 +17,9 @@
     and any cached copy before use. On failure it excludes the epoch, signs
     nothing under it, and reports `registry_epoch_signature_invalid` in pipeline
     status. A bad active epoch stops all new signing.
-  - [ ] 0.2.3 Carry the signature and key id per epoch, and `projection_revision`
+    (Done except the pipeline-status report, which lands with 1.8: the reader
+    returns the refused rows with that reason and logs them at error.)
+  - [x] 0.2.3 Carry the signature and key id per epoch, and `projection_revision`
     on every contract entry, in the trust document's `contract_registry` member.
   - [ ] 0.2.4 Gateway verification: verify every epoch against the issuer public
     key its key id names before installing the registry member, and re-verify any
@@ -36,6 +38,9 @@
     - a gateway refusing a bad document while keeping its previous registry;
     - a fresh gateway with only a bad document withholding as
       `registry_unavailable`.
+
+    (Core vectors done: `contract_registry_epoch_document_test.exs` and
+    `contract_registry_db_test.exs`. The two gateway cases land with 0.2.4.)
 - [x] 0.3 Re-scope `add-edge-contract-registry-lifecycle` tasks 1.1, 1.5, 1.6 and
   1.7 to what remains after this change (cost API, security revocation, Hello
   advertisement). Amend its lifecycle requirement: no `ready` state, readiness
@@ -45,45 +50,57 @@
 
 ## 1. Core: registry derivation and epochs
 
-- [ ] 1.1 Add `projection_revision` and the payload message module to every
+- [x] 1.1 Add `projection_revision` and the payload message module to every
   `ContractCatalog` entry. Implement the bundle digest and the snapshot digest
   in `HashGrammar` framing (design Decision 2). Verify the generated protobuf
   modules expose enough of the message definition for the schema fingerprint.
   If they do not, generate the descriptors rather than hashing source text.
-- [ ] 1.2 Add the golden digest test for the current catalog, with an
+- [x] 1.2 Add the golden digest test for the current catalog, with an
   append-only `(projection_revision, digest)` history per contract id and
   version that fails on a change without a bump, a decreasing revision, or a
   repeated digest. Put the projector row-output tests next to it.
-- [ ] 1.3 Add `platform.edge_contract_registry_epochs` (Decision 4) as an Ash
+  (`test/serviceradar/edge/contract_bundle_golden_test.exs` and
+  `test/fixtures/edge/contract_bundle_history_v1.json`, beside
+  `projection_rows_test.exs`.)
+- [x] 1.3 Add `platform.edge_contract_registry_epochs` (Decision 4) as an Ash
   resource with a migration, and add it to `SchemaBootstrap` and the baseline.
   Enforce one `active` row, one `candidate` row and a unique digest among rows not
   retired unactivated with partial unique indexes, and insert-only documents.
   Include a durable `last_matched_at` column.
   Number epochs from 1_000_000.
-- [ ] 1.4 Insert the candidate on boot, idempotently by digest, retiring any older
-  candidate unactivated in the same transaction. Activate the first epoch
-  immediately when none is active. Superseded-catalog nodes sign only under the
-  active epoch's verified document, and never insert or claim a candidate or
-  count toward readiness. Every node signs under the active epoch only entries
-  whose exact bundle digest its own catalog holds; delivery grants for
-  draining-epoch backlog follow the projection rule instead. Project by
-  compatibility: same contract id and version, and the node's
-  `projection_revision` at least the record's bundle revision. For a bundle no
-  live core can project: revoke its grants and leases, publish the projectable
-  bundle set with the trust document, and move bulk-stream records to
-  `TELEMETRY_EDGE_RECORD_DLQ_V1_BULK` under `awaiting_roll_forward` with their
-  original bytes, redriving them through the ledger on roll-forward. When the
-  full dead-letter stream refuses a copy, acknowledge the bulk delivery (never
-  NAK), count the loss once per record (by `Sr-Edge-Delivery-Id`) per contract
-  and bundle as `awaiting_roll_forward_overflow`, and raise a managed alert. Refresh `last_matched_at` from the
-  coordinator while a live core node matches the candidate, retire the candidate unactivated once it
-  is older than a full capability-lifetime window, and drop it from the trust
-  document.
+  (Migration `20261104130000`. The table needs no bootstrap rows, and a fresh
+  install applies the migration on top of the committed baseline, so neither
+  `SchemaBootstrap` nor the baseline changes. A trigger refuses content updates
+  and backward state moves.)
+- [ ] 1.4 Epoch insertion, signing and projection rules (Decision 4):
+  - [x] Insert the candidate on boot, idempotently by digest, retiring any older
+    candidate unactivated in the same transaction. Activate the first epoch
+    immediately when none is active. Superseded-catalog nodes never insert or
+    claim a candidate.
+  - [x] Every node signs under the active epoch's verified document, and only
+    the entries whose exact bundle digest its own catalog holds.
+  - [ ] Delivery grants for draining-epoch backlog follow the projection rule
+    instead.
+  - [ ] Project by compatibility: same contract id and version, and the node's
+    `projection_revision` at least the record's bundle revision.
+  - [ ] For a bundle no live core can project: revoke its grants and leases,
+    publish the projectable bundle set with the trust document, and move
+    bulk-stream records to `TELEMETRY_EDGE_RECORD_DLQ_V1_BULK` under
+    `awaiting_roll_forward` with their original bytes, redriving them through
+    the ledger on roll-forward. When the full dead-letter stream refuses a copy,
+    acknowledge the bulk delivery (never NAK), count the loss once per record
+    (by `Sr-Edge-Delivery-Id`) per contract and bundle as
+    `awaiting_roll_forward_overflow`, and raise a managed alert.
+  - [ ] Refresh `last_matched_at` from the coordinator while a live core node
+    matches the candidate, retire the candidate unactivated once it is older
+    than a full capability-lifetime window, and drop it from the trust
+    document. Superseded nodes never count toward readiness.
 - [ ] 1.5 Replace `ContractRegistryDocument.parse/1` from the environment with one
   cached epoch reader. `OutputContract.current/1` reads the active epoch, and
   validation and projection read the record's own epoch. Delete the
   `SERVICERADAR_EDGE_RECORD_CONTRACT_REGISTRY` reads in both core `runtime.exs`
-  files.
+  files. (Done except validation and projection by the record's own epoch,
+  which lands with the projection rule in 1.4.)
 - [ ] 1.6 Run the transition in the coordinator (Decision 5): candidate readiness
   from live core nodes and live gateways, atomic activation, agent config
   invalidation, grant re-signing, and superseding plus re-leasing of unstarted
@@ -132,7 +149,7 @@
   - [ ] `spool_unavailable` (needs the agent report of 4.3).
   - [ ] `no_live_gateway_on_active_epoch` (needs the epochs of 1.3 and the gateway
     installed-digest report of 2.6 and 3.4).
-- [ ] 2.6 Extend `RecordTrust.snapshot/0` with the `contract_registry` member
+- [x] 2.6 Extend `RecordTrust.snapshot/0` with the `contract_registry` member
   (format 2, every non-retired epoch), and accept the gateway's
   installed-digest report on the refresh call.
 

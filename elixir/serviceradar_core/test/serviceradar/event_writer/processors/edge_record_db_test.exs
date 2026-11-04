@@ -23,6 +23,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
   alias Serviceradar.Agent.Addon.V1.TelemetrySource
   alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEvent
   alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEventBatch
+  alias ServiceRadar.Edge.ContractBundle
   alias ServiceRadar.Edge.ContractCatalog
   alias ServiceRadar.Edge.HashGrammar
   alias ServiceRadar.Edge.IssuerKey
@@ -1214,42 +1215,20 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       assert {@flow_attribution_contract, 1} in refs
       assert {@otlp_relay_contract, 1} in refs
 
-      document =
-        Jason.encode!(%{
-          "registry_epoch" => 1,
-          "registry_snapshot_sha256" => String.duplicate("cd", 32),
-          "contracts" => [
-            %{
-              "contract_id" => @flow_attribution_contract,
-              "contract_version" => 1,
-              "contract_bundle_sha256" => String.duplicate("ab", 32),
-              "state" => "active",
-              "route_profile" => "EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1",
-              "traffic_class" => "EDGE_RECORD_TRAFFIC_CLASS_BULK",
-              "partition_rule" => "network_scope_v1",
-              "cost_model_version" => 1
-            },
-            %{
-              "contract_id" => @otlp_relay_contract,
-              "contract_version" => 1,
-              "contract_bundle_sha256" => String.duplicate("ef", 32),
-              "state" => "active",
-              "route_profile" => "EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1",
-              "traffic_class" => "EDGE_RECORD_TRAFFIC_CLASS_BULK",
-              "partition_rule" => "network_scope_v1",
-              "cost_model_version" => 1
-            }
-          ]
-        })
+      epoch = %{
+        epoch: 1_000_001,
+        snapshot_sha256: :binary.copy(<<0xCD>>, 32),
+        contracts: ContractBundle.local().contracts
+      }
 
       assert {:ok, flow_contract} =
-               OutputContract.from_document(document, {@flow_attribution_contract, 1})
+               OutputContract.from_epoch(epoch, {@flow_attribution_contract, 1})
+
+      assert {:ok, otlp_contract} =
+               OutputContract.from_epoch(epoch, {@otlp_relay_contract, 1})
 
       assert flow_contract.max_projected_row_count == 4_096
       assert flow_contract.max_projected_write_bytes == 4_096 * 983_029
-
-      assert {:ok, otlp_contract} =
-               OutputContract.from_document(document, {@otlp_relay_contract, 1})
 
       assert otlp_contract.max_projected_row_count == 1_024
       assert otlp_contract.max_projected_write_bytes == 524_288

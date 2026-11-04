@@ -1,16 +1,24 @@
 defmodule ServiceRadar.Edge.ContractCatalog do
   @moduledoc """
   Core's knowledge of each output contract it can sign and project: the authority model, the
-  per-record bounds, the projector and, for a standing grant, the package identity its records
-  name.
+  route, the per-record bounds, the payload message, the projector and, for a standing grant,
+  the package identity its records name.
 
-  The installation's registry document (`ServiceRadar.Edge.ContractRegistryDocument`) decides
-  which contracts are active; this catalog decides what core does with an active one. Adding a
-  contract is one entry here plus its projector module, and a projector module is needed only
-  when the contract's destination is new.
+  The catalog is the release's contract registry. `ServiceRadar.Edge.ContractBundle` derives
+  each contract's bundle digest, and the registry snapshot digest, from these entries alone, and
+  `ServiceRadar.Edge.ContractRegistry` records them as a signed registry epoch. Adding a contract
+  is one entry here plus its projector module, and a projector module is needed only when the
+  contract's destination is new.
 
     * `:sweep_lease` contracts are signed per lease by the sweep lease machinery.
     * `:standing_grant` contracts are issued per agent by `ServiceRadar.Edge.OutputGrants`.
+
+  `projection_revision` is strictly monotonic per `(contract_id, contract_version)`. Any change
+  to an entry at the same `contract_version`, including a revert to earlier values, and any
+  change to how its records project, MUST bump it. The golden test
+  (`test/serviceradar/edge/contract_bundle_golden_test.exs`) fails until the bump and the new
+  digest are recorded. A change projectors cannot read alongside the old bundle MUST bump
+  `contract_version` instead.
   """
 
   alias ServiceRadar.Edge.MetricsBatchProjection
@@ -32,6 +40,12 @@ defmodule ServiceRadar.Edge.ContractCatalog do
   @type entry :: %{
           required(:ref) => ref(),
           required(:authority) => :sweep_lease | :standing_grant,
+          required(:payload) => module(),
+          required(:projection_revision) => pos_integer(),
+          required(:route_profile) => atom(),
+          required(:traffic_class) => atom(),
+          required(:partition_rule) => atom(),
+          required(:cost_model_version) => pos_integer(),
           required(:projector) => module(),
           required(:max_projected_rows) => pos_integer(),
           required(:write_bytes_per_row) => pos_integer(),
@@ -39,9 +53,20 @@ defmodule ServiceRadar.Edge.ContractCatalog do
           optional(:package_id) => String.t()
         }
 
+  # Every contract this release registers rides the durable bulk lane, partitioned by network
+  # scope, under cost model 1.
+  @durable_bulk %{
+    route_profile: :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
+    traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_BULK,
+    partition_rule: :network_scope_v1,
+    cost_model_version: 1
+  }
+
   @entries [
     %{
       ref: {"serviceradar.sweep.observation", 1},
+      payload: Serviceradar.Edge.V1.SweepObservationBatchV1,
+      projection_revision: 1,
       authority: :sweep_lease,
       projector: SweepObservation,
       max_projected_rows: 10_000,
@@ -49,6 +74,8 @@ defmodule ServiceRadar.Edge.ContractCatalog do
     },
     %{
       ref: {"serviceradar.metrics.batch", 1},
+      payload: Serviceradar.Metric.V1.MetricBatch,
+      projection_revision: 1,
       authority: :standing_grant,
       projector: MetricsBatchProjection,
       max_projected_rows: 10_000,
@@ -57,6 +84,8 @@ defmodule ServiceRadar.Edge.ContractCatalog do
     },
     %{
       ref: {"serviceradar.sweep.unleased_results", 1},
+      payload: Serviceradar.Edge.V1.UnleasedSweepResultsBatchV1,
+      projection_revision: 1,
       authority: :standing_grant,
       projector: UnleasedSweepResults,
       max_projected_rows: 10_000,
@@ -65,6 +94,8 @@ defmodule ServiceRadar.Edge.ContractCatalog do
     },
     %{
       ref: {"serviceradar.telemetry.batch", 1},
+      payload: Serviceradar.Agent.Addon.V1.TelemetryBatch,
+      projection_revision: 1,
       authority: :standing_grant,
       projector: TelemetryBatch,
       max_projected_rows: 10_000,
@@ -73,6 +104,8 @@ defmodule ServiceRadar.Edge.ContractCatalog do
     },
     %{
       ref: {"serviceradar.mtr.scheduled_trace", 1},
+      payload: Serviceradar.Edge.V1.AgentScheduledMtrTraceBatchV1,
+      projection_revision: 1,
       authority: :standing_grant,
       projector: ScheduledMtrTrace,
       max_projected_rows: 1_000,
@@ -81,6 +114,8 @@ defmodule ServiceRadar.Edge.ContractCatalog do
     },
     %{
       ref: {"serviceradar.netprobe.flow_attribution", 1},
+      payload: Serviceradar.Agent.Netprobe.V1.FlowAttributionEventBatch,
+      projection_revision: 1,
       authority: :standing_grant,
       projector: FlowAttribution,
       max_projected_rows: 4_096,
@@ -89,6 +124,8 @@ defmodule ServiceRadar.Edge.ContractCatalog do
     },
     %{
       ref: {"serviceradar.otlp.relay", 1},
+      payload: Serviceradar.Agent.Addon.V1.OtlpRelayFrame,
+      projection_revision: 1,
       authority: :standing_grant,
       projector: OtlpRelay,
       max_projected_rows: 1_024,
@@ -98,6 +135,8 @@ defmodule ServiceRadar.Edge.ContractCatalog do
     },
     %{
       ref: {"serviceradar.plugin_results.batch", 1},
+      payload: Serviceradar.Edge.V1.WasmPluginResultBatchV1,
+      projection_revision: 1,
       authority: :standing_grant,
       projector: WasmPluginResult,
       max_projected_rows: 10_000,
@@ -106,6 +145,8 @@ defmodule ServiceRadar.Edge.ContractCatalog do
     },
     %{
       ref: {"serviceradar.mapper.devices.batch", 1},
+      payload: Serviceradar.Edge.V1.MapperDeviceBatchV1,
+      projection_revision: 1,
       authority: :standing_grant,
       projector: MapperDevices,
       max_projected_rows: 10_000,
@@ -114,6 +155,8 @@ defmodule ServiceRadar.Edge.ContractCatalog do
     },
     %{
       ref: {"serviceradar.mapper.interfaces.batch", 1},
+      payload: Serviceradar.Edge.V1.MapperInterfaceBatchV1,
+      projection_revision: 1,
       authority: :standing_grant,
       projector: MapperInterfaces,
       max_projected_rows: 10_000,
@@ -122,6 +165,8 @@ defmodule ServiceRadar.Edge.ContractCatalog do
     },
     %{
       ref: {"serviceradar.mapper.topology.batch", 1},
+      payload: Serviceradar.Edge.V1.MapperTopologyBatchV1,
+      projection_revision: 1,
       authority: :standing_grant,
       projector: MapperTopology,
       max_projected_rows: 10_000,
@@ -130,6 +175,8 @@ defmodule ServiceRadar.Edge.ContractCatalog do
     },
     %{
       ref: {"serviceradar.netprobe.discovery.batch", 1},
+      payload: Serviceradar.Edge.V1.NetprobeDiscoveryBatchV1,
+      projection_revision: 1,
       authority: :standing_grant,
       projector: NetprobeDiscovery,
       max_projected_rows: 10_000,
@@ -138,6 +185,8 @@ defmodule ServiceRadar.Edge.ContractCatalog do
     },
     %{
       ref: {"serviceradar.sync.page.batch", 1},
+      payload: Serviceradar.Edge.V1.SyncPageBatchV1,
+      projection_revision: 1,
       authority: :standing_grant,
       projector: SyncPage,
       max_projected_rows: 10_000,
@@ -146,6 +195,8 @@ defmodule ServiceRadar.Edge.ContractCatalog do
     },
     %{
       ref: {"serviceradar.workload_identity.snapshot", 1},
+      payload: Serviceradar.Edge.V1.WorkloadIdentitySnapshotV1,
+      projection_revision: 1,
       authority: :standing_grant,
       projector: WorkloadIdentity,
       max_projected_rows: 10_000,
@@ -154,7 +205,12 @@ defmodule ServiceRadar.Edge.ContractCatalog do
     }
   ]
 
+  @entries Enum.map(@entries, &Map.merge(@durable_bulk, &1))
   @by_ref Map.new(@entries, &{&1.ref, &1})
+
+  @doc "Every catalog entry, in catalog order."
+  @spec entries() :: [entry()]
+  def entries, do: @entries
 
   @doc "The catalog entry of a contract."
   @spec fetch(ref()) :: {:ok, entry()} | :error

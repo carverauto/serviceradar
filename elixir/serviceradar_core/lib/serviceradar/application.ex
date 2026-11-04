@@ -189,6 +189,10 @@ defmodule ServiceRadar.Application do
         # Cluster infrastructure (only if clustering is enabled)
         cluster_children(),
 
+        # Records this release's edge contract registry epoch and owns the
+        # node's verified-registry cache. Core nodes only.
+        contract_registry_node_child(),
+
         # EventWriter workers on every core replica, bound to the shared
         # JetStream durables. Started before the coordinator tree, whose
         # pipeline uses the node-local caches this tree owns.
@@ -573,6 +577,14 @@ defmodule ServiceRadar.Application do
 
     if enabled and ServiceRadar.SPIFFE.certs_available?() do
       ServiceRadar.SPIFFE.CertMonitor
+    end
+  end
+
+  # A live core node is one that can hold the coordinator; only those record and
+  # sign under contract registry epochs.
+  defp contract_registry_node_child do
+    if repo_enabled?() and Application.get_env(:serviceradar_core, :cluster_coordinator, false) do
+      ServiceRadar.Edge.ContractRegistryNode
     end
   end
 

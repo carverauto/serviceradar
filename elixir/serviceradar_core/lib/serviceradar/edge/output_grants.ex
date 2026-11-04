@@ -6,9 +6,10 @@ defmodule ServiceRadar.Edge.OutputGrants do
   A producer the agent schedules from its own config has no execution core schedules, so
   instead of a lease it emits under a standing production capability. Core issues grants
   for every `:standing_grant` contract in `ServiceRadar.Edge.ContractCatalog`. The pipeline
-  has no switch: an agent holds a grant for such a contract whenever the contract is active in
-  the installation's registry, the same document the gateway admits records against
-  (`ServiceRadar.Edge.OutputContract.current/1`), and the agent's partition has a row.
+  has no switch: an agent holds a grant for such a contract whenever the contract is in the
+  active registry epoch, the epoch the gateway admits records under, and this node's catalog
+  holds its exact bundle (`ServiceRadar.Edge.OutputContract.current/1`), and the agent's
+  partition has a row.
 
   `revoke_agent/1` revokes every grant of an agent whose identity is superseded or whose
   certificate is revoked. Revoking moves a grant's epoch, so the gateway refuses records signed
@@ -51,8 +52,9 @@ defmodule ServiceRadar.Edge.OutputGrants do
 
   @doc """
   The issuer key and the standing-grant contracts to sign, or why core issues no grants: the
-  issuer key cannot be read. A catalog contract the registry does not hold, or holds but not
-  active, is left out; a registry that cannot be read leaves every contract out.
+  issuer key cannot be read. A catalog contract the active registry epoch does not hold, or
+  holds under a bundle this node's catalog does not, is left out; with no verified active epoch
+  every contract is left out.
   """
   @spec authority() :: {:ok, authority()} | {:error, term()}
   def authority do

@@ -1,0 +1,135 @@
+{
+  "contracts": [
+    {
+      "contract_id": "serviceradar.mapper.devices.batch",
+      "contract_version": 1,
+      "history": [
+        {
+          "contract_bundle_sha256": "18e46cbccf590fdf4a9c57c59ec3410dab739ebffb265857975427200d82e82e",
+          "projection_revision": 1
+        }
+      ]
+    },
+    {
+      "contract_id": "serviceradar.mapper.interfaces.batch",
+      "contract_version": 1,
+      "history": [
+        {
+          "contract_bundle_sha256": "142611356562be1bfeb2c897578e747803bec373cfeb6865c9646c3738f07c5e",
+          "projection_revision": 1
+        }
+      ]
+    },
+    {
+      "contract_id": "serviceradar.mapper.topology.batch",
+      "contract_version": 1,
+      "history": [
+        {
+          "contract_bundle_sha256": "fbf8f167d5093657a52f0412747ae259467ccea63aac9e66d349063cd9a56aa6",
+          "projection_revision": 1
+        }
+      ]
+    },
+    {
+      "contract_id": "serviceradar.metrics.batch",
+      "contract_version": 1,
+      "history": [
+        {
+          "contract_bundle_sha256": "de1c006ee2cbf21ff95b5e109d63df4d01b4d9b6edc687886f3f50b97ee1bb97",
+          "projection_revision": 1
+        }
+      ]
+    },
+    {
+      "contract_id": "serviceradar.mtr.scheduled_trace",
+      "contract_version": 1,
+      "history": [
+        {
+          "contract_bundle_sha256": "d2573445c5b872538f2fde74560f6f20d08540f7abaf8f6c4da481ca3ab2328d",
+          "projection_revision": 1
+        }
+      ]
+    },
+    {
+      "contract_id": "serviceradar.netprobe.discovery.batch",
+      "contract_version": 1,
+      "history": [
+        {
+          "contract_bundle_sha256": "c2dafb100f6b0de5f589986da75362c778bdc14879f4a5a5aad6b80a7e708b3c",
+          "projection_revision": 1
+        }
+      ]
+    },
+    {
+      "contract_id": "serviceradar.netprobe.flow_attribution",
+      "contract_version": 1,
+      "history": [
+        {
+          "contract_bundle_sha256": "a15bc1df45bd585502738e6af4d7134ac5fd75560366ac38dc91df1b206899d9",
+          "projection_revision": 1
+        }
+      ]
+    },
+    {
+      "contract_id": "serviceradar.otlp.relay",
+      "contract_version": 1,
+      "history": [
+        {
+          "contract_bundle_sha256": "dadc958284c73ccee5112c8488e82a3c3a55e4983c9b95a84f1d174e07757209",
+          "projection_revision": 1
+        }
+      ]
+    },
+    {
+      "contract_id": "serviceradar.plugin_results.batch",
+      "contract_version": 1,
+      "history": [
+        {
+          "contract_bundle_sha256": "96b74685403f5ad0715f6218025a851e76a335b9e2365beb8feae8bb1b6a45f9",
+          "projection_revision": 1
+        }
+      ]
+    },
+    {
+      "contract_id": "serviceradar.sweep.observation",
+      "contract_version": 1,
+      "history": [
+        {
+          "contract_bundle_sha256": "41fc7fe7b51c14ac1ec1563b3108c1ab98279f568a2b4aab13641782425893a2",
+          "projection_revision": 1
+        }
+      ]
+    },
+    {
+      "contract_id": "serviceradar.sweep.unleased_results",
+      "contract_version": 1,
+      "history": [
+        {
+          "contract_bundle_sha256": "36ec29f61d9627dd29dc938a508f130bccd55cc1421ca0c0c6a865b24f7fa334",
+          "projection_revision": 1
+        }
+      ]
+    },
+    {
+      "contract_id": "serviceradar.sync.page.batch",
+      "contract_version": 1,
+      "history": [
+        {
+          "contract_bundle_sha256": "114e360344d016f03bcf5ba459982d888b965578099733ad1f857f93f88d8da3",
+          "projection_revision": 1
+        }
+      ]
+    },
+    {
+      "contract_id": "serviceradar.telemetry.batch",
+      "contract_version": 1,
+      "history": [
+        {
+          "contract_bundle_sha256": "07414884f70302a96fdb63e98aa9569ee97f52a417d2611131ec556a54be46ed",
+          "projection_revision": 1
+        }
+      ]
+    }
+  ],
+  "registry_snapshot_sha256": "460a97d7faf897e909486776e31367b011d7620707eb0808ffdd6c6ac870828b"
+}
