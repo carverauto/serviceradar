@@ -553,12 +553,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
   defp eligible?(%{signal: :log} = rule, record), do: RuleMatcher.rule_matches_log?(record, rule)
 
   defp eligible?(%{signal: :event} = rule, record) do
-    # Seasonal disposition may change severity or metadata before matching.
-    # Keep those candidates; the owner runs the authoritative state machine.
-    not Record.skip_engine_event?(record) and
-      (RuleMatcher.anomaly_open_rule?(rule) or
-         RuleMatcher.rule_matches_event?(record, rule) or
-         RuleMatcher.rule_recovers_event?(record, rule))
+    # The owner runs the authoritative state machine; admission only bounds
+    # which records can reach it.
+    not Record.skip_engine_event?(record) and RuleMatcher.event_candidate?(record, rule)
   end
 
   defp eligible?(%{signal: :metric} = rule, record),

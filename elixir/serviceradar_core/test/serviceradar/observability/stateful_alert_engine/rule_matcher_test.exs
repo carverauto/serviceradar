@@ -216,6 +216,52 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.RuleMatcherTest do
     end
   end
 
+  describe "event_candidate?/2 for the seeded anomaly rule" do
+    defp seeded_event_rule(name), do: Map.put(seeded_rule(name), :signal, :event)
+
+    # Invented host-security event on another subject, shaped like the rows
+    # FalcoEvents promotes.
+    defp other_subject_event_row do
+      %{
+        id: "5d1c2a7e-8b3f-4e6a-9c21-7f0e3b4a6d18",
+        class_uid: 2004,
+        log_name: "falco.logs",
+        severity_id: 5,
+        message: "synthetic shell spawned in container",
+        unmapped: %{"rule" => "Synthetic Terminal Shell"},
+        metadata: %{}
+      }
+    end
+
+    test "takes an on-subject finding the rule does not match yet" do
+      rule = seeded_event_rule("causal_prediction_health_finding")
+      row = anomaly_finding_row("pending_seasonal_disposition")
+
+      refute RuleMatcher.rule_matches_event?(row, rule)
+      refute RuleMatcher.rule_recovers_event?(row, rule)
+      assert RuleMatcher.event_candidate?(row, rule)
+    end
+
+    test "takes nothing from another subject" do
+      rule = seeded_event_rule("causal_prediction_health_finding")
+
+      refute RuleMatcher.event_candidate?(other_subject_event_row(), rule)
+    end
+
+    test "a non-anomaly rule takes only what it matches or recovers" do
+      rule = seeded_event_rule("causal_prediction_health_finding")
+
+      other_rule = %{
+        signal: :event,
+        match: %{"subject_prefix" => "falco.", "severity_number_min" => 5}
+      }
+
+      assert RuleMatcher.event_candidate?(other_subject_event_row(), other_rule)
+      refute RuleMatcher.event_candidate?(anomaly_finding_row("anomaly_open"), other_rule)
+      assert RuleMatcher.event_candidate?(anomaly_finding_row("anomaly_open"), rule)
+    end
+  end
+
   describe "seeded capacity rule template" do
     test "matches a v2 projected capacity forecast finding" do
       rule = seeded_rule("causal_capacity_health_finding")

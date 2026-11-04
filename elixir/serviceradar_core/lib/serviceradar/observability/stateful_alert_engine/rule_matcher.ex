@@ -67,6 +67,22 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.RuleMatcher do
 
   def anomaly_open_rule?(_rule), do: false
 
+  @doc """
+  Whether an event is admitted to an event rule's evaluation inbox.
+
+  An anomaly-open rule also takes events on its own subject that do not match
+  yet, because seasonal disposition can rewrite an anomaly's state or severity
+  before the owner evaluates it. It takes nothing from other subjects:
+  disposition never changes a subject, so admitting those would only queue
+  every event of the signal behind the rule's budget.
+  """
+  def event_candidate?(event, rule) do
+    rule_matches_event?(event, rule) or
+      rule_recovers_event?(event, rule) or
+      (anomaly_open_rule?(rule) and
+         match_subject_prefix(fetch_attr(event, :log_name), rule.match))
+  end
+
   def log_matches?(log, match) do
     subject = ingest_subject(log)
     attributes = Map.get(log, :attributes) || %{}
