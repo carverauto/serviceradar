@@ -342,6 +342,13 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     assert [follow_up] = pending_projection_jobs()
     assert follow_up.id != job.id
     assert follow_up.args["device_id"] == device
+    assert follow_up.args["force"] == true
+    refute job.args["force"]
+
+    assert :ok = TopologyProjectionWorker.enqueue(:interfaces, [%{device_id: device}])
+    assert [still_forced] = pending_projection_jobs()
+    assert still_forced.id == follow_up.id
+    assert still_forced.args["force"] == true
 
     mark_executing(follow_up)
     assert :ok = TopologyProjectionWorker.perform(reload_job(follow_up.id))

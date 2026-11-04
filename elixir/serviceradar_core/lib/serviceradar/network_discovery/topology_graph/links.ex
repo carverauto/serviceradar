@@ -28,11 +28,13 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
   # and never persisted, so OTP-upgrade instability cannot survive a restart.
   @default_unchanged_report_heartbeat_ms 3_600_000
 
-  @spec upsert_links([map()]) :: :ok | {:error, term()}
-  def upsert_links([]), do: :ok
+  @spec upsert_links([map()], keyword()) :: :ok | {:error, term()}
+  def upsert_links(links, opts \\ [])
 
-  def upsert_links(links) when is_list(links) do
-    case maybe_skip_unchanged_report(links) do
+  def upsert_links([], _opts), do: :ok
+
+  def upsert_links(links, opts) when is_list(links) do
+    case maybe_skip_unchanged_report(links, Keyword.get(opts, :force, false)) do
       {:skip, _key} ->
         Logger.debug("Topology upsert skipped; mapper report structurally unchanged")
         :ok
@@ -85,13 +87,13 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
   # Returns {:skip, key} when this report's structural link set matches the last
   # applied report for the same device scope within the heartbeat window;
   # otherwise {:proceed, key, fingerprint}.
-  defp maybe_skip_unchanged_report(links) do
+  defp maybe_skip_unchanged_report(links, force) do
     {key, fingerprint} = report_structural_fingerprint(links)
     now_ms = System.monotonic_time(:millisecond)
     heartbeat_ms = unchanged_report_heartbeat_ms()
 
     case :persistent_term.get({__MODULE__, :report_fingerprint, key}, nil) do
-      {^fingerprint, ts} when now_ms - ts < heartbeat_ms ->
+      {^fingerprint, ts} when not force and now_ms - ts < heartbeat_ms ->
         {:skip, key}
 
       _ ->

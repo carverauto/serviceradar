@@ -112,8 +112,8 @@ the neighbor device's IP and name and the neighbor interface name the reporting
 device observed when it has them; a missing value never erases a known one. A
 retry of an older job therefore leaves the graph equal
 to that device's latest CNPG rows, including when it runs after a newer job has
-already completed. A newer result for the same device replaces a job that has
-not started, so a pending backlog collapses to one run per device. Oban keeps at
+already completed. A newer result for the same device coalesces into a job that
+has not started, so a pending backlog collapses to one run per device. Oban keeps at
 most one pending job per device; an executing job is not pending, so a result
 that lands during a run still schedules the next one. Each graph statement
 commits on its own. When a job reads the device's rows it records a watermark
@@ -122,7 +122,10 @@ and of its link rows, so any change to, addition of or removal of a row
 changes it), and after a successful projection it reads the watermark again. If it
 changed, because a write landed during the run or another run for the device
 read newer rows and finished first, the job schedules one follow-up projection
-for the device. The graph therefore converges to the newest committed rows.
+for the device. The follow-up applies the links even when the node running it
+skipped an identical report recently (that skip remembers only what the node
+itself last applied), and a later result does not clear that from a pending
+follow-up. The graph therefore converges to the newest committed rows.
 A job reads only links observed at or after the stale-link cutoff that pruning
 uses, so retained rows older than that are neither re-projected nor a reason
 for a follow-up. The graph-wide passes (global stale-evidence pruning and the

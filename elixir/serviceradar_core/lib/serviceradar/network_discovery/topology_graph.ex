@@ -19,9 +19,13 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   passes in `run_global_passes/0`.
   Returns `{:error, reason}` when the Dgraph batch fails, so the caller can
   retry the whole idempotent apply.
+
+  A report whose resolved values match the last one this node applied for the
+  same devices is skipped for up to the unchanged-report heartbeat. Pass
+  `force: true` to apply it regardless.
   """
-  @spec upsert_links([map()]) :: :ok | {:error, term()}
-  defdelegate upsert_links(links), to: Links
+  @spec upsert_links([map()], keyword()) :: :ok | {:error, term()}
+  defdelegate upsert_links(links, opts \\ []), to: Links
 
   @doc """
   Runs the graph-wide pruning, legacy reconciliation and canonical rebuild that
