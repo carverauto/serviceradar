@@ -64,15 +64,17 @@ defmodule ServiceRadar.Edge.Projectors.WorkloadIdentity do
           :ok | {:refused, term()} | {:error, term()}
   def project(%EdgeRecordV1{} = record, %WorkloadIdentitySnapshotV1{} = snap) do
     DiscoveryCommon.with_current_grant(record, fn agent_id ->
-      message = snap |> snapshot_payload() |> Jason.encode!()
+      with {:ok, partition} <- partition_slug(record.network_scope_id) do
+        message = snap |> snapshot_payload() |> Jason.encode!()
 
-      case WorkloadIdentityStore.persist_snapshot(%{
-             message: message,
-             agent_id: agent_id,
-             partition: partition_id(record.network_scope_id)
-           }) do
-        :ok -> :ok
-        {:error, reason} -> {:error, {:workload_identity_persist_failed, reason}}
+        case WorkloadIdentityStore.persist_snapshot(%{
+               message: message,
+               agent_id: agent_id,
+               partition: partition
+             }) do
+          :ok -> :ok
+          {:error, reason} -> {:error, {:workload_identity_persist_failed, reason}}
+        end
       end
     end)
   end
@@ -176,19 +178,30 @@ defmodule ServiceRadar.Edge.Projectors.WorkloadIdentity do
 
   defp present_or_nil(_value), do: nil
 
-  defp partition_id(network_scope_id) do
-    case Ecto.UUID.load(network_scope_id) do
-      {:ok, scope_id} ->
-        case Partition.get_by_id(
-               scope_id,
-               actor: SystemActor.system(:workload_identity_projector)
-             ) do
-          {:ok, %Partition{slug: slug}} when is_binary(slug) and slug != "" -> slug
-          _ -> scope_id
-        end
+  defp partition_slug(network_scope_id) do
+    case Partition.get_by_id(
+           Ecto.UUID.load!(network_scope_id),
+           actor: SystemActor.system(:workload_identity_projector)
+         ) do
+      {:ok, %Partition{slug: slug}} when is_binary(slug) and slug != "" ->
+        {:ok, slug}
 
-      _ ->
-        "default"
+      {:ok, _missing} ->
+        {:refused, :workload_identity_partition_not_found}
+
+      {:error, error} ->
+        if partition_not_found?(error),
+          do: {:refused, :workload_identity_partition_not_found},
+          else: {:error, error}
     end
   end
+
+  defp partition_not_found?(%Ash.Error.Query.NotFound{}), do: true
+  defp partition_not_found?(%Ash.Error.Invalid{}), do: true
+
+  defp partition_not_found?(%{errors: errors}) when is_list(errors) do
+    errors != [] and Enum.all?(errors, &partition_not_found?/1)
+  end
+
+  defp partition_not_found?(_error), do: false
 end

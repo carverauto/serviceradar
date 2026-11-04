@@ -2,12 +2,11 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordWorkloadIdentityDbTest d
   @moduledoc """
   End-to-end projection of `serviceradar.workload_identity.snapshot` edge
   records through `ServiceRadar.EventWriter.Processors.EdgeRecord` into
-  `platform.agent_workload_identities`.
+  `platform.workload_identity_current` via
+  `ServiceRadar.WorkloadIdentity.persist_snapshot/1`.
   """
 
   use ServiceRadar.DataCase, async: false
-
-  import Ecto.Query
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.ContractCatalog
@@ -26,7 +25,6 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordWorkloadIdentityDbTest d
   alias Serviceradar.Edge.V1.WorkloadIdentitySnapshotV1
   alias ServiceRadar.EventWriter.Processors.EdgeRecord
   alias ServiceRadar.Infrastructure.Agent
-  alias ServiceRadar.Infrastructure.AgentWorkloadIdentity
   alias ServiceRadar.Infrastructure.Partition
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Repo
@@ -53,8 +51,8 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordWorkloadIdentityDbTest d
     ensure_agent!(agent_id, partition, actor)
 
     on_exit(fn ->
-      if :ets.whereis(:serviceradar_workload_identity_guard) != :undefined do
-        :ets.delete(:serviceradar_workload_identity_guard, {slug, agent_id})
+      if :ets.whereis(:workload_identity_skip_guard) != :undefined do
+        :ets.delete(:workload_identity_skip_guard, {slug, agent_id})
       end
     end)
 
@@ -138,11 +136,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordWorkloadIdentityDbTest d
     assert {:ok, :replay} =
              EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
 
-    rows =
-      AgentWorkloadIdentity
-      |> where([w], w.partition_id == ^ctx.partition.slug and w.gateway_id == ^ctx.agent_id)
-      |> order_by([w], asc: w.container_id)
-      |> Repo.all()
+    rows = workload_rows(ctx)
 
     assert Enum.map(rows, & &1.container_id) == ["container-alpha", "container-beta"]
 
@@ -152,13 +146,12 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordWorkloadIdentityDbTest d
     assert alpha.pod_name == "checkout-api-6d8d9b7f44-k9znm"
     assert alpha.container_name == "checkout-api"
     assert alpha.image == "registry.example.com/checkout-api:1.2.3"
-    assert alpha.runtime_source == :containerd
-    assert alpha.confidence == :high
+    assert alpha.runtime_source == "Containerd"
+    assert alpha.confidence == "High"
     assert alpha.degradation_reason == nil
     assert alpha.identity["runtime_pid"] == 4312
     assert alpha.identity["context_name"] == "example-ctx"
-    assert alpha.identity["cluster_id"] == "cluster-123"
-    assert alpha.identity["cluster_name"] == "example-cluster"
+    assert alpha.identity["snapshot_degradation_reason"] == nil
 
     assert alpha.identity["snapshot_endpoint"] == %{
              "type" => "Cri",
@@ -172,8 +165,8 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordWorkloadIdentityDbTest d
     assert beta.pod_namespace == "jobs"
     assert beta.pod_name == "worker-79f58f48c7-lw2kq"
     assert beta.container_name == "worker"
-    assert beta.runtime_source == :containerd
-    assert beta.confidence == :medium
+    assert beta.runtime_source == "Containerd"
+    assert beta.confidence == "Medium"
     assert beta.degradation_reason == "runtime pid missing"
     assert beta.identity["runtime_pid"] == nil
   end
@@ -193,12 +186,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordWorkloadIdentityDbTest d
     assert {:ok, :inserted} =
              EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
 
-    rows =
-      AgentWorkloadIdentity
-      |> where([w], w.partition_id == ^ctx.partition.slug and w.gateway_id == ^ctx.agent_id)
-      |> Repo.all()
-
-    assert rows == []
+    assert workload_rows(ctx) == []
   end
 
   test "refuses a WorkloadIdentitySnapshotV1 record when the standing grant is revoked", ctx do
@@ -233,12 +221,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordWorkloadIdentityDbTest d
     assert {:error, :output_grant_not_current} =
              EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
 
-    rows =
-      AgentWorkloadIdentity
-      |> where([w], w.partition_id == ^ctx.partition.slug and w.gateway_id == ^ctx.agent_id)
-      |> Repo.all()
-
-    assert rows == []
+    assert workload_rows(ctx) == []
   end
 
   test "Projectors.WorkloadIdentity.decode/1 refuses malformed snapshots", ctx do
@@ -384,6 +367,23 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordWorkloadIdentityDbTest d
     }
 
     %{record: record, record_bytes: record_bytes, headers: headers, slot: slot}
+  end
+
+  defp workload_rows(ctx) do
+    %{columns: columns, rows: rows} =
+      Repo.query!(
+        """
+        SELECT container_id, gateway_id, pod_uid, pod_namespace, pod_name, container_name,
+               image, runtime_source, confidence, degradation_reason, identity
+        FROM platform.workload_identity_current
+        WHERE partition = $1 AND agent_id = $2
+        ORDER BY container_id
+        """,
+        [ctx.partition.slug, ctx.agent_id]
+      )
+
+    keys = Enum.map(columns, &String.to_atom/1)
+    Enum.map(rows, &Map.new(Enum.zip(keys, &1)))
   end
 
   defp stored_ack do
