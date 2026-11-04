@@ -211,7 +211,8 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   # late-fenced delivery. A refusal is returned like a projection refusal; any other failure
   # raises, so the batch fails and JetStream redelivers the record.
   defp publish_opts(repo, opts) do
-    [repo: repo, gateway_id: Keyword.get(opts, :gateway_id)] ++ Keyword.take(opts, [:request])
+    [repo: repo, gateway_id: Keyword.get(opts, :gateway_id)] ++
+      Keyword.take(opts, [:request, :flow_attribution_publisher, :otlp_relay_publisher])
   end
 
   defp publish_fresh(repo, provenance, record, projector, body, opts) do
@@ -271,8 +272,22 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
     run_test_hook(test_hook, :transaction_result, event_id, result)
 
     case result do
-      {:error, :rollback} -> raise "edge record transaction #{inspect(event_id)} rolled back"
-      result -> result
+      {:ok, ledger_outcome} ->
+        if primary?(provenance, ledger_outcome) and function_exported?(projector, :committed, 3) do
+          projector.committed(record, body, %{
+            ledger: ledger_outcome,
+            primary?: true,
+            gateway_id: gateway_id
+          })
+        end
+
+        result
+
+      {:error, :rollback} ->
+        raise "edge record transaction #{inspect(event_id)} rolled back"
+
+      result ->
+        result
     end
   end
 

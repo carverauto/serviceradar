@@ -77,11 +77,27 @@ message used. Core republishes the metric records onto the same
 `metrics.sysmon.>`, `metrics.snmp.>`,
 `metrics.icmp.>`, `metrics.mtr.>` and `metrics.sweep.>` subjects. Core also
 admits `rperf-metrics` batches onto `metrics.rperf.>`; the agent has no rperf
-producer of its own.
-
-The Helm chart README documents that opt-in
+producer of its own. The Helm chart README documents that opt-in
 (`edgeRecords.agentMetricsEnabled`). The publish rules are
 `ServiceRadar.Edge.MetricsBatchProjection`.
+
+That same spool carries flow-attribution windows and OTLP relay frames, and
+only while the metrics spool is connected (`edgeRecords.agentMetricsEnabled`
+on the chart). A current `serviceradar.netprobe.flow_attribution` version 1
+grant then takes drained windows off the `source=flow-attribution` status
+path. A current `serviceradar.otlp.relay` version 1 grant appends fitting OTLP
+records to that spool. A record that does not fit the 512 KiB edge-record cap
+still goes out as `source=otlp-relay` when that status fits the gateway frame.
+A record that fits neither is skipped and acked. The add-on is acked only after
+every fitting record is in the spool and every status that was sent has been
+accepted. Without the spool or the matching grant, each producer
+stays on its status path. Core republishes a
+fresh flow-attribution record through the same observation publish the status
+path uses, and republishes an OTLP relay record onto `otel.traces.raw`,
+`logs.otel`, `otel.metrics.raw`, and `otel.metrics.derived`. Payload rules are
+the comments on `FlowAttributionEventBatch` and `OtlpRelayFrame`. The publish
+rules are `ServiceRadar.Edge.Projectors.FlowAttribution` and
+`ServiceRadar.Edge.Projectors.OtlpRelay`.
 
 Plugin and native add-on telemetry follows the same shape under the
 `serviceradar.telemetry.batch` contract (`edgeRecords.agentTelemetryEnabled`).

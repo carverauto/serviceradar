@@ -18,17 +18,23 @@
 //
 // The netprobe sidecar emits FlowAttributionEvent records on its
 // flowEvents channel. This file drains those events on each push
-// loop tick and forwards them to the agent-gateway inside the existing
-// GatewayServiceStatus envelope, keyed by Source="flow-attribution".
+// loop tick. With a current serviceradar.netprobe.flow_attribution
+// grant and the bulk spool connected, pushFlowAttributionEdge commits
+// the batch and does not call StreamStatus. Otherwise it forwards the
+// batch to the agent-gateway inside GatewayServiceStatus, keyed by
+// Source="flow-attribution". Payload rules live on
+// FlowAttributionEventBatch in proto/agent/netprobe/v1/netprobe.proto.
 //
-// The core-side 5-tuple join consumer reads these batches and pairs
-// them with AttributedFlowMessage records published by the host-slice
-// flow collector on `flow.host-slice.<agent_id>`.
+// The core-side 5-tuple join consumer reads the published observations
+// and pairs them with AttributedFlowMessage records published by the
+// host-slice flow collector on `flow.host-slice.<agent_id>`.
 //
 // Partition guard (B-4 defeater): the agent does NOT populate any
-// partition field inside the batch payload. The cert-derived
-// partition_id attached at the agent-gateway is the only value used
-// by core; the envelope's Partition field is informational only.
+// partition field inside the batch payload. On the status path, the
+// cert-derived partition_id attached at the agent-gateway is the only
+// value used by core; the envelope's Partition field is informational
+// only. On the edge path, core resolves the partition from the record's
+// network_scope_id.
 package agent
 
 import (
@@ -125,8 +131,9 @@ type flowAttributionDeliveryWindow struct {
 // oversized single event is explicitly quarantined. This is intentionally
 // bounded, but it is not a disk spool and does not survive an agent restart.
 type flowAttributionDeliveryQueue struct {
-	mu      sync.Mutex
-	pending *flowAttributionPendingBatch
+	mu          sync.Mutex
+	pending     *flowAttributionPendingBatch
+	edgePending *flowAttributionPendingEdgeRecord
 	// droppedAcked is the netprobe sidecar's cumulative drop count as of the
 	// last batch the gateway acknowledged, so each batch reports only the
 	// drops since then. It resets across agent restarts, as the sidecar's
@@ -160,6 +167,7 @@ func (q *flowAttributionDeliveryQueue) acknowledgePrefix(
 		batch.events[i] = nil
 	}
 	batch.events = batch.events[eventCount:len(batch.events):len(batch.events)]
+	q.edgePending = nil
 
 	cumulativeDropped := uint64(0)
 	commitDropBaseline := false
@@ -191,6 +199,7 @@ func (q *flowAttributionDeliveryQueue) quarantineFirst(
 	quarantined := batch.events[0]
 	batch.events[0] = nil
 	batch.events = batch.events[1:len(batch.events):len(batch.events)]
+	q.edgePending = nil
 
 	remaining := len(batch.events)
 	if remaining == 0 {
@@ -215,6 +224,7 @@ func (q *flowAttributionDeliveryQueue) dropPrefix(
 		batch.events[i] = nil
 	}
 	batch.events = batch.events[eventCount:len(batch.events):len(batch.events)]
+	q.edgePending = nil
 	remaining := len(batch.events)
 	if remaining == 0 {
 		q.pending = nil
@@ -269,6 +279,11 @@ func (p *PushLoop) pushFlowAttribution(ctx context.Context) bool {
 	if pending == nil {
 		return false
 	}
+
+	if spool, cap := p.edgeFlowAttributionTarget(time.Now()); spool != nil && cap != nil {
+		return p.pushFlowAttributionEdge(ctx, pending, spool, cap)
+	}
+	p.flowAttributionDelivery.clearEdgePending()
 
 	gatewayID := gatewayIDFromClient(p.gateway)
 	runtimeMetadata := currentRuntimeMetadata()

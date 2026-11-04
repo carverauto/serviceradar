@@ -69,7 +69,7 @@
 
 - [ ] 4.1 Contracts for `FlowAttributionEventBatch` and `OtlpRelayFrame`; producers and
   projectors; parity soak.
-  PARTIAL (reconciled 2026-11-02): `FlowAttributionEventBatch` and `OtlpRelayFrame` contracts, per-row write budget and chunked observation publishing landed in `proto/agent/netprobe/v1/netprobe.proto`, `proto/agent/addon/v1/addon.proto` and `ServiceRadar.FlowAttribution.Observations` (#6262); remaining scope is the agent producers, core projectors, and parity soak.
+  PARTIAL (reconciled 2026-11-03): `FlowAttributionEventBatch` and `OtlpRelayFrame` contracts, per-row write budget and chunked observation publishing landed in `proto/agent/netprobe/v1/netprobe.proto`, `proto/agent/addon/v1/addon.proto` and `ServiceRadar.FlowAttribution.Observations` (#6262). The agent producers (`go/pkg/agent/push_loop_flow_attribution_edge.go`, `go/pkg/agent/addon_otlp_relay_edge.go`) and core projectors `ServiceRadar.Edge.Projectors.FlowAttribution` and `ServiceRadar.Edge.Projectors.OtlpRelay` landed on this branch; remaining scope is the parity soak.
 
 ## 5. Plugin and add-on telemetry
 

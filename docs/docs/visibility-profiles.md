@@ -223,10 +223,15 @@ The path is:
 ```text
 netprobe eBPF kprobes (host-wide)
   -> FlowAttributionEvent (agent IPC)
-  -> agent-gateway source=flow-attribution
+  -> gateway edge record, or source=flow-attribution
   -> core join with NetFlow
   -> in:attributed_flows
 ```
+
+A current `serviceradar.netprobe.flow_attribution` grant, with the agent's
+bulk spool connected, sends an edge record and does not send
+`source=flow-attribution`. Otherwise the batch stays on that gateway status.
+See [Data Pipeline](./data-pipeline.md).
 
 The operator control for that path is **Settings -> Agents -> Add-ons**
 (netprobe assignment, `enabled`, `emit_raw_flow_attribution_events`). Schema
