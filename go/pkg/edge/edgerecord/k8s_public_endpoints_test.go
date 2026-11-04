@@ -69,7 +69,7 @@ func TestValidateK8sPublicEndpointsRecord(t *testing.T) {
 		}
 	})
 
-	t.Run("rejects missing cluster_id, mismatched endpoint cluster_id, and wrong row count", func(t *testing.T) {
+	t.Run("rejects missing cluster_id, mismatched endpoint cluster_id, bad generated_at, and wrong row count", func(t *testing.T) {
 		t.Parallel()
 		ref := contractRef{K8sPublicEndpointsContractID, K8sPublicEndpointsContractVersion}
 		noCluster := &edgev1.K8SPublicEndpointsSnapshotV1{
@@ -89,6 +89,26 @@ func TestValidateK8sPublicEndpointsRecord(t *testing.T) {
 		r = discoveryRecord(t, ref, K8sPublicEndpointsProjectedWriteBytesPerRecord, mismatch, 1)
 		if err := ValidateK8sPublicEndpointsRecord(r); !errors.Is(err, ErrDiscoveryBatch) {
 			t.Fatalf("expected ErrDiscoveryBatch for mismatched endpoint cluster_id, got %v", err)
+		}
+
+		blankEndpointCluster := &edgev1.K8SPublicEndpointsSnapshotV1{
+			ClusterId: "cluster-alpha",
+			Endpoints: []*edgev1.K8SPublicEndpointV1{
+				{ClusterId: "  ", Ip: "192.0.2.10", Port: 443},
+			},
+		}
+		r = discoveryRecord(t, ref, K8sPublicEndpointsProjectedWriteBytesPerRecord, blankEndpointCluster, 1)
+		if err := ValidateK8sPublicEndpointsRecord(r); !errors.Is(err, ErrDiscoveryBatch) {
+			t.Fatalf("expected ErrDiscoveryBatch for whitespace endpoint cluster_id, got %v", err)
+		}
+
+		badGeneratedAt := &edgev1.K8SPublicEndpointsSnapshotV1{
+			ClusterId:   "cluster-alpha",
+			GeneratedAt: "yesterday",
+		}
+		r = discoveryRecord(t, ref, K8sPublicEndpointsProjectedWriteBytesPerRecord, badGeneratedAt, 1)
+		if err := ValidateK8sPublicEndpointsRecord(r); !errors.Is(err, ErrDiscoveryBatch) {
+			t.Fatalf("expected ErrDiscoveryBatch for non-RFC 3339 generated_at, got %v", err)
 		}
 
 		validSnap := &edgev1.K8SPublicEndpointsSnapshotV1{

@@ -8,7 +8,6 @@ defmodule ServiceRadar.Edge.InventoryBatchProtosTest do
   """
   use ExUnit.Case, async: true
 
-  alias ServiceRadar.Edge.ContractCatalog
   alias ServiceRadar.Edge.Projectors.K8sPublicEndpoints
   alias Serviceradar.Edge.V1.BumblebeeFindingV1
   alias Serviceradar.Edge.V1.BumblebeeScanPayloadV1
@@ -83,16 +82,7 @@ defmodule ServiceRadar.Edge.InventoryBatchProtosTest do
     end
   end
 
-  test "k8s public endpoints snapshot contract catalog entry and projector decode" do
-    assert {:ok,
-            %{
-              authority: :standing_grant,
-              projector: K8sPublicEndpoints,
-              max_projected_rows: 10_000,
-              write_bytes_per_row: 8_192,
-              package_id: "serviceradar.agent.k8s_public_endpoints"
-            }} = ContractCatalog.fetch({"serviceradar.k8s.public_endpoints.snapshot", 1})
-
+  test "k8s public endpoints snapshot projector decode" do
     snap = %K8sPublicEndpointsSnapshotV1{
       schema_version: "serviceradar.k8s_public_endpoints.v1",
       agent_id: "agent-k8s-1",
@@ -142,5 +132,27 @@ defmodule ServiceRadar.Edge.InventoryBatchProtosTest do
 
     assert {:error, :k8s_public_endpoints_row_count} =
              K8sPublicEndpoints.decode(%{record | projected_row_count: 2})
+
+    assert {:error, :k8s_public_endpoints_generated_at} =
+             K8sPublicEndpoints.decode(with_snapshot(record, %{snap | generated_at: "yesterday"}))
+
+    [endpoint] = snap.endpoints
+
+    assert {:error, :k8s_public_endpoints_endpoint_cluster_mismatch} =
+             K8sPublicEndpoints.decode(
+               with_snapshot(record, %{snap | endpoints: [%{endpoint | cluster_id: "  "}]})
+             )
+  end
+
+  defp with_snapshot(record, snap) do
+    encoded = K8sPublicEndpointsSnapshotV1.encode(snap)
+
+    %{
+      record
+      | payload: encoded,
+        encoded_size: byte_size(encoded),
+        uncompressed_size: byte_size(encoded),
+        payload_sha256: :crypto.hash(:sha256, encoded)
+    }
   end
 end

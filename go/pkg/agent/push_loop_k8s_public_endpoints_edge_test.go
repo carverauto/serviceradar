@@ -187,7 +187,7 @@ func TestPushLoopK8sPublicEndpointsEdgeUnderGrantAndLegacySuppression(t *testing
 	}
 	pl.SetEdgeDiscoverySpool(sp)
 	pl.edgeOutputGrants.replace(sysmonEdgeAgentID, []*srproto.EdgeOutputGrant{
-		discoveryGrant(t, edgerecord.K8sPublicEndpointsContractID, edgerecord.K8sPublicEndpointsProjectedWriteBytesPerRecord, "serviceradar.agent.k8s"),
+		discoveryGrant(t, edgerecord.K8sPublicEndpointsContractID, edgerecord.K8sPublicEndpointsProjectedWriteBytesPerRecord, "serviceradar.agent.k8s_public_endpoints"),
 	}, time.Now())
 
 	statuses, _ := pl.collectAllStatusesSeparated(context.Background())
@@ -213,12 +213,13 @@ func TestPushLoopK8sPublicEndpointsEdgeUnderGrantAndLegacySuppression(t *testing
 	require.Len(t, snap.GetCorrelationHints(), 1)
 	assert.Equal(t, "192.0.2.50", snap.GetCorrelationHints()[0].GetBackendIp())
 
-	// Second collection with identical file content is deduplicated by lastSentHash.
 	statuses, _ = pl.collectAllStatusesSeparated(context.Background())
 	for _, st := range statuses {
 		assert.NotEqual(t, K8sPublicEndpointsServiceType, st.GetServiceType())
 	}
-	assert.Len(t, spooledRecords(t, sp), 1)
+	resent := spooledRecords(t, sp)
+	require.Len(t, resent, 2)
+	assert.False(t, bytes.Equal(resent[0].GetEventId(), resent[1].GetEventId()))
 }
 
 func TestPushLoopK8sPublicEndpointsEdgeBackpressurePausesGetStatus(t *testing.T) {
@@ -240,7 +241,7 @@ func TestPushLoopK8sPublicEndpointsEdgeBackpressurePausesGetStatus(t *testing.T)
 		},
 	}
 	pl.edgeOutputGrants.replace(sysmonEdgeAgentID, []*srproto.EdgeOutputGrant{
-		discoveryGrant(t, edgerecord.K8sPublicEndpointsContractID, edgerecord.K8sPublicEndpointsProjectedWriteBytesPerRecord, "serviceradar.agent.k8s"),
+		discoveryGrant(t, edgerecord.K8sPublicEndpointsContractID, edgerecord.K8sPublicEndpointsProjectedWriteBytesPerRecord, "serviceradar.agent.k8s_public_endpoints"),
 	}, time.Now())
 
 	// First cycle: GetStatus is called once; spool refuses, so item is held in k8sPublicEndpointsEdge.built.
@@ -260,11 +261,11 @@ func TestPushLoopK8sPublicEndpointsEdgeBackpressurePausesGetStatus(t *testing.T)
 	assert.Equal(t, int32(1), svc.calls.Load(), "GetStatus must not be called while pending item is unadmitted")
 	require.NotNil(t, pl.k8sPublicEndpointsEdge.built)
 
-	// Third cycle: spool admits the pending item under its original event_id, then polls GetStatus.
+	// Third cycle: spool admits the pending item under its original event_id, then polls and spools a fresh snapshot.
 	appender.allow = true
 	_, _ = pl.collectAllStatusesSeparated(context.Background())
 	assert.Nil(t, pl.k8sPublicEndpointsEdge.built)
-	require.Len(t, appender.ids, 1)
+	require.Len(t, appender.ids, 2)
 	assert.True(t, bytes.Equal(firstEventID, appender.ids[0]), "retried record must preserve its original event_id")
 	assert.Equal(t, int32(2), svc.calls.Load())
 }

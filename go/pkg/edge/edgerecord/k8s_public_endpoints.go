@@ -19,6 +19,7 @@ package edgerecord
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 )
@@ -38,8 +39,9 @@ func K8sPublicEndpointsSnapshotRows(snap *edgev1.K8SPublicEndpointsSnapshotV1) i
 }
 
 // ValidateK8sPublicEndpointsSnapshot enforces the snapshot payload rules: a
-// non-empty cluster_id and every endpoint's cluster_id either empty or equal
-// to the snapshot cluster_id.
+// non-empty cluster_id, an empty or RFC 3339 generated_at, and every
+// endpoint's cluster_id either empty or exactly equal to the snapshot
+// cluster_id.
 func ValidateK8sPublicEndpointsSnapshot(snap *edgev1.K8SPublicEndpointsSnapshotV1) error {
 	if snap == nil {
 		return fmt.Errorf("%w: empty k8s public endpoints snapshot", ErrDiscoveryBatch)
@@ -48,12 +50,17 @@ func ValidateK8sPublicEndpointsSnapshot(snap *edgev1.K8SPublicEndpointsSnapshotV
 	if clusterID == "" {
 		return fmt.Errorf("%w: k8s public endpoints snapshot has no cluster id", ErrDiscoveryBatch)
 	}
+	if generatedAt := snap.GetGeneratedAt(); generatedAt != "" {
+		if _, err := time.Parse(time.RFC3339, generatedAt); err != nil {
+			return fmt.Errorf("%w: k8s public endpoints snapshot generated_at %q is not RFC 3339",
+				ErrDiscoveryBatch, generatedAt)
+		}
+	}
 	for i, ep := range snap.GetEndpoints() {
 		if ep == nil {
 			return fmt.Errorf("%w: k8s public endpoint %d is nil", ErrDiscoveryBatch, i)
 		}
-		epCluster := strings.TrimSpace(ep.GetClusterId())
-		if epCluster != "" && ep.GetClusterId() != snap.GetClusterId() {
+		if ep.GetClusterId() != "" && ep.GetClusterId() != snap.GetClusterId() {
 			return fmt.Errorf(
 				"%w: k8s public endpoint %d cluster_id %q does not match snapshot cluster_id %q",
 				ErrDiscoveryBatch, i, ep.GetClusterId(), snap.GetClusterId(),

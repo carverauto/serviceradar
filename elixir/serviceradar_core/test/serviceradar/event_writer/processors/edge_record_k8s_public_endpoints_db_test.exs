@@ -3,6 +3,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordK8sPublicEndpointsDbTest
 
   use ServiceRadar.DataCase, async: false
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.IssuerKey
   alias ServiceRadar.Edge.OutputGrant
   alias ServiceRadar.Edge.OutputGrants
@@ -18,6 +19,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordK8sPublicEndpointsDbTest
   alias Serviceradar.Edge.V1.K8sPublicEndpointsSnapshotV1
   alias Serviceradar.Edge.V1.K8sPublicEndpointV1
   alias ServiceRadar.EventWriter.Processors.EdgeRecord
+  alias ServiceRadar.Infrastructure.Partition
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ExecutionSlots
   alias ServiceRadar.TestSupport
@@ -34,14 +36,22 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordK8sPublicEndpointsDbTest
 
   setup do
     OutputGrants.reset_cache()
-    scope_id = Ecto.UUID.generate()
+    partition_slug = "k8s-edge-#{System.unique_integer([:positive])}"
+
+    %Partition{id: scope_id} =
+      Partition
+      |> Ash.Changeset.for_create(:create, %{name: partition_slug, slug: partition_slug},
+        actor: SystemActor.system(:k8s_public_endpoints_test)
+      )
+      |> Ash.create!()
+
     cluster_id = "k8s-edge-cluster-#{System.unique_integer([:positive])}"
     agent_id = "agent-k8s-edge-#{System.unique_integer([:positive])}"
     rogue_agent_id = "agent-k8s-rogue-#{System.unique_integer([:positive])}"
 
     insert_agent!(agent_id)
     insert_agent!(rogue_agent_id)
-    insert_cluster_binding!(cluster_id, agent_id, scope_id)
+    insert_cluster_binding!(cluster_id, agent_id, partition_slug)
 
     on_exit(fn ->
       cleanup(scope_id, cluster_id, [agent_id, rogue_agent_id])
@@ -49,13 +59,19 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordK8sPublicEndpointsDbTest
 
     {:ok,
      scope_id: scope_id,
+     partition_slug: partition_slug,
      cluster_id: cluster_id,
      agent_id: agent_id,
      rogue_agent_id: rogue_agent_id}
   end
 
   test "projects K8sPublicEndpointsSnapshotV1 into public_endpoints_current and k8s_public_endpoint_snapshots and soft-deletes missing endpoints",
-       %{scope_id: scope_id, cluster_id: cluster_id, agent_id: agent_id} do
+       %{
+         scope_id: scope_id,
+         partition_slug: partition_slug,
+         cluster_id: cluster_id,
+         agent_id: agent_id
+       } do
     grant = grant_for(agent_id, scope_id)
 
     snap1 = %K8sPublicEndpointsSnapshotV1{
@@ -169,7 +185,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordK8sPublicEndpointsDbTest
                [cluster_id]
              )
 
-    assert %{rows: [[^cluster_id, "agent", ^agent_id, ^scope_id]]} =
+    assert %{rows: [[^cluster_id, "agent", ^agent_id, ^partition_slug]]} =
              Repo.query!(
                """
                SELECT cluster_id, source_mode, agent_id, partition_id
@@ -292,6 +308,35 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordK8sPublicEndpointsDbTest
 
     assert {:ok, 0} = EdgeRecord.process_batch([message])
     assert {:error, :output_grant_not_current} = EdgeRecord.ingest(bytes, headers, Repo)
+  end
+
+  test "refuses a snapshot whose network scope has no partition",
+       %{scope_id: scope_id, cluster_id: cluster_id, agent_id: agent_id} do
+    grant = grant_for(agent_id, scope_id)
+
+    snap = %K8sPublicEndpointsSnapshotV1{
+      schema_version: "serviceradar.k8s_public_endpoints.v1",
+      agent_id: agent_id,
+      cluster_id: cluster_id,
+      generated_at: "2026-07-01T12:20:00Z",
+      endpoints: []
+    }
+
+    {_message, bytes, headers} =
+      build_message(K8sPublicEndpointsSnapshotV1.encode(snap), 1, grant, scope_id, agent_id, 1)
+
+    Repo.query!("DELETE FROM platform.partitions WHERE id = $1::uuid", [
+      Ecto.UUID.dump!(scope_id)
+    ])
+
+    assert {:error, :k8s_public_endpoints_partition_not_found} =
+             EdgeRecord.ingest(bytes, headers, Repo)
+
+    assert %{rows: [[0]]} =
+             Repo.query!(
+               "SELECT COUNT(*) FROM platform.k8s_public_endpoint_snapshots WHERE cluster_id = $1",
+               [cluster_id]
+             )
   end
 
   defp grant_for(agent_id, scope_id) do
@@ -448,6 +493,8 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordK8sPublicEndpointsDbTest
     Repo.query!("DELETE FROM platform.edge_output_grants WHERE network_scope_id = $1::uuid", [
       scope_bytes
     ])
+
+    Repo.query!("DELETE FROM platform.partitions WHERE id = $1::uuid", [scope_bytes])
 
     OutputGrants.reset_cache()
   end

@@ -17,7 +17,6 @@
 package agent
 
 import (
-	"crypto/sha256"
 	"errors"
 	"strings"
 	"time"
@@ -31,16 +30,12 @@ import (
 var errK8sPublicEndpointsRecordTooLarge = errors.New("k8s public endpoints snapshot exceeds the durable record body bound")
 
 type k8sPublicEndpointsBuiltItem struct {
-	record  *edgev1.EdgeRecordV1
-	body    []byte
-	hash    [32]byte
-	hasHash bool
+	record *edgev1.EdgeRecordV1
+	body   []byte
 }
 
 type k8sPublicEndpointsEdgeQueue struct {
-	built        *k8sPublicEndpointsBuiltItem
-	lastSentHash [32]byte
-	hasLastSent  bool
+	built *k8sPublicEndpointsBuiltItem
 }
 
 func (p *PushLoop) edgeK8sPublicEndpointsCapability(now time.Time) *edgev1.EdgeSignedCapabilityV1 {
@@ -71,10 +66,6 @@ func (p *PushLoop) flushPendingK8sPublicEndpointsEdge() bool {
 	if !p.appendK8sPublicEndpointsBuilt(q.built) {
 		return false
 	}
-	if q.built.hasHash {
-		q.lastSentHash = q.built.hash
-		q.hasLastSent = true
-	}
 	q.built = nil
 	return true
 }
@@ -103,12 +94,6 @@ func (p *PushLoop) spoolK8sPublicEndpointsStatus(
 		return
 	}
 
-	sum := sha256.Sum256(statusResp.GetMessage())
-	q := &p.k8sPublicEndpointsEdge
-	if q.hasLastSent && q.lastSentHash == sum {
-		return
-	}
-
 	agentID := ""
 	if cfg != nil {
 		agentID = cfg.AgentID
@@ -128,18 +113,10 @@ func (p *PushLoop) spoolK8sPublicEndpointsStatus(
 		return
 	}
 
-	built := &k8sPublicEndpointsBuiltItem{
-		record:  record,
-		body:    body,
-		hash:    sum,
-		hasHash: true,
+	built := &k8sPublicEndpointsBuiltItem{record: record, body: body}
+	if !p.appendK8sPublicEndpointsBuilt(built) {
+		p.k8sPublicEndpointsEdge.built = built
 	}
-	if p.appendK8sPublicEndpointsBuilt(built) {
-		q.lastSentHash = sum
-		q.hasLastSent = true
-		return
-	}
-	q.built = built
 }
 
 func buildK8sPublicEndpointsEdgeRecord(

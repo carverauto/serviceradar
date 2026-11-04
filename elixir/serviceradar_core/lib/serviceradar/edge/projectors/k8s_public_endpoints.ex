@@ -56,6 +56,11 @@ defmodule ServiceRadar.Edge.Projectors.K8sPublicEndpoints do
              snapshot_rows(snap) == record.projected_row_count,
              :k8s_public_endpoints_row_count
            ),
+         :ok <-
+           DiscoveryCommon.check(
+             valid_generated_at?(snap.generated_at),
+             :k8s_public_endpoints_generated_at
+           ),
          :ok <- check_endpoints(snap.endpoints, snap.cluster_id) do
       {:ok, snap}
     end
@@ -103,6 +108,9 @@ defmodule ServiceRadar.Edge.Projectors.K8sPublicEndpoints do
           {:error, :k8s_inventory_cluster_binding_mismatch} ->
             {:refused, :k8s_inventory_cluster_binding_mismatch}
 
+          {:error, :invalid_k8s_public_endpoints_snapshot} ->
+            {:refused, :invalid_k8s_public_endpoints_snapshot}
+
           {:error, reason} ->
             {:error, reason}
         end
@@ -116,12 +124,18 @@ defmodule ServiceRadar.Edge.Projectors.K8sPublicEndpoints do
 
   defp check_endpoints(endpoints, cluster_id) do
     Enum.reduce_while(endpoints || [], :ok, fn %K8sPublicEndpointV1{} = ep, :ok ->
-      if not DiscoveryCommon.present?(ep.cluster_id) or ep.cluster_id == cluster_id do
+      if ep.cluster_id in ["", cluster_id] do
         {:cont, :ok}
       else
         {:halt, {:error, :k8s_public_endpoints_endpoint_cluster_mismatch}}
       end
     end)
+  end
+
+  defp valid_generated_at?(""), do: true
+
+  defp valid_generated_at?(generated_at) do
+    match?({:ok, _datetime, _offset}, DateTime.from_iso8601(generated_at))
   end
 
   defp partition_id(network_scope_id) do
@@ -133,8 +147,14 @@ defmodule ServiceRadar.Edge.Projectors.K8sPublicEndpoints do
           {:ok, %Partition{slug: slug}} when is_binary(slug) and slug != "" ->
             {:ok, slug}
 
-          _ ->
-            {:ok, scope_id}
+          {:ok, _partition} ->
+            {:refused, :k8s_public_endpoints_partition_not_found}
+
+          {:error, %Ash.Error.Invalid{errors: [%Ash.Error.Query.NotFound{} | _]}} ->
+            {:refused, :k8s_public_endpoints_partition_not_found}
+
+          {:error, reason} ->
+            {:error, reason}
         end
 
       :error ->
