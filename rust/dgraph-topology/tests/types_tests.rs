@@ -168,21 +168,6 @@ fn canonical_edge_write_sets_mapper_ingestor() {
     assert!(edge.telemetry_eligible());
 }
 
-#[test]
-fn dql_string_rejects_quotes() {
-    let err = dgraph_topology_dql_string("sr:\"evil\"");
-    assert!(err.is_err());
-}
-
-fn dgraph_topology_dql_string(value: &str) -> Result<String, String> {
-    // Mirror the crate-private guard so a quote cannot be interpolated.
-    if value.contains('"') || value.contains('\n') || value.contains('\\') {
-        Err(value.to_string())
-    } else {
-        Ok(format!("\"{value}\""))
-    }
-}
-
 /// This error reaches the application log on every failed write, so the
 /// guarantee has to hold for the variant itself, not for one call site.
 #[test]

@@ -88,6 +88,56 @@ Reconciliation retains the starvation and mass-deletion guards for stale
 pruning. Its input fingerprint and heartbeat persist in CNPG
 (`runtime_topology_projection_meta`), so an unchanged topology is not rewritten.
 
+### Projection lag
+
+Mapper ingestion commits interface and topology evidence to CNPG first, inside
+the result-ingestion lane's worker budget. The Dgraph write runs afterwards as
+a `TopologyProjectionWorker` job on the `topology_projection` Oban queue
+(`OBAN_QUEUE_TOPOLOGY_PROJECTION`, default 2 per core node). A slow or
+unavailable Dgraph therefore delays the graph instead of timing the mapper
+result out.
+
+Topology views read the graph, so they trail the CNPG interface and evidence
+tables by the job's queue wait plus its run time. One device's interfaces are
+written in one Dgraph request, and that device's links in two (endpoints, then
+edges), however many interfaces or links it carries.
+
+Each projection job is one device and carries that device id only. When it
+runs it reads the current committed discovered interfaces (including aliases)
+and mapper topology links for that device, and rewrites that device's graph
+state through the same batched writes. The newest of that device's link rows
+that sets a field owns its IP and interface fields. For each link the job also
+creates the neighbor vertex, the neighbor interface and the edge, and writes
+the neighbor device's IP and name and the neighbor interface name the reporting
+device observed when it has them; a missing value never erases a known one. A
+retry of an older job therefore leaves the graph equal
+to that device's latest CNPG rows, including when it runs after a newer job has
+already completed. A newer result for the same device replaces a job that has
+not started, so a pending backlog collapses to one run per device. Oban keeps at
+most one pending job per device; an executing job is not pending, so a result
+that lands during a run still schedules the next one. Each graph statement
+commits on its own. When a job reads the device's rows it records a watermark
+(an md5, computed in SQL, of the full content of the device's interface rows
+and of its link rows, so any change to, addition of or removal of a row
+changes it), and after a successful projection it reads the watermark again. If it
+changed, because a write landed during the run or another run for the device
+read newer rows and finished first, the job schedules one follow-up projection
+for the device. Every run writes what it read, including a report identical to
+an earlier one, so the graph converges to the newest committed rows whichever
+core node runs each job.
+A job reads only links observed at or after the stale-link cutoff that pruning
+uses, so retained rows older than that are neither re-projected nor a reason
+for a follow-up. The graph-wide passes (global stale-evidence pruning and the
+canonical rebuild) run in a separate `TopologyGlobalPassWorker` job on the same
+queue. Each projection schedules it 30 seconds ahead, and it is unique while
+pending, so a burst of device projections runs the passes once. A failed projection is logged,
+reported as an Oban job exception, and retried with backoff. The ingestion
+runtime metrics
+(`metrics.ingestion_lanes`) carry a `topology_projection` lane (scheduled,
+coalesced, accepted, not accepted and failed projections, with `queue_wait_ms`
+and `duration_ms`) and a `dgraph` lane (every Dgraph call's outcome, timeouts
+and retries, with `duration_ms` and `queue_wait_ms`).
+
 ### Dgraph superuser credentials
 
 With the in-chart cluster (`dgraph.enabled=true`), the `groot` password is

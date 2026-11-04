@@ -92,14 +92,14 @@ impl TopologyClient {
     ///
     /// # Errors
     ///
-    /// Returns [`TopologyError`] if the id cannot be a DQL literal, the query
-    /// fails, or the response is the wrong shape.
+    /// Returns [`TopologyError`] if the query fails or the response is the
+    /// wrong shape.
     pub async fn query_device_neighborhood(
         &self,
         device_id: &str,
         include_topology: bool,
     ) -> Result<Option<Value>, TopologyError> {
-        let id = dql_string(device_id)?;
+        let id = dql_string(device_id);
         let peer = format!(
             "device.id device.hostname device.ip device.interfaces {{ {INTERFACE_FIELDS} }}"
         );

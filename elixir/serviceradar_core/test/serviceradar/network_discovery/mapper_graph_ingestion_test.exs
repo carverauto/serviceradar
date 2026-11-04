@@ -1,9 +1,12 @@
 defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
   use ServiceRadar.DataCase, async: false
 
+  import Ecto.Query, only: [from: 2]
+
   alias Ecto.Adapters.SQL
+  alias ServiceRadar.Ingestion.LaneSupervisor
   alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
-  alias ServiceRadar.NetworkDiscovery.TopologyGraph.Links
+  alias ServiceRadar.NetworkDiscovery.TopologyProjectionWorker
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
@@ -15,8 +18,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
   end
 
   setup do
-    clear_report_fingerprints()
-    on_exit(&clear_report_fingerprints/0)
     Application.put_env(:serviceradar_core, :mapper_topology_edge_stale_minutes, 180)
 
     :ok
@@ -259,6 +260,113 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     assert fdb_row["neighbor_port_id"] == ""
   end
 
+  test "a large mapper interface result commits within the lane worker budget while Dgraph does not answer" do
+    # Accepts connections from its backlog and never answers: a wedged Dgraph.
+    {:ok, listener} = :gen_tcp.listen(0, [:binary, active: false, backlog: 1024])
+    {:ok, port} = :inet.port(listener)
+    with_dgraph_url("dgraph://127.0.0.1:#{port}?sslmode=disable")
+    on_exit(fn -> :gen_tcp.close(listener) end)
+
+    device_ip = "192.0.2.#{rem(System.unique_integer([:positive]), 200) + 20}"
+    ts = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+
+    payload =
+      Jason.encode!(
+        for index <- 1..200 do
+          %{
+            "device_id" => "default:#{device_ip}",
+            "partition" => "default",
+            "device_ip" => device_ip,
+            "if_index" => index,
+            "if_name" => "eth#{index}",
+            "if_alias" => "port #{index}",
+            "timestamp" => ts
+          }
+        end
+      )
+
+    budget = Keyword.fetch!(LaneSupervisor.limits(:mapper), :worker_timeout_ms)
+    ingest = Task.async(fn -> MapperResultsIngestor.ingest_interfaces(payload, %{}) end)
+
+    assert {:ok, :ok} = Task.yield(ingest, budget) || Task.shutdown(ingest, :brutal_kill),
+           "mapper interface ingestion must not wait on the graph backend"
+
+    assert %Postgrex.Result{rows: [[200]]} =
+             SQL.query!(
+               Repo,
+               "SELECT count(DISTINCT if_index) FROM platform.discovered_interfaces WHERE device_ip = $1",
+               [device_ip]
+             )
+
+    assert [%{"device_id" => device_id}] = pending_projection_args()
+    assert is_binary(device_id) and device_id != ""
+  end
+
+  test "a write that lands during a projection causes exactly one follow-up projection" do
+    device = "sr:it-follow"
+    on_exit(fn -> delete_interface(device) end)
+    on_exit(fn -> purge_topology_rows([device]) end)
+
+    upsert_interface_alias(device, "first-alias")
+    insert_unresolved_link(device)
+
+    assert :ok = TopologyProjectionWorker.enqueue(:interfaces, [%{device_id: device}])
+    [job] = pending_projection_jobs()
+    mark_executing(job)
+
+    test = self()
+    handler = "mapper-graph-ingestion-follow-up-#{System.unique_integer([:positive])}"
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        [:serviceradar, :mapper_topology, :neighbor_dropped],
+        fn _event, _measurements, _metadata, _config ->
+          if Process.get(:follow_up_write) == nil do
+            Process.put(:follow_up_write, :done)
+            upsert_interface_alias(device, "latest-alias")
+            send(test, :write_landed)
+          end
+        end,
+        nil
+      )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    assert :ok = TopologyProjectionWorker.perform(reload_job(job.id))
+    assert_received :write_landed
+
+    assert [follow_up] = pending_projection_jobs()
+    assert follow_up.id != job.id
+    assert follow_up.args["device_id"] == device
+
+    assert :ok = TopologyProjectionWorker.enqueue(:interfaces, [%{device_id: device}])
+    assert [coalesced] = pending_projection_jobs()
+    assert coalesced.id == follow_up.id
+
+    mark_executing(follow_up)
+    assert :ok = TopologyProjectionWorker.perform(reload_job(follow_up.id))
+    assert [] = pending_projection_jobs()
+  end
+
+  test "device projections in one burst schedule one run of the global passes" do
+    devices = ["sr:it-burst-a", "sr:it-burst-b", "sr:it-burst-c"]
+    Enum.each(devices, fn device -> on_exit(fn -> delete_interface(device) end) end)
+    Enum.each(devices, &upsert_interface_alias(&1, "burst-alias"))
+
+    assert :ok =
+             TopologyProjectionWorker.enqueue(:interfaces, Enum.map(devices, &%{device_id: &1}))
+
+    jobs = pending_projection_jobs()
+    assert length(jobs) == length(devices)
+    Enum.each(jobs, &assert(:ok = TopologyProjectionWorker.perform(&1)))
+
+    now = DateTime.utc_now()
+    assert [global] = pending_global_pass_jobs()
+    assert global.state == "scheduled"
+    assert DateTime.after?(global.scheduled_at, now)
+  end
+
   defp purge_topology_rows(local_device_ids) when is_list(local_device_ids) do
     SQL.query!(
       Repo,
@@ -285,15 +393,105 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     Enum.map(rows, fn row -> columns |> Enum.zip(row) |> Map.new() end)
   end
 
-  defp clear_report_fingerprints do
-    Enum.each(:persistent_term.get(), fn
-      {{Links, :report_fingerprint, _scope} = key, _value} ->
-        :persistent_term.erase(key)
+  defp pending_projection_args, do: Enum.map(pending_projection_jobs(), & &1.args)
 
-      _other ->
-        :ok
+  defp pending_projection_jobs do
+    Repo.all(
+      from(j in Oban.Job,
+        where:
+          j.worker == "ServiceRadar.NetworkDiscovery.TopologyProjectionWorker" and
+            j.state in ["available", "scheduled", "retryable"],
+        order_by: j.id
+      ),
+      prefix: "platform"
+    )
+  end
+
+  defp pending_global_pass_jobs do
+    Repo.all(
+      from(j in Oban.Job,
+        where:
+          j.worker == "ServiceRadar.NetworkDiscovery.TopologyGlobalPassWorker" and
+            j.state in ["available", "scheduled"]
+      ),
+      prefix: "platform"
+    )
+  end
+
+  defp mark_executing(%Oban.Job{id: id}) do
+    Repo.update_all(
+      from(j in Oban.Job, where: j.id == ^id),
+      [set: [state: "executing", attempted_at: DateTime.utc_now(), attempt: 1]],
+      prefix: "platform"
+    )
+  end
+
+  defp reload_job(id), do: Repo.get!(Oban.Job, id, prefix: "platform")
+
+  defp upsert_interface_alias(device_id, if_alias) do
+    # discovered_interfaces.device_id references ocsf_devices. The projection
+    # reads the interface row; the parent device is what makes that row legal.
+    insert_device_type(device_id, "Switch")
+
+    SQL.query!(
+      Repo,
+      """
+      INSERT INTO platform.discovered_interfaces
+        (timestamp, device_id, interface_uid, if_index, if_name, if_alias,
+         classifications, classification_meta, classification_source)
+      VALUES ($1, $2, 'eth0', 1, 'eth0', $3, '{}', '{}', 'rules')
+      ON CONFLICT (device_id, interface_uid)
+      DO UPDATE SET if_alias = EXCLUDED.if_alias, timestamp = EXCLUDED.timestamp, if_name = EXCLUDED.if_name
+      """,
+      [DateTime.utc_now(), device_id, if_alias]
+    )
+  end
+
+  defp delete_interface(device_id) do
+    SQL.query!(
+      Repo,
+      "DELETE FROM platform.discovered_interfaces WHERE device_id = $1",
+      [device_id]
+    )
+  end
+
+  # A committed link whose neighbor never resolved to an `sr:` identity: the
+  # projection reads it and drops it.
+  defp insert_unresolved_link(local_device_id) do
+    SQL.query!(
+      Repo,
+      """
+      INSERT INTO platform.mapper_topology_links (
+        id, timestamp, created_at, local_device_id, neighbor_device_id,
+        local_if_index, neighbor_port_id, protocol, neighbor_chassis_id, metadata
+      )
+      VALUES (gen_random_uuid(), $1, $1, $2, 'host01.example.com', 1, 'Gi0/1', 'LLDP',
+              'aa:bb:cc:dd:ee:01', '{}')
+      """,
+      [DateTime.utc_now(), local_device_id]
+    )
+  end
+
+  defp insert_device_type(uid, type) do
+    SQL.query!(
+      Repo,
+      """
+      INSERT INTO ocsf_devices (uid, type, name, hostname, created_time, modified_time)
+      VALUES ($1, $2, $1, $1, NOW(), NOW())
+      ON CONFLICT (uid) DO UPDATE SET type = EXCLUDED.type, modified_time = NOW()
+      """,
+      [uid, type]
+    )
+  end
+
+  defp with_dgraph_url(dgraph_url) do
+    previous_url = System.get_env("DGRAPH_URL")
+    System.put_env("DGRAPH_URL", dgraph_url)
+
+    on_exit(fn ->
+      if previous_url,
+        do: System.put_env("DGRAPH_URL", previous_url),
+        else: System.delete_env("DGRAPH_URL")
     end)
-
-    :ok
   end
 end

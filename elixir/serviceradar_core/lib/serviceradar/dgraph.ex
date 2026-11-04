@@ -43,6 +43,7 @@ defmodule ServiceRadar.Dgraph do
 
   @type write_result :: :ok | {:error, String.t()}
   @type count_result :: {:ok, non_neg_integer()} | {:error, String.t()}
+  @type keys_result :: {:ok, [String.t()]} | {:error, String.t()}
   @type query_result :: {:ok, term()} | {:error, String.t()}
   @type edges_result :: {:ok, [map()]} | {:error, String.t()}
   @type graph_result :: {:ok, %{nodes: [map()], edges: [map()]}} | {:error, String.t()}
@@ -90,6 +91,31 @@ defmodule ServiceRadar.Dgraph do
     end
   end
 
+  @doc """
+  Upsert `devices` and the `interfaces` they own in one Dgraph request: one
+  conditional mutation per device writes it, its interfaces and the
+  `device.interfaces` edges, so the request count does not grow with the
+  interface count. Each interface's `:device_id` must name a device in
+  `devices`, and device ids must not repeat.
+
+  Returns `{:ok, skipped}` with the ids of devices that were not written
+  because more than one Device vertex carries the id.
+  """
+  @spec upsert_device_graphs([map()], [map()]) :: keys_result()
+  def upsert_device_graphs(devices, interfaces) when is_list(devices) and is_list(interfaces) do
+    with {:ok, url} <- url() do
+      device_maps = Enum.map(devices, &device_map/1)
+      interface_maps = Enum.map(interfaces, &interface_map/1)
+
+      call(
+        :upsert_device_graphs,
+        :item,
+        true,
+        &Native.upsert_device_graphs(url, device_maps, interface_maps, &1)
+      )
+    end
+  end
+
   @spec upsert_prefix(map()) :: write_result()
   def upsert_prefix(prefix) when is_map(prefix) do
     with {:ok, url} <- url() do
@@ -122,6 +148,21 @@ defmodule ServiceRadar.Dgraph do
   def upsert_edge(edge) when is_map(edge) do
     with {:ok, url} <- url() do
       call(:upsert_edge, :item, true, &Native.upsert_edge(url, edge_map(edge), &1))
+    end
+  end
+
+  @doc """
+  Upsert `edges` in one Dgraph transaction, one conditional mutation per
+  edge. Repeated link keys keep their last occurrence.
+
+  Returns `{:ok, skipped}` with the link keys of edges that were not written
+  because an endpoint is missing or matches more than one vertex.
+  """
+  @spec upsert_edges([map()]) :: keys_result()
+  def upsert_edges(edges) when is_list(edges) do
+    with {:ok, url} <- url() do
+      edge_maps = Enum.map(edges, &edge_map/1)
+      call(:upsert_edges, :item, true, &Native.upsert_edges(url, edge_maps, &1))
     end
   end
 

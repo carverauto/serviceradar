@@ -7,22 +7,32 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist do
 
   require Logger
 
-  @spec upsert_interface(map()) :: :ok
-  def upsert_interface(payload) when is_map(payload) do
-    maybe(fn ->
-      with :ok <-
-             Dgraph.upsert_device(%{
-               id: payload.device_id,
-               ip: payload[:ip]
-             }) do
-        Dgraph.upsert_interface(%{
-          key: payload.interface_id,
-          device_id: payload.device_id,
-          name: payload.if_name,
-          if_index: int_or_nil(payload.if_index)
-        })
-      end
-    end)
+  @doc """
+  Project mapper interface payloads. One Dgraph request writes each device once
+  together with all of its interfaces, one mutation per device, however many
+  interfaces it reports.
+
+  Returns `{:error, reason}` when the request fails, so the projection job
+  retries it; a device skipped as ambiguous is logged and does not fail the
+  batch.
+  """
+  @spec upsert_interfaces([map()]) :: :ok | {:error, term()}
+  def upsert_interfaces([]), do: :ok
+
+  def upsert_interfaces(payloads) when is_list(payloads) do
+    devices = Enum.map(payloads, &%{id: &1.device_id})
+
+    interfaces =
+      Enum.map(payloads, fn payload ->
+        interface_write(
+          payload.interface_id,
+          payload.device_id,
+          payload.if_name,
+          payload.if_index
+        )
+      end)
+
+    persist(fn -> upsert_device_graphs(devices, interfaces) end)
   end
 
   @doc """
@@ -47,41 +57,121 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist do
     end)
   end
 
-  @spec upsert_link(map(), String.t()) :: :ok
-  def upsert_link(payload, relation) when is_map(payload) and is_binary(relation) do
-    maybe(fn ->
-      with :ok <- upsert_endpoint(payload.local_device_id, payload.local_device_ip),
-           :ok <- upsert_endpoint(payload.neighbor_device_id, payload.neighbor_ip),
-           :ok <-
-             maybe_interface(
-               payload.local_interface_id,
-               payload.local_device_id,
-               payload.local_if_name,
-               payload.local_if_index
-             ),
-           :ok <-
-             maybe_interface(
-               payload.neighbor_interface_id,
-               payload.neighbor_device_id,
-               payload.neighbor_port_name,
-               nil
-             ) do
-        Dgraph.upsert_edge(%{
-          source: payload.local_device_id,
-          target: payload.neighbor_device_id,
-          kind: edge_kind(relation),
-          protocol: payload.protocol || "unknown",
-          evidence_class: payload.evidence_class || "direct",
-          ingestor: "mapper_topology_v1",
-          if_name_ab: payload.local_if_name,
-          if_name_ba: payload.neighbor_port_name,
-          if_index_ab: int_or_nil(payload.local_if_index),
-          if_index_ba: 0,
-          confidence_tier: payload.confidence_tier,
-          last_seen: payload.observed_at
-        })
+  @doc """
+  Project classified mapper links, each a `{payload, relation}` pair. Two
+  Dgraph requests cover the whole batch: one writes every endpoint device once
+  with the interfaces the links name, and one writes every edge.
+
+  Returns `{:error, reason}` when a request fails, so the projection job
+  retries it. A device or edge skipped because its identity is missing or
+  ambiguous is logged and does not fail the batch.
+  """
+  @spec upsert_links([{map(), String.t()}]) :: :ok | {:error, term()}
+  def upsert_links([]), do: :ok
+
+  def upsert_links(projected) when is_list(projected) do
+    payloads = Enum.map(projected, &elem(&1, 0))
+
+    devices =
+      Enum.flat_map(payloads, fn payload ->
+        [
+          %{id: payload.local_device_id, ip: payload.local_device_ip},
+          %{
+            id: payload.neighbor_device_id,
+            ip: payload.neighbor_ip,
+            hostname: payload.neighbor_name
+          }
+        ]
+      end)
+
+    interfaces =
+      payloads
+      |> Enum.flat_map(fn payload ->
+        [
+          interface_write(
+            payload.local_interface_id,
+            payload.local_device_id,
+            payload.local_if_name,
+            payload.local_if_index
+          ),
+          interface_write(
+            payload.neighbor_interface_id,
+            payload.neighbor_device_id,
+            payload.neighbor_port_name,
+            nil
+          )
+        ]
+      end)
+      |> Enum.reject(&is_nil(&1.key))
+
+    edges = Enum.map(projected, fn {payload, relation} -> mapper_edge(payload, relation) end)
+
+    persist(fn ->
+      with :ok <- upsert_device_graphs(devices, interfaces) do
+        report_skipped(Dgraph.upsert_edges(edges), "edges")
       end
     end)
+  end
+
+  # Devices and interfaces repeat across a batch (every link of a switch names
+  # it). Writing them one call at a time left each field at the last non-nil
+  # value written, so merge repeats the same way before the single request.
+  defp upsert_device_graphs(devices, interfaces) do
+    report_skipped(
+      Dgraph.upsert_device_graphs(merge_by(devices, :id), merge_by(interfaces, :key)),
+      "devices"
+    )
+  end
+
+  defp merge_by(writes, key) do
+    {merged, order} =
+      Enum.reduce(writes, {%{}, []}, fn write, {merged, order} ->
+        id = Map.fetch!(write, key)
+
+        case merged do
+          %{^id => earlier} -> {Map.put(merged, id, Map.merge(earlier, write, &later/3)), order}
+          _ -> {Map.put(merged, id, write), [id | order]}
+        end
+      end)
+
+    order |> Enum.reverse() |> Enum.map(&Map.fetch!(merged, &1))
+  end
+
+  defp later(_field, earlier, nil), do: earlier
+  defp later(_field, _earlier, value), do: value
+
+  defp report_skipped({:ok, []}, _what), do: :ok
+
+  defp report_skipped({:ok, skipped}, what) when is_list(skipped) do
+    Logger.warning(
+      "Dgraph topology projection skipped #{length(skipped)} #{what} whose identity is " <>
+        "missing or ambiguous: #{inspect(Enum.take(skipped, 5))}"
+    )
+
+    :ok
+  end
+
+  defp report_skipped(other, _what), do: other
+
+  defp interface_write(key, device_id, name, index) do
+    %{key: key, device_id: device_id, name: name, if_index: int_or_nil(index)}
+  end
+
+  defp mapper_edge(payload, relation) do
+    %{
+      source: payload.local_device_id,
+      target: payload.neighbor_device_id,
+      kind: edge_kind(relation),
+      protocol: payload.protocol || "unknown",
+      evidence_class: payload.evidence_class || "direct",
+      ingestor: "mapper_topology_v1",
+      if_name_ab: payload.local_if_name,
+      if_name_ba: payload.neighbor_port_name,
+      if_index_ab: int_or_nil(payload.local_if_index),
+      if_index_ba: 0,
+      confidence_tier: payload.confidence_tier,
+      last_seen: payload.observed_at
+    }
   end
 
   @doc "Project a device's management relationship as `MANAGED_BY` and its inverse `MANAGES`."
@@ -210,26 +300,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist do
   def projection_relation(payload) when is_map(payload) do
     Projection.evidence_relation_type(payload)
   end
-
-  defp upsert_endpoint(id, ip) when is_binary(id) do
-    Dgraph.upsert_device(%{id: id, ip: ip})
-  end
-
-  defp upsert_endpoint(_, _), do: :ok
-
-  defp maybe_interface(nil, _device_id, _name, _index), do: :ok
-
-  defp maybe_interface(key, device_id, name, index)
-       when is_binary(key) and is_binary(device_id) do
-    Dgraph.upsert_interface(%{
-      key: key,
-      device_id: device_id,
-      name: name,
-      if_index: int_or_nil(index)
-    })
-  end
-
-  defp maybe_interface(_, _, _, _), do: :ok
 
   defp upsert_mtr_node(:hop, ip) when is_binary(ip), do: Dgraph.upsert_hop(%{ip: ip})
   defp upsert_mtr_node(_, id) when is_binary(id), do: Dgraph.upsert_device(%{id: id})

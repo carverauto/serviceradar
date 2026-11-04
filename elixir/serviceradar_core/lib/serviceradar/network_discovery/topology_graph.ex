@@ -13,8 +13,23 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
   @type projection_payload :: Projection.projection_payload()
 
-  @spec upsert_links([map()]) :: :ok
+  @doc """
+  Projects one mapper topology report: every link into Dgraph in one batch.
+  It prunes nothing; pruning and the canonical rebuild are the graph-wide
+  passes in `run_global_passes/0`.
+  Returns `{:error, reason}` when the Dgraph batch fails, so the caller can
+  retry the whole idempotent apply. Every call writes; an unchanged report is
+  rewritten, not skipped.
+  """
+  @spec upsert_links([map()]) :: :ok | {:error, term()}
   defdelegate upsert_links(links), to: Links
+
+  @doc """
+  Runs the graph-wide stale-evidence pruning and canonical rebuild that follow
+  link projection.
+  """
+  @spec run_global_passes() :: :ok | {:error, term()}
+  defdelegate run_global_passes(), to: Links
 
   @doc """
   Rebuilds canonical device-level topology edges from current mapper evidence.
@@ -59,7 +74,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
           | {:error, :missing_ids}
   defdelegate classify_projection(link), to: Projection
 
-  @spec upsert_interfaces([map()]) :: :ok
+  @doc """
+  Projects mapper interfaces in one Dgraph request that writes each device once
+  with all of its interfaces. Returns
+  `{:error, reason}` when the Dgraph request fails.
+  """
+  @spec upsert_interfaces([map()]) :: :ok | {:error, term()}
   defdelegate upsert_interfaces(interfaces), to: Interfaces
 
   @doc """

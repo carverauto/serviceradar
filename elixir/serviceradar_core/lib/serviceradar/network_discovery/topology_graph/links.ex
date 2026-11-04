@@ -1,7 +1,6 @@
 defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
   @moduledoc false
 
-  alias ServiceRadar.NetworkDiscovery.TopologyGraph
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Projection
@@ -10,132 +9,87 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
 
   require Logger
 
-  # Skip re-applying a mapper report whose projected link content is unchanged from
-  # the last applied report for the same device scope. The per-link backbone/
-  # auxiliary upserts (and the canonical rebuild they trigger) rewrite Device/
-  # Interface vertices and edges on every report regardless of change; gating the
-  # whole apply on a structural fingerprint stops that churn for a static topology.
-  # A heartbeat still re-applies periodically so stale-link pruning advances.
-  #
-  # This per-report guard is intentionally an in-process persistent_term fast path
-  # (not the durable shared meta-table guard used by CanonicalRebuild). It is keyed
-  # per device scope, so making it cross-replica would mean one meta row per scope
-  # — extra schema/write surface for a smaller win. The expensive downstream work
-  # this guard protects (CanonicalRebuild.rebuild_canonical_device_links/0) is now
-  # itself durably + cross-replica gated, so a process-local miss here after a
-  # restart re-walks the cheap per-link upserts but no longer forces a cold full
-  # canonical rebuild. phash2 is acceptable here because the value is per-process
-  # and never persisted, so OTP-upgrade instability cannot survive a restart.
-  @default_unchanged_report_heartbeat_ms 3_600_000
-
-  @spec upsert_links([map()]) :: :ok
+  @spec upsert_links([map()]) :: :ok | {:error, term()}
   def upsert_links([]), do: :ok
 
   def upsert_links(links) when is_list(links) do
-    case maybe_skip_unchanged_report(links) do
-      {:skip, _key} ->
-        Logger.debug("Topology upsert skipped; mapper report structurally unchanged")
-        :ok
+    links = Enum.sort_by(links, &link_observed_unix/1)
 
-      {:proceed, key, fingerprint} ->
-        result = do_upsert_links(links)
+    {diagnostics, dgraph_links} =
+      Enum.reduce(
+        links,
+        {Projection.empty_projection_diagnostics(), []},
+        &reduce_topology_link/2
+      )
 
-        # do_upsert_links/1 returns :ok and raises on failure, so reaching this
-        # line means the apply succeeded. Recording the fingerprint only after a
-        # successful apply ensures a failed report is retried next cycle rather
-        # than cached as "done" and skipped.
-        :persistent_term.put(
-          {__MODULE__, :report_fingerprint, key},
-          {fingerprint, System.monotonic_time(:millisecond)}
-        )
+    # Dgraph receives every projected link in one batch, in observation order.
+    with :ok <- DgraphPersist.upsert_links(Enum.reverse(dgraph_links)) do
+      Logger.info("Topology projection diagnostics: #{inspect(diagnostics)}")
 
-        result
+      :ok
     end
   end
 
-  defp do_upsert_links(links) do
-    diagnostics =
-      Enum.reduce(links, Projection.empty_projection_diagnostics(), &reduce_topology_link/2)
-
+  @doc """
+  The graph-wide passes that follow link projection: global stale-evidence
+  pruning and the canonical rebuild. They read and rewrite the whole graph, so
+  they run once per burst of device projections rather than once per device.
+  """
+  @spec run_global_passes() :: :ok | {:error, term()}
+  def run_global_passes do
     Pruning.maybe_prune_stale_mapper_evidence_links()
-    CanonicalRebuild.rebuild_canonical_device_links()
 
-    Logger.info("Topology projection diagnostics: #{inspect(diagnostics)}")
-
-    :ok
+    case CanonicalRebuild.rebuild_canonical_device_links() do
+      {:error, reason, _stats} -> {:error, reason}
+      _ -> :ok
+    end
   end
 
-  # Returns {:skip, key} when this report's structural link set matches the last
-  # applied report for the same device scope within the heartbeat window;
-  # otherwise {:proceed, key, fingerprint}.
-  defp maybe_skip_unchanged_report(links) do
-    {key, fingerprint} = report_structural_fingerprint(links)
-    now_ms = System.monotonic_time(:millisecond)
-    heartbeat_ms = unchanged_report_heartbeat_ms()
+  defp link_observed_unix(link) when is_map(link) do
+    case Map.get(link, :timestamp) || Map.get(link, "timestamp") do
+      %DateTime{} = timestamp ->
+        DateTime.to_unix(timestamp, :microsecond)
 
-    case :persistent_term.get({__MODULE__, :report_fingerprint, key}, nil) do
-      {^fingerprint, ts} when now_ms - ts < heartbeat_ms ->
-        {:skip, key}
+      %NaiveDateTime{} = timestamp ->
+        NaiveDateTime.diff(timestamp, ~N[1970-01-01 00:00:00], :microsecond)
+
+      timestamp when is_binary(timestamp) ->
+        case DateTime.from_iso8601(timestamp) do
+          {:ok, parsed, _offset} ->
+            DateTime.to_unix(parsed, :microsecond)
+
+          _ ->
+            case NaiveDateTime.from_iso8601(timestamp) do
+              {:ok, parsed} -> NaiveDateTime.diff(parsed, ~N[1970-01-01 00:00:00], :microsecond)
+              _ -> 0
+            end
+        end
 
       _ ->
-        {:proceed, key, fingerprint}
+        0
     end
   end
 
-  # Scope the fingerprint by the set of reporting (local) devices so concurrent
-  # reports from different agents don't thrash a single shared entry. The
-  # fingerprint itself includes every projected input except the observation
-  # timestamp. This deliberately favors a complete fail-safe identity over a
-  # curated field list that could drift when projection gains another mutable
-  # vertex, interface, or edge property. Observation timestamps are excluded so
-  # unchanged heartbeat reports still use the periodic re-apply window.
-  defp report_structural_fingerprint(links) do
-    payloads =
-      links
-      |> Enum.map(&Projection.projection_payload/1)
-      |> Enum.reject(&is_nil/1)
-
-    scope =
-      payloads
-      |> Enum.map(& &1.local_device_id)
-      |> Enum.uniq()
-      |> Enum.sort()
-
-    identity =
-      payloads
-      |> Enum.map(&Map.delete(&1, :observed_at))
-      |> Enum.sort()
-
-    {:erlang.phash2(scope), :erlang.phash2(identity)}
-  end
-
-  defp unchanged_report_heartbeat_ms do
-    :serviceradar_core
-    |> Application.get_env(TopologyGraph, [])
-    |> Keyword.get(:unchanged_report_heartbeat_ms, @default_unchanged_report_heartbeat_ms)
-    |> Utils.normalize_positive_int(@default_unchanged_report_heartbeat_ms)
-  end
-
-  defp reduce_topology_link(link, diagnostics) do
+  defp reduce_topology_link(link, {diagnostics, dgraph_links}) do
     case Projection.projection_payload(link) do
       nil ->
         reason = Projection.drop_reason(link) || :missing_ids
         emit_neighbor_dropped(link, reason)
         Logger.debug("Skipping topology link missing device identifiers")
-        Projection.increment_diagnostic(diagnostics, :rejected, reason)
+        {Projection.increment_diagnostic(diagnostics, :rejected, reason), dgraph_links}
 
       payload ->
         case Projection.projection_mode(payload) do
           {:backbone, reason} ->
-            DgraphPersist.upsert_link(payload, "CONNECTS_TO")
-            Projection.increment_diagnostic(diagnostics, :accepted, reason)
+            {Projection.increment_diagnostic(diagnostics, :accepted, reason),
+             [{payload, "CONNECTS_TO"} | dgraph_links]}
 
           {:auxiliary, reason} ->
-            DgraphPersist.upsert_link(payload, Projection.evidence_relation_type(payload))
-            Projection.increment_diagnostic(diagnostics, :accepted, reason)
+            {Projection.increment_diagnostic(diagnostics, :accepted, reason),
+             [{payload, Projection.evidence_relation_type(payload)} | dgraph_links]}
 
           {:skip, reason} ->
-            Projection.increment_diagnostic(diagnostics, :rejected, reason)
+            {Projection.increment_diagnostic(diagnostics, :rejected, reason), dgraph_links}
         end
     end
   end
@@ -150,7 +104,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
     :telemetry.execute(
       [:serviceradar, :mapper_topology, :neighbor_dropped],
       %{count: 1},
-      %{reason: reason, protocol: Utils.link_value(link, :protocol) || "unknown"}
+      %{reason: reason, protocol: Utils.non_blank(Utils.link_value(link, :protocol)) || "unknown"}
     )
   end
 

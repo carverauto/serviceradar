@@ -70,10 +70,15 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Utils do
   an operator who wants a fixed window.
   """
   def stale_cutoff_iso8601 do
+    DateTime.to_iso8601(stale_cutoff())
+  end
+
+  @doc "The stale-link cutoff `stale_cutoff_iso8601/0` renders, as a `DateTime`."
+  @spec stale_cutoff() :: DateTime.t()
+  def stale_cutoff do
     DateTime.utc_now()
     |> DateTime.shift(minute: -stale_minutes())
     |> DateTime.truncate(:second)
-    |> DateTime.to_iso8601()
   end
 
   @doc false

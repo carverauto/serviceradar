@@ -1,6 +1,13 @@
 defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   @moduledoc """
-  Ingests mapper interface and topology results into CNPG and projects topology into Dgraph.
+  Ingests mapper interface and topology results into CNPG and schedules their
+  graph projection.
+
+  The CNPG rows are the authoritative record and are committed here, inside the
+  result-ingestion lane's worker budget. The Dgraph topology graph is a
+  projection of them, written afterwards by
+  `ServiceRadar.NetworkDiscovery.TopologyProjectionWorker`, so a slow graph
+  backend delays the graph instead of timing the mapper result out.
   """
 
   import Ecto.Query
@@ -33,6 +40,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.NetworkDiscovery.TopologyGraph
   alias ServiceRadar.NetworkDiscovery.TopologyLink
+  alias ServiceRadar.NetworkDiscovery.TopologyProjectionWorker
   alias ServiceRadar.Repo
 
   require Ash.Query
@@ -91,7 +99,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
             |> Stream.map(& &1.device_id)
             |> DevicePubSub.broadcast_invalidated()
 
-            TopologyGraph.upsert_interfaces(classified_records)
+            TopologyProjectionWorker.enqueue(:interfaces, classified_records)
             record_job_runs(updates, status: :success, include_interface_counts: true)
             :ok
 
@@ -169,11 +177,11 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
         case insert_bulk(records_with_wireguard, TopologyLink, actor, "topology") do
           # Per-record isolation: rejected records are counted into telemetry
           # and filtered out, but the accepted evidence still reaches the graph
-          # graph instead of freezing the whole payload.
+          # projection instead of freezing the whole payload.
           {:ok, %{rejected: rejected}} ->
             emit_topology_ingest_rejections(rejected)
             surviving = reject_rejected_topology_records(records_with_wireguard, rejected)
-            TopologyGraph.upsert_links(surviving)
+            TopologyProjectionWorker.enqueue(:links, surviving)
             maybe_bootstrap_topology_interface_metrics(surviving, actor)
             :ok
 
@@ -5501,6 +5509,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
          :timestamp,
          :created_at,
          :metadata,
+         :local_device_ip,
+         :local_if_name,
+         :neighbor_port_descr,
          :neighbor_system_name,
          :neighbor_mgmt_addr,
          :gateway_id,

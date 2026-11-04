@@ -6,12 +6,13 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Interfaces do
 
   require Logger
 
-  @spec upsert_interfaces([map()]) :: :ok
+  @spec upsert_interfaces([map()]) :: :ok | {:error, term()}
   def upsert_interfaces([]), do: :ok
 
   def upsert_interfaces(interfaces) when is_list(interfaces) do
-    Enum.each(interfaces, &upsert_interface/1)
-    :ok
+    interfaces
+    |> Enum.flat_map(&interface_payload/1)
+    |> DgraphPersist.upsert_interfaces()
   end
 
   @spec upsert_managed_by(String.t(), String.t()) :: :ok
@@ -27,18 +28,18 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Interfaces do
     end
   end
 
-  defp upsert_interface(interface) when is_map(interface) do
+  defp interface_payload(interface) when is_map(interface) do
     case build_interface_payload(interface) do
       {:ok, payload} ->
-        upsert_interface_payload(payload)
+        [payload]
 
       {:error, :missing_ids} ->
         Logger.debug("Skipping interface graph upsert missing identifiers")
-        :ok
+        []
     end
   end
 
-  defp upsert_interface(_interface), do: :ok
+  defp interface_payload(_interface), do: []
 
   defp build_interface_payload(interface) do
     device_id = Utils.non_blank(Utils.link_value(interface, :device_id))
@@ -61,9 +62,5 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Interfaces do
          ip_addresses: Utils.link_value(interface, :ip_addresses)
        }}
     end
-  end
-
-  defp upsert_interface_payload(payload) do
-    DgraphPersist.upsert_interface(payload)
   end
 end
