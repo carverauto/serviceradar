@@ -409,7 +409,8 @@ transient by definition.
 
 The new CNPG tables are `alert_block_leases`, `alert_block_checkpoints`,
 `alert_block_dedupe_slices`, `alert_stream_map` (with its move journal),
-`alert_effect_failures`, `alert_maintenance_receipts`, the release-N
+`alert_effect_failures`, `alert_maintenance_receipts`,
+`alert_maintenance_snapshots`, the release-N
 `alert_cutover_progress`, an immutable
 `stateful_alert_rule_revisions`, and `AlertEvaluationSettings`. Existing
 tables kept: `stateful_alert_rule_states` (now the incremental checkpoint),
@@ -434,14 +435,18 @@ field recompiles the projection, and candidates routed afterwards carry it.
 
 The NATS `max_payload` stays at its default. A candidate whose encoded size
 would exceed `candidate_inline_max_bytes` (default 512 KiB, below the 1 MiB
-default `max_payload`) is published instead with the fields the compiled
-rules match and group on that fit, plus the stored-record reference, and
-without the rest of the payload. Before evaluating such a candidate the
-owner completes it from the stored record, which is immutable, so F stays a
-pure function of the completed candidate.
-Nothing is truncated or skipped, and every published candidate, import
-message and dead-letter copy fits the broker. Every fit check in this
-design uses the encoded candidate as published.
+default `max_payload`) is published instead with the stored-record
+reference and as many of the fields the compiled rules match and group on
+as fit under that bound, each whole; a field that does not fit is left out,
+never cut. Such a candidate is published only after its record's store has
+succeeded, so the reference always resolves. Before evaluating it the owner
+completes it from the stored record, which is immutable, so F stays a pure
+function of the completed candidate. A failed completion read is a store
+error, which holds the block and retries like any transient failure and is
+never classified as poison.
+Nothing is truncated or skipped, and every published candidate, control
+message, import message and dead-letter copy fits the broker. Every fit
+check in this design uses the encoded message as published.
 
 The rule itself is referenced by (rule_id, revision). Revisions are
 immutable rows, cached by owners, so a replay evaluates exactly the revision
@@ -465,12 +470,17 @@ through the DurablePublish outbox in the transaction that made the change:
   incident rule and group key in its metadata. The group records
   `operator_terminal`. As today, it is not renotified and does not re-fire
   until the group recovers.
-- **Stale-anomaly maintenance:** `resolve_stale_anomalies/4` publishes a
-  maintenance marker carrying `cutoff`, `now` and an immutable live-series
-  snapshot id to every block, then awaits one `alert_maintenance_receipts` row
-  per block with a bounded timeout. It returns their summed resolved count,
+- **Stale-anomaly maintenance:** `resolve_stale_anomalies/4` stores the
+  live-series key set in CNPG as an immutable snapshot, kept until every
+  block's receipt exists, and publishes a maintenance marker carrying only
+  `cutoff`, `now` and the snapshot id to every block. The owner loads the
+  snapshot before F; a failed load is transient, never a live re-query. It then awaits one `alert_maintenance_receipts` row
+  per block with a bounded timeout, and returns their summed resolved count,
   which keeps today's synchronous contract.
 - **Block move and cutover import segment ends:** see D12 and Migration.
+
+D9 control messages are always published to the block's live candidate
+subjects, including during the cutover import (Migration).
 
 The evaluator uses no wall clock. Time comes from event time or from the
 `now` a control message carries.
@@ -511,7 +521,8 @@ Findings and changes, keyed to `capacity.md` S1-S5 and S13:
   replica stay at about 1/s or less at the design point; a small install
   flushes on age.
 - **Store and route in parallel.** Routing does not wait for the coalesced
-  load. The source acknowledgement waits for both. An alert can be visible a
+  load, except that a by-reference candidate (D8) is published after its
+  record's store succeeds. The source acknowledgement waits for both. An alert can be visible a
   few seconds before its triggering record is queryable in the warehouse.
   Alert latency is no longer tied to the warehouse flush age.
 - **CNPG telemetry dual-write (S5).** Resolved by
@@ -846,47 +857,52 @@ that evaluates through both designs.
       violation increment, recovery-match flag, seasonal disposition read
       from `SeasonalStateStore` at import time without a cache, the
       evaluation projection under the D8 size rule, the rule revision the
-      row names, and the candidate id the router would compute. Owners start
-      for import only: they consume `alerts.import.v1.b<b>.*` and no live
-      subject, and checkpoint only at segment-end markers. Until the marker,
-      D9 control messages (rule disable and delete, operator alert actions,
-      stale-anomaly maintenance) stay in the DurablePublish outbox and the
-      task places them in the next segment.
-      Each segment is built after the previous one is committed and purged,
-      up to the import stream's free stored bytes (at most its `max_bytes`)
-      and at least one record. For each block in turn it holds that block's
-      pending control messages in outbox order, then the block's next
-      records, then the block's segment-end marker. Records of a rule that
-      is disabled or deleted when the segment is built are omitted and
-      counted as dropped. One publisher sends the segment in that order,
-      awaiting each PubAck before the next and retrying a refused publish in
-      place with capped backoff and no attempt limit, so each block's
-      marker is stored after its own controls and records. Records carry
-      their import ordinal and control messages their outbox id; a block
-      skips a record whose ordinal is at or below the `import_ordinal` in
-      its checkpoint and a control id its dedupe ring has seen. A segment is
-      committed only when every block's checkpoint includes its end marker;
-      the task then records it in CNPG (`alert_cutover_progress`), marks its
-      control rows published, and purges the stream, every message of which
-      the committed checkpoints now cover.
-   3. After the final segment is committed, write the cutover marker. Each
-      owner then records the switch in its block checkpoint exactly as a
-      block move does (D12): the live candidate stream at sequence 0, with
-      `applied_count` and `import_ordinal` unchanged, and starts consuming
-      the block's live subjects from their first sequence. Control rows
-      still in the outbox when the marker commits are published to live
-      subjects. Once every block has switched, no uncheckpointed import
-      message remains and the task deletes `ALERT_IMPORT_V1`.
+      row names, and the candidate id the router would compute. Each block's
+      initial checkpoint is on its live candidate stream at sequence 0.
+      Owners start for import: they consume `alerts.import.v1.b<b>.*` and
+      their live subjects, which before the marker hold only D9 control
+      messages because routers are held. An owner applies a live control at
+      a batch boundary, ahead of every import record it has not yet
+      applied, so a disable, resolve or maintenance marker committed during
+      the import takes effect before the remaining residual work of its
+      block. During the import every effect commit is also a checkpoint
+      commit (live sequence and `import_ordinal`), so committed effects
+      always match one persisted order.
+      Each segment is built after the previous one is committed and purged.
+      It first reserves the encoded bytes of one segment-end marker per
+      block, then takes the next records in ordinal order while their
+      encoded bytes still fit in the import stream's free stored bytes (at
+      most its `max_bytes`); the first record that does not fit waits for
+      the next segment. The preflight minimum guarantees that at least one
+      record fits in an empty stream. Records of a rule that is disabled or
+      deleted when the segment is built are omitted and counted as dropped.
+      One publisher sends the segment's records in ordinal order and then
+      the end markers, awaiting each PubAck before the next and retrying a
+      refused publish in place with capped backoff and no attempt limit, so
+      each block's marker is stored after its own records. Records carry
+      their import ordinal, and a block skips a record whose ordinal is at
+      or below the `import_ordinal` in its checkpoint; at its end marker the
+      block sets `import_ordinal` to the segment's last ordinal. A segment
+      is committed only when every block's checkpoint includes its end
+      marker; the task then records it in CNPG (`alert_cutover_progress`)
+      and purges the stream, every message of which the committed
+      checkpoints now cover.
+   3. After the final segment is committed, write the cutover marker. Owners
+      stop reading import subjects and continue on their live subjects from
+      their checkpointed live sequence, with `applied_count` and
+      `import_ordinal` unchanged; routers start. Once every block has
+      stopped reading it, no uncheckpointed import message remains and the
+      task deletes `ALERT_IMPORT_V1`.
    A crash before the marker resumes from the last committed segment:
    owners recover their blocks from their checkpoints, discarding anything
-   applied after them; the task purges the stream and rebuilds the next
-   segment from the records after the last committed segment and the
-   control rows not yet marked published. A purged message above a
-   checkpoint is therefore always republished, and a block skips what its
-   checkpoint already includes, so every residual record and control
-   message is applied exactly once. The source tables are untouched until
-   the marker. Once the marker commit has succeeded, a rerun of the task
-   only completes the switch and the stream deletion and does nothing else.
+   applied after them; the task purges the import stream and rebuilds the
+   next segment from the records after the last committed segment. A purged
+   message above a checkpoint is therefore always republished, and a block
+   skips what its checkpoint already includes, so every residual record is
+   applied exactly once; live controls are re-read from the live
+   checkpoint. The source tables are untouched until the marker. Once the
+   marker commit has succeeded, a rerun of the task only completes the
+   stream deletion and does nothing else.
    Imported candidates carry the candidate id the router would compute, so a
    source message the old replicas admitted but did not acknowledge,
    redelivered and routed after the marker, is suppressed as a duplicate.

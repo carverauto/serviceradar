@@ -20,7 +20,7 @@ The final match decision SHALL use the same predicate semantics as the current r
 ### Requirement: Candidates use a fixed key space and a dynamic stream map
 Each match SHALL be published as a candidate on a subject derived from a fixed space of 1,024 virtual partitions, selected by a versioned hash of the rule id and group key, and grouped into fixed blocks of consecutive virtual partitions, so that a key's subject never changes. The virtual partition count SHALL NOT be a runtime setting.
 CNPG SHALL hold a generation-numbered map that assigns every block to exactly one physical candidate stream, and that map SHALL be changeable at runtime without changing any key's subject.
-Candidate streams SHALL use Limits retention, DiscardNew, no maximum age and a finite size from a CNPG runtime setting whose code default is derived from the active JetStream profile. A candidate SHALL carry every field that any compiled rule or the alert builder reads, each value whole, together with a reference to the stored record. No per-candidate inbox row SHALL be written to CNPG.
+Candidate streams SHALL use Limits retention, DiscardNew, no maximum age and a finite size from a CNPG runtime setting whose code default is derived from the active JetStream profile. A candidate SHALL carry every field that any compiled rule or the alert builder reads, each value whole, together with a reference to the stored record, unless its encoded size would exceed the inline size bound; such a candidate SHALL instead carry the reference and only whole rule-read fields that fit under the bound, SHALL be published only after its record is stored, and SHALL be completed from that record before evaluation, a failed completion read holding the block as a transient failure rather than counting as poison. Every published candidate, control and import message SHALL fit the default NATS maximum payload. No per-candidate inbox row SHALL be written to CNPG.
 
 #### Scenario: Matches for one group share a subject
 - **GIVEN** a rule grouped by `device_uid`
@@ -224,7 +224,7 @@ Candidates of a disabled rule that follow its marker SHALL be dropped and counte
 - **AND** no new incident SHALL fire for that group
 
 ### Requirement: Stale-anomaly maintenance keeps its synchronous count
-Stale-anomaly resolution SHALL publish a maintenance marker carrying its cutoff, time and live-series snapshot to every block, SHALL wait with a bounded timeout for one receipt per block, and SHALL return the summed count of resolved incidents.
+Stale-anomaly resolution SHALL store its live-series key set in CNPG as an immutable snapshot kept until every block's receipt exists, SHALL publish a maintenance marker carrying its cutoff, time and the snapshot id to every block, SHALL wait with a bounded timeout for one receipt per block, and SHALL return the summed count of resolved incidents.
 
 #### Scenario: Maintenance follows earlier input
 - **GIVEN** an anomaly-clear candidate published before a maintenance marker for the same group
@@ -259,8 +259,8 @@ No alert evaluation behaviour SHALL depend on a Helm-only value.
 
 ### Requirement: Cutover from the CNPG inbox is ordered and complete
 Upgraded replicas SHALL NOT consume alert-feeding source streams or route candidates until the cutover marker exists. Before any pre-cutover replica is replaced, the upgrade SHALL create the import stream bound to the import subjects, with replicas capped to the NATS server count and a size of the smaller of the configured import segment bound and the remaining JetStream reservation less the size of the release's not-yet-created streams, and SHALL refuse the upgrade, naming the remaining reservation, that reserve and the bytes required, only when that size is below one minimal segment of one candidate at the inline size bound plus one end marker per block. The import stream SHALL NOT be counted in the profile carve.
-Rule state conversion SHALL carry each incident's operator-terminal status from its current alert status. Until the marker, rule disable and delete, operator alert actions and stale-anomaly maintenance SHALL be held in the transactional outbox and placed in the next import segment ahead of that block's residual records, SHALL be marked published only when that segment is committed, and residual records of a rule already disabled or deleted SHALL be dropped and counted. Import candidates SHALL carry the same route-time stamps as router candidates, including a seasonal disposition read at import time.
-Residual inbox and pending lifecycle admission rows SHALL be imported in their original order, with the candidate id the router would compute, in bounded segments: each segment's size SHALL come from the import stream's free stored bytes when it is built, SHALL be at least one record and SHALL NOT exceed the import stream's size, a segment SHALL include its per-block control messages and end markers within that size and SHALL store each block's end marker after that block's own controls and records, a refused import publish SHALL be retried in place without an attempt limit, a segment SHALL count as committed only when every block's checkpoint includes its end, and the next segment SHALL be published only after that. A crash SHALL resume from the last committed segment, with owners recovered from their checkpoints, without applying any imported record twice. The cutover marker SHALL be written only after the final segment is applied. Each block SHALL then switch to the live stream as a block move does, starting at the live stream's first sequence with its evaluation position and import ordinal unchanged, and the import stream SHALL be deleted only after every block has switched. Once the marker is written, a rerun of the cutover SHALL only complete the switch and deletion.
+Rule state conversion SHALL carry each incident's operator-terminal status from its current alert status. During the import, rule disable and delete, operator alert actions and stale-anomaly maintenance SHALL be published to the live block subjects as always, and each owner SHALL read them alongside the import and apply each one at a batch boundary ahead of every residual record of its block it has not yet applied; during the import every effect commit SHALL also commit the block's checkpoint. Residual records of a rule already disabled or deleted SHALL be dropped and counted. Import candidates SHALL carry the same route-time stamps as router candidates, including a seasonal disposition read at import time.
+Residual inbox and pending lifecycle admission rows SHALL be imported in their original order, with the candidate id the router would compute, in bounded segments: each segment SHALL reserve one end marker per block and then take records in order while they fit in the import stream's free stored bytes, never above its size, a record that does not fit SHALL wait for the next segment, each block's end marker SHALL be stored after that block's own records, a refused import publish SHALL be retried in place without an attempt limit, a segment SHALL count as committed only when every block's checkpoint includes its end, and the next segment SHALL be published only after that. A crash SHALL resume from the last committed segment, with owners recovered from their checkpoints, without applying any imported record twice. The cutover marker SHALL be written only after the final segment is applied. Each block's checkpoint SHALL be on its live candidate stream from conversion onward; after the marker each owner SHALL stop reading the import subjects and continue from its checkpointed live sequence with its evaluation position and import ordinal unchanged, and the import stream SHALL be deleted only after every block has stopped reading it. Once the marker is written, a rerun of the cutover SHALL only complete the switch and deletion.
 The old inbox, lane, receipt, ledger and pending-admission tables SHALL be dropped only after the cutover marker exists, and no runtime path SHALL evaluate through both designs.
 
 #### Scenario: Residual work is evaluated before new input
@@ -292,11 +292,11 @@ The old inbox, lane, receipt, ledger and pending-admission tables SHALL be dropp
 
 #### Scenario: An operator resolve during the import is honoured
 - **GIVEN** residual work for an open incident that has not yet been imported
-- **WHEN** an operator resolves the incident before its segment is applied
+- **WHEN** an operator resolves the incident before the owner has applied that work
 - **THEN** the imported work SHALL NOT renotify the incident
 
 #### Scenario: The first live candidates after the import are applied
-- **GIVEN** a block whose import checkpoint is at import stream sequence 400
+- **GIVEN** a block that applied residual work up to import stream sequence 400
 - **WHEN** the cutover marker is written and live candidates are stored at live sequences 1 to 500
 - **THEN** the owner SHALL apply all 500 live candidates
 
@@ -305,6 +305,12 @@ The old inbox, lane, receipt, ledger and pending-admission tables SHALL be dropp
 - **WHEN** it matches a rule
 - **THEN** its candidate SHALL carry the rule-read fields and the stored-record reference and SHALL be accepted by NATS at its default maximum payload
 - **AND** the evaluation SHALL equal that of the full candidate
+
+#### Scenario: A by-reference candidate waits for its record
+- **GIVEN** a by-reference candidate whose stored record cannot be read because the store is unavailable
+- **WHEN** the owner reaches it
+- **THEN** the block SHALL hold and retry without evaluating a partial candidate
+- **AND** the candidate SHALL NOT be dead-lettered
 
 #### Scenario: Metadata after a move or the import is not dropped
 - **GIVEN** an open incident whose metadata was last written while applying the import, before its block moved streams, or before its owner failed over
