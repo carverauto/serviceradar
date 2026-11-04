@@ -11,6 +11,11 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
   Local leaf authorization has a separate offline policy contract.
   A stored account other than the deployment account is answered with an
   authorization error and no user JWT.
+
+  An adopted infrastructure certificate that presents one of the chart's
+  built-in identities is granted that identity's static permissions instead of
+  its stored grant (`ServiceRadar.NATS.StaticIdentityGrants`), so a release that
+  adds a subject to the broker's static configuration grants it here too.
   """
   use GenServer
 
@@ -20,6 +25,9 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
   alias ServiceRadar.Edge.ManagedCertificateLifecycle
   alias ServiceRadar.NATS.CertificateAuthorizationToken, as: Token
   alias ServiceRadar.NATS.ManagedCertificateConfiguration, as: Configuration
+  alias ServiceRadar.NATS.StaticIdentityGrants
+
+  require Logger
 
   @auth :serviceradar_certificate_auth
   @system :serviceradar_certificate_system
@@ -49,6 +57,8 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
        sessions: %{},
        probe: nil,
        connz: %{offsets: %{}, turn: 0},
+       static_users: %{},
+       static_users_status: :ok,
        reason: "not_configured"
      }}
   end
@@ -70,7 +80,7 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
 
   @impl true
   def handle_info(:tick, state) do
-    state = state |> configure() |> subscribe() |> refresh()
+    state = state |> configure() |> subscribe() |> load_static_users() |> refresh()
     Process.send_after(self(), :tick, @refresh_ms)
     {:noreply, state}
   end
@@ -209,7 +219,7 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
   defp respond(token, reply, connection, state) do
     case Token.decode_request(token, state.config.issuer_nkey) do
       {:ok, request} ->
-        decision = authorization_decision(state, request.fingerprint)
+        decision = authorization_decision(state, request)
 
         encoded =
           Token.encode_response(request, decision, state.signer, state.config.account_name)
@@ -226,27 +236,63 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
     :exit, _ -> state
   end
 
-  defp authorization_decision(state, fingerprint) do
+  defp authorization_decision(state, request) do
     account = stored_account_name(state)
 
     if is_binary(account) and account == Configuration.deployment_account() do
-      decision(state.snapshot, fingerprint)
+      decision(state.snapshot, request.fingerprint, &static_grant(state, &1, request))
     else
       {:deny, "nats_account_mismatch"}
     end
   end
 
-  defp decision(nil, _), do: {:deny, "certificate policy unavailable"}
+  # Admission is the stored policy alone. `static` only replaces the permissions
+  # of an admitted infrastructure certificate; session reconciliation and the
+  # presented-certificate scan pass none.
+  defp decision(snapshot, fingerprint, static \\ fn _component_id -> nil end)
 
-  defp decision(snapshot, fingerprint) do
+  defp decision(nil, _, _), do: {:deny, "certificate policy unavailable"}
+
+  defp decision(snapshot, fingerprint, static) do
     with %{component_id: id, not_after: not_after} <-
            Enum.find(snapshot.certificates, &(&1.fingerprint == fingerprint)),
          :ok <- Authority.authorize(snapshot, id, fingerprint),
-         %{publish: _, subscribe: _} = permissions <-
+         %{publish: _, subscribe: _} = stored <-
            Map.get(snapshot.nats_permissions, fingerprint) do
+      permissions = static.(id) || stored
       {:allow, Map.put(permissions, :expires_at, Token.grant_expiry(not_after))}
     else
       _ -> {:deny, "certificate not authorized"}
+    end
+  end
+
+  defp static_grant(%{static_users: static_users}, _component_id, _request)
+       when map_size(static_users) == 0, do: nil
+
+  defp static_grant(state, component_id, request) do
+    type =
+      Enum.find_value(state.snapshot.components, fn component ->
+        if component.component_id == component_id, do: Map.get(component, :component_type)
+      end)
+
+    StaticIdentityGrants.grant(state.static_users, type, request.certificate_der)
+  end
+
+  # Re-read on every tick: a chart upgrade updates the mounted ConfigMap in
+  # place. An unreadable file keeps the previous list and is logged once.
+  defp load_static_users(state) do
+    case StaticIdentityGrants.load() do
+      {:ok, static_users} ->
+        %{state | static_users: static_users, static_users_status: :ok}
+
+      {:error, reason} ->
+        if state.static_users_status != {:error, reason} do
+          Logger.warning("NATS static users file is unreadable; keeping the previous list",
+            reason: inspect(reason)
+          )
+        end
+
+        %{state | static_users_status: {:error, reason}}
     end
   end
 

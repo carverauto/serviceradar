@@ -33,14 +33,18 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/bazelbuild/rules_go/go/runfiles"
+	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nkeys"
 	"gopkg.in/yaml.v3"
 )
 
@@ -51,34 +55,372 @@ const (
 	coreSubject  = "CN=serviceradar-core,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
 	toolsSubject = "CN=serviceradar-tools,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
 
-	renderSuite = `suite: render nats server config
-templates:
-  - templates/nats.yaml
-tests:
-  - it: server-config
-    set:
-      nats:
-        replicas: 1
-    documentSelector:
-      path: kind
-      value: StatefulSet
-    asserts:
-      - matchSnapshot:
-          path: spec.template.spec.containers[0].args[0]
-`
+	// The account the chart binds its built-in users to; a callout grant names it.
+	chartAccount = "SERVICERADAR"
 
 	confStart = "cat >/tmp/nats-server.conf <<EOF\n"
 	confEnd   = "\nEOF\n"
 )
 
+// Subjects core publishes, the edge-record projectors' republish targets among
+// them (MetricsBatchProjection's metrics.<family>.<type>.<name>, so a sweep
+// summary is metrics.sweep.sweep.<name>; TelemetryBatch; OtlpRelay; the
+// edge-record dead letter).
+var coreAllowedSubjects = []string{
+	"scans.results.run01",
+	"mtr.results.ingest",
+	"events.example",
+	"metrics.event_writer.warehouse",
+	"metrics.sysmon.sysmon_cpu.cpu_usage_percent",
+	"metrics.snmp.snmp.ifinoctets",
+	"metrics.icmp.icmp.response_time_ms",
+	"metrics.rperf.throughput.bits_per_second",
+	"metrics.mtr.mtr.hop_loss_pct",
+	"metrics.sweep.sweep.sweep_total_hosts",
+	"metrics.timeseries.custom.synthetic_value",
+	"flows.attribution.observations",
+	"otel.traces.raw",
+	"logs.otel",
+	"otel.metrics.raw",
+	"otel.metrics.derived",
+	"telemetry.edge-record-dlq.v1.bulk.synthetic",
+	"vulnerability.assessment.transitions.7",
+	"metrics.exposure_transitions",
+	"exposure.delivery.recovery.3.synthetic-operation",
+	"exposure.snapshots.1.device-3.1",
+}
+
+var coreDeniedSubjects = []string{
+	"$JS.API.STREAM.PURGE.EXPOSURE_RECOVERY",
+	"$JS.API.STREAM.DELETE.EXPOSURE_RECOVERY",
+	"$JS.API.STREAM.PURGE.TELEMETRY_EDGE_RECORD_DLQ_V1_BULK",
+	"zz.not.allowed",
+}
+
 // TestCoreCanPublishToChartSubjects boots nats-server from the configuration
-// the chart renders and checks what the core identity may publish. Publishing
-// with a plain NATS publish reports success even when the server denies it, so
-// the assertions observe delivery to an independent subscriber and the
-// permission violation the server reports back.
+// the chart renders and checks what the core identity may publish through the
+// static verify_and_map users.
 func TestCoreCanPublishToChartSubjects(t *testing.T) {
 	pki := newTestPKI(t)
-	conf := renderServerConf(t, pki)
+	rendered := renderChart(t, pki, nil)
+	srv := startServer(t, rendered.conf)
+
+	assertCorePublishes(t, srv, pki)
+}
+
+// TestCalloutGrantsMatchStaticUsers enables certificate authorization, so the
+// broker delegates every built-in identity to the callout. The responder grants
+// each certificate the block the chart's serviceradar-nats-static-users
+// ConfigMap lists for its subject, which is what core's authorizer grants an
+// adopted infrastructure certificate (ServiceRadar.NATS.StaticIdentityGrants).
+// That list must be the broker's static user configuration exactly, and core's
+// projector subjects must still be delivered.
+func TestCalloutGrantsMatchStaticUsers(t *testing.T) {
+	pki := newTestPKI(t)
+	issuer := newKey(t, nkeys.CreateAccount)
+	authUser := newKey(t, nkeys.CreateUser)
+	systemUser := newKey(t, nkeys.CreateUser)
+
+	rendered := renderChart(t, pki, map[string]any{
+		"certificateAuthorization": map[string]any{
+			"enabled":               true,
+			"infrastructureAdopted": true,
+			"issuerPublicKey":       publicKey(t, issuer),
+			"authUserPublicKey":     publicKey(t, authUser),
+			"systemUserPublicKey":   publicKey(t, systemUser),
+		},
+	})
+
+	opts, err := server.ProcessConfigFile(rendered.conf)
+	if err != nil {
+		t.Fatalf("process rendered config: %v", err)
+	}
+
+	if opts.AuthCallout == nil {
+		t.Fatal("rendered config has no auth callout although certificateAuthorization is enabled")
+	}
+
+	assertStaticUsersMatch(t, opts.Users, rendered.staticUsers)
+
+	srv := startServer(t, rendered.conf)
+	serveCallout(t, srv, pki, authUser, issuer, rendered.staticUsers)
+
+	assertCorePublishes(t, srv, pki)
+}
+
+// assertCorePublishes publishes every core subject and observes the verdict.
+// A plain NATS publish reports success even when the server denies it, so the
+// assertions observe delivery to an independent subscriber and the permission
+// violation the server reports back.
+func assertCorePublishes(t *testing.T, srv *server.Server, pki *testPKI) {
+	t.Helper()
+
+	tools := pki.connect(t, srv, toolsSubject, nil)
+	core, coreErrs := pki.connectTracked(t, srv, coreSubject)
+
+	all := append(append([]string{}, coreAllowedSubjects...), coreDeniedSubjects...)
+	received := make(map[string]chan struct{})
+
+	for _, subject := range all {
+		ch := make(chan struct{}, 1)
+		received[subject] = ch
+
+		if _, err := tools.Subscribe(subject, func(*nats.Msg) { ch <- struct{}{} }); err != nil {
+			t.Fatalf("subscribe %s: %v", subject, err)
+		}
+	}
+
+	if err := tools.Flush(); err != nil {
+		t.Fatalf("flush subscriptions: %v", err)
+	}
+
+	for _, subject := range all {
+		if err := core.Publish(subject, []byte(`{"synthetic":true}`)); err != nil {
+			t.Fatalf("publish %s: %v", subject, err)
+		}
+	}
+
+	if err := core.Flush(); err != nil {
+		t.Fatalf("flush core: %v", err)
+	}
+
+	// The server answers publishes on one connection in order, so once the
+	// violation for the last subject has arrived every earlier verdict has too.
+	last := coreDeniedSubjects[len(coreDeniedSubjects)-1]
+	if !coreErrs.waitFor(last, 5*time.Second) {
+		t.Fatalf("expected a permissions violation for %s, got %v", last, coreErrs.all())
+	}
+
+	for _, subject := range coreAllowedSubjects {
+		select {
+		case <-received[subject]:
+		case <-time.After(5 * time.Second):
+			t.Errorf("core publish to %s was not delivered; violations: %v", subject, coreErrs.all())
+		}
+
+		if coreErrs.has(subject) {
+			t.Errorf("server denied core publish to %s: %v", subject, coreErrs.all())
+		}
+	}
+
+	for _, subject := range coreDeniedSubjects {
+		if !coreErrs.has(subject) {
+			t.Errorf("expected permission denial for %s", subject)
+		}
+		select {
+		case <-received[subject]:
+			t.Errorf("forbidden core publish to %s was delivered", subject)
+		default:
+		}
+	}
+}
+
+// staticUser is one entry of the serviceradar-nats-static-users list.
+type staticUser struct {
+	User      string      `yaml:"user"`
+	Publish   staticBlock `yaml:"publish"`
+	Subscribe staticBlock `yaml:"subscribe"`
+}
+
+type staticBlock struct {
+	Allow []string `yaml:"allow"`
+	Deny  []string `yaml:"deny"`
+}
+
+// assertStaticUsersMatch compares the list with the users nats-server parsed
+// from the rendered configuration, permission by permission.
+func assertStaticUsersMatch(t *testing.T, users []*server.User, listed []staticUser) {
+	t.Helper()
+
+	byName := make(map[string]staticUser, len(listed))
+	for _, u := range listed {
+		byName[u.User] = u
+	}
+
+	if len(users) != len(listed) || len(byName) != len(listed) {
+		t.Errorf("broker configures %d users, static users list has %d entries (%d distinct)", len(users), len(listed), len(byName))
+	}
+
+	for _, user := range users {
+		u, ok := byName[user.Username]
+		if !ok {
+			t.Errorf("broker user %q is missing from the static users list", user.Username)
+			continue
+		}
+
+		var publish, subscribe *server.SubjectPermission
+		if user.Permissions != nil {
+			publish, subscribe = user.Permissions.Publish, user.Permissions.Subscribe
+		}
+
+		compareBlock(t, user.Username, "publish", publish, u.Publish)
+		compareBlock(t, user.Username, "subscribe", subscribe, u.Subscribe)
+	}
+}
+
+func compareBlock(t *testing.T, user, direction string, broker *server.SubjectPermission, listed staticBlock) {
+	t.Helper()
+
+	var allow, deny []string
+	if broker != nil {
+		allow, deny = broker.Allow, broker.Deny
+	}
+
+	if !sameSubjects(allow, listed.Allow) || !sameSubjects(deny, listed.Deny) {
+		t.Errorf("%s %s: broker allow=%v deny=%v, static users list allow=%v deny=%v", user, direction, allow, deny, listed.Allow, listed.Deny)
+	}
+}
+
+func sameSubjects(a, b []string) bool {
+	a, b = slices.Clone(a), slices.Clone(b)
+	sort.Strings(a)
+	sort.Strings(b)
+
+	return slices.Equal(a, b)
+}
+
+// serveCallout answers the broker's authorization requests as the AUTH account
+// user. A certificate whose subject is in the static users list gets that block
+// with static semantics (an empty allow list is every subject); any other is
+// refused.
+func serveCallout(t *testing.T, srv *server.Server, pki *testPKI, authUser, issuer nkeys.KeyPair, listed []staticUser) {
+	t.Helper()
+
+	seed, err := authUser.Seed()
+	if err != nil {
+		t.Fatalf("auth user seed: %v", err)
+	}
+
+	grants := make(map[string]staticUser, len(listed))
+	for _, u := range listed {
+		grants[subjectKey(u.User)] = u
+	}
+
+	cert, _ := pki.issue(t, pkix.Name{CommonName: "synthetic-authorizer"}, x509.ExtKeyUsageClientAuth)
+
+	nc, err := nats.Connect(srv.ClientURL(),
+		nats.Secure(&tls.Config{Certificates: []tls.Certificate{cert}, RootCAs: pki.pool, MinVersion: tls.VersionTLS12}),
+		nats.Nkey(publicKey(t, authUser), func(nonce []byte) ([]byte, error) {
+			kp, err := nkeys.FromSeed(seed)
+			if err != nil {
+				return nil, err
+			}
+
+			return kp.Sign(nonce)
+		}),
+		nats.Timeout(10*time.Second),
+	)
+	if err != nil {
+		t.Fatalf("connect authorization callout user: %v", err)
+	}
+
+	t.Cleanup(nc.Close)
+
+	_, err = nc.Subscribe(server.AuthCalloutSubject, func(msg *nats.Msg) {
+		request, err := jwt.DecodeAuthorizationRequestClaims(string(msg.Data))
+		if err != nil {
+			t.Errorf("decode authorization request: %v", err)
+			return
+		}
+
+		response := jwt.NewAuthorizationResponseClaims(request.UserNkey)
+		response.Audience = request.Server.ID
+
+		u, ok := grants[requestSubjectKey(request)]
+		if !ok {
+			response.Error = "certificate not authorized"
+		} else {
+			user := jwt.NewUserClaims(request.UserNkey)
+			user.Audience = chartAccount
+			user.Expires = time.Now().Add(time.Hour).Unix()
+			user.Pub = staticPermission(u.Publish)
+			user.Sub = staticPermission(u.Subscribe)
+
+			if response.Jwt, err = user.Encode(issuer); err != nil {
+				t.Errorf("sign user grant: %v", err)
+				return
+			}
+		}
+
+		token, err := response.Encode(issuer)
+		if err != nil {
+			t.Errorf("sign authorization response: %v", err)
+			return
+		}
+
+		_ = msg.Respond([]byte(token))
+	})
+	if err != nil {
+		t.Fatalf("subscribe %s: %v", server.AuthCalloutSubject, err)
+	}
+
+	if err := nc.Flush(); err != nil {
+		t.Fatalf("flush authorization callout subscription: %v", err)
+	}
+}
+
+// staticPermission projects one static block the way core does: an empty or
+// missing allow list becomes every subject, and deny is kept.
+func staticPermission(block staticBlock) jwt.Permission {
+	allow := block.Allow
+	if len(allow) == 0 {
+		allow = []string{">"}
+	}
+
+	return jwt.Permission{Allow: allow, Deny: block.Deny}
+}
+
+func requestSubjectKey(request *jwt.AuthorizationRequestClaims) string {
+	if request.TLS == nil || len(request.TLS.VerifiedChains) == 0 || len(request.TLS.VerifiedChains[0]) == 0 {
+		return ""
+	}
+
+	block, _ := pem.Decode([]byte(request.TLS.VerifiedChains[0][0]))
+	if block == nil {
+		return ""
+	}
+
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return ""
+	}
+
+	return subjectKey(cert.Subject.String())
+}
+
+// subjectKey compares subjects as a set of attributes, as the broker's
+// distinguished-name match and core's authorizer do.
+func subjectKey(dn string) string {
+	parts := strings.Split(dn, ",")
+	sort.Strings(parts)
+
+	return strings.Join(parts, ",")
+}
+
+func newKey(t *testing.T, create func() (nkeys.KeyPair, error)) nkeys.KeyPair {
+	t.Helper()
+
+	kp, err := create()
+	if err != nil {
+		t.Fatalf("create nkey: %v", err)
+	}
+
+	return kp
+}
+
+func publicKey(t *testing.T, kp nkeys.KeyPair) string {
+	t.Helper()
+
+	pub, err := kp.PublicKey()
+	if err != nil {
+		t.Fatalf("nkey public key: %v", err)
+	}
+
+	return pub
+}
+
+func startServer(t *testing.T, conf string) *server.Server {
+	t.Helper()
 
 	opts, err := server.ProcessConfigFile(conf)
 	if err != nil {
@@ -106,90 +448,7 @@ func TestCoreCanPublishToChartSubjects(t *testing.T) {
 		t.Fatal("nats-server built from the chart config did not become ready")
 	}
 
-	tools := pki.connect(t, srv, toolsSubject, nil)
-	core, coreErrs := pki.connectTracked(t, srv, coreSubject)
-
-	const (
-		allowedScan        = "scans.results.run01"
-		allowedMTR         = "mtr.results.ingest"
-		allowedEvent       = "events.example"
-		allowedWarehouse   = "metrics.event_writer.warehouse"
-		allowedSysmon      = "metrics.sysmon.cpu.cpu_usage_percent"
-		allowedSnmp        = "metrics.snmp.interface.if_in_octets"
-		allowedICMP        = "metrics.icmp.icmp.response_time_ms"
-		allowedRperf       = "metrics.rperf.throughput.bits_per_second"
-		allowedMTRMetric   = "metrics.mtr.mtr.hop_loss_pct"
-		allowedSweep       = "metrics.sweep.sweep.total_hosts"
-		allowedTimeseries  = "metrics.timeseries.custom.synthetic_value"
-		allowedFlowAttrObs = "flows.attribution.observations"
-		allowedOtelTraces  = "otel.traces.raw"
-		allowedOtelLogs    = "logs.otel"
-		allowedOtelMetrics = "otel.metrics.raw"
-		allowedOtelDerived = "otel.metrics.derived"
-		allowedExposure    = "vulnerability.assessment.transitions.7"
-		allowedExpMetric   = "metrics.exposure_transitions"
-		allowedRecovery    = "exposure.delivery.recovery.3.synthetic-operation"
-		allowedSnapshot    = "exposure.snapshots.1.device-3.1"
-		deniedPurge        = "$JS.API.STREAM.PURGE.EXPOSURE_RECOVERY"
-		deniedDelete       = "$JS.API.STREAM.DELETE.EXPOSURE_RECOVERY"
-		denied             = "zz.not.allowed"
-	)
-
-	chartSubjects := []string{allowedScan, allowedMTR, allowedEvent, allowedWarehouse, allowedSysmon, allowedSnmp, allowedICMP, allowedRperf, allowedMTRMetric, allowedSweep, allowedTimeseries, allowedFlowAttrObs, allowedOtelTraces, allowedOtelLogs, allowedOtelMetrics, allowedOtelDerived, allowedExposure, allowedExpMetric, allowedRecovery, allowedSnapshot}
-	deniedSubjects := []string{deniedPurge, deniedDelete, denied}
-
-	received := make(map[string]chan struct{})
-	for _, subject := range append(append([]string{}, chartSubjects...), deniedSubjects...) {
-		ch := make(chan struct{}, 1)
-		received[subject] = ch
-
-		if _, err := tools.Subscribe(subject, func(*nats.Msg) { ch <- struct{}{} }); err != nil {
-			t.Fatalf("subscribe %s: %v", subject, err)
-		}
-	}
-
-	if err := tools.Flush(); err != nil {
-		t.Fatalf("flush subscriptions: %v", err)
-	}
-
-	for _, subject := range append(append([]string{}, chartSubjects...), deniedSubjects...) {
-		if err := core.Publish(subject, []byte(`{"synthetic":true}`)); err != nil {
-			t.Fatalf("publish %s: %v", subject, err)
-		}
-	}
-
-	if err := core.Flush(); err != nil {
-		t.Fatalf("flush core: %v", err)
-	}
-
-	// The server answers publishes on one connection in order, so once the
-	// violation for the last subject has arrived every earlier verdict has too.
-	if !coreErrs.waitFor(denied, 5*time.Second) {
-		t.Fatalf("expected a permissions violation for %s, got %v", denied, coreErrs.all())
-	}
-
-	for _, subject := range chartSubjects {
-		select {
-		case <-received[subject]:
-		case <-time.After(5 * time.Second):
-			t.Errorf("core publish to %s was not delivered; violations: %v", subject, coreErrs.all())
-		}
-
-		if coreErrs.has(subject) {
-			t.Errorf("server denied core publish to %s: %v", subject, coreErrs.all())
-		}
-	}
-
-	for _, subject := range deniedSubjects {
-		if !coreErrs.has(subject) {
-			t.Errorf("expected permission denial for %s", subject)
-		}
-		select {
-		case <-received[subject]:
-			t.Errorf("forbidden core publish to %s was delivered", subject)
-		default:
-		}
-	}
+	return srv
 }
 
 func runfile(t *testing.T, envVar string) string {
@@ -208,7 +467,14 @@ func runfile(t *testing.T, envVar string) string {
 	return path
 }
 
-func renderServerConf(t *testing.T, pki *testPKI) string {
+type renderedChart struct {
+	conf        string
+	staticUsers []staticUser
+}
+
+// renderChart renders templates/nats.yaml with helm-unittest, which snapshots
+// the broker configuration script and the static users ConfigMap.
+func renderChart(t *testing.T, pki *testPKI, natsValues map[string]any) renderedChart {
 	t.Helper()
 
 	chartYAML := runfile(t, chartYAMLEnv)
@@ -218,8 +484,37 @@ func renderServerConf(t *testing.T, pki *testPKI) string {
 	chartDir := filepath.Join(work, "chart")
 	copyChart(t, filepath.Dir(chartYAML), chartDir)
 
-	suitePath := filepath.Join(chartDir, "tests", "render_test.yaml")
-	writeFile(t, suitePath, []byte(renderSuite), 0o644)
+	nats := map[string]any{"replicas": 1}
+	for key, value := range natsValues {
+		nats[key] = value
+	}
+
+	set := map[string]any{"nats": nats}
+	selector := func(kind string) map[string]any { return map[string]any{"path": "kind", "value": kind} }
+
+	suite, err := yaml.Marshal(map[string]any{
+		"suite":     "render nats server config",
+		"templates": []string{"templates/nats.yaml"},
+		"tests": []map[string]any{
+			{
+				"it":               "server-config",
+				"set":              set,
+				"documentSelector": selector("StatefulSet"),
+				"asserts":          []map[string]any{{"matchSnapshot": map[string]any{"path": "spec.template.spec.containers[0].args[0]"}}},
+			},
+			{
+				"it":               "static-users",
+				"set":              set,
+				"documentSelector": selector("ConfigMap"),
+				"asserts":          []map[string]any{{"matchSnapshot": map[string]any{"path": `data["static-users.yaml"]`}}},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("encode render suite: %v", err)
+	}
+
+	writeFile(t, filepath.Join(chartDir, "tests", "render_test.yaml"), suite, 0o644)
 
 	cmd := exec.CommandContext(t.Context(), untt, "--update-snapshot", chartDir)
 	cmd.Env = append(os.Environ(), "HOME="+work)
@@ -233,7 +528,7 @@ func renderServerConf(t *testing.T, pki *testPKI) string {
 		t.Fatalf("read rendered snapshot: %v", err)
 	}
 
-	script := decodeSnapshot(t, snapshot)
+	script := decodeSnapshot(t, snapshot, "server-config")
 
 	start := strings.Index(script, confStart)
 	if start < 0 {
@@ -259,12 +554,22 @@ func renderServerConf(t *testing.T, pki *testPKI) string {
 	confPath := filepath.Join(work, "nats-server.conf")
 	writeFile(t, confPath, []byte(conf), 0o600)
 
-	return confPath
+	var users []staticUser
+	if err := yaml.Unmarshal([]byte(decodeSnapshot(t, snapshot, "static-users")), &users); err != nil {
+		t.Fatalf("parse static users list: %v", err)
+	}
+
+	if len(users) == 0 {
+		t.Fatal("static users ConfigMap lists no users")
+	}
+
+	return renderedChart{conf: confPath, staticUsers: users}
 }
 
-// decodeSnapshot unwraps helm-unittest's snapshot file: a YAML map of test name
-// to numbered snapshots, each holding the asserted value serialised as YAML.
-func decodeSnapshot(t *testing.T, raw []byte) string {
+// decodeSnapshot unwraps one test's value from helm-unittest's snapshot file: a
+// YAML map of test name to numbered snapshots, each holding the asserted value
+// serialised as YAML.
+func decodeSnapshot(t *testing.T, raw []byte, test string) string {
 	t.Helper()
 
 	var tests map[string]map[string]string
@@ -272,18 +577,18 @@ func decodeSnapshot(t *testing.T, raw []byte) string {
 		t.Fatalf("parse snapshot file: %v", err)
 	}
 
-	snapshots := tests["server-config"]
+	snapshots := tests[test]
 	if len(snapshots) != 1 {
-		t.Fatalf("expected exactly one server-config snapshot, got %v", tests)
+		t.Fatalf("expected exactly one %s snapshot, got %v", test, tests)
 	}
 
 	for _, serialised := range snapshots {
-		var script string
-		if err := yaml.Unmarshal([]byte(serialised), &script); err != nil {
+		var value string
+		if err := yaml.Unmarshal([]byte(serialised), &value); err != nil {
 			t.Fatalf("parse snapshot value: %v", err)
 		}
 
-		return script
+		return value
 	}
 
 	return ""

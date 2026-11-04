@@ -229,6 +229,12 @@ config :serviceradar_core,
        :edge_issuer_key_import_file,
        System.get_env("SERVICERADAR_EDGE_ISSUER_KEY_FILE")
 
+# The chart's built-in NATS identities (serviceradar-nats-static-users ConfigMap).
+# Unset, or a missing file, leaves every adopted component on its stored grant.
+config :serviceradar,
+       :nats_static_users_file,
+       System.get_env("SERVICERADAR_NATS_STATIC_USERS_FILE")
+
 # =============================================================================
 # Logger level override
 # =============================================================================

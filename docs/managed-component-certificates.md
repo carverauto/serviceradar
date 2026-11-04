@@ -150,6 +150,20 @@ means no permission. That path does not record a certificate, and it does not
 unblock a revoked component. Permission updates require the current certificate
 generation. Unadopted infrastructure gets no implicit NATS grant.
 
+With broker authorization callout enabled, the broker sends every built-in
+cluster identity to the callout as well. The chart defines those identities and
+their static permissions once (`templates/_nats_static_users.tpl`). It renders
+them into the broker configuration and into the `serviceradar-nats-static-users`
+ConfigMap, which core reads from `SERVICERADAR_NATS_STATIC_USERS_FILE`. An
+adopted infrastructure certificate whose subject names one of those identities
+is granted that identity's static block, projected the same way adoption
+projects it, instead of its stored grant. Admission does not change: the
+fingerprint must still be adopted, unrevoked and carry a stored grant. A subject
+a release adds to the chart therefore reaches the callout grant without
+re-adopting the component. Host-enrolled components, leaves and any other
+subject keep their stored grant. Without the file, every adopted component keeps
+its stored grant.
+
 `POST /api/admin/managed-components/adopt` records one existing public
 infrastructure certificate. The JSON body carries `component_id`,
 `component_type`, `partition_id`, optional `server_hosts`, `certificate_pem`,
