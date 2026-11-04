@@ -1844,10 +1844,9 @@ agent:
 # signed epoch it names. Core grants a catalog contract when it is in the signed active
 # epoch and this node's catalog holds its exact bundle. Neither core nor the gateway
 # reads contractRegistry; the chart still requires it when edgeRecords.enabled=true.
-# Each agent*Enabled flag lets the in-cluster agent emit that family (metrics and
-# unleased sweep results, plugin/add-on telemetry, Wasm plugin results, mapper and
-# netprobe discovery, integration sync pages) as edge records once it holds the
-# grant; without a grant the family keeps the status path. See "Durable edge-record
+# The agent no longer reads the agent*Enabled flags or maxSpoolBytes: its sender
+# always runs, each family moves to edge records once it holds core's grant, and
+# core delivers the spool budget. See "Durable edge-record
 # canary" in README.md. This whole block is removed by the default-on edge pipeline
 # change (enable-edge-record-pipeline-by-default, task 5.1).
 edgeRecords:
