@@ -31,7 +31,7 @@
 
 ## 4. Deterministic evaluation, effects and checkpoints
 - [ ] 4.1 Refactor `StateMachine`, `AlertLifecycle` and their helpers so that decisions return effects as data and read no Repo, Ash or wall clock; add a test that enforces it.
-- [ ] 4.2 Add fire keys (UUIDv5 incident, renotify ordinal, resolve, history, routing job) plus `alerts.fire_key` (unique) and `alerts.evaluation_position`; apply effects idempotently in one fenced transaction per batch, with DurablePublish for OCSF events.
+- [ ] 4.2 Add fire keys (UUIDv5 incident, renotify ordinal, resolve, history, routing job) plus `alerts.fire_key` (unique) and `alerts.evaluation_position` (the block's monotonic `applied_count`); apply effects idempotently in one fenced transaction per batch, with DurablePublish for OCSF events.
 - [ ] 4.3 Move incident counters into group state and write incident metadata once per commit, guarded by evaluation position; never move a group's `last_seen_at` backward.
 - [ ] 4.4 Add incremental checkpoints: dirty group upserts and evictions in `stateful_alert_rule_states` (with `virtual_partition`), dedupe slices and `alert_block_checkpoints` in one fenced transaction; skip no-op checkpoints; purge each block's subjects up to that block's committed checkpoint.
 - [ ] 4.5 Add the 128-bit dedupe ring per block with persisted closed slices and a 10 min default horizon (resolved Q5).
@@ -41,12 +41,12 @@
 - [ ] 4.9 Point the anomaly liveness check at the router and keep its persisted-alert wait.
 
 ## 5. Cutover and removal
-- [ ] 5.1 Keep new replicas off alert-feeding source streams, routing and owners until the cutover marker exists. Implement the cutover task: wait for no pre-cutover replica and no executing `alerts` job; convert snapshots and seed block checkpoints; build every import message first (residual `alert_evaluation_work` and `lifecycle_pending_admissions` rows in their order, with the candidate ids the router would compute, plus the import-end markers); create `ALERT_IMPORT_V1` on `alerts.import.v1.>` (R3, DiscardNew, no MaxAge, `max_bytes` twice their summed encoded size including subjects and headers) and publish them; write the cutover marker; on any failure delete `ALERT_IMPORT_V1` and rerun from the build.
-- [ ] 5.2 Make owners consume each block's import subject to its end marker before its live subject.
+- [ ] 5.1 Create `ALERT_IMPORT_V1` on `alerts.import.v1.>` (R3, DiscardNew, no MaxAge, `max_bytes` from the free file store at creation, outside the profile carve) from the first upgraded replica, and keep upgraded replicas not ready until it exists (core rolls with `maxUnavailable` 0). Keep new replicas off alert-feeding source streams and routing until the cutover marker exists. Implement the cutover task: wait for no pre-cutover replica and no executing `alerts` job; convert snapshots and seed block checkpoints; import residual `alert_evaluation_work` and `lifecycle_pending_admissions` rows in their order, with stable import ordinals and the candidate ids the router would compute, in segments sized from the free file store (at least one record, at most the stream size), each applied, checkpointed and purged before the next, with progress in `alert_cutover_progress`; resume from the last committed segment after a crash; write the cutover marker after the final segment; treat a rerun after the marker as success.
+- [ ] 5.2 Make owners consume only import subjects before the cutover marker, checkpoint at each segment-end marker, skip import ordinals at or below their checkpoint, and switch to live subjects after the marker.
 - [ ] 5.3 Add the post-cutover migration that refuses to run before the marker, drops the inbox, lane, receipt, ledger and pending-admission tables, and deletes pending jobs of the removed workers.
 - [ ] 5.4 Delete `Inbox`, `Owner`, `EvaluationWorker`, `RecoveryWorker`, `Rollout`, `PeerReadiness`, `Completion`, `StatefulEvaluationLedger`, `MetricAlertAdmission`, `LifecycleAdmissionDrainWorker`, the pending-admission code in `AnalyticsSignals`, the `alerts` and `alert_recovery` queues, `alert_evaluation_limits`, and the Helm `SERVICERADAR_ALERT_EVALUATION_MODE` env with its helpers.
 - [ ] 5.5 Add `AlertEvaluationSettings` (CNPG) with the small-install code defaults of design.md D11, and read every evaluation knob from it.
-- [ ] 5.6 Release N+1: remove the cutover task, the import subjects and the `ALERT_IMPORT_V1` stream.
+- [ ] 5.6 Release N+1: remove the cutover task, the import subjects, the `ALERT_IMPORT_V1` stream and `alert_cutover_progress`.
 
 ## 6. Ingestion at fleet scale
 - [ ] 6.1 Split `events` into `LOGS_V1`, `EVENTS_V1` and `OTEL_V1` with block subjects from the shared layout; make them and `metrics` R3 and DiscardNew; default one stream per signal; migrate publishers and consumers with a drain of the old stream. This ships with the alert path (task 2.8 depends on it).

@@ -121,7 +121,7 @@ The owner SHALL periodically commit the changed groups, the persisted duplicate-
 - **THEN** the group SHALL be removed from memory and from the checkpoint store at the next checkpoint
 
 ### Requirement: Alert effects fire exactly once
-Every alert effect SHALL carry a fire key derived only from the group state and the candidate, and SHALL be applied by insert-if-absent or by an update guarded by evaluation position, so that replaying any candidate creates no second incident, history row, notification job or published event.
+Every alert effect SHALL carry a fire key derived only from the group state and the candidate, and SHALL be applied by insert-if-absent or by an update guarded by evaluation position, where the evaluation position is a per-block count of applied messages that only increases and is not reset by a stream move, a map generation change or the cutover import, so that replaying any candidate creates no second incident, history row, notification job or published event.
 A transient effect failure SHALL roll back the commit and recover the affected blocks from their checkpoints. A permanent effect failure SHALL be recorded, keyed by its fire key, with diagnostics and a health signal in the same fenced transaction that commits the batch's other effects; the group state SHALL keep the state the evaluator planned, and applying an effect whose fire key already has a recorded permanent failure SHALL be a no-op, so that a replay neither retries it nor stalls the block.
 
 #### Scenario: A crash after the effect commit does not double-fire
@@ -208,7 +208,7 @@ Store or fence failures SHALL NOT be classified as poison.
 - **AND** the copy SHALL be retried until the dead-letter stream accepts it
 
 ### Requirement: External state reaches evaluation as ordered control input
-Rule disable and delete, operator alert actions that an evaluation decision depends on, stale-anomaly maintenance, block moves and the cutover import end SHALL reach each affected block as messages on its subjects, published through the transactional outbox in the transaction that made the change.
+Rule disable and delete, operator alert actions that an evaluation decision depends on, stale-anomaly maintenance, block moves and the cutover import segment ends SHALL reach each affected block as messages on its subjects, published through the transactional outbox in the transaction that made the change.
 Candidates of a disabled rule that follow its marker SHALL be dropped and counted, and an incident resolved by an operator SHALL NOT be renotified or re-fired until its group recovers.
 
 #### Scenario: Disabling a rule is ordered with its candidates
@@ -258,7 +258,8 @@ No alert evaluation behaviour SHALL depend on a Helm-only value.
 - **THEN** the coordinator SHALL move blocks online until the map matches it
 
 ### Requirement: Cutover from the CNPG inbox is ordered and complete
-Upgraded replicas SHALL NOT consume alert-feeding source streams, route candidates or start block owners until the cutover marker exists. The cutover SHALL write that marker only after no pre-cutover core replica remains, after existing rule state snapshots have been converted into block checkpoints, and after every residual inbox and pending lifecycle admission row has been published with an acknowledgement to a JetStream stream bound to the import subjects, in its original order, ahead of all later input for its block, with the candidate id the router would compute for it.
+Upgraded replicas SHALL NOT consume alert-feeding source streams or route candidates until the cutover marker exists, and SHALL report not ready until the import stream bound to the import subjects has been created, so that no pre-cutover replica stops before it exists. The import stream SHALL NOT be counted in the profile carve.
+Residual inbox and pending lifecycle admission rows SHALL be imported in their original order, with the candidate id the router would compute, in bounded segments: each segment's size SHALL come from the free JetStream file store measured at import time, SHALL be at least one record and SHALL NOT exceed the import stream's size, and the next segment SHALL be published only after every block has applied and checkpointed the previous one and it has been purged. A crash SHALL resume from the last committed segment without applying any imported record twice. The cutover marker SHALL be written only after the final segment is applied, and once it is written a rerun of the cutover SHALL change nothing.
 The old inbox, lane, receipt, ledger and pending-admission tables SHALL be dropped only after the cutover marker exists, and no runtime path SHALL evaluate through both designs.
 
 #### Scenario: Residual work is evaluated before new input
@@ -268,6 +269,24 @@ The old inbox, lane, receipt, ledger and pending-admission tables SHALL be dropp
 - **THEN** the new records SHALL be routed only after the cutover marker exists
 - **AND** the residual work SHALL be evaluated before their candidates
 - **AND** no residual row SHALL remain unevaluated when the tables are dropped
+
+#### Scenario: A busy rule imports in segments on the smallest profile
+- **GIVEN** a `tenant-2g` installation whose inbox holds one rule at its 8 MiB budget
+- **AND** less free JetStream file store than that work
+- **WHEN** the cutover runs
+- **THEN** the work SHALL be imported in several segments, each applied and purged before the next is published
+- **AND** the cutover marker SHALL be written after the last segment is applied
+
+#### Scenario: A crash mid-import resumes
+- **GIVEN** a cutover that has committed two import segments and published part of a third
+- **WHEN** the cutover task crashes and restarts
+- **THEN** it SHALL resume after the second committed segment
+- **AND** every residual record SHALL be applied exactly once
+
+#### Scenario: Metadata after a move or the import is not dropped
+- **GIVEN** an open incident whose metadata was last written while applying the import or before its block moved streams
+- **WHEN** later candidates for its group are applied from the live or target stream
+- **THEN** the incident's occurrence count on the alert row SHALL be updated
 
 ### Requirement: Alert evaluation benchmark gates can fail
 Router throughput, single-owner throughput, fault-injected exactly-once behaviour, semantic equivalence and the small-installation footprint SHALL be verified by tests on remote build execution for every change to the alert path. Fleet-scale synthetic load at 50,000 and 100,000 devices, and resharding under that load, SHALL be required in-cluster gates before every release cut.
