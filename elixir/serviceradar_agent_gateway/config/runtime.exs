@@ -495,20 +495,20 @@ config :serviceradar_core, :spiffe,
 config :serviceradar_core,
   repo_enabled: System.get_env("SERVICERADAR_CORE_REPO_ENABLED", "false") in ~w(true 1 yes),
   vault_enabled: false,
-  # =============================================================================
   datasvc_enabled: System.get_env("DATASVC_ENABLED", "false") in ~w(true 1 yes),
   cluster_enabled: System.get_env("CLUSTER_ENABLED", "true") in ~w(true 1 yes),
-
-  # Disable Swoosh API client (agent gateway does not send email).
   # =============================================================================
-  # Telemetry Configuration
   # PubSub Configuration
   # =============================================================================
-  # =============================================================================
-  # Attach default handlers for logging cluster events
-
   # Uses the shared PubSub from serviceradar_core
   cluster_coordinator: false
+
+# =============================================================================
+
+# Disable Swoosh API client (agent gateway does not send email).
+# Telemetry Configuration
+# =============================================================================
+# Attach default handlers for logging cluster events
 
 config :swoosh, :api_client, false
 config :swoosh, local: false
