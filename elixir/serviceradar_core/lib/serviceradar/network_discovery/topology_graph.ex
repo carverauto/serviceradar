@@ -18,18 +18,15 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   It prunes nothing; pruning and the canonical rebuild are the graph-wide
   passes in `run_global_passes/0`.
   Returns `{:error, reason}` when the Dgraph batch fails, so the caller can
-  retry the whole idempotent apply.
-
-  A report whose resolved values match the last one this node applied for the
-  same devices is skipped for up to the unchanged-report heartbeat. Pass
-  `force: true` to apply it regardless.
+  retry the whole idempotent apply. Every call writes; an unchanged report is
+  rewritten, not skipped.
   """
-  @spec upsert_links([map()], keyword()) :: :ok | {:error, term()}
-  defdelegate upsert_links(links, opts \\ []), to: Links
+  @spec upsert_links([map()]) :: :ok | {:error, term()}
+  defdelegate upsert_links(links), to: Links
 
   @doc """
-  Runs the graph-wide pruning, legacy reconciliation and canonical rebuild that
-  follow link projection.
+  Runs the graph-wide stale-evidence pruning and canonical rebuild that follow
+  link projection.
   """
   @spec run_global_passes() :: :ok | {:error, term()}
   defdelegate run_global_passes(), to: Links

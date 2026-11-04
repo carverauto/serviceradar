@@ -79,6 +79,54 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphBatchProjectionTest 
     assert calls() == [:upsert_device_graphs]
   end
 
+  test "a report this node already applied is written again, so a value another node changed since is restored" do
+    switch = "sr:switch-#{System.unique_integer([:positive])}.example.com"
+    report_x = [neighbor_link(switch, "192.0.2.10")]
+    report_y = [neighbor_link(switch, "192.0.2.20")]
+    dgraph_url = System.get_env("DGRAPH_URL")
+
+    without_dgraph(fn ->
+      assert :ok = TopologyGraph.upsert_links(report_x)
+      assert :ok = TopologyGraph.upsert_links(report_y)
+      assert :ok = TopologyGraph.upsert_links(report_x)
+    end)
+
+    System.put_env("DGRAPH_URL", dgraph_url)
+    assert calls() == []
+
+    assert {:error, _reason} = TopologyGraph.upsert_links(report_x)
+    assert calls() == [:upsert_device_graphs]
+  end
+
+  defp neighbor_link(switch, neighbor_ip) do
+    %{
+      local_device_id: switch,
+      local_device_ip: "192.0.2.1",
+      local_if_name: "eth1",
+      local_if_index: 1,
+      neighbor_device_id: "#{switch}-peer",
+      neighbor_port_id: "Gi0/1",
+      neighbor_mgmt_addr: neighbor_ip,
+      protocol: "LLDP",
+      metadata: %{"confidence_tier" => "high", "confidence_score" => 95},
+      timestamp: DateTime.utc_now()
+    }
+  end
+
+  defp without_dgraph(fun) do
+    env = Map.new(~w(DGRAPH_URL DGRAPH_HOST), &{&1, System.get_env(&1)})
+    app = Map.new([:dgraph_url, :dgraph_host], &{&1, Application.get_env(:serviceradar_core, &1)})
+    Enum.each(Map.keys(env), &System.delete_env/1)
+    Enum.each(Map.keys(app), &Application.delete_env(:serviceradar_core, &1))
+
+    try do
+      fun.()
+    after
+      Enum.each(env, fn {name, value} -> restore_env(name, value) end)
+      Enum.each(app, fn {key, value} -> put_app(key, value) end)
+    end
+  end
+
   defp calls(acc \\ []) do
     receive do
       {:dgraph_call, operation} -> calls([operation | acc])

@@ -6,7 +6,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Ingestion.LaneSupervisor
   alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
-  alias ServiceRadar.NetworkDiscovery.TopologyGraph.Links
   alias ServiceRadar.NetworkDiscovery.TopologyProjectionWorker
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
@@ -19,8 +18,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
   end
 
   setup do
-    clear_report_fingerprints()
-    on_exit(&clear_report_fingerprints/0)
     Application.put_env(:serviceradar_core, :mapper_topology_edge_stale_minutes, 180)
 
     :ok
@@ -342,13 +339,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     assert [follow_up] = pending_projection_jobs()
     assert follow_up.id != job.id
     assert follow_up.args["device_id"] == device
-    assert follow_up.args["force"] == true
-    refute job.args["force"]
 
     assert :ok = TopologyProjectionWorker.enqueue(:interfaces, [%{device_id: device}])
-    assert [still_forced] = pending_projection_jobs()
-    assert still_forced.id == follow_up.id
-    assert still_forced.args["force"] == true
+    assert [coalesced] = pending_projection_jobs()
+    assert coalesced.id == follow_up.id
 
     mark_executing(follow_up)
     assert :ok = TopologyProjectionWorker.perform(reload_job(follow_up.id))
@@ -499,17 +493,5 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
         do: System.put_env("DGRAPH_URL", previous_url),
         else: System.delete_env("DGRAPH_URL")
     end)
-  end
-
-  defp clear_report_fingerprints do
-    Enum.each(:persistent_term.get(), fn
-      {{Links, :report_fingerprint, _scope} = key, _value} ->
-        :persistent_term.erase(key)
-
-      _other ->
-        :ok
-    end)
-
-    :ok
   end
 end

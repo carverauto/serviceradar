@@ -29,9 +29,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
 
   Uniqueness on the device id is only coalescing. Oban keeps at most one
   pending (available, scheduled or retryable) job per device, and a newer
-  result coalesces into it, so a pending backlog collapses to one run per
-  device. The pending job keeps the arguments it was enqueued with, so its
-  `queue_wait_ms` counts from the oldest result it covers. An
+  result replaces it, so a pending backlog collapses to one run per device. An
   executing job is not pending, so a result that lands during a run still
   enqueues the next one.
 
@@ -44,14 +42,11 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
   it. After a successful projection it reads the watermark again. If a write
   landed in between, or another run for the device read newer rows and
   finished first, the watermark differs and the job enqueues one follow-up
-  projection for the device, which reads CNPG again. The follow-up carries
-  `force`, so it applies the links even when the node running it skipped an
-  identical report recently: the unchanged-report skip remembers what that node
-  last applied, not what the graph holds after another node's overlapping run.
-  A later result for the device does not clear `force` from a pending
-  follow-up, because only a follow-up replaces a pending job's args. The graph
-  therefore converges to the newest committed rows, however runs for one device
-  overlap.
+  projection for the device, which reads CNPG again. Every run writes what it
+  read; no run skips a report as unchanged, because a per-node memory of what
+  that node last wrote says nothing about what another node wrote since. The
+  graph therefore converges to the newest committed rows, however runs for one
+  device overlap and whichever node runs them.
 
   Links are read only when observed at or after the stale-link cutoff the
   pruning uses (`TopologyGraph.Utils.stale_cutoff/0`), both for the projection
@@ -131,21 +126,18 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
     watermark = watermark(device_id, cutoff)
 
     with :ok <- project(device_id, cutoff, job) do
-      if watermark(device_id, cutoff) != watermark, do: enqueue_device(device_id, true)
+      if watermark(device_id, cutoff) != watermark, do: enqueue_device(device_id)
       TopologyGlobalPassWorker.schedule()
     end
   end
 
-  defp enqueue_device(device_id, force \\ false) do
+  defp enqueue_device(device_id) do
     args = %{
       device_id: device_id,
-      enqueued_at: DateTime.to_iso8601(DateTime.utc_now()),
-      force: force
+      enqueued_at: DateTime.to_iso8601(DateTime.utc_now())
     }
 
-    replace = if force, do: @replace, else: []
-
-    case args |> new(replace: replace) |> ObanSupport.safe_insert() do
+    case args |> new(replace: @replace) |> ObanSupport.safe_insert() do
       {:ok, %Oban.Job{conflict?: true}} ->
         RuntimeMetrics.record(@lane, :coalesced, %{})
 
@@ -169,9 +161,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
 
     result =
       with :ok <- device_id |> load_interfaces() |> TopologyGraph.upsert_interfaces() do
-        device_id
-        |> load_links(cutoff)
-        |> TopologyGraph.upsert_links(force: job.args["force"] == true)
+        device_id |> load_links(cutoff) |> TopologyGraph.upsert_links()
       end
 
     measurements = %{

@@ -1,7 +1,6 @@
 defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
   @moduledoc false
 
-  alias ServiceRadar.NetworkDiscovery.TopologyGraph
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Projection
@@ -10,48 +9,10 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
 
   require Logger
 
-  # Skip re-applying a mapper report whose projected link content is unchanged from
-  # the last applied report for the same device scope. The batched link upserts
-  # rewrite Device/Interface vertices and edges on every report regardless of
-  # change; gating the
-  # whole apply on a structural fingerprint stops that churn for a static topology.
-  # A heartbeat still re-applies periodically so stale-link pruning advances.
-  #
-  # This per-report guard is intentionally an in-process persistent_term fast path
-  # (not the durable shared meta-table guard used by CanonicalRebuild). It is keyed
-  # per device scope, so making it cross-replica would mean one meta row per scope
-  # — extra schema/write surface for a smaller win. The canonical rebuild
-  # (CanonicalRebuild.rebuild_canonical_device_links/0) runs in
-  # run_global_passes/0, not here, and is itself durably + cross-replica gated,
-  # so a process-local miss here after a restart re-walks only the cheap batched
-  # link upserts. phash2 is acceptable here because the value is per-process
-  # and never persisted, so OTP-upgrade instability cannot survive a restart.
-  @default_unchanged_report_heartbeat_ms 3_600_000
+  @spec upsert_links([map()]) :: :ok | {:error, term()}
+  def upsert_links([]), do: :ok
 
-  @spec upsert_links([map()], keyword()) :: :ok | {:error, term()}
-  def upsert_links(links, opts \\ [])
-
-  def upsert_links([], _opts), do: :ok
-
-  def upsert_links(links, opts) when is_list(links) do
-    case maybe_skip_unchanged_report(links, Keyword.get(opts, :force, false)) do
-      {:skip, _key} ->
-        Logger.debug("Topology upsert skipped; mapper report structurally unchanged")
-        :ok
-
-      {:proceed, key, fingerprint} ->
-        with :ok <- do_upsert_links(links) do
-          # Recording the fingerprint only after a successful apply ensures a
-          # failed report is retried rather than cached as "done" and skipped.
-          :persistent_term.put(
-            {__MODULE__, :report_fingerprint, key},
-            {fingerprint, System.monotonic_time(:millisecond)}
-          )
-        end
-    end
-  end
-
-  defp do_upsert_links(links) do
+  def upsert_links(links) when is_list(links) do
     links = Enum.sort_by(links, &link_observed_unix/1)
 
     {diagnostics, dgraph_links} =
@@ -82,103 +43,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
       {:error, reason, _stats} -> {:error, reason}
       _ -> :ok
     end
-  end
-
-  # Returns {:skip, key} when this report's structural link set matches the last
-  # applied report for the same device scope within the heartbeat window;
-  # otherwise {:proceed, key, fingerprint}.
-  defp maybe_skip_unchanged_report(links, force) do
-    {key, fingerprint} = report_structural_fingerprint(links)
-    now_ms = System.monotonic_time(:millisecond)
-    heartbeat_ms = unchanged_report_heartbeat_ms()
-
-    case :persistent_term.get({__MODULE__, :report_fingerprint, key}, nil) do
-      {^fingerprint, ts} when not force and now_ms - ts < heartbeat_ms ->
-        {:skip, key}
-
-      _ ->
-        {:proceed, key, fingerprint}
-    end
-  end
-
-  # Scope the fingerprint by the set of reporting (local) devices so concurrent
-  # reports from different agents don't thrash a single shared entry. The
-  # fingerprint is the set of values the apply would leave: links are taken in
-  # the same observation order do_upsert_links/1 applies them, the newest
-  # non-empty value wins each device IP or name and interface name or ifindex,
-  # including the neighbor's as the reporting device observed it, and the
-  # newest link between two interfaces wins that pair's edge of each relation.
-  # Links the apply skips write nothing and are left out. A report that changes
-  # which row wins therefore changes the fingerprint even when the set of rows
-  # is the same. Observation timestamps are excluded so unchanged heartbeat
-  # reports still use the periodic re-apply window.
-  defp report_structural_fingerprint(links) do
-    payloads =
-      links
-      |> Enum.sort_by(&link_observed_unix/1)
-      |> Enum.map(&Projection.projection_payload/1)
-      |> Enum.reject(&is_nil/1)
-
-    written = Enum.flat_map(payloads, &written_relation/1)
-
-    scope =
-      payloads
-      |> Enum.map(& &1.local_device_id)
-      |> Enum.uniq()
-      |> Enum.sort()
-
-    {:erlang.phash2(scope), :erlang.phash2(resolved_winners(written))}
-  end
-
-  defp written_relation(payload) do
-    case Projection.projection_mode(payload) do
-      {:backbone, _reason} -> [{payload, "CONNECTS_TO"}]
-      {:auxiliary, _reason} -> [{payload, Projection.evidence_relation_type(payload)}]
-      {:skip, _reason} -> []
-    end
-  end
-
-  defp resolved_winners(written) do
-    Enum.reduce(written, {%{}, %{}, %{}, %{}}, fn {payload, relation},
-                                                  {devices, locals, neighbors, edges} ->
-      {
-        devices
-        |> put_winner(payload.local_device_id, %{ip: payload.local_device_ip})
-        |> put_winner(payload.neighbor_device_id, %{
-          ip: payload.neighbor_ip,
-          name: payload.neighbor_name
-        }),
-        put_winner(locals, payload.local_interface_id, %{
-          name: payload.local_if_name,
-          ifindex: payload.local_if_index
-        }),
-        put_winner(neighbors, payload.neighbor_interface_id, %{name: payload.neighbor_port_name}),
-        Map.put(
-          edges,
-          {payload.local_interface_id, payload.neighbor_interface_id, relation},
-          Map.delete(payload, :observed_at)
-        )
-      }
-    end)
-  end
-
-  defp put_winner(winners, key, fields) do
-    Map.update(
-      winners,
-      key,
-      fields,
-      &Map.merge(&1, fields, fn _field, earlier, later -> newer(earlier, later) end)
-    )
-  end
-
-  defp newer(earlier, later) when later in [nil, ""], do: earlier
-  defp newer(_earlier, later), do: later
-
-  defp unchanged_report_heartbeat_ms do
-    :serviceradar_core
-    |> Application.get_env(TopologyGraph, [])
-    |> Keyword.get(:unchanged_report_heartbeat_ms, @default_unchanged_report_heartbeat_ms)
-    |> Utils.normalize_positive_int(@default_unchanged_report_heartbeat_ms)
   end
 
   defp link_observed_unix(link) when is_map(link) do
