@@ -160,6 +160,19 @@ match the agent's cluster binding, and one whose network scope has no
 partition. The projection rules are
 `ServiceRadar.Edge.Projectors.K8sPublicEndpoints`.
 
+Endpoint inventory scans follow the same shape under the
+`serviceradar.endpoint_inventory.scan` contract, enabled by
+`edgeRecords.agentDiscoveryEnabled`. With a current grant, each changed
+scan or `not_scanned` report becomes one
+`EndpointInventoryScanPayloadV1` record. The agent holds at most one
+pending record and pauses polling until the spool admits it. A scan that
+cannot form a record within the body bound, or that the spool refuses, is
+dropped once and its upload marked failed; it never falls back to the
+status path while the grant is held. Core
+rebuilds the legacy payload and ingests it through
+`EndpointInventoryIngestor`. The projection rules are
+`ServiceRadar.Edge.Projectors.EndpointInventory`.
+
 ## Data Service (datasvc)
 
 `datasvc` is a gRPC service (port `50057`) that fronts the platform's NATS-backed

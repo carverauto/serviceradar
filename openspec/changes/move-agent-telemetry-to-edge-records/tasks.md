@@ -117,8 +117,10 @@
   `ServiceRadar.WorkloadIdentity.persist_snapshot/1`. K8s public endpoints have
   `serviceradar.k8s.public_endpoints.snapshot`, an agent producer in
   `go/pkg/agent/push_loop_k8s_public_endpoints_edge.go`, and
-  `ServiceRadar.Edge.Projectors.K8sPublicEndpoints`. Remaining scope is the other inventory
-  producers (endpoint inventory, bumblebee) and the parity soak.
+  `ServiceRadar.Edge.Projectors.K8sPublicEndpoints`. Endpoint inventory has the standing-grant
+  contract `serviceradar.endpoint_inventory.scan`, an agent producer and the `EndpointInventory`
+  projector writing through `EndpointInventoryIngestor`. Remaining scope is the other inventory
+  producers (bumblebee) and the parity soak.
 
 ## 8. Cutover
 

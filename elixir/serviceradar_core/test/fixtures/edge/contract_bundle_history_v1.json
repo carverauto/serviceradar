@@ -1,6 +1,16 @@
 {
   "contracts": [
     {
+      "contract_id": "serviceradar.endpoint_inventory.scan",
+      "contract_version": 1,
+      "history": [
+        {
+          "contract_bundle_sha256": "e09c37dc780515813a60cce1601916e2f043062af7af939d55ada26bee9c96fc",
+          "projection_revision": 1
+        }
+      ]
+    },
+    {
       "contract_id": "serviceradar.k8s.public_endpoints.snapshot",
       "contract_version": 1,
       "history": [
@@ -151,5 +161,5 @@
       ]
     }
   ],
-  "registry_snapshot_sha256": "5654295b83515ef18bd30959d6c7412e18192e8fffe19b39e2423268dd1bf584"
+  "registry_snapshot_sha256": "43155e71a4d51d940e9873c6b41b0ecd198cb1cbe0ce989395df5695c24852f0"
 }

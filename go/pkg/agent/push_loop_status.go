@@ -612,6 +612,69 @@ func (p *PushLoop) holdForPendingEdgeRecord(svc Service, now time.Time) (*edgev1
 	return capability, false
 }
 
+// routeEndpointInventoryEdgeStatus handles the endpoint inventory service on the
+// edge-record path. It returns true when the status was consumed by that path
+// (a pending payload is still waiting, or the standing grant is held) so the
+// caller must not fall back to the legacy status path.
+func (p *PushLoop) routeEndpointInventoryEdgeStatus(ctx context.Context, svc Service, provider SweepStatusProvider) bool {
+	now := time.Now()
+	if p.endpointInventoryEdge.built != nil && !p.flushEndpointInventoryEdge(now) {
+		return true
+	}
+	capability := p.edgeEndpointInventoryCapability(now)
+	if capability == nil {
+		return false
+	}
+	status, err := provider.GetStatus(ctx)
+	if err != nil {
+		p.logger.Warn().Err(err).Str("service", svc.Name()).Msg("Failed to get status from service")
+		return true
+	}
+	if status == nil {
+		p.logger.Warn().Str("service", svc.Name()).Msg("Status provider returned nil response")
+		return true
+	}
+	p.emitEndpointInventoryEdgeStatus(status, capability, now)
+	return true
+}
+
+// resolveServiceStatusRouting derives the service name, service type, and
+// status source used to route a collected service status.
+func resolveServiceStatusRouting(svc Service, status *proto.StatusResponse) (string, string, string) {
+	serviceName := firstMetricNonEmpty(svc.Name(), status.GetServiceName())
+	serviceType := strings.TrimSpace(status.GetServiceType())
+	var source string
+	if routing, ok := svc.(StatusRoutingProvider); ok {
+		if value := strings.TrimSpace(routing.StatusServiceType()); value != "" {
+			serviceType = value
+		}
+		source = strings.TrimSpace(routing.StatusSource())
+	}
+	if serviceType == "" {
+		if rperfStatus(serviceName, "") {
+			serviceType = rperfServiceType
+		} else {
+			serviceType = sweepType
+		}
+	}
+	if source == "" {
+		source = defaultStatusSource(status, serviceName, serviceType)
+	}
+	return serviceName, serviceType, source
+}
+
+// forwardStatusAddonTelemetry hands addon telemetry carried on a service status
+// to the server's addon telemetry handler.
+func (p *PushLoop) forwardStatusAddonTelemetry(svc Service, status *proto.StatusResponse) {
+	telemetry, ok := svc.(StatusAddonTelemetryProvider)
+	if !ok {
+		return
+	}
+	if addonID, batch := telemetry.AddonTelemetryBatch(status); addonID != "" && batch != nil {
+		p.server.handleAddonTelemetry(addonID, batch)
+	}
+}
+
 // collectAllStatusesSeparated gathers status from all services, separating sysmon from others.
 // Sysmon is returned separately because it uses StreamStatus with Source: "sysmon-metrics".
 func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.GatewayServiceStatus, *proto.GatewayServiceStatus) {
@@ -638,6 +701,9 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 			if held {
 				continue
 			}
+			if isEndpointInventoryService(svc) && p.routeEndpointInventoryEdgeStatus(ctx, svc, provider) {
+				continue
+			}
 
 			var metricPayload map[string]any
 			var status *proto.StatusResponse
@@ -657,36 +723,12 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 				p.logger.Warn().Str("service", svc.Name()).Msg("Status provider returned nil response")
 				continue
 			}
-			serviceName := firstMetricNonEmpty(svc.Name(), status.GetServiceName())
-			serviceType := strings.TrimSpace(status.GetServiceType())
-			var source string
-			if routing, ok := svc.(StatusRoutingProvider); ok {
-				if value := strings.TrimSpace(routing.StatusServiceType()); value != "" {
-					serviceType = value
-				}
-				source = strings.TrimSpace(routing.StatusSource())
-			}
-			if serviceType == "" {
-				if rperfStatus(serviceName, "") {
-					serviceType = rperfServiceType
-				} else {
-					serviceType = sweepType
-				}
-			}
-			if source == "" {
-				source = defaultStatusSource(status, serviceName, serviceType)
-			}
-
+			serviceName, serviceType, source := resolveServiceStatusRouting(svc, status)
 			if k8sCapability != nil {
 				p.spoolK8sPublicEndpointsStatus(status, k8sCapability, cfg)
 				continue
 			}
-
-			if telemetry, ok := svc.(StatusAddonTelemetryProvider); ok {
-				if addonID, batch := telemetry.AddonTelemetryBatch(status); addonID != "" && batch != nil {
-					p.server.handleAddonTelemetry(addonID, batch)
-				}
-			}
+			p.forwardStatusAddonTelemetry(svc, status)
 			if isRperfMetricsPayload(status, serviceName, serviceType, source) &&
 				p.spoolRperfMetricsStatus(status, serviceName, serviceType, now) {
 				continue
