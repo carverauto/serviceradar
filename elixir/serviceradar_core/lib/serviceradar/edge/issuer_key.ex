@@ -4,11 +4,16 @@ defmodule ServiceRadar.Edge.IssuerKey do
   source authorizations of sweep schedule leases, standing output grants, and the delivery
   grants of a spool backlog.
 
-  The private half is a 32-byte seed that core generates on first use and stores in CNPG
-  (`ServiceRadar.Edge.EdgeIssuerKeyRecord`), encrypted by AshCloak. It is ServiceRadar
-  talking to itself, not a device or integration credential, and no file, environment
-  variable, Helm value or Kubernetes Secret supplies it. The gateway receives only
-  `trust_entry/1`: the issuer id, the key id and the public key.
+  The private half is a 32-byte seed stored in CNPG (`ServiceRadar.Edge.EdgeIssuerKeyRecord`),
+  encrypted by AshCloak. It is ServiceRadar talking to itself, not a device or integration
+  credential. The gateway receives only `trust_entry/1`: the issuer id, the key id and the
+  public key.
+
+  The first boot that finds no stored key stores one. An installation upgrading from the
+  file-based key (`SERVICERADAR_EDGE_ISSUER_KEY_FILE`, which the runtime config passes as
+  `:edge_issuer_key_import_file`) imports that seed, so the key, and every registry epoch,
+  grant and lease signed with it, survives the upgrade. Every other installation generates
+  a seed. Once a key is stored, the file is never read again.
 
   The issuer id is fixed (`"serviceradar-core"`). The key id is the first 16 bytes of
   SHA-256 over a domain tag and the public key, so a rotated seed gets a new key id and a
@@ -16,9 +21,12 @@ defmodule ServiceRadar.Edge.IssuerKey do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Automation.CallbackGrants.RuntimeConfig
   alias ServiceRadar.Edge.CapabilitySigning
   alias ServiceRadar.Edge.EdgeIssuerKeyRecord
   alias Serviceradar.Edge.V1.EdgeSignedCapabilityV1
+
+  require Logger
 
   @derive {Inspect, except: [:seed]}
   @enforce_keys [:issuer_id, :key_id, :public_key, :seed]
@@ -34,6 +42,7 @@ defmodule ServiceRadar.Edge.IssuerKey do
   @issuer_id "serviceradar-core"
   @key_id_domain "serviceradar.edge.issuer_key.v1"
   @cache_key {__MODULE__, :key}
+  @max_key_file_bytes 128
 
   @doc "The key made from a 32-byte Ed25519 seed."
   @spec from_seed(<<_::256>>) :: t()
@@ -67,23 +76,55 @@ defmodule ServiceRadar.Edge.IssuerKey do
   end
 
   @doc """
-  Reads the stored issuer key, generating and storing one when none exists. The store is
-  insert-only: when replicas race, one insert wins the singleton row and every replica reads
-  that winner back, so all of them sign with one key. An error means the database could not
-  be read or written, or the stored row does not hold a valid key.
+  Reads the stored issuer key, storing one when none exists: the seed of the file-based key
+  being upgraded from, else a generated one. The store is insert-only: when replicas race,
+  one insert wins the singleton row and every replica reads that winner back, so all of them
+  sign with one key. An error means the database could not be read or written, the stored
+  row does not hold a valid key, or the file to import is not a private, well-formed seed
+  (core then stores nothing rather than a key that would orphan the file key's signatures).
   """
   @spec ensure_stored() :: {:ok, t()} | {:error, term()}
   def ensure_stored do
-    with {:ok, nil} <- read_stored() do
-      inserted = insert_generated()
+    with {:ok, nil} <- read_stored(),
+         {:ok, seed, source} <- seed_to_store() do
+      inserted = insert_seed(seed)
 
       case {read_stored(), inserted} do
         {{:ok, nil}, {:error, reason}} -> {:error, reason}
         {{:ok, nil}, _inserted} -> {:error, :edge_issuer_key_not_stored}
+        {{:ok, key}, _inserted} -> {:ok, log_stored(key, seed, source)}
         {result, _inserted} -> result
       end
     end
   end
+
+  defp seed_to_store do
+    case Application.get_env(:serviceradar_core, :edge_issuer_key_import_file) do
+      path when is_binary(path) and path != "" -> import_seed(path)
+      _ -> {:ok, :crypto.strong_rand_bytes(32), :generated}
+    end
+  end
+
+  defp import_seed(path) do
+    with {:ok, bytes} <- RuntimeConfig.read_secure_file(path, @max_key_file_bytes),
+         {:ok, <<_::256>> = seed} <- Base.decode64(String.trim(bytes)) do
+      {:ok, seed, :imported}
+    else
+      _ -> {:error, :invalid_edge_issuer_key_file}
+    end
+  end
+
+  # Only the replica whose insert won reports it.
+  defp log_stored(%__MODULE__{seed: seed} = key, seed, source) do
+    Logger.info(
+      "Stored the edge issuer key in CNPG (#{source}); key id #{Base.encode16(key.key_id, case: :lower)}",
+      edge_issuer_key_source: source
+    )
+
+    key
+  end
+
+  defp log_stored(key, _seed, _source), do: key
 
   defp read_stored do
     case Ash.read_one(EdgeIssuerKeyRecord, load: [:seed], actor: actor()) do
@@ -106,8 +147,8 @@ defmodule ServiceRadar.Edge.IssuerKey do
   defp decode(value) when is_binary(value), do: Base.decode64(value)
   defp decode(_value), do: :error
 
-  defp insert_generated do
-    key = from_seed(:crypto.strong_rand_bytes(32))
+  defp insert_seed(seed) do
+    key = from_seed(seed)
 
     EdgeIssuerKeyRecord
     |> Ash.Changeset.for_create(

@@ -257,6 +257,7 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/serviceradar/edge/agent_config_generator_test.exs": 1,
     "test/serviceradar/edge/agent_gateway_sync_test.exs": 1,
     "test/serviceradar/edge/agent_release_manager_test.exs": 1,
+    "test/serviceradar/edge/issuer_key_import_db_test.exs": 1,
     "test/serviceradar/edge/nats_leaf_credentials_test.exs": 1,
     "test/serviceradar/edge/onboarding_package_atomicity_test.exs": 1,
     "test/serviceradar/edge/proxmox_console_sessions_test.exs": 1,

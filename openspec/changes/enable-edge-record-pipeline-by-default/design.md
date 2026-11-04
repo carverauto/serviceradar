@@ -436,11 +436,25 @@ Rationale:
 - The same key signs each registry epoch (Decision 12), so a registry and the
   capabilities stamped against it share one trust anchor.
 
-Upgrade: core does not import the existing file seed. The first derived epoch
-re-signs every grant and re-leases every slot that has not started (Decision 5),
-and static-era records are rejected by epoch before their signature matters
-(Decision 7). Key continuity across the switch therefore buys nothing. A fresh
-key also avoids keeping the Secret mount for one more release.
+Upgrade: core imports the existing file seed. On the first boot that finds no
+stored key, core reads `SERVICERADAR_EDGE_ISSUER_KEY_FILE` once, stores that seed
+encrypted in the singleton row, and logs the import. It generates a seed only when
+no file is configured, which is every fresh install. Once a key is stored the file
+is never read again. A configured file that is not a private, well-formed seed
+stores nothing, so core never replaces a real key with a random one.
+
+Key continuity matters because the registry epochs are signed with the issuer key
+(Decision 12) and verified on every load. An installation that ran a release
+signing epochs, grants or leases with the file key would otherwise fail every
+verification after the switch, and core would sign nothing. (Revised 2026-11-04
+at track A's request; this replaces "core does not import the existing file
+seed".)
+
+The import needs the file mounted on the first cutover boot. The chart therefore
+keeps the `edge-issuer-seed` mount and `SERVICERADAR_EDGE_ISSUER_KEY_FILE` for the
+cutover release on installs where the Secret key exists. The release after it
+removes the mount, the env var and the import, together with the secret
+generator's key.
 
 ### Decision 7: Static-era records are rejected and counted, never withheld
 
