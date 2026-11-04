@@ -114,7 +114,11 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorizationIntegrationTest do
     assert {:ok, allowed} = await_allow(client, request, issuer_nkey)
     user = verify_response(allowed["nats"]["jwt"], issuer_nkey)
     assert user["aud"] == @account
-    assert user["name"] == leaf.fingerprint
+    # Digest of these permissions from the Go local-leaf certificateGrantName.
+    assert user["name"] ==
+             leaf.fingerprint <>
+               ".307204ef3090c4505ea7143186d121091f8c41439b0c5bb386c5edc7a324dbd7"
+
     assert user["sub"] == user_nkey
     assert user["nats"]["type"] == "user"
 
@@ -123,7 +127,7 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorizationIntegrationTest do
              "deny" => ["example.events.private.>"]
            }
 
-    assert user["nats"]["sub"] == %{"deny" => [">"]}
+    assert user["nats"]["sub"] == %{"deny" => [">", "$SYS.>"]}
 
     assert user["exp"] == DateTime.to_unix(DateTime.shift(now, hour: 1))
   end

@@ -182,6 +182,7 @@ leafnodes: {
 	type session struct {
 		server string
 		cid    uint64
+		user   string
 	}
 	var mu sync.Mutex
 	sessions := map[string][]session{}
@@ -219,9 +220,6 @@ leafnodes: {
 		fingerprint := fmt.Sprintf("%x", sha256.Sum256(cert.Raw))
 		mu.Lock()
 		allow := allowed[fingerprint] && !revoked[fingerprint]
-		if allow {
-			sessions[fingerprint] = append(sessions[fingerprint], session{req.Server.ID, req.ClientInformation.ID})
-		}
 		mu.Unlock()
 		input := map[string]any{"request": string(m.Data), "issuer": issuer, "seed": string(seed), "allow": allow, "ttl_seconds": 3600, "not_after": cert.NotAfter.Unix()}
 		if fingerprint == collectorB.fingerprint || fingerprint == leafB.fingerprint {
@@ -256,9 +254,24 @@ leafnodes: {
 			}
 		})
 		encoded := result["token"]
-		if _, err := jwt.DecodeAuthorizationResponseClaims(encoded); err != nil {
+		response, err := jwt.DecodeAuthorizationResponseClaims(encoded)
+		if err != nil {
 			report(err)
 			return
+		}
+		if allow {
+			user, err := jwt.DecodeUserClaims(response.Jwt)
+			if err != nil {
+				report(err)
+				return
+			}
+			if !strings.HasPrefix(user.Name, fingerprint+".") {
+				report(fmt.Errorf("grant name %q does not name certificate %s", user.Name, fingerprint))
+				return
+			}
+			mu.Lock()
+			sessions[fingerprint] = append(sessions[fingerprint], session{req.Server.ID, req.ClientInformation.ID, user.Name})
+			mu.Unlock()
 		}
 
 		if err := m.Respond([]byte(encoded)); err != nil {
@@ -339,7 +352,7 @@ leafnodes: {remotes: [{url: "tls://127.0.0.1:%d", tls: {cert_file: %q, key_file:
 		if !ok {
 			t.Fatalf("missing session for certificate %s", fingerprint)
 		}
-		body, _ := json.Marshal(map[string]any{"auth": true, "acc": "APP", "user": fingerprint, "limit": 1})
+		body, _ := json.Marshal(map[string]any{"auth": true, "acc": "APP", "user": target.user, "limit": 1})
 		awaitRevocation(t, "broker confirms certificate use", func() bool {
 			reply, err := operator.Request("$SYS.REQ.SERVER."+target.server+".CONNZ", body, 2*time.Second)
 			if err != nil {
