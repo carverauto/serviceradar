@@ -67,7 +67,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewStreamState do
   # The client already knows exactly why the surface is blank -- the ELK diagnostic for a
   # layout error, or the RangeError with node ids for a render error -- and pushes it here as
   # `message`. Nothing read it. The only account of a blank topology was a UI box telling the
-  # operator to check server logs and AGE data, neither of which knows anything about a
+  # operator to check server logs and topology graph data, neither of which knows anything about a
   # client-side exception, so the one description of the fault was discarded on arrival.
   defp log_client_stream_error(params) when is_map(params) do
     message = params |> Map.get("message") |> client_error_text()

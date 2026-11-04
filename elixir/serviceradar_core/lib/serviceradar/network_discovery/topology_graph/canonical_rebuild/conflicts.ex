@@ -1,24 +1,7 @@
 defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild.Conflicts do
   @moduledoc false
 
-  alias ServiceRadar.Graph
-  alias ServiceRadar.NetworkDiscovery.TopologyGraph.Persist
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Utils
-
-  require Logger
-
-  def reconcile_competing_same_port_canonical_edges do
-    case Graph.query(competing_same_port_canonical_edges_query()) do
-      {:ok, edges} ->
-        demotions = competing_edge_demotions(edges)
-        Enum.each(demotions, &demote_canonical_edge_to_attachment/1)
-        {:ok, length(demotions)}
-
-      {:error, reason} ->
-        Logger.warning("Canonical same-port reconciliation failed: #{inspect(reason)}")
-        {:error, reason}
-    end
-  end
 
   def competing_edge_demotions(edges) when is_list(edges) do
     edge_map = Map.new(edges, &{canonical_edge_key(&1), &1})
@@ -32,24 +15,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild.Conflicts
       demotions_for_port_group(edge_keys, edge_map)
     end)
     |> Enum.uniq()
-  end
-
-  defp competing_same_port_canonical_edges_query do
-    """
-    MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)
-    WHERE r.ingestor = 'mapper_topology_v1'
-      AND coalesce(r.relation_type, '') = 'CONNECTS_TO'
-      AND coalesce(r.evidence_class, '') = 'direct-physical'
-    RETURN {
-      src_id: a.id,
-      dst_id: b.id,
-      pair_support_rank: coalesce(r.pair_support_rank, 0),
-      local_if_index_ab: coalesce(r.local_if_index_ab, r.local_if_index),
-      local_if_name_ab: coalesce(r.local_if_name_ab, r.local_if_name, ''),
-      local_if_index_ba: coalesce(r.local_if_index_ba, r.neighbor_if_index),
-      local_if_name_ba: coalesce(r.local_if_name_ba, r.neighbor_if_name, '')
-    }
-    """
   end
 
   defp edge_port_conflicts(%{} = edge) do
@@ -91,25 +56,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild.Conflicts
   end
 
   defp demotions_for_port_group(_edge_keys, _edge_map), do: []
-
-  defp demote_canonical_edge_to_attachment({src_id, dst_id})
-       when is_binary(src_id) and is_binary(dst_id) do
-    cypher = """
-    MATCH (a:Device {id: '#{Graph.escape(src_id)}'})-[r:CANONICAL_TOPOLOGY]->(b:Device {id: '#{Graph.escape(dst_id)}'})
-    SET r.relation_type = 'ATTACHED_TO'
-    SET r.evidence_class = 'endpoint-attachment'
-    SET r.confidence_tier = 'medium'
-    SET r.confidence_score = CASE WHEN coalesce(r.confidence_score, 0) > 78 THEN r.confidence_score ELSE 78 END
-    SET r.confidence_reason = 'shared_segment_via_uplink'
-    """
-
-    case Persist.execute_age(cypher) do
-      :ok -> :ok
-      {:error, reason} -> Logger.warning("Canonical edge demotion failed: #{inspect(reason)}")
-    end
-  end
-
-  defp demote_canonical_edge_to_attachment(_edge_key), do: :ok
 
   defp canonical_edge_key(%{} = edge) do
     src_id = Map.get(edge, "src_id")

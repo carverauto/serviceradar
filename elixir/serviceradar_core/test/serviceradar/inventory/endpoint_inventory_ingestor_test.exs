@@ -544,7 +544,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
                    "purl_canonical" => "pkg:deb/debian/nginx@1.24.0-2ubuntu7?arch=amd64"
                  }
                },
-               age_risk_summary_projector: test_age_risk_summary_projector(self())
+               risk_summary_projector: test_risk_summary_projector(self())
              )
 
     assert result == %{
@@ -607,7 +607,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
                  "observed_at" => "2026-06-02T13:00:00Z",
                  "package" => %{"name" => "nginx"}
                },
-               age_risk_summary_projector: test_age_risk_summary_projector(self())
+               risk_summary_projector: test_risk_summary_projector(self())
              )
 
     assert result.active? == false
@@ -2254,7 +2254,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
   defp canonical_test_device_uid("sr:" <> _ = uid), do: uid
   defp canonical_test_device_uid(uid), do: "sr:#{uid}"
 
-  defp test_age_risk_summary_projector(test_pid) do
+  defp test_risk_summary_projector(test_pid) do
     fn device_uid, summary ->
       send(test_pid, {:age_risk_summary, device_uid, summary})
       :ok

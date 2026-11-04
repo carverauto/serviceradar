@@ -14,7 +14,7 @@ defmodule ServiceRadar.Edge.ProjectionTime do
   the RAW nanosecond values. Canonicalizing before either would make contract identity depend
   on a normalization step rather than on what was received.
 
-  It is also NOT applied to the AGE graph's `(observed_at, trace_id)` ordering, which stays in
+  It is also NOT applied to the topology graph's `(observed_at, trace_id)` ordering, which stays in
   raw nanoseconds because the graph is not bound by `timestamptz` resolution -- canonicalizing
   there would collapse sub-microsecond observations into ties broken arbitrarily by trace id.
 

@@ -237,16 +237,32 @@ Dgraph-only God View reader does not establish that the extension is unused.
       typed `query_mtr_paths`. The dashboard, full-screen map and God View show
       an unavailable notice on a failed read. `ServiceRadarWebNG.Graph` is
       deleted and `mix graph.ready` probes Dgraph.
-- [ ] 14.3 Move canonical-edge telemetry reads and refresh writes in
+- [x] 14.3 Move canonical-edge telemetry reads and refresh writes in
       `TopologyGraph.Telemetry.Edges` and `TopologyGraph.Telemetry.Refresh`
       to the typed Dgraph path. Verify directional packet flow, capacity,
       stale-edge behavior, and refresh failure handling before retiring their
       AGE queries and relationship-update locking.
-- [ ] 14.4 Make application, runtime, Helm, Compose, and correlation-hydrator
+      Refresh reads `query_canonical_edges` and writes
+      `update_canonical_edge_telemetry` only; stale canonical edges are pruned
+      by reconciliation before refresh runs. The AGE batch query, its batch
+      size setting and the AGE-only relationship-update locking are gone.
+- [x] 14.4 Make application, runtime, Helm, Compose, and correlation-hydrator
       defaults consistent with Dgraph authority. Remove implicit AGE fallback
       for missing or invalid backend flags, and report unresolved Dgraph
       configuration explicitly. Audit remaining graph writers and diagnostic
       tasks, including `graph.ready`, for compatibility-only AGE behavior.
+      `GRAPH_BACKEND` / `GRAPH_READ`, `graph.backend` / `graph.read` and the
+      AGE graph name setting are removed. `TopologyGraph.Store.writable?/0`
+      logs an unresolved Dgraph endpoint once per transition, and the chart
+      refuses to render without Dgraph. Every writer (links, interfaces,
+      MANAGED_BY, risk scalars, config facts, MTR paths, pruning, canonical
+      reconciliation) is Dgraph-only. `ServiceRadar.Graph`,
+      `RuntimeTopologyProjection` and the AGE query builders are deleted.
+      The AGE-to-Dgraph migrator (binary, Helm Job, Compose one-shot) is
+      retired: its checksum compared against AGE, which no longer receives
+      writes. AGE-only maintenance (unseen-link prune, legacy attachment
+      reconciliation) is dropped. Elixir integration coverage of graph
+      contents moves to a Dgraph fixture tracked in #6298.
 - [ ] 14.5 Audit schema/bootstrap and migration dependencies before disabling
       AGE: CNPG extension creation, `shared_preload_libraries`, startup graph
       ownership/catalog checks, database search paths, neighborhood functions,

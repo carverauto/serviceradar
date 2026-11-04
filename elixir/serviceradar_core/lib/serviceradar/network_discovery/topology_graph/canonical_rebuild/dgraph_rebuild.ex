@@ -25,7 +25,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild.DgraphReb
   @directional_fields ~w(if_name if_index flow_pps flow_bps)a
 
   # Both sets come from one Dgraph read. Evidence has already passed Projection's
-  # confidence/interface policy at ingest; it must not be reconstructed from AGE.
+  # confidence/interface policy at ingest; it must not be reconstructed from another store.
   def read_inputs do
     fields = Enum.map_join(@fields, "\n", &"#{&1}: topo.#{&1}")
 
@@ -66,7 +66,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild.DgraphReb
             # Never turn an incomplete canonical read into a destructive empty rebuild.
             {:halt, error}
           else
-            # The AGE selector excludes unresolved/self endpoints and undated evidence.
+            # The selector excludes unresolved/self endpoints and undated evidence.
             {:cont, {:ok, inputs}}
           end
       end
@@ -199,7 +199,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild.DgraphReb
       end
 
     # A fresh, explicitly reclassified relation leaves canonical adjacency even
-    # before TTL, matching the AGE canonical predicate used by dual-write.
+    # before TTL.
     rejected_keys =
       for {key, edge} <- replacements, edge.relation not in @canonical_kinds, do: key
 

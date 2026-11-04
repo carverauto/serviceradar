@@ -135,7 +135,7 @@ fn edge_kinds_match_age_relationship_names() {
     assert_eq!(
         EdgeKind::ObservedTo.as_str(),
         "OBSERVED_TO",
-        "AGE labels this plane OBSERVED_TO; the shadow store must not relabel it"
+        "this plane is labelled OBSERVED_TO and must not be relabelled"
     );
 }
 

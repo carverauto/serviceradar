@@ -6,7 +6,7 @@ how that risk reaches the DeepCausality causal engine as a normalized signal. Th
 engine ONLY consumes per-device risk; it performs NO package-to-CVE coordinate
 matching (that lives in `add-cti-signal-coverage`). Package membership stays a CNPG
 relation queryable via SRQL; the bounded graph summary is `pkg_*` risk scalars on
-AGE `Device` nodes (see `age-graph`), with NO package vertices or edges. Risk
+Dgraph `Device` nodes (see `dgraph-topology`), with NO package vertices or edges. Risk
 flows into reasoning via `causal-reasoning` and out via
 `causal-prediction-signals`.
 
@@ -93,15 +93,15 @@ Device-to-package membership SHALL remain a CNPG relation queryable through SRQL
 (over the landed `endpoint_inventory_packages` table from
 `add-endpoint-sbom-inventory`) and SHALL NOT be projected as graph topology. This
 delta explicitly forbids introducing `Package` vertices, `HAS_PACKAGE` edges, or
-`AFFECTED_BY` edges into the AGE graph. The only graph-visible representation of
-inventory risk SHALL be the bounded `pkg_*` risk scalars carried on the AGE `Device`
-node, defined by `age-graph`; this keeps the graph bounded and avoids reintroducing
+`AFFECTED_BY` edges into the Dgraph topology graph. The only graph-visible representation of
+inventory risk SHALL be the bounded `pkg_*` risk scalars carried on the Dgraph `Device`
+node, defined by `dgraph-topology`; this keeps the graph bounded and avoids reintroducing
 unbounded fanout into the reasoning topology.
 
 #### Scenario: Membership stays a relation
 - **WHEN** a consumer needs device-to-package membership
 - **THEN** it SHALL query the CNPG relation (`endpoint_inventory_packages`) via SRQL
-- **AND** the membership SHALL NOT be required to traverse the AGE graph
+- **AND** the membership SHALL NOT be required to traverse the Dgraph topology graph
 
 #### Scenario: No package vertices or edges in the graph
 - **WHEN** inventory risk is projected for graph rendering and reasoning
@@ -110,5 +110,5 @@ unbounded fanout into the reasoning topology.
 
 #### Scenario: Bounded pkg_* scalars are the only graph-visible risk
 - **WHEN** inventory risk must be visible on the graph
-- **THEN** it SHALL be represented only as the bounded `pkg_*` risk scalars on the AGE `Device` node (see `age-graph`)
+- **THEN** it SHALL be represented only as the bounded `pkg_*` risk scalars on the Dgraph `Device` node (see `dgraph-topology`)
 - **AND** the graph SHALL remain bounded with no per-package fanout

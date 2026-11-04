@@ -1,7 +1,6 @@
 defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Utils do
   @moduledoc false
 
-  alias ServiceRadar.NetworkDiscovery.TopologyGraph.Utils.Cypher
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Utils.RiskSummary
 
   require Logger
@@ -382,11 +381,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Utils do
   end
 
   def non_blank(value), do: value |> to_string() |> non_blank()
-
-  defdelegate set_prop(node, field, value),
-    to: Cypher
-
-  defdelegate cypher_value(value), to: Cypher
 
   def value_to_non_negative_int(value) when is_integer(value) and value >= 0, do: value
   def value_to_non_negative_int(value) when is_float(value) and value >= 0, do: trunc(value)

@@ -44,7 +44,7 @@ certificate generator that issues the runtime mTLS certificates for you:
 The runtime certificate generator does not cover the topology graph. When the chart installs Dgraph
 (`dgraph.enabled=true`, the default), it mints a private CA and the Alpha
 serving certificate into Secrets. cert-manager is not required for that. The
-schema and migrator Jobs verify Dgraph against that CA; application pods
+schema Job verifies Dgraph against that CA; application pods
 connect encrypted without verifying it (`sslmode=require`).
 See [Helm Deployment and Configuration](./helm-configuration.md) and
 [Network Topology](./network-topology.md).

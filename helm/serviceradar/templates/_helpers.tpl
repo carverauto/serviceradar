@@ -1438,30 +1438,17 @@ connection fails the handshake.
 {{- end -}}
 
 {{/*
-GRAPH_BACKEND / GRAPH_READ / DGRAPH_* for topology writers (core, web-ng).
-With no Dgraph configured this stays on AGE and emits no DGRAPH_* at all.
+DGRAPH_* for the topology graph clients (core, web-ng). Dgraph is the only
+topology graph, so a release with neither the in-chart cluster nor an external
+endpoint fails to render instead of running without topology.
 The in-chart cluster's groot password is the generated ACL Secret, never a
 literal: kubelet expands $(DGRAPH_PASSWORD) from the preceding entry.
 */}}
 {{- define "serviceradar.graph.env" -}}
-{{- $graph := default (dict) .Values.graph -}}
 {{- $d := default (dict) .Values.dgraph -}}
 {{- if not (include "serviceradar.dgraph.configured" .) }}
-- name: GRAPH_BACKEND
-  value: "age"
-- name: GRAPH_READ
-  value: "age"
-{{- else }}
-{{- /*
-Dual-write is the default only for the cluster this chart provisions, where it
-also mints the ACL credential and applies the topology schema. An external
-endpoint is neither, so writing to it has to be an explicit opt-in through
-graph.backend rather than a side effect of naming a host.
-*/}}
-- name: GRAPH_BACKEND
-  value: {{ default (ternary "dual" "age" (not (not $d.enabled))) $graph.backend | quote }}
-- name: GRAPH_READ
-  value: {{ default "age" $graph.read | quote }}
+{{- fail "The topology graph requires Dgraph: set dgraph.enabled=true, or dgraph.external.host for an existing cluster." }}
+{{- end }}
 - name: DGRAPH_HOST
   value: {{ include "serviceradar.dgraph.host" . | quote }}
 - name: DGRAPH_PORT
@@ -1487,7 +1474,6 @@ graph.backend rather than a side effect of naming a host.
 {{- end }}
 - name: DGRAPH_URL
   value: {{ printf "dgraph://%s%s:%s?sslmode=%s%s" (include "serviceradar.dgraph.externalUserinfo" .) (include "serviceradar.dgraph.host" .) (include "serviceradar.dgraph.port" .) (include "serviceradar.dgraph.appTlsMode" .) (include "serviceradar.dgraph.appSslRootCert" .) | quote }}
-{{- end }}
 {{- end }}
 {{- end -}}
 

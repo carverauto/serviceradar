@@ -3,7 +3,7 @@ defmodule ServiceRadar.Inventory.EndpointPackage do
   Normalized endpoint-side software package coordinate.
 
   Device membership stays in `EndpointInventoryPackage` current-state rows so
-  package membership is a CNPG relation, not an AGE topology edge.
+  package membership is a CNPG relation, not a topology graph edge.
   """
 
   use Ash.Resource,

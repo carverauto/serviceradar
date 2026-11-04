@@ -5,7 +5,7 @@ defmodule ServiceRadar.NetworkChanges.Projector do
   """
 
   alias ServiceRadar.Dgraph
-  alias ServiceRadar.NetworkDiscovery.TopologyGraph.Backend
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.Store
 
   @spec project(map()) :: :ok | {:error, term()}
   def project(change) when is_map(change) do
@@ -29,7 +29,7 @@ defmodule ServiceRadar.NetworkChanges.Projector do
   end
 
   defp persist(payload) do
-    if Backend.write_dgraph?() do
+    if Store.writable?() do
       Dgraph.upsert_change(payload)
     else
       :ok

@@ -8,15 +8,17 @@ later.
 
 - **CNPG is the single data plane.** Every data path — edge-agent mTLS gRPC,
   zen-consumer OCSF normalization, mapper topology, inventory, virtualization,
-  telemetry hypertables, and the AGE topology graph — converges in the
-  `platform` schema in CloudNativePG. There is no second store to reconcile.
+  and telemetry hypertables — converges in the `platform` schema in
+  CloudNativePG. The one exception is the topology graph, which lives in
+  Dgraph and is projected from CNPG evidence, so CNPG stays authoritative.
 - **SRQL is the uniform API over that plane.** `rust/srql` ships
   `EmbeddedSrql::new` / `QueryEngine::execute_query` (rust/srql/src/lib.rs:31-40;
-  rust/srql/src/query/mod.rs) and dispatches across every entity, including raw
-  openCypher into Apache AGE via the `graph_cypher` entity
-  (rust/srql/src/query/graph_cypher.rs). The engine can read current state,
-  TimescaleDB continuous-aggregate rollups, and AGE topology snapshots through
-  one library, in-process, without bespoke SQL.
+  rust/srql/src/query/mod.rs) and dispatches across every entity, including read-only
+  DQL against the Dgraph topology graph via the `in:graph` entity
+  (rust/srql/src/query/graph_dql.rs) and per-device graph context via
+  `in:device_graph` (rust/srql/src/query/device_graph.rs). The engine can read
+  current state, TimescaleDB continuous-aggregate rollups, and Dgraph topology
+  snapshots through one library, in-process, without bespoke SQL.
 
 **The 244-line stub diagnosis.** The only DeepCausality code that exists today
 is a misplaced stub: `src/core/causality.rs` inside the `god_view_nif` Rustler
@@ -82,7 +84,7 @@ Goals:
   the God-View render simultaneously.
 - Author the **inventory-risk feed**: an `endpoint_inventory` contribution into
   `DeviceRiskReducer` (MAX-wins), a `signals.causal.inventory.*` emission, and
-  bounded `pkg_*` risk scalars on the AGE `Device` vertex.
+  bounded `device.pkg_*` risk scalars on the Dgraph `Device` node.
 - Perform the **`god_view_nif` refactor**: extract `core/causality.rs` into
   `rust/causal-engine`, demote the NIF to a ~50-line renderer stub, drop the
   DeepCausality/ultragraph deps from the NIF, and rejoin the Rust workspace.
@@ -108,7 +110,7 @@ Non-Goals (V1):
 
 The engine subscribes to `signals.state.<table>` subjects to which core-elx
 publishes **application-level state TRANSITIONS** for `ocsf_devices`,
-`service_status`, and `health_events` (plus virtualization and AGE-projection
+`service_status`, and `health_events` (plus virtualization and topology-projection
 state). This is emitted by application code at the point of transition, not by
 logical replication.
 
@@ -190,8 +192,8 @@ Alternatives considered:
 
 This umbrella authors: an `endpoint_inventory` contribution into
 `DeviceRiskReducer` (MAX-wins), a `signals.causal.inventory.*` emission, and
-bounded `pkg_*` risk scalars on the AGE `Device` vertex (NO package
-vertices/edges).
+bounded `device.pkg_*` risk scalars on the Dgraph `Device` node (NO package
+nodes/edges).
 
 Rationale: the SBOM change (`add-endpoint-sbom-inventory`) owns the inventory
 TABLES (landed). The seam that turns inventory into a causal signal is engine
@@ -204,7 +206,7 @@ Alternatives considered:
 - **Put the contribution wiring in `add-endpoint-sbom-inventory`.** Rejected:
   that change would then need to know the engine's risk-composition contract;
   keeping the seam here keeps the inventory change a pure storage capability.
-- **Project package vertices/edges into AGE.** Rejected: unbounded fanout that
+- **Project package nodes/edges into the topology graph.** Rejected: unbounded fanout that
   conflicts with the carrier-scale render contract
   (`refactor-topology-read-model-for-carrier-scale`). Bounded scalar
   properties (`pkg_*`) on the existing `Device` vertex carry the signal without
@@ -221,7 +223,7 @@ Alternatives considered:
   gRPC/NATS implementation and the split happens without a rewrite.
 - **Canonical-ID reuse.** The engine reuses the canonical `sr:`-prefixed entity
   IDs (`RuntimeGraph.canonical_runtime_id/1`, runtime_graph.ex:640-650) with
-  single-point validation at ingestion. `ocsf_devices.uid` == AGE `Device.id`
+  single-point validation at ingestion. `ocsf_devices.uid` == Dgraph `device.id`
   == `ocsf_events.device.uid`. The engine MUST NOT invent a parallel ID space,
   and MUST handle endpoint-cluster summary nodes (a verdict on a clustered
   device id will not render if `GodViewStream` summarized it).
@@ -235,7 +237,7 @@ Alternatives considered:
 - **freeze / unfreeze lifecycle.** Build the Context as a mutable graph from
   CNPG + JetStream deltas; `freeze()` to the CSR `CsmGraph` before each
   reasoning tick; `unfreeze()` only when topology actually changes (gated by
-  AGE updates), which is rare. Reasoning runs against the frozen CSR.
+  topology-graph updates), which is rare. Reasoning runs against the frozen CSR.
 
 ## Risks / Trade-offs
 

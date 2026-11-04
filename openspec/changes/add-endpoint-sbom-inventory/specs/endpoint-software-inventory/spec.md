@@ -344,12 +344,12 @@ The system SHALL feed endpoint inventory to the causal engine through the platfo
 - **GIVEN** endpoint inventory rows, the device-package relation, findings, and any derived index
 - **WHEN** they are persisted or indexed
 - **THEN** they SHALL key on the canonical device identity (`ocsf_devices.uid`)
-- **AND** the system SHALL NOT introduce a parallel inventory-only ID space, and `ocsf_events.device.uid` == `ocsf_devices` PK == AGE `Device.id` SHALL agree on one canonical string
+- **AND** the system SHALL NOT introduce a parallel inventory-only ID space, and `ocsf_events.device.uid` == `ocsf_devices` PK == Dgraph `device.id` SHALL agree on one canonical string
 
 #### Scenario: Current state and risk attributes queryable via SRQL
 - **GIVEN** the causal engine hydrates its context
 - **WHEN** it requests current inventory state, the device-package relation, or device risk posture
-- **THEN** current-state rows and the relation SHALL be retrievable via SRQL over CNPG, and the bounded Device risk attributes via `graph_cypher` on the Device vertex
+- **THEN** current-state rows and the relation SHALL be retrievable via SRQL over CNPG, and the bounded Device risk attributes via `in:graph` on the Dgraph Device vertex (`device.pkg_*`)
 - **AND** there SHALL be no package subgraph to traverse
 
 #### Scenario: Change events and findings published for live consumption

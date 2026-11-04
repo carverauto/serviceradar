@@ -21,7 +21,7 @@
 
 use dgraph_migrate::SchemaSpec;
 
-/// Device identity: the canonical `sr:`-prefixed id already used in AGE.
+/// Device identity: the canonical `sr:`-prefixed `ocsf_devices.uid`.
 pub const PRED_DEVICE_ID: &str = "device.id";
 
 /// Idempotency key for a reified topology edge.

@@ -121,10 +121,10 @@ Key values: topology graph (`dgraph`, `graph`)
   `dgraph.external.host`. Its ACL credential comes from a Secret that already
   exists in the namespace (`dgraph.external.credentialsSecret`), never from a
   chart value.
-- `graph.backend` and `graph.read` select where topology is written and read.
-  Reads stay on AGE until you cut over deliberately.
-- The store layout, the migrator Job, credential handling, and the
-  cutover/rollback procedure are in
+- Dgraph is the only topology graph. A release with `dgraph.enabled=false` and
+  no `dgraph.external.host` fails to render rather than running without
+  topology.
+- The store layout, credential handling, and the reset procedure are in
   [Network Topology](./network-topology.md).
 
 Key values: `sweep`

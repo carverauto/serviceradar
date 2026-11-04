@@ -1,9 +1,7 @@
 defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Interfaces do
   @moduledoc false
 
-  alias ServiceRadar.Graph
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist
-  alias ServiceRadar.NetworkDiscovery.TopologyGraph.Persist
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Utils
 
   require Logger
@@ -25,20 +23,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Interfaces do
     if is_nil(device_uid) or is_nil(management_device_uid) do
       :ok
     else
-      cypher = """
-      MERGE (child:Device {id: '#{Graph.escape(device_uid)}'})
-      MERGE (mgmt:Device {id: '#{Graph.escape(management_device_uid)}'})
-      MERGE (child)-[r:MANAGED_BY]->(mgmt)
-      SET r.source = 'mapper'
-      MERGE (mgmt)-[rev:MANAGES]->(child)
-      SET rev.source = 'mapper'
-      """
-
-      case Persist.execute_age(cypher) do
-        :ok -> :ok
-        {:error, reason} -> Logger.warning("MANAGED_BY graph upsert failed: #{inspect(reason)}")
-      end
-
       DgraphPersist.upsert_managed_by(device_uid, management_device_uid)
     end
   end
@@ -80,26 +64,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Interfaces do
   end
 
   defp upsert_interface_payload(payload) do
-    cypher = """
-    MERGE (d:Device {id: '#{Graph.escape(payload.device_id)}'})
-    MERGE (i:Interface {id: '#{Graph.escape(payload.interface_id)}'})
-    SET i.device_id = '#{Graph.escape(payload.device_id)}'
-    #{Utils.set_prop("i", "name", payload.if_name)}
-    #{Utils.set_prop("i", "ifindex", payload.if_index)}
-    #{Utils.set_prop("i", "descr", payload.if_descr)}
-    #{Utils.set_prop("i", "alias", payload.if_alias)}
-    #{Utils.set_prop("i", "mac", payload.if_phys_address)}
-    #{Utils.set_prop("i", "ip_addresses", payload.ip_addresses)}
-    MERGE (d)-[r:HAS_INTERFACE]->(i)
-    SET r.source = 'mapper'
-    """
-
-    case Persist.execute_age(cypher) do
-      :ok ->
-        DgraphPersist.upsert_interface(payload)
-
-      {:error, reason} ->
-        Logger.warning("Interface graph upsert failed: #{inspect(reason)}")
-    end
+    DgraphPersist.upsert_interface(payload)
   end
 end

@@ -9,13 +9,14 @@ In-flight changes that still mention AGE:
   `device.pkg_*` predicates. Continue that path; do not invent AGE vertex
   properties for SBOM.
 - `fix-topology-evidence-pipeline-resilience` — evidence stays in CNPG
-  (`mapper_topology_links`). Canonical rebuild already dual-writes Dgraph.
-  New persist adapters go through `TopologyGraph.Persist` / `DgraphPersist`.
+  (`mapper_topology_links`). Canonical rebuild runs on Dgraph only.
+  New persist adapters go through `DgraphPersist`.
 - `add-causal-engine` — may never ship inside ServiceRadar. The hydrator
-  already switches `TOPOLOGY_EDGES_QUERY` on `GRAPH_READ`. Do not block this
+  reads `TOPOLOGY_EDGES_QUERY` from Dgraph through `in:graph`. Do not block this
   cutover on that change, and do not add AGE-only causal edge types
   (`CONTAINS`, reverse `MANAGES`) as Cypher; add Dgraph `topo.kind` values
   instead.
 
-AGE `in:graph_cypher` remains until AGE is retired. Readers that need the
-new store use `in:graph` / `in:graph_dql` or `GRAPH_READ=dgraph`.
+AGE is retired (section 14): `in:graph_cypher`, `GRAPH_BACKEND` and
+`GRAPH_READ` are gone. Readers use `in:graph` / `in:graph_dql`,
+`in:device_graph`, or the typed `ServiceRadar.Dgraph` reads.

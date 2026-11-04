@@ -15,7 +15,7 @@
  */
 
 //! Typed reads for the device neighbourhood (SRQL `in:device_graph`) and the
-//! MTR path overlays. Both used to be Cypher against Apache AGE.
+//! MTR path overlays.
 
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
