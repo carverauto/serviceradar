@@ -1841,8 +1841,9 @@ agent:
 # Durable edge-record pipeline. Core lease settings select participating agents/groups.
 # contractRegistry is the installation-static document the gateway admits against;
 # core derives and signs its own registry from the release contract catalog.
-# Core grants every catalog contract to an agent whose leasing switch is on; the
-# gateway admits a contract's records only while contractRegistry lists it active.
+# Core grants a catalog contract when it is in the signed active registry epoch and
+# this node's catalog holds its exact bundle; the gateway admits a contract's records
+# only while contractRegistry lists it active.
 # Each agent*Enabled flag lets the in-cluster agent emit that family (metrics and
 # unleased sweep results, plugin/add-on telemetry, Wasm plugin results, mapper and
 # netprobe discovery, integration sync pages) as edge records once it holds the
