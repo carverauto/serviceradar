@@ -163,15 +163,17 @@ type PushLoop struct {
 	edgePluginResultSpool edgeMetricsAppender
 	pluginResultsEdge     pluginResultEdgeQueue
 	// edgeDiscoverySpool is the same one open spool, connected for mapper
-	// and netprobe discovery and workload identity snapshots while discovery
-	// emission is enabled; nil keeps them on their legacy status paths.
-	edgeDiscoverySpool   edgeMetricsAppender
-	mapperDevicesEdge    discoveryEdgeQueue
-	mapperInterfacesEdge discoveryEdgeQueue
-	mapperTopologyEdge   discoveryEdgeQueue
-	netprobeEdge         discoveryEdgeQueue
-	workloadIdentityEdge workloadIdentityEdgeQueue
-	edgeOutputGrants     edgeOutputGrants
+	// and netprobe discovery, workload identity snapshots and k8s public
+	// endpoint snapshots while discovery emission is enabled; nil keeps them
+	// on their legacy status paths.
+	edgeDiscoverySpool     edgeMetricsAppender
+	mapperDevicesEdge      discoveryEdgeQueue
+	mapperInterfacesEdge   discoveryEdgeQueue
+	mapperTopologyEdge     discoveryEdgeQueue
+	netprobeEdge           discoveryEdgeQueue
+	workloadIdentityEdge   workloadIdentityEdgeQueue
+	k8sPublicEndpointsEdge k8sPublicEndpointsEdgeQueue
+	edgeOutputGrants       edgeOutputGrants
 	// Each metric producer's bounded retry queue, oldest first. An entry is either
 	// an item no part of which the spool has admitted, or one built record of an
 	// item that already has a part in the spool.

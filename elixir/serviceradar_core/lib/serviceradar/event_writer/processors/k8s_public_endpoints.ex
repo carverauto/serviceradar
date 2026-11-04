@@ -87,6 +87,19 @@ defmodule ServiceRadar.EventWriter.Processors.K8sPublicEndpoints do
   @impl true
   def parse_message(message), do: parse_snapshot(message)
 
+  @doc """
+  Parses and applies one Kubernetes public endpoints snapshot message. Used by
+  `ServiceRadar.Edge.Projectors.K8sPublicEndpoints` when projecting an edge
+  record that has already been consumed by `EventWriter.Processors.EdgeRecord`.
+  """
+  @spec ingest_message(map()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def ingest_message(message) when is_map(message) do
+    case parse_snapshot(message) do
+      nil -> {:error, :invalid_k8s_public_endpoints_snapshot}
+      snap -> apply_snapshot(snap)
+    end
+  end
+
   defp parse_snapshot(%{data: data} = message) do
     with {:ok, payload} <- decode_json(data),
          {:ok, cluster_id} <- required_string(payload, "cluster_id"),

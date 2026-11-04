@@ -75,6 +75,7 @@ const (
 	edgeProducerNetprobe
 	edgeProducerSync
 	edgeProducerWorkloadIdentity
+	edgeProducerK8sPublicEndpoints
 	edgeProducerCount
 )
 
@@ -100,6 +101,7 @@ func (p edgeProducer) label() string {
 		edgeProducerNetprobe:            "netprobe",
 		edgeProducerSync:                "sync",
 		edgeProducerWorkloadIdentity:    "workload_identity",
+		edgeProducerK8sPublicEndpoints:  "k8s_public_endpoints",
 	}[p]
 }
 

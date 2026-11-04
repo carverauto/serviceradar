@@ -148,6 +148,18 @@ again only when its content changes. Core rebuilds the legacy snapshot payload
 and writes it through `ServiceRadar.WorkloadIdentity.persist_snapshot/1`
 (`ServiceRadar.Edge.Projectors.WorkloadIdentity`).
 
+Kubernetes public endpoint snapshots use the
+`serviceradar.k8s.public_endpoints.snapshot` contract under the same
+`edgeRecords.agentDiscoveryEnabled` switch. While the grant is current, each
+snapshot travels only as an edge record. The agent holds at most one pending
+snapshot when the spool refuses it and skips polling the k8s inventory
+service until that record is admitted. Core writes the snapshot through
+`ServiceRadar.EventWriter.Processors.K8sPublicEndpoints`, the same processor
+the legacy path uses. It refuses a malformed snapshot, one that does not
+match the agent's cluster binding, and one whose network scope has no
+partition. The projection rules are
+`ServiceRadar.Edge.Projectors.K8sPublicEndpoints`.
+
 ## Data Service (datasvc)
 
 `datasvc` is a gRPC service (port `50057`) that fronts the platform's NATS-backed

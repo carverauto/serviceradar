@@ -23,6 +23,7 @@ defmodule ServiceRadar.Edge.ContractCatalog do
 
   alias ServiceRadar.Edge.MetricsBatchProjection
   alias ServiceRadar.Edge.Projectors.FlowAttribution
+  alias ServiceRadar.Edge.Projectors.K8sPublicEndpoints
   alias ServiceRadar.Edge.Projectors.MapperDevices
   alias ServiceRadar.Edge.Projectors.MapperInterfaces
   alias ServiceRadar.Edge.Projectors.MapperTopology
@@ -202,6 +203,16 @@ defmodule ServiceRadar.Edge.ContractCatalog do
       max_projected_rows: 10_000,
       write_bytes_per_row: 8_192,
       package_id: "serviceradar.agent.workload_identity"
+    },
+    %{
+      ref: {"serviceradar.k8s.public_endpoints.snapshot", 1},
+      payload: Serviceradar.Edge.V1.K8sPublicEndpointsSnapshotV1,
+      projection_revision: 1,
+      authority: :standing_grant,
+      projector: K8sPublicEndpoints,
+      max_projected_rows: 10_000,
+      write_bytes_per_row: 8_192,
+      package_id: "serviceradar.agent.k8s_public_endpoints"
     }
   ]
 

@@ -43,9 +43,9 @@ var (
 	errDiscoveryNoValidRecord   = errors.New("no discovery update forms a valid edge record")
 )
 
-// SetEdgeDiscoverySpool connects the mapper and netprobe discovery and
-// workload identity producers to the sender's one open spool. Call before
-// Start; a nil spool keeps them on their legacy paths.
+// SetEdgeDiscoverySpool connects the mapper and netprobe discovery, workload
+// identity and k8s public endpoints producers to the sender's one open spool.
+// Call before Start; a nil spool keeps them on their legacy paths.
 func (p *PushLoop) SetEdgeDiscoverySpool(sp *spool.Spool) {
 	if sp == nil {
 		p.edgeDiscoverySpool = nil

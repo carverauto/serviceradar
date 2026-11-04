@@ -8,14 +8,18 @@ defmodule ServiceRadar.Edge.InventoryBatchProtosTest do
   """
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Edge.Projectors.K8sPublicEndpoints
   alias Serviceradar.Edge.V1.BumblebeeFindingV1
   alias Serviceradar.Edge.V1.BumblebeeScanPayloadV1
+  alias Serviceradar.Edge.V1.EdgeRecordV1
   alias Serviceradar.Edge.V1.EndpointInventoryScanPayloadV1
   alias Serviceradar.Edge.V1.EndpointInventorySourceSummaryV1
   alias Serviceradar.Edge.V1.K8sPublicEndpointsSnapshotV1
+  alias Serviceradar.Edge.V1.K8sPublicEndpointV1
   alias Serviceradar.Edge.V1.WorkloadIdentityContainerLookupV1
   alias Serviceradar.Edge.V1.WorkloadIdentityRecordV1
   alias Serviceradar.Edge.V1.WorkloadIdentitySnapshotV1
+  alias ServiceRadar.Edge.WireDecode
 
   test "explicit false detected is distinct non-empty wire bytes from unset" do
     unset = %EndpointInventorySourceSummaryV1{name: "trivy"}
@@ -76,5 +80,79 @@ defmodule ServiceRadar.Edge.InventoryBatchProtosTest do
       decoded = Protobuf.decode(encoded, module)
       assert Map.fetch!(decoded, field) == "batch-v1"
     end
+  end
+
+  test "k8s public endpoints snapshot projector decode" do
+    snap = %K8sPublicEndpointsSnapshotV1{
+      schema_version: "serviceradar.k8s_public_endpoints.v1",
+      agent_id: "agent-k8s-1",
+      cluster_id: "cluster-alpha",
+      generated_at: "2026-07-01T12:00:00Z",
+      endpoints: [
+        %K8sPublicEndpointV1{
+          cluster_id: "cluster-alpha",
+          ip: "192.0.2.10",
+          port: 443,
+          protocol: "TCP",
+          namespace: "default",
+          service_name: "ingress"
+        }
+      ]
+    }
+
+    encoded = K8sPublicEndpointsSnapshotV1.encode(snap)
+    assert {:ok, ^snap} = WireDecode.decode_k8s_public_endpoints_snapshot(encoded)
+
+    record = %EdgeRecordV1{
+      source_authorization: nil,
+      payload_family: :EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1,
+      compression: :EDGE_RECORD_COMPRESSION_NONE,
+      encoded_size: byte_size(encoded),
+      uncompressed_size: byte_size(encoded),
+      payload_sha256: :crypto.hash(:sha256, encoded),
+      projected_row_count: 1,
+      payload: encoded
+    }
+
+    assert {:ok, ^snap} = K8sPublicEndpoints.decode(record)
+
+    # Empty-endpoints snapshot requires projected_row_count == 1
+    empty_snap = %K8sPublicEndpointsSnapshotV1{cluster_id: "cluster-alpha"}
+    empty_encoded = K8sPublicEndpointsSnapshotV1.encode(empty_snap)
+
+    assert {:ok, ^empty_snap} =
+             K8sPublicEndpoints.decode(%{
+               record
+               | payload: empty_encoded,
+                 encoded_size: byte_size(empty_encoded),
+                 uncompressed_size: byte_size(empty_encoded),
+                 payload_sha256: :crypto.hash(:sha256, empty_encoded),
+                 projected_row_count: 1
+             })
+
+    assert {:error, :k8s_public_endpoints_row_count} =
+             K8sPublicEndpoints.decode(%{record | projected_row_count: 2})
+
+    assert {:error, :k8s_public_endpoints_generated_at} =
+             K8sPublicEndpoints.decode(with_snapshot(record, %{snap | generated_at: "yesterday"}))
+
+    [endpoint] = snap.endpoints
+
+    assert {:error, :k8s_public_endpoints_endpoint_cluster_mismatch} =
+             K8sPublicEndpoints.decode(
+               with_snapshot(record, %{snap | endpoints: [%{endpoint | cluster_id: "  "}]})
+             )
+  end
+
+  defp with_snapshot(record, snap) do
+    encoded = K8sPublicEndpointsSnapshotV1.encode(snap)
+
+    %{
+      record
+      | payload: encoded,
+        encoded_size: byte_size(encoded),
+        uncompressed_size: byte_size(encoded),
+        payload_sha256: :crypto.hash(:sha256, encoded)
+    }
   end
 end

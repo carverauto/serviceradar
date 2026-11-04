@@ -30,6 +30,7 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/endpointinventory"
 	"github.com/carverauto/serviceradar/go/pkg/sysmon"
 	"github.com/carverauto/serviceradar/proto"
+	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 	gproto "google.golang.org/protobuf/proto"
 )
 
@@ -593,6 +594,24 @@ func (p *PushLoop) pushPluginTelemetry(ctx context.Context) bool {
 	return false
 }
 
+// holdForPendingEdgeRecord reports whether svc must not be polled this cycle because its
+// pending edge record is still refused by the spool. For the k8s public endpoints service it
+// also returns the standing-grant capability; a non-nil capability means the snapshot ships as
+// an edge record instead of a status payload.
+func (p *PushLoop) holdForPendingEdgeRecord(svc Service, now time.Time) (*edgev1.EdgeSignedCapabilityV1, bool) {
+	if isRperfMetricsService(svc) && p.rperfEdge.hasPending() && !p.flushRperfEdgeMetrics() {
+		return nil, true
+	}
+	if !isK8sPublicEndpointsService(svc) {
+		return nil, false
+	}
+	capability := p.edgeK8sPublicEndpointsCapability(now)
+	if capability != nil && !p.flushPendingK8sPublicEndpointsEdge() {
+		return nil, true
+	}
+	return capability, false
+}
+
 // collectAllStatusesSeparated gathers status from all services, separating sysmon from others.
 // Sysmon is returned separately because it uses StreamStatus with Source: "sysmon-metrics".
 func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.GatewayServiceStatus, *proto.GatewayServiceStatus) {
@@ -615,7 +634,8 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 	now := time.Now()
 	for _, svc := range services {
 		if provider, ok := svc.(SweepStatusProvider); ok {
-			if isRperfMetricsService(svc) && p.rperfEdge.hasPending() && !p.flushRperfEdgeMetrics() {
+			k8sCapability, held := p.holdForPendingEdgeRecord(svc, now)
+			if held {
 				continue
 			}
 
@@ -655,6 +675,11 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 			}
 			if source == "" {
 				source = defaultStatusSource(status, serviceName, serviceType)
+			}
+
+			if k8sCapability != nil {
+				p.spoolK8sPublicEndpointsStatus(status, k8sCapability, cfg)
+				continue
 			}
 
 			if telemetry, ok := svc.(StatusAddonTelemetryProvider); ok {
