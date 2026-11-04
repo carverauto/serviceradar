@@ -4,11 +4,18 @@ defmodule ServiceRadar.Edge.SweepContractTest do
   alias ServiceRadar.Edge.ContractBundle
   alias ServiceRadar.Edge.ContractCatalog
   alias ServiceRadar.Edge.OutputContract
+  alias ServiceRadar.Edge.Projectors.EndpointInventory
   alias ServiceRadar.Edge.Projectors.ScheduledMtrTrace
   alias ServiceRadar.Edge.Projectors.WorkloadIdentity
   alias Serviceradar.Edge.V1.AgentScheduledMtrTraceBatchV1
   alias Serviceradar.Edge.V1.AgentScheduledMtrTraceV1
   alias Serviceradar.Edge.V1.EdgeRecordV1
+  alias Serviceradar.Edge.V1.EndpointInventoryCycloneDXBOMV1
+  alias Serviceradar.Edge.V1.EndpointInventoryCycloneDXComponentV1
+  alias Serviceradar.Edge.V1.EndpointInventoryOSInfoV1
+  alias Serviceradar.Edge.V1.EndpointInventoryScanPayloadV1
+  alias Serviceradar.Edge.V1.EndpointInventorySourceSummaryV1
+  alias Serviceradar.Edge.V1.EndpointInventoryStandingQuestionResultCountV1
   alias Serviceradar.Edge.V1.MtrHopReplyDiagnosticsV1
   alias Serviceradar.Edge.V1.MtrMplsLabelV1
   alias Serviceradar.Edge.V1.MtrTcpHandshakeDiagnosticsV1
@@ -388,6 +395,107 @@ defmodule ServiceRadar.Edge.SweepContractTest do
                  projected_write_bytes: 8_192,
                  payload: missing_payload
                })
+    end
+  end
+
+  describe "serviceradar.endpoint_inventory.scan contract and projector" do
+    test "is registered in ContractCatalog as a standing-grant contract" do
+      assert {:ok, spec} = ContractCatalog.fetch({"serviceradar.endpoint_inventory.scan", 1})
+      assert spec.authority == :standing_grant
+      assert spec.projector == EndpointInventory
+      assert spec.max_projected_rows == 1
+      assert spec.write_bytes_per_row == 16_384
+      assert spec.package_id == "serviceradar.agent.endpoint_inventory"
+    end
+
+    test "decodes a valid scan payload and rebuilds the ingestor map" do
+      scan = %EndpointInventoryScanPayloadV1{
+        schema_version: "serviceradar.endpoint_inventory.scan.v1",
+        agent_id: "agent-dusk-01",
+        scan_id: "scan-01",
+        collector_version: "1.2.3",
+        state: "scanned",
+        coverage_state: "complete",
+        config_hash: "cfg-01",
+        last_scan_at: "2026-07-14T12:00:00Z",
+        last_successful_scan_at: "2026-07-14T12:00:00Z",
+        os: %EndpointInventoryOSInfoV1{
+          name: "SyntheticLinux",
+          id: "synthetic",
+          version: "1.0"
+        },
+        enabled_plugins: ["os/dpkg"],
+        detected_plugins: ["os/dpkg"],
+        diagnostics: [
+          %EndpointInventorySourceSummaryV1{
+            name: "os/dpkg",
+            type: "os",
+            state: "scanned",
+            has_detected: true,
+            detected: true,
+            package_count: 1,
+            duration_ms: 15
+          }
+        ],
+        package_count: 1,
+        package_set_hash: "pkg-hash-01",
+        artifact_hash: "art-hash-01",
+        hash_algorithm: "sha256-v1",
+        upload_reason: "changed",
+        duration_ms: 15,
+        standing_question_result_counts: [
+          %EndpointInventoryStandingQuestionResultCountV1{
+            question_id: "q-openssl",
+            matched: true,
+            count: 1
+          }
+        ],
+        sbom: %EndpointInventoryCycloneDXBOMV1{
+          bom_format: "CycloneDX",
+          spec_version: "1.6",
+          version: 1,
+          components: [
+            %EndpointInventoryCycloneDXComponentV1{
+              type: "library",
+              name: "openssl",
+              version: "3.0.11",
+              purl: "pkg:deb/debian/openssl@3.0.11?arch=amd64"
+            }
+          ]
+        },
+        metadata_json: Jason.encode!(%{"reason" => "initial_scan"})
+      }
+
+      payload = EndpointInventoryScanPayloadV1.encode(scan)
+
+      record = %EdgeRecordV1{
+        source_authorization: nil,
+        payload_family: :EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1,
+        compression: :EDGE_RECORD_COMPRESSION_NONE,
+        encoded_size: byte_size(payload),
+        uncompressed_size: byte_size(payload),
+        projected_row_count: 1,
+        projected_write_bytes: 16_384,
+        payload: payload
+      }
+
+      assert {:ok, decoded} = EndpointInventory.decode(record)
+      assert decoded == scan
+
+      rebuilt = EndpointInventory.to_ingestor_payload(decoded, "agent-bound-01")
+      assert rebuilt["agent_id"] == "agent-bound-01"
+      assert rebuilt["scan_id"] == "scan-01"
+      assert rebuilt["package_count"] == 1
+
+      assert rebuilt["standing_question_result_counts"] == [
+               %{"question_id" => "q-openssl", "matched" => true, "count" => 1}
+             ]
+
+      assert rebuilt["metadata"] == %{"reason" => "initial_scan"}
+      assert [%{"name" => "os/dpkg", "detected" => true}] = rebuilt["diagnostics"]
+
+      assert %{"bomFormat" => "CycloneDX", "components" => [%{"name" => "openssl"}]} =
+               rebuilt["sbom"]
     end
   end
 end

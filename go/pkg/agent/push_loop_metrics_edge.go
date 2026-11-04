@@ -76,6 +76,7 @@ const (
 	edgeProducerSync
 	edgeProducerWorkloadIdentity
 	edgeProducerK8sPublicEndpoints
+	edgeProducerEndpointInventory
 	edgeProducerCount
 )
 
@@ -102,6 +103,7 @@ func (p edgeProducer) label() string {
 		edgeProducerSync:                "sync",
 		edgeProducerWorkloadIdentity:    "workload_identity",
 		edgeProducerK8sPublicEndpoints:  "k8s_public_endpoints",
+		edgeProducerEndpointInventory:   "endpoint_inventory",
 	}[p]
 }
 

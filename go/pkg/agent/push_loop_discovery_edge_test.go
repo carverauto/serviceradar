@@ -46,6 +46,7 @@ func discoveryGrant(t *testing.T, contractID string, bytesPerRow uint64, package
 		edgerecord.NetprobeDiscoveryContractID:  edgerecord.NetprobeDiscoveryContractVersion,
 		edgerecord.SyncPageContractID:           edgerecord.SyncPageContractVersion,
 		edgerecord.K8sPublicEndpointsContractID: edgerecord.K8sPublicEndpointsContractVersion,
+		edgerecord.EndpointInventoryContractID:  edgerecord.EndpointInventoryContractVersion,
 	}[contractID]
 	require.True(t, ok, "unknown discovery contract %s", contractID)
 	_, key, err := ed25519.GenerateKey(nil)

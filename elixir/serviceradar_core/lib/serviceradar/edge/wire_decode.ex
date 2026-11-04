@@ -456,6 +456,15 @@ defmodule ServiceRadar.Edge.WireDecode do
     do: run(Serviceradar.Edge.V1.K8sPublicEndpointsSnapshotV1, @max_extracted_body_bytes, bytes)
 
   @doc """
+  Decodes the ALREADY-EXTRACTED body of a `serviceradar.endpoint_inventory.scan` record as an
+  `EndpointInventoryScanPayloadV1`, under the same extracted-body work ceiling as
+  `decode_sweep_batch/1`.
+  """
+  @spec decode_endpoint_inventory_scan(term()) :: outcome()
+  def decode_endpoint_inventory_scan(bytes),
+    do: run(Serviceradar.Edge.V1.EndpointInventoryScanPayloadV1, @max_extracted_body_bytes, bytes)
+
+  @doc """
   Decodes ONE raw `EdgeLossManifestPageV1` -- the recovery-page ingress stage.
 
   This EXTENDS the finite stage API rather than superseding it, and deliberately so:

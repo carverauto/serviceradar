@@ -44,8 +44,9 @@ var (
 )
 
 // SetEdgeDiscoverySpool connects the mapper and netprobe discovery, workload
-// identity and k8s public endpoints producers to the sender's one open spool.
-// Call before Start; a nil spool keeps them on their legacy paths.
+// identity, k8s public endpoints and endpoint inventory producers to the
+// sender's one open spool. Call before Start; a nil spool keeps them on their
+// legacy paths.
 func (p *PushLoop) SetEdgeDiscoverySpool(sp *spool.Spool) {
 	if sp == nil {
 		p.edgeDiscoverySpool = nil
