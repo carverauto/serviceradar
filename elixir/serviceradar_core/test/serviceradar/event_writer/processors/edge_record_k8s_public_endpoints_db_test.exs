@@ -35,7 +35,6 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordK8sPublicEndpointsDbTest
   end
 
   setup do
-    OutputGrants.reset_cache()
     partition_slug = "k8s-edge-#{System.unique_integer([:positive])}"
 
     %Partition{id: scope_id} =
@@ -304,7 +303,6 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordK8sPublicEndpointsDbTest
       )
 
     {:ok, _revoked} = OutputGrants.reconcile(agent_id, @contract_id, scope_id, false)
-    OutputGrants.reset_cache()
 
     assert {:ok, 0} = EdgeRecord.process_batch([message])
     assert {:error, :output_grant_not_current} = EdgeRecord.ingest(bytes, headers, Repo)
@@ -495,7 +493,5 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordK8sPublicEndpointsDbTest
     ])
 
     Repo.query!("DELETE FROM platform.partitions WHERE id = $1::uuid", [scope_bytes])
-
-    OutputGrants.reset_cache()
   end
 end

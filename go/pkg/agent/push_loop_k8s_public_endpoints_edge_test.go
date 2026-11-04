@@ -74,6 +74,8 @@ func (s *countingK8sEndpointsService) GetStatus(_ context.Context) (*srproto.Sta
 	}, nil
 }
 
+var errSpoolTemporarilyFull = errors.New("spool temporarily full")
+
 type gatingEdgeAppender struct {
 	allow   bool
 	records []*edgev1.EdgeRecordV1
@@ -82,7 +84,7 @@ type gatingEdgeAppender struct {
 
 func (g *gatingEdgeAppender) AppendFlow(_ string, eventID, body []byte) (uint64, error) {
 	if !g.allow {
-		return 0, errors.New("spool temporarily full")
+		return 0, errSpoolTemporarilyFull
 	}
 	var record edgev1.EdgeRecordV1
 	if err := proto.Unmarshal(body, &record); err != nil {
