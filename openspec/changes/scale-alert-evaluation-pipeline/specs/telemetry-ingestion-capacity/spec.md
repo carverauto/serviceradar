@@ -65,7 +65,7 @@ EventWriter SHALL acknowledge a source message only after its records are stored
 - **THEN** the source message SHALL remain unacknowledged until the load succeeds
 
 ### Requirement: Collectors batch and pipeline publishes
-Log and trap collectors SHALL pack multiple records per JetStream message up to a record, byte or time limit and SHALL keep a bounded number of publishes awaiting acknowledgement, so collector throughput does not depend on one round trip per record.
+Log and trap collectors SHALL pack multiple records of one block subject per JetStream message, in source order, up to a record, byte or time limit and SHALL keep a bounded number of publishes awaiting acknowledgement, so collector throughput does not depend on one round trip per record.
 
 #### Scenario: Collector throughput is not round-trip bound
 - **GIVEN** a synthetic syslog source sending 20,000 records per second to one collector

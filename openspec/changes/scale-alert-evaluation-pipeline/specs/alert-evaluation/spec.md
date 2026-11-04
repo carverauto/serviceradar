@@ -108,7 +108,7 @@ With code defaults, an installation SHALL run one candidate stream and one owner
 - **THEN** it SHALL consist only of lease renewals
 
 ### Requirement: Evaluation state is deterministic and incrementally checkpointed
-A block owner SHALL keep rule group state in memory and SHALL compute each decision only from that state, the candidate, and the immutable rule revision the candidate names, without reading a wall clock, a database or the outcome of an effect.
+A block owner SHALL keep rule group state in memory and SHALL compute each decision only from that state, the candidate, and the immutable rule revision the candidate names, without reading a wall clock, a database or the outcome of an effect. A candidate published by reference SHALL be completed from its immutable stored record before it is evaluated.
 The owner SHALL periodically commit the changed groups, the persisted duplicate-suppression slices and each block's applied stream position in one fenced transaction, only after the effects of every candidate up to those positions have committed, and SHALL evict groups whose state equals the default.
 
 #### Scenario: Replay reproduces state
@@ -258,9 +258,9 @@ No alert evaluation behaviour SHALL depend on a Helm-only value.
 - **THEN** the coordinator SHALL move blocks online until the map matches it
 
 ### Requirement: Cutover from the CNPG inbox is ordered and complete
-Upgraded replicas SHALL NOT consume alert-feeding source streams or route candidates until the cutover marker exists. Before any pre-cutover replica is replaced, the upgrade SHALL create the import stream bound to the import subjects with a size of one segment that fits the remaining JetStream reservation, at most the configured import segment bound, and SHALL refuse the upgrade, naming the remaining reservation and the bytes required, when even a minimal segment does not fit. The import stream SHALL NOT be counted in the profile carve, and it SHALL be deleted once the cutover marker is written.
-Rule state conversion SHALL carry each incident's operator-terminal status from its current alert status. Until the marker, rule disable and delete, operator alert actions and stale-anomaly maintenance SHALL be published to the import subjects so that they are ordered with the residual work, and residual records of a rule already disabled or deleted SHALL be dropped and counted.
-Residual inbox and pending lifecycle admission rows SHALL be imported in their original order, with the candidate id the router would compute, in bounded segments: each segment's size SHALL come from the free JetStream file store measured at import time, SHALL be at least one record and SHALL NOT exceed the import stream's size, a segment SHALL include its per-block end markers within that size, a refused import publish SHALL be retried in place without an attempt limit, a segment SHALL count as committed only when every block's checkpoint includes its end, and the next segment SHALL be published only after that. A crash SHALL resume from the last committed segment, with owners recovered from their checkpoints, without applying any imported record twice. The cutover marker SHALL be written only after the final segment is applied, and once it is written a rerun of the cutover SHALL change nothing.
+Upgraded replicas SHALL NOT consume alert-feeding source streams or route candidates until the cutover marker exists. Before any pre-cutover replica is replaced, the upgrade SHALL create the import stream bound to the import subjects, with replicas capped to the NATS server count and a size of the smaller of the configured import segment bound and the remaining JetStream reservation less the size of the release's not-yet-created streams, and SHALL refuse the upgrade, naming the remaining reservation, that reserve and the bytes required, only when that size is below one minimal segment of one candidate at the inline size bound plus one end marker per block. The import stream SHALL NOT be counted in the profile carve.
+Rule state conversion SHALL carry each incident's operator-terminal status from its current alert status. Until the marker, rule disable and delete, operator alert actions and stale-anomaly maintenance SHALL be held in the transactional outbox and placed in the next import segment ahead of that block's residual records, SHALL be marked published only when that segment is committed, and residual records of a rule already disabled or deleted SHALL be dropped and counted. Import candidates SHALL carry the same route-time stamps as router candidates, including a seasonal disposition read at import time.
+Residual inbox and pending lifecycle admission rows SHALL be imported in their original order, with the candidate id the router would compute, in bounded segments: each segment's size SHALL come from the import stream's free stored bytes when it is built, SHALL be at least one record and SHALL NOT exceed the import stream's size, a segment SHALL include its per-block control messages and end markers within that size and SHALL store each block's end marker after that block's own controls and records, a refused import publish SHALL be retried in place without an attempt limit, a segment SHALL count as committed only when every block's checkpoint includes its end, and the next segment SHALL be published only after that. A crash SHALL resume from the last committed segment, with owners recovered from their checkpoints, without applying any imported record twice. The cutover marker SHALL be written only after the final segment is applied. Each block SHALL then switch to the live stream as a block move does, starting at the live stream's first sequence with its evaluation position and import ordinal unchanged, and the import stream SHALL be deleted only after every block has switched. Once the marker is written, a rerun of the cutover SHALL only complete the switch and deletion.
 The old inbox, lane, receipt, ledger and pending-admission tables SHALL be dropped only after the cutover marker exists, and no runtime path SHALL evaluate through both designs.
 
 #### Scenario: Residual work is evaluated before new input
@@ -273,7 +273,7 @@ The old inbox, lane, receipt, ledger and pending-admission tables SHALL be dropp
 
 #### Scenario: A busy rule imports in segments on the smallest profile
 - **GIVEN** a `tenant-2g` installation whose inbox holds one rule at its 8 MiB budget
-- **AND** less free JetStream file store than that work
+- **AND** an import stream whose size is smaller than that work
 - **WHEN** the cutover runs
 - **THEN** the work SHALL be imported in several segments, each applied and purged before the next is published
 - **AND** the cutover marker SHALL be written after the last segment is applied
@@ -285,7 +285,7 @@ The old inbox, lane, receipt, ledger and pending-admission tables SHALL be dropp
 - **AND** every residual record SHALL be applied exactly once
 
 #### Scenario: An import that cannot be placed refuses the upgrade
-- **GIVEN** a JetStream reservation with less room left than one record at the inbox's per-record ceiling plus one marker per block
+- **GIVEN** a JetStream reservation whose remaining room, less the release's not-yet-created streams, is below one candidate at the inline size bound plus one marker per block
 - **WHEN** the release is upgraded
 - **THEN** the upgrade SHALL be refused before any core replica is replaced
 - **AND** the refusal SHALL name the remaining reservation and the bytes required
@@ -294,6 +294,17 @@ The old inbox, lane, receipt, ledger and pending-admission tables SHALL be dropp
 - **GIVEN** residual work for an open incident that has not yet been imported
 - **WHEN** an operator resolves the incident before its segment is applied
 - **THEN** the imported work SHALL NOT renotify the incident
+
+#### Scenario: The first live candidates after the import are applied
+- **GIVEN** a block whose import checkpoint is at import stream sequence 400
+- **WHEN** the cutover marker is written and live candidates are stored at live sequences 1 to 500
+- **THEN** the owner SHALL apply all 500 live candidates
+
+#### Scenario: An oversized candidate is published by reference
+- **GIVEN** a stored event whose projected fields encode above the inline size bound
+- **WHEN** it matches a rule
+- **THEN** its candidate SHALL carry the rule-read fields and the stored-record reference and SHALL be accepted by NATS at its default maximum payload
+- **AND** the evaluation SHALL equal that of the full candidate
 
 #### Scenario: Metadata after a move or the import is not dropped
 - **GIVEN** an open incident whose metadata was last written while applying the import, before its block moved streams, or before its owner failed over

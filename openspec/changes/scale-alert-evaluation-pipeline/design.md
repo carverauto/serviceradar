@@ -432,6 +432,17 @@ sizes use the p99 candidate size per signal, 12.7 KB for an event candidate
 such as a Falco trace (`capacity.md` 1.3), not a mean envelope. That is projection, not truncation. A rule edit that references a new
 field recompiles the projection, and candidates routed afterwards carry it.
 
+The NATS `max_payload` stays at its default. A candidate whose encoded size
+would exceed `candidate_inline_max_bytes` (default 512 KiB, below the 1 MiB
+default `max_payload`) is published instead with the fields the compiled
+rules match and group on that fit, plus the stored-record reference, and
+without the rest of the payload. Before evaluating such a candidate the
+owner completes it from the stored record, which is immutable, so F stays a
+pure function of the completed candidate.
+Nothing is truncated or skipped, and every published candidate, import
+message and dead-letter copy fits the broker. Every fit check in this
+design uses the encoded candidate as published.
+
 The rule itself is referenced by (rule_id, revision). Revisions are
 immutable rows, cached by owners, so a replay evaluates exactly the revision
 that was routed.
@@ -512,7 +523,9 @@ Findings and changes, keyed to `capacity.md` S1-S5 and S13:
   permanent ones (decode or schema errors) are copied to `TELEMETRY_DLQ_V1`
   with PubAck before `+TERM`.
 - **Collectors (S1).** flowgger and trapd NATS outputs pack up to N records
-  or T ms per message and keep K PubAcks in flight. When the stream refuses a
+  or T ms per message and keep K PubAcks in flight. A batched message holds
+  only records of one block subject, in source order, so each source's
+  records stay on its own block. When the stream refuses a
   publish, they back off and spool to a bounded local file. Refusals and spool
   overflow are counted and reported in health. UDP receive drops are read
   from socket statistics and reported, so the one place a record can be
@@ -547,6 +560,7 @@ sized for a small install:
 | `move_stall_critical_s` | 600 | 600 |
 | candidate stream and alert DLQ `max_bytes` | derived from the active JetStream profile (table below) | derived from `xlarge` (1 h budget) |
 | `auto_reshard` | `false` | `false` (D12) |
+| `candidate_inline_max_bytes` (larger candidates carry the record reference instead of the full payload, D8) | 512 KiB | 512 KiB |
 | `cutover_import_segment_max_bytes` (upper bound on the release-N import stream) | 64 MiB | 64 MiB |
 
 EventWriter batching, coalescer limits, `telemetry_stream_count` per signal
@@ -681,7 +695,7 @@ either way. Owner rebalancing after adding a node is always automatic.
 | Synthetic liveness check | awaits the persisted alert | unchanged (publishes through the router) |
 | Notification routing | routing job in the owner transaction | same, unique by fire key |
 | Fired OCSF event publication | DurablePublish outbox | unchanged, with a deterministic event id |
-| Oversized occurrence | skipped as `record_too_large` | no byte budget exists, so nothing is skipped; a projection is bounded by the record's own size |
+| Oversized occurrence | skipped as `record_too_large` | nothing is skipped; a candidate above `candidate_inline_max_bytes` carries its rule-read fields and the stored-record reference, and the owner reads the rest from the stored record (D8) |
 
 ## Exactly-once and fire-once proof sketch
 
@@ -698,7 +712,8 @@ Invariants:
   acquiring a block increments its epoch. At most one epoch commits for b at
   any time, and a superseded owner commits nothing further for b.
 - **I2, determinism.** F reads only S, the candidate and the immutable rule
-  revision it names. External state reaches F only as ordered messages (D9),
+  revision it names. A candidate published by reference (D8) is completed
+  from its immutable stored record by the owner before F runs. External state reaches F only as ordered messages (D9),
   and F reads no wall clock and generates no random ids. Effect outcomes do
   not feed back into S (D5).
 - **I3, idempotent effects.** Each effect is applied by insert-if-absent or
@@ -792,17 +807,20 @@ that evaluates through both designs.
 
 1. **Preflight, before any replica stops.** A release-N pre-upgrade step
    (the chart's pre-upgrade hook, and the same command for Compose) creates
-   the import stream `ALERT_IMPORT_V1` bound to `alerts.import.v1.>` (R3,
-   Limits, DiscardNew, no MaxAge, idempotent create). Its `max_bytes` is one
-   segment: the smaller of `cutover_import_segment_max_bytes` and half of the
-   JetStream reservation remaining on the servers that would hold it (the
-   file store minus the `max_bytes` already reserved there, not unused disk).
-   A minimal segment is one record at the old admission's per-record
-   ceiling (`rule_bytes`, which bounds every record the inbox holds) plus
-   one segment-end marker per block. If that does not fit, the step fails,
-   the upgrade is refused before any pod is replaced, and the failure names
-   the remaining reservation and the bytes required. The stream is outside
-   the profile carve, which stays unchanged.
+   the import stream `ALERT_IMPORT_V1` bound to `alerts.import.v1.>` (R3
+   capped to `nats.replicas`, Limits, DiscardNew, no MaxAge, idempotent
+   create). Its `max_bytes` is one segment:
+   min(`cutover_import_segment_max_bytes`, remaining - reserve), where
+   remaining is the smallest, over the servers that would hold its
+   replicas, of `max_file_store` minus the `max_bytes` already reserved
+   there (not unused disk), and reserve is the profile-derived size of the
+   release-N streams not yet created. A minimal segment is one candidate at
+   `candidate_inline_max_bytes` (D8 bounds every published candidate) plus
+   one segment-end marker per block. Only if `max_bytes` would be smaller
+   than that does the step fail: the upgrade is refused before any pod is
+   replaced, and the failure names the remaining reservation, the reserve
+   and the bytes required. The stream is outside the profile carve, which
+   stays unchanged.
 2. **Rolling upgrade.** New replicas do not consume alert-feeding source
    streams or route candidates until the cutover marker exists, and start
    owners only for the import (step 3); their other consumers run at once.
@@ -821,40 +839,54 @@ that evaluates through both designs.
       alert's current status, as today's renotify and recovery read it) and
       write an initial checkpoint per block.
    2. Import in bounded segments. The residual set is residual
-      `alert_evaluation_work` rows in (rule, position) order (they already
-      carry their rule and revision), then residual
-      `lifecycle_pending_admissions` rows in (series, seq) order routed
-      through the index; each record gets a stable import ordinal. Owners
-      start for import only: they consume `alerts.import.v1.b<b>.*` and no
-      live subject, and checkpoint only at segment-end markers. Until the
-      marker, D9 control messages (rule disable and delete, operator alert
-      actions, stale-anomaly maintenance) are published to the import
-      subjects of their blocks, so they are ordered with the residual work
-      and maintenance receipts are written. For each segment the task
-      measures the free stored bytes of the import stream and takes the next
-      records plus one segment-end marker per block up to that size, at
-      least one record, never above the stream's `max_bytes`. Records of a
-      rule that is disabled or deleted when the segment is built are
-      omitted and counted as dropped. It publishes them in order on
-      `alerts.import.v1.b<b>.v<vp>`, awaiting each PubAck and retrying a
-      refused publish in place with capped backoff and no attempt limit.
-      Each import message carries its ordinal, and a block skips any ordinal
-      at or below the `import_ordinal` in its checkpoint. A segment is
-      committed only when every block's checkpoint includes its end
-      ordinal; the task then records it in CNPG (`alert_cutover_progress`),
-      purges the stream, and builds the next segment.
-   3. After the final segment is committed, write the cutover marker, then
-      delete `ALERT_IMPORT_V1`. Owners then consume live subjects, and
-      control messages go to live subjects.
+      `alert_evaluation_work` rows in (rule, position) order, then residual
+      `lifecycle_pending_admissions` rows in (series, seq) order; each
+      record gets a stable import ordinal. The task builds each import
+      candidate with the router's own functions: group key, metric
+      violation increment, recovery-match flag, seasonal disposition read
+      from `SeasonalStateStore` at import time without a cache, the
+      evaluation projection under the D8 size rule, the rule revision the
+      row names, and the candidate id the router would compute. Owners start
+      for import only: they consume `alerts.import.v1.b<b>.*` and no live
+      subject, and checkpoint only at segment-end markers. Until the marker,
+      D9 control messages (rule disable and delete, operator alert actions,
+      stale-anomaly maintenance) stay in the DurablePublish outbox and the
+      task places them in the next segment.
+      Each segment is built after the previous one is committed and purged,
+      up to the import stream's free stored bytes (at most its `max_bytes`)
+      and at least one record. For each block in turn it holds that block's
+      pending control messages in outbox order, then the block's next
+      records, then the block's segment-end marker. Records of a rule that
+      is disabled or deleted when the segment is built are omitted and
+      counted as dropped. One publisher sends the segment in that order,
+      awaiting each PubAck before the next and retrying a refused publish in
+      place with capped backoff and no attempt limit, so each block's
+      marker is stored after its own controls and records. Records carry
+      their import ordinal and control messages their outbox id; a block
+      skips a record whose ordinal is at or below the `import_ordinal` in
+      its checkpoint and a control id its dedupe ring has seen. A segment is
+      committed only when every block's checkpoint includes its end marker;
+      the task then records it in CNPG (`alert_cutover_progress`), marks its
+      control rows published, and purges the stream, every message of which
+      the committed checkpoints now cover.
+   3. After the final segment is committed, write the cutover marker. Each
+      owner then records the switch in its block checkpoint exactly as a
+      block move does (D12): the live candidate stream at sequence 0, with
+      `applied_count` and `import_ordinal` unchanged, and starts consuming
+      the block's live subjects from their first sequence. Control rows
+      still in the outbox when the marker commits are published to live
+      subjects. Once every block has switched, no uncheckpointed import
+      message remains and the task deletes `ALERT_IMPORT_V1`.
    A crash before the marker resumes from the last committed segment:
    owners recover their blocks from their checkpoints, discarding anything
-   applied after them; the task purges the stream and republishes every
-   ordinal after the last committed segment, with its markers. A purged
-   message above a checkpoint is always republished, and a block skips what
-   its checkpoint already includes, so every residual record is applied
-   exactly once. The source tables are untouched until the marker. Once the
-   marker commit has succeeded, a rerun of the task deletes
-   `ALERT_IMPORT_V1` if it still exists and does nothing else.
+   applied after them; the task purges the stream and rebuilds the next
+   segment from the records after the last committed segment and the
+   control rows not yet marked published. A purged message above a
+   checkpoint is therefore always republished, and a block skips what its
+   checkpoint already includes, so every residual record and control
+   message is applied exactly once. The source tables are untouched until
+   the marker. Once the marker commit has succeeded, a rerun of the task
+   only completes the switch and the stream deletion and does nothing else.
    Imported candidates carry the candidate id the router would compute, so a
    source message the old replicas admitted but did not acknowledge,
    redelivered and routed after the marker, is suppressed as a duplicate.
