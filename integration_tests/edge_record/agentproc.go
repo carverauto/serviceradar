@@ -57,8 +57,7 @@ type agentTLSDocument struct {
 
 // edgeRecordSenderDocument mirrors go/pkg/agent.EdgeRecordSenderConfig.
 type edgeRecordSenderDocument struct {
-	Enabled      bool                   `json:"enabled"`
-	SpoolDir     string                 `json:"spool_dir"`
+	SpoolDir     string                 `json:"spool_dir,omitempty"`
 	GatewayAddr  string                 `json:"gateway_addr,omitempty"`
 	Security     *agentSecurityDocument `json:"security,omitempty"`
 	PollInterval string                 `json:"poll_interval,omitempty"`
@@ -123,7 +122,6 @@ func StartAgent(
 		GatewayAddr:     gatewayGRPCAddr,
 		GatewaySecurity: security,
 		EdgeRecordSender: &edgeRecordSenderDocument{
-			Enabled:      true,
 			SpoolDir:     spoolDir,
 			GatewayAddr:  gatewayGRPCAddr,
 			Security:     security,

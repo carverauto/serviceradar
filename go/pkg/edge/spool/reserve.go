@@ -301,6 +301,23 @@ func NewAllocator(cfg AllocatorConfig) (*Allocator, error) {
 	}, nil
 }
 
+// SetCapacity changes the hard byte budget while the allocator is in use. The
+// recovery reserve and MinFree stay, so a capacity at or below them is refused.
+// Bytes already charged above a lowered ceiling stay charged: admission refuses
+// new bytes until reclaim brings usage back under it, and nothing is evicted.
+func (a *Allocator) SetCapacity(capacity uint64) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if capacity <= a.floor {
+		return fmt.Errorf("%w: capacity %d leaves no ordinary space above floor %d",
+			ErrInvalidAllocatorConfig, capacity, a.floor)
+	}
+	a.capacity = capacity
+	a.ordinaryCeiling = capacity - a.floor
+	return nil
+}
+
 // admit charges n bytes of ordinary producer data to owner, or refuses. A
 // refusal charges nothing, and it is never partial. Admitted bytes count as in
 // flight until the caller reports the write with settle.

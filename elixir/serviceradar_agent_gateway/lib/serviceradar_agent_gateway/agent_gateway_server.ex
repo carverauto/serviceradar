@@ -1614,11 +1614,20 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       os: request_value(request, :os),
       arch: request_value(request, :arch),
       labels: labels,
-      deployment_type: label_value(labels, [:deployment_type, "deployment_type"])
+      deployment_type: label_value(labels, [:deployment_type, "deployment_type"]),
+      edge_record_spool: edge_record_spool(request)
     }
 
     compact_metadata(base)
   end
+
+  # Whether the agent's edge-record spool opened. An agent that predates the default-on
+  # sender reports nothing, which core shows as agent_upgrade_pending; a spool that did not
+  # open is spool_unavailable (ServiceRadar.Edge.PipelineReadiness).
+  defp edge_record_spool(%{edge_record_spool: %Monitoring.EdgeRecordSpoolStatus{} = spool}),
+    do: %{available: spool.available, error: spool.error}
+
+  defp edge_record_spool(_request), do: nil
 
   defp request_value(request, key) do
     case request do

@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/agent"
+	"github.com/carverauto/serviceradar/go/pkg/edge/admission"
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
 	"github.com/carverauto/serviceradar/go/pkg/edge/sender"
 	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
@@ -86,91 +87,55 @@ func TestRunEdgeRecordSenderConfigurationGuards(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = sp.Close() }()
-	for _, tc := range []struct{ name, message string }{
-		{"disabled", ""},
-		{"address", "Edge record sender enabled without a gateway address"},
-		{"spool", "Edge record sender enabled without a spool_dir"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			dir := filepath.Join(t.TempDir(), "spool")
-			cfg := &agent.ServerConfig{EdgeRecordSender: &agent.EdgeRecordSenderConfig{
-				Enabled: true, GatewayAddr: "127.0.0.1:1", SpoolDir: dir,
-				Security: &models.SecurityConfig{Mode: models.SecurityModeNone},
-			}}
-			switch tc.name {
-			case "disabled":
-				cfg.EdgeRecordSender.Enabled = false
-			case "address":
-				cfg.EdgeRecordSender.GatewayAddr = ""
-			case "spool":
-				cfg.EdgeRecordSender.SpoolDir = ""
-			}
-			var output bytes.Buffer
-			log := &senderGuardLogger{Logger: logger.NewTestLogger(), output: zerolog.New(&output)}
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-			defer cancel()
-			mustReturnPromptly(t, func() { runEdgeRecordSender(ctx, cfg, sp, log) })
-			if tc.message == "" {
-				if output.Len() != 0 {
-					t.Fatalf("disabled sender emitted error: %s", output.String())
-				}
-			} else {
-				var event struct {
-					Message string `json:"message"`
-				}
-				if err := json.Unmarshal(output.Bytes(), &event); err != nil {
-					t.Fatal(err)
-				}
-				if event.Message != tc.message {
-					t.Fatalf("message = %q, want %q", event.Message, tc.message)
-				}
-			}
-			if _, err := os.Stat(dir); !os.IsNotExist(err) {
-				t.Fatalf("guard created spool: %v", err)
-			}
-		})
+	// A sender with no gateway address anywhere stops and says why.
+	dir := filepath.Join(t.TempDir(), "spool")
+	cfg := &agent.ServerConfig{EdgeRecordSender: &agent.EdgeRecordSenderConfig{
+		SpoolDir: dir, Security: &models.SecurityConfig{Mode: models.SecurityModeNone},
+	}}
+	var output bytes.Buffer
+	log := &senderGuardLogger{Logger: logger.NewTestLogger(), output: zerolog.New(&output)}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	mustReturnPromptly(t, func() { runEdgeRecordSender(ctx, cfg, sp, log) })
+	var event struct {
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(output.Bytes(), &event); err != nil {
+		t.Fatal(err)
+	}
+	if want := "Edge record sender has no gateway address"; event.Message != want {
+		t.Fatalf("message = %q, want %q", event.Message, want)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("guard created spool: %v", err)
 	}
 }
 
-func TestOpenEdgeRecordSpoolRejectsMissingDirectory(t *testing.T) {
-	_, _, err := openEdgeRecordSpool(&agent.ServerConfig{EdgeRecordSender: &agent.EdgeRecordSenderConfig{Enabled: true}})
-	if err == nil {
-		t.Fatal("enabled sender accepted missing spool directory")
+// A spool that cannot be opened is reported, not fatal: the caller records it
+// as spool_unavailable and runs on without one.
+func TestOpenEdgeRecordSpoolReportsADirectoryItCannotCreate(t *testing.T) {
+	blocker := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(blocker, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &agent.ServerConfig{EdgeRecordSender: &agent.EdgeRecordSenderConfig{SpoolDir: filepath.Join(blocker, "spool")}}
+	if sp, _, _, err := openEdgeRecordSpool(cfg); err == nil || sp != nil {
+		t.Fatalf("openEdgeRecordSpool under a file = (%v, %v), want an error and no spool", sp, err)
 	}
 }
 
-// A producer opted into edge records cannot run without the sender that
-// drains its spool; the agent refuses to start rather than spool forever.
-func TestOpenEdgeRecordSpoolRefusesProducersWithoutTheSender(t *testing.T) {
-	for name, cfg := range map[string]*agent.EdgeRecordSenderConfig{
-		"sweep":   {SweepEnabled: true, SpoolDir: t.TempDir()},
-		"metrics": {MetricsEnabled: true, SpoolDir: t.TempDir()},
-	} {
-		if _, _, err := openEdgeRecordSpool(&agent.ServerConfig{EdgeRecordSender: cfg}); !errors.Is(err, errEdgeProducersRequireSender) {
-			t.Errorf("%s producer without the sender: err=%v, want errEdgeProducersRequireSender", name, err)
-		}
-	}
-}
-
-func TestOpenEdgeRecordSpoolRefusesAdmissionAtBudgetAfterRestart(t *testing.T) {
-	cfg := &agent.ServerConfig{EdgeRecordSender: &agent.EdgeRecordSenderConfig{Enabled: true, SweepEnabled: true, SpoolDir: t.TempDir(), MaxBytes: 4 << 20}}
-	sp, _, err := openEdgeRecordSpool(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = sp.Append(make([]byte, 16), make([]byte, 1<<20)); err != nil {
-		t.Fatal(err)
-	}
-	if err = sp.Close(); err != nil {
-		t.Fatal(err)
-	}
-	sp, _, err = openEdgeRecordSpool(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
+// Core's budget applies at admission in both directions. A budget below what
+// the spool holds refuses new appends without dropping anything, and raising it
+// admits again.
+func TestEdgeSpoolBudgetFromConfigAppliesAtAdmission(t *testing.T) {
+	sp, _, budget := openTestEdgeSpool(t, 4<<20)
 	defer func() { _ = sp.Close() }()
-	if _, err = sp.Append(make([]byte, 16), make([]byte, 1<<20)); !errors.Is(err, spool.ErrAdmissionRefused) {
-		t.Fatalf("second append=%v, want byte-budget refusal", err)
+
+	if _, err := sp.Append(make([]byte, 16), make([]byte, 1<<20)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sp.Append(append(make([]byte, 15), 1), make([]byte, 1<<20)); !errors.Is(err, spool.ErrAdmissionRefused) {
+		t.Fatalf("append past the 4 MiB budget = %v, want byte-budget refusal", err)
 	}
 	records, err := sp.Unresolved()
 	if err != nil {
@@ -179,6 +144,27 @@ func TestOpenEdgeRecordSpoolRefusesAdmissionAtBudgetAfterRestart(t *testing.T) {
 	if len(records) != 1 {
 		t.Fatalf("refused append changed spool: %d records", len(records))
 	}
+	if err := budget.Apply(defaultEdgeSpoolMaxBytes); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sp.Append(append(make([]byte, 15), 1), make([]byte, 1<<20)); err != nil {
+		t.Fatalf("append after the budget was raised = %v, want admitted", err)
+	}
+}
+
+// openTestEdgeSpool opens the agent spool in a temporary directory and applies
+// a config-delivered budget of maxBytes.
+func openTestEdgeSpool(t *testing.T, maxBytes uint64) (*spool.Spool, *admission.Gate, *edgeSpoolBudget) {
+	t.Helper()
+	cfg := &agent.ServerConfig{EdgeRecordSender: &agent.EdgeRecordSenderConfig{SpoolDir: t.TempDir()}}
+	sp, gate, budget, err := openEdgeRecordSpool(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := budget.Apply(maxBytes); err != nil {
+		t.Fatal(err)
+	}
+	return sp, gate, budget
 }
 
 // Producer admission pauses at the spool's high water, before the allocator's
@@ -187,12 +173,9 @@ func TestOpenEdgeRecordSpoolRefusesAdmissionAtBudgetAfterRestart(t *testing.T) {
 // Once the sender's acknowledgement lets the spool reclaim, which brings its
 // bytes to the low water, the same record is admitted.
 func TestEdgeSpoolAdmissionPausesAtHighWaterAndResumesAfterReclaim(t *testing.T) {
-	cfg := &agent.ServerConfig{EdgeRecordSender: &agent.EdgeRecordSenderConfig{Enabled: true, SweepEnabled: true, SpoolDir: t.TempDir(), MaxBytes: 4 << 20}}
-	sp, gate, err := openEdgeRecordSpool(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
+	sp, gate, _ := openTestEdgeSpool(t, 4<<20)
 	defer func() { _ = sp.Close() }()
+	var err error
 	eventID := func(i int) []byte {
 		id := make([]byte, 16)
 		binary.BigEndian.PutUint64(id[8:], uint64(i))
@@ -258,12 +241,9 @@ func TestEdgeSpoolAdmissionPausesAtHighWaterAndResumesAfterReclaim(t *testing.T)
 // pause, while a steady flow that has used less keeps entering; the burst's
 // deferred record is admitted once the steady flow has caught up.
 func TestEdgeSpoolBurstDefersToASteadyFlowBetweenWatermarks(t *testing.T) {
-	cfg := &agent.ServerConfig{EdgeRecordSender: &agent.EdgeRecordSenderConfig{Enabled: true, SweepEnabled: true, SpoolDir: t.TempDir(), MaxBytes: 8 << 20}}
-	sp, gate, err := openEdgeRecordSpool(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
+	sp, gate, _ := openTestEdgeSpool(t, 8<<20)
 	defer func() { _ = sp.Close() }()
+	var err error
 	issued := 0
 	eventID := func() []byte {
 		issued++
@@ -323,7 +303,7 @@ func TestRunEdgeRecordSenderRetriesSetupUntilSpoolDirIsCreatable(t *testing.T) {
 	}
 	dir := filepath.Join(blocker, "spool")
 	cfg := &agent.ServerConfig{EdgeRecordSender: &agent.EdgeRecordSenderConfig{
-		Enabled: true, GatewayAddr: "127.0.0.1:1", SpoolDir: dir,
+		GatewayAddr: "127.0.0.1:1", SpoolDir: dir,
 		Security: &models.SecurityConfig{Mode: models.SecurityModeNone},
 	}}
 	ctx, cancel := context.WithCancel(context.Background())

@@ -230,6 +230,7 @@ func (p *PushLoop) applyConfigResponseWithSequence(
 
 	p.applyConfigIntervals(configResp)
 	p.applyEdgeOutputGrants(configResp)
+	p.applyEdgeSpoolBudget(configResp)
 
 	// The control plane re-streams the SAME deterministic config version on every dependency
 	// write (not_modified:false), and a genuinely-transient section keeps that version

@@ -42,6 +42,14 @@ defmodule ServiceRadarWebNGWeb.EdgePipelineComponents do
       "agent_upgrade_blocked" ->
         upgrade_blocked(detail)
 
+      "spool_unavailable" ->
+        "The agent's edge-record spool could not be opened" <>
+          if(field(detail, :error), do: ": #{field(detail, :error)}", else: ".")
+
+      "agent_upgrade_pending" ->
+        "The agent runs a build from before the default-on edge-record sender" <>
+          if(field(detail, :version), do: " (#{field(detail, :version)}).", else: ".")
+
       other ->
         other
     end

@@ -244,13 +244,10 @@ func startGrantDrainAgent(t *testing.T, addr string, lapsed, current spooledReco
 		"gateway_security": {"mode": "none"},
 		"logging": {"level": "info", "output": "stdout"},
 		"edge_record_sender": {
-			"enabled": true,
-			"sweep_enabled": false,
-			"max_bytes": %d,
 			"spool_dir": %q,
 			"poll_interval": "1s"
 		}
-	}`, checkers, addr, 32<<20, spoolDir)
+	}`, checkers, addr, spoolDir)
 	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}

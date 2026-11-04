@@ -33,11 +33,6 @@ import (
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 )
 
-var (
-	errEdgeProducersRequireSender = errors.New("edge record producers require enabled edge record sender")
-	errEdgeRecordSpoolDirRequired = errors.New("edge record sender requires spool_dir")
-)
-
 // One bounded durable-bulk delivery session is attempted per poll interval.
 const (
 	defaultEdgeRecordSenderPollInterval  = 30 * time.Second
@@ -55,25 +50,31 @@ const (
 	edgeSpoolLowWaterPercent  = 50
 )
 
-// runEdgeRecordSender drains cfg.EdgeRecordSender's agent spool over a
-// dedicated EdgeRecordIngestService.Stream mTLS connection: one bounded lane
-// session per poll tick, for as long as ctx stays alive. It is a no-op unless
-// explicitly enabled in config, since the gateway-side RPC server this
-// depends on (a separate, parallel task) may not exist in every deployment.
+// The spool budget the agent runs with until core delivers one in its config
+// (AgentConfigResponse.edge_spool_max_bytes), equal to core's code default.
+const defaultEdgeSpoolMaxBytes = 1 << 30
+
+// runEdgeRecordSender drains the agent spool over a dedicated
+// EdgeRecordIngestService.Stream mTLS connection: one bounded lane session per
+// poll tick, for as long as ctx stays alive. It always runs while the spool is
+// open; a spool that did not open leaves nothing to send.
 //
-// A sender with any producer enabled persists validated terminal
-// dispositions before advancing its local resolved prefix, then reclaims a drained
-// segment whose records are accepted or permanently rejected. Permanently rejected
-// records are quarantined first, and each rejection code is logged once per run.
+// The sender persists validated terminal dispositions before advancing its
+// local resolved prefix, then reclaims a drained segment whose records are
+// accepted or permanently rejected. Permanently rejected records are
+// quarantined first, and each rejection code is logged once per run.
 //
-// A missing gateway address or spool_dir is a configuration error and stops the
-// sender. Any other setup failure (spool id, security provider before its
-// certificate files exist, client or sender construction) is retried with a
-// doubling delay capped at the poll interval until setup succeeds or ctx ends.
+// A missing gateway address is a configuration error and stops the sender. Any
+// other setup failure (spool id, security provider before its certificate files
+// exist, client or sender construction) is retried with a doubling delay capped
+// at the poll interval until setup succeeds or ctx ends.
 func runEdgeRecordSender(ctx context.Context, cfg *agent.ServerConfig, sp *spool.Spool, log logger.Logger) {
-	esCfg := cfg.EdgeRecordSender
-	if esCfg == nil || !esCfg.Enabled || sp == nil {
+	if sp == nil {
 		return
+	}
+	esCfg := cfg.EdgeRecordSender
+	if esCfg == nil {
+		esCfg = &agent.EdgeRecordSenderConfig{}
 	}
 
 	addr := esCfg.GatewayAddr
@@ -85,13 +86,10 @@ func runEdgeRecordSender(ctx context.Context, cfg *agent.ServerConfig, sp *spool
 		security = cfg.GatewaySecurity
 	}
 	if addr == "" {
-		log.Error().Msg("Edge record sender enabled without a gateway address")
+		log.Error().Msg("Edge record sender has no gateway address")
 		return
 	}
-	if esCfg.SpoolDir == "" {
-		log.Error().Msg("Edge record sender enabled without a spool_dir")
-		return
-	}
+	spoolDir := cfg.EdgeRecordSpoolDir()
 
 	interval := time.Duration(esCfg.PollInterval)
 	if interval <= 0 {
@@ -100,10 +98,10 @@ func runEdgeRecordSender(ctx context.Context, cfg *agent.ServerConfig, sp *spool
 
 	delay := min(edgeRecordSenderSetupInitialBackoff, interval)
 	for {
-		s, closeSender, err := newEdgeRecordSender(ctx, esCfg, addr, security, sp, log)
+		s, closeSender, err := newEdgeRecordSender(ctx, spoolDir, addr, security, sp, log)
 		if err == nil {
 			defer closeSender()
-			log.Info().Str("addr", addr).Str("spool_dir", esCfg.SpoolDir).Dur("interval", interval).
+			log.Info().Str("addr", addr).Str("spool_dir", spoolDir).Dur("interval", interval).
 				Msg("Edge record sender starting")
 			pollEdgeRecordSender(ctx, s, interval, log)
 			return
@@ -122,13 +120,13 @@ func runEdgeRecordSender(ctx context.Context, cfg *agent.ServerConfig, sp *spool
 // close function releases the client and security provider.
 func newEdgeRecordSender(
 	ctx context.Context,
-	esCfg *agent.EdgeRecordSenderConfig,
+	spoolDir string,
 	addr string,
 	security *models.SecurityConfig,
 	sp *spool.Spool,
 	log logger.Logger,
 ) (*edgesender.Sender, func(), error) {
-	spoolID, err := edgesender.PersistentSpoolID(esCfg.SpoolDir)
+	spoolID, err := edgesender.PersistentSpoolID(spoolDir)
 	if err != nil {
 		return nil, nil, fmt.Errorf("load edge record spool id: %w", err)
 	}
@@ -158,7 +156,7 @@ func newEdgeRecordSender(
 		TrafficClass:            edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_BULK,
 		RequestedByteCredits:    edgeRecordSenderRequestedByteCredits,
 		RequestedFrameCredits:   edgeRecordSenderRequestedFrameCreds,
-		PersistAcknowledgements: esCfg.ProducersEnabled(),
+		PersistAcknowledgements: true,
 		Grants:                  gatewayGrantRenewer{client: proto.NewAgentGatewayServiceClient(client.GetConnection())},
 	})
 	if err != nil {
@@ -311,43 +309,52 @@ func attachEdgeSpoolMetrics(server *agent.Server, sp *spool.Spool, gate *admissi
 // hysteresis governs sweeps and metrics alike, and between the marks the gate
 // shares the room byte-fairly across the producers' admission flows: a refused
 // append is a retryable admission refusal, which each producer defers.
-func openEdgeRecordSpool(cfg *agent.ServerConfig) (*spool.Spool, *admission.Gate, error) {
-	c := cfg.EdgeRecordSender
-	if c == nil {
-		return nil, nil, nil
-	}
-	if !c.Enabled {
-		if c.ProducersEnabled() {
-			return nil, nil, errEdgeProducersRequireSender
-		}
-		return nil, nil, nil
-	}
-	if c.SpoolDir == "" {
-		return nil, nil, errEdgeRecordSpoolDirRequired
-	}
-	capacity := c.MaxBytes
-	if capacity == 0 {
-		capacity = 256 << 20
-	}
+//
+// The spool lives in cfg.EdgeRecordSpoolDir() and starts on the default byte
+// budget; the returned budget applies the one core delivers.
+func openEdgeRecordSpool(cfg *agent.ServerConfig) (*spool.Spool, *admission.Gate, *edgeSpoolBudget, error) {
 	allocator, err := spool.NewAllocator(spool.AllocatorConfig{
-		Capacity: capacity, MinFree: 1 << 20, MaxConcurrentRecoveries: 1,
+		Capacity: defaultEdgeSpoolMaxBytes, MinFree: 1 << 20, MaxConcurrentRecoveries: 1,
 		Recovery: spool.Footprint{DestinationSegment: 1 << 20, AttributionSidecar: 64 << 10, JournalCopy: 64 << 10, ManifestPages: 256 << 10, Mapping: 64 << 10, FilesystemMetadata: 64 << 10},
 	})
 	if err != nil {
-		return nil, nil, fmt.Errorf("edge spool capacity: %w", err)
+		return nil, nil, nil, fmt.Errorf("edge spool capacity: %w", err)
 	}
-	ceiling := allocator.Usage().OrdinaryCeiling
-	gate, err := admission.NewGate(ceiling/100*edgeSpoolHighWaterPercent, ceiling/100*edgeSpoolLowWaterPercent,
-		func() uint64 { return allocator.Usage().OrdinaryUsed })
+	high, low := edgeSpoolWatermarks(allocator)
+	gate, err := admission.NewGate(high, low, func() uint64 { return allocator.Usage().OrdinaryUsed })
 	if err != nil {
-		return nil, nil, fmt.Errorf("edge spool admission gate: %w", err)
+		return nil, nil, nil, fmt.Errorf("edge spool admission gate: %w", err)
 	}
-	sp, err := spool.Open(c.SpoolDir, spool.WithAllocator(allocator),
+	sp, err := spool.Open(cfg.EdgeRecordSpoolDir(), spool.WithAllocator(allocator),
 		spool.WithAdmissionGate(func(flow string, cost uint64) bool {
 			return gate.AdmitFlow(flow, cost, time.Now()) == admission.Admit
 		}))
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	return sp, gate, nil
+	return sp, gate, &edgeSpoolBudget{allocator: allocator, gate: gate}, nil
+}
+
+// edgeSpoolWatermarks are the admission gate's pause and resume marks for the
+// allocator's current ordinary ceiling.
+func edgeSpoolWatermarks(allocator *spool.Allocator) (high, low uint64) {
+	ceiling := allocator.Usage().OrdinaryCeiling
+	return ceiling / 100 * edgeSpoolHighWaterPercent, ceiling / 100 * edgeSpoolLowWaterPercent
+}
+
+// edgeSpoolBudget applies core's spool byte budget at admission: the
+// allocator's hard ceiling and the gate's marks move together. A budget below
+// current usage only refuses new appends until reclaim drains the spool under
+// it; nothing already spooled is dropped.
+type edgeSpoolBudget struct {
+	allocator *spool.Allocator
+	gate      *admission.Gate
+}
+
+func (b *edgeSpoolBudget) Apply(maxBytes uint64) error {
+	if err := b.allocator.SetCapacity(maxBytes); err != nil {
+		return err
+	}
+	high, low := edgeSpoolWatermarks(b.allocator)
+	return b.gate.SetWatermarks(high, low)
 }

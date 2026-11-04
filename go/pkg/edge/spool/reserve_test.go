@@ -346,6 +346,38 @@ func TestOrdinaryAdmissionCannotBorrowTheReserve(t *testing.T) {
 	}
 }
 
+// A budget lowered below current usage refuses new bytes, evicts nothing, and
+// admits again once reclaim drains usage under the new ceiling.
+func TestSetCapacityAppliesALoweredBudgetAtAdmission(t *testing.T) {
+	a := newTestAllocator(t, 500, 1)
+	floor := a.Usage().Floor
+
+	if err := admitLanded(a, "lane", 400); err != nil {
+		t.Fatalf("Admit under the original ceiling: %v", err)
+	}
+	if err := a.SetCapacity(floor + 300); err != nil {
+		t.Fatalf("SetCapacity: %v", err)
+	}
+	if got := a.Usage().OrdinaryUsed; got != 400 {
+		t.Fatalf("lowering the budget changed charged bytes: ordinary used = %d, want 400", got)
+	}
+	if err := admitLanded(a, "lane", 1); !errors.Is(err, ErrAdmissionRefused) {
+		t.Fatalf("Admit above the lowered ceiling = %v, want ErrAdmissionRefused", err)
+	}
+	if err := a.ReleaseOrdinary("lane", 200); err != nil {
+		t.Fatalf("ReleaseOrdinary: %v", err)
+	}
+	if err := admitLanded(a, "lane", 100); err != nil {
+		t.Fatalf("Admit after draining under the lowered ceiling: %v", err)
+	}
+	if err := a.SetCapacity(floor); !errors.Is(err, ErrInvalidAllocatorConfig) {
+		t.Fatalf("SetCapacity at the floor = %v, want ErrInvalidAllocatorConfig", err)
+	}
+	if got := a.Usage().OrdinaryCeiling; got != 300 {
+		t.Fatalf("a refused budget changed the ceiling to %d, want 300", got)
+	}
+}
+
 func TestAdmissionRequiresThePhysicalFloor(t *testing.T) {
 	var free uint64
 	var probeErr error

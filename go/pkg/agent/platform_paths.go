@@ -23,6 +23,14 @@ func DefaultConfigPath() string {
 	return filepath.Join(defaultConfigDir(), "agent.json")
 }
 
+// DefaultEdgeRecordSpoolDir is the edge-record spool directory used when the
+// config names none: <state dir>/agent/edge-records, which is
+// /var/lib/serviceradar/agent/edge-records outside Windows. The packages, the
+// chart and Docker Compose provide the agent runtime directory it lives in.
+func DefaultEdgeRecordSpoolDir() string {
+	return filepath.Join(defaultStateDir(), "agent", "edge-records")
+}
+
 // DefaultLogDir is where the agent writes its log file when it runs without a
 // console (as a Windows service).
 func DefaultLogDir() string {

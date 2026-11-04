@@ -248,63 +248,36 @@ type ServerConfig struct {
 	RemoteAccessRDPEnabled     *bool  `json:"remote_access_rdp_enabled,omitempty"`
 	RemoteAccessRDPAdapterPath string `json:"remote_access_rdp_adapter_path,omitempty"`
 
-	// EdgeRecordSender optionally enables the minimum durable-execution sender
-	// that drains go/pkg/edge/spool over one EdgeRecordIngestService.Stream mTLS
-	// lane per poll tick (openspec/changes/unify-sweep-results-proto, task 0.12
-	// groups B/D). Disabled unless explicitly configured: the gateway-side RPC
-	// server this depends on may not exist yet in a given deployment.
+	// EdgeRecordSender overrides the local layout of the durable edge-record
+	// sender and its spool. The sender always runs; this block only moves it.
 	EdgeRecordSender *EdgeRecordSenderConfig `json:"edge_record_sender,omitempty"`
 }
 
-// EdgeRecordSenderConfig configures the optional edge-record spool sender.
-// GatewayAddr/Security default to the agent's own gateway_addr/gateway_security
-// when empty: the edge-record lane is a SEPARATE pooled mTLS connection from
-// the status-push connection (design.md's independent bulk/interactive/
-// recovery transport rule), not a reason to require duplicate credentials in
-// the common case where both point at the same gateway.
+// EdgeRecordSenderConfig is the local host layout of the edge-record sender
+// and spool, never a product switch: the sender and spool always run, and a
+// producer emits edge records exactly when it holds core's grant for its
+// contract. Every field is optional. SpoolDir defaults to
+// DefaultEdgeRecordSpoolDir(). GatewayAddr/Security default to the agent's own
+// gateway_addr/gateway_security: the edge-record lane is a SEPARATE pooled mTLS
+// connection from the status-push connection, not a reason to require
+// duplicate credentials. The spool byte budget comes from core in the agent
+// config (AgentConfigResponse.edge_spool_max_bytes).
 type EdgeRecordSenderConfig struct {
-	Enabled bool `json:"enabled"`
-	// SweepEnabled opts leased static sweeps into durable edge records.
-	SweepEnabled bool `json:"sweep_enabled,omitempty"`
-	// MetricsEnabled connects the metrics spool. Metric producers emit metrics
-	// batch records while core grants the metrics batch contract. Flow-attribution
-	// windows and OTLP relay frames use that same spool while core grants their
-	// contracts. Without the spool or the matching grant, each producer keeps
-	// its legacy status path.
-	MetricsEnabled bool `json:"metrics_enabled,omitempty"`
-	// TelemetryEnabled lets plugin and add-on telemetry producers emit
-	// telemetry batch records while core grants this agent the telemetry
-	// batch contract. Without a grant they keep the legacy status path.
-	TelemetryEnabled bool `json:"telemetry_enabled,omitempty"`
-	// PluginResultsEnabled lets the Wasm plugin results producer emit plugin
-	// result batch records while core grants this agent the plugin results
-	// batch contract. Without a grant it keeps the legacy status path.
-	PluginResultsEnabled bool `json:"plugin_results_enabled,omitempty"`
-	// DiscoveryEnabled lets the mapper and netprobe discovery producers, the
-	// workload identity and k8s public endpoints snapshot producers and the
-	// endpoint inventory producer emit their records while core grants this
-	// agent those contracts.
-	// Without a grant each family keeps its legacy status path.
-	DiscoveryEnabled bool `json:"discovery_enabled,omitempty"`
-	// SyncEnabled lets the integration sync runtime emit sync page records
-	// while core grants this agent the sync page contract. Without a grant
-	// sync pages keep the legacy status path.
-	SyncEnabled bool `json:"sync_enabled,omitempty"`
-	// MaxBytes bounds durable spool admission; zero uses 256 MiB.
-	MaxBytes uint64 `json:"max_bytes,omitempty"`
 	// SpoolDir is the directory holding the agent's edge-record spool segment
 	// (go/pkg/edge/spool) and its persisted lane spool_id.
-	SpoolDir     string                 `json:"spool_dir"`
+	SpoolDir     string                 `json:"spool_dir,omitempty"`
 	GatewayAddr  string                 `json:"gateway_addr,omitempty"`
 	Security     *models.SecurityConfig `json:"security,omitempty"`
 	PollInterval Duration               `json:"poll_interval,omitempty"`
 }
 
-// ProducersEnabled reports whether any producer is opted into durable edge
-// records. Such a sender must persist terminal acknowledgements so the spool
-// reclaims what the gateway accepted.
-func (c *EdgeRecordSenderConfig) ProducersEnabled() bool {
-	return c != nil && (c.SweepEnabled || c.MetricsEnabled || c.TelemetryEnabled || c.PluginResultsEnabled || c.DiscoveryEnabled || c.SyncEnabled)
+// EdgeRecordSpoolDir is the spool directory cfg configures, else the default.
+func (cfg *ServerConfig) EdgeRecordSpoolDir() string {
+	if cfg != nil && cfg.EdgeRecordSender != nil && cfg.EdgeRecordSender.SpoolDir != "" {
+		return cfg.EdgeRecordSender.SpoolDir
+	}
+
+	return DefaultEdgeRecordSpoolDir()
 }
 
 type BumblebeeStatusConfig struct {

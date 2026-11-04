@@ -26,6 +26,14 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
       here. A disconnected agent's platform is not known, so it is reported only as
       `:agent_disconnected`.
 
+    * `:spool_unavailable` - the agent reported that its edge-record spool could not be
+      opened, so it has nowhere to put edge records. Detail: `error`.
+    * `:agent_upgrade_pending` - the agent runs a build from before the default-on edge-record
+      sender: its last check-in carried no spool status. Detail: `version`.
+
+  The last two come from the agent's last check-in (`metadata.edge_record_spool`, which the
+  gateway records from the hello), so they are reported for connected agents only.
+
   Superseded agent identities are left out: they have been replaced and produce nothing.
   """
 
@@ -45,7 +53,12 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
   @image_deployment_types ~w(kubernetes docker container)
   @finished_target_statuses [:healthy, :failed, :rolled_back, :canceled]
 
-  @type reason :: :partition_not_found | :agent_disconnected | :agent_upgrade_blocked
+  @type reason ::
+          :partition_not_found
+          | :agent_disconnected
+          | :agent_upgrade_blocked
+          | :spool_unavailable
+          | :agent_upgrade_pending
   @type condition :: %{reason: reason(), detail: map()}
   @type entry :: %{
           agent_id: String.t(),
@@ -142,10 +155,37 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
     do: [%{reason: :agent_disconnected, detail: %{}}]
 
   defp connection_conditions(agent, runtime, facts) do
-    if present(runtime[:deployment_type]) in @image_deployment_types do
+    spool_conditions(agent) ++
+      if present(runtime[:deployment_type]) in @image_deployment_types do
+        []
+      else
+        upgrade_conditions(agent, runtime, facts)
+      end
+  end
+
+  defp spool_conditions(agent) do
+    case recorded_spool(agent) do
+      nil -> [%{reason: :agent_upgrade_pending, detail: %{version: agent.version}}]
+      spool -> spool_status_conditions(spool)
+    end
+  end
+
+  # The gateway's map, with atom keys until the row is read back from jsonb.
+  defp recorded_spool(%Agent{metadata: %{} = metadata}) do
+    case Map.get(metadata, "edge_record_spool") || Map.get(metadata, :edge_record_spool) do
+      %{} = spool -> spool
+      _ -> nil
+    end
+  end
+
+  defp recorded_spool(_agent), do: nil
+
+  defp spool_status_conditions(spool) do
+    if (Map.get(spool, "available") || Map.get(spool, :available)) == true do
       []
     else
-      upgrade_conditions(agent, runtime, facts)
+      error = Map.get(spool, "error") || Map.get(spool, :error)
+      [%{reason: :spool_unavailable, detail: %{error: present(error)}}]
     end
   end
 

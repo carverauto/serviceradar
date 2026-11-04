@@ -17,7 +17,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -96,48 +95,6 @@ func TestRunningAgentExportsEdgeSpoolMetrics(t *testing.T) {
 	t.Logf("scrape:\n%s", edgeSpoolLines(body))
 }
 
-// TestRunningAgentStartsPausedBetweenWatermarks scrapes a real agent process
-// whose spool sits between the published watermarks. The ordinary floor is the
-// recovery footprint openEdgeRecordSpool reserves (1 MiB destination segment,
-// 64 KiB attribution, 64 KiB journal, 256 KiB manifest, 64 KiB mapping, 64 KiB
-// filesystem metadata) plus 1 MiB min-free. The low water is 50% of what remains
-// and the high water is 80%. A first reading above the low water starts paused,
-// so a gate that waited for the high water would publish 0 for this spool.
-func TestRunningAgentStartsPausedBetweenWatermarks(t *testing.T) {
-	binaryPath := agentTestBinary(t)
-	const (
-		maxBytes           = 8 << 20
-		agentRecoveryFloor = (1 << 20) + 4*(64<<10) + (256 << 10)
-		agentMinFree       = 1 << 20
-	)
-	ordinary := uint64(maxBytes - agentRecoveryFloor - agentMinFree)
-	low := ordinary / 100 * 50
-	high := ordinary / 100 * 80
-	const bodyLen = 3_600_000
-	id := rfc9562UUIDv7(uint64(time.Now().Add(-30 * time.Second).UnixMilli()))
-	body, spoolDir := scrapeRunningAgentBudget(t, binaryPath, []spooledRecord{
-		{eventID: id, body: bytes.Repeat([]byte("p"), bodyLen)},
-	}, true, maxBytes)
-
-	used, err := regularFileTreeBytes(spoolDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// 256 is the terminal-evidence allowance the spool holds for one unresolved
-	// record, which is part of ordinary usage and not a file on disk.
-	used += 256
-	if used <= low || used >= high {
-		t.Fatalf("seeded usage %d is outside the open band (%d, %d); the scrape would not distinguish the watermarks", used, low, high)
-	}
-	if got := promGauge(t, body, "agent_edge_spool_unresolved_bytes"); got != bodyLen {
-		t.Fatalf("unresolved bytes = %g, want the held body %d\n%s", got, bodyLen, edgeSpoolLines(body))
-	}
-	if got := promGauge(t, body, "agent_edge_spool_admission_paused"); got != 1 {
-		t.Fatalf("admission paused = %g with usage %d between low %d and high %d, want 1\n%s", got, used, low, high, edgeSpoolLines(body))
-	}
-	t.Logf("usage %d in (%d, %d); scrape:\n%s", used, low, high, edgeSpoolLines(body))
-}
-
 func TestRunningAgentOmitsAgeWhenNoRecordIsUUIDv7(t *testing.T) {
 	binaryPath := agentTestBinary(t)
 	id := rfc9562UUIDv7(uint64(time.Now().Add(-90 * time.Second).UnixMilli()))
@@ -165,16 +122,18 @@ func TestRunningAgentClampsAFutureSpoolEventToZero(t *testing.T) {
 	t.Logf("scrape:\n%s", edgeSpoolLines(body))
 }
 
-func TestRunningAgentOmitsEdgeSpoolMetricsWhenTheSenderIsOff(t *testing.T) {
+// A spool that cannot be opened does not stop the agent: it keeps serving its
+// exporter, with no spool series to publish.
+func TestRunningAgentRunsOnWhenTheSpoolCannotOpen(t *testing.T) {
 	binaryPath := agentTestBinary(t)
 	body := scrapeRunningAgent(t, binaryPath, nil, false)
 	if !strings.Contains(body, "sweep_banner_grab_candidates_total") {
 		t.Fatalf("metrics endpoint did not serve the agent exporter:\n%s", body)
 	}
 	if strings.Contains(body, "agent_edge_spool_") {
-		t.Fatalf("edge spool series published while the edge sender is off:\n%s", body)
+		t.Fatalf("edge spool series published for a spool that did not open:\n%s", body)
 	}
-	t.Logf("edge sender off; scrape has banner metrics and no agent_edge_spool series")
+	t.Logf("spool unavailable; scrape has banner metrics and no agent_edge_spool series")
 }
 
 func agentTestBinary(t *testing.T) string {
@@ -192,13 +151,9 @@ func agentTestBinary(t *testing.T) string {
 	return binaryPath
 }
 
-func scrapeRunningAgent(t *testing.T, binaryPath string, records []spooledRecord, enableSender bool) string {
-	t.Helper()
-	body, _ := scrapeRunningAgentBudget(t, binaryPath, records, enableSender, 32<<20)
-	return body
-}
-
-func scrapeRunningAgentBudget(t *testing.T, binaryPath string, records []spooledRecord, enableSender bool, maxBytes int) (string, string) {
+// scrapeRunningAgent runs the agent over a spool seeded with records, or, with
+// openableSpool false, over a spool directory that cannot be created.
+func scrapeRunningAgent(t *testing.T, binaryPath string, records []spooledRecord, openableSpool bool) string {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
@@ -229,22 +184,21 @@ func scrapeRunningAgentBudget(t *testing.T, binaryPath string, records []spooled
 		t.Fatalf("checkers dir: %v", err)
 	}
 
-	edgeJSON := ""
-	spoolDir := ""
-	if enableSender {
-		spoolDir = filepath.Join(root, "spool")
+	spoolDir := filepath.Join(root, "spool")
+	if openableSpool {
 		commitSpool(t, spoolDir, records)
-		// sweep_enabled stays off: this process reports the spool, it does not
-		// attach the sweep producer.
-		edgeJSON = fmt.Sprintf(`,
+	} else {
+		blocker := filepath.Join(root, "not-a-directory")
+		if err := os.WriteFile(blocker, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		spoolDir = filepath.Join(blocker, "spool")
+	}
+	edgeJSON := fmt.Sprintf(`,
 		"edge_record_sender": {
-			"enabled": true,
-			"sweep_enabled": false,
-			"max_bytes": %d,
 			"spool_dir": %q,
 			"poll_interval": "1h"
-		}`, maxBytes, spoolDir)
-	}
+		}`, spoolDir)
 
 	configPath := filepath.Join(root, "agent.json")
 	config := fmt.Sprintf(`{
@@ -285,34 +239,13 @@ func scrapeRunningAgentBudget(t *testing.T, binaryPath string, records []spooled
 		}
 		payload, ok, detail := scrapeMetricsOnce(ctx, t, url)
 		if ok {
-			return payload, spoolDir
+			return payload
 		}
 		last = detail
 		time.Sleep(100 * time.Millisecond)
 	}
 	t.Fatalf("agent /metrics did not become ready: %s\nlog:\n%s", last, logs.snapshot())
-	return "", spoolDir
-}
-
-func regularFileTreeBytes(root string) (uint64, error) {
-	var total uint64
-	err := filepath.WalkDir(root, func(_ string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-		if info.Mode().IsRegular() {
-			total += uint64(info.Size())
-		}
-		return nil
-	})
-	return total, err
+	return ""
 }
 
 // scrapeMetricsOnce fetches /metrics once. The per-request context stays live

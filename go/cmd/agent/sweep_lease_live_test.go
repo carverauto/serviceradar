@@ -924,13 +924,10 @@ func startSweepExecAgent(t *testing.T, ctx context.Context, binary, root, spoolD
 		"gateway_security": {"mode": "none"},
 		"logging": {"level": "debug", "output": "stdout"},
 		"edge_record_sender": {
-			"enabled": true,
-			"sweep_enabled": true,
-			"max_bytes": %d,
 			"spool_dir": %q,
 			"poll_interval": "1h"
 		}
-	}`, checkers, gateway, 32<<20, spoolDir)
+	}`, checkers, gateway, spoolDir)
 	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}

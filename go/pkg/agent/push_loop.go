@@ -151,21 +151,21 @@ type PushLoop struct {
 	// legacy path.
 	edgeMetricsSpool edgeMetricsAppender
 	// edgeTelemetrySpool is the same one open spool, connected for plugin and
-	// add-on telemetry while telemetry emission is enabled; nil keeps
-	// telemetry on its legacy status path.
+	// add-on telemetry; nil (the spool did not open) keeps telemetry on its
+	// legacy status path.
 	edgeTelemetrySpool edgeMetricsAppender
 	// Each telemetry producer's bounded retry queue, oldest first.
 	pluginTelemetryEdge telemetryEdgeQueue
 	addonTelemetryEdge  telemetryEdgeQueue
 	// edgePluginResultSpool is the same one open spool, connected for Wasm
-	// plugin results while plugin-result emission is enabled; nil keeps
-	// plugin results on their legacy status path.
+	// plugin results; nil (the spool did not open) keeps plugin results on
+	// their legacy status path.
 	edgePluginResultSpool edgeMetricsAppender
 	pluginResultsEdge     pluginResultEdgeQueue
 	// edgeDiscoverySpool is the same one open spool, connected for mapper
 	// and netprobe discovery, workload identity snapshots, k8s public endpoint
-	// snapshots and endpoint inventory scans while discovery emission is
-	// enabled; nil keeps them on their legacy status paths.
+	// snapshots and endpoint inventory scans; nil (the spool did not open)
+	// keeps them on their legacy status paths.
 	edgeDiscoverySpool     edgeMetricsAppender
 	mapperDevicesEdge      discoveryEdgeQueue
 	mapperInterfacesEdge   discoveryEdgeQueue
@@ -175,6 +175,7 @@ type PushLoop struct {
 	k8sPublicEndpointsEdge k8sPublicEndpointsEdgeQueue
 	endpointInventoryEdge  endpointInventoryEdgeQueue
 	edgeOutputGrants       edgeOutputGrants
+	edgeSpool              edgeSpoolRuntime
 	// Each metric producer's bounded retry queue, oldest first. An entry is either
 	// an item no part of which the spool has admitted, or one built record of an
 	// item that already has a part in the spool.

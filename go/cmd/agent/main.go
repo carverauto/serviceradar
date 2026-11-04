@@ -193,31 +193,24 @@ func runPushMode(
 			interval = maxPushInterval
 		}
 	}
-	edgeSpool, edgeAdmission, err := openEdgeRecordSpool(cfg)
-	if err != nil {
-		return err
-	}
-	if edgeSpool != nil {
+	pushLoop := agent.NewPushLoop(server, gatewayClient, interval, log)
+	// The spool and sender always run. A spool that cannot be opened does not
+	// stop the agent: it is reported (spool_unavailable) and its producers have
+	// no spool to emit edge records into.
+	edgeSpool, edgeAdmission, edgeBudget, spoolErr := openEdgeRecordSpool(cfg)
+	pushLoop.SetEdgeSpoolStatus(spoolErr)
+	if spoolErr != nil {
+		log.Error().Err(spoolErr).Str("spool_dir", cfg.EdgeRecordSpoolDir()).
+			Msg("Edge record spool unavailable; the agent is off the edge-record pipeline")
+	} else {
 		defer func() { _ = edgeSpool.Close() }()
 		attachEdgeSpoolMetrics(server, edgeSpool, edgeAdmission)
-	}
-	pushLoop := agent.NewPushLoop(server, gatewayClient, interval, log)
-	if cfg.EdgeRecordSender != nil && cfg.EdgeRecordSender.SweepEnabled {
+		pushLoop.SetEdgeSpoolBudget(edgeBudget.Apply)
 		pushLoop.SetEdgeSweepSpool(edgeSpool)
-	}
-	if cfg.EdgeRecordSender != nil && cfg.EdgeRecordSender.MetricsEnabled {
 		pushLoop.SetEdgeMetricsSpool(edgeSpool)
-	}
-	if cfg.EdgeRecordSender != nil && cfg.EdgeRecordSender.TelemetryEnabled {
 		pushLoop.SetEdgeTelemetrySpool(edgeSpool)
-	}
-	if cfg.EdgeRecordSender != nil && cfg.EdgeRecordSender.PluginResultsEnabled {
 		pushLoop.SetEdgePluginResultSpool(edgeSpool)
-	}
-	if cfg.EdgeRecordSender != nil && cfg.EdgeRecordSender.DiscoveryEnabled {
 		pushLoop.SetEdgeDiscoverySpool(edgeSpool)
-	}
-	if cfg.EdgeRecordSender != nil && cfg.EdgeRecordSender.SyncEnabled {
 		pushLoop.SetEdgeSyncSpool(edgeSpool)
 	}
 	if cfg.StatusDebounceInterval > 0 {
@@ -249,8 +242,7 @@ func runPushMode(
 		errChan <- pushLoop.Start(pushCtx)
 	}()
 
-	// Optionally start the minimum edge-record spool sender (task 0.12 of
-	// openspec/changes/unify-sweep-results-proto). No-op unless configured.
+	// Drain the edge-record spool to the gateway (a no-op when it did not open).
 	go runEdgeRecordSender(pushCtx, cfg, edgeSpool, log)
 
 	// Wait for shutdown signal or error

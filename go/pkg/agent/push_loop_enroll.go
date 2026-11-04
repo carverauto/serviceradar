@@ -196,6 +196,7 @@ func (p *PushLoop) buildEnrollmentHelloRequest() *proto.AgentHelloRequest {
 		HostMacs:            host.macs,
 		HostInterfaces:      host.interfaces,
 		HostTlsFingerprints: p.helloHostTLSFingerprints(),
+		EdgeRecordSpool:     p.edgeSpoolStatus(),
 	}
 }
 
