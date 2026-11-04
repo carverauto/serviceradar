@@ -260,6 +260,7 @@ func scrapeAfterConfig(t *testing.T, gw *spoolHelloGateway, logs *agentOutput, u
 func TestRunningAgentAppliesTheSpoolBudgetFromConfig(t *testing.T) {
 	const bodyLen = 3_200_000
 	seed := func(t *testing.T) string {
+		t.Helper()
 		dir := filepath.Join(t.TempDir(), "spool")
 		id := rfc9562UUIDv7(uint64(time.Now().Add(-30 * time.Second).UnixMilli()))
 		commitSpool(t, dir, []spooledRecord{{eventID: id, body: bytes.Repeat([]byte("b"), bodyLen)}})

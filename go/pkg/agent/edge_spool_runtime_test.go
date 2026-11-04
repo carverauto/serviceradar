@@ -24,13 +24,18 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
+var (
+	errTestSpoolOpen     = errors.New("spool: mkdir: permission denied")
+	errTestBudgetRefused = errors.New("capacity leaves no ordinary space")
+)
+
 // Both hellos carry the spool status, so core can show an agent whose spool did
 // not open as spool_unavailable on whichever transport it reconnects over.
 func TestHellosReportTheEdgeSpoolStatus(t *testing.T) {
 	loop := NewPushLoop(&Server{config: &ServerConfig{}}, nil, 0, logger.NewTestLogger())
 	loop.hostInventory = func() []hostInterface { return nil }
 	loop.hostTLSFingerprints = func() []*proto.HostTlsFingerprint { return nil }
-	loop.SetEdgeSpoolStatus(errors.New("spool: mkdir: permission denied"))
+	loop.SetEdgeSpoolStatus(errTestSpoolOpen)
 
 	stream := &fakeControlStreamClient{}
 	if err := loop.sendControlHello(newControlStreamSender(stream)); err != nil {
@@ -63,7 +68,7 @@ func TestConfigSpoolBudgetIsAppliedOnChange(t *testing.T) {
 	refuse := false
 	loop.SetEdgeSpoolBudget(func(maxBytes uint64) error {
 		if refuse {
-			return errors.New("capacity leaves no ordinary space")
+			return errTestBudgetRefused
 		}
 		applied = append(applied, maxBytes)
 		return nil
