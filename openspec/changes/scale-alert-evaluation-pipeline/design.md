@@ -488,8 +488,11 @@ through the DurablePublish outbox in the transaction that made the change:
 
 D9 control messages are always published to the block's live candidate
 subjects, including during the cutover import (Migration). Each carries its
-outbox entry id as its candidate id, so a second publish of the same entry is
-suppressed by the block's dedupe ring (D6).
+outbox entry id as its candidate id. An entry the owner publishes itself
+(Migration) is completed in the outbox after its PubAck, so the outbox job
+never publishes it again; the block's dedupe ring (D6) suppresses the one
+copy a crash between that PubAck and the completion, or a job attempt
+already running, can add.
 
 The evaluator uses no wall clock. Time comes from event time or from the
 `now` a control message carries.
@@ -513,14 +516,18 @@ Findings and changes, keyed to `capacity.md` S1-S5 and S13:
   still binds them, so a v1 publish is stored and acknowledged there and
   that stored message is its only copy. Release-N versions of every
   component that creates or updates `events` (EventWriter, Zen, the OTEL
-  collector, flowgger and trapd) never do so. Once no older version of any
-  of them and no older publisher remains, the old streams are drained, v1
-  subjects included (by pre-cutover replicas while they run, then by new
-  replicas after the cutover marker, before they read the replacements, so
-  each source keeps its order); a fully acknowledged old stream is deleted;
-  while no stream binds the v1 subjects, publishers retry in place,
-  collectors spooling; and the replacements are created inside the
-  reservation the old stream frees, after which the held publishes land. A block
+  collector, flowgger and trapd) never do so. The old streams keep being
+  consumed through their existing durables, v1 subjects included: by
+  pre-cutover replicas while they run, then by new replicas after the
+  cutover marker, before they read the replacements, so each source keeps
+  its order. After the cutover marker, and once no older version of any
+  creator or publisher remains, each old stream is unbound: its subjects
+  are narrowed to a retired subject nothing publishes, so from then a v1
+  publish is refused and retried in place, collectors spooling, and the
+  stream admits nothing more. The old stream is deleted only after its
+  durables have acknowledged every message stored up to that unbind; the
+  replacements are then created inside the reservation it frees, after
+  which the held publishes land. A block
   moves between telemetry streams with the same protocol as
   candidate streams (D12), so a source's records keep their order through a
   split.
@@ -910,8 +917,8 @@ that evaluates through both designs.
       and commits its effects and checkpoint. A disable, resolve or
       maintenance marker whose transaction committed before that record is
       applied therefore takes effect before it, even while its outbox job is
-      still queued; the job's later publish of the same entry is suppressed
-      as a duplicate (D9). During the import
+      still queued; after each PubAck the owner completes that entry's
+      outbox job, so the job does not publish it again (D9). During the import
       every effect commit is also a checkpoint commit (live sequence and
       `import_ordinal`), so committed effects always match one persisted
       order.
