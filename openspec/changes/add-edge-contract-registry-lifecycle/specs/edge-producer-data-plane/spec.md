@@ -123,9 +123,9 @@ close.
 - **AND** records no live core node can project SHALL be held as
   `awaiting_roll_forward` (grants revoked, retryable gateway refusal, bulk-stream
   backlog dead-lettered with original bytes and redriven), never rejected; a
-  dead-letter overflow during the gateways' refresh window SHALL be counted once
-  per distinct record by `Sr-Edge-Delivery-Id`, alerted and reported as
-  `awaiting_roll_forward_overflow`, and SHALL still project from the bulk
-  stream if a projecting core node returns before eviction
+  dead-letter overflow during the gateways' refresh window SHALL be
+  acknowledged, never NAKed, and counted once per distinct record by
+  `Sr-Edge-Delivery-Id`, alerted and reported as
+  `awaiting_roll_forward_overflow`, so it cannot stall other contracts
 - **AND** it SHALL NOT roll the deployment backward or reinterpret records under
   its local latest-known bundle

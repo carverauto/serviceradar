@@ -113,12 +113,14 @@ redrive it through the ingest ledger when a node that can project it returns.
 Only records admitted between the loss of projectability and the gateways' next
 projectable-set refresh, plus any admitted ahead of revocation, SHALL be exposed
 to loss; they SHALL be preserved up to the free capacity of
-`TELEMETRY_EDGE_RECORD_DLQ_V1_BULK`. A record whose dead-letter copy is refused
-SHALL be counted once per distinct record, keyed by `Sr-Edge-Delivery-Id` and not
-per redelivery attempt, per contract and bundle; it SHALL raise a managed alert
-and SHALL be reported in pipeline status as `awaiting_roll_forward_overflow`;
-overflow SHALL never be silent. Such a record that is still in the bulk stream
-when a core node that can project it returns SHALL be projected from there. After that refresh window the agent spools SHALL hold
+`TELEMETRY_EDGE_RECORD_DLQ_V1_BULK`. When the dead-letter stream refuses a
+record's copy because it is full, EventWriter SHALL acknowledge the bulk delivery
+and record the loss, and SHALL NOT NAK the record or leave it unacknowledged. The
+loss SHALL be counted once per distinct record, keyed by `Sr-Edge-Delivery-Id`,
+per contract and bundle; it SHALL raise a managed alert and SHALL be reported in
+pipeline status as `awaiting_roll_forward_overflow`; overflow SHALL never be
+silent and SHALL never block the durable consumer's ack-pending capacity or other
+contracts' projection. After that refresh window the agent spools SHALL hold
 every such record within the agent spool budget. Pipeline status SHALL report
 `awaiting_roll_forward` counts. No record SHALL be rejected because of a bundle
 digest mismatch alone. A superseded core node SHALL
@@ -161,16 +163,23 @@ exists, core SHALL activate the first candidate immediately.
 - **AND** pipeline status reports `awaiting_roll_forward` counts, and no record
   is rejected
 - **AND** if the dead-letter stream lacks free capacity for a record admitted
-  before the gateways' next projectable-set refresh, that record is counted once
-  by `Sr-Edge-Delivery-Id`, per contract and bundle, however often it is
-  redelivered, a managed alert is raised, and pipeline status reports
+  before the gateways' next projectable-set refresh, EventWriter acknowledges
+  that record, counts it once by `Sr-Edge-Delivery-Id` per contract and bundle,
+  raises a managed alert, and pipeline status reports
   `awaiting_roll_forward_overflow`
-- **AND** if a projecting core node returns before the bulk stream evicts that
-  record, it is projected from the bulk stream
 - **AND** records produced after that refresh stay in agent spools and none is
   lost
 - **AND** once a core node that can project them returns, gateways admit the
   spooled records and the dead-lettered records are redriven through the ledger
+
+#### Scenario: Roll-forward overflow does not stall other contracts
+- **GIVEN** the dead-letter stream is full
+- **AND** more records than the edge-record durable's `max_ack_pending` under a
+  bundle no live core node can project are in the bulk stream
+- **WHEN** EventWriter processes them
+- **THEN** it acknowledges each one and counts it once as
+  `awaiting_roll_forward_overflow`, with a managed alert
+- **AND** records of other contracts in the same stream keep projecting
 
 #### Scenario: A rollback past a superseded candidate keeps signing
 - **GIVEN** epoch 1_000_000 is active
