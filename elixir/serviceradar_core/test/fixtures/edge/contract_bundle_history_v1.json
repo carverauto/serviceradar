@@ -129,7 +129,17 @@
           "projection_revision": 1
         }
       ]
+    },
+    {
+      "contract_id": "serviceradar.workload_identity.snapshot",
+      "contract_version": 1,
+      "history": [
+        {
+          "contract_bundle_sha256": "aa294e5073c943341d240190839243c2c698a621fbba194547ebdd16c5f97fa4",
+          "projection_revision": 1
+        }
+      ]
     }
   ],
-  "registry_snapshot_sha256": "652be532e5c3e264b05cc08a9e02f2e80b83dd2398002818870e1fb5a18140c0"
+  "registry_snapshot_sha256": "01d1b7c6448a1c9d7e3f496312c139cd1082a51cf5aed2593b1d3756317627d5"
 }
