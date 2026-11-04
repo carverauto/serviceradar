@@ -2,21 +2,43 @@
 
 ## 0. Decisions and cross-change reconciliation
 
-- [ ] 0.1 Get product-owner answers to design.md Open Questions 1-4 and record them
-  in design.md.
-- [ ] 0.2 Reconcile the wording of the pending requirements that conflict with this
-  change, before any of these changes archives:
-  - In `add-edge-contract-registry-lifecycle`, "Output contract bundles have a
-    governed deployment lifecycle" still uses "signed" and expects target agent
-    cohorts to attest.
-  - In `move-agent-telemetry-to-edge-records`, "Each data family and scheduling
-    model has one typed output contract" says "signed contract registry".
-
-  Apply the Open Question 3 answer. Then `grep -rn` each changed sentence across
-  `openspec/changes` (excluding `archive/`) and fix every pending copy.
+- [x] 0.1 Get product-owner answers to the open questions and record them in
+  design.md ("Resolved Questions", 2026-11-03).
+- [ ] 0.2 Sign registry epochs (design Decision 12):
+  - [ ] 0.2.1 Implement the epoch signing preimage in `HashGrammar` framing. It
+    covers the domain tag `serviceradar.edge.contract_registry_epoch.v1`, the
+    format version, the epoch number, the snapshot digest, and each contract
+    sorted by `(contract_id, contract_version)`: its id, version, bundle digest,
+    route profile, traffic class, partition rule and cost model version. Sign it
+    with the issuer key when the candidate row is inserted. Store `signature` and
+    `signing_key_id` in the row.
+  - [ ] 0.2.2 Verify on every load in core: the epoch reader verifies each CNPG row
+    and any cached copy before use. On failure it excludes the epoch, signs
+    nothing under it, and reports `registry_epoch_signature_invalid` in pipeline
+    status. A bad active epoch stops all new signing.
+  - [ ] 0.2.3 Carry the signature and key id per epoch in the trust document's
+    `contract_registry` member.
+  - [ ] 0.2.4 Gateway verification: verify every epoch against the issuer public
+    key its key id names before installing the registry member, and re-verify any
+    persisted or `:persistent_term` copy on load. On a bad signature:
+    - refuse the whole member, keep the previously verified registry, and still
+      install the document's trust;
+    - log the epoch and key id at error, increment
+      `edge_registry_signature_rejected`, and report the refusal on the next
+      refresh;
+    - do not count as holding the candidate.
+  - [ ] 0.2.5 Tests:
+    - a golden preimage and signature vector;
+    - a tampered admission field, epoch number or bundle digest each failing
+      verification;
+    - a tampered CNPG row excluded by core;
+    - a gateway refusing a bad document while keeping its previous registry;
+    - a fresh gateway with only a bad document withholding as
+      `registry_unavailable`.
 - [ ] 0.3 Re-scope `add-edge-contract-registry-lifecycle` tasks 1.1, 1.5, 1.6 and
   1.7 to what remains after this change (cost API, security revocation, Hello
-  advertisement), and update #6271's line for that change.
+  advertisement). Re-scope its "target agent cohort" readiness clause. Keep its
+  "signed" wording. Update #6271's line for that change.
 
 ## 1. Core: registry derivation and epochs
 
@@ -148,18 +170,43 @@ Load the `test-audit` skill before writing these.
   `SERVICERADAR_EDGE_ISSUER_KEY_FILE` and the registry env vars, and add an epoch
   change across a core restart with spooled backlog that drains.
 
-## 7. Rollout
+## 7. Cutover release coupling (design Decision 13)
 
-- [ ] 7.1 farm01: on the old release, turn leasing off and wait for spool depth zero
-  (Open Question 2). Delete `edgeRecords` from its values, upgrade, and confirm
-  the first derived epoch is active, grants are re-signed and lanes advance.
-- [ ] 7.2 demo: delete `edgeRecords` in the gitops commit that bumps the chart.
-- [ ] 7.3 serviceradar-control: file the issue drafted in design.md and land its
-  guard and release gate before the hosted fleet takes this chart.
-- [ ] 7.4 Ship the legacy removal (`move-agent-telemetry-to-edge-records` task 8.1)
-  only in a release after this one.
+- [ ] 7.1 Ahead of the cutover release, ship the read-only edge pipeline readiness
+  report. It lists every agent that would be off the pipeline after the upgrade,
+  with the reasons `partition_not_found`, `agent_upgrade_blocked` (pinned,
+  rollout paused, or no artifact for its platform) and `agent_disconnected`.
+  Show it in the API and in web-ng, and change no behavior.
+- [ ] 7.2 Put `move-agent-telemetry-to-edge-records` tasks 8.1 and 8.2 (remove
+  every legacy agent emission and the gateway publishers that serve them, except
+  RTSP and live media) in the same release as this change. Confirm its family
+  soaks (tasks 2 to 7) passed before the release is cut.
+- [ ] 7.3 Make the packages for every published agent platform, and the
+  `serviceradar-ansible` agent role, create the agent runtime directory writable
+  by the agent user. Verify that a package-installed agent with no
+  `edge_record_sender` block opens its spool on first start.
+- [ ] 7.4 Add `agent_upgrade_pending` to the per-agent conditions, for agents still
+  on a pre-cutover build after core upgrades. Make the release rollout target
+  every agent at core upgrade.
 
-## 8. Validate
+## 8. Rollout
 
-- [ ] 8.1 Run the Go, Elixir, chart and Bazel suites for every touched target, plus
+- [ ] 8.1 farm01, release candidate:
+  - Optional drain: on the old release, turn leasing off and wait for spool depth
+    zero.
+  - Delete `edgeRecords` from its values and deploy the cutover release
+    candidate.
+  - Confirm that the first derived epoch is active and verified, grants are
+    re-signed, and lanes advance.
+- [ ] 8.2 M4.1 pre-release gate: every farm01 agent on the release candidate for 7
+  days with tracking evidence, including its package agents. Cut the release
+  only after the gate passes. A failure blocks the release.
+- [ ] 8.3 demo: delete `edgeRecords` in the gitops commit that bumps the chart.
+- [ ] 8.4 serviceradar-control: file the issue drafted in design.md. Land the values
+  guard and readiness-gated tenant upgrade planning before the hosted fleet takes
+  the cutover chart.
+
+## 9. Validate
+
+- [ ] 9.1 Run the Go, Elixir, chart and Bazel suites for every touched target, plus
   `openspec validate enable-edge-record-pipeline-by-default --strict`.

@@ -11,7 +11,8 @@ The moved requirement text is unchanged from `unify-sweep-results-proto`, includ
 Superseded in part by `enable-edge-record-pipeline-by-default` (2026-11-03, #6288). That change
 moves the registry source to core, which derives it from `ContractCatalog`. It also takes over
 the candidate/active/draining/retired lifecycle, readiness and the atomic switch, drain under the
-exact bundle, and stale-component fencing. Signing of the registry is an open question there. Of
+exact bundle, and stale-component fencing. It also signs each registry epoch with the issuer key,
+and gateways and core verify that signature on every load (its Decision 12). Of
 the tasks below, 1.1, 1.5, 1.6 (readiness and epoch selection) and 1.7 are re-scoped by its task
 0.3. The cost API (1.2), security revocation, Hello advertisement (1.3) and 1.4 stay here.
 

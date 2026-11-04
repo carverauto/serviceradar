@@ -161,6 +161,57 @@ permanent rejection, `registry_epoch_retired`. It SHALL NOT be withheld.
 - **THEN** the gateway rejects it permanently as `registry_epoch_retired`
 - **AND** the rejection is counted and the lane continues
 
+### Requirement: Each registry epoch is signed by the issuer key and verified on every load
+Core SHALL sign each registry epoch once, when it records the epoch, with the edge
+issuer key. It SHALL store the signature and signing key id with the epoch. The
+signature SHALL be Ed25519 over a `ServiceRadar.Edge.HashGrammar`-framed preimage
+containing, in order:
+
+- the domain tag `serviceradar.edge.contract_registry_epoch.v1` and the signature
+  format version;
+- the epoch number;
+- the snapshot digest;
+- the contract count;
+- for each contract, sorted by `(contract_id, contract_version)`: its id, version,
+  bundle digest, route profile, traffic class, partition rule, and cost model
+  version.
+
+The lifecycle state SHALL NOT be signed. Core SHALL verify every epoch it loads
+from CNPG or from any cache before using it. Core SHALL NOT sign capabilities
+under an epoch that fails verification. It SHALL report that epoch as
+`registry_epoch_signature_invalid` in pipeline status, and SHALL issue no new
+capability while the active epoch fails verification.
+
+#### Scenario: A tampered epoch row in CNPG
+- **GIVEN** an epoch row whose stored cost model version was altered after signing
+- **WHEN** core's epoch reader loads it
+- **THEN** verification fails and core excludes the epoch
+- **AND** pipeline status reports `registry_epoch_signature_invalid` for it
+
+#### Scenario: The signature binds the epoch number
+- **WHEN** a signed epoch document is presented under a different epoch number
+- **THEN** verification fails
+
+### Requirement: Agents that would be off the pipeline are reported before the cutover release
+A read-only edge pipeline readiness report SHALL ship in a release ahead of the
+release that makes the pipeline default and removes the legacy status path. The
+report SHALL list every agent that would be off the edge pipeline after that
+upgrade, with a reason that includes `partition_not_found`,
+`agent_upgrade_blocked`, or `agent_disconnected`. The report SHALL change no
+agent, grant, lease, or data path behavior. It SHALL be readable through the API
+and the web UI.
+
+#### Scenario: An agent the rollout cannot reach
+- **GIVEN** an agent pinned to a version older than the cutover release
+- **WHEN** an operator opens the readiness report before upgrading
+- **THEN** the agent is listed with `agent_upgrade_blocked`
+
+#### Scenario: A ready installation
+- **GIVEN** every agent resolves its partition, is connected, and can receive the
+  cutover build
+- **WHEN** an operator opens the readiness report
+- **THEN** it lists no agent
+
 ### Requirement: Records stamped with an installation-static registry epoch are rejected, never withheld
 The agent gateway SHALL resolve a record whose `registry_epoch` is below
 1_000_000 as a counted permanent rejection, `static_registry_epoch`. This
@@ -205,7 +256,9 @@ representation and in the web UI's agent detail. The reasons SHALL include:
 
 - `partition_not_found`, when the agent's partition has no row;
 - `no_live_gateway_on_active_epoch`;
-- `spool_unavailable`, when the agent reports that its spool cannot be opened.
+- `spool_unavailable`, when the agent reports that its spool cannot be opened;
+- `agent_upgrade_pending`, when the agent still runs a build from before the
+  cutover release.
 
 Core SHALL NOT create a partition from an agent-reported partition slug. A healthy
 agent SHALL show no condition.

@@ -2,9 +2,10 @@
 
 ## Why
 
-The durable edge-record pipeline is the product's only agent data path once the
-legacy `StreamStatus` path is removed next release. Today it runs only when an
-operator turns it on through Helm values (#6288, part of #6271):
+The durable edge-record pipeline becomes the product's only agent data path in
+the release that removes the legacy `StreamStatus` path, which is the release
+this change ships in. Today it runs only when an operator turns it on through
+Helm values (#6288, part of #6271):
 
 - `edgeRecords.enabled` gates the gateway publisher and trust refresh
   (`AGENT_GATEWAY_EDGE_RECORDS_ENABLED`, `AGENT_GATEWAY_EDGE_RECORD_TRUST_SOURCE`),
@@ -49,6 +50,12 @@ longer registers is withheld for good and caps the lane watermark.
   `ServiceRadar.Edge.ContractCatalog`.
   - Each bundle digest and the snapshot digest are a pure function of the catalog
     under a domain-separated hash grammar. A golden test pins them per release.
+  - Core signs each epoch with the issuer key. The signature covers the epoch
+    number, the snapshot digest, and each contract's bundle digest and admission
+    fields, in canonical framing. Gateways verify it before installing a
+    registry. Core verifies its persisted rows, and both sides verify any cached
+    copy, on every load. A gateway that sees a bad signature refuses the
+    document's registry, keeps its previous one, and surfaces the refusal.
   - Core persists registry epochs in CNPG. They only move forward and are
     numbered from a floor above every installation-static label.
 - Gateways receive the registry, all non-retired epochs, from core in the same
@@ -72,6 +79,14 @@ longer registers is withheld for good and caps the lane watermark.
 - The one remaining product knob, the agent spool byte budget, becomes a scoped
   runtime setting in CNPG with a code default of 1 GiB. It is delivered in the
   agent config. The lease horizon settings stay where they are.
+- **BREAKING (release)**: this change ships in the same release as the legacy
+  status-path removal (`move-agent-telemetry-to-edge-records` tasks 8.1 and 8.2;
+  everything except RTSP and live media). There is no fallback release.
+  - Package-installed and Ansible-installed agents get the default-on sender in
+    that release from the agent build itself.
+  - The farm01 7-day all-agents run (M4.1) is a gate before that release is cut.
+  - A read-only readiness report ships ahead of it. It lists every agent that
+    would be off the pipeline after the upgrade, with the reason.
 
 ## Impact
 
@@ -100,8 +115,12 @@ longer registers is withheld for good and caps the lane watermark.
 - Amends the pending `move-agent-telemetry-to-edge-records` requirement "Agent-scheduled
   producers emit under standing output grants". Grants no longer depend on an
   operator switch.
-- External: serviceradar-control needs a guard and a release-sequencing change,
-  but no new values (design.md, "serviceradar-control"). Installs that set
-  `edgeRecords` (two internal lab and demo installs) must delete the block before
-  upgrading.
-- Must ship in a release before the legacy-path removal release (sibling task 8.1).
+- External:
+  - serviceradar-control needs a values guard, and its tenant upgrade planning
+    must handle the one-release jump to no legacy (design.md,
+    "serviceradar-control"). No new values are involved.
+  - The packages and the serviceradar-ansible role must create the agent runtime
+    directory.
+  - Installs that set `edgeRecords` (two internal lab and demo installs) must
+    delete the block before upgrading.
+- Ships in the same release as the legacy-path removal (sibling tasks 8.1 and 8.2).

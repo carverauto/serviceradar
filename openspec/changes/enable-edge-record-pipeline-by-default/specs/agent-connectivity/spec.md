@@ -5,18 +5,38 @@
 ### Requirement: Gateways receive the contract registry from core with the edge trust document
 The agent gateway SHALL obtain the output-contract registry only from core. It SHALL
 receive the registry in the same document as the edge trust snapshot over the
-authenticated ERTS control plane, and SHALL install trust and registry together
-under one expiry. The document SHALL carry every non-retired epoch with its state,
-snapshot digest, and contract entries. The gateway SHALL report the snapshot
-digests it installed on its next refresh. The gateway SHALL NOT read a registry
-from its environment or from Helm values. A registry it cannot parse or that has
-expired SHALL make the gateway withhold records, never reject them.
+authenticated ERTS control plane. The document SHALL carry every non-retired
+epoch with its state, snapshot digest, contract entries, signature, and signing
+key id. The gateway SHALL verify every epoch's signature with the issuer public
+key the key id names before installing the registry. It SHALL re-verify any
+persisted or cached copy on load. When any epoch fails verification, the gateway
+SHALL refuse that document's registry whole. It SHALL keep its previously
+verified registry, and SHALL still install the document's trust. It SHALL
+surface the refusal in an error log naming the epoch and key id, in a counter,
+and in its next refresh report to core. A gateway that refused a candidate SHALL
+NOT be counted as holding it. The gateway SHALL report the snapshot digests it
+installed on its next refresh. The gateway SHALL NOT read a registry from its
+environment or from Helm values. A gateway with no verified registry, or whose
+trust has expired, SHALL withhold records, never reject them.
 
 #### Scenario: A gateway starts with no registry configuration
 - **GIVEN** a gateway with no registry environment variable
 - **WHEN** its first trust refresh from core succeeds
 - **THEN** it holds the active epoch and any draining epochs
 - **AND** its edge-records capability becomes ready
+
+#### Scenario: A refresh carries a bad registry signature
+- **GIVEN** a gateway holding a verified registry with epoch 1_000_000
+- **WHEN** a refresh carries epoch 1_000_001 with a signature that does not verify
+- **THEN** the gateway keeps admitting under its verified registry
+- **AND** it does not install 1_000_001
+- **AND** core's pipeline status names the gateway and the refused epoch
+- **AND** core does not activate 1_000_001 while that gateway is live
+
+#### Scenario: A fresh gateway receives only a bad registry
+- **GIVEN** a gateway with no verified registry
+- **WHEN** its first refresh carries a registry that fails verification
+- **THEN** it withholds every record as `registry_unavailable`
 
 #### Scenario: The trust refresh stalls
 - **WHEN** the gateway's last successful refresh is older than the snapshot expiry
