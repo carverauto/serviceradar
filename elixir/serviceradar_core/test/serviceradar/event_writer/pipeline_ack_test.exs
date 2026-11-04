@@ -8,6 +8,7 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
   alias ServiceRadar.EventWriter.Pipeline
   alias ServiceRadar.EventWriter.Processors.AdhocScan
   alias ServiceRadar.EventWriter.Processors.Mtr
+  alias ServiceRadar.NATS.PublishDeniedError
 
   @moduletag :db_free
 
@@ -351,6 +352,32 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
         assert log =~ "dlq_sequence=9"
         assert log =~ "source_sequence=41"
       end
+    end
+
+    # Redelivery cannot succeed until the broker's grant changes. A failure that may clear at
+    # the same delivery count is NAKed: the first test in this block.
+    test "a republish the broker denied is dead-lettered on its first delivery" do
+      message =
+        1
+        |> failed_edge_record(20, -1, stored(3))
+        |> Message.failed(%PublishDeniedError{subject: "metrics.sysmon.cpu.usage"})
+
+      log = ExUnit.CaptureLog.capture_log(fn -> Pipeline.ack(:ack_ref, [], [message]) end)
+
+      assert [
+               {:publish, "telemetry.edge-record-dlq.v1.bulk.p07.unknown.v0", @record_bytes,
+                opts},
+               {:ack, :ack}
+             ] = steps()
+
+      assert header(opts, "Sr-Edge-Dlq-Reason") == "PublishDeniedError"
+      assert header(opts, "Sr-Edge-Dlq-Attempts") == "1"
+
+      assert_received {:dead_letter_event, %{count: 1, attempts: 1},
+                       %{reason_class: "PublishDeniedError", result: "stored"}}
+
+      # The broker's denial is logged once per subject, so its records are not each an error.
+      refute log =~ ~r/\[error\][^\n]*Edge record dead-lettered/
     end
 
     test "a dead-letter that is not stored leaves the source unacknowledged and NAKs it" do

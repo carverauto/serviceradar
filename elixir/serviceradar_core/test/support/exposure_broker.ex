@@ -4,7 +4,12 @@ defmodule ServiceRadar.TestSupport.ExposureBroker do
 
   alias ServiceRadar.NATS.Connection
 
-  def with_broker(dir, fun) do
+  # Options:
+  #   * `:config` - nats-server configuration text (for example an `authorization` block),
+  #     written next to the store and passed with `-c`
+  #   * `:connection` - settings merged into the Gnat connection's (for example the user
+  #     that `:config` defines)
+  def with_broker(dir, fun, opts \\ []) do
     {:ok, _} = Application.ensure_all_started(:gnat)
 
     [executable] =
@@ -17,26 +22,27 @@ defmodule ServiceRadar.TestSupport.ExposureBroker do
         :binary,
         :exit_status,
         :stderr_to_stdout,
-        args: [
-          "-js",
-          "-a",
-          "127.0.0.1",
-          "-p",
-          "-1",
-          "-sd",
-          Path.join(dir, "store"),
-          "--ports_file_dir",
-          dir,
-          "-l",
-          Path.join(dir, "broker.log")
-        ]
+        args:
+          [
+            "-js",
+            "-a",
+            "127.0.0.1",
+            "-p",
+            "-1",
+            "-sd",
+            Path.join(dir, "store"),
+            "--ports_file_dir",
+            dir,
+            "-l",
+            Path.join(dir, "broker.log")
+          ] ++ config_args(dir, Keyword.get(opts, :config))
       ])
 
     {:os_pid, pid} = Port.info(port, :os_pid)
 
     try do
       broker_port = broker_port(dir, pid, 300)
-      conn = connect(broker_port)
+      conn = connect(broker_port, Keyword.get(opts, :connection, %{}))
       fun.(conn, broker_port)
     after
       if conn = Process.whereis(Connection.connection_name()), do: Gnat.stop(conn)
@@ -45,11 +51,21 @@ defmodule ServiceRadar.TestSupport.ExposureBroker do
     end
   end
 
-  def connect(port) do
+  def connect(port, settings \\ %{}) do
     {:ok, conn} =
-      Gnat.start_link(%{host: "127.0.0.1", port: port}, name: Connection.connection_name())
+      Gnat.start_link(Map.merge(%{host: "127.0.0.1", port: port}, settings),
+        name: Connection.connection_name()
+      )
 
     conn
+  end
+
+  defp config_args(_dir, nil), do: []
+
+  defp config_args(dir, config) when is_binary(config) do
+    path = Path.join(dir, "broker.conf")
+    File.write!(path, config)
+    ["-c", path]
   end
 
   def request(conn, subject, payload) do

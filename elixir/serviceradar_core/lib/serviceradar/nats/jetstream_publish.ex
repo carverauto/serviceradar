@@ -10,9 +10,18 @@ defmodule ServiceRadar.NATS.JetStreamPublish do
 
   The wait is bounded: a subject no stream captures otherwise blocks for Gnat's
   default receive timeout.
+
+  A broker that denies the publish never answers it (see
+  `ServiceRadar.NATS.PublishDenials`). On the shared connection a denied publish
+  therefore fails as `{:error, %ServiceRadar.NATS.PublishDeniedError{}}` rather than
+  `{:error, :timeout}`, and while the denial is held further publishes of that
+  subject fail the same way without being sent. A timeout the broker did not
+  explain as a denial stays `{:error, :timeout}`: a slow broker is not a refusal.
   """
 
   alias ServiceRadar.NATS.Connection
+  alias ServiceRadar.NATS.PublishDenials
+  alias ServiceRadar.NATS.PublishDeniedError
 
   @default_timeout_ms 5_000
 
@@ -27,7 +36,8 @@ defmodule ServiceRadar.NATS.JetStreamPublish do
     * `:timeout` - PubAck wait in milliseconds (default #{@default_timeout_ms})
     * `:request` - `(subject, body, request_opts -> {:ok, %{body: binary}} | {:error, term})`,
       replacing the NATS request. A caller that owns its own connection passes it here;
-      without it the publish uses `ServiceRadar.NATS.Connection`.
+      without it the publish uses `ServiceRadar.NATS.Connection`. Denials are classified
+      only on that shared connection, the one this module can name.
   """
   @spec publish(String.t(), binary(), keyword()) :: :ok | {:error, term()}
   def publish(subject, body, opts \\ []) when is_binary(subject) and is_binary(body) do
@@ -79,8 +89,26 @@ defmodule ServiceRadar.NATS.JetStreamPublish do
 
       nil ->
         with {:ok, conn} <- Connection.get() do
-          Gnat.request(conn, subject, body, request_opts)
+          request_on(conn, subject, body, request_opts)
         end
+    end
+  end
+
+  defp request_on(conn, subject, body, request_opts) do
+    if PublishDenials.held?(conn, subject) do
+      {:error, %PublishDeniedError{subject: subject}}
+    else
+      started_ms = PublishDenials.now_ms()
+
+      case Gnat.request(conn, subject, body, request_opts) do
+        {:error, :timeout} = timeout ->
+          if PublishDenials.denied_since?(conn, subject, started_ms),
+            do: {:error, %PublishDeniedError{subject: subject}},
+            else: timeout
+
+        result ->
+          result
+      end
     end
   end
 end

@@ -11,6 +11,12 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
       the metrics stream) runs BEFORE the transaction, only for a fresh primary delivery, so no
       network call runs inside a database transaction. A replay or a late-fenced delivery is
       not published. A refusal is returned; any other failure raises so JetStream redelivers.
+      A republish the broker denied raises `ServiceRadar.NATS.PublishDeniedError`, which the
+      pipeline dead-letters at once (`ServiceRadar.EventWriter.EdgeRecordDeadLetter.due?/1`):
+      redelivering it cannot succeed until the grant changes.
+
+  Each record of a batch succeeds or fails on its own (`process_batch/1`). A record that raises
+  is the only one redelivered; the records before and after it are acknowledged.
     * A projector's database writes (`project/4`) run inside the transaction, told whether the
       delivery is primary. A replay makes no domain changes; late-fenced deliveries remain
       ledger-only.
@@ -35,7 +41,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
       with `{:ok, ledger_outcome}`. Raising here rolls the whole transaction
       back.
     * `:transaction_result` -- after the transaction returned, with
-      `{:ok, outcome}` or `{:error, reason}`. Raising here fails the batch
+      `{:ok, outcome}` or `{:error, reason}`. Raising here fails the record
       after a commit, so the pipeline NAKs a message whose rows are durable.
 
   The EventWriter pipeline reads the hook from the
@@ -51,6 +57,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   alias ServiceRadar.Edge.PublicationIdentity
   alias Serviceradar.Edge.V1.EdgeRecordV1
   alias ServiceRadar.Edge.WireDecode
+  alias ServiceRadar.NATS.PublishDeniedError
   alias ServiceRadar.Repo
 
   require Logger
@@ -58,18 +65,26 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   @impl true
   def table_name, do: "event_ledger"
 
+  @doc """
+  Ingests each record on its own. Returns `{:ok, count}` when none raised, else
+  `{:incomplete, count, failures}` naming each record that raised with its exception, so only
+  those are redelivered (or dead-lettered). `count` is the records ingested; a refused record
+  is acknowledged without being counted.
+  """
   @impl true
   def process_batch(messages) do
-    count =
-      Enum.reduce(messages, 0, fn message, acc ->
-        acc + process_one(message)
+    {count, failures} =
+      Enum.reduce(messages, {0, []}, fn message, {count, failures} ->
+        case process_one(message) do
+          {:ok, ingested} -> {count + ingested, failures}
+          {:failed, reason} -> {count, [{message, reason} | failures]}
+        end
       end)
 
-    {:ok, count}
-  rescue
-    e ->
-      Logger.error("Edge record batch failed: #{inspect(e)}")
-      {:error, e}
+    case failures do
+      [] -> {:ok, count}
+      failures -> {:incomplete, count, Enum.reverse(failures)}
+    end
   end
 
   defp process_one(%{data: data, metadata: metadata}) when is_binary(data) do
@@ -84,7 +99,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
           %{outcome: outcome}
         )
 
-        1
+        {:ok, 1}
 
       {:error, reason} ->
         :telemetry.execute(
@@ -94,11 +109,20 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
         )
 
         Logger.warning("Edge record rejected", reason: inspect(reason))
-        0
+        {:ok, 0}
     end
+  rescue
+    # The broker's denial is logged once per subject and hold (`BrokerErrorLogFilter`), not
+    # once per record.
+    denied in PublishDeniedError ->
+      {:failed, denied}
+
+    e ->
+      Logger.error("Edge record failed: #{inspect(e)}")
+      {:failed, e}
   end
 
-  defp process_one(_message), do: 0
+  defp process_one(_message), do: {:ok, 0}
 
   # The audit route carries only late-fenced deliveries; `ingest/4` refuses anything else there.
   defp publication_of(%{subject: "telemetry.edge-record-audit." <> _}), do: :audit
@@ -120,8 +144,8 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   `{:refused, :gateway_unknown}`, a header/slot decode reason, or a wire-decode
   reason from `ServiceRadar.Edge.WireDecode`. A metrics publish failure other than
   `:output_grant_not_current` raises before the ledger transaction, so no
-  ledger row is written and `process_batch/1` fails the batch for JetStream
-  redelivery. A domain projection failure that is not an authority refusal
+  ledger row is written and `process_batch/1` fails the record for JetStream
+  redelivery; a publish the broker denied raises `ServiceRadar.NATS.PublishDeniedError`. A domain projection failure that is not an authority refusal
   raises after the transaction rolls back, with the same redelivery.
 
   `opts[:test_hook]` is the test-only hook described in the moduledoc; it
@@ -209,7 +233,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   # transaction never holds a connection across a network round trip. It runs only for a fresh
   # primary delivery: not for a record the ledger already holds (a replay) and not for a
   # late-fenced delivery. A refusal is returned like a projection refusal; any other failure
-  # raises, so the batch fails and JetStream redelivers the record.
+  # raises, so the record fails and JetStream redelivers it.
   defp publish_opts(repo, opts) do
     [repo: repo, gateway_id: Keyword.get(opts, :gateway_id)] ++
       Keyword.take(opts, [:request, :flow_attribution_publisher, :otlp_relay_publisher])
@@ -230,8 +254,15 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
         case projector.publish(record, body, publish_opts(repo, opts)) do
           :ok -> :ok
           {:refused, reason} -> {:error, reason}
-          {:error, reason} -> raise "edge record publish failed: #{inspect(reason)}"
+          {:error, reason} -> raise_publish_failure(reason)
         end
+    end
+  end
+
+  defp raise_publish_failure(reason) do
+    case PublishDeniedError.find(reason) do
+      %PublishDeniedError{} = denied -> raise denied
+      nil -> raise "edge record publish failed: #{inspect(reason)}"
     end
   end
 

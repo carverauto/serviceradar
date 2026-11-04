@@ -36,6 +36,7 @@ defmodule ServiceRadar.NATS.Supervisor do
   use Supervisor
 
   alias ServiceRadar.NATS.BrokerErrorLogFilter
+  alias ServiceRadar.NATS.PublishDenials
 
   require Logger
 
@@ -107,6 +108,9 @@ defmodule ServiceRadar.NATS.Supervisor do
 
   @impl true
   def init(_opts) do
+    # Owned here, by a process as long-lived as the connections whose denials it records.
+    :ok = PublishDenials.init()
+
     case connection_settings() do
       {:ok, settings, backoff_period} ->
         children = child_specs(connection_names(), settings, backoff_period)

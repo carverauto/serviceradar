@@ -49,6 +49,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   alias ServiceRadar.EventWriter.Processors.PowerDNS
   alias ServiceRadar.EventWriter.Processors.Telemetry
   alias ServiceRadar.EventWriter.Telemetry, as: EventWriterTelemetry
+  alias ServiceRadar.NATS.PublishDeniedError
   alias ServiceRadar.Otel
   alias ServiceRadar.Otel.Propagation
 
@@ -369,20 +370,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
       {:incomplete, count, failures} ->
         failed_by_message = Map.new(failures, fn {message, reason} -> {message, reason} end)
         reason = failures |> hd() |> elem(1)
-
-        if retryable_alert_evaluation_reason?(reason) do
-          Logger.info("Batch deferred until alert evaluation is ready",
-            batcher: batcher,
-            reason: inspect(reason),
-            message_count: map_size(failed_by_message)
-          )
-        else
-          Logger.error("Batch processing failed",
-            batcher: batcher,
-            reason: inspect(reason),
-            message_count: map_size(failed_by_message)
-          )
-        end
+        log_batch_failure(batcher, reason, map_size(failed_by_message))
 
         EventWriterTelemetry.emit_batch(:ok, messages, count, duration, %{
           stream: batcher,
@@ -408,19 +396,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
           %{stream: batcher, processor: processor, reason: inspect(reason)}
         )
 
-        if retryable_alert_evaluation_reason?(reason) do
-          Logger.info("Batch deferred until alert evaluation is ready",
-            batcher: batcher,
-            reason: inspect(reason),
-            message_count: length(messages)
-          )
-        else
-          Logger.error("Batch processing failed",
-            batcher: batcher,
-            reason: inspect(reason),
-            message_count: length(messages)
-          )
-
+        if log_batch_failure(batcher, reason, length(messages)) == :error do
           # No-op when no batch span is active (telemetry subjects).
           Otel.set_error(reason)
         end
@@ -429,20 +405,50 @@ defmodule ServiceRadar.EventWriter.Pipeline do
     end
   end
 
+  # Returns the level it logged at. A deferred alert evaluation is expected backpressure. A
+  # denied republish is logged once per subject by the broker error filter and dead-lettered
+  # (`EdgeRecordDeadLetter.terminal?/1`), so it is not logged again for every batch.
+  defp log_batch_failure(batcher, reason, message_count) do
+    {level, text} =
+      cond do
+        retryable_alert_evaluation_reason?(reason) ->
+          {:info, "Batch deferred until alert evaluation is ready"}
+
+        match?(%PublishDeniedError{}, reason) ->
+          {:debug, "Batch holds records whose republish the NATS broker denied"}
+
+        true ->
+          {:error, "Batch processing failed"}
+      end
+
+    Logger.log(level, text,
+      batcher: batcher,
+      reason: inspect(reason),
+      message_count: message_count
+    )
+
+    level
+  end
+
   @impl true
   def handle_failed(messages, _context) do
     Enum.each(messages, fn message ->
-      if retryable_alert_evaluation_status?(message.status) do
-        Logger.debug("Message deferred until alert evaluation is ready",
-          subject: message.metadata[:subject],
-          reason: inspect(message.status)
-        )
-      else
-        Logger.warning("Message failed",
-          subject: message.metadata[:subject],
-          reason: inspect(message.status)
-        )
-      end
+      {level, text} =
+        cond do
+          retryable_alert_evaluation_status?(message.status) ->
+            {:debug, "Message deferred until alert evaluation is ready"}
+
+          EdgeRecordDeadLetter.terminal?(message) ->
+            {:debug, "Message republish denied by the NATS broker; dead-lettering it"}
+
+          true ->
+            {:warning, "Message failed"}
+        end
+
+      Logger.log(level, text,
+        subject: message.metadata[:subject],
+        reason: inspect(message.status)
+      )
     end)
 
     messages
