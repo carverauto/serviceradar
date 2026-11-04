@@ -68,8 +68,11 @@
   whose exact bundle digest its own catalog holds; delivery grants for
   draining-epoch backlog follow the projection rule instead. Project by
   compatibility: same contract id and version, and the node's
-  `projection_revision` at least the record's bundle revision. Hold records no live core can project, unacknowledged
-  and counted as awaiting roll-forward. Refresh `last_matched_at` from the
+  `projection_revision` at least the record's bundle revision. For a bundle no
+  live core can project: revoke its grants and leases, publish the projectable
+  bundle set with the trust document, and move bulk-stream records to
+  `TELEMETRY_EDGE_RECORD_DLQ_V1_BULK` under `awaiting_roll_forward` with their
+  original bytes, redriving them through the ledger on roll-forward. Refresh `last_matched_at` from the
   coordinator while a live core node matches the candidate, retire the candidate unactivated once it
   is older than a full capability-lifetime window, and drop it from the trust
   document.
@@ -85,7 +88,8 @@
   superseding lease replaces unstarted slots without stranding a started one.
 - [ ] 1.7 Compute `drain_until` at activation and retire on schedule. Keep issuing
   delivery grants for draining epochs, and never issue them for retired ones.
-- [ ] 1.8 Add pipeline status: the records awaiting roll-forward, the active,
+- [ ] 1.8 Add pipeline status: the `awaiting_roll_forward` counts (agent spool
+  refusals and dead-lettered records), the active,
   candidate and draining epochs, the components not holding a candidate, and the issuer key presence. Expose it
   through core's health API.
 
@@ -125,6 +129,8 @@
   starts, and make core the default trust source. Rewrite the `runtime.exs`
   comment that says the pipeline stays off.
 - [ ] 3.4 Report installed snapshot digests on each refresh.
+- [ ] 3.5 Refuse a record whose bundle is outside the projectable set in the
+  trust document with a retryable refusal, so the agent keeps it spooled.
 
 ## 4. Agent
 
@@ -175,9 +181,11 @@ Load the `test-audit` skill before writing these.
   - retirement time;
   - superseded-node signing under the active epoch, including B to C to a
     rollback to B;
-  - a whole-fleet rollback after a contract version bump: no new signatures for
-    the bumped entry, unchanged entries still signed, in-flight records held as
-    awaiting roll-forward and drained after roll-forward;
+  - a whole-fleet rollback after a contract version bump: no new signatures and
+    revoked grants for the bumped entry, unchanged entries still signed, gateway
+    retryable refusals, bulk-stream records dead-lettered as
+    `awaiting_roll_forward` with original bytes, and all of them drained or
+    redriven after roll-forward;
   - a forward upgrade that changes a bundle at the same contract version: the old
     backlog gets delivery grants, projects on the new release and nothing awaits
     roll-forward;

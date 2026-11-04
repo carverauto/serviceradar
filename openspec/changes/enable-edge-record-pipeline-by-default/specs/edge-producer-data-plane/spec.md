@@ -96,16 +96,24 @@ capabilities, leases, and delivery grants under the active epoch using that
 epoch's persisted, signature-verified document. Every core node SHALL sign under
 the active epoch only for contract entries whose exact bundle digest its own
 catalog holds; it SHALL give entries it does not hold no new signatures, and their
-existing grants SHALL run to expiry. A delivery grant for a draining-epoch backlog
+existing grants SHALL run to expiry unless no live core node can project the
+bundle. A delivery grant for a draining-epoch backlog
 record SHALL instead follow the projection rule, not the exact-digest rule. A
 core node SHALL be able to project a record when its catalog holds an entry with
 the record's contract id and contract version whose `projection_revision` is
 greater than or equal to the record's bundle revision, read from the entry of the
-epoch the record names. A record that no live core node can project SHALL be
-held durably and SHALL NOT be acknowledged, dropped or rejected; it SHALL be
-counted, reported as awaiting roll-forward in pipeline status, and drained when a
-node that can project it returns. No record SHALL be acknowledged, dropped or
-rejected because of a bundle digest mismatch alone. A superseded core node SHALL
+epoch the record names. When no live core node can project a bundle, core SHALL
+hold its records without relying on the bulk stream's age, discard or
+redelivery limits: it SHALL revoke the grants and leases for that bundle; it SHALL
+publish the set of projectable bundles with the trust and registry delivery, and
+gateways SHALL refuse records under any other bundle with a retryable refusal so
+the agent keeps them in its spool; and EventWriter SHALL publish any such record
+already in `TELEMETRY_EDGE_RECORD_V1_BULK`, with its original bytes, to
+`TELEMETRY_EDGE_RECORD_DLQ_V1_BULK` under the reason `awaiting_roll_forward`, and
+redrive it through the ingest ledger when a node that can project it returns. The
+hold SHALL be bounded by the agent spool budget and the dead-letter stream's
+retention, and pipeline status SHALL report `awaiting_roll_forward` counts. No
+record SHALL be dropped or rejected because of a bundle digest mismatch alone. A superseded core node SHALL
 NOT sign under its own catalog, insert or claim a candidate, count toward activation readiness, or
 change the active epoch. The one exception is a core node whose digest matches
 only an epoch retired without activation while no candidate exists: it SHALL
@@ -136,11 +144,16 @@ exists, core SHALL activate the first candidate immediately.
 - **AND** agents hold grants and have records in flight under the bumped bundle
 - **WHEN** every core node is rolled back to a catalog matching 1_000_001
 - **THEN** no core node signs a new grant, lease or delivery grant for the bumped
-  entry, and its existing grants run to expiry while producers back-pressure
+  entry, and core revokes its existing grants and leases
 - **AND** entries whose bundle digest is unchanged keep being signed under 1_000_002
-- **AND** in-flight records under the bumped bundle are held durably, counted and
-  reported as awaiting roll-forward, never dropped or rejected
-- **AND** they drain once a core node that can project them returns
+- **AND** gateways refuse records under the bumped bundle with a retryable
+  refusal, so agents keep them in their spools and back-pressure
+- **AND** records under the bumped bundle already in the bulk stream move to the
+  dead-letter stream with their original bytes under `awaiting_roll_forward`
+- **AND** pipeline status reports `awaiting_roll_forward` counts, and no record
+  is dropped or rejected
+- **AND** once a core node that can project them returns, gateways admit the
+  spooled records and the dead-lettered records are redriven through the ledger
 
 #### Scenario: A rollback past a superseded candidate keeps signing
 - **GIVEN** epoch 1_000_000 is active
@@ -244,7 +257,7 @@ permanent rejection, `registry_epoch_retired`. It SHALL NOT be withheld.
 - **WHEN** every core node runs the new release and epoch 1_000_001 activates
 - **THEN** the backlog under 1_000_000's X bundle is admitted and projected by the
   new release's nodes, because their X `projection_revision` is higher
-- **AND** none of it is reported as awaiting roll-forward
+- **AND** none of it is reported as `awaiting_roll_forward`
 - **AND** the lane watermark advances
 
 #### Scenario: A release reverts a bundle change at the same contract version

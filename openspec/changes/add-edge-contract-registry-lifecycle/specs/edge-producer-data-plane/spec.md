@@ -120,7 +120,9 @@ close.
 - **AND** a record SHALL be projected by any core node whose catalog holds the
   same contract id and version at a `projection_revision` greater than or equal
   to the record's bundle revision
-- **AND** records no live core node can project SHALL be held durably as
-  awaiting roll-forward, never dropped or rejected
+- **AND** records no live core node can project SHALL be held as
+  `awaiting_roll_forward` (grants revoked, retryable gateway refusal, bulk-stream
+  backlog dead-lettered with original bytes and redriven), never dropped or
+  rejected
 - **AND** it SHALL NOT roll the deployment backward or reinterpret records under
   its local latest-known bundle

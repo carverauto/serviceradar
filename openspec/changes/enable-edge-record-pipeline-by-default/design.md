@@ -187,7 +187,9 @@ Rejected: comments and refactors would move the digest and force needless epochs
   key id (Decision 12). The gateway rebuilds the signed preimage, including each
   `projection_revision`, from these entries. The gateway verifies every
   epoch signature before it installs anything from the registry member, and it
-  installs trust and the verified registry from the same core read. A registry
+  installs trust and the verified registry from the same core read. The member
+  also carries the set of bundle digests that some live core node can project
+  (Decision 4); the gateway refuses records outside it with a retryable refusal. A registry
   member that fails verification is refused whole: the gateway installs the new
   trust, keeps its previously verified registry, and surfaces the refusal
   (Decision 12). The registry is a few hundred bytes per epoch, so riding the
@@ -253,10 +255,11 @@ retired unactivated. An epoch is retired unactivated when it is `retired` with n
   whose exact bundle digest its own catalog holds, so a node never authorizes
   production of records it cannot project. A delivery grant for a draining-epoch
   backlog record is the exception: it follows the projection rule, not the
-  exact-digest rule, so a forward upgrade's backlog can still be delivered. Entries it does not hold get no new
-  signatures from that node. Their existing grants run to expiry, and producers
-  back-pressure as they do without a grant. Signing is keyed on the exact bundle;
-  projection is not.
+  exact-digest rule, so a forward upgrade's backlog can still be delivered.
+  Entries it does not hold get no new signatures from that node. Their existing
+  grants run to expiry unless no live core node can project the bundle, in which
+  case core revokes them (below). Producers back-pressure as they do without a
+  grant. Signing is keyed on the exact bundle; projection is not.
 - **Projection rule.** A core node can project a record when its catalog holds
   an entry with the record's `contract_id` and `contract_version` whose
   `projection_revision` is greater than or equal to the record's bundle
@@ -265,11 +268,29 @@ retired unactivated. An epoch is retired unactivated when it is `retired` with n
   guarantees: a new projector reads old bundles of the same version, and an old
   projector is never assumed to read a newer one. Because revisions are strictly
   monotonic, a revert never makes a newer node look older than its records.
-- **Records no live core can project.** A record that no live core node can
-  project under the projection rule is held durably: EventWriter leaves it
-  unacknowledged. It is counted and reported as `awaiting roll-forward` in
-  pipeline status, and it drains when a node that can project it returns. No
-  record is acknowledged, dropped or rejected because of a digest mismatch alone.
+- **Records no live core can project.** When core finds a bundle that no live
+  core node can project under the projection rule, it holds that bundle's
+  records at three layers. The hold never relies on the bulk stream's
+  `max_age`, discard policy or `max_deliver`.
+  1. *Production stops.* Core revokes the grants and leases for that bundle,
+     with the revocation authority it already uses for superseded agents.
+  2. *Admission stops.* Core publishes the set of projectable bundles with the
+     trust and registry delivery (Decision 3). A gateway refuses a record whose
+     bundle is outside that set with a retryable refusal, never a rejection.
+     The agent keeps the record in its durable, byte-bounded spool and
+     back-pressures, as it does without a grant.
+  3. *Stream backlog moves to the dead-letter stream.* A record already in
+     `TELEMETRY_EDGE_RECORD_V1_BULK` that EventWriter cannot project is
+     published, with its original bytes, to the existing generic dead-letter
+     stream `TELEMETRY_EDGE_RECORD_DLQ_V1_BULK` (#6295) under the reason
+     `awaiting_roll_forward`, and then acknowledged on the bulk stream. When a
+     node that can project it returns, it is redriven through the ingest
+     ledger, so a redrive is idempotent.
+
+  The bound on the hold is the agent spool budget for records not yet admitted,
+  and the dead-letter stream's retention for records already admitted. Pipeline
+  status shows `awaiting_roll_forward` counts for both. No record is dropped or
+  rejected because of a digest mismatch alone.
 - **Redeploying an abandoned catalog.** The one exception: a node whose digest
   matches only an epoch retired unactivated, while no candidate exists, inserts
   its catalog as a new candidate under a new epoch number, so redeploying a

@@ -17,7 +17,10 @@ verified registry, and SHALL still install the document's trust. It SHALL
 surface the refusal in an error log naming the epoch and key id, in a counter,
 and in its next refresh report to core. A gateway that refused a candidate SHALL
 NOT be counted as holding it. The gateway SHALL report the snapshot digests it
-installed on its next refresh. The gateway SHALL NOT read a registry from its
+installed on its next refresh. The document SHALL also carry the set of bundle
+digests that some live core node can project, and the gateway SHALL refuse a
+record under any other bundle with a retryable refusal, never a rejection. The
+gateway SHALL NOT read a registry from its
 environment or from Helm values. A gateway with no verified registry, or whose
 trust has expired, SHALL withhold records, never reject them.
 
