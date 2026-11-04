@@ -8,13 +8,17 @@ or configures the durable edge-record pipeline. That covers the contract registr
 the issuer key, producer opt-ins, and the spool budget. The chart SHALL fail to
 render, with a message that names the removed `edgeRecords` block and says to
 delete it, when any `edgeRecords` key is set. The gateway's NATS publish
-permissions for the edge-record subjects SHALL be unconditional. The secret
-generator SHALL NOT generate an edge issuer seed.
+permissions for the edge-record subjects SHALL be unconditional. For the cutover
+release only, the secret generator SHALL keep generating `edge-issuer-seed` and
+core SHALL keep its mount and `SERVICERADAR_EDGE_ISSUER_KEY_FILE`, ungated, as the
+one-time import input for the issuer key; the release after cutover removes them.
 
 #### Scenario: An install from default values
 - **WHEN** the chart renders with its default values
-- **THEN** no edge-record enable variable, registry variable, or issuer key mount is
-  rendered for core or the gateway
+- **THEN** no edge-record enable variable or registry variable is rendered for
+  core or the gateway
+- **AND** in the cutover release core renders the issuer key mount and
+  `SERVICERADAR_EDGE_ISSUER_KEY_FILE`
 - **AND** the gateway may publish to the edge-record subjects
 
 #### Scenario: Values from before the switch are still set
