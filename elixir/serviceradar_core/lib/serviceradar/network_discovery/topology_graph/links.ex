@@ -14,7 +14,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
 
   # Skip re-applying a mapper report whose projected link content is unchanged from
   # the last applied report for the same device scope. The per-link backbone/
-  # auxiliary MERGEs (and the canonical rebuild they trigger) rewrite Device/
+  # auxiliary MERGEs rewrite Device/
   # Interface vertices and edges on every report regardless of change; gating the
   # whole apply on a structural fingerprint stops that churn for a static topology.
   # A heartbeat still re-applies periodically so stale-link pruning advances.
@@ -22,11 +22,11 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
   # This per-report guard is intentionally an in-process persistent_term fast path
   # (not the durable shared meta-table guard used by CanonicalRebuild). It is keyed
   # per device scope, so making it cross-replica would mean one meta row per scope
-  # — extra schema/write surface for a smaller win. The expensive downstream work
-  # this guard protects (CanonicalRebuild.rebuild_canonical_device_links/0) is now
-  # itself durably + cross-replica gated, so a process-local miss here after a
-  # restart re-walks the cheap per-link MERGEs but no longer forces a cold full
-  # canonical rebuild. phash2 is acceptable here because the value is per-process
+  # — extra schema/write surface for a smaller win. The canonical rebuild
+  # (CanonicalRebuild.rebuild_canonical_device_links/0) runs in
+  # run_global_passes/0, not here, and is itself durably + cross-replica gated,
+  # so a process-local miss here after a restart re-walks only the cheap per-link
+  # MERGEs. phash2 is acceptable here because the value is per-process
   # and never persisted, so OTP-upgrade instability cannot survive a restart.
   @default_unchanged_report_heartbeat_ms 3_600_000
 
@@ -62,8 +62,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
       )
 
     # Dgraph receives every link whose AGE write succeeded in one batch, before
-    # pruning and the canonical rebuild read the graph back, as when each link
-    # was written in turn.
+    # pruning reads the graph back, as when each link was written in turn.
     with :ok <- DgraphPersist.upsert_links(Enum.reverse(dgraph_links)) do
       Pruning.maybe_prune_unseen_projected_links(neighbor_index)
       Pruning.maybe_prune_stale_projected_links(MapSet.to_list(local_device_ids))

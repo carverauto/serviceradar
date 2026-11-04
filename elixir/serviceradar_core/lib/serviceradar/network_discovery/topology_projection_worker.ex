@@ -7,7 +7,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
   `MapperResultsIngestor` commits the authoritative CNPG rows inside its lane
   worker and then calls `enqueue/2` with the records it just committed. Each
   job carries one device id and nothing else. The graph projection, which
-  makes Dgraph round trips and may run pruning and the canonical rebuild, no
+  makes Dgraph round trips and runs pruning, no
   longer counts against the lane's worker budget, so a slow graph backend
   cannot time a mapper result out and lose it.
 

@@ -17,7 +17,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
   @doc """
   Projects one mapper topology report: AGE (when written) per link, then every
-  link into Dgraph in one batch, then pruning and the canonical rebuild.
+  link into Dgraph in one batch, then pruning of the reported devices' links.
+  The graph-wide passes run separately in `run_global_passes/0`.
   Returns `{:error, reason}` when the Dgraph batch fails, so the caller can
   retry the whole idempotent apply.
   """

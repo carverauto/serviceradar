@@ -105,7 +105,7 @@ repeats it verbatim.
 
 Mapper ingestion commits interface and topology evidence to CNPG first, inside
 the result-ingestion lane's worker budget. The graph write (AGE when written,
-Dgraph when written, then pruning and canonical reconciliation) runs afterwards
+Dgraph when written, then pruning of that device's links) runs afterwards
 as a `TopologyProjectionWorker` job on the `topology_projection` Oban queue
 (`OBAN_QUEUE_TOPOLOGY_PROJECTION`, default 2 per core node). A slow or
 unavailable Dgraph therefore delays the graph instead of timing the mapper
