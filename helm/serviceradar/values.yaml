@@ -1839,7 +1839,8 @@ agent:
       cpu: 200m
       memory: 512Mi
 # Durable edge-record pipeline. Core lease settings select participating agents/groups.
-# contractRegistry is the installation-static document consumed by core and gateway.
+# contractRegistry is the installation-static document the gateway admits against;
+# core derives and signs its own registry from the release contract catalog.
 # agentMetricsEnabled lets the in-cluster agent emit metric batches as edge records once
 # core grants it the serviceradar.metrics.batch contract (registered in contractRegistry
 # and the agent's leasing switch on); without a grant it keeps the status path. With it,
