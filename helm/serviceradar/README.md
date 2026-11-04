@@ -445,8 +445,11 @@ identities in a deployment.
 The gateway's registry is installation-static and unsigned. Until the gateway
 admits against core's signed registry epochs, it withholds records core signs
 under an epoch newer than its static document's (`registry_epoch_ahead`).
-Hash the canonical registry body before adding `registry_snapshot_sha256`, and
-keep that exact document on every gateway throughout the run.
+Copy the signed active epoch into the static document: its `registry_epoch`,
+its `registry_snapshot_sha256`, and each contract's bundle digest. A hash of
+the document body matches neither, so the gateway withholds every record as
+`registry_snapshot_mismatch`. Keep that exact document on every gateway
+throughout the run.
 
 The secret generator creates an `edge-issuer-seed` once and preserves it on
 upgrade. Only core mounts this Ed25519 seed. If `secrets.autoGenerate=false`,
