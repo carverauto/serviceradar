@@ -43,6 +43,10 @@ const (
 	pluginResultStreamTimeoutPerWave         = 30 * time.Second
 	pluginResultStreamTimeoutGrace           = 15 * time.Second
 	pluginResultRetainedDeliveryCapabilityV1 = "plugin-result-retained:v1"
+
+	rperfServiceType   = "rperf"
+	rperfCheckerName   = "rperf-checker"
+	rperfMetricsSource = "rperf-metrics"
 )
 
 // pushRegularStatuses sends non-sysmon statuses via PushStatus.
@@ -644,7 +648,7 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 			}
 			if serviceType == "" {
 				if rperfStatus(serviceName, "") {
-					serviceType = "rperf"
+					serviceType = rperfServiceType
 				} else {
 					serviceType = sweepType
 				}
@@ -769,7 +773,7 @@ func (p *PushLoop) convertToGatewayStatus(resp *proto.StatusResponse, serviceNam
 
 func defaultStatusSource(resp *proto.StatusResponse, serviceName string, serviceType string) string {
 	if rperfStatus(serviceName, serviceType) && metricEnvelopePayload(resp.GetMessage()) {
-		return "rperf-metrics"
+		return rperfMetricsSource
 	}
 
 	return "status"
@@ -779,11 +783,11 @@ func rperfStatus(serviceName string, serviceType string) bool {
 	serviceName = strings.ToLower(strings.TrimSpace(serviceName))
 	serviceType = strings.ToLower(strings.TrimSpace(serviceType))
 
-	return serviceType == "rperf" ||
-		serviceType == "rperf-checker" ||
+	return serviceType == rperfServiceType ||
+		serviceType == rperfCheckerName ||
 		serviceType == "network_performance" ||
-		serviceName == "rperf" ||
-		serviceName == "rperf-checker"
+		serviceName == rperfServiceType ||
+		serviceName == rperfCheckerName
 }
 
 func isRperfMetricsService(svc Service) bool {
@@ -797,7 +801,7 @@ func isRperfMetricsService(svc Service) bool {
 		if rperfStatus(svc.Name(), routing.StatusServiceType()) {
 			return true
 		}
-		if strings.EqualFold(strings.TrimSpace(routing.StatusSource()), "rperf-metrics") {
+		if strings.EqualFold(strings.TrimSpace(routing.StatusSource()), rperfMetricsSource) {
 			return true
 		}
 	}
@@ -805,7 +809,7 @@ func isRperfMetricsService(svc Service) bool {
 }
 
 func isRperfMetricsPayload(resp *proto.StatusResponse, serviceName, serviceType, source string) bool {
-	if source == "rperf-metrics" {
+	if source == rperfMetricsSource {
 		return true
 	}
 	if !rperfStatus(serviceName, serviceType) || resp == nil {

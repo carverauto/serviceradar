@@ -50,6 +50,7 @@ const (
 var (
 	errEdgeMetricsRecordTooLarge = errors.New("metric item exceeds one edge record")
 	errRperfNoMetricPoints       = errors.New("rperf payload has no metric points")
+	errRperfSchemaVersion        = errors.New("unexpected rperf metric batch schema_version")
 )
 
 // edgeProducer names an edge-record producer in drop telemetry.
@@ -751,7 +752,7 @@ func (p *PushLoop) buildRperfMetricBatch(
 		return nil, fmt.Errorf("decode rperf metric batch: %w", err)
 	}
 	if batch.GetSchemaVersion() != "" && batch.GetSchemaVersion() != metricEnvelopeSchemaVersion {
-		return nil, fmt.Errorf("unexpected rperf metric batch schema_version %q", batch.GetSchemaVersion())
+		return nil, fmt.Errorf("%w %q", errRperfSchemaVersion, batch.GetSchemaVersion())
 	}
 	if len(batch.GetMetrics()) == 0 {
 		return nil, errRperfNoMetricPoints
@@ -765,16 +766,16 @@ func (p *PushLoop) buildRperfMetricBatch(
 		firstMetricNonEmpty(ctx.AgentID, statusResp.GetAgentId(), res.GetAgentId()),
 		firstMetricNonEmpty(ctx.GatewayID, statusResp.GetGatewayId(), res.GetGatewayId()),
 		firstMetricNonEmpty(ctx.Partition, res.GetPartition()),
-		firstMetricNonEmpty(res.GetServiceName(), statusResp.GetServiceName(), serviceName, "rperf"),
-		firstMetricNonEmpty(res.GetServiceType(), statusResp.GetServiceType(), serviceType, "rperf"),
+		firstMetricNonEmpty(res.GetServiceName(), statusResp.GetServiceName(), serviceName, rperfServiceType),
+		firstMetricNonEmpty(res.GetServiceType(), statusResp.GetServiceType(), serviceType, rperfServiceType),
 		firstMetricNonEmpty(res.GetHostId(), meta.Hostname),
 		firstMetricNonEmpty(res.GetHostIp(), p.getSourceIP()),
 		firstMetricNonEmpty(ctx.KvStoreID, res.GetKvStoreId()),
 	)
 	ingest := batch.GetIngestIdentity()
 	batch.IngestIdentity = metricIngest(
-		"rperf-metrics",
-		"rperf-checker",
+		rperfMetricsSource,
+		rperfCheckerName,
 		firstMetricNonEmpty(ctx.AgentID, statusResp.GetAgentId(), ingest.GetProducerId()),
 		firstMetricNonEmpty(ctx.GatewayID, statusResp.GetGatewayId(), ingest.GetAttestedBy()),
 	)
