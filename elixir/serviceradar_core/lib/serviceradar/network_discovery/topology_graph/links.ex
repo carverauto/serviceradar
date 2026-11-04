@@ -238,7 +238,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
     :telemetry.execute(
       [:serviceradar, :mapper_topology, :neighbor_dropped],
       %{count: 1},
-      %{reason: reason, protocol: Utils.link_value(link, :protocol) || "unknown"}
+      %{reason: reason, protocol: Utils.non_blank(Utils.link_value(link, :protocol)) || "unknown"}
     )
   end
 

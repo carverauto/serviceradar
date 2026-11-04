@@ -12,7 +12,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Projection.Payload do
       neighbor_port = neighbor_port(link)
       neighbor_interface_id = neighbor_interface_id(neighbor_device_id, neighbor_port)
       metadata = Utils.link_value(link, :metadata) || %{}
-      protocol = Utils.link_value(link, :protocol) || "unknown"
+      protocol = Utils.non_blank(Utils.link_value(link, :protocol)) || "unknown"
       source = Utils.map_value(metadata, :source) || protocol
 
       evidence_class =
@@ -36,7 +36,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Projection.Payload do
         neighbor_interface_id: neighbor_interface_id,
         protocol: protocol,
         local_if_name: Utils.link_value(link, :local_if_name),
-        local_if_index: Utils.link_value(link, :local_if_index),
+        local_if_index: local_if_index(link),
         neighbor_port_name: neighbor_port,
         neighbor_name: Utils.link_value(link, :neighbor_system_name),
         neighbor_ip: Utils.link_value(link, :neighbor_mgmt_addr),
@@ -56,8 +56,15 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Projection.Payload do
     Utils.interface_id(
       local_device_id,
       Utils.link_value(link, :local_if_name),
-      Utils.link_value(link, :local_if_index)
+      local_if_index(link)
     ) || Utils.default_interface_id(local_device_id, "unknown-local")
+  end
+
+  defp local_if_index(link) do
+    case Utils.link_value(link, :local_if_index) do
+      0 -> nil
+      index -> index
+    end
   end
 
   defp neighbor_port(link) do
