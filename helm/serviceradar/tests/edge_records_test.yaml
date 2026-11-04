@@ -4,18 +4,7 @@ templates:
 - templates/agent-gateway.yaml
 - templates/serviceradar-config.yaml
 tests:
-- it: leaves edge publishing disabled by default
-  asserts:
-  - notContains:
-      path: spec.template.spec.containers[0].env
-      content:
-        name: AGENT_GATEWAY_EDGE_RECORDS_ENABLED
-        value: 'true'
-    template: templates/agent-gateway.yaml
-    documentSelector:
-      path: kind
-      value: Deployment
-- it: mounts the issuer seed only on core and enables runtime trust on the gateway
+- it: mounts the issuer seed only on core and sets no edge-record env on the gateway
   set:
     edgeRecords.enabled: true
     edgeRecords.contractRegistry:
@@ -44,11 +33,26 @@ tests:
     documentSelector:
       path: kind
       value: Deployment
-  - contains:
+  - notContains:
       path: spec.template.spec.containers[0].env
-      content:
-        name: AGENT_GATEWAY_EDGE_RECORD_TRUST_SOURCE
-        value: core
+      content: {name: AGENT_GATEWAY_EDGE_RECORDS_ENABLED}
+      any: true
+    template: templates/agent-gateway.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+  - notContains:
+      path: spec.template.spec.containers[0].env
+      content: {name: AGENT_GATEWAY_EDGE_RECORD_TRUST_SOURCE}
+      any: true
+    template: templates/agent-gateway.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+  - notContains:
+      path: spec.template.spec.containers[0].env
+      content: {name: AGENT_GATEWAY_EDGE_RECORD_CONTRACT_REGISTRY}
+      any: true
     template: templates/agent-gateway.yaml
     documentSelector:
       path: kind
