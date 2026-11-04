@@ -66,35 +66,39 @@ const (
 // them (MetricsBatchProjection's metrics.<family>.<type>.<name>, so a sweep
 // summary is metrics.sweep.sweep.<name>; TelemetryBatch; OtlpRelay; the
 // edge-record dead letter).
-var coreAllowedSubjects = []string{
-	"scans.results.run01",
-	"mtr.results.ingest",
-	"events.example",
-	"metrics.event_writer.warehouse",
-	"metrics.sysmon.sysmon_cpu.cpu_usage_percent",
-	"metrics.snmp.snmp.ifinoctets",
-	"metrics.icmp.icmp.response_time_ms",
-	"metrics.rperf.throughput.bits_per_second",
-	"metrics.mtr.mtr.hop_loss_pct",
-	"metrics.sweep.sweep.sweep_total_hosts",
-	"metrics.timeseries.custom.synthetic_value",
-	"flows.attribution.observations",
-	"otel.traces.raw",
-	"logs.otel",
-	"otel.metrics.raw",
-	"otel.metrics.derived",
-	"telemetry.edge-record-dlq.v1.bulk.synthetic",
-	"vulnerability.assessment.transitions.7",
-	"metrics.exposure_transitions",
-	"exposure.delivery.recovery.3.synthetic-operation",
-	"exposure.snapshots.1.device-3.1",
+func coreAllowedSubjects() []string {
+	return []string{
+		"scans.results.run01",
+		"mtr.results.ingest",
+		"events.example",
+		"metrics.event_writer.warehouse",
+		"metrics.sysmon.sysmon_cpu.cpu_usage_percent",
+		"metrics.snmp.snmp.ifinoctets",
+		"metrics.icmp.icmp.response_time_ms",
+		"metrics.rperf.throughput.bits_per_second",
+		"metrics.mtr.mtr.hop_loss_pct",
+		"metrics.sweep.sweep.sweep_total_hosts",
+		"metrics.timeseries.custom.synthetic_value",
+		"flows.attribution.observations",
+		"otel.traces.raw",
+		"logs.otel",
+		"otel.metrics.raw",
+		"otel.metrics.derived",
+		"telemetry.edge-record-dlq.v1.bulk.synthetic",
+		"vulnerability.assessment.transitions.7",
+		"metrics.exposure_transitions",
+		"exposure.delivery.recovery.3.synthetic-operation",
+		"exposure.snapshots.1.device-3.1",
+	}
 }
 
-var coreDeniedSubjects = []string{
-	"$JS.API.STREAM.PURGE.EXPOSURE_RECOVERY",
-	"$JS.API.STREAM.DELETE.EXPOSURE_RECOVERY",
-	"$JS.API.STREAM.PURGE.TELEMETRY_EDGE_RECORD_DLQ_V1_BULK",
-	"zz.not.allowed",
+func coreDeniedSubjects() []string {
+	return []string{
+		"$JS.API.STREAM.PURGE.EXPOSURE_RECOVERY",
+		"$JS.API.STREAM.DELETE.EXPOSURE_RECOVERY",
+		"$JS.API.STREAM.PURGE.TELEMETRY_EDGE_RECORD_DLQ_V1_BULK",
+		"zz.not.allowed",
+	}
 }
 
 // TestCoreCanPublishToChartSubjects boots nats-server from the configuration
@@ -158,7 +162,9 @@ func assertCorePublishes(t *testing.T, srv *server.Server, pki *testPKI) {
 	tools := pki.connect(t, srv, toolsSubject, nil)
 	core, coreErrs := pki.connectTracked(t, srv, coreSubject)
 
-	all := append(append([]string{}, coreAllowedSubjects...), coreDeniedSubjects...)
+	allowed := coreAllowedSubjects()
+	denied := coreDeniedSubjects()
+	all := append(append([]string{}, allowed...), denied...)
 	received := make(map[string]chan struct{})
 
 	for _, subject := range all {
@@ -186,12 +192,12 @@ func assertCorePublishes(t *testing.T, srv *server.Server, pki *testPKI) {
 
 	// The server answers publishes on one connection in order, so once the
 	// violation for the last subject has arrived every earlier verdict has too.
-	last := coreDeniedSubjects[len(coreDeniedSubjects)-1]
+	last := denied[len(denied)-1]
 	if !coreErrs.waitFor(last, 5*time.Second) {
 		t.Fatalf("expected a permissions violation for %s, got %v", last, coreErrs.all())
 	}
 
-	for _, subject := range coreAllowedSubjects {
+	for _, subject := range allowed {
 		select {
 		case <-received[subject]:
 		case <-time.After(5 * time.Second):
@@ -203,7 +209,7 @@ func assertCorePublishes(t *testing.T, srv *server.Server, pki *testPKI) {
 		}
 	}
 
-	for _, subject := range coreDeniedSubjects {
+	for _, subject := range denied {
 		if !coreErrs.has(subject) {
 			t.Errorf("expected permission denial for %s", subject)
 		}
