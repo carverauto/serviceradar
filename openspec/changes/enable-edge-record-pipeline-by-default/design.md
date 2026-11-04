@@ -231,16 +231,28 @@ retired unactivated. An epoch is retired unactivated when it is `retired` with n
   `active` or `candidate` row is superseded: its catalog matches only a
   `draining` or `retired` row, or only an epoch retired unactivated. It keeps
   signing under the active epoch with that epoch's persisted, signature-verified
-  document, exactly as a candidate-release node does (Decision 5 step 1), so
-  grants, leases and delivery grants keep flowing through a rollback. It never
-  signs under its own catalog, never inserts or claims a candidate, and never
-  counts toward activation readiness. It still projects records for epochs whose
-  contracts its catalog holds. A downgrade therefore never moves the active epoch
-  backward.
+  document, exactly as a candidate-release node does (Decision 5 step 1), subject
+  to the per-entry signing rule below. It never signs under its own catalog,
+  never inserts or claims a candidate, and never counts toward activation
+  readiness. It still projects records for epochs whose contracts its catalog
+  holds. A downgrade therefore never moves the active epoch backward.
+- **Per-entry signing rule.** Every core node, whatever its catalog, signs a
+  grant, lease or delivery grant under the active epoch only for contract entries
+  whose exact bundle digest its own catalog holds, so a node never authorizes
+  production of records it cannot project. Entries it does not hold get no new
+  signatures from that node. Their existing grants run to expiry, and producers
+  back-pressure as they do without a grant.
+- **Records no live core can project.** A record already in flight under a bundle
+  that no live core node's catalog holds is held durably: EventWriter leaves it
+  unacknowledged and never drops or rejects it. It is counted and reported as
+  `awaiting roll-forward` in pipeline status, and it drains when a node holding
+  that bundle returns.
 - **Redeploying an abandoned catalog.** The one exception: a node whose digest
   matches only an epoch retired unactivated, while no candidate exists, inserts
   its catalog as a new candidate under a new epoch number, so redeploying a
-  release after its candidate was abandoned works. While another candidate
+  release after its candidate was abandoned works. Until that candidate
+  activates, the node signs under the active epoch by the per-entry signing rule.
+  While another candidate
   exists, nodes left over from a superseded release cannot take the candidate
   back from the newer one.
 - **Signing nothing.** A core node signs nothing only when no active epoch
@@ -270,7 +282,8 @@ transition:
    boot, retiring any older candidate unactivated (Decision 4). Gateways receive
    it in the next trust document alongside active `n`. Core keeps signing under
    `n`, using `n`'s persisted document rather than its own catalog, so its
-   signatures match what it advertises. Readiness is only ever evaluated for the
+   signatures match what it advertises. It signs only entries whose exact bundle
+   digest its catalog holds (Decision 4, per-entry signing rule). Readiness is only ever evaluated for the
    one candidate.
 2. **Readiness.** Activation requires two facts, read fresh on each evaluation:
    - Every live core node reports the candidate digest as its catalog digest.

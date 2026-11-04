@@ -61,7 +61,9 @@
   candidate unactivated in the same transaction. Activate the first epoch
   immediately when none is active. Superseded-catalog nodes sign only under the
   active epoch's verified document, and never insert or claim a candidate or
-  count toward readiness. Refresh `last_matched_at` from the coordinator while a
+  count toward readiness. Every node signs under the active epoch only entries
+  whose exact bundle digest its own catalog holds. Hold records whose bundle no
+  live core holds, unacknowledged and counted as awaiting roll-forward. Refresh `last_matched_at` from the coordinator while a
   live core node matches the candidate, retire the candidate unactivated once it
   is older than a full capability-lifetime window, and drop it from the trust
   document.
@@ -77,8 +79,8 @@
   superseding lease replaces unstarted slots without stranding a started one.
 - [ ] 1.7 Compute `drain_until` at activation and retire on schedule. Keep issuing
   delivery grants for draining epochs, and never issue them for retired ones.
-- [ ] 1.8 Add pipeline status: the active, candidate and draining epochs, the
-  components not holding a candidate, and the issuer key presence. Expose it
+- [ ] 1.8 Add pipeline status: the records awaiting roll-forward, the active,
+  candidate and draining epochs, the components not holding a candidate, and the issuer key presence. Expose it
   through core's health API.
 
 ## 2. Core: issuer key, switch removal, settings, conditions
@@ -167,6 +169,9 @@ Load the `test-audit` skill before writing these.
   - retirement time;
   - superseded-node signing under the active epoch, including B to C to a
     rollback to B;
+  - a whole-fleet rollback after a contract version bump: no new signatures for
+    the bumped entry, unchanged entries still signed, in-flight records held as
+    awaiting roll-forward and drained after roll-forward;
   - a newer candidate retiring the older one unactivated, and roll-forward then
     rollback retiring the abandoned candidate after the capability-lifetime
     window, measured from `last_matched_at` across a coordinator failover, while

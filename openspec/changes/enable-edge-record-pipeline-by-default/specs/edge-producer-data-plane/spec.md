@@ -89,7 +89,14 @@ same transaction SHALL retire any existing candidate without activating it.
 Concurrent inserts SHALL converge on one row. A core node whose catalog digest
 matches no `active` or `candidate` epoch SHALL keep signing production
 capabilities, leases, and delivery grants under the active epoch using that
-epoch's persisted, signature-verified document. It SHALL NOT sign under its own
+epoch's persisted, signature-verified document. Every core node SHALL sign under
+the active epoch only for contract entries whose exact bundle digest its own
+catalog holds; it SHALL give entries it does not hold no new signatures, and their
+existing grants SHALL run to expiry. A record in flight under a bundle that no
+live core node's catalog holds SHALL be held durably and SHALL NOT be dropped or
+rejected; it SHALL be counted, reported as awaiting roll-forward in pipeline
+status, and drained when a node holding that bundle returns. A superseded core
+node SHALL NOT sign under its own
 catalog, insert or claim a candidate, count toward activation readiness, or
 change the active epoch. The one exception is a core node whose digest matches
 only an epoch retired without activation while no candidate exists: it SHALL
@@ -110,15 +117,29 @@ exists, core SHALL activate the first candidate immediately.
 - **GIVEN** epoch 1_000_002 is active and 1_000_001 is draining
 - **WHEN** every core node is rolled back to a catalog matching 1_000_001
 - **THEN** grants and leases keep being signed under 1_000_002's persisted document
+  for every entry whose bundle digest the rolled-back catalog holds
 - **AND** no capability is signed under 1_000_001
 - **AND** the active epoch remains 1_000_002
+
+#### Scenario: The whole fleet is rolled back after a contract version bump
+- **GIVEN** epoch 1_000_002 is active and bumped one contract's version over
+  draining 1_000_001
+- **AND** agents hold grants and have records in flight under the bumped bundle
+- **WHEN** every core node is rolled back to a catalog matching 1_000_001
+- **THEN** no core node signs a new grant, lease or delivery grant for the bumped
+  entry, and its existing grants run to expiry while producers back-pressure
+- **AND** entries whose bundle digest is unchanged keep being signed under 1_000_002
+- **AND** in-flight records under the bumped bundle are held durably, counted and
+  reported as awaiting roll-forward, never dropped or rejected
+- **AND** they drain once a core node holding the bumped bundle returns
 
 #### Scenario: A rollback past a superseded candidate keeps signing
 - **GIVEN** epoch 1_000_000 is active
 - **AND** release B inserted candidate 1_000_001
 - **AND** release C then inserted candidate 1_000_002, retiring 1_000_001 unactivated
 - **WHEN** every core node is rolled back to release B
-- **THEN** grants, leases and delivery grants keep flowing under 1_000_000
+- **THEN** grants, leases and delivery grants keep flowing under 1_000_000 for
+  every entry whose bundle digest release B's catalog holds
 - **AND** no B node inserts or claims a candidate while 1_000_002 exists
 - **AND** 1_000_002 is not activated
 
