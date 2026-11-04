@@ -284,16 +284,20 @@ transaction:
    horizon, except that slices holding ids applied from the cutover import
    are kept until one horizon after the cutover marker;
 3. advances `alert_block_checkpoints(block, stream, seq, epoch,
-   applied_count, import_ordinal)` for the blocks that moved. A block's `seq`
+   applied_count, import_ordinal, held_control_ids)` for the blocks that
+   moved. `held_control_ids` lists (outbox entry id, stream, sequence) for
+   D9 entries the owner drained itself (D9); it is not a dedupe slice, so
+   the horizon delete never touches it. A block's `seq`
    is the sequence, on the candidate stream the row names, of the last of
    that block's own messages the owner applied from that stream; cutover
    import records never advance it. `applied_count` is the block's
    evaluation position (D5) and `import_ordinal` the last cutover import
    record it applied (Migration). During the cutover the same transaction
    that records a block's final import checkpoint inserts that block's
-   switched row in `alert_cutover_progress` (block, cutover epoch,
-   `switched_at`), which records that the block no longer reads import
-   subjects.
+   row of kind `switched` in `alert_cutover_progress` (block, cutover
+   epoch, `switched_at`), which records that the block no longer reads
+   import subjects. Rows in that table have a `kind`: `segment`,
+   `switched` or `complete`.
 
 Writes scale with dirty groups, not total state. Rejected: a whole-partition
 state blob per checkpoint. Its write volume grows with total state rather
@@ -541,11 +545,14 @@ outbox entry id as its candidate id. An entry the owner drains itself
 (Migration) is completed in the outbox in the same fenced transaction that
 commits its application and checkpoint; an entry whose job attempt is
 executing is waited for rather than completed, so no copy is published after
-that commit. The transaction also records the id in the block's checkpoint,
-together with the greatest sequence then stored on the block's live
-subjects, and the id is kept until the checkpoint passes that sequence, so a
-copy stored before the completion is suppressed however long the block
-lags, independent of the duplicate horizon.
+that commit. The transaction also records the id in the block's checkpoint
+(`held_control_ids`), together with the live stream and the greatest
+sequence then stored on the block's live subjects. The id is kept until the
+checkpoint on that same stream passes that sequence, or until the block
+switches off that stream in a move (every copy then lies at or below
+`cut_seq` and has been applied), so a copy stored before the completion is
+suppressed however long the block lags, independent of the duplicate
+horizon, and a move's sequence reset does not drop it early.
 
 The evaluator uses no wall clock. Time comes from event time or from the
 `now` a control message carries.
@@ -621,7 +628,11 @@ Findings and changes, keyed to `capacity.md` S1-S5 and S13:
   permanent ones (decode or schema errors) are copied to `TELEMETRY_DLQ_V1`
   with PubAck before `+TERM`.
 - **Collectors (S1).** flowgger and trapd NATS outputs pack up to N records
-  or T ms per message and keep K PubAcks in flight. A batched message holds
+  or T ms per message and keep K PubAcks in flight. They pack only once the
+  migration has unbound the old streams, so a multi-record message lands
+  only in a replacement stream that release-N replicas consume; while an
+  old stream still binds their subjects they publish one record per
+  message, which a pre-cutover replica can decode. A batched message holds
   only records of one block subject, in source order, so each source's
   records stay on its own block. When the stream refuses a
   publish, they back off and spool to a bounded local file. Refusals and spool
@@ -1012,8 +1023,11 @@ that evaluates through both designs.
       is committed only when every block's checkpoint includes its end
       marker; the task then records it in CNPG (`alert_cutover_progress`)
       and purges the stream, every message of which the committed
-      checkpoints now cover.
-   3. After the final segment is committed, the task switches every owner:
+      checkpoints now cover. When no residual record remains to import, at
+      the start or because every remaining row was omitted, the import is
+      complete with no further segment and step 3 runs at once.
+   3. After the final segment is committed, or at once when there was
+      nothing to import, the task switches every owner:
       each commits its block's switched row in the same transaction as its
       final import checkpoint, then stops reading import subjects and
       continues on its live subjects from its checkpointed live sequence,
@@ -1022,10 +1036,10 @@ that evaluates through both designs.
       reads the row and goes straight to its live subjects. The task waits
       until every block's switched row is committed and JetStream reports no
       consumer bound to `ALERT_IMPORT_V1`. Only then does it write the
-      cutover marker: a completion row
-      in `alert_cutover_progress`, distinct from the segment rows, which no
-      segment commit sets, and not a stream message, so it takes no room in
-      `ALERT_IMPORT_V1`. "The marker exists" means this row exists, and the
+      cutover marker: a row of kind `complete` in `alert_cutover_progress`,
+      which neither a segment commit nor a switch commit writes, and not a
+      stream message, so it takes no room in `ALERT_IMPORT_V1`. "The marker
+      exists" means the `complete` row exists, and the
       import-id retention horizon is measured from its commit time. Routers
       start only once it exists. No uncheckpointed import message then
       remains and the task deletes `ALERT_IMPORT_V1`.
