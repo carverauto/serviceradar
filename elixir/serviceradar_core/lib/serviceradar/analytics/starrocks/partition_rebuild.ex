@@ -1,11 +1,17 @@
 defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
   @moduledoc """
-  Moves telemetry tables created before daily partitioning onto the partitioned
-  definition, while the warehouse keeps serving and taking writes.
+  Moves telemetry tables onto the layout their shipped CREATE declares, while
+  the warehouse keeps serving and taking writes. A table is outdated when it
+  is not partitioned by day (created before daily partitioning), or when the
+  shipped CREATE names a sort key (`ORDER BY`) the table does not have.
 
   StarRocks can neither add partitioning to a table nor change its primary key
-  with ALTER, so an old table is rebuilt beside itself and swapped in. The work
-  is ordered so that the slow part disturbs nothing:
+  with ALTER, so an old table is rebuilt beside itself and swapped in. A sort
+  key it can change with ALTER, but only by rewriting every tablet in one
+  job, and a compute node with little headroom cancels that job for a large
+  table -- as it cancelled 0039's whole-day bucket rewrites of the metrics
+  table. A sort key change therefore takes the same hour-bounded path. The
+  work is ordered so that the slow part disturbs nothing:
 
     1. For every old table, create `<table>__rebuild` from the shipped CREATE
        and copy the rows still inside retention into it, one hour a statement.
@@ -14,9 +20,11 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
        inactive), `ALTER TABLE <table> SWAP WITH <table>__rebuild`, copy across
        whatever the old table has that the new one lacks, drop the old table.
 
-  The rollups are gone only for step 2, and migration 0017 recreates them as
-  soon as this returns. It is necessarily still pending: its partitioned views
-  cannot exist over a table this module has yet to rebuild. Step 2 runs two
+  The rollups are gone only for step 2. A table this run cuts over gets its
+  rollup back as soon as every cut-over is done, from the newest definition
+  this release ships and the ALTERs that follow it (its refresh schedule). On
+  a warehouse that predates partitioning 0017 is still pending and replaces
+  that rollup again, which costs a backfill and nothing else. Step 2 runs two
   hour-bounded anti-join passes per held hour, so on a long retention it is
   minutes, not seconds.
 
@@ -38,8 +46,7 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
   definition this release ships. That is read from the warehouse like the rest,
   so it covers a table an earlier run cut over and is tried again by every run
   until it holds. A day-partitioned rollup is valid over a partitioned base
-  table whatever state the other tables are in. With no failure nothing is
-  recreated: 0017 runs next and would discard the work.
+  table whatever state the other tables are in.
 
   Nothing here is recorded in the ledger. Every run reads what the warehouse
   holds and continues from there. An hour is one atomic INSERT, and what is
@@ -118,7 +125,7 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
           optional(:retention_days) => [{String.t(), pos_integer()}]
         }
 
-  @doc "Rebuilds every telemetry table that is still unpartitioned."
+  @doc "Rebuilds every telemetry table whose layout is not the shipped one."
   @spec run(state()) :: :ok | {:error, term()}
   def run(state) do
     retention = Map.get_lazy(state, :retention_days, &Retention.days_by_table/0)
@@ -126,11 +133,14 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
     with {:ok, layout} <- layout(state),
          {:ok, plans} <- plan(state, retention, layout) do
       {copied, copy_failures} = attempt(plans, &copy(state, &1))
-      {_cut_over, cut_over_failures} = attempt(copied, &cut_over(state, &1))
+      {cut_over, cut_over_failures} = attempt(copied, &cut_over(state, &1))
 
       case copy_failures ++ cut_over_failures do
         [] ->
-          :ok
+          case restore_rollups(state, Enum.map(cut_over, &{&1.spec.table, &1.days})) do
+            [] -> :ok
+            failures -> {:error, {:partition_rebuild, failures}}
+          end
 
         failures ->
           {:error, {:partition_rebuild, failures ++ restore_rollups(state, retention)}}
@@ -174,21 +184,23 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
   end
 
   # (the table, its `__rebuild` sibling) -> what is left to do.
-  # No such table is a fresh warehouse, which the shipped CREATE partitions.
+  # No such table is a fresh warehouse, which the shipped CREATE lays out.
   defp step(nil, _copy), do: :nothing
-  defp step(:partitioned, nil), do: :nothing
-  defp step(:unpartitioned, nil), do: :rebuild
+  defp step(:current, nil), do: :nothing
+  defp step(:outdated, nil), do: :rebuild
   # A copy some earlier run began. Its finished days are kept.
-  defp step(:unpartitioned, :partitioned), do: :rebuild
+  defp step(:outdated, :current), do: :rebuild
   # Swapped, but the run that swapped it did not live to finish.
-  defp step(:partitioned, :unpartitioned), do: :finish
+  defp step(:current, :outdated), do: :finish
   # Neither arrangement is one this module produces, so it does not guess.
   defp step(_table, _copy), do: {:error, :unexpected_layout}
 
   defp copy(_state, %{step: :finish}), do: :ok
 
   defp copy(state, %{spec: spec, days: days}) do
-    Logger.info("Copying StarRocks table #{spec.table} onto daily partitions (#{days} days kept)")
+    Logger.info(
+      "Copying StarRocks table #{spec.table} onto its shipped layout (#{days} days kept)"
+    )
 
     with :ok <- exec(state, spec.create_copy),
          {:ok, columns} <- shared_columns(state, spec.table, spec.copy),
@@ -240,8 +252,8 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
       # that lost the migration lock while another finished the job, it would
       # put the unpartitioned table back. What the warehouse says NOW decides.
       case {Map.get(layout, spec.table), Map.get(layout, spec.copy)} do
-        {:unpartitioned, :partitioned} -> swap(state, plan, columns, recent)
-        {:partitioned, :unpartitioned} -> cut_over(state, %{plan | step: :finish})
+        {:outdated, :current} -> swap(state, plan, columns, recent)
+        {:current, :outdated} -> cut_over(state, %{plan | step: :finish})
         _other -> {:error, :unexpected_layout}
       end
     end
@@ -252,7 +264,7 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
     with {:ok, columns} <- shared_columns(state, spec.copy, spec.table),
          :ok <- catch_up(state, spec, columns, days, @catch_up_passes),
          :ok <- exec(state, "DROP TABLE IF EXISTS #{qualified(state, spec.copy)} FORCE") do
-      Logger.info("StarRocks table #{spec.table} is now partitioned by day")
+      Logger.info("StarRocks table #{spec.table} now has its shipped layout")
       :ok
     end
   end
@@ -269,20 +281,29 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
     end
   end
 
-  # Only reached when some table failed, which keeps the migration that owns
-  # the rollups pending. The layout lists materialized views too, so it says
-  # which rollups are missing. A table without one (logs, MTR) has nothing to
-  # restore, and is skipped rather than sent an empty statement.
-  defp restore_rollups(state, retention) do
+  # Gives each listed table that has finished with its old table, and has no
+  # hourly rollup, that rollup back. After a failure that is every retained
+  # table, read from the warehouse; after a clean run, the tables it cut over.
+  # The layout lists materialized views too, so it says which rollups are
+  # missing. A table without one (logs, MTR) has nothing to restore, and is
+  # skipped rather than sent an empty statement.
+  defp restore_rollups(state, tables) do
+    tables
+    |> Enum.map(fn {table, _days} -> {table, rollup_statements(state, table)} end)
+    |> Enum.reject(fn {_table, statements} -> statements == [] end)
+    |> restore_missing_rollups(state)
+  end
+
+  defp restore_missing_rollups([], _state), do: []
+
+  defp restore_missing_rollups(rollups, state) do
     case layout(state) do
       {:ok, layout} ->
-        for {table, _days} <- retention,
-            Map.get(layout, table) == :partitioned,
+        for {table, statements} <- rollups,
+            Map.get(layout, table) == :current,
             not Map.has_key?(layout, table <> @suffix),
             not Map.has_key?(layout, table <> "_hourly"),
-            statement = rollup_statement(state, table),
-            is_binary(statement),
-            {:error, reason} <- [exec(state, statement)] do
+            {:error, reason} <- [exec_all(state, statements)] do
           Logger.error("StarRocks rollup of #{table} could not be restored: #{inspect(reason)}")
           {table, {:rollup, reason}}
         end
@@ -293,13 +314,36 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
     end
   end
 
-  defp rollup_statement(state, table) do
-    pattern = ~r/^CREATE\s+MATERIALIZED\s+VIEW\s+IF\s+NOT\s+EXISTS\s+\S+\.#{table}_hourly\b/i
+  # The newest CREATE of the rollup and every ALTER of it shipped after that
+  # one: a view created REFRESH DEFERRED MANUAL (0040) only gets its refresh
+  # schedule from the ALTER that follows, and without it would never refresh.
+  defp rollup_statements(state, table) do
+    view = "#{table}_hourly"
+    create = ~r/^CREATE\s+MATERIALIZED\s+VIEW\s+IF\s+NOT\s+EXISTS\s+\S+\.#{view}\b/i
+    alter = ~r/^ALTER\s+MATERIALIZED\s+VIEW\s+\S+\.#{view}\s/i
+    statements = Enum.flat_map(state.migrations, & &1.statements)
 
-    case last_statement(state, pattern) do
-      nil -> nil
-      statement -> Schema.retarget(statement, state.database, state.replication_num)
+    case statements |> Enum.with_index() |> Enum.filter(fn {sql, _} -> sql =~ create end) do
+      [] ->
+        []
+
+      creates ->
+        {created, index} = List.last(creates)
+
+        Enum.map(
+          [created | statements |> Enum.drop(index + 1) |> Enum.filter(&(&1 =~ alter))],
+          &Schema.retarget(&1, state.database, state.replication_num)
+        )
     end
+  end
+
+  defp exec_all(state, statements) do
+    Enum.reduce_while(statements, :ok, fn sql, :ok ->
+      case exec(state, sql) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
   end
 
   # A load already in flight at the swap commits to the old table a moment
@@ -436,21 +480,53 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
     |> List.last()
   end
 
+  # Every table and view -> :current or :outdated. A `__rebuild` copy is held
+  # to its base table's shipped CREATE, the one it was made from. A sort key is
+  # compared only where that CREATE names one; otherwise StarRocks derives it
+  # from the key, and any key it derived is the shipped one.
   defp layout(state) do
     sql =
-      "SELECT TABLE_NAME, PARTITION_KEY FROM information_schema.tables_config " <>
+      "SELECT TABLE_NAME, PARTITION_KEY, SORT_KEY FROM information_schema.tables_config " <>
         "WHERE TABLE_SCHEMA = '#{state.database}'"
 
     case query(state, sql) do
       {:ok, %{rows: rows}} ->
         {:ok,
-         Map.new(rows, fn [table, partition_key | _] ->
-           {to_string(table), if(blank?(partition_key), do: :unpartitioned, else: :partitioned)}
+         Map.new(rows, fn [table, partition_key, sort_key | _] ->
+           table = to_string(table)
+           shipped = shipped_sort_key(state, String.replace_suffix(table, @suffix, ""))
+
+           current? =
+             not blank?(partition_key) and
+               (shipped == nil or sort_key_columns(sort_key) == shipped)
+
+           {table, if(current?, do: :current, else: :outdated)}
          end)}
 
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  defp shipped_sort_key(state, table) do
+    pattern = ~r/^CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+\S+\.#{table}\s*\(/i
+
+    with statement when is_binary(statement) <- last_statement(state, pattern),
+         [_, columns] <- Regex.run(~r/\bORDER\s+BY\s*\(([^)]*)\)/i, statement) do
+      sort_key_columns(columns)
+    else
+      _ -> nil
+    end
+  end
+
+  # `a`, `b` as information_schema.tables_config reports it, or the column
+  # list of an ORDER BY: unquoted, lower-cased names in order.
+  defp sort_key_columns(columns) do
+    columns
+    |> to_string()
+    |> String.split(",")
+    |> Enum.map(&(&1 |> String.trim() |> String.trim("`") |> String.downcase()))
+    |> Enum.reject(&(&1 == ""))
   end
 
   # Copy by name, and only what both sides have. Migrations ahead of the first

@@ -60,6 +60,9 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
   defp old(columns, held), do: %{kind: :unpartitioned, columns: columns, hours: hours(held)}
   defp new(columns, held), do: %{kind: :partitioned, columns: columns, hours: hours(held)}
 
+  # A partitioned table and the sort key information_schema reports for it.
+  defp sorted(columns, held, sort_key), do: Map.put(new(columns, held), :sort_key, sort_key)
+
   defp hours(held), do: Enum.map(held, &if(byte_size(&1) == 10, do: "#{&1} 00:00:00", else: &1))
 
   defp run(agent, overrides \\ %{}) do
@@ -82,10 +85,10 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
 
   defp ok(rows \\ []), do: {:ok, %{columns: [], rows: rows}}
 
-  defp answer(state, "SELECT TABLE_NAME, PARTITION_KEY" <> _) do
+  defp answer(state, "SELECT TABLE_NAME, PARTITION_KEY, SORT_KEY" <> _) do
     rows =
       Enum.map(state.tables, fn {name, table} ->
-        [name, if(table.kind == :partitioned, do: "`time`", else: "")]
+        [name, if(table.kind == :partitioned, do: "`time`", else: ""), Map.get(table, :sort_key)]
       end)
 
     {ok(rows), state}
@@ -118,7 +121,17 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
       match = Regex.run(~r/^CREATE TABLE IF NOT EXISTS warehouse\.(\w+__rebuild) \(/, sql) ->
         [_, copy] = match
         columns = ~r/^\s+`?(\w+)`? [A-Z]/m |> Regex.scan(sql) |> Enum.map(&List.last/1)
-        put_in(state.tables, Map.put_new(state.tables, copy, new(columns, [])))
+
+        sort_key =
+          case Regex.run(~r/ORDER BY \(([^)]*)\)/, sql) do
+            [_, keys] ->
+              keys |> String.split(", ") |> Enum.map_join(", ", &"`#{String.trim(&1, "`")}`")
+
+            nil ->
+              nil
+          end
+
+        put_in(state.tables, Map.put_new(state.tables, copy, sorted(columns, [], sort_key)))
 
       match =
           Regex.run(
@@ -266,15 +279,24 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
       })
 
     assert run(agent, %{retention_days: [{"flows", 90}, {"metrics", 90}]}) == :ok
-    assert kinds(agent) == %{"flows" => :partitioned, "metrics" => :partitioned}
+
+    assert kinds(agent) == %{
+             "flows" => :partitioned,
+             "metrics" => :partitioned,
+             "metrics_hourly" => :partitioned
+           }
 
     statements = sent(agent)
     last_copy = Enum.find_index(statements, &(&1 =~ "INSERT INTO warehouse.metrics__rebuild"))
     first_drop = Enum.find_index(statements, &(&1 =~ "DROP MATERIALIZED VIEW"))
     assert last_copy < first_drop
 
-    # Nothing failed, so the rollups are left to the migration that owns them.
-    refute Enum.any?(statements, &(&1 =~ "CREATE MATERIALIZED VIEW"))
+    # A cut-over table gets its rollup back only once every table is cut over.
+    last_drop =
+      Enum.find_index(statements, &(&1 =~ "DROP TABLE IF EXISTS warehouse.metrics__rebuild"))
+
+    rollup = Enum.find_index(statements, &(&1 =~ "CREATE MATERIALIZED VIEW"))
+    assert last_drop < rollup
 
     # The catch-up joins on each table's own key.
     assert Enum.any?(
@@ -645,6 +667,81 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
     assert sent(agent) == []
   end
 
+  @sorted_migrations Schema.build([
+                       {"0001_metrics.sql",
+                        """
+                        CREATE TABLE IF NOT EXISTS serviceradar.metrics (
+                          `timestamp` DATETIME NOT NULL,
+                          series VARCHAR(64) NOT NULL,
+                          value DOUBLE
+                        )
+                        PRIMARY KEY (`timestamp`, series)
+                        PARTITION BY date_trunc('day', `timestamp`)
+                        DISTRIBUTED BY HASH(series) BUCKETS 4
+                        ORDER BY (series, `timestamp`)
+                        PROPERTIES ("replication_num" = "3", "partition_live_number" = "90");
+                        """},
+                       {"0002_metrics_hourly.sql",
+                        """
+                        CREATE MATERIALIZED VIEW IF NOT EXISTS serviceradar.metrics_hourly
+                        PARTITION BY day
+                        DISTRIBUTED BY HASH(series) BUCKETS 1
+                        REFRESH DEFERRED MANUAL
+                        PROPERTIES ("replication_num" = "3")
+                        AS
+                        SELECT date_trunc('day', `timestamp`) AS day, series, SUM(value) AS value
+                        FROM serviceradar.metrics
+                        GROUP BY date_trunc('day', `timestamp`), series;
+
+                        ALTER MATERIALIZED VIEW serviceradar.metrics_hourly REFRESH ASYNC EVERY(INTERVAL 5 MINUTE);
+                        """}
+                     ])
+
+  # StarRocks' in-place ORDER BY rewrites the whole table in one job, which a
+  # node with little headroom cancels; the rebuild path holds every statement
+  # to an hour. The swap drops the rollup, and nothing pending recreates it, so
+  # the run does, schedule included: created DEFERRED MANUAL without its ALTER
+  # it would never refresh.
+  test "a partitioned table without its shipped sort key is rebuilt, and gets its rollup back on schedule" do
+    agent =
+      start_warehouse(%{
+        "metrics" =>
+          sorted(
+            ["timestamp", "series", "value"],
+            ["2025-01-02 00:00:00", "2025-01-02 01:00:00"],
+            "`timestamp`, `series`"
+          ),
+        "metrics_hourly" => new([], [])
+      })
+
+    retention = %{migrations: @sorted_migrations, retention_days: [{"metrics", 90}]}
+    assert run(agent, retention) == :ok
+
+    statements = sent(agent)
+    refute Enum.any?(statements, &(&1 =~ ~r/^ALTER TABLE warehouse\.metrics ORDER BY/))
+    assert Enum.count(statements, &(&1 =~ "INSERT INTO warehouse.metrics__rebuild")) >= 2
+
+    tail =
+      Enum.drop_while(
+        statements,
+        &(&1 != "DROP TABLE IF EXISTS warehouse.metrics__rebuild FORCE")
+      )
+
+    assert [
+             "DROP TABLE IF EXISTS warehouse.metrics__rebuild FORCE",
+             "CREATE MATERIALIZED VIEW IF NOT EXISTS warehouse.metrics_hourly",
+             "ALTER MATERIALIZED VIEW warehouse.metrics_hourly REFRESH ASYNC EVERY(INTERVAL 5 MINUTE)"
+           ] = tail
+
+    assert tables(agent)["metrics"].sort_key == "`series`, `timestamp`"
+    assert Map.has_key?(tables(agent), "metrics_hourly")
+
+    # The table now has the shipped sort key, so the next run does nothing.
+    clear(agent)
+    assert run(agent, retention) == :ok
+    assert sent(agent) == []
+  end
+
   test "every table this release retains can be rebuilt from the schema it ships" do
     statements = Enum.flat_map(Schema.migrations(), & &1.statements)
 
@@ -685,7 +782,11 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
 
     # The real parser, over the real files: a CREATE it cannot read fails here.
     assert run(agent, %{migrations: Schema.migrations(), retention_days: retention}) == :ok
-    assert kinds(agent) == Map.new(retention, fn {table, _days} -> {table, :partitioned} end)
+    rebuilt = Map.new(retention, fn {table, _days} -> {table, :partitioned} end)
+    assert Map.take(kinds(agent), Map.keys(rebuilt)) == rebuilt
+
+    # Each cut-over table that ships a rollup has it back, from the real files.
+    assert Map.has_key?(kinds(agent), "timeseries_metrics_hourly")
 
     swaps = Enum.filter(sent(agent), &(&1 =~ "SWAP WITH"))
     assert length(swaps) == length(retention)

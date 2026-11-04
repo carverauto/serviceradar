@@ -52,7 +52,7 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumersTest do
       send(self(), {:metric_sql, sql})
 
       cond do
-        sql =~ "metric_type = 'snmp'" ->
+        sql =~ "LIMIT 1" ->
           {:ok, %{rows: [[1]], num_rows: 1}}
 
         sql =~ "MAX(value)" ->
@@ -134,6 +134,9 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumersTest do
     assert_received {:sparkline_sql, sql}
     assert sql =~ "(device_id = 'sr:host-alpha' AND if_index = 1)"
     assert sql =~ "(device_id = 'sr:host-beta' AND if_index = 2)"
+    # The table's sort key leads with metric_type (priv/starrocks/0036); a read
+    # that leaves it out scans the whole day partition of every metric.
+    assert sql =~ "WHERE metric_type = 'snmp' AND"
     refute sql =~ "device_id = 'sr:host-alpha' AND if_index = 2"
     refute sql =~ "if_index IN ("
 
@@ -203,7 +206,8 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumersTest do
     # Suffixed series such as ifHCInOctets::ifIndex must still match.
     assert sql =~ "split_part(metric_name, '::', 1) IN ('ifHCInOctets','ifHCOutOctets')"
 
-    assert sql =~ "(device_id IN ('sr:host-alpha') OR target_device_ip IN ('192.0.2.10'))"
+    assert sql =~
+             "WHERE metric_type = 'snmp' AND (device_id IN ('sr:host-alpha') OR target_device_ip IN ('192.0.2.10'))"
   end
 
   test "directional rows scope on device id alone when no target IPs are known" do
@@ -253,7 +257,9 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumersTest do
     sql = String.replace(sql, ~r/\s+/, " ")
     assert sql =~ "serviceradar.timeseries_metrics"
     refute sql =~ "platform.timeseries_metrics"
-    assert sql =~ "DATE_ADD(NOW(), INTERVAL -5 MINUTE)"
+
+    assert sql =~
+             "WHERE metric_type = 'snmp' AND `timestamp` > DATE_ADD(NOW(), INTERVAL -5 MINUTE)"
 
     assert sql =~
              "(device_id = 'sr:host-alpha' AND if_index = 7 AND metric_name = 'ifInOctets')"
