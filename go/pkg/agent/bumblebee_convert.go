@@ -19,12 +19,15 @@ package agent
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/carverauto/serviceradar/go/pkg/bumblebee"
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 )
+
+var errEmptyBumblebeeScanPayload = errors.New("empty bumblebee scan payload")
 
 type rawBumblebeeScanPayload struct {
 	SchemaVersion        string                `json:"schema_version"`
@@ -64,7 +67,7 @@ type rawBumblebeeFinding struct {
 
 func bumblebeeScanPayloadFromJSON(raw []byte, agentID string) (*edgev1.BumblebeeScanPayloadV1, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
-		return nil, fmt.Errorf("empty bumblebee scan payload")
+		return nil, errEmptyBumblebeeScanPayload
 	}
 	var parsed rawBumblebeeScanPayload
 	if err := json.Unmarshal(raw, &parsed); err != nil {

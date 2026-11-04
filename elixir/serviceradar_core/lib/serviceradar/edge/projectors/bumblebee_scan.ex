@@ -113,10 +113,10 @@ defmodule ServiceRadar.Edge.Projectors.BumblebeeScan do
       "schema_version" => schema_version,
       "agent_id" => agent_id,
       "run_id" => scan.run_id,
-      "scanner_version" => DiscoveryCommon.blank_to_nil(scan.scanner_version),
-      "catalog_snapshot_ref" => DiscoveryCommon.blank_to_nil(scan.catalog_snapshot_ref),
-      "state" => DiscoveryCommon.blank_to_nil(scan.state),
-      "coverage_state" => DiscoveryCommon.blank_to_nil(scan.coverage_state),
+      "scanner_version" => blank_to_nil(scan.scanner_version),
+      "catalog_snapshot_ref" => blank_to_nil(scan.catalog_snapshot_ref),
+      "state" => blank_to_nil(scan.state),
+      "coverage_state" => blank_to_nil(scan.coverage_state),
       "attempted_root_count" => root_count(scan.attempted_root_count, scan.attempted_roots),
       "scanned_root_count" => root_count(scan.scanned_root_count, scan.scanned_roots),
       "skipped_root_count" => root_count(scan.skipped_root_count, scan.skipped_roots),
@@ -124,8 +124,8 @@ defmodule ServiceRadar.Edge.Projectors.BumblebeeScan do
       "attempted_roots" => scan.attempted_roots || [],
       "scanned_roots" => scan.scanned_roots || [],
       "skipped_roots" => Enum.map(scan.skipped_roots || [], &skipped_root_payload/1),
-      "last_scan_at" => DiscoveryCommon.blank_to_nil(scan.last_scan_at),
-      "last_successful_scan_at" => DiscoveryCommon.blank_to_nil(scan.last_successful_scan_at),
+      "last_scan_at" => blank_to_nil(scan.last_scan_at),
+      "last_successful_scan_at" => blank_to_nil(scan.last_successful_scan_at),
       "findings" => Enum.map(scan.findings || [], &finding_payload/1),
       "metadata" => decode_json_map(scan.metadata_json)
     }
@@ -135,7 +135,7 @@ defmodule ServiceRadar.Edge.Projectors.BumblebeeScan do
   defp root_count(count, _roots), do: count
 
   defp skipped_root_payload(%BumblebeeSkippedRootV1{} = root) do
-    case DiscoveryCommon.blank_to_nil(root.reason) do
+    case blank_to_nil(root.reason) do
       nil -> %{"path" => root.path}
       reason -> %{"path" => root.path, "reason" => reason}
     end
@@ -143,15 +143,15 @@ defmodule ServiceRadar.Edge.Projectors.BumblebeeScan do
 
   defp finding_payload(%BumblebeeFindingV1{} = finding) do
     base = %{
-      "id" => DiscoveryCommon.blank_to_nil(finding.id),
-      "finding_id" => DiscoveryCommon.blank_to_nil(finding.finding_id),
-      "catalog_id" => DiscoveryCommon.blank_to_nil(finding.catalog_id),
-      "severity" => DiscoveryCommon.blank_to_nil(finding.severity),
-      "ecosystem" => DiscoveryCommon.blank_to_nil(finding.ecosystem),
-      "package_name" => DiscoveryCommon.blank_to_nil(finding.package_name),
-      "package_version" => DiscoveryCommon.blank_to_nil(finding.package_version),
+      "id" => blank_to_nil(finding.id),
+      "finding_id" => blank_to_nil(finding.finding_id),
+      "catalog_id" => blank_to_nil(finding.catalog_id),
+      "severity" => blank_to_nil(finding.severity),
+      "ecosystem" => blank_to_nil(finding.ecosystem),
+      "package_name" => blank_to_nil(finding.package_name),
+      "package_version" => blank_to_nil(finding.package_version),
       "evidence" => decode_json_map(finding.evidence_json),
-      "confidence" => DiscoveryCommon.blank_to_nil(finding.confidence),
+      "confidence" => blank_to_nil(finding.confidence),
       "metadata" => decode_json_map(finding.metadata_json)
     }
 
@@ -160,6 +160,10 @@ defmodule ServiceRadar.Edge.Projectors.BumblebeeScan do
     else
       base
     end
+  end
+
+  defp blank_to_nil(value) do
+    if DiscoveryCommon.present?(value), do: value
   end
 
   defp decode_json_map(raw) when raw in [nil, ""], do: %{}
