@@ -1002,7 +1002,9 @@ that evaluates through both designs.
       marker; the task then records it in CNPG (`alert_cutover_progress`)
       and purges the stream, every message of which the committed
       checkpoints now cover.
-   3. After the final segment is committed, write the cutover marker. Owners
+   3. After the final segment is committed, write the cutover marker, a
+      row in `alert_cutover_progress` and not a stream message, so it takes
+      no room in `ALERT_IMPORT_V1`. Owners
       stop reading import subjects and continue on their live subjects from
       their checkpointed live sequence, with `applied_count` and
       `import_ordinal` unchanged; routers start. Once every block has
