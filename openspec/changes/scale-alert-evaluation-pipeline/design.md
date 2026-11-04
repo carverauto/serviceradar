@@ -488,11 +488,15 @@ through the DurablePublish outbox in the transaction that made the change:
 
 D9 control messages are always published to the block's live candidate
 subjects, including during the cutover import (Migration). Each carries its
-outbox entry id as its candidate id. An entry the owner publishes itself
-(Migration) is completed in the outbox after its PubAck, so the outbox job
-never publishes it again; the block's dedupe ring (D6) suppresses the one
-copy a crash between that PubAck and the completion, or a job attempt
-already running, can add.
+outbox entry id as its candidate id. An entry the owner drains itself
+(Migration) is completed in the outbox in the same fenced transaction that
+commits its application and checkpoint; an entry whose job attempt is
+executing is waited for rather than completed, so no copy is published after
+that commit. The transaction also records the id in the block's checkpoint,
+together with the greatest sequence then stored on the block's live
+subjects, and the id is kept until the checkpoint passes that sequence, so a
+copy stored before the completion is suppressed however long the block
+lags, independent of the duplicate horizon.
 
 The evaluator uses no wall clock. Time comes from event time or from the
 `now` a control message carries.
@@ -511,20 +515,22 @@ Findings and changes, keyed to `capacity.md` S1-S5 and S13:
   default is derived from the active JetStream profile (a 30-minute outage
   window). Today's `events` stream binds `logs.>` and `events.>` (and the
   OTEL subjects) and `metrics` binds `metrics.>`, which overlap the new
-  subjects, so release N replaces them in one order. Release-N publishers
-  publish only to the v1 block subjects. Until an old stream is deleted it
-  still binds them, so a v1 publish is stored and acknowledged there and
-  that stored message is its only copy. Release-N versions of every
-  component that creates or updates `events` (EventWriter, Zen, the OTEL
-  collector, flowgger and trapd) never do so. The old streams keep being
+  subjects, so release N replaces both in one order. Release-N publishers
+  publish only to the v1 block subjects. Until the migration unbinds an old
+  stream it still binds them, so a v1 publish is stored and acknowledged
+  there and that stored message is its only copy. Release-N versions of
+  every component that creates or updates `events` or `metrics`
+  (EventWriter, Zen, the OTEL collector, flowgger and trapd) never create
+  or update either old stream; the unbind below is the only update either
+  receives, and nothing puts an old subject back. The old streams keep being
   consumed through their existing durables, v1 subjects included: by
   pre-cutover replicas while they run, then by new replicas after the
   cutover marker, before they read the replacements, so each source keeps
   its order. After the cutover marker, and once no older version of any
-  creator or publisher remains, each old stream is unbound: its subjects
-  are narrowed to a retired subject nothing publishes, so from then a v1
-  publish is refused and retried in place, collectors spooling, and the
-  stream admits nothing more. The old stream is deleted only after its
+  creator or publisher remains, the migration unbinds `events` and
+  `metrics`: each one's subjects are narrowed to a retired subject nothing
+  publishes, so from then a v1 publish is refused and retried in place,
+  collectors spooling, and the stream admits nothing more. The old stream is deleted only after its
   durables have acknowledged every message stored up to that unbind; the
   replacements are then created inside the reservation it frees, after
   which the held publishes land. A block
@@ -914,11 +920,16 @@ that evaluates through both designs.
       record, an owner drains that block's D9 outbox: it publishes every
       pending outbox entry addressed to the block's live subjects, awaiting
       each PubAck, and then applies every live control stored for that block
-      and commits its effects and checkpoint. A disable, resolve or
-      maintenance marker whose transaction committed before that record is
-      applied therefore takes effect before it, even while its outbox job is
-      still queued; after each PubAck the owner completes that entry's
-      outbox job, so the job does not publish it again (D9). During the import
+      and commits its effects and checkpoint with each drained entry's
+      completion (D9). The record is then applied in a transaction that
+      locks the block's checkpoint row and, under that lock, checks for a
+      pending D9 entry of the block; if one exists it rolls the record back,
+      drains again and retries. A D9 control write during the import takes
+      a share lock on the checkpoint rows of the blocks it addresses in its
+      own transaction. A disable, resolve or maintenance marker whose
+      transaction committed before the record's commit therefore takes
+      effect before it, even while its outbox job is still queued, and one
+      that commits later is ordered after it. During the import
       every effect commit is also a checkpoint commit (live sequence and
       `import_ordinal`), so committed effects always match one persisted
       order.
