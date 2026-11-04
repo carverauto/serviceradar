@@ -544,6 +544,10 @@ INTEGRATION_RUNTIME_DATA = _TEST_RUNTIME_DATA + glob(
     "//build:elixir_test_config_loader.exs",
     "//build:run_id_file",
     "//config/environments:ci_binpb",
+    # Scratch Dgraph namespace lifecycle for the live topology projection
+    # tests (ServiceRadar.TestSupport.DgraphScratch), run from its staged
+    # ${TEST_TMPDIR} copy. Its ci.binpb runfile is the entry above.
+    "//rust/dgraph-topology:dgraph_scratch_cli",
 ]
 
 # Compile-time files needed by the database-free selection loaders. This deliberately omits the

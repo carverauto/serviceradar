@@ -351,6 +351,7 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/serviceradar/network_discovery/endpoint_attachment_e2e_test.exs": 1,
     "test/serviceradar/network_discovery/mapper_alias_batching_db_test.exs": 1,
     "test/serviceradar/network_discovery/mapper_compiler_test.exs": 1,
+    "test/serviceradar/network_discovery/mapper_dgraph_projection_test.exs": 1,
     "test/serviceradar/network_discovery/mapper_graph_ingestion_test.exs": 1,
     "test/serviceradar/network_discovery/mapper_job_run_now_test.exs": 1,
     "test/serviceradar/network_discovery/mapper_job_validation_test.exs": 1,
@@ -374,6 +375,7 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/serviceradar/observability/ip_enrichment_scheduling_test.exs": 1,
     "test/serviceradar/observability/log_promotion_test.exs": 1,
     "test/serviceradar/observability/migration_table_retention_db_test.exs": 1,
+    "test/serviceradar/observability/mtr_graph_integration_test.exs": 1,
     "test/serviceradar/observability/netflow_dataset_refresh_worker_integration_test.exs": 1,
     "test/serviceradar/observability/netflow_dataset_refresh_worker_test.exs": 1,
     "test/serviceradar/observability/netflow_interface_cache_lock_order_db_test.exs": 1,
@@ -459,5 +461,7 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
 }
 
 FIXED_EXTERNAL_INTEGRATION_SRCS = [
+    "test/serviceradar/network_discovery/mapper_dgraph_projection_test.exs",
+    "test/serviceradar/observability/mtr_graph_integration_test.exs",
     "test/serviceradar/scans/adhoc_scan_nats_e2e_test.exs",
 ]

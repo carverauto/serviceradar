@@ -73,6 +73,33 @@ rust_test(
     ],
 )
 
+# Scratch-namespace lifecycle for the Elixir core integration lanes, which
+# cannot allocate namespaces through the topology NIF. Test-only: it hardcodes
+# the typed CI fixture and is never packaged. The lanes stage it as data and
+# drive create/drop around each Dgraph test module.
+rust_binary(
+    name = "dgraph_scratch_cli",
+    testonly = True,
+    srcs = [
+        "tests/support/fixture.rs",
+        "tests/support/scratch_cli.rs",
+    ],
+    crate_root = "tests/support/scratch_cli.rs",
+    edition = "2024",
+    visibility = ["//elixir/serviceradar_core:__pkg__"],
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+        normal_dev = True,
+    ) + [
+        ":dgraph_topology",
+        "//config/manager_config/rust:manager",
+        "//config/manager_secret/rust:secret_manager",
+        "//config/proto_bindings/rust:config_schema",
+        "//rust/dgraph-migrate:dgraph_migrate",
+    ],
+)
+
 # Existing CI cluster only. The workflow compiles on RBE and runs TestRunner
 # beside the fixture, with its typed credential resolved on that runner.
 # `external` disables cached success for a namespace lifecycle.

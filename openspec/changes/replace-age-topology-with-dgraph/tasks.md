@@ -313,7 +313,11 @@ Dgraph-only God View reader does not establish that the extension is unused.
       `ag_catalog` schema and no AGE-typed column, relational evidence rows
       intact; a second run is a no-op. A probe database showed the guard
       refusing a `platform` view over a label table, and the non-owner
-      warning path. `make test` ran green. Left unchecked: the Dgraph
-      scratch-namespace integration coverage is tracked in #6298, and the
-      compatibility consumers listed under 14.6 remain until
-      carverauto/serviceradar-control#192 lands.
+      warning path. `make test` ran green. Dgraph scratch-namespace
+      integration coverage (#6298): `MtrGraphIntegrationTest` and
+      `MapperDgraphProjectionTest` allocate a namespace through
+      `ServiceRadar.TestSupport.DgraphScratch` and
+      `//rust/dgraph-topology:dgraph_scratch_cli`, and assert live only in
+      the Core Integration lane. Left unchecked: the compatibility consumers
+      listed under 14.6 remain until carverauto/serviceradar-control#192
+      lands.

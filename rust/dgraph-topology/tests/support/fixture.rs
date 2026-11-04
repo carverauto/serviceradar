@@ -91,6 +91,96 @@ where
     }
 }
 
+/// One owned scratch namespace allocated for a caller that cannot use
+/// `with_scratch` (the Elixir core integration lanes drive this through the
+/// `dgraph_scratch_cli` binary). The caller owns `ca_path` and must remove it
+/// after `drop_scratch_namespace` succeeds.
+#[allow(dead_code)]
+pub struct ScratchNamespace {
+    pub namespace: u64,
+    pub url: String,
+    pub ca_path: PathBuf,
+}
+
+async fn admin_client(
+    fixture: &Fixture,
+    ca_path: &std::path::Path,
+) -> Result<DgraphClient, String> {
+    let target = fixture.connection(0, fixture.admin_password.expose(), ca_path);
+    tokio::time::timeout(Duration::from_secs(30), DgraphClient::connect(&target))
+        .await
+        .map_err(|_| "fixture administrator connection timed out".to_owned())?
+        .map_err(|error| format!("connect fixture administrator: {error}"))
+}
+
+/// Allocates an owned scratch namespace. Never returns the shared admin
+/// namespace. The namespace has no schema yet; callers apply it through the
+/// client from `scratch_client`.
+#[allow(dead_code)]
+pub async fn create_scratch_namespace() -> Result<ScratchNamespace, String> {
+    let fixture = Fixture::ci();
+    let ca_file = FixtureCa::create(&fixture.ca_bundle_url);
+    let ca_path = ca_file.0.clone().expect("owned CA file");
+    let admin = admin_client(&fixture, &ca_path).await?;
+    let namespace = tokio::time::timeout(Duration::from_secs(30), admin.create_namespace())
+        .await
+        .map_err(|_| "namespace allocation timed out; server ownership is unknown".to_owned())?
+        .map_err(|error| format!("allocate owned scratch namespace: {error}"))?;
+    if namespace == 0 {
+        return Err("never use the shared admin namespace as scratch".to_owned());
+    }
+    // Ownership of the CA file passes to the caller with the namespace.
+    std::mem::forget(ca_file);
+    Ok(ScratchNamespace {
+        namespace,
+        // Dgraph initializes each new namespace with this scratch credential.
+        // The shared administrator credential is never changed.
+        url: fixture.connection(namespace, "password", &ca_path),
+        ca_path,
+    })
+}
+
+/// Connects to an owned scratch namespace through its `ScratchNamespace::url`.
+#[allow(dead_code)]
+pub async fn scratch_client(url: &str) -> Result<DgraphClient, String> {
+    tokio::time::timeout(Duration::from_secs(30), DgraphClient::connect(url))
+        .await
+        .map_err(|_| "scratch namespace connection timed out".to_owned())?
+        .map_err(|error| format!("connect owned scratch namespace: {error}"))
+}
+
+/// Drops an owned scratch namespace and verifies it is gone. Refuses the
+/// shared admin namespace.
+#[allow(dead_code)]
+pub async fn drop_scratch_namespace(namespace: u64) -> Result<(), String> {
+    if namespace == 0 {
+        return Err("never drop the shared admin namespace".to_owned());
+    }
+    let fixture = Fixture::ci();
+    let mut ca_file = FixtureCa::create(&fixture.ca_bundle_url);
+    let ca_path = ca_file.0.clone().expect("owned CA file");
+    let result = async {
+        let admin = admin_client(&fixture, &ca_path).await?;
+        tokio::time::timeout(Duration::from_secs(30), admin.drop_namespace(namespace))
+            .await
+            .map_err(|_| "drop owned namespace timed out".to_owned())?
+            .map_err(|error| format!("drop owned namespace: {error}"))?;
+        let namespaces = tokio::time::timeout(Duration::from_secs(30), admin.list_namespaces())
+            .await
+            .map_err(|_| "verify namespace absence timed out".to_owned())?
+            .map_err(|error| format!("verify namespace absence: {error}"))?;
+        if namespaces.contains_key(&namespace) {
+            return Err("owned namespace remains after deletion".to_owned());
+        }
+        Ok(())
+    }
+    .await;
+    let removed = ca_file
+        .remove()
+        .map_err(|error| format!("remove owned CA file: {error}"));
+    result.and(removed)
+}
+
 struct Fixture {
     authority: String,
     ca_bundle_url: String,
