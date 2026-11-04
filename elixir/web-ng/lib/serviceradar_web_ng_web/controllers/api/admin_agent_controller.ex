@@ -30,10 +30,11 @@ defmodule ServiceRadarWebNGWeb.Api.AdminAgentController do
         |> Ash.Query.for_read(:read)
         |> Ash.Query.sort(last_seen_time: :desc_nils_last)
         |> Ash.Query.limit(limit(params["limit"]))
-        |> Ash.Query.load(:edge_pipeline_conditions)
+        |> Ash.Query.load(:device)
 
       with {:ok, agents} <- Ash.read(query, actor: actor(conn)) do
-        json(conn, %{data: Enum.map(agents, &agent_to_json/1)})
+        facts = PipelineReadiness.facts()
+        json(conn, %{data: Enum.map(agents, &agent_to_json(&1, facts))})
       end
     end
   end
@@ -51,8 +52,9 @@ defmodule ServiceRadarWebNGWeb.Api.AdminAgentController do
     end
   end
 
-  @doc false
-  def agent_to_json(agent) do
+  defp agent_to_json(agent, facts) do
+    {conditions, conditions_error} = edge_pipeline_conditions(agent, facts)
+
     %{
       uid: agent.uid,
       name: agent.name,
@@ -61,9 +63,16 @@ defmodule ServiceRadarWebNGWeb.Api.AdminAgentController do
       last_seen: agent.last_seen_time,
       version: agent.version,
       partition: partition(agent.metadata),
-      edge_pipeline_conditions: agent.edge_pipeline_conditions
+      edge_pipeline_conditions: conditions,
+      edge_pipeline_conditions_error: conditions_error
     }
   end
+
+  defp edge_pipeline_conditions(agent, {:ok, facts}), do: {PipelineReadiness.conditions(agent, facts), nil}
+
+  defp edge_pipeline_conditions(_agent, {:error, reason}) when is_atom(reason), do: {nil, Atom.to_string(reason)}
+
+  defp edge_pipeline_conditions(_agent, {:error, _reason}), do: {nil, "edge_pipeline_conditions_unavailable"}
 
   defp partition(metadata) when is_map(metadata) do
     Map.get(metadata, "partition_id") || Map.get(metadata, "partition") ||

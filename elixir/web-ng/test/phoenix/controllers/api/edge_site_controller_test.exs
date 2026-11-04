@@ -132,7 +132,8 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeSiteControllerTest do
       assert agent["partition"] == "acme"
 
       assert agent |> Map.keys() |> Enum.sort() ==
-               ~w(edge_pipeline_conditions gateway_id last_seen name partition status uid version)
+               ~w(edge_pipeline_conditions edge_pipeline_conditions_error gateway_id last_seen name
+                  partition status uid version)
 
       assert %{"reason" => "partition_not_found", "detail" => %{"partition" => "acme"}} in agent[
                "edge_pipeline_conditions"

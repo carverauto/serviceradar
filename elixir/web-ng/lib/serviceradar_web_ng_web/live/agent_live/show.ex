@@ -404,12 +404,15 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
     |> Ash.Query.load(:edge_pipeline_conditions)
     |> Ash.read_one(scope: scope)
     |> case do
+      {:ok, %InfrastructureAgent{status: :superseded}} ->
+        nil
+
       {:ok, %InfrastructureAgent{edge_pipeline_conditions: conditions}} ->
         conditions
 
       {:error, reason} ->
         Logger.warning("Failed to load edge pipeline conditions for #{agent_uid}: #{inspect(reason)}")
-        nil
+        :unavailable
 
       _ ->
         nil
@@ -532,7 +535,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           />
           <.agent_summary agent={@agent} live_agent={@live_agent} />
           <.edge_pipeline_card
-            :if={is_list(@edge_pipeline_conditions)}
+            :if={@edge_pipeline_conditions}
             conditions={@edge_pipeline_conditions}
           />
           <.config_apply_card
@@ -1199,22 +1202,36 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
     """
   end
 
-  attr :conditions, :list, required: true
+  attr :conditions, :any, required: true
 
   defp edge_pipeline_card(assigns) do
     ~H"""
     <div id="edge-pipeline" class="rounded-xl border border-sr-line bg-sr-surface">
       <div class="px-4 py-3 border-b border-sr-line flex items-center gap-2">
         <span class="text-sm font-semibold">Edge Pipeline</span>
-        <.ui_badge variant={if @conditions == [], do: "success", else: "error"} size="xs">
+        <.ui_badge :if={@conditions == :unavailable} variant="warning" size="xs">
+          unknown
+        </.ui_badge>
+        <.ui_badge
+          :if={is_list(@conditions)}
+          variant={if @conditions == [], do: "success", else: "error"}
+          size="xs"
+        >
           {if @conditions == [], do: "ready", else: "not ready"}
         </.ui_badge>
       </div>
       <div class="p-4">
+        <p :if={@conditions == :unavailable} class="text-sm text-warning">
+          The edge pipeline conditions could not be read. The agent tracker of a core node may
+          be unreachable.
+        </p>
         <p :if={@conditions == []} class="text-sm text-sr-muted">
           Nothing keeps this agent off the durable edge-record pipeline.
         </p>
-        <.edge_pipeline_conditions :if={@conditions != []} conditions={@conditions} />
+        <.edge_pipeline_conditions
+          :if={is_list(@conditions) and @conditions != []}
+          conditions={@conditions}
+        />
       </div>
     </div>
     """
