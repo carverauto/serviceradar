@@ -1,19 +1,31 @@
 ## ADDED Requirements
 
 ### Requirement: Documented fleet-scale ingestion target
-ServiceRadar SHALL document its supported ingestion target as explicit per-signal rates, burst factors and per-node budgets, separately for installations with StarRocks enabled and for CNPG-only installations, and SHALL validate the StarRocks target with the fleet-scale synthetic load gate before every release cut.
+ServiceRadar SHALL document its supported ingestion target as explicit per-signal rates, burst factors, per-node budgets and the warehouse storage implied by the default one-year StarRocks retention, separately for installations with StarRocks enabled and for CNPG-only installations, and SHALL validate the StarRocks target with the fleet-scale synthetic load gate before every release cut.
 
 #### Scenario: CNPG-only ceiling is stated
 - **WHEN** an operator reads the capacity documentation for an installation without StarRocks
 - **THEN** it SHALL state the supported sustained log record rate for that configuration
 
-### Requirement: Telemetry streams are signal-separated and partitioned
-Logs, events, OpenTelemetry signals and metrics SHALL be carried on separate JetStream streams whose subjects are partitioned by the shared versioned partition hash and mapped onto one or more physical streams per profile, replicated as the profile's replica count allows.
+#### Scenario: Storage at the design point is stated
+- **WHEN** an operator reads the capacity documentation for a 100,000-device installation with StarRocks
+- **THEN** it SHALL state the object storage that one year of default retention implies, about 0.5-1 PB
+- **AND** it SHALL name the per-dataset retention settings that reduce it
+
+### Requirement: Telemetry streams are signal-separated and elastic
+Logs, events, OpenTelemetry signals and metrics SHALL be carried on separate JetStream streams, replicated as the profile's replica count allows. Their subjects SHALL carry a block from the same fixed block layout as alert candidates, hashed from the source device or address.
+A CNPG runtime setting per signal SHALL set the number of physical streams, defaulting to one. A change SHALL move blocks between streams online with the candidate-stream move protocol, so that a source's records keep their order and no record is lost.
 
 #### Scenario: A log burst does not consume the events buffer
 - **GIVEN** a synthetic log burst that fills the logs stream
 - **WHEN** events continue to arrive
 - **THEN** the events stream SHALL keep accepting them
+
+#### Scenario: Splitting the logs stream keeps a source's order
+- **GIVEN** one logs stream receiving records from `host000123.example.com`
+- **WHEN** the logs stream count is raised from one to four
+- **THEN** that host's records SHALL be stored and routed in publish order
+- **AND** no record SHALL be lost or terminated
 
 ### Requirement: Accepted telemetry is never evicted unprocessed
 A telemetry stream whose records are stored or alert-evaluated by EventWriter SHALL use DiscardNew, so a full stream refuses new publishes instead of deleting accepted messages that no consumer has processed.
@@ -60,7 +72,7 @@ Log and trap collectors SHALL pack multiple records per JetStream message up to 
 - **THEN** it SHALL publish all records without spooling
 
 ### Requirement: Single-writer processors scale by key partition
-Processors whose correctness requires one writer per key SHALL take that ownership through leased key partitions with fenced commits, rather than by running only on the cluster coordinator.
+Processors whose correctness requires one writer per key SHALL take that ownership through fenced leases on blocks of the shared block layout, rather than by running only on the cluster coordinator.
 
 #### Scenario: Lifecycle transitions keep series order across replicas
 - **GIVEN** anomaly lifecycle transitions for one synthetic series processed while three core replicas run

@@ -92,11 +92,11 @@ For a discard-new telemetry or evaluation stream (the signal-separated logs, eve
 
 ### Requirement: Alert candidate streams are inside the JetStream budget
 The render-time budget check SHALL include every alert candidate stream and the alert dead-letter stream at their configured size and replica count.
-When a candidate stream cannot be created or placed, EventWriter SHALL keep every other consumer subscribed, SHALL retry only that stream's setup with backoff, and SHALL hold unacknowledged only the source messages whose candidates target its partitions.
+When a candidate stream cannot be created or placed, EventWriter SHALL keep every other consumer subscribed, SHALL retry only that stream's setup with backoff, and SHALL hold unacknowledged only the source messages whose candidates target its blocks.
 
 #### Scenario: A candidate stream cannot be placed
 - **GIVEN** NATS rejects creating `ALERT_CANDIDATES_V1_S2` for insufficient storage
 - **WHEN** EventWriter starts
-- **THEN** the logs, events and metrics consumers SHALL stay subscribed and store records that produce no candidate for those partitions
+- **THEN** the logs, events and metrics consumers SHALL stay subscribed and store records that produce no candidate for those blocks
 - **AND** only the setup of `ALERT_CANDIDATES_V1_S2` SHALL be retried
 - **AND** a health event SHALL name `ALERT_CANDIDATES_V1_S2` and the NATS error

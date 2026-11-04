@@ -5,8 +5,11 @@ and derives target rates and per-node budgets. Part 2 audits today's path
 stage by stage and shows where it breaks at those rates.
 
 Every figure here is either (a) a rounded measurement quoted in the task brief
-or in this repository, or (b) an assumption marked `[CONFIRM]`. No figure was
-taken from a live payload. Every example below is synthetic.
+or in this repository, or (b) an assumption marked `[CONFIRM]`. The user
+adopted the assumption table as the target on 2026-11-04 (design.md resolved
+Q1). The `[CONFIRM]` marks stay because gate G4 replaces each assumption with
+a measurement. No figure was taken from a live payload. Every example below is
+synthetic.
 
 Source of the code facts in Part 2: `staging` at `ee36df190e`.
 
@@ -32,6 +35,7 @@ Source of the code facts in Part 2: `staging` at `ee36df190e`.
 | A14 | Active rule groups | groups with a non-empty window, an open incident or a running cooldown: 200,000 typical, 1,000,000 worst case | [CONFIRM] |
 | A15 | Alert transitions | 1 fire/resolve per device per hour on average; 10x during a storm | [CONFIRM] |
 | A16 | StarRocks enabled | the 100k design point assumes StarRocks is the telemetry store (`extend-starrocks-to-all-telemetry`). CNPG-only installations get a lower, stated ceiling (1.6) | decided by AGENTS.md |
+| A17 | Log rule match rate | 1% of log records match a `signal: :log` stateful rule; 1 rule per match | [CONFIRM] |
 
 ### 1.2 Derived ingest rates
 
@@ -46,30 +50,36 @@ Source of the code facts in Part 2: `staging` at `ee36df190e`.
 
 Without collector batching (A8), log messages alone are 100,000 msgs/s
 sustained and 500,000 msgs/s in a burst. That is a different NATS cluster, and
-it is why A8 is a requirement, not a tuning option (see B5).
+it is why A8 is a requirement, not a tuning option (see S1).
 
 ### 1.3 Derived alert-evaluation rates
 
 - Event candidates: (5,000 + 2,000) x 20% x 1.5 = **2,100/s** sustained.
 - Metric candidates: 500,000 x 5% x 1.2 = **30,000/s** sustained.
-- Total candidates: about 32,000/s. **Design target: 40,000 candidates/s
+- Log candidates (A17, `signal: :log` rules, resolved Q6): 100,000 x 1% =
+  **1,000/s** sustained.
+- Total candidates: about 33,000/s. **Design target: 40,000 candidates/s
   sustained and 100,000/s for a 5-minute burst.**
 - Candidate envelope (design D8): about 400 B mean, so 16 MB/s sustained and
   40 MB/s in a burst. Today's inbox copies about 12.7 KB jsonb per
   (event, rule) pair instead.
-- Records that match no rule (about 93% of events and 95% of points) cost one
-  index lookup and produce nothing.
+- Records that match no rule (about 93% of events, 95% of points and 99% of
+  logs) cost one index lookup and produce nothing.
 
-### 1.4 Partition, node and storage budgets at the target
+### 1.4 Block, node and storage budgets at the target
 
-Defaults: 64 logical partitions (Q2), 30 s checkpoint interval (Q3), 10 min
-duplicate horizon (Q5), 3 core replicas as the minimum and 6 at the design
-point.
+Layout: 1,024 fixed virtual partitions in 128 blocks (design D2). Design-point
+settings: 4 candidate streams, 30 s checkpoint interval with a 50,000-candidate
+cap, 10 min duplicate horizon (resolved Q5), 6 core replicas. A small install
+uses the code defaults instead: 1 candidate stream, 10 s and 10,000
+candidates, and whatever core nodes it has (design D11, gate G7).
 
 | Budget | Sustained | Burst | Basis |
 |---|---|---|---|
-| Candidates per partition | 625/s | 1,560/s | 40k/s and 100k/s over 64 |
-| Hot-key ceiling (one rule+group) | 10,000/s | 10,000/s | one ordered partition process; gate G2 |
+| Candidates per block | 312/s | 780/s | 40k/s and 100k/s over 128 blocks |
+| Candidates per candidate stream | 10,000/s | 25,000/s | 4 streams; G4 measures the per-stream bound that drives split recommendations |
+| Candidates per owner node | 6,700/s | 16,700/s | 6 nodes, about 21 blocks each |
+| Hot-key ceiling (one rule+group) | 10,000/s | 10,000/s | one ordered owner process; gate G2 |
 | Evaluator CPU | 2 cores cluster-wide | 5 cores | 50 us per candidate budget (decode, match recheck, state update) |
 | Group state memory | 300 MB cluster (200k groups) | 1.5 GB (1M groups) | about 1.5 KB per active group in ETS |
 | Duplicate-suppression memory | 384 MB cluster | +290 MB during a burst | 128-bit fingerprints x rate x 600 s |
@@ -77,9 +87,9 @@ point.
 | Dedupe slice writes to CNPG | 640 KB/s | 1.6 MB/s | closed 10 s slices, written once |
 | Alert lifecycle writes | about 30/s | about 300/s | A15 |
 | Coalesced incident metadata updates | about 170/s | about 500/s | 5,000 open incidents, one write per commit window |
-| Failover replay | 19k candidates/partition | 47k | checkpoint interval x partition rate; under 2 s at replay speed |
+| Failover replay | 9.4k candidates/block | 23k | checkpoint interval x block rate; under 2 s at replay speed |
 | Candidate stream steady footprint | about 0.5 GB per NATS server | about 1.2 GB | since-checkpoint only, purged behind each checkpoint |
-| Candidate stream outage budget | 58 GB per server for 1 h uncompressed; 15-20 GB with S2 | | Q4 |
+| Candidate stream outage budget | 58 GB per server for 1 h uncompressed; 15-20 GB with S2 | | resolved Q4 |
 
 Core CPU at the design point (estimates, to be replaced by gate G4 numbers):
 
@@ -96,19 +106,24 @@ The burst column is not provisioned for: a 5-minute burst above sustained
 capacity becomes consumer lag, which the streams hold (1.5), and drains
 afterwards. Provision for the daily peak (about 27 cores) with 30% headroom:
 **6 core replicas x 6 vCPU, or 4 x 8 vCPU**. Each replica runs EventWriter
-workers and its share of partitions.
+workers and owns its share of blocks.
 
 NATS at the design point: about 175 MB/s sustained ingress; with R3 each
 server writes every replica, so about 175 MB/s of disk writes per server plus
 the candidate streams. Budget **3 servers minimum, 5 recommended; NVMe; 1-2 TB
 JetStream file store per server** for a 30-minute source outage budget with S2
 compression. That is above today's `large` profile (500 G), so the change adds
-an `xlarge` profile (tasks 6.4).
+an `xlarge` profile (task 3.2). A small install keeps its current profile:
+one candidate stream and one stream per signal.
 
 StarRocks at the design point: about 800,000 rows/s and about 175 MB/s raw.
 With 5-10x columnar compression that is about 1.5-3 TB/day of object storage.
-The one-year default retention multiplies that to 0.5-1 PB. **Per-dataset
-retention must be confirmed** before quoting storage (Q1).
+**StarRocks keeps its one-year default retention (resolved Q1), so a
+100,000-device installation holds about 0.5-1 PB of object storage at
+steady state.** At 50,000 devices it is half that. The figure scales
+linearly with A3, A6 and A7, and per-dataset retention settings are the
+operator's lever to reduce it. The operator documentation states this figure
+(task 7.3).
 
 CNPG at the design point holds only the control plane: alert lifecycle,
 checkpoints, leases, rule configuration. The alert path's budget is under
@@ -120,14 +135,15 @@ per candidate.
 The time the system absorbs a stalled stage without losing accepted data is
 the sum of the buffers in front of it:
 
-1. Candidate streams: 1 h at the sustained candidate rate (Q4).
+1. Candidate streams: 1 h at the sustained candidate rate (resolved Q4).
 2. When the candidate streams are full, the router stops acknowledging its
    source messages, so the source streams hold the backlog: 30 min at the
    sustained ingest rate.
 3. When a source stream is full, publishers are refused (DiscardNew).
    Edge-record agents and collectors with a spool buffer locally. Protocols
    without retransmission (UDP syslog, traps) are counted as refused at the
-   collector, which is the only place the pipeline may refuse a record (Q8).
+   collector, which is the only place the pipeline may refuse a record
+   (resolved Q8).
 
 Health turns degraded at 60 s of evaluation lag and critical at 10 min, long
 before stage 2 engages.
@@ -183,7 +199,8 @@ Two correctness findings fell out of the audit:
   has no caller anywhere in the tree (`git grep evaluate_logs`), yet
   `TemplateSeeder` seeds `burst_errors` with `signal: :log` and the resource
   defaults `signal` to `:log`. The spec says rules evaluate OCSF events rather
-  than raw logs, so the seeded rule is inert by construction (Q6).
+  than raw logs, so the seeded rule is inert by construction. This change
+  evaluates them through the index (resolved Q6).
 - **Accepted telemetry can be evicted before it is processed.** The `events`
   stream is discard-old. Once the backlog exceeds 2 GiB, JetStream deletes the
   oldest messages whether or not any consumer has seen them.
