@@ -81,14 +81,22 @@ the new projector cannot read alongside the old bundle SHALL bump
 
 ### Requirement: Registry epochs are persisted and only move forward
 Core SHALL persist each derived registry snapshot as one epoch row in CNPG, write
-its document once, and allow at most one `active` epoch. Epochs SHALL be numbered
-from 1_000_000 upward, and each new epoch SHALL be one more than the highest
-existing epoch. A core node whose catalog digest matches no epoch SHALL insert it
-as `candidate`. Concurrent inserts SHALL converge on one row. A core node whose
-catalog digest matches only a `draining` or `retired` epoch SHALL sign no new
-production capability, lease, or delivery grant. It SHALL NOT change the active
-epoch. When no `active` epoch exists, core SHALL activate the first candidate
-immediately.
+its document once, and allow at most one `active` epoch and at most one
+non-retired `candidate` epoch. Epochs SHALL be numbered from 1_000_000 upward, and
+each new epoch SHALL be one more than the highest existing epoch. A core node
+whose catalog digest matches no epoch SHALL insert it as `candidate`, and in the
+same transaction SHALL retire any existing candidate without activating it.
+Concurrent inserts SHALL converge on one row. A core node whose catalog digest
+matches only a `draining` or `retired` epoch SHALL sign no new production
+capability, lease, or delivery grant. It SHALL NOT change the active epoch. The
+one exception is a core node whose digest matches only an epoch retired without
+activation while no candidate exists: it SHALL insert its catalog as a new
+candidate under a new epoch number. Core SHALL retire a candidate without
+activating it when no live core node's catalog digest has matched it for a full
+capability-lifetime window. An epoch retired without activation SHALL never sign
+anything, SHALL be dropped from the registry core sends to gateways, and a record
+naming it SHALL be rejected as `registry_epoch_retired`. When no `active` epoch
+exists, core SHALL activate the first candidate immediately.
 
 #### Scenario: Replicas of a new release boot together
 - **WHEN** three core replicas of a release with a new catalog start at once
@@ -99,6 +107,24 @@ immediately.
 - **WHEN** a core node whose catalog matches 1_000_001 starts
 - **THEN** it signs no new grant or lease
 - **AND** the active epoch remains 1_000_002
+
+#### Scenario: A newer candidate supersedes an older one
+- **GIVEN** epoch 1_000_000 is active and 1_000_001 is a candidate
+- **WHEN** a core node with a catalog matching neither starts
+- **THEN** it inserts candidate 1_000_002 and retires 1_000_001 without activating it
+- **AND** readiness is evaluated only for 1_000_002
+
+#### Scenario: A release is rolled forward and then rolled back before activation
+- **GIVEN** epoch 1_000_000 is active
+- **AND** a new release partially rolled out and inserted candidate 1_000_001
+- **WHEN** the installation is rolled back so that no live core node's catalog
+  matches 1_000_001
+- **THEN** 1_000_000 stays active and core keeps signing under it
+- **AND** after a full capability-lifetime window core retires 1_000_001 without
+  activating it
+- **AND** gateways drop 1_000_001 on their next refresh and pipeline status no
+  longer reports readiness as incomplete
+- **AND** no capability is ever signed under 1_000_001
 
 #### Scenario: A fresh install activates its first epoch
 - **GIVEN** a database with no epoch rows

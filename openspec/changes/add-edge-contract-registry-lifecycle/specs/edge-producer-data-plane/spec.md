@@ -50,22 +50,29 @@ producer-retry, agent-offline, spool, JetStream replay, DLQ, and redrive horizon
 Package metadata MAY request approved outputs and declarative processor
 contributions, but SHALL NOT choose subjects, streams, consumers, traffic class,
 database tables/DDL, executable Core processors, or arbitrary subject filters.
-A producer grant SHALL become ready only when agent, gateway, route map, and
-required projector have compatible registry state.
+A producer grant SHALL be issued only under the active epoch, which every live
+core node and agent gateway already holds.
 
-Each bundle SHALL transition through signed `candidate`, `ready`, `active`,
-`draining`, and `retired` states or the terminal `security-revoked` state. A
-candidate SHALL become ready only after the target agent cohort, every
-authoritative gateway route/map generation, and every required EventWriter
-validator, cost engine, and projector attest the exact bundle digest. Assignment
-compilation SHALL issue grants only for one atomically selected active epoch; a
-partially deployed or stale epoch SHALL NOT receive new production. Planned
-retirement SHALL stop new grants and permit only exact historical backlog to
-drain to declared spool, JetStream, DLQ, redrive, and producer-receipt
-watermarks. Security revocation SHALL stop both new production and backlog
-delivery fail-closed until an approved safe replacement, redrive, or explicit
-waiver exists. Registry history SHALL be garbage-collected only after all of its
-declared horizons and correctness holds close.
+Each registry epoch SHALL be signed and SHALL transition through `candidate`,
+`active`, `draining`, and `retired` states; a bundle MAY additionally enter the
+terminal `security-revoked` state. There SHALL be no separate `ready` state. Core
+derives each epoch from the release contract catalog, and agents SHALL NOT hold
+the registry: an agent only holds capabilities that reference an epoch and
+bundle. A candidate SHALL become active only after every live core node reports
+the candidate's digest as its catalog digest and every live agent gateway
+reports having installed a registry document that contains the candidate.
+Activation SHALL NOT be forced on a timeout. At most one non-retired candidate
+SHALL exist; a candidate superseded by a newer one, or matched by no live core
+node for a full capability-lifetime window, SHALL be retired without ever being
+activated, and SHALL never sign anything. Assignment compilation SHALL issue
+grants only for one atomically selected active epoch; a partially deployed or
+stale epoch SHALL NOT receive new production. Planned retirement SHALL stop new
+grants and permit only exact historical backlog to drain under its own epoch's
+bundles until the epoch's retirement time. Security revocation SHALL stop both
+new production and backlog delivery fail-closed until an approved safe
+replacement, redrive, or explicit waiver exists. Registry history SHALL be
+garbage-collected only after all of its declared horizons and correctness holds
+close.
 
 #### Scenario: Package requests an unapproved output
 - **WHEN** a package requests or submits a contract absent from its effective
@@ -75,18 +82,19 @@ declared horizons and correctness holds close.
   SHALL be created
 
 #### Scenario: Deployment components disagree on registry epoch
-- **GIVEN** the agent can encode a contract but the gateway route or EventWriter
-  projector is not ready for its exact bundle
-- **WHEN** the scheduler evaluates a new producer assignment
-- **THEN** the assignment SHALL remain not ready or paused
+- **GIVEN** a candidate epoch that one live gateway has not installed, or that
+  one live core node's catalog does not match
+- **WHEN** core evaluates activation
+- **THEN** the active epoch SHALL remain unchanged
+- **AND** no agent SHALL receive a grant or lease signed under the candidate
 - **AND** the mismatch SHALL NOT be converted into a fleet-wide poison stream
 
-#### Scenario: Candidate activation is only partially ready
-- **GIVEN** an agent and gateway route report a candidate bundle ready
-- **AND** one required EventWriter projector or route-map generation is not ready
-- **WHEN** the control plane evaluates activation
-- **THEN** the active registry epoch SHALL remain unchanged
-- **AND** no assignment SHALL receive a grant for the candidate bundle
+#### Scenario: Agents do not gate activation
+- **GIVEN** every live core node and every live gateway holds a candidate epoch
+- **WHEN** core evaluates activation
+- **THEN** core SHALL activate the candidate without waiting on any agent
+- **AND** agents SHALL receive capabilities signed under it on their next config
+  poll
 
 #### Scenario: A contract is retired normally
 - **WHEN** a newer contract version replaces an old version without a security
@@ -103,8 +111,8 @@ declared horizons and correctness holds close.
   authorizes a fixed safe bundle, redrive, or explicit waiver
 
 #### Scenario: A stale component resumes after activation
-- **WHEN** a gateway, agent, or EventWriter instance resumes with an epoch older
-  than the active or explicitly draining set
-- **THEN** it SHALL be fenced from new production and authoritative projection
+- **WHEN** a gateway or core node resumes with an epoch older than the active
+  or explicitly draining set
+- **THEN** it SHALL sign no new production capability, lease, or delivery grant
 - **AND** it SHALL NOT roll the deployment backward or reinterpret records under
   its local latest-known bundle

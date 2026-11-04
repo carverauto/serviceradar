@@ -18,9 +18,9 @@ the tasks below, 1.1, 1.5, 1.6 (readiness and epoch selection) and 1.7 are re-sc
 
 ## What Changes
 
-- Define signed candidate, ready, active, draining, retired and security-revoked bundle states with readiness evidence and one atomic active-epoch switch.
+- Define the terminal security-revoked bundle state. The signed candidate, active, draining and retired epoch states, readiness from live core nodes and gateways, and the atomic switch are delivered by `enable-edge-record-pipeline-by-default`; the requirement text here was amended to match it, with no `ready` state and no agent-cohort readiness.
 - Define a deterministic platform-owned cost API with golden fixtures per contract, validated at the gateway and recomputed by EventWriter.
-- Extend `ServiceRadar.Edge.ContractCatalog` dispatch with readiness and epoch selection.
+- Extend `ServiceRadar.Edge.ContractCatalog` dispatch with cost recompute and security-revoked holds.
 - Remediate a compromised signing-key cohort fail-closed.
 
 ## Impact

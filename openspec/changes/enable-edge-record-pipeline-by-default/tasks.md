@@ -35,10 +35,12 @@
     - a gateway refusing a bad document while keeping its previous registry;
     - a fresh gateway with only a bad document withholding as
       `registry_unavailable`.
-- [ ] 0.3 Re-scope `add-edge-contract-registry-lifecycle` tasks 1.1, 1.5, 1.6 and
+- [x] 0.3 Re-scope `add-edge-contract-registry-lifecycle` tasks 1.1, 1.5, 1.6 and
   1.7 to what remains after this change (cost API, security revocation, Hello
-  advertisement). Re-scope its "target agent cohort" readiness clause. Keep its
-  "signed" wording. Update #6271's line for that change.
+  advertisement). Amend its lifecycle requirement: no `ready` state, readiness
+  from every live core node and gateway, agents never hold the registry. Keep its
+  "signed" wording.
+- [ ] 0.4 Update #6271's line for `add-edge-contract-registry-lifecycle`.
 
 ## 1. Core: registry derivation and epochs
 
@@ -51,10 +53,16 @@
   row-output tests next to it.
 - [ ] 1.3 Add `platform.edge_contract_registry_epochs` (Decision 4) as an Ash
   resource with a migration, and add it to `SchemaBootstrap` and the baseline.
-  Enforce one `active` row with a partial unique index and insert-only documents.
+  Enforce one `active` row, one `candidate` row and a unique digest among rows not
+  retired unactivated with partial unique indexes, and insert-only documents.
   Number epochs from 1_000_000.
-- [ ] 1.4 Insert the candidate on boot, idempotently by digest. Activate the first
-  epoch immediately when none is active. Fence stale-catalog nodes from signing.
+- [ ] 1.4 Insert the candidate on boot, idempotently by digest, retiring any older
+  candidate unactivated in the same transaction. Activate the first epoch
+  immediately when none is active. Fence stale-catalog nodes from signing,
+  including nodes whose catalog matches only an epoch retired unactivated while
+  another candidate exists. Retire a candidate unactivated when no live core node
+  has matched it for a full capability-lifetime window, and drop it from the
+  trust document.
 - [ ] 1.5 Replace `ContractRegistryDocument.parse/1` from the environment with one
   cached epoch reader. `OutputContract.current/1` reads the active epoch, and
   validation and projection read the record's own epoch. Delete the
@@ -156,6 +164,9 @@ Load the `test-audit` skill before writing these.
   - atomic activation and re-lease;
   - retirement time;
   - stale-node fencing;
+  - a newer candidate retiring the older one unactivated, and roll-forward then
+    rollback retiring the abandoned candidate after the capability-lifetime
+    window while the active epoch stays put;
   - issuer key insert-only race and restart stability;
   - a fresh install issuing grants with zero settings rows.
 

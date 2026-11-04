@@ -202,15 +202,17 @@ the gateway rolls.
 
 A new table, `platform.edge_contract_registry_epochs`, holds one row per epoch:
 
-- `epoch` (bigint, primary key) and `snapshot_sha256` (bytea, unique);
+- `epoch` (bigint, primary key) and `snapshot_sha256` (bytea);
 - `document` (the canonical entry list, written once and never updated);
 - `signature` (64 bytes) and `signing_key_id` (16 bytes), written once with the
   document (Decision 12);
 - `state`, one of `candidate`, `active`, `draining` or `retired`;
 - `created_at`, `activated_at`, `draining_since`, `drain_until` and `retired_at`.
 
-A partial unique index allows at most one `active` row. Rows are insert-only, and
-only `state` and the timestamps change.
+Partial unique indexes allow at most one `active` row and at most one
+`candidate` row, and make `snapshot_sha256` unique among rows that are not
+retired unactivated. An epoch is retired unactivated when it is `retired` with no
+`activated_at`. Rows are insert-only, and only `state` and the timestamps change.
 
 - **Numbering.** The first derived epoch is 1_000_000, and later ones are
   `max(epoch) + 1`. Static labels in use are small integers (1 and 2). Starting
@@ -218,12 +220,27 @@ only `state` and the timestamps change.
   static era (Decision 7). It also keeps such a record from ever looking like it
   belongs to a newer derived epoch.
 - **Booting with a new catalog.** A core node whose catalog digest matches no
-  row inserts it as `candidate`. The insert is idempotent through the unique
-  digest, so concurrent replicas converge on one row.
-- **Booting with an old catalog.** A core node whose digest matches a
+  row inserts it as `candidate`. In the same transaction it retires any existing
+  candidate unactivated, so a newer candidate supersedes an older one. The insert
+  is idempotent through the digest index, so concurrent replicas converge on one
+  row.
+- **Booting with an old catalog.** A core node whose digest matches only a
   `draining` or `retired` row is stale. It signs nothing new: no grant, no lease
   and no delivery grant. It still projects records for epochs whose contracts its
   catalog holds. A downgrade therefore never moves the active epoch backward.
+- **Booting with an abandoned catalog.** A core node whose digest matches only an
+  epoch retired unactivated is stale in the same way while another candidate
+  exists. When no candidate exists, it inserts its catalog as a new candidate
+  under a new epoch number, so redeploying a release after a rollback works.
+  Nodes left over from a superseded release therefore cannot take the candidate
+  back from the newer one.
+- **Abandoned candidates.** The coordinator retires a candidate unactivated when
+  no live core node's catalog digest has matched it for a full capability-lifetime
+  window: the 8-day standing-grant window plus its 5-minute lead. This covers a
+  release that was rolled back before its epoch activated.
+- **Retired unactivated.** Such an epoch never signed anything and never signs
+  anything. Core drops it from the trust document, so gateways drop it too. A
+  record naming it is rejected as `registry_epoch_retired`.
 - **First epoch.** With no `active` row, which is every fresh install and every
   upgrade from the static registry, the first candidate activates at once. No
   epoch exists for it to drain.
@@ -238,9 +255,11 @@ The coordinator singleton (`ServiceRadar.Cluster.CoordinatorManager`) runs the
 transition:
 
 1. **Candidate.** A new release's core inserts epoch `n+1` as `candidate` on
-   boot. Gateways receive it in the next trust document alongside active `n`.
-   Core keeps signing under `n`, using `n`'s persisted document rather than its
-   own catalog, so its signatures match what it advertises.
+   boot, retiring any older candidate unactivated (Decision 4). Gateways receive
+   it in the next trust document alongside active `n`. Core keeps signing under
+   `n`, using `n`'s persisted document rather than its own catalog, so its
+   signatures match what it advertises. Readiness is only ever evaluated for the
+   one candidate.
 2. **Readiness.** Activation requires two facts, read fresh on each evaluation:
    - Every live core node reports the candidate digest as its catalog digest.
      A live core node is a connected node running the core application.
@@ -250,6 +269,10 @@ transition:
 
    Activation is never forced on a timeout. While readiness is incomplete, the
    pipeline status names the epoch and each component that does not hold it.
+   If the release is rolled back before activation, no live core node matches
+   the candidate any more. After a full capability-lifetime window the
+   coordinator retires it unactivated (Decision 4), and `n` stays active
+   throughout.
 3. **Activation.** One transaction sets `n+1` `active` and `n` `draining`, with
    `drain_until` computed as below. On commit:
    - Agent configs are invalidated, so grants are re-signed under `n+1`.
@@ -424,9 +447,10 @@ The spool byte budget varies by host disk, so it stays a knob.
   parts) and 1.7. That change keeps the deterministic cost API (1.2), security
   revocation, Hello advertisement (1.3) and the `projection` task (1.4). Its
   ADDED requirement "Output contract bundles have a governed deployment
-  lifecycle" keeps its "signed" wording, which Decision 12 now delivers. Its
-  clause that target agent cohorts attest readiness is re-scoped by task 0.3,
-  because agents never hold the registry (Decision 5).
+  lifecycle" keeps its "signed" wording, which Decision 12 now delivers. This
+  change amends that requirement in place: it has no `ready` state, readiness
+  comes from every live core node and gateway, and agents never hold the
+  registry (Decision 5). Its tasks 1.1, 1.5, 1.6 and 1.7 record the re-scope.
 - **`move-agent-telemetry-to-edge-records`.** Its pending requirement
   "Agent-scheduled producers emit under standing output grants" made grants
   depend on the operator switch. This change amends it in place: a grant is
@@ -475,7 +499,11 @@ issuer key (Decision 6).
   nothing under it, and reports `registry_epoch_signature_invalid` with the epoch
   in pipeline status. If the active epoch fails verification, core issues no new
   capability at all until it is resolved. Someone with CNPG write access but
-  without the cloak key cannot forge a registry core will use.
+  without the cloak key cannot forge registry contents core will use. Because the
+  lifecycle state is unsigned, such a writer can still change which correctly
+  signed epoch is `active`, replaying an older registry, or mark epochs `retired`
+  so that gateways reject their records. The signature protects contents, not
+  the lifecycle.
 - **Gateway on a bad signature.** The gateway refuses the whole registry member
   of that document. It installs nothing from it, keeps its previously verified
   registry, and still installs the document's trust. It surfaces the refusal
@@ -491,8 +519,10 @@ issuer key (Decision 6).
 
 Rationale: the signature binds the registry to the key that signs every
 capability stamped against it. It also stops a database-only write or a tampered
-cache from changing what core signs against or what a gateway admits. It does
-not defend against a compromised core, which holds the key anyway.
+cache from changing the contents of any epoch core signs against or a gateway
+admits under. It does not stop a database-only write from moving lifecycle state
+between correctly signed epochs, and it does not defend against a compromised
+core, which holds the key anyway.
 
 ### Decision 13: Default-on and the legacy removal ship in one release
 

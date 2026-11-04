@@ -108,10 +108,11 @@ longer registers is withheld for good and caps the lane watermark.
   - Tests and docs: `integration_tests/edge_record`, `docs/docs/data-pipeline.md`,
     `docs/docs/native-addons.md`.
 - Supersedes part of `add-edge-contract-registry-lifecycle`: the registry source,
-  the activation and drain protocol, and stale-component fencing (its tasks 1.1,
-  1.5 and 1.7, except security revocation and signing). That change keeps the
-  deterministic cost API, security revocation, Hello advertisement and any signing
-  decision. Its proposal records the split.
+  the activation and drain protocol, stale-component fencing and registry-epoch
+  signing (its tasks 1.1, 1.5, 1.6 for readiness and epoch selection, and 1.7,
+  except security revocation). That change keeps the deterministic cost API,
+  security revocation and Hello advertisement. Its proposal records the split, and
+  its lifecycle requirement is amended to match this change.
 - Amends the pending `move-agent-telemetry-to-edge-records` requirement "Agent-scheduled
   producers emit under standing output grants". Grants no longer depend on an
   operator switch.
