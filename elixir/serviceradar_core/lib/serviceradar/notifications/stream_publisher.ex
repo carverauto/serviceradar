@@ -64,7 +64,7 @@ defmodule ServiceRadar.Notifications.StreamPublisher do
 
   New subject namespaces are DENIED at the broker by default, so
   `#{inspect("notifications.>")}` must appear in the per-CN publish and subscribe
-  allowlists in `helm/serviceradar/templates/nats.yaml` (tasks 4.1.2 - 4.1.3).
+  allowlists in `helm/serviceradar/templates/_nats_static_users.tpl` (tasks 4.1.2 - 4.1.3).
 
   ## Seams
 

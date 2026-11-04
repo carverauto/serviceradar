@@ -16,8 +16,10 @@ go_test(
         "SERVICERADAR_HELM_UNITTEST_BINARY": "$(rlocationpath //helm/serviceradar:helm_unittest_binary)",
     },
     deps = [
+        "@com_github_nats_io_jwt_v2//:jwt",
         "@com_github_nats_io_nats_go//:nats_go",
         "@com_github_nats_io_nats_server_v2//server",
+        "@com_github_nats_io_nkeys//:nkeys",
         "@in_gopkg_yaml_v3//:yaml_v3",
         "@io_bazel_rules_go//go/runfiles",
     ],

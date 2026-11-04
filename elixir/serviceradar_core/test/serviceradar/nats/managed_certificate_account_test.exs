@@ -8,6 +8,16 @@ defmodule ServiceRadar.NATS.ManagedCertificateAccountTest do
   alias ServiceRadar.NATS.CertificateAuthorizationToken, as: Token
   alias ServiceRadar.NATS.ManagedCertificateAuthorization, as: Authorizer
   alias ServiceRadar.NATS.ManagedCertificateConfiguration, as: Configuration
+  alias ServiceRadar.NATS.StaticIdentityGrants
+
+  @builtin_subject [
+    {{2, 5, 4, 6}, ~c"US"},
+    {{2, 5, 4, 8}, {:utf8String, "EX"}},
+    {{2, 5, 4, 7}, {:utf8String, "Example City"}},
+    {{2, 5, 4, 10}, {:utf8String, "ExampleOrg"}},
+    {{2, 5, 4, 11}, {:utf8String, "Kubernetes"}},
+    {{2, 5, 4, 3}, {:utf8String, "example-core"}}
+  ]
 
   setup do
     previous = Application.get_env(:serviceradar, :nats_account_name)
@@ -191,6 +201,58 @@ defmodule ServiceRadar.NATS.ManagedCertificateAccountTest do
     end
   end
 
+  test "an adopted infrastructure certificate presenting a built-in subject gets its static block" do
+    Application.put_env(:serviceradar, :nats_account_name, "EDGE")
+    builtin = subject_certificate(@builtin_subject)
+
+    # Static semantics: the empty subscribe allow is every subject.
+    {:ok, static_users} =
+      StaticIdentityGrants.parse("""
+      - user: "CN=example-core,OU=Kubernetes,O=ExampleOrg,L=Example City,ST=EX,C=US"
+        publish:
+          allow: ["metrics.sweep.>"]
+          deny: ["$SYS.>"]
+        subscribe:
+          allow: []
+      """)
+
+    granted =
+      authorize_request("EDGE",
+        certificate: builtin,
+        component_type: "core",
+        static_users: static_users
+      )
+
+    user = verify_response(granted.claims["nats"]["jwt"], granted.issuer_nkey)
+    assert user["nats"]["pub"] == %{"allow" => ["metrics.sweep.>"], "deny" => ["$SYS.>"]}
+    assert user["nats"]["sub"] == %{"allow" => [">"], "deny" => []}
+
+    # The stored grant stays for a host-enrolled component with the same
+    # subject, and for an infrastructure certificate whose subject differs in
+    # one attribute or carries an extra one.
+    renamed =
+      List.keyreplace(@builtin_subject, {2, 5, 4, 3}, 0, {{2, 5, 4, 3}, {:utf8String, "x"}})
+
+    extra = @builtin_subject ++ [{{0, 9, 2342, 19_200_300, 100, 1, 25}, ~c"example"}]
+
+    for {certificate, type} <- [
+          {builtin, "agent"},
+          {builtin, "nats-leaf"},
+          {subject_certificate(renamed), "core"},
+          {subject_certificate(extra), "core"}
+        ] do
+      stored =
+        authorize_request("EDGE",
+          certificate: certificate,
+          component_type: type,
+          static_users: static_users
+        )
+
+      user = verify_response(stored.claims["nats"]["jwt"], stored.issuer_nkey)
+      assert user["nats"]["pub"] == %{"allow" => ["metrics.example.>"], "deny" => []}
+    end
+  end
+
   test "uses the shipped hub account and rejects the local leaf account name" do
     assert Configuration.deployment_account() == "SERVICERADAR"
     assert {:error, :nats_account_mismatch} = Configuration.bootstrap("EDGE", actor())
@@ -216,7 +278,7 @@ defmodule ServiceRadar.NATS.ManagedCertificateAccountTest do
     {:ok, signer} = NKEYS.Keypair.from_seed(issuer.seed)
     user = Token.new_key(:user)
     server = server_keypair()
-    leaf = leaf_certificate()
+    leaf = Keyword.get_lazy(opts, :certificate, &leaf_certificate/0)
     request = authorization_request(server, issuer.public_key, user.public_key, leaf.pem)
     connection = publish_capture()
     snapshot = allowing_snapshot(leaf.fingerprint, opts)
@@ -230,7 +292,8 @@ defmodule ServiceRadar.NATS.ManagedCertificateAccountTest do
       signer: signer,
       snapshot: snapshot,
       subscription: {connection, 1},
-      sessions: %{}
+      sessions: %{},
+      static_users: Keyword.get(opts, :static_users, %{})
     }
 
     assert {:noreply, next} =
@@ -333,6 +396,27 @@ defmodule ServiceRadar.NATS.ManagedCertificateAccountTest do
     }
   end
 
+  # A synthetic certificate whose subject is exactly `attributes`.
+  defp subject_certificate(attributes) do
+    %{cert: root, key: key} = :public_key.pkix_test_root_cert(~c"synthetic root", [])
+    {:OTPCertificate, tbs, _, _} = :public_key.pkix_decode_cert(root, :otp)
+
+    subject =
+      {:rdnSequence,
+       Enum.map(attributes, fn {oid, value} -> [{:AttributeTypeAndValue, oid, value}] end)}
+
+    der =
+      tbs
+      |> put_elem(4, subject)
+      |> put_elem(6, subject)
+      |> :public_key.pkix_sign(key)
+
+    %{
+      fingerprint: :sha256 |> :crypto.hash(der) |> Base.encode16(case: :lower),
+      pem: :public_key.pem_encode([{:Certificate, der, :not_encrypted}])
+    }
+  end
+
   defp allowing_snapshot(fingerprint, opts) do
     now = DateTime.utc_now()
     generated = DateTime.shift(now, second: -1)
@@ -344,7 +428,12 @@ defmodule ServiceRadar.NATS.ManagedCertificateAccountTest do
       generated_at: generated,
       valid_until: valid_until,
       components: [
-        %{component_id: component_id, blocked: Keyword.get(opts, :blocked, false), generation: 1}
+        %{
+          component_id: component_id,
+          component_type: Keyword.get(opts, :component_type, "agent"),
+          blocked: Keyword.get(opts, :blocked, false),
+          generation: 1
+        }
       ],
       certificates: [
         %{

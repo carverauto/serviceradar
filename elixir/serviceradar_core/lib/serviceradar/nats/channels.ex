@@ -31,7 +31,7 @@ defmodule ServiceRadar.NATS.Channels do
 
   The `:stream` provider's durable half gets its own JetStream subject
   namespace, its own stream with a durable cursor, and matching per-CN publish
-  and subscribe entries in `helm/serviceradar/templates/nats.yaml` (new subject
+  and subscribe entries in `helm/serviceradar/templates/_nats_static_users.tpl` (new subject
   namespaces are DENIED at the broker by default). Reviving `events.alert` in
   anticipation of that would only have to be rewritten against those
   allowlists.

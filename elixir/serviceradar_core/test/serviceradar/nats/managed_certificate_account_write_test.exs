@@ -119,6 +119,8 @@ defmodule ServiceRadar.NATS.ManagedCertificateAccountWriteTest do
       subscription: nil,
       sessions: %{},
       probe: nil,
+      static_users: %{},
+      static_users_status: :ok,
       reason: "not_configured"
     }
   end
