@@ -68,6 +68,7 @@ const (
 	edgeProducerMapper
 	edgeProducerNetprobe
 	edgeProducerSync
+	edgeProducerWorkloadIdentity
 	edgeProducerCount
 )
 
@@ -91,6 +92,7 @@ func (p edgeProducer) label() string {
 		edgeProducerMapper:              "mapper",
 		edgeProducerNetprobe:            "netprobe",
 		edgeProducerSync:                "sync",
+		edgeProducerWorkloadIdentity:    "workload_identity",
 	}[p]
 }
 

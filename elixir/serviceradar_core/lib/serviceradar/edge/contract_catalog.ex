@@ -26,6 +26,7 @@ defmodule ServiceRadar.Edge.ContractCatalog do
   alias ServiceRadar.Edge.Projectors.TelemetryBatch
   alias ServiceRadar.Edge.Projectors.UnleasedSweepResults
   alias ServiceRadar.Edge.Projectors.WasmPluginResult
+  alias ServiceRadar.Edge.Projectors.WorkloadIdentity
 
   @type ref :: {String.t(), pos_integer()}
   @type entry :: %{
@@ -142,6 +143,14 @@ defmodule ServiceRadar.Edge.ContractCatalog do
       max_projected_rows: 10_000,
       write_bytes_per_row: 16_384,
       package_id: "serviceradar.agent.sync"
+    },
+    %{
+      ref: {"serviceradar.workload_identity.snapshot", 1},
+      authority: :standing_grant,
+      projector: WorkloadIdentity,
+      max_projected_rows: 10_000,
+      write_bytes_per_row: 8_192,
+      package_id: "serviceradar.agent.workload_identity"
     }
   ]
 

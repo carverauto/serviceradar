@@ -111,8 +111,11 @@
   `serviceradar.mapper.interfaces.batch`, `serviceradar.mapper.topology.batch`,
   `serviceradar.netprobe.discovery.batch`, `serviceradar.sync.page.batch`), agent producers on
   the shared emitter, and core projectors that rebuild the legacy payloads into the same
-  ingestors. Remaining scope is the other inventory producers (workload identity, endpoint
-  inventory, bumblebee, k8s endpoints) and the parity soak.
+  ingestors. Workload identity snapshots have `serviceradar.workload_identity.snapshot`, an
+  agent producer in `go/pkg/agent/push_loop_workload_identity_edge.go`, and
+  `ServiceRadar.Edge.Projectors.WorkloadIdentity` writing through
+  `ServiceRadar.WorkloadIdentity.persist_snapshot/1`. Remaining scope is the other inventory
+  producers (endpoint inventory, bumblebee, k8s endpoints) and the parity soak.
 
 ## 8. Cutover
 
