@@ -7,8 +7,10 @@ The agent gateway SHALL obtain the output-contract registry only from core. It S
 receive the registry in the same document as the edge trust snapshot over the
 authenticated ERTS control plane. The document SHALL carry every non-retired
 epoch with its state, snapshot digest, contract entries, signature, and signing
-key id. The gateway SHALL verify every epoch's signature with the issuer public
-key the key id names before installing the registry. It SHALL re-verify any
+key id. Each contract entry SHALL carry its `projection_revision`. The gateway
+SHALL verify every epoch's signature, over a preimage that includes each entry's
+`projection_revision`, with the issuer public key the key id names before
+installing the registry. It SHALL re-verify any
 persisted or cached copy on load. When any epoch fails verification, the gateway
 SHALL refuse that document's registry whole. It SHALL keep its previously
 verified registry, and SHALL still install the document's trust. It SHALL

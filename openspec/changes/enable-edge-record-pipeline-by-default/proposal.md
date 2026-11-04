@@ -51,8 +51,8 @@ longer registers is withheld for good and caps the lane watermark.
   - Each bundle digest and the snapshot digest are a pure function of the catalog
     under a domain-separated hash grammar. A golden test pins them per release.
   - Core signs each epoch with the issuer key. The signature covers the epoch
-    number, the snapshot digest, and each contract's bundle digest and admission
-    fields, in canonical framing. Gateways verify it before installing a
+    number, the snapshot digest, and each contract's bundle digest, admission
+    fields and `projection_revision`, in canonical framing. Gateways verify it before installing a
     registry. Core verifies its persisted rows, and both sides verify any cached
     copy, on every load. A gateway that sees a bad signature refuses the
     document's registry, keeps its previous one, and surfaces the refusal.

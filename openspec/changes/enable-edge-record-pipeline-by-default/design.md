@@ -182,8 +182,10 @@ Rejected: comments and refactors would move the digest and force needless epochs
 
 - **Gateway.** `RecordTrust.snapshot/0` gains a `"contract_registry"` member. It
   holds a format version (2) and every non-retired epoch: its number, state,
-  snapshot digest, contract entries in the parser's existing entry shape, and the
-  epoch's signature and signing key id (Decision 12). The gateway verifies every
+  snapshot digest, contract entries in the parser's existing entry shape extended
+  with each entry's `projection_revision`, and the epoch's signature and signing
+  key id (Decision 12). The gateway rebuilds the signed preimage, including each
+  `projection_revision`, from these entries. The gateway verifies every
   epoch signature before it installs anything from the registry member, and it
   installs trust and the verified registry from the same core read. A registry
   member that fails verification is refused whole: the gateway installs the new

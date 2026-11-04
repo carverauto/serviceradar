@@ -17,8 +17,8 @@
     and any cached copy before use. On failure it excludes the epoch, signs
     nothing under it, and reports `registry_epoch_signature_invalid` in pipeline
     status. A bad active epoch stops all new signing.
-  - [ ] 0.2.3 Carry the signature and key id per epoch in the trust document's
-    `contract_registry` member.
+  - [ ] 0.2.3 Carry the signature and key id per epoch, and `projection_revision`
+    on every contract entry, in the trust document's `contract_registry` member.
   - [ ] 0.2.4 Gateway verification: verify every epoch against the issuer public
     key its key id names before installing the registry member, and re-verify any
     persisted or `:persistent_term` copy on load. On a bad signature:
