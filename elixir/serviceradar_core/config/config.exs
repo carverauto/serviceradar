@@ -97,6 +97,7 @@ config :serviceradar_core, Oban,
        {"53 3 * * *", ServiceRadar.Security.AuditVersionRetentionWorker, queue: :maintenance},
        {"*/5 * * * *", ServiceRadar.Observability.AnomalyEpisodeStaleCloseWorker,
         queue: :maintenance},
+       {"* * * * *", ServiceRadar.EventWriter.LifecycleAdmissionDrainWorker, queue: :maintenance},
        {"* * * * *", ServiceRadar.Observability.StatefulAlertEngine.RecoveryWorker,
         queue: :alert_recovery},
        # Merged device availability: drains the invalidation log and re-resolves

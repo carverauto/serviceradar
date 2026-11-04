@@ -4,6 +4,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
   alias Broadway.Message
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.EventWriter.AnomalyEpisodeGuardTables
+  alias ServiceRadar.EventWriter.LifecycleAdmissionDrainWorker
   alias ServiceRadar.EventWriter.Pipeline
   alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
   alias ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry
@@ -62,6 +63,61 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
         false -> {:error, :alert_evaluation_peer_not_ready}
         {:error, _} = error -> error
       end
+    end
+  end
+
+  defmodule CanonicalBodyEngine do
+    @moduledoc false
+
+    def evaluate_events(events) do
+      send(test_pid(), {:alert_evaluation_events, events})
+
+      Application.get_env(
+        :serviceradar_core,
+        :analytics_signals_replay_result,
+        {:error, {:overloaded, :rule_bytes}}
+      )
+    end
+
+    defp test_pid do
+      Application.fetch_env!(:serviceradar_core, :analytics_signals_process_batch_test_pid)
+    end
+  end
+
+  defmodule SaturatedRuleEngine do
+    @moduledoc false
+
+    def evaluate_events(events) do
+      send(test_pid(), {:alert_evaluation_events, events})
+
+      if Enum.any?(events, &String.starts_with?(&1.message, "saturated-forecast")),
+        do: {:error, {:overloaded, :rule_count}},
+        else: :ok
+    end
+
+    defp test_pid do
+      Application.fetch_env!(:serviceradar_core, :analytics_signals_process_batch_test_pid)
+    end
+  end
+
+  defmodule OneSlotEngine do
+    @moduledoc false
+
+    def evaluate_events(events) do
+      send(test_pid(), {:alert_evaluation_events, events})
+
+      case Application.get_env(:serviceradar_core, :analytics_signals_admission_slots, 0) do
+        slots when is_integer(slots) and slots > 0 ->
+          Application.put_env(:serviceradar_core, :analytics_signals_admission_slots, slots - 1)
+          :ok
+
+        _ ->
+          {:error, {:overloaded, :rule_bytes}}
+      end
+    end
+
+    defp test_pid do
+      Application.fetch_env!(:serviceradar_core, :analytics_signals_process_batch_test_pid)
     end
   end
 
@@ -332,7 +388,1078 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
              |> Ash.read!(actor: actor)
   end
 
+  test "every re-entered lifecycle state is a new admitted occurrence" do
+    mode = Application.get_env(:serviceradar_core, :alert_evaluation_mode)
+    Application.put_env(:serviceradar_core, :alert_evaluation_mode, :active)
+    Application.put_env(:serviceradar_core, :stateful_alert_engine, StatefulAlertEngine)
+    on_exit(fn -> restore_env(:alert_evaluation_mode, mode) end)
+    Repo.query!("UPDATE platform.stateful_alert_rules SET enabled = FALSE")
+    actor = SystemActor.system(:alert_engine)
+
+    rule =
+      StatefulAlertRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "synthetic-reentry-#{Ash.UUID.generate()}",
+          signal: :event,
+          match: %{"always" => true},
+          group_by: [],
+          threshold: 100,
+          window_seconds: 120,
+          bucket_seconds: 60
+        },
+        actor: actor
+      )
+      |> Ash.create!()
+
+    event_id = "synthetic-reentry-#{Ash.UUID.generate()}"
+    first_seen = DateTime.truncate(DateTime.utc_now(), :microsecond)
+
+    transitions =
+      for {status, step} <- Enum.with_index(~w(open resolved open resolved open), 1) do
+        versioned_assessment_message(
+          event_id,
+          status,
+          DateTime.shift(first_seen, second: step),
+          first_seen
+        )
+      end
+
+    row = AnalyticsSignals.parse_message(hd(transitions))
+
+    for message <- transitions do
+      assert {:ok, 1} = AnalyticsSignals.process_batch([message])
+    end
+
+    assert {"open", 2, "Update", "true"} = stored_finding(row)
+
+    work =
+      AlertEvaluationWork
+      |> Ash.Query.filter(rule_id == ^rule.id)
+      |> Ash.Query.sort(position: :asc)
+      |> Ash.read!(actor: actor)
+
+    assert Enum.map(work, & &1.position) == [1, 2, 3, 4, 5]
+    assert length(Enum.uniq(Enum.map(work, & &1.source_key))) == 5
+
+    assert Enum.map(work, & &1.payload["status"]) ==
+             ~w(open resolved open resolved open)
+  end
+
+  test "identical unversioned re-entries from distinct stream messages are each admitted" do
+    mode = Application.get_env(:serviceradar_core, :alert_evaluation_mode)
+    Application.put_env(:serviceradar_core, :alert_evaluation_mode, :active)
+    Application.put_env(:serviceradar_core, :stateful_alert_engine, StatefulAlertEngine)
+    on_exit(fn -> restore_env(:alert_evaluation_mode, mode) end)
+    Repo.query!("UPDATE platform.stateful_alert_rules SET enabled = FALSE")
+    actor = SystemActor.system(:alert_engine)
+
+    rule =
+      StatefulAlertRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "synthetic-identical-reentry-#{Ash.UUID.generate()}",
+          signal: :event,
+          match: %{"always" => true},
+          group_by: [],
+          threshold: 100,
+          window_seconds: 120,
+          bucket_seconds: 60
+        },
+        actor: actor
+      )
+      |> Ash.create!()
+
+    event_id = "synthetic-identical-reentry-#{Ash.UUID.generate()}"
+    opened = assessment_message(event_id, "open", "active", "confirmed", "affected")
+    resolved = assessment_message(event_id, "resolved", "resolved", "confirmed", "fixed")
+    row = AnalyticsSignals.parse_message(opened)
+
+    deliveries =
+      [opened, resolved, opened, resolved, opened]
+      |> Enum.with_index(1)
+      |> Enum.map(fn {message, sequence} ->
+        put_in(message, [:metadata, :jetstream_ack], %{
+          stream: "synthetic-analytics",
+          stream_sequence: sequence
+        })
+      end)
+
+    for message <- deliveries do
+      assert {:ok, 1} = AnalyticsSignals.process_batch([message])
+    end
+
+    assert {"open", 2, "Update", "true"} = stored_finding(row)
+
+    work =
+      AlertEvaluationWork
+      |> Ash.Query.filter(rule_id == ^rule.id)
+      |> Ash.Query.sort(position: :asc)
+      |> Ash.read!(actor: actor)
+
+    assert Enum.map(work, & &1.position) == [1, 2, 3, 4, 5]
+    assert length(Enum.uniq(Enum.map(work, & &1.source_key))) == 5
+    assert Enum.map(work, & &1.payload["status"]) == ~w(open resolved open resolved open)
+  end
+
+  test "the drain admits a pending occurrence whose series gets no later message" do
+    Application.put_env(
+      :serviceradar_core,
+      :stateful_alert_engine,
+      __MODULE__.CanonicalBodyEngine
+    )
+
+    Application.put_env(
+      :serviceradar_core,
+      :analytics_signals_replay_result,
+      {:error, {:overloaded, :rule_bytes}}
+    )
+
+    on_exit(fn ->
+      Application.delete_env(:serviceradar_core, :analytics_signals_replay_result)
+    end)
+
+    message =
+      assessment_message(
+        "synthetic-drain-#{Ash.UUID.generate()}",
+        "open",
+        "active",
+        "confirmed",
+        "affected"
+      )
+
+    row = AnalyticsSignals.parse_message(message)
+    event_id = uuid_string(row.id)
+
+    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([message])
+    assert_receive {:alert_evaluation_events, [%{id: ^event_id}]}
+    assert pending_occurrence_count(row) == 1
+
+    assert :ok = LifecycleAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
+    assert_receive {:alert_evaluation_events, [%{id: ^event_id} = still_refused]}
+    assert still_refused.activity_name == "Create"
+    assert pending_occurrence_count(row) == 1
+
+    Application.put_env(:serviceradar_core, :analytics_signals_replay_result, :ok)
+
+    assert :ok = LifecycleAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
+    assert_receive {:alert_evaluation_events, [%{id: ^event_id} = admitted]}
+    assert admitted.status == "open"
+    assert admitted.activity_name == "Create"
+    assert pending_occurrence_count(row) == 0
+
+    assert :ok = LifecycleAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
+    refute_receive {:alert_evaluation_events, [%{id: ^event_id}]}, 50
+  end
+
+  test "a redelivery whose own occurrence is admitted is acked while a later one waits" do
+    Application.put_env(
+      :serviceradar_core,
+      :stateful_alert_engine,
+      __MODULE__.CanonicalBodyEngine
+    )
+
+    Application.put_env(
+      :serviceradar_core,
+      :analytics_signals_replay_result,
+      {:error, {:overloaded, :rule_bytes}}
+    )
+
+    stamp = System.unique_integer([:positive])
+    series_key = "synthetic:redelivery-tail:#{stamp}"
+    earlier_message = "earlier-forecast-#{stamp}"
+    later_message = "saturated-forecast-#{stamp}"
+
+    earlier =
+      capacity_forecast_message(series_key, "tail-earlier", earlier_message, 1_812_456_000_000)
+
+    later =
+      capacity_forecast_message(series_key, "tail-later", later_message, 1_812_456_060_000)
+
+    delete_episode_fixture!(series_key)
+
+    on_exit(fn ->
+      Application.delete_env(:serviceradar_core, :analytics_signals_replay_result)
+      delete_episode_fixture!(series_key)
+    end)
+
+    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([earlier])
+    assert_receive {:alert_evaluation_events, [%{message: ^earlier_message}]}
+    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([later])
+    assert_receive {:alert_evaluation_events, [%{message: ^earlier_message}]}
+    assert pending_admission_messages(series_key) == [earlier_message, later_message]
+
+    Application.put_env(
+      :serviceradar_core,
+      :stateful_alert_engine,
+      __MODULE__.SaturatedRuleEngine
+    )
+
+    assert {:ok, 1} = AnalyticsSignals.process_batch([earlier])
+    assert_receive {:alert_evaluation_events, [%{message: ^earlier_message}]}
+    assert_receive {:alert_evaluation_events, [%{message: ^later_message}]}
+    assert pending_admission_messages(series_key) == [later_message]
+  end
+
+  test "one drain run scans past series stuck behind a saturated rule" do
+    Application.put_env(
+      :serviceradar_core,
+      :stateful_alert_engine,
+      __MODULE__.CanonicalBodyEngine
+    )
+
+    Application.put_env(
+      :serviceradar_core,
+      :analytics_signals_replay_result,
+      {:error, {:overloaded, :rule_bytes}}
+    )
+
+    stamp = System.unique_integer([:positive])
+    saturated_message = "saturated-forecast-#{stamp}"
+    quiet_forecast = "quiet-forecast-#{stamp}"
+    saturated = for n <- 1..4, do: "synthetic:drain-saturated:#{stamp}:#{n}"
+    quiet = "synthetic:drain-quiet:#{stamp}"
+    series = saturated ++ [quiet]
+
+    Enum.each(series, &delete_episode_fixture!/1)
+
+    on_exit(fn ->
+      Application.delete_env(:serviceradar_core, :analytics_signals_replay_result)
+      Enum.each(series, &delete_episode_fixture!/1)
+    end)
+
+    for {series_key, n} <- Enum.with_index(saturated, 1) do
+      message =
+        capacity_forecast_message(
+          series_key,
+          "drain-saturated-#{n}",
+          saturated_message,
+          1_812_456_000_000
+        )
+
+      assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([message])
+      assert_receive {:alert_evaluation_events, [_refused]}
+    end
+
+    quiet_message =
+      capacity_forecast_message(quiet, "drain-quiet", quiet_forecast, 1_812_456_000_000)
+
+    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([quiet_message])
+    assert_receive {:alert_evaluation_events, [_refused]}
+
+    Application.put_env(
+      :serviceradar_core,
+      :stateful_alert_engine,
+      __MODULE__.SaturatedRuleEngine
+    )
+
+    # Two full pages of saturated series come before the quiet one.
+    assert AnalyticsSignals.drain_pending_admissions(page_size: 2) >= 1
+
+    for _series_key <- saturated do
+      assert_receive {:alert_evaluation_events, [%{message: ^saturated_message}]}
+    end
+
+    assert_receive {:alert_evaluation_events, [%{message: ^quiet_forecast}]}
+
+    refute_receive {:alert_evaluation_events, [%{message: ^saturated_message}]}, 50
+    refute_receive {:alert_evaluation_events, [%{message: ^quiet_forecast}]}, 50
+
+    assert pending_admission_messages(quiet) == []
+
+    for series_key <- saturated do
+      assert pending_admission_messages(series_key) == [saturated_message]
+    end
+  end
+
   test "a rejected transition stays replayable and its retry is admitted once" do
+    rule = fill_alert_evaluation_capacity!()
+
+    message =
+      assessment_message(
+        "synthetic-retry-#{Ash.UUID.generate()}",
+        "open",
+        "active",
+        "confirmed",
+        "affected"
+      )
+
+    row = AnalyticsSignals.parse_message(message)
+    assert {:error, {:overloaded, _}} = AnalyticsSignals.process_batch([message])
+    assert event_count(row) == 1
+
+    assert [%{position: 1}] =
+             AlertEvaluationWork
+             |> Ash.Query.filter(rule_id == ^rule.id)
+             |> Ash.read!(actor: SystemActor.system(:alert_engine))
+
+    assert {:ok, {:processed, :completed}} = Owner.advance(rule.id)
+    assert {:ok, 1} = AnalyticsSignals.process_batch([message])
+    assert {:ok, 1} = AnalyticsSignals.process_batch([message])
+
+    assert [%{position: 2, source_key: source_key}] =
+             AlertEvaluationWork
+             |> Ash.Query.filter(rule_id == ^rule.id)
+             |> Ash.read!(actor: SystemActor.system(:alert_engine))
+
+    assert is_binary(source_key)
+    assert event_count(row) == 1
+  end
+
+  test "an exhausted delivery is dead-lettered and its transition stays pending for admission" do
+    rule = fill_alert_evaluation_capacity!()
+    parent = self()
+
+    raw =
+      assessment_message(
+        "synthetic-final-#{Ash.UUID.generate()}",
+        "open",
+        "active",
+        "confirmed",
+        "affected"
+      )
+
+    message = %Message{
+      data: raw.data,
+      metadata:
+        Map.merge(raw.metadata, %{
+          jetstream_ack: %{delivery_count: 5},
+          max_deliver: 5
+        }),
+      acknowledger:
+        {Pipeline, :ack_ref,
+         %{
+           ack_fun: fn action ->
+             send(parent, {:ack_action, action})
+             :ok
+           end
+         }}
+    }
+
+    row = AnalyticsSignals.parse_message(message)
+
+    assert [%Message{status: {:failed, {:overloaded, _}}} = failed] =
+             Pipeline.handle_batch(:causal_signals, [message], %{batch_key: :default}, %{})
+
+    assert :ok = Pipeline.ack(:ack_ref, [], [failed])
+    assert_receive {:ack_action, :term}
+    refute_receive {:ack_action, :ack}, 50
+    refute_receive {:ack_action, {:nack, _delay}}, 50
+    assert event_count(row) == 1
+    assert pending_occurrence_count(row) == 1
+
+    assert [%{position: 1}] =
+             AlertEvaluationWork
+             |> Ash.Query.filter(rule_id == ^rule.id)
+             |> Ash.read!(actor: SystemActor.system(:alert_engine))
+
+    assert {:ok, {:processed, :completed}} = Owner.advance(rule.id)
+    assert {:ok, 1} = AnalyticsSignals.process_batch([raw])
+    assert pending_occurrence_count(row) == 0
+
+    assert [%{position: 2}] =
+             AlertEvaluationWork
+             |> Ash.Query.filter(rule_id == ^rule.id)
+             |> Ash.read!(actor: SystemActor.system(:alert_engine))
+  end
+
+  test "redelivery admits only the lifecycle tail and a sibling message stays acked" do
+    mode = Application.get_env(:serviceradar_core, :alert_evaluation_mode)
+    limits = Application.get_env(:serviceradar_core, :alert_evaluation_limits)
+    Application.put_env(:serviceradar_core, :alert_evaluation_mode, :active)
+    Application.put_env(:serviceradar_core, :stateful_alert_engine, StatefulAlertEngine)
+    Application.put_env(:serviceradar_core, :alert_evaluation_limits, pending_count: 1)
+
+    on_exit(fn ->
+      restore_env(:alert_evaluation_mode, mode)
+      restore_env(:alert_evaluation_limits, limits)
+    end)
+
+    Repo.query!("UPDATE platform.stateful_alert_rules SET enabled = FALSE")
+    actor = SystemActor.system(:alert_engine)
+
+    rule =
+      StatefulAlertRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "synthetic-tail-#{Ash.UUID.generate()}",
+          signal: :event,
+          match: %{"always" => true},
+          group_by: [],
+          threshold: 100,
+          window_seconds: 120,
+          bucket_seconds: 60
+        },
+        actor: actor
+      )
+      |> Ash.create!()
+
+    parent = self()
+
+    first =
+      broadway_assessment("synthetic-tail-a-#{Ash.UUID.generate()}", parent, :first)
+
+    second =
+      broadway_assessment("synthetic-tail-b-#{Ash.UUID.generate()}", parent, :second)
+
+    assert [
+             %Message{status: :ok} = admitted,
+             %Message{status: {:failed, {:overloaded, _}}} = pending
+           ] =
+             Pipeline.handle_batch(
+               :causal_signals,
+               [first, second],
+               %{batch_key: :default},
+               %{}
+             )
+
+    assert :ok = Pipeline.ack(:ack_ref, [admitted], [pending])
+    assert_receive {:ack_action, :first, :ack}
+    assert_receive {:ack_action, :second, {:nack, _}}
+    refute_receive {:ack_action, :first, :nack}, 50
+    refute_receive {:ack_action, :second, :ack}, 50
+
+    assert event_count(AnalyticsSignals.parse_message(first)) == 1
+    assert event_count(AnalyticsSignals.parse_message(second)) == 1
+
+    assert [%{source_key: admitted_key, position: 1}] =
+             AlertEvaluationWork
+             |> Ash.Query.filter(rule_id == ^rule.id)
+             |> Ash.Query.sort(position: :asc)
+             |> Ash.read!(actor: actor)
+
+    assert {:ok, {:processed, :completed}} = Owner.advance(rule.id)
+
+    assert [%Message{status: :ok}] =
+             Pipeline.handle_batch(:causal_signals, [second], %{batch_key: :default}, %{})
+
+    assert [%{source_key: tail_key, position: 2}] =
+             AlertEvaluationWork
+             |> Ash.Query.filter(rule_id == ^rule.id)
+             |> Ash.read!(actor: actor)
+
+    assert tail_key != admitted_key
+
+    assert [%Message{status: :ok}] =
+             Pipeline.handle_batch(:causal_signals, [second], %{batch_key: :default}, %{})
+
+    assert [%{source_key: ^tail_key}] =
+             AlertEvaluationWork
+             |> Ash.Query.filter(rule_id == ^rule.id)
+             |> Ash.read!(actor: actor)
+  end
+
+  test "a later same-series anomaly open admits the persisted transition" do
+    Application.put_env(
+      :serviceradar_core,
+      :stateful_alert_engine,
+      __MODULE__.CanonicalBodyEngine
+    )
+
+    Application.put_env(
+      :serviceradar_core,
+      :analytics_signals_replay_result,
+      {:error, {:overloaded, :rule_bytes}}
+    )
+
+    series_key = "synthetic:canonical-body:#{System.unique_integer([:positive])}"
+    started = 1_812_456_000_000_000_000
+
+    canonical =
+      anomaly_open(series_key, "canonical-event", "canonical-open", 4.2, started)
+
+    later = anomaly_open(series_key, "later-event", "later-open", 99.0, started)
+
+    delete_episode_fixture!(series_key)
+
+    on_exit(fn ->
+      Application.delete_env(:serviceradar_core, :analytics_signals_replay_result)
+      delete_episode_fixture!(series_key)
+    end)
+
+    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([canonical])
+    assert_receive {:alert_evaluation_events, [first_event]}
+    assert canonical_transition?(first_event)
+    assert stored_anomaly(series_key) == {"canonical-open", "canonical-event", "false"}
+
+    assert {:ok, 1} = AnalyticsSignals.process_batch([later])
+    assert_receive {:alert_evaluation_events, [replayed]}
+    assert canonical_transition?(replayed)
+    assert stored_anomaly(series_key) == {"canonical-open", "canonical-event", "false"}
+
+    Application.put_env(:serviceradar_core, :analytics_signals_replay_result, :ok)
+    assert {:ok, 1} = AnalyticsSignals.process_batch([later])
+    assert_receive {:alert_evaluation_events, [admitted]}
+    assert canonical_transition?(admitted)
+    assert stored_anomaly(series_key) == {"canonical-open", "canonical-event", "true"}
+
+    assert {:ok, 1} = AnalyticsSignals.process_batch([canonical])
+    assert {:ok, 1} = AnalyticsSignals.process_batch([later])
+    refute_receive {:alert_evaluation_events, _events}, 50
+    assert stored_anomaly(series_key) == {"canonical-open", "canonical-event", "true"}
+  end
+
+  test "a redelivered anomaly transition is tied to its message without stored bookkeeping" do
+    Application.put_env(
+      :serviceradar_core,
+      :stateful_alert_engine,
+      __MODULE__.CanonicalBodyEngine
+    )
+
+    Application.put_env(
+      :serviceradar_core,
+      :analytics_signals_replay_result,
+      {:error, {:overloaded, :rule_bytes}}
+    )
+
+    series_key = "synthetic:delivered-identity:#{System.unique_integer([:positive])}"
+
+    open =
+      anomaly_open(
+        series_key,
+        "delivered-event",
+        "delivered-open",
+        4.2,
+        1_812_456_000_000_000_000
+      )
+
+    delete_episode_fixture!(series_key)
+
+    on_exit(fn ->
+      Application.delete_env(:serviceradar_core, :analytics_signals_replay_result)
+      delete_episode_fixture!(series_key)
+    end)
+
+    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([open])
+    assert_receive {:alert_evaluation_events, [first]}
+    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([open])
+    assert_receive {:alert_evaluation_events, [redelivered]}
+
+    for event <- [first, redelivered] do
+      refute Map.has_key?(event.metadata["service_radar"], "source_event_identity")
+    end
+
+    assert [[service_radar]] =
+             Repo.query!(
+               """
+               SELECT metadata->'service_radar'
+               FROM platform.ocsf_events
+               WHERE metadata->'service_radar'->>'series_key' = $1
+               """,
+               [series_key]
+             ).rows
+
+    refute Map.has_key?(service_radar, "source_event_identity")
+
+    assert [[occurrence_service_radar]] =
+             Repo.query!(
+               """
+               SELECT occurrence->'metadata'->'service_radar'
+               FROM platform.lifecycle_pending_admissions
+               WHERE series_key = $1
+               """,
+               [series_key]
+             ).rows
+
+    refute Map.has_key?(occurrence_service_radar, "source_event_identity")
+
+    Application.put_env(:serviceradar_core, :analytics_signals_replay_result, :ok)
+    assert {:ok, 1} = AnalyticsSignals.process_batch([open])
+    assert_receive {:alert_evaluation_events, [_admitted]}
+    assert pending_admission_messages(series_key) == []
+  end
+
+  test "a later series clear waits until the pending open is admitted" do
+    Application.put_env(
+      :serviceradar_core,
+      :stateful_alert_engine,
+      __MODULE__.CanonicalBodyEngine
+    )
+
+    Application.put_env(
+      :serviceradar_core,
+      :analytics_signals_replay_result,
+      {:error, {:overloaded, :rule_bytes}}
+    )
+
+    series_key = "synthetic:series-order:#{System.unique_integer([:positive])}"
+    started = 1_812_456_000_000_000_000
+
+    open = anomaly_open(series_key, "open-event", "series-open", 4.2, started)
+    clear = anomaly_clear(series_key, "clear-event", "series-clear", started)
+
+    delete_episode_fixture!(series_key)
+
+    on_exit(fn ->
+      Application.delete_env(:serviceradar_core, :analytics_signals_replay_result)
+      delete_episode_fixture!(series_key)
+    end)
+
+    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([open])
+    assert_receive {:alert_evaluation_events, [opened]}
+    assert opened.message == "series-open"
+    assert opened.unmapped["event_id"] == "open-event"
+    assert stored_series_transitions(series_key) == [{"series-open", "false"}]
+
+    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([clear])
+    assert_receive {:alert_evaluation_events, [waiting]}
+    assert waiting.message == "series-open"
+    assert waiting.unmapped["event_id"] == "open-event"
+    refute_receive {:alert_evaluation_events, _events}, 50
+
+    assert stored_series_transitions(series_key) == [
+             {"series-open", "false"},
+             {"series-clear", "false"}
+           ]
+
+    Application.put_env(:serviceradar_core, :analytics_signals_replay_result, :ok)
+    assert {:ok, 1} = AnalyticsSignals.process_batch([clear])
+    assert_receive {:alert_evaluation_events, [admitted_open]}
+    assert admitted_open.message == "series-open"
+    assert admitted_open.unmapped["event_id"] == "open-event"
+    assert_receive {:alert_evaluation_events, [admitted_clear]}
+    assert admitted_clear.message == "series-clear"
+    assert admitted_clear.unmapped["event_id"] == "clear-event"
+
+    assert stored_series_transitions(series_key) == [
+             {"series-open", "true"},
+             {"series-clear", "true"}
+           ]
+
+    assert {:ok, 1} = AnalyticsSignals.process_batch([open])
+    assert {:ok, 1} = AnalyticsSignals.process_batch([clear])
+    refute_receive {:alert_evaluation_events, _events}, 50
+  end
+
+  test "a held forecast redelivery admits the earlier pending series row first" do
+    Application.put_env(
+      :serviceradar_core,
+      :stateful_alert_engine,
+      __MODULE__.CanonicalBodyEngine
+    )
+
+    Application.put_env(
+      :serviceradar_core,
+      :analytics_signals_replay_result,
+      {:error, {:overloaded, :rule_bytes}}
+    )
+
+    series_key = "synthetic:forecast-order:#{System.unique_integer([:positive])}"
+
+    earlier =
+      capacity_forecast_message(series_key, "forecast-a", "forecast-earlier", 1_812_456_000_000)
+
+    later =
+      capacity_forecast_message(series_key, "forecast-b", "forecast-later", 1_812_456_060_000)
+
+    delete_episode_fixture!(series_key)
+
+    on_exit(fn ->
+      Application.delete_env(:serviceradar_core, :analytics_signals_replay_result)
+      delete_episode_fixture!(series_key)
+    end)
+
+    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([earlier])
+    assert_receive {:alert_evaluation_events, [first]}
+    assert first.message == "forecast-earlier"
+    assert pending_admission_messages(series_key) == ["forecast-earlier"]
+
+    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([later])
+    assert_receive {:alert_evaluation_events, [waiting]}
+    assert waiting.message == "forecast-earlier"
+    refute_receive {:alert_evaluation_events, _events}, 50
+    assert pending_admission_messages(series_key) == ["forecast-earlier", "forecast-later"]
+
+    Application.put_env(:serviceradar_core, :analytics_signals_replay_result, :ok)
+
+    assert {:ok, 1} = AnalyticsSignals.process_batch([later])
+    assert_receive {:alert_evaluation_events, [admitted_earlier]}
+    assert admitted_earlier.message == "forecast-earlier"
+    assert_receive {:alert_evaluation_events, [admitted_later]}
+    assert admitted_later.message == "forecast-later"
+    refute_receive {:alert_evaluation_events, _events}, 50
+    assert pending_admission_messages(series_key) == []
+
+    assert {:ok, 1} = AnalyticsSignals.process_batch([later])
+    refute_receive {:alert_evaluation_events, _events}, 50
+    assert pending_admission_messages(series_key) == []
+  end
+
+  test "same-batch forecasts admit the earlier event before the later message" do
+    Application.put_env(:serviceradar_core, :stateful_alert_engine, __MODULE__.OneSlotEngine)
+    Application.put_env(:serviceradar_core, :analytics_signals_admission_slots, 1)
+
+    series_key = "synthetic:forecast-same-batch:#{System.unique_integer([:positive])}"
+
+    earlier =
+      capacity_forecast_message(series_key, "forecast-a", "forecast-earlier", 1_812_456_000_000)
+
+    later =
+      capacity_forecast_message(series_key, "forecast-b", "forecast-later", 1_812_456_060_000)
+
+    delete_episode_fixture!(series_key)
+
+    on_exit(fn ->
+      Application.delete_env(:serviceradar_core, :analytics_signals_admission_slots)
+      delete_episode_fixture!(series_key)
+    end)
+
+    assert {:incomplete, 2, [{^later, {:overloaded, :rule_bytes}}]} =
+             AnalyticsSignals.process_batch([later, earlier])
+
+    assert_receive {:alert_evaluation_events, [admitted]}
+    assert admitted.message == "forecast-earlier"
+    assert_receive {:alert_evaluation_events, [refused]}
+    assert refused.message == "forecast-later"
+    refute_receive {:alert_evaluation_events, _events}, 50
+
+    assert stored_series_transitions(series_key) == [
+             {"forecast-earlier", "true"},
+             {"forecast-later", "false"}
+           ]
+
+    assert pending_admission_messages(series_key) == ["forecast-later"]
+  end
+
+  test "different series in one batch admit in message order" do
+    Application.put_env(:serviceradar_core, :stateful_alert_engine, __MODULE__.OneSlotEngine)
+    Application.put_env(:serviceradar_core, :analytics_signals_admission_slots, 1)
+
+    first_series = "synthetic:forecast-series-a:#{System.unique_integer([:positive])}"
+    second_series = "synthetic:forecast-series-b:#{System.unique_integer([:positive])}"
+
+    first =
+      capacity_forecast_message(first_series, "forecast-a", "forecast-first", 1_812_456_060_000)
+
+    second =
+      capacity_forecast_message(second_series, "forecast-b", "forecast-second", 1_812_456_000_000)
+
+    delete_episode_fixture!(first_series)
+    delete_episode_fixture!(second_series)
+
+    on_exit(fn ->
+      Application.delete_env(:serviceradar_core, :analytics_signals_admission_slots)
+      delete_episode_fixture!(first_series)
+      delete_episode_fixture!(second_series)
+    end)
+
+    assert {:incomplete, 2, [{^second, {:overloaded, :rule_bytes}}]} =
+             AnalyticsSignals.process_batch([first, second])
+
+    assert_receive {:alert_evaluation_events, [admitted]}
+    assert admitted.message == "forecast-first"
+    assert_receive {:alert_evaluation_events, [refused]}
+    assert refused.message == "forecast-second"
+    refute_receive {:alert_evaluation_events, _events}, 50
+
+    assert pending_admission_messages(first_series) == []
+    assert pending_admission_messages(second_series) == ["forecast-second"]
+  end
+
+  test "a pending forecast between two same-batch forecasts is admitted first" do
+    Application.put_env(
+      :serviceradar_core,
+      :stateful_alert_engine,
+      __MODULE__.CanonicalBodyEngine
+    )
+
+    Application.put_env(
+      :serviceradar_core,
+      :analytics_signals_replay_result,
+      {:error, {:overloaded, :rule_bytes}}
+    )
+
+    series_key = "synthetic:forecast-gap:#{System.unique_integer([:positive])}"
+
+    earlier =
+      capacity_forecast_message(series_key, "forecast-t1", "forecast-t1", 1_812_456_000_000)
+
+    middle =
+      capacity_forecast_message(series_key, "forecast-t2", "forecast-t2", 1_812_456_030_000)
+
+    later = capacity_forecast_message(series_key, "forecast-t3", "forecast-t3", 1_812_456_060_000)
+
+    delete_episode_fixture!(series_key)
+
+    on_exit(fn ->
+      Application.delete_env(:serviceradar_core, :analytics_signals_replay_result)
+      delete_episode_fixture!(series_key)
+    end)
+
+    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([middle])
+    assert_receive {:alert_evaluation_events, [waiting]}
+    assert waiting.message == "forecast-t2"
+    assert pending_admission_messages(series_key) == ["forecast-t2"]
+
+    Application.put_env(:serviceradar_core, :analytics_signals_replay_result, :ok)
+
+    # The pending forecast arrived first, so it keeps its FIFO place ahead of
+    # the batch's own forecasts, which follow in event-time order.
+    assert {:ok, 2} = AnalyticsSignals.process_batch([later, earlier])
+    assert_receive {:alert_evaluation_events, [admitted_middle]}
+    assert admitted_middle.message == "forecast-t2"
+    assert_receive {:alert_evaluation_events, [admitted_earlier]}
+    assert admitted_earlier.message == "forecast-t1"
+    assert_receive {:alert_evaluation_events, [admitted_later]}
+    assert admitted_later.message == "forecast-t3"
+    refute_receive {:alert_evaluation_events, _events}, 50
+
+    assert stored_series_transitions(series_key) == [
+             {"forecast-t1", "true"},
+             {"forecast-t2", "true"},
+             {"forecast-t3", "true"}
+           ]
+
+    assert pending_admission_messages(series_key) == []
+  end
+
+  test "same-time forecasts admit in pending insert order" do
+    Application.put_env(
+      :serviceradar_core,
+      :stateful_alert_engine,
+      __MODULE__.CanonicalBodyEngine
+    )
+
+    Application.put_env(
+      :serviceradar_core,
+      :analytics_signals_replay_result,
+      {:error, {:overloaded, :rule_bytes}}
+    )
+
+    series_key = "synthetic:forecast-inserted-at:#{System.unique_integer([:positive])}"
+    time = 1_812_456_000_000
+
+    delete_episode_fixture!(series_key)
+
+    on_exit(fn ->
+      Application.delete_env(:serviceradar_core, :analytics_signals_replay_result)
+      delete_episode_fixture!(series_key)
+    end)
+
+    {_older, newer} =
+      Enum.find_value(1..40, fn n ->
+        delete_episode_fixture!(series_key)
+        older = capacity_forecast_message(series_key, "forecast-older", "forecast-older", time)
+
+        newer =
+          capacity_forecast_message(series_key, "forecast-newer-#{n}", "forecast-newer", time)
+
+        assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([older])
+        assert_receive {:alert_evaluation_events, [_ignored]}
+        assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([newer])
+        assert_receive {:alert_evaluation_events, [_ignored]}
+        refute_receive {:alert_evaluation_events, _events}, 50
+
+        case pending_admission_ids(series_key) do
+          [{_, first_id}, {_, second_id}] when first_id > second_id -> {older, newer}
+          _ -> nil
+        end
+      end) || flunk("no same-time forecast pair inverted event-id order")
+
+    Application.put_env(:serviceradar_core, :analytics_signals_replay_result, :ok)
+
+    assert {:ok, 1} = AnalyticsSignals.process_batch([newer])
+    assert_receive {:alert_evaluation_events, [admitted_older]}
+    assert admitted_older.message == "forecast-older"
+    assert_receive {:alert_evaluation_events, [admitted_newer]}
+    assert admitted_newer.message == "forecast-newer"
+    refute_receive {:alert_evaluation_events, _events}, 50
+    assert pending_admission_messages(series_key) == []
+  end
+
+  test "same-time forecasts in one batch admit in message order" do
+    Application.put_env(:serviceradar_core, :stateful_alert_engine, __MODULE__.OneSlotEngine)
+    Application.put_env(:serviceradar_core, :analytics_signals_admission_slots, 1)
+
+    series_key = "synthetic:forecast-same-time-batch:#{System.unique_integer([:positive])}"
+    time = 1_812_456_000_000
+    earlier = capacity_forecast_message(series_key, "forecast-earlier", "forecast-earlier", time)
+
+    delete_episode_fixture!(series_key)
+
+    on_exit(fn ->
+      Application.delete_env(:serviceradar_core, :analytics_signals_admission_slots)
+      delete_episode_fixture!(series_key)
+    end)
+
+    {earlier, later} =
+      Enum.find_value(1..80, fn n ->
+        later =
+          capacity_forecast_message(series_key, "forecast-later-#{n}", "forecast-later", time)
+
+        if forecast_event_id(later) < forecast_event_id(earlier) do
+          {earlier, later}
+        end
+      end) || flunk("no same-time forecast pair inverted event-id order")
+
+    assert forecast_event_id(later) < forecast_event_id(earlier)
+
+    assert {:incomplete, 2, [{^later, {:overloaded, :rule_bytes}}]} =
+             AnalyticsSignals.process_batch([earlier, later])
+
+    assert_receive {:alert_evaluation_events, [admitted]}
+    assert admitted.message == "forecast-earlier"
+    assert_receive {:alert_evaluation_events, [refused]}
+    assert refused.message == "forecast-later"
+    refute_receive {:alert_evaluation_events, _events}, 50
+
+    assert Map.new(stored_series_transitions(series_key)) == %{
+             "forecast-earlier" => "true",
+             "forecast-later" => "false"
+           }
+
+    assert pending_admission_messages(series_key) == ["forecast-later"]
+  end
+
+  test "a newer inventory close queues behind the pending open and survives exhausted deliveries" do
+    Application.put_env(
+      :serviceradar_core,
+      :stateful_alert_engine,
+      __MODULE__.CanonicalBodyEngine
+    )
+
+    Application.put_env(
+      :serviceradar_core,
+      :analytics_signals_replay_result,
+      {:error, {:overloaded, :rule_bytes}}
+    )
+
+    event_id = "synthetic-inventory-pending-#{System.unique_integer([:positive])}"
+    first_seen = DateTime.truncate(DateTime.utc_now(), :microsecond)
+    open_version = DateTime.shift(first_seen, second: 1)
+    resolved_version = DateTime.shift(open_version, second: 1)
+    opened = versioned_assessment_message(event_id, "open", open_version, first_seen)
+    resolved = versioned_assessment_message(event_id, "resolved", resolved_version, first_seen)
+    row = AnalyticsSignals.parse_message(opened)
+
+    delete_event!(row)
+
+    on_exit(fn ->
+      Application.delete_env(:serviceradar_core, :analytics_signals_replay_result)
+      delete_event!(row)
+    end)
+
+    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([opened])
+    assert_receive {:alert_evaluation_events, [open_event]}
+    assert open_event.status == "open"
+    assert open_event.activity_name == "Create"
+    assert_receive {:northbound_event, _}
+    assert stored_finding(row) == {"open", 1, "Create", "false"}
+
+    # Every one of the close's five JetStream deliveries is refused, so the
+    # source message is never acked and is dropped at max_deliver. The close is
+    # stored on its first delivery and queues behind the open, which keeps
+    # being retried first.
+    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([resolved])
+    assert_receive {:alert_evaluation_events, [blocked_open]}
+    assert blocked_open.status == "open"
+    assert blocked_open.activity_name == "Create"
+    assert_receive {:northbound_event, northbound_close}
+    assert northbound_close.status == "resolved"
+
+    for _redelivery <- 2..5 do
+      assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([resolved])
+      assert_receive {:alert_evaluation_events, [retried_open]}
+      assert retried_open.activity_name == "Create"
+    end
+
+    refute_receive {:alert_evaluation_events, _events}, 50
+    refute_receive {:northbound_event, _event}, 50
+    assert stored_finding(row) == {"resolved", 3, "Close", "false"}
+    assert pending_occurrence_count(row) == 2
+    refute Map.has_key?(stored_metadata(row), "alert_evaluation_admitted")
+    refute Map.has_key?(stored_metadata(row), "alert_evaluation_occurrence_id")
+
+    Application.put_env(:serviceradar_core, :analytics_signals_replay_result, :ok)
+
+    # A later message for the same finding admits the dropped tail in order,
+    # each occurrence with the payload it had when it was stored.
+    assert {:ok, 1} = AnalyticsSignals.process_batch([opened])
+    assert_receive {:alert_evaluation_events, [admitted_open]}
+    assert admitted_open.status == "open"
+    assert admitted_open.activity_name == "Create"
+    assert_receive {:alert_evaluation_events, [admitted_close]}
+    assert admitted_close.status == "resolved"
+    assert admitted_close.activity_name == "Close"
+    refute_receive {:alert_evaluation_events, _events}, 50
+    refute_receive {:northbound_event, _event}, 50
+    assert stored_finding(row) == {"resolved", 3, "Close", "true"}
+    assert pending_occurrence_count(row) == 0
+
+    assert {:ok, 1} = AnalyticsSignals.process_batch([opened])
+    assert {:ok, 1} = AnalyticsSignals.process_batch([resolved])
+    refute_receive {:alert_evaluation_events, _events}, 50
+    assert stored_finding(row) == {"resolved", 3, "Close", "true"}
+  end
+
+  test "a versioned inventory update during a pending admission keeps the open's own payload" do
+    Application.put_env(
+      :serviceradar_core,
+      :stateful_alert_engine,
+      __MODULE__.CanonicalBodyEngine
+    )
+
+    Application.put_env(
+      :serviceradar_core,
+      :analytics_signals_replay_result,
+      {:error, {:overloaded, :rule_bytes}}
+    )
+
+    event_id = "synthetic-inventory-version-#{System.unique_integer([:positive])}"
+    first_seen = DateTime.truncate(DateTime.utc_now(), :microsecond)
+    version = DateTime.shift(first_seen, second: 1)
+    later = DateTime.shift(version, second: 1)
+    opened = versioned_assessment_message(event_id, "open", version, first_seen)
+    updated = versioned_assessment_message(event_id, "open", later, first_seen)
+    row = AnalyticsSignals.parse_message(opened)
+
+    delete_event!(row)
+
+    on_exit(fn ->
+      Application.delete_env(:serviceradar_core, :analytics_signals_replay_result)
+      delete_event!(row)
+    end)
+
+    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([opened])
+    assert_receive {:alert_evaluation_events, [open_event]}
+    assert open_event.status == "open"
+    assert_receive {:northbound_event, _}
+    assert stored_finding(row) == {"open", 1, "Create", "false"}
+    assert stored_finding_version(row) == DateTime.to_iso8601(version)
+
+    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([opened])
+    assert_receive {:alert_evaluation_events, [replayed]}
+    assert replayed.status == "open"
+    assert replayed.activity_name == "Create"
+    refute_receive {:northbound_event, _event}, 50
+    assert stored_finding(row) == {"open", 1, "Create", "false"}
+
+    Application.put_env(:serviceradar_core, :analytics_signals_replay_result, :ok)
+
+    assert {:ok, 1} = AnalyticsSignals.process_batch([updated])
+    assert_receive {:alert_evaluation_events, [admitted_open]}
+    assert admitted_open.status == "open"
+    assert admitted_open.activity_name == "Create"
+    refute_receive {:alert_evaluation_events, _events}, 50
+    refute_receive {:northbound_event, _event}, 50
+    assert stored_finding(row) == {"open", 2, "Update", "true"}
+    assert stored_finding_version(row) == DateTime.to_iso8601(later)
+
+    assert {:ok, 1} = AnalyticsSignals.process_batch([opened])
+    refute_receive {:alert_evaluation_events, _events}, 50
+    assert stored_finding_version(row) == DateTime.to_iso8601(later)
+
+    assert {:ok, 1} = AnalyticsSignals.process_batch([updated])
+    refute_receive {:alert_evaluation_events, _events}, 50
+    assert stored_finding(row) == {"open", 2, "Update", "true"}
+  end
+
+  # Activates the real engine with room for one pending occurrence and takes it,
+  # so the next admission is refused as overloaded.
+  defp fill_alert_evaluation_capacity! do
     mode = Application.get_env(:serviceradar_core, :alert_evaluation_mode)
     limits = Application.get_env(:serviceradar_core, :alert_evaluation_limits)
     Application.put_env(:serviceradar_core, :alert_evaluation_mode, :active)
@@ -373,28 +1500,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
                }
              ])
 
-    message =
-      assessment_message(
-        "synthetic-retry-#{Ash.UUID.generate()}",
-        "open",
-        "active",
-        "confirmed",
-        "affected"
-      )
-
-    row = AnalyticsSignals.parse_message(message)
-    assert {:error, _} = AnalyticsSignals.process_batch([message])
-    assert event_count(row) == 0
-    assert {:ok, {:processed, :completed}} = Owner.advance(rule.id)
-    assert {:ok, 1} = AnalyticsSignals.process_batch([message])
-    assert {:ok, 1} = AnalyticsSignals.process_batch([message])
-
-    assert [%{position: 2}] =
-             AlertEvaluationWork
-             |> Ash.Query.filter(rule_id == ^rule.id)
-             |> Ash.read!(actor: actor)
-
-    assert event_count(row) == 1
+    rule
   end
 
   test "alert_evaluation_peer_not_ready nacks analytics predictions with delayed backoff and processes once ready (#6062)" do
@@ -495,13 +1601,13 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
       refute log =~ "MatchError"
       refute log =~ "Causal signals batch insert failed"
 
-      assert [[0]] =
+      assert [[1]] =
                Repo.query!(
                  "SELECT count(*) FROM platform.anomaly_episodes WHERE series_key = $1",
                  [series_key]
                ).rows
 
-      assert [[0]] =
+      assert [[1]] =
                Repo.query!(
                  """
                  SELECT count(*)
@@ -646,9 +1752,8 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     end
   end
 
-  # Prepared mode admits nothing, by design. A transition commits together with
-  # its admission, so every batch carrying one used to roll back, and JetStream
-  # dropped it after max_deliver.
+  # Prepared mode admits nothing, by design. The transition still commits, so
+  # the signal is stored while alert rules are not evaluating.
   test "prepared alert evaluation stores the transition and admits nothing" do
     mode = Application.get_env(:serviceradar_core, :alert_evaluation_mode)
     Application.put_env(:serviceradar_core, :alert_evaluation_mode, :prepared)
@@ -975,6 +2080,23 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     )
   end
 
+  defp broadway_assessment(event_id, parent, tag) do
+    raw = assessment_message(event_id, "open", "active", "confirmed", "affected")
+
+    %Message{
+      data: raw.data,
+      metadata: raw.metadata,
+      acknowledger:
+        {Pipeline, :ack_ref,
+         %{
+           ack_fun: fn action ->
+             send(parent, {:ack_action, tag, action})
+             :ok
+           end
+         }}
+    }
+  end
+
   defp assessment_message(
          event_id,
          finding_status,
@@ -1021,6 +2143,92 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
   defp encode_version(nil), do: nil
   defp encode_version(%DateTime{} = version), do: DateTime.to_iso8601(version)
 
+  defp anomaly_open(series_key, event_id, message, score, started) do
+    raw = anomaly_message(series_key, event_id, started)
+
+    payload =
+      raw.data
+      |> Jason.decode!()
+      |> Map.put("message", message)
+      |> put_in(["anomaly", "score"], score)
+
+    %{raw | data: Jason.encode!(payload)}
+  end
+
+  defp anomaly_clear(series_key, event_id, message, started) do
+    raw = anomaly_message(series_key, event_id, started)
+
+    payload =
+      raw.data
+      |> Jason.decode!()
+      |> Map.put("message", message)
+      |> Map.put("time", 1_812_456_060_000)
+      |> put_in(["anomaly", "state"], "anomaly_drift_clear")
+
+    %{raw | data: Jason.encode!(payload)}
+  end
+
+  defp canonical_transition?(event) do
+    event.message == "canonical-open" and event.unmapped["event_id"] == "canonical-event" and
+      canonical_score?(get_in(event.unmapped, ["anomaly", "score"]))
+  end
+
+  defp canonical_score?(score) when is_float(score), do: abs(score - 4.2) < 0.001
+  defp canonical_score?(score) when is_integer(score), do: false
+
+  defp canonical_score?(score) when is_binary(score) do
+    case Float.parse(score) do
+      {value, _} -> abs(value - 4.2) < 0.001
+      :error -> false
+    end
+  end
+
+  defp canonical_score?(_score), do: false
+
+  defp stored_anomaly(series_key) do
+    case Repo.query!(
+           """
+           SELECT events.message,
+                  events.unmapped->>'event_id',
+                  events.unmapped->'anomaly'->>'score',
+                  CASE WHEN EXISTS (
+                    SELECT 1 FROM platform.lifecycle_pending_admissions AS pending
+                    WHERE pending.event_id = events.id AND pending.event_time = events.time
+                  ) THEN 'false' ELSE 'true' END
+           FROM platform.ocsf_events AS events
+           WHERE events.metadata->'service_radar'->>'series_key' = $1
+           ORDER BY time ASC
+           """,
+           [series_key]
+         ).rows do
+      [[message, event_id, score, admitted]] ->
+        assert canonical_score?(score)
+        {message, event_id, admitted}
+
+      other ->
+        other
+    end
+  end
+
+  defp stored_series_transitions(series_key) do
+    Enum.map(
+      Repo.query!(
+        """
+        SELECT events.message,
+               CASE WHEN EXISTS (
+                   SELECT 1 FROM platform.lifecycle_pending_admissions AS pending
+                   WHERE pending.event_id = events.id AND pending.event_time = events.time
+                 ) THEN 'false' ELSE 'true' END
+        FROM platform.ocsf_events AS events
+        WHERE events.metadata->'service_radar'->>'series_key' = $1
+        ORDER BY events.time ASC, events.created_at ASC, events.id ASC
+        """,
+        [series_key]
+      ).rows,
+      fn [message, admitted] -> {message, admitted} end
+    )
+  end
+
   defp anomaly_message(
          series_key,
          event_id,
@@ -1059,15 +2267,30 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
   defp delete_event!(nil), do: :ok
 
   defp delete_event!(row) do
+    id = uuid_string(row.id)
+
+    Repo.query!(
+      """
+      DELETE FROM platform.lifecycle_pending_admissions
+      WHERE event_id = ($1::text)::uuid OR series_key = $1
+      """,
+      [id]
+    )
+
     Repo.query!(
       "DELETE FROM platform.ocsf_events WHERE id = ($1::text)::uuid AND time = $2",
-      [uuid_string(row.id), row.time]
+      [id, row.time]
     )
 
     :ok
   end
 
   defp delete_episode_fixture!(series_key) do
+    Repo.query!(
+      "DELETE FROM platform.lifecycle_pending_admissions WHERE series_key = $1",
+      [series_key]
+    )
+
     Repo.query!(
       """
       DELETE FROM platform.ocsf_events
@@ -1079,6 +2302,68 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
 
     Repo.query!("DELETE FROM platform.anomaly_episodes WHERE series_key = $1", [series_key])
     :ok
+  end
+
+  defp forecast_event_id(message) do
+    case AnalyticsSignals.parse_message(message) do
+      %{id: id} -> id
+      _ -> nil
+    end
+  end
+
+  defp capacity_forecast_message(series_key, event_id, message, time) do
+    payload = %{
+      "event_id" => event_id,
+      "signal_type" => "prediction",
+      "event_type" => "capacity_forecast",
+      "class_uid" => 2004,
+      "time" => time,
+      "severity_id" => 3,
+      "message" => message,
+      "device_uid" => "sr:capacity-forecast-device",
+      "capacity_forecast" => %{
+        "resource_key" => series_key,
+        "metric_name" => "disk.used_percent"
+      }
+    }
+
+    %{
+      data: Jason.encode!(payload),
+      metadata: %{
+        subject: "signals.analytics.predictions.#{series_key}",
+        received_at: DateTime.utc_now()
+      }
+    }
+  end
+
+  defp pending_admission_messages(series_key) do
+    Enum.map(
+      Repo.query!(
+        """
+        SELECT occurrence->>'message'
+        FROM platform.lifecycle_pending_admissions
+        WHERE series_key = $1
+        ORDER BY seq ASC
+        """,
+        [series_key]
+      ).rows,
+      fn [message] -> message end
+    )
+  end
+
+  defp pending_admission_ids(series_key) do
+    Enum.map(
+      Repo.query!(
+        """
+        SELECT occurrence->>'message', event_id::text
+        FROM platform.lifecycle_pending_admissions
+        WHERE series_key = $1
+        ORDER BY seq ASC
+        """,
+        [series_key]
+      ).rows,
+      fn [message, event_id] -> {message, event_id} end
+    )
   end
 
   defp event_count(row) do
@@ -1099,6 +2384,58 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
       )
 
     [status, activity_id, activity_name]
+  end
+
+  defp stored_finding(row) do
+    %{rows: [[status, activity_id, activity_name, admitted]]} =
+      Repo.query!(
+        """
+        SELECT events.status, events.activity_id, events.activity_name,
+               CASE WHEN EXISTS (
+                    SELECT 1 FROM platform.lifecycle_pending_admissions AS pending
+                    WHERE pending.event_id = events.id AND pending.event_time = events.time
+                  ) THEN 'false' ELSE 'true' END
+        FROM platform.ocsf_events AS events
+        WHERE events.id = ($1::text)::uuid AND events.time = $2
+        """,
+        [uuid_string(row.id), row.time]
+      )
+
+    {status, activity_id, activity_name, admitted}
+  end
+
+  defp pending_occurrence_count(row) do
+    %{rows: [[count]]} =
+      Repo.query!(
+        "SELECT count(*) FROM platform.lifecycle_pending_admissions WHERE event_id = ($1::text)::uuid",
+        [uuid_string(row.id)]
+      )
+
+    count
+  end
+
+  defp stored_metadata(row) do
+    %{rows: [[metadata]]} =
+      Repo.query!(
+        "SELECT metadata FROM platform.ocsf_events WHERE id = ($1::text)::uuid AND time = $2",
+        [uuid_string(row.id), row.time]
+      )
+
+    metadata || %{}
+  end
+
+  defp stored_finding_version(row) do
+    %{rows: [[version]]} =
+      Repo.query!(
+        """
+        SELECT unmapped->>'finding_version'
+        FROM platform.ocsf_events
+        WHERE id = ($1::text)::uuid AND time = $2
+        """,
+        [uuid_string(row.id), row.time]
+      )
+
+    version
   end
 
   defp uuid_string(<<_::128>> = id) do

@@ -61,6 +61,7 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
     :state,
     :admission,
     :admitted,
+    :chunked,
     :timeout,
     :rejected,
     :completion,
@@ -106,6 +107,7 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
     :store_unavailable,
     :evaluation_failed,
     :rule_inventory_full,
+    :record_too_large,
     :other
   ]
   @gauges [

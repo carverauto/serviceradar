@@ -90,6 +90,8 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistryTest do
     assert row.metadata["service_radar"]["episode_uid"]
     assert row.metadata["service_radar"]["producer_version"] == "0.2.0"
     assert row.metadata["detection_finding"]["transition"] == "open"
+    refute Map.has_key?(row.metadata["service_radar"], "source_event_identity")
+    assert is_binary(Map.fetch!(row, AnomalyEpisodeRegistry.delivered_event_id_key()))
 
     assert_receive {:episode_upsert, params}
     assert Enum.at(params, 1) == original.metadata["service_radar"]["finding_uid"]

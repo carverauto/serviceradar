@@ -10,6 +10,11 @@ defmodule ServiceRadar.Observability.StatefulEvaluationLedger do
       :ok = evaluate(pending)            # rejection fails the batch
       :ok = StatefulEvaluationLedger.record(pending)
 
+  Callers store their records before evaluating them, so a rejection never
+  costs the records themselves. An `{:overloaded, _}` rejection is
+  backpressure: the inbox may have accepted an in-order prefix, EventWriter
+  redelivers the batch with a delay, and the inbox continues after that prefix.
+
   This is not a completion receipt. The alert evaluation inbox and receipts
   own ordered effects and replay safety; they deduplicate accepted occurrences
   if a process dies before recording this marker. The marker holds ids, not
@@ -20,10 +25,11 @@ defmodule ServiceRadar.Observability.StatefulEvaluationLedger do
   `:prepared`) admits nothing, by design, and the engine answers
   `{:error, :alert_evaluation_not_activated}`. EventWriter must still store and
   acknowledge its records then: a rejection fails the batch, JetStream
-  redelivers it until `max_deliver` and drops it, and a batch that commits its
-  records together with their admission (lifecycle transitions) loses them. So
-  that refusal is a skip, not a failure: nothing is recorded or promoted, and a
-  periodic warning says alert rules are not evaluating.
+  redelivers it until `max_deliver` and drops it. Lifecycle transitions commit
+  before admission, so that redelivery retries evaluation and does not roll the
+  transition back. So the not-activated refusal is a skip, not a failure:
+  nothing is recorded or promoted, and a periodic warning says alert rules are
+  not evaluating.
   """
 
   use Ash.Resource,

@@ -1,6 +1,20 @@
 defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
   @moduledoc """
-  Bounded, all-or-nothing durable admission for stateful alert evaluation.
+  Bounded, ordered durable admission for stateful alert evaluation.
+
+  Admission never makes a batch unadmittable because of its own size. Records
+  are admitted `batch_records` at a time, one short transaction each, and every
+  rule takes the longest in-order prefix of its occurrences that fits its own
+  budget and the shared pending budget. Whatever does not fit stays unadmitted
+  and the call answers `{:error, {:overloaded, dimension}}`; accepted
+  occurrences are replay-safe, so retrying the same records admits exactly the
+  remainder, still in order, once evaluation has drained capacity.
+
+  An occurrence that alone exceeds `rule_bytes` or `pending_bytes` can never
+  fit. It is skipped, counted as `:record_too_large` and logged, never
+  truncated: callers persist the record itself before admitting it. The skip
+  commits a `:cancelled` receipt, so a redelivery treats it as a replay and
+  counts and logs it once.
 
   The admission mutex only covers capacity, replay lookup and committed input
   order. Evaluators use a different fence and never acquire this mutex, so a
@@ -39,42 +53,69 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
   @min_client_timeout_ms 10_000
   @pending_notifications {__MODULE__, :pending_notifications}
 
-  @doc "Commits every eligible rule occurrence or rejects the entire batch."
+  @doc """
+  Admits every eligible rule occurrence of `records` that capacity allows, in
+  input order. `{:ok, keys}` means every occurrence is accepted (or was skipped
+  as too large to ever fit); `{:error, {:overloaded, dimension}}` means a prefix
+  may be accepted and a retry of the same records continues after it.
+  """
   def admit(signal, records) when signal in [:log, :event, :metric] and is_list(records) do
-    started = System.monotonic_time(:millisecond)
+    limits = limits()
 
-    case admit_batch(signal, records) do
-      {:ok, {keys, admitted}} ->
-        RuntimeMetrics.admission(signal, {:ok, keys, admitted}, started)
-        {:ok, keys}
-
-      {:error, _} = error ->
-        RuntimeMetrics.admission(signal, error, started)
-        error
-    end
+    records
+    |> Enum.chunk_every(limits.batch_records)
+    |> Enum.reduce_while({:ok, []}, fn slice, {:ok, keys} ->
+      case admit_slice(signal, slice, limits) do
+        {:ok, slice_keys} -> {:cont, {:ok, keys ++ slice_keys}}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
   end
 
   def admit(_signal, _records), do: {:error, :invalid_payload}
 
-  defp admit_batch(signal, records) do
-    limits = limits()
+  defp admit_slice(signal, records, limits) do
+    started = System.monotonic_time(:millisecond)
 
-    with :ok <- Rollout.admission_ready(),
-         :ok <- within(length(records), limits.batch_records, :batch_records),
-         {:ok, prepared} <- prepare(signal, records) do
-      transact(
-        limits.admission_timeout_ms,
-        fn ->
-          lock_admission()
-          rules = active_rules(signal, limits.batch_work)
-          require_ok(within(length(rules), limits.batch_work, :rule_inventory))
-          candidates = candidates(rules, prepared, limits.batch_work)
-          commit_candidates(candidates, signal, limits)
-        end,
-        caller: {__MODULE__, :admit},
-        telemetry_options: [signal: signal]
-      )
+    result =
+      with :ok <- Rollout.admission_ready(),
+           {:ok, prepared} <- prepare(signal, records) do
+        transact(
+          limits.admission_timeout_ms,
+          fn -> admit_prepared(signal, prepared, limits) end,
+          caller: {__MODULE__, :admit},
+          telemetry_options: [signal: signal]
+        )
+      end
+
+    RuntimeMetrics.admission(signal, result, started)
+
+    case result do
+      {:ok, %{skipped: skipped} = plan} ->
+        log_skipped(signal, skipped, limits)
+
+        cond do
+          plan.batch_full? -> admit_slice(signal, records, limits)
+          plan.overloaded -> {:error, {:overloaded, plan.overloaded}}
+          true -> {:ok, plan.keys}
+        end
+
+      {:error, _} = error ->
+        error
     end
+  end
+
+  # A partial plan commits its admitted prefix and returns the dimension that
+  # stopped it as a value, never a rollback: the prefix is durable and replay
+  # safe, and a caller's enclosing transaction stays usable.
+  defp admit_prepared(signal, prepared, limits) do
+    lock_admission()
+    rules = active_rules(signal, limits.batch_work)
+    require_ok(within(length(rules), limits.batch_work, :rule_inventory))
+    plan = plan(rules, prepared, limits)
+    insert(plan.admitted, plan.skipped, signal)
+    enqueue_hints(plan.admitted)
+    plan
   end
 
   @doc "Appends a stale-resolution ordering barrier behind all previously accepted rule input."
@@ -138,14 +179,16 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
     require_ok(within(length(candidates), limits.batch_work, :batch_work))
     pending = reject_replays(candidates)
     require_capacity(pending, limits)
-    insert(pending, signal)
+    insert(pending, [], signal)
+    enqueue_hints(pending)
+    {Enum.map(candidates, &{&1.rule_id, &1.source_key}), length(pending)}
+  end
 
-    pending
+  defp enqueue_hints(admitted) do
+    admitted
     |> Enum.map(& &1.rule_id)
     |> Enum.uniq()
     |> Enum.each(&enqueue_hint/1)
-
-    {Enum.map(candidates, &{&1.rule_id, &1.source_key}), length(pending)}
   end
 
   # Hints commit with the source transaction, but a failed hint insert must
@@ -360,9 +403,48 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
       throw({DBConnection, connection, {:store_unavailable, reason}})
   end
 
-  defp candidates(rules, records, limit) do
+  # Walks the eligible occurrences rule by rule, in input order, and admits
+  # each rule's longest prefix that fits. A rule stops at its first occurrence
+  # that does not fit, so its later occurrences never overtake it; the shared
+  # pending budget stops every rule. Replays are found a bounded chunk at a time
+  # and never consume capacity.
+  defp plan(rules, records, limits) do
     records = Enum.map(records, &Map.put(&1, :record, Input.restore_record(&1.payload)))
 
+    initial = %{
+      admitted: [],
+      admitted_count: 0,
+      keys: [],
+      skipped: [],
+      blocked: MapSet.new(),
+      overloaded: nil,
+      full?: false,
+      count: 0,
+      bytes: 0,
+      by_rule: nil
+    }
+
+    rules
+    |> candidates(records)
+    |> Stream.chunk_every(limits.batch_work)
+    |> Enum.reduce_while(initial, fn chunk, acc ->
+      {replayed, fresh} = split_replays(chunk)
+      acc = %{acc | keys: Enum.reduce(replayed, acc.keys, &[key(&1) | &2])}
+      acc = Enum.reduce(fresh, with_backlog(acc, rules, fresh), &place(&1, &2, limits))
+      if acc.full?, do: {:halt, acc}, else: {:cont, acc}
+    end)
+    |> then(fn acc ->
+      %{
+        admitted: Enum.reverse(acc.admitted),
+        keys: Enum.reverse(acc.keys),
+        skipped: Enum.reverse(acc.skipped),
+        overloaded: acc.overloaded,
+        batch_full?: acc.full? and acc.admitted_count >= limits.batch_work
+      }
+    end)
+  end
+
+  defp candidates(rules, records) do
     rules
     |> Stream.flat_map(fn rule ->
       revision = Input.revision(rule)
@@ -380,8 +462,92 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
         }
       end)
     end)
-    |> Stream.uniq_by(&{&1.rule_id, &1.source_key})
-    |> Enum.take(limit + 1)
+    |> Stream.uniq_by(&key/1)
+  end
+
+  defp key(candidate), do: {candidate.rule_id, candidate.source_key}
+
+  # Capacity is read once, and only when an occurrence needs admitting: most
+  # batches match no rule and must not pay for the backlog aggregates.
+  defp with_backlog(acc, _rules, []), do: acc
+
+  defp with_backlog(%{by_rule: nil} = acc, rules, _fresh) do
+    {count, bytes, by_rule} = backlog(Enum.map(rules, & &1.id))
+    %{acc | count: count, bytes: bytes, by_rule: by_rule}
+  end
+
+  defp with_backlog(acc, _rules, _fresh), do: acc
+
+  defp place(_candidate, %{full?: true} = acc, _limits), do: acc
+
+  defp place(candidate, acc, limits) do
+    cond do
+      MapSet.member?(acc.blocked, candidate.rule_id) ->
+        acc
+
+      candidate.payload_bytes > min(limits.rule_bytes, limits.pending_bytes) ->
+        %{acc | skipped: [candidate | acc.skipped], keys: [key(candidate) | acc.keys]}
+
+      true ->
+        case over_budget(candidate, acc, limits) do
+          nil ->
+            {rule_count, rule_bytes} = Map.get(acc.by_rule, candidate.rule_id, {0, 0})
+
+            %{
+              acc
+              | admitted: [candidate | acc.admitted],
+                admitted_count: acc.admitted_count + 1,
+                keys: [key(candidate) | acc.keys],
+                count: acc.count + 1,
+                bytes: acc.bytes + candidate.payload_bytes,
+                by_rule:
+                  Map.put(
+                    acc.by_rule,
+                    candidate.rule_id,
+                    {rule_count + 1, rule_bytes + candidate.payload_bytes}
+                  )
+            }
+
+          {:rule, dimension} ->
+            %{
+              acc
+              | blocked: MapSet.put(acc.blocked, candidate.rule_id),
+                overloaded: acc.overloaded || dimension
+            }
+
+          {:shared, dimension} ->
+            %{acc | full?: true, overloaded: acc.overloaded || dimension}
+        end
+    end
+  end
+
+  defp over_budget(candidate, acc, limits) do
+    {rule_count, rule_bytes} = Map.get(acc.by_rule, candidate.rule_id, {0, 0})
+
+    cond do
+      acc.admitted_count >= limits.batch_work -> {:shared, :batch_work}
+      acc.count + 1 > limits.pending_count -> {:shared, :pending_count}
+      acc.bytes + candidate.payload_bytes > limits.pending_bytes -> {:shared, :pending_bytes}
+      rule_count + 1 > limits.rule_count -> {:rule, :rule_count}
+      rule_bytes + candidate.payload_bytes > limits.rule_bytes -> {:rule, :rule_bytes}
+      true -> nil
+    end
+  end
+
+  defp log_skipped(_signal, [], _limits), do: :ok
+
+  defp log_skipped(signal, skipped, limits) do
+    RuntimeMetrics.skipped(signal, length(skipped))
+    largest = skipped |> Enum.map(& &1.payload_bytes) |> Enum.max()
+
+    rule_ids = skipped |> Enum.map(& &1.rule_id) |> Enum.uniq() |> Enum.join(", ")
+
+    Logger.warning(
+      "Alert evaluation skipped #{length(skipped)} #{signal} occurrence(s) larger than the " <>
+        "#{min(limits.rule_bytes, limits.pending_bytes)}-byte admission budget " <>
+        "(largest #{largest} bytes) for rule(s) #{rule_ids}: the records are stored " <>
+        "but these rules do not evaluate them"
+    )
   end
 
   defp eligible?(%{signal: :log} = rule, record), do: RuleMatcher.rule_matches_log?(record, rule)
@@ -398,9 +564,14 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
   defp eligible?(%{signal: :metric} = rule, record),
     do: RuleMatcher.rule_matches_metric?(record, rule)
 
-  defp reject_replays([]), do: []
-
   defp reject_replays(candidates) do
+    {_replayed, fresh} = split_replays(candidates)
+    fresh
+  end
+
+  defp split_replays([]), do: {[], []}
+
+  defp split_replays(candidates) do
     rule_ids = candidates |> Enum.map(& &1.rule_id) |> Enum.uniq()
     source_keys = candidates |> Enum.map(& &1.source_key) |> Enum.uniq()
 
@@ -414,18 +585,14 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
       end)
       |> MapSet.new(&{&1.rule_id, &1.source_key})
 
-    Enum.reject(candidates, &MapSet.member?(recorded, {&1.rule_id, &1.source_key}))
+    Enum.split_with(candidates, &MapSet.member?(recorded, key(&1)))
   end
 
   defp require_capacity([], _limits), do: :ok
 
   defp require_capacity(candidates, limits) do
-    # Resources own the schema and writes. This single aggregate is deliberately
-    # in the short admission transaction; no evaluator holds its capacity lock.
-    %{rows: [[count, bytes]]} =
-      Repo.query!(
-        "SELECT count(*), coalesce(sum(payload_bytes), 0)::bigint FROM platform.alert_evaluation_work"
-      )
+    grouped = Enum.group_by(candidates, & &1.rule_id)
+    {count, bytes, existing} = backlog(Map.keys(grouped))
 
     require_ok(within(count + length(candidates), limits.pending_count, :pending_count))
 
@@ -436,18 +603,6 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
         :pending_bytes
       )
     )
-
-    grouped = Enum.group_by(candidates, & &1.rule_id)
-    rule_ids = grouped |> Map.keys() |> Enum.map(&Ecto.UUID.dump!/1)
-
-    %{rows: rows} =
-      Repo.query!(
-        "SELECT rule_id, count(*), coalesce(sum(payload_bytes), 0)::bigint FROM platform.alert_evaluation_work WHERE rule_id = ANY($1::uuid[]) GROUP BY rule_id",
-        [rule_ids]
-      )
-
-    existing =
-      Map.new(rows, fn [raw_id, count, bytes] -> {Ecto.UUID.load!(raw_id), {count, bytes}} end)
 
     Enum.each(grouped, fn {rule_id, records} ->
       {count, bytes} = Map.get(existing, rule_id, {0, 0})
@@ -463,12 +618,34 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
     end)
   end
 
-  defp insert(candidates, signal) do
+  # Resources own the schema and writes. These aggregates are deliberately in
+  # the short admission transaction; no evaluator holds its capacity lock.
+  defp backlog(rule_ids) do
+    %{rows: [[count, bytes]]} =
+      Repo.query!(
+        "SELECT count(*), coalesce(sum(payload_bytes), 0)::bigint FROM platform.alert_evaluation_work"
+      )
+
+    %{rows: rows} =
+      Repo.query!(
+        "SELECT rule_id, count(*), coalesce(sum(payload_bytes), 0)::bigint FROM platform.alert_evaluation_work WHERE rule_id = ANY($1::uuid[]) GROUP BY rule_id",
+        [Enum.map(rule_ids, &Ecto.UUID.dump!/1)]
+      )
+
+    by_rule =
+      Map.new(rows, fn [raw_id, count, bytes] -> {Ecto.UUID.load!(raw_id), {count, bytes}} end)
+
+    {count, bytes, by_rule}
+  end
+
+  defp insert(admitted, skipped, signal) do
     now = DateTime.utc_now()
 
-    params =
-      candidates
-      |> Enum.group_by(& &1.rule_id)
+    entries = Enum.map(admitted, &{:work, &1}) ++ Enum.map(skipped, &{:skipped, &1})
+
+    {work, receipts} =
+      entries
+      |> Enum.group_by(fn {_kind, candidate} -> candidate.rule_id end)
       |> Enum.sort_by(&elem(&1, 0))
       |> Enum.flat_map(fn {rule_id, records} ->
         {lane, registered} =
@@ -487,14 +664,33 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
 
         notify_after_commit(registered ++ reserved)
 
-        records
-        |> Enum.with_index(lane.next_position + 1)
-        |> Enum.map(fn {record, position} ->
-          Map.merge(record, %{position: position, signal: signal, available_at: now})
-        end)
+        Enum.with_index(records, lane.next_position + 1)
       end)
+      |> Enum.split_with(fn {{kind, _candidate}, _position} -> kind == :work end)
 
-    case Ash.bulk_create(params, Work, :admit,
+    work
+    |> Enum.map(fn {{:work, record}, position} ->
+      Map.merge(record, %{position: position, signal: signal, available_at: now})
+    end)
+    |> bulk_create(Work, :admit)
+
+    receipts
+    |> Enum.map(fn {{:skipped, candidate}, position} ->
+      %{
+        rule_id: candidate.rule_id,
+        source_key: candidate.source_key,
+        position: position,
+        disposition: :cancelled,
+        details: %{reason: "record_too_large", payload_bytes: candidate.payload_bytes}
+      }
+    end)
+    |> bulk_create(Receipt, :record)
+  end
+
+  defp bulk_create([], _resource, _action), do: :ok
+
+  defp bulk_create(params, resource, action) do
+    case Ash.bulk_create(params, resource, action,
            actor: actor(),
            return_errors?: true,
            stop_on_error?: true
