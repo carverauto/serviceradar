@@ -241,7 +241,7 @@ Each owner keeps ETS state keyed by `{rule_id, group_key}`. The value is
 today's snapshot shape (bucket counts, current bucket, last seen, last fired,
 last notification, cooldown, alert id, first seen, diagnostics) plus five
 fields: the virtual partition, `incident_seq` and `renotify_ordinal` for fire
-keys (D5), `operator_terminal` (D9), and the applied sequence. Each block
+keys (D5), the operator action state (D9), and the applied sequence. Each block
 also keeps an `applied_count`, incremented once per message it applies
 (candidate, control or import), checkpointed with the block and never reset
 by a stream move, a map generation change or the cutover import. A group's
@@ -268,8 +268,9 @@ transaction:
 
 1. upserts the dirty groups into `stateful_alert_rule_states`, which gains a
    `virtual_partition` column, and deletes evicted ones;
-2. inserts the closed dedupe slices (D6) and deletes slices older than the
-   horizon, except that slices holding ids applied from the cutover import
+2. inserts the closed dedupe slices (D6), upserts the ids of the open slice
+   so every id the checkpoint covers is durable, and deletes slices older
+   than the horizon, except that slices holding ids applied from the cutover import
    are kept until one horizon after the cutover marker;
 3. advances `alert_block_checkpoints(block, stream, seq, epoch,
    applied_count, import_ordinal)` for the blocks that moved. A block's `seq`
@@ -356,9 +357,9 @@ Retention is the explicit purge behind checkpoints (D2).
 
 Duplicates (resolved Q5): a source redelivery can republish a candidate whose
 earlier publish succeeded. The owner keeps a ring of 128-bit candidate ids
-for the duplicate horizon H (default 10 min) in closed 10 s slices per block.
-A repeated id is skipped and counted. Closed slices are persisted with the
-checkpoint and move with their block, so a new owner, including one that
+for the duplicate horizon H (default 10 min) in 10 s slices per block.
+A repeated id is skipped and counted. Every slice, the open one included, is
+persisted with the checkpoint that covers its ids and moves with its block, so a new owner, including one that
 takes a block mid-reshard, suppresses duplicates exactly as the old one
 would have. Ids are 128-bit because a collision silently drops a real
 occurrence. The one residual case needs a candidate stream full for longer
@@ -466,19 +467,28 @@ resolution. A replay could decide differently if those rows changed in
 between. Each becomes an ordered message on the affected blocks, published
 through the DurablePublish outbox in the transaction that made the change:
 
-- **Rule disabled or deleted:** a marker to every block. Later candidates of
-  that rule are dropped and counted, which matches today's durable
-  cancellation. Delete also clears the rule's groups. Edits need no marker,
-  because candidates carry their revision.
-- **Operator alert action** (resolve, suppress, any status the evaluator
-  reads): a message to the alert's virtual partition, computed from the
-  incident rule and group key in its metadata. The group records
-  `operator_terminal`. As today, it is not renotified and does not re-fire
-  until the group recovers.
+- **Rule disabled or deleted:** a marker to every block naming the rule
+  revision it disabled. Later candidates of that rule at that revision or
+  older are dropped and counted, which matches today's durable
+  cancellation; a re-enable is a rule write with a newer revision, so its
+  candidates are evaluated. Delete drops every later candidate of the rule
+  and also clears its groups. Edits need no marker, because candidates carry
+  their revision.
+- **Operator alert action** (resolve, suppress, snooze, any status or
+  deadline the evaluator reads): a message to the alert's virtual partition,
+  computed from the incident rule and group key in its metadata, carrying
+  the alert's resulting status, `suppressed_until` and `snooze_until`. The
+  group records them, each later action replacing the earlier one. As
+  today, a resolved or suppressed incident (`operator_terminal`) is not
+  renotified and does not re-fire until the group recovers, and renotify is
+  held while a suppress or snooze deadline is after the candidate's event
+  time, so a passed deadline or a later action releases it.
 - **Stale-anomaly maintenance:** `resolve_stale_anomalies/4` stores the
   live-series key set in CNPG as an immutable snapshot, kept until every
-  block's committed checkpoint covers the marker (a receipt alone is not
-  enough, because a replay from an earlier checkpoint loads it again), and
+  block's committed checkpoint `applied_count` reaches the `applied_count`
+  at which that block applied the marker, recorded in its receipt (a receipt
+  alone is not enough, because a replay from an earlier checkpoint loads it
+  again, and a stream position is not, because a move resets it), and
   publishes a maintenance marker carrying only
   `cutoff`, `now` and the snapshot id to every block. The owner loads the
   snapshot before F; a failed load is transient, never a live re-query. It then awaits one `alert_maintenance_receipts` row
@@ -892,8 +902,9 @@ that evaluates through both designs.
    executing. Then, in order:
    1. Convert every `stateful_alert_rule_states` row into block state
       (compute `virtual_partition`, set `incident_seq` and `renotify_ordinal`
-      bases, keep open alert ids, and set `operator_terminal` from the
-      alert's current status, as today's renotify and recovery read it) and
+      bases, keep open alert ids, and set the operator action state from the
+      alert's current status, `suppressed_until` and `snooze_until`, as
+      today's renotify and recovery read them) and
       write an initial checkpoint per block.
    2. Import in bounded segments. The residual set is residual
       `alert_evaluation_work` rows in (rule, position) order, then residual
