@@ -73,6 +73,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
   alias Serviceradar.Metric.V1.MetricBatch
   alias Serviceradar.Metric.V1.MetricPoint
   alias Serviceradar.Metric.V1.MetricResource
+  alias ServiceRadar.NATS.PublishDeniedError
   alias ServiceRadar.Observability.MtrHop
   alias ServiceRadar.Observability.MtrMetricsIngestor
   alias ServiceRadar.Observability.MtrTrace
@@ -360,8 +361,9 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
                Repo.get!(SweepGroupExecution, Ecto.UUID.cast!(frame.batch.execution_id))
     end
 
-    test "an ingest failure fails the batch with nothing committed, and the redelivery projects once" do
+    test "an ingest failure fails only its own record, with nothing committed, and the redelivery projects once" do
       frame = build_frame()
+      other = build_frame()
       execution_id = Ecto.UUID.cast!(frame.batch.execution_id)
       now = DateTime.utc_now()
 
@@ -379,8 +381,13 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       ])
 
       message = %{data: frame.record_bytes, metadata: %{headers: frame.headers}}
+      other_message = %{data: other.record_bytes, metadata: %{headers: other.headers}}
 
-      assert {:error, %RuntimeError{}} = EdgeRecord.process_batch([message])
+      # The record after the failing one is ingested and is not handed back for redelivery.
+      assert {:incomplete, 1, [{^message, %RuntimeError{}}]} =
+               EdgeRecord.process_batch([message, other_message])
+
+      assert ledger_count(other.record) == 1
       assert ledger_count(frame.record) == 0
       assert delivery_slot_count(frame.record) == 0
       assert sweep_batch_slot_count(frame.record, frame.batch) == 0
@@ -639,6 +646,17 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       assert_received {:metrics_published, _subject, _body, _opts}
       refute_received {:metrics_published, _subject, _body, _opts}
       assert ledger_count(frame.record) == 1
+    end
+
+    test "a republish the broker denied raises the denial, so the pipeline dead-letters it" do
+      frame = build_metrics_frame()
+      denied = fn subject, _body, _opts -> {:error, %PublishDeniedError{subject: subject}} end
+
+      assert_raise PublishDeniedError, fn ->
+        EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: denied)
+      end
+
+      assert ledger_count(frame.record) == 0
     end
 
     test "a dead-lettered record replays from its dead-letter copy once, through the ledger" do

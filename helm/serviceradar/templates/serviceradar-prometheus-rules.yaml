@@ -76,6 +76,14 @@ spec:
           annotations:
             summary: "ServiceRadar EDGE_RECORD consumer lag"
             description: "The EventWriter EDGE_RECORD durable has pending or unacked messages in namespace {{ .Release.Namespace }}."
+        - alert: ServiceRadarEventWriterMessagesExpiredBeforeDelivery
+          expr: max by (stream, durable) (serviceradar_event_writer_consumer_expired_before_delivery_value{namespace="{{ .Release.Namespace }}"}) > 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "ServiceRadar EventWriter is losing messages before delivery"
+            description: "The EventWriter durable {{`{{ $labels.durable }}`}} on stream {{`{{ $labels.stream }}`}} trails the stream's first retained sequence while messages are pending for it in namespace {{ .Release.Namespace }}: the stream discarded messages it never delivered. The durable is not being pulled; check that consumer's EventWriter pipeline and producer health."
         - alert: ServiceRadarEdgeRecordSecurityQuarantine
           expr: max(serviceradar_event_writer_consumer_stream_bytes_value{namespace="{{ .Release.Namespace }}", subject_class="edge_record_quarantine"}) > 0
           for: 1m

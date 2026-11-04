@@ -1001,7 +1001,8 @@ defmodule ServiceRadarWebNGWeb.Router do
     live_dashboard("/dashboard",
       metrics: ServiceRadarWebNGWeb.Telemetry,
       additional_pages: [
-        broadway: {BroadwayDashboard, pipelines: [ServiceRadar.EventWriter.Pipeline]}
+        # EventWriter runs one pipeline per consumer group; list whichever are running.
+        broadway: BroadwayDashboard
       ]
     )
 

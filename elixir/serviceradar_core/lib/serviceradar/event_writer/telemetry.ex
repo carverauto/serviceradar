@@ -167,9 +167,22 @@ defmodule ServiceRadar.EventWriter.Telemetry do
   @spec emit_consumer_state(map(), map() | nil, map()) :: :ok
   def emit_consumer_state(info, stream_info, metadata)
       when is_map(info) and (is_map(stream_info) or is_nil(stream_info)) and is_map(metadata) do
+    emit_consumer_state(info, stream_info, expired_before_delivery(info, stream_info), metadata)
+  end
+
+  @doc """
+  Emits consumer state with `expired` sequences lost before delivery, reported apart from the
+  retention inputs in `stream_info` because every durable's loss is measured while only some
+  classes report stream retention.
+  """
+  @spec emit_consumer_state(map(), map() | nil, non_neg_integer(), map()) :: :ok
+  def emit_consumer_state(info, stream_info, expired, metadata)
+      when is_map(info) and (is_map(stream_info) or is_nil(stream_info)) and is_integer(expired) and
+             expired >= 0 and
+             is_map(metadata) do
     :telemetry.execute(
       [:serviceradar, :event_writer, :consumer, :state],
-      consumer_state_measurements(info, stream_info),
+      %{consumer_state_measurements(info, stream_info) | expired_before_delivery: expired},
       %{
         stream: metadata[:stream] || "unknown",
         durable: metadata[:durable] || "unknown",
@@ -293,6 +306,7 @@ defmodule ServiceRadar.EventWriter.Telemetry do
 
     Map.merge(
       %{
+        expired_before_delivery: expired_before_delivery(info, stream_info),
         pending_messages: pending,
         ack_pending_messages: ack_pending,
         redelivered_messages: redelivered,
@@ -307,6 +321,29 @@ defmodule ServiceRadar.EventWriter.Telemetry do
       retention
     )
   end
+
+  @doc """
+  How many stream sequences a durable lost before they were delivered, or 0.
+
+  A durable that keeps pulling moves its delivered stream sequence past every message it does
+  not want, so it never trails the stream's first retained sequence by much. One whose
+  delivered sequence trails the first sequence while messages are still pending for it has not
+  pulled while the stream discarded (aged out or evicted) the messages in between: messages it
+  never received are gone. The count is the sequences between the two. For a durable that
+  filters a stream shared with other subjects it is an upper bound, since some of those
+  sequences carried subjects it does not consume. Without stream INFO it is 0.
+  """
+  @spec expired_before_delivery(map(), map() | nil) :: non_neg_integer()
+  def expired_before_delivery(info, stream_info) when is_map(info) and is_map(stream_info) do
+    first_seq = stream_info |> get_value(:state) |> get_value(:first_seq) |> non_negative()
+    delivered = nested_non_negative(info, :delivered, :stream_seq)
+
+    if non_negative(get_value(info, :num_pending)) > 0,
+      do: max(first_seq - delivered - 1, 0),
+      else: 0
+  end
+
+  def expired_before_delivery(_info, _stream_info), do: 0
 
   defp stream_retention_measurements(nil, _now) do
     %{

@@ -9,7 +9,13 @@ defmodule ServiceRadar.NATS.BrokerErrorLogFilter do
   subject is cut off (`<<"Perm"...>>`) and nothing says which NATS identity was
   refused. This filter replaces that report with a plain string holding the
   full broker text plus the connection's name, endpoint and credential source.
+
+  A publish denial is also recorded in `ServiceRadar.NATS.PublishDenials` against the
+  connection that received it (the filter runs in that Gnat process), which is how a JetStream
+  publish learns its PubAck timeout was a denial.
   """
+
+  alias ServiceRadar.NATS.PublishDenials
 
   @filter_id :serviceradar_nats_broker_errors
 
@@ -28,6 +34,8 @@ defmodule ServiceRadar.NATS.BrokerErrorLogFilter do
   def filter(%{msg: {:report, report}} = event, identity) do
     case broker_error_message(report) do
       {:ok, message} ->
+        PublishDenials.note(self(), message)
+
         text =
           "NATS broker error on connection #{identity_value(identity, :connection)} " <>
             "(#{identity_value(identity, :endpoint)}, credentials: #{identity_value(identity, :credentials)}): " <>

@@ -227,8 +227,6 @@ defmodule ServiceRadar.ClusterHealth do
         healthy: status.healthy and cluster.healthy,
         reason: event_writer_reason(status, cluster),
         pipelines: status.pipelines,
-        pipeline: Map.get(status, :pipeline),
-        producer: Map.get(status, :producer),
         nodes: node_summaries(cluster.nodes)
       }
     rescue
@@ -239,8 +237,6 @@ defmodule ServiceRadar.ClusterHealth do
           healthy: false,
           reason: "health_check_failed",
           pipelines: %{},
-          pipeline: nil,
-          producer: nil,
           nodes: %{}
         }
     end
@@ -290,7 +286,7 @@ defmodule ServiceRadar.ClusterHealth do
   end
 
   defp format_event_writer_status(event_writer) do
-    base = %{
+    %{
       enabled: event_writer.enabled,
       running: event_writer.running,
       healthy: event_writer.healthy,
@@ -298,21 +294,6 @@ defmodule ServiceRadar.ClusterHealth do
       pipelines: event_writer.pipelines,
       nodes: Map.get(event_writer, :nodes, %{})
     }
-
-    # Add pipeline details if available
-    base =
-      if event_writer.pipeline do
-        Map.put(base, :pipeline, event_writer.pipeline)
-      else
-        base
-      end
-
-    # Add producer details if available
-    if event_writer.producer do
-      Map.put(base, :producer, event_writer.producer)
-    else
-      base
-    end
   end
 
   defp emit_telemetry(event, metadata) do

@@ -4,12 +4,15 @@ defmodule ServiceRadar.EventWriter.ProducerRecoveryTest do
   alias ServiceRadar.Cluster.CoordinatorChildren
   alias ServiceRadar.EventWriter.Config
   alias ServiceRadar.EventWriter.CoordinatorSupervisor
-  alias ServiceRadar.EventWriter.FlowPipeline
-  alias ServiceRadar.EventWriter.FlowProducer
   alias ServiceRadar.EventWriter.Health
   alias ServiceRadar.EventWriter.Producer
 
   @moduletag :db_free
+
+  # The consumer-group pipelines the worker tree starts for config/1's stream and the default
+  # raw-flow streams; each producer labels its telemetry with its pipeline.
+  @worker ServiceRadar.EventWriter.Pipeline.Events
+  @flow ServiceRadar.EventWriter.FlowPipeline.FlowsRaw
 
   # An external NATS protocol fixture, not a replacement producer. The real
   # Gnat connection, consumer bind, GenStage demand and retry timers all run.
@@ -282,15 +285,15 @@ defmodule ServiceRadar.EventWriter.ProducerRecoveryTest do
     })
 
     # No durable exists yet, so the workers cannot bind and wait.
-    assert_receive {:connection, :connection_failed, _, %{producer: Producer}}, 3_000
+    assert_receive {:connection, :connection_failed, _, %{producer: @worker}}, 3_000
     assert {:error, {:producer_not_ready, _}} = Health.check()
 
     start_supervised!(CoordinatorSupervisor)
     assert_receive {:js_api, "$JS.API.CONSUMER.DURABLE.CREATE." <> _}, 3_000
 
     # The bind is retried on the producers' own backoff, not by the reconciler.
-    assert_receive {:connection, :connected, _, %{producer: Producer}}, 15_000
-    assert_receive {:connection, :connected, _, %{producer: FlowProducer}}, 15_000
+    assert_receive {:connection, :connected, _, %{producer: @worker}}, 15_000
+    assert_receive {:connection, :connected, _, %{producer: @flow}}, 15_000
     assert eventually(fn -> Health.check() == :ok end, 5_000)
 
     # Restart only the worker tree, as on a replica whose workers crashed.
@@ -303,8 +306,8 @@ defmodule ServiceRadar.EventWriter.ProducerRecoveryTest do
     :ok = Supervisor.stop(old, :shutdown)
     assert_receive {:DOWN, ^monitor, :process, ^old, :shutdown}
     Enum.each(old_conns, &refute(Process.alive?(&1)))
-    assert_receive {:connection, :connected, _, %{producer: Producer}}, 3_000
-    assert_receive {:connection, :connected, _, %{producer: FlowProducer}}, 3_000
+    assert_receive {:connection, :connected, _, %{producer: @worker}}, 3_000
+    assert_receive {:connection, :connected, _, %{producer: @flow}}, 3_000
     refute Process.whereis(ServiceRadar.EventWriter.Supervisor) == old
     assert eventually(fn -> Health.check() == :ok end, 5_000)
 
@@ -313,11 +316,11 @@ defmodule ServiceRadar.EventWriter.ProducerRecoveryTest do
     assert worker_requests != []
     assert Enum.reject(worker_requests, &read_only_api?/1) == []
 
-    [flow] = Broadway.producer_names(FlowPipeline)
+    [flow] = Broadway.producer_names(@flow)
     :ok = :sys.suspend(flow)
 
     try do
-      assert {:error, {:producer_not_ready, FlowPipeline}} = Health.check()
+      assert {:error, {:producer_not_ready, @flow}} = Health.check()
     after
       :sys.resume(flow)
     end
@@ -356,8 +359,8 @@ defmodule ServiceRadar.EventWriter.ProducerRecoveryTest do
   end
 
   defp producer_conns do
-    (Broadway.producer_names(ServiceRadar.EventWriter.Pipeline) ++
-       Broadway.producer_names(FlowPipeline))
+    [@worker, @flow]
+    |> Enum.flat_map(&Broadway.producer_names/1)
     |> Enum.map(&:sys.get_state(&1).state.module_state.conn)
     |> Enum.filter(&is_pid/1)
   end

@@ -23,8 +23,14 @@ defmodule ServiceRadar.EventWriter.Supervisor do
      rate-guard and flood-tripwire counters; started before the pipelines
   3. `EventWriter.EdgeRecordDeadLetter.FailureLog` - first failure of each
      edge-record delivery still being retried, named by its dead-letter
-  4. `EventWriter.Pipeline` - the shared Broadway pipeline
-  5. `EventWriter.FlowPipeline` - the raw-flow Broadway pipeline
+  4. One `EventWriter.Pipeline` per consumer group of the worker streams, named
+     `ServiceRadar.EventWriter.Pipeline.<Group>`
+  5. One `EventWriter.Pipeline` per consumer group of the raw-flow streams, named
+     `ServiceRadar.EventWriter.FlowPipeline.<Group>`, with the flow pull settings
+
+  Each consumer group is its own Broadway demand domain
+  (`ServiceRadar.EventWriter.Pipeline.consumer_pipelines/2`), so a stalled
+  batcher cannot take the demand of another group's streams.
   """
 
   use Supervisor
@@ -74,25 +80,27 @@ defmodule ServiceRadar.EventWriter.Supervisor do
         ServiceRadar.EventWriter.AnomalyEpisodeGuardTables,
         ServiceRadar.EventWriter.EdgeRecordDeadLetter.FailureLog
       ]
-      |> maybe_pipeline(config, Pipeline)
-      |> maybe_pipeline(flow_config, ServiceRadar.EventWriter.FlowPipeline)
+      |> pipelines(config, Pipeline)
+      |> pipelines(flow_config, ServiceRadar.EventWriter.FlowPipeline)
 
     Supervisor.init(children, strategy: :one_for_one)
   end
 
   @doc false
-  def maybe_pipeline(children, %Config{streams: streams} = config, name)
-      when is_list(streams) and streams != [] do
-    children ++ [{Pipeline, {config, [name: name]}}]
-  end
+  # Appends one pipeline child per consumer group of `config`, named under `prefix`.
+  def pipelines(children, %Config{} = config, prefix) do
+    case Pipeline.consumer_pipelines(config, prefix) do
+      [] ->
+        Logger.warning("Skipping EventWriter pipelines with no streams configured",
+          pipeline: prefix,
+          consumer_name: config.consumer_name
+        )
 
-  def maybe_pipeline(children, %Config{} = config, name) do
-    Logger.warning("Skipping EventWriter pipeline with no streams configured",
-      pipeline: name,
-      consumer_name: config.consumer_name
-    )
+        children
 
-    children
+      groups ->
+        children ++ Enum.map(groups, fn {name, group} -> {Pipeline, {group, [name: name]}} end)
+    end
   end
 
   @doc """

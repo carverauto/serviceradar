@@ -13,7 +13,8 @@ defmodule ServiceRadar.EventWriter.Health do
       :ok = ServiceRadar.EventWriter.Health.check()
 
   `status/0` describes this node: its worker pipelines and, on the coordinator,
-  the coordinator pipeline and the consumer reconciler. `cluster_status/0`
+  the coordinator pipelines and the consumer reconciler. There is one pipeline
+  per consumer group (`ServiceRadar.EventWriter.Pipeline.consumer_pipelines/2`). `cluster_status/0`
   collects it from every core node, since every replica runs workers.
   """
 
@@ -33,10 +34,9 @@ defmodule ServiceRadar.EventWriter.Health do
   - `running` - Whether the supervisor is running
   - `healthy` - Whether every configured pipeline is running with a ready producer
   - `reason` - `:ok` or `{:error, reason}` (see `check/0`)
-  - `pipeline` - Shared pipeline status (running, pid)
-  - `producer` - Shared producer status (connection and consumer readiness)
-  - `pipelines` - Per-pipeline `%{pipeline: ..., producer: ...}` map; includes
-    `ServiceRadar.EventWriter.CoordinatorPipeline` on the coordinator
+  - `pipelines` - Per-pipeline `%{pipeline: ..., producer: ...}` map, keyed by
+    pipeline name; includes the `ServiceRadar.EventWriter.CoordinatorPipeline.*`
+    pipelines on the coordinator
   - `reconciler` - `ConsumerReconciler.status/0` on the coordinator, else nil
   - `config` - Current configuration summary
   - `flow_attribution` - `ServiceRadar.FlowAttribution.health/0`; reports
@@ -50,7 +50,6 @@ defmodule ServiceRadar.EventWriter.Health do
     pipelines =
       config
       |> expected_pipelines(reconciler != nil)
-      |> Enum.reject(fn {_name, cfg} -> cfg.streams == [] end)
       |> Map.new(fn {name, _cfg} ->
         {name, %{pipeline: pipeline_status(name), producer: producer_status(name)}}
       end)
@@ -61,15 +60,11 @@ defmodule ServiceRadar.EventWriter.Health do
       with :ok <- health_result(config.enabled, running, pipelines),
            do: reconciler_result(reconciler)
 
-    shared = Map.get(pipelines, Pipeline, %{})
-
     %{
       enabled: config.enabled,
       running: running,
       healthy: result == :ok,
       reason: result,
-      pipeline: Map.get(shared, :pipeline),
-      producer: Map.get(shared, :producer),
       pipelines: pipelines,
       reconciler: reconciler,
       config: config_summary(config),
@@ -161,16 +156,19 @@ defmodule ServiceRadar.EventWriter.Health do
 
   defp coordinator?, do: Process.whereis(CoordinatorSupervisor) != nil
 
+  # The same groups the supervisors start, from the same config.
   defp expected_pipelines(config, coordinator?) do
-    workers = [
-      {Pipeline, Config.for_workers(config)},
-      {ServiceRadar.EventWriter.FlowPipeline, Config.load_flow()}
-    ]
+    workers =
+      Pipeline.consumer_pipelines(Config.for_workers(config), Pipeline) ++
+        Pipeline.consumer_pipelines(Config.load_flow(), ServiceRadar.EventWriter.FlowPipeline)
 
     if coordinator?,
       do:
         workers ++
-          [{ServiceRadar.EventWriter.CoordinatorPipeline, Config.for_coordinator(config)}],
+          Pipeline.consumer_pipelines(
+            Config.for_coordinator(config),
+            ServiceRadar.EventWriter.CoordinatorPipeline
+          ),
       else: workers
   end
 

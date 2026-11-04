@@ -8,6 +8,7 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
   alias ServiceRadar.EventWriter.Pipeline
   alias ServiceRadar.EventWriter.Processors.AdhocScan
   alias ServiceRadar.EventWriter.Processors.Mtr
+  alias ServiceRadar.NATS.PublishDeniedError
 
   @moduletag :db_free
 
@@ -351,6 +352,32 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
         assert log =~ "dlq_sequence=9"
         assert log =~ "source_sequence=41"
       end
+    end
+
+    # Redelivery cannot succeed until the broker's grant changes. A failure that may clear at
+    # the same delivery count is NAKed: the first test in this block.
+    test "a republish the broker denied is dead-lettered on its first delivery" do
+      message =
+        1
+        |> failed_edge_record(20, -1, stored(3))
+        |> Message.failed(%PublishDeniedError{subject: "metrics.sysmon.cpu.usage"})
+
+      log = ExUnit.CaptureLog.capture_log(fn -> Pipeline.ack(:ack_ref, [], [message]) end)
+
+      assert [
+               {:publish, "telemetry.edge-record-dlq.v1.bulk.p07.unknown.v0", @record_bytes,
+                opts},
+               {:ack, :ack}
+             ] = steps()
+
+      assert header(opts, "Sr-Edge-Dlq-Reason") == "PublishDeniedError"
+      assert header(opts, "Sr-Edge-Dlq-Attempts") == "1"
+
+      assert_received {:dead_letter_event, %{count: 1, attempts: 1},
+                       %{reason_class: "PublishDeniedError", result: "stored"}}
+
+      # The broker's denial is logged once per subject, so its records are not each an error.
+      refute log =~ ~r/\[error\][^\n]*Edge record dead-lettered/
     end
 
     test "a dead-letter that is not stored leaves the source unacknowledged and NAKs it" do
@@ -746,6 +773,51 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
     }
 
     assert %Message{batcher: :flows_raw} = Pipeline.handle_message(:default, message, %{})
+  end
+
+  # Streams that share a batcher share one pipeline, or each pipeline would feed its own copy of
+  # that batcher; every other stream gets a demand domain of its own.
+  test "consumer pipelines group the streams that share a batcher and split the processors" do
+    config = %Config{
+      enabled: true,
+      nats: %{},
+      batch_size: 100,
+      batch_timeout: 500,
+      consumer_name: "test-consumer",
+      processor_concurrency: 10,
+      streams: [
+        %{name: "NETFLOW_RAW", stream_name: "flows", subject: "flows.raw.netflow"},
+        %{
+          name: "FLOW_ATTRIBUTION_OBSERVATIONS",
+          stream_name: "flows",
+          subject: "flows.attribution.observations"
+        },
+        %{
+          name: "NETFLOW_RAW_EVENTS_DRAIN",
+          stream_name: "events",
+          subject: "flows.raw.netflow",
+          durable_source_name: "NETFLOW_RAW"
+        },
+        %{name: "SFLOW_RAW", stream_name: "flows", subject: "flows.raw.sflow"}
+      ]
+    }
+
+    groups = Pipeline.consumer_pipelines(config, ServiceRadar.EventWriter.FlowPipeline)
+
+    assert [
+             {ServiceRadar.EventWriter.FlowPipeline.FlowsRaw, raw},
+             {ServiceRadar.EventWriter.FlowPipeline.FlowAttributionObservations, observations}
+           ] = groups
+
+    assert Enum.map(raw.streams, & &1.name) == [
+             "NETFLOW_RAW",
+             "NETFLOW_RAW_EVENTS_DRAIN",
+             "SFLOW_RAW"
+           ]
+
+    assert Enum.map(observations.streams, & &1.name) == ["FLOW_ATTRIBUTION_OBSERVATIONS"]
+    assert raw.processor_concurrency == 5
+    assert observations.processor_concurrency == 5
   end
 
   # A subject without a routing rule falls to :default, whose processor acks and

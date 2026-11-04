@@ -50,14 +50,14 @@ defmodule ServiceRadar.EventWriter.ConsumerReconciler do
 
   @doc """
   Starts the reconciler. `config` is the EventWriter config whose streams it
-  owns (every stream of the shared and flow pipelines); it defaults to
+  owns (every stream of the worker and flow pipelines); it defaults to
   `default_config/0`.
   """
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
   end
 
-  @doc "Every stream any EventWriter pipeline consumes, under the shared pipeline's settings."
+  @doc "Every stream any EventWriter pipeline consumes, under the worker pipelines' settings."
   @spec default_config() :: Config.t()
   def default_config do
     config = Config.load()

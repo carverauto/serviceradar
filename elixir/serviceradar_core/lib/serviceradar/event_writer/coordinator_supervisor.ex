@@ -8,9 +8,12 @@ defmodule ServiceRadar.EventWriter.CoordinatorSupervisor do
 
   1. `EventWriter.ConsumerReconciler` - creates and reconciles every stream and
      durable, retires old durables and runs the stream ownership timer
-  2. `EventWriter.CoordinatorPipeline` - the streams whose processors rely on
-     one writer (`ServiceRadar.EventWriter.Config.coordinator_stream?/1`). It
-     uses the node-local caches the worker tree on the same node owns.
+  2. One `EventWriter.Pipeline` per consumer group of the streams whose
+     processors rely on one writer
+     (`ServiceRadar.EventWriter.Config.coordinator_stream?/1`), named
+     `ServiceRadar.EventWriter.CoordinatorPipeline.<Group>`. Each group's
+     batcher still runs one batch at a time. They use the node-local caches the
+     worker tree on the same node owns.
   3. `EventWriter.ConsumerLagReporter` - server-side backlog of every durable,
      reported once rather than once per replica
   4. `FlowAttribution.Correlator` - the periodic flow correlation pass
@@ -31,7 +34,7 @@ defmodule ServiceRadar.EventWriter.CoordinatorSupervisor do
 
     children =
       [{ConsumerReconciler, config: owned}]
-      |> ServiceRadar.EventWriter.Supervisor.maybe_pipeline(
+      |> ServiceRadar.EventWriter.Supervisor.pipelines(
         Config.for_coordinator(Config.load()),
         ServiceRadar.EventWriter.CoordinatorPipeline
       )

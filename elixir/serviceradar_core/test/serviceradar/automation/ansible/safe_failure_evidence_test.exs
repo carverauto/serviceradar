@@ -3,7 +3,7 @@ defmodule ServiceRadar.Automation.Ansible.SafeFailureEvidenceTest do
 
   alias ServiceRadar.Automation.Ansible.SafeFailureEvidence
 
-  defmodule SecretFailure do
+  defmodule SecretFailureError do
     @moduledoc false
     defexception [:message]
   end
@@ -15,7 +15,7 @@ defmodule ServiceRadar.Automation.Ansible.SafeFailureEvidenceTest do
       :dispatch_failed,
       {:error, :database_unavailable},
       {:transport_failed, %{response_body: secret}},
-      %SecretFailure{message: secret},
+      %SecretFailureError{message: secret},
       %{query_params: [secret]}
     ]
 
@@ -32,7 +32,7 @@ defmodule ServiceRadar.Automation.Ansible.SafeFailureEvidenceTest do
     assert Enum.at(evidence, 2)["kind"] == "tagged_tuple"
     assert Enum.at(evidence, 2)["arity"] == 2
     assert Enum.at(evidence, 3)["kind"] == "exception_struct"
-    assert Enum.at(evidence, 3)["module"] =~ "SecretFailure"
+    assert Enum.at(evidence, 3)["module"] =~ "SecretFailureError"
 
     refute inspect(evidence) =~ secret
 
