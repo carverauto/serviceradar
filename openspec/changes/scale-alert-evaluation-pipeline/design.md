@@ -486,13 +486,15 @@ through the DurablePublish outbox in the transaction that made the change:
   resolved incident (`operator_terminal`) is not renotified, and while the
   group keeps matching with no gap longer than `cooldown_seconds` (event
   time) no new incident opens, even with the window at or above threshold.
-  After a gap longer than `cooldown_seconds`, the record that brings the
-  window to threshold opens a new incident, exactly as today's rollover
-  does; a match that leaves the window below threshold opens nothing.
-  Today's other rules are unchanged: falling below threshold resolves, a
-  breach inside `cooldown_until` records cooldown history and does not
-  fire, and a recovery match clears cooldown so the next threshold crossing
-  fires. Renotify uses event time in place of `now` and is sent only while
+  Everything else is today's `StateMachine`: a matching record that
+  arrives after a gap longer than `cooldown_seconds` opens a new incident
+  (rollover) on that record only when the window, with it applied, is at or
+  above threshold; when the window is below threshold that record opens
+  nothing and later records follow today's cooldown rule (a breach inside
+  `cooldown_until` records cooldown history and does not fire, and the next
+  threshold crossing after it fires); falling below threshold resolves; and
+  a recovery match follows today's recovery, clearing the window and
+  cooldown so the next threshold crossing fires. Renotify uses event time in place of `now` and is sent only while
   the recorded status is pending or escalated, or is suppressed with a
   recorded `suppressed_until` strictly before the candidate's event time,
   and each recorded deadline is absent or strictly before that event time,
@@ -761,7 +763,7 @@ either way. Owner rebalancing after adding a node is always automatic.
 | Grouping (`group_by`) | `Record.build_group/2` in the owner | same function at the router; group key in the candidate |
 | Windows and buckets | `Bucketing` advance/prune by event time | unchanged |
 | Cooldown | after resolve, a breach within `cooldown_seconds` records `:cooldown` history | unchanged; history id is a fire key |
-| Incident rollover | gap greater than `cooldown_seconds` resolves and refires | unchanged, including after an operator resolve: that gap is a recovery (D9) and the next match is a new incident; new `incident_seq`; `last_seen_at` never moves backward (defense in depth, D4) |
+| Incident rollover | gap greater than `cooldown_seconds` resolves and refires on that record when the window is at or above threshold | unchanged, including after an operator resolve (D9); a gap record that leaves the window below threshold opens nothing; new `incident_seq`; `last_seen_at` never moves backward (defense in depth, D4) |
 | Recovery (below threshold, or recovery match) | `handle_recovery` resolves | unchanged; recovery-match flag stamped at the router |
 | Renotify | every `renotify_seconds` on a matching record, only for pending or escalated alerts past their deadlines | ordinal fire key; operator state from control input instead of a row read; a suppressed alert whose `suppressed_until` is before the event time is also eligible (deliberate change, D9) |
 | Incident metadata | load and update the alert on every record | counters in state; one guarded write per commit |

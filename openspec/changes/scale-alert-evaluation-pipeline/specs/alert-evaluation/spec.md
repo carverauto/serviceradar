@@ -209,7 +209,7 @@ Store or fence failures SHALL NOT be classified as poison.
 
 ### Requirement: External state reaches evaluation as ordered control input
 Rule disable and delete, operator alert actions that an evaluation decision depends on, stale-anomaly maintenance, block moves and the cutover import segment ends SHALL reach each affected block as messages on its subjects, published through the transactional outbox in the transaction that made the change.
-Candidates of a disabled rule that follow its marker and name the disabled revision or an older one SHALL be dropped and counted, while candidates naming a newer revision SHALL be evaluated. An incident resolved by an operator SHALL NOT be renotified, and no new incident SHALL open for its group while the group keeps matching with no gap longer than its cooldown in event time, even with the window at or above threshold; after such a gap, the record that brings the window to threshold SHALL open a new incident as today's rollover does, and a match that leaves the window below threshold SHALL open nothing. Falling below threshold, a breach inside the cooldown and a recovery match SHALL behave as today. Renotify SHALL be sent only while the status carried by the latest operator action is pending or escalated, or is suppressed with a suppress deadline strictly before the candidate's event time, and each of its suppress and snooze deadlines is absent or strictly before that event time, so that a passed deadline releases the hold without waiting for recovery; this deliberately extends today's gate, which never renotified a suppressed alert. Each later operator action SHALL replace the recorded one.
+Candidates of a disabled rule that follow its marker and name the disabled revision or an older one SHALL be dropped and counted, while candidates naming a newer revision SHALL be evaluated. An incident resolved by an operator SHALL NOT be renotified, and no new incident SHALL open for its group while the group keeps matching with no gap longer than its cooldown in event time, even with the window at or above threshold; the matching record after such a gap SHALL open a new incident, as today's rollover does, only when the window with that record applied is at or above threshold, and otherwise SHALL open nothing, with later records following today's cooldown rule. Falling below threshold, a breach inside the cooldown and a recovery match SHALL behave as today. Renotify SHALL be sent only while the status carried by the latest operator action is pending or escalated, or is suppressed with a suppress deadline strictly before the candidate's event time, and each of its suppress and snooze deadlines is absent or strictly before that event time, so that a passed deadline releases the hold without waiting for recovery; this deliberately extends today's gate, which never renotified a suppressed alert. Each later operator action SHALL replace the recorded one.
 
 #### Scenario: Disabling a rule is ordered with its candidates
 - **GIVEN** candidates for rule R at the disabled revision or older queued behind a disable marker for R
@@ -231,9 +231,14 @@ Candidates of a disabled rule that follow its marker and name the disabled revis
 
 #### Scenario: A quiet gap after a resolve lets the group fire again
 - **GIVEN** an operator resolves an open incident for a group
-- **WHEN** no matching candidate arrives for longer than the cooldown and then matches bring the window to the threshold
-- **THEN** a new incident SHALL fire for that group on the record that reaches the threshold
-- **AND** a match after the gap that leaves the window below the threshold SHALL NOT fire one
+- **WHEN** no matching candidate arrives for longer than the cooldown and then a match arrives with the window still at or above the threshold
+- **THEN** a new incident SHALL fire for that group on that match
+
+#### Scenario: A below-threshold match after the gap opens nothing
+- **GIVEN** an operator resolves an open incident for a group
+- **WHEN** no matching candidate arrives for longer than the cooldown and then a match leaves the window below the threshold
+- **THEN** that match SHALL NOT fire an incident
+- **AND** later matches SHALL follow today's cooldown rule, recording cooldown history for a breach inside the cooldown and firing on a threshold crossing outside it
 
 #### Scenario: A passed suppress deadline releases renotify
 - **GIVEN** an open incident suppressed until time T while matches continue
