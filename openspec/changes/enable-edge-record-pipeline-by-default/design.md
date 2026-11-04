@@ -212,7 +212,8 @@ the gateway rolls.
 A new table, `platform.edge_contract_registry_epochs`, holds one row per epoch:
 
 - `epoch` (bigint, primary key) and `snapshot_sha256` (bytea);
-- `document` (the canonical entry list, written once and never updated);
+- `document` (the canonical entry list, written once and never updated; each
+  entry carries its `projection_revision`);
 - `signature` (64 bytes) and `signing_key_id` (16 bytes), written once with the
   document (Decision 12);
 - `state`, one of `candidate`, `active`, `draining` or `retired`;
@@ -523,13 +524,16 @@ issuer key (Decision 6).
   - the snapshot digest (32 bytes);
   - the contract count (u64), then for each contract, sorted by
     `(contract_id, contract_version)`: the contract id, the contract version, the
-    bundle digest, and the admission fields the gateway acts on (route profile,
-    traffic class, partition rule and cost model version).
+    bundle digest, the admission fields the gateway acts on (route profile,
+    traffic class, partition rule and cost model version), and the
+    `projection_revision`.
 
   The signature binds the epoch number, the snapshot digest and every bundle
   digest. The admission fields are signed as well, because the gateway routes
   and charges from them and could not otherwise detect a changed route on a
-  correctly signed bundle digest.
+  correctly signed bundle digest. The `projection_revision` is signed because
+  the projection rule (Decision 4) compares it for records whose exact bundle a
+  node does not hold, and a reader cannot recover it from the digest.
 - **What is not signed.** The lifecycle state (`candidate`, `active`, `draining`,
   `retired`) changes after signing, so it is not covered. It comes only from core
   over the authenticated ERTS refresh. A gateway admits records only under epochs

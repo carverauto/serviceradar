@@ -9,7 +9,8 @@
     covers the domain tag `serviceradar.edge.contract_registry_epoch.v1`, the
     format version, the epoch number, the snapshot digest, and each contract
     sorted by `(contract_id, contract_version)`: its id, version, bundle digest,
-    route profile, traffic class, partition rule and cost model version. Sign it
+    route profile, traffic class, partition rule, cost model version and
+    `projection_revision`. Sign it
     with the issuer key when the candidate row is inserted. Store `signature` and
     `signing_key_id` in the row.
   - [ ] 0.2.2 Verify on every load in core: the epoch reader verifies each CNPG row
@@ -29,8 +30,8 @@
     - do not count as holding the candidate.
   - [ ] 0.2.5 Tests:
     - a golden preimage and signature vector;
-    - a tampered admission field, epoch number or bundle digest each failing
-      verification;
+    - a tampered admission field, projection revision, epoch number or bundle
+      digest each failing verification;
     - a tampered CNPG row excluded by core;
     - a gateway refusing a bad document while keeping its previous registry;
     - a fresh gateway with only a bad document withholding as

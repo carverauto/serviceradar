@@ -274,10 +274,12 @@ containing, in order:
 - the snapshot digest;
 - the contract count;
 - for each contract, sorted by `(contract_id, contract_version)`: its id, version,
-  bundle digest, route profile, traffic class, partition rule, and cost model
-  version.
+  bundle digest, route profile, traffic class, partition rule, cost model
+  version, and `projection_revision`.
 
-The lifecycle state SHALL NOT be signed. Core SHALL verify every epoch it loads
+Each entry of an epoch document SHALL carry its `projection_revision`, and the
+projection rule SHALL read a record's bundle revision only from a verified epoch
+document. The lifecycle state SHALL NOT be signed. Core SHALL verify every epoch it loads
 from CNPG or from any cache before using it. Core SHALL NOT sign capabilities
 under an epoch that fails verification. It SHALL report that epoch as
 `registry_epoch_signature_invalid` in pipeline status, and SHALL issue no new
@@ -288,6 +290,14 @@ capability while the active epoch fails verification.
 - **WHEN** core's epoch reader loads it
 - **THEN** verification fails and core excludes the epoch
 - **AND** pipeline status reports `registry_epoch_signature_invalid` for it
+
+#### Scenario: A tampered projection revision in CNPG
+- **GIVEN** an epoch row whose stored `projection_revision` for one contract was
+  lowered after signing
+- **WHEN** core's epoch reader loads it
+- **THEN** verification fails and core excludes the epoch
+- **AND** no node treats that revision as evidence that it can project the
+  epoch's records
 
 #### Scenario: The signature binds the epoch number
 - **WHEN** a signed epoch document is presented under a different epoch number
