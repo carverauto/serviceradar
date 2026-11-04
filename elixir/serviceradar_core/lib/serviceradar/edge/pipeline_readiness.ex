@@ -79,17 +79,19 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
   @doc """
   The installation state the conditions are evaluated against: partition slugs, the live
   agent tracker entries of every connected core node, the newest published agent release and
-  the agents waiting in a paused rollout.
+  the agents waiting in a paused rollout. An unreadable node tracker is
+  `{:error, :agent_tracker_unavailable}`, not an agent reported as disconnected.
   """
   @spec facts() :: {:ok, facts()} | {:error, term()}
   def facts do
     with {:ok, partitions} <- Ash.read(Partition, actor: actor()),
          {:ok, release} <- newest_release(),
-         {:ok, paused} <- paused_agent_ids() do
+         {:ok, paused} <- paused_agent_ids(),
+         {:ok, runtime} <- AgentRuntimeMetadata.runtime_agents() do
       {:ok,
        %{
          partitions: MapSet.new(partitions, & &1.slug),
-         runtime: AgentRuntimeMetadata.runtime_agents(),
+         runtime: runtime,
          release: release,
          paused_agent_ids: paused
        }}
