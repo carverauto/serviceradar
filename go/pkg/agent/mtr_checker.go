@@ -333,7 +333,6 @@ func (p *PushLoop) collectDueMtrResults(ctx context.Context, includeSweep bool) 
 	results := make([]mtrCheckResult, 0, len(checks))
 
 	for _, check := range checks {
-
 		run := p.runMtrCheck
 		if runOverride != nil {
 			run = runOverride
@@ -500,20 +499,7 @@ func (p *PushLoop) updateSweepMtrChecks(checks []*mtrCheckConfig) {
 func deriveSweepGroupMtrChecks(groups []SweepGroupConfig, log logger.Logger) []*mtrCheckConfig {
 	var checks []*mtrCheckConfig
 	for _, group := range groups {
-		rawGroupID := strings.TrimSpace(group.SweepGroupID)
-		if rawGroupID == "" {
-			rawGroupID = strings.TrimSpace(group.ID)
-		}
-		var sweepGroupID string
-		if parsed, err := uuid.Parse(rawGroupID); err == nil {
-			sweepGroupID = parsed.String()
-		} else if parsed, err := uuid.Parse(strings.TrimSpace(group.ID)); err == nil {
-			sweepGroupID = parsed.String()
-		}
-		groupKey := sweepGroupID
-		if groupKey == "" {
-			groupKey = rawGroupID
-		}
+		sweepGroupID, groupKey := sweepGroupMtrIdentity(group)
 		if groupKey == "" {
 			continue
 		}
@@ -637,6 +623,24 @@ func deriveSweepGroupMtrChecks(groups []SweepGroupConfig, log logger.Logger) []*
 		}
 	}
 	return checks
+}
+
+// sweepGroupMtrIdentity returns the group's canonical UUID (empty when neither
+// SweepGroupID nor ID parses as one) and the key used to name its MTR checks.
+func sweepGroupMtrIdentity(group SweepGroupConfig) (sweepGroupID, groupKey string) {
+	rawGroupID := strings.TrimSpace(group.SweepGroupID)
+	if rawGroupID == "" {
+		rawGroupID = strings.TrimSpace(group.ID)
+	}
+	if parsed, err := uuid.Parse(rawGroupID); err == nil {
+		sweepGroupID = parsed.String()
+	} else if parsed, err := uuid.Parse(strings.TrimSpace(group.ID)); err == nil {
+		sweepGroupID = parsed.String()
+	}
+	if sweepGroupID != "" {
+		return sweepGroupID, sweepGroupID
+	}
+	return "", rawGroupID
 }
 
 func sweepModesIncludeMTR(modes []models.SweepMode) bool {
