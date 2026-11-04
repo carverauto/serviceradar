@@ -20,10 +20,10 @@ defmodule ServiceRadar.TestSupport.DgraphScratch do
         ServiceRadar.TestSupport.DgraphScratch.setup_scratch()
       end
 
-  No fixture variables at all (local dev) skips the module. A partial set
-  runs it and `setup_scratch/0` raises naming the missing variables, so a
-  lost CI secret can never masquerade as "no fixture". Fully configured
-  allocates the namespace.
+  `DGRAPH_TEST_HOST` unset (local dev) skips the module. With the host set,
+  a missing admin secret runs it and `setup_scratch/0` raises naming the
+  missing variables, so a lost CI secret can never masquerade as "no
+  fixture". Fully configured allocates the namespace.
 
   The helper points `DGRAPH_URL` at the scratch namespace for the module and
   restores the previous value on exit, so modules using it must run
@@ -33,12 +33,12 @@ defmodule ServiceRadar.TestSupport.DgraphScratch do
   lives and dies inside the namespace.
   """
 
-  @cli_env "SERVICERADAR_DGRAPH_SCRATCH_CLI"
-  @cli_runfile "rust/dgraph-topology/dgraph_scratch_cli"
+  @cli_relative "rust/dgraph-topology/dgraph_scratch_cli"
+  @host_var "DGRAPH_TEST_HOST"
 
   # The lane presents the fixture through these variables (buildbuddy.yaml
   # --test_env); the CLI revalidates the full typed identity itself.
-  @fixture_vars ["DGRAPH_TEST_HOST", "SERVICERADAR_SECRET_DGRAPH_ADMIN_PASSWORD"]
+  @fixture_vars [@host_var, "SERVICERADAR_SECRET_DGRAPH_ADMIN_PASSWORD"]
 
   @doc """
   Three-state fixture detection, evaluated when the test module loads:
@@ -46,10 +46,10 @@ defmodule ServiceRadar.TestSupport.DgraphScratch do
   """
   @spec fixture_state() :: :unconfigured | :partial | :configured
   def fixture_state do
-    case {present_vars(), missing_vars()} do
-      {[], _missing} -> :unconfigured
-      {_present, []} -> :configured
-      {_present, _missing} -> :partial
+    cond do
+      @host_var in missing_vars() -> :unconfigured
+      missing_vars() == [] -> :configured
+      true -> :partial
     end
   end
 
@@ -92,40 +92,33 @@ defmodule ServiceRadar.TestSupport.DgraphScratch do
   defp missing_vars, do: @fixture_vars -- present_vars()
 
   defp cli_path! do
-    candidates = Enum.reject([System.get_env(@cli_env), runfiles_path()], &is_nil/1)
+    tmpdir =
+      System.get_env("TEST_TMPDIR") ||
+        raise "TEST_TMPDIR unset: #{@cli_relative} is staged by Bazel"
 
-    case Enum.find(candidates, &File.regular?/1) do
-      nil ->
-        raise "dgraph_scratch_cli not found (#{@cli_env} unset and no runfile at #{@cli_runfile}); " <>
-                "the integration lane must stage //rust/dgraph-topology:dgraph_scratch_cli as data"
+    path = Path.join(tmpdir, @cli_relative)
 
-      path ->
-        path
-    end
-  end
-
-  defp runfiles_path do
-    case System.get_env("RUNFILES_DIR") do
-      dir when is_binary(dir) and dir != "" ->
-        Path.join([dir, "serviceradar", @cli_runfile])
-
-      _ ->
-        nil
+    if File.regular?(path) do
+      path
+    else
+      raise "dgraph_scratch_cli not found at #{path}; " <>
+              "the integration lane must stage //rust/dgraph-topology:dgraph_scratch_cli as data"
     end
   end
 
   defp run_create!(cli) do
-    case System.cmd(cli, ["create"], stderr_to_stdout: false) do
+    case System.cmd(cli, ["create"], stderr_to_stdout: true) do
       {output, 0} ->
         fields =
           output
           |> String.split("\n", trim: true)
-          |> Map.new(fn line ->
+          |> Enum.flat_map(fn line ->
             case String.split(line, "=", parts: 2) do
-              [key, value] -> {key, value}
-              _ -> raise "unexpected dgraph_scratch_cli create output line: #{inspect(line)}"
+              [key, value] when key in ["namespace", "url", "ca_path"] -> [{key, value}]
+              _ -> []
             end
           end)
+          |> Map.new()
 
         %{
           namespace: fetch_field!(fields, "namespace"),
@@ -133,18 +126,19 @@ defmodule ServiceRadar.TestSupport.DgraphScratch do
           ca_path: fetch_field!(fields, "ca_path")
         }
 
-      {_output, status} ->
-        raise "dgraph_scratch_cli create exited #{status}"
+      {output, status} ->
+        raise "dgraph_scratch_cli create exited #{status}: #{String.trim(output)}"
     end
   end
 
   defp run_drop!(cli, namespace) do
-    case System.cmd(cli, ["drop", namespace], stderr_to_stdout: false) do
+    case System.cmd(cli, ["drop", namespace], stderr_to_stdout: true) do
       {_output, 0} ->
         :ok
 
-      {_output, status} ->
-        raise "dgraph scratch cleanup failed: drop of namespace #{namespace} exited #{status}"
+      {output, status} ->
+        raise "dgraph scratch cleanup failed: drop of namespace #{namespace} exited " <>
+                "#{status}: #{String.trim(output)}"
     end
   end
 

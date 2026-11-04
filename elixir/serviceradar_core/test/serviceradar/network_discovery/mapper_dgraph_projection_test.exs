@@ -13,10 +13,14 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDgraphProjectionTest do
 
   use ServiceRadar.DataCase, async: false
 
+  import Ecto.Query, only: [from: 2]
+
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Dgraph
   alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Links
+  alias ServiceRadar.NetworkDiscovery.TopologyProjectionWorker
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
   alias ServiceRadar.TestSupport.DgraphScratch
@@ -62,6 +66,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDgraphProjectionTest do
     ]
 
     assert :ok = MapperResultsIngestor.ingest_topology(Jason.encode!(payload), %{})
+    project_into_graph()
 
     edges = canonical_edges()
 
@@ -103,6 +108,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDgraphProjectionTest do
     ]
 
     assert :ok = MapperResultsIngestor.ingest_topology(Jason.encode!(payload), %{})
+    project_into_graph()
 
     assert edge = find_pair(canonical_edges(), "sr:it-dg-wg-a", "sr:it-dg-wg-b")
     assert edge.evidence_class == "direct-logical"
@@ -130,6 +136,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDgraphProjectionTest do
     ]
 
     assert :ok = MapperResultsIngestor.ingest_topology(Jason.encode!(payload), %{})
+    project_into_graph()
 
     # The strict-ifindex policy keeps this evidence out of Dgraph...
     refute find_pair(canonical_edges(), "sr:it-dg-gated-a", "sr:it-dg-gated-b")
@@ -137,6 +144,23 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDgraphProjectionTest do
     # ...while the CNPG evidence row still persists, so the gate is the
     # projection policy, not an ingest rejection.
     assert [%{"protocol" => "LLDP"}] = topology_rows("sr:it-dg-gated-a")
+  end
+
+  defp project_into_graph do
+    jobs =
+      Repo.all(
+        from(j in Oban.Job,
+          where:
+            j.worker == "ServiceRadar.NetworkDiscovery.TopologyProjectionWorker" and
+              j.state in ["available", "scheduled", "retryable"],
+          order_by: j.id
+        ),
+        prefix: "platform"
+      )
+
+    assert jobs != [], "mapper ingest enqueued no topology projection"
+    Enum.each(jobs, &assert(:ok = TopologyProjectionWorker.perform(&1)))
+    assert :ok = TopologyGraph.run_global_passes()
   end
 
   defp canonical_edges do
