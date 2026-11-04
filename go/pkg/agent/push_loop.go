@@ -163,8 +163,8 @@ type PushLoop struct {
 	edgePluginResultSpool edgeMetricsAppender
 	pluginResultsEdge     pluginResultEdgeQueue
 	// edgeDiscoverySpool is the same one open spool, connected for mapper
-	// and netprobe discovery while discovery emission is enabled; nil keeps
-	// discovery on its legacy status path.
+	// and netprobe discovery and workload identity snapshots while discovery
+	// emission is enabled; nil keeps them on their legacy status paths.
 	edgeDiscoverySpool   edgeMetricsAppender
 	mapperDevicesEdge    discoveryEdgeQueue
 	mapperInterfacesEdge discoveryEdgeQueue

@@ -139,6 +139,15 @@ paths: once a page spools, later pages of that run spool or the run fails.
 The projection rules are the discovery projectors under
 `ServiceRadar.Edge.Projectors`.
 
+Workload identity snapshots ride the
+`serviceradar.workload_identity.snapshot` contract under the same
+`edgeRecords.agentDiscoveryEnabled` switch. While the agent holds that grant
+the snapshot file is not sent on the status path; the agent holds at most one
+built snapshot until the spool admits all of its records, and spools the file
+again only when its content changes. Core rebuilds the legacy snapshot payload
+and writes it through `ServiceRadar.WorkloadIdentity.persist_snapshot/1`
+(`ServiceRadar.Edge.Projectors.WorkloadIdentity`).
+
 ## Data Service (datasvc)
 
 `datasvc` is a gRPC service (port `50057`) that fronts the platform's NATS-backed
