@@ -1,6 +1,16 @@
 {
   "contracts": [
     {
+      "contract_id": "serviceradar.k8s.public_endpoints.snapshot",
+      "contract_version": 1,
+      "history": [
+        {
+          "contract_bundle_sha256": "7bfdd4eafe70992d061fab5e67dc1ee624d30397aedb7ad54f09808ea8c7790a",
+          "projection_revision": 1
+        }
+      ]
+    },
+    {
       "contract_id": "serviceradar.mapper.devices.batch",
       "contract_version": 1,
       "history": [
@@ -141,5 +151,5 @@
       ]
     }
   ],
-  "registry_snapshot_sha256": "01d1b7c6448a1c9d7e3f496312c139cd1082a51cf5aed2593b1d3756317627d5"
+  "registry_snapshot_sha256": "5654295b83515ef18bd30959d6c7412e18192e8fffe19b39e2423268dd1bf584"
 }

@@ -206,6 +206,8 @@ defmodule ServiceRadar.Edge.ContractCatalog do
     },
     %{
       ref: {"serviceradar.k8s.public_endpoints.snapshot", 1},
+      payload: Serviceradar.Edge.V1.K8sPublicEndpointsSnapshotV1,
+      projection_revision: 1,
       authority: :standing_grant,
       projector: K8sPublicEndpoints,
       max_projected_rows: 10_000,
