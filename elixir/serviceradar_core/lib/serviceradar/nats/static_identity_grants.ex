@@ -82,15 +82,34 @@ defmodule ServiceRadar.NATS.StaticIdentityGrants do
   @spec grant(grants(), String.t() | nil, binary()) :: map() | nil
   def grant(grants, component_type, certificate_der)
       when map_size(grants) > 0 and is_binary(certificate_der) do
+    lookup(grants, component_type, fn -> certificate_subject_key(certificate_der) end)
+  end
+
+  def grant(_grants, _component_type, _certificate_der), do: nil
+
+  @doc """
+  The grant `grant/3` selects, for a certificate known only by the subject the
+  broker reports for it in an authenticated CONNZ listing
+  (`tls_peer_certs[].subject`). The broker writes the subject as Go's
+  `pkix.Name.String/0` does: attributes of one RDN joined by `+`, RDNs by `,`,
+  and special characters escaped with a backslash.
+  """
+  @spec presented_grant(grants(), String.t() | nil, String.t()) :: map() | nil
+  def presented_grant(grants, component_type, subject)
+      when map_size(grants) > 0 and is_binary(subject) do
+    lookup(grants, component_type, fn -> presented_subject_key(subject) end)
+  end
+
+  def presented_grant(_grants, _component_type, _subject), do: nil
+
+  defp lookup(grants, component_type, subject_key) do
     if is_binary(component_type) and ManagedComponent.infrastructure_type?(component_type) do
-      case certificate_subject_key(certificate_der) do
+      case subject_key.() do
         {:ok, key} -> Map.get(grants, key)
         :error -> nil
       end
     end
   end
-
-  def grant(_grants, _component_type, _certificate_der), do: nil
 
   defp user_grant(%{"user" => subject, "publish" => publish, "subscribe" => subscribe})
        when is_binary(subject) do
@@ -141,6 +160,54 @@ defmodule ServiceRadar.NATS.StaticIdentityGrants do
   rescue
     _ -> :error
   end
+
+  # Go names three attributes the DER reading above keys by OID. Every other
+  # attribute Go cannot name is written as its dotted OID and a hex DER value.
+  @presented_oid_names %{
+    "SERIALNUMBER" => "OID.2.5.4.5",
+    "STREET" => "OID.2.5.4.9",
+    "POSTALCODE" => "OID.2.5.4.17"
+  }
+
+  defp presented_subject_key(subject) do
+    pairs =
+      subject
+      |> presented_attributes()
+      |> Enum.map(fn attribute ->
+        case String.split(attribute, "=", parts: 2) do
+          [type, value] when type != "" -> {presented_type(type), value}
+          _ -> :error
+        end
+      end)
+
+    if pairs != [] and :error not in pairs, do: {:ok, Enum.sort(pairs)}, else: :error
+  end
+
+  defp presented_type(type) do
+    cond do
+      Map.has_key?(@presented_oid_names, type) -> Map.fetch!(@presented_oid_names, type)
+      String.match?(type, ~r/^[0-9]+(\.[0-9]+)+$/) -> "OID." <> type
+      true -> type
+    end
+  end
+
+  # Splits on unescaped `,` and `+` and removes the escapes. Go never escapes
+  # `=` and an attribute type has no escapes, so the first `=` that remains
+  # still ends the type.
+  defp presented_attributes(subject), do: presented_attributes(subject, "", [])
+
+  defp presented_attributes(<<"\\", char::utf8, rest::binary>>, current, acc),
+    do: presented_attributes(rest, <<current::binary, char::utf8>>, acc)
+
+  defp presented_attributes(<<separator, rest::binary>>, current, acc) when separator in [?,, ?+],
+    do: presented_attributes(rest, "", [current | acc])
+
+  defp presented_attributes(<<char::utf8, rest::binary>>, current, acc),
+    do: presented_attributes(rest, <<current::binary, char::utf8>>, acc)
+
+  defp presented_attributes("", "", []), do: []
+  defp presented_attributes("", current, acc), do: Enum.reverse([current | acc])
+  defp presented_attributes(_invalid_utf8, _current, _acc), do: [""]
 
   defp attribute_value({_string_type, value}), do: to_string(value)
   defp attribute_value(value), do: to_string(value)

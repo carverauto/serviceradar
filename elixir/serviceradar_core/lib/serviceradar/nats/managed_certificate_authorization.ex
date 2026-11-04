@@ -15,7 +15,24 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
   An adopted infrastructure certificate that presents one of the chart's
   built-in identities is granted that identity's static permissions instead of
   its stored grant (`ServiceRadar.NATS.StaticIdentityGrants`), so a release that
-  adds a subject to the broker's static configuration grants it here too.
+  adds a subject to the broker's static configuration grants it here too. Until
+  the static list has been read once, an infrastructure certificate is refused
+  rather than granted the stored permissions the list replaces.
+
+  Every grant names the permissions it carries (`Token.grant_name/2`), and the
+  broker reports that name for the session. The presented-certificate scan
+  disconnects a session whose name differs from the grant its certificate would
+  receive now: a grant issued under an older static list or stored grant, by
+  an older release, or by a replica with a different view. The client
+  reconnects and receives the current grant. A session whose grant is current
+  is left alone. Each scan disconnects at most `@grant_kicks_per_scan` such
+  sessions, and a certificate whose reconnect returned with the same grant
+  waits `@grant_retry_ms` before it is disconnected for it again, so a
+  responder that still disagrees cannot keep a client reconnecting.
+
+  Configuration and policy are database reads. A failed read keeps the last
+  state, so a database outage cannot restart the authorizer and discard its
+  static list, sessions and subscription.
   """
   use GenServer
 
@@ -23,6 +40,7 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.ComponentCertificateAuthority, as: Authority
   alias ServiceRadar.Edge.ManagedCertificateLifecycle
+  alias ServiceRadar.Edge.ManagedComponent
   alias ServiceRadar.NATS.CertificateAuthorizationToken, as: Token
   alias ServiceRadar.NATS.ManagedCertificateConfiguration, as: Configuration
   alias ServiceRadar.NATS.StaticIdentityGrants
@@ -32,6 +50,8 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
   @auth :serviceradar_certificate_auth
   @system :serviceradar_certificate_system
   @refresh_ms 10_000
+  @grant_kicks_per_scan 64
+  @grant_retry_ms 300_000
   @subject "$SYS.REQ.USER.AUTH"
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -57,7 +77,9 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
        sessions: %{},
        probe: nil,
        connz: %{offsets: %{}, turn: 0},
+       grant_kicks: %{},
        static_users: %{},
+       static_users_loaded: false,
        static_users_status: :ok,
        reason: "not_configured"
      }}
@@ -80,12 +102,18 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
 
   @impl true
   def handle_info(:tick, state) do
-    state = state |> configure() |> subscribe() |> load_static_users() |> refresh()
+    state =
+      state
+      |> guarded(&configure/1)
+      |> subscribe()
+      |> load_static_users()
+      |> guarded(&refresh/1)
+
     Process.send_after(self(), :tick, @refresh_ms)
     {:noreply, state}
   end
 
-  def handle_info(:certificate_policy_changed, state), do: {:noreply, refresh(state)}
+  def handle_info(:certificate_policy_changed, state), do: {:noreply, guarded(state, &refresh/1)}
 
   def handle_info(
         {:msg, %{topic: @subject, body: token, reply_to: reply, gnat: connection}},
@@ -97,10 +125,16 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
     end
   end
 
-  def handle_info({ref, {:ok, %{offsets: offsets, turn: turn}}}, %{probe: ref} = state)
-      when is_reference(ref) and is_map(offsets) and is_integer(turn) and turn >= 0 do
+  def handle_info(
+        {ref, {:ok, %{connz: %{offsets: offsets, turn: turn}, grant_kicks: grant_kicks}}},
+        %{probe: ref} = state
+      )
+      when is_reference(ref) and is_map(offsets) and is_integer(turn) and turn >= 0 and
+             is_map(grant_kicks) do
     Process.demonitor(ref, [:flush])
-    {:noreply, %{state | probe: nil, connz: %{offsets: offsets, turn: turn}}}
+
+    {:noreply,
+     %{state | probe: nil, connz: %{offsets: offsets, turn: turn}, grant_kicks: grant_kicks}}
   end
 
   def handle_info({:DOWN, ref, :process, _, _}, %{probe: ref} = state),
@@ -124,6 +158,26 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
 
   defp readiness_reason(nil, _account_name), do: "nats_account_mismatch"
   defp readiness_reason(reason, _account_name), do: reason
+
+  # A raised database error or exit keeps the previous state. The last
+  # snapshot stops admitting by itself once it is stale.
+  defp guarded(state, step) do
+    step.(state)
+  rescue
+    exception -> policy_unavailable(state, exception.__struct__)
+  catch
+    :exit, _reason -> policy_unavailable(state, :exit)
+  end
+
+  defp policy_unavailable(state, cause) do
+    if state.reason != "policy_unavailable" do
+      Logger.warning("NATS certificate policy is unavailable; keeping the last authorizer state",
+        cause: inspect(cause)
+      )
+    end
+
+    %{state | reason: "policy_unavailable"}
+  end
 
   defp configure(%{config: nil} = state) do
     with {:ok, %{auth_mode: "static_mtls"} = config} <- Configuration.credentials(),
@@ -240,15 +294,15 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
     account = stored_account_name(state)
 
     if is_binary(account) and account == Configuration.deployment_account() do
-      decision(state.snapshot, request.fingerprint, &static_grant(state, &1, request))
+      decision(state.snapshot, request.fingerprint, callout_static(state, request))
     else
       {:deny, "nats_account_mismatch"}
     end
   end
 
   # Admission is the stored policy alone. `static` only replaces the permissions
-  # of an admitted infrastructure certificate; session reconciliation and the
-  # presented-certificate scan pass none.
+  # of an admitted infrastructure certificate, or refuses it with
+  # `:unavailable`. Session reconciliation passes none.
   defp decision(snapshot, fingerprint, static \\ fn _component_id -> nil end)
 
   defp decision(nil, _, _), do: {:deny, "certificate policy unavailable"}
@@ -259,23 +313,45 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
          :ok <- Authority.authorize(snapshot, id, fingerprint),
          %{publish: _, subscribe: _} = stored <-
            Map.get(snapshot.nats_permissions, fingerprint) do
-      permissions = static.(id) || stored
-      {:allow, Map.put(permissions, :expires_at, Token.grant_expiry(not_after))}
+      case static.(id) do
+        :unavailable ->
+          {:deny, "static identity grants unavailable"}
+
+        static_permissions ->
+          permissions = static_permissions || stored
+          {:allow, Map.put(permissions, :expires_at, Token.grant_expiry(not_after))}
+      end
     else
       _ -> {:deny, "certificate not authorized"}
     end
   end
 
-  defp static_grant(%{static_users: static_users}, _component_id, _request)
+  defp callout_static(%{static_users_loaded: true} = state, request) do
+    &static_grant(state.static_users, state.snapshot, &1, {:der, request.certificate_der})
+  end
+
+  defp callout_static(state, _request) do
+    fn component_id ->
+      type = component_type(state.snapshot, component_id)
+      if is_binary(type) and ManagedComponent.infrastructure_type?(type), do: :unavailable
+    end
+  end
+
+  defp static_grant(static_users, _snapshot, _component_id, _certificate)
        when map_size(static_users) == 0, do: nil
 
-  defp static_grant(state, component_id, request) do
-    type =
-      Enum.find_value(state.snapshot.components, fn component ->
-        if component.component_id == component_id, do: Map.get(component, :component_type)
-      end)
+  defp static_grant(static_users, snapshot, component_id, {:der, der}),
+    do: StaticIdentityGrants.grant(static_users, component_type(snapshot, component_id), der)
 
-    StaticIdentityGrants.grant(state.static_users, type, request.certificate_der)
+  defp static_grant(static_users, snapshot, component_id, {:subject, subject}) do
+    type = component_type(snapshot, component_id)
+    StaticIdentityGrants.presented_grant(static_users, type, subject)
+  end
+
+  defp component_type(snapshot, component_id) do
+    Enum.find_value(snapshot.components, fn component ->
+      if component.component_id == component_id, do: Map.get(component, :component_type)
+    end)
   end
 
   # Re-read on every tick: a chart upgrade updates the mounted ConfigMap in
@@ -283,7 +359,7 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
   defp load_static_users(state) do
     case StaticIdentityGrants.load() do
       {:ok, static_users} ->
-        %{state | static_users: static_users, static_users_status: :ok}
+        %{state | static_users: static_users, static_users_loaded: true, static_users_status: :ok}
 
       {:error, reason} ->
         if state.static_users_status != {:error, reason} do
@@ -316,41 +392,103 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
          %{probe: nil, snapshot: snapshot, config: %{account_name: account}} = state
        )
        when is_map(snapshot) and is_binary(account) do
-    progress = connz_progress(state)
+    observation = %{connz: state.connz, grant_kicks: state.grant_kicks}
+    static_users = if state.static_users_loaded, do: state.static_users, else: :unloaded
 
     task =
       Task.Supervisor.async_nolink(ServiceRadar.NATS.CertificateObservationTasks, fn ->
-        {:ok, observe_account(account, snapshot, progress)}
+        {:ok, observe_account(account, snapshot, static_users, observation)}
       end)
 
     %{state | probe: task.ref}
+  rescue
+    # The single task slot is still held by an earlier scan, for example one
+    # a restarted authorizer no longer tracks. The next tick tries again.
+    RuntimeError -> state
   catch
     :exit, _ -> state
   end
 
   defp observe_presented(state), do: state
 
-  defp observe_account(account, snapshot, progress) do
-    {connections, progress} = scan_presented_connections(account, progress)
+  # `static_users` is `:unloaded` until the list has been read once. The scan
+  # then cannot know an infrastructure certificate's current grant and leaves
+  # every admitted session alone. Disconnects run before confirmations, so a
+  # database error while confirming cannot skip one.
+  @doc false
+  def observe_account(account, snapshot, static_users, %{connz: connz, grant_kicks: grant_kicks}) do
+    {connections, connz} = scan_presented_connections(account, connz)
+    now = System.monotonic_time(:millisecond)
+    previous = Map.reject(grant_kicks, fn {_key, at} -> now - at >= @grant_retry_ms end)
+    scan = %{previous: previous, kicked: previous, budget: @grant_kicks_per_scan, admitted: []}
 
-    Enum.each(connections, fn connection ->
-      case decision(snapshot, connection.fingerprint) do
-        {:allow, _} ->
-          _ =
-            ManagedCertificateLifecycle.confirm_use(
-              connection.fingerprint,
-              "nats:" <> connection.server,
-              actor: SystemActor.system(:managed_certificate_nats)
-            )
+    scan =
+      Enum.reduce(connections, scan, fn connection, scan ->
+        static = &presented_static(static_users, snapshot, &1, connection)
 
-        {:deny, _} ->
-          if known_certificate?(snapshot, connection.fingerprint) do
-            kick(connection.server, connection.cid)
-          end
-      end
-    end)
+        case decision(snapshot, connection.fingerprint, static) do
+          {:allow, permissions} ->
+            scan = converge_grant(scan, connection, permissions, static_users, now)
+            %{scan | admitted: [connection | scan.admitted]}
 
-    progress
+          {:deny, _} ->
+            if known_certificate?(snapshot, connection.fingerprint) do
+              kick(connection.server, connection.cid)
+            end
+
+            scan
+        end
+      end)
+
+    report_grant_kicks(@grant_kicks_per_scan - scan.budget)
+    scan.admitted |> Enum.reverse() |> Enum.each(&confirm_use/1)
+    %{connz: connz, grant_kicks: scan.kicked}
+  end
+
+  defp presented_static(:unloaded, _snapshot, _component_id, _connection), do: nil
+
+  defp presented_static(static_users, snapshot, component_id, connection),
+    do: static_grant(static_users, snapshot, component_id, {:subject, connection.subject})
+
+  defp converge_grant(scan, _connection, _permissions, :unloaded, _now), do: scan
+
+  defp converge_grant(scan, connection, permissions, _static_users, now) do
+    observed = connection.authorized_user
+    key = {connection.fingerprint, observed}
+
+    # A listing without the name gives no evidence about the grant.
+    cond do
+      not is_binary(observed) -> scan
+      observed == Token.grant_name(connection.fingerprint, permissions) -> scan
+      scan.budget == 0 -> scan
+      Map.has_key?(scan.previous, key) -> scan
+      kick(connection.server, connection.cid) -> grant_kicked(scan, key, now)
+      true -> scan
+    end
+  end
+
+  defp grant_kicked(scan, key, now),
+    do: %{scan | kicked: Map.put(scan.kicked, key, now), budget: scan.budget - 1}
+
+  defp report_grant_kicks(0), do: :ok
+
+  defp report_grant_kicks(count) do
+    Logger.info("Disconnected NATS sessions holding a grant other than the current one",
+      count: count
+    )
+  end
+
+  # A confirmation is an observation. A database error must not end the scan.
+  defp confirm_use(connection) do
+    ManagedCertificateLifecycle.confirm_use(
+      connection.fingerprint,
+      "nats:" <> connection.server,
+      actor: SystemActor.system(:managed_certificate_nats)
+    )
+  rescue
+    _exception -> :error
+  catch
+    :exit, _reason -> :error
   end
 
   defp known_certificate?(snapshot, fingerprint) do
@@ -546,13 +684,25 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
          %{"cert_sha256" => fingerprint} <- List.first(certs),
          true <- is_binary(fingerprint),
          cid when is_integer(cid) and cid > 0 <- connection_id(cid) do
-      [%{server: server, cid: cid, fingerprint: String.downcase(fingerprint), kind: kind}]
+      [
+        %{
+          server: server,
+          cid: cid,
+          fingerprint: String.downcase(fingerprint),
+          kind: kind,
+          subject: presented_subject(List.first(certs)),
+          authorized_user: connection["authorized_user"]
+        }
+      ]
     else
       _ -> []
     end
   end
 
   defp presented_connection(_, _), do: []
+
+  defp presented_subject(%{"subject" => subject}) when is_binary(subject), do: subject
+  defp presented_subject(_certificate), do: ""
 
   defp connection_id(id) when is_integer(id), do: id
   defp connection_id(id) when is_float(id) and id > 0, do: trunc(id)

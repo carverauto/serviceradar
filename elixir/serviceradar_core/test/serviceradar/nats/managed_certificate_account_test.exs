@@ -2,6 +2,8 @@ defmodule ServiceRadar.NATS.ManagedCertificateAccountTest do
   @moduledoc """
   Bootstrap accepts only the deployment NATS account. Readiness stays unready
   when the stored account disagrees, and that request is denied with no user JWT.
+  A granted session names its grant, and the hub scan disconnects a session
+  whose grant is not the one its certificate would receive now.
   """
   use ExUnit.Case, async: false
 
@@ -18,6 +20,51 @@ defmodule ServiceRadar.NATS.ManagedCertificateAccountTest do
     {{2, 5, 4, 11}, {:utf8String, "Kubernetes"}},
     {{2, 5, 4, 3}, {:utf8String, "example-core"}}
   ]
+
+  # The system connection: one CONNZ page of the given connections, and a
+  # recorded, acknowledged KICK.
+  defmodule FakeBroker do
+    @moduledoc false
+    use GenServer
+
+    def start_link(connections),
+      do: GenServer.start_link(__MODULE__, connections, name: :serviceradar_certificate_system)
+
+    def kicked(pid), do: GenServer.call(pid, :kicked)
+
+    @impl true
+    def init(connections), do: {:ok, %{connections: connections, subscriber: nil, kicked: []}}
+
+    @impl true
+    def handle_call({:sub, subscriber, _topic, _opts}, _from, state),
+      do: {:reply, {:ok, 1}, %{state | subscriber: subscriber}}
+
+    def handle_call({:unsub, _sid, _opts}, _from, state), do: {:reply, :ok, state}
+
+    def handle_call({:pub, "$SYS.REQ.SERVER.PING.CONNZ", _payload, _opts}, _from, state) do
+      page = %{
+        "server" => %{"id" => "hub-a"},
+        "data" => %{
+          "offset" => 0,
+          "total" => length(state.connections),
+          "connections" => state.connections
+        }
+      }
+
+      send(state.subscriber, {:msg, %{sid: 1, body: Jason.encode!(page)}})
+      {:reply, :ok, state}
+    end
+
+    def handle_call({:pub, _subject, _payload, _opts}, _from, state), do: {:reply, :ok, state}
+
+    def handle_call({:request, %{topic: "$SYS.REQ.SERVER.hub-a.KICK"} = request}, _from, state) do
+      %{"cid" => cid} = Jason.decode!(request.body)
+      send(request.recipient, {:msg, %{topic: "kick-reply", body: ~s({"data":{}})}})
+      {:reply, {:ok, "kick-reply"}, %{state | kicked: state.kicked ++ [cid]}}
+    end
+
+    def handle_call(:kicked, _from, state), do: {:reply, state.kicked, state}
+  end
 
   setup do
     previous = Application.get_env(:serviceradar, :nats_account_name)
@@ -158,7 +205,9 @@ defmodule ServiceRadar.NATS.ManagedCertificateAccountTest do
     user = verify_response(allowed.claims["nats"]["jwt"], allowed.issuer_nkey)
     assert user["aud"] == "EDGE"
     assert user["sub"] == allowed.user_nkey
-    assert user["name"] == allowed.fingerprint
+    assert [fingerprint, digest] = String.split(user["name"], ".")
+    assert fingerprint == allowed.fingerprint
+    assert digest =~ ~r/^[0-9a-f]{64}$/
     assert user["nats"]["type"] == "user"
     assert user["nats"]["pub"]["allow"] == ["metrics.example.>"]
     assert user["nats"]["sub"]["allow"] == ["events.example.>"]
@@ -227,6 +276,31 @@ defmodule ServiceRadar.NATS.ManagedCertificateAccountTest do
     assert user["nats"]["pub"] == %{"allow" => ["metrics.sweep.>"], "deny" => ["$SYS.>"]}
     assert user["nats"]["sub"] == %{"allow" => [">"], "deny" => []}
 
+    # Until the list has been read once, the current grant of an
+    # infrastructure certificate is unknown, so it is refused rather than given
+    # the stored grant. A host-enrolled component is unaffected.
+    unloaded =
+      authorize_request("EDGE",
+        certificate: builtin,
+        component_type: "core",
+        static_users: static_users,
+        static_users_loaded: false
+      )
+
+    assert unloaded.claims["nats"]["error"] == "static identity grants unavailable"
+    refute Map.has_key?(unloaded.claims["nats"], "jwt")
+
+    agent =
+      authorize_request("EDGE",
+        certificate: builtin,
+        component_type: "agent",
+        static_users: static_users,
+        static_users_loaded: false
+      )
+
+    assert verify_response(agent.claims["nats"]["jwt"], agent.issuer_nkey)["nats"]["pub"] ==
+             %{"allow" => ["metrics.example.>"], "deny" => []}
+
     # The stored grant stays for a host-enrolled component with the same
     # subject, and for an infrastructure certificate whose subject differs in
     # one attribute or carries an extra one.
@@ -256,6 +330,166 @@ defmodule ServiceRadar.NATS.ManagedCertificateAccountTest do
   test "uses the shipped hub account and rejects the local leaf account name" do
     assert Configuration.deployment_account() == "SERVICERADAR"
     assert {:error, :nats_account_mismatch} = Configuration.bootstrap("EDGE", actor())
+  end
+
+  # Two of three sessions of one certificate hold a grant other than the one it
+  # gets now: the stored grant an earlier static list left in place, and the
+  # bare-fingerprint grant of an earlier release. Those two are disconnected and
+  # the session the callout just granted is not.
+  test "the hub scan disconnects a session whose grant is not the current grant" do
+    Application.put_env(:serviceradar, :nats_account_name, "EDGE")
+    builtin = subject_certificate(@builtin_subject)
+
+    {:ok, static_users} =
+      StaticIdentityGrants.parse("""
+      - user: "CN=example-core,OU=Kubernetes,O=ExampleOrg,L=Example City,ST=EX,C=US"
+        publish:
+          allow: ["metrics.sweep.>", "telemetry.example.bulk.>"]
+        subscribe:
+          allow: ["_INBOX.>"]
+      """)
+
+    {:ok, earlier_static_users} =
+      StaticIdentityGrants.parse("""
+      - user: "CN=example-tools,OU=Kubernetes,O=ExampleOrg"
+        publish: {allow: [">"]}
+        subscribe: {allow: [">"]}
+      """)
+
+    request = [certificate: builtin, component_type: "core"]
+    current = authorize_request("EDGE", [static_users: static_users] ++ request)
+    earlier = authorize_request("EDGE", [static_users: earlier_static_users] ++ request)
+    current_name = granted_name(current)
+    earlier_name = granted_name(earlier)
+    refute current_name == earlier_name
+
+    sessions = [
+      {1, current_name},
+      {2, earlier_name},
+      {3, builtin.fingerprint}
+      | Enum.map(4..70, &{&1, earlier_name})
+    ]
+
+    broker = start_broker!(builtin, sessions)
+    observation = %{connz: %{offsets: %{}, turn: 0}, grant_kicks: %{}}
+    observed = Authorizer.observe_account("EDGE", current.snapshot, static_users, observation)
+
+    # A scan disconnects at most 64 such sessions; the rest wait for the next.
+    assert FakeBroker.kicked(broker) == Enum.to_list(2..65)
+
+    # A reconnect answered with the same stale grant waits for the retry
+    # window instead of being disconnected again at once.
+    restart_broker!(builtin, [{1, current_name}, {80, earlier_name}])
+    Authorizer.observe_account("EDGE", current.snapshot, static_users, observed)
+    assert FakeBroker.kicked(Process.whereis(:serviceradar_certificate_system)) == []
+
+    aged = Map.new(observed.grant_kicks, fn {key, at} -> {key, at - 300_000} end)
+    retry = %{observed | grant_kicks: aged}
+    Authorizer.observe_account("EDGE", current.snapshot, static_users, retry)
+    assert FakeBroker.kicked(Process.whereis(:serviceradar_certificate_system)) == [80]
+
+    # Before the static list has been read the current grant is unknown.
+    restart_broker!(builtin, sessions)
+    Authorizer.observe_account("EDGE", current.snapshot, :unloaded, observation)
+    assert FakeBroker.kicked(Process.whereis(:serviceradar_certificate_system)) == []
+  end
+
+  # A database outage during a tick (CNPG restarting) must not restart the
+  # authorizer: a restart discards its policy snapshot, its static list and
+  # its sessions. The unit tier has no database, so every policy read fails.
+  test "a tick that cannot read policy keeps the authorizer's state" do
+    Application.put_env(:serviceradar, :nats_account_name, "EDGE")
+    previous_file = Application.get_env(:serviceradar, :nats_static_users_file)
+    dir = Path.join(System.tmp_dir!(), "static-users-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    path = Path.join(dir, "static-users.yaml")
+
+    File.write!(path, """
+    - user: "CN=example-core,OU=Kubernetes,O=ExampleOrg,L=Example City,ST=EX,C=US"
+      publish: {allow: ["metrics.sweep.>"]}
+      subscribe: {allow: ["_INBOX.>"]}
+    """)
+
+    Application.put_env(:serviceradar, :nats_static_users_file, path)
+
+    on_exit(fn ->
+      File.rm_rf!(dir)
+
+      if previous_file == nil do
+        Application.delete_env(:serviceradar, :nats_static_users_file)
+      else
+        Application.put_env(:serviceradar, :nats_static_users_file, previous_file)
+      end
+    end)
+
+    snapshot = allowing_snapshot(String.duplicate("ab", 32), [])
+    sessions = %{{"hub-a", 7} => %{fingerprint: String.duplicate("ab", 32), expires_at: 1}}
+
+    state = %{
+      config: %{auth_mode: "static_mtls", account_name: "EDGE", issuer_nkey: "issuer"},
+      signer: nil,
+      snapshot: snapshot,
+      subscription: nil,
+      sessions: sessions,
+      probe: nil,
+      connz: %{offsets: %{}, turn: 0},
+      grant_kicks: %{},
+      static_users: %{},
+      static_users_loaded: false,
+      static_users_status: :ok,
+      reason: nil
+    }
+
+    assert {:noreply, ticked} = Authorizer.handle_info(:tick, state)
+    assert ticked.snapshot == snapshot
+    assert ticked.sessions == sessions
+    assert ticked.static_users_loaded
+    assert map_size(ticked.static_users) == 1
+    assert ticked.reason == "policy_unavailable"
+
+    assert {:noreply, changed} = Authorizer.handle_info(:certificate_policy_changed, ticked)
+    assert changed.snapshot == snapshot
+
+    assert {:noreply, unconfigured} = Authorizer.handle_info(:tick, %{state | config: nil})
+    assert unconfigured.config == nil
+    assert unconfigured.reason == "policy_unavailable"
+  end
+
+  defp granted_name(granted) do
+    verify_response(granted.claims["nats"]["jwt"], granted.issuer_nkey)["name"]
+  end
+
+  defp start_broker!(certificate, sessions) do
+    connections =
+      Enum.map(sessions, fn {cid, name} ->
+        %{
+          "kind" => "Client",
+          "cid" => cid,
+          "authorized_user" => name,
+          "tls_peer_certs" => [
+            %{
+              "subject" => "CN=example-core,OU=Kubernetes,O=ExampleOrg,L=Example City,ST=EX,C=US",
+              "cert_sha256" => certificate.fingerprint
+            }
+          ]
+        }
+      end)
+
+    {:ok, pid} = FakeBroker.start_link(connections)
+    on_exit(fn -> stop_broker() end)
+    pid
+  end
+
+  defp restart_broker!(certificate, sessions) do
+    stop_broker()
+    start_broker!(certificate, sessions)
+  end
+
+  defp stop_broker do
+    case Process.whereis(:serviceradar_certificate_system) do
+      nil -> :ok
+      pid -> GenServer.stop(pid)
+    end
   end
 
   defp actor(permissions \\ ["settings.edge.manage"]) do
@@ -293,7 +527,8 @@ defmodule ServiceRadar.NATS.ManagedCertificateAccountTest do
       snapshot: snapshot,
       subscription: {connection, 1},
       sessions: %{},
-      static_users: Keyword.get(opts, :static_users, %{})
+      static_users: Keyword.get(opts, :static_users, %{}),
+      static_users_loaded: Keyword.get(opts, :static_users_loaded, true)
     }
 
     assert {:noreply, next} =
@@ -316,6 +551,7 @@ defmodule ServiceRadar.NATS.ManagedCertificateAccountTest do
       issuer_nkey: issuer.public_key,
       user_nkey: user.public_key,
       fingerprint: leaf.fingerprint,
+      snapshot: snapshot,
       certificate_expires_at: DateTime.to_unix(hd(snapshot.certificates).not_after)
     }
   end

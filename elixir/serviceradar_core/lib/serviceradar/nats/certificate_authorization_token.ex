@@ -93,20 +93,21 @@ defmodule ServiceRadar.NATS.CertificateAuthorizationToken do
       ) do
     result =
       case decision do
-        {:allow, %{publish: publish, subscribe: subscribe, expires_at: expires_at} = permissions} ->
+        {:allow, %{expires_at: expires_at} = permissions} ->
+          {publish, subscribe} = user_permissions(permissions)
+
           user =
             encode(
               %{
                 "sub" => request.user_nkey,
                 "aud" => account,
-                "name" => request.fingerprint,
+                "name" => grant_name(request.fingerprint, permissions),
                 "exp" => expires_at,
                 "nats" => %{
                   "type" => "user",
                   "version" => 2,
-                  "pub" => subject_permissions(publish, Map.get(permissions, :publish_deny, [])),
-                  "sub" =>
-                    subject_permissions(subscribe, Map.get(permissions, :subscribe_deny, [])),
+                  "pub" => publish,
+                  "sub" => subscribe,
                   "subs" => -1,
                   "data" => -1,
                   "payload" => -1
@@ -132,6 +133,32 @@ defmodule ServiceRadar.NATS.CertificateAuthorizationToken do
       signer,
       now
     )
+  end
+
+  @doc """
+  The user name an allow response signs: the certificate fingerprint, a dot,
+  and the SHA-256 of the publish and subscribe permissions the user JWT carries.
+
+  NATS 2.14 makes a callout user's JWT `name` the connection's
+  `authorized_user` in an authenticated CONNZ listing, so the hub scan can find
+  a session whose grant is not the current one, including one an earlier
+  release granted under the bare fingerprint.
+  """
+  def grant_name(fingerprint, permissions) do
+    {publish, subscribe} = user_permissions(permissions)
+
+    digest =
+      [publish["allow"], publish["deny"], subscribe["allow"], subscribe["deny"]]
+      |> Jason.encode!()
+      |> then(&:crypto.hash(:sha256, &1))
+      |> Base.encode16(case: :lower)
+
+    fingerprint <> "." <> digest
+  end
+
+  defp user_permissions(%{publish: publish, subscribe: subscribe} = permissions) do
+    {subject_permissions(publish, Map.get(permissions, :publish_deny, [])),
+     subject_permissions(subscribe, Map.get(permissions, :subscribe_deny, []))}
   end
 
   # An empty JWT allow list means unrestricted access to NATS, while the

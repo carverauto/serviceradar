@@ -248,18 +248,20 @@ defmodule ServiceRadar.NATS.ManagedCertificateConnzTest do
     assert {[], saved} == Authorizer.scan_presented_connections("SERVICERADAR", saved)
   end
 
-  test "the observer keeps the scan cursor for the next pass" do
+  test "the observer keeps the scan cursor and grant retries for the next pass" do
     ref = make_ref()
     cursor = %{offsets: %{@busy_server => @page_limit * 2}, turn: 4}
+    grant_kicks = %{{@busy_fingerprint, @busy_fingerprint} => 1}
 
     assert {:noreply, state} =
              Authorizer.handle_info(
-               {ref, {:ok, cursor}},
-               %{probe: ref, connz: %{offsets: %{}, turn: 0}}
+               {ref, {:ok, %{connz: cursor, grant_kicks: grant_kicks}}},
+               %{probe: ref, connz: %{offsets: %{}, turn: 0}, grant_kicks: %{}}
              )
 
     assert state.probe == nil
     assert state.connz == cursor
+    assert state.grant_kicks == grant_kicks
   end
 
   defp start_catalog!(catalog) do
