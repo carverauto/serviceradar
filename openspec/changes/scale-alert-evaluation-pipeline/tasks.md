@@ -41,12 +41,12 @@
 - [ ] 4.9 Point the anomaly liveness check at the router and keep its persisted-alert wait.
 
 ## 5. Cutover and removal
-- [ ] 5.1 Keep new replicas off alert-feeding source streams, routing and owners until the cutover marker exists. Implement the cutover task: wait for no pre-cutover replica and no executing `alerts` job; convert snapshots and seed block checkpoints; import residual `alert_evaluation_work` and `lifecycle_pending_admissions` rows in their order onto the import subjects with the candidate ids the router would compute; write the import-end and cutover markers.
+- [ ] 5.1 Keep new replicas off alert-feeding source streams, routing and owners until the cutover marker exists. Implement the cutover task: wait for no pre-cutover replica and no executing `alerts` job; convert snapshots and seed block checkpoints; create `ALERT_IMPORT_V1` on `alerts.import.v1.>` (R3, DiscardNew, no MaxAge, sized from the measured residual rows) and import residual `alert_evaluation_work` and `lifecycle_pending_admissions` rows in their order onto the import subjects with the candidate ids the router would compute; write the import-end and cutover markers.
 - [ ] 5.2 Make owners consume each block's import subject to its end marker before its live subject.
 - [ ] 5.3 Add the post-cutover migration that refuses to run before the marker, drops the inbox, lane, receipt, ledger and pending-admission tables, and deletes pending jobs of the removed workers.
 - [ ] 5.4 Delete `Inbox`, `Owner`, `EvaluationWorker`, `RecoveryWorker`, `Rollout`, `PeerReadiness`, `Completion`, `StatefulEvaluationLedger`, `MetricAlertAdmission`, `LifecycleAdmissionDrainWorker`, the pending-admission code in `AnalyticsSignals`, the `alerts` and `alert_recovery` queues, `alert_evaluation_limits`, and the Helm `SERVICERADAR_ALERT_EVALUATION_MODE` env with its helpers.
 - [ ] 5.5 Add `AlertEvaluationSettings` (CNPG) with the small-install code defaults of design.md D11, and read every evaluation knob from it.
-- [ ] 5.6 Release N+1: remove the cutover task and import subjects.
+- [ ] 5.6 Release N+1: remove the cutover task, the import subjects and the `ALERT_IMPORT_V1` stream.
 
 ## 6. Ingestion at fleet scale
 - [ ] 6.1 Split `events` into `LOGS_V1`, `EVENTS_V1` and `OTEL_V1` with block subjects from the shared layout; make them and `metrics` R3 and DiscardNew; default one stream per signal; migrate publishers and consumers with a drain of the old stream. This ships with the alert path (task 2.8 depends on it).

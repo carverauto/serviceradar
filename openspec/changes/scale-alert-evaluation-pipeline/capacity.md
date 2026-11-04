@@ -94,7 +94,7 @@ candidates, and whatever core nodes it has (design D11, gate G7).
 | Coalesced incident metadata updates | about 170/s | about 500/s | 5,000 open incidents, one write per commit window |
 | Failover replay | 9.4k candidates/block | 23k | checkpoint interval x block rate; under 2 s at replay speed |
 | Candidate stream steady footprint | about 1.5 GB per NATS server | about 4.6 GB | 30 s since checkpoint at 50 MB/s and 155 MB/s; purged behind each checkpoint |
-| Candidate stream outage budget | 180 GB per server for 1 h, uncompressed | | 50 MB/s x 3,600 s at p99 candidate sizes (resolved Q4); about 45 GB per stream at 4 streams; S2 savings are headroom, not budget |
+| Candidate stream outage budget | about 90 GB stored per server for 1 h | | 1 h of stored (S2-compressed) bytes at the sustained rate (resolved Q4): 50 MB/s x 3,600 s at p99 candidate sizes is about 180 GB before compression, divided by a conservative 2:1 S2 ratio that gate G4 measures and confirms; about 22.5 GB per stream at 4 streams |
 
 Core CPU at the design point (estimates, to be replaced by gate G4 numbers):
 

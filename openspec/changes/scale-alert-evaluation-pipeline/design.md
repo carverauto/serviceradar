@@ -179,9 +179,11 @@ leaders across NATS servers.
 Stream shape: file storage, R3 (capped to `nats.replicas`), S2 compression,
 Limits retention, DiscardNew, `MaxAge` 0, finite `max_bytes` from a CNPG
 runtime setting whose code default is derived from the active JetStream
-profile (1 h outage budget at the target, sized from p99 candidate sizes
-that include the full projected payload, about 180 GB uncompressed at the
-design point, `capacity.md` 1.3-1.4, resolved Q4), and the duplicate
+profile: 1 h of stored, S2-compressed bytes at the profile's sustained
+candidate rate (resolved Q4). Candidates are sized at p99 including the full
+projected payload; at the design point that is about 180 GB before
+compression and about 90 GB stored at a conservative 2:1 S2 ratio, which
+gate G4 measures and confirms (`capacity.md` 1.3-1.4). The duplicate
 window at its minimum, because deduplication belongs to the evaluator (D6).
 Owners delete consumed messages by purging each block's subjects up to that
 block's committed checkpoint (a purge filtered to `...b<b>.*`), so an idle
@@ -533,7 +535,7 @@ sized for a small install:
 | `unowned_block_grace_s` (degraded) | 30 | 30 |
 | stream fill degraded / critical bounds | 60% / 85% | same |
 | `move_stall_critical_s` | 600 | 600 |
-| candidate stream and alert DLQ `max_bytes` | derived from the active JetStream profile | derived from `xlarge` (1 h budget) |
+| candidate stream and alert DLQ `max_bytes` | derived from the active JetStream profile (table below) | derived from `xlarge` (1 h budget) |
 | `auto_reshard` | `false` | `false` (D12) |
 
 EventWriter batching, coalescer limits, `telemetry_stream_count` per signal
@@ -543,6 +545,26 @@ CNPG setting whose code default is derived from the active JetStream profile.
 Helm supplies only the NATS server volume and `max_file_store`
 (`jetstream-storage-budget`), plus a new `xlarge` profile. A size setting
 that would exceed the JetStream file store is rejected when saved.
+
+Profile-derived defaults. Each profile has a planning candidate rate. Its
+candidate default is 1 h of that rate at the `capacity.md` 1.3 p99 mix
+(about 1.25 KB per candidate, 50 MB/s at 40,000/s), stored at the
+conservative 2:1 S2 ratio, rounded up. The candidate streams, the alert DLQ,
+the signal-separated telemetry streams and the telemetry DLQ replace the
+profile's existing `events` and `metrics` allocations, all R3, so their
+defaults are carved from those allocations and every profile's render-time
+need is unchanged:
+
+| Profile | `max_file_store` | Planning rate | Candidate streams (total) | Alert DLQ | Telemetry streams and DLQ (rest of `events` + `metrics`) |
+|---|---|---|---|---|---|
+| `tenant-2g` | 2G | 1/s | 4 MiB | 1 MiB | 315 MiB |
+| `small` | 36G | 100/s (covers a demo Falco burst) | 256 MiB | 64 MiB | 2.6875 GiB |
+| `medium` | 100G | 200/s | 512 MiB | 128 MiB | 9.375 GiB |
+| `large` | 500G | 2,000/s | 4.5 GiB | 512 MiB | 35 GiB |
+| `xlarge` | 2000G | 40,000/s | 84 GiB (about 90 GB) | 4 GiB | sized by task 3.2 for the 30-minute window |
+
+With several candidate streams, the total is divided evenly. G4 replaces the
+2:1 ratio with the measured one.
 `SERVICERADAR_ALERT_EVALUATION_MODE` and its Helm rendering are removed.
 
 ### D12: Online block moves for split and merge, with health recommendations
@@ -770,8 +792,12 @@ that evaluates through both designs.
    1. Convert every `stateful_alert_rule_states` row into block state
       (compute `virtual_partition`, set `incident_seq` and `renotify_ordinal`
       bases, keep open alert ids) and write an initial checkpoint per block.
-   2. Publish residual `alert_evaluation_work` rows, in (rule, position)
-      order, as candidates on `alerts.import.v1.b<b>.v<vp>`. They already
+   2. Create the release-N import stream `ALERT_IMPORT_V1` bound to
+      `alerts.import.v1.>` (R3, Limits, DiscardNew, no MaxAge), sized from
+      the residual rows it measures first. A refusal fails the task, which
+      retries before writing any marker, so nothing is lost. Publish residual
+      `alert_evaluation_work` rows, in (rule, position) order, as candidates
+      on `alerts.import.v1.b<b>.v<vp>`, awaiting each PubAck. They already
       carry their rule and revision.
    3. Route residual `lifecycle_pending_admissions` rows, in (series, seq)
       order, through the index onto the same import subjects.
@@ -787,7 +813,8 @@ that evaluates through both designs.
    `alert_evaluation_receipts`, `stateful_evaluation_ledger` and
    `lifecycle_pending_admissions`, and deletes pending Oban jobs of the
    removed workers.
-4. **Release N+1** removes the cutover task and the import subjects.
+4. **Release N+1** removes the cutover task, the import subjects and the
+   `ALERT_IMPORT_V1` stream.
 
 Removed code: `StatefulAlertEngine.Inbox`, `Owner`, `EvaluationWorker`,
 `RecoveryWorker`, `Rollout`, `PeerReadiness`, `Completion` (replaced by
@@ -910,9 +937,11 @@ operator-triggered from health recommendations, with an opt-in automatic
 mode (D12). The same elasticity applies to the telemetry streams (D10). Gates
 G6 and G7 were added.
 
-**Q4. Candidate stream outage budget.** 1 h at the sustained candidate rate
-with S2 compression, as the profile-derived code default of the CNPG stream
-size setting.
+**Q4. Candidate stream outage budget.** 1 h of stored (S2-compressed) bytes
+at the sustained candidate rate, as the profile-derived code default of the
+CNPG stream size setting, using a conservative 2:1 S2 ratio that G4 measures
+and confirms. The 180 GB design-point figure is the volume before
+compression.
 
 **Q5. Duplicate suppression.** The persisted 128-bit candidate-id ring with a
 10 min horizon (D6), with the NATS duplicate window at its minimum.

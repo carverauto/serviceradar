@@ -258,7 +258,7 @@ No alert evaluation behaviour SHALL depend on a Helm-only value.
 - **THEN** the coordinator SHALL move blocks online until the map matches it
 
 ### Requirement: Cutover from the CNPG inbox is ordered and complete
-Upgraded replicas SHALL NOT consume alert-feeding source streams, route candidates or start block owners until the cutover marker exists. The cutover SHALL write that marker only after no pre-cutover core replica remains, after existing rule state snapshots have been converted into block checkpoints, and after every residual inbox and pending lifecycle admission row has been published, in its original order, ahead of all later input for its block, with the candidate id the router would compute for it.
+Upgraded replicas SHALL NOT consume alert-feeding source streams, route candidates or start block owners until the cutover marker exists. The cutover SHALL write that marker only after no pre-cutover core replica remains, after existing rule state snapshots have been converted into block checkpoints, and after every residual inbox and pending lifecycle admission row has been published with an acknowledgement to a JetStream stream bound to the import subjects, in its original order, ahead of all later input for its block, with the candidate id the router would compute for it.
 The old inbox, lane, receipt, ledger and pending-admission tables SHALL be dropped only after the cutover marker exists, and no runtime path SHALL evaluate through both designs.
 
 #### Scenario: Residual work is evaluated before new input

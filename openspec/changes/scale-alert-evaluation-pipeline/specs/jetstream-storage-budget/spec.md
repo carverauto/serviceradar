@@ -1,9 +1,9 @@
 ## MODIFIED Requirements
 
 ### Requirement: JetStream sizing profiles
-The Helm chart SHALL provide sizing profiles `small`, `medium`, `large` and `xlarge`, selected by `nats.jetstream.profile` with `small` as the default, and Docker Compose SHALL select the same profiles with `SERVICERADAR_NATS_PROFILE`.
-A profile SHALL set `max_file_store` (30G, 100G, 500G and 2000G) and the default `max_bytes` of every stream, KV bucket and object store that ServiceRadar creates through the chart, including `flows` and `ARANCINI_CAUSAL`. An explicit value for a single size or for `maxFileStore` SHALL override the profile value.
-The signal-separated telemetry streams, the alert candidate streams and the telemetry and alert dead-letter streams SHALL take `max_bytes` from CNPG runtime settings whose code defaults are derived from the active profile; the chart SHALL supply only the NATS volume and `max_file_store` for them, and a size setting that would exceed the JetStream file store SHALL be rejected when it is saved. Every profile SHALL pass the render-time budget check with flow-collector, bmp-collector and the trivy sidecar all enabled, and with all of them disabled.
+The Helm chart SHALL provide sizing profiles `tenant-2g`, `small`, `medium`, `large` and `xlarge`, selected by `nats.jetstream.profile` with `small` as the default, and Docker Compose SHALL select the same profiles with `SERVICERADAR_NATS_PROFILE`.
+A profile SHALL set `max_file_store` (2G, 36G, 100G, 500G and 2000G) and the default `max_bytes` of every stream, KV bucket and object store that ServiceRadar creates through the chart, including `flows` and `ARANCINI_CAUSAL`. An explicit value for a single size or for `maxFileStore` SHALL override the profile value.
+The signal-separated telemetry streams, the alert candidate streams and the telemetry and alert dead-letter streams SHALL take `max_bytes` from CNPG runtime settings whose code defaults are derived from the active profile; the chart SHALL supply only the NATS volume and `max_file_store` for them, and a size setting that would exceed the JetStream file store SHALL be rejected when it is saved. Each profile's candidate stream default SHALL hold 1 h of stored, S2-compressed bytes at that profile's planning candidate rate, using a stated conservative compression ratio that the fleet-scale gate measures, and these streams' defaults SHALL be carved from the profile's existing `events` and `metrics` allocations, which they replace, so that alert evaluation fits every profile. Every profile SHALL pass the render-time budget check with flow-collector, bmp-collector and the trivy sidecar all enabled, and with all of them disabled.
 
 #### Scenario: Default profile
 - **GIVEN** no profile is set
@@ -20,10 +20,16 @@ The signal-separated telemetry streams, the alert candidate streams and the tele
 - **WHEN** the chart renders
 - **THEN** rendering SHALL succeed
 
+#### Scenario: The smallest profile still evaluates alerts
+- **GIVEN** `nats.jetstream.profile` is `tenant-2g`
+- **WHEN** the chart renders with every producer enabled
+- **THEN** rendering SHALL succeed with the candidate stream and alert dead-letter defaults counted
+- **AND** the candidate stream default SHALL hold one hour at the profile's planning candidate rate
+
 #### Scenario: The xlarge profile holds the fleet-scale outage budget
 - **GIVEN** `nats.jetstream.profile` is `xlarge` on a matching `nats.persistence.size`
 - **WHEN** the chart renders
-- **THEN** the code defaults derived for the alert candidate stream sizes SHALL hold one hour at the documented sustained candidate rate and p99 candidate size per signal, uncompressed
+- **THEN** the code defaults derived for the alert candidate stream sizes SHALL hold one hour of stored, S2-compressed bytes at the documented sustained candidate rate and p99 candidate size per signal, at the stated conservative compression ratio
 - **AND** rendering SHALL succeed with every producer enabled
 
 ### Requirement: Stream owners reconcile max_bytes by discard policy
@@ -98,6 +104,7 @@ When a candidate stream cannot be created or placed, EventWriter SHALL keep ever
 #### Scenario: A candidate stream cannot be placed
 - **GIVEN** NATS rejects creating `ALERT_CANDIDATES_V1_S2` for insufficient storage
 - **WHEN** EventWriter starts
-- **THEN** the logs, events and metrics consumers SHALL stay subscribed and store records that produce no candidate for those blocks
+- **THEN** the logs, events, OpenTelemetry and metrics consumers SHALL stay subscribed
+- **AND** a source message whose candidates target blocks of `ALERT_CANDIDATES_V1_S2` SHALL stay unacknowledged and SHALL be routed once that stream is placed
 - **AND** only the setup of `ALERT_CANDIDATES_V1_S2` SHALL be retried
 - **AND** a health event SHALL name `ALERT_CANDIDATES_V1_S2` and the NATS error
