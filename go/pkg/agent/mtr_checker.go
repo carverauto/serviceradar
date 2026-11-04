@@ -497,7 +497,7 @@ func (p *PushLoop) updateSweepMtrChecks(checks []*mtrCheckConfig) {
 	p.mtrState.mu.Unlock()
 }
 
-func deriveSweepGroupMtrChecks(groups []SweepGroupConfig) []*mtrCheckConfig {
+func deriveSweepGroupMtrChecks(groups []SweepGroupConfig, log logger.Logger) []*mtrCheckConfig {
 	var checks []*mtrCheckConfig
 	for _, group := range groups {
 		rawGroupID := strings.TrimSpace(group.SweepGroupID)
@@ -518,12 +518,28 @@ func deriveSweepGroupMtrChecks(groups []SweepGroupConfig) []*mtrCheckConfig {
 			continue
 		}
 
+		groupWantsMTR := sweepModesIncludeMTR(group.SweepModes)
+		wantsMTR := groupWantsMTR
+		for _, dt := range group.DeviceTargets {
+			if len(dt.SweepModes) > 0 && sweepModesIncludeMTR(dt.SweepModes) {
+				wantsMTR = true
+			}
+		}
+		if !wantsMTR {
+			continue
+		}
+
 		interval := time.Duration(group.Interval)
 		if interval < sweepMtrMinInterval {
+			log.Warn().Str("sweep_group", groupKey).Dur("interval", interval).
+				Dur("min_interval", sweepMtrMinInterval).
+				Msg("Skipping sweep group MTR traces: schedule is not an interval of at least the minimum")
 			continue
 		}
 
 		var targets []string
+		var skippedNetworks []string
+		capReached := false
 		seen := make(map[string]struct{})
 		deviceByTarget := make(map[string]string)
 		addTarget := func(target, deviceID string) {
@@ -533,6 +549,7 @@ func deriveSweepGroupMtrChecks(groups []SweepGroupConfig) []*mtrCheckConfig {
 			}
 			if _, ok := seen[target]; !ok {
 				if len(targets) >= sweepMtrMaxTargetsPerGroup {
+					capReached = true
 					return
 				}
 				seen[target] = struct{}{}
@@ -543,9 +560,17 @@ func deriveSweepGroupMtrChecks(groups []SweepGroupConfig) []*mtrCheckConfig {
 			}
 		}
 
-		if sweepModesIncludeMTR(group.SweepModes) {
+		expand := func(network string, budget int) []string {
+			ips, skipped := expandSweepMtrTarget(network, budget)
+			if skipped {
+				skippedNetworks = append(skippedNetworks, strings.TrimSpace(network))
+			}
+			return ips
+		}
+
+		if groupWantsMTR {
 			for _, network := range group.Networks {
-				for _, ip := range expandSweepMtrTarget(network, sweepMtrMaxTargetsPerGroup-len(targets)) {
+				for _, ip := range expand(network, sweepMtrMaxTargetsPerGroup-len(targets)) {
 					addTarget(ip, "")
 				}
 			}
@@ -563,9 +588,16 @@ func deriveSweepGroupMtrChecks(groups []SweepGroupConfig) []*mtrCheckConfig {
 			if deviceID == "" {
 				deviceID = strings.TrimSpace(dt.Metadata["device_uid"])
 			}
-			for _, ip := range expandSweepMtrTarget(dt.Network, sweepMtrMaxTargetsPerGroup) {
+			for _, ip := range expand(dt.Network, sweepMtrMaxTargetsPerGroup) {
 				addTarget(ip, deviceID)
 			}
+		}
+
+		if len(skippedNetworks) > 0 || capReached {
+			log.Warn().Str("sweep_group", groupKey).Strs("skipped_networks", skippedNetworks).
+				Bool("target_cap_reached", capReached).Int("max_targets", sweepMtrMaxTargetsPerGroup).
+				Int("targets", len(targets)).
+				Msg("Sweep group MTR targets exceed the per-group cap; skipped targets are not traced")
 		}
 
 		if len(targets) == 0 {
@@ -617,19 +649,23 @@ func sweepModesIncludeMTR(modes []models.SweepMode) bool {
 }
 
 // expandSweepMtrTarget expands raw into host addresses, skipping any network
-// with more than budget addresses.
-func expandSweepMtrTarget(raw string, budget int) []string {
+// with more than budget addresses and reporting whether it skipped one.
+func expandSweepMtrTarget(raw string, budget int) ([]string, bool) {
 	raw = strings.TrimSpace(raw)
-	if raw == "" || budget <= 0 {
-		return nil
+	if raw == "" {
+		return nil, false
 	}
 	networks, err := normalizeSweepNetwork(raw)
 	if err != nil {
 		if !strings.Contains(raw, "/") && !strings.Contains(raw, "-") {
-			return []string{raw}
+			if budget <= 0 {
+				return nil, true
+			}
+			return []string{raw}, false
 		}
-		return nil
+		return nil, false
 	}
+	skipped := false
 	var out []string
 	for _, network := range networks {
 		prefix, pErr := netip.ParsePrefix(network)
@@ -637,7 +673,8 @@ func expandSweepMtrTarget(raw string, budget int) []string {
 			continue
 		}
 		hostBits := prefix.Addr().BitLen() - prefix.Bits()
-		if hostBits >= 63 || (uint64(1)<<hostBits) > uint64(budget-len(out)) {
+		if hostBits >= 63 || budget-len(out) <= 0 || (uint64(1)<<hostBits) > uint64(budget-len(out)) {
+			skipped = true
 			continue
 		}
 		ips, expandErr := scan.ExpandCIDR(network)
@@ -646,7 +683,7 @@ func expandSweepMtrTarget(raw string, budget int) []string {
 		}
 		out = append(out, ips...)
 	}
-	return out
+	return out, skipped
 }
 
 func parseMtrCheckConfig(check *proto.AgentCheckConfig) *mtrCheckConfig {

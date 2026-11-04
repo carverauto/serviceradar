@@ -17,13 +17,16 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/json"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 	gproto "google.golang.org/protobuf/proto"
 
@@ -742,11 +745,17 @@ func TestSweepGroupMtrBoundsTargetsAndPerTickRuns(t *testing.T) {
 	const groupID = "0197f8a0-0000-7000-8000-000000000052"
 	interval5m := `{"type": "interval", "interval": "5m"}`
 
-	t.Run("a network above the per-group cap derives no checks", func(t *testing.T) {
+	t.Run("a network above the per-group cap derives no checks and is reported", func(t *testing.T) {
 		loop, _, _ := recordingSweepMtrLoop(t, openTestEdgeSpool(t))
+		var output bytes.Buffer
+		loop.logger = warnCaptureLogger{Logger: loop.logger, output: zerolog.New(&output)}
 		loop.applySweepConfig(context.Background(), sweepMtrConfigJSON(groupID, `["10.0.0.0/16", "192.0.2.10"]`, interval5m))
 		require.Len(t, loop.mtrState.sweepChecks, 1)
 		require.Contains(t, loop.mtrState.sweepChecks, "sweep:"+groupID+":192.0.2.10")
+
+		warnings := sweepMtrGroupWarnings(t, &output, groupID)
+		require.Len(t, warnings, 1)
+		require.Equal(t, []any{"10.0.0.0/16"}, warnings[0]["skipped_networks"])
 	})
 
 	t.Run("each tick runs a bounded batch, least recently run first", func(t *testing.T) {
@@ -777,8 +786,27 @@ func TestSweepGroupMtrBoundsTargetsAndPerTickRuns(t *testing.T) {
 			`{"type": "interval", "interval": "bogus"}`,
 		} {
 			loop, _, _ := recordingSweepMtrLoop(t, openTestEdgeSpool(t))
+			var output bytes.Buffer
+			loop.logger = warnCaptureLogger{Logger: loop.logger, output: zerolog.New(&output)}
 			loop.applySweepConfig(context.Background(), sweepMtrConfigJSON(groupID, `["192.0.2.10"]`, schedule))
 			require.Empty(t, loop.mtrState.sweepChecks, schedule)
+			require.Len(t, sweepMtrGroupWarnings(t, &output, groupID), 1, schedule)
 		}
 	})
+}
+
+func sweepMtrGroupWarnings(t *testing.T, output *bytes.Buffer, groupID string) []map[string]any {
+	t.Helper()
+	var out []map[string]any
+	for _, line := range bytes.Split(bytes.TrimSpace(output.Bytes()), []byte("\n")) {
+		if len(line) == 0 {
+			continue
+		}
+		var event map[string]any
+		require.NoError(t, json.Unmarshal(line, &event))
+		if event["sweep_group"] == groupID {
+			out = append(out, event)
+		}
+	}
+	return out
 }

@@ -1106,7 +1106,7 @@ func (p *PushLoop) applySweepConfig(ctx context.Context, configJSON []byte) {
 		return
 	}
 
-	p.updateSweepMtrChecks(deriveSweepGroupMtrChecks(sweepConfig.Groups))
+	p.updateSweepMtrChecks(deriveSweepGroupMtrChecks(sweepConfig.Groups, p.logger))
 
 	sweepSvc := p.findSweepResultsProvider()
 	if sweepSvc == nil {
