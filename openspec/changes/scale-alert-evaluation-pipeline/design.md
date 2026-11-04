@@ -49,8 +49,9 @@ Goals:
   across crashes, failover, redelivery, rebalancing and resharding. Keep
   per-key order through all of them.
 - Preserve every current rule behaviour (section "Semantics preservation")
-  with one deliberate exception, an expired suppress becoming
-  renotify-eligible (D9), and make `signal: :log` rules evaluate (they are
+  except the deliberate changes G5 lists (an expired suppress becoming
+  renotify-eligible, D9; nothing skipped as oversized, D8; once-per-commit
+  incident metadata, D5; last-seen never moving backward, D4), and make `signal: :log` rules evaluate (they are
   inert today).
 - Keep CNPG as the control plane only. Keep telemetry JetStream-first and
   StarRocks-only when enabled.
@@ -482,11 +483,15 @@ through the DurablePublish outbox in the transaction that made the change:
   deadline the evaluator reads): a message to the alert's virtual partition,
   computed from the incident rule and group key in its metadata, carrying
   the alert's resulting status, `suppressed_until` and `snooze_until`. The
-  group records them, each later action replacing the earlier one. A
-  resolved incident (`operator_terminal`) is not renotified, and while the
-  group keeps matching with no gap longer than `cooldown_seconds` (event
-  time) no new incident opens, even with the window at or above threshold.
-  Everything else is today's `StateMachine`: a matching record that
+  group records them against the alert id the action names, each later
+  action on that alert replacing the earlier one. The recorded state applies
+  only while that alert is the group's incident and is dropped when the
+  incident is replaced by a rollover or cleared by recovery, so a new
+  `incident_seq` starts pending and renotifies as today. A resolved incident
+  (`operator_terminal`) is not renotified, and while it remains the group's
+  incident, with no gap longer than `cooldown_seconds` (event time), no new
+  incident opens, even with the window at or above threshold. Everything
+  else is today's `StateMachine`: a matching record that
   arrives after a gap longer than `cooldown_seconds` opens a new incident
   (rollover) on that record only when the window, with it applied, is at or
   above threshold; when the window is below threshold that record opens
@@ -1082,7 +1087,7 @@ an order violation is detectable.
 | G2 owner | RBE, per PR, real `nats-server` + srql-fixtures CNPG | one owner at 10,000 candidates/s for 10 min, 200k active groups | lag age p99 over 2 s, checkpoint commit p99 over 500 ms, or memory over 1.5 KB per group plus the dedupe ring |
 | G3 exactly-once | RBE, per PR | fault injection: kill before effect commit, after effect commit and before checkpoint, mid checkpoint, mid replay; kill a router between two publishes of one key; steal a lease; duplicate publishes inside and outside H; poison candidate with a full DLQ; permanent effect failure; property-based replay from random checkpoints | any fire key missing or applied twice against the single-run oracle, any occurrence counted twice within H, or a stale epoch commit accepted |
 | G4 fleet scale | in-cluster disposable namespace (resolved Q7), nightly and required before every release cut | 50k then 100k synthetic devices at the `capacity.md` sustained rates for 30 min, a 5 min burst at A10, then one core replica killed mid-burst | any discarded or terminally delivered message, any DLQ entry, any fired-alert set that differs from the generator's oracle, any per-key order violation, sustained lag age p99 over 30 s, alert fire latency p99 over 15 s, burst not drained to lag age under 5 s within 10 min, takeover over 30 s, core CPU over 70% or RSS over 75% of limit at sustained, alert-path CNPG writes over 5,000 rows/s, or more than 2 Stream Loads/s per table per replica |
-| G5 semantics | RBE, per PR | golden effect traces for every row of the semantics table, captured from the current engine on synthetic scenarios before it is deleted, replayed through the new evaluator; the expired-suppress renotify case, a deliberate change (D9), uses the alert-evaluation spec scenario "A passed suppress deadline releases renotify" as its oracle instead | any trace difference |
+| G5 semantics | RBE, per PR | golden effect traces captured from the current engine on synthetic scenarios before it is deleted, replayed through the new evaluator, for every semantics-table row whose effects are unchanged; each deliberate change uses its spec scenario as the oracle instead: expired-suppress renotify ("A passed suppress deadline releases renotify"), `signal: :log` rules (observability-signals "Log rule evaluation without promotion"), oversized occurrences ("An oversized candidate is published by reference"), incident metadata written once per commit ("Open incident metadata is not rewritten per record") and last-seen that never moves backward ("A late candidate does not move last-seen backward") | any difference from the trace or the scenario |
 | G6 resharding under load | in-cluster, with G4 | at the 100k sustained rate: split the candidate stream 1 -> 2 -> 4, merge 4 -> 2, split each telemetry stream 1 -> 4, add and remove a core node, and kill the coordinator mid-move | any loss, duplicate alert or per-key order violation against the oracle, any terminal or discarded message, a move that does not complete after a coordinator kill, or lag age over 60 s for more than 2 min per move |
 | G7 small install | RBE, per PR | one core node, one candidate stream, one stream per signal, 5 candidates/s for 30 min, then 30 min idle | idle owner CPU over 1% of a core, owner memory over 50 MB, alert-path CNPG statements over 1/s while idle (lease renewals only), or a fire latency p99 over 2 s |
 
