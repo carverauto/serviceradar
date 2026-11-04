@@ -433,18 +433,20 @@ core:
 ### Durable edge-record canary
 
 `edgeRecords.enabled` enables the gateway's durable bulk publisher and runtime
-trust refresh from core. Supply `edgeRecords.contractRegistry` with the
-installation's registry document: core and gateway receive the same JSON.
+trust refresh from core. Core derives its contract registry from the release's
+contract catalog and signs each registry epoch with the issuer key; it does not
+read `edgeRecords.contractRegistry`. That document is still the gateway's
+static admission registry: supply the installation's registry document there.
 The sweep entry must be the active `serviceradar.sweep.observation` version 1
 contract on the durable bulk route. Its bundle digest and registry snapshot
 digest identify the reviewed installation contract; do not use test-fixture
 identities in a deployment.
 
-The current registry is installation-static and unsigned. For the canary,
-derive its bundle fingerprint from the reviewed schema and cost/projection
-sources, recording the file list and commit alongside the deployment values.
-Hash the canonical registry body before adding `registry_snapshot_sha256`.
-Keep that exact document on core and every gateway throughout the run.
+The gateway's registry is installation-static and unsigned. Until the gateway
+admits against core's signed registry epochs, it withholds records core signs
+under an epoch newer than its static document's (`registry_epoch_ahead`).
+Hash the canonical registry body before adding `registry_snapshot_sha256`, and
+keep that exact document on every gateway throughout the run.
 
 The secret generator creates an `edge-issuer-seed` once and preserves it on
 upgrade. Only core mounts this Ed25519 seed. If `secrets.autoGenerate=false`,
