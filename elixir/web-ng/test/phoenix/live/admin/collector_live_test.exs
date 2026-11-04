@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLiveTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.EdgeSite
+  alias ServiceRadar.Edge.ManagedCertificateLifecycle
   alias ServiceRadar.Edge.ManagedCertificateOperation
   alias ServiceRadar.Edge.ManagedComponent
   alias ServiceRadar.Infrastructure.Agent
@@ -208,6 +209,52 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLiveTest do
     {:ok, collector_details, _} = live(conn, ~p"/admin/collectors/#{package.id}")
     assert has_element?(collector_details, "#details_modal", "installed")
     refute render(collector_details) =~ "example bundle provisioning failure"
+
+    renewals =
+      for {_record, component} <- deployments do
+        component.component_id
+        |> ManagedCertificateLifecycle.current(opts)
+        |> then(fn {:ok, activated} -> activated end)
+        |> Ash.Changeset.for_update(:supersede, %{}, opts)
+        |> Ash.update!(opts)
+
+        ManagedCertificateOperation
+        |> Ash.Changeset.for_create(
+          :begin,
+          %{
+            component_id: component.component_id,
+            generation: component.generation,
+            host_agent_id: host,
+            partition_id: "example-partition",
+            service: component.component_type,
+            requested_by: "example-operator"
+          },
+          opts
+        )
+        |> Ash.create!(opts)
+      end
+
+    # A renewal in progress keeps the prior acknowledged installation.
+    assert_deployment_filter(deployments, "installed", scope)
+
+    for renewal <- renewals do
+      renewal
+      |> Ash.Changeset.for_update(:progress, %{status: :failed, error: "prepare_failed"}, opts)
+      |> Ash.update!(opts)
+    end
+
+    # A failed renewal does not mark a still-installed host as failed.
+    assert_deployment_filter(deployments, "installed", scope)
+
+    send(collectors.pid, :refresh_deployments)
+    assert has_element?(collectors, "#collector-#{package.id} td:nth-child(3)", "installed")
+
+    {:ok, renewal_details, _} = live(conn, ~p"/admin/edge-sites/#{site.id}")
+    assert render(renewal_details) =~ "Certificate renewal: failed"
+    assert render(renewal_details) =~ "prepare_failed"
+
+    render_click(collectors, "open_create_modal", %{})
+    assert has_element?(collectors, "select[name='edge_site_id'] option[value='#{site.id}']")
 
     revoked =
       for {record, component} <- deployments do

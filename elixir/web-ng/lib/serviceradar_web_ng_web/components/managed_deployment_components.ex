@@ -60,6 +60,14 @@ defmodule ServiceRadarWebNGWeb.ManagedDeploymentComponents do
         Manage service certificates
       </.link>
       <p
+        :if={
+          @record.deployment_status == "installed" && @operation && @operation.status != :activated
+        }
+        class="text-sr-muted"
+      >
+        Certificate renewal: {@operation.status}
+      </p>
+      <p
         :if={@operation && @operation.error}
         class={ui_alert_class(variant: "error", class: "text-sm")}
       >

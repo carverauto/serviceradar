@@ -1,7 +1,9 @@
 defmodule ServiceRadar.Edge.ManagedDeploymentStatus do
   @moduledoc """
   Installation state for an edge site or collector, independent of legacy bundle
-  provisioning. An acknowledged installation is not a runtime heartbeat.
+  provisioning. An acknowledged activation in the current enrollment generation
+  stays installed while a later renewal is in progress or has failed. An
+  acknowledged installation is not a runtime heartbeat.
   """
   use Ash.Resource.Calculation
 
@@ -18,14 +20,14 @@ defmodule ServiceRadar.Edge.ManagedDeploymentStatus do
         managed_component.blocked ->
           "revoked"
 
+        exists(managed_component.installed_operations, true) ->
+          "installed"
+
         is_nil(managed_component.current_operation.id) ->
           "pending"
 
         managed_component.current_operation.generation != managed_component.generation ->
           "pending"
-
-        managed_component.current_operation.status == :activated ->
-          "installed"
 
         managed_component.current_operation.status == :failed ->
           "failed"

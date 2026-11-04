@@ -52,7 +52,9 @@ observation alone cannot retire its previous pair.
 
 The Edge Sites and Data Collectors pages show managed deployment state from the
 current enrollment's installation operation. `installed` means the host acknowledged
-installation and activation; it is not a connection heartbeat. A blocked component
+installation and activation; it is not a connection heartbeat. A component stays
+`installed` while a renewal in the same enrollment is in progress or after it fails;
+the details view shows the renewal state and error separately. A blocked component
 shows `revoked`, and re-enrollment shows `pending` until a new operation starts.
 An older enrollment's receipt cannot mark the new enrollment installed. Lists,
 details, and status filters use this same state and refresh every ten seconds.
