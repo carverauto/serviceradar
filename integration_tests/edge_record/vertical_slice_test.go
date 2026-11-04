@@ -276,6 +276,14 @@ type harness struct {
 	// depends on this exact state.
 	groupAFixture  *FixtureRecord
 	groupASequence uint64
+
+	// withheldFixture/withheldSequence are the entry Group D's
+	// NATSCutAfterSpoolCommit appended to the agent's spool, set only once
+	// that subtest saw the entry stay unreclaimed while the gateway withheld
+	// its ack. PositiveAckResolvesAndReclaimsSpool uses it as the negative
+	// control for reclaim-after-terminal-disposition.
+	withheldFixture  *FixtureRecord
+	withheldSequence uint64
 }
 
 // preservedLogName is the flattened, h.dir-relative name a process log file
@@ -1460,7 +1468,10 @@ func (h *harness) waitIngestObservation(t *testing.T, eventID []byte, point stri
 //  4. PositiveAckResolvesAndReclaimsSpool reads the gateway's
 //     EdgeDeliveryAckV1s on a real session and checks their
 //     spool-ID/session-nonce binding and cumulative resolved_through_sequence
-//     with the agent's own edgerecord.ValidateAck. The real agent must have
+//     with the agent's own edgerecord.ValidateAck. Every agent spool entry
+//     must have a committed delivery slot binding its sequence to the bytes
+//     appended there, and NATSCutAfterSpoolCommit must have seen its withheld
+//     entry stay unreclaimed (the negative control). The real agent must have
 //     logged a successful sender run whose remote resolved prefix covers every
 //     spool entry. The agent persists that positive ack as terminal evidence:
 //     a freshly opened spool's local watermark covers every entry, and none is
@@ -1513,6 +1524,10 @@ func (h *harness) testGroupD(t *testing.T) {
 		h.requireSpoolEntryUnreclaimed(t, seq)
 		if n := h.rpcQueryCount(t, eventLedgerExistsSQL(fx2.NetworkScopeID, fx2.EventID)); n != 0 {
 			t.Errorf("event_ledger row appeared for an entry that should have been withheld by a JetStream outage")
+		}
+		if !t.Failed() {
+			h.withheldFixture = fx2
+			h.withheldSequence = seq
 		}
 
 		if err := h.nats.EnableJetStream(); err != nil {
@@ -1695,6 +1710,34 @@ func (h *harness) testGroupD(t *testing.T) {
 		// groups, and a drained spool logs no further runs, so read the whole
 		// log.
 		highest := h.sp.NextSequence() - 1
+
+		// Negative control: NATSCutAfterSpoolCommit must have seen its entry
+		// stay on the read path while its ack was withheld. Without that, a
+		// sender that reclaims on send rather than on a terminal disposition
+		// would pass every check below.
+		if h.withheldFixture == nil {
+			t.Fatal("NATSCutAfterSpoolCommit did not confirm a withheld entry stays unreclaimed; reclaim-only-after-terminal-disposition is unproven")
+		}
+
+		// Every agent-spool entry has a terminal ACCEPTED disposition: the
+		// committed delivery slot binds (spool, sequence) to exactly the bytes
+		// appended at that sequence. Only Group A and NATSCutAfterSpoolCommit
+		// append to the agent's spool.
+		accepted := map[uint64]*FixtureRecord{
+			h.groupASequence:   h.groupAFixture,
+			h.withheldSequence: h.withheldFixture,
+		}
+		for seq := uint64(1); seq <= highest; seq++ {
+			fxN, ok := accepted[seq]
+			if !ok {
+				t.Fatalf("agent spool sequence %d was appended by no known fixture; the harness lost track of what it spooled", seq)
+			}
+			slotRow := h.rpcQueryRow(t, deliverySlotSQL(fxN.NetworkScopeID, []byte(h.certSet.AgentComponentID), h.spoolID, seq))
+			if !strings.Contains(slotRow, hexInspect(fxN.RecordSHA256)) {
+				t.Errorf("agent spool sequence %d has no committed delivery slot for its record (row=%s, want digest=%x); it may not be reclaimed without a terminal accepted disposition", seq, slotRow, fxN.RecordSHA256)
+			}
+		}
+
 		h.waitAgentSenderRuns(t, 0, pollTimeout,
 			fmt.Sprintf("a successful sender run with remote_resolved_through >= %d", highest),
 			func(runs []agentSenderRun) bool {
