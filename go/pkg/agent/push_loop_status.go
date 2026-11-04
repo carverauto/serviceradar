@@ -704,6 +704,9 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 			if isEndpointInventoryService(svc) && p.routeEndpointInventoryEdgeStatus(ctx, svc, provider) {
 				continue
 			}
+			if isBumblebeeService(svc) && p.handleBumblebeeEdgeOrPause(ctx, svc, provider, now) {
+				continue
+			}
 
 			var metricPayload map[string]any
 			var status *proto.StatusResponse

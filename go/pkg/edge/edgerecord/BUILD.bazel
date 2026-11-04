@@ -5,6 +5,7 @@ go_library(
     name = "edgerecord",
     srcs = [
         "assignment.go",
+        "bumblebee.go",
         "canonical.go",
         "capability.go",
         "claims_framing.go",
@@ -54,6 +55,7 @@ go_test(
         "asn_corpus_test.go",
         "assignment_test.go",
         "bounds_precedence_test.go",
+        "bumblebee_test.go",
         "canonical_micros_corpus_test.go",
         "capability_test.go",
         "compression_corpus_test.go",

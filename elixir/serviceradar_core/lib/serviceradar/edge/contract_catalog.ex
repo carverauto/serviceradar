@@ -22,6 +22,7 @@ defmodule ServiceRadar.Edge.ContractCatalog do
   """
 
   alias ServiceRadar.Edge.MetricsBatchProjection
+  alias ServiceRadar.Edge.Projectors.BumblebeeScan
   alias ServiceRadar.Edge.Projectors.EndpointInventory
   alias ServiceRadar.Edge.Projectors.FlowAttribution
   alias ServiceRadar.Edge.Projectors.K8sPublicEndpoints
@@ -224,6 +225,14 @@ defmodule ServiceRadar.Edge.ContractCatalog do
       max_projected_rows: 1,
       write_bytes_per_row: 16_384,
       package_id: "serviceradar.agent.endpoint_inventory"
+    },
+    %{
+      ref: {"serviceradar.bumblebee.scan", 1},
+      authority: :standing_grant,
+      projector: BumblebeeScan,
+      max_projected_rows: 10_000,
+      write_bytes_per_row: 16_384,
+      package_id: "serviceradar.agent.bumblebee"
     }
   ]
 

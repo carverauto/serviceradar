@@ -8,10 +8,13 @@ defmodule ServiceRadar.Edge.InventoryBatchProtosTest do
   """
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Edge.ContractCatalog
+  alias ServiceRadar.Edge.Projectors.BumblebeeScan
   alias ServiceRadar.Edge.Projectors.K8sPublicEndpoints
   alias Serviceradar.Edge.V1.BumblebeeFindingV1
   alias Serviceradar.Edge.V1.BumblebeeScanPayloadV1
   alias Serviceradar.Edge.V1.EdgeRecordV1
+  alias Serviceradar.Edge.V1.EdgeSourceAuthorizationV1
   alias Serviceradar.Edge.V1.EndpointInventoryScanPayloadV1
   alias Serviceradar.Edge.V1.EndpointInventorySourceSummaryV1
   alias Serviceradar.Edge.V1.K8sPublicEndpointsSnapshotV1
@@ -154,5 +157,52 @@ defmodule ServiceRadar.Edge.InventoryBatchProtosTest do
         uncompressed_size: byte_size(encoded),
         payload_sha256: :crypto.hash(:sha256, encoded)
     }
+  end
+
+  test "serviceradar.bumblebee.scan contract catalog entry and decode validation" do
+    assert {:ok,
+            %{
+              authority: :standing_grant,
+              projector: BumblebeeScan,
+              max_projected_rows: 10_000,
+              write_bytes_per_row: 16_384,
+              package_id: "serviceradar.agent.bumblebee"
+            }} = ContractCatalog.fetch({"serviceradar.bumblebee.scan", 1})
+
+    scan = %BumblebeeScanPayloadV1{
+      schema_version: "serviceradar.bumblebee.scan.v1",
+      agent_id: "agent-1",
+      run_id: "run-1",
+      metadata_json: ~s({"profile":"default"}),
+      findings: [
+        %BumblebeeFindingV1{
+          finding_id: "finding-1",
+          risk_score: 0,
+          has_risk_score: true,
+          evidence_json: ~s({"path":"/opt/demo"}),
+          metadata_json: ~s({"source":"osv"})
+        }
+      ]
+    }
+
+    encoded = BumblebeeScanPayloadV1.encode(scan)
+
+    record = %EdgeRecordV1{
+      payload_family: :EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1,
+      compression: :EDGE_RECORD_COMPRESSION_NONE,
+      payload: encoded,
+      encoded_size: byte_size(encoded),
+      uncompressed_size: byte_size(encoded),
+      payload_sha256: :crypto.hash(:sha256, encoded),
+      projected_row_count: 1
+    }
+
+    assert {:ok, ^scan} = BumblebeeScan.decode(record)
+
+    assert {:error, :bumblebee_scan_row_count} =
+             BumblebeeScan.decode(%{record | projected_row_count: 2})
+
+    assert {:error, :bumblebee_scan_source_authorization} =
+             BumblebeeScan.decode(%{record | source_authorization: %EdgeSourceAuthorizationV1{}})
   end
 end
