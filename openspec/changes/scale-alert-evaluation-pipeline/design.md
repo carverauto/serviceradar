@@ -303,8 +303,8 @@ Writes scale with dirty groups, not total state. Rejected: a whole-partition
 state blob per checkpoint. Its write volume grows with total state rather
 than with change, and the existing table, which the UI reads, would go stale.
 
-Recovery loads the blocks' rows, slices, `applied_count` and
-`import_ordinal` and starts the ordered consumer at
+Recovery loads the blocks' rows, slices, `applied_count`,
+`import_ordinal` and `held_control_ids` and starts the ordered consumer at
 the lowest checkpoint sequence among them. It skips any message at or below
 its own block's checkpoint, so blocks that join at different positions are
 handled exactly.
@@ -548,11 +548,13 @@ executing is waited for rather than completed, so no copy is published after
 that commit. The transaction also records the id in the block's checkpoint
 (`held_control_ids`), together with the live stream and the greatest
 sequence then stored on the block's live subjects. The id is kept until the
-checkpoint on that same stream passes that sequence, or until the block
-switches off that stream in a move (every copy then lies at or below
-`cut_seq` and has been applied), so a copy stored before the completion is
-suppressed however long the block lags, independent of the duplicate
-horizon, and a move's sequence reset does not drop it early.
+checkpoint on that same stream passes that sequence. A move carries each
+held id across the switch: the step-4 transaction re-records it against the
+target stream and the greatest sequence of b's own messages then stored in
+the target, which covers any copy a retry stored there before the switch;
+no copy can be stored after it, because the entry was completed. A copy is
+therefore suppressed however long the block lags, across a crash and a
+move, independent of the duplicate horizon.
 
 The evaluator uses no wall clock. Time comes from event time or from the
 `now` a control message carries.
@@ -732,7 +734,8 @@ Moving block b from stream A to stream B:
    its committed checkpoint for b (immediately when `cut_seq` is 0) does it
    start consuming b from B's first sequence. The checkpoint row records the
    switch (stream B, sequence 0), atomically with the last A position, and
-   keeps b's `applied_count` and `import_ordinal` unchanged; the same fenced
+   keeps b's `applied_count` and `import_ordinal` unchanged and re-records
+   its `held_control_ids` against B (D9); the same fenced
    transaction sets the journal state `switched`, so a checkpoint that names
    B never coexists with a journal still in `bound`.
 5. **Reclaim.** b's remaining messages in A, all at or below `cut_seq` and
@@ -1043,15 +1046,18 @@ that evaluates through both designs.
       import-id retention horizon is measured from its commit time. Routers
       start only once it exists. No uncheckpointed import message then
       remains and the task deletes `ALERT_IMPORT_V1`.
-   A crash before the marker resumes from the last committed segment:
+   A crash before the marker while residual records remain resumes from
+   the last committed segment:
    owners recover their blocks from their checkpoints, discarding anything
    applied after them; the task purges the import stream and rebuilds the
    next segment from the records after the last committed segment. A purged
    message above a checkpoint is therefore always republished, and a block
    skips what its checkpoint already includes, so every residual record is
    applied exactly once; live controls are re-read from the live
-   checkpoint. The source tables are untouched until the marker. A rerun
-   after the final segment is committed builds and publishes no segment: it
+   checkpoint. The source tables are untouched until the marker. A rerun or
+   a crash once no residual record remains to import (the final segment is
+   committed, or there was nothing to import) builds and publishes no
+   segment and does not purge the import stream: it
    repeats step 3.3 for every block without a switched row, writes the
    marker if it is absent once every block's switched row is committed and
    no import consumer is bound, and deletes `ALERT_IMPORT_V1`.
