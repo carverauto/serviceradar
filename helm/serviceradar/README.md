@@ -458,9 +458,11 @@ base64-encoded 32-byte seed (the Secret's data encoding wraps that text).
 and periodic sweep summary metrics producers on the same spool. That spool is
 also where flow-attribution windows and OTLP relay frames go while the agent
 holds a current `serviceradar.netprobe.flow_attribution` version 1 or
-`serviceradar.otlp.relay` version 1 grant. Core issues that grant only when
-`contractRegistry` includes an active entry for it and that agent's leasing
-switch is on. Without `agentMetricsEnabled`, those stay on the status path
+`serviceradar.otlp.relay` version 1 grant. Core issues every standing grant in
+its release contract catalog to an agent whose leasing switch is on; it does
+not consult `contractRegistry`. The gateway withholds records for any contract
+that `contractRegistry` does not list as active, so list each enabled
+producer's contract there before turning its leasing switch on. Without `agentMetricsEnabled`, those stay on the status path
 even if core has issued the grant.
 `edgeRecords.agentTelemetryEnabled` enables its plugin and native add-on
 telemetry producer on that spool.
@@ -474,31 +476,26 @@ Core's agent-scoped sweep lease settings select which agent receives signed
 slots. Enable leasing only for the canary, and use an enabled static-target
 group without a target query. Other agents continue using the legacy results
 path. With `agentMetricsEnabled` set, those metrics stay on the status path
-until `contractRegistry` includes an active `serviceradar.metrics.batch`
-version 1 contract and that agent's leasing switch is on. With
+until core grants that agent `serviceradar.metrics.batch` version 1. With
 `agentTelemetryEnabled` set, plugin and add-on telemetry stays on the status
-path until `contractRegistry` includes an active
-`serviceradar.telemetry.batch` version 1 contract and that agent's leasing
-switch is on. With `agentPluginResultsEnabled` set, Wasm plugin results stay
-on the status path until `contractRegistry` includes an active
-`serviceradar.plugin_results.batch` version 1 contract and that agent's
-leasing switch is on. With `agentDiscoveryEnabled` set, mapper devices,
-interfaces, topology and netprobe discovery stay on the status path until
-`contractRegistry` includes active `serviceradar.mapper.devices.batch`,
-`serviceradar.mapper.interfaces.batch`, `serviceradar.mapper.topology.batch`
-and `serviceradar.netprobe.discovery.batch` version 1 contracts and that
-agent's leasing switch is on. With `agentSyncEnabled` set, integration sync
-pages stay on the status path until `contractRegistry` includes an active
-`serviceradar.sync.page.batch` version 1 contract and that agent's leasing
-switch is on. Results of sweep groups the agent runs from its own config,
-without a lease, move to edge records only when `contractRegistry` also
-includes an active `serviceradar.sweep.unleased_results` version 1 contract;
+path until core grants `serviceradar.telemetry.batch` version 1. With
+`agentPluginResultsEnabled` set, Wasm plugin results stay on the status path
+until core grants `serviceradar.plugin_results.batch` version 1. With
+`agentDiscoveryEnabled` set, mapper devices, interfaces, topology and netprobe
+discovery stay on the status path until core grants
+`serviceradar.mapper.devices.batch`, `serviceradar.mapper.interfaces.batch`,
+`serviceradar.mapper.topology.batch` and
+`serviceradar.netprobe.discovery.batch` version 1. With `agentSyncEnabled`
+set, integration sync pages stay on the status path until core grants
+`serviceradar.sync.page.batch` version 1. Results of sweep groups the agent
+runs from its own config, without a lease, move to edge records only when the
+agent also holds a `serviceradar.sweep.unleased_results` version 1 grant;
 each results response and its metric batch then take the edge path together,
 and otherwise both keep the legacy results path. Full
-traces from agent-scheduled MTR checks leave the status path only when
-`contractRegistry` also includes an active `serviceradar.mtr.scheduled_trace`
-version 1 contract. The metrics grant does not carry those traces. Without the
-trace contract they stay on the status path.
+traces from agent-scheduled MTR checks leave the status path only when the
+agent also holds a `serviceradar.mtr.scheduled_trace` version 1 grant. The
+metrics grant does not carry those traces. Without the trace grant they stay
+on the status path. Each of these grants follows the agent's leasing switch.
 
 Use complete terminal ICMP/TCP host windows for this first canary. Partial-mode
 and MTR windows are not supported by this projection yet. Keep the issuer key
