@@ -80,7 +80,7 @@
   `otel_log`). One projector routes each closed payload kind to its existing destination.
   Plugins and add-ons never get contracts of their own. A new payload kind is an SDK and core
   change.
-  TODO (reconciled 2026-11-02): remaining scope is the `TelemetryBatch` contract catalog entry, agent producer, and core projector for `serviceradar_metrics`, `ocsf_event` and `otel_log`.
+  DONE (reconciled 2026-11-03): `serviceradar.telemetry.batch` v1 catalog entry in `ServiceRadar.Edge.ContractCatalog`, agent producer in `go/pkg/edge/edgerecord/telemetry_batch.go` and `go/pkg/agent/push_loop_telemetry_edge.go`, and core projector `ServiceRadar.Edge.Projectors.TelemetryBatch` routing `serviceradar_metrics`, `ocsf_event`, `otel_log`, and add-on `discovery_v1` while refusing plugin-stamped `discovery_v1` (#6264). Parity soak remains task 5.3.
 - [x] 5.2 Typed Wasm plugin result batch; producer and projector.
   DONE (reconciled 2026-11-03): `WasmPluginResultBatchV1` in `proto/edge/v1/plugin_results.proto` (#6245); agent producer in `go/pkg/agent/push_loop_plugin_results_edge.go` and projector `ServiceRadar.Edge.Projectors.WasmPluginResult` into `ServiceRadar.Observability.PluginResultIngestor`. Parity soak remains task 5.3.
 - [ ] 5.3 Parity soak.
