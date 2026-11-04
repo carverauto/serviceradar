@@ -65,7 +65,9 @@ producer keeps its own queue. Full MTR traces from agent-scheduled checks leave
 the status path on their own queue when the agent holds a current
 `serviceradar.mtr.scheduled_trace` version 1 grant, and are projected by
 `ServiceRadar.Edge.Projectors.ScheduledMtrTrace`; without that grant they stay
-on the status path. Results of a
+on the status path. Traces from a sweep group's `mtr` mode take only that edge
+path and do not run without the grant (see
+[Network Sweeps](./network-sweeps.md)). Results of a
 sweep group the agent runs from its own config, and the metric batch on each of
 those results chunks, leave the status path together only while the agent also
 holds a current `serviceradar.sweep.unleased_results` version 1 grant. Without
