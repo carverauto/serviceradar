@@ -107,7 +107,7 @@
     `SERVICERADAR_EDGE_ISSUER_KEY_FILE` when one is configured, so epochs, grants and
     leases signed with the file key keep verifying. `load_file!/1` stays deleted;
     the runtime config passes only the path. The chart (5.2) keeps the mount and the
-    env var for the cutover release.
+    env var for the cutover release; 5.7 removes them in the release after.
 - [x] 2.2 Rename `platform.sweep_lease_settings` to `platform.edge_pipeline_settings`.
   Drop `leasing_enabled` and add `spool_max_bytes`. Remove `enabled?` from
   `LeaseSettings`, and remove its uses in `LeasePass` and `OutputGrants`. Grants
@@ -173,25 +173,37 @@
   `serviceradar.edgeRecordContractRegistry` helper. Add the fail guard for any
   `edgeRecords` key.
 - [ ] 5.2 Clean up the core and gateway manifests:
-  - `core.yaml`: remove the issuer volume and both env vars.
+  - `core.yaml`: keep the issuer volume and `SERVICERADAR_EDGE_ISSUER_KEY_FILE`
+    in the cutover release, no longer gated on `edgeRecords`, solely as the
+    one-time import input (design Decision 6). A configured file that is missing
+    stores no key, so set them only where the Secret carries `edge-issuer-seed`.
+    Remove `SERVICERADAR_EDGE_RECORD_CONTRACT_REGISTRY`. Task 5.7 removes the
+    issuer volume and env var in the following release.
   - `agent-gateway.yaml`: remove the env block and the `natsPublishingEnabled`
     clause.
   - `nats.yaml`: make the edge-record subject permissions unconditional.
 - [ ] 5.3 Clean up the agent config and secret generation:
   - `files/serviceradar-config.yaml`: remove the `edge_record_sender` block and its
     guards.
-  - `secret-generator-job.yaml`: remove `edge-issuer-seed` from `REQUIRED_KEYS`,
-    the generated JSON and the patch list.
+  - `secret-generator-job.yaml`: keep `edge-issuer-seed` in `REQUIRED_KEYS`, the
+    generated JSON and the patch list for the cutover release (task 5.7 removes
+    it).
 - [ ] 5.4 Update the chart tests: `tests/edge_records_test.yaml`,
   `tests/edge_record_nats_permissions_test.yaml` and
   `edge_record_agent_config_test.py`. Assert the fail guard, the unconditional
-  permissions, and no issuer mount.
+  permissions, and that the core issuer mount and
+  `SERVICERADAR_EDGE_ISSUER_KEY_FILE` are present in the cutover release.
 - [ ] 5.5 Rewrite the "Durable edge-record canary" section of the chart
   README. Update `docs/docs/data-pipeline.md`, adding "Upgrading from the static
   registry" with the optional drain, and `docs/docs/native-addons.md`.
 - [ ] 5.6 Confirm that Docker Compose needs no change: the agent's
   `/var/lib/serviceradar` volume holds the default spool directory, and
   `CLOAK_KEY` is present for the issuer key row.
+- [ ] 5.7 Release after cutover, once every install has imported its seed: remove
+  the core issuer mount, `SERVICERADAR_EDGE_ISSUER_KEY_FILE`, `edge-issuer-seed`
+  from the secret generator, the `:edge_issuer_key_import_file` runtime config in
+  both `runtime.exs` files, and the import code path in `IssuerKey`. Flip the
+  chart test to assert no issuer mount.
 
 ## 6. Tests
 

@@ -48,7 +48,11 @@ defmodule ServiceRadar.Edge.IssuerKeyImportDbTest do
   end
 
   test "a file that is not a private, well-formed seed stores no key", ctx do
-    for {contents, mode} <- [{Base.encode64(@seed), 0o644}, {"not base64!", 0o600}] do
+    for {contents, mode} <- [
+          {Base.encode64(@seed), 0o644},
+          {"not base64!", 0o600},
+          {<<0xFF, 0xFE>> <> @seed, 0o600}
+        ] do
       import_from!(ctx.tmp_dir, contents, mode)
 
       assert {:error, :invalid_edge_issuer_key_file} = IssuerKey.ensure_stored()
