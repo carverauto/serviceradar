@@ -303,7 +303,9 @@ history, update incident metadata, maintenance receipt. Each effect has a
 - notification routing job unique key = (alert id, kind, ordinal);
 - incident metadata updates carry the block's `applied_count` at the
   message that produced them as the evaluation position, and apply only when
-  it is greater than the stored value (`alerts.evaluation_position`). Stream
+  it is greater than the stored value (`alerts.evaluation_position`). The
+  column is added `NOT NULL DEFAULT 0`, so an alert written before the
+  cutover starts below every applied count, which is at least 1. Stream
   sequences and map generations are not part of it, because they restart or
   change across a block move and the cutover import while `applied_count`
   only grows.
@@ -475,7 +477,9 @@ through the DurablePublish outbox in the transaction that made the change:
   until the group recovers.
 - **Stale-anomaly maintenance:** `resolve_stale_anomalies/4` stores the
   live-series key set in CNPG as an immutable snapshot, kept until every
-  block's receipt exists, and publishes a maintenance marker carrying only
+  block's committed checkpoint covers the marker (a receipt alone is not
+  enough, because a replay from an earlier checkpoint loads it again), and
+  publishes a maintenance marker carrying only
   `cutoff`, `now` and the snapshot id to every block. The owner loads the
   snapshot before F; a failed load is transient, never a live re-query. It then awaits one `alert_maintenance_receipts` row
   per block with a bounded timeout, and returns their summed resolved count,
@@ -483,7 +487,9 @@ through the DurablePublish outbox in the transaction that made the change:
 - **Block move and cutover import segment ends:** see D12 and Migration.
 
 D9 control messages are always published to the block's live candidate
-subjects, including during the cutover import (Migration).
+subjects, including during the cutover import (Migration). Each carries its
+outbox entry id as its candidate id, so a second publish of the same entry is
+suppressed by the block's dedupe ring (D6).
 
 The evaluator uses no wall clock. Time comes from event time or from the
 `now` a control message carries.
@@ -500,16 +506,21 @@ Findings and changes, keyed to `capacity.md` S1-S5 and S13:
   1 stream per signal on small installs and 4 at the design point. Streams are
   R3 and DiscardNew, with `max_bytes` from a CNPG runtime setting whose code
   default is derived from the active JetStream profile (a 30-minute outage
-  window). Today's `events` stream binds `logs.>` and `events.>` and
-  `metrics` binds `metrics.>`, which overlap the new subjects, so release N
-  replaces them in one order: release-N publishers publish only to the v1
-  block subjects and retry in place, collectors spooling, while no stream
-  binds them; once no older publisher remains, the old streams are drained
-  (by pre-cutover replicas while they run, then by new replicas after the
-  cutover marker, before they read the replacements, so each source keeps
-  its order); a fully acknowledged old stream is deleted; and its
-  replacements are created inside the reservation it frees, after which the
-  held publishes land. No component recreates or updates `events`. A block
+  window). Today's `events` stream binds `logs.>` and `events.>` (and the
+  OTEL subjects) and `metrics` binds `metrics.>`, which overlap the new
+  subjects, so release N replaces them in one order. Release-N publishers
+  publish only to the v1 block subjects. Until an old stream is deleted it
+  still binds them, so a v1 publish is stored and acknowledged there and
+  that stored message is its only copy. Release-N versions of every
+  component that creates or updates `events` (EventWriter, Zen, the OTEL
+  collector, flowgger and trapd) never do so. Once no older version of any
+  of them and no older publisher remains, the old streams are drained, v1
+  subjects included (by pre-cutover replicas while they run, then by new
+  replicas after the cutover marker, before they read the replacements, so
+  each source keeps its order); a fully acknowledged old stream is deleted;
+  while no stream binds the v1 subjects, publishers retry in place,
+  collectors spooling; and the replacements are created inside the
+  reservation the old stream frees, after which the held publishes land. A block
   moves between telemetry streams with the same protocol as
   candidate streams (D12), so a source's records keep their order through a
   split.
@@ -650,8 +661,10 @@ Moving block b from stream A to stream B:
    keeps b's `applied_count` and `import_ordinal` unchanged.
    Journal state `switched`.
 5. **Reclaim.** b's remaining messages in A, all at or below `cut_seq` and
-   applied, are purged by b's per-block purge. A stream with no blocks left
-   is deleted once it holds no messages.
+   applied, are purged by b's subjects up to the journalled `cut_seq`. Only
+   once A holds none of b's messages is the journal state `reclaimed` and the
+   move finished. A stream with no blocks left is deleted once it holds no
+   messages.
 
 Ownership is unaffected: a move changes where b's messages are, not who
 evaluates b. A block move and an owner handoff may overlap; they compose
@@ -670,12 +683,15 @@ Why it is exactly-once and order-preserving:
   the block's dedupe ring, which spans both streams, suppresses it (I6).
 - A crash at any step resumes from the journal. Steps 2 and 3 are idempotent
   stream updates; `cut_seq` is read once and stored; step 4 is driven by b's
-  checkpoint.
+  checkpoint; and a move in state `switched` repeats step 5 from the
+  journalled `cut_seq`, an idempotent purge, so the source prefix is
+  reclaimed even though b's checkpoint no longer names A.
 
 Telemetry streams use the same five steps, with the same per-block
 `cut_seq`. Their "owner" is the replica holding the source block: it keeps
 consuming b's durable on A until that durable's ack floor reaches `cut_seq`,
-and only then creates and consumes b's durable on B. A source's records
+and only then creates and consumes b's durable on B. Reclaim and its
+resume are the same, from the journalled `cut_seq`. A source's records
 therefore keep their order through a split.
 
 **Health recommendations, not silent auto-resharding** (the user's question
@@ -840,9 +856,11 @@ that evaluates through both designs.
    there (not unused disk), and reserve is the profile-derived size of the
    candidate streams and the alert DLQ, the release-N streams created before
    the old telemetry streams are deleted (the telemetry replacements use the
-   reservation those streams free, D10). A minimal segment is one candidate at
-   `candidate_inline_max_bytes` (D8 bounds every published candidate) plus
-   one segment-end marker per block. Only if `max_bytes` would be smaller
+   reservation those streams free, D10). A minimal segment is one import
+   record at `candidate_inline_max_bytes` plus one segment-end marker per
+   block, each counted at its stored size as published (subject, headers,
+   import ordinal and framing included); step 3.2 bounds every import record
+   by that size. Only if `max_bytes` would be smaller
    than that does the step fail: the upgrade is refused before any pod is
    replaced, and the failure names the remaining reservation, the reserve
    and the bytes required. The stream is outside the profile carve, which
@@ -872,20 +890,28 @@ that evaluates through both designs.
       violation increment, recovery-match flag, seasonal disposition read
       from `SeasonalStateStore` at import time without a cache, the
       evaluation projection under the D8 size rule, the rule revision the
-      row names, and the candidate id the router would compute. Before
-      publishing any import candidate the task upserts every distinct rule
-      revision embedded in the residual `alert_evaluation_work` rows into
-      `stateful_alert_rule_revisions`, so each candidate names a revision
-      the owner can load; lifecycle rows are routed against the current
-      revision. Each block's
+      row names, and the candidate id the router would compute. The D8 size
+      rule bounds the import record as published: an import record whose
+      stored size, import ordinal and framing included, would exceed
+      `candidate_inline_max_bytes` is published by reference. Before
+      publishing any import candidate the task upserts into
+      `stateful_alert_rule_revisions` the current revision of every rule and
+      every distinct rule revision embedded in the residual
+      `alert_evaluation_work` rows, so each import candidate and each
+      candidate routed after the marker names a revision the owner can load;
+      lifecycle rows are routed against the current revision. Each block's
       initial checkpoint is on its live candidate stream at sequence 0.
       Owners start for import: they consume `alerts.import.v1.b<b>.*` and
       their live subjects, which before the marker hold only D9 control
       messages because routers are held. Before applying each import
-      record, an owner applies every live control already stored for that
-      block and commits its effects and checkpoint, so a disable, resolve or
-      maintenance marker committed during the import takes effect before
-      every residual record of its block not yet applied. During the import
+      record, an owner drains that block's D9 outbox: it publishes every
+      pending outbox entry addressed to the block's live subjects, awaiting
+      each PubAck, and then applies every live control stored for that block
+      and commits its effects and checkpoint. A disable, resolve or
+      maintenance marker whose transaction committed before that record is
+      applied therefore takes effect before it, even while its outbox job is
+      still queued; the job's later publish of the same entry is suppressed
+      as a duplicate (D9). During the import
       every effect commit is also a checkpoint commit (live sequence and
       `import_ordinal`), so committed effects always match one persisted
       order.
