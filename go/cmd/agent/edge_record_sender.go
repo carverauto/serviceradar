@@ -29,6 +29,7 @@ import (
 	srgrpc "github.com/carverauto/serviceradar/go/pkg/grpc"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
+	"github.com/carverauto/serviceradar/proto"
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 )
 
@@ -60,7 +61,7 @@ const (
 // explicitly enabled in config, since the gateway-side RPC server this
 // depends on (a separate, parallel task) may not exist in every deployment.
 //
-// A sender with producers enabled (sweep or metrics) persists validated terminal
+// A sender with any producer enabled persists validated terminal
 // dispositions before advancing its local resolved prefix, then reclaims a drained
 // segment whose records are accepted or permanently rejected. Permanently rejected
 // records are quarantined first, and each rejection code is logged once per run.
@@ -158,12 +159,39 @@ func newEdgeRecordSender(
 		RequestedByteCredits:    edgeRecordSenderRequestedByteCredits,
 		RequestedFrameCredits:   edgeRecordSenderRequestedFrameCreds,
 		PersistAcknowledgements: esCfg.ProducersEnabled(),
+		Grants:                  gatewayGrantRenewer{client: proto.NewAgentGatewayServiceClient(client.GetConnection())},
 	})
 	if err != nil {
 		closeAll()
 		return nil, nil, fmt.Errorf("construct edge record sender: %w", err)
 	}
 	return s, closeAll, nil
+}
+
+// gatewayGrantRenewer asks the gateway the sender delivers to for delivery
+// grants (RenewEdgeDeliveryGrants), over the same mTLS connection.
+type gatewayGrantRenewer struct {
+	client proto.AgentGatewayServiceClient
+}
+
+func (g gatewayGrantRenewer) RenewDeliveryGrants(
+	ctx context.Context, spoolID []byte, records []spool.Record,
+) (map[uint64]*edgev1.EdgeSignedCapabilityV1, error) {
+	req := &proto.EdgeDeliveryGrantRequest{SpoolId: spoolID}
+	for _, rec := range records {
+		req.Records = append(req.Records, &proto.EdgeDeliveryGrantRecord{Sequence: rec.Sequence, RecordBytes: rec.Body})
+	}
+	resp, err := g.client.RenewEdgeDeliveryGrants(ctx, req, srgrpc.WithoutRetry())
+	if err != nil {
+		return nil, err
+	}
+	granted := make(map[uint64]*edgev1.EdgeSignedCapabilityV1, len(resp.GetResults()))
+	for _, result := range resp.GetResults() {
+		if capability := result.GetDeliveryCapability(); capability != nil {
+			granted[result.GetSequence()] = capability
+		}
+	}
+	return granted, nil
 }
 
 func pollEdgeRecordSender(ctx context.Context, s *edgesender.Sender, interval time.Duration, log logger.Logger) {
@@ -184,6 +212,10 @@ func runEdgeRecordSenderOnce(ctx context.Context, s *edgesender.Sender, log logg
 	runCtx, cancel := context.WithTimeout(ctx, defaultEdgeRecordSenderPollInterval)
 	defer cancel()
 	result, err := s.RunOnce(runCtx)
+	if result.GrantRenewal != nil {
+		log.Warn().Err(result.GrantRenewal).
+			Msg("Edge record sender could not obtain delivery grants; records under lapsed authority stay unresolved")
+	}
 	if err != nil {
 		if errors.Is(err, edgesender.ErrNoUnresolvedRecords) {
 			return

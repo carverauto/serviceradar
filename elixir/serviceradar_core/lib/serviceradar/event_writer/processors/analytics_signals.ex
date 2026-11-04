@@ -19,6 +19,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.DeviceCorrelation
   alias ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry
+  alias ServiceRadar.EventWriter.StableId
   alias ServiceRadar.EventWriter.Telemetry, as: EventWriterTelemetry
   alias ServiceRadar.Inventory.EndpointVulnerabilityAssessment
   alias ServiceRadar.Observability.AdvisoryLocks
@@ -26,6 +27,8 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   alias ServiceRadar.Observability.AnomalyDispositionReporter
   alias ServiceRadar.Observability.BmpSettingsRuntime
   alias ServiceRadar.Observability.CausalPubSub
+  alias ServiceRadar.Observability.StatefulAlertEngine.Inbox
+  alias ServiceRadar.Observability.StatefulAlertEngine.Input
   alias ServiceRadar.Observability.StatefulEvaluationLedger
 
   require Logger
@@ -76,6 +79,9 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   @first_statement_error_key {__MODULE__, :first_statement_error}
   @repo_query_event [:service_radar, :repo, :query]
   @ocsf_event_conflict_target [:time, :id]
+  @occurrence_key :__alert_evaluation_occurrence_id__
+  @source_key :__alert_evaluation_source__
+  @delivered_envelope_key "__delivered_event_id__"
   @ocsf_event_replace_fields [
     :class_uid,
     :category_uid,
@@ -116,60 +122,91 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   end
 
   defp do_process_batch(messages) do
-    parsed_rows =
-      messages
-      |> Enum.map(&parse_components/1)
-      |> Enum.reject(&is_nil/1)
+    parsed_pairs =
+      Enum.flat_map(messages, fn message ->
+        case parse_components(message) do
+          nil -> []
+          components -> [{message, components}]
+        end
+      end)
 
-    if Enum.empty?(parsed_rows) do
+    if parsed_pairs == [] do
       {:ok, 0}
     else
+      parsed_rows = Enum.map(parsed_pairs, &elem(&1, 1))
+
       routing_rows =
         parsed_rows
         |> Enum.filter(&(&1.normalized["signal_type"] == "bmp"))
         |> Enum.map(&build_routing_event_row/1)
         |> Enum.reject(&is_nil/1)
 
-      all_ocsf_rows =
-        parsed_rows
-        |> Enum.filter(&persist_to_ocsf?/1)
-        |> Enum.map(fn %{
-                         normalized: normalized,
-                         payload: payload,
-                         raw_data: raw_data,
-                         metadata: metadata
-                       } ->
-          build_ocsf_event_row(normalized, payload, raw_data, metadata)
+      tagged_ocsf =
+        Enum.flat_map(parsed_pairs, fn {message, components} ->
+          if persist_to_ocsf?(components) do
+            %{
+              normalized: normalized,
+              payload: payload,
+              raw_data: raw_data,
+              metadata: metadata
+            } = components
+
+            case build_ocsf_event_row(normalized, payload, raw_data, metadata) do
+              nil -> []
+              row -> [{message, put_source_identity(row, message)}]
+            end
+          else
+            []
+          end
         end)
-        |> Enum.reject(&is_nil/1)
+
+      all_ocsf_rows = Enum.map(tagged_ocsf, &elem(&1, 1))
+
+      messages_by_event_id =
+        Enum.group_by(tagged_ocsf, fn {_message, row} -> ocsf_event_id_key(row) end, fn {message,
+                                                                                         _row} ->
+          message
+        end)
+
+      owners_by_series =
+        Enum.group_by(tagged_ocsf, fn {_message, row} -> series_ref(row) end, fn {message, _row} ->
+          message
+        end)
 
       routing_store = store_routing_events(routing_rows)
 
-      with {:ok, {bulk_ocsf_rows, bulk_ocsf_count, persisted_ocsf_rows, recorded_ocsf_events}} <-
+      with {:ok,
+            {bulk_ocsf_rows, bulk_ocsf_count, persisted_ocsf_rows, recorded_ocsf_events,
+             pending_series}} <-
              AnomalyEpisodeRegistry.transaction(fn ->
-               {ash_rows, bulk_rows} =
-                 all_ocsf_rows
-                 |> AnomalyEpisodeRegistry.transition_rows()
-                 |> Enum.split_with(&ash_recorded_row?/1)
+               returned_rows = AnomalyEpisodeRegistry.transition_rows(all_ocsf_rows)
 
-               bulk_rows = dedupe_rows_by_conflict_key(bulk_rows, &ocsf_event_conflict_key/1)
+               {ash_rows, bulk_rows} = Enum.split_with(returned_rows, &ash_recorded_row?/1)
+
+               bulk_rows =
+                 bulk_rows
+                 |> Enum.map(&Map.drop(&1, admission_keys()))
+                 |> dedupe_rows_by_conflict_key(&ocsf_event_conflict_key/1)
+
                count = insert_rows(table_name(), bulk_rows)
+               # The transition and its pending admission row commit before
+               # admission, so a refused inbox can never roll the transition back.
                {persisted, transitions} = record_ocsf_events(ash_rows)
 
-               # Commit the transition and its accepted evaluation together. A
-               # rejected inbox must leave the prior state available to redelivery.
-               case evaluate_transitions(transitions) do
-                 :ok -> {bulk_rows, count, persisted, transitions}
-                 {:error, reason} -> ServiceRadar.Repo.rollback(reason)
-               end
+               {bulk_rows, count, persisted, transitions,
+                lifecycle_series(all_ocsf_rows ++ returned_rows)}
              end) do
-        warehouse = Destination.persist_after_cnpg(:events, bulk_ocsf_rows ++ persisted_ocsf_rows)
+        lifecycle_failures =
+          admit_pending_series(messages, pending_series, owners_by_series, messages_by_event_id)
+
+        warehouse =
+          Destination.persist_after_cnpg(
+            :events,
+            bulk_ocsf_rows ++ Enum.map(persisted_ocsf_rows, &Map.drop(&1, admission_keys()))
+          )
 
         dispatch_northbound_inventory_transitions(recorded_ocsf_events)
 
-        # Insert-only rows use the source ledger. Lifecycle transitions were
-        # durably admitted in the same transaction as their prior-state update;
-        # their reused event identity is not an occurrence identity.
         evaluation =
           bulk_ocsf_rows
           |> alert_evaluation_rows()
@@ -177,15 +214,221 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
         report_anomaly_dispositions(recorded_ocsf_events)
 
-        ocsf_count = bulk_ocsf_count + length(recorded_ocsf_events)
-        CausalPubSub.broadcast_ingest(%{count: ocsf_count})
+        if bulk_ocsf_count > 0 or recorded_ocsf_events != [] do
+          ocsf_count = bulk_ocsf_count + length(recorded_ocsf_events)
+          CausalPubSub.broadcast_ingest(%{count: ocsf_count})
+        end
+
+        bulk_failures =
+          case evaluation do
+            :ok ->
+              []
+
+            {:error, reason} ->
+              bulk_ocsf_rows
+              |> alert_evaluation_rows()
+              |> messages_for_rows(messages_by_event_id)
+              |> Enum.map(&{&1, reason})
+          end
 
         with {:ok, _} <- routing_store,
-             {:ok, _} <- warehouse,
-             :ok <- evaluation do
-          {:ok, length(parsed_rows)}
+             {:ok, _} <- warehouse do
+          finish_batch(
+            messages,
+            length(parsed_rows),
+            lifecycle_failures ++ bulk_failures
+          )
         end
       end
+    end
+  end
+
+  # Ack a message only when every pending occurrence it delivered is admitted.
+  # A series is admitted in `seq` order from its stored snapshots,
+  # one occurrence per admission transaction that also deletes its pending row,
+  # and stops at its first refusal. Message order sequences different series;
+  # the first refusal blocks everything after it so a redelivery continues the
+  # tail instead of overtaking it.
+  defp admit_pending_series(messages, series, owners_by_series, messages_by_event_id) do
+    message_index = Map.new(Enum.with_index(messages))
+
+    {failures, _halted} =
+      series
+      |> load_pending_occurrences()
+      |> Enum.chunk_by(& &1.series)
+      |> Enum.sort_by(fn occurrences ->
+        occurrences
+        |> series_owners(owners_by_series, messages_by_event_id)
+        |> Enum.map(&Map.fetch!(message_index, &1))
+        |> Enum.min(fn -> length(messages) end)
+      end)
+      |> Enum.reduce({[], nil}, fn occurrences, {failures, halted} ->
+        result = if halted, do: {halted, occurrences}, else: admit_occurrences(occurrences)
+
+        case result do
+          :ok ->
+            {failures, nil}
+
+          {reason, unadmitted} ->
+            owners = unadmitted_owners(unadmitted, messages_by_event_id)
+            {Enum.map(owners, &{&1, reason}) ++ failures, reason}
+        end
+      end)
+
+    Enum.reverse(failures)
+  end
+
+  defp series_owners([%{series: series} | _] = occurrences, owners_by_series, by_id) do
+    Map.get(owners_by_series, series) || Enum.flat_map(occurrences, &occurrence_owners(&1, by_id))
+  end
+
+  # Only the messages that delivered an occurrence of the unadmitted tail fail,
+  # so their redelivery continues it. A message whose own occurrences were all
+  # admitted is acked; a tail no message in this batch delivered stays pending
+  # for its own redelivery or the drain.
+  defp unadmitted_owners(unadmitted, by_id) do
+    unadmitted |> Enum.flat_map(&occurrence_owners(&1, by_id)) |> Enum.uniq()
+  end
+
+  # An anomaly transition is stored under its episode-transition id, and a
+  # redelivery that emits no new transition carries only the delivered row's
+  # id, so the occurrence is also owned through the delivered id it records.
+  defp occurrence_owners(%{event_id: event_id, delivered_id: delivered_id}, by_id) do
+    [event_id, uuid_conflict_value(delivered_id)]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> Enum.flat_map(&Map.get(by_id, &1, []))
+  end
+
+  defp admit_occurrences([]), do: :ok
+
+  defp admit_occurrences([occurrence | rest] = occurrences) do
+    case admit_occurrence(occurrence) do
+      :ok -> admit_occurrences(rest)
+      {:error, reason} -> {reason, occurrences}
+    end
+  end
+
+  # An overloaded inbox commits the prefix it accepted, so that refusal is
+  # returned as a value and keeps the pending row for the redelivery that
+  # continues it. Any other refusal accepted nothing and rolls back.
+  defp admit_occurrence(%{occurrence_id: occurrence_id, record: record}) do
+    fn ->
+      ServiceRadar.Repo.transaction(fn ->
+        case StatefulEvaluationLedger.evaluate_events([record]) do
+          :ok ->
+            release_pending_admission(occurrence_id)
+
+          {:error, {:overloaded, _dimension}} = overloaded ->
+            overloaded
+
+          {:error, reason} ->
+            ServiceRadar.Repo.rollback(reason)
+        end
+      end)
+    end
+    |> Inbox.with_notification_queue()
+    |> case do
+      {:ok, :ok} -> :ok
+      {:ok, {:error, reason}} -> {:error, reason}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
+  Admits pending lifecycle occurrences of the series that have waited longest,
+  so a series that gets no later message never strands an evaluation.
+
+  Series are paged by `(min(seq), class_uid, series_key)`. Each series is
+  admitted in `seq` order and stops at its first refusal, and the run moves on
+  to the next series, so series stuck behind a saturated rule never starve the
+  ones behind them. The run ends when every page is scanned, after
+  `:max_admissions` admissions, or once `:budget_ms` has elapsed. Returns the
+  number of occurrences admitted.
+  """
+  @spec drain_pending_admissions(keyword()) :: non_neg_integer()
+  def drain_pending_admissions(opts \\ []) do
+    budget = %{
+      page_size: Keyword.get(opts, :page_size, 100),
+      max_admissions: Keyword.get(opts, :max_admissions, 1_000),
+      deadline: System.monotonic_time(:millisecond) + Keyword.get(opts, :budget_ms, 30_000)
+    }
+
+    drain_series_from({0, 0, ""}, 0, budget)
+  end
+
+  defp drain_series_from({head, class_uid, series_key}, admitted, budget) do
+    %{rows: page} =
+      ServiceRadar.Repo.query!(
+        """
+        SELECT min(seq), class_uid, series_key
+        FROM platform.lifecycle_pending_admissions
+        GROUP BY class_uid, series_key
+        HAVING (min(seq), class_uid, series_key) > ($1::bigint, $2::int, $3::text)
+        ORDER BY min(seq), class_uid, series_key
+        LIMIT $4
+        """,
+        [head, class_uid, series_key, budget.page_size]
+      )
+
+    occurrences =
+      page
+      |> Enum.map(fn [_head, class_uid, series_key] -> {class_uid, series_key} end)
+      |> load_pending_occurrences()
+      |> Enum.group_by(& &1.series)
+
+    result =
+      Enum.reduce_while(page, admitted, fn [_head, class_uid, series_key], count ->
+        if drain_exhausted?(count, budget) do
+          {:halt, {:exhausted, count}}
+        else
+          {:cont, count + admit_series_prefix(Map.get(occurrences, {class_uid, series_key}, []))}
+        end
+      end)
+
+    case result do
+      {:exhausted, count} ->
+        count
+
+      count when length(page) < budget.page_size ->
+        count
+
+      count ->
+        [last_head, last_class, last_key] = List.last(page)
+        drain_series_from({last_head, last_class, last_key}, count, budget)
+    end
+  end
+
+  defp drain_exhausted?(admitted, budget) do
+    admitted >= budget.max_admissions or System.monotonic_time(:millisecond) >= budget.deadline
+  end
+
+  defp admit_series_prefix(occurrences) do
+    Enum.reduce_while(occurrences, 0, fn occurrence, count ->
+      case admit_occurrence(occurrence) do
+        :ok -> {:cont, count + 1}
+        {:error, _reason} -> {:halt, count}
+      end
+    end)
+  end
+
+  defp messages_for_rows(rows, messages_by_event_id) do
+    rows
+    |> Enum.flat_map(fn row -> Map.get(messages_by_event_id, ocsf_event_id_key(row), []) end)
+    |> Enum.uniq()
+  end
+
+  defp finish_batch(_messages, count, []) do
+    {:ok, count}
+  end
+
+  defp finish_batch(messages, count, failures) do
+    failures = Enum.uniq_by(failures, &elem(&1, 0))
+
+    if length(failures) == length(messages) do
+      {:error, failures |> hd() |> elem(1)}
+    else
+      {:incomplete, count, failures}
     end
   end
 
@@ -325,20 +568,26 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
     {persisted_causal, causal_rows} = record_causal_prediction_ocsf_events(causal_rows)
 
-    {persisted_insert_only ++ persisted_inventory_vulnerability ++ persisted_causal,
-     insert_only_rows ++ inventory_vulnerability_rows ++ causal_rows}
+    persisted = persisted_insert_only ++ persisted_inventory_vulnerability ++ persisted_causal
+    insert_pending_admissions(persisted, valid_rows)
+
+    {persisted, insert_only_rows ++ inventory_vulnerability_rows ++ causal_rows}
   end
 
   defp record_insert_only_ocsf_events([]), do: {[], []}
 
   defp record_insert_only_ocsf_events(rows) when is_list(rows) do
-    rows = dedupe_rows_by_conflict_key(rows, &ocsf_event_conflict_key/1)
+    rows =
+      rows
+      |> dedupe_rows_by_conflict_key(&ocsf_event_conflict_key/1)
+      |> Enum.map(&stamp_new_occurrence/1)
 
     # Raw insert is intentional: build_ocsf_event_row/4 creates DB-complete rows,
     # including id, time, and created_at; the former Ash action was not providing
-    # load-bearing normalization on this hot path.
+    # load-bearing normalization on this hot path. `on_conflict: :nothing` keeps
+    # the pending admission row written by the first delivery.
     {_count, inserted_rows} =
-      BulkInsert.insert_all(table_name(), rows,
+      insert_ocsf_rows(rows,
         on_conflict: :nothing,
         conflict_target: @ocsf_event_conflict_target,
         returning: @ocsf_event_conflict_target
@@ -377,10 +626,16 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   defp record_inventory_vulnerability_ocsf_events_locked(rows) do
     existing = existing_inventory_vulnerability_lifecycle(rows)
 
+    rows = Enum.reject(rows, &pending_equal_version?(&1, existing))
+
     aligned_rows =
       rows
       |> Enum.filter(&persist_inventory_vulnerability_lifecycle?(&1, existing))
-      |> Enum.map(&prepare_inventory_vulnerability_lifecycle(&1, existing))
+      |> Enum.map(
+        &(&1
+          |> stamp_new_occurrence(Map.get(existing, ocsf_event_id_key(&1)))
+          |> prepare_inventory_vulnerability_lifecycle(existing))
+      )
       |> dedupe_rows_by_conflict_key(&ocsf_event_conflict_key/1)
 
     transition_keys =
@@ -388,8 +643,15 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
       |> Enum.filter(&inventory_vulnerability_transition?(&1, existing))
       |> MapSet.new(&ocsf_event_conflict_key/1)
 
+    aligned_rows =
+      Enum.map(aligned_rows, fn row ->
+        if MapSet.member?(transition_keys, ocsf_event_conflict_key(row)),
+          do: row,
+          else: Map.delete(row, @occurrence_key)
+      end)
+
     {_count, upserted_rows} =
-      BulkInsert.insert_all(table_name(), aligned_rows,
+      insert_ocsf_rows(aligned_rows,
         on_conflict: {:replace, @ocsf_event_replace_fields},
         conflict_target: @ocsf_event_conflict_target,
         returning: @ocsf_event_conflict_target
@@ -435,20 +697,26 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
       %{}
     else
       sql = """
-      SELECT DISTINCT ON (id) id::text, time, status, unmapped ->> 'finding_version'
-      FROM platform.ocsf_events
-      WHERE id = ANY($1::uuid[])
-      ORDER BY id, time ASC
+      SELECT DISTINCT ON (events.id) events.id::text, events.time, events.status,
+        events.unmapped ->> 'finding_version',
+        EXISTS (
+          SELECT 1 FROM platform.lifecycle_pending_admissions AS pending
+          WHERE pending.event_id = events.id
+        )
+      FROM platform.ocsf_events AS events
+      WHERE events.id = ANY($1::uuid[])
+      ORDER BY events.id, events.time ASC
       """
 
       %{rows: result_rows} = ServiceRadar.Repo.query!(sql, [ids])
 
-      Map.new(result_rows, fn [id, time, status, version] ->
+      Map.new(result_rows, fn [id, time, status, version, pending?] ->
         {uuid_conflict_value(id),
          %{
            time: normalize_existing_time(time),
            status: status,
-           version: parse_finding_version(version)
+           version: parse_finding_version(version),
+           pending?: pending?
          }}
       end)
     end
@@ -490,6 +758,28 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
         DateTime.after?(new_version, old_version)
     end
   end
+
+  defp pending_equal_version?(row, existing) do
+    case Map.get(existing, ocsf_event_id_key(row)) do
+      %{status: status} = marker ->
+        marker.pending? and equal_finding_version?(row, marker) and
+          vulnerability_lifecycle_status(status) ==
+            vulnerability_lifecycle_status(Map.get(row, :status))
+
+      _ ->
+        false
+    end
+  end
+
+  defp equal_finding_version?(row, %{version: %DateTime{} = stored}) do
+    case row_finding_version(row) do
+      %DateTime{} = version -> DateTime.compare(version, stored) == :eq
+      _ -> false
+    end
+  end
+
+  defp equal_finding_version?(row, %{version: nil}), do: row_finding_version(row) == nil
+  defp equal_finding_version?(_row, _marker), do: false
 
   defp row_finding_version(row), do: parse_finding_version(row_value(row, "finding_version"))
 
@@ -569,10 +859,17 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   defp record_causal_prediction_ocsf_events(rows) when is_list(rows) do
     {rows, existing_id_keys} = align_existing_ocsf_event_times_with_existing_ids(rows)
 
-    rows = dedupe_rows_by_conflict_key(rows, &ocsf_event_id_key/1)
+    rows =
+      rows
+      |> dedupe_rows_by_conflict_key(&ocsf_event_id_key/1)
+      |> Enum.map(fn row ->
+        if MapSet.member?(existing_id_keys, ocsf_event_id_key(row)),
+          do: row,
+          else: stamp_new_occurrence(row)
+      end)
 
     {_count, upserted_rows} =
-      BulkInsert.insert_all(table_name(), rows,
+      insert_ocsf_rows(rows,
         on_conflict: {:replace, @ocsf_event_replace_fields},
         conflict_target: @ocsf_event_conflict_target,
         returning: @ocsf_event_conflict_target
@@ -786,15 +1083,19 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     end
   end
 
-  defp log_returned_batch_failure(reason) do
-    if reason == :alert_evaluation_peer_not_ready do
-      Logger.info("Deferring causal signals batch until alert evaluation is ready",
-        reason: inspect(reason)
-      )
-    else
-      log_batch_insert_failure(reason)
-    end
+  defp log_returned_batch_failure(:alert_evaluation_peer_not_ready = reason) do
+    Logger.info("Deferring causal signals batch until alert evaluation is ready",
+      reason: inspect(reason)
+    )
   end
+
+  defp log_returned_batch_failure({:overloaded, dimension}) do
+    Logger.info("Deferring causal signals batch until alert evaluation has capacity",
+      reason: inspect(dimension)
+    )
+  end
+
+  defp log_returned_batch_failure(reason), do: log_batch_insert_failure(reason)
 
   defp record_statement_error(error, query) do
     if not in_failed_sql_transaction?(error) and is_nil(Process.get(@first_statement_error_key)) do
@@ -876,7 +1177,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   end
 
   defp dispatch_northbound_inventory_transition(row) do
-    event = alert_evaluation_row(row)
+    event = row |> Map.drop(admission_keys()) |> alert_evaluation_row()
 
     case northbound_event_handler_runner().handle_event(event) do
       {:ok, _results} ->
@@ -914,16 +1215,226 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     )
   end
 
-  # This runs inside the transition transaction. Occurrence IDs are distinct
-  # from the reused event row ID and are stored with the accepted inbox row.
-  defp evaluate_transitions([]), do: :ok
-
-  defp evaluate_transitions(rows) do
-    rows
-    |> alert_evaluation_rows()
-    |> Enum.map(&Map.put(&1, :__alert_evaluation_occurrence_id__, Ash.UUID.generate()))
-    |> StatefulEvaluationLedger.evaluate_events()
+  # Occurrence ids are distinct from a reused event row id. The id is a pure
+  # function of the event as delivered (id, the JetStream message identity,
+  # observed time before lifecycle pinning, finding version, status) and of the
+  # stored state it transitions from, so a redelivery finds the same pending
+  # row and the inbox continues after the committed prefix, while a finding
+  # that re-enters an earlier state is a new occurrence.
+  defp stamp_new_occurrence(row, prior \\ nil) do
+    if alert_evaluation_event_row?(row),
+      do: Map.put(row, @occurrence_key, lifecycle_occurrence_id(row, prior)),
+      else: row
   end
+
+  defp put_source_identity(row, message) do
+    with true <- inventory_vulnerability_lifecycle_row?(row),
+         identity when is_binary(identity) <-
+           StableId.message_identity(Map.get(message, :metadata)) do
+      Map.put(row, @source_key, identity)
+    else
+      _ -> row
+    end
+  end
+
+  defp lifecycle_occurrence_id(row, prior) do
+    [
+      "alert-evaluation-occurrence:v3|",
+      ocsf_event_id_key(row) || "",
+      "|",
+      row |> Map.get(@source_key) |> to_string(),
+      "|",
+      prior_lifecycle_state(prior),
+      "|",
+      row |> Map.get(:time) |> time_conflict_value() |> to_string(),
+      "|",
+      row |> row_value("finding_version") |> to_string(),
+      "|",
+      row |> Map.get(:status) |> to_string()
+    ]
+    |> StableId.uuid()
+    |> Ecto.UUID.load!()
+  end
+
+  defp prior_lifecycle_state(%{status: status, time: time}),
+    do: "#{status}@#{time_conflict_value(time)}"
+
+  defp prior_lifecycle_state(_prior), do: "none"
+
+  defp series_key_of(row) do
+    metadata = Map.get(row, :metadata) || Map.get(row, "metadata") || %{}
+    unmapped = Map.get(row, :unmapped) || Map.get(row, "unmapped") || %{}
+    service_radar = Map.get(metadata, "service_radar") || %{}
+    detection = Map.get(metadata, "detection_finding") || %{}
+    anomaly = Map.get(unmapped, "anomaly") || %{}
+
+    Enum.find_value(
+      [
+        service_radar["series_key"],
+        detection["series_key"],
+        anomaly["series_key"],
+        unmapped["series_key"]
+      ],
+      fn
+        value when is_binary(value) and value != "" -> value
+        _ -> nil
+      end
+    )
+  end
+
+  defp lifecycle_series(rows) do
+    rows
+    |> Enum.filter(&alert_evaluation_event_row?/1)
+    |> Enum.map(&series_ref/1)
+    |> Enum.filter(fn
+      {class_uid, key} when is_integer(class_uid) and is_binary(key) and key != "" -> true
+      _ -> false
+    end)
+    |> Enum.uniq()
+  end
+
+  defp series_ref(row),
+    do: {Map.get(row, :class_uid), series_key_of(row) || ocsf_event_id_key(row)}
+
+  defp load_pending_occurrences([]), do: []
+
+  defp load_pending_occurrences(series) do
+    %{rows: rows} =
+      ServiceRadar.Repo.query!(
+        """
+        SELECT occurrence_id::text, class_uid, series_key, event_id::text, occurrence
+        FROM platform.lifecycle_pending_admissions
+        WHERE (class_uid, series_key) IN (
+          SELECT * FROM unnest($1::int[], $2::text[])
+        )
+        ORDER BY class_uid, series_key, seq
+        """,
+        [Enum.map(series, &elem(&1, 0)), Enum.map(series, &elem(&1, 1))]
+      )
+
+    Enum.map(rows, fn [occurrence_id, class_uid, series_key, event_id, occurrence] ->
+      {delivered_id, payload} = Map.pop(occurrence, @delivered_envelope_key)
+
+      %{
+        occurrence_id: occurrence_id,
+        series: {class_uid, series_key},
+        event_id: event_id,
+        delivered_id: delivered_id,
+        record: restore_occurrence(payload, occurrence_id)
+      }
+    end)
+  end
+
+  defp restore_occurrence(occurrence, occurrence_id) do
+    occurrence
+    |> Input.restore_record()
+    |> Map.new(fn
+      {key, value} when is_binary(key) -> {String.to_existing_atom(key), value}
+      entry -> entry
+    end)
+    |> Map.put(@occurrence_key, occurrence_id)
+  end
+
+  defp release_pending_admission(occurrence_id) do
+    ServiceRadar.Repo.query!(
+      "DELETE FROM platform.lifecycle_pending_admissions WHERE occurrence_id = ($1::text)::uuid",
+      [occurrence_id]
+    )
+
+    :ok
+  end
+
+  defp admission_keys,
+    do: [@occurrence_key, @source_key, AnomalyEpisodeRegistry.delivered_event_id_key()]
+
+  defp insert_ocsf_rows(rows, opts) do
+    BulkInsert.insert_all(table_name(), Enum.map(rows, &Map.drop(&1, admission_keys())), opts)
+  end
+
+  # Each occurrence gets its own row in event-time order, same-time rows in
+  # batch order, so `seq` is the series' FIFO. A redelivery conflicts on the
+  # occurrence id and changes nothing.
+  defp insert_pending_admissions(rows, batch_rows) do
+    position =
+      batch_rows
+      |> Enum.with_index()
+      |> Enum.reverse()
+      |> Map.new(fn {row, index} -> {ocsf_event_id_key(row), index} end)
+
+    entries =
+      rows
+      |> Enum.sort_by(
+        &{time_conflict_value(Map.get(&1, :time)), Map.get(position, ocsf_event_id_key(&1))}
+      )
+      |> Enum.flat_map(&pending_entry/1)
+
+    if entries != [] do
+      ServiceRadar.Repo.query!(
+        """
+        INSERT INTO platform.lifecycle_pending_admissions (
+          occurrence_id, class_uid, series_key, event_time, event_id, occurrence
+        )
+        SELECT occurrence_id, class_uid, series_key, event_time, event_id, occurrence::jsonb
+        FROM unnest(
+          $1::uuid[], $2::int[], $3::text[], $4::timestamptz[], $5::uuid[], $6::text[]
+        ) WITH ORDINALITY
+          AS entry(occurrence_id, class_uid, series_key, event_time, event_id, occurrence, position)
+        ORDER BY position
+        ON CONFLICT (occurrence_id) DO NOTHING
+        """,
+        Enum.map(0..5, fn index -> Enum.map(entries, &elem(&1, index)) end)
+      )
+    end
+
+    :ok
+  end
+
+  defp pending_entry(row) do
+    with occurrence_id when is_binary(occurrence_id) <-
+           uuid_to_binary(Map.get(row, @occurrence_key)),
+         {class_uid, series_key} when is_integer(class_uid) and is_binary(series_key) <-
+           series_ref(row),
+         %DateTime{} = time <- normalize_existing_time(Map.get(row, :time)),
+         event_id when is_binary(event_id) <- uuid_to_binary(ocsf_event_id_key(row)),
+         {:ok, %{payload: payload}} <- occurrence_snapshot(row) do
+      envelope =
+        put_delivered_envelope(
+          payload,
+          Map.get(row, AnomalyEpisodeRegistry.delivered_event_id_key())
+        )
+
+      [{occurrence_id, class_uid, series_key, time, event_id, Jason.encode!(envelope)}]
+    else
+      {:error, reason} ->
+        Logger.warning("Skipping alert evaluation for an unencodable lifecycle occurrence",
+          reason: inspect(reason, limit: 10, printable_limit: 200),
+          event_id: inspect(ocsf_event_id_key(row))
+        )
+
+        []
+
+      _ ->
+        []
+    end
+  end
+
+  # The snapshot is exactly the payload the inbox would accept for this
+  # occurrence, validated now so a stored row can never be unadmittable.
+  defp occurrence_snapshot(row) do
+    [evaluation_row] =
+      alert_evaluation_rows([
+        Map.drop(row, [@source_key, AnomalyEpisodeRegistry.delivered_event_id_key()])
+      ])
+
+    Input.prepare(:event, evaluation_row)
+  end
+
+  # The delivered row id that ties a redelivery to this occurrence is admission
+  # bookkeeping: it rides on the pending row's envelope, never in the event.
+  defp put_delivered_envelope(payload, delivered_id) when is_binary(delivered_id),
+    do: Map.put(payload, @delivered_envelope_key, delivered_id)
+
+  defp put_delivered_envelope(payload, _delivered_id), do: payload
 
   defp alert_evaluation_event_row?(row),
     do: inventory_event_row?(row) or causal_prediction_row?(row)

@@ -14,13 +14,10 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphBatchProjectionTest 
     {:ok, port} = :inet.port(listener)
     :gen_tcp.close(listener)
 
-    env = Map.new(~w(DGRAPH_URL GRAPH_BACKEND), &{&1, System.get_env(&1)})
-    previous_backend = Application.get_env(:serviceradar_core, :graph_backend)
+    previous_url = System.get_env("DGRAPH_URL")
     previous_config = Application.get_env(:serviceradar_core, Dgraph)
 
     System.put_env("DGRAPH_URL", "dgraph://127.0.0.1:#{port}?sslmode=disable")
-    System.delete_env("GRAPH_BACKEND")
-    Application.put_env(:serviceradar_core, :graph_backend, :dgraph)
     Application.put_env(:serviceradar_core, Dgraph, item_deadline_ms: 2_000, max_attempts: 1)
 
     test_pid = self()
@@ -38,8 +35,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphBatchProjectionTest 
 
     on_exit(fn ->
       :telemetry.detach(handler)
-      Enum.each(env, fn {name, value} -> restore_env(name, value) end)
-      put_app(:graph_backend, previous_backend)
+      restore_env("DGRAPH_URL", previous_url)
       put_app(Dgraph, previous_config)
     end)
 

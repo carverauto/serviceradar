@@ -7,8 +7,10 @@ defmodule ServiceRadar.EventWriter.JetStreamAck do
   Domain/account-prefixed variants keep the same numeric suffix, so parsing is
   anchored from the right.
 
-  EventWriter dead-letter handling is a terminal-delivery telemetry/log signal;
-  it does not persist poison payloads into a replayable DLQ.
+  For streams other than the edge-record routes, EventWriter's dead-letter
+  handling is a terminal-delivery telemetry and log signal; it does not persist
+  those payloads. An edge record whose projection keeps failing is copied to
+  its dead-letter stream (`ServiceRadar.EventWriter.EdgeRecordDeadLetter`).
   """
 
   @type t :: %{
@@ -20,6 +22,23 @@ defmodule ServiceRadar.EventWriter.JetStreamAck do
           timestamp: non_neg_integer(),
           pending: non_neg_integer()
         }
+
+  @doc """
+  Whether a message is on its final JetStream delivery: its server-reported
+  delivery count has reached the consumer's `max_deliver`, so a failure now is
+  terminal rather than redelivered. Unlimited (`-1`) or unknown limits never are.
+  """
+  @spec final_delivery?(map()) :: boolean()
+  def final_delivery?(%{metadata: metadata}) when is_map(metadata) do
+    with %{delivery_count: delivery_count} <- metadata[:jetstream_ack],
+         max_deliver when is_integer(max_deliver) and max_deliver > 0 <- metadata[:max_deliver] do
+      delivery_count >= max_deliver
+    else
+      _ -> false
+    end
+  end
+
+  def final_delivery?(_message), do: false
 
   @spec parse(term()) :: t() | nil
   def parse("$JS.ACK." <> rest) do

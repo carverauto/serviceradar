@@ -35,6 +35,7 @@ export CNPG_USERNAME=serviceradar
 export CNPG_PASSWORD=$(docker compose exec -T cnpg cat /etc/serviceradar/cnpg/serviceradar-password)
 export CNPG_SSL_MODE=verify-full
 export CNPG_CERT_DIR=/path/to/private/serviceradar-certs
+export DGRAPH_URL="dgraph://groot:<groot-password>@<dgraph-host>:9080?sslmode=disable"
 mix graph.ready
 mix phx.server
 ```

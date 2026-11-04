@@ -31,7 +31,7 @@ async fn main() {
         .try_init();
 
     if let Err(err) = run().await {
-        let _ = writeln!(stderr(), "serviceradar-log-collector error: {err}");
+        let _ = writeln!(stderr(), "serviceradar-log-collector error: {err:#}");
         std::process::exit(1);
     }
 }
@@ -77,7 +77,15 @@ async fn run() -> Result<()> {
         cfg.flowgger.enabled, cfg.otel.enabled
     );
 
-    let mut pipelines: JoinSet<&'static str> = JoinSet::new();
+    let mut health_server = tonic::transport::Server::builder();
+    #[cfg(feature = "syslog")]
+    if cfg.flowgger.enabled
+        && let Some(tls) = flowgger::health_tls_config(&cfg.flowgger.config_file)?
+    {
+        health_server = health_server.tls_config(tls)?;
+    }
+
+    let mut pipelines: JoinSet<Result<&'static str>> = JoinSet::new();
 
     // --- Flowgger (syslog/GELF) pipeline ---
     #[cfg(feature = "syslog")]
@@ -87,8 +95,8 @@ async fn run() -> Result<()> {
 
         // Flowgger uses sync threads internally, so we run it in a blocking task.
         pipelines.spawn_blocking(move || {
-            flowgger::start(&flowgger_config);
-            "flowgger"
+            flowgger::start_pipeline(&flowgger_config);
+            Ok("flowgger")
         });
     }
 
@@ -141,14 +149,12 @@ async fn run() -> Result<()> {
     }
 
     info!("gRPC health server on {health_addr}");
-    tokio::spawn(async move {
-        if let Err(e) = tonic::transport::Server::builder()
+    pipelines.spawn(async move {
+        health_server
             .add_service(health_service)
             .serve(health_addr)
-            .await
-        {
-            error!("gRPC health server error: {e}");
-        }
+            .await?;
+        Ok("health")
     });
 
     tokio::select! {
@@ -162,10 +168,11 @@ async fn run() -> Result<()> {
 }
 
 fn unexpected_pipeline_exit(
-    completed: Option<std::result::Result<&'static str, JoinError>>,
+    completed: Option<std::result::Result<Result<&'static str>, JoinError>>,
 ) -> Result<()> {
     match completed {
-        Some(Ok(name)) => anyhow::bail!("{name} pipeline exited unexpectedly"),
+        Some(Ok(Ok(name))) => anyhow::bail!("{name} pipeline exited unexpectedly"),
+        Some(Ok(Err(err))) => Err(err.context("log collector service failed")),
         Some(Err(err)) => anyhow::bail!("log collector pipeline task failed: {err}"),
         None => anyhow::bail!("all log collector pipelines exited unexpectedly"),
     }
@@ -253,7 +260,7 @@ mod tests {
 
     #[test]
     fn completed_pipeline_is_an_error() {
-        let err = unexpected_pipeline_exit(Some(Ok("flowgger"))).unwrap_err();
+        let err = unexpected_pipeline_exit(Some(Ok(Ok("flowgger")))).unwrap_err();
 
         assert_eq!(err.to_string(), "flowgger pipeline exited unexpectedly");
     }

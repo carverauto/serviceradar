@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-//! Synthetic dual-write / rebuild / prune against a Dgraph fixture.
+//! Synthetic topology write / rebuild / prune against a Dgraph fixture.
 //!
 //! Same acquire path as `schema_lifecycle`: Docker standalone locally,
 //! `DGRAPH_TEST_STRATEGY=existing` against dgraph-ci in CI.

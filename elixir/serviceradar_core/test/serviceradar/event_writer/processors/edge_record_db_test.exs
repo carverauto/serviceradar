@@ -14,13 +14,19 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
   use ServiceRadar.DataCase, async: true
 
+  alias Broadway.Message
   alias ServiceRadar.Actors.SystemActor
+  alias Serviceradar.Agent.Addon.V1.OtlpRelayFrame
   alias Serviceradar.Agent.Addon.V1.TelemetryBatch, as: AddonTelemetryBatch
   alias Serviceradar.Agent.Addon.V1.TelemetryCounters
   alias Serviceradar.Agent.Addon.V1.TelemetryRecord
   alias Serviceradar.Agent.Addon.V1.TelemetrySource
+  alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEvent
+  alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEventBatch
+  alias ServiceRadar.Edge.ContractCatalog
   alias ServiceRadar.Edge.HashGrammar
   alias ServiceRadar.Edge.IssuerKey
+  alias ServiceRadar.Edge.OutputContract
   alias ServiceRadar.Edge.OutputGrants
   alias ServiceRadar.Edge.ProjectionRows
   alias ServiceRadar.Edge.Projectors.UnleasedSweepResults
@@ -37,6 +43,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
   alias Serviceradar.Edge.V1.MtrTcpHandshakeDiagnosticsV1
   alias Serviceradar.Edge.V1.MtrTraceEventV1
   alias Serviceradar.Edge.V1.MtrTraceHopV1
+  alias Serviceradar.Edge.V1.PluginResultProvenanceV1
   alias Serviceradar.Edge.V1.SweepHostObservationV1
   alias Serviceradar.Edge.V1.SweepIcmpSummaryV1
   alias Serviceradar.Edge.V1.SweepObservationBatchV1
@@ -48,7 +55,13 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
   alias Serviceradar.Edge.V1.UnleasedSweepPortCountV1
   alias Serviceradar.Edge.V1.UnleasedSweepPortResultV1
   alias Serviceradar.Edge.V1.UnleasedSweepResultsBatchV1
+  alias Serviceradar.Edge.V1.WasmPluginResultBatchV1
+  alias Serviceradar.Edge.V1.WasmPluginResultItemV1
+  alias ServiceRadar.EventWriter.EdgeRecordDeadLetter
+  alias ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay
   alias ServiceRadar.EventWriter.Processors.EdgeRecord
+  alias ServiceRadar.FlowAttribution
+  alias ServiceRadar.FlowAttribution.Observations
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Infrastructure.Partition
   alias ServiceRadar.Ingestion.ResultIngestor
@@ -62,9 +75,11 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
   alias ServiceRadar.Observability.MtrHop
   alias ServiceRadar.Observability.MtrMetricsIngestor
   alias ServiceRadar.Observability.MtrTrace
+  alias ServiceRadar.Observability.PluginResultRepairAssignmentSupport
   alias ServiceRadar.Observability.ServiceState
   alias ServiceRadar.Observability.ServiceStateRegistry
   alias ServiceRadar.Repo
+  alias ServiceRadar.StatusHandler
   alias ServiceRadar.SweepJobs.ExecutionSlots
   alias ServiceRadar.SweepJobs.LeaseCapabilities
   alias ServiceRadar.SweepJobs.ProducerAssignments
@@ -80,6 +95,9 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
   @unleased_sweep_contract "serviceradar.sweep.unleased_results"
   @telemetry_contract "serviceradar.telemetry.batch"
   @scheduled_mtr_contract "serviceradar.mtr.scheduled_trace"
+  @flow_attribution_contract "serviceradar.netprobe.flow_attribution"
+  @otlp_relay_contract "serviceradar.otlp.relay"
+  @plugin_results_contract "serviceradar.plugin_results.batch"
 
   setup_all do
     ServiceRadar.TestSupport.start_core!()
@@ -622,14 +640,75 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       refute_received {:metrics_published, _subject, _body, _opts}
       assert ledger_count(frame.record) == 1
     end
+
+    test "a dead-lettered record replays from its dead-letter copy once, through the ledger" do
+      frame = build_metrics_frame()
+      refused = fn _subject, _body, _opts -> {:error, :timeout} end
+
+      error =
+        assert_raise RuntimeError, fn ->
+          EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: refused)
+        end
+
+      # The delivery as the broker hands it over: lower-cased header names.
+      delivered =
+        Message.failed(
+          %Message{
+            data: frame.record_bytes,
+            metadata: %{
+              subject: "telemetry.edge-record.v1.bulk.p07",
+              headers: Enum.map(frame.headers, fn {k, v} -> {String.downcase(k), v} end),
+              jetstream_ack: %{
+                stream: "TELEMETRY_EDGE_RECORD_V1_BULK",
+                stream_sequence: 7,
+                delivery_count: 20
+              }
+            },
+            acknowledger: {__MODULE__, :ack_ref, %{}}
+          },
+          error
+        )
+
+      letter = EdgeRecordDeadLetter.build(delivered, DateTime.utc_now())
+      event_id = Ecto.UUID.load!(frame.record.event_id)
+
+      assert letter.subject ==
+               "telemetry.edge-record-dlq.v1.bulk.p07.serviceradar_metrics_batch.v1"
+
+      failure = Map.new(letter.headers)
+      assert failure["Sr-Edge-Dlq-Contract"] == "#{@metrics_contract}/1"
+      assert failure["Sr-Edge-Dlq-Event-Id"] == event_id
+      assert failure["Sr-Edge-Dlq-Agent-Id"] == frame.agent_id
+
+      # The copy as the dead-letter stream returns it, then as replay republishes it.
+      stored =
+        Enum.map([{"Nats-Msg-Id", letter.msg_id} | letter.headers], fn {k, v} ->
+          {String.downcase(k), v}
+        end)
+
+      assert {:ok, republished} = Replay.republication(%{data: letter.body, headers: stored})
+      assert republished.subject == "telemetry.edge-record.v1.bulk.p07"
+      replayed = [{"Nats-Msg-Id", republished.msg_id} | republished.headers]
+
+      assert {:ok, :inserted} =
+               EdgeRecord.ingest(republished.body, replayed, Repo, request: stored_ack())
+
+      assert_received {:metrics_published, _subject, _body, _opts}
+
+      assert {:ok, :replay} =
+               EdgeRecord.ingest(republished.body, replayed, Repo, request: stored_ack())
+
+      refute_received {:metrics_published, _subject, _body, _opts}
+      assert ledger_count(frame.record) == 1
+    end
   end
 
   describe "ingest/4 of telemetry batch records" do
     setup do
-      original = Application.get_env(:serviceradar_core, ServiceRadar.StatusHandler, [])
+      original = Application.get_env(:serviceradar_core, StatusHandler, [])
       test = self()
 
-      Application.put_env(:serviceradar_core, ServiceRadar.StatusHandler,
+      Application.put_env(:serviceradar_core, StatusHandler,
         addon_telemetry_publisher: fn subject, payload ->
           send(test, {:telemetry_routed, subject, payload})
           :ok
@@ -638,9 +717,9 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
       on_exit(fn ->
         if original == [] do
-          Application.delete_env(:serviceradar_core, ServiceRadar.StatusHandler)
+          Application.delete_env(:serviceradar_core, StatusHandler)
         else
-          Application.put_env(:serviceradar_core, ServiceRadar.StatusHandler, original)
+          Application.put_env(:serviceradar_core, StatusHandler, original)
         end
       end)
 
@@ -769,7 +848,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
       on_exit(fn -> :telemetry.detach(handler) end)
 
-      Application.put_env(:serviceradar_core, ServiceRadar.StatusHandler,
+      Application.put_env(:serviceradar_core, StatusHandler,
         addon_telemetry_publisher: fn _subject, _payload -> {:error, :not_connected} end
       )
 
@@ -783,7 +862,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
       test = self()
 
-      Application.put_env(:serviceradar_core, ServiceRadar.StatusHandler,
+      Application.put_env(:serviceradar_core, StatusHandler,
         addon_telemetry_publisher: fn subject, payload ->
           send(test, {:telemetry_routed, subject, payload})
           :ok
@@ -847,6 +926,127 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       frame = build_telemetry_frame([metrics_telemetry_record()], stamp: false)
 
       assert {:error, :telemetry_batch_producer} =
+               EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
+
+      assert ledger_count(frame.record) == 0
+    end
+  end
+
+  describe "ingest/4 of plugin result batch records" do
+    test "a fresh batch ingests under its assignment identity and a replay adds no row" do
+      suffix = System.unique_integer([:positive])
+      name = "synthetic-edge-check-#{suffix}"
+      {agent_id, partition} = plugin_result_agent!()
+
+      status = %{agent_id: agent_id, service_name: name, partition: "default"}
+      package = PluginResultRepairAssignmentSupport.create_repair_package!(name)
+
+      assignment =
+        PluginResultRepairAssignmentSupport.create_repair_assignment_for_package!(status, package)
+
+      frame =
+        build_plugin_result_frame([plugin_result_item(name)],
+          agent_id: agent_id,
+          partition: partition,
+          assignment_id: to_string(assignment.id),
+          plugin_id: package.plugin_id
+        )
+
+      assert {:ok, :inserted} =
+               EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
+
+      assert ledger_count(frame.record) == 1
+      assert [^name] = plugin_service_names(frame.agent_id)
+      assert plugin_service_row_count(frame.agent_id) == 1
+
+      assert {:ok, :replay} =
+               EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
+
+      assert ledger_count(frame.record) == 1
+      assert [^name] = plugin_service_names(frame.agent_id)
+      assert plugin_service_row_count(frame.agent_id) == 1
+    end
+
+    test "a coexisting assignment ingests under its disambiguated service identity" do
+      suffix = System.unique_integer([:positive])
+      name = "synthetic-shared-check-#{suffix}"
+      {agent_id, partition} = plugin_result_agent!()
+
+      status = %{agent_id: agent_id, service_name: name, partition: "default"}
+      package = PluginResultRepairAssignmentSupport.create_repair_package!(name)
+      secondary_package = package
+
+      primary =
+        PluginResultRepairAssignmentSupport.create_repair_assignment_for_package!(
+          status,
+          package,
+          source: :policy,
+          source_key: "coexist-primary-#{suffix}",
+          policy_id: "network-credential-rule:rule-primary-#{suffix}:inventory"
+        )
+
+      # The sandbox runs both creates in one transaction, so their
+      # inserted_at stamps are identical; the primary was enabled first.
+      Repo.query!(
+        "UPDATE platform.plugin_assignments SET inserted_at = inserted_at - interval '1 hour' WHERE id = $1",
+        [Ecto.UUID.dump!(to_string(primary.id))]
+      )
+
+      # Two enabled assignments of one package coexist only under different
+      # credential-rule owners.
+      secondary =
+        PluginResultRepairAssignmentSupport.create_repair_assignment_for_package!(
+          status,
+          secondary_package,
+          source: :policy,
+          source_key: "coexist-secondary-#{suffix}",
+          policy_id: "network-credential-rule:rule-secondary-#{suffix}:inventory"
+        )
+
+      frame =
+        build_plugin_result_frame([plugin_result_item(name)],
+          agent_id: agent_id,
+          partition: partition,
+          assignment_id: to_string(secondary.id),
+          plugin_id: secondary_package.plugin_id
+        )
+
+      assert {:ok, "#{name}##{secondary.id}"} ==
+               ServiceRadar.Observability.ServiceStateRegistry.PluginServiceIdentity.service_name_for_assignment(
+                 agent_id,
+                 to_string(secondary.id)
+               )
+
+      assert {:ok, :inserted} =
+               EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
+
+      expected = "#{name}##{secondary.id}"
+      assert [^expected] = plugin_service_names(frame.agent_id)
+    end
+
+    test "a record whose grant was revoked is refused and ingests nothing" do
+      frame = build_plugin_result_frame([plugin_result_item("synthetic-revoked-check")])
+
+      assert {:ok, _grant} =
+               OutputGrants.reconcile(
+                 frame.agent_id,
+                 @plugin_results_contract,
+                 frame.partition_id,
+                 false
+               )
+
+      assert {:error, :output_grant_not_current} =
+               EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
+
+      assert ledger_count(frame.record) == 0
+      assert [] = plugin_service_names(frame.agent_id)
+    end
+
+    test "a batch without host provenance is refused at decode" do
+      frame =
+        build_plugin_result_frame([plugin_result_item("synthetic-bare-check")], provenance: nil)
+
+      assert {:error, :plugin_result_batch_no_provenance} =
                EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
 
       assert ledger_count(frame.record) == 0
@@ -1019,6 +1219,569 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
                Map.new(legacy.hosts, &{&1.ip, &1.status})
 
       assert edge == legacy
+    end
+  end
+
+  describe "ingest/4 of flow attribution records" do
+    test "standing grant catalog and output contract bounds match the flow attribution and otlp relay contracts" do
+      refs = ContractCatalog.standing_grant_refs()
+      assert {@flow_attribution_contract, 1} in refs
+      assert {@otlp_relay_contract, 1} in refs
+
+      document =
+        Jason.encode!(%{
+          "registry_epoch" => 1,
+          "registry_snapshot_sha256" => String.duplicate("cd", 32),
+          "contracts" => [
+            %{
+              "contract_id" => @flow_attribution_contract,
+              "contract_version" => 1,
+              "contract_bundle_sha256" => String.duplicate("ab", 32),
+              "state" => "active",
+              "route_profile" => "EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1",
+              "traffic_class" => "EDGE_RECORD_TRAFFIC_CLASS_BULK",
+              "partition_rule" => "network_scope_v1",
+              "cost_model_version" => 1
+            },
+            %{
+              "contract_id" => @otlp_relay_contract,
+              "contract_version" => 1,
+              "contract_bundle_sha256" => String.duplicate("ef", 32),
+              "state" => "active",
+              "route_profile" => "EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1",
+              "traffic_class" => "EDGE_RECORD_TRAFFIC_CLASS_BULK",
+              "partition_rule" => "network_scope_v1",
+              "cost_model_version" => 1
+            }
+          ]
+        })
+
+      assert {:ok, flow_contract} =
+               OutputContract.from_document(document, {@flow_attribution_contract, 1})
+
+      assert flow_contract.max_projected_row_count == 4_096
+      assert flow_contract.max_projected_write_bytes == 4_096 * 983_029
+
+      assert {:ok, otlp_contract} =
+               OutputContract.from_document(document, {@otlp_relay_contract, 1})
+
+      assert otlp_contract.max_projected_row_count == 1_024
+      assert otlp_contract.max_projected_write_bytes == 524_288
+    end
+
+    test "a fresh record publishes identical observation rows and emits batch_received after ledger commit like StatusHandler" do
+      frame = build_flow_attribution_frame()
+      test_pid = self()
+
+      with_telemetry(
+        [[:serviceradar, :event_writer, :attributed_flow, :batch_received]],
+        fn _event, measurements, metadata, _config ->
+          if self() == test_pid do
+            send(test_pid, {:flow_batch_received, measurements, metadata})
+          end
+        end,
+        fn ->
+          publisher =
+            {FlowAttribution, :publish_observations,
+             [
+               [
+                 enabled: true,
+                 publish: fn subject, body, msg_id ->
+                   send(test_pid, {:legacy_flow_published, subject, body, msg_id})
+                   :ok
+                 end
+               ]
+             ]}
+
+          assert {:ok, legacy_committed} =
+                   StatusHandler.process_flow_attribution(
+                     %{
+                       partition: frame.partition_slug,
+                       agent_id: frame.agent_id,
+                       message: FlowAttributionEventBatch.encode(frame.batch)
+                     },
+                     flow_attribution_publisher: publisher
+                   )
+
+          StatusHandler.emit_flow_attribution_committed(legacy_committed)
+
+          assert_received {:legacy_flow_published, legacy_subject, legacy_body, nil}
+          assert_received {:flow_batch_received, legacy_measurements, legacy_metadata}
+
+          assert {:ok, :inserted} =
+                   EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo,
+                     flow_attribution_publisher:
+                       {FlowAttribution, :publish_observations, [[enabled: true]]},
+                     request: stored_ack(:edge_flow_published, "flows")
+                   )
+
+          assert_received {:edge_flow_published, edge_subject, edge_body, edge_request_opts}
+          assert_received {:flow_batch_received, edge_measurements, edge_metadata}
+
+          assert edge_subject == legacy_subject
+          assert edge_subject == Observations.subject()
+          assert Observations.decode(edge_body) == Observations.decode(legacy_body)
+          assert edge_measurements == legacy_measurements
+          assert edge_measurements == %{count: 1, event_count: 2, dropped_since_last: 7}
+          assert edge_metadata == legacy_metadata
+          assert edge_metadata == %{partition_id: frame.partition_slug, agent_id: frame.agent_id}
+
+          expected_msg_id = Ecto.UUID.load!(frame.record.event_id) <> ":0"
+          assert {"Nats-Msg-Id", expected_msg_id} in edge_request_opts[:headers]
+          assert ledger_count(frame.record) == 1
+        end
+      )
+    end
+
+    test "a redelivered or late-fenced record does not republish observations or emit batch_received" do
+      frame = build_flow_attribution_frame()
+      test_pid = self()
+
+      with_telemetry(
+        [[:serviceradar, :event_writer, :attributed_flow, :batch_received]],
+        fn _event, measurements, metadata, _config ->
+          if self() == test_pid do
+            send(test_pid, {:flow_batch_received, measurements, metadata})
+          end
+        end,
+        fn ->
+          opts = [
+            flow_attribution_publisher:
+              {FlowAttribution, :publish_observations, [[enabled: true]]},
+            request: stored_ack(:edge_flow_published, "flows")
+          ]
+
+          assert {:ok, :inserted} =
+                   EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, opts)
+
+          assert_received {:edge_flow_published, _subject, _body, _opts}
+          assert_received {:flow_batch_received, _measurements, _metadata}
+
+          assert {:ok, :replay} =
+                   EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, opts)
+
+          refute_received {:edge_flow_published, _subject, _body, _opts}
+          refute_received {:flow_batch_received, _measurements, _metadata}
+
+          late_frame =
+            build_flow_attribution_frame(delivery_mode: PublicationIdentity.mode_late_fenced())
+
+          assert {:ok, :inserted} =
+                   EdgeRecord.ingest(late_frame.record_bytes, late_frame.headers, Repo, opts)
+
+          refute_received {:edge_flow_published, _subject, _body, _opts}
+          refute_received {:flow_batch_received, _measurements, _metadata}
+          assert ledger_count(late_frame.record) == 1
+        end
+      )
+    end
+
+    test "a rolled-back ledger transaction does not emit batch_received, and a failed publish leaves no ledger row" do
+      frame = build_flow_attribution_frame()
+      test_pid = self()
+
+      with_telemetry(
+        [[:serviceradar, :event_writer, :attributed_flow, :batch_received]],
+        fn _event, measurements, metadata, _config ->
+          if self() == test_pid do
+            send(test_pid, {:flow_batch_received, measurements, metadata})
+          end
+        end,
+        fn ->
+          refused_request = fn _subject, _body, _opts -> {:error, :timeout} end
+
+          assert_raise RuntimeError, ~r/edge record publish failed/, fn ->
+            EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo,
+              flow_attribution_publisher:
+                {FlowAttribution, :publish_observations, [[enabled: true]]},
+              request: refused_request
+            )
+          end
+
+          refute_received {:flow_batch_received, _measurements, _metadata}
+          assert ledger_count(frame.record) == 0
+
+          rollback_hook = fn
+            :before_commit, _event_id, _result -> raise "injected rollback"
+            _point, _event_id, _result -> :ok
+          end
+
+          assert_raise RuntimeError, "injected rollback", fn ->
+            EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo,
+              flow_attribution_publisher:
+                {FlowAttribution, :publish_observations, [[enabled: true]]},
+              request: stored_ack(:edge_flow_published, "flows"),
+              test_hook: rollback_hook
+            )
+          end
+
+          assert_received {:edge_flow_published, _subject, _body, _opts}
+          refute_received {:flow_batch_received, _measurements, _metadata}
+          assert ledger_count(frame.record) == 0
+
+          assert {:ok, :inserted} =
+                   EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo,
+                     flow_attribution_publisher:
+                       {FlowAttribution, :publish_observations, [[enabled: true]]},
+                     request: stored_ack(:edge_flow_published, "flows")
+                   )
+
+          assert_received {:edge_flow_published, _subject, _body, _opts}
+          assert_received {:flow_batch_received, %{count: 1, event_count: 2}, _metadata}
+          assert ledger_count(frame.record) == 1
+        end
+      )
+    end
+
+    test "revoked grants, missing partitions, and malformed batch bounds are refused without publishing" do
+      frame = build_flow_attribution_frame()
+
+      {:ok, nil} =
+        OutputGrants.reconcile(
+          frame.agent_id,
+          @flow_attribution_contract,
+          frame.partition_id,
+          false
+        )
+
+      assert {:error, :output_grant_not_current} =
+               EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo,
+                 flow_attribution_publisher:
+                   {FlowAttribution, :publish_observations, [[enabled: true]]},
+                 request: stored_ack(:edge_flow_published, "flows")
+               )
+
+      refute_received {:edge_flow_published, _subject, _body, _opts}
+      assert ledger_count(frame.record) == 0
+
+      missing_partition_frame = build_flow_attribution_frame()
+
+      Repo.query!("DELETE FROM platform.partitions WHERE id = $1::uuid", [
+        Ecto.UUID.dump!(missing_partition_frame.partition_id)
+      ])
+
+      assert {:error, :flow_attribution_partition_not_found} =
+               EdgeRecord.ingest(
+                 missing_partition_frame.record_bytes,
+                 missing_partition_frame.headers,
+                 Repo,
+                 flow_attribution_publisher:
+                   {FlowAttribution, :publish_observations, [[enabled: true]]},
+                 request: stored_ack(:edge_flow_published, "flows")
+               )
+
+      refute_received {:edge_flow_published, _subject, _body, _opts}
+      assert ledger_count(missing_partition_frame.record) == 0
+
+      bad_rows =
+        encode_frame(
+          %{frame.record | projected_row_count: 1, projected_write_bytes: 983_029},
+          frame.batch,
+          frame.slot
+        )
+
+      assert {:error, :flow_attribution_row_count} =
+               EdgeRecord.ingest(bad_rows.record_bytes, bad_rows.headers, Repo)
+
+      bad_write_bytes =
+        encode_frame(
+          %{frame.record | projected_write_bytes: 1_024},
+          frame.batch,
+          frame.slot
+        )
+
+      assert {:error, :flow_attribution_write_bytes} =
+               EdgeRecord.ingest(bad_write_bytes.record_bytes, bad_write_bytes.headers, Repo)
+
+      inverted_window =
+        build_flow_attribution_frame(
+          batch_start_unix_nano: 2_000_000_000,
+          batch_end_unix_nano: 1_000_000_000
+        )
+
+      assert {:error, :flow_attribution_batch_window} =
+               EdgeRecord.ingest(inverted_window.record_bytes, inverted_window.headers, Repo)
+    end
+  end
+
+  describe "ingest/4 of otlp relay records" do
+    test "a fresh record routes all four OTLP payload kinds with attested Sr-* headers, Nats-Msg-Id, spool telemetry, and non-duplicate signal telemetry" do
+      frame = build_otlp_relay_frame()
+      test_pid = self()
+
+      with_telemetry(
+        [
+          [:serviceradar, :otlp_relay, :spool],
+          [:serviceradar, :event_writer, :signal]
+        ],
+        fn
+          [:serviceradar, :otlp_relay, :spool], measurements, metadata, _config ->
+            if self() == test_pid do
+              send(test_pid, {:otlp_spool, measurements, metadata})
+            end
+
+          [:serviceradar, :event_writer, :signal], measurements, metadata, _config ->
+            if self() == test_pid and metadata.outcome == :relayed do
+              send(test_pid, {:otlp_signal_relayed, metadata.signal, measurements.count})
+            end
+        end,
+        fn ->
+          assert {:ok, :inserted} =
+                   EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo,
+                     request: stored_ack(:otlp_published, "otel")
+                   )
+
+          assert_received {:otlp_spool,
+                           %{
+                             received: 14,
+                             filtered: 2,
+                             emitted: 12,
+                             dropped: 3,
+                             queue_depth: 5
+                           }, %{partition_id: partition_slug, agent_id: agent_id}}
+
+          assert partition_slug == frame.partition_slug
+          assert agent_id == frame.agent_id
+
+          expected_routes = [
+            {"otel.traces.raw", "trace-chunk-bytes", "otlp-rec-1", :traces},
+            {"logs.otel", "log-chunk-bytes", "otlp-rec-2", :logs},
+            {"otel.metrics.raw", "metric-chunk-bytes", "otlp-rec-3", :metric_points},
+            {"otel.metrics.derived", "derived-chunk-bytes", "otlp-rec-4", :metrics}
+          ]
+
+          for {expected_subject, expected_payload, expected_msg_id, expected_signal} <-
+                expected_routes do
+            assert_received {:otlp_published, ^expected_subject, ^expected_payload, request_opts}
+            headers = Map.new(request_opts[:headers])
+
+            assert headers["Nats-Msg-Id"] == expected_msg_id
+            assert headers["Sr-Agent-Id"] == frame.agent_id
+            assert headers["Sr-Partition"] == frame.partition_slug
+            assert headers["Sr-Ingest-Identity"] == "agent:" <> frame.agent_id
+
+            assert is_binary(headers["Sr-Ingress-Id"]) and
+                     byte_size(headers["Sr-Ingress-Id"]) == 36
+
+            assert is_binary(headers["Sr-Ingress-Time-Unix-Nano"])
+
+            assert_received {:otlp_signal_relayed, ^expected_signal, 1}
+          end
+
+          assert ledger_count(frame.record) == 1
+        end
+      )
+    end
+
+    test "spool counters are emitted once after ledger commit and not when publish or commit fails" do
+      frame = build_otlp_relay_frame()
+      test_pid = self()
+
+      with_telemetry(
+        [[:serviceradar, :otlp_relay, :spool]],
+        fn _event, measurements, metadata, _config ->
+          if self() == test_pid do
+            send(test_pid, {:otlp_spool, measurements, metadata})
+          end
+        end,
+        fn ->
+          refused_request = fn _subject, _body, _opts -> {:error, :timeout} end
+
+          assert_raise RuntimeError, ~r/edge record publish failed/, fn ->
+            EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: refused_request)
+          end
+
+          refute_received {:otlp_spool, _measurements, _metadata}
+          assert ledger_count(frame.record) == 0
+
+          rollback_hook = fn
+            :before_commit, _event_id, _result -> raise "injected rollback"
+            _point, _event_id, _result -> :ok
+          end
+
+          assert_raise RuntimeError, "injected rollback", fn ->
+            EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo,
+              request: stored_ack(:otlp_published, "otel"),
+              test_hook: rollback_hook
+            )
+          end
+
+          refute_received {:otlp_spool, _measurements, _metadata}
+          assert ledger_count(frame.record) == 0
+
+          assert {:ok, :inserted} =
+                   EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo,
+                     request: stored_ack(:otlp_published, "otel")
+                   )
+
+          assert_received {:otlp_spool, %{received: 14, dropped: 3},
+                           %{partition_id: partition_slug, agent_id: agent_id}}
+
+          assert partition_slug == frame.partition_slug
+          assert agent_id == frame.agent_id
+          refute_received {:otlp_spool, _measurements, _metadata}
+          assert ledger_count(frame.record) == 1
+        end
+      )
+    end
+
+    test "duplicate PubAck suppresses the relayed signal counter while unroutable payload kinds emit record_rejected without failing the batch" do
+      records = [
+        %TelemetryRecord{
+          event_id: "otlp-dup-1",
+          payload_kind: :TELEMETRY_PAYLOAD_KIND_OTLP_TRACES,
+          payload: "trace-dup-bytes"
+        },
+        %TelemetryRecord{
+          event_id: "otlp-unroutable-2",
+          payload_kind: :TELEMETRY_PAYLOAD_KIND_OCSF_EVENT,
+          payload: "ocsf-bytes"
+        },
+        %TelemetryRecord{
+          event_id: "otlp-fresh-3",
+          payload_kind: :TELEMETRY_PAYLOAD_KIND_OTLP_LOGS,
+          payload: "log-fresh-bytes"
+        }
+      ]
+
+      frame = build_otlp_relay_frame(records: records)
+      test_pid = self()
+
+      with_telemetry(
+        [
+          [:serviceradar, :otlp_relay, :record_rejected],
+          [:serviceradar, :event_writer, :signal]
+        ],
+        fn
+          [:serviceradar, :otlp_relay, :record_rejected], measurements, metadata, _config ->
+            if self() == test_pid do
+              send(test_pid, {:otlp_rejected, measurements, metadata})
+            end
+
+          [:serviceradar, :event_writer, :signal], measurements, metadata, _config ->
+            if self() == test_pid and metadata.outcome == :relayed do
+              send(test_pid, {:otlp_signal_relayed, metadata.signal, measurements.count})
+            end
+        end,
+        fn ->
+          request = fn subject, body, request_opts ->
+            send(test_pid, {:otlp_published, subject, body, request_opts})
+
+            if subject == "otel.traces.raw" do
+              {:ok, %{body: ~s({"stream":"otel","seq":1,"duplicate":true})}}
+            else
+              {:ok, %{body: ~s({"stream":"otel","seq":2})}}
+            end
+          end
+
+          assert {:ok, :inserted} =
+                   EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: request)
+
+          assert_received {:otlp_published, "otel.traces.raw", "trace-dup-bytes", _opts}
+          assert_received {:otlp_published, "logs.otel", "log-fresh-bytes", _opts}
+
+          refute_received {:otlp_signal_relayed, :traces, _count}
+          assert_received {:otlp_signal_relayed, :logs, 1}
+
+          assert_received {:otlp_rejected, %{count: 1},
+                           %{partition_id: partition_slug, agent_id: agent_id}}
+
+          assert partition_slug == frame.partition_slug
+          assert agent_id == frame.agent_id
+          assert ledger_count(frame.record) == 1
+        end
+      )
+    end
+
+    test "replays, late-fenced deliveries, revoked grants, missing partitions, and publish failures follow the edge-record contract" do
+      frame = build_otlp_relay_frame()
+
+      assert {:ok, :inserted} =
+               EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo,
+                 request: stored_ack(:otlp_published, "otel")
+               )
+
+      for _ <- 1..4, do: assert_received({:otlp_published, _subject, _body, _opts})
+
+      assert {:ok, :replay} =
+               EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo,
+                 request: stored_ack(:otlp_published, "otel")
+               )
+
+      refute_received {:otlp_published, _subject, _body, _opts}
+
+      late_frame = build_otlp_relay_frame(delivery_mode: PublicationIdentity.mode_late_fenced())
+
+      assert {:ok, :inserted} =
+               EdgeRecord.ingest(late_frame.record_bytes, late_frame.headers, Repo,
+                 request: stored_ack(:otlp_published, "otel")
+               )
+
+      refute_received {:otlp_published, _subject, _body, _opts}
+      assert ledger_count(late_frame.record) == 1
+
+      revoked_frame = build_otlp_relay_frame()
+
+      {:ok, nil} =
+        OutputGrants.reconcile(
+          revoked_frame.agent_id,
+          @otlp_relay_contract,
+          revoked_frame.partition_id,
+          false
+        )
+
+      assert {:error, :output_grant_not_current} =
+               EdgeRecord.ingest(revoked_frame.record_bytes, revoked_frame.headers, Repo,
+                 request: stored_ack(:otlp_published, "otel")
+               )
+
+      refute_received {:otlp_published, _subject, _body, _opts}
+      assert ledger_count(revoked_frame.record) == 0
+
+      missing_partition_frame = build_otlp_relay_frame()
+
+      Repo.query!("DELETE FROM platform.partitions WHERE id = $1::uuid", [
+        Ecto.UUID.dump!(missing_partition_frame.partition_id)
+      ])
+
+      assert {:error, :otlp_relay_partition_not_found} =
+               EdgeRecord.ingest(
+                 missing_partition_frame.record_bytes,
+                 missing_partition_frame.headers,
+                 Repo,
+                 request: stored_ack(:otlp_published, "otel")
+               )
+
+      refute_received {:otlp_published, _subject, _body, _opts}
+      assert ledger_count(missing_partition_frame.record) == 0
+
+      retry_frame = build_otlp_relay_frame()
+      refused_request = fn _subject, _body, _opts -> {:error, :timeout} end
+
+      assert_raise RuntimeError, ~r/edge record publish failed/, fn ->
+        EdgeRecord.ingest(retry_frame.record_bytes, retry_frame.headers, Repo,
+          request: refused_request
+        )
+      end
+
+      assert ledger_count(retry_frame.record) == 0
+
+      assert {:ok, :inserted} =
+               EdgeRecord.ingest(retry_frame.record_bytes, retry_frame.headers, Repo,
+                 request: stored_ack(:otlp_published, "otel")
+               )
+
+      assert ledger_count(retry_frame.record) == 1
+
+      bad_write_bytes =
+        encode_frame(
+          %{retry_frame.record | projected_write_bytes: retry_frame.record.uncompressed_size + 1},
+          retry_frame.batch,
+          retry_frame.slot
+        )
+
+      assert {:error, :otlp_relay_write_bytes} =
+               EdgeRecord.ingest(bad_write_bytes.record_bytes, bad_write_bytes.headers, Repo)
     end
   end
 
@@ -1962,13 +2725,262 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
     |> Map.merge(Map.take(frame, [:agent_id, :partition_id]))
   end
 
-  defp stored_ack do
+  defp stored_ack(tag \\ :metrics_published, stream \\ "metrics") do
     test = self()
 
     fn subject, body, request_opts ->
-      send(test, {:metrics_published, subject, body, request_opts})
-      {:ok, %{body: ~s({"stream":"metrics","seq":1})}}
+      send(test, {tag, subject, body, request_opts})
+      {:ok, %{body: ~s({"stream":"#{stream}","seq":1})}}
     end
+  end
+
+  defp build_flow_attribution_frame(opts \\ []) do
+    actor = SystemActor.system(:edge_record_test)
+    partition = partition!(random_uuid(4), actor)
+    agent_id = "agent-#{System.unique_integer([:positive])}"
+    ensure_agent!(agent_id, partition, actor)
+
+    {:ok, grant} =
+      OutputGrants.reconcile(agent_id, @flow_attribution_contract, partition.id, true)
+
+    key = IssuerKey.from_seed(:binary.copy(<<0x5A>>, 32))
+    now = DateTime.utc_now()
+
+    contract = %{
+      contract_id: @flow_attribution_contract,
+      contract_version: 1,
+      contract_bundle_sha256: :crypto.hash(:sha256, "flow-attribution-bundle"),
+      registry_epoch: 1,
+      registry_snapshot_sha256: :crypto.hash(:sha256, "registry"),
+      cost_model_version: 1,
+      max_projected_row_count: 4_096,
+      max_projected_write_bytes: 4_096 * 983_029
+    }
+
+    production = OutputGrants.production_capability(grant, contract, key, now)
+    {:production, claims} = production.claims
+    observed = DateTime.to_unix(now, :nanosecond)
+
+    batch = %FlowAttributionEventBatch{
+      batch_start_unix_nano: Keyword.get(opts, :batch_start_unix_nano, observed - 1_000_000),
+      batch_end_unix_nano: Keyword.get(opts, :batch_end_unix_nano, observed),
+      dropped_since_last: Keyword.get(opts, :dropped_since_last, 7),
+      events: [
+        %FlowAttributionEvent{
+          local_ip: "192.0.2.10",
+          local_port: 41_234,
+          remote_ip: "198.51.100.20",
+          remote_port: 443,
+          transport_protocol: "tcp",
+          pid: 1_234,
+          comm: "synthetic-client",
+          redacted_cmdline: ["/usr/bin/synthetic-client", "--target", "https://example.com"],
+          uid: 1_000,
+          observed_at_unix_nano: observed
+        },
+        %FlowAttributionEvent{
+          local_ip: "192.0.2.10",
+          local_port: 53_100,
+          remote_ip: "198.51.100.53",
+          remote_port: 53,
+          transport_protocol: "udp",
+          pid: 2_345,
+          comm: "synthetic-resolver",
+          redacted_cmdline: ["/usr/sbin/synthetic-resolver"],
+          uid: 101,
+          observed_at_unix_nano: observed
+        }
+      ]
+    }
+
+    payload = FlowAttributionEventBatch.encode(batch)
+    row_count = length(batch.events)
+
+    record = %EdgeRecordV1{
+      event_id: Ecto.UUID.dump!(ExecutionSlots.mint_id(now)),
+      output_contract:
+        struct(
+          EdgeOutputContractRef,
+          Map.take(claims, [
+            :contract_id,
+            :contract_version,
+            :contract_bundle_sha256,
+            :registry_epoch,
+            :registry_snapshot_sha256,
+            :effective_grant_sha256
+          ])
+        ),
+      production_capability: production,
+      payload_family: :EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1,
+      compression: :EDGE_RECORD_COMPRESSION_NONE,
+      encoded_size: byte_size(payload),
+      uncompressed_size: byte_size(payload),
+      payload_sha256: :crypto.hash(:sha256, payload),
+      producer_context: %EdgeProducerContext{
+        origin_kind: :EDGE_ORIGIN_KIND_AGENT,
+        origin_principal_id: agent_id,
+        producer_instance_id: agent_id,
+        producer_assignment_id: claims.producer_assignment_id,
+        authority_epoch: claims.authority_epoch,
+        run_id: claims.run_id,
+        run_shard: 0,
+        scope_id: claims.scope_id,
+        scope_sha256: claims.scope_sha256,
+        package_id: claims.package_id,
+        package_sha256: claims.package_sha256
+      },
+      route_profile: :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
+      traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_BULK,
+      network_scope_id: Ecto.UUID.dump!(partition.id),
+      projected_row_count: row_count,
+      projected_write_bytes: row_count * 983_029,
+      cost_model_version: 1,
+      payload: payload
+    }
+
+    slot = %{
+      network_scope_id: record.network_scope_id,
+      authenticated_agent_id: agent_id,
+      spool_id: random_uuid(7),
+      sequence: 1
+    }
+
+    record
+    |> encode_frame(batch, slot, opts)
+    |> Map.merge(%{
+      agent_id: agent_id,
+      partition_id: partition.id,
+      partition_slug: partition.slug
+    })
+  end
+
+  defp build_otlp_relay_frame(opts \\ []) do
+    actor = SystemActor.system(:edge_record_test)
+    partition = partition!(random_uuid(4), actor)
+    agent_id = "agent-#{System.unique_integer([:positive])}"
+    ensure_agent!(agent_id, partition, actor)
+
+    {:ok, grant} = OutputGrants.reconcile(agent_id, @otlp_relay_contract, partition.id, true)
+    key = IssuerKey.from_seed(:binary.copy(<<0x5A>>, 32))
+    now = DateTime.utc_now()
+
+    contract = %{
+      contract_id: @otlp_relay_contract,
+      contract_version: 1,
+      contract_bundle_sha256: :crypto.hash(:sha256, "otlp-relay-bundle"),
+      registry_epoch: 1,
+      registry_snapshot_sha256: :crypto.hash(:sha256, "registry"),
+      cost_model_version: 1,
+      max_projected_row_count: 1_024,
+      max_projected_write_bytes: 524_288
+    }
+
+    production = OutputGrants.production_capability(grant, contract, key, now)
+    {:production, claims} = production.claims
+
+    default_records = [
+      %TelemetryRecord{
+        event_id: "otlp-rec-1",
+        payload_kind: :TELEMETRY_PAYLOAD_KIND_OTLP_TRACES,
+        payload: "trace-chunk-bytes",
+        metadata: %{"agent_id" => "spoofed-agent", "partition" => "spoofed-partition"}
+      },
+      %TelemetryRecord{
+        event_id: "otlp-rec-2",
+        payload_kind: :TELEMETRY_PAYLOAD_KIND_OTLP_LOGS,
+        payload: "log-chunk-bytes"
+      },
+      %TelemetryRecord{
+        event_id: "otlp-rec-3",
+        payload_kind: :TELEMETRY_PAYLOAD_KIND_OTLP_METRICS,
+        payload: "metric-chunk-bytes"
+      },
+      %TelemetryRecord{
+        event_id: "otlp-rec-4",
+        payload_kind: :TELEMETRY_PAYLOAD_KIND_OTLP_DERIVED_METRIC,
+        payload: "derived-chunk-bytes"
+      }
+    ]
+
+    records = Keyword.get(opts, :records, default_records)
+
+    frame = %OtlpRelayFrame{
+      relay_id: Keyword.get(opts, :relay_id, 42),
+      batch: %AddonTelemetryBatch{
+        source: %TelemetrySource{
+          source_type: "otlp",
+          source_instance: "otel-addon",
+          metadata: %{"agent_id" => "spoofed-agent", "partition" => "spoofed-partition"}
+        },
+        counters: %TelemetryCounters{
+          received: 14,
+          filtered: 2,
+          emitted: 12,
+          dropped: 3,
+          queue_depth: 5
+        },
+        records: records
+      }
+    }
+
+    payload = OtlpRelayFrame.encode(frame)
+
+    record = %EdgeRecordV1{
+      event_id: Ecto.UUID.dump!(ExecutionSlots.mint_id(now)),
+      output_contract:
+        struct(
+          EdgeOutputContractRef,
+          Map.take(claims, [
+            :contract_id,
+            :contract_version,
+            :contract_bundle_sha256,
+            :registry_epoch,
+            :registry_snapshot_sha256,
+            :effective_grant_sha256
+          ])
+        ),
+      production_capability: production,
+      payload_family: :EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1,
+      compression: :EDGE_RECORD_COMPRESSION_NONE,
+      encoded_size: byte_size(payload),
+      uncompressed_size: byte_size(payload),
+      payload_sha256: :crypto.hash(:sha256, payload),
+      producer_context: %EdgeProducerContext{
+        origin_kind: :EDGE_ORIGIN_KIND_AGENT,
+        origin_principal_id: agent_id,
+        producer_instance_id: agent_id,
+        producer_assignment_id: claims.producer_assignment_id,
+        authority_epoch: claims.authority_epoch,
+        run_id: claims.run_id,
+        run_shard: 0,
+        scope_id: claims.scope_id,
+        scope_sha256: claims.scope_sha256,
+        package_id: claims.package_id,
+        package_sha256: claims.package_sha256
+      },
+      route_profile: :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
+      traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_BULK,
+      network_scope_id: Ecto.UUID.dump!(partition.id),
+      projected_row_count: length(records),
+      projected_write_bytes: byte_size(payload),
+      cost_model_version: 1,
+      payload: payload
+    }
+
+    slot = %{
+      network_scope_id: record.network_scope_id,
+      authenticated_agent_id: agent_id,
+      spool_id: random_uuid(7),
+      sequence: 1
+    }
+
+    record
+    |> encode_frame(frame, slot, opts)
+    |> Map.merge(%{
+      agent_id: agent_id,
+      partition_id: partition.id,
+      partition_slug: partition.slug
+    })
   end
 
   defp build_metrics_frame do
@@ -2162,6 +3174,146 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       network_scope_id: Ecto.UUID.dump!(partition.id),
       projected_row_count: length(records),
       projected_write_bytes: length(records) * 8_192,
+      cost_model_version: 1,
+      payload: payload
+    }
+
+    slot = %{
+      network_scope_id: record.network_scope_id,
+      authenticated_agent_id: agent_id,
+      spool_id: random_uuid(7),
+      sequence: 1
+    }
+
+    record
+    |> encode_frame(batch, slot)
+    |> Map.merge(%{agent_id: agent_id, partition_id: partition.id})
+  end
+
+  defp plugin_result_agent! do
+    actor = SystemActor.system(:edge_record_test)
+    partition = partition!(random_uuid(4), actor)
+    agent_id = "agent-#{System.unique_integer([:positive])}"
+    ensure_agent!(agent_id, partition, actor)
+    {agent_id, partition}
+  end
+
+  defp plugin_result_item(name) do
+    %WasmPluginResultItemV1{
+      schema_version: 1,
+      status: :PLUGIN_RESULT_STATUS_OK,
+      summary: "synthetic plugin result healthy",
+      service_name: name,
+      service_type: "plugin",
+      observed_at_unix_nano:
+        DateTime.utc_now() |> DateTime.shift(second: -30) |> DateTime.to_unix(:nanosecond)
+    }
+  end
+
+  defp plugin_service_names(agent_id) do
+    List.flatten(
+      Repo.query!(
+        "SELECT DISTINCT service_name FROM platform.service_status WHERE agent_id = $1 ORDER BY service_name",
+        [
+          agent_id
+        ]
+      ).rows
+    )
+  end
+
+  defp plugin_service_row_count(agent_id) do
+    [[count]] =
+      Repo.query!("SELECT count(*) FROM platform.service_status WHERE agent_id = $1", [agent_id]).rows
+
+    count
+  end
+
+  defp build_plugin_result_frame(items, opts \\ []) do
+    partition =
+      Keyword.get_lazy(opts, :partition, fn ->
+        partition!(random_uuid(4), SystemActor.system(:edge_record_test))
+      end)
+
+    agent_id = Keyword.get(opts, :agent_id, "agent-#{System.unique_integer([:positive])}")
+
+    if !Keyword.has_key?(opts, :agent_id) do
+      ensure_agent!(agent_id, partition, SystemActor.system(:edge_record_test))
+    end
+
+    {:ok, grant} = OutputGrants.reconcile(agent_id, @plugin_results_contract, partition.id, true)
+
+    provenance =
+      case Keyword.get(opts, :provenance, :default) do
+        nil ->
+          nil
+
+        :default ->
+          %PluginResultProvenanceV1{
+            assignment_id: Keyword.get(opts, :assignment_id, "assignment-plugin-results-1"),
+            plugin_id: Keyword.get(opts, :plugin_id, "synthetic-edge-check"),
+            plugin_package_id: "pkg-synthetic-1",
+            plugin_version: "1.0.0",
+            content_hash: String.duplicate("ab", 32)
+          }
+      end
+
+    batch = %WasmPluginResultBatchV1{provenance: provenance, results: items}
+    payload = WasmPluginResultBatchV1.encode(batch)
+    now = DateTime.utc_now()
+
+    contract = %{
+      contract_id: @plugin_results_contract,
+      contract_version: 1,
+      contract_bundle_sha256: :crypto.hash(:sha256, "plugin-results-bundle"),
+      registry_epoch: 1,
+      registry_snapshot_sha256: :crypto.hash(:sha256, "registry"),
+      cost_model_version: 1,
+      max_projected_row_count: 10_000,
+      max_projected_write_bytes: 163_840_000
+    }
+
+    key = IssuerKey.from_seed(:binary.copy(<<0x5B>>, 32))
+    production = OutputGrants.production_capability(grant, contract, key, now)
+    {:production, claims} = production.claims
+
+    record = %EdgeRecordV1{
+      event_id: Ecto.UUID.dump!(ExecutionSlots.mint_id(now)),
+      output_contract:
+        struct(
+          EdgeOutputContractRef,
+          Map.take(claims, [
+            :contract_id,
+            :contract_version,
+            :contract_bundle_sha256,
+            :registry_epoch,
+            :registry_snapshot_sha256,
+            :effective_grant_sha256
+          ])
+        ),
+      production_capability: production,
+      payload_family: :EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1,
+      compression: :EDGE_RECORD_COMPRESSION_NONE,
+      encoded_size: byte_size(payload),
+      uncompressed_size: byte_size(payload),
+      payload_sha256: :crypto.hash(:sha256, payload),
+      producer_context: %EdgeProducerContext{
+        origin_kind: :EDGE_ORIGIN_KIND_AGENT,
+        origin_principal_id: agent_id,
+        producer_instance_id: agent_id,
+        producer_assignment_id: claims.producer_assignment_id,
+        authority_epoch: claims.authority_epoch,
+        run_id: claims.run_id,
+        run_shard: 0,
+        scope_id: claims.scope_id,
+        scope_sha256: claims.scope_sha256,
+        package_id: claims.package_id,
+        package_sha256: claims.package_sha256
+      },
+      route_profile: :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
+      traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_BULK,
+      network_scope_id: Ecto.UUID.dump!(partition.id),
+      projected_row_count: length(items),
+      projected_write_bytes: length(items) * 16_384,
       cost_model_version: 1,
       payload: payload
     }
@@ -2396,7 +3548,12 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
   end
 
   defp encode_frame(record, batch, slot, opts \\ []) do
-    record = %{record | projected_write_bytes: record.projected_row_count * 2_048}
+    write_bytes =
+      if (record.projected_write_bytes || 0) > 0,
+        do: record.projected_write_bytes,
+        else: record.projected_row_count * 2_048
+
+    record = %{record | projected_write_bytes: write_bytes}
     record = %{record | semantic_envelope_sha256: SemanticDigest.compute(record)}
     record_bytes = EdgeRecordV1.encode(record)
     assert {:ok, _} = RecordValidate.validate_bytes(record_bytes)
@@ -2556,6 +3713,17 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       )
 
     Enum.map(rows, fn [row_key] -> row_key end)
+  end
+
+  defp with_telemetry(events, callback, fun) do
+    handler_id = "edge-record-telemetry-#{System.unique_integer([:positive])}"
+    :ok = :telemetry.attach_many(handler_id, events, callback, nil)
+
+    try do
+      fun.()
+    after
+      :telemetry.detach(handler_id)
+    end
   end
 
   # --- database assertions ---------------------------------------------------

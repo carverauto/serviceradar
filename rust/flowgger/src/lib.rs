@@ -7,6 +7,8 @@ pub mod record_capnp;
 
 pub mod flowgger;
 
+pub use flowgger::{health_tls_config, start_pipeline};
+
 /// Start a flowgger instance starting from a file path
 ///
 /// # Parameters

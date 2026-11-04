@@ -12,7 +12,6 @@ templates:
   - templates/web.yaml
   - templates/dgraph-certificates.yaml
   - templates/dgraph-schema-job.yaml
-  - templates/dgraph-migrator-job.yaml
 tests:
   - it: every client dials the name the Alpha certificate carries
     asserts:
@@ -52,7 +51,3 @@ tests:
           path: spec.template.spec.containers[0].env[?(@.name=="DGRAPH_URL")].value
           pattern: '@serviceradar-dgraph-alpha\.serviceradar-test\.svc\.cluster\.local:9080\?'
         template: templates/dgraph-schema-job.yaml
-      - matchRegex:
-          path: spec.template.spec.containers[0].env[?(@.name=="DGRAPH_URL")].value
-          pattern: '@serviceradar-dgraph-alpha\.serviceradar-test\.svc\.cluster\.local:9080\?'
-        template: templates/dgraph-migrator-job.yaml

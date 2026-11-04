@@ -2,115 +2,76 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Telemetry.Refresh do
   @moduledoc false
 
   alias ServiceRadar.Dgraph
-  alias ServiceRadar.Graph
-  alias ServiceRadar.NetworkDiscovery.TopologyGraph.Backend
-  alias ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalMutationLock
-  alias ServiceRadar.NetworkDiscovery.TopologyGraph.Queries
-  alias ServiceRadar.NetworkDiscovery.TopologyGraph.Telemetry
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Telemetry.Edges
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Telemetry.Metrics
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Utils
-  alias ServiceRadar.Repo
 
   require Logger
 
-  def refresh_canonical_edge_telemetry(stale_cutoff) when is_binary(stale_cutoff) do
-    case Backend.backend() do
-      :dgraph ->
-        refresh_dgraph_telemetry()
+  @doc """
+  Recompute directional flow and capacity for every canonical Dgraph edge from
+  the latest interface metrics, and write it back without changing the edges'
+  discovery timestamps or evidence. Stale canonical edges are already removed by
+  the canonical rebuild, so every edge read here is current.
+  """
+  def refresh_canonical_edge_telemetry do
+    case Dgraph.query_canonical_edges() do
+      {:ok, raw_edges} ->
+        refresh_edges(raw_edges)
 
-      backend when backend in [:age, :dual] ->
-        # CanonicalRebuild copies the updated AGE edges to Dgraph in dual mode.
-        refresh_age_telemetry(stale_cutoff)
+      {:error, reason} = error ->
+        Logger.warning("Canonical edge telemetry read failed: #{inspect(reason)}")
+        error
     end
   end
 
-  defp refresh_dgraph_telemetry do
-    with {:ok, raw_edges} <- Dgraph.query_canonical_edges() do
-      edges =
-        Enum.map(raw_edges, fn edge ->
-          %{
-            src_id: edge.source,
-            dst_id: edge.target,
-            local_if_index_ab: edge.if_index_ab,
-            local_if_index_ba: edge.if_index_ba,
-            dgraph_edge: edge
-          }
-        end)
+  defp refresh_edges(raw_edges) do
+    edges =
+      Enum.map(raw_edges, fn edge ->
+        %{
+          src_id: edge.source,
+          dst_id: edge.target,
+          local_if_index_ab: edge.if_index_ab,
+          local_if_index_ba: edge.if_index_ba,
+          dgraph_edge: edge
+        }
+      end)
 
-      keys = Metrics.telemetry_metric_keys(edges)
-      observed_at = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+    keys = Metrics.telemetry_metric_keys(edges)
+    observed_at = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
 
-      {stats, updates} =
-        build_telemetry_updates(
-          edges,
-          Metrics.load_packet_pps(keys),
-          Metrics.load_octet_bps(keys),
-          Metrics.load_interface_capacity(keys),
-          observed_at
-        )
+    {stats, updates} =
+      build_telemetry_updates(
+        edges,
+        Metrics.load_packet_pps(keys),
+        Metrics.load_octet_bps(keys),
+        Metrics.load_interface_capacity(keys),
+        observed_at
+      )
 
-      result =
-        Enum.reduce_while(updates, :ok, fn update, :ok ->
-          edge =
-            update.dgraph_edge
-            |> Map.merge(Map.drop(update, [:src_id, :dst_id, :dgraph_edge]))
-            |> Map.put(:kind, :canonical_topology)
+    case persist_updates(updates) do
+      :ok ->
+        Logger.info("canonical_edge_telemetry_stats #{inspect(stats)}")
+        {:ok, stats}
 
-          case Dgraph.update_canonical_edge_telemetry(edge) do
-            :ok -> {:cont, :ok}
-            {:error, _reason} = error -> {:halt, error}
-          end
-        end)
-
-      case result do
-        :ok ->
-          Logger.info("dgraph_canonical_edge_telemetry_stats #{inspect(stats)}")
-          {:ok, stats}
-
-        error ->
-          error
-      end
-    end
-  end
-
-  defp refresh_age_telemetry(stale_cutoff) do
-    case Edges.fetch_canonical_edges(stale_cutoff) do
-      {:ok, edges} ->
-        metric_keys = Metrics.telemetry_metric_keys(edges)
-        pps_by_if = Metrics.load_packet_pps(metric_keys)
-        bps_by_if = Metrics.load_octet_bps(metric_keys)
-        capacity_by_if = Metrics.load_interface_capacity(metric_keys)
-        observed_at = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
-
-        {stats, updates} =
-          build_telemetry_updates(edges, pps_by_if, bps_by_if, capacity_by_if, observed_at)
-
-        case persist_canonical_edge_telemetry_updates(Enum.reverse(updates)) do
-          :ok ->
-            Logger.info("canonical_edge_telemetry_stats #{inspect(stats)}")
-            {:ok, stats}
-
-          {:skipped, :canonical_mutation_in_progress} ->
-            stats =
-              Map.merge(stats, %{
-                write_skipped: true,
-                skip_reason: :canonical_mutation_in_progress
-              })
-
-            Logger.debug("Canonical edge telemetry write skipped; canonical mutation lock busy")
-
-            {:ok, stats}
-
-          {:error, reason} ->
-            Logger.warning("Canonical edge telemetry refresh failed: #{inspect(reason)}")
-            {:error, reason}
-        end
-
-      {:error, reason} ->
+      {:error, reason} = error ->
         Logger.warning("Canonical edge telemetry refresh failed: #{inspect(reason)}")
-        {:error, reason}
+        error
     end
+  end
+
+  defp persist_updates(updates) do
+    Enum.reduce_while(updates, :ok, fn update, :ok ->
+      edge =
+        update.dgraph_edge
+        |> Map.merge(Map.drop(update, [:src_id, :dst_id, :dgraph_edge]))
+        |> Map.put(:kind, :canonical_topology)
+
+      case Dgraph.update_canonical_edge_telemetry(edge) do
+        :ok -> {:cont, :ok}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
   end
 
   defp build_telemetry_updates(edges, pps_by_if, bps_by_if, capacity_by_if, observed_at) do
@@ -218,52 +179,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Telemetry.Refresh do
   end
 
   defp canonical_edge_telemetry_update(_edge, _telemetry), do: %{}
-
-  defp persist_canonical_edge_telemetry_updates([]), do: :ok
-
-  defp persist_canonical_edge_telemetry_updates(updates) when is_list(updates) do
-    # Fetching and computing telemetry stays outside the advisory-lock transaction.
-    # Only the AGE relationship writes are serialized with structural canonical
-    # rebuilds and other telemetry finalizers. This prevents concurrent SETs from
-    # deadlocking or hitting AGE's stale-entity update failure without restoring
-    # the old, long-lived transaction that also covered metric scans/projection.
-    case CanonicalMutationLock.try_run(
-           fn ->
-             case do_persist_canonical_edge_telemetry_updates(updates) do
-               :ok ->
-                 :ok
-
-               {:error, reason} ->
-                 Repo.rollback({:canonical_edge_telemetry_upsert_failed, reason})
-             end
-           end,
-           busy_result: {:skipped, :canonical_mutation_in_progress}
-         ) do
-      {:ok, result} -> result
-      {:error, {:canonical_edge_telemetry_upsert_failed, reason}} -> {:error, reason}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp do_persist_canonical_edge_telemetry_updates(updates) when is_list(updates) do
-    updates
-    |> Enum.chunk_every(Telemetry.canonical_edge_telemetry_batch_size())
-    |> Enum.reduce_while(:ok, fn batch, :ok ->
-      case Graph.execute(Queries.canonical_edge_telemetry_batch_query(batch)) do
-        :ok ->
-          {:cont, :ok}
-
-        {:error, reason} ->
-          Logger.warning(
-            "Canonical edge telemetry upsert failed",
-            reason: inspect(reason),
-            batch_size: length(batch)
-          )
-
-          {:halt, {:error, reason}}
-      end
-    end)
-  end
 
   defp update_render_readiness_stats(acc, :render_ready),
     do: Map.update!(acc, :render_ready, &(&1 + 1))

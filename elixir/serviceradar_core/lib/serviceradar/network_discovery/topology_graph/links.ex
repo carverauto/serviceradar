@@ -4,18 +4,16 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
   alias ServiceRadar.NetworkDiscovery.TopologyGraph
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist
-  alias ServiceRadar.NetworkDiscovery.TopologyGraph.Persist
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Projection
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Pruning
-  alias ServiceRadar.NetworkDiscovery.TopologyGraph.Queries
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Utils
 
   require Logger
 
   # Skip re-applying a mapper report whose projected link content is unchanged from
-  # the last applied report for the same device scope. The per-link backbone/
-  # auxiliary MERGEs rewrite Device/
-  # Interface vertices and edges on every report regardless of change; gating the
+  # the last applied report for the same device scope. The batched link upserts
+  # rewrite Device/Interface vertices and edges on every report regardless of
+  # change; gating the
   # whole apply on a structural fingerprint stops that churn for a static topology.
   # A heartbeat still re-applies periodically so stale-link pruning advances.
   #
@@ -25,8 +23,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
   # — extra schema/write surface for a smaller win. The canonical rebuild
   # (CanonicalRebuild.rebuild_canonical_device_links/0) runs in
   # run_global_passes/0, not here, and is itself durably + cross-replica gated,
-  # so a process-local miss here after a restart re-walks only the cheap per-link
-  # MERGEs. phash2 is acceptable here because the value is per-process
+  # so a process-local miss here after a restart re-walks only the cheap batched
+  # link upserts. phash2 is acceptable here because the value is per-process
   # and never persisted, so OTP-upgrade instability cannot survive a restart.
   @default_unchanged_report_heartbeat_ms 3_600_000
 
@@ -54,19 +52,15 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
   defp do_upsert_links(links) do
     links = Enum.sort_by(links, &link_observed_unix/1)
 
-    {local_device_ids, neighbor_index, diagnostics, dgraph_links} =
+    {diagnostics, dgraph_links} =
       Enum.reduce(
         links,
-        {MapSet.new(), %{}, Projection.empty_projection_diagnostics(), []},
+        {Projection.empty_projection_diagnostics(), []},
         &reduce_topology_link/2
       )
 
-    # Dgraph receives every link whose AGE write succeeded in one batch, before
-    # pruning reads the graph back, as when each link was written in turn.
+    # Dgraph receives every projected link in one batch, in observation order.
     with :ok <- DgraphPersist.upsert_links(Enum.reverse(dgraph_links)) do
-      Pruning.maybe_prune_unseen_projected_links(neighbor_index)
-      Pruning.maybe_prune_stale_projected_links(MapSet.to_list(local_device_ids))
-
       Logger.info("Topology projection diagnostics: #{inspect(diagnostics)}")
 
       :ok
@@ -75,16 +69,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
 
   @doc """
   The graph-wide passes that follow link projection: global stale-evidence
-  pruning (AGE and Dgraph), the legacy single-identifier attachment
-  reconciliation and purge, and the canonical rebuild. They read and rewrite
-  the whole graph, so they run once per burst of device projections rather than
-  once per device.
+  pruning and the canonical rebuild. They read and rewrite the whole graph, so
+  they run once per burst of device projections rather than once per device.
   """
   @spec run_global_passes() :: :ok | {:error, term()}
   def run_global_passes do
     Pruning.maybe_prune_stale_mapper_evidence_links()
-    Pruning.reconcile_legacy_single_identifier_attachment_links()
-    Pruning.purge_legacy_single_identifier_canonical_links()
 
     case CanonicalRebuild.rebuild_canonical_device_links() do
       {:error, reason, _stats} -> {:error, reason}
@@ -214,39 +204,26 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
     end
   end
 
-  defp reduce_topology_link(link, {local_ids, neighbor_index, diagnostics, dgraph_links}) do
+  defp reduce_topology_link(link, {diagnostics, dgraph_links}) do
     case Projection.projection_payload(link) do
       nil ->
         reason = Projection.drop_reason(link) || :missing_ids
         emit_neighbor_dropped(link, reason)
         Logger.debug("Skipping topology link missing device identifiers")
-        diagnostics = Projection.increment_diagnostic(diagnostics, :rejected, reason)
-        {local_ids, neighbor_index, diagnostics, dgraph_links}
+        {Projection.increment_diagnostic(diagnostics, :rejected, reason), dgraph_links}
 
       payload ->
         case Projection.projection_mode(payload) do
           {:backbone, reason} ->
-            local_ids = MapSet.put(local_ids, payload.local_device_id)
-            dgraph_links = upsert_backbone_link_payload(payload) ++ dgraph_links
-            diagnostics = Projection.increment_diagnostic(diagnostics, :accepted, reason)
-
-            neighbor_index =
-              add_neighbor_edge(
-                neighbor_index,
-                payload.local_device_id,
-                payload.neighbor_device_id
-              )
-
-            {local_ids, neighbor_index, diagnostics, dgraph_links}
+            {Projection.increment_diagnostic(diagnostics, :accepted, reason),
+             [{payload, "CONNECTS_TO"} | dgraph_links]}
 
           {:auxiliary, reason} ->
-            dgraph_links = upsert_auxiliary_link_payload(payload) ++ dgraph_links
-            diagnostics = Projection.increment_diagnostic(diagnostics, :accepted, reason)
-            {local_ids, neighbor_index, diagnostics, dgraph_links}
+            {Projection.increment_diagnostic(diagnostics, :accepted, reason),
+             [{payload, Projection.evidence_relation_type(payload)} | dgraph_links]}
 
           {:skip, reason} ->
-            diagnostics = Projection.increment_diagnostic(diagnostics, :rejected, reason)
-            {local_ids, neighbor_index, diagnostics, dgraph_links}
+            {Projection.increment_diagnostic(diagnostics, :rejected, reason), dgraph_links}
         end
     end
   end
@@ -254,7 +231,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
   # Accounting for links dropped because their neighbor never resolved to (or
   # was never promoted to) a canonical `sr:` identity. These links are pure
   # evidence (they stay persisted in mapper_topology_links) but MUST NOT write
-  # non-`sr:` pseudo-vertices into AGE. Public for tests.
+  # non-`sr:` pseudo-vertices into the topology graph. Public for tests.
   @doc false
   def emit_neighbor_dropped(link, reason)
       when reason in [:neighbor_unresolved, :neighbor_not_canonical] do
@@ -266,40 +243,4 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
   end
 
   def emit_neighbor_dropped(_link, _reason), do: :ok
-
-  defp add_neighbor_edge(index, local_device_id, neighbor_device_id) do
-    update_in(index, [local_device_id], fn
-      nil -> MapSet.new([neighbor_device_id])
-      existing -> MapSet.put(existing, neighbor_device_id)
-    end)
-  end
-
-  # Each returns the `{payload, relation}` the Dgraph batch receives once the
-  # AGE write (when AGE is written at all) has succeeded.
-  defp upsert_backbone_link_payload(payload) do
-    cypher = Queries.backbone_link_upsert_query(payload)
-
-    case Persist.execute_age(cypher) do
-      :ok ->
-        [{payload, "CONNECTS_TO"}]
-
-      {:error, reason} ->
-        Logger.warning("Topology graph upsert failed: #{inspect(reason)}")
-        []
-    end
-  end
-
-  defp upsert_auxiliary_link_payload(payload) do
-    relation = Projection.evidence_relation_type(payload)
-    cypher = Queries.auxiliary_link_upsert_query(payload, relation)
-
-    case Persist.execute_age(cypher) do
-      :ok ->
-        [{payload, relation}]
-
-      {:error, reason} ->
-        Logger.warning("Auxiliary topology graph upsert failed: #{inspect(reason)}")
-        []
-    end
-  end
 end

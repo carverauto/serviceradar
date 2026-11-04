@@ -260,10 +260,10 @@ mod tests {
 
     #[test]
     fn rewrite_placeholders_handles_dollar_quoted_literals() {
-        let sql = "SELECT ag_catalog.cypher('graph', $srql$MATCH (n) WHERE n.name = '?'$srql$) LIMIT ? OFFSET ?";
+        let sql = "SELECT format($srql$name = '?'$srql$) LIMIT ? OFFSET ?";
         assert_eq!(
             rewrite_placeholders(sql),
-            "SELECT ag_catalog.cypher('graph', $srql$MATCH (n) WHERE n.name = '?'$srql$) LIMIT $1 OFFSET $2"
+            "SELECT format($srql$name = '?'$srql$) LIMIT $1 OFFSET $2"
         );
     }
 

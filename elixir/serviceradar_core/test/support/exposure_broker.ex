@@ -59,13 +59,14 @@ defmodule ServiceRadar.TestSupport.ExposureBroker do
     Jason.decode!(body)
   end
 
+  # The broker creates the ports file before it writes the addresses into it,
+  # so an empty or partial file means it has not finished starting yet.
   defp broker_port(dir, pid, attempts) do
-    case File.read(Path.join(dir, "nats-server_#{pid}.ports")) do
-      {:ok, body} ->
-        %{"nats" => [uri]} = Jason.decode!(body)
-        URI.parse(uri).port
-
-      {:error, :enoent} ->
+    with {:ok, body} <- File.read(Path.join(dir, "nats-server_#{pid}.ports")),
+         {:ok, %{"nats" => [uri]}} <- Jason.decode(body) do
+      URI.parse(uri).port
+    else
+      _not_ready ->
         assert attempts > 0, "disposable NATS broker did not start"
         Process.sleep(100)
         broker_port(dir, pid, attempts - 1)

@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.MapPanel do
       |> Map.put_new(:netflow_window, "last_15m")
       |> Map.put_new(:window_errors, %{})
       |> Map.put_new(:window_requests, %{})
+      |> Map.put_new(:mtr_overlays_error, nil)
 
     ~H"""
     <Common.panel title={map_panel_title(@map_view)} class="sr-ops-map-panel">
@@ -69,6 +70,15 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.MapPanel do
         class="sr-ops-map-notice p-3 text-sm text-sr-muted"
       >
         {@window_errors["netflow"]}
+      </p>
+
+      <p
+        :if={@map_view == "netflow" && @mtr_overlays_error}
+        id="dashboard-mtr-overlay-unavailable"
+        role="status"
+        class="sr-ops-map-notice p-3 text-sm text-sr-muted"
+      >
+        {@mtr_overlays_error}
       </p>
 
       <div class={[

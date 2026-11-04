@@ -31,6 +31,7 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     ApiEventsRetentionWorker,
     AuditVersionRetentionWorker,
     ServiceRadar.Jobs.RefreshLogsSeverityStatsWorker,
+    ServiceRadar.EventWriter.LifecycleAdmissionDrainWorker,
     ServiceRadar.Observability.AnomalyAddonConfigProjector,
     ServiceRadar.Observability.AnomalyAlertLivenessWorker,
     ServiceRadar.Observability.AnomalyEpisodeStaleCloseWorker,
@@ -355,6 +356,7 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     streams = read_prod_event_writer_streams()
     audit = Enum.find(streams, &(&1.name == "EDGE_RECORD_AUDIT"))
     quarantine = Enum.find(streams, &(&1.name == "EDGE_RECORD_SECURITY_QUARANTINE"))
+    dead_letter = Enum.find(streams, &(&1.name == "EDGE_RECORD_DLQ"))
 
     assert audit == EventWriterConfig.edge_record_audit_stream()
     assert audit.stream_name == "TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK"
@@ -368,6 +370,10 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     assert quarantine.stream_retention == "limits"
     assert quarantine.stream_discard == "new"
     assert quarantine.stream_max_age == 0
+
+    # EventWriter copies a record whose projection kept failing here before it ACKs the source.
+    assert dead_letter == EventWriterConfig.edge_record_dead_letter_stream()
+    assert dead_letter.subject == "telemetry.edge-record-dlq.v1.bulk.>"
   end
 
   test "prod EventWriter Falco consumer targets the provisioned events stream" do

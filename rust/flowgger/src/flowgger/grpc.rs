@@ -12,6 +12,14 @@ use tonic_health::{ServingStatus, server::health_reporter};
 
 use super::config::Config;
 
+pub fn tls_config(config: &Config) -> Result<Option<ServerTlsConfig>> {
+    GrpcSettings::from_config(config)?
+        .map(|settings| match settings.security {
+            SecuritySettings::Mtls(tls) => tls.tls_config(),
+        })
+        .transpose()
+}
+
 pub fn maybe_spawn(config: &Config) {
     let settings = match GrpcSettings::from_config(config) {
         Ok(Some(settings)) => settings,

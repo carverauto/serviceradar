@@ -14,7 +14,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
           map_view: "netflow",
           topology_links_json: "[]",
           traffic_links_json: "[]",
-          mtr_overlays_json: "[]"
+          mtr_overlays_json: "[]",
+          mtr_overlays_error: nil
         })
         |> Map.merge(derive(sources))
       end
@@ -286,7 +287,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
               topology_links: [],
               topology_links_json: "[]",
               mtr_overlays: [],
-              mtr_overlays_json: "[]"
+              mtr_overlays_json: "[]",
+              mtr_overlays_error: nil
             }
 
           true ->
@@ -304,7 +306,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
               {fn -> flow_summary(window, scope, srql_module) end, Map.put(empty_flow_summary(), :error, :query_failed)},
             traffic_links: {fn -> traffic_links(window, scope, srql_module) end, :error},
             topology_links: {fn -> topology_links(time_window) end, []},
-            mtr_overlays: {fn -> mtr_overlays() end, []}
+            mtr_overlays: {fn -> mtr_overlays() end, :unavailable}
           )
 
         %{
@@ -312,8 +314,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
           flow_summary: flow_summary_raw,
           traffic_links: traffic_links,
           topology_links: topology_links,
-          mtr_overlays: mtr_overlays
+          mtr_overlays: mtr_overlays_result
         } = wave1
+
+        {mtr_overlays, mtr_overlays_error} = mtr_overlay_result(mtr_overlays_result)
 
         if Map.has_key?(flow_summary_raw, :error) or traffic_links == :error do
           raise "Dashboard NetFlow window query failed"
@@ -342,6 +346,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
           traffic_links_json: Jason.encode!(traffic_links),
           mtr_overlays: mtr_overlays,
           mtr_overlays_json: Jason.encode!(mtr_overlays),
+          mtr_overlays_error: mtr_overlays_error,
           map_empty_title: map_empty_title(netflow_state, traffic_links),
           map_empty_detail: map_empty_detail(netflow_state, traffic_links)
         }

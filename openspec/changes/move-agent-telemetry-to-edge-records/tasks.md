@@ -31,6 +31,12 @@
 - [x] 1.7 Core issues standing grants for every registry entry marked agent-scheduled instead of
   naming contracts in code.
   DONE (reconciled 2026-11-02): `ServiceRadar.Edge.OutputGrants.config_grants/4` issues standing grants by reconciling each `ServiceRadar.Edge.ContractCatalog.standing_grant_refs/0` entry through `reconcile/4` (#6247).
+- [x] 1.8 Generic dead-letter: a record of any contract whose projection keeps failing is copied
+  with its original bytes and failure metadata to `TELEMETRY_EDGE_RECORD_DLQ_V1_BULK` before its
+  source delivery is acknowledged, with a counter, managed alerts and a replay that republishes
+  it through the ledger (`ServiceRadar.EventWriter.EdgeRecordDeadLetter`,
+  `docs/edge-record-dead-letter-runbook.md`). The DLQ catalog, retention and redrive are
+  `add-edge-record-stream-partitioning`.
 
 ## 2. Metrics
 
@@ -63,7 +69,7 @@
 
 - [ ] 4.1 Contracts for `FlowAttributionEventBatch` and `OtlpRelayFrame`; producers and
   projectors; parity soak.
-  PARTIAL (reconciled 2026-11-02): `FlowAttributionEventBatch` and `OtlpRelayFrame` contracts, per-row write budget and chunked observation publishing landed in `proto/agent/netprobe/v1/netprobe.proto`, `proto/agent/addon/v1/addon.proto` and `ServiceRadar.FlowAttribution.Observations` (#6262); remaining scope is the agent producers, core projectors, and parity soak.
+  PARTIAL (reconciled 2026-11-03): `FlowAttributionEventBatch` and `OtlpRelayFrame` contracts, per-row write budget and chunked observation publishing landed in `proto/agent/netprobe/v1/netprobe.proto`, `proto/agent/addon/v1/addon.proto` and `ServiceRadar.FlowAttribution.Observations` (#6262). The agent producers (`go/pkg/agent/push_loop_flow_attribution_edge.go`, `go/pkg/agent/addon_otlp_relay_edge.go`) and core projectors `ServiceRadar.Edge.Projectors.FlowAttribution` and `ServiceRadar.Edge.Projectors.OtlpRelay` landed on this branch; remaining scope is the parity soak.
 
 ## 5. Plugin and add-on telemetry
 
@@ -75,8 +81,8 @@
   Plugins and add-ons never get contracts of their own. A new payload kind is an SDK and core
   change.
   TODO (reconciled 2026-11-02): remaining scope is the `TelemetryBatch` contract catalog entry, agent producer, and core projector for `serviceradar_metrics`, `ocsf_event` and `otel_log`.
-- [ ] 5.2 Typed Wasm plugin result batch; producer and projector.
-  PARTIAL (reconciled 2026-11-02): `WasmPluginResultBatchV1` contract and generated bindings landed in `proto/edge/v1/plugin_results.proto` (#6245); remaining scope is the agent producer and core projector into `ServiceRadar.Observability.PluginResultIngestor`.
+- [x] 5.2 Typed Wasm plugin result batch; producer and projector.
+  DONE (reconciled 2026-11-03): `WasmPluginResultBatchV1` in `proto/edge/v1/plugin_results.proto` (#6245); agent producer in `go/pkg/agent/push_loop_plugin_results_edge.go` and projector `ServiceRadar.Edge.Projectors.WasmPluginResult` into `ServiceRadar.Observability.PluginResultIngestor`. Parity soak remains task 5.3.
 - [ ] 5.3 Parity soak.
   TODO (reconciled 2026-11-02): remaining scope is the plugin and add-on telemetry parity soak after tasks 5.1 and 5.2.
 

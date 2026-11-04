@@ -1945,6 +1945,59 @@ defmodule Monitoring.CertificatePolicyResponse do
   field :signature, 2, type: :bytes
 end
 
+defmodule Monitoring.EdgeDeliveryGrantRequest do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.EdgeDeliveryGrantRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :spool_id, 1, type: :bytes, json_name: "spoolId"
+  field :records, 2, repeated: true, type: Monitoring.EdgeDeliveryGrantRecord
+end
+
+defmodule Monitoring.EdgeDeliveryGrantRecord do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.EdgeDeliveryGrantRecord",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :sequence, 1, type: :uint64
+  field :record_bytes, 2, type: :bytes, json_name: "recordBytes"
+end
+
+defmodule Monitoring.EdgeDeliveryGrantResponse do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.EdgeDeliveryGrantResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :results, 1, repeated: true, type: Monitoring.EdgeDeliveryGrantResult
+end
+
+defmodule Monitoring.EdgeDeliveryGrantResult do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.EdgeDeliveryGrantResult",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :sequence, 1, type: :uint64
+
+  field :delivery_capability, 2,
+    proto3_optional: true,
+    type: Serviceradar.Edge.V1.EdgeSignedCapabilityV1,
+    json_name: "deliveryCapability"
+
+  field :refusal, 3, type: :string
+end
+
 defmodule Monitoring.AgentService.Service do
   @moduledoc false
 
@@ -2006,6 +2059,12 @@ defmodule Monitoring.AgentGatewayService.Service do
     :GetCertificatePolicy,
     Monitoring.CertificatePolicyRequest,
     Monitoring.CertificatePolicyResponse
+  )
+
+  rpc(
+    :RenewEdgeDeliveryGrants,
+    Monitoring.EdgeDeliveryGrantRequest,
+    Monitoring.EdgeDeliveryGrantResponse
   )
 end
 

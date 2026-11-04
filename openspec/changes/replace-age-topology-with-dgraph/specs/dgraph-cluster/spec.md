@@ -4,9 +4,9 @@
 The system SHALL use Dgraph as the graph database for topology projections and subsequent graph workloads, deployed as a ServiceRadar-managed cluster rather than as a process inside CNPG.
 
 #### Scenario: Topology does not share Postgres with the graph store
-- **WHEN** topology edges are persisted after cutover
+- **WHEN** topology edges are persisted
 - **THEN** they are written to Dgraph
-- **AND** they are not written to Apache AGE as the primary store
+- **AND** they are not written to Apache AGE
 
 ### Requirement: Product Helm installs Dgraph by default
 The `helm/serviceradar` chart SHALL install and manage Dgraph so a user can `helm upgrade --install` without a prior Dgraph cluster.

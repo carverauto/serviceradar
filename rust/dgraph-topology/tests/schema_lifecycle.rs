@@ -28,8 +28,8 @@ use std::time::{Duration, Instant};
 
 use dgraph_migrate::{Mode, Outcome, run_with_client, verify};
 use dgraph_topology::{
-    DeviceWrite, EdgeKind, EdgeWrite, InterfaceWrite, PREDICATES, TYPES, TopologyClient,
-    schema_spec,
+    DeviceWrite, EdgeKind, EdgeWrite, HopWrite, InterfaceWrite, MtrMetrics, PREDICATES, TYPES,
+    TopologyClient, schema_spec,
 };
 use serde::Deserialize;
 
@@ -408,6 +408,306 @@ async fn device_shape(topology: &TopologyClient, id: &str) -> serde_json::Value 
     let rows = value["d"].as_array().expect("device rows");
     assert_eq!(rows.len(), 1, "exactly one vertex carries {id}");
     serde_json::from_str(&rows[0].to_string().replace(id, "<id>")).expect("shape")
+}
+
+#[tokio::test]
+async fn mtr_paths_return_their_measurements_newest_first() {
+    with_scratch(Duration::from_secs(120), |client, _target| async move {
+        run_with_client(&client, schema_spec(), Mode::Migrate)
+            .await
+            .expect("apply topology schema");
+        let topology = TopologyClient::new(client);
+        let agent = "sr:agent01.example.com";
+        let far_hop = "198.51.100.7";
+        topology
+            .upsert_device(&DeviceWrite::new(agent))
+            .await
+            .expect("agent device");
+        topology
+            .upsert_hop(&HopWrite::new(far_hop))
+            .await
+            .expect("unresolved hop");
+        topology
+            .upsert_device(&DeviceWrite::new("sr:host02.example.com"))
+            .await
+            .expect("resolved hop device");
+
+        let measured = MtrMetrics {
+            avg_rtt_us: 4_250,
+            loss_pct: 12.5,
+            jitter_us: 310,
+            from_hop: 1,
+            to_hop: 2,
+        };
+        topology
+            .upsert_mtr_path(
+                &EdgeWrite::mtr_path(agent, far_hop, "agent-lab-1")
+                    .with_last_seen("2030-01-02T00:00:00Z")
+                    .with_mtr_metrics(measured),
+            )
+            .await
+            .expect("newer path");
+        topology
+            .upsert_mtr_path(
+                &EdgeWrite::mtr_path(agent, "sr:host02.example.com", "agent-lab-1")
+                    .with_last_seen("2030-01-01T00:00:00Z"),
+            )
+            .await
+            .expect("older path without measurements");
+        topology
+            .upsert_canonical_edge(&EdgeWrite::canonical(
+                agent,
+                "sr:host02.example.com",
+                "lldp",
+                "direct-physical",
+            ))
+            .await
+            .expect("a canonical edge is not an MTR path");
+
+        let paths = topology.query_mtr_paths(10).await.expect("read MTR paths");
+        assert_eq!(paths.len(), 2, "only MTR_PATH edges: {paths:?}");
+        let newest = &paths[0];
+        assert_eq!(newest.source, agent);
+        assert_eq!(newest.source_addr, "");
+        assert_eq!(newest.target, format!("mtr:{far_hop}"));
+        assert_eq!(newest.target_addr, far_hop);
+        assert_eq!(newest.avg_rtt_us, 4_250);
+        assert!((newest.loss_pct - 12.5).abs() < f64::EPSILON);
+        assert_eq!(
+            (newest.jitter_us, newest.from_hop, newest.to_hop),
+            (310, 1, 2)
+        );
+        assert_eq!(newest.agent_id, "agent-lab-1");
+        assert_eq!(paths[1].target, "sr:host02.example.com");
+        assert_eq!(paths[1].avg_rtt_us, 0);
+
+        assert_eq!(
+            topology
+                .query_mtr_paths(1)
+                .await
+                .expect("limited read")
+                .len(),
+            1
+        );
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn device_neighborhood_resolves_peer_interfaces_from_connects_to() {
+    with_scratch(Duration::from_secs(120), |client, _target| async move {
+        run_with_client(&client, schema_spec(), Mode::Migrate)
+            .await
+            .expect("apply topology schema");
+        let topology = TopologyClient::new(client);
+        let switch = "sr:switch01.example.com";
+        let router = "sr:router01.example.com";
+        let server = "sr:server01.example.com";
+        topology
+            .upsert_device(
+                &DeviceWrite::new(switch)
+                    .with_hostname("switch01.example.com")
+                    .with_ip("192.0.2.2"),
+            )
+            .await
+            .expect("switch");
+        topology
+            .upsert_device(&DeviceWrite::new(router).with_hostname("router01.example.com"))
+            .await
+            .expect("router");
+        topology
+            .upsert_device(&DeviceWrite::new(server))
+            .await
+            .expect("server");
+        for (key, device, name, index) in [
+            ("sr:switch01.example.com/ge-0/0/1", switch, "ge-0/0/1", 1),
+            ("sr:switch01.example.com/ge-0/0/2", switch, "ge-0/0/2", 2),
+            ("sr:router01.example.com/xe-1/0/0", router, "xe-1/0/0", 7),
+        ] {
+            topology
+                .upsert_interface(
+                    &InterfaceWrite::new(key, device)
+                        .with_name(name)
+                        .with_if_index(index),
+                )
+                .await
+                .expect("interface");
+        }
+        // Outbound evidence names the router's port; inbound evidence from the
+        // server names the switch-facing port on the server, which has no
+        // Interface vertex.
+        topology
+            .upsert_mapper_edge(
+                &EdgeWrite::mapper_evidence(switch, router, EdgeKind::ConnectsTo, "lldp", "direct")
+                    .with_interfaces("ge-0/0/1", 1, "xe-1/0/0", 0),
+            )
+            .await
+            .expect("outbound evidence");
+        topology
+            .upsert_mapper_edge(
+                &EdgeWrite::mapper_evidence(server, switch, EdgeKind::ConnectsTo, "lldp", "direct")
+                    .with_interfaces("eth0", 2, "ge-0/0/2", 2),
+            )
+            .await
+            .expect("inbound evidence");
+
+        let graph = topology
+            .query_device_neighborhood(switch, true)
+            .await
+            .expect("read neighborhood")
+            .expect("the switch exists");
+        assert_eq!(graph["device"]["id"], switch);
+        assert_eq!(graph["device"]["hostname"], "switch01.example.com");
+        let interface_ids: BTreeSet<_> = graph["interfaces"]
+            .as_array()
+            .expect("interfaces")
+            .iter()
+            .map(|iface| iface["id"].as_str().expect("id").to_owned())
+            .collect();
+        assert_eq!(
+            interface_ids,
+            BTreeSet::from([
+                "sr:switch01.example.com/ge-0/0/1".to_owned(),
+                "sr:switch01.example.com/ge-0/0/2".to_owned()
+            ])
+        );
+
+        let peers = graph["peer_interfaces"].as_array().expect("peers");
+        assert_eq!(peers.len(), 2, "{peers:?}");
+        let router_port = peers
+            .iter()
+            .find(|peer| peer["owner_device_id"] == router)
+            .expect("router peer");
+        assert_eq!(router_port["id"], "sr:router01.example.com/xe-1/0/0");
+        assert_eq!(router_port["ifindex"], 7);
+        assert_eq!(
+            router_port["owner_device"]["hostname"],
+            "router01.example.com"
+        );
+        let server_port = peers
+            .iter()
+            .find(|peer| peer["owner_device_id"] == server)
+            .expect("server peer");
+        assert!(
+            server_port["id"].is_null(),
+            "no Interface vertex: {server_port}"
+        );
+        assert_eq!(server_port["name"], "eth0");
+        for empty in ["collectors", "services", "targets", "device_capabilities"] {
+            assert_eq!(graph[empty], serde_json::json!([]), "{empty}");
+        }
+
+        let without_topology = topology
+            .query_device_neighborhood(switch, false)
+            .await
+            .expect("read without topology")
+            .expect("the switch exists");
+        assert_eq!(without_topology["interfaces"], serde_json::json!([]));
+        assert_eq!(without_topology["peer_interfaces"], serde_json::json!([]));
+        assert!(
+            topology
+                .query_device_neighborhood("sr:absent.example.com", true)
+                .await
+                .expect("read an absent device")
+                .is_none()
+        );
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn management_edges_are_stored_by_kind_and_stay_out_of_canonical_reads() {
+    with_scratch(Duration::from_secs(120), |client, _target| async move {
+        run_with_client(&client, schema_spec(), Mode::Migrate)
+            .await
+            .expect("apply topology schema");
+        let topology = TopologyClient::new(client);
+        let child = "sr:ap01.example.com";
+        let controller = "sr:wlc01.example.com";
+        for id in [child, controller] {
+            topology
+                .upsert_device(&DeviceWrite::new(id))
+                .await
+                .expect("device");
+        }
+        for (source, target, kind) in [
+            (child, controller, EdgeKind::ManagedBy),
+            (controller, child, EdgeKind::Manages),
+        ] {
+            topology
+                .upsert_edge(&EdgeWrite::new(
+                    source,
+                    target,
+                    kind,
+                    "management",
+                    "managed-by",
+                    "management_device_v1",
+                ))
+                .await
+                .expect("management edge");
+        }
+        topology
+            .upsert_canonical_edge(&EdgeWrite::canonical(
+                child,
+                controller,
+                "lldp",
+                "direct-physical",
+            ))
+            .await
+            .expect("canonical backbone between the same devices");
+
+        let stored: BTreeSet<_> = topology
+            .query_neighbourhood(child)
+            .await
+            .expect("read neighbourhood")
+            .iter()
+            .filter(|edge| edge.kind() != "CANONICAL_TOPOLOGY")
+            .map(|edge| {
+                (
+                    edge.kind().to_owned(),
+                    edge.edge().source().to_owned(),
+                    edge.edge().target().to_owned(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            stored,
+            BTreeSet::from([
+                (
+                    "MANAGED_BY".to_owned(),
+                    child.to_owned(),
+                    controller.to_owned()
+                ),
+                (
+                    "MANAGES".to_owned(),
+                    controller.to_owned(),
+                    child.to_owned()
+                ),
+            ])
+        );
+
+        let graph = topology
+            .query_canonical_graph()
+            .await
+            .expect("canonical graph");
+        assert_eq!(
+            graph
+                .edges()
+                .iter()
+                .map(|edge| (edge.source().to_owned(), edge.target().to_owned()))
+                .collect::<Vec<_>>(),
+            vec![(child.to_owned(), controller.to_owned())],
+            "only the canonical backbone is a canonical relation"
+        );
+
+        let view = topology
+            .query_topology_view("2001-01-01T00:00:00Z")
+            .await
+            .expect("topology view");
+        let view_kinds: BTreeSet<_> = view.edges().iter().map(|edge| edge.kind()).collect();
+        assert_eq!(view_kinds, BTreeSet::from(["CANONICAL_TOPOLOGY"]));
+    })
+    .await;
 }
 
 #[derive(Debug, Deserialize)]

@@ -92,6 +92,30 @@ spec:
           annotations:
             summary: "ServiceRadar edge-record security quarantine is nearly full"
             description: "The edge-record security-quarantine stream is above 80% of its MaxBytes in namespace {{ .Release.Namespace }}. It refuses new records when full, which leaves those agent spool sequences unresolved."
+        - alert: ServiceRadarEdgeRecordDeadLettered
+          expr: sum by (contract, reason_class) ((increase(serviceradar_event_writer_edge_record_dead_letter_count{namespace="{{ .Release.Namespace }}", result="stored"}[15m]) > 0) or (serviceradar_event_writer_edge_record_dead_letter_count{namespace="{{ .Release.Namespace }}", result="stored"} unless serviceradar_event_writer_edge_record_dead_letter_count{namespace="{{ .Release.Namespace }}", result="stored"} offset 15m)) > 0
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "ServiceRadar edge records were dead-lettered"
+            description: "EventWriter dead-lettered {{`{{ $labels.contract }}`}} edge records ({{`{{ $labels.reason_class }}`}}) in namespace {{ .Release.Namespace }} after their projection kept failing. They are held in TELEMETRY_EDGE_RECORD_DLQ_V1_BULK; fix the cause, then replay them (docs/edge-record-dead-letter-runbook.md)."
+        - alert: ServiceRadarEdgeRecordDeadLetterPublishFailed
+          expr: sum((increase(serviceradar_event_writer_edge_record_dead_letter_count{namespace="{{ .Release.Namespace }}", result="failed"}[5m]) > 0) or (serviceradar_event_writer_edge_record_dead_letter_count{namespace="{{ .Release.Namespace }}", result="failed"} unless serviceradar_event_writer_edge_record_dead_letter_count{namespace="{{ .Release.Namespace }}", result="failed"} offset 5m)) > 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "ServiceRadar cannot dead-letter failing edge records"
+            description: "EventWriter could not store a failing edge record in its dead-letter stream in namespace {{ .Release.Namespace }}. The record stays on the edge-record stream and keeps retrying until its 24h MaxAge evicts it; check the dead-letter stream exists and has room."
+        - alert: ServiceRadarEdgeRecordDeadLetterFull
+          expr: max(serviceradar_event_writer_consumer_stream_byte_utilization_ratio{namespace="{{ .Release.Namespace }}", subject_class="edge_record_dlq"}) > 0.8
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "ServiceRadar edge-record dead-letter stream is nearly full"
+            description: "The edge-record dead-letter stream is above 80% of its MaxBytes in namespace {{ .Release.Namespace }}. It refuses new dead-letters when full, which leaves failing records retrying on the edge-record stream; replay or delete resolved records."
         - alert: ServiceRadarAgentEdgeSpoolUnresolvedAge
           expr: max(agent_edge_spool_oldest_unresolved_age_seconds) > 900
           for: 5m

@@ -53,6 +53,14 @@ TELEMETRY_ONLY = {
     "agent.runtimeStorage.enabled": True,
 }
 
+# Operator values for a plugin-results-only agent.
+PLUGIN_RESULTS_ONLY = {
+    "edgeRecords.enabled": True,
+    "edgeRecords.contractRegistry": {"registry_epoch": 1},
+    "edgeRecords.agentPluginResultsEnabled": True,
+    "agent.runtimeStorage.enabled": True,
+}
+
 
 def render_agent_config(overrides):
     """Consume helm-unittest's generated ConfigMap snapshot, without golden files."""
@@ -132,6 +140,15 @@ class EdgeRecordAgentConfigTest(unittest.TestCase):
         self.assertIs(sender["sweep_enabled"], False)
         self.assertIs(sender["metrics_enabled"], False)
         self.assertIs(sender["telemetry_enabled"], True)
+        self.assertIs(sender["plugin_results_enabled"], False)
+
+    def test_plugin_results_only_sender_enables_plugin_results_and_leaves_the_rest_off(self):
+        sender = render_agent_config(PLUGIN_RESULTS_ONLY)["edge_record_sender"]
+        self.assertIs(sender["enabled"], True)
+        self.assertIs(sender["sweep_enabled"], False)
+        self.assertIs(sender["metrics_enabled"], False)
+        self.assertIs(sender["telemetry_enabled"], False)
+        self.assertIs(sender["plugin_results_enabled"], True)
 
 
 if __name__ == "__main__":

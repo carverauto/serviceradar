@@ -81,7 +81,7 @@ func ValidateMetricBatch(batch *metricpb.MetricBatch) error {
 // Signatures are verified by the gateway, which holds the trust snapshot.
 func ValidateMetricBatchRecord(r *edgev1.EdgeRecordV1) error {
 	var batch metricpb.MetricBatch
-	if err := decodeStandingGrantRecord(r, MetricsBatchContractID, MetricsBatchContractVersion,
+	if err := decodeStandingGrantRecord(r, contractRef{MetricsBatchContractID, MetricsBatchContractVersion},
 		ErrMetricBatchSourceAuthorization, &batch); err != nil {
 		return err
 	}
@@ -95,6 +95,12 @@ func ValidateMetricBatchRecord(r *edgev1.EdgeRecordV1) error {
 	return nil
 }
 
+// contractRef names one contract identity (id and version) a record must carry.
+type contractRef struct {
+	id      string
+	version uint32
+}
+
 // decodeStandingGrantRecord is the shared front half of a standing-grant
 // contract's record validator: the whole record (ValidateRecord), the exact
 // contract, RECORD_BATCH_V1 framing, no source authorization (a standing grant
@@ -102,8 +108,7 @@ func ValidateMetricBatchRecord(r *edgev1.EdgeRecordV1) error {
 // canonical decode of the body into body.
 func decodeStandingGrantRecord(
 	r *edgev1.EdgeRecordV1,
-	contractID string,
-	contractVersion uint32,
+	want contractRef,
 	sourceAuthorization error,
 	body interface {
 		Reset()
@@ -114,7 +119,7 @@ func decodeStandingGrantRecord(
 		return err
 	}
 	contract := r.GetOutputContract()
-	if contract.GetContractId() != contractID || contract.GetContractVersion() != contractVersion {
+	if contract.GetContractId() != want.id || contract.GetContractVersion() != want.version {
 		return fmt.Errorf("%w: %s v%d", ErrContractDispatch, contract.GetContractId(), contract.GetContractVersion())
 	}
 	if err := requireFramingFamily(r); err != nil {

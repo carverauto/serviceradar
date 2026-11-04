@@ -68,45 +68,31 @@ For Helm-based deployments:
 
 ## Dgraph topology store
 
-Mapper evidence stays in CNPG (`mapper_topology_links`, `runtime_topology_links`).
-Dgraph is the traversal graph. During rollout, `graph.backend` defaults to
-`dual` and `graph.read` stays `age` until the migrator checksum is green.
+Mapper evidence stays in CNPG (`mapper_topology_links`). Dgraph is the only
+topology graph: every topology write and read (mapper links, interfaces,
+management relations, risk scalars, MTR paths, canonical rebuild, telemetry
+refresh, ServiceRadar Atlas, SRQL `in:graph` / `in:device_graph`, and the causal
+hydrator) uses it. There is no alternative backend and no fallback. A Helm
+release without Dgraph (`dgraph.enabled=false` and no `dgraph.external.host`)
+fails to render. If core starts without a resolvable Dgraph endpoint, it logs
+an error once and drops topology writes until the endpoint resolves.
 
-The Helm post-install Job `serviceradar-dgraph-migrator` (and the Compose
-one-shot `age-to-dgraph`) runs the Bazel `age-to-dgraph` binary:
+### Canonical reconciliation
 
-1. `rebuild` — canonical edges from AGE into Dgraph (idempotent). The source is
-   AGE's `CANONICAL_TOPOLOGY` edges, not `runtime_topology_links`: that table is
-   a row-capped ServiceRadar Atlas cache, and rebuild deletes every key it does not send,
-   so a fleet larger than the cap would have its extra edges removed. Mapper
-   evidence is the fallback when AGE holds no canonical edges. Only the
-   canonical set is rebuilt: `relation_type` in `CONNECTS_TO` / `LOGICAL_PEER` /
-   `HOSTED_ON`, or an empty `relation_type` with a direct evidence class.
-   Attachment-plane evidence (`ATTACHED_TO` / `OBSERVED_TO`, inferred segments)
-   is not backbone topology and is never promoted to a canonical edge.
-2. `checksum` — AGE `platform_graph` vs Dgraph node/edge counts and content hash.
-   Both sides recompute edge identity in the Dgraph key format rather than
-   hashing whichever key each store happens to hold, and `node_count` is the
-   number of distinct devices appearing on those canonical edges, not every
-   `:Device` vertex, which the Dgraph side has no reason to carry.
-
-A checksum failure fails the Job and does **not** flip `graph.read`. Cutover is
-an operator values change (`graph.read: dgraph`), with rollback `graph.read: age`.
-
-The migrator and core's dual-write copy must select the same canonical set,
-because `rebuild` deletes every canonical edge it was not given. ServiceRadar Atlas reads
-Dgraph's admitted topology view directly; it includes eligible attachment,
-hosted and inferred evidence in addition to canonical edges. The canonical
-predicate has one definition in
-`RuntimeTopologyProjection.canonical_edge_predicate/3`; the migrator's Cypher
-repeats it verbatim.
+Core's `TopologyGraph.rebuild_canonical_links_from_current/0` reconciles the
+policy-approved mapper evidence and existing canonical edges in Dgraph through
+the typed replacement API. It preserves directional interface attribution,
+existing canonical telemetry, and observation timestamps. Retained edges
+participate in same-port conflict resolution with their stored support rank.
+Reconciliation retains the starvation and mass-deletion guards for stale
+pruning. Its input fingerprint and heartbeat persist in CNPG
+(`runtime_topology_projection_meta`), so an unchanged topology is not rewritten.
 
 ### Projection lag
 
 Mapper ingestion commits interface and topology evidence to CNPG first, inside
-the result-ingestion lane's worker budget. The graph write (AGE when written,
-Dgraph when written, then pruning of that device's links) runs afterwards
-as a `TopologyProjectionWorker` job on the `topology_projection` Oban queue
+the result-ingestion lane's worker budget. The Dgraph write runs afterwards as
+a `TopologyProjectionWorker` job on the `topology_projection` Oban queue
 (`OBAN_QUEUE_TOPOLOGY_PROJECTION`, default 2 per core node). A slow or
 unavailable Dgraph therefore delays the graph instead of timing the mapper
 result out.
@@ -118,7 +104,7 @@ edges), however many interfaces or links it carries.
 
 Each projection job is one device and carries that device id only. When it
 runs it reads the current committed discovered interfaces (including aliases)
-and mapper topology links for that device, and replaces that device's graph
+and mapper topology links for that device, and rewrites that device's graph
 state through the same batched writes. The newest of that device's link rows
 that sets a field owns its IP and interface fields. For each link the job also
 creates the neighbor vertex, the neighbor interface and the edge, and writes
@@ -139,8 +125,7 @@ read newer rows and finished first, the job schedules one follow-up projection
 for the device. The graph therefore converges to the newest committed rows.
 A job reads only links observed at or after the stale-link cutoff that pruning
 uses, so retained rows older than that are neither re-projected nor a reason
-for a follow-up. The graph-wide passes (global stale-evidence pruning in AGE
-and Dgraph, the legacy single-identifier attachment reconciliation and the
+for a follow-up. The graph-wide passes (global stale-evidence pruning and the
 canonical rebuild) run in a separate `TopologyGlobalPassWorker` job on the same
 queue. Each projection schedules it 30 seconds ahead, and it is unique while
 pending, so a burst of device projections runs the passes once. A failed projection is logged,
@@ -150,22 +135,6 @@ runtime metrics
 coalesced, accepted, not accepted and failed projections, with `queue_wait_ms`
 and `duration_ms`) and a `dgraph` lane (every Dgraph call's outcome, timeouts
 and retries, with `duration_ms` and `queue_wait_ms`).
-
-### Reconciliation after the backend cutover
-
-With `GRAPH_BACKEND=dgraph` (`graph.backend: dgraph` in Helm), core's
-`TopologyGraph.rebuild_canonical_links_from_current/0` reconciles the
-policy-approved mapper evidence and existing canonical edges in Dgraph through
-the existing typed replacement API. It does not read AGE adjacency or refresh
-the SQL topology projection. `age` and `dual` retain their AGE reconciliation
-path; `dual` copies the resulting canonical set to Dgraph.
-
-The Dgraph path preserves directional interface attribution, existing canonical
-telemetry, and observation timestamps. Retained edges participate in same-port
-conflict resolution with their stored support rank. Reconciliation retains the
-starvation and mass-deletion guards for stale pruning. Its fingerprint and
-heartbeat persist in CNPG under a separate projection key so switching backends
-cannot reuse the other store's fingerprint.
 
 ### Dgraph superuser credentials
 
@@ -183,28 +152,15 @@ naming the ACL user. Leave `credentialsSecret` empty to dial an external
 cluster that has ACL disabled. A password is never a chart value, because
 `graph.env` renders into the Deployment spec.
 
-### Dgraph reset during AGE/dual migration
+### Dgraph reset
 
-Use this procedure while AGE is still receiving topology writes. After
-`GRAPH_BACKEND=dgraph`, use the core reconciliation path above: the migrator
-still reads AGE and can replace current Dgraph topology with stale adjacency.
+The canonical topology is derived from evidence. To rebuild it, reset mapper
+evidence with the existing topology-evidence cleanup (CNPG
+`mapper_topology_links` stays the source of truth; never `drop_all` on Dgraph)
+and let the next mapper cycle and canonical reconciliation repopulate Dgraph.
 
-To rebuild the migration target from current observations:
-
-1. Record pre counts: `AGE_TO_DGRAPH_MODE=checksum` (or inspect ServiceRadar Atlas).
-2. Reset mapper evidence using the existing topology-evidence cleanup (CNPG
-   `mapper_topology_links` / `runtime_topology_links` stay the source of truth;
-   do not `drop_all` on Dgraph).
-3. Run `age-to-dgraph rebuild`. The binary prints `pre_edges` / `post_edges` /
-   `upserted`.
-4. Run `age-to-dgraph checksum`. Leave `graph.read` at `age` until it passes.
-
-Lab graphs with no evidence tables may use `dump-load` with
-`AGE_TO_DGRAPH_ALLOW_LAB_DUMP=1` and a synthetic JSON fixture. Live AGE dumps
-must not enter git.
-
-`in:graph_cypher` continues to query AGE until AGE is retired. `in:graph` /
-`in:graph_dql` query Dgraph. Both entities are described in the
+`in:graph` / `in:graph_dql` and `in:device_graph` query Dgraph;
+`in:graph_cypher` was retired with AGE. The entities are described in the
 [SRQL Language Reference](./srql-language-reference.md).
 
 ## Operator Controls
@@ -264,11 +220,9 @@ The StarRocks reader has no producer ceiling, so it uses the rule's default
 metadata to distinguish a plausible 32-bit wrap from a reset can still be
 interpreted as a wrap.
 
-With `graph.backend: dgraph`, telemetry refresh updates only existing canonical
-edges' directional traffic, capacity and telemetry eligibility. It preserves
-discovery evidence, `last_seen` and endpoints, and cannot recreate a pruned edge.
-In `dual` mode, refresh still updates AGE before the canonical rebuild copies
-edges to Dgraph.
+Telemetry refresh updates only existing canonical Dgraph edges' directional
+traffic, capacity and telemetry eligibility. It preserves discovery evidence,
+`last_seen` and endpoints, and cannot recreate a pruned edge.
 
 ### Operational metrics
 

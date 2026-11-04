@@ -1,7 +1,7 @@
 # ServiceRadar to DeepCausality Integration Assessment
 
 > **Method:** strict first-principles derivation from the existing CNPG schema
-> and AGE topology graph. Every causaloid in §3 reduces to `A ∧ B → C` where A
+> and the Dgraph topology graph. Every causaloid in §3 reduces to `A ∧ B → C` where A
 > and B are present in the database today. Gaps are listed in §3.7 and treated
 > in depth in the companion document
 > [unblock-capabilities.md](./unblock-capabilities.md), which ranks them by
@@ -10,7 +10,7 @@
 >
 > **Schema snapshot:** 224 tables in `platform`, 475 indexes, 49 views, a
 > 13,950-line baseline plus 201 migrations. Zero hits on
-> `redundan|depends_on|capacity|headroom`. AGE edge labels: `CONNECTS_TO`,
+> `redundan|depends_on|capacity|headroom`. Topology edge kinds: `CONNECTS_TO`,
 > `HAS_INTERFACE`, `MANAGED_BY`, `CANONICAL_TOPOLOGY`, plus auxiliary. Vertex
 > types: `Device`, `Interface`.
 
@@ -85,8 +85,9 @@ What the schema does **not** have, anywhere in 13,950 lines:
 
 What the schema does have, and where the V1 substrate comes from:
 
-- A working AGE topology graph with `CONNECTS_TO`, `HAS_INTERFACE`,
-  `MANAGED_BY`, `CANONICAL_TOPOLOGY`, plus auxiliary edge labels.
+- A working Dgraph topology graph with `CONNECTS_TO`, `MANAGED_BY` /
+  `MANAGES`, `CANONICAL_TOPOLOGY`, plus auxiliary edge kinds, and
+  `Device` to `Interface` ownership.
   Network-layer adjacency only; no structural edges; solid infrastructure
   with confidence-weighted idempotent upsert.
 - One real containment domain: `virtualization_*` tables with hard FK
@@ -106,7 +107,7 @@ What the schema does have, and where the V1 substrate comes from:
 The current DeepCausality integration is the `god_view_nif` Rustler NIF in
 `elixir/web-ng/native/god_view_nif/`, consumed by:
 
-- **`RuntimeGraph`.** A GenServer that caches an AGE topology projection
+- **`RuntimeGraph`.** A GenServer that caches the Dgraph canonical topology
   and refreshes it every 30 seconds.
 - **`GodViewStream`** (~5,800 lines). Builds nodes and edges with rich
   telemetry (including `capacity_bps`, `flow_pps_ab/ba`, `flow_bps_ab/ba`,
@@ -139,8 +140,8 @@ derivable from §1.1 with no schema changes.
 
 | Entity | Source | Identity |
 |---|---|---|
-| Device | `ocsf_devices`, AGE `Device` vertex | `uid` |
-| Interface | `discovered_interfaces`, AGE `Interface` vertex | `interface_id` |
+| Device | `ocsf_devices`, Dgraph `Device` vertex | `uid` |
+| Interface | `discovered_interfaces`, Dgraph `Interface` vertex | `interface_id` |
 | Agent | `ocsf_agents`, `agent_id` FKs | `agent_id` |
 | Gateway | `gateways`, `gateway_id` FKs | `gateway_id` |
 | Service | `service_status` / `service_state` tuple `(gateway_id, agent_id, service_name)` | composite |
@@ -155,9 +156,9 @@ derivable from §1.1 with no schema changes.
 
 | Relationship | Source | Kind |
 |---|---|---|
-| `Device HAS_INTERFACE Interface` | AGE | structural |
-| `Interface CONNECTS_TO Interface` | AGE | physical |
-| `Device MANAGED_BY Device` | AGE + `management_device_id` | operational |
+| `Device HAS_INTERFACE Interface` | Dgraph (`device.interfaces`) | structural |
+| `Interface CONNECTS_TO Interface` | Dgraph | physical |
+| `Device MANAGED_BY Device` | Dgraph + `management_device_id` | operational |
 | `Device OBSERVED_VIA Agent` | `ocsf_devices.availability_source_agent_id` | observational |
 | `Agent HOSTED_ON Device` | `agent_id` on device + agent identity | operational |
 | `Agent REPORTS_TO Gateway` | `gateway_id` on agent | operational |
@@ -184,7 +185,7 @@ Strict FK transitivity.
 **D3. Service stack.** `Service → Agent → Device`, reporting via Gateway. A
 4-tuple chain with a hard FK at each link.
 
-**D4. Network reachability under current availability.** AGE topology
+**D4. Network reachability under current availability.** Dgraph topology
 filtered by `ocsf_devices.is_available = true`. Connected components are
 reachability sets. Articulation points are single points of network failure.
 
@@ -214,7 +215,7 @@ flap rate over window W.
 is an `input pattern → state transition` claim. The collection is an
 implicit operator-curated causal graph that already exists in the database.
 
-**D12. Confidence-weighted topology.** AGE edges carry `evidence_class`,
+**D12. Confidence-weighted topology.** Topology edges carry `evidence_class`,
 `confidence_tier`, and `confidence_reason`. Causaloids weight predictions by
 edge confidence: `direct-physical` evidence is stronger than
 `inferred-segment`.
@@ -303,8 +304,9 @@ V1 sits on two mature libraries.
 
 **`EmbeddedSrql`.** The `rust/srql` crate is already deployed as a NIF
 dependency. Its production-ready `QueryEngine` opens a CNPG pool and
-dispatches across every entity in the schema, including raw openCypher via
-`graph_cypher`. The engine consumes via:
+dispatches across every entity in the schema, including read-only DQL into
+the Dgraph topology graph via `in:graph` (it needs `DGRAPH_URL`). The engine
+consumes via:
 
 ```rust
 let engine = EmbeddedSrql::new(config).await?;
@@ -332,7 +334,7 @@ Ultragraph's `freeze` / `unfreeze` lifecycle matches the V1 engine's
 hydration pattern. Build the Context as a `DynamicGraph` from CNPG plus
 JetStream deltas. Call `freeze()` before each reasoning tick. Call
 `unfreeze()` only when topology actually changes, which is rare and gated
-by AGE updates. Published performance: `shortest_path` on 1M nodes and 5M
+by topology graph updates. Published performance: `shortest_path` on 1M nodes and 5M
 edges in roughly 482 µs. ServiceRadar topologies are orders of magnitude
 smaller.
 
@@ -342,14 +344,14 @@ With these substrates, V1 is approximately a 2,000 to 2,100-line effort:
 
 | Component | Lines | Purpose |
 |---|---|---|
-| Hydrator | ~800 | `EmbeddedSrql` snapshot + JetStream subscriber + AGE to `DynamicGraph` |
+| Hydrator | ~800 | `EmbeddedSrql` snapshot + JetStream subscriber + Dgraph topology to `DynamicGraph` |
 | Graph layer | ~300 | Thin wrapper exposing V1-relevant projections (MANAGED_BY subgraph, service-stack chain, netflow predecessor graph, MTR pathway list) |
 | Causaloids | ~600 | DC `CausaloidGraph` invoking ultragraph queries and applying state-transition rules |
 | Emitter | ~200 | `signals.causal.predictions` publisher with deterministic IDs |
 | Snapshot persistence | ~200 | Context dump to disk for fast restart |
 
 The work concentrates where it should: in **projection design** (how to
-construct the right subgraphs from CNPG and AGE) and **causaloid
+construct the right subgraphs from CNPG and Dgraph) and **causaloid
 composition** (how DC's `CausaloidGraph` wraps the graph queries). The
 boilerplate of graph algorithms and SQL access is library-provided.
 
@@ -371,16 +373,16 @@ that implies service-to-service edges.
 **Gap B. `capacity_bps` population coverage.** The field exists in
 `GodViewSnapshot` and is contracted on edges. The audit question is
 *coverage*: how often is it non-null in production? Likely sourced from
-`discovered_interfaces` and/or AGE edge properties projected by
+`discovered_interfaces` and/or topology edge properties projected by
 `RuntimeGraph`.
 
 **Gap C. `health_events.new_state` controlled vocabulary.** The transition
 log exists; the state alphabet does not. Reasoning over "degraded vs.
 failing" requires a controlled vocabulary or enum.
 
-**Gap D. Inverse `MANAGES` edge or index in AGE.** C4 currently resolves
-"devices managed by M" via relational lookup. Functional, but two-step on
-the graph side. A performance-only ergonomic.
+**Gap D. Inverse `MANAGES` edge.** Closed: the topology graph stores
+`MANAGES` as the inverse of every `MANAGED_BY` edge, so "devices managed
+by M" is one graph hop.
 
 **Gap E. Out-of-band vs. in-band gateway flag.** No marker that a gateway is
 on a separate observability network. Without it, C3 can't always
@@ -415,7 +417,7 @@ Splitting would force network-hop serialization on the reasoning hot path.
 
 Module boundaries inside the binary preserve future optionality:
 
-- `context_hydrator`. Owns CNPG, JetStream, and AGE projection.
+- `context_hydrator`. Owns CNPG, JetStream, and the Dgraph topology projection.
 - `domain_model`. Rust types for V1 entities and relationships.
 - `reasoner`. DC `CausaloidGraph` plus causaloid implementations.
 - `emitter`. Verdict publisher.
@@ -433,7 +435,7 @@ Three feeds, three responsibilities:
 - **`EmbeddedSrql` over CNPG.** Bootstrap (current state on cold start),
   on-demand aggregates when causaloids fire (TimescaleDB continuous
   aggregates via `stats:`, `bucket:`, and `rollup_stats:`), and structural
-  snapshots (AGE topology via `graph_cypher`).
+  snapshots (Dgraph topology via `in:graph` DQL).
 - **JetStream subscriber.** Live deltas. Subscribes to `signals.causal.>`,
   core-elx-normalized OCSF/event outputs, and `arancini.updates.>` plus
   `siem.events.>` for the existing causal-signal paths. Sub-second reactivity.
@@ -443,7 +445,7 @@ Three feeds, three responsibilities:
   device availability transitions and SNMP-derived state need a logical
   replication slot republishing onto `cdc.platform.<table>` subjects.
   Allowlist: `ocsf_devices`, `service_status`, `health_events`,
-  virtualization tables, and AGE projection tables. **Do not CDC
+  and virtualization tables. **Do not CDC
   TimescaleDB hypertables.** The engine queries them on demand via SRQL.
 
 ### 4.3 Output path: verdicts to the God-View renderer
@@ -588,7 +590,7 @@ with input vocabulary. Generalize C11 across entity types.
 
 **Close Gap F.** OpenSpec proposal for structured physical-host components.
 SNMP collector work to emit one structured row per PSU, fan, temp, and
-disk with a controlled health enum. AGE edge labels for `CONTAINS`. Once
+disk with a controlled health enum. A `CONTAINS` topology edge kind. Once
 landed, the PSU, RAID, and redundancy-group causaloids the original
 integration doc described become writable, now on a substrate that already
 reasons across domains.
@@ -596,7 +598,7 @@ reasons across domains.
 ### Phase 5. Convenience (when convenient)
 
 - **Gap E.** OOB marker for gateways where applicable.
-- **Gap D.** Reverse `MANAGES` edge in AGE.
+- **Gap D.** Closed: the topology graph stores the reverse `MANAGES` edge.
 
 ### When to revisit deferred decisions
 

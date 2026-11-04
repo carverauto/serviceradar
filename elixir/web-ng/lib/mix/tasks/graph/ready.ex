@@ -1,8 +1,9 @@
 defmodule Mix.Tasks.Graph.Ready do
-  @shortdoc "Verifies AGE graph readiness"
+  @shortdoc "Verifies the Dgraph topology graph is reachable"
 
   @moduledoc """
-  Verifies CNPG connectivity and Apache AGE graph readiness.
+  Verifies that the Dgraph topology graph is configured and answers a
+  read-only query.
 
   Run with: `mix graph.ready`
   """
@@ -13,24 +14,22 @@ defmodule Mix.Tasks.Graph.Ready do
 
   use Mix.Task
 
-  alias ServiceRadarWebNG.Graph
-
   @dialyzer {:nowarn_function, run: 1}
+
+  @probe "{ probe(func: has(device.id), first: 1) { uid } }"
 
   def run(_args) do
     Mix.Task.run("app.start")
 
-    Mix.shell().info("Checking Apache AGE graph readiness...")
+    Mix.shell().info("Checking Dgraph topology graph readiness...")
 
-    case Graph.query("RETURN 1") do
+    case ServiceRadar.Dgraph.query(@probe) do
       {:ok, _} ->
-        Mix.shell().info("✓ AGE is reachable and the `serviceradar` graph is queryable")
+        Mix.shell().info("Dgraph is reachable and the topology graph is queryable")
 
       {:error, error} ->
-        Mix.shell().error("✗ Graph query failed: #{inspect(error)}")
-
-        Mix.shell().error("Check CNPG_* env vars and that AGE is installed/enabled on the target database")
-
+        Mix.shell().error("Topology graph query failed: #{inspect(error)}")
+        Mix.shell().error("Check DGRAPH_URL, or DGRAPH_HOST with DGRAPH_PORT and DGRAPH_TLS_MODE")
         exit({:shutdown, 1})
     end
   end

@@ -21,7 +21,7 @@
 
 use dgraph_migrate::SchemaSpec;
 
-/// Device identity: the canonical `sr:`-prefixed id already used in AGE.
+/// Device identity: the canonical `sr:`-prefixed `ocsf_devices.uid`.
 pub const PRED_DEVICE_ID: &str = "device.id";
 
 /// Idempotency key for a reified topology edge.
@@ -85,6 +85,9 @@ topo.stale: bool @index(bool) .
 topo.agent_id: string @index(exact) .
 topo.avg_rtt_us: int .
 topo.loss_pct: float .
+topo.jitter_us: int .
+topo.from_hop: int .
+topo.to_hop: int .
 topo.mutation_id: string @index(exact) .
 
 prefix.cidr: string @index(exact) @upsert .
@@ -162,6 +165,9 @@ type TopologyEdge {
   topo.agent_id
   topo.avg_rtt_us
   topo.loss_pct
+  topo.jitter_us
+  topo.from_hop
+  topo.to_hop
   topo.mutation_id
 }
 
@@ -229,6 +235,9 @@ pub const PREDICATES: &[&str] = &[
     "topo.agent_id",
     "topo.avg_rtt_us",
     "topo.loss_pct",
+    "topo.jitter_us",
+    "topo.from_hop",
+    "topo.to_hop",
     "topo.mutation_id",
     "prefix.cidr",
     "prefix.family",

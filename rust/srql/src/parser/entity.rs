@@ -9,7 +9,11 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
         "agents" | "agent" | "ocsf_agents" => Ok(Entity::Agents),
         "devices" | "device" | "device_inventory" => Ok(Entity::Devices),
         "device_graph" | "devicegraph" => Ok(Entity::DeviceGraph),
-        "graph_cypher" | "graphcypher" | "cypher" => Ok(Entity::GraphCypher),
+        "graph_cypher" | "graphcypher" | "cypher" => Err(ServiceError::InvalidRequest(
+            "in:graph_cypher was retired with Apache AGE; query the topology graph with \
+             in:graph dql:'...'"
+                .into(),
+        )),
         "graph" | "graph_dql" => Ok(Entity::GraphDql),
         "interfaces" | "interface" | "discovered_interfaces" => Ok(Entity::Interfaces),
         "security_events" => Ok(Entity::SecurityEvents),

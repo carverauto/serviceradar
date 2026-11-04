@@ -15,6 +15,7 @@ defmodule ServiceRadar.Observability.ProductionSchedule do
   `cron_entries/1`.
   """
 
+  alias ServiceRadar.EventWriter.LifecycleAdmissionDrainWorker
   alias ServiceRadar.Observability.AnomalyAddonConfigProjector
   alias ServiceRadar.Observability.AnomalyAlertLivenessWorker
   alias ServiceRadar.Observability.AnomalyEpisodeStaleCloseWorker
@@ -43,6 +44,7 @@ defmodule ServiceRadar.Observability.ProductionSchedule do
       seasonal_edge_baseline_entries(fetch),
       anomaly_edge_config_projection_entries(fetch),
       anomaly_episode_stale_close_entries(fetch),
+      lifecycle_admission_drain_entries(fetch),
       resolve_stale_anomalies_entries(fetch),
       anomaly_alert_liveness_entries(fetch),
       anomaly_ingest_silence_entries(fetch),
@@ -159,6 +161,10 @@ defmodule ServiceRadar.Observability.ProductionSchedule do
 
   defp anomaly_episode_stale_close_entries(_fetch) do
     [{"*/5 * * * *", AnomalyEpisodeStaleCloseWorker, queue: :maintenance}]
+  end
+
+  defp lifecycle_admission_drain_entries(_fetch) do
+    [{"* * * * *", LifecycleAdmissionDrainWorker, queue: :maintenance}]
   end
 
   defp resolve_stale_anomalies_entries(_fetch) do

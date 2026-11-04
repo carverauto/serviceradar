@@ -4,8 +4,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   graph projection.
 
   The CNPG rows are the authoritative record and are committed here, inside the
-  result-ingestion lane's worker budget. The topology graph (AGE and/or Dgraph)
-  is a projection of them, written afterwards by
+  result-ingestion lane's worker budget. The Dgraph topology graph is a
+  projection of them, written afterwards by
   `ServiceRadar.NetworkDiscovery.TopologyProjectionWorker`, so a slow graph
   backend delays the graph instead of timing the mapper result out.
   """
@@ -5578,7 +5578,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   # Drop the raw topology records whose prepared (normalized) counterparts were
   # rejected by the bulk insert, keyed by the logical-key identity. Records for
   # unattributable errors ({nil, error} pairs) cannot be filtered and stay in
-  # the surviving set, which is safe because the AGE MERGEs are idempotent.
+  # the surviving set, which is safe because the graph upserts are idempotent.
   defp reject_rejected_topology_records(records, []), do: records
 
   defp reject_rejected_topology_records(records, rejected) do
@@ -5648,7 +5648,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
   # Per-record failure isolation: a partial bulk-create success MUST NOT abort
   # the pipeline. Return the accepted records plus {record, error} rejection
-  # pairs so callers keep the surviving evidence flowing (e.g. into the AGE
+  # pairs so callers keep the surviving evidence flowing (e.g. into the graph
   # graph) instead of dropping the whole payload; only a total failure returns
   # {:error, errors}. Public for tests: partial failures cannot be induced
   # through the JSON ingest path once validation accepts real payload shapes.
@@ -5701,7 +5701,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   # the error path. Partition the prepared batch into accepted records and
   # {record, error} rejection pairs. Errors that cannot be attributed to an
   # index become {nil, error} pairs and leave the batch unfiltered for those
-  # records, which is safe because the downstream AGE MERGEs are idempotent.
+  # records, which is safe because the downstream graph upserts are idempotent.
   defp split_bulk_rejections(prepared_records, errors) do
     {indexed, unattributed} =
       errors

@@ -278,6 +278,43 @@ defmodule ServiceRadar.SweepJobs.SweepGroupExecution do
       """
     end
 
+    attribute :received_chunk_indexes, {:array, :integer} do
+      allow_nil? false
+      public? true
+      default []
+      description "Distinct data-chunk indexes already ingested for this execution"
+    end
+
+    attribute :expected_chunk_count, :integer do
+      allow_nil? true
+      public? true
+      description "Data-chunk count carried on the results, once known"
+    end
+
+    attribute :expected_chunk_indexes, {:array, :integer} do
+      allow_nil? true
+      public? true
+
+      description """
+      Exact data-chunk indexes the agent durably appended, set from a cancel
+      marker. When nil the expected set is 0..expected_chunk_count-1.
+      """
+    end
+
+    attribute :close_cancelled, :boolean do
+      allow_nil? false
+      public? true
+      default false
+      description "Latched when any record of the execution is cancelled"
+    end
+
+    attribute :close_terminal_seen, :boolean do
+      allow_nil? false
+      public? true
+      default false
+      description "Latched when the final data chunk or the cancel marker is ingested"
+    end
+
     create_timestamp :inserted_at
     update_timestamp :updated_at
   end

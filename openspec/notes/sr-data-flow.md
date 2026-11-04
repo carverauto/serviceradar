@@ -119,7 +119,7 @@ Consumer stream config in `elixir/serviceradar_core/config/runtime.exs:1537-1656
 | `NETFLOW_RAW` | `flows.raw.netflow` | Flows | 1649-1655 |
 
 Producer-side subjects:
-- Gateway metrics: `metrics.{icmp,mtr,rperf,snmp,sweep,sysmon,timeseries}`, OTLP relay `otel.traces.raw`, `logs.otel`, `otel.metrics.raw`, `otel.metrics.derived` (`otlp_relay_publisher.ex:138-141`, `plugin_metrics_publisher.ex:17`).
+- Gateway metrics: `metrics.{icmp,mtr,rperf,snmp,sweep,sysmon,timeseries}`, and OTLP relay on the status path: `otel.traces.raw`, `logs.otel`, `otel.metrics.raw`, `otel.metrics.derived` (`otlp_relay_publisher.ex:138-141`, `plugin_metrics_publisher.ex:17`). With a current `serviceradar.otlp.relay` grant, core's `Edge.Projectors.OtlpRelay` republishes those same subjects from the edge record. Payload rules are on `OtlpRelayFrame`.
 - flow-collector: `flows.raw.{sflow,netflow,extra}` (`rust/flow-collector/src/config.rs:529-531`, `metrics.rs:219`).
 - trapd: `logs.snmp` (`rust/trapd/src/config.rs:200`, `main.rs:557`).
 - Edge provisioning wildcards: `logs.syslog.>`, `logs.snmp.>`, `events.netflow.>`, `otel.traces.>`, `otel.metrics.>`, `logs.otel`, `events.falco.>` (`provision_collector_worker.ex:188-216`).

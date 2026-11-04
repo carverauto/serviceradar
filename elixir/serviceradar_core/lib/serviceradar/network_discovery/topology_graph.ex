@@ -1,23 +1,21 @@
 defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   @moduledoc """
-  Projects mapper topology links into the configured graph backend
-  (`GRAPH_BACKEND=age|dual|dgraph`). AGE Cypher stays in `ServiceRadar.Graph`;
-  Dgraph writes go through typed `ServiceRadar.Dgraph` operations.
+  Projects mapper topology links into the Dgraph topology graph. Writes go
+  through typed `ServiceRadar.Dgraph` operations.
   """
 
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Interfaces
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Links
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Projection
-  alias ServiceRadar.NetworkDiscovery.TopologyGraph.Queries
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.RiskSummary
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Telemetry
 
   @type projection_payload :: Projection.projection_payload()
 
   @doc """
-  Projects one mapper topology report: AGE (when written) per link, then every
-  link into Dgraph in one batch, then pruning of the reported devices' links.
+  Projects one mapper topology report: every link into Dgraph in one batch,
+  then pruning of the reported devices' links.
   The graph-wide passes run separately in `run_global_passes/0`.
   Returns `{:error, reason}` when the Dgraph batch fails, so the caller can
   retry the whole idempotent apply.
@@ -33,13 +31,13 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   defdelegate run_global_passes(), to: Links
 
   @doc """
-  Rebuilds canonical device-level topology edges from current mapper evidence in AGE.
+  Rebuilds canonical device-level topology edges from current mapper evidence.
   """
   @spec rebuild_canonical_links_from_current() :: :ok
   defdelegate rebuild_canonical_links_from_current(), to: CanonicalRebuild
 
   @doc """
-  Rebuilds canonical device-level topology edges from current mapper evidence in AGE and
+  Rebuilds canonical device-level topology edges from current mapper evidence and
   returns rebuild counters for observability/recovery decisions.
   """
   @spec rebuild_canonical_links_from_current_with_stats() ::
@@ -47,7 +45,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   defdelegate rebuild_canonical_links_from_current_with_stats(), to: CanonicalRebuild
 
   @doc """
-  Returns projection diagnostics for a batch without mutating AGE.
+  Returns projection diagnostics for a batch without mutating the graph.
   """
   @spec projection_diagnostics([map()]) :: %{
           accepted: map(),
@@ -76,8 +74,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   defdelegate classify_projection(link), to: Projection
 
   @doc """
-  Projects mapper interfaces: AGE (when written) per interface, then one Dgraph
-  request that writes each device once with all of its interfaces. Returns
+  Projects mapper interfaces in one Dgraph request that writes each device once
+  with all of its interfaces. Returns
   `{:error, reason}` when the Dgraph request fails.
   """
   @spec upsert_interfaces([map()]) :: :ok | {:error, term()}
@@ -85,7 +83,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
   @doc """
   Creates a MANAGED_BY edge from a device to its management device, plus the
-  reverse MANAGES edge (Gap D) so the causal engine can traverse manager ->
+  reverse MANAGES edge so the causal engine can traverse manager ->
   managed directly (e.g. C4 management-unobservable / C5 redundancy reasoning)
   without scanning every MANAGED_BY edge in reverse.
   """
@@ -99,63 +97,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   annotations used by causal readers and must not create package vertices, package
   edges, or topology adjacency.
   """
-  @spec project_endpoint_inventory_risk_summary(String.t(), map(), keyword()) :: :ok
-  defdelegate project_endpoint_inventory_risk_summary(device_uid, summary, opts \\ []),
-    to: RiskSummary
-
-  @doc false
-  @spec endpoint_inventory_risk_summary_query(String.t(), map()) :: String.t() | nil
-  defdelegate endpoint_inventory_risk_summary_query(device_uid, summary), to: Queries
-
-  @doc false
-  @spec endpoint_inventory_risk_summary_fields() :: [atom()]
-  defdelegate endpoint_inventory_risk_summary_fields(), to: Queries
-
-  @doc false
-  @spec backbone_link_upsert_query(map()) :: String.t()
-  defdelegate backbone_link_upsert_query(payload), to: Queries
-
-  @doc false
-  @spec auxiliary_link_upsert_query(map(), String.t()) :: String.t()
-  defdelegate auxiliary_link_upsert_query(payload, relation), to: Queries
-
-  @doc false
-  @spec prune_unseen_projected_links_queries(String.t(), Enumerable.t()) :: [String.t()]
-  defdelegate prune_unseen_projected_links_queries(local_device_id, neighbor_ids), to: Queries
-
-  @doc false
-  @spec prune_unseen_projected_forward_links_query(String.t(), Enumerable.t()) :: String.t()
-  defdelegate prune_unseen_projected_forward_links_query(local_device_id, neighbor_ids),
-    to: Queries
-
-  @doc false
-  @spec prune_unseen_projected_reverse_links_query(String.t(), Enumerable.t()) :: String.t()
-  defdelegate prune_unseen_projected_reverse_links_query(local_device_id, neighbor_ids),
-    to: Queries
-
-  @doc false
-  @spec prune_stale_mapper_evidence_links_query(String.t()) :: String.t()
-  defdelegate prune_stale_mapper_evidence_links_query(stale_cutoff), to: Queries
-
-  @doc false
-  @spec reconcile_legacy_single_identifier_attachment_links_query() :: String.t()
-  defdelegate reconcile_legacy_single_identifier_attachment_links_query(), to: Queries
-
-  @doc false
-  @spec purge_legacy_single_identifier_canonical_links_query() :: String.t()
-  defdelegate purge_legacy_single_identifier_canonical_links_query(), to: Queries
+  @spec project_endpoint_inventory_risk_summary(String.t(), map()) :: :ok
+  defdelegate project_endpoint_inventory_risk_summary(device_uid, summary), to: RiskSummary
 
   @doc false
   @spec canonical_rebuild_timeout_ms() :: pos_integer()
   defdelegate canonical_rebuild_timeout_ms(), to: CanonicalRebuild
-
-  @doc false
-  @spec canonical_edge_telemetry_batch_size() :: pos_integer()
-  defdelegate canonical_edge_telemetry_batch_size(), to: Telemetry
-
-  @doc false
-  @spec canonical_edge_telemetry_batch_query([map()]) :: String.t()
-  defdelegate canonical_edge_telemetry_batch_query(updates), to: Queries
 
   @doc false
   @spec canonical_rebuild_min_edges() :: pos_integer()
@@ -172,14 +119,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     to: CanonicalRebuild
 
   @doc false
-  @spec canonical_edge_count_query() :: String.t()
-  defdelegate canonical_edge_count_query(), to: Queries
-
-  @doc false
-  @spec mapper_evidence_edge_count_query() :: String.t()
-  defdelegate mapper_evidence_edge_count_query(), to: Queries
-
-  @doc false
   @spec extract_metric_device_ip(term()) :: String.t() | nil
   defdelegate extract_metric_device_ip(value), to: Telemetry
 
@@ -187,14 +126,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   @spec edge_render_readiness_class(map()) ::
           :render_ready | :render_partial | :render_unattributed
   defdelegate edge_render_readiness_class(edge), to: Telemetry
-
-  @doc false
-  @spec canonical_rebuild_upsert_query(String.t()) :: String.t()
-  defdelegate canonical_rebuild_upsert_query(stale_cutoff), to: Queries
-
-  @doc false
-  @spec canonical_rebuild_prune_query(String.t()) :: String.t()
-  defdelegate canonical_rebuild_prune_query(stale_cutoff), to: Queries
 
   @doc false
   @spec prune_stale_projected_links_enabled?() :: boolean()

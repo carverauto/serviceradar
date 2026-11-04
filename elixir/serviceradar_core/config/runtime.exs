@@ -570,11 +570,6 @@ if config_env() == :prod do
   platform_sync_component_id =
     System.get_env("SERVICERADAR_PLATFORM_SYNC_COMPONENT_ID") || "platform-sync"
 
-  age_graph_name =
-    System.get_env("SERVICERADAR_AGE_GRAPH_NAME") ||
-      System.get_env("AGE_GRAPH_NAME") ||
-      "platform_graph"
-
   topology_v2_contract_consumption_enabled =
     "SERVICERADAR_TOPOLOGY_V2_CONSUMPTION_ENABLED"
     |> System.get_env("true")
@@ -1303,7 +1298,6 @@ if config_env() == :prod do
     jetstream_replicas: parse_int_env.("SERVICERADAR_OTX_RAW_REPLICAS", 1),
     jetstream_storage: otx_raw_storage
 
-  config :serviceradar_core, :age_graph_name, age_graph_name
   config :serviceradar_core, :platform_sync_component_id, platform_sync_component_id
 
   config :serviceradar_core, :spiffe,
@@ -1316,8 +1310,6 @@ if config_env() == :prod do
     control_repo_enabled: System.get_env("CONTROL_REPO_ENABLED", "true") in ~w(true 1 yes)
 
   config :serviceradar_core,
-    graph_backend: System.get_env("GRAPH_BACKEND", "dual"),
-    graph_read: System.get_env("GRAPH_READ", "age"),
     dgraph_url: System.get_env("DGRAPH_URL"),
     dgraph_host: System.get_env("DGRAPH_HOST"),
     dgraph_port: parse_int_env.("DGRAPH_PORT", 9080),
@@ -2110,12 +2102,14 @@ if config_env() == :prod do
         # design D9); definition shared with Config.default_streams/0 so the
         # retention stanza cannot drift.
         Config.analytics_predictions_stream(),
-        # Durable edge records the agent gateway publishes with PubAck, and
-        # their audit and security-quarantine routes; shared with
+        # Durable edge records the agent gateway publishes with PubAck, their
+        # audit and security-quarantine routes, and EventWriter's dead-letter
+        # for records whose projection kept failing; shared with
         # Config.default_streams/0.
         Config.edge_record_stream(),
         Config.edge_record_audit_stream(),
-        Config.edge_record_security_quarantine_stream()
+        Config.edge_record_security_quarantine_stream(),
+        Config.edge_record_dead_letter_stream()
       ],
       # Dedicated demand domain for raw flows on JetStream stream `flows`.
       # Optional EVENT_WRITER_FLOW_* tuning is applied below only when set so

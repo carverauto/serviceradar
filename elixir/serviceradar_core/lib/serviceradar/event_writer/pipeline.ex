@@ -25,6 +25,8 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   alias Broadway.Message
   alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.EventWriter.Config
+  alias ServiceRadar.EventWriter.EdgeRecordDeadLetter
+  alias ServiceRadar.EventWriter.JetStreamAck
   alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
   alias ServiceRadar.EventWriter.Processors.EdgeRecord
   alias ServiceRadar.EventWriter.Processors.Events
@@ -106,12 +108,16 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   Acknowledges processed messages.
   """
   def ack(:ack_ref, successful, failed) do
-    # Acknowledge successful messages
-    Enum.each(successful, &ack_message(&1, :ack))
+    Enum.each(successful, fn message ->
+      ack_message(message, :ack)
+      EdgeRecordDeadLetter.forget(message)
+    end)
 
     # Retry failed messages until their final JetStream delivery, then terminally
     # ack and emit a dead-letter signal so operators see poison messages before
-    # the server discards them at max_deliver.
+    # the server discards them at max_deliver. An edge record is instead copied to
+    # its dead-letter stream at its threshold, and acknowledged only once the copy
+    # is stored (EdgeRecordDeadLetter).
     Enum.each(failed, &ack_failed_message/1)
 
     :ok
@@ -290,6 +296,36 @@ defmodule ServiceRadar.EventWriter.Pipeline do
 
         messages
 
+      {:incomplete, count, failures} ->
+        failed_by_message = Map.new(failures, fn {message, reason} -> {message, reason} end)
+        reason = failures |> hd() |> elem(1)
+
+        if retryable_alert_evaluation_reason?(reason) do
+          Logger.info("Batch deferred until alert evaluation is ready",
+            batcher: batcher,
+            reason: inspect(reason),
+            message_count: map_size(failed_by_message)
+          )
+        else
+          Logger.error("Batch processing failed",
+            batcher: batcher,
+            reason: inspect(reason),
+            message_count: map_size(failed_by_message)
+          )
+        end
+
+        EventWriterTelemetry.emit_batch(:ok, messages, count, duration, %{
+          stream: batcher,
+          processor: processor
+        })
+
+        Enum.map(messages, fn message ->
+          case Map.get(failed_by_message, message) do
+            nil -> message
+            reason -> Message.failed(message, reason)
+          end
+        end)
+
       {:error, reason} ->
         EventWriterTelemetry.emit_batch(:error, messages, length(messages), duration, %{
           stream: batcher,
@@ -347,40 +383,55 @@ defmodule ServiceRadar.EventWriter.Pipeline do
 
   defp retryable_alert_evaluation_status?(_status), do: false
 
+  # Transient alert-evaluation backpressure. Processors persist the signal
+  # before admitting it, so a delayed redelivery only retries the admission
+  # remainder, which the inbox continues in order.
   defp retryable_alert_evaluation_reason?(:alert_evaluation_peer_not_ready), do: true
+  defp retryable_alert_evaluation_reason?({:overloaded, _dimension}), do: true
   defp retryable_alert_evaluation_reason?(_reason), do: false
 
   # Private functions
 
   defp ack_failed_message(message) do
     cond do
-      terminal_delivery?(message) ->
+      EdgeRecordDeadLetter.applies?(message) ->
+        ack_failed_edge_record(message)
+
+      JetStreamAck.final_delivery?(message) ->
         emit_dead_letter(message)
         ack_message(message, :term)
 
       retryable_alert_evaluation_status?(message.status) or edge_record_message?(message) ->
-        delivery_count = get_in(message.metadata, [:jetstream_ack, :delivery_count]) || 1
-        delay_ms = 10_000 * Bitwise.bsl(1, min(max(delivery_count, 1), 4) - 1)
-        ack_message(message, {:nack, delay_ms})
+        ack_message(message, {:nack, backoff_ms(message)})
 
       true ->
         ack_message(message, :nack)
     end
   end
 
-  defp edge_record_message?(%{metadata: %{subject: "telemetry.edge-record" <> _}}), do: true
-  defp edge_record_message?(_message), do: false
+  # Never +TERM an edge record: the gateway already released the agent's copy. At its threshold
+  # the record is copied to the dead-letter stream, and only a stored copy lets the source go.
+  defp ack_failed_edge_record(message) do
+    cond do
+      not EdgeRecordDeadLetter.due?(message) ->
+        EdgeRecordDeadLetter.note_failure(message)
+        ack_message(message, {:nack, backoff_ms(message)})
 
-  defp terminal_delivery?(%{metadata: metadata}) when is_map(metadata) do
-    with %{delivery_count: delivery_count} <- metadata[:jetstream_ack],
-         max_deliver when is_integer(max_deliver) and max_deliver > 0 <- metadata[:max_deliver] do
-      delivery_count >= max_deliver
-    else
-      _ -> false
+      EdgeRecordDeadLetter.dead_letter(message) == :ok ->
+        ack_message(message, :ack)
+
+      true ->
+        ack_message(message, {:nack, backoff_ms(message)})
     end
   end
 
-  defp terminal_delivery?(_message), do: false
+  defp backoff_ms(message) do
+    delivery_count = get_in(message.metadata, [:jetstream_ack, :delivery_count]) || 1
+    10_000 * Bitwise.bsl(1, min(max(delivery_count, 1), 4) - 1)
+  end
+
+  defp edge_record_message?(%{metadata: %{subject: "telemetry.edge-record" <> _}}), do: true
+  defp edge_record_message?(_message), do: false
 
   defp emit_dead_letter(%{metadata: metadata, status: status}) do
     ack = metadata[:jetstream_ack] || %{}
@@ -391,7 +442,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
       consumer: ack[:consumer],
       delivery_count: ack[:delivery_count],
       max_deliver: metadata[:max_deliver],
-      reason_class: reason_class(status)
+      reason_class: EventWriterTelemetry.failure_class(status)
     })
 
     Logger.error("EventWriter message reached terminal JetStream delivery",
@@ -403,13 +454,6 @@ defmodule ServiceRadar.EventWriter.Pipeline do
       reason: inspect(status)
     )
   end
-
-  defp reason_class(nil), do: "error"
-  defp reason_class({:failed, reason}), do: reason_class(reason)
-  defp reason_class(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp reason_class(%_{} = reason), do: reason.__struct__ |> Module.split() |> List.last()
-  defp reason_class({reason, _}) when is_atom(reason), do: Atom.to_string(reason)
-  defp reason_class(_reason), do: "error"
 
   defp build_batchers(config) do
     # Collapse all raw-flow streams (live + drain + extras) onto :flows_raw so
@@ -643,6 +687,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
       {:edge_record_audit, &String.starts_with?(&1, "telemetry.edge-record-audit.")},
       {:edge_record_security_quarantine,
        &String.starts_with?(&1, "telemetry.edge-record-security-quarantine.")},
+      {:edge_record_dead_letter, &String.starts_with?(&1, "telemetry.edge-record-dlq.")},
       {:telemetry, &String.starts_with?(&1, "telemetry.")},
       # Catch-all before specific prefixes are unnecessary: every raw-flow
       # subject (netflow/sflow/ipfix/extensions) must hit Processors.Flows.
@@ -747,6 +792,9 @@ defmodule ServiceRadar.EventWriter.Pipeline do
 
   defp get_processor(:edge_record_security_quarantine),
     do: ServiceRadar.EventWriter.Processors.EdgeRecordQuarantine
+
+  defp get_processor(:edge_record_dead_letter),
+    do: ServiceRadar.EventWriter.Processors.EdgeRecordDeadLetter
 
   defp get_processor(:flows_raw), do: Flows
 

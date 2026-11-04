@@ -6,7 +6,7 @@
 
 ## 2. Durable admission
 - [ ] 2.1 Add Ash resources, platform migrations, bounded admission, stable identities, and replay-safe receipt retention.
-- [ ] 2.2 Integrate verified matching-rule routing and all-or-nothing admission.
+- [ ] 2.2 Integrate verified matching-rule routing and ordered prefix admission.
 - [ ] 2.3 Establish per-rule committed ordering, fenced claims, independent admission locks, and supervised bounded workers.
 
 ## 3. Evaluation and lifecycle

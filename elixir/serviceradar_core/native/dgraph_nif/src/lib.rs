@@ -22,14 +22,14 @@ mod runtime;
 use std::future::Future;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-use dgraph_topology::{DownstreamFact, TopologyClient, TopologyError};
+use dgraph_topology::{wrap_dql_value, DownstreamFact, TopologyClient, TopologyError};
 use rustler::{Encoder, Env, Term};
 
 use crate::abi::{
     refuses_mutation, CanonicalEdgesResult, CanonicalGraphResult, CountResult, DownstreamResult,
-    JsonResult, KeysResult, NeighbourhoodResult, NifCanonicalEdge, NifCanonicalGraph,
-    NifChangeWrite, NifDeviceWrite, NifDownstreamFact, NifEdgeWrite, NifHopWrite,
-    NifInterfaceWrite, NifNeighbourhoodEdge, NifPrefixWrite, WriteResult,
+    JsonResult, KeysResult, MtrPathsResult, NeighbourhoodResult, NifCanonicalEdge,
+    NifCanonicalGraph, NifChangeWrite, NifDeviceWrite, NifDownstreamFact, NifEdgeWrite,
+    NifHopWrite, NifInterfaceWrite, NifMtrPath, NifNeighbourhoodEdge, NifPrefixWrite, WriteResult,
 };
 use crate::runtime::{client_for, require_url, Failure, Pool, CONNECT_DEADLINE};
 
@@ -429,6 +429,72 @@ fn query_neighbourhood(env: Env<'_>, url: String, device_id: String, deadline_ms
                 NeighbourhoodResult::Ok(edges.iter().map(NifNeighbourhoodEdge::from).collect())
             }
             Err(reason) => NeighbourhoodResult::Error(reason),
+        },
+    )
+}
+
+#[rustler::nif]
+fn query_mtr_paths(env: Env<'_>, url: String, limit: u64, deadline_ms: u64) -> Term<'_> {
+    let limit = usize::try_from(limit).unwrap_or(usize::MAX);
+    dgraph_call(
+        env,
+        url,
+        Pool::Item,
+        deadline_ms,
+        move |client| async move { client.query_mtr_paths(limit).await },
+        |result| match result {
+            Ok(paths) => MtrPathsResult::Ok(paths.iter().map(NifMtrPath::from).collect()),
+            Err(reason) => MtrPathsResult::Error(reason),
+        },
+    )
+}
+
+/// The `in:device_graph` neighbourhood as JSON, `null` when no Device has the id.
+#[rustler::nif]
+fn query_device_neighborhood(
+    env: Env<'_>,
+    url: String,
+    device_id: String,
+    include_topology: bool,
+    deadline_ms: u64,
+) -> Term<'_> {
+    dgraph_call(
+        env,
+        url,
+        Pool::Item,
+        deadline_ms,
+        move |client| async move {
+            client
+                .query_device_neighborhood(&device_id, include_topology)
+                .await
+        },
+        |result| match result
+            .and_then(|value| serde_json::to_string(&value).map_err(|err| err.to_string()))
+        {
+            Ok(json) => JsonResult::Ok(json),
+            Err(reason) => JsonResult::Error(reason),
+        },
+    )
+}
+
+/// Read-only DQL as the `in:graph` topology rows (a JSON array). Mutations are
+/// refused here and again in the Elixir facade.
+#[rustler::nif]
+fn query_graph_dql(env: Env<'_>, url: String, dql: String, deadline_ms: u64) -> Term<'_> {
+    if refuses_mutation(&dql) {
+        return rejected(env, "dql escape hatch refuses mutations".to_string());
+    }
+    dgraph_call(
+        env,
+        url,
+        Pool::Item,
+        deadline_ms,
+        move |client| async move { client.query_dql(&dql).await.map(wrap_dql_value) },
+        |result| match result
+            .and_then(|rows| serde_json::to_string(&rows).map_err(|err| err.to_string()))
+        {
+            Ok(json) => JsonResult::Ok(json),
+            Err(reason) => JsonResult::Error(reason),
         },
     )
 }

@@ -211,6 +211,9 @@ func runPushMode(
 	if cfg.EdgeRecordSender != nil && cfg.EdgeRecordSender.TelemetryEnabled {
 		pushLoop.SetEdgeTelemetrySpool(edgeSpool)
 	}
+	if cfg.EdgeRecordSender != nil && cfg.EdgeRecordSender.PluginResultsEnabled {
+		pushLoop.SetEdgePluginResultSpool(edgeSpool)
+	}
 	if cfg.StatusDebounceInterval > 0 {
 		pushLoop.SetStatusDebounceInterval(time.Duration(cfg.StatusDebounceInterval))
 	}

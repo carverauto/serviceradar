@@ -504,7 +504,7 @@ pub(super) fn device_graph() -> VizMeta {
     }
 }
 
-pub(super) fn graph_cypher() -> VizMeta {
+pub(super) fn graph_dql() -> VizMeta {
     VizMeta {
         columns: vec![col("result", ColumnType::Jsonb, None)],
         suggestions: vec![VizSuggestion {

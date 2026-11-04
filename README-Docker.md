@@ -249,8 +249,7 @@ The stack automatically handles certificate generation and configuration:
 7. **dgraph-acl, dgraph** - Topology graph: ACL secret (one-shot), then Dgraph
 8. **dgraph-migrate** - Applies the Dgraph topology schema (one-shot)
 9. **core-elx, agent-gateway, web-ng** - Control plane services
-10. **age-to-dgraph** - Rebuilds Dgraph from the AGE graph and checksums the two (one-shot)
-11. **agent** - Edge agent (collectors + embedded engines + Wasm plugins)
+10. **agent** - Edge agent (collectors + embedded engines + Wasm plugins)
 
 Zen log normalization and the EventWriter ingestion consumers run inside
 core-elx; they are not separate containers.

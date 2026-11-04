@@ -2,7 +2,7 @@
 //! reasons over. These are projected into the DeepCausality `Context` by the
 //! hydrator. Identity discipline (add-causal-engine): every entity is keyed by
 //! the canonical `sr:`-prefixed id reused from `RuntimeGraph` — the engine never
-//! invents a parallel ID space (`ocsf_devices.uid == AGE Device.id ==
+//! invents a parallel ID space (`ocsf_devices.uid == Dgraph device.id ==
 //! ocsf_events.device.uid`).
 
 use serde::{Deserialize, Serialize};
@@ -14,7 +14,7 @@ pub type EntityId = String;
 /// causal findings when a producer never sends the matching clear signal.
 pub const DEFAULT_OPERATOR_RULE_TTL_MS: i64 = 24 * 60 * 60 * 1_000;
 
-/// A topology edge kind projected from the AGE graph.
+/// A topology edge kind projected from the Dgraph topology graph.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum EdgeKind {
     /// Physical link (`CONNECTS_TO`, undirected) — the graph causaloids
@@ -153,7 +153,7 @@ pub fn prune_stale_operator_rules(context: &mut Context, now_unix_ms: i64, ttl_m
 /// The hydrated world-state the reasoner evaluates each tick.
 ///
 /// Populated from `EmbeddedSrql` (current state + on-demand continuous-aggregate
-/// queries + AGE topology via `graph_cypher`) merged with JetStream and
+/// queries + Dgraph topology via `in:graph`) merged with JetStream and
 /// `signals.state.<table>` deltas.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Context {
@@ -162,7 +162,7 @@ pub struct Context {
     /// Services (composite identity per Decision 2).
     pub services: Vec<Service>,
     /// Topology edges (CONNECTS_TO / MANAGED_BY / CONTAINS / BACKED_BY /
-    /// DEPENDS_ON) projected from the AGE graph.
+    /// DEPENDS_ON) projected from the Dgraph topology graph.
     #[serde(default)]
     pub edges: Vec<TopologyEdge>,
     /// Interface/link saturation observations (capacity-eligible edges, C6).
@@ -179,7 +179,7 @@ pub struct Context {
     pub operator_rules: Vec<OperatorRule>,
 }
 
-/// A device (from `ocsf_devices` + AGE `Device` vertex).
+/// A device (from `ocsf_devices` + the Dgraph `Device` vertex).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Device {
     /// Canonical `sr:`-prefixed uid.
@@ -204,7 +204,7 @@ pub struct Device {
     #[serde(default)]
     pub observation_expected: bool,
     /// Bounded worst package/vulnerability severity scalar (0..=10) projected
-    /// onto the AGE `Device` vertex (`pkg_worst_severity`); composed into the
+    /// onto the Dgraph `Device` vertex (`device.pkg_worst_severity`); composed into the
     /// predicted severity of C5/C7/C10 (task 1.5) without altering the structural
     /// conclusion.
     #[serde(default)]

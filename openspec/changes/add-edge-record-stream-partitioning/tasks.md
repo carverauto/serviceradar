@@ -187,8 +187,9 @@ when it moved.
   delivery coordinates/publication ID while preserving exact trusted envelope,
   semantic identity, original traffic class, and source provenance.
   Remaining as of the move (2026-11-02): the catalog, states, deleter and redrive
-  remain a follow-up. The security-quarantine stream in the note below is the only
-  DLQ that exists; task 3.5's other routes still depend on the rest.
+  remain a follow-up. The security-quarantine stream and the minimal generic
+  dead-letter in the notes below are the only DLQs that exist; task 3.5's other
+  routes still depend on the rest.
   MINIMAL INSPECTION LANDED for the security-quarantine route only: its stream
   keeps every record (`MaxAge` disabled, `DiscardNew`), an EventWriter consumer
   logs each one with its stream sequence and slot and writes nothing, the
@@ -196,6 +197,22 @@ when it moved.
   fires on any held record, and `docs/edge-record-quarantine-runbook.md` gives
   the `nats stream get` path. The catalog, stable DLQ IDs, states, deleter and
   redrive above remain open.
+  MINIMAL GENERIC DEAD-LETTER LANDED (2026-11-02, epic #6271) for EventWriter
+  projection failures of every contract: at the edge-record stream's
+  `dead_letter_after_deliveries` threshold (lowered to `max_deliver - 1`) the
+  record's original bytes and transport headers plus `Sr-Edge-Dlq-*` failure
+  headers go to `TELEMETRY_EDGE_RECORD_DLQ_V1_BULK`
+  (`telemetry.edge-record-dlq.v1.bulk.pNN.<contract>.v<version>`, R3, limits,
+  `DiscardNew`, `MaxAge` disabled) with a PubAck, and only then is the source
+  ACKed; a refused copy leaves the source NAKed with backoff
+  (`ServiceRadar.EventWriter.EdgeRecordDeadLetter`). A counter by contract and
+  reason, three managed alerts, `EdgeRecordDeadLetter.Replay` (republish to the
+  source subject, idempotent through the ledger) and
+  `docs/edge-record-dead-letter-runbook.md` cover inspection and replay. The
+  gateway-side poison DLQ, the `result_dlq_record` catalog, its states, the
+  authorized deleter, the synthetic redrive lane and the pause-without-ceiling
+  policy for transient failures remain open here. This change owns them, and
+  they SHALL subsume the minimal dead-letter rather than run beside it.
 - [ ] 1.11 (was `unify-sweep-results-proto` 5.9) Add bounded current-state, raw-history, execution-summary, and rollup
   storage/retention paths and verify queries do not require execution-wide
   materialization. Preserve operator-controlled MTR retention within safe bounds;

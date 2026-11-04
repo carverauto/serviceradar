@@ -35,21 +35,35 @@ import (
 	metricpb "github.com/carverauto/serviceradar/proto/metric/v1"
 )
 
-func scheduledMtrGrantRows(t *testing.T, agentID string, notBefore, expires time.Time, maxRows uint32) *proto.EdgeOutputGrant {
+// rowBoundedGrantSpec names the contract-specific claims of a synthetic
+// row-bounded standing grant.
+type rowBoundedGrantSpec struct {
+	contractID       string
+	contractVersion  uint32
+	packageID        string
+	digestSeed       string
+	maxRows          uint32
+	writeBytesPerRow uint64
+}
+
+// currentRowBoundedGrant returns a signed standing grant for sysmonEdgeAgentID
+// that is valid now and caps projected rows and write bytes per spec.
+func currentRowBoundedGrant(t *testing.T, spec rowBoundedGrantSpec) *proto.EdgeOutputGrant {
 	t.Helper()
 	_, key, err := ed25519.GenerateKey(nil)
 	require.NoError(t, err)
-	digest := sha256.Sum256([]byte("synthetic-scheduled-mtr-contract"))
+	now := time.Now()
+	digest := sha256.Sum256([]byte(spec.digestSeed))
 	capability := &edgev1.EdgeSignedCapabilityV1{
 		CapabilityVersion: 1,
 		IssuerId:          []byte("test-issuer"),
 		IssuerKeyId:       []byte("test-issuer-key-1"),
 		Algorithm:         "ed25519",
-		NotBeforeUnixNano: notBefore.UnixNano(),
-		ExpiresAtUnixNano: expires.UnixNano(),
+		NotBeforeUnixNano: now.Add(-time.Hour).UnixNano(),
+		ExpiresAtUnixNano: now.Add(8 * 24 * time.Hour).UnixNano(),
 		Claims: &edgev1.EdgeSignedCapabilityV1_Production{Production: &edgev1.EdgeProductionClaimsV1{
-			ContractId:             edgerecord.ScheduledMtrTraceContractID,
-			ContractVersion:        edgerecord.ScheduledMtrTraceContractVersion,
+			ContractId:             spec.contractID,
+			ContractVersion:        spec.contractVersion,
 			ContractBundleSha256:   digest[:],
 			RegistryEpoch:          1,
 			RegistrySnapshotSha256: digest[:],
@@ -61,31 +75,37 @@ func scheduledMtrGrantRows(t *testing.T, agentID string, notBefore, expires time
 			ScopeId:                testAssignmentID[:],
 			ScopeSha256:            digest[:],
 			OriginKind:             edgev1.EdgeOriginKind_EDGE_ORIGIN_KIND_AGENT,
-			OriginPrincipalId:      []byte(agentID),
-			ProducerInstanceId:     []byte(agentID),
+			OriginPrincipalId:      []byte(sysmonEdgeAgentID),
+			ProducerInstanceId:     []byte(sysmonEdgeAgentID),
 			RouteProfile:           edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
 			TrafficClass:           edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_BULK,
-			PackageId:              "serviceradar.agent.mtr",
+			PackageId:              spec.packageID,
 			PackageSha256:          digest[:],
 			CostModelVersion:       1,
-			MaxProjectedRowCount:   maxRows,
-			MaxProjectedWriteBytes: uint64(maxRows) * edgerecord.ScheduledMtrTraceProjectedRowBytes,
+			MaxProjectedRowCount:   spec.maxRows,
+			MaxProjectedWriteBytes: uint64(spec.maxRows) * spec.writeBytesPerRow,
 		}},
 	}
 	edgerecord.SignCapability(capability, key)
 	encoded, err := gproto.Marshal(capability)
 	require.NoError(t, err)
 	return &proto.EdgeOutputGrant{
-		ContractId:           edgerecord.ScheduledMtrTraceContractID,
-		ContractVersion:      edgerecord.ScheduledMtrTraceContractVersion,
+		ContractId:           spec.contractID,
+		ContractVersion:      spec.contractVersion,
 		ProductionCapability: encoded,
 	}
 }
 
 func currentScheduledMtrGrant(t *testing.T) *proto.EdgeOutputGrant {
 	t.Helper()
-	now := time.Now()
-	return scheduledMtrGrantRows(t, sysmonEdgeAgentID, now.Add(-time.Hour), now.Add(8*24*time.Hour), edgerecord.ScheduledMtrTraceMaxRows)
+	return currentRowBoundedGrant(t, rowBoundedGrantSpec{
+		contractID:       edgerecord.ScheduledMtrTraceContractID,
+		contractVersion:  edgerecord.ScheduledMtrTraceContractVersion,
+		packageID:        "serviceradar.agent.mtr",
+		digestSeed:       "synthetic-scheduled-mtr-contract",
+		maxRows:          edgerecord.ScheduledMtrTraceMaxRows,
+		writeBytesPerRow: edgerecord.ScheduledMtrTraceProjectedRowBytes,
+	})
 }
 
 func syntheticMtrCheckResult() mtrCheckResult {

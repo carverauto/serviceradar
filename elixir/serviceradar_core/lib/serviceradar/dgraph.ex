@@ -299,6 +299,61 @@ defmodule ServiceRadar.Dgraph do
   end
 
   @doc """
+  Current `MTR_PATH` edges, most recently observed first, at most `limit`
+  (capped at 1000 natively). A hop without a Device is identified `mtr:<ip>`
+  with its address in `source_addr` / `target_addr`.
+  """
+  @spec query_mtr_paths(pos_integer()) :: edges_result()
+  def query_mtr_paths(limit) when is_integer(limit) and limit > 0 do
+    with {:ok, url} <- url() do
+      call(:query_mtr_paths, :item, false, &Native.query_mtr_paths(url, limit, &1))
+    end
+  end
+
+  @doc """
+  The SRQL `in:device_graph` neighbourhood of `device_id`: the device, its
+  interfaces and the peer interfaces current `CONNECTS_TO` evidence reaches.
+  `{:ok, nil}` when no Device carries the id. Not retried.
+  """
+  @spec query_device_neighborhood(String.t(), boolean()) ::
+          {:ok, map() | nil} | {:error, String.t()}
+  def query_device_neighborhood(device_id, include_topology)
+      when is_binary(device_id) and is_boolean(include_topology) do
+    with {:ok, url} <- url(),
+         {:ok, json} <-
+           call(
+             :query_device_neighborhood,
+             :item,
+             false,
+             &Native.query_device_neighborhood(url, device_id, include_topology, &1)
+           ) do
+      decode_json(json)
+    end
+  end
+
+  @doc """
+  Read-only DQL returned as the SRQL `in:graph` `{nodes, edges}` rows. Mutations
+  are refused without contacting Dgraph. Not retried.
+  """
+  @spec query_graph_rows(String.t()) :: {:ok, [map()]} | {:error, String.t()}
+  def query_graph_rows(dql) when is_binary(dql) do
+    cond do
+      String.trim(dql) == "" ->
+        {:error, "dql query is empty"}
+
+      mutation?(dql) ->
+        {:error, "dql escape hatch refuses mutations"}
+
+      true ->
+        with {:ok, url} <- url(),
+             {:ok, json} <-
+               call(:query_graph_dql, :item, false, &Native.query_graph_dql(url, dql, &1)) do
+          decode_json(json)
+        end
+    end
+  end
+
+  @doc """
   Read-only DQL escape hatch. Mutations (`mutation`, `set {`, `delete {`,
   `upsert {`) are refused without contacting Dgraph.
   """
@@ -475,7 +530,20 @@ defmodule ServiceRadar.Dgraph do
       last_seen: attr(attrs, :last_seen),
       mutation_id: attr(attrs, :mutation_id),
       agent_id: attr(attrs, :agent_id),
-      pair_support_rank: attr(attrs, :pair_support_rank) || 0
+      pair_support_rank: attr(attrs, :pair_support_rank) || 0,
+      mtr: mtr_map(attr(attrs, :mtr))
+    }
+  end
+
+  defp mtr_map(nil), do: nil
+
+  defp mtr_map(attrs) when is_map(attrs) do
+    %{
+      avg_us: attr(attrs, :avg_us) || 0,
+      loss_pct: (attr(attrs, :loss_pct) || 0) * 1.0,
+      jitter_us: attr(attrs, :jitter_us) || 0,
+      from_hop: attr(attrs, :from_hop) || 0,
+      to_hop: attr(attrs, :to_hop) || 0
     }
   end
 end

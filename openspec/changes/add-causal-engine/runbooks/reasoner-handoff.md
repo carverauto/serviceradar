@@ -25,9 +25,9 @@ The fused tick loop (`main.rs`) already does: **hydrate → `reasoner.evaluate(&
 - kept current by the live `signals.state.>` subscriber (applies device/service transition deltas),
 - restored from an on-disk snapshot on restart.
 
-`domain_model::Context` (V1): `devices: Vec<Device>` (uid, is_available, is_managed, **risk_score**), `services: Vec<Service>` (composite id, available). **Extend `Context`/`domain_model` freely** as the causaloids need more entities (interfaces, agents, gateways, flows, virt, BGP, MTR, health) — that is the hydrator↔reasoner seam and is expected to grow. The hydrator can add SRQL queries (`graph_cypher` for AGE topology) to populate them.
+`domain_model::Context` (V1): `devices: Vec<Device>` (uid, is_available, is_managed, **risk_score**), `services: Vec<Service>` (composite id, available). **Extend `Context`/`domain_model` freely** as the causaloids need more entities (interfaces, agents, gateways, flows, virt, BGP, MTR, health) — that is the hydrator↔reasoner seam and is expected to grow. The hydrator can add SRQL queries (`in:graph` read-only DQL, or `in:device_graph`, for Dgraph topology) to populate them.
 
-Identity: every entity is the canonical `sr:`-prefixed id (`ocsf_devices.uid == AGE Device.id == ocsf_events.device.uid`). Do **not** invent a parallel ID space.
+Identity: every entity is the canonical `sr:`-prefixed id (`ocsf_devices.uid == Dgraph device.id == ocsf_events.device.uid`). Do **not** invent a parallel ID space.
 
 ## What you emit (output) — already wired
 
@@ -46,7 +46,7 @@ pub enum Classification { RootCause, Affected, Healthy, Unknown }   // == God-Vi
 - **Gap G is already in `ultragraph 0.9`** (no upstream work): `StructuralGraphAlgorithms` (articulation_points / bridges / biconnected_components / strongly_connected_components), `pathway_betweenness_centrality(pathways, directed, normalized)`, `is_reachable`, `freeze`/`unfreeze`. See `runbooks/gap-g-resolution.md`.
 - Build the `CausaloidGraph` on a `CsmGraph` (CSR); `freeze()` per tick, `unfreeze()` only on topology change (task 1.3).
 - Causaloid catalog C1–C13: `specs/causal-reasoning/spec.md`. Six are direct ultragraph calls — C4/C7/C8 `is_reachable`, C5/C5b `articulation_points`/`bridges`, C9 `pathway_betweenness_centrality`.
-- **Risk composition (task 1.5):** read `Device.risk_score` (MAX-wins composite already written by the inventory feature's `DeviceRiskReducer`, source `endpoint_inventory`, CVSS-scored) and the AGE `Device` `pkg_*` scalars (via `graph_cypher`) as numeric observations into C5/C7/C10.
+- **Risk composition (task 1.5):** read `Device.risk_score` (MAX-wins composite already written by the inventory feature's `DeviceRiskReducer`, source `endpoint_inventory`, CVSS-scored) and the Dgraph `Device` `device.pkg_*` scalars (via `in:device_graph` or `in:graph`) as numeric observations into C5/C7/C10.
 
 ## Follows the reasoner (do after verdicts flow)
 

@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "certificate_authorization.go",
         "events.go",
+        "local_certificate_revocation.go",
         "tls.go",
     ],
     importpath = "github.com/carverauto/serviceradar/go/pkg/natsutil",

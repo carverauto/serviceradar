@@ -67,6 +67,14 @@ defmodule ServiceRadarWebNGWeb.MapLive.NetflowMap do
         </header>
 
         <main class="sr-netflow-map-stage">
+          <p
+            :if={@mtr_overlays_error}
+            id="netflow-map-mtr-overlay-unavailable"
+            role="status"
+            class="sr-ops-map-notice p-3 text-sm text-sr-muted"
+          >
+            {@mtr_overlays_error}
+          </p>
           <div class="sr-ops-map-shell sr-netflow-map-shell is-netflow-view">
             <div class="sr-ops-map-controls">
               <ul class="sr-ops-map-legend" aria-label="NetFlow map legend">
@@ -155,6 +163,7 @@ defmodule ServiceRadarWebNGWeb.MapLive.NetflowMap do
       traffic_links_json: empty.traffic_links_json,
       mtr_overlays: empty.mtr_overlays,
       mtr_overlays_json: empty.mtr_overlays_json,
+      mtr_overlays_error: empty.mtr_overlays_error,
       map_empty_title: empty.map_empty_title,
       map_empty_detail: empty.map_empty_detail
     }

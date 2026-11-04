@@ -255,8 +255,11 @@ stop command do not reopen a closed execution.
 ### What "running" means
 
 Core creates an execution when the first result chunk of a completed agent sweep
-arrives, and closes it on the final chunk. A stuck running execution is usually
-caused by lost chunk delivery, not an agent still scanning. The cancel command
+arrives. It closes the execution once every data chunk of the sweep has arrived,
+in any order, and either the final chunk or the agent's cancel marker has been
+seen: as cancelled if any chunk or the marker reports a cancellation, otherwise
+as completed. A stuck running execution is usually caused by lost chunk
+delivery, not an agent still scanning; the stale-execution sweeper closes it. The cancel command
 stops whatever scan of that group the agent has in flight; if none is running,
 the agent reports that nothing was cancelled. Scheduled sweeps continue at their
 normal interval.

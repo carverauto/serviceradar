@@ -5,7 +5,6 @@ use std::{env, time::Duration};
 #[derive(Debug, Clone)]
 pub struct AppConfig {
     pub database_url: String,
-    pub age_graph_name: String,
     /// Warehouse database the StarRocks compiler qualifies tables with. Must match
     /// `SERVICERADAR_STARROCKS_DATABASE` / Helm `analytics.starrocks.database`.
     pub starrocks_database: String,
@@ -34,8 +33,6 @@ struct RawConfig {
     srql_database_url: Option<String>,
     #[serde(default)]
     database_url: Option<String>,
-    #[serde(default)]
-    srql_age_graph_name: Option<String>,
     #[serde(default)]
     dgraph_url: Option<String>,
     #[serde(default = "default_pool_size")]
@@ -96,11 +93,6 @@ impl AppConfig {
             .or_else(|| env::var("DATABASE_URL").ok())
             .context("SRQL_DATABASE_URL or DATABASE_URL must be set")?;
 
-        let age_graph_name = raw
-            .srql_age_graph_name
-            .or_else(|| env::var("AGE_GRAPH_NAME").ok())
-            .unwrap_or_else(|| "platform_graph".to_string());
-
         let dgraph_url = raw
             .dgraph_url
             .and_then(non_empty_string)
@@ -113,7 +105,6 @@ impl AppConfig {
 
         Ok(Self {
             database_url,
-            age_graph_name,
             starrocks_database: starrocks_database_from_env(),
             dgraph_url,
             max_pool_size: raw.srql_max_pool_size,
@@ -137,7 +128,6 @@ impl AppConfig {
     pub fn embedded(database_url: String) -> Self {
         Self {
             database_url,
-            age_graph_name: "platform_graph".to_string(),
             starrocks_database: starrocks_database_from_env(),
             dgraph_url: env::var("DGRAPH_URL").ok().and_then(non_empty_string),
             max_pool_size: default_pool_size(),

@@ -1,6 +1,6 @@
 defmodule ServiceRadar.NetworkDiscovery.EndpointAttachmentBindingE2ETest do
   @moduledoc """
-  Integration coverage (database + Apache AGE required) for identifier-aware
+  Integration coverage (database required) for identifier-aware
   topology neighbor binding (fix-cross-subnet-topology-attachment [F2] and
   task 3.3):
 
@@ -66,22 +66,6 @@ defmodule ServiceRadar.NetworkDiscovery.EndpointAttachmentBindingE2ETest do
   end
 
   setup do
-    if age_available?() do
-      graph_name = graph_name()
-
-      case ensure_graph(graph_name) do
-        :ok ->
-          :ok
-
-        {:error, reason} ->
-          {:ok, skip: "Apache AGE graph #{graph_name} not available: #{inspect(reason)}"}
-      end
-    else
-      {:ok, skip: "Apache AGE is not available (ag_catalog.cypher missing)"}
-    end
-  end
-
-  setup do
     original =
       Application.get_env(:serviceradar_core, :topology_endpoint_identity_promotion_enabled)
 
@@ -105,35 +89,6 @@ defmodule ServiceRadar.NetworkDiscovery.EndpointAttachmentBindingE2ETest do
     end)
 
     purge_rows()
-
-    cleanup_graph([
-      @switch_a_uid,
-      @switch_b_uid,
-      @switch_c_uid,
-      @switch_d_uid,
-      @owner_uid,
-      @ip_only_uid,
-      @conflict_uid,
-      @chr_uid,
-      deterministic_uid(@secondary_mac),
-      deterministic_uid(@ip_bind_mac),
-      deterministic_uid(@conflict_sighting_mac),
-      deterministic_uid(@vjuniper_mac),
-      "#{@switch_a_uid}/ifindex:4",
-      "#{@switch_b_uid}/ifindex:4",
-      "#{@switch_c_uid}/ifindex:4",
-      "#{@owner_uid}/#{@secondary_mac}",
-      "#{@owner_uid}/unknown-neighbor",
-      "#{@ip_only_uid}/#{@ip_bind_mac}",
-      "#{@ip_only_uid}/#{@ip_only_ip}",
-      "#{@ip_only_uid}/unknown-neighbor",
-      "#{@conflict_uid}/#{@conflict_ip}",
-      "#{@conflict_uid}/unknown-neighbor",
-      "#{@switch_d_uid}/ifindex:4",
-      "#{@chr_uid}/#{@chr_alias_ip}",
-      "#{@chr_uid}/#{@vjuniper_mac}",
-      "#{@chr_uid}/unknown-neighbor"
-    ])
 
     {:ok, actor: SystemActor.system(:mapper_topology_ingestor)}
   end
@@ -412,66 +367,5 @@ defmodule ServiceRadar.NetworkDiscovery.EndpointAttachmentBindingE2ETest do
       )
 
     Enum.map(rows, fn row -> columns |> Enum.zip(row) |> Map.new() end)
-  end
-
-  defp age_available? do
-    with {:ok, %Postgrex.Result{rows: [[_]]}} <-
-           SQL.query(Repo, "SELECT 1 FROM pg_namespace WHERE nspname = 'ag_catalog'", []),
-         {:ok, %Postgrex.Result{rows: [[_]]}} <-
-           SQL.query(
-             Repo,
-             """
-             SELECT 1
-             FROM pg_proc p
-             JOIN pg_namespace n ON n.oid = p.pronamespace
-             WHERE n.nspname = 'ag_catalog' AND p.proname = 'cypher'
-             LIMIT 1
-             """,
-             []
-           ) do
-      true
-    else
-      _ -> false
-    end
-  rescue
-    _ -> false
-  end
-
-  defp ensure_graph(graph_name) do
-    case SQL.query(Repo, "SELECT 1 FROM ag_catalog.ag_graph WHERE name = $1 LIMIT 1", [graph_name]) do
-      {:ok, %Postgrex.Result{num_rows: 1}} ->
-        :ok
-
-      {:ok, _} ->
-        case SQL.query(Repo, "SELECT ag_catalog.create_graph($1)", [graph_name]) do
-          {:ok, _} -> :ok
-          {:error, err} -> {:error, err}
-        end
-
-      {:error, err} ->
-        {:error, err}
-    end
-  rescue
-    err -> {:error, err}
-  end
-
-  defp cleanup_graph(ids) when is_list(ids) do
-    quoted_ids = Enum.map_join(ids, ", ", &("'" <> &1 <> "'"))
-    graph = String.replace(graph_name(), "'", "\\'")
-
-    cypher = "MATCH (n) WHERE n.id IN [#{quoted_ids}] DETACH DELETE n"
-
-    _ =
-      SQL.query(
-        Repo,
-        "SELECT ag_catalog.agtype_to_text(v) FROM ag_catalog.cypher('#{graph}', $$#{cypher}$$) AS (v agtype)",
-        []
-      )
-
-    :ok
-  end
-
-  defp graph_name do
-    Application.get_env(:serviceradar_core, :age_graph_name, "platform_graph")
   end
 end

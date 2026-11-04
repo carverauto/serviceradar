@@ -29,80 +29,48 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Mtr do
 
   defp overlay_definitions do
     quote do
+      # Most recent MTR path edges from the Dgraph topology graph. A failed
+      # read is :unavailable, so the map can say so instead of drawing none.
       defp mtr_overlays do
-        if mtr_path_edges_present?() do
-          cypher = """
-          MATCH (a)-[r:MTR_PATH]->(b)
-          WHERE a.id IS NOT NULL AND b.id IS NOT NULL
-          RETURN {
-            source: a.id,
-            target: b.id,
-            source_addr: coalesce(a.addr, ''),
-            target_addr: coalesce(b.addr, ''),
-            avg_us: coalesce(r.avg_us, 0),
-            loss_pct: coalesce(r.loss_pct, 0.0),
-            jitter_us: coalesce(r.jitter_us, 0),
-            from_hop: coalesce(r.from_hop, 0),
-            to_hop: coalesce(r.to_hop, 0),
-            agent_id: coalesce(r.agent_id, '')
-          }
-          LIMIT #{80}
-          """
+        case ServiceRadar.Dgraph.query_mtr_paths(80) do
+          {:ok, paths} ->
+            {:ok, paths |> Enum.map(&normalize_mtr_overlay/1) |> Enum.reject(&is_nil/1)}
 
-          case ServiceRadarWebNG.Graph.query(cypher) do
-            {:ok, rows} when is_list(rows) ->
-              rows
-              |> Enum.map(&normalize_mtr_overlay/1)
-              |> Enum.reject(&is_nil/1)
+          {:error, reason} ->
+            require Logger
 
-            _ ->
-              []
-          end
-        else
-          []
+            Logger.warning("Dashboard MTR overlay read failed: #{inspect(reason)}")
+            :unavailable
         end
-      rescue
-        _ -> []
       end
 
-      defp mtr_path_edges_present? do
-        case ServiceRadarWebNG.Graph.query("MATCH ()-[r:MTR_PATH]->() RETURN count(r)") do
-          {:ok, [%{"count" => count}]} -> to_int(count) > 0
-          {:ok, [%{count: count}]} -> to_int(count) > 0
-          {:ok, [count]} -> to_int(count) > 0
-          _ -> false
-        end
-      rescue
-        _ -> false
-      end
+      defp mtr_overlay_result({:ok, overlays}) when is_list(overlays), do: {overlays, nil}
 
-      defp normalize_mtr_overlay(%{} = row) do
-        row = unwrap_single_map(row)
-        source = map_value(row, "source")
-        target = map_value(row, "target")
+      defp mtr_overlay_result(_unavailable),
+        do: {[], "MTR path overlays are unavailable: the topology graph could not be read."}
 
-        if present?(source) and present?(target) do
-          loss_pct = to_float(map_value(row, "loss_pct"))
-          avg_us = to_int(map_value(row, "avg_us"))
-
-          %{
-            id: "mtr-#{source}-#{target}",
-            from: point_for(map_value(row, "source_addr") || source),
-            to: point_for(map_value(row, "target_addr") || target),
-            source_label: source,
-            target_label: target,
-            source_addr: map_value(row, "source_addr") || "",
-            target_addr: map_value(row, "target_addr") || "",
-            avg_us: avg_us,
-            loss_pct: loss_pct,
-            jitter_us: to_int(map_value(row, "jitter_us")),
-            magnitude: max(avg_us, 1),
-            color: mtr_color(loss_pct, avg_us)
-          }
-        end
+      defp normalize_mtr_overlay(%{source: source, target: target} = path)
+           when is_binary(source) and source != "" and is_binary(target) and target != "" do
+        %{
+          id: "mtr-#{source}-#{target}",
+          from: point_for(non_empty(path.source_addr) || source),
+          to: point_for(non_empty(path.target_addr) || target),
+          source_label: source,
+          target_label: target,
+          source_addr: path.source_addr,
+          target_addr: path.target_addr,
+          avg_us: path.avg_us,
+          loss_pct: path.loss_pct,
+          jitter_us: path.jitter_us,
+          magnitude: max(path.avg_us, 1),
+          color: mtr_color(path.loss_pct, path.avg_us)
+        }
       end
 
       defp normalize_mtr_overlay(_), do: nil
+
+      defp non_empty(""), do: nil
+      defp non_empty(value), do: value
 
       defp summarize_mtr_overlays([]), do: empty_mtr_summary()
 

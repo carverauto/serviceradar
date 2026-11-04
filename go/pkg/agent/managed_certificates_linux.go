@@ -78,6 +78,9 @@ func RunManagedCertificateUpdater(ctx context.Context, action string, input io.R
 	if action == "local-nats-authorize" {
 		return runManagedLocalNATSAuthorization(ctx, input, output)
 	}
+	if action == "local-nats-reconcile" {
+		return runManagedLocalNATSReconciliation(ctx, output)
+	}
 	binding, roots, err := loadManagedHostTrust(managedHostConfigRoot)
 	if err != nil {
 		return err

@@ -27,13 +27,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.FormatHelpers do
         end
       end
 
-      defp unwrap_single_map(%{} = map) when map_size(map) == 1 do
-        [{_key, value}] = Map.to_list(map)
-        if is_map(value), do: value, else: map
-      end
-
-      defp unwrap_single_map(map), do: map
-
       defp map_value(map, key) when is_map(map) do
         Map.get(map, key) ||
           Enum.find_value(map, fn

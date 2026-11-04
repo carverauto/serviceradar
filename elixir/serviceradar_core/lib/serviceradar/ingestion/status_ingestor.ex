@@ -73,9 +73,9 @@ defmodule ServiceRadar.Ingestion.StatusIngestor do
     ResultIngestor.process_and_publish(status, opts)
   end
 
-  defp process(%{source: source} = status, _opts)
+  defp process(%{source: source} = status, opts)
        when source in [@flow_attribution_source, :flow_attribution] do
-    process_flow_attribution(status)
+    process_flow_attribution(status, opts)
   end
 
   defp process(%{source: source} = status, _opts)
@@ -102,7 +102,7 @@ defmodule ServiceRadar.Ingestion.StatusIngestor do
   defp process(_status, _opts), do: :ok
 
   @doc false
-  def process_flow_attribution(status) do
+  def process_flow_attribution(status, opts \\ []) do
     partition_id = status[:partition] || "default"
     agent_id = status[:agent_id]
     message = status[:message]
@@ -113,7 +113,7 @@ defmodule ServiceRadar.Ingestion.StatusIngestor do
         # into the warehouse, where the correlator joins them against collected
         # NetFlow. NetFlow stays the flow source; netprobe only supplies the
         # process context.
-        case publish_flow_attribution(events || [], partition_id, agent_id) do
+        case publish_flow_attribution(events || [], partition_id, agent_id, opts) do
           :ok ->
             committed_flow_result(events, dropped, partition_id, agent_id)
 
@@ -181,20 +181,26 @@ defmodule ServiceRadar.Ingestion.StatusIngestor do
      }}
   end
 
-  defp publish_flow_attribution(events, partition_id, agent_id) do
-    case flow_attribution_publisher() do
+  defp publish_flow_attribution(events, partition_id, agent_id, opts) do
+    case flow_attribution_publisher(opts) do
       {mod, fun, extra_args} -> apply(mod, fun, [events, partition_id, agent_id | extra_args])
       fun when is_function(fun, 3) -> fun.(events, partition_id, agent_id)
     end
   end
 
-  defp flow_attribution_publisher do
-    :serviceradar_core
-    |> Application.get_env(ServiceRadar.StatusHandler, [])
-    |> Keyword.get(
-      :flow_attribution_publisher,
-      {ServiceRadar.FlowAttribution, :publish_observations, []}
-    )
+  defp flow_attribution_publisher(opts) do
+    case Keyword.fetch(opts, :flow_attribution_publisher) do
+      {:ok, publisher} when not is_nil(publisher) ->
+        publisher
+
+      _ ->
+        :serviceradar_core
+        |> Application.get_env(ServiceRadar.StatusHandler, [])
+        |> Keyword.get(
+          :flow_attribution_publisher,
+          {ServiceRadar.FlowAttribution, :publish_observations, []}
+        )
+    end
   end
 
   defp handle_package_telemetry(status, producer_type, producer_id, opts) do

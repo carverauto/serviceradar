@@ -78,7 +78,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Projection.Payload do
       Utils.default_interface_id(neighbor_device_id, "unknown-neighbor")
   end
 
-  # Only resolved canonical `sr:` identities may become AGE Device vertices.
+  # Only resolved canonical `sr:` identities may become topology Device vertices.
   # The historical fallback (neighbor_device_id ← mgmt_addr ← chassis_id ←
   # system_name) fabricated raw-IP/MAC pseudo-vertices that every downstream
   # consumer (canonical rebuild, runtime projection, god-view) filters out with

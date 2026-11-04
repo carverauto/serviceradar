@@ -3,10 +3,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuildTest do
 
   import ExUnit.CaptureLog
 
-  alias ServiceRadar.NetworkDiscovery.RuntimeTopologyProjection
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.HealthConditions
-  alias ServiceRadar.NetworkDiscovery.TopologyGraph.Queries.CanonicalRebuild, as: Queries
 
   @moduletag :db_free
 
@@ -92,118 +90,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuildTest do
                  @heartbeat_ms,
                  @clock
                )
-    end
-  end
-
-  describe "rebuild_input_fingerprint_query/0" do
-    test "fingerprints every existing edge label table in the rebuild input" do
-      sql = Queries.rebuild_input_fingerprint_query()
-
-      for label <- Queries.rebuild_input_edge_labels() do
-        assert sql =~ "platform_graph.\"#{label}\"",
-               "expected fingerprint to union platform_graph.#{label}"
-      end
-
-      # HOSTED_ON is in the rebuild's relation IN-list but has no AGE label table,
-      # so it must NOT be unioned (would error the query).
-      refute sql =~ "platform_graph.\"HOSTED_ON\""
-    end
-
-    test "uses agtype-correct property access (not jsonb ->>)" do
-      sql = Queries.rebuild_input_fingerprint_query()
-
-      refute sql =~ "->>"
-      assert sql =~ "edge.properties->'\"protocol\"'"
-    end
-
-    test "preserves the {count}:{md5} output shape for the unchanged binary compare" do
-      sql = Queries.rebuild_input_fingerprint_query()
-
-      assert sql =~ "count(*)::text || ':' || coalesce(md5("
-      assert sql =~ "ORDER BY start_id, end_id, rel"
-    end
-
-    test "hour-buckets the timestamp fields but keeps every other field exact" do
-      sql = Queries.rebuild_input_fingerprint_query()
-
-      # last_observed_at refreshes on essentially every mapper report, so it (and
-      # observed_at) MUST be bucketed to the hour (left(.., 13)) or the fingerprint
-      # churns and the skip-guard never fires. Matches the upsert content_hash.
-      assert sql =~ "left(coalesce((edge.properties->'\"last_observed_at\"')::text, ''), 13)"
-      assert sql =~ "left(coalesce((edge.properties->'\"observed_at\"')::text, ''), 13)"
-
-      # Non-timestamp fields stay exact (no bucketing) so a property change is
-      # caught immediately.
-      assert sql =~ "coalesce((edge.properties->'\"protocol\"')::text, '')"
-      refute sql =~ "left(coalesce((edge.properties->'\"protocol\"')"
-    end
-
-    test "fingerprints mutable properties from both endpoint Interface vertices" do
-      sql = Queries.rebuild_input_fingerprint_query()
-
-      assert sql =~
-               "LEFT JOIN platform_graph.\"Interface\" start_interface ON start_interface.id = edge.start_id"
-
-      assert sql =~
-               "LEFT JOIN platform_graph.\"Interface\" end_interface ON end_interface.id = edge.end_id"
-
-      for endpoint <- ["start_interface", "end_interface"], field <- ["name", "ifindex"] do
-        assert sql =~ "#{endpoint}.properties->'\"#{field}\"'",
-               "fingerprint SQL is missing #{endpoint}.#{field}"
-      end
-    end
-  end
-
-  describe "(e) fingerprint coverage parity" do
-    test "fingerprint property fields exactly match the upsert content_hash fields" do
-      # Adding a property field to the fingerprint OR to the upsert content_hash
-      # without the other would let a change in that field be masked (or trigger a
-      # needless rebuild). This literal-list equality keeps the two in lock-step:
-      # if they drift, CI fails here.
-      assert Queries.rebuild_input_property_fields() == Queries.content_hash_property_fields()
-    end
-
-    test "the fingerprint SQL references every content_hash property field" do
-      sql = Queries.rebuild_input_fingerprint_query()
-
-      for field <- Queries.content_hash_property_fields() do
-        assert sql =~ "edge.properties->'\"#{field}\"'",
-               "fingerprint SQL is missing content_hash field #{field}"
-      end
-    end
-  end
-
-  describe "refresh_from_graph/1 persists the durable fingerprint" do
-    test "writes a fingerprint and includes it in conflict updates" do
-      assert {:ok, %{rows: 0}} =
-               RuntimeTopologyProjection.refresh_from_graph(
-                 graph: __MODULE__.EmptyGraph,
-                 repo: __MODULE__.CapturingRepo,
-                 input_hash: "0:00"
-               )
-
-      assert_receive {:insert_all, "runtime_topology_projection_meta", [attrs], opts}
-      assert attrs.input_hash == "0:00"
-      assert %DateTime{} = attrs.input_hashed_at
-
-      assert {:replace, replace_fields} = Keyword.fetch!(opts, :on_conflict)
-      assert :input_hash in replace_fields
-      assert :input_hashed_at in replace_fields
-    end
-
-    test "omits fingerprint columns when no fingerprint is supplied" do
-      assert {:ok, %{rows: 0}} =
-               RuntimeTopologyProjection.refresh_from_graph(
-                 graph: __MODULE__.EmptyGraph,
-                 repo: __MODULE__.CapturingRepo
-               )
-
-      assert_receive {:insert_all, "runtime_topology_projection_meta", [attrs], opts}
-      refute Map.has_key?(attrs, :input_hash)
-      refute Map.has_key?(attrs, :input_hashed_at)
-
-      assert {:replace, replace_fields} = Keyword.fetch!(opts, :on_conflict)
-      refute :input_hash in replace_fields
     end
   end
 
@@ -416,47 +302,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuildTest do
 
       assert recovery_log =~ "Canonical topology self-heal recovered canonical edges"
       refute HealthConditions.unhealthy?(condition)
-    end
-  end
-
-  describe "prune guard queries" do
-    test "prune candidate count query mirrors the prune WHERE clause exactly" do
-      prune = Queries.canonical_rebuild_prune_query(@cutoff)
-      count = Queries.canonical_rebuild_prune_candidate_count_query(@cutoff)
-
-      assert count == String.replace(prune, "DELETE r", "RETURN {count: count(r)}")
-    end
-
-    test "evidence freshness query covers the same relation set as the evidence count" do
-      freshness = Queries.mapper_evidence_freshness_query()
-      count = Queries.mapper_evidence_edge_count_query()
-
-      assert [_, in_list] = Regex.run(~r/type\(r\) IN (\[[^\]]+\])/, count)
-      assert freshness =~ in_list
-      assert freshness =~ "max(coalesce(r.last_observed_at, r.observed_at))"
-      assert freshness =~ "r.ingestor = 'mapper_topology_v1'"
-    end
-  end
-
-  defmodule EmptyGraph do
-    @moduledoc false
-
-    def query(_query), do: {:ok, []}
-  end
-
-  defmodule CapturingRepo do
-    @moduledoc false
-
-    def transaction(fun), do: {:ok, fun.()}
-
-    def delete_all(query) do
-      send(self(), {:delete_all, query})
-      {0, nil}
-    end
-
-    def insert_all(table, rows, opts) do
-      send(self(), {:insert_all, table, rows, opts})
-      {length(rows), nil}
     end
   end
 end

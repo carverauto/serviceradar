@@ -97,6 +97,11 @@ defmodule ServiceRadar.DgraphTest do
       assert {:error, _} = Dgraph.query("delete { uid(v) * * . }")
       assert {:error, _} = Dgraph.query("upsert { query { q(func: uid(0x1)) { uid } } }")
       assert {:error, "dql query is empty"} = Dgraph.query("   ")
+
+      assert {:error, rows_reason} =
+               Dgraph.query_graph_rows("mutation { set { _:x <dgraph.type> \"Device\" } }")
+
+      assert rows_reason =~ "refuses mutations"
     after
       restore_env("DGRAPH_URL", env_url)
     end
@@ -369,7 +374,59 @@ defmodule ServiceRadar.DgraphTest do
                )
 
       assert {:error, _} = Dgraph.query("{ q(func: uid(0x1)) { uid } }")
+      assert {:error, _} = Dgraph.query_mtr_paths(10)
       refute_received {:telemetry, [:serviceradar, :dgraph, :call, :retry], _, _}
+    end
+
+    test "device_graph and graph reads cross the NIF boundary and are not retried" do
+      assert {:error, neighborhood_reason} =
+               Dgraph.query_device_neighborhood("sr:host01.example.com", true)
+
+      assert neighborhood_reason =~ "connect"
+
+      assert {:error, rows_reason} =
+               Dgraph.query_graph_rows(
+                 ~s|{ q(func: eq(device.id, "sr:host01.example.com")) { device.id } }|
+               )
+
+      assert rows_reason =~ "connect"
+      refute_received {:telemetry, [:serviceradar, :dgraph, :call, :retry], _, _}
+    end
+
+    test "management edge kinds decode at the NIF boundary" do
+      for kind <- [:managed_by, :manages] do
+        assert {:error, reason} =
+                 Dgraph.upsert_edge(%{
+                   source: "sr:host01.example.com",
+                   target: "sr:host02.example.com",
+                   kind: kind,
+                   protocol: "management",
+                   evidence_class: "managed-by",
+                   ingestor: "management_device_v1",
+                   telemetry_eligible: false
+                 })
+
+        assert reason =~ "connect"
+      end
+    end
+
+    test "MTR path measurements decode at the NIF boundary" do
+      # A map the NIF cannot decode raises ArgumentError before any connect,
+      # so a connect error proves the measurement shape crossed the ABI.
+      assert {:error, reason} =
+               Dgraph.upsert_mtr_path(%{
+                 source: "sr:agent01.example.com",
+                 target: "198.51.100.7",
+                 kind: :mtr_path,
+                 protocol: "mtr",
+                 evidence_class: "path",
+                 ingestor: "mtr_path_v1",
+                 agent_id: "agent-lab-1",
+                 last_seen: "2030-01-02T00:00:00Z",
+                 mtr: %{avg_us: 4_250, loss_pct: 0, jitter_us: 310, from_hop: 1, to_hop: 2}
+               })
+
+      assert reason =~ "connect"
     end
   end
 

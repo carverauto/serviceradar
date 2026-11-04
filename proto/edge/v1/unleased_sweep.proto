@@ -80,6 +80,15 @@ message UnleasedSweepResultsBatchV1 {
   // does not carry, one entry per host and in the same order as `hosts`, so core
   // ingests exactly what the legacy results path ingests.
   repeated UnleasedSweepHostResultV1 host_results = 23;
+  // True only on an execution's cancel marker: a record that carries no data
+  // chunk and no hosts, sent when a data chunk of the execution could not be
+  // appended. Core never counts it as a data chunk. A cancelled data chunk with
+  // no hosts is still a data chunk and leaves this false.
+  bool is_cancel_marker = 24;
+  // On a cancel marker, the exact data-chunk indexes the agent durably
+  // appended for the execution. Core closes the execution once it has
+  // ingested exactly these chunks. Empty on data chunks.
+  repeated uint32 emitted_chunk_indexes = 25;
 }
 
 // UnleasedSweepHostResultV1 carries the fields of one legacy results JSON host

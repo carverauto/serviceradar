@@ -226,6 +226,7 @@ const (
 	AgentGatewayService_ResolveAutomationLaunchEnvelope_FullMethodName = "/monitoring.AgentGatewayService/ResolveAutomationLaunchEnvelope"
 	AgentGatewayService_RenewCertificate_FullMethodName                = "/monitoring.AgentGatewayService/RenewCertificate"
 	AgentGatewayService_GetCertificatePolicy_FullMethodName            = "/monitoring.AgentGatewayService/GetCertificatePolicy"
+	AgentGatewayService_RenewEdgeDeliveryGrants_FullMethodName         = "/monitoring.AgentGatewayService/RenewEdgeDeliveryGrants"
 )
 
 // AgentGatewayServiceClient is the client API for AgentGatewayService service.
@@ -260,6 +261,10 @@ type AgentGatewayServiceClient interface {
 	RenewCertificate(ctx context.Context, in *CertificateRenewalRequest, opts ...grpc.CallOption) (*CertificateRenewalResponse, error)
 	// Fetch the short-lived deployment policy over the authenticated agent channel.
 	GetCertificatePolicy(ctx context.Context, in *CertificatePolicyRequest, opts ...grpc.CallOption) (*CertificatePolicyResponse, error)
+	// RenewEdgeDeliveryGrants asks core for a same-spool renewal delivery grant
+	// for each spooled edge record whose production authority has lapsed, so a
+	// reconnecting agent can drain its backlog.
+	RenewEdgeDeliveryGrants(ctx context.Context, in *EdgeDeliveryGrantRequest, opts ...grpc.CallOption) (*EdgeDeliveryGrantResponse, error)
 }
 
 type agentGatewayServiceClient struct {
@@ -385,6 +390,16 @@ func (c *agentGatewayServiceClient) GetCertificatePolicy(ctx context.Context, in
 	return out, nil
 }
 
+func (c *agentGatewayServiceClient) RenewEdgeDeliveryGrants(ctx context.Context, in *EdgeDeliveryGrantRequest, opts ...grpc.CallOption) (*EdgeDeliveryGrantResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EdgeDeliveryGrantResponse)
+	err := c.cc.Invoke(ctx, AgentGatewayService_RenewEdgeDeliveryGrants_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AgentGatewayServiceServer is the server API for AgentGatewayService service.
 // All implementations must embed UnimplementedAgentGatewayServiceServer
 // for forward compatibility.
@@ -417,6 +432,10 @@ type AgentGatewayServiceServer interface {
 	RenewCertificate(context.Context, *CertificateRenewalRequest) (*CertificateRenewalResponse, error)
 	// Fetch the short-lived deployment policy over the authenticated agent channel.
 	GetCertificatePolicy(context.Context, *CertificatePolicyRequest) (*CertificatePolicyResponse, error)
+	// RenewEdgeDeliveryGrants asks core for a same-spool renewal delivery grant
+	// for each spooled edge record whose production authority has lapsed, so a
+	// reconnecting agent can drain its backlog.
+	RenewEdgeDeliveryGrants(context.Context, *EdgeDeliveryGrantRequest) (*EdgeDeliveryGrantResponse, error)
 	mustEmbedUnimplementedAgentGatewayServiceServer()
 }
 
@@ -456,6 +475,9 @@ func (UnimplementedAgentGatewayServiceServer) RenewCertificate(context.Context, 
 }
 func (UnimplementedAgentGatewayServiceServer) GetCertificatePolicy(context.Context, *CertificatePolicyRequest) (*CertificatePolicyResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetCertificatePolicy not implemented")
+}
+func (UnimplementedAgentGatewayServiceServer) RenewEdgeDeliveryGrants(context.Context, *EdgeDeliveryGrantRequest) (*EdgeDeliveryGrantResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RenewEdgeDeliveryGrants not implemented")
 }
 func (UnimplementedAgentGatewayServiceServer) mustEmbedUnimplementedAgentGatewayServiceServer() {}
 func (UnimplementedAgentGatewayServiceServer) testEmbeddedByValue()                             {}
@@ -629,6 +651,24 @@ func _AgentGatewayService_GetCertificatePolicy_Handler(srv interface{}, ctx cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AgentGatewayService_RenewEdgeDeliveryGrants_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EdgeDeliveryGrantRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentGatewayServiceServer).RenewEdgeDeliveryGrants(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentGatewayService_RenewEdgeDeliveryGrants_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentGatewayServiceServer).RenewEdgeDeliveryGrants(ctx, req.(*EdgeDeliveryGrantRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AgentGatewayService_ServiceDesc is the grpc.ServiceDesc for AgentGatewayService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -663,6 +703,10 @@ var AgentGatewayService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetCertificatePolicy",
 			Handler:    _AgentGatewayService_GetCertificatePolicy_Handler,
+		},
+		{
+			MethodName: "RenewEdgeDeliveryGrants",
+			Handler:    _AgentGatewayService_RenewEdgeDeliveryGrants_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

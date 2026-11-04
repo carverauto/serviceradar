@@ -56,9 +56,8 @@ flowchart TB
   Web --> DgraphDB
 ```
 
-Topology is the one dataset with two stores during the Dgraph rollout: mapper
-evidence stays in CNPG, Dgraph is the traversal graph, and Apache AGE keeps
-receiving the same writes until the cutover. See
+Topology spans two stores: mapper evidence stays in CNPG, and Dgraph is the
+only traversal graph. Apache AGE no longer receives topology writes. See
 [Network Topology](./network-topology.md).
 
 ## Control Plane (ERTS Cluster)

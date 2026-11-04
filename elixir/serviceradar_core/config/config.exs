@@ -98,6 +98,7 @@ config :serviceradar_core, Oban,
        {"53 3 * * *", ServiceRadar.Security.AuditVersionRetentionWorker, queue: :maintenance},
        {"*/5 * * * *", ServiceRadar.Observability.AnomalyEpisodeStaleCloseWorker,
         queue: :maintenance},
+       {"* * * * *", ServiceRadar.EventWriter.LifecycleAdmissionDrainWorker, queue: :maintenance},
        {"* * * * *", ServiceRadar.Observability.StatefulAlertEngine.RecoveryWorker,
         queue: :alert_recovery},
        # Merged device availability: drains the invalidation log and re-resolves
@@ -228,15 +229,6 @@ config :serviceradar_core, :plugin_storage,
 config :serviceradar_core, :required_agent_addons, ["otel-collector"]
 
 config :serviceradar_core,
-  age_graph_name: "platform_graph",
-  graph_backend: :age,
-  graph_read: :age,
-  dgraph_url: nil,
-  dgraph_host: nil,
-  dgraph_port: 9080,
-  dgraph_tls_mode: "disable"
-
-config :serviceradar_core,
   bumblebee_catalog_refresh_enabled: false
 
 # Cluster configuration (disabled by default)
@@ -245,6 +237,12 @@ config :serviceradar_core,
 
 config :serviceradar_core,
   control_repo_enabled: false
+
+config :serviceradar_core,
+  dgraph_url: nil,
+  dgraph_host: nil,
+  dgraph_port: 9080,
+  dgraph_tls_mode: "disable"
 
 # Register Ash domains
 config :serviceradar_core,

@@ -1,15 +1,13 @@
 defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
   @moduledoc """
-  Projects committed mapper interface and topology evidence into the topology
-  graph (AGE when written, Dgraph when written) outside the result-ingestion
-  lane.
+  Projects committed mapper interface and topology evidence into the Dgraph
+  topology graph outside the result-ingestion lane.
 
   `MapperResultsIngestor` commits the authoritative CNPG rows inside its lane
   worker and then calls `enqueue/2` with the records it just committed. Each
   job carries one device id and nothing else. The graph projection, which
-  makes Dgraph round trips and runs pruning, no
-  longer counts against the lane's worker budget, so a slow graph backend
-  cannot time a mapper result out and lose it.
+  makes Dgraph round trips, no longer counts against the lane's worker budget,
+  so a slow graph backend cannot time a mapper result out and lose it.
 
   ## Projection lag
 

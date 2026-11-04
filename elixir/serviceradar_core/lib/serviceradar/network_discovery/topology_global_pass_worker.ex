@@ -2,8 +2,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGlobalPassWorker do
   @moduledoc """
   Runs the graph-wide passes that follow topology projection
   (`ServiceRadar.NetworkDiscovery.TopologyGraph.run_global_passes/0`): global
-  stale-evidence pruning in AGE and Dgraph, the legacy single-identifier
-  attachment reconciliation and purge, and the canonical rebuild.
+  stale-evidence pruning and the canonical rebuild.
 
   Every `TopologyProjectionWorker` job schedules this one after it projects a
   device. The job is scheduled 30 seconds ahead and is unique while it is

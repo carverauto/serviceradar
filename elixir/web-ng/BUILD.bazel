@@ -405,7 +405,7 @@ ex_unit_tests(
     name = "unit_tests",
     # test/integration and test/property are excluded from the broad glob; the
     # explicitly listed property files below are database-free and tagged
-    # :db_free, while the remaining files need a database, the SRQL NIF, or AGE/Cypher.
+    # :db_free, while the remaining files need a database or the SRQL NIF.
     #
     # Globbing them in did not run them; it generated
     # //elixir/web-ng:unit_tests_integration and :unit_tests_property, which
