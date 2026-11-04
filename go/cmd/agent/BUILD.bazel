@@ -49,6 +49,7 @@ go_test(
     srcs = [
         "edge_delivery_grant_live_test.go",
         "edge_record_sender_test.go",
+        "edge_spool_default_on_live_test.go",
         "edge_spool_metrics_live_test.go",
         "main_test.go",
         "main_windows_test.go",

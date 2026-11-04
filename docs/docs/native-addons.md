@@ -183,7 +183,7 @@ agent/gateway path already provides the authenticated agent identity, gateway,
 partition, and source IP envelope; core-elx overwrites any add-on-supplied
 `metadata.service_radar` values with that trusted envelope before publishing to NATS.
 
-With `edgeRecords.agentTelemetryEnabled` and that grant, the agent spools the
+With that grant and its edge-record spool open, the agent spools the
 batch instead of this status push. [Data Pipeline](./data-pipeline.md) describes
 that contract. `ServiceRadar.Edge.Projectors.TelemetryBatch` owns its routing
 rules.

@@ -58,7 +58,7 @@ payload-budget and per-part deduplication contracts live in
 `ServiceRadarAgentGateway.MetricBatchPublisher` and
 `ServiceRadarAgentGateway.MetricBatchSplit`.
 
-When the agent's metrics spool is enabled and it holds a current
+When the agent's edge-record spool is open and it holds a current
 `serviceradar.metrics.batch` grant, its sysmon, SNMP, ICMP, rperf and MTR scalar
 metrics and its periodic sweep summary leave the status path on that one grant.
 Each producer keeps its own queue or pending-item state. Full MTR traces from agent-scheduled checks leave
@@ -77,13 +77,10 @@ record is split by halving the host list so it stays within that grant's row
 ceiling and 512 KiB, and core ingests it on the results path the status
 message used. Core republishes the metric records onto the same
 `metrics.sysmon.>`, `metrics.snmp.>`, `metrics.icmp.>`, `metrics.rperf.>`,
-`metrics.mtr.>` and `metrics.sweep.>` subjects. The Helm chart README documents
-that opt-in (`edgeRecords.agentMetricsEnabled`). The publish rules are
+`metrics.mtr.>` and `metrics.sweep.>` subjects. The publish rules are
 `ServiceRadar.Edge.MetricsBatchProjection`.
 
-That same spool carries flow-attribution windows and OTLP relay frames, and
-only while the metrics spool is connected (`edgeRecords.agentMetricsEnabled`
-on the chart). A current `serviceradar.netprobe.flow_attribution` version 1
+That same spool carries flow-attribution windows and OTLP relay frames. A current `serviceradar.netprobe.flow_attribution` version 1
 grant then takes drained windows off the `source=flow-attribution` status
 path. A current `serviceradar.otlp.relay` version 1 grant appends fitting OTLP
 records to that spool. A record that does not fit the 512 KiB edge-record cap
@@ -100,8 +97,8 @@ rules are `ServiceRadar.Edge.Projectors.FlowAttribution` and
 `ServiceRadar.Edge.Projectors.OtlpRelay`.
 
 Plugin and native add-on telemetry follows the same shape under the
-`serviceradar.telemetry.batch` contract (`edgeRecords.agentTelemetryEnabled`).
-With that spool enabled and a current grant, the batch leaves the status path;
+`serviceradar.telemetry.batch` contract.
+With the spool open and a current grant, the batch leaves the status path;
 without the grant, the status path still carries it. The agent host stamps
 the producing assignment or add-on into each batch; plugins and add-ons never
 hold a contract of their own. Core attests and republishes
@@ -112,8 +109,7 @@ admitted only from a native add-on. The routing rules are
 `ServiceRadar.Edge.Projectors.TelemetryBatch`.
 
 Wasm plugin results follow the same shape under the
-`serviceradar.plugin_results.batch` contract
-(`edgeRecords.agentPluginResultsEnabled`). With that spool enabled and a
+`serviceradar.plugin_results.batch` contract. With the spool open and a
 current grant, drained results are grouped by their host-stamped provenance
 and leave the status path; without the grant, the status path still carries
 them. Core rebuilds each result's payload and status and ingests it through
@@ -126,8 +122,7 @@ Mapper discovery (devices, interfaces, topology), netprobe discovery, and
 integration sync pages follow the same shape under the
 `serviceradar.mapper.devices.batch`, `serviceradar.mapper.interfaces.batch`,
 `serviceradar.mapper.topology.batch`, `serviceradar.netprobe.discovery.batch`
-and `serviceradar.sync.page.batch` contracts
-(`edgeRecords.agentDiscoveryEnabled`, `edgeRecords.agentSyncEnabled`). The
+and `serviceradar.sync.page.batch` contracts. The
 agent converts the exact update payloads the legacy builders produced into
 the typed batches of `proto/edge/v1/json_producer_batches.proto`; core
 rebuilds those payloads and hands them to the same destinations as the
@@ -140,8 +135,7 @@ The projection rules are the discovery projectors under
 `ServiceRadar.Edge.Projectors`.
 
 Workload identity snapshots ride the
-`serviceradar.workload_identity.snapshot` contract under the same
-`edgeRecords.agentDiscoveryEnabled` switch. While the agent holds that grant
+`serviceradar.workload_identity.snapshot` contract. While the agent holds that grant
 the snapshot file is not sent on the status path; the agent holds at most one
 built snapshot until the spool admits all of its records, and spools the file
 again only when its content changes. Core rebuilds the legacy snapshot payload
