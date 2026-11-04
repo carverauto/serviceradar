@@ -1331,8 +1331,6 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
   end
 
   @doc false
-  def merge_ingestion_lane_snapshots([%{lanes: lanes}]), do: lanes
-
   def merge_ingestion_lane_snapshots(snapshots) do
     ordered_names =
       snapshots
