@@ -146,7 +146,12 @@ disagree with it. The registry therefore becomes a function of the catalog:
   label and nested message name. It is not computed from `.proto` source text,
   so comments and formatting do not move it.
 - **`projection_revision`.** A new positive integer on each catalog entry. It is
-  bumped by hand when projection semantics change without a wire or bound
+  strictly monotonic per `(contract_id, contract_version)`: any change to a
+  bundle at the same `contract_version`, including a revert to earlier bytes,
+  MUST bump it. Because the revision is hashed into the digest, a revert always
+  produces a new digest, and no two revisions of one contract version share
+  bytes. The revision orders bundles for the projection rule (Decision 4). It is
+  also bumped by hand when projection semantics change without a wire or bound
   change. That one hand-maintained value is reviewed code, not deployment data.
 - **Snapshot digest.** `registry_snapshot_sha256` is SHA-256 over the domain tag
   `serviceradar.edge.contract_registry.v1`, digest version 1, and the
@@ -158,6 +163,10 @@ disagree with it. The registry therefore becomes a function of the catalog:
 - **Golden test.** A test pins every bundle digest and the snapshot digest of
   the current catalog. Changing the catalog fails it until the golden value is
   updated in the same commit, so an epoch change is always a reviewed decision.
+  The golden file keeps an append-only history of `(projection_revision,
+  bundle digest)` per `(contract_id, contract_version)`. The test fails if a
+  bundle changes without a revision bump, if a revision ever decreases, or if a
+  digest repeats in the history.
 - **Compatibility rule.** A change that projectors cannot read alongside the old
   bundle MUST bump `contract_version`. A change that keeps the version MUST stay
   projectable by the new projector for records stamped with the old bundle, since
@@ -239,17 +248,20 @@ retired unactivated. An epoch is retired unactivated when it is `retired` with n
 - **Per-entry signing rule.** Every core node, whatever its catalog, signs a
   grant, lease or delivery grant under the active epoch only for contract entries
   whose exact bundle digest its own catalog holds, so a node never authorizes
-  production of records it cannot project. Entries it does not hold get no new
+  production of records it cannot project. A delivery grant for a draining-epoch
+  backlog record is the exception: it follows the projection rule, not the
+  exact-digest rule, so a forward upgrade's backlog can still be delivered. Entries it does not hold get no new
   signatures from that node. Their existing grants run to expiry, and producers
   back-pressure as they do without a grant. Signing is keyed on the exact bundle;
   projection is not.
 - **Projection rule.** A core node can project a record when its catalog holds
-  an entry with the record's `contract_id` and `contract_version`, and the node's
-  bundle for that contract was introduced in the same epoch as the record's
-  bundle or a later one. A bundle's introducing epoch is the lowest-numbered
-  epoch whose document lists its digest. This is the direction Decision 2's
-  compatibility rule guarantees: a new projector reads old bundles of the same
-  version, and an old projector is never assumed to read a newer one.
+  an entry with the record's `contract_id` and `contract_version` whose
+  `projection_revision` is greater than or equal to the record's bundle
+  revision. The record's bundle revision is read from the entry of the epoch the
+  record names. This is the direction Decision 2's compatibility rule
+  guarantees: a new projector reads old bundles of the same version, and an old
+  projector is never assumed to read a newer one. Because revisions are strictly
+  monotonic, a revert never makes a newer node look older than its records.
 - **Records no live core can project.** A record that no live core node can
   project under the projection rule is held durably: EventWriter leaves it
   unacknowledged. It is counted and reported as `awaiting roll-forward` in

@@ -118,8 +118,8 @@ close.
 - **AND** a core node SHALL sign under the active epoch only for entries whose
   exact bundle digest its own catalog holds
 - **AND** a record SHALL be projected by any core node whose catalog holds the
-  same contract id and version under a bundle introduced in the record's
-  bundle's epoch or later
+  same contract id and version at a `projection_revision` greater than or equal
+  to the record's bundle revision
 - **AND** records no live core node can project SHALL be held durably as
   awaiting roll-forward, never dropped or rejected
 - **AND** it SHALL NOT roll the deployment backward or reinterpret records under

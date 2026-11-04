@@ -49,8 +49,10 @@
   in `HashGrammar` framing (design Decision 2). Verify the generated protobuf
   modules expose enough of the message definition for the schema fingerprint.
   If they do not, generate the descriptors rather than hashing source text.
-- [ ] 1.2 Add the golden digest test for the current catalog. Put the projector
-  row-output tests next to it.
+- [ ] 1.2 Add the golden digest test for the current catalog, with an
+  append-only `(projection_revision, digest)` history per contract id and
+  version that fails on a change without a bump, a decreasing revision, or a
+  repeated digest. Put the projector row-output tests next to it.
 - [ ] 1.3 Add `platform.edge_contract_registry_epochs` (Decision 4) as an Ash
   resource with a migration, and add it to `SchemaBootstrap` and the baseline.
   Enforce one `active` row, one `candidate` row and a unique digest among rows not
@@ -62,9 +64,10 @@
   immediately when none is active. Superseded-catalog nodes sign only under the
   active epoch's verified document, and never insert or claim a candidate or
   count toward readiness. Every node signs under the active epoch only entries
-  whose exact bundle digest its own catalog holds. Project by compatibility: same
-  contract id and version, and the node's bundle introduced in the record's
-  bundle's epoch or later. Hold records no live core can project, unacknowledged
+  whose exact bundle digest its own catalog holds; delivery grants for
+  draining-epoch backlog follow the projection rule instead. Project by
+  compatibility: same contract id and version, and the node's
+  `projection_revision` at least the record's bundle revision. Hold records no live core can project, unacknowledged
   and counted as awaiting roll-forward. Refresh `last_matched_at` from the
   coordinator while a live core node matches the candidate, retire the candidate unactivated once it
   is older than a full capability-lifetime window, and drop it from the trust
@@ -175,7 +178,10 @@ Load the `test-audit` skill before writing these.
     the bumped entry, unchanged entries still signed, in-flight records held as
     awaiting roll-forward and drained after roll-forward;
   - a forward upgrade that changes a bundle at the same contract version: the old
-    backlog projects on the new release and nothing awaits roll-forward;
+    backlog gets delivery grants, projects on the new release and nothing awaits
+    roll-forward;
+  - a revert at the same contract version: the revision still increases and the
+    prior revision's backlog projects;
   - a newer candidate retiring the older one unactivated, and roll-forward then
     rollback retiring the abandoned candidate after the capability-lifetime
     window, measured from `last_matched_at` across a coordinator failover, while
