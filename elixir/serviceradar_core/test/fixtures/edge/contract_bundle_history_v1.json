@@ -11,6 +11,16 @@
       ]
     },
     {
+      "contract_id": "serviceradar.bumblebee.scan",
+      "contract_version": 1,
+      "history": [
+        {
+          "contract_bundle_sha256": "b7316ca9d1dccb302eee6d4778fe0af46769c9a61c234367993e9562bb5ad0cb",
+          "projection_revision": 1
+        }
+      ]
+    },
+    {
       "contract_id": "serviceradar.k8s.public_endpoints.snapshot",
       "contract_version": 1,
       "history": [
@@ -161,5 +171,5 @@
       ]
     }
   ],
-  "registry_snapshot_sha256": "43155e71a4d51d940e9873c6b41b0ecd198cb1cbe0ce989395df5695c24852f0"
+  "registry_snapshot_sha256": "c9f178df7527e798185baf21bc84df9db9213f110d6b7672b5845e5f34b6bc01"
 }

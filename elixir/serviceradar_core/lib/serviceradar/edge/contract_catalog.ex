@@ -228,6 +228,8 @@ defmodule ServiceRadar.Edge.ContractCatalog do
     },
     %{
       ref: {"serviceradar.bumblebee.scan", 1},
+      payload: Serviceradar.Edge.V1.BumblebeeScanPayloadV1,
+      projection_revision: 1,
       authority: :standing_grant,
       projector: BumblebeeScan,
       max_projected_rows: 10_000,
