@@ -183,8 +183,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordBumblebeeDbTest do
 
     frame = standing_grant_frame(agent_id, partition, scan, 1)
 
-    {:ok, nil} =
-      OutputGrants.reconcile(agent_id, @bumblebee_contract, partition.id, false)
+    assert {:ok, 1} = OutputGrants.revoke_agent(agent_id)
 
     assert {:error, :output_grant_not_current} =
              EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo)
@@ -258,7 +257,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordBumblebeeDbTest do
   end
 
   defp standing_grant_frame(agent_id, partition, scan, rows) do
-    {:ok, grant} = OutputGrants.reconcile(agent_id, @bumblebee_contract, partition.id, true)
+    {:ok, grant} = OutputGrants.reconcile(agent_id, @bumblebee_contract, partition.id)
     payload = BumblebeeScanPayloadV1.encode(scan)
     now = DateTime.utc_now()
 
