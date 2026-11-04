@@ -207,7 +207,10 @@ A new table, `platform.edge_contract_registry_epochs`, holds one row per epoch:
 - `signature` (64 bytes) and `signing_key_id` (16 bytes), written once with the
   document (Decision 12);
 - `state`, one of `candidate`, `active`, `draining` or `retired`;
-- `created_at`, `activated_at`, `draining_since`, `drain_until` and `retired_at`.
+- `created_at`, `activated_at`, `draining_since`, `drain_until` and `retired_at`;
+- `last_matched_at`, the last time the coordinator saw a live core node whose
+  catalog digest matches the epoch. It is set at insert and refreshed on each
+  coordinator evaluation while such a node is live.
 
 Partial unique indexes allow at most one `active` row and at most one
 `candidate` row, and make `snapshot_sha256` unique among rows that are not
@@ -224,19 +227,28 @@ retired unactivated. An epoch is retired unactivated when it is `retired` with n
   candidate unactivated, so a newer candidate supersedes an older one. The insert
   is idempotent through the digest index, so concurrent replicas converge on one
   row.
-- **Booting with an old catalog.** A core node whose digest matches only a
-  `draining` or `retired` row is stale. It signs nothing new: no grant, no lease
-  and no delivery grant. It still projects records for epochs whose contracts its
-  catalog holds. A downgrade therefore never moves the active epoch backward.
-- **Booting with an abandoned catalog.** A core node whose digest matches only an
-  epoch retired unactivated is stale in the same way while another candidate
-  exists. When no candidate exists, it inserts its catalog as a new candidate
-  under a new epoch number, so redeploying a release after a rollback works.
-  Nodes left over from a superseded release therefore cannot take the candidate
+- **Booting with a superseded catalog.** A core node whose digest matches no
+  `active` or `candidate` row is superseded: its catalog matches only a
+  `draining` or `retired` row, or only an epoch retired unactivated. It keeps
+  signing under the active epoch with that epoch's persisted, signature-verified
+  document, exactly as a candidate-release node does (Decision 5 step 1), so
+  grants, leases and delivery grants keep flowing through a rollback. It never
+  signs under its own catalog, never inserts or claims a candidate, and never
+  counts toward activation readiness. It still projects records for epochs whose
+  contracts its catalog holds. A downgrade therefore never moves the active epoch
+  backward.
+- **Redeploying an abandoned catalog.** The one exception: a node whose digest
+  matches only an epoch retired unactivated, while no candidate exists, inserts
+  its catalog as a new candidate under a new epoch number, so redeploying a
+  release after its candidate was abandoned works. While another candidate
+  exists, nodes left over from a superseded release cannot take the candidate
   back from the newer one.
-- **Abandoned candidates.** The coordinator retires a candidate unactivated when
-  no live core node's catalog digest has matched it for a full capability-lifetime
-  window: the 8-day standing-grant window plus its 5-minute lead. This covers a
+- **Signing nothing.** A core node signs nothing only when no active epoch
+  document verifies (Decision 12).
+- **Abandoned candidates.** The coordinator retires a candidate unactivated once
+  `last_matched_at` is older than a full capability-lifetime window: the 8-day
+  standing-grant window plus its 5-minute lead. Because the time is persisted,
+  coordinator failover and pod restarts do not reset the window. This covers a
   release that was rolled back before its epoch activated.
 - **Retired unactivated.** Such an epoch never signed anything and never signs
   anything. Core drops it from the trust document, so gateways drop it too. A

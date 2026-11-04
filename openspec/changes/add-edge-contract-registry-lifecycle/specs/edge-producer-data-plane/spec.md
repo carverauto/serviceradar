@@ -113,6 +113,7 @@ close.
 #### Scenario: A stale component resumes after activation
 - **WHEN** a gateway or core node resumes with an epoch older than the active
   or explicitly draining set
-- **THEN** it SHALL sign no new production capability, lease, or delivery grant
+- **THEN** it SHALL NOT sign under its own epoch, insert or claim a candidate, or
+  count toward activation readiness
 - **AND** it SHALL NOT roll the deployment backward or reinterpret records under
   its local latest-known bundle

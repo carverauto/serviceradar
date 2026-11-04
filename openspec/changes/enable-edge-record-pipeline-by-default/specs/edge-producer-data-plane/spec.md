@@ -87,13 +87,17 @@ each new epoch SHALL be one more than the highest existing epoch. A core node
 whose catalog digest matches no epoch SHALL insert it as `candidate`, and in the
 same transaction SHALL retire any existing candidate without activating it.
 Concurrent inserts SHALL converge on one row. A core node whose catalog digest
-matches only a `draining` or `retired` epoch SHALL sign no new production
-capability, lease, or delivery grant. It SHALL NOT change the active epoch. The
-one exception is a core node whose digest matches only an epoch retired without
-activation while no candidate exists: it SHALL insert its catalog as a new
-candidate under a new epoch number. Core SHALL retire a candidate without
-activating it when no live core node's catalog digest has matched it for a full
-capability-lifetime window. An epoch retired without activation SHALL never sign
+matches no `active` or `candidate` epoch SHALL keep signing production
+capabilities, leases, and delivery grants under the active epoch using that
+epoch's persisted, signature-verified document. It SHALL NOT sign under its own
+catalog, insert or claim a candidate, count toward activation readiness, or
+change the active epoch. The one exception is a core node whose digest matches
+only an epoch retired without activation while no candidate exists: it SHALL
+insert its catalog as a new candidate under a new epoch number. A core node SHALL
+sign nothing only when no active epoch document verifies. Core SHALL persist, per
+epoch, the last time a live core node's catalog digest matched it, refreshing it
+while such a node is live. Core SHALL retire a candidate without activating it
+once that time is older than a full capability-lifetime window. An epoch retired without activation SHALL never sign
 anything, SHALL be dropped from the registry core sends to gateways, and a record
 naming it SHALL be rejected as `registry_epoch_retired`. When no `active` epoch
 exists, core SHALL activate the first candidate immediately.
@@ -102,11 +106,27 @@ exists, core SHALL activate the first candidate immediately.
 - **WHEN** three core replicas of a release with a new catalog start at once
 - **THEN** exactly one `candidate` epoch row exists for that snapshot digest
 
-#### Scenario: A rolled-back core node is fenced
+#### Scenario: A rolled-back core node signs only under the active epoch
 - **GIVEN** epoch 1_000_002 is active and 1_000_001 is draining
-- **WHEN** a core node whose catalog matches 1_000_001 starts
-- **THEN** it signs no new grant or lease
+- **WHEN** every core node is rolled back to a catalog matching 1_000_001
+- **THEN** grants and leases keep being signed under 1_000_002's persisted document
+- **AND** no capability is signed under 1_000_001
 - **AND** the active epoch remains 1_000_002
+
+#### Scenario: A rollback past a superseded candidate keeps signing
+- **GIVEN** epoch 1_000_000 is active
+- **AND** release B inserted candidate 1_000_001
+- **AND** release C then inserted candidate 1_000_002, retiring 1_000_001 unactivated
+- **WHEN** every core node is rolled back to release B
+- **THEN** grants, leases and delivery grants keep flowing under 1_000_000
+- **AND** no B node inserts or claims a candidate while 1_000_002 exists
+- **AND** 1_000_002 is not activated
+
+#### Scenario: The abandonment window survives a coordinator failover
+- **GIVEN** a candidate that no live core node has matched for six days
+- **WHEN** the coordinator fails over to another core node
+- **THEN** the candidate is retired unactivated two days and five minutes later,
+  not eight days after the failover
 
 #### Scenario: A newer candidate supersedes an older one
 - **GIVEN** epoch 1_000_000 is active and 1_000_001 is a candidate

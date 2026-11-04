@@ -55,14 +55,16 @@
   resource with a migration, and add it to `SchemaBootstrap` and the baseline.
   Enforce one `active` row, one `candidate` row and a unique digest among rows not
   retired unactivated with partial unique indexes, and insert-only documents.
+  Include a durable `last_matched_at` column.
   Number epochs from 1_000_000.
 - [ ] 1.4 Insert the candidate on boot, idempotently by digest, retiring any older
   candidate unactivated in the same transaction. Activate the first epoch
-  immediately when none is active. Fence stale-catalog nodes from signing,
-  including nodes whose catalog matches only an epoch retired unactivated while
-  another candidate exists. Retire a candidate unactivated when no live core node
-  has matched it for a full capability-lifetime window, and drop it from the
-  trust document.
+  immediately when none is active. Superseded-catalog nodes sign only under the
+  active epoch's verified document, and never insert or claim a candidate or
+  count toward readiness. Refresh `last_matched_at` from the coordinator while a
+  live core node matches the candidate, retire the candidate unactivated once it
+  is older than a full capability-lifetime window, and drop it from the trust
+  document.
 - [ ] 1.5 Replace `ContractRegistryDocument.parse/1` from the environment with one
   cached epoch reader. `OutputContract.current/1` reads the active epoch, and
   validation and projection read the record's own epoch. Delete the
@@ -163,10 +165,12 @@ Load the `test-audit` skill before writing these.
   - readiness gating, with one gateway missing and one core node on an old catalog;
   - atomic activation and re-lease;
   - retirement time;
-  - stale-node fencing;
+  - superseded-node signing under the active epoch, including B to C to a
+    rollback to B;
   - a newer candidate retiring the older one unactivated, and roll-forward then
     rollback retiring the abandoned candidate after the capability-lifetime
-    window while the active epoch stays put;
+    window, measured from `last_matched_at` across a coordinator failover, while
+    the active epoch stays put;
   - issuer key insert-only race and restart stability;
   - a fresh install issuing grants with zero settings rows.
 
