@@ -258,8 +258,9 @@ No alert evaluation behaviour SHALL depend on a Helm-only value.
 - **THEN** the coordinator SHALL move blocks online until the map matches it
 
 ### Requirement: Cutover from the CNPG inbox is ordered and complete
-Upgraded replicas SHALL NOT consume alert-feeding source streams or route candidates until the cutover marker exists, and SHALL report not ready until the import stream bound to the import subjects has been created, so that no pre-cutover replica stops before it exists. The import stream SHALL NOT be counted in the profile carve.
-Residual inbox and pending lifecycle admission rows SHALL be imported in their original order, with the candidate id the router would compute, in bounded segments: each segment's size SHALL come from the free JetStream file store measured at import time, SHALL be at least one record and SHALL NOT exceed the import stream's size, and the next segment SHALL be published only after every block has applied and checkpointed the previous one and it has been purged. A crash SHALL resume from the last committed segment without applying any imported record twice. The cutover marker SHALL be written only after the final segment is applied, and once it is written a rerun of the cutover SHALL change nothing.
+Upgraded replicas SHALL NOT consume alert-feeding source streams or route candidates until the cutover marker exists. Before any pre-cutover replica is replaced, the upgrade SHALL create the import stream bound to the import subjects with a size of one segment that fits the remaining JetStream reservation, at most the configured import segment bound, and SHALL refuse the upgrade, naming the remaining reservation and the bytes required, when even a minimal segment does not fit. The import stream SHALL NOT be counted in the profile carve, and it SHALL be deleted once the cutover marker is written.
+Rule state conversion SHALL carry each incident's operator-terminal status from its current alert status. Until the marker, rule disable and delete, operator alert actions and stale-anomaly maintenance SHALL be published to the import subjects so that they are ordered with the residual work, and residual records of a rule already disabled or deleted SHALL be dropped and counted.
+Residual inbox and pending lifecycle admission rows SHALL be imported in their original order, with the candidate id the router would compute, in bounded segments: each segment's size SHALL come from the free JetStream file store measured at import time, SHALL be at least one record and SHALL NOT exceed the import stream's size, a segment SHALL include its per-block end markers within that size, a refused import publish SHALL be retried in place without an attempt limit, a segment SHALL count as committed only when every block's checkpoint includes its end, and the next segment SHALL be published only after that. A crash SHALL resume from the last committed segment, with owners recovered from their checkpoints, without applying any imported record twice. The cutover marker SHALL be written only after the final segment is applied, and once it is written a rerun of the cutover SHALL change nothing.
 The old inbox, lane, receipt, ledger and pending-admission tables SHALL be dropped only after the cutover marker exists, and no runtime path SHALL evaluate through both designs.
 
 #### Scenario: Residual work is evaluated before new input
@@ -283,8 +284,19 @@ The old inbox, lane, receipt, ledger and pending-admission tables SHALL be dropp
 - **THEN** it SHALL resume after the second committed segment
 - **AND** every residual record SHALL be applied exactly once
 
+#### Scenario: An import that cannot be placed refuses the upgrade
+- **GIVEN** a JetStream reservation with less room left than one record at the inbox's per-record ceiling plus one marker per block
+- **WHEN** the release is upgraded
+- **THEN** the upgrade SHALL be refused before any core replica is replaced
+- **AND** the refusal SHALL name the remaining reservation and the bytes required
+
+#### Scenario: An operator resolve during the import is honoured
+- **GIVEN** residual work for an open incident that has not yet been imported
+- **WHEN** an operator resolves the incident before its segment is applied
+- **THEN** the imported work SHALL NOT renotify the incident
+
 #### Scenario: Metadata after a move or the import is not dropped
-- **GIVEN** an open incident whose metadata was last written while applying the import or before its block moved streams
+- **GIVEN** an open incident whose metadata was last written while applying the import, before its block moved streams, or before its owner failed over
 - **WHEN** later candidates for its group are applied from the live or target stream
 - **THEN** the incident's occurrence count on the alert row SHALL be updated
 

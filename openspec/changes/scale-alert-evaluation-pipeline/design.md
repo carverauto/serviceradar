@@ -270,15 +270,18 @@ transaction:
    `virtual_partition` column, and deletes evicted ones;
 2. inserts the closed dedupe slices (D6) and deletes slices older than the
    horizon;
-3. advances `alert_block_checkpoints(block, stream, seq, epoch)` for the
-   blocks that moved. A block's `seq` is the stream sequence of the last of
-   that block's own messages the owner applied.
+3. advances `alert_block_checkpoints(block, stream, seq, epoch,
+   applied_count, import_ordinal)` for the blocks that moved. A block's `seq`
+   is the stream sequence of the last of that block's own messages the owner
+   applied; `applied_count` is the block's evaluation position (D5) and
+   `import_ordinal` the last cutover import record it applied (Migration).
 
 Writes scale with dirty groups, not total state. Rejected: a whole-partition
 state blob per checkpoint. Its write volume grows with total state rather
 than with change, and the existing table, which the UI reads, would go stale.
 
-Recovery loads the blocks' rows and slices and starts the ordered consumer at
+Recovery loads the blocks' rows, slices, `applied_count` and
+`import_ordinal` and starts the ordered consumer at
 the lowest checkpoint sequence among them. It skips any message at or below
 its own block's checkpoint, so blocks that join at different positions are
 handled exactly.
@@ -544,6 +547,7 @@ sized for a small install:
 | `move_stall_critical_s` | 600 | 600 |
 | candidate stream and alert DLQ `max_bytes` | derived from the active JetStream profile (table below) | derived from `xlarge` (1 h budget) |
 | `auto_reshard` | `false` | `false` (D12) |
+| `cutover_import_segment_max_bytes` (upper bound on the release-N import stream) | 64 MiB | 64 MiB |
 
 EventWriter batching, coalescer limits, `telemetry_stream_count` per signal
 and the telemetry stream and telemetry DLQ `max_bytes` join the existing
@@ -604,7 +608,8 @@ Moving block b from stream A to stream B:
    to `cut_seq`. Only once every b message at or below `cut_seq` is inside
    its committed checkpoint for b (immediately when `cut_seq` is 0) does it
    start consuming b from B's first sequence. The checkpoint row records the
-   switch (stream B, sequence 0), atomically with the last A position.
+   switch (stream B, sequence 0), atomically with the last A position, and
+   keeps b's `applied_count` and `import_ordinal` unchanged.
    Journal state `switched`.
 5. **Reclaim.** b's remaining messages in A, all at or below `cut_seq` and
    applied, are purged by b's per-block purge. A stream with no blocks left
@@ -785,66 +790,83 @@ Release N ships the new schema, the router, the owners, one candidate stream
 and the cutover task, and deletes the inbox code. There is no runtime path
 that evaluates through both designs.
 
-1. **Rolling upgrade.** The first upgraded replica creates the release-N
-   import stream `ALERT_IMPORT_V1` bound to `alerts.import.v1.>` (R3,
-   Limits, DiscardNew, no MaxAge, idempotent create), with `max_bytes` set
-   from the free JetStream file store measured at creation and at least one
-   import record. It is not counted in the profile carve, which stays
-   unchanged. Upgraded replicas report not ready until that create has
-   succeeded, and core rolls with `maxUnavailable` 0, so no pre-cutover
-   replica stops before the stream exists; a failed create pauses the roll
-   with the old replicas still consuming. New replicas do not consume
-   alert-feeding source streams or route candidates until the cutover marker
-   exists, and start owners only for the import (step 2); their other
-   consumers run at once. New replicas do not run the `alerts` or
-   `alert_recovery` Oban queues. Pre-cutover replicas keep consuming
-   sources, admitting to and draining the inbox until they stop.
-   Between the last pre-cutover replica stopping and the marker, alert-feeding
-   sources lag; nothing is lost. A key's history is therefore one sequence:
-   everything admitted to the inbox, then everything routed after the marker.
-2. **Cutover task** (coordinator, release N). It waits until no pre-cutover
+1. **Preflight, before any replica stops.** A release-N pre-upgrade step
+   (the chart's pre-upgrade hook, and the same command for Compose) creates
+   the import stream `ALERT_IMPORT_V1` bound to `alerts.import.v1.>` (R3,
+   Limits, DiscardNew, no MaxAge, idempotent create). Its `max_bytes` is one
+   segment: the smaller of `cutover_import_segment_max_bytes` and half of the
+   JetStream reservation remaining on the servers that would hold it (the
+   file store minus the `max_bytes` already reserved there, not unused disk).
+   A minimal segment is one record at the old admission's per-record
+   ceiling (`rule_bytes`, which bounds every record the inbox holds) plus
+   one segment-end marker per block. If that does not fit, the step fails,
+   the upgrade is refused before any pod is replaced, and the failure names
+   the remaining reservation and the bytes required. The stream is outside
+   the profile carve, which stays unchanged.
+2. **Rolling upgrade.** New replicas do not consume alert-feeding source
+   streams or route candidates until the cutover marker exists, and start
+   owners only for the import (step 3); their other consumers run at once.
+   New replicas do not run the `alerts` or `alert_recovery` Oban queues.
+   Pre-cutover replicas keep consuming sources, admitting to and draining the
+   inbox until they stop. Between the last pre-cutover replica stopping and
+   the marker, alert-feeding sources lag; nothing is lost. A key's history is
+   therefore one sequence: everything admitted to the inbox, then everything
+   routed after the marker.
+3. **Cutover task** (coordinator, release N). It waits until no pre-cutover
    core replica remains in the cluster, by capability, and no `alerts` job is
    executing. Then, in order:
    1. Convert every `stateful_alert_rule_states` row into block state
       (compute `virtual_partition`, set `incident_seq` and `renotify_ordinal`
-      bases, keep open alert ids) and write an initial checkpoint per block.
+      bases, keep open alert ids, and set `operator_terminal` from the
+      alert's current status, as today's renotify and recovery read it) and
+      write an initial checkpoint per block.
    2. Import in bounded segments. The residual set is residual
       `alert_evaluation_work` rows in (rule, position) order (they already
       carry their rule and revision), then residual
       `lifecycle_pending_admissions` rows in (series, seq) order routed
       through the index; each record gets a stable import ordinal. Owners
       start for import only: they consume `alerts.import.v1.b<b>.*` and no
-      live subject. For each segment the task measures the free JetStream
-      file store and takes the next records up to that size, never above
-      the import stream's `max_bytes` and at least one record. It publishes
-      them in order on `alerts.import.v1.b<b>.v<vp>`, awaiting each PubAck,
-      then a segment-end marker per block. Owners apply the segment and
-      checkpoint at the marker; each import message carries its ordinal, and
-      a block skips any ordinal at or below the one in its checkpoint. When
-      every block's checkpoint covers its segment-end marker, the task purges
-      the stream and records the segment's last ordinal in CNPG
-      (`alert_cutover_progress`); only then does it publish the next segment.
-   3. After the final segment is applied, write the cutover marker. Owners
-      then consume live subjects.
-   A crash before the marker resumes from the last committed segment: the
-   task waits for owners to apply what the stream holds, purges it, and
-   republishes from the first ordinal after that segment; owners skip what
-   they already applied by ordinal. Nothing is deleted and the source tables
-   are untouched until the marker. Once the marker commit has succeeded, a
-   rerun of the task is a no-op success: it does not purge, delete or
-   republish.
+      live subject, and checkpoint only at segment-end markers. Until the
+      marker, D9 control messages (rule disable and delete, operator alert
+      actions, stale-anomaly maintenance) are published to the import
+      subjects of their blocks, so they are ordered with the residual work
+      and maintenance receipts are written. For each segment the task
+      measures the free stored bytes of the import stream and takes the next
+      records plus one segment-end marker per block up to that size, at
+      least one record, never above the stream's `max_bytes`. Records of a
+      rule that is disabled or deleted when the segment is built are
+      omitted and counted as dropped. It publishes them in order on
+      `alerts.import.v1.b<b>.v<vp>`, awaiting each PubAck and retrying a
+      refused publish in place with capped backoff and no attempt limit.
+      Each import message carries its ordinal, and a block skips any ordinal
+      at or below the `import_ordinal` in its checkpoint. A segment is
+      committed only when every block's checkpoint includes its end
+      ordinal; the task then records it in CNPG (`alert_cutover_progress`),
+      purges the stream, and builds the next segment.
+   3. After the final segment is committed, write the cutover marker, then
+      delete `ALERT_IMPORT_V1`. Owners then consume live subjects, and
+      control messages go to live subjects.
+   A crash before the marker resumes from the last committed segment:
+   owners recover their blocks from their checkpoints, discarding anything
+   applied after them; the task purges the stream and republishes every
+   ordinal after the last committed segment, with its markers. A purged
+   message above a checkpoint is always republished, and a block skips what
+   its checkpoint already includes, so every residual record is applied
+   exactly once. The source tables are untouched until the marker. Once the
+   marker commit has succeeded, a rerun of the task deletes
+   `ALERT_IMPORT_V1` if it still exists and does nothing else.
    Imported candidates carry the candidate id the router would compute, so a
    source message the old replicas admitted but did not acknowledge,
    redelivered and routed after the marker, is suppressed as a duplicate.
    Residual work is therefore evaluated before anything routed after the
    cutover, and no live candidate precedes it.
-3. **Post-cutover migration** (release N). It refuses to run before the
+4. **Post-cutover migration** (release N). It refuses to run before the
    marker exists. It drops `alert_evaluation_work`, `alert_evaluation_lanes`,
    `alert_evaluation_receipts`, `stateful_evaluation_ledger` and
    `lifecycle_pending_admissions`, and deletes pending Oban jobs of the
    removed workers.
-4. **Release N+1** removes the cutover task, the import subjects, the
-   `ALERT_IMPORT_V1` stream and `alert_cutover_progress`.
+5. **Release N+1** removes the preflight, the cutover task, the import
+   subject handling and `alert_cutover_progress`.
 
 Removed code: `StatefulAlertEngine.Inbox`, `Owner`, `EvaluationWorker`,
 `RecoveryWorker`, `Rollout`, `PeerReadiness`, `Completion` (replaced by
@@ -864,7 +886,7 @@ deterministic fire keys (D5), and its 7-day volume would be billions of rows
 at the target. `stateful_alert_rule_states` is kept, in an extended form, as
 the checkpoint store.
 
-The cutover is forward-only (resolved Q9). Before step 2, rolling back is an
+The cutover is forward-only (resolved Q9). Before the cutover task (step 3), rolling back is an
 ordinary image rollback: no table has been dropped and the inbox still holds
 its work.
 
