@@ -190,6 +190,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordBumblebeeDbTest do
              EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo)
 
     assert ledger_count(frame.record) == 0
+
     assert {:ok, nil} =
              BumblebeeDevicePosture.get_by_agent(agent_id,
                actor: actor,
