@@ -433,18 +433,23 @@ core:
 ### Durable edge-record canary
 
 `edgeRecords.enabled` enables the gateway's durable bulk publisher and runtime
-trust refresh from core. Supply `edgeRecords.contractRegistry` with the
-installation's registry document: core and gateway receive the same JSON.
+trust refresh from core. Core derives its contract registry from the release's
+contract catalog and signs each registry epoch with the issuer key; it does not
+read `edgeRecords.contractRegistry`. That document is still the gateway's
+static admission registry: supply the installation's registry document there.
 The sweep entry must be the active `serviceradar.sweep.observation` version 1
 contract on the durable bulk route. Its bundle digest and registry snapshot
 digest identify the reviewed installation contract; do not use test-fixture
 identities in a deployment.
 
-The current registry is installation-static and unsigned. For the canary,
-derive its bundle fingerprint from the reviewed schema and cost/projection
-sources, recording the file list and commit alongside the deployment values.
-Hash the canonical registry body before adding `registry_snapshot_sha256`.
-Keep that exact document on core and every gateway throughout the run.
+The gateway's registry is installation-static and unsigned. Until the gateway
+admits against core's signed registry epochs, it withholds records core signs
+under an epoch newer than its static document's (`registry_epoch_ahead`).
+Copy the signed active epoch into the static document: its `registry_epoch`,
+its `registry_snapshot_sha256`, and each contract's bundle digest. A hash of
+the document body matches neither, so the gateway withholds every record as
+`registry_snapshot_mismatch`. Keep that exact document on every gateway
+throughout the run.
 
 The secret generator creates an `edge-issuer-seed` once and preserves it on
 upgrade. Only core mounts this Ed25519 seed. If `secrets.autoGenerate=false`,
@@ -456,10 +461,14 @@ base64-encoded 32-byte seed (the Secret's data encoding wraps that text).
 and periodic sweep summary metrics producers on the same spool. That spool is
 also where flow-attribution windows and OTLP relay frames go while the agent
 holds a current `serviceradar.netprobe.flow_attribution` version 1 or
-`serviceradar.otlp.relay` version 1 grant. Core issues that grant only when
-`contractRegistry` includes an active entry for it and that agent's leasing
-switch is on. Without `agentMetricsEnabled`, those stay on the status path
-even if core has issued the grant.
+`serviceradar.otlp.relay` version 1 grant. Core issues a standing grant for a
+catalog contract when the contract is in the signed active registry epoch, the
+core node's release catalog holds its exact bundle, and the agent's partition
+has a row; it does not consult `contractRegistry`. The gateway withholds
+records for any contract that `contractRegistry` does not list as active, so
+list each enabled producer's contract there before enabling that producer.
+Without `agentMetricsEnabled`, those stay on the status path even if core has
+issued the grant.
 `edgeRecords.agentTelemetryEnabled` enables its plugin and native add-on
 telemetry producer on that spool.
 `edgeRecords.agentPluginResultsEnabled` enables its Wasm plugin results
@@ -472,31 +481,27 @@ Core's agent-scoped sweep lease settings select which agent receives signed
 slots. Enable leasing only for the canary, and use an enabled static-target
 group without a target query. Other agents continue using the legacy results
 path. With `agentMetricsEnabled` set, those metrics stay on the status path
-until `contractRegistry` includes an active `serviceradar.metrics.batch`
-version 1 contract and that agent's leasing switch is on. With
+until core grants that agent `serviceradar.metrics.batch` version 1. With
 `agentTelemetryEnabled` set, plugin and add-on telemetry stays on the status
-path until `contractRegistry` includes an active
-`serviceradar.telemetry.batch` version 1 contract and that agent's leasing
-switch is on. With `agentPluginResultsEnabled` set, Wasm plugin results stay
-on the status path until `contractRegistry` includes an active
-`serviceradar.plugin_results.batch` version 1 contract and that agent's
-leasing switch is on. With `agentDiscoveryEnabled` set, mapper devices,
-interfaces, topology and netprobe discovery stay on the status path until
-`contractRegistry` includes active `serviceradar.mapper.devices.batch`,
-`serviceradar.mapper.interfaces.batch`, `serviceradar.mapper.topology.batch`
-and `serviceradar.netprobe.discovery.batch` version 1 contracts and that
-agent's leasing switch is on. With `agentSyncEnabled` set, integration sync
-pages stay on the status path until `contractRegistry` includes an active
-`serviceradar.sync.page.batch` version 1 contract and that agent's leasing
-switch is on. Results of sweep groups the agent runs from its own config,
-without a lease, move to edge records only when `contractRegistry` also
-includes an active `serviceradar.sweep.unleased_results` version 1 contract;
+path until core grants `serviceradar.telemetry.batch` version 1. With
+`agentPluginResultsEnabled` set, Wasm plugin results stay on the status path
+until core grants `serviceradar.plugin_results.batch` version 1. With
+`agentDiscoveryEnabled` set, mapper devices, interfaces, topology and netprobe
+discovery stay on the status path until core grants
+`serviceradar.mapper.devices.batch`, `serviceradar.mapper.interfaces.batch`,
+`serviceradar.mapper.topology.batch` and
+`serviceradar.netprobe.discovery.batch` version 1. With `agentSyncEnabled`
+set, integration sync pages stay on the status path until core grants
+`serviceradar.sync.page.batch` version 1. Results of sweep groups the agent
+runs from its own config, without a lease, move to edge records only when the
+agent also holds a `serviceradar.sweep.unleased_results` version 1 grant;
 each results response and its metric batch then take the edge path together,
 and otherwise both keep the legacy results path. Full
-traces from agent-scheduled MTR checks leave the status path only when
-`contractRegistry` also includes an active `serviceradar.mtr.scheduled_trace`
-version 1 contract. The metrics grant does not carry those traces. Without the
-trace contract they stay on the status path.
+traces from agent-scheduled MTR checks leave the status path only when the
+agent also holds a `serviceradar.mtr.scheduled_trace` version 1 grant. The
+metrics grant does not carry those traces. Without the trace grant they stay
+on the status path. Each of these grants follows the signed active registry
+epoch.
 
 Use complete terminal ICMP/TCP host windows for this first canary. Partial-mode
 and MTR windows are not supported by this projection yet. Keep the issuer key

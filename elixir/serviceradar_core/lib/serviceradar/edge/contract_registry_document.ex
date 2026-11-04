@@ -3,10 +3,12 @@ defmodule ServiceRadar.Edge.ContractRegistryDocument do
   Parses the installation's edge-record contract registry document: the JSON snapshot that
   names the output contracts the gateway admits and the route each one pins.
 
-  Core and the agent gateway read the SAME document (`SERVICERADAR_EDGE_RECORD_CONTRACT_REGISTRY`
-  in core, `AGENT_GATEWAY_EDGE_RECORD_CONTRACT_REGISTRY` in the gateway) through this one parser,
-  so the contract values core signs into a production capability cannot disagree with the values
-  the gateway admits. See `ServiceRadarAgentGateway.EdgeContractRegistry.Static` for the format.
+  Only the agent gateway's boot-time `Static` source still reads this document
+  (`AGENT_GATEWAY_EDGE_RECORD_CONTRACT_REGISTRY`; see
+  `ServiceRadarAgentGateway.EdgeContractRegistry.Static` for the format). Core no longer does:
+  it signs against the core-derived, issuer-signed registry epochs
+  (`ServiceRadar.Edge.ContractRegistry`), which reach the gateway in the trust document's
+  `contract_registry` member. This parser goes away with the `Static` source.
 
   Parsing is strict and fails closed: an unknown key, a duplicate `(contract_id,
   contract_version)`, an unknown lifecycle state, or a route or partition rule this installation

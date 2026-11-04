@@ -17,11 +17,7 @@ defmodule ServiceRadar.Edge.SweepContract do
 
   @type t :: OutputContract.t()
 
-  @doc "The configured sweep contract, or why core cannot sign against it."
+  @doc "The sweep contract under the active registry epoch, or why core cannot sign against it."
   @spec current() :: {:ok, t()} | {:error, term()}
   def current, do: OutputContract.current(@ref)
-
-  @doc "The sweep contract named by a registry document."
-  @spec from_document(term()) :: {:ok, t()} | {:error, term()}
-  def from_document(raw), do: OutputContract.from_document(raw, @ref)
 end

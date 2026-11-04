@@ -142,6 +142,16 @@ defmodule ServiceRadar.Edge.IssuerKey do
   end
 
   @doc """
+  The Ed25519 signature of a canonical preimage that is not a capability, such as a contract
+  registry epoch (`ServiceRadar.Edge.ContractRegistryEpochDocument`). The caller owns the
+  preimage's domain separation; this only signs the bytes.
+  """
+  @spec sign_detached(binary(), t()) :: <<_::512>>
+  def sign_detached(preimage, %__MODULE__{} = key) when is_binary(preimage) do
+    :crypto.sign(:eddsa, :none, preimage, [key.seed, :ed25519])
+  end
+
+  @doc """
   The gateway trust-file entry for this key: base64 ids and public key, valid for the
   production, source and delivery purposes (`ServiceRadar.Edge.DeliveryGrants` signs delivery
   grants with it). It carries no private material.

@@ -1,10 +1,11 @@
 defmodule ServiceRadar.Edge.SweepContractTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Edge.ContractBundle
   alias ServiceRadar.Edge.ContractCatalog
+  alias ServiceRadar.Edge.OutputContract
   alias ServiceRadar.Edge.Projectors.ScheduledMtrTrace
   alias ServiceRadar.Edge.Projectors.WorkloadIdentity
-  alias ServiceRadar.Edge.SweepContract
   alias Serviceradar.Edge.V1.AgentScheduledMtrTraceBatchV1
   alias Serviceradar.Edge.V1.AgentScheduledMtrTraceV1
   alias Serviceradar.Edge.V1.EdgeRecordV1
@@ -18,60 +19,48 @@ defmodule ServiceRadar.Edge.SweepContractTest do
   alias Serviceradar.Edge.V1.WorkloadIdentitySnapshotV1
   alias ServiceRadar.Observability.MtrMetricsIngestor
 
-  @bundle String.duplicate("ab", 32)
-  @snapshot String.duplicate("cd", 32)
+  @ref {"serviceradar.sweep.observation", 1}
+  @snapshot :binary.copy(<<0xCD>>, 32)
 
-  defp document(overrides \\ %{}) do
-    Jason.encode!(%{
-      "registry_epoch" => 7,
-      "registry_snapshot_sha256" => @snapshot,
-      "contracts" => [
-        Map.merge(
-          %{
-            "contract_id" => "serviceradar.sweep.observation",
-            "contract_version" => 1,
-            "contract_bundle_sha256" => @bundle,
-            "state" => "active",
-            "route_profile" => "EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1",
-            "traffic_class" => "EDGE_RECORD_TRAFFIC_CLASS_BULK",
-            "partition_rule" => "network_scope_v1",
-            "cost_model_version" => 3
-          },
-          overrides
-        )
-      ]
-    })
+  # A verified registry epoch whose sweep entry is this release's, with `change` applied.
+  defp epoch(change \\ & &1) do
+    entry = ContractBundle.local().contracts |> Map.fetch!(@ref) |> change.()
+    %{epoch: 1_000_003, snapshot_sha256: @snapshot, contracts: %{@ref => entry}}
   end
 
-  test "the active sweep entry gives the values a production capability signs" do
-    assert {:ok, contract} = SweepContract.from_document(document())
+  test "the active epoch's sweep entry gives the values a production capability signs" do
+    assert {:ok, contract} = OutputContract.from_epoch(epoch(), @ref)
 
     assert contract.contract_id == "serviceradar.sweep.observation"
     assert contract.contract_version == 1
-    assert contract.contract_bundle_sha256 == Base.decode16!(@bundle, case: :lower)
-    assert contract.registry_epoch == 7
-    assert contract.registry_snapshot_sha256 == Base.decode16!(@snapshot, case: :lower)
-    assert contract.cost_model_version == 3
+    assert contract.contract_bundle_sha256 == ContractBundle.bundle_sha256(sweep_catalog_entry())
+    assert contract.registry_epoch == 1_000_003
+    assert contract.registry_snapshot_sha256 == @snapshot
+    assert contract.cost_model_version == 1
     assert contract.max_projected_row_count == 10_000
     assert contract.max_projected_write_bytes == 10_000 * 2_048
   end
 
-  test "a sweep entry that is not active, or not registered, gives no contract" do
-    assert {:error, {:contract_not_active, :draining}} =
-             SweepContract.from_document(document(%{"state" => "draining"}))
-
+  test "an entry that is missing, off the durable bulk lane, or a bundle this node does not hold gives no contract" do
     assert {:error, :contract_not_registered} =
-             SweepContract.from_document(document(%{"contract_version" => 2}))
+             OutputContract.from_epoch(%{epoch() | contracts: %{}}, @ref)
 
     assert {:error, :contract_lane} =
-             SweepContract.from_document(
-               document(%{"traffic_class" => "EDGE_RECORD_TRAFFIC_CLASS_INTERACTIVE"})
+             OutputContract.from_epoch(
+               epoch(&%{&1 | traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_INTERACTIVE}),
+               @ref
+             )
+
+    assert {:error, :contract_bundle_not_held} =
+             OutputContract.from_epoch(
+               epoch(&%{&1 | contract_bundle_sha256: :binary.copy(<<0xEE>>, 32)}),
+               @ref
              )
   end
 
-  test "a missing or malformed document gives no contract" do
-    assert {:error, :registry_not_configured} = SweepContract.from_document(nil)
-    assert {:error, {:invalid_registry, _}} = SweepContract.from_document("{}")
+  defp sweep_catalog_entry do
+    {:ok, entry} = ContractCatalog.fetch(@ref)
+    entry
   end
 
   describe "serviceradar.mtr.scheduled_trace contract and projector" do

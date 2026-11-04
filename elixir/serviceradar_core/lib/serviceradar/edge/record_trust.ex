@@ -9,14 +9,23 @@ defmodule ServiceRadar.Edge.RecordTrust do
   revoked authorities: their advanced fence makes previously issued records stale. No issuer
   seed is returned. An oversized snapshot fails closed instead of silently omitting
   authorities.
+
+  The document also carries the contract registry (`"contract_registry"`, format 2): every
+  non-retired registry epoch whose row verifies, with its signature and signing key id
+  (`ServiceRadar.Edge.ContractRegistry.trust_member/1`). A gateway verifies each epoch against
+  the `"keys"` of the same document before it installs the registry, and installs trust and
+  registry from the same read. `refresh/1` is the gateway's call: it also takes the gateway's
+  report of the registry it installed on its previous refresh.
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Edge.ContractRegistry
   alias ServiceRadar.Edge.IssuerKey
   alias ServiceRadar.Edge.OutputGrant
   alias ServiceRadar.SweepJobs.SweepProducerAssignment
 
   require Ash.Query
+  require Logger
 
   @max_assignments 10_000
   @clock_tolerance_nano 5 * 60 * 1_000_000_000
@@ -26,10 +35,28 @@ defmodule ServiceRadar.Edge.RecordTrust do
     with {:ok, key} <- IssuerKey.configured(), do: snapshot(key)
   end
 
+  @doc """
+  The gateway's refresh: records its report of the registry it installed
+  (`ServiceRadar.Edge.ContractRegistry.record_gateway_report/2`), then returns `snapshot/0`. A
+  malformed report is logged and dropped; it never withholds the trust document.
+  """
+  def refresh(report) do
+    case ContractRegistry.record_gateway_report(report) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Edge record trust refresh report dropped: #{inspect(reason)}")
+    end
+
+    snapshot()
+  end
+
   @doc "Reads current assignment authority for the supplied issuer."
   def snapshot(%IssuerKey{} = key) do
     with {:ok, sweeps} <- read_authorities(SweepProducerAssignment),
-         {:ok, grants} <- read_authorities(OutputGrant) do
+         {:ok, grants} <- read_authorities(OutputGrant),
+         {:ok, registry} <- ContractRegistry.trust_member(key) do
       assignments = Enum.sort_by(sweeps ++ grants, & &1.id)
 
       if length(assignments) > @max_assignments do
@@ -39,6 +66,7 @@ defmodule ServiceRadar.Edge.RecordTrust do
          %{
            "clock_tolerance_nano" => @clock_tolerance_nano,
            "keys" => [IssuerKey.trust_entry(key)],
+           "contract_registry" => registry,
            "fences" => Enum.map(assignments, &fence/1),
            "scopes" => scopes(assignments)
          }}

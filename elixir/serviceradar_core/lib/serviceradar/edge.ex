@@ -21,6 +21,7 @@ defmodule ServiceRadar.Edge do
   - `ServiceRadar.Edge.NatsLeafServer` - NATS leaf server configurations
   - `ServiceRadar.Edge.AgentCommand` - On-demand agent command lifecycle records
   - `ServiceRadar.Edge.OutputGrant` - Standing edge-record output grants per agent and contract
+  - `ServiceRadar.Edge.ContractRegistryEpoch` - Signed epochs of the core-derived contract registry
   - `ServiceRadar.Edge.AgentRelease` - Published agent release catalog
   - `ServiceRadar.Edge.AgentReleaseRollout` - Desired-version rollout plans
   - `ServiceRadar.Edge.AgentReleaseTarget` - Per-agent rollout state
@@ -90,6 +91,7 @@ defmodule ServiceRadar.Edge do
     resource ServiceRadar.Edge.ProxmoxConsoleSession
     resource ServiceRadar.Edge.OutputGrant
     resource ServiceRadar.Edge.PipelineSetting
+    resource ServiceRadar.Edge.ContractRegistryEpoch
   end
 
   authorization do

@@ -222,13 +222,6 @@ nats_certificate_grant_ttl =
 config :serviceradar, :nats_account_name, nats_account_name
 config :serviceradar, :nats_certificate_grant_ttl_seconds, nats_certificate_grant_ttl
 
-# The installation's edge-record contract registry document: the same JSON the agent gateway
-# reads from AGENT_GATEWAY_EDGE_RECORD_CONTRACT_REGISTRY. Core signs sweep lease capabilities
-# against its sweep contract entry (ServiceRadar.Edge.SweepContract).
-config :serviceradar_core,
-       :edge_record_contract_registry,
-       System.get_env("SERVICERADAR_EDGE_RECORD_CONTRACT_REGISTRY")
-
 # =============================================================================
 # Logger level override
 # =============================================================================

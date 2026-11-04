@@ -440,13 +440,6 @@ geolite_dbs = base_geolite_dbs ++ city_geolite_dbs ++ ipinfo_dbs
 
 config :geolix, databases: ServiceRadar.Observability.GeoIP.present_databases(geolite_dbs)
 
-# The installation's edge-record contract registry document: the same JSON the agent gateway
-# reads from AGENT_GATEWAY_EDGE_RECORD_CONTRACT_REGISTRY. Core signs sweep lease capabilities
-# against its sweep contract entry (ServiceRadar.Edge.SweepContract).
-config :serviceradar_core,
-       :edge_record_contract_registry,
-       System.get_env("SERVICERADAR_EDGE_RECORD_CONTRACT_REGISTRY")
-
 config :serviceradar_core,
        :endpoint_inventory_native_addon_package,
        endpoint_inventory_addon_config

@@ -962,7 +962,7 @@ core:
     #
     # Set to "" to fall back to the old existence-only check (for operators
     # running the chart against a deliberately pinned schema).
-    expectedVersion: "20261104120000"
+    expectedVersion: "20261104130000"
   # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
   reaper:
     # How often to run the reaper job
@@ -1839,26 +1839,17 @@ agent:
       cpu: 200m
       memory: 512Mi
 # Durable edge-record pipeline. Core lease settings select participating agents/groups.
-# contractRegistry is the installation-static document consumed by core and gateway.
-# agentMetricsEnabled lets the in-cluster agent emit metric batches as edge records once
-# core grants it the serviceradar.metrics.batch contract (registered in contractRegistry
-# and the agent's leasing switch on); without a grant it keeps the status path. With it,
-# results of sweep groups the agent runs without a lease also move to edge records once
-# contractRegistry holds an active serviceradar.sweep.unleased_results contract as well.
-# agentTelemetryEnabled lets the in-cluster agent emit plugin and native add-on
-# telemetry as edge records once core grants it the serviceradar.telemetry.batch
-# contract (registered in contractRegistry and the agent's leasing switch on);
-# without a grant it keeps the status path.
-# agentPluginResultsEnabled lets the in-cluster agent emit Wasm plugin results
-# as edge records once core grants it the serviceradar.plugin_results.batch
-# contract (registered in contractRegistry and the agent's leasing switch on);
-# without a grant it keeps the status path.
-# agentDiscoveryEnabled lets the in-cluster agent emit mapper and netprobe
-# discovery as edge records once core grants it the mapper and netprobe
-# discovery contracts; without a grant each family keeps the status path.
-# agentSyncEnabled lets the in-cluster agent emit integration sync pages as
-# edge records once core grants it the serviceradar.sync.page.batch contract;
-# without a grant sync pages keep the status path.
+# contractRegistry is the installation-static document the gateway admits against;
+# core derives and signs its own registry from the release contract catalog.
+# Core grants a catalog contract when it is in the signed active registry epoch and
+# this node's catalog holds its exact bundle; the gateway admits a contract's records
+# only while contractRegistry lists it active.
+# Each agent*Enabled flag lets the in-cluster agent emit that family (metrics and
+# unleased sweep results, plugin/add-on telemetry, Wasm plugin results, mapper and
+# netprobe discovery, integration sync pages) as edge records once it holds the
+# grant; without a grant the family keeps the status path. See "Durable edge-record
+# canary" in README.md. This whole block is removed by the default-on edge pipeline
+# change (enable-edge-record-pipeline-by-default, task 5.1).
 edgeRecords:
   enabled: false
   contractRegistry: {}

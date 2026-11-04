@@ -118,8 +118,8 @@ type GatewayEnvConfig struct {
 	// to the SAME database with a mismatched key would be a needless
 	// divergence from how these two processes are actually deployed together.
 	CloakKey string
-	// ContractRegistryJSON is the installation-static output-contract registry
-	// snapshot (FixtureContractRegistryJSON). Without it the gateway's
+	// ContractRegistryJSON is the static output-contract registry snapshot
+	// (core's active epoch, recordRegistryEpoch). Without it the gateway's
 	// edge-records:v1 capability is never ready and every lane_open is refused.
 	ContractRegistryJSON string
 }

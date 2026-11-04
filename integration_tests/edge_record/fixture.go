@@ -238,9 +238,10 @@ func buildFixture(variant int, originPrincipalID []byte) (*FixtureRecord, error)
 	}
 	payloadSum := sha256.Sum256(payload)
 
-	// The contract reference is the SAME for every variant: the gateway admits records against one
-	// installation-static registry entry (FixtureContractRegistryJSON), and Group C's conflict frame
-	// must differ from the accepted fixture only in record content, not in the bundle it names.
+	// The contract reference is the SAME for every variant, and matches FixtureContractRegistryJSON,
+	// so a fixture validates on its own. Against live releases prepareFixture rebinds it to the
+	// epoch, snapshot and bundle core signs, and Group C's conflict frame still differs from the
+	// accepted fixture only in record content, not in the bundle it names.
 	contract := &edgev1.EdgeOutputContractRef{
 		ContractId:             fixtureContractID,
 		ContractVersion:        fixtureContractVersion,
@@ -504,11 +505,11 @@ const (
 	fixtureCostModel       = 1
 )
 
-// FixtureContractRegistryJSON is the installation-static contract registry snapshot the gateway
-// release boots with (AGENT_GATEWAY_EDGE_RECORD_CONTRACT_REGISTRY, parsed by
+// FixtureContractRegistryJSON is a static contract registry snapshot in the gateway's
+// AGENT_GATEWAY_EDGE_RECORD_CONTRACT_REGISTRY format (parsed by
 // ServiceRadarAgentGateway.EdgeContractRegistry.Static): exactly the one contract every fixture
-// record names, active on the durable bulk route. The gateway admits a record only when its
-// output contract matches this entry, so the two are built from the same constants.
+// record names as built, active on the durable bulk route, built from the same constants. The
+// live gateway boots with core's derived epoch instead (recordRegistryEpoch).
 func FixtureContractRegistryJSON() (string, error) {
 	type contract struct {
 		ContractID           string `json:"contract_id"`
