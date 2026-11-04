@@ -135,9 +135,14 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrust do
   @spec available?() :: boolean()
   def available?, do: match?({:ok, _}, snapshot())
 
-  @doc "Whether the installed snapshot carries a verified contract registry."
+  @doc "Whether the installed snapshot carries a verified contract registry holding an epoch."
   @spec registry_available?() :: boolean()
-  def registry_available?, do: match?({:ok, %{registry: %{}}}, snapshot())
+  def registry_available? do
+    case snapshot() do
+      {:ok, %{registry: registry}} -> EdgeContractRegistry.available?(registry)
+      _ -> false
+    end
+  end
 
   @doc """
   Validates and installs a snapshot given in the decoded JSON shape (string keys, base64 bytes).

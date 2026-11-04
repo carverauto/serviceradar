@@ -178,6 +178,19 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrustTest do
       assert %{"installed" => [], "refused" => [%{"registry_epoch" => 1_000_007}]} = EdgeRecordTrust.registry_report("gw")
     end
 
+    test "a verified member holding no epoch replaces the held registry but is not available", %{keys: keys} do
+      assert :ok = EdgeRecordTrust.install(EdgeRecordFactory.trust_document(keys.public))
+      assert EdgeRecordTrust.registry_available?()
+
+      empty = EdgeRecordFactory.registry_member([])
+      assert :ok = EdgeRecordTrust.install(EdgeRecordFactory.trust_document(keys.public, contract_registry: empty))
+
+      assert {:ok, %{registry: %{epochs: epochs}}} = EdgeRecordTrust.snapshot()
+      assert epochs == %{}
+      refute EdgeRecordTrust.registry_available?()
+      assert %{"installed" => [], "refused" => []} = EdgeRecordTrust.registry_report("gw")
+    end
+
     test "an unparseable or missing member is refused like a bad signature", %{keys: keys} do
       assert :ok = EdgeRecordTrust.install(EdgeRecordFactory.trust_document(keys.public))
 

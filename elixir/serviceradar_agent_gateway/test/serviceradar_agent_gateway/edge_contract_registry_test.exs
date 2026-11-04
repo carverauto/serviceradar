@@ -72,6 +72,12 @@ defmodule ServiceRadarAgentGateway.EdgeContractRegistryTest do
       assert {:withhold, :registry_unavailable} = admit(record(), nil)
     end
 
+    # Core sends an empty member before its first epoch exists; an ahead withhold would cap the lane
+    # for a record signed under that first epoch.
+    test "withholds a record as unavailable while the verified registry holds no epoch" do
+      assert {:withhold, :registry_unavailable} = admit(record(), registry!([]))
+    end
+
     # The epoch's document is signed and immutable, so a mismatch under a held epoch can never
     # clear; withholding it would cap the lane for good.
     test "rejects what a held epoch does not sign: its snapshot, contract or bundle" do

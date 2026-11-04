@@ -41,7 +41,7 @@ defmodule ServiceRadarAgentGateway.EdgeContractRegistry do
       does not pin. An epoch's document is signed and immutable, so none of these can clear by
       waiting, and withholding them would cap the lane for good.
     * `{:withhold, reason}` -- not publishable now, but not proof of poison: no verified registry
-      (`:registry_unavailable`), an epoch newer than any the gateway holds
+      or one holding no epoch (`:registry_unavailable`), an epoch newer than any the gateway holds
       (`:registry_epoch_ahead`), or a bundle outside the projectable set
       (`:bundle_not_projectable`). The sequence stays unresolved.
 
@@ -151,6 +151,14 @@ defmodule ServiceRadarAgentGateway.EdgeContractRegistry do
   end
 
   @doc """
+  Whether `registry` holds an epoch to admit under. A verified member with no epochs replaces
+  the held registry but admits nothing, so it is unavailable exactly like no registry.
+  """
+  @spec available?(t() | nil) :: boolean()
+  def available?(%{epochs: epochs}), do: map_size(epochs) > 0
+  def available?(nil), do: false
+
+  @doc """
   The epoch rejections that need no capability: an installation-static epoch, and an epoch
   `registry` shows as retired. `:ok` means only that neither applies.
   """
@@ -196,8 +204,9 @@ defmodule ServiceRadarAgentGateway.EdgeContractRegistry do
     end
   end
 
-  defp available(nil), do: {:withhold, :registry_unavailable}
-  defp available(registry), do: {:ok, registry}
+  defp available(registry) do
+    if available?(registry), do: {:ok, registry}, else: {:withhold, :registry_unavailable}
+  end
 
   # Static-era and retired epochs were already rejected by `epoch_refusal/2`, so an epoch this
   # registry does not hold is newer than all of them.
