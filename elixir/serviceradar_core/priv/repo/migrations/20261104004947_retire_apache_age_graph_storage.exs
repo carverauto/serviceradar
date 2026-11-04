@@ -220,6 +220,13 @@ defmodule ServiceRadar.Repo.Migrations.RetireApacheAgeGraphStorage do
           UNION ALL
           SELECT c.relnamespace FROM pg_policy pol JOIN pg_class c ON c.oid = pol.polrelid
            WHERE d.classid = 'pg_policy'::regclass AND pol.oid = d.objid
+          -- Default privileges and extended statistics on a graph schema are its own auto dependents.
+          UNION ALL
+          SELECT da.defaclnamespace FROM pg_default_acl da
+           WHERE d.classid = 'pg_default_acl'::regclass AND da.oid = d.objid
+          UNION ALL
+          SELECT se.stxnamespace FROM pg_statistic_ext se
+           WHERE d.classid = 'pg_statistic_ext'::regclass AND se.oid = d.objid
         ) dependent ON true
        WHERE d.deptype NOT IN ('i', 'e')
          -- An object of any other kind, or in any other schema, is outside the graphs.
