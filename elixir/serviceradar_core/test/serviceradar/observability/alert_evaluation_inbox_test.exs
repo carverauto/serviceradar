@@ -1016,6 +1016,61 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
     assert [%{position: 1}, %{position: 2}] = work(rule, actor)
   end
 
+  # Disposition may still rewrite an on-subject finding, so the anomaly-open
+  # rule keeps it; an event on another subject can never match and must not
+  # reach the rule's inbox or its byte budget.
+  test "an anomaly-open rule admits on-subject findings and nothing from another subject", %{
+    rule: rule,
+    actor: actor
+  } do
+    seeded =
+      Enum.find(
+        ServiceRadar.Observability.RuleSeeder.default_stateful_rules(),
+        &(&1[:name] == "causal_prediction_health_finding")
+      )
+
+    rule =
+      rule
+      |> Ash.Changeset.for_update(:update, %{match: seeded[:match]}, actor: actor)
+      |> Ash.update!()
+
+    finding = fn state ->
+      %{
+        event()
+        | message: "synthetic finding #{state}",
+          log_name: "signals.analytics.predictions.v2|identity=sr:host01|metric=cpu",
+          unmapped: %{
+            "signal_type" => "prediction",
+            "event_type" => "anomaly",
+            "anomaly" => %{"series_key" => "host01|cpu", "state" => state}
+          }
+      }
+    end
+
+    other_subject = %{
+      event()
+      | message: "synthetic shell spawned",
+        log_name: "falco.logs",
+        severity_id: 5,
+        unmapped: %{"rule" => "Synthetic Terminal Shell"}
+    }
+
+    assert {:ok, []} = Inbox.admit(:event, [other_subject])
+    assert [] = work(rule, actor)
+
+    assert {:ok, [_, _]} =
+             Inbox.admit(:event, [
+               other_subject,
+               finding.("pending_seasonal_disposition"),
+               finding.("anomaly_open")
+             ])
+
+    assert messages(rule, actor) == [
+             "synthetic finding pending_seasonal_disposition",
+             "synthetic finding anomaly_open"
+           ]
+  end
+
   test "editing a rule does not change the revision already accepted", %{rule: rule, actor: actor} do
     assert {:ok, [_]} = Inbox.admit(:event, [event()])
     rule |> Ash.Changeset.for_update(:update, %{threshold: 1}, actor: actor) |> Ash.update!()
