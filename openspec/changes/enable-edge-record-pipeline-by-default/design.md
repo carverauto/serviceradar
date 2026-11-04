@@ -409,14 +409,20 @@ push per release that changes a contract, which is acceptable.
   enforces one row). It mirrors `ManagedCertificatePolicyKey`: the `public_key`
   is plaintext, and the `seed` is AshCloak-encrypted with
   `decrypt_by_default []`.
-- **Bootstrap.** Bootstrap is insert-only. The first caller generates 32 random
-  bytes, inserts with `upsert_fields []`, and re-reads the persisted winner.
-  Concurrent replicas therefore converge on one key, and a restart never changes
-  it.
+- **Bootstrap.** Bootstrap is insert-only. The first caller that finds no stored
+  key imports the configured file seed (see Upgrade below). It generates 32
+  random bytes only when no seed file is configured. If a seed file is
+  configured but unreadable or invalid, core stores nothing, returns
+  `{:error, :invalid_edge_issuer_key_file}`, and never generates. The caller
+  inserts with `upsert_fields []` and re-reads the persisted winner. Concurrent
+  replicas therefore converge on one key, and a restart never changes it.
 - **Read path.** `IssuerKey.configured/0` becomes an ensure-then-cache read.
-  The `{:error, :not_configured}` branch, the file loader, the env reads in both
-  `runtime.exs` files, the chart volume, and `edge-issuer-seed` in the secret
-  generator's `REQUIRED_KEYS` and patch list are all deleted.
+  The `{:error, :not_configured}` branch and the file loader (`load_file!/1`)
+  are deleted. In this release the `SERVICERADAR_EDGE_ISSUER_KEY_FILE` env read
+  in both `runtime.exs` files stays, passing only the import path
+  (`:edge_issuer_key_import_file`), and so do the chart volume and
+  `edge-issuer-seed` in the secret generator. The release after cutover removes
+  them, together with the import code path.
 
 Rationale:
 
@@ -450,11 +456,13 @@ verification after the switch, and core would sign nothing. (Revised 2026-11-04
 at track A's request; this replaces "core does not import the existing file
 seed".)
 
-The import needs the file mounted on the first cutover boot. The chart therefore
-keeps the `edge-issuer-seed` mount and `SERVICERADAR_EDGE_ISSUER_KEY_FILE` for the
-cutover release on installs where the Secret key exists. The release after it
-removes the mount, the env var and the import, together with the secret
-generator's key.
+The import needs the file mounted on the first cutover boot. The cutover release
+therefore keeps the `edge-issuer-seed` Secret key, its core mount and
+`SERVICERADAR_EDGE_ISSUER_KEY_FILE`, solely as the one-time import input (task
+5.2). The release after cutover, by which time every install has imported the
+seed, removes the mount, the env var, the secret generator's key, the
+`:edge_issuer_key_import_file` runtime config and the import code path (task
+5.7).
 
 ### Decision 7: Static-era records are rejected and counted, never withheld
 
@@ -537,6 +545,9 @@ The spool byte budget varies by host disk, so it stays a knob.
   bumps the chart. No drain, because demo is disposable.
 - **Hosted tenants and Docker Compose.** No values change, because neither
   ever set `edgeRecords`. They move onto the pipeline on upgrade.
+- **Issuer seed.** The cutover release keeps the `edge-issuer-seed` mount so
+  core imports the file key on its first boot (Decision 6). The release after
+  cutover removes the mount and the seed key.
 - **Rollback.** Rolling back to a static-registry release needs `edgeRecords`
   values again. Records spooled under derived epochs would then be withheld as
   `:registry_epoch_ahead` until the install rolls forward again. The same
@@ -720,13 +731,16 @@ which is legacy support this product does not build.
 3. Land the agent: sender always on, default spool directory, producer opt-ins
    removed, budget from config.
 4. Land the chart in the same release: remove `edgeRecords`, add the fail guard,
-   remove the issuer mount and seed key, make the NATS permissions
-   unconditional, update the README and tests.
+   keep the issuer mount and seed key as the one-time import input (Decision
+   6), make the NATS permissions unconditional, update the README and tests.
 5. Ahead of the cutover release, ship the read-only readiness report
    (Decision 13) and let every install see its blocking reasons.
 6. Run the release candidate, with the legacy removal included, on all farm01
    agents for 7 days (M4.1). Cut the release only after that gate passes.
 7. Roll demo, then the hosted fleet through serviceradar-control.
+8. In the release after cutover, once every install has imported its seed,
+   remove the issuer mount, `SERVICERADAR_EDGE_ISSUER_KEY_FILE`, the
+   `edge-issuer-seed` secret generator key and the import code path.
 
 ## serviceradar-control
 
@@ -747,8 +761,10 @@ What control has to change. No change adds a value, because there is no
 3. Restore. The issuer key and registry epochs now live in CNPG, encrypted with
    the tenant cloak key. Confirm that the restore execution plan restores CNPG
    together with a cloak key equal to the original, which the per-tenant
-   derivation should already guarantee. Confirm too that nothing depends on the
-   `edge-issuer-seed` Secret key.
+   derivation should already guarantee. The cutover release still mounts the
+   `edge-issuer-seed` Secret key so core can import it once. Confirm that
+   nothing depends on that key after the release that follows cutover, which
+   removes it.
 4. Health. Add a tenant runtime health check for edge pipeline readiness: an
    active registry epoch, the issuer key present, and every live gateway holding
    the active epoch. It reads from core's health endpoint once that exists
@@ -790,8 +806,9 @@ Needed in control:
    capability/contract gating.
 3. Restore: the edge issuer key and the registry epochs now live in tenant CNPG,
    encrypted with the tenant cloak key. Confirm the restore plan restores CNPG
-   with the same cloak key, and that nothing depends on the edge-issuer-seed key
-   of serviceradar-secrets (it is no longer generated).
+   with the same cloak key. The cutover chart still mounts the edge-issuer-seed
+   key of serviceradar-secrets so core imports it once into CNPG; the release
+   after cutover stops generating it. Confirm nothing depends on it after that.
 4. Add a tenant runtime health check for edge pipeline readiness once core
    exposes it: an active registry epoch, the issuer key present, and every live
    gateway holding the active epoch.

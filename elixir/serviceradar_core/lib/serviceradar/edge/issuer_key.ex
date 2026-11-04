@@ -92,7 +92,7 @@ defmodule ServiceRadar.Edge.IssuerKey do
       case {read_stored(), inserted} do
         {{:ok, nil}, {:error, reason}} -> {:error, reason}
         {{:ok, nil}, _inserted} -> {:error, :edge_issuer_key_not_stored}
-        {{:ok, key}, _inserted} -> {:ok, log_stored(key, seed, source)}
+        {{:ok, key}, {:ok, record}} -> {:ok, log_stored(key, record, source)}
         {result, _inserted} -> result
       end
     end
@@ -107,6 +107,7 @@ defmodule ServiceRadar.Edge.IssuerKey do
 
   defp import_seed(path) do
     with {:ok, bytes} <- RuntimeConfig.read_secure_file(path, @max_key_file_bytes),
+         true <- String.valid?(bytes),
          {:ok, <<_::256>> = seed} <- Base.decode64(String.trim(bytes)) do
       {:ok, seed, :imported}
     else
@@ -114,17 +115,16 @@ defmodule ServiceRadar.Edge.IssuerKey do
     end
   end
 
-  # Only the replica whose insert won reports it.
-  defp log_stored(%__MODULE__{seed: seed} = key, seed, source) do
-    Logger.info(
-      "Stored the edge issuer key in CNPG (#{source}); key id #{Base.encode16(key.key_id, case: :lower)}",
-      edge_issuer_key_source: source
-    )
+  defp log_stored(key, record, source) do
+    if Ash.Resource.get_metadata(record, :upsert_action) == :insert do
+      Logger.info(
+        "Stored the edge issuer key in CNPG (#{source}); key id #{Base.encode16(key.key_id, case: :lower)}",
+        edge_issuer_key_source: source
+      )
+    end
 
     key
   end
-
-  defp log_stored(key, _seed, _source), do: key
 
   defp read_stored do
     case Ash.read_one(EdgeIssuerKeyRecord, load: [:seed], actor: actor()) do
