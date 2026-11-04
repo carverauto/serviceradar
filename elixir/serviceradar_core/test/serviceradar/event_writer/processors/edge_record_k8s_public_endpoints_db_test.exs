@@ -327,7 +327,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordK8sPublicEndpointsDbTest
         1
       )
 
-    {:ok, _revoked} = OutputGrants.reconcile(agent_id, @contract_id, scope_id, false)
+    {:ok, 1} = OutputGrants.revoke_agent(agent_id)
 
     assert {:ok, 0} = EdgeRecord.process_batch([message])
     assert {:error, :output_grant_not_current} = EdgeRecord.ingest(bytes, headers, Repo)
@@ -363,7 +363,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordK8sPublicEndpointsDbTest
   end
 
   defp grant_for(agent_id, scope_id) do
-    {:ok, %OutputGrant{} = grant} = OutputGrants.reconcile(agent_id, @contract_id, scope_id, true)
+    {:ok, %OutputGrant{} = grant} = OutputGrants.reconcile(agent_id, @contract_id, scope_id)
     grant
   end
 
