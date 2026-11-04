@@ -69,13 +69,61 @@ spec:
             summary: "ServiceRadar agent-gateway JetStream PubAck errors"
             description: "The agent-gateway durable edge publisher received PubAck errors in namespace {{ .Release.Namespace }}."
         - alert: ServiceRadarEdgeRecordConsumerLag
-          expr: max(serviceradar_event_writer_consumer_lag_messages_value{namespace="{{ .Release.Namespace }}", subject_class="edge_record"}) > 0
+          expr: max(serviceradar_event_writer_consumer_lag_messages_value{namespace="{{ .Release.Namespace }}", subject_class=~"edge_record|edge_record_audit"}) > 0
           for: 10m
           labels:
             severity: warning
           annotations:
             summary: "ServiceRadar EDGE_RECORD consumer lag"
             description: "The EventWriter EDGE_RECORD durable has pending or unacked messages in namespace {{ .Release.Namespace }}."
+        - alert: ServiceRadarEventWriterMessagesExpiredBeforeDelivery
+          expr: max by (stream, durable) (serviceradar_event_writer_consumer_expired_before_delivery_value{namespace="{{ .Release.Namespace }}"}) > 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "ServiceRadar EventWriter is losing messages before delivery"
+            description: "The EventWriter durable {{`{{ $labels.durable }}`}} on stream {{`{{ $labels.stream }}`}} trails the stream's first retained sequence while messages are pending for it in namespace {{ .Release.Namespace }}: the stream discarded messages it never delivered. The durable is not being pulled; check that consumer's EventWriter pipeline and producer health."
+        - alert: ServiceRadarEdgeRecordSecurityQuarantine
+          expr: max(serviceradar_event_writer_consumer_stream_bytes_value{namespace="{{ .Release.Namespace }}", subject_class="edge_record_quarantine"}) > 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "ServiceRadar edge records are held in security quarantine"
+            description: "The edge-record security-quarantine stream holds records signed by a compromise-revoked key in namespace {{ .Release.Namespace }}. The EventWriter log line 'Edge record held in security quarantine' names each record's stream sequence; see docs/edge-record-quarantine-runbook.md."
+        - alert: ServiceRadarEdgeRecordSecurityQuarantineFull
+          expr: max(serviceradar_event_writer_consumer_stream_byte_utilization_ratio{namespace="{{ .Release.Namespace }}", subject_class="edge_record_quarantine"}) > 0.8
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "ServiceRadar edge-record security quarantine is nearly full"
+            description: "The edge-record security-quarantine stream is above 80% of its MaxBytes in namespace {{ .Release.Namespace }}. It refuses new records when full, which leaves those agent spool sequences unresolved."
+        - alert: ServiceRadarEdgeRecordDeadLettered
+          expr: sum by (contract, reason_class) ((increase(serviceradar_event_writer_edge_record_dead_letter_count{namespace="{{ .Release.Namespace }}", result="stored"}[15m]) > 0) or (serviceradar_event_writer_edge_record_dead_letter_count{namespace="{{ .Release.Namespace }}", result="stored"} unless serviceradar_event_writer_edge_record_dead_letter_count{namespace="{{ .Release.Namespace }}", result="stored"} offset 15m)) > 0
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "ServiceRadar edge records were dead-lettered"
+            description: "EventWriter dead-lettered {{`{{ $labels.contract }}`}} edge records ({{`{{ $labels.reason_class }}`}}) in namespace {{ .Release.Namespace }} after their projection kept failing. They are held in TELEMETRY_EDGE_RECORD_DLQ_V1_BULK; fix the cause, then replay them (docs/edge-record-dead-letter-runbook.md)."
+        - alert: ServiceRadarEdgeRecordDeadLetterPublishFailed
+          expr: sum((increase(serviceradar_event_writer_edge_record_dead_letter_count{namespace="{{ .Release.Namespace }}", result="failed"}[5m]) > 0) or (serviceradar_event_writer_edge_record_dead_letter_count{namespace="{{ .Release.Namespace }}", result="failed"} unless serviceradar_event_writer_edge_record_dead_letter_count{namespace="{{ .Release.Namespace }}", result="failed"} offset 5m)) > 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "ServiceRadar cannot dead-letter failing edge records"
+            description: "EventWriter could not store a failing edge record in its dead-letter stream in namespace {{ .Release.Namespace }}. The record stays on the edge-record stream and keeps retrying until its 24h MaxAge evicts it; check the dead-letter stream exists and has room."
+        - alert: ServiceRadarEdgeRecordDeadLetterFull
+          expr: max(serviceradar_event_writer_consumer_stream_byte_utilization_ratio{namespace="{{ .Release.Namespace }}", subject_class="edge_record_dlq"}) > 0.8
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "ServiceRadar edge-record dead-letter stream is nearly full"
+            description: "The edge-record dead-letter stream is above 80% of its MaxBytes in namespace {{ .Release.Namespace }}. It refuses new dead-letters when full, which leaves failing records retrying on the edge-record stream; replay or delete resolved records."
         - alert: ServiceRadarAgentEdgeSpoolUnresolvedAge
           expr: max(agent_edge_spool_oldest_unresolved_age_seconds) > 900
           for: 5m

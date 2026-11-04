@@ -137,6 +137,38 @@ tests:
           path: spec.template.spec.containers[0].env
           content: {name: SERVICERADAR_JS_TELEMETRY_EDGE_RECORD_V1_BULK_REPLICAS, value: "3"}
 
+  - it: renders the edge-record audit and security-quarantine reservations into core at R3
+    template: templates/core.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK_MAX_BYTES, value: "67108864"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK_REPLICAS, value: "3"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK_MAX_BYTES, value: "67108864"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK_REPLICAS, value: "3"}
+
+  - it: renders the edge-record dead-letter reservation into core at R3
+    template: templates/core.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_TELEMETRY_EDGE_RECORD_DLQ_V1_BULK_MAX_BYTES, value: "33554432"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_TELEMETRY_EDGE_RECORD_DLQ_V1_BULK_REPLICAS, value: "3"}
+
   - it: renders an explicit NOTIFICATIONS size into core
     set:
       core.eventWriter.streams.notifications.maxBytes: 512Mi

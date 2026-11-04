@@ -254,7 +254,7 @@ nats:
     # exceeds 85% of max_file_store (the rest is headroom for streams a later
     # release adds). The failure lists every stream with its size, replicas and
     # whether it lands on every server (replicas >= nats.replicas) or is spread.
-    # The small profile needs 23.56 GiB of its 28.50 GiB limit on three servers,
+    # The small profile needs 23.72 GiB of its 28.50 GiB limit on three servers,
     # with flow-collector, bmp-collector and the trivy sidecar all counted.
     # allowOvercommit: true skips that check (not the persistence.size ceiling).
     allowOvercommit: false
@@ -962,7 +962,7 @@ core:
     #
     # Set to "" to fall back to the old existence-only check (for operators
     # running the chart against a deliberately pinned schema).
-    expectedVersion: "20261101130000"
+    expectedVersion: "20261104130000"
   # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
   reaper:
     # How often to run the reaper job
@@ -1247,7 +1247,6 @@ cnpg:
     extensions: []
   sharedPreloadLibraries:
     - timescaledb
-    - age
     - pg_stat_statements
   postgresqlParameters:
     max_connections: "500"
@@ -1291,8 +1290,8 @@ cnpg:
   # Empty on purpose: the schema baseline and migrations create every extension in the
   # schema they reference, and an extension created here first lands in `public`, where
   # the baseline cannot move it, so a fresh database fails to bootstrap (#454). If you add
-  # an extension here, create it where the baseline expects it (`platform`, or
-  # `ag_catalog` for age). sharedPreloadLibraries above is unrelated and stays as is.
+  # an extension here, create it in `platform`, where the baseline expects it.
+  # sharedPreloadLibraries above is unrelated and stays as is.
   extensionsSQL: []
   superuserSecret: cnpg-superuser
   superuserUsername: postgres
@@ -1840,15 +1839,25 @@ agent:
       cpu: 200m
       memory: 512Mi
 # Durable edge-record pipeline. Core lease settings select participating agents/groups.
-# contractRegistry is the installation-static document consumed by core and gateway.
-# agentMetricsEnabled lets the in-cluster agent emit metric batches as edge records once
-# core grants it the serviceradar.metrics.batch contract (registered in contractRegistry
-# and the agent's leasing switch on); without a grant it keeps the status path.
+# Core derives its contract registry from the release contract catalog and signs each
+# registry epoch with the issuer key; the gateway admits a record only against the
+# signed epoch it names. Core grants a catalog contract when it is in the signed active
+# epoch and this node's catalog holds its exact bundle. Neither core nor the gateway
+# reads contractRegistry; the chart still requires it when edgeRecords.enabled=true.
+# The agent no longer reads the agent*Enabled flags or maxSpoolBytes: its sender
+# always runs, each family moves to edge records once it holds core's grant, and
+# core delivers the spool budget. See "Durable edge-record
+# canary" in README.md. This whole block is removed by the default-on edge pipeline
+# change (enable-edge-record-pipeline-by-default, task 5.1).
 edgeRecords:
   enabled: false
   contractRegistry: {}
   agentSweepEnabled: false
   agentMetricsEnabled: false
+  agentTelemetryEnabled: false
+  agentPluginResultsEnabled: false
+  agentDiscoveryEnabled: false
+  agentSyncEnabled: false
   maxSpoolBytes: 1073741824
 
 agentGateway:
@@ -2555,17 +2564,6 @@ gatewayApi:
       requestTimeout: 0s
       maxStreamDuration: 0s
 
-# Topology persist/query target. dual writes AGE + Dgraph; read stays on AGE
-# until the migrator checksum is green. Override with GRAPH_BACKEND / GRAPH_READ.
-#
-# An empty backend follows the cluster: `dual` for the Dgraph this chart
-# provisions (it also mints the ACL credential and applies the schema), `age`
-# for an external endpoint, which is neither. Set it to dual explicitly to
-# write to an external cluster once you have given the chart its credential.
-graph:
-  backend: ""
-  read: age
-
 # Topology graph store. Enabled by default so `helm upgrade --install` is
 # black-box: Zero and Alpha come up, an ACL HMAC Secret is generated, the
 # chart mints the Dgraph TLS Secrets, then the schema Job applies the topology
@@ -2590,10 +2588,6 @@ dgraph:
     caSecret: ""
     caKey: ca.crt
   schema:
-    enabled: true
-  # Rebuild-from-evidence then AGE-vs-Dgraph checksum. A checksum failure
-  # fails the Helm hook and does not flip graph.read.
-  migrator:
     enabled: true
   image:
     registry: docker.io

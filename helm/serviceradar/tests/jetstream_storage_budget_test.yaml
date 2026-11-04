@@ -195,7 +195,7 @@ tests:
   # --- the budget itself (D5) -------------------------------------------------
   # The v1.4.73 reservations (KV 4 GiB, objects 10 GiB, flows 10 GiB, all R3)
   # plus today's other streams. The exact figure pins the formula:
-  # full 30.5625 GiB + ceil(6.00 GiB / 3) + largest spread 2 GiB = 34.5625 GiB.
+  # full 30.6875 GiB + ceil(6.00 GiB / 3) + largest spread 2 GiB = 34.6875 GiB.
   - it: fails the v1.4.73 shape
     set:
       nats.jetstream.maxFileStore: 30G
@@ -206,7 +206,7 @@ tests:
     template: templates/nats.yaml
     asserts:
       - failedTemplate:
-          errorPattern: 'JetStream storage budget exceeded \(nats\.jetstream\.profile=small\): the most loaded NATS server may have to reserve 37111201792 bytes \(34\.56 GiB\), above the limit of 25500000000 bytes'
+          errorPattern: 'JetStream storage budget exceeded \(nats\.jetstream\.profile=small\): the most loaded NATS server may have to reserve 37278973952 bytes \(34\.72 GiB\), above the limit of 25500000000 bytes'
 
   - it: fails an override with a message listing every reservation
     set:
@@ -214,7 +214,7 @@ tests:
     template: templates/nats.yaml
     asserts:
       - failedTemplate:
-          errorPattern: 'reserve 33889976320 bytes \(31\.56 GiB\), above the limit of 30600000000 bytes \(28\.50 GiB\): 85% of max_file_store 36000000000 bytes'
+          errorPattern: 'reserve 34057748480 bytes \(31\.72 GiB\), above the limit of 30600000000 bytes \(28\.50 GiB\): 85% of max_file_store 36000000000 bytes'
       - failedTemplate:
           errorPattern: 'OBJ_serviceradar-objects: 12884901888 bytes \(12\.00 GiB\) x R3, full \[datasvc\.objectStoreBytes\]'
       - failedTemplate:
@@ -265,7 +265,7 @@ tests:
 
   # On five servers every stream has fewer replicas than servers, so the R3
   # streams are spread, weighted by 3/5, not reserved on every server:
-  # ceil((21.5625 GiB x 3 + 6.00 GiB x 1) / 5) + largest 10 GiB = 25917443277.
+  # ceil((21.6875 GiB x 3 + 6.00 GiB x 1) / 5) + largest 10 GiB = 25997973914.
   - it: spreads R3 streams across a five-server NATS
     set:
       nats.replicas: 5
@@ -274,9 +274,9 @@ tests:
     template: templates/nats.yaml
     asserts:
       - failedTemplate:
-          errorPattern: 'reserve 25917443277 bytes \(24\.14 GiB\)'
+          errorPattern: 'reserve 26018106573 bytes \(24\.23 GiB\)'
       - failedTemplate:
-          errorPattern: '= 0 \+ 15180025037 \+ 10737418240 bytes'
+          errorPattern: '= 0 \+ 15280688333 \+ 10737418240 bytes'
       - failedTemplate:
           errorPattern: 'flows: 10737418240 bytes \(10\.00 GiB\) x R3, spread'
       - failedTemplate:
@@ -368,9 +368,9 @@ tests:
           path: spec.template.spec.containers[0].args[0]
           pattern: "max_file_store: 500000000000\n"
 
-  # 25.3125 GiB is the plain sum of the single-server table. 28G puts the limit
+  # 25.46875 GiB is the plain sum of the single-server table. 28G puts the limit
   # (23.8e9 bytes) below it — confirming the budget walks the single-server
-  # table — whereas the default 36G passes (28.50 GiB limit > 25.3125 GiB).
+  # table — whereas the default 36G passes (28.50 GiB limit > 25.46875 GiB).
   - it: counts every stream in full on one server, from the single-server table
     set:
       nats.replicas: 1
@@ -378,7 +378,7 @@ tests:
     template: templates/nats.yaml
     asserts:
       - failedTemplate:
-          errorPattern: 'reserve 27179089920 bytes \(25\.31 GiB\)'
+          errorPattern: 'reserve 27346862080 bytes \(25\.47 GiB\)'
       - failedTemplate:
           errorPattern: 'flows: 3221225472 bytes \(3\.00 GiB\) x R1 \(capped from R3 by nats\.replicas\), full \[nats\.jetstream\.profile=small single-server\]'
 
@@ -410,7 +410,7 @@ tests:
           path: spec.template.spec.containers[0].args[0]
           pattern: "max_file_store: 2000000000\n"
 
-  # need = 1152 MiB full + ceil(576 MiB / 3) + 256 MiB = 1677721600 bytes, under
+  # need = 1172 MiB full + ceil(576 MiB / 3) + 256 MiB = 1698693120 bytes, under
   # the 1.7e9-byte limit of 2G; a 1700M store puts the limit below it.
   - it: pins the tenant-2g reservation against the values-tenant.yaml replicas
     values:
@@ -420,11 +420,13 @@ tests:
     template: templates/nats.yaml
     asserts:
       - failedTemplate:
-          errorPattern: 'reserve 1677721600 bytes \(1\.56 GiB\)'
+          errorPattern: 'reserve 1698693120 bytes \(1\.58 GiB\)'
       - failedTemplate:
           errorPattern: 'flows: 268435456 bytes \(0\.25 GiB\) x R1, spread \[nats\.jetstream\.profile=tenant-2g\]'
       - failedTemplate:
           errorPattern: 'TELEMETRY_EDGE_RECORD_V1_BULK: 33554432 bytes \(0\.03 GiB\) x R3, full \[nats\.jetstream\.profile=tenant-2g\]'
+      - failedTemplate:
+          errorPattern: 'TELEMETRY_EDGE_RECORD_DLQ_V1_BULK: 4194304 bytes \(0\.00 GiB\) x R3, full \[nats\.jetstream\.profile=tenant-2g\]'
 
   - it: tenant-2g still renders on a larger maxFileStore
     set:

@@ -34,6 +34,53 @@ tests:
               summary: "ServiceRadar sync ingestion detected an incomplete sync run"
               description: "Sync ingestion recorded an incomplete sync run and skipped snapshot finalization in namespace sr-test."
 
+  - it: pages on any record held in the edge-record security quarantine
+    template: templates/serviceradar-prometheus-rules.yaml
+    set:
+      observability.enabled: true
+      observability.prometheus.rules.enabled: true
+    asserts:
+      - contains:
+          path: spec.groups[0].rules
+          content:
+            alert: ServiceRadarEdgeRecordSecurityQuarantine
+            expr: max(serviceradar_event_writer_consumer_stream_bytes_value{namespace="sr-test", subject_class="edge_record_quarantine"}) > 0
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: "ServiceRadar edge records are held in security quarantine"
+              description: "The edge-record security-quarantine stream holds records signed by a compromise-revoked key in namespace sr-test. The EventWriter log line 'Edge record held in security quarantine' names each record's stream sequence; see docs/edge-record-quarantine-runbook.md."
+
+  - it: alerts on dead-lettered edge records and pages when a dead-letter cannot be stored
+    template: templates/serviceradar-prometheus-rules.yaml
+    set:
+      observability.enabled: true
+      observability.prometheus.rules.enabled: true
+    asserts:
+      - contains:
+          path: spec.groups[0].rules
+          content:
+            alert: ServiceRadarEdgeRecordDeadLettered
+            expr: sum by (contract, reason_class) ((increase(serviceradar_event_writer_edge_record_dead_letter_count{namespace="sr-test", result="stored"}[15m]) > 0) or (serviceradar_event_writer_edge_record_dead_letter_count{namespace="sr-test", result="stored"} unless serviceradar_event_writer_edge_record_dead_letter_count{namespace="sr-test", result="stored"} offset 15m)) > 0
+            for: 1m
+            labels:
+              severity: warning
+            annotations:
+              summary: "ServiceRadar edge records were dead-lettered"
+              description: "EventWriter dead-lettered {{ $labels.contract }} edge records ({{ $labels.reason_class }}) in namespace sr-test after their projection kept failing. They are held in TELEMETRY_EDGE_RECORD_DLQ_V1_BULK; fix the cause, then replay them (docs/edge-record-dead-letter-runbook.md)."
+      - contains:
+          path: spec.groups[0].rules
+          content:
+            alert: ServiceRadarEdgeRecordDeadLetterPublishFailed
+            expr: sum((increase(serviceradar_event_writer_edge_record_dead_letter_count{namespace="sr-test", result="failed"}[5m]) > 0) or (serviceradar_event_writer_edge_record_dead_letter_count{namespace="sr-test", result="failed"} unless serviceradar_event_writer_edge_record_dead_letter_count{namespace="sr-test", result="failed"} offset 5m)) > 0
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: "ServiceRadar cannot dead-letter failing edge records"
+              description: "EventWriter could not store a failing edge record in its dead-letter stream in namespace sr-test. The record stays on the edge-record stream and keeps retrying until its 24h MaxAge evicts it; check the dead-letter stream exists and has room."
+
   - it: ships the ingestion edge dashboard configmap when grafana dashboards are enabled
     template: templates/grafana-dashboards.yaml
     set:

@@ -340,7 +340,7 @@ spec:
           value: "false"
         # B-5 sub-issue 2: partition identity for this deployment. MUST
         # match the value rendered into the NATS authorization block
-        # (templates/nats.yaml) so runtime services share one deployment
+        # (templates/_nats_static_users.tpl) so runtime services share one deployment
         # partition context.
         - name: SERVICERADAR_OTX_PARTITION
           value: {{ coalesce .Values.partitionId (default (dict) .Values.agent).partitionId "default" | quote }}
@@ -526,10 +526,13 @@ spec:
         - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" $js.stream "suffix" "REPLICAS") }}
           value: {{ $js.replicas | quote }}
         {{- end }}
-        - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" $coreJs.telemetry_edge_record_v1_bulk.stream "suffix" "MAX_BYTES") }}
-          value: {{ $coreJs.telemetry_edge_record_v1_bulk.maxBytes | quote }}
-        - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" $coreJs.telemetry_edge_record_v1_bulk.stream "suffix" "REPLICAS") }}
-          value: {{ $coreJs.telemetry_edge_record_v1_bulk.replicas | quote }}
+        {{- range $id := list "telemetry_edge_record_v1_bulk" "telemetry_edge_record_audit_v1_bulk" "telemetry_edge_record_security_quarantine_v1_bulk" "telemetry_edge_record_dlq_v1_bulk" }}
+        {{- $js := index $coreJs $id }}
+        - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" $js.stream "suffix" "MAX_BYTES") }}
+          value: {{ $js.maxBytes | quote }}
+        - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" $js.stream "suffix" "REPLICAS") }}
+          value: {{ $js.replicas | quote }}
+        {{- end }}
         {{- range $pair := list (list "EVENTS" "events") (list "FLOWS" "flowsFallback") (list "ARANCINI_CAUSAL" "aranciniFallback") }}
         {{- $js := index $coreJs (index $pair 1) }}
         - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" (index $pair 0) "suffix" "FALLBACK_MAX_BYTES") }}
@@ -707,6 +710,12 @@ spec:
           value: "true"
         - name: NATS_SERVER_NAME
           value: "serviceradar-nats"
+        # Built-in NATS identities and their static permissions, rendered from
+        # the same list as the broker configuration. The certificate
+        # authorization callout grants an adopted infrastructure certificate
+        # its static block from here.
+        - name: SERVICERADAR_NATS_STATIC_USERS_FILE
+          value: "/etc/serviceradar/nats-static-users/static-users.yaml"
         {{- if or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate }}
         - name: NATS_CREDS_FILE
           value: "/etc/serviceradar/creds/platform.creds"
@@ -983,6 +992,9 @@ spec:
         - name: cert-data
           mountPath: /etc/serviceradar/certs
           readOnly: true
+        - name: nats-static-users
+          mountPath: /etc/serviceradar/nats-static-users
+          readOnly: true
         {{- if $automationCallbacksEnabled }}
         - name: automation-callback-envelope
           mountPath: /etc/serviceradar/automation-callback
@@ -1069,6 +1081,11 @@ spec:
           secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
           items:
 {{ include "serviceradar.runtimeCertItems" (list "root.pem" "core.pem" "core-key.pem" "cnpg-client.pem" "cnpg-client-key.pem") | indent 12 }}
+      # Optional: the ConfigMap is rendered with the chart's NATS server.
+      - name: nats-static-users
+        configMap:
+          name: serviceradar-nats-static-users
+          optional: true
       {{- if $automationCallbacksEnabled }}
       - name: automation-callback-envelope
         secret:
