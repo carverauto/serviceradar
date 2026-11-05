@@ -821,6 +821,12 @@ services:
       - RELEASE_COOKIE_FILE=/etc/serviceradar/admin/release-cookie
       - RELEASE_NODE=serviceradar_agent_gateway@agent-gateway
       - RELEASE_DISTRIBUTION=sname
+      # The durable edge-record publisher always runs, so the gateway always needs
+      # NATS; without it agents spool records the gateway can never publish.
+      - AGENT_GATEWAY_NATS_URL=nats://nats:4222
+      - AGENT_GATEWAY_NATS_TLS=true
+      - AGENT_GATEWAY_NATS_SERVER_NAME=nats.serviceradar
+      - AGENT_GATEWAY_NATS_CREDS_FILE=/etc/serviceradar/creds/platform.creds
       # OpenTelemetry
       - OTEL_EXPORTER_OTLP_ENDPOINT=https://log-collector:4317
       - OTEL_EXPORTER_OTLP_TIMEOUT_MS=${OTEL_EXPORTER_OTLP_TIMEOUT_MS:-30000}
@@ -833,6 +839,7 @@ services:
       - "${GATEWAY_PUBLIC_BIND:-127.0.0.1}:${GATEWAY_PUBLIC_PORT:-50052}:50052"
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
+      - ${NATS_CREDS_DIR:-nats-creds}:/etc/serviceradar/creds:ro
       - admin-creds:/etc/serviceradar/admin:ro
       - ./docker/compose/ssl_dist.gateway.conf:/etc/serviceradar/ssl_dist.conf:ro
     depends_on:

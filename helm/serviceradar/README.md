@@ -430,102 +430,93 @@ core:
     consensusCohortRetentionMs: 300000
 ```
 
-### Durable edge-record canary
+### Durable edge-record pipeline
 
-`edgeRecords.enabled` gives the gateway's durable bulk publisher its NATS
-connection and bulk-subject permissions, and mounts the issuer key on core.
-The gateway always runs the publisher and refreshes its trust from core; it
-has no edge-record settings of its own. Core derives its contract registry
-from the release's contract catalog and signs each registry epoch with the
-issuer key. The gateway installs those signed epochs from core's trust
-document, verifies each signature, and admits a record only against the exact
-epoch it names. Neither core nor the gateway reads
-`edgeRecords.contractRegistry`; the chart still requires it when
-`edgeRecords.enabled=true`.
+The durable edge-record pipeline is always on and has no chart values. The
+chart fails to render when any `edgeRecords` key is set; delete the block from
+your values before upgrading (see "Upgrading from the static registry" in
+`docs/docs/data-pipeline.md`).
 
-The secret generator creates an `edge-issuer-seed` once and preserves it on
-upgrade. Only core mounts this Ed25519 seed. Core stores the issuer key in
-CNPG: the first boot that finds no stored key imports this seed when it is
-mounted (`edgeRecords.enabled`). From then on the stored key wins, so changing
-the Secret value does not rotate the key. A mounted seed that is not a private,
-well-formed seed stops core from storing a key; core never generates a
-replacement for it. If `secrets.autoGenerate=false`,
-the operator must supply the key in the configured existing Secret as a
-base64-encoded 32-byte seed (the Secret's data encoding wraps that text).
+- **Core** derives its contract registry from the release's contract catalog
+  and signs each registry epoch with its edge issuer key. It issues a standing
+  grant for a catalog contract when the contract is in the signed active
+  epoch, the core node's release catalog holds its exact bundle, and the
+  agent's partition has a row. It leases sweeps to every agent whose partition
+  resolves and whose Hello advertises sweep lease plan checks. There is no
+  leasing switch.
+- **The gateway** installs the signed epochs from core's trust document,
+  verifies each signature, and admits a record only against the exact epoch it
+  names. It always runs the edge-record publisher, so it always connects to
+  NATS, and its NATS identity may always publish the primary, audit and
+  security-quarantine edge-record routes, in the broker's static users and in
+  core's authorization callout grants alike.
+- **The agent** always runs its edge-record sender and spool. Each producer
+  emits edge records exactly while it holds core's grant for its contract and
+  keeps the status path otherwise. Core sends the spool byte budget in the
+  agent config. The bundled agent's config names only the spool directory,
+  `<agent.runtimeStorage.basePath>/edge-records`, so the spool stays on the
+  agent runtime volume. Keep `agent.runtimeStorage.enabled` on: with it off,
+  the spool sits on an `emptyDir` and unsent records are lost when the pod is
+  replaced.
 
-The agent's edge-record sender and spool always run, so the bundled agent no
-longer reads `edgeRecords.agentSweepEnabled`, `agentMetricsEnabled`,
-`agentTelemetryEnabled`, `agentPluginResultsEnabled`, `agentDiscoveryEnabled`,
-`agentSyncEnabled` or `maxSpoolBytes`; the chart still renders them until the
-block is removed. Each producer emits edge records exactly while it holds
-core's grant for its contract and keeps the status path otherwise. Core sends
-the spool byte budget in the agent config. Flow-attribution windows and OTLP
-relay frames use the same spool while the agent holds a current
-`serviceradar.netprobe.flow_attribution` version 1 or `serviceradar.otlp.relay`
-version 1 grant. Core issues a standing grant for a catalog contract when the
-contract is in the signed active registry epoch, the core node's release
-catalog holds its exact bundle, and the agent's partition has a row. The
-gateway rejects records for any contract the signed epoch they name does not
-carry.
-Core's agent-scoped sweep lease settings select which agent receives signed
-slots. Enable leasing only for the canary, and use an enabled static-target
-group without a target query. Other agents continue using the legacy results
-path. Results of sweep groups the agent
+**Issuer key.** Core stores its issuer key in CNPG, encrypted with the cloak
+key. The first boot that finds no stored key imports the `edge-issuer-seed` of
+the secrets Secret, which the secret generator creates once and preserves on
+upgrade. For this release core mounts that seed and sets
+`SERVICERADAR_EDGE_ISSUER_KEY_FILE` whenever the chart's secret generator
+manages the Secret, so an installation that signed with the file key keeps it.
+From then on the stored key wins, and changing the Secret value does not rotate
+it. A mounted seed that is not a private, well-formed seed stops core from
+storing a key; core never generates a replacement for it. With
+`secrets.autoGenerate=false` the chart does not mount the seed and core
+generates its own key. The release after this one removes the mount and the
+Secret key.
+
+Flow-attribution windows and OTLP relay frames use the same spool while the
+agent holds a current `serviceradar.netprobe.flow_attribution` version 1 or
+`serviceradar.otlp.relay` version 1 grant. Results of sweep groups the agent
 runs from its own config, without a lease, move to edge records only when the
-agent also holds a `serviceradar.sweep.unleased_results` version 1 grant;
-each results response and its metric batch then take the edge path together,
-and otherwise both keep the legacy results path. Full
-traces from agent-scheduled MTR checks leave the status path only when the
-agent also holds a `serviceradar.mtr.scheduled_trace` version 1 grant. The
-metrics grant does not carry those traces. Without the trace grant they stay
-on the status path. Each of these grants follows the signed active registry
-epoch.
+agent also holds a `serviceradar.sweep.unleased_results` version 1 grant; each
+results response and its metric batch then take the edge path together, and
+otherwise both keep the legacy results path. Full traces from agent-scheduled
+MTR checks leave the status path only when the agent also holds a
+`serviceradar.mtr.scheduled_trace` version 1 grant; the metrics grant does not
+carry them. The gateway rejects records for any contract the signed epoch they
+name does not carry.
 
-Use complete terminal ICMP/TCP host windows for this first canary. Partial-mode
-and MTR windows are not supported by this projection yet. Keep the issuer key
-and agent network scope fixed while records remain in the spool. Historical
-key and scope trust for a change of either is still a later milestone. A
-stale-fence record that carries a valid delivery grant is published on the
-audit route; see `docs/edge-record-quarantine-runbook.md`. A sender with sweep, metrics, telemetry, or plugin-results producers
-enabled persists terminal resolutions. It reclaims
-a fully drained segment when durable dispositions cover every retained
-sequence. Permanently rejected records are
-copied into a bounded local quarantine in the lane directory before that
-reclaim; the policy, including eviction when the quarantine is full, is the
-interim local quarantine in
-`openspec/changes/unify-sweep-results-proto/design.md`. Retryable and
-unspecified dispositions, and unresolved records, stay on the segment.
-Partial-tail compaction is not implemented. Reaching the configured byte bound
-still stops further appends. Quarantine occupancy, permanent rejections, and
+Leased sweeps use complete terminal ICMP/TCP host windows. Partial-mode and MTR
+windows are not supported by this projection yet. A stale-fence record that
+carries a valid delivery grant is published on the audit route; see
+`docs/edge-record-quarantine-runbook.md`. The sender persists terminal
+resolutions and reclaims a fully drained segment when durable dispositions
+cover every retained sequence. Permanently rejected records are copied into a
+bounded local quarantine in the lane directory before that reclaim; the
+policy, including eviction when the quarantine is full, is the interim local
+quarantine in `openspec/changes/unify-sweep-results-proto/design.md`.
+Retryable and unspecified dispositions, and unresolved records, stay on the
+segment. Partial-tail compaction is not implemented. Reaching the spool budget
+stops further appends. Quarantine occupancy, permanent rejections and
 quarantine drops are counted on the agent's `/metrics` endpoint beside the
-existing unresolved-byte and age gauges.
-An interrupted run remains incomplete and is not rescanned once a record from
-that run has been admitted. A first append the spool refuses for admission
-writes nothing and leaves the slot runnable, so the executor can try the slot
-again. Any other first-append failure keeps the slot consumed.
+unresolved-byte and age gauges. An interrupted run remains incomplete and is
+not rescanned once a record from that run has been admitted. A first append
+the spool refuses for admission writes nothing and leaves the slot runnable,
+so the executor can try the slot again. Any other first-append failure keeps
+the slot consumed.
 
-Upgrade core and the gateways before the agent. The agent's edge-record builder
-compresses each sweep or sysmon metrics payload as one Zstandard level 1 frame
-by default, and keeps `NONE` when compression saves nothing or exceeds the
-permitted expansion ratio. Core releases older than this
-change refuse compressed edge records at ingest, and agents and gateways do
-not negotiate a codec yet. Upgrade core and every agent-gateway replica first,
-confirm each replica is ready on the new version, and only then upgrade the
-canary agent. To roll back, pause new leased production and keep the compatible
-agent and its PVC and spool identity. Records already spooled stay compressed.
-Drain that compressed backlog before reverting core or the gateways. Do not
-downgrade an agent that has reclaimed its spool unless a separately supported
-reverse migration exists: reclamation turns `lane.seg` into a
+**Upgrade order.** Upgrade core and every agent-gateway replica first, confirm
+each replica is ready on the new version, and only then upgrade the agents.
+The agent compresses each sweep or sysmon metrics payload as one Zstandard
+level 1 frame by default, and older core releases refuse compressed records at
+ingest; agents and gateways do not negotiate a codec yet. Do not downgrade an
+agent that has reclaimed its spool: reclamation turns `lane.seg` into a
 symlink to a data directory, and older agent binaries refuse to open that
-layout, which stops backlog delivery. Broad mixed-version rollout is not
-certified until codec negotiation exists.
+layout, which stops backlog delivery. Rolling back across the release that
+made the pipeline always on is unsupported.
 
-This wiring prepares the current-epoch sweep path. A successful deployment is
-proved by fresh scheduled executions, committed edge-record ledger entries and
-normal sweep host results from the same execution after the rollout, followed
-by a check that the agent's spool stays within its bound. Pod readiness alone
-does not prove this path. The full reconnect, audit-publication and fault-drill
-milestones remain tracked in `unify-sweep-results-proto`.
+A successful deployment is proved by fresh scheduled executions, committed
+edge-record ledger entries and normal host results from the same execution
+after the rollout, followed by a check that the agent's spool stays within its
+budget. Pod readiness alone does not prove this path.
 
 ## Network Requirements
 

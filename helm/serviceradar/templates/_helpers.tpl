@@ -1598,11 +1598,14 @@ prepared
 {{- end -}}
 {{- end -}}
 
-{{/* One installation contract document shared by the issuer and admission gateway. */}}
-{{- define "serviceradar.edgeRecordContractRegistry" -}}
-{{- $registry := (default dict .Values.edgeRecords).contractRegistry -}}
-{{- if empty $registry -}}
-{{- fail "edgeRecords.contractRegistry is required when edgeRecords.enabled=true" -}}
+{{/*
+The durable edge-record pipeline has no chart values: it is always on, core derives
+and signs its contract registry, and core delivers the agent spool budget. Values
+that still carry the removed edgeRecords block, even an empty one, would otherwise
+render silently and leave the operator believing the keys still mean something.
+*/}}
+{{- define "serviceradar.rejectRemovedEdgeRecordValues" -}}
+{{- if hasKey .Values "edgeRecords" -}}
+{{- fail "edgeRecords was removed: the durable edge-record pipeline is always on and core derives its contract registry. Delete the edgeRecords block from your values. See docs/docs/data-pipeline.md, \"Upgrading from the static registry\"." -}}
 {{- end -}}
-{{- $registry | toJson -}}
 {{- end -}}

@@ -210,10 +210,13 @@
 
 ## 5. Chart, Compose, docs
 
-- [ ] 5.1 Remove the `edgeRecords` block from `values.yaml`, along with the
+- [x] 5.1 Remove the `edgeRecords` block from `values.yaml`, along with the
   `serviceradar.edgeRecordContractRegistry` helper. Add the fail guard for any
   `edgeRecords` key.
-- [ ] 5.2 Clean up the core and gateway manifests:
+  - `serviceradar.rejectRemovedEdgeRecordValues`, included from the always-rendered
+    `serviceradar-config` ConfigMap. It fails on the key's presence, so an empty
+    `edgeRecords: {}` fails too. The message carries no version number.
+- [x] 5.2 Clean up the core and gateway manifests:
   - `core.yaml`: keep the issuer volume and `SERVICERADAR_EDGE_ISSUER_KEY_FILE`
     in the cutover release, no longer gated on `edgeRecords`, solely as the
     one-time import input (design Decision 6). A configured file that is missing
@@ -223,23 +226,40 @@
   - `agent-gateway.yaml`: remove the env block and the `natsPublishingEnabled`
     clause.
   - `nats.yaml`: make the edge-record subject permissions unconditional.
-- [ ] 5.3 Clean up the agent config and secret generation:
+  - "Where the Secret carries `edge-issuer-seed`" is rendered as
+    `secrets.autoGenerate` not false: the pre-install/pre-upgrade secret generator
+    then guarantees the key before core starts. With an operator-owned Secret the
+    chart cannot know (a `lookup` is empty under Argo CD), so core is not pointed at
+    the file and generates its own key.
+  - The gateway's NATS URL, TLS, server name, creds file and creds mount no longer
+    depend on any status-path publisher, because the edge-record publisher always
+    needs NATS. The edge-record subjects reach core's callout grants through the
+    shared `serviceradar.natsStaticUsers` list (`serviceradar-nats-static-users`).
+- [x] 5.3 Clean up the agent config and secret generation:
   - `files/serviceradar-config.yaml`: remove the `edge_record_sender` block and its
     guards.
+    - The enable flag, producer opt-ins, `max_bytes` and both guards are gone. The
+      block keeps only `spool_dir`, derived from `agent.runtimeStorage.basePath`,
+      so the bundled agent's spool stays on the volume the chart mounts there when
+      an operator moves it. That is host layout (Decision 1), not a pipeline value.
   - `secret-generator-job.yaml`: keep `edge-issuer-seed` in `REQUIRED_KEYS`, the
     generated JSON and the patch list for the cutover release (task 5.7 removes
     it).
-- [ ] 5.4 Update the chart tests: `tests/edge_records_test.yaml`,
+- [x] 5.4 Update the chart tests: `tests/edge_records_test.yaml`,
   `tests/edge_record_nats_permissions_test.yaml` and
   `edge_record_agent_config_test.py`. Assert the fail guard, the unconditional
   permissions, and that the core issuer mount and
   `SERVICERADAR_EDGE_ISSUER_KEY_FILE` are present in the cutover release.
-- [ ] 5.5 Rewrite the "Durable edge-record canary" section of the chart
+- [x] 5.5 Rewrite the "Durable edge-record canary" section of the chart
   README. Update `docs/docs/data-pipeline.md`, adding "Upgrading from the static
   registry" with the optional drain, and `docs/docs/native-addons.md`.
-- [ ] 5.6 Confirm that Docker Compose needs no change: the agent's
+- [x] 5.6 Confirm that Docker Compose needs no change: the agent's
   `/var/lib/serviceradar` volume holds the default spool directory, and
   `CLOAK_KEY` is present for the issuer key row.
+  - Both hold (`agent-data` at `/var/lib/serviceradar`; `CLOAK_KEY_FILE` on
+    core-elx). Compose did need one change: its agent-gateway had no NATS
+    connection at all, so the always-on edge-record publisher could not publish.
+    It now gets `AGENT_GATEWAY_NATS_*` and the platform creds, as core-elx does.
 - [ ] 5.7 Release after cutover, once every install has imported its seed: remove
   the core issuer mount, `SERVICERADAR_EDGE_ISSUER_KEY_FILE`, `edge-issuer-seed`
   from the secret generator, the `:edge_issuer_key_import_file` runtime config in

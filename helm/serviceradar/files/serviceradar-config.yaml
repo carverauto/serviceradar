@@ -283,26 +283,12 @@ data:
 
   agent.json: |
       {
-        {{- $edgeRecordVals := default dict .Values.edgeRecords }}
-        {{- if or $edgeRecordVals.agentSweepEnabled $edgeRecordVals.agentMetricsEnabled $edgeRecordVals.agentTelemetryEnabled $edgeRecordVals.agentPluginResultsEnabled $edgeRecordVals.agentDiscoveryEnabled $edgeRecordVals.agentSyncEnabled }}
-        {{- if not .Values.edgeRecords.enabled }}
-          {{- fail "edgeRecords.agentSweepEnabled, agentMetricsEnabled, agentTelemetryEnabled, agentPluginResultsEnabled, agentDiscoveryEnabled and agentSyncEnabled require edgeRecords.enabled" }}
-        {{- end }}
-        {{- if not (default dict $agentVals.runtimeStorage).enabled }}
-          {{- fail "edgeRecords.agentSweepEnabled, agentMetricsEnabled, agentTelemetryEnabled, agentPluginResultsEnabled, agentDiscoveryEnabled and agentSyncEnabled require persistent agent.runtimeStorage" }}
-        {{- end }}
+        {{- /* The sender and spool always run. The chart names only the spool directory,
+             so the spool follows agent.runtimeStorage, the volume this chart mounts at
+             basePath, wherever an operator moves it. */}}
         "edge_record_sender": {
-          "enabled": true,
-          "sweep_enabled": {{ $edgeRecordVals.agentSweepEnabled | default false }},
-          "metrics_enabled": {{ $edgeRecordVals.agentMetricsEnabled | default false }},
-          "telemetry_enabled": {{ $edgeRecordVals.agentTelemetryEnabled | default false }},
-          "plugin_results_enabled": {{ $edgeRecordVals.agentPluginResultsEnabled | default false }},
-          "discovery_enabled": {{ $edgeRecordVals.agentDiscoveryEnabled | default false }},
-          "sync_enabled": {{ $edgeRecordVals.agentSyncEnabled | default false }},
-          "max_bytes": {{ .Values.edgeRecords.maxSpoolBytes | int64 }},
           "spool_dir": "{{ default "/var/lib/serviceradar/agent" (default dict $agentVals.runtimeStorage).basePath }}/edge-records"
         },
-        {{- end }}
         "checkers_dir": "{{ default "/var/lib/serviceradar/checkers" (get (default dict (get $agentVals "checkersStorage")) "basePath") }}",
         "agent_id": "{{$agentID}}",
         "agent_name": "agent",
