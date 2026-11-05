@@ -87,8 +87,9 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
       # redelivered after a failed warehouse load or evaluation finds its rows
       # already in CNPG, and must still finish both. The warehouse load is
       # idempotent on the event id, and the ledger evaluates only the events no
-      # earlier delivery finished; an evaluation failure fails the batch so
-      # JetStream redelivers it.
+      # earlier delivery finished. A capacity or readiness refusal defers the
+      # evaluation to the durable admission backlog and the batch succeeds; any
+      # other evaluation failure fails the batch so JetStream redelivers it.
       stored =
         with {:ok, _} <- Destination.persist_after_cnpg(:logs, log_rows),
              {:ok, _} <- Destination.persist_after_cnpg(:events, promoted_rows) do

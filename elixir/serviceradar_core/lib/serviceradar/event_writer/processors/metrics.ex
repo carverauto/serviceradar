@@ -56,8 +56,9 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
       SignalTelemetry.emit(:metrics, :written, count)
 
       # After the insert, so alert evaluation never delays or loses a point. A
-      # refused admission fails the batch; its redelivery rewrites the same
-      # stored points and is not admitted twice (see MetricAlertAdmission).
+      # capacity refusal defers the points to the admission backlog; a genuine
+      # failure fails the batch, and its redelivery rewrites the same stored
+      # points, which are not admitted twice (see MetricAlertAdmission).
       with :ok <- MetricAlertAdmission.admit(numeric_rows), do: {:ok, count}
     end
   rescue

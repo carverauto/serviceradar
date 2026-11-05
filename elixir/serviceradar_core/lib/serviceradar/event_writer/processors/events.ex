@@ -158,10 +158,11 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
       EventsPubSub.broadcast_event_rows(rows)
     end
 
-    # Stateful evaluation runs once per event (the ledger), synchronously, and
-    # a failure fails the batch so JetStream redelivers it. The insert and the
-    # warehouse load are idempotent on the event id, so the redelivery repeats
-    # only what did not finish.
+    # Stateful evaluation runs once per event (the ledger), synchronously. A
+    # capacity or readiness refusal defers it to the durable admission backlog;
+    # any other failure fails the batch so JetStream redelivers it. The insert
+    # and the warehouse load are idempotent on the event id, so the redelivery
+    # repeats only what did not finish.
     with {:ok, _} <-
            ServiceRadar.Analytics.StarRocks.Destination.persist_after_cnpg(:events, rows),
          :ok <- StatefulEvaluationLedger.evaluate_once(rows) do

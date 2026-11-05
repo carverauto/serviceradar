@@ -17,7 +17,7 @@ The system SHALL evaluate event-signal stateful alert rules against OCSF events 
 ## REMOVED Requirements
 
 ### Requirement: Durable bounded alert evaluation admission
-**Reason**: Described admission into the CNPG evaluation inbox with per-rule and pending byte budgets that refuse load. Refusal fails the source batch and, after `max_deliver`, loses the evaluation. The inbox is removed.
+**Reason**: Described admission into the CNPG evaluation inbox with per-rule and pending byte budgets that refuse load. A refusal is deferred to the CNPG `alert_pending_admissions` backlog (`defer-refused-alert-admission`), which bounds the lag only by storage. The inbox and the backlog are removed.
 **Migration**: Replaced by `alert-evaluation` "Candidates use a fixed key space and a dynamic stream map" and "Evaluation backpressure is lag and never loss". Residual inbox rows are imported in order by the cutover ("Cutover from the CNPG inbox is ordered and complete").
 
 ### Requirement: Ordered replay-safe rule processing

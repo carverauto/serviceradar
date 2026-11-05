@@ -31,7 +31,7 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     ApiEventsRetentionWorker,
     AuditVersionRetentionWorker,
     ServiceRadar.Jobs.RefreshLogsSeverityStatsWorker,
-    ServiceRadar.EventWriter.LifecycleAdmissionDrainWorker,
+    ServiceRadar.EventWriter.AlertAdmissionDrainWorker,
     ServiceRadar.Observability.AnomalyAddonConfigProjector,
     ServiceRadar.Observability.AnomalyAlertLivenessWorker,
     ServiceRadar.Observability.AnomalyEpisodeStaleCloseWorker,

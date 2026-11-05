@@ -647,7 +647,8 @@ Findings and changes, keyed to `capacity.md` S1-S5 and S13:
   key, so per-key order holds and they scale out. This supersedes Decision 3
   of `scale-event-writer-across-core-replicas` for those streams. Lifecycle
   transitions keep per-series FIFO through block order plus in-place publish
-  retry, which is what `lifecycle_pending_admissions` provided.
+  retry, which is what the `lifecycle` lane of `alert_pending_admissions`
+  provided.
 
 ### D11: Runtime settings in CNPG, defaults sized small
 
@@ -806,7 +807,7 @@ either way. Owner rebalancing after adding a node is always automatic.
 | Stale-anomaly maintenance | ordered barrier work row, synchronous count | ordered marker per block; summed receipts; same count contract |
 | Log promotion | inline in `Logs`, ledger guards promotion alerts once | inline; promotion alerts idempotent by fire key; promotion rules matched through the index |
 | `signal: :log` rules | never evaluated (no caller) | evaluated through the index on stored log records |
-| Lifecycle signals | `lifecycle_pending_admissions` FIFO per series | block order plus in-place publish retry |
+| Lifecycle signals | `alert_pending_admissions` `lifecycle` lane, FIFO per series | block order plus in-place publish retry |
 | Metric conditions | violation tag, then counting | violation increment stamped at the router; counting unchanged |
 | Rule edit | captured revision per work row | revision per candidate; immutable revisions |
 | Rule disable or delete | durable cancellation of pending work | ordered marker; later candidates at the disabled revision or older (any revision on delete) dropped and counted |
@@ -965,7 +966,9 @@ that evaluates through both designs.
       write an initial checkpoint per block.
    2. Import in bounded segments. The residual set is residual
       `alert_evaluation_work` rows in (rule, position) order, then residual
-      `lifecycle_pending_admissions` rows in (series, seq) order; each
+      `alert_pending_admissions` rows in (lane, series, seq) order (the
+      `lifecycle` lane per series, the deferred `event` and `metric` lanes
+      each one FIFO); each
       record gets a stable import ordinal. The task builds each import
       candidate with the router's own functions: group key, metric
       violation increment, recovery-match flag, seasonal disposition read
@@ -1069,7 +1072,7 @@ that evaluates through both designs.
 4. **Post-cutover migration** (release N). It refuses to run before the
    marker exists. It drops `alert_evaluation_work`, `alert_evaluation_lanes`,
    `alert_evaluation_receipts`, `stateful_evaluation_ledger` and
-   `lifecycle_pending_admissions`, and deletes pending Oban jobs of the
+   `alert_pending_admissions`, and deletes pending Oban jobs of the
    removed workers.
 5. **Release N+1** removes the preflight, the cutover task, the import
    subject handling and `alert_cutover_progress`.
@@ -1077,12 +1080,12 @@ that evaluates through both designs.
 Removed code: `StatefulAlertEngine.Inbox`, `Owner`, `EvaluationWorker`,
 `RecoveryWorker`, `Rollout`, `PeerReadiness`, `Completion` (replaced by
 persisted-alert waits), `StatefulEvaluationLedger`, `MetricAlertAdmission`
-(folded into the router), `LifecycleAdmissionDrainWorker`, the pending
-admission code in `AnalyticsSignals`, the `alert_evaluation_limits` config,
+(folded into the router), `AlertAdmissionDrainWorker`, `AlertAdmissionBacklog`,
+the pending admission code in `AnalyticsSignals`, the `alert_evaluation_limits` config,
 the `alerts` and `alert_recovery` queues, and the Helm env
 `SERVICERADAR_ALERT_EVALUATION_MODE`.
 
-### What happens to `alert_evaluation_work` and `lifecycle_pending_admissions`
+### What happens to `alert_evaluation_work` and `alert_pending_admissions`
 
 Both are published to the `ALERT_IMPORT_V1` import stream by the cutover
 task in their own order, then dropped in the same release. No row is discarded: each residual

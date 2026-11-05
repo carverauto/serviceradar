@@ -1,19 +1,22 @@
 defmodule ServiceRadar.Observability.StatefulEvaluationLedger do
   @moduledoc """
-  Which OCSF events have had their stateful evaluation accepted and their
-  promotion callback applied.
+  Which OCSF events have had their stateful evaluation accepted, or durably
+  deferred, and their promotion callback applied.
 
-  EventWriter records this marker only after durable evaluation acceptance and
-  its synchronous promotion callback succeed:
+  EventWriter records this marker only after durable evaluation acceptance (or
+  deferral) and its synchronous promotion callback succeed:
 
       pending = StatefulEvaluationLedger.unevaluated(event_ids)
-      :ok = evaluate(pending)            # rejection fails the batch
-      :ok = StatefulEvaluationLedger.record(pending)
+      # admitted, or deferred to the backlog; a genuine failure fails the batch
+      :ok = AlertAdmissionBacklog.admit(:event, pending, record: ...)
 
   Callers store their records before evaluating them, so a rejection never
-  costs the records themselves. An `{:overloaded, _}` rejection is
-  backpressure: the inbox may have accepted an in-order prefix, EventWriter
-  redelivers the batch with a delay, and the inbox continues after that prefix.
+  costs the records themselves. An `{:overloaded, _}` or
+  `:alert_evaluation_peer_not_ready` refusal is backpressure: the events are
+  deferred to `ServiceRadar.EventWriter.AlertAdmissionBacklog`, recorded here
+  in the same transaction, and the batch succeeds, so the refusal never
+  consumes a JetStream delivery. The backlog admits them later, in order, and
+  the inbox continues after any prefix it had already accepted.
 
   This is not a completion receipt. The alert evaluation inbox and receipts
   own ordered effects and replay safety; they deduplicate accepted occurrences
@@ -38,6 +41,7 @@ defmodule ServiceRadar.Observability.StatefulEvaluationLedger do
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.EventWriter.AlertAdmissionBacklog
 
   require Ash.Query
   require Logger
@@ -98,22 +102,31 @@ defmodule ServiceRadar.Observability.StatefulEvaluationLedger do
   own text check cannot tell raw bytes that happen to be valid UTF-8 from text,
   while a 16-byte UUID is never text, so the conversion is made here.
   `after_evaluation` receives the events as given. Each event needs an `:id`
-  (UUID text or raw 16 bytes). On an error nothing is recorded and the error
-  is returned, so the caller fails its batch and a redelivery retries exactly
-  these events.
+  (UUID text or raw 16 bytes).
+
+  A retryable refusal defers the events to `AlertAdmissionBacklog`, which
+  admits them later: `after_evaluation` runs before the deferral is written,
+  the events are recorded in the deferral's transaction, and the call returns
+  `:ok`. On any other error nothing is recorded and
+  the error is returned, so the caller fails its batch and a redelivery retries
+  exactly these events.
   """
   @spec evaluate_once([map()], ([map()] -> :ok | {:error, term()})) :: :ok | {:error, term()}
   def evaluate_once(events, after_evaluation \\ fn _pending -> :ok end) do
-    apply_once(events, fn pending ->
-      pending
-      |> Enum.map(fn event -> Map.update!(event, :id, &to_uuid/1) end)
-      |> engine().evaluate_events()
-      |> case do
-        :ok -> after_evaluation.(pending)
-        {:error, :alert_evaluation_not_activated} -> skip_not_activated(pending)
-        {:error, _reason} = error -> error
-      end
-    end)
+    pending_ids = events |> Enum.map(& &1.id) |> unevaluated() |> MapSet.new()
+
+    case Enum.filter(events, &MapSet.member?(pending_ids, &1.id)) do
+      [] ->
+        :ok
+
+      pending ->
+        AlertAdmissionBacklog.admit(
+          :event,
+          Enum.map(pending, fn event -> Map.update!(event, :id, &to_uuid/1) end),
+          after_admission: fn -> after_evaluation.(pending) end,
+          record: fn -> record(Enum.map(pending, & &1.id)) end
+        )
+    end
   end
 
   @doc """
@@ -137,24 +150,17 @@ defmodule ServiceRadar.Observability.StatefulEvaluationLedger do
   Admits metric rows to stateful evaluation. Metric points carry no event id
   for the ledger to record, so the caller supplies a deterministic `:id` per
   point and the engine's replay check deduplicates a redelivered batch. A
-  deployment whose alert evaluation is not activated skips them, as
-  `evaluate_events/1` does.
+  retryable refusal defers them to `AlertAdmissionBacklog`, as
+  `evaluate_once/2` does, and a deployment whose alert evaluation is not
+  activated skips them.
   """
   @spec evaluate_metrics([map()]) :: :ok | {:error, term()}
-  def evaluate_metrics(rows) when is_list(rows) do
-    case engine().evaluate_metrics(rows) do
-      {:error, :alert_evaluation_not_activated} ->
-        {:skipped, _count} = skip_not_activated(rows)
-        :ok
+  def evaluate_metrics(rows) when is_list(rows), do: AlertAdmissionBacklog.admit(:metric, rows)
 
-      result ->
-        result
-    end
-  end
-
+  @doc false
   # Only the not-activated refusal is skipped. Draining and capability failures
   # still fail the batch: they are transient states of an activated deployment.
-  defp skip_not_activated(events) do
+  def skip_not_activated(events) do
     count = length(events)
 
     :telemetry.execute(
@@ -186,33 +192,6 @@ defmodule ServiceRadar.Observability.StatefulEvaluationLedger do
       :stateful_alert_engine,
       ServiceRadar.Observability.StatefulAlertEngine
     )
-  end
-
-  # Applies `consequences` to the events not yet recorded, then records them.
-  # On error nothing is recorded and the error is returned, so the caller
-  # fails its batch and a redelivery retries exactly these events.
-  defp apply_once([], _consequences), do: :ok
-
-  defp apply_once(events, consequences) do
-    pending_ids = events |> Enum.map(& &1.id) |> unevaluated() |> MapSet.new()
-    pending = Enum.filter(events, &MapSet.member?(pending_ids, &1.id))
-
-    case apply_consequences(pending, consequences) do
-      :ok -> record(Enum.map(pending, & &1.id))
-      # Not evaluated, so not recorded: nothing claims these events were.
-      {:skipped, _count} -> :ok
-      {:error, _reason} = error -> error
-    end
-  end
-
-  defp apply_consequences([], _consequences), do: :ok
-
-  defp apply_consequences(pending, consequences) do
-    case consequences.(pending) do
-      :ok -> :ok
-      {:skipped, _count} = skipped -> skipped
-      {:error, reason} -> {:error, reason}
-    end
   end
 
   @doc """

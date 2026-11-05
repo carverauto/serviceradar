@@ -405,21 +405,15 @@ defmodule ServiceRadar.EventWriter.Pipeline do
     end
   end
 
-  # Returns the level it logged at. A deferred alert evaluation is expected backpressure. A
-  # denied republish is logged once per subject by the broker error filter and dead-lettered
-  # (`EdgeRecordDeadLetter.terminal?/1`), so it is not logged again for every batch.
+  # Returns the level it logged at. A denied republish is logged once per subject by the broker
+  # error filter and dead-lettered (`EdgeRecordDeadLetter.terminal?/1`), so it is not logged
+  # again for every batch. Alert-evaluation backpressure never reaches here: processors defer
+  # it to `ServiceRadar.EventWriter.AlertAdmissionBacklog` and succeed.
   defp log_batch_failure(batcher, reason, message_count) do
     {level, text} =
-      cond do
-        retryable_alert_evaluation_reason?(reason) ->
-          {:info, "Batch deferred until alert evaluation is ready"}
-
-        match?(%PublishDeniedError{}, reason) ->
-          {:debug, "Batch holds records whose republish the NATS broker denied"}
-
-        true ->
-          {:error, "Batch processing failed"}
-      end
+      if match?(%PublishDeniedError{}, reason),
+        do: {:debug, "Batch holds records whose republish the NATS broker denied"},
+        else: {:error, "Batch processing failed"}
 
     Logger.log(level, text,
       batcher: batcher,
@@ -434,16 +428,9 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   def handle_failed(messages, _context) do
     Enum.each(messages, fn message ->
       {level, text} =
-        cond do
-          retryable_alert_evaluation_status?(message.status) ->
-            {:debug, "Message deferred until alert evaluation is ready"}
-
-          EdgeRecordDeadLetter.terminal?(message) ->
-            {:debug, "Message republish denied by the NATS broker; dead-lettering it"}
-
-          true ->
-            {:warning, "Message failed"}
-        end
+        if EdgeRecordDeadLetter.terminal?(message),
+          do: {:debug, "Message republish denied by the NATS broker; dead-lettering it"},
+          else: {:warning, "Message failed"}
 
       Logger.log(level, text,
         subject: message.metadata[:subject],
@@ -453,18 +440,6 @@ defmodule ServiceRadar.EventWriter.Pipeline do
 
     messages
   end
-
-  defp retryable_alert_evaluation_status?({:failed, reason}),
-    do: retryable_alert_evaluation_reason?(reason)
-
-  defp retryable_alert_evaluation_status?(_status), do: false
-
-  # Transient alert-evaluation backpressure. Processors persist the signal
-  # before admitting it, so a delayed redelivery only retries the admission
-  # remainder, which the inbox continues in order.
-  defp retryable_alert_evaluation_reason?(:alert_evaluation_peer_not_ready), do: true
-  defp retryable_alert_evaluation_reason?({:overloaded, _dimension}), do: true
-  defp retryable_alert_evaluation_reason?(_reason), do: false
 
   # Private functions
 
@@ -477,7 +452,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
         emit_dead_letter(message)
         ack_message(message, :term)
 
-      retryable_alert_evaluation_status?(message.status) or edge_record_message?(message) ->
+      edge_record_message?(message) ->
         ack_message(message, {:nack, backoff_ms(message)})
 
       true ->

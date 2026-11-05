@@ -2,6 +2,8 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEventsIntegrationTest do
   use ServiceRadar.DataCase, async: false
 
   alias Ecto.Adapters.SQL
+  alias ServiceRadar.EventWriter.AlertAdmissionDrainWorker
+  alias ServiceRadar.EventWriter.Pipeline
   alias ServiceRadar.EventWriter.Processors.FalcoEvents
   alias ServiceRadar.Observability.StatefulAlertRule
   alias ServiceRadar.ProcessRegistry
@@ -124,6 +126,82 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEventsIntegrationTest do
     refute_receive {:evaluated, _}
   end
 
+  test "an overloaded evaluation is acknowledged past max_deliver and admitted later in order" do
+    overloaded = {:error, {:overloaded, :rule_bytes}}
+    ScriptedStatefulAlertEngine.use_in_test([overloaded, overloaded])
+    parent = self()
+    event_uuid = Ash.UUID.generate()
+
+    raw =
+      falco_message(%{
+        "uuid" => event_uuid,
+        "output" => "Synthetic overload probe",
+        "priority" => "Critical",
+        "rule" => "Synthetic overload probe #{event_uuid}",
+        "time" => DateTime.to_iso8601(DateTime.utc_now()),
+        "hostname" => "host01.example.com",
+        "source" => "syscall"
+      })
+
+    # Every delivery up to and past the consumer's max_deliver is acknowledged:
+    # the refused evaluation waits in the durable backlog, never in JetStream.
+    for delivery_count <- 1..6 do
+      message = %Broadway.Message{
+        data: raw.data,
+        metadata:
+          Map.merge(raw.metadata, %{
+            jetstream_ack: %{
+              stream: "falco",
+              consumer: "consumer",
+              delivery_count: delivery_count
+            },
+            max_deliver: 5
+          }),
+        acknowledger:
+          {Pipeline, :ack_ref,
+           %{
+             ack_fun: fn action ->
+               send(parent, {:ack_action, delivery_count, action})
+               :ok
+             end
+           }}
+      }
+
+      assert [%Broadway.Message{status: :ok} = acked] =
+               Pipeline.handle_batch(:falco, [message], %{batch_key: :default}, %{})
+
+      assert :ok = Pipeline.ack(:ack_ref, [acked], [])
+      assert_receive {:ack_action, ^delivery_count, :ack}
+    end
+
+    refute_receive {:ack_action, _delivery, :term}, 50
+    refute_receive {:ack_action, _delivery, {:nack, _delay}}, 50
+
+    # Only the first delivery reached the engine; the rest found the events
+    # already queued.
+    assert_receive {:evaluated, [%{id: ^event_uuid} = refused]}
+    refute_receive {:evaluated, _events}, 50
+    assert stored_event_count(event_uuid) == 1
+    assert pending_admission_count(event_uuid) == 1
+
+    # The drain retries the backlog; a still-refused admission keeps its row.
+    assert :ok = AlertAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
+    assert_receive {:evaluated, [%{id: ^event_uuid}]}
+    assert pending_admission_count(event_uuid) == 1
+
+    assert :ok = AlertAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
+    assert_receive {:evaluated, [%{id: ^event_uuid} = admitted]}
+
+    assert Map.take(admitted, [:class_uid, :severity_id, :message]) ==
+             Map.take(refused, [:class_uid, :severity_id, :message])
+
+    assert pending_admission_count(event_uuid) == 0
+    assert stored_event_count(event_uuid) == 1
+
+    assert :ok = AlertAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
+    refute_receive {:evaluated, _events}, 50
+  end
+
   test "stateful alert evaluation receives textual UUIDs for promoted Falco events" do
     actor = %{id: "system", role: :admin}
     unique = Ash.UUID.generate()
@@ -208,6 +286,26 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEventsIntegrationTest do
              )
 
     assert source_event_id == event_uuid
+  end
+
+  defp stored_event_count(event_uuid) do
+    %{rows: [[count]]} =
+      SQL.query!(Repo, "SELECT count(*) FROM platform.ocsf_events WHERE id = $1::uuid", [
+        Ecto.UUID.dump!(event_uuid)
+      ])
+
+    count
+  end
+
+  defp pending_admission_count(event_uuid) do
+    %{rows: [[count]]} =
+      SQL.query!(
+        Repo,
+        "SELECT count(*) FROM platform.alert_pending_admissions WHERE event_id = $1::uuid",
+        [Ecto.UUID.dump!(event_uuid)]
+      )
+
+    count
   end
 
   defp falco_message(payload) do

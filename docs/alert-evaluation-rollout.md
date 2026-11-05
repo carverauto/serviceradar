@@ -38,34 +38,50 @@ still `prepared`.
    drop an inbox that still contains accepted work; this is an additional guard,
    not proof that all application processes have stopped.
 
-During a rolling restart, `:alert_evaluation_peer_not_ready` and
-`{:overloaded, _}` defer the batch. AnalyticsSignals commits episode and event
-transitions before admission, so a refusal leaves the transition stored and
-retries the unadmitted evaluation. EventWriter delays NAKs for both reasons by
-10, 20, 40, and 80 seconds on deliveries 1 through 4. Delivery 5 is the final
-delivery: a failure there is dead-lettered and terminally acknowledged. With the
-default `max_deliver: 5`, the delays before that last attempt total 150 seconds.
-Recovery before then lets admission continue the remainder in order. After the
-final delivery, the stored signal and the committed transition remain. A
-lifecycle occurrence keeps its pending admission row. The next message for the
-same series admits it, and so does `ServiceRadar.EventWriter.LifecycleAdmissionDrainWorker`,
-which runs every minute on the `maintenance` queue. A run pages through the
-pending series longest-waiting first, admits each in `seq` order up to its
-first refusal, and continues with the next series, so series stuck behind a
-saturated rule do not starve the rest. It stops after 1,000 admissions or 30
-seconds. Other unadmitted evaluation is lost. This is a bounded recovery window,
-not an indefinite retry guarantee. Consumer delivery limits are unchanged.
+During a rolling restart, `:alert_evaluation_peer_not_ready`, and under load
+`{:overloaded, _}`, refuse admission. Backpressure lags evaluation; it never
+loses it. Every EventWriter family stores its signal before admitting it, and a
+refusal of either kind never fails the batch, so it never consumes a JetStream
+delivery and never reaches the terminal one.
 
-Readiness and overload deferrals log at info in AnalyticsSignals and the batch
-pipeline, and at debug in the failed-message callback. Delayed acknowledgements
-retain the `nack` telemetry action. Other failures, including draining,
-unavailable capability, and database errors, retain error batch logs and
-immediate NAKs until the delivery limit, then a terminal acknowledgement and an
-error log. The acknowledgement policy is
-implemented in `ServiceRadar.EventWriter.Pipeline`; regression coverage is in
-`pipeline_ack_test.exs` and `analytics_signals_process_batch_db_test.exs`
-under `elixir/serviceradar_core/test/serviceradar/event_writer/` (the latter in
-`processors/`).
+- Events (Falco, Trivy, generic events, log promotion, the bulk analytics
+  rows) and metric points are deferred by
+  `ServiceRadar.EventWriter.AlertAdmissionBacklog`. Their admission snapshots
+  are written to `platform.alert_pending_admissions` in the `event` or `metric`
+  lane, the evaluation ledger marks the events in the same transaction, and the
+  message is acknowledged. Each lane is one FIFO. While a lane holds rows, new
+  records join behind them, and the batch that joined admits one chunk from
+  the head. The inbox keeps the prefix of a refused chunk, so a retry admits
+  exactly the remainder, in order.
+- Lifecycle transitions (AnalyticsSignals) commit with their pending admission
+  row in the `lifecycle` lane, as before. A refusal leaves the row pending and
+  fails no message; the next message for the same series admits it.
+
+`ServiceRadar.EventWriter.AlertAdmissionDrainWorker` runs every minute on the
+`maintenance` queue. It pages through the pending lifecycle series
+longest-waiting first, admits each in `seq` order up to its first refusal and
+continues with the next series, so series stuck behind a saturated rule do not
+starve the rest; that part stops after 1,000 admissions or 30 seconds. It then
+drains the `event` and `metric` lanes from their heads until they are empty,
+refused, or 30 seconds have elapsed. Nothing caps the backlog and nothing in it
+is truncated; it is bounded by the CNPG volume.
+
+Each run reports the backlog. The `alert_admission_backlog` ingestion lane
+publishes `pending_count` and `oldest_pending_ms` through JetStream, and the
+`alert-admission-backlog` core health check turns unhealthy once the oldest
+pending row has waited 10 minutes or the backlog reaches 100,000 rows. Its
+transition is recorded on the health timeline and published as a
+`health.state_change` log that an alert rule can match.
+
+Only genuine failures still fail a batch: draining, unavailable capability,
+database errors, and a failed deferral write. They log at error, NAK
+immediately until the delivery limit, then take a terminal acknowledgement and
+an error log. The acknowledgement policy is implemented in
+`ServiceRadar.EventWriter.Pipeline`; regression coverage is in
+`pipeline_ack_test.exs`, `falco_events_integration_test.exs` and
+`alert_admission_backlog_test.exs` under
+`elixir/serviceradar_core/test/serviceradar/event_writer/` (the Falco test in
+`processors/`), and in `processors/analytics_signals_process_batch_db_test.exs`.
 
 Admission bounds use `SERVICERADAR_ALERT_EVALUATION_` followed by
 `ADMISSION_TIMEOUT_MS`, `BATCH_RECORDS`, `BATCH_WORK`, `PENDING_COUNT`,
@@ -114,7 +130,7 @@ not substitute for those checks.
 | --- | --- | --- |
 | Rule inventory | `StatefulAlertRule` Ash/JSON API actions, `RuleSeeder`, `Plugins.AlertRuleCatalog`, `Inventory.MetricRuleSync`, Rules LiveView, event-to-rule creation, AshEvents replay | Database triggers cover row INSERT/UPDATE/DELETE and replay TRUNCATE. Admission captures one revision; disabling/deleting cancels unclaimed accepted input through the lane watermark. |
 | Source acknowledgement | `StatefulEvaluationLedger` used by Events, Falco, Trivy, log promotion, and metric alert admission (`EventWriter.Processors.Metrics`, after the timeseries insert, for points that match an enabled metric rule) | The source marker records acceptance, not completed alert effects. In prepared mode the batch is acknowledged as a skip: records are stored, nothing is evaluated or promoted, and JetStream does not redeliver. Draining and capability failures still fail the batch and return it to the source consumer; receipts deduplicate a replay after accepted work commits. Metric points use a deterministic id from their stored series identity for that replay check. |
-| Stateful source transitions | `AnalyticsSignals` and `AnomalyEpisodeRegistry` | Episode and event transitions commit before evaluation admission. A later refusal retries the unadmitted evaluation and leaves the transition stored. Distinct transitions may retain one event row ID; occurrence identities distinguish those transitions. Occurrences of one series are admitted in that series' order. An unadmitted occurrence is a row in `platform.lifecycle_pending_admissions` holding an immutable snapshot of its evaluation input, never event metadata. A newer transition of the same event is stored and gets its own row behind the pending one; each is admitted from its snapshot in `seq` order, and its row is deleted in the admission transaction. A pending series never fails a message by itself. An occurrence id derives from the event id, the JetStream message identity, its observed time before lifecycle pinning, its finding version, its status and the stored state it transitions from, so a redelivery reuses it and a finding that re-enters a state, even with an identical payload, gets a new one. |
+| Stateful source transitions | `AnalyticsSignals` and `AnomalyEpisodeRegistry` | Episode and event transitions commit before evaluation admission. A later refusal retries the unadmitted evaluation and leaves the transition stored. Distinct transitions may retain one event row ID; occurrence identities distinguish those transitions. Occurrences of one series are admitted in that series' order. An unadmitted occurrence is a row in the `lifecycle` lane of `platform.alert_pending_admissions` holding an immutable snapshot of its evaluation input, never event metadata. A newer transition of the same event is stored and gets its own row behind the pending one; each is admitted from its snapshot in `seq` order, and its row is deleted in the admission transaction. A pending series never fails a message by itself, and neither does a capacity or readiness refusal. An occurrence id derives from the event id, the JetStream message identity, its observed time before lifecycle pinning, its finding version, its status and the stored state it transitions from, so a redelivery reuses it and a finding that re-enters a state, even with an identical payload, gets a new one. |
 | Snapshot and rule history | `Owner`, `AlertLifecycle`, `StatefulAlertCleanupWorker` | The owner fence encloses restore, lifecycle changes, every changed snapshot and the receipt. Cleanup rechecks pending work and incident identity under the admission/owner boundaries. |
 | Incident and notification control | `Monitoring.Alert`, `AlertGenerator`, `AlertLifecycle`, notification routing/continuation/scheduler workers, operator actions | Existing operator acknowledgement, suppression, escalation and resolution remain control-plane actions. Renotify continuation reacquires the rule fence and rechecks the alert/rule/cadence before enqueue and bookkeeping. |
 | Completion-dependent callers | `ResolveStaleAnomaliesWorker`, `AnomalyAlertLivenessCheck` | Maintenance observes ordered receipts and returns actual resolved counts. Liveness observes persisted alert creation and resolution rather than treating acceptance as completion. |
