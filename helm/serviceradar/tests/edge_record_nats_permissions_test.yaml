@@ -4,29 +4,27 @@ templates:
 release:
   namespace: serviceradar-test
 tests:
-  - it: lets the gateway publish the primary, audit and security-quarantine edge-record routes
+  - it: lets the gateway publish the primary, audit and security-quarantine edge-record routes from default values
     template: templates/nats.yaml
     documentSelector:
       path: kind
       value: StatefulSet
-    set:
-      edgeRecords.enabled: true
-      edgeRecords.contractRegistry:
-        registry_epoch: 1
     asserts:
       - matchRegex:
           path: spec.template.spec.containers[0].args[0]
           pattern: '(?s)user: "CN=serviceradar-agent-gateway,[^"]+"\s+permissions: \{\s+publish: \{\s+allow: \["telemetry\.edge-record\.v1\.bulk\.>", "telemetry\.edge-record-audit\.v1\.bulk\.>", "telemetry\.edge-record-security-quarantine\.v1\.bulk\.>", "metrics\.sysmon\.>"'
 
-  - it: grants the gateway no edge-record route while the edge plane is disabled
+  # Core's certificate authorization callout grants an adopted gateway
+  # certificate the block in this ConfigMap, not the broker's static config.
+  - it: grants the gateway the edge-record routes through the authorization callout list
     template: templates/nats.yaml
     documentSelector:
-      path: kind
-      value: StatefulSet
+      path: metadata.name
+      value: serviceradar-nats-static-users
     asserts:
       - matchRegex:
-          path: spec.template.spec.containers[0].args[0]
-          pattern: '(?s)user: "CN=serviceradar-agent-gateway,[^"]+"\s+permissions: \{\s+publish: \{\s+allow: \["metrics\.sysmon\.>"'
+          path: data["static-users.yaml"]
+          pattern: '(?m)^- publish:\n    allow:\n(?: .*\n)*    - telemetry\.edge-record\.v1\.bulk\.>\n    - telemetry\.edge-record-audit\.v1\.bulk\.>\n    - telemetry\.edge-record-security-quarantine\.v1\.bulk\.>\n(?: .*\n)*  user: CN=serviceradar-agent-gateway,'
 
   - it: lets core dead-letter and replay edge records but not purge or delete the dead-letter stream
     template: templates/nats.yaml

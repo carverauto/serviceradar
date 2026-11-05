@@ -1,20 +1,31 @@
-suite: durable sweep deployment wiring
+suite: durable edge-record pipeline deployment wiring
 templates:
 - templates/core.yaml
 - templates/agent-gateway.yaml
 - templates/serviceradar-config.yaml
+release:
+  namespace: serviceradar-test
 tests:
-- it: mounts the issuer seed only on core and sets no edge-record env on the gateway
-  set:
-    edgeRecords.enabled: true
-    edgeRecords.contractRegistry:
-      registry_epoch: 1
+# Cutover release only (enable-edge-record-pipeline-by-default, design Decision 6):
+# core imports the generated seed into CNPG once. Task 5.7 removes the mount and
+# flips this test to assert its absence.
+- it: mounts the generated issuer seed on core from default values as the one-time import input
   asserts:
   - contains:
       path: spec.template.spec.containers[0].env
       content:
         name: SERVICERADAR_EDGE_ISSUER_KEY_FILE
         value: /etc/serviceradar/edge-issuer/seed
+    template: templates/core.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+  - contains:
+      path: spec.template.spec.containers[0].volumeMounts
+      content:
+        name: edge-issuer
+        mountPath: /etc/serviceradar/edge-issuer
+        readOnly: true
     template: templates/core.yaml
     documentSelector:
       path: kind
@@ -33,17 +44,43 @@ tests:
     documentSelector:
       path: kind
       value: Deployment
+
+# A configured seed file that is missing stores no issuer key, so core must not be
+# pointed at a Secret key the chart's generator does not guarantee.
+- it: leaves core to generate its issuer key when the operator owns the Secret
+  set:
+    secrets.autoGenerate: false
+  asserts:
   - notContains:
       path: spec.template.spec.containers[0].env
-      content: {name: AGENT_GATEWAY_EDGE_RECORDS_ENABLED}
+      content: {name: SERVICERADAR_EDGE_ISSUER_KEY_FILE}
       any: true
-    template: templates/agent-gateway.yaml
+    template: templates/core.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+  - notContains:
+      path: spec.template.spec.volumes
+      content: {name: edge-issuer}
+      any: true
+    template: templates/core.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+
+- it: renders no edge-record registry or switch variable for core or the gateway
+  asserts:
+  - notContains:
+      path: spec.template.spec.containers[0].env
+      content: {name: SERVICERADAR_EDGE_RECORD_CONTRACT_REGISTRY}
+      any: true
+    template: templates/core.yaml
     documentSelector:
       path: kind
       value: Deployment
   - notContains:
       path: spec.template.spec.containers[0].env
-      content: {name: AGENT_GATEWAY_EDGE_RECORD_TRUST_SOURCE}
+      content: {name: AGENT_GATEWAY_EDGE_RECORDS_ENABLED}
       any: true
     template: templates/agent-gateway.yaml
     documentSelector:
@@ -59,26 +96,17 @@ tests:
       value: Deployment
   - notContains:
       path: spec.template.spec.containers[0].env
-      content:
-        name: SERVICERADAR_EDGE_ISSUER_KEY_FILE
-        value: /etc/serviceradar/edge-issuer/seed
+      content: {name: SERVICERADAR_EDGE_ISSUER_KEY_FILE}
+      any: true
     template: templates/agent-gateway.yaml
     documentSelector:
       path: kind
       value: Deployment
-- it: refuses enabling the plane without an installation contract
+
+# The edge-record publisher always runs, so the gateway's NATS connection must not
+# depend on the status-path publishers.
+- it: connects the gateway to authenticated NATS with every status-path publisher off
   set:
-    agentGateway.enabled: false
-    edgeRecords.enabled: true
-  asserts:
-  - failedTemplate:
-      errorMessage: edgeRecords.contractRegistry is required when edgeRecords.enabled=true
-    template: templates/core.yaml
-- it: connects an edge-only publisher to authenticated NATS
-  set:
-    edgeRecords.enabled: true
-    edgeRecords.contractRegistry:
-      registry_epoch: 1
     agentGateway.sysmonMetricsEnabled: false
     agentGateway.snmpMetricsEnabled: false
     agentGateway.pluginMetricsEnabled: false
@@ -113,14 +141,21 @@ tests:
     documentSelector:
       path: kind
       value: Deployment
-- it: refuses a canary spool on ephemeral storage
+
+- it: refuses values that still carry the removed edgeRecords block
   set:
     edgeRecords.enabled: true
     edgeRecords.contractRegistry:
       registry_epoch: 1
-    edgeRecords.agentSweepEnabled: true
-    agent.runtimeStorage.enabled: false
   asserts:
   - failedTemplate:
-      errorMessage: edgeRecords.agentSweepEnabled, agentMetricsEnabled, agentTelemetryEnabled, agentPluginResultsEnabled, agentDiscoveryEnabled and agentSyncEnabled require persistent agent.runtimeStorage
+      errorMessage: 'edgeRecords was removed: the durable edge-record pipeline is always on and core derives its contract registry. Delete the edgeRecords block from your values. See docs/docs/data-pipeline.md, "Upgrading from the static registry".'
+    template: templates/serviceradar-config.yaml
+
+- it: refuses an empty edgeRecords block
+  set:
+    edgeRecords: {}
+  asserts:
+  - failedTemplate:
+      errorMessage: 'edgeRecords was removed: the durable edge-record pipeline is always on and core derives its contract registry. Delete the edgeRecords block from your values. See docs/docs/data-pipeline.md, "Upgrading from the static registry".'
     template: templates/serviceradar-config.yaml

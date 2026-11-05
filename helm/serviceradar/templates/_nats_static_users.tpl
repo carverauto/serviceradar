@@ -39,7 +39,6 @@ Add or change a built-in identity's subjects only here.
 {{- $flowCollectorConfig := default (dict) $flowCollector.config -}}
 {{- $flowCollectorEnabled := default false $flowCollector.enabled -}}
 {{- $flowCollectorStream := default "flows" $flowCollectorConfig.stream_name -}}
-{{- $edgeRecordsEnabled := (default dict .Values.edgeRecords).enabled -}}
 {{- /* B-5 sub-issue 2: partition_id scopes the agent's config subjects. The
      top-level `.Values.partitionId` is the source of truth; agent.partitionId
      is honored as a fallback for releases that only set it under .agent. It
@@ -217,7 +216,9 @@ Add or change a built-in identity's subjects only here.
       - "_INBOX.>"
     deny: ["$SYS.>"]
 {{- /* Agent gateway is the authenticated edge ingress for agent gRPC
-     telemetry: sysmon/SNMP status metrics and relayed OTLP chunks. It is not a
+     telemetry: durable edge records (primary, audit and security-quarantine
+     routes; the pipeline is always on, so these are unconditional), sysmon/SNMP
+     status metrics and relayed OTLP chunks. It is not a
      general NATS producer and cannot publish flow attribution, trap/syslog
      logs, or events. metrics.agent_gateway carries the gateway's own core-call
      latency and status-buffer depth (RuntimeMetrics). It waits for a PubAck,
@@ -225,11 +226,9 @@ Add or change a built-in identity's subjects only here.
 - user: "CN=serviceradar-agent-gateway,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
   publish:
     allow:
-      {{- if $edgeRecordsEnabled }}
       - "telemetry.edge-record.v1.bulk.>"
       - "telemetry.edge-record-audit.v1.bulk.>"
       - "telemetry.edge-record-security-quarantine.v1.bulk.>"
-      {{- end }}
       - "metrics.sysmon.>"
       - "metrics.snmp.>"
       - "metrics.icmp.>"
