@@ -63,8 +63,11 @@ delivery and never reaches the terminal one.
 longest-waiting first, admits each in `seq` order up to its first refusal and
 continues with the next series, so series stuck behind a saturated rule do not
 starve the rest; that part stops after 1,000 admissions or 30 seconds. It then
-drains the `event` and `metric` lanes from their heads until they are empty,
-refused, or 30 seconds have elapsed. Nothing caps the backlog and nothing in it
+drains the `event` and `metric` lanes from their heads, each until it is empty,
+refused, held by another drainer, or its own 30-second budget has elapsed, so a
+busy event lane never takes the metric lane's turn. A node in `prepared` mode
+neither admits nor deletes backlog rows in any lane; they wait for an activated
+peer. Nothing caps the backlog and nothing in it
 is truncated; it is bounded by the CNPG volume.
 
 Each run reports the backlog. The `alert_admission_backlog` ingestion lane

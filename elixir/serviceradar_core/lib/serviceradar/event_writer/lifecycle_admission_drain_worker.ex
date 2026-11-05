@@ -15,8 +15,8 @@ defmodule ServiceRadar.EventWriter.LifecycleAdmissionDrainWorker do
       the ones behind it; this part stops after 1,000 admissions or 30
       seconds (`AnalyticsSignals.drain_pending_admissions/1`);
     * drains each deferred event and metric lane from its head, chunk by
-      chunk, until it is empty, refused or 30 seconds have elapsed
-      (`AlertAdmissionBacklog.drain/1`);
+      chunk, until it is empty, refused, busy or its own 30-second budget
+      has elapsed (`AlertAdmissionBacklog.drain/1`);
     * reports the backlog's size and age and its `alert-admission-backlog`
       health check (`AlertAdmissionBacklog.report/0`).
 
