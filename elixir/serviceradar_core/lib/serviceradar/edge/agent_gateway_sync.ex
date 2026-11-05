@@ -280,6 +280,10 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     end
   end
 
+  @doc "Directives for the gateway to return on the agent's next status push, by target."
+  @spec status_directives(String.t()) :: {:ok, map()}
+  defdelegate status_directives(agent_id), to: ServiceRadar.Inventory.EndpointInventoryIngestor
+
   @spec reconcile_agent_release(String.t()) :: :ok
   def reconcile_agent_release(agent_id) do
     AgentReleaseManager.reconcile_agent(agent_id)

@@ -180,19 +180,6 @@ defmodule ServiceRadarAgentGateway.RuntimeMetrics do
   defp metric_token(value) when is_binary(value), do: value
   defp metric_token(_value), do: "other"
 
-  defp metric_source(%{source: source}) when source in ["flow-attribution", :flow_attribution], do: "flow-attribution"
-
-  defp metric_source(%{source: source}) when source in ["plugin-result", :plugin_result], do: "plugin-result"
-
-  defp metric_source(%{source: source}) when source in ["otlp-relay", :otlp_relay], do: "otlp-relay"
-
-  defp metric_source(%{source: source}) when source in ["results", :results], do: "results"
-
-  defp metric_source(%{source: source}) when source in ["status", :status], do: "status"
-
-  defp metric_source(%{source: "addon:" <> _rest}), do: "addon"
-
-  defp metric_source(%{source: "plugin:" <> _rest}), do: "plugin"
-
+  defp metric_source(%{source: source}) when source in ["status", "plugin-telemetry"], do: source
   defp metric_source(_status), do: "other"
 end

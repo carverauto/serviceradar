@@ -131,9 +131,9 @@
   results contract and its payload are defined, shipped, and have passed the farm01 parity soak.
   This task also carries `unify-sweep-results-proto` M4.2, 7.4, 7.5 and the `GetSummary`
   delivery-ownership half of 2.1, which moved here on 2026-11-02.
-  PARTIAL (2026-11-04): the agent half is done (8.1.1); the gateway publishers and core
-  status-path consumers remain (8.1.2). The family soaks gate the release cut, not this code
-  (design Decision 9).
+  PARTIAL (2026-11-04): the agent half (8.1.1) and the gateway half of 8.1.2 are done; deleting
+  core's now-unreachable durable ingest tree remains (8.1.2). The family soaks gate the release
+  cut, not this code (design Decision 9).
   - [x] 8.1.1 Agent: remove every legacy agent emission of durable data, including unleased sweep
     results on `serviceradar.sweep`, the leased-slot run without a spool, and every
     fallback-to-legacy branch. A producer without a grant or spool holds its data (design
@@ -148,6 +148,20 @@
     ingest result of a status-path scan; with scans only on edge records no directive is produced
     any more, so core needs another carrier for that request (the agent still applies any
     `endpoint_inventory.*` directive a `PushStatus` response carries).
+    PARTIAL (2026-11-04, gateway half): the gateway publishes and forwards no durable agent data
+    from the status RPCs. Deleted: the sysmon, SNMP, ICMP, rperf, MTR and sweep metric publishers,
+    the package telemetry metric publisher, the OTLP relay and k8s public endpoint publishers, the
+    shared metrics publisher, batch splitter and envelope attestation, and the synchronous
+    retained-delivery path that forwarded `results`, `plugin-result`, `flow-attribution` and
+    `workload-identity` to core. `ServiceRadarAgentGateway.RetiredStatusSources` refuses those
+    sources, counts them per agent and surfaces them as `agent_upgrade_pending` (design Decision
+    9). The reconcile-floor directive now comes from core state recorded by the edge projector
+    (`AgentGatewaySync.status_directives/1`) on the push carrying the agent capability status.
+    Remaining: the chart (the dead gateway publisher env vars), and deleting core's
+    now-unreachable durable ingest tree (the flow, retained-plugin, sweep and result lanes,
+    `SweepQueue`, `ResultsRouter`, the non-sweep `ResultIngestor` clauses and the durable
+    `StatusIngestor` clauses), which needs the LargeIngestionGate release qualification moved off
+    `results_router_release_gate_test.exs` and `results_router_integration_test.exs` first.
 - [ ] 8.2 Confirm no durable agent data remains on `StreamStatus`/`PushStatus`; only control
   traffic and ephemeral status summaries stay there.
   PARTIAL (2026-11-04): agent side confirmed. The agent opens no `StreamStatus` stream, and
@@ -157,5 +171,6 @@
   `mtr-metrics`, `rperf-metrics`, `sweep-metrics`, `results` (sweep, mtr_traces, mapper,
   mapper_interfaces, mapper_topology, passive netprobe, sync), `flow-attribution`,
   `workload-identity`, `plugin-result`, `plugin:<id>`, `addon:<id>`, `otlp-relay`, and the
-  endpoint inventory, bumblebee and k8s public endpoints service payloads. Remaining: the gateway
-  half of 8.1.2.
+  endpoint inventory, bumblebee and k8s public endpoints service payloads. Gateway side: the
+  gateway accepts only sources `status` and `plugin-telemetry` on `StreamStatus`/`PushStatus`
+  and refuses every other source. Remaining: core's durable ingest tree (8.1.2).

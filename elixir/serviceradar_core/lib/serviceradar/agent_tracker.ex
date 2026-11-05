@@ -15,6 +15,15 @@ defmodule ServiceRadar.AgentTracker do
 
       # Check if an agent is active (pushed status within TTL)
       AgentTracker.active?("docker-agent")
+
+  ## Refused statuses
+
+  An agent built before the edge-record cutover still sends durable data on the status RPCs.
+  The gateway refuses it and counts it here with `record_refused_statuses/2`, per agent and
+  source family. `list_agents/0` and `get_agent/1` report the counts as `refused_statuses`
+  and the time of the latest refusal as `last_refused_at`; the edge pipeline readiness report
+  reads them through `ServiceRadar.AgentRuntimeMetadata`. The counts live as long as the
+  agent's tracker entry.
   """
 
   use GenServer
@@ -22,6 +31,10 @@ defmodule ServiceRadar.AgentTracker do
   require Logger
 
   @table :agent_tracker
+  # {{agent_id, family}, count} and {{agent_id, :last_refused_at}, DateTime}. A table of its
+  # own so an increment is one atomic update_counter, which a read-merge-insert of the
+  # agent's info map in track_agent/2 cannot overwrite.
+  @refused_table :agent_tracker_refused_statuses
   @stale_threshold_ms to_timeout(minute: 2)
   @cleanup_interval_ms to_timeout(minute: 1)
 
@@ -67,16 +80,39 @@ defmodule ServiceRadar.AgentTracker do
   @spec list_agents() :: [map()]
   def list_agents do
     now = System.monotonic_time(:millisecond)
+    refused = refused_by_agent()
 
     @table
     |> :ets.tab2list()
-    |> Enum.map(fn {_key, info} ->
+    |> Enum.map(fn {agent_id, info} ->
       age_ms = now - Map.get(info, :last_seen_mono, now)
-      Map.put(info, :active, age_ms < @stale_threshold_ms)
+
+      info
+      |> Map.put(:active, age_ms < @stale_threshold_ms)
+      |> Map.merge(Map.get(refused, agent_id, %{}))
     end)
     |> Enum.sort_by(& &1.agent_id)
   rescue
     ArgumentError -> []
+  end
+
+  @doc """
+  Count statuses the gateway refused from an agent, because their source is retired or the
+  summary is oversized, keyed by family. Returns `:first` when these are the first refusals recorded for the agent,
+  else `:repeat`, so the caller can log once rather than on every push.
+  """
+  @spec record_refused_statuses(String.t(), %{String.t() => pos_integer()}) :: :first | :repeat
+  def record_refused_statuses(agent_id, counts) when is_binary(agent_id) and is_map(counts) do
+    first? = refused_statuses(agent_id) == %{}
+
+    Enum.each(counts, fn {family, count} ->
+      :ets.update_counter(@refused_table, {agent_id, family}, {2, count}, {{agent_id, family}, 0})
+    end)
+
+    :ets.insert(@refused_table, {{agent_id, :last_refused_at}, DateTime.utc_now()})
+    if first?, do: :first, else: :repeat
+  rescue
+    ArgumentError -> :first
   end
 
   @doc """
@@ -103,7 +139,7 @@ defmodule ServiceRadar.AgentTracker do
   @spec get_agent(String.t()) :: map() | nil
   def get_agent(agent_id) do
     case :ets.lookup(@table, agent_id) do
-      [{_key, info}] -> info
+      [{_key, info}] -> Map.merge(info, refused_fields(agent_id))
       [] -> nil
     end
   rescue
@@ -116,6 +152,7 @@ defmodule ServiceRadar.AgentTracker do
   @spec remove_agent(String.t()) :: :ok
   def remove_agent(agent_id) do
     :ets.delete(@table, agent_id)
+    delete_refused(agent_id)
     :ok
   rescue
     ArgumentError -> :ok
@@ -137,6 +174,7 @@ defmodule ServiceRadar.AgentTracker do
   def init(_opts) do
     # Create ETS table for tracking agents
     :ets.new(@table, [:set, :public, :named_table, read_concurrency: true])
+    :ets.new(@refused_table, [:set, :public, :named_table, write_concurrency: true])
 
     # Schedule periodic cleanup of stale entries
     schedule_cleanup()
@@ -154,6 +192,38 @@ defmodule ServiceRadar.AgentTracker do
   def handle_info(_msg, state), do: {:noreply, state}
 
   # Private Functions
+
+  defp refused_by_agent do
+    @refused_table
+    |> :ets.tab2list()
+    |> Enum.reduce(%{}, fn {{agent_id, key}, value}, acc ->
+      Map.update(acc, agent_id, refused_entry(key, value, %{}), &refused_entry(key, value, &1))
+    end)
+  rescue
+    ArgumentError -> %{}
+  end
+
+  defp refused_fields(agent_id) do
+    @refused_table
+    |> :ets.match_object({{agent_id, :_}, :_})
+    |> Enum.reduce(%{}, fn {{_agent_id, key}, value}, acc -> refused_entry(key, value, acc) end)
+  rescue
+    ArgumentError -> %{}
+  end
+
+  defp refused_entry(:last_refused_at, at, fields), do: Map.put(fields, :last_refused_at, at)
+
+  defp refused_entry(family, count, fields),
+    do: Map.update(fields, :refused_statuses, %{family => count}, &Map.put(&1, family, count))
+
+  defp refused_statuses(agent_id),
+    do: agent_id |> refused_fields() |> Map.get(:refused_statuses, %{})
+
+  defp delete_refused(agent_id) do
+    :ets.match_delete(@refused_table, {{agent_id, :_}, :_})
+  rescue
+    ArgumentError -> true
+  end
 
   defp existing_agent_info(agent_id) do
     case :ets.lookup(@table, agent_id) do
@@ -215,6 +285,7 @@ defmodule ServiceRadar.AgentTracker do
 
       if last_seen_mono < stale_threshold do
         :ets.delete(@table, agent_id)
+        delete_refused(agent_id)
         Logger.debug("[AgentTracker] Removed stale agent: #{agent_id}")
       end
     end)

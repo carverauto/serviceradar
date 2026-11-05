@@ -4,9 +4,8 @@ defmodule ServiceRadar.Edge.Projectors.K8sPublicEndpoints do
   `ServiceRadar.EventWriter.Processors.K8sPublicEndpoints`, the destination
   agent-forwarded Kubernetes public endpoint snapshots have today.
 
-  Each snapshot is rebuilt as the JSON snapshot payload the legacy gateway
-  publisher (`ServiceRadarAgentGateway.K8sPublicEndpointsPublisher`) forwarded,
-  stamped with the authenticated agent identity and partition headers from the
+  Each snapshot is rebuilt as the JSON snapshot payload the gateway forwarded on
+  the status path before the edge-record cutover, stamped with the authenticated agent identity and partition headers from the
   record's producer context and network scope, so `Processors.K8sPublicEndpoints`
   enforces `platform.k8s_inventory_cluster_bindings`, upserts
   `platform.public_endpoints_current`, soft-deletes missing cluster endpoints,

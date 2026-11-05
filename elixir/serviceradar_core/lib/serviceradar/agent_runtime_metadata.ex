@@ -128,7 +128,9 @@ defmodule ServiceRadar.AgentRuntimeMetadata do
       partition: runtime_field(agent, :partition),
       os: runtime_field(agent, :os),
       arch: runtime_field(agent, :arch),
-      deployment_type: runtime_field(agent, :deployment_type)
+      deployment_type: runtime_field(agent, :deployment_type),
+      refused_statuses: runtime_field(agent, :refused_statuses),
+      last_refused_at: runtime_field(agent, :last_refused_at)
     }
   end
 

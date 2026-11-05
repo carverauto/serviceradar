@@ -47,17 +47,16 @@ consumer promotes logs that match an event rule into
 OCSF events as it stores them; there is no separate promotion consumer, so each
 log is promoted once, under an id derived from the JetStream message.
 
-A current agent sends no metric batch on the status path (see below). When an
-agent built before edge-record-only delivery still sends one, `agent-gateway`
-splits oversized protobuf batches before publishing them to NATS. The gateway uses the broker-advertised
-`max_payload` with headroom for NATS headers; no agent-side batch-size setting
-is required. Large multi-port sweep groups can therefore produce several
-messages on the same subject. A warning reports the original byte count,
-broker limit, number of parts and `dropped_points`. A point that cannot fit by
-itself is dropped; if no parts remain, publishing returns an error. The
-payload-budget and per-part deduplication contracts live in
-`ServiceRadarAgentGateway.MetricBatchPublisher` and
-`ServiceRadarAgentGateway.MetricBatchSplit`.
+The agent status RPCs (`PushStatus`, `StreamStatus`) carry only ephemeral status
+summaries: service health heartbeats and plugin-engine counters. `agent-gateway`
+publishes no agent data from them. An agent built before the edge-record cutover
+still sends metrics, results and telemetry there; the gateway refuses that data
+without storing it, and it refuses a summary over 4 KiB whole rather than cutting
+it. It counts each refusal per agent and family (`oversized_summary` for a
+summary that is too large)
+(`serviceradar_agent_gateway_status_retired_source_refused_count`), and the agent
+shows the `agent_upgrade_pending` edge pipeline condition with the refused counts
+until it is upgraded.
 
 Every durable agent data family travels only as edge records in the agent's
 spool. The status path (`PushStatus`) carries nothing but service status

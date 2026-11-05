@@ -3,11 +3,11 @@ defmodule ServiceRadar.Edge.Projectors.OtlpRelay do
   Projects `serviceradar.otlp.relay` v1 records onto the canonical OTLP JetStream subjects
   (`otel.traces.raw`, `logs.otel`, `otel.metrics.raw`, `otel.metrics.derived`).
 
-  The legacy status path sends an agent's `TelemetryBatch` inside an `otlp-relay` status to
-  the gateway (`ServiceRadarAgentGateway.OtlpRelayPublisher`), which emits
-  `[:serviceradar, :otlp_relay, :spool]` counters, stamps `Sr-*` attribution headers from the
-  authenticated session, and publishes each `TelemetryRecord.payload` verbatim to its OTLP
-  subject while emitting `[:serviceradar, :event_writer, :signal]` (`outcome: :relayed`).
+  Before the edge-record cutover the gateway published an `otlp-relay` status the same way:
+  `[:serviceradar, :otlp_relay, :spool]` counters, `Sr-*` attribution headers from the
+  authenticated session, and each `TelemetryRecord.payload` verbatim on its OTLP subject with
+  `[:serviceradar, :event_writer, :signal]` (`outcome: :relayed`). This projector is now the
+  only publisher.
 
   This projector decodes an `OtlpRelayFrame` from an authenticated `EdgeRecordV1`, resolves
   the partition slug from `record.network_scope_id` via `Partition.get_by_id/2` (refusing the

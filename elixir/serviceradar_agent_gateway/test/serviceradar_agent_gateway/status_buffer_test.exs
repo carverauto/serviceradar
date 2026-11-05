@@ -38,8 +38,8 @@ defmodule ServiceRadarAgentGateway.StatusBufferTest do
     old_status = %{
       gateway_id: "gateway-old",
       partition: "partition-old",
-      source: "results",
-      service_type: "sync",
+      source: "plugin-telemetry",
+      service_type: "plugin",
       message: "old"
     }
 
@@ -61,8 +61,8 @@ defmodule ServiceRadarAgentGateway.StatusBufferTest do
     assert metadata.reason == :overflow
     assert metadata.gateway_id == "gateway-old"
     assert metadata.partition == "partition-old"
-    assert metadata.source == "results"
-    assert metadata.service_type == "sync"
+    assert metadata.source == "plugin-telemetry"
+    assert metadata.service_type == "plugin"
     assert 1 == GenServer.call(buffer, :size)
 
     assert %{queue: queue, retained_bytes: retained_bytes} = :sys.get_state(buffer)

@@ -197,6 +197,52 @@ are release gates under `enable-edge-record-pipeline-by-default` Decision 13 (ta
 release candidate that carries this removal is what M4.1 soaks on farm01. The code therefore lands
 before the soak; the release is not cut until the soaks pass.
 
+#### Gateway half: the status RPCs refuse durable data and count it per agent (2026-11-04)
+
+The cutover release removes every gateway publisher that served durable agent data on
+`StreamStatus`/`PushStatus`, including the gateway sweep publisher and `serviceradar.sweep`
+results: the unleased sweep results contract shipped (#6255, #6302), and the family soaks are
+release gates (the farm01 M4.1 run of the release candidate,
+`enable-edge-record-pipeline-by-default` Decision 13), not code gates. With the gateway
+forwarding only summaries, core's durable status ingest (the flow, retained-plugin, sweep and
+result lanes, `SweepQueue`, `ResultsRouter`) receives nothing; deleting it is tracked in task 8.1
+because the LargeIngestionGate release qualification runs on it today.
+
+What stays on the status RPCs is ephemeral and latest-wins: source `status` (service health
+heartbeats, including the `agent` capability status core reads add-on state from) and
+`plugin-telemetry` (plugin-engine counters). Control traffic (hello, config, control stream,
+leases, certificates, credential grants, artifacts) never used these RPCs. RTSP and live media
+are untouched.
+
+An agent built before the cutover still sends durable data there. The gateway
+(`ServiceRadarAgentGateway.RetiredStatusSources`) does not publish, forward or buffer it, and it
+does not drop it silently:
+
+- It counts each refused status per agent and bounded source family in the agent tracker
+  (`ServiceRadar.AgentTracker.record_refused_statuses/2`) and as the gateway metric
+  `serviceradar_agent_gateway_status_retired_source_refused_count{source}`, and logs the first
+  refusal per agent.
+- The existing per-agent condition `agent_upgrade_pending`
+  (`ServiceRadar.Edge.PipelineReadiness`) now also holds for an agent the gateway refused
+  anything from, with `refused_statuses` and `last_refused_at` in its detail. It shows in the
+  readiness report, the agent API and the agent detail page. No parallel mechanism is added.
+- The RPC answers `received: false` when every status in it was refused and never fails: a
+  status RPC error makes the agent tear down its gateway connection, and with it the control
+  stream that delivers the upgrade.
+
+A status summary is refused whole when its message exceeds 4 KiB; it is never cut. It is counted
+like a retired source, under the family `oversized_summary`.
+
+The PushStatus response still carries the endpoint inventory directives the agent applies. A
+scan used to produce its `endpoint_inventory.reconcile_floor` directive from its own status-path
+ingest result; scans now arrive only as edge records, whose acknowledgement carries nothing back
+to the agent. So on the push carrying the agent capability status (once per status interval)
+the gateway asks core (`AgentGatewaySync.status_directives/1`), which reads the agent's current
+scan as the projection recorded it and requests a full upload while that scan has reached the
+floor. The request repeats each interval until the full upload is projected and clears the
+floor; the agent keeps only the newest request, so a repeat costs at most one extra full upload
+when it races the projection. No agent or proto change is involved.
+
 ## Risks
 
 - **Spool sharing.** All producers share one spool budget; admission backpressure and byte-fair

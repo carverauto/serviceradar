@@ -34,6 +34,28 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
   @default_reconcile_floor_scan_count 24
   @default_reconcile_floor_max_age_days 7
 
+  @doc """
+  The directives the agent gateway returns to an agent on its next status push.
+
+  Scans reach core only as edge records (`ServiceRadar.Edge.Projectors.EndpointInventory`),
+  whose acknowledgement carries no directive back to the agent. So the reconcile floor is read
+  from the agent's current scan as the projection recorded it: while that scan has reached the
+  floor, every status interval asks the agent for a full upload, until the full upload is
+  projected and clears it. Repeating the request is harmless; the agent records the newest one.
+  """
+  @spec status_directives(String.t()) :: {:ok, map()}
+  def status_directives(agent_id) when is_binary(agent_id) do
+    floor_due? =
+      Repo.exists?(
+        from(s in "endpoint_inventory_scans",
+          where: s.agent_id == ^agent_id and s.current == true and s.reconcile_floor_due == true
+        ),
+        prefix: "platform"
+      )
+
+    {:ok, scan_ack_directives(%{reconcile_floor_due?: floor_due?})}
+  end
+
   @spec ingest_report(map(), keyword()) :: {:ok, map()} | {:error, term()}
   def ingest_report(payload, opts \\ [])
 

@@ -28,11 +28,15 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
 
     * `:spool_unavailable` - the agent reported that its edge-record spool could not be
       opened, so it has nowhere to put edge records. Detail: `error`.
-    * `:agent_upgrade_pending` - the agent runs a build from before the default-on edge-record
-      sender: its last check-in carried no spool status. Detail: `version`.
+    * `:agent_upgrade_pending` - the agent runs a build from before the edge-record cutover:
+      its last check-in carried no spool status, or it still sends durable data on the retired
+      status RPCs, which the gateway refuses and counts in its agent tracker. Detail: `version`,
+      and, when the gateway refused anything, `refused_statuses` (count by source family) and
+      `last_refused_at`.
 
   The last two come from the agent's last check-in (`metadata.edge_record_spool`, which the
-  gateway records from the hello), so they are reported for connected agents only.
+  gateway records from the hello) and the live tracker entry, so they are reported for
+  connected agents only.
 
   Superseded agent identities are left out: they have been replaced and produce nothing.
   """
@@ -155,7 +159,7 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
     do: [%{reason: :agent_disconnected, detail: %{}}]
 
   defp connection_conditions(agent, runtime, facts) do
-    spool_conditions(agent) ++
+    spool_conditions(agent, runtime) ++
       if present(runtime[:deployment_type]) in @image_deployment_types do
         []
       else
@@ -163,10 +167,28 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
       end
   end
 
-  defp spool_conditions(agent) do
+  defp spool_conditions(agent, runtime) do
+    refused = refused_detail(runtime)
+
     case recorded_spool(agent) do
-      nil -> [%{reason: :agent_upgrade_pending, detail: %{version: agent.version}}]
-      spool -> spool_status_conditions(spool)
+      nil -> [upgrade_pending(agent, refused)]
+      spool -> spool_status_conditions(spool) ++ refused_conditions(agent, refused)
+    end
+  end
+
+  defp refused_conditions(_agent, refused) when map_size(refused) == 0, do: []
+  defp refused_conditions(agent, refused), do: [upgrade_pending(agent, refused)]
+
+  defp upgrade_pending(agent, refused),
+    do: %{reason: :agent_upgrade_pending, detail: Map.put(refused, :version, agent.version)}
+
+  defp refused_detail(runtime) do
+    case runtime[:refused_statuses] do
+      %{} = counts when map_size(counts) > 0 ->
+        %{refused_statuses: counts, last_refused_at: runtime[:last_refused_at]}
+
+      _none ->
+        %{}
     end
   end
 

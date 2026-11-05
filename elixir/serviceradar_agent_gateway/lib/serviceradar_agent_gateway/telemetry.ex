@@ -64,6 +64,12 @@ defmodule ServiceRadarAgentGateway.Telemetry do
         tags: [:gateway_id],
         tag_values: &buffer_tag_values/1
       ),
+      sum("serviceradar.agent_gateway.status.retired_source_refused.count",
+        event_name: [:serviceradar, :agent_gateway, :status, :retired_source_refused],
+        measurement: :count,
+        tags: [:source, :gateway_id],
+        tag_values: &refused_tag_values/1
+      ),
       counter("serviceradar.agent_gateway.control_stream.established.count",
         event_name: [:serviceradar, :agent_gateway, :control_stream, :established],
         tags: [:gateway_id],
@@ -141,6 +147,13 @@ defmodule ServiceRadarAgentGateway.Telemetry do
       service_type: stringify(metadata[:service_type], "unknown"),
       gateway_id: stringify(metadata[:gateway_id], "unknown"),
       partition: stringify(metadata[:partition], "default")
+    }
+  end
+
+  defp refused_tag_values(metadata) do
+    %{
+      source: stringify(metadata[:source], "other"),
+      gateway_id: stringify(metadata[:gateway_id], "unknown")
     }
   end
 

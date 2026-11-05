@@ -20,9 +20,12 @@ defmodule ServiceRadarAgentGateway.AgentRegistryProxy do
       capabilities are dropped. The window is longer than the agent's slowest
       heartbeat, so this only removes agents that have gone away.
 
-  Negotiated capabilities deliberately survive the end of a control session: an
-  agent keeps pushing retained results over unary RPCs after its stream drops,
-  and those must still be acknowledged under the capabilities it negotiated.
+  Negotiated capabilities still survive the end of a control session, but
+  nothing reads them any more: the gateway refuses retained results on the
+  status RPCs, and `delivery_capabilities/2` has no remaining caller. The store
+  stays only because control sessions report through the same
+  `sync_delivery_capabilities/3` call that this proxy uses to track them. Its
+  removal is tracked in issue #6339.
   """
 
   use GenServer

@@ -452,7 +452,8 @@ your values before upgrading (see "Upgrading from the static registry" in
   core's authorization callout grants alike.
 - **The agent** always runs its edge-record sender and spool. Each producer
   emits edge records exactly while it holds core's grant for its contract and
-  keeps the status path otherwise. Core sends the spool byte budget in the
+  holds its data otherwise; the gateway refuses durable data on the status
+  RPCs. Core sends the spool byte budget in the
   agent config. The bundled agent's config names only the spool directory,
   `<agent.runtimeStorage.basePath>/edge-records`, so the spool stays on the
   agent runtime volume. Keep `agent.runtimeStorage.enabled` on: with it off,
@@ -478,8 +479,8 @@ agent holds a current `serviceradar.netprobe.flow_attribution` version 1 or
 runs from its own config, without a lease, move to edge records only when the
 agent also holds a `serviceradar.sweep.unleased_results` version 1 grant; each
 results response and its metric batch then take the edge path together, and
-otherwise both keep the legacy results path. Full traces from agent-scheduled
-MTR checks leave the status path only when the agent also holds a
+otherwise the agent holds both. Full traces from agent-scheduled MTR checks
+travel as edge records only when the agent also holds a
 `serviceradar.mtr.scheduled_trace` version 1 grant; the metrics grant does not
 carry them. The gateway rejects records for any contract the signed epoch they
 name does not carry.

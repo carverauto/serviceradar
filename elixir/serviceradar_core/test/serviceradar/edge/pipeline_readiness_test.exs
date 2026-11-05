@@ -124,4 +124,35 @@ defmodule ServiceRadar.Edge.PipelineReadinessTest do
     # A disconnected agent's last check-in says nothing current about its build.
     assert reasons(old, facts(%{runtime: %{}})) == [:agent_disconnected]
   end
+
+  test "an agent whose durable status-path data the gateway refused is upgrade pending, with the counts" do
+    refused_at = ~U[2026-11-04 12:00:00Z]
+
+    refusing =
+      facts(%{
+        runtime: %{
+          "agent-1" =>
+            runtime(%{
+              refused_statuses: %{"sysmon-metrics" => 3, "results" => 1},
+              last_refused_at: refused_at
+            })
+        }
+      })
+
+    # Even a build that reports its spool still sends on the retired path, so it is not ready.
+    assert [
+             %{
+               reason: :agent_upgrade_pending,
+               detail: %{
+                 version: "1.4.1",
+                 refused_statuses: %{"sysmon-metrics" => 3, "results" => 1},
+                 last_refused_at: ^refused_at
+               }
+             }
+           ] = PipelineReadiness.conditions(agent(%{version: "1.4.1"}), refusing)
+
+    # A build without spool status gets one condition that carries both facts.
+    assert [%{reason: :agent_upgrade_pending, detail: %{refused_statuses: %{"results" => 1}}}] =
+             PipelineReadiness.conditions(agent(%{metadata: %{}, version: "1.4.0"}), refusing)
+  end
 end
