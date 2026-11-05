@@ -18,6 +18,7 @@ defmodule ServiceRadar.Inventory.AvailabilityResolutionIntegrationTest do
   alias ServiceRadar.CompositeChecks.CompositeCheckInput
   alias ServiceRadar.Inventory.Availability
   alias ServiceRadar.Inventory.Availability.ExpiryWorker
+  alias ServiceRadar.Inventory.Availability.PinSilenceWorker
   alias ServiceRadar.Inventory.Availability.Resolution
   alias ServiceRadar.Inventory.Availability.ResolverWorker
   alias ServiceRadar.Inventory.Availability.Transitions
@@ -283,6 +284,38 @@ defmodule ServiceRadar.Inventory.AvailabilityResolutionIntegrationTest do
       assert %{state: "unknown", agents: %{"stale" => 1}} = decision(probed.uid)
       assert device_xmin(fresh.uid) == fresh_version
       assert watermark_lag_seconds() < 60
+    end
+
+    test "a deciding agent silent for one interval expires its pin; a fresh pin is untouched",
+         %{actor: actor} do
+      silent = create_device!(actor, "192.0.2.133")
+      fresh = create_device!(actor, "192.0.2.134")
+      {group, agent_id} = sweep_group!(actor)
+
+      Repo.query!(~s(UPDATE platform.sweep_groups SET "interval" = '1m' WHERE id::text = $1), [
+        group.id
+      ])
+
+      # Two minutes is one missed 1m cycle, still inside the 7-minute ledger TTL.
+      sweep!(actor, group, agent_id, "192.0.2.133", true, minutes_ago(2))
+      sweep!(actor, group, agent_id, "192.0.2.134", true, minutes_ago(0))
+
+      for device <- [silent, fresh], do: pin!(actor, device, agent_id)
+      drain!()
+
+      for device <- [silent, fresh] do
+        assert %{state: "available", agents: %{"up" => 1}} = decision(device.uid)
+      end
+
+      fresh_version = device_xmin(fresh.uid)
+
+      assert :ok = PinSilenceWorker.perform(%Oban.Job{})
+
+      assert %{state: "unknown", agents: %{"stale" => 1}, previous: "available"} =
+               decision(silent.uid)
+
+      assert [{^agent_id, true, _checked_at, _down}] = ledger(silent.uid)
+      assert device_xmin(fresh.uid) == fresh_version
     end
   end
 
