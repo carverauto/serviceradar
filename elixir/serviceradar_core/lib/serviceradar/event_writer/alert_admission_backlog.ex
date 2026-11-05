@@ -110,7 +110,7 @@ defmodule ServiceRadar.EventWriter.AlertAdmissionBacklog do
   # The lane lock is held from the empty check through the direct admission or
   # the deferral, so no record is admitted ahead of an older deferred one.
   defp admit_or_defer(signal, records, opts) do
-    fn ->
+    Inbox.with_notification_queue(fn ->
       Repo.transaction(
         fn ->
           AdvisoryLocks.acquire_ordered!([{:exclusive, @lane_lock_prefix <> lane(signal)}])
@@ -131,8 +131,7 @@ defmodule ServiceRadar.EventWriter.AlertAdmissionBacklog do
         end,
         timeout: :infinity
       )
-    end
-    |> Inbox.with_notification_queue()
+    end)
   rescue
     error -> {:error, error}
   end
