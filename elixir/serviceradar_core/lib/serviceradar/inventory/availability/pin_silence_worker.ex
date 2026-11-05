@@ -44,7 +44,7 @@ defmodule ServiceRadar.Inventory.Availability.PinSilenceWorker do
     AND d.deleted_at IS NULL
   JOIN platform.sweep_groups AS g ON g.id = a.sweep_group_id
     AND g."interval" ~* '^[0-9]{1,9}[smhd]$'
-  WHERE a.available = true
+  WHERE a.is_available = true
     AND a.checked_at < (
       clock_timestamp() AT TIME ZONE 'utc' - (
         CASE lower(right(g."interval", 1))
@@ -72,7 +72,7 @@ defmodule ServiceRadar.Inventory.Availability.PinSilenceWorker do
     AND d.availability_source_agent_id = a.agent_id
     AND d.availability_state = 'available'
     AND d.uid = ANY($1::text[])
-    AND a.available = true
+    AND a.is_available = true
   """
 
   @impl Oban.Worker
