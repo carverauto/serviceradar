@@ -377,7 +377,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
       ServiceRadar.Repo.query!(
         """
         SELECT min(seq), class_uid, series_key
-        FROM platform.alert_pending_admissions
+        FROM platform.lifecycle_pending_admissions
         WHERE lane = 'lifecycle'
         GROUP BY class_uid, series_key
         HAVING (min(seq), class_uid, series_key) > ($1::bigint, $2::int, $3::text)
@@ -717,7 +717,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
       SELECT DISTINCT ON (events.id) events.id::text, events.time, events.status,
         events.unmapped ->> 'finding_version',
         EXISTS (
-          SELECT 1 FROM platform.alert_pending_admissions AS pending
+          SELECT 1 FROM platform.lifecycle_pending_admissions AS pending
           WHERE pending.lane = 'lifecycle' AND pending.event_id = events.id
         )
       FROM platform.ocsf_events AS events
@@ -1306,7 +1306,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
       ServiceRadar.Repo.query!(
         """
         SELECT occurrence_id::text, class_uid, series_key, event_id::text, occurrence
-        FROM platform.alert_pending_admissions
+        FROM platform.lifecycle_pending_admissions
         WHERE lane = 'lifecycle' AND (class_uid, series_key) IN (
           SELECT * FROM unnest($1::int[], $2::text[])
         )
@@ -1350,7 +1350,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     %{num_rows: num_rows} =
       ServiceRadar.Repo.query!(
         """
-        SELECT 1 FROM platform.alert_pending_admissions
+        SELECT 1 FROM platform.lifecycle_pending_admissions
         WHERE occurrence_id = ($1::text)::uuid
         FOR UPDATE
         """,
@@ -1362,7 +1362,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
   defp release_pending_admission(occurrence_id) do
     ServiceRadar.Repo.query!(
-      "DELETE FROM platform.alert_pending_admissions WHERE occurrence_id = ($1::text)::uuid",
+      "DELETE FROM platform.lifecycle_pending_admissions WHERE occurrence_id = ($1::text)::uuid",
       [occurrence_id]
     )
 
@@ -1396,7 +1396,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     if entries != [] do
       ServiceRadar.Repo.query!(
         """
-        INSERT INTO platform.alert_pending_admissions (
+        INSERT INTO platform.lifecycle_pending_admissions (
           occurrence_id, lane, class_uid, series_key, event_time, event_id, occurrence
         )
         SELECT occurrence_id, 'lifecycle', class_uid, series_key, event_time, event_id,

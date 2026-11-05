@@ -1,7 +1,7 @@
 defmodule ServiceRadar.Observability.ProductionScheduleTest do
   use ExUnit.Case, async: true
 
-  alias ServiceRadar.EventWriter.AlertAdmissionDrainWorker
+  alias ServiceRadar.EventWriter.LifecycleAdmissionDrainWorker
   alias ServiceRadar.Observability.AnomalyAddonConfigProjector
   alias ServiceRadar.Observability.AnomalyAlertLivenessWorker
   alias ServiceRadar.Observability.AnomalyEpisodeStaleCloseWorker
@@ -40,7 +40,7 @@ defmodule ServiceRadar.Observability.ProductionScheduleTest do
       assert {"*/5 * * * *", opts} = by_worker[AnomalyEpisodeStaleCloseWorker]
       assert opts[:queue] == :maintenance
 
-      assert {"* * * * *", opts} = by_worker[AlertAdmissionDrainWorker]
+      assert {"* * * * *", opts} = by_worker[LifecycleAdmissionDrainWorker]
       assert opts[:queue] == :maintenance
 
       assert {"*/30 * * * *", opts} = by_worker[ResolveStaleAnomaliesWorker]

@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Refused alert admission is deferred durably
-EventWriter SHALL defer every stored signal's stateful alert admission that is refused as `{:overloaded, dimension}` or `:alert_evaluation_peer_not_ready` to the durable `platform.alert_pending_admissions` backlog, and SHALL acknowledge the source message once the signal and its deferred admission snapshots are committed, so that alert-evaluation backpressure lags evaluation and never loses it.
+EventWriter SHALL defer every stored signal's stateful alert admission that is refused as `{:overloaded, dimension}` or `:alert_evaluation_peer_not_ready` to the durable `platform.lifecycle_pending_admissions` backlog, and SHALL acknowledge the source message once the signal and its deferred admission snapshots are committed, so that alert-evaluation backpressure lags evaluation and never loses it.
 
 A refusal of either kind SHALL NOT fail the batch or consume a JetStream delivery. Any other failure, including a failed deferral write, SHALL still fail the batch, and the consumer's delivery limit and dead-lettering SHALL remain unchanged. Each signal's deferred records SHALL form one FIFO lane: while a lane holds rows, new records SHALL join behind them rather than be admitted ahead. Lifecycle occurrences SHALL keep their per-series FIFO in the `lifecycle` lane. A deferred row SHALL be deleted only in a transaction that admitted every record it covers, and a retried admission SHALL continue after the prefix the inbox already accepted. The backlog SHALL NOT be capped or truncated.
 

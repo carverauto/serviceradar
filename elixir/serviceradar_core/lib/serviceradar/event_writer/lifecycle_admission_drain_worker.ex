@@ -1,6 +1,6 @@
-defmodule ServiceRadar.EventWriter.AlertAdmissionDrainWorker do
+defmodule ServiceRadar.EventWriter.LifecycleAdmissionDrainWorker do
   @moduledoc """
-  Admits the occurrences left in `platform.alert_pending_admissions` and
+  Admits the occurrences left in `platform.lifecycle_pending_admissions` and
   reports the backlog.
 
   EventWriter admits a backlog as traffic arrives: a batch that touches a
@@ -19,6 +19,10 @@ defmodule ServiceRadar.EventWriter.AlertAdmissionDrainWorker do
       (`AlertAdmissionBacklog.drain/1`);
     * reports the backlog's size and age and its `alert-admission-backlog`
       health check (`AlertAdmissionBacklog.report/0`).
+
+  The module keeps its lifecycle-only name: jobs already scheduled under it,
+  and the cron entries of pods from the previous release during a rolling
+  upgrade, keep resolving to this worker.
   """
 
   use Oban.Worker,

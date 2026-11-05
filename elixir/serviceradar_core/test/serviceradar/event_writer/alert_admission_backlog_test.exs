@@ -66,7 +66,7 @@ defmodule ServiceRadar.EventWriter.AlertAdmissionBacklogTest do
     assert :ok = AlertAdmissionBacklog.admit(:event, [record(:event, 1)])
 
     Repo.query!(
-      "UPDATE platform.alert_pending_admissions SET inserted_at = now() - interval '11 minutes' " <>
+      "UPDATE platform.lifecycle_pending_admissions SET inserted_at = now() - interval '11 minutes' " <>
         "WHERE lane = 'event'"
     )
 
@@ -105,7 +105,7 @@ defmodule ServiceRadar.EventWriter.AlertAdmissionBacklogTest do
       Repo.query!(
         """
         SELECT occurrence->>'id'
-        FROM platform.alert_pending_admissions
+        FROM platform.lifecycle_pending_admissions
         WHERE lane = $1
         ORDER BY seq
         """,

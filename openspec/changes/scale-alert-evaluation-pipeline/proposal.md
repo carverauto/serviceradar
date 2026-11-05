@@ -76,7 +76,7 @@ ones.
 - **BREAKING internal contract: clean switch.** Removed: the CNPG inbox
   (`alert_evaluation_work`, `alert_evaluation_lanes`,
   `alert_evaluation_receipts`), `stateful_evaluation_ledger`,
-  `alert_pending_admissions`, the `alerts` and `alert_recovery` Oban
+  `lifecycle_pending_admissions`, the `alerts` and `alert_recovery` Oban
   queues and workers, `Rollout`/`PeerReadiness`, and the Helm-rendered
   `SERVICERADAR_ALERT_EVALUATION_MODE`. A one-time cutover task imports
   residual inbox and pending rows and existing snapshots in order. There is no

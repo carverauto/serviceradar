@@ -7,16 +7,17 @@ defmodule ServiceRadar.EventWriter.AlertAdmissionBacklog do
   dimension}`) or during a rolling restart (`:alert_evaluation_peer_not_ready`),
   `admit/3` defers the refused records instead of failing the batch: their
   immutable admission snapshots are written to
-  `platform.alert_pending_admissions`, and the JetStream message is acknowledged
-  once that transaction commits. A refusal therefore never consumes a
-  JetStream delivery and can never reach the terminal one. Genuine failures
-  (an unavailable store, a failed write) still fail the batch.
+  `platform.lifecycle_pending_admissions`, and the JetStream message is
+  acknowledged once that transaction commits. A refusal therefore never
+  consumes a JetStream delivery and can never reach the terminal one. Genuine
+  failures (an unavailable store, a failed write) still fail the batch.
 
   Each signal (`:event`, `:metric`) is one FIFO lane ordered by `seq`. While a
   lane holds rows, new records join behind them instead of being admitted
   ahead, and the batch that joined admits one chunk from the head, so the
-  backlog drains as traffic arrives. `ServiceRadar.EventWriter.AlertAdmissionDrainWorker`
-  drains it when no traffic does. A chunk is the head's first
+  backlog drains as traffic arrives.
+  `ServiceRadar.EventWriter.LifecycleAdmissionDrainWorker` drains it when no
+  traffic does. A chunk is the head's first
   `Inbox.limits/0` `batch_records` rows, admitted in one call inside one
   transaction that deletes the rows only when every record was accepted. The
   inbox commits the in-order prefix of a refused chunk and deduplicates it on
@@ -25,6 +26,9 @@ defmodule ServiceRadar.EventWriter.AlertAdmissionBacklog do
 
   Lifecycle occurrences share the table in the `lifecycle` lane, keyed by
   series, and are owned by `ServiceRadar.EventWriter.Processors.AnalyticsSignals`.
+  The table and the drain worker keep their lifecycle-only names so that pods
+  of the previous release keep working during a rolling upgrade (see migration
+  `20261105100000_add_lanes_to_lifecycle_pending_admissions`).
 
   Nothing caps the backlog and nothing in it is truncated; it is bounded by the
   CNPG volume. `report/0` publishes its size and age per lane and records the
@@ -112,7 +116,7 @@ defmodule ServiceRadar.EventWriter.AlertAdmissionBacklog do
   def pending?(signal) when signal in @signals do
     %{rows: [[pending?]]} =
       Repo.query!(
-        "SELECT EXISTS (SELECT 1 FROM platform.alert_pending_admissions WHERE lane = $1)",
+        "SELECT EXISTS (SELECT 1 FROM platform.lifecycle_pending_admissions WHERE lane = $1)",
         [lane(signal)]
       )
 
@@ -171,7 +175,7 @@ defmodule ServiceRadar.EventWriter.AlertAdmissionBacklog do
     case Repo.query("""
          SELECT lane, count(*),
                 greatest(extract(epoch FROM (now() - min(inserted_at))) * 1000, 0)::bigint
-         FROM platform.alert_pending_admissions
+         FROM platform.lifecycle_pending_admissions
          GROUP BY lane
          """) do
       {:ok, %{rows: rows}} ->
@@ -318,7 +322,7 @@ defmodule ServiceRadar.EventWriter.AlertAdmissionBacklog do
       Repo.query!(
         """
         SELECT occurrence_id, occurrence
-        FROM platform.alert_pending_admissions
+        FROM platform.lifecycle_pending_admissions
         WHERE lane = $1
         ORDER BY seq
         LIMIT $2
@@ -353,7 +357,7 @@ defmodule ServiceRadar.EventWriter.AlertAdmissionBacklog do
 
   defp release(ids) do
     Repo.query!(
-      "DELETE FROM platform.alert_pending_admissions WHERE occurrence_id = ANY($1::uuid[])",
+      "DELETE FROM platform.lifecycle_pending_admissions WHERE occurrence_id = ANY($1::uuid[])",
       [ids]
     )
 
@@ -388,7 +392,7 @@ defmodule ServiceRadar.EventWriter.AlertAdmissionBacklog do
       if entries != [] do
         Repo.query!(
           """
-          INSERT INTO platform.alert_pending_admissions (
+          INSERT INTO platform.lifecycle_pending_admissions (
             occurrence_id, lane, event_time, event_id, occurrence
           )
           SELECT occurrence_id, $1, event_time, event_id, occurrence::jsonb

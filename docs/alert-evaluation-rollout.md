@@ -47,17 +47,18 @@ delivery and never reaches the terminal one.
 - Events (Falco, Trivy, generic events, log promotion, the bulk analytics
   rows) and metric points are deferred by
   `ServiceRadar.EventWriter.AlertAdmissionBacklog`. Their admission snapshots
-  are written to `platform.alert_pending_admissions` in the `event` or `metric`
-  lane, the evaluation ledger marks the events in the same transaction, and the
-  message is acknowledged. Each lane is one FIFO. While a lane holds rows, new
-  records join behind them, and the batch that joined admits one chunk from
-  the head. The inbox keeps the prefix of a refused chunk, so a retry admits
+  are written to `platform.lifecycle_pending_admissions` in the `event` or
+  `metric` lane (the table keeps its historical name for rolling-upgrade
+  compatibility), the evaluation ledger marks the events in the same
+  transaction, and the message is acknowledged. Each lane is one FIFO. While a
+  lane holds rows, new records join behind them, and the batch that joined
+  admits one chunk from the head. The inbox keeps the prefix of a refused chunk, so a retry admits
   exactly the remainder, in order.
 - Lifecycle transitions (AnalyticsSignals) commit with their pending admission
   row in the `lifecycle` lane, as before. A refusal leaves the row pending and
   fails no message; the next message for the same series admits it.
 
-`ServiceRadar.EventWriter.AlertAdmissionDrainWorker` runs every minute on the
+`ServiceRadar.EventWriter.LifecycleAdmissionDrainWorker` runs every minute on the
 `maintenance` queue. It pages through the pending lifecycle series
 longest-waiting first, admits each in `seq` order up to its first refusal and
 continues with the next series, so series stuck behind a saturated rule do not
@@ -130,7 +131,7 @@ not substitute for those checks.
 | --- | --- | --- |
 | Rule inventory | `StatefulAlertRule` Ash/JSON API actions, `RuleSeeder`, `Plugins.AlertRuleCatalog`, `Inventory.MetricRuleSync`, Rules LiveView, event-to-rule creation, AshEvents replay | Database triggers cover row INSERT/UPDATE/DELETE and replay TRUNCATE. Admission captures one revision; disabling/deleting cancels unclaimed accepted input through the lane watermark. |
 | Source acknowledgement | `StatefulEvaluationLedger` used by Events, Falco, Trivy, log promotion, and metric alert admission (`EventWriter.Processors.Metrics`, after the timeseries insert, for points that match an enabled metric rule) | The source marker records acceptance, not completed alert effects. In prepared mode the batch is acknowledged as a skip: records are stored, nothing is evaluated or promoted, and JetStream does not redeliver. Draining and capability failures still fail the batch and return it to the source consumer; receipts deduplicate a replay after accepted work commits. Metric points use a deterministic id from their stored series identity for that replay check. |
-| Stateful source transitions | `AnalyticsSignals` and `AnomalyEpisodeRegistry` | Episode and event transitions commit before evaluation admission. A later refusal retries the unadmitted evaluation and leaves the transition stored. Distinct transitions may retain one event row ID; occurrence identities distinguish those transitions. Occurrences of one series are admitted in that series' order. An unadmitted occurrence is a row in the `lifecycle` lane of `platform.alert_pending_admissions` holding an immutable snapshot of its evaluation input, never event metadata. A newer transition of the same event is stored and gets its own row behind the pending one; each is admitted from its snapshot in `seq` order, and its row is deleted in the admission transaction. A pending series never fails a message by itself, and neither does a capacity or readiness refusal. An occurrence id derives from the event id, the JetStream message identity, its observed time before lifecycle pinning, its finding version, its status and the stored state it transitions from, so a redelivery reuses it and a finding that re-enters a state, even with an identical payload, gets a new one. |
+| Stateful source transitions | `AnalyticsSignals` and `AnomalyEpisodeRegistry` | Episode and event transitions commit before evaluation admission. A later refusal retries the unadmitted evaluation and leaves the transition stored. Distinct transitions may retain one event row ID; occurrence identities distinguish those transitions. Occurrences of one series are admitted in that series' order. An unadmitted occurrence is a row in the `lifecycle` lane of `platform.lifecycle_pending_admissions` holding an immutable snapshot of its evaluation input, never event metadata. A newer transition of the same event is stored and gets its own row behind the pending one; each is admitted from its snapshot in `seq` order, and its row is deleted in the admission transaction. A pending series never fails a message by itself, and neither does a capacity or readiness refusal. An occurrence id derives from the event id, the JetStream message identity, its observed time before lifecycle pinning, its finding version, its status and the stored state it transitions from, so a redelivery reuses it and a finding that re-enters a state, even with an identical payload, gets a new one. |
 | Snapshot and rule history | `Owner`, `AlertLifecycle`, `StatefulAlertCleanupWorker` | The owner fence encloses restore, lifecycle changes, every changed snapshot and the receipt. Cleanup rechecks pending work and incident identity under the admission/owner boundaries. |
 | Incident and notification control | `Monitoring.Alert`, `AlertGenerator`, `AlertLifecycle`, notification routing/continuation/scheduler workers, operator actions | Existing operator acknowledgement, suppression, escalation and resolution remain control-plane actions. Renotify continuation reacquires the rule fence and rechecks the alert/rule/cadence before enqueue and bookkeeping. |
 | Completion-dependent callers | `ResolveStaleAnomaliesWorker`, `AnomalyAlertLivenessCheck` | Maintenance observes ordered receipts and returns actual resolved counts. Liveness observes persisted alert creation and resolution rather than treating acceptance as completion. |

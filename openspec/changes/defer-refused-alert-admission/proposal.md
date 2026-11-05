@@ -17,10 +17,13 @@ backpressure must lag evaluation, never lose it.
 
 ## What Changes
 
-- Generalize `platform.lifecycle_pending_admissions` into
-  `platform.alert_pending_admissions` with a `lane` column. The `lifecycle`
-  lane keeps its per-(class, series) FIFO unchanged. New `event` and `metric`
-  lanes are each one FIFO by `seq` and carry no series.
+- Generalize `platform.lifecycle_pending_admissions` with a `lane` column
+  (default `lifecycle`). The `lifecycle` lane keeps its per-(class, series)
+  FIFO unchanged. New `event` and `metric` lanes are each one FIFO by `seq` and
+  carry no series. The migration is additive and keeps the table's historical
+  name: core migrates in the first new pod while pods of the previous release
+  keep inserting, deleting and draining lifecycle rows by that name, and an
+  insert that names no lane still lands in the lifecycle lane.
 - Add `ServiceRadar.EventWriter.AlertAdmissionBacklog`. Every EventWriter
   family that admits to stateful evaluation goes through it: Falco, Trivy,
   generic events, log promotion and the bulk analytics rows (through
@@ -31,9 +34,9 @@ backpressure must lag evaluation, never lose it.
   join behind them and the joining batch admits one chunk from the head.
 - Lifecycle signals keep their pending rows; a retryable refusal no longer
   fails the message that delivered them.
-- Rename `LifecycleAdmissionDrainWorker` to `AlertAdmissionDrainWorker`. Each
-  minute it drains the lifecycle series as before, then the event and metric
-  lanes from their heads, then reports the backlog.
+- `LifecycleAdmissionDrainWorker` keeps its name, so jobs scheduled under it
+  keep resolving. Each minute it drains the lifecycle series as before, then
+  the event and metric lanes from their heads, then reports the backlog.
 - Report the backlog: per-lane `pending_count` and `oldest_pending_ms` as a
   telemetry event and as the `alert_admission_backlog` ingestion lane through
   JetStream, and the `alert-admission-backlog` core health check, unhealthy
@@ -50,7 +53,7 @@ backpressure must lag evaluation, never lose it.
 - Affected code: `StatefulEvaluationLedger`, `MetricAlertAdmission`,
   `AnalyticsSignals`, `EventWriter.Pipeline`, the drain worker, the
   `Ingestion.RuntimeMetrics` lane set, migration
-  `20261105100000_generalize_alert_pending_admissions`.
+  `20261105100000_add_lanes_to_lifecycle_pending_admissions`.
 - Operators no longer see terminal deliveries for alert-evaluation
   backpressure. A backlog shows instead in the new health check and lane
   gauges, and alert effects for deferred records appear when the backlog

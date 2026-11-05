@@ -2,7 +2,7 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEventsIntegrationTest do
   use ServiceRadar.DataCase, async: false
 
   alias Ecto.Adapters.SQL
-  alias ServiceRadar.EventWriter.AlertAdmissionDrainWorker
+  alias ServiceRadar.EventWriter.LifecycleAdmissionDrainWorker
   alias ServiceRadar.EventWriter.Pipeline
   alias ServiceRadar.EventWriter.Processors.FalcoEvents
   alias ServiceRadar.Observability.StatefulAlertRule
@@ -185,11 +185,11 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEventsIntegrationTest do
     assert pending_admission_count(event_uuid) == 1
 
     # The drain retries the backlog; a still-refused admission keeps its row.
-    assert :ok = AlertAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
+    assert :ok = LifecycleAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
     assert_receive {:evaluated, [%{id: ^event_uuid}]}
     assert pending_admission_count(event_uuid) == 1
 
-    assert :ok = AlertAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
+    assert :ok = LifecycleAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
     assert_receive {:evaluated, [%{id: ^event_uuid} = admitted]}
 
     assert Map.take(admitted, [:class_uid, :severity_id, :message]) ==
@@ -198,7 +198,7 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEventsIntegrationTest do
     assert pending_admission_count(event_uuid) == 0
     assert stored_event_count(event_uuid) == 1
 
-    assert :ok = AlertAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
+    assert :ok = LifecycleAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
     refute_receive {:evaluated, _events}, 50
   end
 
@@ -301,7 +301,7 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEventsIntegrationTest do
     %{rows: [[count]]} =
       SQL.query!(
         Repo,
-        "SELECT count(*) FROM platform.alert_pending_admissions WHERE event_id = $1::uuid",
+        "SELECT count(*) FROM platform.lifecycle_pending_admissions WHERE event_id = $1::uuid",
         [Ecto.UUID.dump!(event_uuid)]
       )
 

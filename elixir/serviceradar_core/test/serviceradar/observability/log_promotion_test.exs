@@ -6,7 +6,7 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
 
   alias Ecto.Adapters.SQL, as: SQL
   alias Postgrex.Result
-  alias ServiceRadar.EventWriter.AlertAdmissionDrainWorker
+  alias ServiceRadar.EventWriter.LifecycleAdmissionDrainWorker
   alias ServiceRadar.EventWriter.Processors.K8sNodes
   alias ServiceRadar.EventWriter.Processors.Logs
   alias ServiceRadar.NATS.DurablePublishWorker
@@ -89,7 +89,7 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
     refute_receive {:evaluated, _}
     assert alert_count("test.#{label}") == 1
 
-    assert :ok = AlertAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
+    assert :ok = LifecycleAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
     assert_receive {:evaluated, [%{id: ^event_id}]}
     assert pending_admission_count(event_id) == 0
     assert alert_count("test.#{label}") == 1
@@ -775,7 +775,7 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
   defp pending_admission_count(event_id) do
     %{rows: [[count]]} =
       Repo.query!(
-        "SELECT count(*) FROM platform.alert_pending_admissions WHERE event_id = ($1::text)::uuid",
+        "SELECT count(*) FROM platform.lifecycle_pending_admissions WHERE event_id = ($1::text)::uuid",
         [event_id]
       )
 

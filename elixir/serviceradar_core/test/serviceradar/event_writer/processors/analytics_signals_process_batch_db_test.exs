@@ -3,8 +3,8 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
 
   alias Broadway.Message
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.EventWriter.AlertAdmissionDrainWorker
   alias ServiceRadar.EventWriter.AnomalyEpisodeGuardTables
+  alias ServiceRadar.EventWriter.LifecycleAdmissionDrainWorker
   alias ServiceRadar.EventWriter.Pipeline
   alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
   alias ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry
@@ -537,20 +537,20 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     assert_receive {:alert_evaluation_events, [%{id: ^event_id}]}
     assert pending_occurrence_count(row) == 1
 
-    assert :ok = AlertAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
+    assert :ok = LifecycleAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
     assert_receive {:alert_evaluation_events, [%{id: ^event_id} = still_refused]}
     assert still_refused.activity_name == "Create"
     assert pending_occurrence_count(row) == 1
 
     Application.put_env(:serviceradar_core, :analytics_signals_replay_result, :ok)
 
-    assert :ok = AlertAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
+    assert :ok = LifecycleAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
     assert_receive {:alert_evaluation_events, [%{id: ^event_id} = admitted]}
     assert admitted.status == "open"
     assert admitted.activity_name == "Create"
     assert pending_occurrence_count(row) == 0
 
-    assert :ok = AlertAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
+    assert :ok = LifecycleAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
     refute_receive {:alert_evaluation_events, [%{id: ^event_id}]}, 50
   end
 
@@ -756,7 +756,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
              |> Ash.read!(actor: SystemActor.system(:alert_engine))
 
     assert {:ok, {:processed, :completed}} = Owner.advance(rule.id)
-    assert :ok = AlertAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
+    assert :ok = LifecycleAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
     assert pending_occurrence_count(row) == 0
 
     assert [%{position: 2}] =
@@ -955,7 +955,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
              Repo.query!(
                """
                SELECT occurrence->'metadata'->'service_radar'
-               FROM platform.alert_pending_admissions
+               FROM platform.lifecycle_pending_admissions
                WHERE series_key = $1
                """,
                [series_key]
@@ -1614,14 +1614,14 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     end
 
     Application.put_env(:serviceradar_core, :analytics_signals_peer_ready, true)
-    assert :ok = AlertAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
+    assert :ok = LifecycleAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
 
     assert [%{position: 1}] =
              AlertEvaluationWork
              |> Ash.Query.filter(rule_id == ^rule.id)
              |> Ash.read!(actor: actor)
 
-    assert :ok = AlertAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
+    assert :ok = LifecycleAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
 
     assert [%{position: 1}] =
              AlertEvaluationWork
@@ -2141,7 +2141,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
                   events.unmapped->>'event_id',
                   events.unmapped->'anomaly'->>'score',
                   CASE WHEN EXISTS (
-                    SELECT 1 FROM platform.alert_pending_admissions AS pending
+                    SELECT 1 FROM platform.lifecycle_pending_admissions AS pending
                     WHERE pending.event_id = events.id AND pending.event_time = events.time
                   ) THEN 'false' ELSE 'true' END
            FROM platform.ocsf_events AS events
@@ -2165,7 +2165,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
         """
         SELECT events.message,
                CASE WHEN EXISTS (
-                   SELECT 1 FROM platform.alert_pending_admissions AS pending
+                   SELECT 1 FROM platform.lifecycle_pending_admissions AS pending
                    WHERE pending.event_id = events.id AND pending.event_time = events.time
                  ) THEN 'false' ELSE 'true' END
         FROM platform.ocsf_events AS events
@@ -2220,7 +2220,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
 
     Repo.query!(
       """
-      DELETE FROM platform.alert_pending_admissions
+      DELETE FROM platform.lifecycle_pending_admissions
       WHERE event_id = ($1::text)::uuid OR series_key = $1
       """,
       [id]
@@ -2236,7 +2236,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
 
   defp delete_episode_fixture!(series_key) do
     Repo.query!(
-      "DELETE FROM platform.alert_pending_admissions WHERE series_key = $1",
+      "DELETE FROM platform.lifecycle_pending_admissions WHERE series_key = $1",
       [series_key]
     )
 
@@ -2290,7 +2290,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
       Repo.query!(
         """
         SELECT occurrence->>'message'
-        FROM platform.alert_pending_admissions
+        FROM platform.lifecycle_pending_admissions
         WHERE series_key = $1
         ORDER BY seq ASC
         """,
@@ -2305,7 +2305,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
       Repo.query!(
         """
         SELECT occurrence->>'message', event_id::text
-        FROM platform.alert_pending_admissions
+        FROM platform.lifecycle_pending_admissions
         WHERE series_key = $1
         ORDER BY seq ASC
         """,
@@ -2341,7 +2341,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
         """
         SELECT events.status, events.activity_id, events.activity_name,
                CASE WHEN EXISTS (
-                    SELECT 1 FROM platform.alert_pending_admissions AS pending
+                    SELECT 1 FROM platform.lifecycle_pending_admissions AS pending
                     WHERE pending.event_id = events.id AND pending.event_time = events.time
                   ) THEN 'false' ELSE 'true' END
         FROM platform.ocsf_events AS events
@@ -2356,7 +2356,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
   defp pending_occurrence_count(row) do
     %{rows: [[count]]} =
       Repo.query!(
-        "SELECT count(*) FROM platform.alert_pending_admissions WHERE event_id = ($1::text)::uuid",
+        "SELECT count(*) FROM platform.lifecycle_pending_admissions WHERE event_id = ($1::text)::uuid",
         [uuid_string(row.id)]
       )
 
