@@ -1,3 +1,122 @@
+# ServiceRadar v1.4.102
+
+This release makes the durable edge-record pipeline the only way agent
+data reaches the platform, on every install, with no switch. Agents
+spool everything they collect to disk and deliver it as signed records.
+The legacy status path no longer carries any durable data. Alert
+evaluation now lags under overload instead of dropping work, and a
+self-hosted install on default values stores telemetry and accepts its
+first upgrade.
+
+## Upgrade Notes
+
+- **Upgrade your agents along with the platform.** Agents older than
+  this release send their data on the legacy status path, which the
+  gateway now refuses. Until an agent is upgraded, its metrics, sweep
+  results and other data are counted and shown on the agent as
+  `agent_upgrade_pending` in the edge pipeline readiness report and on
+  the agent page, but they are not stored (#6340, #6341).
+- **Remove `edgeRecords` from your values.** The pipeline is always on,
+  and the chart now refuses to render while any `edgeRecords` key is
+  set, including an empty one. Delete the block, along with any
+  `edge_record_sender` opt-ins (#6338).
+- **The edge issuer key moves into CNPG.** On first start, core imports
+  the existing `edge-issuer-seed` from the generated Secret once, and
+  keeps that key afterwards. Installs that set
+  `secrets.autoGenerate: false` and supplied their own seed get a new
+  key instead (#6320, #6330, #6338).
+- **Every NATS hub session reconnects once.** On the first upgrade,
+  core moves each session, including edge leaf connections, to the
+  current certificate grant. That happens in batches of 64 per scan per
+  core replica (#6336).
+- **Apache AGE is removed.** Migration `20261104004947` drops the AGE
+  graph storage and the `age` extension. Topology lives only in Dgraph,
+  and the chart refuses to render without Dgraph (#6306, #6310).
+- **New migrations** run through `20261105100000`; the chart's expected
+  migration version moves with them.
+- **Self-hosted installs on default values** now start storing
+  telemetry: EventWriter uses core's NATS connection when
+  `EVENT_WRITER_NATS_URL` is unset. They can also run their first
+  `helm upgrade`, which the CNPG Secrets used to block (#6348).
+
+## Whats New
+
+**One durable path for agent data**
+
+- Agents always run the edge-record spool and sender. Each producer
+  emits records only while it holds core's grant, and holds its data,
+  rather than falling back, when it does not. The spool starts on a
+  1 GiB budget that core can change at runtime (#6325, #6340).
+- Sysmon, SNMP, ICMP, MTR, rperf and sweep metrics, unleased sweep
+  results, plugin and add-on telemetry, Wasm plugin results, discovery,
+  sync, workload identity, Kubernetes endpoints, endpoint inventory,
+  bumblebee scans, flow attribution and OTLP relay frames all travel as
+  typed edge records (#6255, #6264, #6280, #6284, #6289, #6305, #6311,
+  #6312, #6313, #6314, #6315, #6316).
+- The gateway publishes no durable data from the status RPCs. Only
+  status summaries and control traffic remain there (#6341).
+- Leased sweep slots run the signed plan and its check sets, and core
+  decides completion from the chunks it received (#6257, #6259, #6260,
+  #6272, #6275, #6302).
+- The spool pauses admission at its high-water mark and shares bytes
+  fairly between producers. A reconnecting agent renews its grants and
+  drains its backlog (#6269, #6274, #6296).
+- Edge records whose projection keeps failing are dead-lettered and can
+  be replayed. A read-only readiness report shows each agent's pipeline
+  condition (#6276, #6295, #6318).
+
+**Signed contract registry**
+
+- Core derives the contract registry from the release catalog and
+  signs each registry epoch. The gateway admits a record only against
+  the signed epoch it names (#6319, #6320, #6330, #6331).
+
+**Alerting and EventWriter**
+
+- Under overload, alert evaluation lags instead of losing work.
+  Refused admissions are kept in a durable backlog and admitted in
+  order as capacity frees. A backlog health check reports when the
+  backlog grows (#6342).
+- Each consumer group runs its own pipeline, so one stalled batcher no
+  longer starves the others. A consumer that loses messages before
+  delivery raises an alert (#6332).
+- Alert admission is chunked and claimed before dispatch, and
+  anomaly-open rules admit only events on their own subject (#6304,
+  #6317, #6321).
+
+**Topology: Dgraph only**
+
+- Apache AGE is retired, and mapper topology is projected to the graph
+  outside the ingestion lane (#6299, #6300, #6306, #6310).
+
+**NATS and certificates**
+
+- Built-in identities get their chart permissions under the auth
+  callout, and hub sessions move to the current certificate grant
+  instead of keeping a stale one (#6326, #6336).
+- Hub certificate grants use a jittered lease, and managed certificates
+  are issued on the authenticated session node (#6252, #6254, #6301).
+
+**Availability**
+
+- When the agent that decides a device's availability goes silent, the
+  device is re-resolved within one sweep interval instead of waiting up
+  to two intervals plus five minutes for its ledger entry to expire
+  (#6346, #6352).
+
+**Fixes**
+
+- SSO toggles persist and the Entra preset is restored (#6265).
+- Sysmon metrics are attributed to the attested agent device (#6283).
+- Edge Sites and Data Collectors show managed installation state, and
+  service certificates are paginated (#6290, #6307).
+- The log collector owns its health listener and keeps mTLS (#6303).
+- macOS and Windows installs create the agent runtime directory
+  (#6323).
+- Image builds fetch pinned Ubuntu packages from Launchpad when the
+  snapshot archive is unavailable, and retry Bazelisk downloads for
+  longer (#6350).
+
 # ServiceRadar v1.4.101
 
 This release adds the durable edge-record pipeline: agents can now
