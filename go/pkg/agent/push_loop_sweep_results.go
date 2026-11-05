@@ -25,24 +25,25 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
+// pushSweepResults spools the sweep results responses of unleased groups as
+// edge records under the unleased results and metrics grants. A response with
+// records still waiting for spool room finishes first, whatever the grants now
+// are. Without both grants no further response is read: the sweep service
+// keeps its completed cycles until the grants are held.
 func (p *PushLoop) pushSweepResults(ctx context.Context) bool {
 	sweepSvc := p.findSweepResultsProvider()
 	if sweepSvc == nil {
 		return false
 	}
 
-	// A response with records already in the edge spool finishes there, whatever
-	// the grants now are, before another response is read: those records never
-	// also take the legacy path. A pending response that never entered the spool
-	// returns here when the spool will not accept it.
-	pending, sentAny, fallback := p.finishSweepResultsEdge(sweepSvc)
-	if fallback != nil {
-		if !p.pushSweepResultsLegacy(ctx, sweepSvc, fallback) {
-			return sentAny
-		}
-		sentAny = true
-	}
+	pending, sentAny := p.finishSweepResultsEdge(sweepSvc)
 	if pending {
+		return sentAny
+	}
+
+	resultsGrant, metricsGrant := p.sweepResultsEdgeGrants(time.Now())
+	if resultsGrant == nil {
+		p.holdForGrant(edgeProducerSweepResults)
 		return sentAny
 	}
 
@@ -69,7 +70,7 @@ func (p *PushLoop) pushSweepResults(ctx context.Context) bool {
 				Str("current_sequence", response.CurrentSequence).
 				Bool("has_new_data", response.HasNewData).
 				Int("data_bytes", len(response.Data)).
-				Msg("No sweep results to stream")
+				Msg("No sweep results to spool")
 
 			if pendingSeq != "" {
 				p.setSweepResultsSequence(pendingSeq)
@@ -77,19 +78,10 @@ func (p *PushLoop) pushSweepResults(ctx context.Context) bool {
 			return sentAny
 		}
 
-		// Each response takes exactly one path: the edge spool when its group is
-		// unleased and the agent holds the results and metrics grants, otherwise
-		// the legacy results push.
-		spooled, pending, sent := p.pushSweepResultsEdge(sweepSvc, response)
+		pending, sent := p.pushSweepResultsEdge(sweepSvc, response, resultsGrant, metricsGrant)
 		sentAny = sentAny || sent
 		if pending {
 			return sentAny
-		}
-		if !spooled {
-			if !p.pushSweepResultsLegacy(ctx, sweepSvc, response) {
-				return sentAny
-			}
-			sentAny = true
 		}
 
 		if pendingSeq != "" {
@@ -102,65 +94,6 @@ func (p *PushLoop) pushSweepResults(ctx context.Context) bool {
 	}
 
 	return sentAny
-}
-
-// pushSweepResultsLegacy streams one results response to the gateway as status
-// chunks, each carrying its chunk's metric envelope, and acknowledges it. It
-// reports whether the response was delivered.
-func (p *PushLoop) pushSweepResultsLegacy(ctx context.Context, sweepSvc SweepResultsProvider, response *proto.ResultsResponse) bool {
-	chunks, err := buildSweepResultsChunks(response)
-	if err != nil {
-		p.logger.Warn().Err(err).Msg("Failed to chunk sweep results")
-		return false
-	}
-
-	serviceName := response.ServiceName
-	if serviceName == "" {
-		serviceName = networkSweepServiceName
-	}
-
-	serviceType := response.ServiceType
-	if serviceType == "" {
-		serviceType = sweepType
-	}
-
-	statusChunks := p.buildResultsStatusChunks(sweepResultProtoChunks(chunks), serviceName, serviceType)
-	if len(statusChunks) == 0 {
-		return false
-	}
-	for idx, chunk := range chunks {
-		metricStatus, err := p.sweepMetricStatusFromMap(chunk.MetricPayload)
-		if err != nil {
-			p.logger.Error().
-				Err(err).
-				Int("chunk_index", idx).
-				Str("service_name", serviceName).
-				Msg("Failed to marshal sweep result metric envelope")
-
-			return false
-		}
-		statusChunks[idx].Services = append(statusChunks[idx].Services, metricStatus)
-	}
-
-	pushCtx, cancel := context.WithTimeout(ctx, sweepResultsStreamTimeout(len(statusChunks)))
-	_, err = p.gateway.StreamStatus(pushCtx, statusChunks)
-	cancel()
-	if err != nil {
-		p.logger.Error().Err(err).Msg("Failed to stream sweep results to gateway")
-		return false
-	}
-
-	acknowledgeSweepResults(sweepSvc, response.SweepGroupId, response.CurrentSequence)
-	if response.CurrentSequence != "" {
-		p.setSweepResultsSequence(response.CurrentSequence)
-	}
-
-	p.logger.Info().
-		Str("service_name", serviceName).
-		Int("chunk_count", len(statusChunks)).
-		Msg("Streamed sweep results to gateway")
-
-	return true
 }
 
 // acknowledgeSweepResults marks a group's results sequence delivered, for a
@@ -176,52 +109,9 @@ func acknowledgeSweepResults(sweepSvc SweepResultsProvider, groupID, sequence st
 	}
 }
 
-func (p *PushLoop) sweepMetricStatusFromMap(payload map[string]any) (*proto.GatewayServiceStatus, error) {
-	p.server.mu.RLock()
-	agentID := p.server.config.AgentID
-	partition := p.server.config.Partition
-	kvStoreID := p.server.config.KVAddress
-	p.server.mu.RUnlock()
-	gatewayID := p.gateway.GetGatewayID()
-
-	message, err := marshalSweepMetricEnvelopeFromMap(payload, metricEnvelopeContext{
-		AgentID:   agentID,
-		GatewayID: gatewayID,
-		Partition: partition,
-		KvStoreID: kvStoreID,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return &proto.GatewayServiceStatus{
-		ServiceName:  networkSweepServiceName,
-		ServiceType:  sweepType,
-		Available:    true,
-		Message:      message,
-		ResponseTime: 0,
-		AgentId:      agentID,
-		GatewayId:    gatewayID,
-		Partition:    partition,
-		Source:       "sweep-metrics",
-		KvStoreId:    kvStoreID,
-	}, nil
-}
-
 type sweepResultsChunk struct {
 	*proto.ResultsChunk
 	MetricPayload map[string]any
-}
-
-func sweepResultProtoChunks(chunks []*sweepResultsChunk) []*proto.ResultsChunk {
-	result := make([]*proto.ResultsChunk, 0, len(chunks))
-	for _, chunk := range chunks {
-		if chunk == nil {
-			continue
-		}
-		result = append(result, chunk.ResultsChunk)
-	}
-	return result
 }
 
 func buildSweepResultsChunks(response *proto.ResultsResponse) ([]*sweepResultsChunk, error) {
@@ -366,17 +256,4 @@ func buildSweepResultsChunks(response *proto.ResultsResponse) ([]*sweepResultsCh
 	}
 
 	return chunks, nil
-}
-
-func sweepResultsStreamTimeout(chunkCount int) time.Duration {
-	if chunkCount <= 0 {
-		return minSweepResultsStreamTimeout
-	}
-
-	timeout := minSweepResultsStreamTimeout + time.Duration(chunkCount)*sweepResultsTimeoutPerChunk
-	if timeout > maxSweepResultsStreamTimeout {
-		return maxSweepResultsStreamTimeout
-	}
-
-	return timeout
 }

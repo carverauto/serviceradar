@@ -18,7 +18,6 @@ package agent
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -27,15 +26,9 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/carverauto/serviceradar/proto"
 )
 
 const (
-	WorkloadIdentityServiceName = "workload-identity"
-	WorkloadIdentityServiceType = "workload-identity"
-	WorkloadIdentitySource      = "workload-identity"
-
 	defaultWorkloadIdentitySnapshotPath = "/var/lib/serviceradar/workload-identity/spool/latest.json"
 	maxWorkloadIdentitySnapshotBytes    = 15 * 1024 * 1024
 )
@@ -56,92 +49,27 @@ func (s workloadIdentityFileSignature) zero() bool {
 	return s.path == "" && s.semanticHash == [sha256.Size]byte{}
 }
 
-func (p *PushLoop) pushWorkloadIdentity(ctx context.Context) bool {
-	if capability := p.edgeWorkloadIdentityCapability(time.Now()); capability != nil {
-		return p.spoolWorkloadIdentity(capability)
-	}
-	if p.workloadIdentityEdge.built != nil {
-		if p.workloadIdentityEdge.built.next > 0 {
-			if p.edgeDiscoverySpool != nil && p.appendWorkloadIdentityBuilt(p.workloadIdentityEdge.built) {
-				p.commitWorkloadIdentitySignature(p.workloadIdentityEdge.built.sig)
-				p.workloadIdentityEdge.built = nil
-				return true
-			}
+// pushWorkloadIdentity spools the workload identity snapshot as edge records
+// under its standing grant. A snapshot already built finishes first, whatever
+// the grant now is. Without a grant the snapshot file is not read: it stays on
+// disk, newest wins, until the grant is held.
+func (p *PushLoop) pushWorkloadIdentity() bool {
+	q := &p.workloadIdentityEdge
+	if q.built != nil {
+		if !p.appendWorkloadIdentityBuilt(q.built) {
 			return false
 		}
-		p.workloadIdentityEdge.built = nil
+		p.commitWorkloadIdentitySignature(q.built.sig)
+		q.built = nil
+		return true
 	}
 
-	payload, sig, ok := p.nextWorkloadIdentitySnapshot()
-	if !ok {
+	capability := p.edgeWorkloadIdentityCapability(time.Now())
+	if capability == nil {
+		p.holdForGrant(edgeProducerWorkloadIdentity)
 		return false
 	}
-
-	p.server.mu.RLock()
-	agentID := p.server.config.AgentID
-	partition := p.server.config.Partition
-	kvStoreID := p.server.config.KVAddress
-	p.server.mu.RUnlock()
-
-	gatewayID := gatewayIDFromClient(p.gateway)
-	runtimeMetadata := currentRuntimeMetadata()
-	status := &proto.GatewayServiceStatus{
-		ServiceName:  WorkloadIdentityServiceName,
-		Available:    true,
-		Message:      payload,
-		ServiceType:  WorkloadIdentityServiceType,
-		ResponseTime: 0,
-		AgentId:      agentID,
-		GatewayId:    gatewayID,
-		Partition:    partition,
-		Source:       WorkloadIdentitySource,
-		KvStoreId:    kvStoreID,
-	}
-
-	chunk := &proto.GatewayStatusChunk{
-		Services:    []*proto.GatewayServiceStatus{status},
-		GatewayId:   gatewayID,
-		AgentId:     agentID,
-		Timestamp:   time.Now().UnixNano(),
-		Partition:   partition,
-		SourceIp:    p.getSourceIP(),
-		Version:     runtimeMetadata.Version,
-		Hostname:    runtimeMetadata.Hostname,
-		Os:          runtimeMetadata.Os,
-		Arch:        runtimeMetadata.Arch,
-		ChunkIndex:  0,
-		TotalChunks: 1,
-		IsFinal:     true,
-	}
-
-	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	resp, err := p.streamWorkloadIdentityStatus(pushCtx, []*proto.GatewayStatusChunk{chunk})
-	if err != nil {
-		p.logger.Error().Err(err).Int("snapshot_bytes", len(payload)).Msg("Failed to stream workload identity snapshot")
-		return false
-	}
-
-	if !resp.GetReceived() {
-		p.logger.Warn().Int("snapshot_bytes", len(payload)).Msg("Gateway did not acknowledge workload identity snapshot")
-		return false
-	}
-
-	p.commitWorkloadIdentitySignature(sig)
-	p.logger.Info().Int("snapshot_bytes", len(payload)).Msg("Streamed workload identity snapshot to gateway")
-
-	return true
-}
-
-func (p *PushLoop) streamWorkloadIdentityStatus(
-	ctx context.Context,
-	chunks []*proto.GatewayStatusChunk,
-) (*proto.GatewayStatusResponse, error) {
-	if p.workloadIdentityStreamStatus != nil {
-		return p.workloadIdentityStreamStatus(ctx, chunks)
-	}
-	return p.gateway.StreamStatus(ctx, chunks)
+	return p.spoolWorkloadIdentity(capability)
 }
 
 func (p *PushLoop) nextWorkloadIdentitySnapshot() ([]byte, workloadIdentityFileSignature, bool) {

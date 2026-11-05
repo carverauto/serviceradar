@@ -60,12 +60,6 @@ func TestMultiSweepServiceDoesNotAckResultsBeforeSuccessfulStream(t *testing.T) 
 	require.False(t, acked.HasNewData)
 }
 
-func TestSweepResultsStreamTimeoutScalesWithChunkCount(t *testing.T) {
-	require.Equal(t, minSweepResultsStreamTimeout, sweepResultsStreamTimeout(0))
-	require.Equal(t, 40*time.Second, sweepResultsStreamTimeout(10))
-	require.Equal(t, maxSweepResultsStreamTimeout, sweepResultsStreamTimeout(10_000))
-}
-
 func TestCronGroupRemainsManualAcrossLeaseAndConfigChanges(t *testing.T) {
 	group := SweepGroupConfig{SweepGroupID: "cron-group", ScheduleType: "cron", Networks: []string{"192.0.2.0/30"}}
 	service, err := NewMultiSweepService(&ServerConfig{AgentID: "synthetic-agent"}, []SweepGroupConfig{group}, createTestLogger())

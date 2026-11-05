@@ -187,6 +187,16 @@ SHALL remain on `StreamStatus` or `PushStatus` after the release.
   `sweep.scanner.*`, and `sweep.banner_grab.*`
 - **AND** until that release the batch stays on the results push
 
+#### Scenario: A producer without a grant holds its data
+- **GIVEN** the cutover release, in which no agent emission of durable data remains on the
+  status path
+- **AND** an agent that holds no standing grant for a producer's contract, or has no open spool
+- **WHEN** that producer has data to emit
+- **THEN** it sends nothing on `StreamStatus` or `PushStatus`
+- **AND** it holds the data in its source or its bounded queue, as under a retryable spool
+  refusal, counting any overflow and each held push cycle
+- **AND** it spools the held data once the grant is held
+
 #### Scenario: Cutover waits for the unleased sweep results contract
 - **GIVEN** an unleased sweep whose results contract has not passed its farm01 parity soak
 - **WHEN** the cutover release is prepared

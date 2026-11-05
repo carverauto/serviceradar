@@ -34,11 +34,10 @@ import (
 // Sync pages ride a standing-grant contract (serviceradar.sync.page.batch)
 // through this producer. A page is one sendSyncUpdates call: its records
 // keep the run's chunk numbering (baseChunkIndex onward), total_chunks is
-// stamped only on the run-final page exactly as buildSyncMeta stamps it,
-// and the population report rides only the final record, so the sync
-// ingestion pipeline the projector feeds sees the same run shape it sees
-// today. A spool refusal stops the page and returns the error, the same
-// contract a failed legacy stream has with the run emitter.
+// stamped only on the run-final page (syncMetaTotalChunks), and the
+// population report rides only the final record, so the sync ingestion
+// pipeline the projector feeds sees the run shape it expects. A spool refusal stops the page and returns the error to the run
+// emitter, which fails the run.
 
 var (
 	errSyncRecordTooLarge = errors.New("sync update exceeds the durable record body bound")
@@ -46,8 +45,8 @@ var (
 )
 
 // SetEdgeSyncSpool connects the sync producer to the sender's one open
-// spool and the push loop's output grants. Call before Start; a nil spool
-// keeps sync pages on their legacy path.
+// spool and the push loop's output grants. Call before Start; without a spool
+// no sync run starts.
 func (p *PushLoop) SetEdgeSyncSpool(sp *spool.Spool) {
 	if p.syncRuntime == nil {
 		return
@@ -118,9 +117,6 @@ func (r *SyncRuntime) spoolSyncUpdates(
 			break
 		}
 		appended++
-	}
-	if appended > 0 {
-		r.edgeRuns.Store(runID, struct{}{})
 	}
 	return appended, appendErr
 }
@@ -246,7 +242,7 @@ func syncMaxRows(capability *edgev1.EdgeSignedCapabilityV1) uint64 {
 
 // normalizeSyncUpdate returns the JSON form of a normalized update map, so
 // typed values a driver emitted (OCSF structs, ints) convert exactly as
-// the legacy chunk marshal would have written them.
+// their JSON encoding writes them.
 func normalizeSyncUpdate(update map[string]interface{}) map[string]interface{} {
 	data, err := json.Marshal(update)
 	if err != nil {

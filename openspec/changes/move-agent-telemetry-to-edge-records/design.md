@@ -157,6 +157,46 @@ kept to data plus, only where a destination is genuinely new, one projector modu
 So a new built-in family is a typed protobuf message, a registry entry and an agent producer,
 plus a projector module only when its destination is new.
 
+### Decision 9: Without a grant a producer holds, it never falls back (agent cutover, 2026-11-04)
+
+The cutover release removes every agent emission of durable data from `StreamStatus` and
+`PushStatus`. The agent no longer has a `StreamStatus` client at all; `PushStatus` carries only
+service status summaries, the agent capability status and the plugin-engine counters. A producer
+that holds no standing grant for its contract (before the first config, after a revocation, a
+partition with no row) or has no spool (`spool_unavailable`) treats that exactly like a retryable
+spool refusal: it back-pressures, as `enable-edge-record-pipeline-by-default` Decision 1 states.
+It never sends on the status path and never drops silently. Concretely:
+
+- Producers whose source overwrites or drops on its own (sysmon and SNMP ring buffers, ICMP check
+  results, the sweep summary sample, plugin telemetry signals) keep draining into the bounded
+  queue they already use under spool refusal. Overflow drops the oldest entries and is counted as
+  `agent_edge_record_dropped_samples_total{reason="awaiting_grant"}`.
+- Producers whose source holds or back-pressures on its own are not read: Wasm plugin results (the
+  plugin manager's queue makes executions wait), mapper and netprobe discovery, flow attribution
+  (the sidecar counts its channel drops and the next batch reports them in `dropped_since_last`),
+  workload identity, k8s public endpoints, endpoint inventory and bumblebee (latest-wins snapshots
+  on disk or in the service), unleased sweep results (the sweep service keeps its completed
+  cycles), the OTLP relay (the pump stops pulling; frames stay unacked in the add-on's durable
+  spool), and rperf (one drained metrics status is held unbuilt and polling pauses). MTR checks do
+  not run without both the metrics and scheduled trace grants, and a sync run does not start
+  without the sync page grant (a page whose grant disappears mid-run fails the run).
+- Leased sweep slots wait unconsumed while the spool is unavailable.
+- Each push cycle a producer holds for want of a grant is counted as
+  `agent_edge_record_grant_holds_total{producer}`, so a missing grant is visible on the agent as
+  well as through core's `partition_not_found` and `spool_unavailable` conditions.
+- Records already built under an earlier grant finish under that grant before anything new is
+  read, as a response with records in the spool already did.
+
+Data the edge path cannot carry is counted, not rerouted: an unleased sweep results response that
+does not form a typed batch, or whose first record the spool refuses permanently, is dropped,
+counted and acknowledged; an OTLP relay record larger than any edge record is counted and acked.
+
+The farm01 parity soaks of tasks 2.4 to 7.2, including the unleased sweep results soak named in
+task 8.1 and the requirement "Each producer emits on one path and legacy is removed at cutover",
+are release gates under `enable-edge-record-pipeline-by-default` Decision 13 (task 7.2 there): the
+release candidate that carries this removal is what M4.1 soaks on farm01. The code therefore lands
+before the soak; the release is not cut until the soaks pass.
+
 ## Risks
 
 - **Spool sharing.** All producers share one spool budget; admission backpressure and byte-fair

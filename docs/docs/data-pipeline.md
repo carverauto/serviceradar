@@ -58,123 +58,121 @@ payload-budget and per-part deduplication contracts live in
 `ServiceRadarAgentGateway.MetricBatchPublisher` and
 `ServiceRadarAgentGateway.MetricBatchSplit`.
 
-When the agent's edge-record spool is open and it holds a current
-`serviceradar.metrics.batch` grant, its sysmon, SNMP, ICMP, rperf and MTR scalar
-metrics and its periodic sweep summary leave the status path on that one grant.
-Each producer keeps its own queue or pending-item state. Full MTR traces from agent-scheduled checks leave
-the status path on their own queue when the agent holds a current
-`serviceradar.mtr.scheduled_trace` version 1 grant, and are projected by
-`ServiceRadar.Edge.Projectors.ScheduledMtrTrace`; without that grant they stay
-on the status path. Traces from a sweep group's `mtr` mode take only that edge
-path and do not run without the grant (see
-[Network Sweeps](./network-sweeps.md)). Results of a
-sweep group the agent runs from its own config, and the metric batch on each of
-those results chunks, leave the status path together only while the agent also
-holds a current `serviceradar.sweep.unleased_results` version 1 grant. Without
-that grant, and for a leased sweep group, the response stays on the status path.
+Every durable agent data family travels only as edge records in the agent's
+spool. The status path (`PushStatus`) carries nothing but service status
+summaries, the agent capability status and the plugin-engine counters. A
+producer emits records under the standing grant core issues for its contract.
+Without that grant, or without an open spool, a producer holds its data as it
+does when the spool refuses admission; it never sends that data on the status
+path:
+
+- Sysmon, SNMP, ICMP and periodic sweep summary samples, and plugin telemetry
+  signals, wait in the producer's bounded queue. When the queue overflows, the
+  oldest entries are dropped and counted as
+  `agent_edge_record_dropped_samples_total{reason="awaiting_grant"}`.
+- Every other producer stops reading its source, which keeps the data: plugin
+  results, mapper and netprobe discovery, flow attribution (the netprobe
+  sidecar counts what its channel drops, and the next batch reports it), the
+  workload identity, Kubernetes public endpoint, endpoint inventory and
+  bumblebee snapshots, unleased sweep results, rperf, and OTLP relay frames,
+  which stay unacked in the add-on's durable spool. MTR checks do not run
+  without both their grants, and a sync run does not start without its grant.
+- Each push cycle a producer spends holding for a grant is counted as
+  `agent_edge_record_grant_holds_total{producer}`.
+
+Records already built under an earlier grant are appended before anything new
+is read. Core reports an agent that cannot get grants (`partition_not_found`)
+or cannot open its spool (`spool_unavailable`) as an edge pipeline condition.
+
+Sysmon, SNMP, ICMP, rperf and MTR scalar metrics and the periodic sweep summary
+share the `serviceradar.metrics.batch` grant. Each producer keeps its own queue
+or pending-item state. Full MTR traces, from agent-scheduled checks and from a
+sweep group's `mtr` mode, use the `serviceradar.mtr.scheduled_trace` version 1
+grant and are projected by `ServiceRadar.Edge.Projectors.ScheduledMtrTrace`
+(see [Network Sweeps](./network-sweeps.md)). Results of a sweep group the agent
+runs from its own config, and the metric batch on each of those results
+chunks, are spooled together under the `serviceradar.sweep.unleased_results`
+version 1 and metrics grants. A leased sweep group emits observation batches
+from its lease instead. A results response that cannot form the typed batch,
+or whose first record the spool refuses permanently, is dropped and counted.
 The agent splits each metrics record at 512 KiB. An unleased sweep results
 record is split by halving the host list so it stays within that grant's row
-ceiling and 512 KiB, and core ingests it on the results path the status
-message used. Core republishes the metric records onto the same
+ceiling and 512 KiB. Core republishes the metric records onto the
 `metrics.sysmon.>`, `metrics.snmp.>`, `metrics.icmp.>`, `metrics.rperf.>`,
 `metrics.mtr.>` and `metrics.sweep.>` subjects. The publish rules are
 `ServiceRadar.Edge.MetricsBatchProjection`.
 
-That same spool carries flow-attribution windows and OTLP relay frames. A current `serviceradar.netprobe.flow_attribution` version 1
-grant then takes drained windows off the `source=flow-attribution` status
-path. A current `serviceradar.otlp.relay` version 1 grant appends fitting OTLP
-records to that spool. A record that does not fit the 512 KiB edge-record cap
-still goes out as `source=otlp-relay` when that status fits the gateway frame.
-A record that fits neither is skipped and acked. The add-on is acked only after
-every fitting record is in the spool and every status that was sent has been
-accepted. Without the spool or the matching grant, each producer
-stays on its status path. Core republishes a
-fresh flow-attribution record through the same observation publish the status
-path uses, and republishes an OTLP relay record onto `otel.traces.raw`,
-`logs.otel`, `otel.metrics.raw`, and `otel.metrics.derived`. Payload rules are
-the comments on `FlowAttributionEventBatch` and `OtlpRelayFrame`. The publish
-rules are `ServiceRadar.Edge.Projectors.FlowAttribution` and
+That same spool carries flow-attribution windows and OTLP relay frames, under
+the `serviceradar.netprobe.flow_attribution` version 1 and
+`serviceradar.otlp.relay` version 1 grants. An OTLP relay record larger than
+the 512 KiB edge-record cap is skipped, counted and acked. The add-on is acked
+only after every other record of its frames is in the spool. Core republishes
+a flow-attribution record through the observation publish, and an OTLP relay
+record onto `otel.traces.raw`, `logs.otel`, `otel.metrics.raw`, and
+`otel.metrics.derived`. Payload rules are the comments on
+`FlowAttributionEventBatch` and `OtlpRelayFrame`. The publish rules are
+`ServiceRadar.Edge.Projectors.FlowAttribution` and
 `ServiceRadar.Edge.Projectors.OtlpRelay`.
 
-Plugin and native add-on telemetry follows the same shape under the
-`serviceradar.telemetry.batch` contract.
-With the spool open and a current grant, the batch leaves the status path;
-without the grant, the status path still carries it. The agent host stamps
-the producing assignment or add-on into each batch; plugins and add-ons never
-hold a contract of their own. Core attests and republishes
-`serviceradar_metrics` records onto `metrics.timeseries.>`, and routes OCSF
-event, OTel log and discovery records through the same status ingestor
-destinations as the legacy path. A discovery record on this contract is
-admitted only from a native add-on. The routing rules are
+Plugin and native add-on telemetry use the `serviceradar.telemetry.batch`
+contract. The agent host stamps the producing assignment or add-on into each
+batch; plugins and add-ons never hold a contract of their own. Core attests and
+republishes `serviceradar_metrics` records onto `metrics.timeseries.>`, and
+routes OCSF event, OTel log and discovery records to their existing
+destinations. A discovery record on this contract is admitted only from a
+native add-on. The routing rules are
 `ServiceRadar.Edge.Projectors.TelemetryBatch`.
 
-Wasm plugin results follow the same shape under the
-`serviceradar.plugin_results.batch` contract. With the spool open and a
-current grant, drained results are grouped by their host-stamped provenance
-and leave the status path; without the grant, the status path still carries
-them. Core rebuilds each result's payload and status and ingests it through
+Wasm plugin results use the `serviceradar.plugin_results.batch` contract.
+Drained results are grouped by their host-stamped provenance. Core rebuilds
+each result's payload and status and ingests it through
 `ServiceRadar.Observability.PluginResultIngestor`, so per-assignment service
-identity and the registered platform handlers behave exactly as on the
-legacy path. The projection rules are
+identity and the registered platform handlers apply. The projection rules are
 `ServiceRadar.Edge.Projectors.WasmPluginResult`.
 
 Mapper discovery (devices, interfaces, topology), netprobe discovery, and
-integration sync pages follow the same shape under the
-`serviceradar.mapper.devices.batch`, `serviceradar.mapper.interfaces.batch`,
-`serviceradar.mapper.topology.batch`, `serviceradar.netprobe.discovery.batch`
-and `serviceradar.sync.page.batch` contracts. The
-agent converts the exact update payloads the legacy builders produced into
-the typed batches of `proto/edge/v1/json_producer_batches.proto`; core
-rebuilds those payloads and hands them to the same destinations as the
-legacy result routes (the sync ingestion pipeline for devices, netprobe
-and sync pages, `MapperResultsIngestor` for interfaces and topology), so
-the DIRE run ledgers, incomplete-run population guard and
-conflicting-identity refusal are unchanged. A sync run never splits across
-paths: once a page spools, later pages of that run spool or the run fails.
-The projection rules are the discovery projectors under
-`ServiceRadar.Edge.Projectors`.
+integration sync pages use the `serviceradar.mapper.devices.batch`,
+`serviceradar.mapper.interfaces.batch`, `serviceradar.mapper.topology.batch`,
+`serviceradar.netprobe.discovery.batch` and `serviceradar.sync.page.batch`
+contracts. The agent converts its update payloads into the typed batches of
+`proto/edge/v1/json_producer_batches.proto`; core rebuilds those payloads and
+hands them to the sync ingestion pipeline (devices, netprobe and sync pages)
+or `MapperResultsIngestor` (interfaces and topology), so the DIRE run ledgers,
+incomplete-run population guard and conflicting-identity refusal apply. A
+sync page the spool refuses fails its run. The projection rules are the
+discovery projectors under `ServiceRadar.Edge.Projectors`.
 
 Workload identity snapshots ride the
-`serviceradar.workload_identity.snapshot` contract. While the agent holds that grant
-the snapshot file is not sent on the status path; the agent holds at most one
+`serviceradar.workload_identity.snapshot` contract. The agent holds at most one
 built snapshot until the spool admits all of its records, and spools the file
-again only when its content changes. Core rebuilds the legacy snapshot payload
-and writes it through `ServiceRadar.WorkloadIdentity.persist_snapshot/1`
+again only when its content changes. Core writes the snapshot through
+`ServiceRadar.WorkloadIdentity.persist_snapshot/1`
 (`ServiceRadar.Edge.Projectors.WorkloadIdentity`).
 
 Kubernetes public endpoint snapshots use the
-`serviceradar.k8s.public_endpoints.snapshot` contract. While the grant is
-current, each
-snapshot travels only as an edge record. The agent holds at most one pending
-snapshot when the spool refuses it and skips polling the k8s inventory
-service until that record is admitted. Core writes the snapshot through
-`ServiceRadar.EventWriter.Processors.K8sPublicEndpoints`, the same processor
-the legacy path uses. It refuses a malformed snapshot, one that does not
-match the agent's cluster binding, and one whose network scope has no
-partition. The projection rules are
+`serviceradar.k8s.public_endpoints.snapshot` contract. The agent holds at most
+one pending snapshot when the spool refuses it and skips polling the k8s
+inventory service until that record is admitted. Core writes the snapshot
+through `ServiceRadar.EventWriter.Processors.K8sPublicEndpoints`. It refuses a
+malformed snapshot, one that does not match the agent's cluster binding, and
+one whose network scope has no partition. The projection rules are
 `ServiceRadar.Edge.Projectors.K8sPublicEndpoints`.
 
-Endpoint inventory scans follow the same shape under the
-`serviceradar.endpoint_inventory.scan` contract. With a current grant, each
-changed scan or `not_scanned` report becomes one
-`EndpointInventoryScanPayloadV1` record. The agent holds at most one
-pending record and pauses polling until the spool admits it. A scan that
-cannot form a record within the body bound, or that the spool refuses, is
-dropped once and its upload marked failed; it never falls back to the
-status path while the grant is held. Core
-rebuilds the legacy payload and ingests it through
-`EndpointInventoryIngestor`. The projection rules are
-`ServiceRadar.Edge.Projectors.EndpointInventory`.
+Endpoint inventory scans use the `serviceradar.endpoint_inventory.scan`
+contract. Each changed scan or `not_scanned` report becomes one
+`EndpointInventoryScanPayloadV1` record. The agent holds at most one pending
+record and pauses polling until the spool admits it. A scan that cannot form a
+record within the body bound, or that the spool refuses, is dropped once and
+its upload marked failed. Core ingests it through `EndpointInventoryIngestor`.
+The projection rules are `ServiceRadar.Edge.Projectors.EndpointInventory`.
 
-Bumblebee scans follow the same shape under the `serviceradar.bumblebee.scan`
-contract. While the agent holds a current grant, each scan it reads from
-the spool file is sent as one `BumblebeeScanPayloadV1` record from
-`proto/edge/v1/bumblebee.proto`, and the status path does not carry it.
-An unchanged scan is re-sent every 15 minutes so core can re-resolve its
-device. Without a grant, the status path still carries it. While one scan
-waits for spool admission, the agent stops polling the bumblebee spool. Core feeds the scan to `BumblebeeIngestor`, so
-posture, findings and device risk behave as on the legacy path. The
-projection rules are `ServiceRadar.Edge.Projectors.BumblebeeScan`.
+Bumblebee scans use the `serviceradar.bumblebee.scan` contract. Each scan the
+agent reads from the spool file is sent as one `BumblebeeScanPayloadV1` record
+from `proto/edge/v1/bumblebee.proto`. An unchanged scan is re-sent every 15
+minutes so core can re-resolve its device. While one scan waits for spool
+admission, the agent stops polling the bumblebee spool. Core feeds the scan to
+`BumblebeeIngestor`. The projection rules are
+`ServiceRadar.Edge.Projectors.BumblebeeScan`.
 
 ## Durable Edge-Record Pipeline
 

@@ -15,10 +15,8 @@ import (
 	agentnetprobe "github.com/carverauto/serviceradar/go/pkg/agent/netprobe"
 	"github.com/carverauto/serviceradar/go/pkg/agent/sidecar"
 	"github.com/carverauto/serviceradar/go/pkg/bumblebee"
-	"github.com/carverauto/serviceradar/go/pkg/endpointinventory"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
-	goproto "google.golang.org/protobuf/proto"
 )
 
 const (
@@ -47,7 +45,7 @@ func TestMarshalJSONLimitedRejectsOversizedPayload(t *testing.T) {
 	}
 }
 
-func TestBuildNetprobeResultsPayloadsBoundsStatusChunks(t *testing.T) {
+func TestBuildNetprobeResultsPayloadsBoundsPayloadSize(t *testing.T) {
 	updates := make([]map[string]any, 0, 80)
 	for idx := 0; idx < 80; idx++ {
 		updates = append(updates, map[string]any{
@@ -75,31 +73,9 @@ func TestBuildNetprobeResultsPayloadsBoundsStatusChunks(t *testing.T) {
 		t.Fatalf("expected payloads to be split, got %d", len(payloads))
 	}
 
-	chunks := make([]*proto.ResultsChunk, 0, len(payloads))
 	for idx, payload := range payloads {
 		if len(payload) > 256*1024 {
 			t.Fatalf("payload %d has %d bytes, want <= 256KiB", idx, len(payload))
-		}
-		chunks = append(chunks, &proto.ResultsChunk{
-			Data:        payload,
-			IsFinal:     idx == len(payloads)-1,
-			ChunkIndex:  int32(idx),
-			TotalChunks: int32(len(payloads)),
-			Timestamp:   time.Now().UnixNano(),
-		})
-	}
-
-	statusChunks := buildResultsStatusChunksForAgent(
-		chunks,
-		"passive-netprobe",
-		"passive-netprobe",
-		"agent-1",
-		"default",
-		"gateway-1",
-	)
-	for idx, chunk := range statusChunks {
-		if size := goproto.Size(chunk); size >= 16*1024*1024 {
-			t.Fatalf("status chunk %d has %d bytes, want below gateway hard limit", idx, size)
 		}
 	}
 }
@@ -177,73 +153,6 @@ func TestBuildStatusSignatureDetectsAvailabilityChange(t *testing.T) {
 
 	if signatureA == signatureB {
 		t.Fatalf("expected signatures to differ when availability changes")
-	}
-}
-
-func TestEndpointInventoryStandingQuestionCountsFromStatuses(t *testing.T) {
-	evaluatedAt := time.Unix(1_735_689_600, 0).UTC()
-	lastScanAt := evaluatedAt.Add(-time.Hour)
-	payload := endpointinventory.ScanPayload{
-		SchemaVersion: endpointinventory.SchemaVersion,
-		AgentID:       "agent-1",
-		ScanID:        "scan-1",
-		State:         "scanned",
-		CoverageState: "complete",
-		PackageCount:  1,
-		StandingQuestionResultCounts: []endpointinventory.StandingQuestionResultCount{
-			{
-				QuestionID:      "nginx-installed",
-				QuestionVersion: "v3",
-				PredicateHash:   "sha256:predicate",
-				Mode:            endpointinventory.QueryModeCount,
-				Matched:         true,
-				Count:           2,
-				PackageSetHash:  "sha256:package-set",
-				EvaluatedAt:     evaluatedAt,
-				Freshness: endpointinventory.FreshnessVerdict{
-					Verdict:               endpointinventory.FreshnessFresh,
-					AgeSeconds:            3600,
-					StaleThresholdSeconds: 86_400,
-					LastSuccessfulScanAt:  &lastScanAt,
-				},
-				Labels: map[string]string{"coordinate": "nginx"},
-			},
-		},
-	}
-	message, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	counts := endpointInventoryStandingQuestionCountsFromStatuses([]*proto.GatewayServiceStatus{
-		{
-			ServiceName: endpointinventory.ServiceName,
-			ServiceType: endpointinventory.ServiceType,
-			Message:     message,
-		},
-	})
-	if len(counts) != 1 {
-		t.Fatalf("standing question count len = %d, want 1", len(counts))
-	}
-	count := counts[0]
-	if count.QuestionId != "nginx-installed" ||
-		count.QuestionVersion != "v3" ||
-		count.PredicateHash != "sha256:predicate" ||
-		count.Mode != endpointinventory.QueryModeCount ||
-		!count.Matched ||
-		count.Count != 2 ||
-		count.PackageSetHash != "sha256:package-set" ||
-		count.HashAlgorithm != endpointinventory.HashAlgorithm ||
-		count.EvaluatedAtUnix != evaluatedAt.Unix() {
-		t.Fatalf("unexpected standing question count: %#v", count)
-	}
-	if count.Freshness == nil ||
-		count.Freshness.Verdict != endpointinventory.FreshnessFresh ||
-		count.Freshness.LastSuccessfulScanAtUnix != lastScanAt.Unix() {
-		t.Fatalf("unexpected freshness: %#v", count.Freshness)
-	}
-	if count.Labels["coordinate"] != "nginx" {
-		t.Fatalf("labels = %#v", count.Labels)
 	}
 }
 
@@ -658,86 +567,6 @@ type fakeBumblebeeObjectStore struct {
 
 func (f fakeBumblebeeObjectStore) DownloadObject(context.Context, string) ([]byte, error) {
 	return append([]byte(nil), f.data...), nil
-}
-
-func TestBuildResultsStatusChunksForAgentIncludesRuntimeMetadata(t *testing.T) {
-	metadata := currentRuntimeMetadata()
-	chunks := buildResultsStatusChunksForAgent(
-		[]*proto.ResultsChunk{
-			{
-				Data:        []byte(`{"ok":true}`),
-				IsFinal:     true,
-				ChunkIndex:  0,
-				TotalChunks: 1,
-				Timestamp:   time.Now().UnixNano(),
-			},
-		},
-		"sysmon",
-		"sysmon",
-		desktopConsoleAgentID,
-		"default",
-		"gateway-1",
-	)
-
-	if len(chunks) != 1 {
-		t.Fatalf("expected 1 chunk, got %d", len(chunks))
-	}
-
-	chunk := chunks[0]
-	if chunk.Version != metadata.Version {
-		t.Fatalf("expected version %q, got %q", metadata.Version, chunk.Version)
-	}
-	if chunk.Hostname != metadata.Hostname {
-		t.Fatalf("expected hostname %q, got %q", metadata.Hostname, chunk.Hostname)
-	}
-	if chunk.Os != metadata.Os {
-		t.Fatalf("expected os %q, got %q", metadata.Os, chunk.Os)
-	}
-	if chunk.Arch != metadata.Arch {
-		t.Fatalf("expected arch %q, got %q", metadata.Arch, chunk.Arch)
-	}
-}
-
-func TestBuildResultsStatusChunksForAgentFramesEachStatusStream(t *testing.T) {
-	chunks := buildResultsStatusChunksForAgent(
-		[]*proto.ResultsChunk{
-			{
-				Data:        []byte(`{"page":1}`),
-				IsFinal:     false,
-				ChunkIndex:  42,
-				TotalChunks: 0,
-				Timestamp:   time.Now().UnixNano(),
-			},
-			{
-				Data:        []byte(`{"page":1,"part":2}`),
-				IsFinal:     false,
-				ChunkIndex:  43,
-				TotalChunks: 0,
-				Timestamp:   time.Now().UnixNano(),
-			},
-		},
-		"sync",
-		"sync",
-		desktopConsoleAgentID,
-		"default",
-		"gateway-1",
-	)
-
-	if len(chunks) != 2 {
-		t.Fatalf("expected 2 chunks, got %d", len(chunks))
-	}
-
-	for idx, chunk := range chunks {
-		if chunk.ChunkIndex != int32(idx) {
-			t.Fatalf("chunk %d index = %d", idx, chunk.ChunkIndex)
-		}
-		if chunk.TotalChunks != int32(len(chunks)) {
-			t.Fatalf("chunk %d total_chunks = %d", idx, chunk.TotalChunks)
-		}
-		if chunk.IsFinal != (idx == len(chunks)-1) {
-			t.Fatalf("chunk %d is_final = %t", idx, chunk.IsFinal)
-		}
-	}
 }
 
 func TestApplyConfigResponse_SkipsRedundantReapplyOnUnchangedVersion(t *testing.T) {

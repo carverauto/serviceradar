@@ -40,7 +40,7 @@ func TestServerWritePrometheusMetricsIncludesBannerGrabStats(t *testing.T) {
 
 	server.deliveryTelemetry.flowAttributionForwarded.Add(7)
 	server.deliveryTelemetry.flowAttributionQuarantined.Add(1)
-	server.deliveryTelemetry.recordPoisonDrop(retainedSourcePlugin, poisonReasonInvalidArgument, 2, 512)
+	server.deliveryTelemetry.recordPoisonDrop(poisonReasonInvalidArgument, 2, 512)
 
 	var out bytes.Buffer
 	if err := server.WritePrometheusMetrics(&out); err != nil {
@@ -59,8 +59,8 @@ func TestServerWritePrometheusMetricsIncludesBannerGrabStats(t *testing.T) {
 		"# TYPE agent_flow_attribution_events_quarantined_total counter\nagent_flow_attribution_events_quarantined_total 1\n",
 		"# TYPE agent_retained_poison_dropped_items_total counter\n",
 		"# TYPE agent_retained_poison_dropped_bytes_total counter\n",
-		"agent_retained_poison_dropped_items_total{source=\"plugin-result\",reason=\"invalid_argument\"} 2\n",
-		"agent_retained_poison_dropped_bytes_total{source=\"plugin-result\",reason=\"invalid_argument\"} 512\n",
+		"agent_retained_poison_dropped_items_total{source=\"flow-attribution\",reason=\"invalid_argument\"} 2\n",
+		"agent_retained_poison_dropped_bytes_total{source=\"flow-attribution\",reason=\"invalid_argument\"} 512\n",
 	} {
 		if !strings.Contains(metrics, want) {
 			t.Fatalf("metrics missing %q in:\n%s", want, metrics)

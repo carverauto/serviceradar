@@ -137,7 +137,7 @@ func syntheticEndpointInventoryScanPayload() endpointinventory.ScanPayload {
 	}
 }
 
-func TestEndpointInventoryWithGrantEmitsEdgeRecordAndSuppressesLegacyStatus(t *testing.T) {
+func TestEndpointInventoryWithGrantEmitsEdgeRecordAndNoStatus(t *testing.T) {
 	sp := openTestEdgeSpool(t)
 	payload := syntheticEndpointInventoryScanPayload()
 	encoded, err := json.Marshal(payload)
@@ -160,7 +160,7 @@ func TestEndpointInventoryWithGrantEmitsEdgeRecordAndSuppressesLegacyStatus(t *t
 	loop.SetEdgeDiscoverySpool(sp)
 	grantEndpointInventory(t, loop)
 
-	statuses, _ := loop.collectAllStatusesSeparated(context.Background())
+	statuses := loop.collectAllStatuses(context.Background())
 	for _, st := range statuses {
 		require.NotEqual(t, endpointinventory.ServiceName, st.GetServiceName(),
 			"endpoint_inventory status must be suppressed when standing grant is active")
@@ -257,7 +257,7 @@ func TestEndpointInventoryEdgeAdmissionAcknowledgesPendingUpload(t *testing.T) {
 	loop.SetEdgeDiscoverySpool(sp)
 	grantEndpointInventory(t, loop)
 
-	statuses, _ := loop.collectAllStatusesSeparated(context.Background())
+	statuses := loop.collectAllStatuses(context.Background())
 	for _, st := range statuses {
 		require.NotEqual(t, endpointinventory.ServiceName, st.GetServiceName())
 	}
@@ -297,7 +297,7 @@ func TestEndpointInventoryOversizedScanIsDroppedOnceAndMarkedFailed(t *testing.T
 	grantEndpointInventory(t, loop)
 
 	for range 3 {
-		statuses, _ := loop.collectAllStatusesSeparated(context.Background())
+		statuses := loop.collectAllStatuses(context.Background())
 		for _, st := range statuses {
 			require.NotEqual(t, endpointinventory.ServiceName, st.GetServiceName(),
 				"an unsendable scan must not fall back to the status path while the grant is held")
@@ -340,7 +340,7 @@ func TestEndpointInventoryNotScannedStatusIsEmittedOnEdgeContract(t *testing.T) 
 	loop.SetEdgeDiscoverySpool(sp)
 	grantEndpointInventory(t, loop)
 
-	statuses, _ := loop.collectAllStatusesSeparated(context.Background())
+	statuses := loop.collectAllStatuses(context.Background())
 	for _, st := range statuses {
 		require.NotEqual(t, endpointinventory.ServiceName, st.GetServiceName())
 	}
@@ -377,7 +377,7 @@ func TestEndpointInventoryBackpressurePausesPollingAndRetriesSameEventID(t *test
 	grantEndpointInventory(t, loop)
 
 	// First tick polls GetStatus, builds 1 record, and holds it when spool refuses.
-	statuses, _ := loop.collectAllStatusesSeparated(context.Background())
+	statuses := loop.collectAllStatuses(context.Background())
 	for _, st := range statuses {
 		require.NotEqual(t, endpointinventory.ServiceName, st.GetServiceName())
 	}
@@ -386,7 +386,7 @@ func TestEndpointInventoryBackpressurePausesPollingAndRetriesSameEventID(t *test
 	firstEventID := append([]byte(nil), loop.endpointInventoryEdge.built.record.GetEventId()...)
 
 	// Second tick while spool still refuses must NOT call GetStatus.
-	statuses, _ = loop.collectAllStatusesSeparated(context.Background())
+	statuses = loop.collectAllStatuses(context.Background())
 	for _, st := range statuses {
 		require.NotEqual(t, endpointinventory.ServiceName, st.GetServiceName())
 	}
@@ -396,7 +396,7 @@ func TestEndpointInventoryBackpressurePausesPollingAndRetriesSameEventID(t *test
 	// Once spool accepts, the held record is admitted with the exact same event_id.
 	accepting := openTestEdgeSpool(t)
 	loop.SetEdgeDiscoverySpool(accepting)
-	statuses, _ = loop.collectAllStatusesSeparated(context.Background())
+	statuses = loop.collectAllStatuses(context.Background())
 	for _, st := range statuses {
 		require.NotEqual(t, endpointinventory.ServiceName, st.GetServiceName())
 	}
@@ -430,13 +430,16 @@ func TestEndpointInventoryUnchangedPayloadHashIsDeduplicated(t *testing.T) {
 	loop.SetEdgeDiscoverySpool(sp)
 	grantEndpointInventory(t, loop)
 
-	loop.collectAllStatusesSeparated(context.Background())
-	loop.collectAllStatusesSeparated(context.Background())
+	loop.collectAllStatuses(context.Background())
+	loop.collectAllStatuses(context.Background())
 	require.Equal(t, 2, provider.calls)
 	require.Len(t, spooledRecords(t, sp), 1, "identical payload hash must not emit a duplicate record")
 }
 
-func TestEndpointInventoryWithoutGrantUsesLegacyStatusPath(t *testing.T) {
+// Without a grant the scan is neither polled, sent as a status, nor spooled:
+// the collector's spooled scan waits on disk, and the hold is counted. Once
+// the grant is held the scan is spooled.
+func TestEndpointInventoryWithoutGrantIsNotPolled(t *testing.T) {
 	sp := openTestEdgeSpool(t)
 	payload := syntheticEndpointInventoryScanPayload()
 	encoded, err := json.Marshal(payload)
@@ -458,14 +461,17 @@ func TestEndpointInventoryWithoutGrantUsesLegacyStatusPath(t *testing.T) {
 	loop := &PushLoop{server: server, logger: logger.NewTestLogger()}
 	loop.SetEdgeDiscoverySpool(sp)
 
-	statuses, _ := loop.collectAllStatusesSeparated(context.Background())
-	var found bool
+	statuses := loop.collectAllStatuses(context.Background())
 	for _, st := range statuses {
-		if st.GetServiceName() == endpointinventory.ServiceName {
-			found = true
-			break
-		}
+		require.NotEqual(t, endpointinventory.ServiceName, st.GetServiceName(),
+			"endpoint inventory must never ride the status path")
 	}
-	require.True(t, found, "without a standing grant, endpoint_inventory must stay on the legacy status path")
+	require.Zero(t, provider.calls, "the scan was polled without a grant")
 	require.Empty(t, spooledRecords(t, sp))
+	require.Equal(t, uint64(1), loop.server.edgeProducerDrops.grantHolds[edgeProducerEndpointInventory].Load())
+
+	grantEndpointInventory(t, loop)
+	loop.collectAllStatuses(context.Background())
+	require.Equal(t, 1, provider.calls)
+	require.Len(t, spooledRecords(t, sp), 1)
 }

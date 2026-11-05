@@ -246,7 +246,7 @@ func TestMergeRunOverridesIntoConfigIsHostOwned(t *testing.T) {
 func TestPluginResultAcknowledgementIsHostAuthored(t *testing.T) {
 	loop := &PushLoop{logger: logger.NewTestLogger()}
 
-	payload, _, err := loop.normalizePluginPayload(PluginResult{
+	decoded, _, err := loop.normalizePluginPayloadMap(PluginResult{
 		AssignmentID:             "a1",
 		Payload:                  []byte(`{"status":"OK","summary":"fine","run_overrides_acknowledged":["forged"]}`),
 		ObservedAt:               overrideTestNow(),
@@ -255,16 +255,12 @@ func TestPluginResultAcknowledgementIsHostAuthored(t *testing.T) {
 	if err != nil {
 		t.Fatalf("normalize: %v", err)
 	}
-	var decoded map[string]any
-	if err := json.Unmarshal(payload, &decoded); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	acks, ok := decoded[runOverridesAckKey].([]any)
+	acks, ok := decoded[runOverridesAckKey].([]string)
 	if !ok || len(acks) != 1 || acks[0] != "f1" {
 		t.Fatalf("ack list = %v, want host-authored [f1]", decoded[runOverridesAckKey])
 	}
 
-	payload, _, err = loop.normalizePluginPayload(PluginResult{
+	decoded, _, err = loop.normalizePluginPayloadMap(PluginResult{
 		AssignmentID: "a1",
 		Payload:      []byte(`{"status":"OK","summary":"fine","run_overrides_acknowledged":["forged"]}`),
 		ObservedAt:   overrideTestNow(),
@@ -272,12 +268,8 @@ func TestPluginResultAcknowledgementIsHostAuthored(t *testing.T) {
 	if err != nil {
 		t.Fatalf("normalize: %v", err)
 	}
-	decoded = map[string]any{}
-	if err := json.Unmarshal(payload, &decoded); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
 	if _, ok := decoded[runOverridesAckKey]; ok {
-		t.Fatalf("plugin-supplied acknowledgement forwarded: %s", payload)
+		t.Fatalf("plugin-supplied acknowledgement forwarded: %v", decoded)
 	}
 }
 

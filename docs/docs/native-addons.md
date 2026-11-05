@@ -170,30 +170,21 @@ PowerDNS `dnsmessage.proto`, defaults to RPZ/policy-hit filtering, maps accepted
 records to OCSF 1.8.0 DNS Activity (`class_uid=4003`), and emits those events through
 the generic `native-telemetry:v1` add-on stream.
 
-The transport path without a current `serviceradar.telemetry.batch` grant is:
-
-```text
-PowerDNS Recursor -> serviceradar-powerdns-addon -> serviceradar-agent
-  -> gateway StreamStatus source=addon:powerdns -> core-elx
-  -> NATS pdns.ocsf -> core-elx EventWriter -> ocsf_events
-```
-
-This status path intentionally avoids exposing the cluster OTEL collector to DNS hosts. The
-agent/gateway path already provides the authenticated agent identity, gateway,
-partition, and source IP envelope; core-elx overwrites any add-on-supplied
-`metadata.service_radar` values with that trusted envelope before publishing to NATS.
-
-The agent's edge-record spool always runs, and core issues the
+The agent spools those batches as `serviceradar.telemetry.batch` edge records
+and holds them while it has no grant for that contract
+([Data Pipeline](./data-pipeline.md#durable-edge-record-pipeline) describes the
+contract). The agent's edge-record spool always runs, and core issues the
 `serviceradar.telemetry.batch` grant to every agent whose partition has a row,
-with no per-add-on or per-producer opt-in. While the agent holds that grant it
-spools the batch instead of this status push. [Data
-Pipeline](./data-pipeline.md#durable-edge-record-pipeline) describes that
-contract. `ServiceRadar.Edge.Projectors.TelemetryBatch` owns its routing rules.
+with no per-add-on or per-producer opt-in. This path avoids exposing the
+cluster OTEL collector to DNS hosts. The edge record carries the authenticated
+agent identity and network scope; core overwrites any add-on-supplied
+`metadata.service_radar` values with that trusted identity before routing the
+event. `ServiceRadar.Edge.Projectors.TelemetryBatch` owns the routing rules.
 
 Native add-ons that produce scalar metrics use the same telemetry stream with the
 ServiceRadar metric payload kind. The in-repo Go and Rust native add-on SDKs expose
-helpers that wrap an encoded `serviceradar.metric.v1.MetricBatch`. On the status
-path the gateway publishes that payload onto `metrics.*` without converting it
+helpers that wrap an encoded `serviceradar.metric.v1.MetricBatch`. Core
+republishes that payload onto `metrics.timeseries.>` without converting it
 through JSON. Raw OTLP telemetry remains on the OTLP payload kinds.
 
 ### PowerDNS Recursor config

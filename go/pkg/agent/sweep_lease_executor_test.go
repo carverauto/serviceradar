@@ -200,15 +200,54 @@ func buildExecutableLease(t *testing.T, issuedAt time.Time, slotStart time.Time,
 }
 
 // leaseExecutorFixture wires a real lease store and a real MultiSweepService
-// (with a recording sweeper at the bottom) behind an executor.
+// (with a recording sweeper at the bottom) behind an executor with an open
+// edge spool. Leased runs go through runner, which runs the slot on the
+// group's sweeper without the observation producer, so executor scheduling is
+// tested apart from what a run emits.
 type leaseExecutorFixture struct {
 	dir      string
 	store    *sweepLeaseStore
 	sweeper  *mockSweeper
 	service  *SweepService
 	multi    *MultiSweepService
+	runner   *recordingLeaseRunner
 	executor *sweepLeaseExecutor
+	spool    *spool.Spool
 	group    string
+}
+
+// recordingLeaseRunner runs a leased slot on its group's sweeper under the
+// slot's execution id, refusing a slot the executor no longer considers
+// runnable, as the observation producer does.
+type recordingLeaseRunner struct {
+	*MultiSweepService
+}
+
+func (r *recordingLeaseRunner) RunSweepGroupLease(
+	ctx context.Context,
+	groupID string,
+	_ *edgev1.SweepLeaseV1,
+	slot *edgev1.SweepLeaseSlotV1,
+	_ *spool.Spool,
+	_ bool,
+	_ sweepSlotClaim,
+) error {
+	r.mu.RLock()
+	svc := r.groups[groupID]
+	r.mu.RUnlock()
+	if svc == nil {
+		return errSweepGroupNotFound
+	}
+	if err := sweeper.CheckExecution(ctx); err != nil {
+		return err
+	}
+	run, ok := svc.sweeper.(interface {
+		RunOnceWithExecution(context.Context, string) error
+	})
+	if !ok {
+		return errSweepRunnerUnavailable
+	}
+	return run.RunOnceWithExecution(ctx, uuid.UUID(slot.GetExecutionId()).String())
 }
 
 func newLeaseExecutorFixture(t *testing.T) *leaseExecutorFixture {
@@ -244,7 +283,12 @@ func newLeaseExecutorFixture(t *testing.T) *leaseExecutorFixture {
 		logger:         logger.NewTestLogger(),
 	}
 
-	executor := newSweepLeaseExecutor(store, func() sweepLeaseRunner { return multi }, nil, logger.NewTestLogger())
+	runner := &recordingLeaseRunner{MultiSweepService: multi}
+	executor := newSweepLeaseExecutor(store, func() sweepLeaseRunner { return runner }, nil, logger.NewTestLogger())
+	sp, err := spool.Open(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sp.Close() })
+	executor.edgeSpool = sp
 
 	return &leaseExecutorFixture{
 		dir:      dir,
@@ -252,7 +296,9 @@ func newLeaseExecutorFixture(t *testing.T) *leaseExecutorFixture {
 		sweeper:  sweeper,
 		service:  service,
 		multi:    multi,
+		runner:   runner,
 		executor: executor,
+		spool:    sp,
 		group:    group,
 	}
 }
@@ -264,9 +310,9 @@ func (f *leaseExecutorFixture) install(t *testing.T, lease *edgev1.SweepLeaseV1)
 	require.NoError(t, err)
 }
 
-// A due slot runs exactly once under its core-minted execution id, and the
-// completed cycle is what sweep results report; a restart must not re-run
-// it, and the group reports the lease exhausted once no slot is left.
+// A due slot runs exactly once under its core-minted execution id; a restart
+// must not re-run it, and the group reports the lease exhausted once no slot
+// is left.
 func TestSweepLeaseExecutorRunsDueSlotOnceAcrossRestart(t *testing.T) {
 	fixture := newLeaseExecutorFixture(t)
 	built := buildExecutableLease(t, testLeaseIssuedAt, testSlotStart, nil)
@@ -277,11 +323,7 @@ func TestSweepLeaseExecutorRunsDueSlotOnceAcrossRestart(t *testing.T) {
 
 	require.True(t, fixture.sweeper.manualSchedule, "leased group must come off its local ticker")
 	require.Equal(t, 1, fixture.sweeper.runCount)
-
-	response, err := fixture.multi.GetSweepResults(context.Background(), "")
-	require.NoError(t, err)
-	require.True(t, response.HasNewData)
-	require.Equal(t, built.executionID, response.ExecutionId, "results must carry the slot's core-minted execution id")
+	require.Equal(t, built.executionID, fixture.sweeper.summary.ExecutionID, "the slot must run under its core-minted execution id")
 
 	_, payload, err := fixture.service.GetStatusWithMetricPayload(context.Background())
 	require.NoError(t, err)
@@ -295,7 +337,8 @@ func TestSweepLeaseExecutorRunsDueSlotOnceAcrossRestart(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, reopened.Executed(fixture.group, built.executionID))
 
-	restarted := newSweepLeaseExecutor(reopened, func() sweepLeaseRunner { return fixture.multi }, nil, logger.NewTestLogger())
+	restarted := newSweepLeaseExecutor(reopened, func() sweepLeaseRunner { return fixture.runner }, nil, logger.NewTestLogger())
+	restarted.edgeSpool = fixture.spool
 	restarted.step(context.Background(), func() time.Time { return now })
 	require.Equal(t, 1, fixture.sweeper.runCount, "executed slot must not re-run after restart")
 }
@@ -360,118 +403,25 @@ func TestSweepLeaseExecutorRevocationRestoresLocalTicker(t *testing.T) {
 	require.Equal(t, 0, fixture.sweeper.runCount)
 }
 
-// Two due slots: while the later slot is in progress the earlier slot's hosts
-// are still the published summary, and they go out under the earlier slot's
-// execution id. The later slot's own completion then publishes under its id.
-func TestSweepLeaseExecutorBindsExecutionIDToTheSweepThatFinished(t *testing.T) {
+// Without an edge spool a leased run has nowhere to emit: the due slot is
+// neither run nor consumed, and once the spool is available the next pass
+// inside the collection window runs it.
+func TestSweepLeaseExecutorHoldsDueSlotWithoutSpool(t *testing.T) {
 	fixture := newLeaseExecutorFixture(t)
-	lease, firstID, secondID := twoDueLeaseSlots(t)
-	fixture.install(t, lease)
+	built := buildExecutableLease(t, testLeaseIssuedAt, testSlotStart, nil)
+	fixture.install(t, built.lease)
+	fixture.executor.edgeSpool = nil
 
-	gated := newGatedSweeper(secondID)
-	fixture.service.sweeper = gated
+	now := testSlotStart.Add(time.Minute)
+	fixture.executor.step(context.Background(), func() time.Time { return now })
 
-	release := make(chan struct{})
-	gated.release = release
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		fixture.executor.step(context.Background(), func() time.Time { return testSlotStart.Add(90 * time.Second) })
-	}()
+	require.Zero(t, fixture.sweeper.runCount, "a leased slot ran without a spool to emit into")
+	require.False(t, fixture.store.Executed(fixture.group, built.executionID), "a held slot was consumed")
 
-	select {
-	case <-gated.started:
-	case <-time.After(5 * time.Second):
-		t.Fatal("second slot did not start")
-	}
-
-	response, err := fixture.multi.GetSweepResults(context.Background(), "")
-	require.NoError(t, err)
-	require.True(t, response.HasNewData)
-	require.Equal(t, firstID, response.ExecutionId)
-	require.Equal(t, firstID, sweepResultHost(t, response.Data))
-
-	close(release)
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("executor pass did not finish")
-	}
-
-	fixture.multi.AcknowledgeSweepResults(response.SweepGroupId, response.CurrentSequence)
-	response, err = fixture.multi.GetSweepResults(context.Background(), "")
-	require.NoError(t, err)
-	require.True(t, response.HasNewData)
-	require.Equal(t, secondID, response.ExecutionId)
-	require.Equal(t, secondID, sweepResultHost(t, response.Data))
-}
-
-// Two due slots finish in one pass before anything is published. Each cycle
-// is returned in order under its own execution id, including when both
-// completions share a LastSweep unix second. An unacknowledged read repeats
-// the unpublished cycle instead of jumping ahead.
-func TestSweepLeaseExecutorPublishesEveryCatchUpSlot(t *testing.T) {
-	fixture := newLeaseExecutorFixture(t)
-	lease, firstID, secondID := twoDueLeaseSlots(t)
-	fixture.install(t, lease)
-	fixture.service.sweeper = newSameSecondSweeper()
-
-	fixture.executor.step(context.Background(), func() time.Time { return testSlotStart.Add(90 * time.Second) })
-
-	first, err := fixture.multi.GetSweepResults(context.Background(), "")
-	require.NoError(t, err)
-	require.True(t, first.HasNewData)
-	require.Equal(t, firstID, first.ExecutionId)
-	require.Equal(t, firstID, sweepResultHost(t, first.Data))
-
-	repeated, err := fixture.multi.GetSweepResults(context.Background(), "")
-	require.NoError(t, err)
-	require.True(t, repeated.HasNewData)
-	require.Equal(t, first.CurrentSequence, repeated.CurrentSequence)
-	require.Equal(t, firstID, repeated.ExecutionId)
-
-	fixture.multi.AcknowledgeSweepResults(first.SweepGroupId, first.CurrentSequence)
-	second, err := fixture.multi.GetSweepResults(context.Background(), "")
-	require.NoError(t, err)
-	require.True(t, second.HasNewData)
-	require.Equal(t, secondID, second.ExecutionId)
-	require.Equal(t, secondID, sweepResultHost(t, second.Data))
-
-	fixture.multi.AcknowledgeSweepResults(second.SweepGroupId, second.CurrentSequence)
-	done, err := fixture.multi.GetSweepResults(context.Background(), "")
-	require.NoError(t, err)
-	require.False(t, done.HasNewData)
-}
-
-// A leased cycle that publishes no hosts must not leave its execution id
-// attached to the next cycle, including a local sweep after the lease id
-// was cleared.
-func TestSweepLeaseUnpublishedExecutionDoesNotLabelTheNextCycle(t *testing.T) {
-	sweeper := &mockSweeper{summary: &models.SweepSummary{LastSweep: 10}}
-	service := &SweepService{
-		sweeper: sweeper,
-		config:  &models.Config{},
-		stats:   newScanStats(),
-		logger:  logger.NewTestLogger(),
-	}
-
-	err := service.RunOnceForExecution(context.Background(), "leased-id")
-	require.NoError(t, err)
-
-	response, err := service.GetSweepResults(context.Background(), "")
-	require.NoError(t, err)
-	require.False(t, response.HasNewData)
-	require.NotEqual(t, "leased-id", response.ExecutionId)
-
-	sweeper.summary.Hosts = []models.HostResult{{Host: "192.0.2.10", Available: true}}
-	require.NoError(t, service.RunOnce(context.Background()))
-
-	response, err = service.GetSweepResults(context.Background(), "")
-	require.NoError(t, err)
-	require.True(t, response.HasNewData)
-	require.NotEqual(t, "leased-id", response.ExecutionId)
-	_, err = uuid.Parse(response.ExecutionId)
-	require.NoError(t, err)
+	fixture.executor.edgeSpool = fixture.spool
+	fixture.executor.step(context.Background(), func() time.Time { return now })
+	require.Equal(t, 1, fixture.sweeper.runCount)
+	require.True(t, fixture.store.Executed(fixture.group, built.executionID))
 }
 
 // A sweep error leaves the slot due. The next pass inside the collection
@@ -518,6 +468,7 @@ func TestSweepLeaseExecutorRefusedFirstRecordLeavesSlotRunnable(t *testing.T) {
 	fixture.install(t, lease)
 	sp, freeSpool := fullEdgeSweepSpool(t)
 	fixture.executor.edgeSpool = sp
+	fixture.executor.runnerFor = func() sweepLeaseRunner { return fixture.multi }
 	executionID := uuid.UUID(slot.ExecutionId).String()
 
 	// The agent stops while the producer waits for admission.
@@ -671,94 +622,6 @@ func sweepLeaseStates(t *testing.T, message []byte) map[string]map[string]any {
 	return states
 }
 
-func sweepResultHost(t *testing.T, data []byte) string {
-	t.Helper()
-
-	var payload struct {
-		Hosts []struct {
-			Host string `json:"host"`
-		} `json:"hosts"`
-	}
-	require.NoError(t, json.Unmarshal(data, &payload))
-	require.NotEmpty(t, payload.Hosts)
-
-	return payload.Hosts[0].Host
-}
-
-// gatedSweeper publishes a sweep's execution id only when that run finishes.
-// While a run is in progress, status stays on the previous published summary.
-type gatedSweeper struct {
-	mu        sync.Mutex
-	blockID   string
-	published *models.SweepSummary
-	started   chan struct{}
-	release   chan struct{}
-	lastSweep int64
-}
-
-func newGatedSweeper(blockID string) *gatedSweeper {
-	return &gatedSweeper{
-		blockID: blockID,
-		started: make(chan struct{}),
-	}
-}
-
-func (g *gatedSweeper) RunOnce(ctx context.Context) error {
-	return g.RunOnceWithExecution(ctx, "")
-}
-
-func (g *gatedSweeper) RunOnceWithExecution(ctx context.Context, executionID string) error {
-	g.mu.Lock()
-	block := executionID == g.blockID
-	g.mu.Unlock()
-
-	if block {
-		close(g.started)
-		select {
-		case <-g.release:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
-
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.lastSweep++
-	g.published = &models.SweepSummary{
-		Network:        "192.0.2.0/24",
-		TotalHosts:     1,
-		AvailableHosts: 1,
-		LastSweep:      g.lastSweep,
-		Hosts:          []models.HostResult{{Host: executionID, Available: true}},
-		ExecutionID:    executionID,
-	}
-
-	return nil
-}
-
-func (g *gatedSweeper) GetStatus(context.Context) (*models.SweepSummary, error) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-
-	if g.published == nil {
-		return &models.SweepSummary{}, nil
-	}
-
-	clone := *g.published
-	clone.Hosts = append([]models.HostResult(nil), g.published.Hosts...)
-
-	return &clone, nil
-}
-
-func (*gatedSweeper) Start(context.Context) error           { return nil }
-func (*gatedSweeper) Stop() error                           { return nil }
-func (*gatedSweeper) UpdateConfig(*models.Config) error     { return nil }
-func (*gatedSweeper) GetScannerStats() *models.ScannerStats { return nil }
-func (*gatedSweeper) GetBannerGrabStats() *models.BannerGrabStats {
-	return nil
-}
-func (*gatedSweeper) SetManualSchedule(bool) {}
-
 // sameSecondSweeper keeps one summary and rewrites it in place. Both
 // completions share a LastSweep unix second, which is what a catch-up of
 // two slots in the same second looks like after the store has pruned the
@@ -869,11 +732,16 @@ func TestRetainedSweepCompletionMetadata(t *testing.T) {
 			sweeper.scanner.PacketsSent = 11
 			sweeper.banner.ProbesTotal = 7
 			service := &SweepService{sweeper: sweeper, config: &models.Config{}, logger: logger.NewTestLogger()}
-			require.NoError(t, service.RunOnceForExecution(context.Background(), "first"))
+			retainCycle := func(id string) {
+				require.NoError(t, service.runAndRetain(context.Background(), func(ctx context.Context) error {
+					return sweeper.RunOnceWithExecution(ctx, id)
+				}))
+			}
+			retainCycle("first")
 			sweeper.cancelled = !cancelled
 			sweeper.scanner.PacketsSent = 23
 			sweeper.banner.ProbesTotal = 17
-			require.NoError(t, service.RunOnceForExecution(context.Background(), "second"))
+			retainCycle("second")
 
 			sequence := ""
 			for i, expected := range []struct {
@@ -957,109 +825,84 @@ func (s *snapshotBlockingSweeper) RunPlannedWithObserver(ctx context.Context, id
 }
 
 func TestSweepCallersSerializeThroughSnapshot(t *testing.T) {
-	for _, edge := range []bool{false, true} {
-		t.Run(fmt.Sprintf("edge=%t", edge), func(t *testing.T) {
-			cfg, lease, slot, sp := edgeSweepFixture(t)
-			group := uuid.UUID(lease.SweepGroupId).String()
-			cfg.SweepGroupID = group
-			// Buffer every host until finish, so the claim pauses publication after
-			// the scanner has returned and released its own run lock.
-			lease.ProductionCapability.GetProduction().MaxProjectedRowCount = 16
-			lease.ProductionCapability.GetProduction().MaxProjectedWriteBytes = 16 * sweepProjectedRowBytes
-			sw := &snapshotBlockingSweeper{
-				sameSecondSweeper: newSameSecondSweeper(),
-				snapshotStarted:   make(chan struct{}), releaseSnapshot: make(chan struct{}),
-				observerFinished: make(chan struct{}), runStarted: make(chan string, 2),
-			}
-			release := sync.OnceFunc(func() { close(sw.releaseSnapshot) })
-			defer release()
-			service := &SweepService{sweeper: sw, config: cfg, logger: logger.NewTestLogger()}
-			multi := &MultiSweepService{groups: map[string]*SweepService{group: service}}
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			firstID := uuid.UUID(slot.ExecutionId).String()
-			first := make(chan error, 1)
-			second := make(chan error, 1)
-			go func() {
-				if !edge {
-					first <- multi.RunSweepGroupExecution(ctx, group, firstID)
-					return
-				}
-				first <- multi.RunSweepGroupLease(ctx, group, lease, slot, sp, false, sweepSlotClaim{claim: func() error {
-					select {
-					case <-sw.observerFinished:
-					default:
-						return errTestPublicationBeforeObserver
-					}
-					sw.pausePublication()
-					return nil
-				}})
-			}()
-			select {
-			case <-sw.snapshotStarted:
-			case err := <-first:
-				t.Fatalf("first sweep ended before publication barrier: %v", err)
-			case <-ctx.Done():
-				t.Fatal("first sweep never reached publication barrier")
-			}
-			require.Equal(t, firstID, <-sw.runStarted)
-			secondCalling := make(chan struct{})
-			go func() {
-				close(secondCalling)
-				second <- multi.RunSweepGroup(ctx, group)
-			}()
-			<-secondCalling
-			var secondID string
-			select {
-			case secondID = <-sw.runStarted:
-				t.Errorf("%s started before prior publication completed", secondID)
-			case <-time.After(50 * time.Millisecond):
-			}
-			release()
-			require.NoError(t, <-first)
-			require.NoError(t, <-second)
-			if secondID == "" {
-				secondID = <-sw.runStarted
-			}
-			require.Equal(t, "on-demand", secondID)
-			if edge {
-				records, err := sp.Unresolved()
-				require.NoError(t, err)
-				require.Len(t, records, 1)
-				record := &edgev1.EdgeRecordV1{}
-				require.NoError(t, goproto.Unmarshal(records[0].Body, record))
-				batch := &edgev1.SweepObservationBatchV1{}
-				require.NoError(t, goproto.Unmarshal(recordBody(t, record), batch))
-				require.Equal(t, slot.ExecutionId, batch.ExecutionId)
-				require.Len(t, batch.Hosts, 4)
-				result, err := service.GetSweepResults(ctx, "")
-				require.NoError(t, err)
-				require.True(t, result.HasNewData)
-				require.Equal(t, "on-demand", result.ExecutionId)
-				return
-			}
-			sequence := ""
-			for _, id := range []string{firstID, "on-demand"} {
-				result, err := service.GetSweepResults(ctx, sequence)
-				require.NoError(t, err)
-				require.Equal(t, id, result.ExecutionId)
-				sequence = result.CurrentSequence
-			}
-		})
+	cfg, lease, slot, sp := edgeSweepFixture(t)
+	group := uuid.UUID(lease.SweepGroupId).String()
+	cfg.SweepGroupID = group
+	// Buffer every host until finish, so the claim pauses publication after
+	// the scanner has returned and released its own run lock.
+	lease.ProductionCapability.GetProduction().MaxProjectedRowCount = 16
+	lease.ProductionCapability.GetProduction().MaxProjectedWriteBytes = 16 * sweepProjectedRowBytes
+	sw := &snapshotBlockingSweeper{
+		sameSecondSweeper: newSameSecondSweeper(),
+		snapshotStarted:   make(chan struct{}), releaseSnapshot: make(chan struct{}),
+		observerFinished: make(chan struct{}), runStarted: make(chan string, 2),
 	}
+	release := sync.OnceFunc(func() { close(sw.releaseSnapshot) })
+	defer release()
+	service := &SweepService{sweeper: sw, config: cfg, logger: logger.NewTestLogger()}
+	multi := &MultiSweepService{groups: map[string]*SweepService{group: service}}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	firstID := uuid.UUID(slot.ExecutionId).String()
+	first := make(chan error, 1)
+	second := make(chan error, 1)
+	go func() {
+		first <- multi.RunSweepGroupLease(ctx, group, lease, slot, sp, false, sweepSlotClaim{claim: func() error {
+			select {
+			case <-sw.observerFinished:
+			default:
+				return errTestPublicationBeforeObserver
+			}
+			sw.pausePublication()
+			return nil
+		}})
+	}()
+	select {
+	case <-sw.snapshotStarted:
+	case err := <-first:
+		t.Fatalf("first sweep ended before publication barrier: %v", err)
+	case <-ctx.Done():
+		t.Fatal("first sweep never reached publication barrier")
+	}
+	require.Equal(t, firstID, <-sw.runStarted)
+	secondCalling := make(chan struct{})
+	go func() {
+		close(secondCalling)
+		second <- multi.RunSweepGroup(ctx, group)
+	}()
+	<-secondCalling
+	var secondID string
+	select {
+	case secondID = <-sw.runStarted:
+		t.Errorf("%s started before prior publication completed", secondID)
+	case <-time.After(50 * time.Millisecond):
+	}
+	release()
+	require.NoError(t, <-first)
+	require.NoError(t, <-second)
+	if secondID == "" {
+		secondID = <-sw.runStarted
+	}
+	require.Equal(t, "on-demand", secondID)
+	records, err := sp.Unresolved()
+	require.NoError(t, err)
+	require.Len(t, records, 1)
+	record := &edgev1.EdgeRecordV1{}
+	require.NoError(t, goproto.Unmarshal(records[0].Body, record))
+	batch := &edgev1.SweepObservationBatchV1{}
+	require.NoError(t, goproto.Unmarshal(recordBody(t, record), batch))
+	require.Equal(t, slot.ExecutionId, batch.ExecutionId)
+	require.Len(t, batch.Hosts, 4)
+	result, err := service.GetSweepResults(ctx, "")
+	require.NoError(t, err)
+	require.True(t, result.HasNewData)
+	require.Equal(t, "on-demand", result.ExecutionId)
 }
 
 type queuedLeaseRunner struct {
 	*MultiSweepService
 	entered  chan struct{}
 	returned chan error
-}
-
-func (r *queuedLeaseRunner) RunSweepGroupExecution(ctx context.Context, group, execution string) error {
-	close(r.entered)
-	err := r.MultiSweepService.RunSweepGroupExecution(ctx, group, execution)
-	r.returned <- err
-	return err
 }
 
 func (r *queuedLeaseRunner) RunSweepGroupLease(ctx context.Context, group string, lease *edgev1.SweepLeaseV1, slot *edgev1.SweepLeaseSlotV1, sp *spool.Spool, icmpUnavailable bool, claim sweepSlotClaim) error {
@@ -1070,90 +913,86 @@ func (r *queuedLeaseRunner) RunSweepGroupLease(ctx context.Context, group string
 }
 
 func TestQueuedLeaseSlotRecheckedBeforeExecution(t *testing.T) {
-	for _, edge := range []bool{false, true} {
-		for _, state := range []string{"valid", "expired", "revoked"} {
-			t.Run(fmt.Sprintf("edge=%t/%s", edge, state), func(t *testing.T) {
-				fixture := newLeaseExecutorFixture(t)
-				cfg, lease, slot, sp := edgeSweepFixture(t)
-				fixture.group = uuid.UUID(lease.SweepGroupId).String()
-				fixture.service.sweepGroupID = fixture.group
-				fixture.multi.groups = map[string]*SweepService{fixture.group: fixture.service}
-				fixture.multi.groupSequences = map[string]string{fixture.group: ""}
-				fixture.multi.groupOrder = []string{fixture.group}
-				cfg.SweepGroupID = fixture.group
-				sw := &snapshotBlockingSweeper{
-					sameSecondSweeper: newSameSecondSweeper(),
-					snapshotStarted:   make(chan struct{}), releaseSnapshot: make(chan struct{}),
-					observerFinished: make(chan struct{}), runStarted: make(chan string, 1),
-				}
-				close(sw.releaseSnapshot)
-				fixture.service.sweeper = sw
-				fixture.service.config = cfg
-				fixture.install(t, lease)
-				if edge {
-					fixture.executor.edgeSpool = sp
-				}
-				var nanos atomic.Int64
-				nanos.Store(slot.SlotStartUnixNano + int64(time.Second))
-				runner := &queuedLeaseRunner{MultiSweepService: fixture.multi, entered: make(chan struct{}), returned: make(chan error, 1)}
-				fixture.executor.runnerFor = func() sweepLeaseRunner { return runner }
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancel()
-				fixture.service.runMu.Lock()
-				release := sync.OnceFunc(fixture.service.runMu.Unlock)
-				defer release()
-				done := make(chan struct{})
-				go func() {
-					fixture.executor.step(ctx, func() time.Time { return time.Unix(0, nanos.Load()) })
-					close(done)
-				}()
+	for _, state := range []string{"valid", "expired", "revoked"} {
+		t.Run(state, func(t *testing.T) {
+			fixture := newLeaseExecutorFixture(t)
+			cfg, lease, slot, sp := edgeSweepFixture(t)
+			fixture.group = uuid.UUID(lease.SweepGroupId).String()
+			fixture.service.sweepGroupID = fixture.group
+			fixture.multi.groups = map[string]*SweepService{fixture.group: fixture.service}
+			fixture.multi.groupSequences = map[string]string{fixture.group: ""}
+			fixture.multi.groupOrder = []string{fixture.group}
+			cfg.SweepGroupID = fixture.group
+			sw := &snapshotBlockingSweeper{
+				sameSecondSweeper: newSameSecondSweeper(),
+				snapshotStarted:   make(chan struct{}), releaseSnapshot: make(chan struct{}),
+				observerFinished: make(chan struct{}), runStarted: make(chan string, 1),
+			}
+			close(sw.releaseSnapshot)
+			fixture.service.sweeper = sw
+			fixture.service.config = cfg
+			fixture.install(t, lease)
+			fixture.executor.edgeSpool = sp
+			var nanos atomic.Int64
+			nanos.Store(slot.SlotStartUnixNano + int64(time.Second))
+			runner := &queuedLeaseRunner{MultiSweepService: fixture.multi, entered: make(chan struct{}), returned: make(chan error, 1)}
+			fixture.executor.runnerFor = func() sweepLeaseRunner { return runner }
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			fixture.service.runMu.Lock()
+			release := sync.OnceFunc(fixture.service.runMu.Unlock)
+			defer release()
+			done := make(chan struct{})
+			go func() {
+				fixture.executor.step(ctx, func() time.Time { return time.Unix(0, nanos.Load()) })
+				close(done)
+			}()
+			select {
+			case <-runner.entered:
+			case <-done:
+				t.Fatal("slot never reached the queued service")
+			case <-ctx.Done():
+				t.Fatal("slot dispatch timed out")
+			}
+			switch state {
+			case "revoked":
+				revocation := testLeasePush(100, 101)
+				revocation.SweepGroupId = lease.SweepGroupId
+				revocation.Revoked = true
+				fixture.install(t, revocation)
+			case "expired":
+				nanos.Store(slot.CollectionExpiresUnixNano)
+			}
+			release()
+			select {
+			case <-done:
+			case <-ctx.Done():
+				t.Fatal("queued slot did not return")
+			}
+			runErr := <-runner.returned
+			if state == "valid" {
+				require.NoError(t, runErr)
 				select {
-				case <-runner.entered:
-				case <-done:
-					t.Fatal("slot never reached the queued service")
-				case <-ctx.Done():
-					t.Fatal("slot dispatch timed out")
+				case id := <-sw.runStarted:
+					require.Equal(t, uuid.UUID(slot.ExecutionId).String(), id)
+				default:
+					t.Fatal("valid slot did not reach the scanner")
 				}
-				switch state {
-				case "revoked":
-					revocation := testLeasePush(100, 101)
-					revocation.SweepGroupId = lease.SweepGroupId
-					revocation.Revoked = true
-					fixture.install(t, revocation)
-				case "expired":
-					nanos.Store(slot.CollectionExpiresUnixNano)
-				}
-				release()
+			} else {
 				select {
-				case <-done:
-				case <-ctx.Done():
-					t.Fatal("queued slot did not return")
+				case id := <-sw.runStarted:
+					t.Fatalf("%s slot reached scanner as %s", state, id)
+				default:
 				}
-				runErr := <-runner.returned
-				if state == "valid" {
-					require.NoError(t, runErr)
-					select {
-					case id := <-sw.runStarted:
-						require.Equal(t, uuid.UUID(slot.ExecutionId).String(), id)
-					default:
-						t.Fatal("valid slot did not reach the scanner")
-					}
-				} else {
-					select {
-					case id := <-sw.runStarted:
-						t.Fatalf("%s slot reached scanner as %s", state, id)
-					default:
-					}
-					require.Error(t, runErr)
-				}
-				records, err := sp.Unresolved()
-				require.NoError(t, err)
-				if edge && state == "valid" {
-					require.Len(t, records, 4)
-				} else {
-					require.Empty(t, records)
-				}
-			})
-		}
+				require.Error(t, runErr)
+			}
+			records, err := sp.Unresolved()
+			require.NoError(t, err)
+			if state == "valid" {
+				require.Len(t, records, 4)
+			} else {
+				require.Empty(t, records)
+			}
+		})
 	}
 }

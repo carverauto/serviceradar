@@ -131,7 +131,31 @@
   results contract and its payload are defined, shipped, and have passed the farm01 parity soak.
   This task also carries `unify-sweep-results-proto` M4.2, 7.4, 7.5 and the `GetSummary`
   delivery-ownership half of 2.1, which moved here on 2026-11-02.
-  TODO (reconciled 2026-11-02): remaining scope is removing legacy agent emissions and gateway publishers after all producer families and their farm01 parity soaks complete.
+  PARTIAL (2026-11-04): the agent half is done (8.1.1); the gateway publishers and core
+  status-path consumers remain (8.1.2). The family soaks gate the release cut, not this code
+  (design Decision 9).
+  - [x] 8.1.1 Agent: remove every legacy agent emission of durable data, including unleased sweep
+    results on `serviceradar.sweep`, the leased-slot run without a spool, and every
+    fallback-to-legacy branch. A producer without a grant or spool holds its data (design
+    Decision 9). `GatewayClient.StreamStatus` is deleted, so the agent cannot open a
+    `StreamStatus` stream. The agent stops advertising `plugin-result-retained:v1` and stops
+    filling `GatewayStatusRequest.endpoint_inventory_standing_question_counts`.
+    `SweepService.GetSweepResults` stays: it is the agent-internal source the unleased sweep
+    results producer reads.
+  - [ ] 8.1.2 Gateway and core: remove the `StreamStatus` handler's durable-data publishers and
+    the status-path ingestors for every family listed in 8.2, the sweep results KV and the
+    gateway sweep publisher. Endpoint inventory reconcile-floor directives were built from the
+    ingest result of a status-path scan; with scans only on edge records no directive is produced
+    any more, so core needs another carrier for that request (the agent still applies any
+    `endpoint_inventory.*` directive a `PushStatus` response carries).
 - [ ] 8.2 Confirm no durable agent data remains on `StreamStatus`/`PushStatus`; only control
   traffic and ephemeral status summaries stay there.
-  TODO (reconciled 2026-11-02): remaining scope is verifying after task 8.1 that only control traffic and ephemeral status summaries remain on `StreamStatus`/`PushStatus`.
+  PARTIAL (2026-11-04): agent side confirmed. The agent opens no `StreamStatus` stream, and
+  `PushStatus` carries only service status summaries (sweep, SNMP target and checker statuses),
+  the agent capability status and the plugin-engine counters (`plugin_engine`), all latest-wins.
+  No longer sent by the agent: sources `sysmon-metrics`, `snmp-metrics`, `icmp-metrics`,
+  `mtr-metrics`, `rperf-metrics`, `sweep-metrics`, `results` (sweep, mtr_traces, mapper,
+  mapper_interfaces, mapper_topology, passive netprobe, sync), `flow-attribution`,
+  `workload-identity`, `plugin-result`, `plugin:<id>`, `addon:<id>`, `otlp-relay`, and the
+  endpoint inventory, bumblebee and k8s public endpoints service payloads. Remaining: the gateway
+  half of 8.1.2.

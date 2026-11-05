@@ -25,7 +25,7 @@ import (
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 )
 
-// pluginResultItemFromPayload maps one normalized legacy plugin-result
+// pluginResultItemFromPayload maps one normalized plugin-result
 // payload (the serviceradar.plugin_result.v1 JSON core ingests today) onto
 // its typed edge item. Fields with a typed home are lifted; JSON sub-bodies
 // core stores or correlates on (event bodies, advisory source/snapshot,

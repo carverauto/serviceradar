@@ -345,45 +345,6 @@ func TestTelemetryPayloadKindAcceptsServiceRadarMetricAliases(t *testing.T) {
 	}
 }
 
-func TestBuildPluginSignalGatewayStatusWrapsTelemetryBatch(t *testing.T) {
-	signal := PluginSignalTelemetry{
-		AssignmentID: testPluginAssignmentID,
-		PluginID:     "axis",
-		Batch: &addonpb.TelemetryBatch{
-			Source: &addonpb.TelemetrySource{SourceType: "axis-camera", SourceInstance: "front-door"},
-			Records: []*addonpb.TelemetryRecord{
-				{
-					EventId:     "event-1",
-					PayloadKind: addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OCSF_EVENT,
-					Payload:     []byte(`{"id":"event-1"}`),
-				},
-			},
-		},
-	}
-
-	status, size, err := buildPluginSignalGatewayStatus(signal, "agent-1", "gateway-1", "default", "kv")
-	if err != nil {
-		t.Fatalf("buildPluginSignalGatewayStatus() error = %v", err)
-	}
-	if size == 0 {
-		t.Fatal("expected non-empty telemetry message")
-	}
-	if status.GetServiceName() != pluginSignalTelemetryServiceName {
-		t.Fatalf("service_name = %q, want %q", status.GetServiceName(), pluginSignalTelemetryServiceName)
-	}
-	if status.GetSource() != "plugin:assign-1" {
-		t.Fatalf("source = %q, want plugin:assign-1", status.GetSource())
-	}
-
-	var decoded addonpb.TelemetryBatch
-	if err := gproto.Unmarshal(status.GetMessage(), &decoded); err != nil {
-		t.Fatalf("unmarshal telemetry batch: %v", err)
-	}
-	if decoded.GetRecords()[0].GetEventId() != "event-1" {
-		t.Fatalf("decoded event_id = %q, want event-1", decoded.GetRecords()[0].GetEventId())
-	}
-}
-
 func TestPluginAssignmentClassifiesCameraMediaStreamingCapability(t *testing.T) {
 	assignment := newPluginAssignment(
 		&proto.PluginAssignmentConfig{
@@ -1619,17 +1580,12 @@ func TestNormalizePluginPayload(t *testing.T) {
 		ObservedAt:   observed,
 	}
 
-	data, available, err := pl.normalizePluginPayload(result, "agent-1", "default")
+	payload, available, err := pl.normalizePluginPayloadMap(result, "agent-1", "default")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !available {
 		t.Fatalf("expected available=true for OK status")
-	}
-
-	var payload map[string]interface{}
-	if err := json.Unmarshal(data, &payload); err != nil {
-		t.Fatalf("failed to unmarshal payload: %v", err)
 	}
 
 	if payload["status"] != "OK" {
@@ -1669,7 +1625,7 @@ func TestNormalizePluginPayloadRejectsInvalidStatus(t *testing.T) {
 		Payload: []byte(`{"status":"bad","summary":"oops"}`),
 	}
 
-	_, _, err := pl.normalizePluginPayload(result, "agent-1", "default")
+	_, _, err := pl.normalizePluginPayloadMap(result, "agent-1", "default")
 	if err == nil {
 		t.Fatalf("expected error for invalid status")
 	}
@@ -1681,7 +1637,7 @@ func TestNormalizePluginPayloadStripsLegacyMetricArrays(t *testing.T) {
 		Payload: []byte(`{"status":"ok","summary":"all good","metrics":[{"name":"latency_ms","value":3}]}`),
 	}
 
-	data, available, err := pl.normalizePluginPayload(result, "agent-1", "default")
+	decoded, available, err := pl.normalizePluginPayloadMap(result, "agent-1", "default")
 	if err != nil {
 		t.Fatalf("expected legacy metrics to be stripped, got error %v", err)
 	}
@@ -1689,10 +1645,6 @@ func TestNormalizePluginPayloadStripsLegacyMetricArrays(t *testing.T) {
 		t.Fatalf("expected available=true for ok status")
 	}
 
-	var decoded map[string]interface{}
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		t.Fatalf("decode normalized payload: %v", err)
-	}
 	if _, ok := decoded["metrics"]; ok {
 		t.Fatalf("expected legacy 'metrics' key to be dropped, still present")
 	}
@@ -1706,17 +1658,12 @@ func TestNormalizePluginPayloadMapsFailedStatus(t *testing.T) {
 		Payload: []byte(`{"status":"failed","summary":"plugin execution failed"}`),
 	}
 
-	data, available, err := pl.normalizePluginPayload(result, "agent-1", "default")
+	payload, available, err := pl.normalizePluginPayloadMap(result, "agent-1", "default")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if available {
 		t.Fatalf("expected available=false for failed status")
-	}
-
-	var payload map[string]interface{}
-	if err := json.Unmarshal(data, &payload); err != nil {
-		t.Fatalf("failed to unmarshal payload: %v", err)
 	}
 
 	if payload["status"] != expectedStatus {

@@ -45,8 +45,6 @@ const (
 )
 
 var (
-	// errSysmonSampleNil is returned when a nil sysmon sample is marshaled.
-	errSysmonSampleNil = errors.New("sysmon sample is nil")
 	// errSysmonSampleBatchEmpty is returned when a sysmon sample batch contains
 	// no usable samples.
 	errSysmonSampleBatchEmpty = errors.New("sysmon sample batch is empty")
@@ -79,25 +77,7 @@ type metricEnvelopeContext struct {
 	KvStoreID string
 }
 
-func marshalSysmonMetricEnvelope(sample *sysmon.MetricSample, ctx metricEnvelopeContext) ([]byte, error) {
-	if sample == nil {
-		return nil, errSysmonSampleNil
-	}
-
-	return marshalSysmonMetricEnvelopeBatch([]*sysmon.MetricSample{sample}, ctx)
-}
-
-func marshalSysmonMetricEnvelopeBatch(samples []*sysmon.MetricSample, ctx metricEnvelopeContext) ([]byte, error) {
-	batch, err := buildSysmonMetricBatch(samples, ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	return gproto.Marshal(batch)
-}
-
-// buildSysmonMetricBatch is the canonical sysmon metric envelope of samples,
-// shared by the legacy status push and the edge-record producer.
+// buildSysmonMetricBatch is the canonical sysmon metric envelope of samples.
 func buildSysmonMetricBatch(samples []*sysmon.MetricSample, ctx metricEnvelopeContext) (*metricpb.MetricBatch, error) {
 	sample := firstSysmonMetricSample(samples)
 	if sample == nil {
@@ -155,17 +135,7 @@ func firstSysmonMetricSample(samples []*sysmon.MetricSample) *sysmon.MetricSampl
 	return nil
 }
 
-func marshalSNMPMetricEnvelope(results []snmpMetricResult, ctx metricEnvelopeContext) ([]byte, error) {
-	batch, err := buildSNMPMetricBatch(results, ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	return gproto.Marshal(batch)
-}
-
-// buildSNMPMetricBatch builds the SNMP metric envelope for results; the legacy
-// status push and the edge-record producer both send it.
+// buildSNMPMetricBatch builds the SNMP metric envelope for results.
 func buildSNMPMetricBatch(results []snmpMetricResult, ctx metricEnvelopeContext) (*metricpb.MetricBatch, error) {
 	batch := &metricpb.MetricBatch{
 		SchemaVersion: metricEnvelopeSchemaVersion,
@@ -250,17 +220,7 @@ func buildSNMPMetricBatch(results []snmpMetricResult, ctx metricEnvelopeContext)
 	return batch, nil
 }
 
-func marshalICMPMetricEnvelope(results []icmpCheckResult, ctx metricEnvelopeContext) ([]byte, error) {
-	batch, err := buildICMPMetricBatch(results, ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	return gproto.Marshal(batch)
-}
-
-// buildICMPMetricBatch builds the ICMP check metric envelope for results; the
-// legacy status push and the edge-record producer both send it.
+// buildICMPMetricBatch builds the ICMP check metric envelope for results.
 func buildICMPMetricBatch(results []icmpCheckResult, ctx metricEnvelopeContext) (*metricpb.MetricBatch, error) {
 	batch := &metricpb.MetricBatch{
 		SchemaVersion: metricEnvelopeSchemaVersion,
@@ -343,17 +303,7 @@ func buildICMPMetricBatch(results []icmpCheckResult, ctx metricEnvelopeContext) 
 	return batch, nil
 }
 
-func marshalMTRMetricEnvelope(results []mtrCheckResult, ctx metricEnvelopeContext) ([]byte, error) {
-	batch, err := buildMTRMetricBatch(results, ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	return gproto.Marshal(batch)
-}
-
-// buildMTRMetricBatch builds the MTR scalar metric envelope for results; the
-// legacy status push and the edge-record producer both send it.
+// buildMTRMetricBatch builds the MTR scalar metric envelope for results.
 func buildMTRMetricBatch(results []mtrCheckResult, ctx metricEnvelopeContext) (*metricpb.MetricBatch, error) {
 	batch := &metricpb.MetricBatch{
 		SchemaVersion: metricEnvelopeSchemaVersion,
@@ -430,15 +380,6 @@ func buildMTRMetricBatch(results []mtrCheckResult, ctx metricEnvelopeContext) (*
 	}
 
 	return batch, nil
-}
-
-func marshalSweepMetricEnvelopeFromMap(decoded map[string]any, ctx metricEnvelopeContext) ([]byte, error) {
-	batch, err := buildSweepMetricBatchFromMap(decoded, ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	return gproto.Marshal(batch)
 }
 
 // buildSweepMetricBatchFromMap builds the sweep metric envelope for one sweep

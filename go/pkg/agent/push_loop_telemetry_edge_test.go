@@ -18,22 +18,19 @@ package agent
 
 import (
 	"bytes"
-	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
-	"net"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc"
 	gproto "google.golang.org/protobuf/proto"
 
-	agentgateway "github.com/carverauto/serviceradar/go/pkg/agentgateway"
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
 	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
@@ -149,7 +146,7 @@ func TestAddonTelemetryWithAGrantGoesOnlyToTheEdgeSpool(t *testing.T) {
 	}
 	loop.server.addonTelemetry.enqueue("powerdns", forged)
 
-	require.True(t, loop.pushAddonTelemetry(context.Background()))
+	require.True(t, loop.pushAddonTelemetry())
 
 	batches := spooledTelemetryBatches(t, sp)
 	require.Len(t, batches, 1)
@@ -173,7 +170,7 @@ func TestTelemetrySpoolRetryKeepsOriginalEventIDs(t *testing.T) {
 	require.Len(t, envelopes, 1)
 	loop.addonTelemetryEdge.enqueue([]telemetryEdgeItem{{
 		producerType: "addon", producerID: "powerdns",
-		batch: envelopes[0].batch, envelope: &envelopes[0],
+		batch: envelopes[0].batch,
 	}})
 
 	require.False(t, loop.spoolTelemetry(edgeProducerAddonTelemetry, &loop.addonTelemetryEdge, capability),
@@ -221,33 +218,6 @@ func TestTelemetryBatchSplitsOversizedBatchesAndFiltersRelayKinds(t *testing.T) 
 		}
 	}
 	require.Equal(t, 4, total, "the relay-kind record is filtered, the routed records all land")
-}
-
-func TestTelemetryTakeLeavesPartiallySpooledItemQueued(t *testing.T) {
-	inner := openTestEdgeSpool(t)
-	script := &appendScript{inner: inner, refuseAfter: 1}
-	loop := telemetryLoop(t, nil)
-	loop.edgeTelemetrySpool = script
-	capability := telemetryCapability(t, loop)
-
-	large := strings.Repeat("x", 300<<10)
-	loop.addonTelemetryEdge.enqueue([]telemetryEdgeItem{
-		{producerType: "addon", producerID: "powerdns", batch: &addonpb.TelemetryBatch{
-			Records: []*addonpb.TelemetryRecord{ocsfTelemetryRecord(large), ocsfTelemetryRecord(large)},
-		}},
-		{producerType: "addon", producerID: "powerdns", batch: &addonpb.TelemetryBatch{
-			Records: []*addonpb.TelemetryRecord{ocsfTelemetryRecord(`{"class_uid":4003}`)},
-		}},
-	})
-
-	// One part lands, the rest is refused: the split item is committed to
-	// the edge path.
-	require.False(t, loop.spoolTelemetry(edgeProducerAddonTelemetry, &loop.addonTelemetryEdge, capability))
-
-	taken := loop.addonTelemetryEdge.take()
-	require.Len(t, taken, 1, "only the untouched second item may ride the legacy path")
-	require.Len(t, taken[0].batch.GetRecords(), 1)
-	require.NotNil(t, loop.addonTelemetryEdge.built, "the partially spooled item stays queued")
 }
 
 func TestTelemetryBatchSplitsAtGrantRowCeiling(t *testing.T) {
@@ -330,7 +300,7 @@ func TestAddonTelemetryGrantReportsBufferDrops(t *testing.T) {
 	loop.server.addonTelemetry.enqueue("powerdns", &addonpb.TelemetryBatch{Records: []*addonpb.TelemetryRecord{kept}})
 	loop.server.addonTelemetry.enqueue("powerdns", &addonpb.TelemetryBatch{Records: []*addonpb.TelemetryRecord{discarded}})
 
-	require.True(t, loop.pushAddonTelemetry(context.Background()))
+	require.True(t, loop.pushAddonTelemetry())
 
 	batches := spooledTelemetryBatches(t, sp)
 	require.Len(t, batches, 1)
@@ -344,7 +314,7 @@ func TestAddonTelemetryGrantReportsBufferDrops(t *testing.T) {
 	require.Zero(t, edgeDrops(loop, edgeProducerAddonTelemetry, edgeDropInvalidRecord))
 
 	output.Reset()
-	require.False(t, loop.pushAddonTelemetry(context.Background()))
+	require.False(t, loop.pushAddonTelemetry())
 	require.Empty(t, addonTelemetryDropReports(t, output.String()))
 }
 
@@ -517,7 +487,7 @@ func TestPluginSignalWithAGrantSpoolsTheAssignmentStamp(t *testing.T) {
 	}
 	loop.server.pluginManager = manager
 
-	require.True(t, loop.pushPluginSignals(context.Background()))
+	require.True(t, loop.pushPluginSignals())
 
 	batches := spooledTelemetryBatches(t, sp)
 	require.Len(t, batches, 1)
@@ -527,42 +497,34 @@ func TestPluginSignalWithAGrantSpoolsTheAssignmentStamp(t *testing.T) {
 	require.Equal(t, "assignment-9", producerID)
 }
 
-func TestAddonTelemetryWithoutAGrantKeepsTheLegacyPath(t *testing.T) {
+func TestAddonTelemetryWithoutAGrantIsHeldAndCountedUntilAGrantIsHeld(t *testing.T) {
 	sp := openTestEdgeSpool(t)
-	loop, gw := telemetryLegacyLoop(t, sp)
-
-	loop.server.addonTelemetry.enqueue("powerdns", &addonpb.TelemetryBatch{
-		Records: []*addonpb.TelemetryRecord{ocsfTelemetryRecord(`{"class_uid":4003}`)},
-	})
-
-	require.True(t, loop.pushAddonTelemetry(context.Background()))
-	require.Equal(t, 1, gw.statusesFrom(addonTelemetrySource("powerdns")))
-	require.Empty(t, spooledTelemetryBatches(t, sp))
-}
-
-// telemetryLegacyLoop is a push loop with a real gateway client, so the
-// no-grant branch can deliver a status chunk. No telemetry grant is installed.
-func telemetryLegacyLoop(t *testing.T, sp *spool.Spool) (*PushLoop, *sysmonStatusGateway) {
-	t.Helper()
-	t.Setenv("SR_ALLOW_INSECURE", "true")
-
-	gw := &sysmonStatusGateway{}
-	lis, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	server := grpc.NewServer()
-	proto.RegisterAgentGatewayServiceServer(server, gw)
-	go func() { _ = server.Serve(lis) }()
-	t.Cleanup(func() {
-		server.Stop()
-		_ = lis.Close()
-	})
-	client := agentgateway.NewGatewayClient(lis.Addr().String(), nil, logger.NewTestLogger())
-	require.NoError(t, client.Connect(t.Context()))
-	t.Cleanup(func() { _ = client.Disconnect() })
-
 	loop := telemetryLoop(t, sp)
-	loop.gateway = client
-	return loop, gw
+
+	// The older batch alone fills the queue's record bound; the newer one
+	// pushes it out while no grant is held.
+	older := make([]*addonpb.TelemetryRecord, maxEdgeTelemetryQueuedRecords)
+	for i := range older {
+		older[i] = ocsfTelemetryRecord(fmt.Sprintf(`{"class_uid":4003,"raw":"older-%d"}`, i))
+	}
+	newer := ocsfTelemetryRecord(`{"class_uid":4003,"raw":"newer"}`)
+
+	loop.server.addonTelemetry.enqueue("powerdns", &addonpb.TelemetryBatch{Records: older})
+	require.False(t, loop.pushAddonTelemetry(), "no grant: nothing is handed off")
+	require.Equal(t, maxEdgeTelemetryQueuedRecords, loop.addonTelemetryEdge.queuedRecords(), "no grant: the batch is held")
+	require.Empty(t, spooledTelemetryBatches(t, sp))
+
+	loop.server.addonTelemetry.enqueue("powerdns", &addonpb.TelemetryBatch{Records: []*addonpb.TelemetryRecord{newer}})
+	require.False(t, loop.pushAddonTelemetry())
+	require.Equal(t, uint64(maxEdgeTelemetryQueuedRecords),
+		edgeDrops(loop, edgeProducerAddonTelemetry, edgeDropAwaitingGrant),
+		"overflow while waiting for a grant is counted, not silent")
+	require.Zero(t, edgeDrops(loop, edgeProducerAddonTelemetry, edgeDropRetryBufferFull))
+	require.Equal(t, uint64(2), loop.server.edgeProducerDrops.grantHolds[edgeProducerAddonTelemetry].Load())
+
+	telemetryCapability(t, loop)
+	require.True(t, loop.pushAddonTelemetry())
+	require.Equal(t, [][]byte{newer.GetPayload()}, telemetryPayloads(spooledTelemetryBatches(t, sp)))
 }
 
 func incompressiblePayload(size int, seed byte) []byte {

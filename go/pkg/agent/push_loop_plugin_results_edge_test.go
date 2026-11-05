@@ -17,13 +17,10 @@
 package agent
 
 import (
-	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -122,6 +119,17 @@ func hostPluginResult(payload string) PluginResult {
 	}
 }
 
+// queuePluginResults hands results to loop's plugin manager, as plugin
+// executions do, for the next push to drain.
+func queuePluginResults(loop *PushLoop, results ...PluginResult) *PluginManager {
+	manager := &PluginManager{results: make(chan PluginResult, len(results)+1)}
+	for _, result := range results {
+		manager.results <- result
+	}
+	loop.server.pluginManager = manager
+	return manager
+}
+
 func TestPluginResultsWithAGrantGoOnlyToTheEdgeSpool(t *testing.T) {
 	sp := openTestEdgeSpool(t)
 	loop := pluginResultsLoop(t, sp)
@@ -137,13 +145,13 @@ func TestPluginResultsWithAGrantGoOnlyToTheEdgeSpool(t *testing.T) {
 		}`)
 	acknowledged.AcknowledgedRunOverrides = []string{"override-f1"}
 
-	loop.pendingPluginResults = []PluginResult{
+	manager := queuePluginResults(loop,
 		acknowledged,
 		hostPluginResult(`{"status":"CRITICAL","summary":"synthetic check down"}`),
-	}
+	)
 
-	require.True(t, loop.pushPluginResults(context.Background()))
-	require.Empty(t, loop.pendingPluginResults)
+	require.True(t, loop.pushPluginResults())
+	require.Empty(t, manager.results)
 
 	batches := spooledPluginResultBatches(t, sp)
 	require.Len(t, batches, 1, "one provenance group spools as one batch")
@@ -170,15 +178,13 @@ func TestPluginResultsWithAGrantGoOnlyToTheEdgeSpool(t *testing.T) {
 	require.Equal(t, edgev1.PluginResultStatus_PLUGIN_RESULT_STATUS_CRITICAL, batch.GetResults()[1].GetStatus())
 }
 
-func TestPluginResultsInvalidPayloadBecomesUnknownLikeLegacy(t *testing.T) {
+func TestPluginResultsInvalidPayloadBecomesUnknown(t *testing.T) {
 	sp := openTestEdgeSpool(t)
 	loop := pluginResultsLoop(t, sp)
 	pluginResultsCapability(t, loop)
 
-	loop.pendingPluginResults = []PluginResult{
-		hostPluginResult(`{"summary":"missing status"}`),
-	}
-	require.True(t, loop.pushPluginResults(context.Background()))
+	queuePluginResults(loop, hostPluginResult(`{"summary":"missing status"}`))
+	require.True(t, loop.pushPluginResults())
 
 	batches := spooledPluginResultBatches(t, sp)
 	require.Len(t, batches, 1)
@@ -192,13 +198,13 @@ func TestPluginResultsRecordBoundDropsOnlyTheOversizedResult(t *testing.T) {
 	capability := pluginResultsCapability(t, loop)
 	details := pluginResultDetailsAtRecordBound(t, loop, capability)
 
-	loop.pendingPluginResults = []PluginResult{
+	manager := queuePluginResults(loop,
 		hostPluginResult(`{"status":"OK","summary":"small before"}`),
 		hostPluginResult(pluginResultPayload(t, "oversized details", details)),
 		hostPluginResult(`{"status":"OK","summary":"small after"}`),
-	}
-	require.True(t, loop.pushPluginResults(context.Background()))
-	require.Empty(t, loop.pendingPluginResults)
+	)
+	require.True(t, loop.pushPluginResults())
+	require.Empty(t, manager.results)
 	require.Zero(t, loop.pluginResultsEdge.queuedResults())
 
 	var summaries []string
@@ -273,109 +279,28 @@ func pluginResultPayload(t *testing.T, summary, details string) string {
 	return string(raw)
 }
 
-func TestPluginResultsTakeLeavesPartiallySpooledGroupQueued(t *testing.T) {
+func TestPluginResultsWithoutAGrantStayWithThePluginManager(t *testing.T) {
 	sp := openTestEdgeSpool(t)
 	loop := pluginResultsLoop(t, sp)
-	capability := pluginResultsCapability(t, loop)
+	manager := queuePluginResults(loop,
+		hostPluginResult(`{"status":"OK","summary":"first"}`),
+		hostPluginResult(`{"status":"OK","summary":"second"}`),
+	)
 
-	big := strings.Repeat("x", 300<<10)
-	loop.pluginResultsEdge.enqueue(groupPluginResults([]PluginResult{
-		hostPluginResult(`{"status":"OK","summary":"big one","details":"` + big + `"}`),
-		hostPluginResult(`{"status":"OK","summary":"big two","details":"` + big + `"}`),
-	}), false)
-
-	// Spool only the first part, then lose the grant: the partially spooled
-	// group must stay queued and never rejoin the legacy set.
-	built, _, err := loop.buildPluginResultItem(loop.pluginResultsEdge.pending[0], capability, sysmonEdgeAgentID, "default")
-	require.NoError(t, err)
-	require.Greater(t, len(built.records), 1)
-	loop.pluginResultsEdge.pending = loop.pluginResultsEdge.pending[1:]
-	loop.pluginResultsEdge.built = built
-	require.True(t, loop.appendPluginResultBuilt(built) || built.next > 0)
-	built.next = 1
-
-	taken := loop.pluginResultsEdge.take(maxPluginResultsPerStream)
-	require.Empty(t, taken)
-	require.NotNil(t, loop.pluginResultsEdge.built, "the partially spooled group stays queued")
-}
-
-func TestPluginResultsLegacyFallbackStaysWithinOneStream(t *testing.T) {
-	const groups, perGroup = 3, 5
-	manager := &PluginManager{results: make(chan PluginResult, maxPluginResultsPerStream)}
-	for i := 0; i < maxPluginResultsPerStream; i++ {
-		manager.results <- testPendingPluginResult("fresh", "fresh")
-	}
-
-	var streams [][]string
-	loop := &PushLoop{
-		server: &Server{config: &ServerConfig{AgentID: sysmonEdgeAgentID}, pluginManager: manager},
-		logger: logger.NewTestLogger(),
-		pluginResultStreamStatus: func(
-			_ context.Context,
-			chunks []*proto.GatewayStatusChunk,
-		) (*proto.GatewayStatusResponse, error) {
-			streams = append(streams, pluginResultAssignments(t, chunks))
-			return &proto.GatewayStatusResponse{Received: true}, nil
-		},
-	}
-	for g := 0; g < groups; g++ {
-		queued := make([]PluginResult, 0, perGroup)
-		for i := 0; i < perGroup; i++ {
-			queued = append(queued, testPendingPluginResult(fmt.Sprintf("queued-%d", g), "queued"))
-		}
-		loop.pluginResultsEdge.enqueue(groupPluginResults(queued), false)
-	}
-
-	for cycle := 0; cycle < 3; cycle++ {
-		require.True(t, loop.pushPluginResults(context.Background()))
-		require.LessOrEqual(t, len(streams[cycle]), maxPluginResultsPerStream,
-			"a legacy stream never exceeds the gateway retained-stream chunk cap")
-		if cycle == 0 {
-			require.Equal(t, perGroup, loop.pluginResultsEdge.queuedResults(), "the remainder stays queued")
-			require.Len(t, manager.results, maxPluginResultsPerStream, "nothing fresh drains while queued items remain")
-		}
-	}
-
-	want := [][]string{
-		append(slices.Repeat([]string{"queued-0"}, perGroup), slices.Repeat([]string{"queued-1"}, perGroup)...),
-		slices.Repeat([]string{"queued-2"}, perGroup),
-		slices.Repeat([]string{"fresh"}, maxPluginResultsPerStream),
-	}
-	require.Equal(t, want, streams)
-	require.Zero(t, loop.pluginResultsEdge.queuedResults())
-}
-
-var errTestGatewayUnreachable = errors.New("gateway unreachable")
-
-func TestPluginResultsRetainedLegacySetSpoolsAheadOfQueuedRemainder(t *testing.T) {
-	const groups, perGroup = 3, 5
-	sp := openTestEdgeSpool(t)
-	loop := pluginResultsLoop(t, sp)
-	loop.server.pluginManager = &PluginManager{results: make(chan PluginResult, 1)}
-	loop.pluginResultStreamStatus = func(
-		_ context.Context,
-		_ []*proto.GatewayStatusChunk,
-	) (*proto.GatewayStatusResponse, error) {
-		return nil, errTestGatewayUnreachable
-	}
-	for g := 0; g < groups; g++ {
-		queued := make([]PluginResult, 0, perGroup)
-		for i := 0; i < perGroup; i++ {
-			queued = append(queued, testPendingPluginResult(fmt.Sprintf("queued-%d", g), "queued"))
-		}
-		loop.pluginResultsEdge.enqueue(groupPluginResults(queued), false)
-	}
-
-	require.False(t, loop.pushPluginResults(context.Background()), "the legacy stream fails transiently")
-	require.Len(t, loop.pendingPluginResults, 2*perGroup, "the oldest stream's worth is retained")
+	require.False(t, loop.pushPluginResults(), "no grant: nothing is delivered")
+	require.Len(t, manager.results, 2, "no grant: nothing is drained, so plugin executions wait for room")
+	require.Empty(t, spooledPluginResultBatches(t, sp))
+	require.Equal(t, uint64(1), loop.server.edgeProducerDrops.grantHolds[edgeProducerPluginResults].Load())
 
 	pluginResultsCapability(t, loop)
-	require.True(t, loop.pushPluginResults(context.Background()))
+	require.True(t, loop.pushPluginResults())
+	require.Empty(t, manager.results)
 
-	assignments := make([]string, 0, groups)
+	var summaries []string
 	for _, batch := range spooledPluginResultBatches(t, sp) {
-		assignments = append(assignments, batch.GetProvenance().GetAssignmentId())
+		for _, result := range batch.GetResults() {
+			summaries = append(summaries, result.GetSummary())
+		}
 	}
-	require.Equal(t, []string{"queued-0", "queued-1", "queued-2"}, assignments,
-		"retained results are older than the queued remainder and spool first")
+	require.Equal(t, []string{"first", "second"}, summaries)
 }

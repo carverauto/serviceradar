@@ -291,24 +291,16 @@ func (p *PushLoop) reportSweepLeaseSlotRefusal(refusal *proto.SweepLeaseSlotRefu
 type sweepSlotRefusalReporter func(refusal *proto.SweepLeaseSlotRefusal, capabilitiesChanged bool)
 
 // preflightSlot refuses a slot before it runs when its carried set is not one
-// the scanner can express, or, on the legacy path, when this agent cannot open
-// ICMP sockets. The edge path unions that ICMP marker with the planned-run
-// mode markers and refuses once before claim. A slot without a usable carried
-// set is an error that is not a refusal; install validation already rules it out.
+// the scanner can express. The ICMP-unavailable marker is unioned with the
+// planned-run mode markers by the leased run itself, which refuses once before
+// claim. A slot without a usable carried set is an error that is not a
+// refusal; install validation already rules it out.
 func (e *sweepLeaseExecutor) preflightSlot(lease *edgev1.SweepLeaseV1, slot *edgev1.SweepLeaseSlotV1) error {
-	plan, err := sweepPlanChecks(lease, slot)
+	_, err := sweepPlanChecks(lease, slot)
 	if errors.Is(err, edgerecord.ErrSweepCheckSetUnsupported) {
 		return refuseUnsupportedPlan(err)
 	}
-	if err != nil {
-		return err
-	}
-
-	if e.edgeSpool == nil && e.icmpUnavailable && slices.Contains(plan.spec.Modes, models.ModeICMP) {
-		return refuseUnavailableChecks([]string{capabilityICMPUnavailable}, "ICMP sweep sockets cannot be opened")
-	}
-
-	return nil
+	return err
 }
 
 // refuse records the markers first, so the agent's capabilities carry them,

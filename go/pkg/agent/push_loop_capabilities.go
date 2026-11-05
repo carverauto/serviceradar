@@ -427,7 +427,6 @@ func agentCapabilities(options agentCapabilityOptions) []string {
 		remoteaccess.CapabilityRemoteAccessSFTP,
 		remoteaccess.CapabilityRemoteAccessRecording,
 		pluginHostAuthorityCapabilityV1,
-		pluginResultRetainedDeliveryCapabilityV1,
 		proxmoxSemanticConnectorCapabilityV1,
 		proxmoxConsolePolicyBindingCapabilityV1,
 		proxmoxIdentityCapabilityV3,

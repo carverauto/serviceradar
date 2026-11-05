@@ -18,7 +18,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"maps"
 	"net/netip"
 	"slices"
@@ -46,9 +45,6 @@ const (
 	mtrProbesPerHopUpperBound    = 20
 	mtrProbeIntervalMsUpperBound = 10_000
 	mtrPacketSizeUpperBound      = 1500
-
-	// mtrResultsPushTimeout bounds streaming one batch of MTR results to the gateway.
-	mtrResultsPushTimeout = 30 * time.Second
 
 	mtrExecutionSourceScheduledSweep = "scheduled_sweep"
 
@@ -110,7 +106,10 @@ func newMtrCheckerState() *mtrCheckerState {
 	}
 }
 
-// pushMtrResults collects and pushes due MTR check results.
+// pushMtrResults runs due MTR checks and spools their scalar metrics and full
+// hop traces. A collection's records go out together, so checks run only while
+// the agent holds both the metrics and the scheduled trace grants; without
+// them due checks wait, as they wait while the spool refuses a collection.
 func (p *PushLoop) pushMtrResults(ctx context.Context) bool {
 	spooled := false
 	if p.mtrEdge.hasPending() {
@@ -124,155 +123,37 @@ func (p *PushLoop) pushMtrResults(ctx context.Context) bool {
 	now := time.Now()
 	metricsCapability := p.edgeMetricsCapability(now)
 	traceCapability := p.edgeScheduledMtrCapability(now)
+	if metricsCapability == nil || traceCapability == nil {
+		if p.mtrChecksConfigured() {
+			p.holdForGrant(edgeProducerMTRTraces)
+		}
+		return spooled
+	}
 
-	results := p.collectDueMtrResults(ctx, traceCapability != nil)
+	results := p.collectDueMtrResults(ctx)
 	if len(results) == 0 {
 		return spooled
 	}
 
-	// Scalar metrics and full hop traces each take one path at a time: the edge
-	// spool while the agent holds that contract's standing grant, or StreamStatus
-	// otherwise. When the spool refuses admission, built records stay in p.mtrEdge
-	// and due MTR checks pause until that batch is admitted.
-	spooledMetrics := false
-	spooledTraces := false
-	if metricsCapability != nil {
-		spooledMetrics = spoolMtrMetricsBatch(p, results, metricsCapability)
-	}
-	if traceCapability != nil {
-		spooledTraces = spoolScheduledMtrTraces(p, results, traceCapability)
-	}
-
-	spooled = spooled || spooledMetrics || spooledTraces
-	if metricsCapability != nil && traceCapability != nil {
-		return spooled
-	}
-
-	legacyResults := make([]mtrCheckResult, 0, len(results))
-	for _, r := range results {
-		if r.ExecutionSource != mtrExecutionSourceScheduledSweep {
-			legacyResults = append(legacyResults, r)
-		}
-	}
-	if len(legacyResults) == 0 {
-		return spooled
-	}
-
-	statusChunks, ok := p.buildMtrLegacyStatusChunks(
-		legacyResults,
-		legacyResults,
-		traceCapability == nil,
-		metricsCapability == nil,
-	)
-	if !ok || len(statusChunks) == 0 {
-		return spooled
-	}
-
-	pushCtx, cancel := context.WithTimeout(ctx, mtrResultsPushTimeout)
-	defer cancel()
-
-	resp, err := p.gateway.StreamStatus(pushCtx, statusChunks)
-	if err != nil {
-		p.logger.Error().Err(err).Msg("Failed to stream MTR results to gateway")
-		return spooled
-	}
-	if !resp.GetReceived() {
-		p.logger.Warn().Msg("Gateway did not acknowledge MTR results stream")
-		return spooled
-	}
-
-	p.logger.Info().Int("result_count", len(legacyResults)).Msg("Streamed MTR results to gateway")
-
-	return true
+	spooledMetrics := spoolMtrMetricsBatch(p, results, metricsCapability)
+	spooledTraces := spoolScheduledMtrTraces(p, results, traceCapability)
+	return spooled || spooledMetrics || spooledTraces
 }
 
-func (p *PushLoop) buildMtrLegacyStatusChunks(
-	traceResults []mtrCheckResult,
-	metricResults []mtrCheckResult,
-	includeTraces bool,
-	includeMetrics bool,
-) ([]*proto.GatewayStatusChunk, bool) {
-	var statusChunks []*proto.GatewayStatusChunk
-	if includeTraces {
-		data, err := json.Marshal(map[string]any{"results": traceResults})
-		if err != nil {
-			p.logger.Error().Err(err).Msg("Failed to marshal MTR results payload")
-			return nil, false
-		}
-		chunk := &proto.ResultsChunk{
-			Data:        data,
-			IsFinal:     true,
-			ChunkIndex:  0,
-			TotalChunks: 1,
-			Timestamp:   time.Now().UnixNano(),
-		}
-		statusChunks = p.buildResultsStatusChunks([]*proto.ResultsChunk{chunk}, mtrServiceName, mtrServiceType)
-		if len(statusChunks) == 0 {
-			return nil, false
-		}
+// mtrChecksConfigured reports whether any MTR check, configured or derived from
+// a sweep group, is installed.
+func (p *PushLoop) mtrChecksConfigured() bool {
+	if p.mtrState == nil {
+		return false
 	}
-
-	if includeMetrics {
-		metricStatus, err := p.mtrMetricStatus(metricResults)
-		if err != nil {
-			p.logger.Error().Err(err).Msg("Failed to marshal MTR metric envelope")
-			return nil, false
-		}
-		if len(statusChunks) == 0 {
-			statusChunks = p.buildResultsStatusChunks([]*proto.ResultsChunk{{
-				IsFinal:     true,
-				ChunkIndex:  0,
-				TotalChunks: 1,
-				Timestamp:   time.Now().UnixNano(),
-			}}, mtrServiceName, mtrServiceType)
-			if len(statusChunks) == 0 {
-				return nil, false
-			}
-			statusChunks[0].Services = []*proto.GatewayServiceStatus{metricStatus}
-		} else {
-			statusChunks[0].Services = append(statusChunks[0].Services, metricStatus)
-		}
-	}
-
-	return statusChunks, true
+	p.mtrState.mu.RLock()
+	defer p.mtrState.mu.RUnlock()
+	return len(p.mtrState.checks) > 0 || len(p.mtrState.sweepChecks) > 0
 }
 
-func (p *PushLoop) mtrMetricStatus(results []mtrCheckResult) (*proto.GatewayServiceStatus, error) {
-	p.server.mu.RLock()
-	agentID := p.server.config.AgentID
-	partition := p.server.config.Partition
-	kvStoreID := p.server.config.KVAddress
-	p.server.mu.RUnlock()
-	gatewayID := p.gateway.GetGatewayID()
-
-	message, err := marshalMTRMetricEnvelope(results, metricEnvelopeContext{
-		AgentID:   agentID,
-		GatewayID: gatewayID,
-		Partition: partition,
-		KvStoreID: kvStoreID,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return &proto.GatewayServiceStatus{
-		ServiceName:  mtrServiceName,
-		ServiceType:  mtrServiceType,
-		Available:    true,
-		Message:      message,
-		ResponseTime: 0,
-		AgentId:      agentID,
-		GatewayId:    gatewayID,
-		Partition:    partition,
-		Source:       "mtr-metrics",
-		KvStoreId:    kvStoreID,
-	}, nil
-}
-
-// collectDueMtrResults runs due MTR checks. Sweep-group checks run only when
-// includeSweep is set, at most sweepMtrMaxChecksPerTick per call, least
-// recently run first.
-func (p *PushLoop) collectDueMtrResults(ctx context.Context, includeSweep bool) []mtrCheckResult {
+// collectDueMtrResults runs due MTR checks. Sweep-group checks run at most
+// sweepMtrMaxChecksPerTick per call, least recently run first.
+func (p *PushLoop) collectDueMtrResults(ctx context.Context) []mtrCheckResult {
 	if p.mtrState == nil {
 		return nil
 	}
@@ -284,12 +165,9 @@ func (p *PushLoop) collectDueMtrResults(ctx context.Context, includeSweep bool) 
 	for _, check := range p.mtrState.checks {
 		checks = append(checks, check)
 	}
-	var sweepChecks []*mtrCheckConfig
-	if includeSweep {
-		sweepChecks = make([]*mtrCheckConfig, 0, len(p.mtrState.sweepChecks))
-		for _, check := range p.mtrState.sweepChecks {
-			sweepChecks = append(sweepChecks, check)
-		}
+	sweepChecks := make([]*mtrCheckConfig, 0, len(p.mtrState.sweepChecks))
+	for _, check := range p.mtrState.sweepChecks {
+		sweepChecks = append(sweepChecks, check)
 	}
 
 	lastRun := make(map[string]time.Time, len(p.mtrState.lastRun))

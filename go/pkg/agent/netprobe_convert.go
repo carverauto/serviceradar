@@ -23,7 +23,7 @@ import (
 // Conversion of netprobe discovery updates into NetprobeDiscoveryBatchV1.
 // The update's metadata map is what core's fingerprint, DPI and process
 // payload schemas read today, so it rides verbatim and the projector
-// rebuilds the legacy update from it; the promoted fields are read out of
+// rebuilds the discovery update from it; the promoted fields are read out of
 // the same metadata for typed consumers. The typed observation oneof is
 // left unset: decomposing the metadata here and recomposing it in the
 // projector would add a second place for the two to drift, and the

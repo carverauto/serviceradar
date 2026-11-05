@@ -28,10 +28,7 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/mapper"
 	"github.com/carverauto/serviceradar/go/pkg/models"
-	"github.com/carverauto/serviceradar/proto"
 )
-
-const mapperServiceType = "mapper"
 
 var (
 	errMapperConfigRequired    = errors.New("mapper config required")
@@ -718,29 +715,5 @@ func updateStringMap(value interface{}) map[string]string {
 		return converted
 	default:
 		return nil
-	}
-}
-
-func mapperResultsResponse(payload []byte, seq, serviceName, serviceType string) *proto.ResultsResponse {
-	if len(payload) == 0 {
-		return &proto.ResultsResponse{
-			Available:       true,
-			Data:            []byte("[]"),
-			ServiceName:     serviceName,
-			ServiceType:     serviceType,
-			Timestamp:       time.Now().UnixNano(),
-			CurrentSequence: seq,
-			HasNewData:      false,
-		}
-	}
-
-	return &proto.ResultsResponse{
-		Available:       true,
-		Data:            payload,
-		ServiceName:     serviceName,
-		ServiceType:     serviceType,
-		Timestamp:       time.Now().UnixNano(),
-		CurrentSequence: seq,
-		HasNewData:      true,
 	}
 }

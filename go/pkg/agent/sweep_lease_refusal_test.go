@@ -44,9 +44,11 @@ type drivenRecorder struct {
 	driven map[string]bool
 }
 
-func (r *drivenRecorder) RunSweepGroupExecution(context.Context, string, string) error { return nil }
-func (r *drivenRecorder) SetGroupLeaseDriven(groupID string, driven bool)              { r.driven[groupID] = driven }
-func (*drivenRecorder) SetGroupLeaseState(string, string, int64, int)                  {}
+func (*drivenRecorder) RunSweepGroupLease(context.Context, string, *edgev1.SweepLeaseV1, *edgev1.SweepLeaseSlotV1, *spool.Spool, bool, sweepSlotClaim) error {
+	return nil
+}
+func (r *drivenRecorder) SetGroupLeaseDriven(groupID string, driven bool) { r.driven[groupID] = driven }
+func (*drivenRecorder) SetGroupLeaseState(string, string, int64, int)     {}
 
 // A same-lease push with no slots clears the window after a started slot.
 // The merged lease keeps lease_version 2 and the slot's check set, so after a
@@ -221,26 +223,6 @@ func TestSweepLeaseExecutorPersistsAndReportsASlotRefusal(t *testing.T) {
 		"a refusal is dropped once core can no longer judge its slot")
 }
 
-// An agent whose ICMP sweep sockets cannot open refuses a slot that carries
-// ICMP before running anything, naming the marker it already reports.
-func TestSweepLeaseExecutorRefusesICMPWithoutSockets(t *testing.T) {
-	fixture := newLeaseExecutorFixture(t)
-	built := buildExecutableLease(t, testLeaseIssuedAt, testSlotStart, nil)
-	fixture.install(t, built.lease)
-	fixture.executor.icmpUnavailable = true
-	now := testSlotStart.Add(time.Minute)
-	recorder := &refusalRecorder{}
-	recorder.wire(fixture.executor, now)
-
-	fixture.executor.step(context.Background(), func() time.Time { return now })
-
-	require.Zero(t, fixture.sweeper.runCount)
-	require.True(t, fixture.store.Executed(fixture.group, built.executionID))
-	require.Len(t, recorder.reported, 1)
-	require.Equal(t, proto.SweepLeaseSlotRefusalReason_SWEEP_LEASE_SLOT_REFUSAL_REASON_CHECK_UNAVAILABLE, recorder.reported[0].GetReason())
-	require.Equal(t, []string{capabilityICMPUnavailable}, recorder.reported[0].GetUnavailableCapabilities())
-}
-
 // ICMP and raw IPv6 SYN are judged together. When both are missing, one refusal
 // names both markers and the slot is not claimed or scanned.
 func TestSweepLeaseExecutorRefusesICMPAndIPv6SYNInOneRefusal(t *testing.T) {
@@ -266,6 +248,7 @@ func TestSweepLeaseExecutorRefusesICMPAndIPv6SYNInOneRefusal(t *testing.T) {
 		effective:   []models.SweepMode{models.ModeICMP, models.ModeTCPConnect},
 	}
 	fixture.service.sweeper = scanner
+	fixture.executor.runnerFor = func() sweepLeaseRunner { return fixture.multi }
 	fixture.executor.edgeSpool = sp
 	fixture.executor.icmpUnavailable = true
 	fixture.install(t, lease)

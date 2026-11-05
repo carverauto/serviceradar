@@ -203,7 +203,7 @@ func (s *observingSweep) RunPlannedWithObserver(ctx context.Context, executionID
 	return s.RunOnceWithExecution(ctx, executionID)
 }
 
-func TestEdgeSweepPublishesCompleteWindowsWithoutLegacyOutput(t *testing.T) {
+func TestEdgeSweepPublishesCompleteWindowsWithoutResultsOutput(t *testing.T) {
 	cfg, lease, slot, sp := edgeSweepFixture(t)
 	scanner := &observingSweep{mockSweeper: &mockSweeper{summary: &models.SweepSummary{LastSweep: 1, TotalHosts: 4, Hosts: []models.HostResult{{Host: "192.0.2.1", Available: true}}}}, results: edgeSweepResults()}
 	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
@@ -242,19 +242,28 @@ func TestEdgeSweepPublishesCompleteWindowsWithoutLegacyOutput(t *testing.T) {
 			require.Equal(t, "timeout", host.PortErrors[0].ErrorCode)
 		}
 	}
-	legacy, err := svc.GetSweepResults(context.Background(), "")
+	unleased, err := svc.GetSweepResults(context.Background(), "")
 	require.NoError(t, err)
-	require.False(t, legacy.HasNewData)
-	require.Empty(t, legacy.Data)
+	require.False(t, unleased.HasNewData)
+	require.Empty(t, unleased.Data)
 }
 
-func TestEdgeSweepKeepsOtherExecutionsOnLegacyPath(t *testing.T) {
+// runUnleasedCycle completes one unleased cycle published as executionID, the
+// way a run outside the lease schedule retains it for GetSweepResults.
+func runUnleasedCycle(t *testing.T, svc *SweepService, scanner *observingSweep, executionID string) {
+	t.Helper()
+	require.NoError(t, svc.runAndRetain(context.Background(), func(ctx context.Context) error {
+		return scanner.RunOnceWithExecution(ctx, executionID)
+	}))
+}
+
+func TestEdgeSweepKeepsUnleasedExecutionsOnResultsPath(t *testing.T) {
 	cfg, lease, slot, sp := edgeSweepFixture(t)
 	scanner := &observingSweep{mockSweeper: &mockSweeper{summary: &models.SweepSummary{LastSweep: 1, TotalHosts: 1, Hosts: []models.HostResult{{Host: "192.0.2.1", Available: true}}}}, results: edgeSweepResults()}
 	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
 	ctx := context.Background()
 
-	require.NoError(t, svc.RunOnceForExecution(ctx, "queued"))
+	runUnleasedCycle(t, svc, scanner, "queued")
 	require.NoError(t, svc.runLeaseToSpool(ctx, lease, slot, sp, false, sweepSlotClaim{}))
 
 	queued, err := svc.GetSweepResults(ctx, "")
@@ -265,20 +274,20 @@ func TestEdgeSweepKeepsOtherExecutionsOnLegacyPath(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, leased.HasNewData)
 
-	require.NoError(t, svc.RunOnceForExecution(ctx, "manual"))
+	runUnleasedCycle(t, svc, scanner, "manual")
 	manual, err := svc.GetSweepResults(ctx, leased.CurrentSequence)
 	require.NoError(t, err)
 	require.True(t, manual.HasNewData)
 	require.Equal(t, "manual", manual.ExecutionId)
 }
 
-func TestEdgeSweepFailedLeaseKeepsEarlierLeasedCycleOffLegacyPath(t *testing.T) {
+func TestEdgeSweepFailedLeaseKeepsLeasedCycleOffResultsPath(t *testing.T) {
 	cfg, lease, slot, sp := edgeSweepFixture(t)
 	scanner := &observingSweep{mockSweeper: &mockSweeper{summary: &models.SweepSummary{LastSweep: 1, TotalHosts: 1, Hosts: []models.HostResult{{Host: "192.0.2.1", Available: true}}}}, results: edgeSweepResults()}
 	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
 	ctx := context.Background()
 
-	require.NoError(t, svc.RunOnceForExecution(ctx, "queued"))
+	runUnleasedCycle(t, svc, scanner, "queued")
 	require.NoError(t, svc.runLeaseToSpool(ctx, lease, slot, sp, false, sweepSlotClaim{}))
 	leasedAgain := proto.Clone(slot).(*edgev1.SweepLeaseSlotV1)
 	leasedAgain.ExecutionId = newUUIDBytes()

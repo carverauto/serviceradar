@@ -17,15 +17,12 @@
 package agent
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"time"
 
 	agentnetprobe "github.com/carverauto/serviceradar/go/pkg/agent/netprobe"
 	"github.com/carverauto/serviceradar/go/pkg/models"
-	"github.com/carverauto/serviceradar/proto"
 	netprobepb "github.com/carverauto/serviceradar/proto/agent/netprobe/v1"
 	discoverypb "github.com/carverauto/serviceradar/proto/discovery"
 )
@@ -35,66 +32,28 @@ const (
 	netprobeResultsStreamPayloadMaxBytes = 48 * 1024 * 1024
 )
 
-func (p *PushLoop) pushMapperResults(ctx context.Context) bool {
+func (p *PushLoop) pushMapperResults() bool {
 	return p.pushMapperFamily(
-		ctx,
 		func(svc *MapperService) ([]map[string]interface{}, bool) {
 			return svc.DrainResults(1000)
 		},
 		buildMapperResultsPayload,
 		discoveryMapperDevices,
-		mapperServiceType,
 		"update_count",
 	)
 }
 
-// streamDiscoveryPayload carries one built discovery payload on the legacy
-// status path as a single-chunk results stream.
-func (p *PushLoop) streamDiscoveryPayload(
-	ctx context.Context,
-	payload []byte,
-	serviceName string,
-	serviceType string,
-) bool {
-	seq := fmt.Sprintf("%d", time.Now().UnixNano())
-	response := mapperResultsResponse(payload, seq, serviceName, serviceType)
-	chunks := []*proto.ResultsChunk{{
-		Data:            response.Data,
-		IsFinal:         true,
-		ChunkIndex:      0,
-		TotalChunks:     1,
-		CurrentSequence: response.CurrentSequence,
-		Timestamp:       response.Timestamp,
-	}}
-
-	statusChunks := p.buildResultsStatusChunks(chunks, response.ServiceName, response.ServiceType)
-	if len(statusChunks) == 0 {
-		return false
-	}
-
-	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	if _, err := p.gateway.StreamStatus(pushCtx, statusChunks); err != nil {
-		p.logger.Error().Err(err).Msg("Failed to stream discovery results to gateway")
-		return false
-	}
-	return true
-}
-
-// pushDiscovery moves one discovery family down exactly one path. While
-// the family's standing grant is current its drain goes only to the spool;
-// a drain the spool will not yet admit stays the family's one pending item,
-// and the family's source is not drained again until that item is admitted
-// (backpressure, so nothing queues behind it). Without a grant the drain
-// rides the legacy status path once; a failed send is logged and the drain
-// dropped, as before.
+// pushDiscovery moves one discovery family onto the edge spool under the
+// family's standing grant. A drain the spool will not yet admit stays the
+// family's one pending item, and the family's source is not drained again
+// until that item is admitted (backpressure, so nothing queues behind it).
+// Without a grant the source is not drained either: it holds its updates until
+// the grant is held.
 func (p *PushLoop) pushDiscovery(
 	kind discoveryKind,
 	agentID string,
 	partition string,
 	drain func() [][]byte,
-	legacySend func([]byte) bool,
 ) bool {
 	spec := kind.spec()
 	q := p.discoveryQueue(kind)
@@ -107,36 +66,32 @@ func (p *PushLoop) pushDiscovery(
 		sent = true
 	}
 
+	capability := p.discoveryCapability(kind, time.Now())
+	if capability == nil {
+		p.holdForGrant(spec.producer)
+		return sent
+	}
+
 	payloads := drain()
 	if len(payloads) == 0 {
 		return sent
 	}
 
-	if capability := p.discoveryCapability(kind, time.Now()); capability != nil {
-		built, dropped, err := buildDiscoveryItem(spec, payloads, capability, agentID, partition)
-		p.dropEdgeTelemetry(spec.producer, edgeDropInvalidRecord, dropped)
-		if err != nil {
-			p.logger.Warn().Err(err).Str("contract", spec.contractID).
-				Msg("Dropping discovery drain that cannot form an edge record")
-			return sent
-		}
-		if !p.appendDiscoveryBuilt(built) {
-			q.built = built
-			return sent
-		}
-		return true
+	built, dropped, err := buildDiscoveryItem(spec, payloads, capability, agentID, partition)
+	p.dropEdgeTelemetry(spec.producer, edgeDropInvalidRecord, dropped)
+	if err != nil {
+		p.logger.Warn().Err(err).Str("contract", spec.contractID).
+			Msg("Dropping discovery drain that cannot form an edge record")
+		return sent
 	}
-
-	for _, payload := range payloads {
-		if !legacySend(payload) {
-			return sent
-		}
-		sent = true
+	if !p.appendDiscoveryBuilt(built) {
+		q.built = built
+		return sent
 	}
-	return sent
+	return true
 }
 
-func (p *PushLoop) pushNetprobeResults(ctx context.Context) bool {
+func (p *PushLoop) pushNetprobeResults() bool {
 	p.server.mu.RLock()
 	agentID := p.server.config.AgentID
 	partition := p.server.config.Partition
@@ -148,11 +103,6 @@ func (p *PushLoop) pushNetprobeResults(ctx context.Context) bool {
 			var payloads [][]byte
 			payloads, logEvent = p.drainNetprobePayloads(agentID, partition)
 			return payloads
-		},
-		func(data []byte) bool {
-			return p.streamDiscoveryPayload(ctx, data,
-				string(models.DiscoverySourcePassiveNetprobe),
-				string(models.DiscoverySourcePassiveNetprobe))
 		})
 	if sent && logEvent != nil {
 		logEvent()
@@ -224,7 +174,7 @@ func (p *PushLoop) drainNetprobePayloads(agentID, partition string) ([][]byte, f
 			Int("process_snapshot_count", len(processSnapshots)).
 			Int("update_count", len(updates)).
 			Int("payload_count", len(payloads)).
-			Msg("Streamed netprobe results to gateway")
+			Msg("Spooled netprobe results")
 	}
 }
 
@@ -375,38 +325,32 @@ func netprobeDiscoverySource(metadata map[string]string) string {
 	return string(models.DiscoverySourcePassiveNetprobe)
 }
 
-func (p *PushLoop) pushMapperInterfaces(ctx context.Context) bool {
+func (p *PushLoop) pushMapperInterfaces() bool {
 	return p.pushMapperFamily(
-		ctx,
 		func(svc *MapperService) ([]map[string]interface{}, bool) {
 			return svc.DrainInterfaces(1000)
 		},
 		buildMapperInterfacePayload,
 		discoveryMapperInterfaces,
-		"mapper_interfaces",
 		"interface_count",
 	)
 }
 
-func (p *PushLoop) pushMapperTopology(ctx context.Context) bool {
+func (p *PushLoop) pushMapperTopology() bool {
 	return p.pushMapperFamily(
-		ctx,
 		func(svc *MapperService) ([]map[string]interface{}, bool) {
 			return svc.DrainTopology(1000)
 		},
 		buildMapperTopologyPayload,
 		discoveryMapperTopology,
-		"mapper_topology",
 		"topology_count",
 	)
 }
 
 func (p *PushLoop) pushMapperFamily(
-	ctx context.Context,
 	drain func(*MapperService) ([]map[string]interface{}, bool),
 	buildPayload func([]map[string]interface{}, string, string) ([]byte, error),
 	kind discoveryKind,
-	serviceType string,
 	countField string,
 ) bool {
 	p.server.mu.RLock()
@@ -435,12 +379,9 @@ func (p *PushLoop) pushMapperFamily(
 			}
 			updateCount = len(updates)
 			return [][]byte{payload}
-		},
-		func(data []byte) bool {
-			return p.streamDiscoveryPayload(ctx, data, "mapper", serviceType)
 		})
 	if sent && updateCount > 0 {
-		p.logger.Info().Int(countField, updateCount).Msg("Streamed mapper results to gateway")
+		p.logger.Info().Int(countField, updateCount).Msg("Spooled mapper results")
 	}
 	return sent
 }

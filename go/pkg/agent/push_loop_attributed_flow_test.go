@@ -14,32 +14,14 @@
  * limitations under the License.
  */
 
-// End-to-end integration coverage for the FlowAttributionEvent push
-// pipeline (Option A, design doc §2).
+// End-to-end coverage for the FlowAttributionEvent push pipeline (Option A):
 //
-// This test file complements push_loop_flow_attribution_test.go, which
-// covers the buildFlowAttributionGatewayStatus helper in isolation.
-// Here we exercise the full drain-to-payload trip:
-//
-//  1. Construct a real *agentnetprobe.Sidecar via the public NewSidecar
-//     constructor (no UDS — DrainFlowAttributionEvents is a pure channel
-//     read that returns nil/empty when no events are queued).
-//  2. Assert the public drain contract: a Sidecar with no attached
-//     netprobe client yields an empty drain slice, and the production
-//     pushFlowAttribution short-circuit (`len(events) == 0 -> return false`)
-//     is the only sound behaviour.
-//  3. With a synthetic drained slice (the same shape DrainFlowAttributionEvents
-//     would return after the forwardEvents goroutine fans in client events),
-//     drive buildFlowAttributionGatewayStatus end-to-end and assert the
-//     published GatewayServiceStatus envelope carries:
-//     - Source == FlowAttributionSource (the StatusHandler discriminator)
-//     - Marshalled FlowAttributionEventBatch in Message
-//     - All 19 FlowAttributionEvent fields intact post round-trip
-//     - dropped_since_last batch header from the sidecar IPC counter
-//  4. B-4 spoof defeater: assert that an agent-supplied Partition value is
-//     passed through unchanged on the envelope — confirming the agent has
-//     no mechanism to influence the *core's* partition_id resolution
-//     (which is cert-derived at the gateway, design doc §6).
+//  1. A real *agentnetprobe.Sidecar with no attached netprobe client yields
+//     an empty drain, so pushFlowAttribution has nothing to load.
+//  2. A drained slice of the shape DrainFlowAttributionEvents emits is
+//     spooled under the flow attribution grant, and the record's
+//     FlowAttributionEventBatch carries every event field intact, the batch
+//     window, and the sidecar's dropped_since_last count.
 package agent
 
 import (
@@ -47,9 +29,9 @@ import (
 	"time"
 
 	agentnetprobe "github.com/carverauto/serviceradar/go/pkg/agent/netprobe"
-	srpb "github.com/carverauto/serviceradar/proto"
+	"github.com/carverauto/serviceradar/go/pkg/logger"
+	"github.com/carverauto/serviceradar/proto"
 	netprobepb "github.com/carverauto/serviceradar/proto/agent/netprobe/v1"
-	gproto "google.golang.org/protobuf/proto"
 )
 
 // buildSyntheticFlowAttributionDrain produces the slice shape that
@@ -62,9 +44,9 @@ func buildSyntheticFlowAttributionDrain(n int, baseNano int64) []*netprobepb.Flo
 	out := make([]*netprobepb.FlowAttributionEvent, 0, n)
 	for i := 0; i < n; i++ {
 		out = append(out, &netprobepb.FlowAttributionEvent{
-			LocalIp:            "10.0.0.5",
+			LocalIp:            "192.0.2.5",
 			LocalPort:          uint32(49152 + i),
-			RemoteIp:           "8.8.8.8",
+			RemoteIp:           "198.51.100.8",
 			RemotePort:         uint32(443),
 			TransportProtocol:  "tcp",
 			Pid:                uint32(1000 + i),
@@ -89,9 +71,8 @@ func buildSyntheticFlowAttributionDrain(n int, baseNano int64) []*netprobepb.Flo
 // TestSidecarDrainFlowAttribution_EmptyWhenUnattached pins the
 // observable behaviour of Sidecar.DrainFlowAttributionEvents on a fresh
 // Sidecar that has never had a netprobe client connect. The drain MUST
-// return an empty slice (not nil-panic), and the production
-// pushFlowAttribution short-circuits on this path
-// (push_loop_flow_attribution.go:109-111).
+// return an empty slice (not nil-panic), so pushFlowAttribution loads no
+// pending batch.
 func TestSidecarDrainFlowAttribution_EmptyWhenUnattached(t *testing.T) {
 	t.Parallel()
 
@@ -116,90 +97,41 @@ func TestSidecarDrainFlowAttribution_EmptyWhenUnattached(t *testing.T) {
 	}
 }
 
-// TestPushFlowAttribution_DrainedBatchReachesStatusPayload is the primary
-// integration assertion: a synthetic drained slice (matching the shape
-// Sidecar.DrainFlowAttributionEvents emits) is packaged by the same
-// production helper pushFlowAttribution uses, and the resulting
-// GatewayServiceStatus is the **exact** wire form core-elx will see.
-//
-// We assert every dimension of the wire contract:
-//   - GatewayServiceStatus.Source == FlowAttributionSource
-//   - GatewayServiceStatus.Message decodes back to a
-//     FlowAttributionEventBatch with the original events
-//   - BatchStart / BatchEnd timestamps match the push-loop's clock reads
-//   - DroppedSinceLast surfaces sidecar IPC backpressure
-//   - The agent-declared Partition rides on the envelope (advisory only;
-//     see the partition-advisory test below for the B-4 boundary).
-func TestPushFlowAttribution_DrainedBatchReachesStatusPayload(t *testing.T) {
-	t.Parallel()
-
+// TestPushFlowAttribution_DrainedBatchReachesEdgeRecord spools a synthetic
+// drained slice under the flow attribution grant and decodes the record body:
+// every event field, the batch window and dropped_since_last survive intact.
+func TestPushFlowAttribution_DrainedBatchReachesEdgeRecord(t *testing.T) {
 	baseNano := time.Now().UTC().UnixNano()
 	drained := buildSyntheticFlowAttributionDrain(4, baseNano)
-
 	batchStart := time.Unix(0, baseNano-1_000_000_000).UTC()
 	batchEnd := time.Unix(0, baseNano+10_000_000).UTC()
 
-	status, messageBytes, err := buildFlowAttributionGatewayStatus(
-		drained,
-		batchStart,
-		batchEnd,
-		17,
-		"agent-host-01",
-		"gateway-east-1",
-		"prod-east",
-		"kv-east",
-	)
-	if err != nil {
-		t.Fatalf("buildFlowAttributionGatewayStatus: %v", err)
+	sp := openTestEdgeSpool(t)
+	loop := &PushLoop{
+		server: &Server{config: &ServerConfig{AgentID: sysmonEdgeAgentID, Partition: "default", HostIP: "192.0.2.10"}},
+		logger: logger.NewTestLogger(),
+		flowAttributionDelivery: flowAttributionDeliveryQueue{pending: &flowAttributionPendingBatch{
+			// Its own backing array: admission clears the spooled prefix.
+			events:              append([]*netprobepb.FlowAttributionEvent(nil), drained...),
+			batchStart:          batchStart,
+			batchEnd:            batchEnd,
+			cumulativeDropped:   17,
+			dropped:             17,
+			dropBaselinePending: true,
+		}},
 	}
-	if status == nil {
-		t.Fatal("status is nil")
-	}
-	if len(messageBytes) == 0 {
-		t.Fatal("messageBytes is empty; expected encoded batch")
+	loop.SetEdgeMetricsSpool(sp)
+	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentFlowAttributionGrant(t)}, time.Now())
+
+	if !loop.pushFlowAttribution() {
+		t.Fatal("pushFlowAttribution under a grant spooled nothing")
 	}
 
-	// --- Envelope identity ------------------------------------------------
-	if got := status.GetSource(); got != FlowAttributionSource {
-		t.Errorf("Source = %q, want %q", got, FlowAttributionSource)
+	_, batches := spooledFlowAttributionRecords(t, sp)
+	if len(batches) != 1 {
+		t.Fatalf("spooled %d batches, want 1", len(batches))
 	}
-	if got := status.GetServiceName(); got != FlowAttributionServiceName {
-		t.Errorf("ServiceName = %q, want %q", got, FlowAttributionServiceName)
-	}
-	if got := status.GetServiceType(); got != FlowAttributionServiceType {
-		t.Errorf("ServiceType = %q, want %q", got, FlowAttributionServiceType)
-	}
-	if !status.GetAvailable() {
-		t.Error("status.Available = false; want true")
-	}
-	if status.GetAgentId() != "agent-host-01" {
-		t.Errorf("AgentId = %q, want %q", status.GetAgentId(), "agent-host-01")
-	}
-	if status.GetGatewayId() != "gateway-east-1" {
-		t.Errorf("GatewayId = %q, want %q", status.GetGatewayId(), "gateway-east-1")
-	}
-
-	// --- Envelope serializes ---------------------------------------------
-	encodedStatus, err := gproto.Marshal(status)
-	if err != nil {
-		t.Fatalf("Marshal(GatewayServiceStatus): %v", err)
-	}
-	if len(encodedStatus) == 0 {
-		t.Fatal("encoded status is empty")
-	}
-	var roundTripped srpb.GatewayServiceStatus
-	if err := gproto.Unmarshal(encodedStatus, &roundTripped); err != nil {
-		t.Fatalf("Unmarshal(GatewayServiceStatus): %v", err)
-	}
-	if got := roundTripped.GetSource(); got != FlowAttributionSource {
-		t.Errorf("round-tripped Source = %q, want %q", got, FlowAttributionSource)
-	}
-
-	// --- Batch payload decodes back to the drained events ----------------
-	var decoded netprobepb.FlowAttributionEventBatch
-	if err := gproto.Unmarshal(roundTripped.GetMessage(), &decoded); err != nil {
-		t.Fatalf("Unmarshal(FlowAttributionEventBatch): %v", err)
-	}
+	decoded := batches[0]
 	if got, want := len(decoded.GetEvents()), len(drained); got != want {
 		t.Fatalf("decoded event count = %d, want %d", got, want)
 	}
@@ -220,7 +152,7 @@ func TestPushFlowAttribution_DrainedBatchReachesStatusPayload(t *testing.T) {
 
 // assertFlowAttributionEventMatches verifies a single decoded
 // FlowAttributionEvent matches the synthetic one that was drained. It is
-// extracted from TestPushFlowAttribution_DrainedBatchReachesStatusPayload
+// extracted from TestPushFlowAttribution_DrainedBatchReachesEdgeRecord
 // to keep that test's cyclomatic complexity manageable.
 func assertFlowAttributionEventMatches(
 	t *testing.T,
@@ -316,127 +248,5 @@ func assertFlowAttributionStateAndProvenance(
 	if got.GetExternalFlowId() != want.GetExternalFlowId() {
 		t.Errorf("event[%d] external_flow_id = %d, want %d",
 			i, got.GetExternalFlowId(), want.GetExternalFlowId())
-	}
-}
-
-// TestPushFlowAttribution_PartitionFieldIsAdvisoryOnly is the B-4
-// spoof-defeater contract from the agent side. The Partition field
-// supplied to buildFlowAttributionGatewayStatus is copied verbatim onto
-// the envelope; the agent has no mechanism to assert authority over
-// the partition_id the core's FlowJoinCache will route under. That
-// guarantees the cert-derived partition resolved at the agent-gateway
-// (status_processor.ex resolve_partition / agent_gateway_server.ex:594-597)
-// is the sole source of truth for the published `flow.attributed.<P>`
-// subject. The publish on the *core* side never reads this field; this
-// test pins that contract at the agent.
-func TestPushFlowAttribution_PartitionFieldIsAdvisoryOnly(t *testing.T) {
-	t.Parallel()
-
-	// An attacker-controlled agent claims partition_id = "victim".
-	// The agent has no defensive logic — it would happily forward that
-	// claim — but the build helper preserves the value verbatim.
-	const malicious = "victim-partition"
-
-	status, _, err := buildFlowAttributionGatewayStatus(
-		buildSyntheticFlowAttributionDrain(1, time.Now().UnixNano()),
-		time.Now().Add(-time.Second),
-		time.Now(),
-		0,
-		"compromised-agent",
-		"gateway-east-1",
-		malicious,
-		"",
-	)
-	if err != nil {
-		t.Fatalf("buildFlowAttributionGatewayStatus: %v", err)
-	}
-
-	// The agent's envelope reflects what it claimed — this is *expected*.
-	// The defence is that the agent-gateway overwrites this on receive
-	// before the core-side join cache ever sees it. (See
-	// status_processor.ex resolve_partition for the override path.)
-	if status.GetPartition() != malicious {
-		t.Fatalf("Partition = %q, want %q (advisory pass-through)",
-			status.GetPartition(), malicious)
-	}
-
-	// The FlowAttributionEventBatch payload itself MUST NOT carry any
-	// partition field: the proto schema (proto/agent/netprobe/v1/netprobe.proto
-	// FlowAttributionEventBatch) deliberately omits one to remove any
-	// attacker-controllable channel that could influence published
-	// `flow.attributed.<P>` routing.
-	var batch netprobepb.FlowAttributionEventBatch
-	if err := gproto.Unmarshal(status.GetMessage(), &batch); err != nil {
-		t.Fatalf("Unmarshal batch: %v", err)
-	}
-
-	// Use reflection-free check: re-marshal a hand-built batch with the
-	// same events and confirm the wire bytes are byte-equal — proving
-	// no hidden partition field was smuggled in.
-	clean := &netprobepb.FlowAttributionEventBatch{
-		Events:             batch.GetEvents(),
-		BatchStartUnixNano: batch.GetBatchStartUnixNano(),
-		BatchEndUnixNano:   batch.GetBatchEndUnixNano(),
-		DroppedSinceLast:   batch.GetDroppedSinceLast(),
-	}
-	got, err := gproto.Marshal(batch.ProtoReflect().Interface())
-	if err != nil {
-		t.Fatalf("Marshal decoded: %v", err)
-	}
-	want, err := gproto.Marshal(clean)
-	if err != nil {
-		t.Fatalf("Marshal clean: %v", err)
-	}
-	if len(got) != len(want) {
-		t.Errorf("batch payload size differs: got %d bytes, want %d bytes "+
-			"(suggests an extra field was encoded)", len(got), len(want))
-	}
-}
-
-// TestPushFlowAttribution_StreamStatusEnvelopeHasNoFlowAttributionFields
-// pins the negative contract: the GatewayServiceStatus proto MUST NOT
-// gain a `partition_override`, `flow_attribution_partition`, or any
-// similarly-named field. Such a field would re-create the B-4 spoof
-// vector. We check by ensuring that round-tripping the envelope through
-// Marshal/Unmarshal preserves *only* the documented fields.
-func TestPushFlowAttribution_StreamStatusEnvelopeHasNoFlowAttributionFields(t *testing.T) {
-	t.Parallel()
-
-	status, _, err := buildFlowAttributionGatewayStatus(
-		buildSyntheticFlowAttributionDrain(1, time.Now().UnixNano()),
-		time.Now().Add(-time.Second),
-		time.Now(),
-		0,
-		"agent",
-		"gw",
-		"agent-claimed-partition",
-		"",
-	)
-	if err != nil {
-		t.Fatalf("buildFlowAttributionGatewayStatus: %v", err)
-	}
-
-	// Sanity: the well-known fields are populated as documented.
-	if status.GetSource() != FlowAttributionSource {
-		t.Errorf("Source = %q, want %q", status.GetSource(), FlowAttributionSource)
-	}
-
-	// Re-marshal and verify the unknown-fields slice is empty (no fields
-	// were added since this test was written).
-	encoded, err := gproto.Marshal(status)
-	if err != nil {
-		t.Fatalf("Marshal status: %v", err)
-	}
-	var decoded srpb.GatewayServiceStatus
-	if err := gproto.Unmarshal(encoded, &decoded); err != nil {
-		t.Fatalf("Unmarshal status: %v", err)
-	}
-	// If protobuf added a new field at runtime, ProtoReflect would expose
-	// it — we leave that surface untouched here because any addition
-	// would be caught by the existing buildFlowAttributionGatewayStatus
-	// unit test or a buf-breaking-change check.
-	if decoded.GetSource() != FlowAttributionSource {
-		t.Errorf("round-tripped Source = %q, want %q",
-			decoded.GetSource(), FlowAttributionSource)
 	}
 }

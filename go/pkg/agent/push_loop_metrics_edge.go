@@ -35,9 +35,9 @@ import (
 )
 
 const (
-	// maxPendingEdgeMetrics bounds the entries one metric producer keeps for
-	// retry while the spool refuses admission. The oldest beyond it are dropped
-	// and counted.
+	// maxPendingEdgeMetrics bounds the entries one metric producer keeps while
+	// the spool refuses admission or the agent holds no metrics grant. The
+	// oldest beyond it are dropped and counted.
 	maxPendingEdgeMetrics = 1024
 	// edgeMetricsMaxPayloadBytes bounds one metrics batch record's uncompressed
 	// payload, so core can republish it as a single NATS message.
@@ -116,6 +116,10 @@ const (
 	// edgeDropRetryBufferFull: the spool kept refusing admission and the retry
 	// buffer overflowed.
 	edgeDropRetryBufferFull edgeDropReason = iota
+	// edgeDropAwaitingGrant: the agent held no standing grant for the
+	// producer's contract (none issued yet, revoked, or no spool) and the
+	// producer's bounded hold overflowed while it waited for one.
+	edgeDropAwaitingGrant
 	// edgeDropInvalidRecord: the items, or a single point no record can hold,
 	// cannot form a valid record, so a retry would fail the same way.
 	edgeDropInvalidRecord
@@ -134,6 +138,7 @@ const (
 func (r edgeDropReason) label() string {
 	return [edgeDropReasonCount]string{
 		edgeDropRetryBufferFull:   "retry_buffer_full",
+		edgeDropAwaitingGrant:     "awaiting_grant",
 		edgeDropInvalidRecord:     "invalid_record",
 		edgeDropRefused:           "refused",
 		edgeDropUnauthorizedScope: "unauthorized_scope",
@@ -144,10 +149,16 @@ func (r edgeDropReason) label() string {
 }
 
 // edgeProducerDropTelemetry counts dropped items (sysmon samples, SNMP readings,
-// ICMP check results, record parts or points) per producer and reason. Its zero
-// value is ready to use.
+// ICMP check results, record parts or points) per producer and reason, and the
+// push cycles in which a producer held its data because the agent had no grant
+// for its contract. Its zero value is ready to use.
 type edgeProducerDropTelemetry struct {
-	dropped [edgeProducerCount][edgeDropReasonCount]atomic.Uint64
+	dropped    [edgeProducerCount][edgeDropReasonCount]atomic.Uint64
+	grantHolds [edgeProducerCount]atomic.Uint64
+}
+
+func (t *edgeProducerDropTelemetry) recordGrantHold(producer edgeProducer) {
+	t.grantHolds[producer].Add(1)
 }
 
 func (t *edgeProducerDropTelemetry) record(producer edgeProducer, reason edgeDropReason, count int) {
@@ -168,7 +179,26 @@ func (t *edgeProducerDropTelemetry) write(w io.Writer) error {
 			}
 		}
 	}
+	if _, err := fmt.Fprint(w, "# TYPE agent_edge_record_grant_holds_total counter\n"); err != nil {
+		return fmt.Errorf("write agent edge record grant hold metric type: %w", err)
+	}
+	for producer := range edgeProducerCount {
+		if _, err := fmt.Fprintf(w, "agent_edge_record_grant_holds_total{producer=%q} %d\n",
+			producer.label(), t.grantHolds[producer].Load()); err != nil {
+			return fmt.Errorf("write agent edge record grant hold metric: %w", err)
+		}
+	}
 	return nil
+}
+
+// holdForGrant records that producer held its data this push cycle because the
+// agent has no standing grant for its contract, or no open spool. A producer
+// never sends durable data on the status path; it waits for the grant, as it
+// waits on a retryable spool refusal.
+func (p *PushLoop) holdForGrant(producer edgeProducer) {
+	p.server.edgeProducerDrops.recordGrantHold(producer)
+	p.logger.Debug().Str("producer", producer.label()).
+		Msg("No standing grant for the producer's contract; holding its data")
 }
 
 // edgeMetricsAppender is the spool surface a metrics producer writes. flow is
@@ -178,8 +208,8 @@ type edgeMetricsAppender interface {
 }
 
 // SetEdgeMetricsSpool connects metric, flow-attribution, and OTLP relay
-// producers to the sender's one open spool. Call before Start; a nil spool
-// keeps each of those on its legacy path.
+// producers to the sender's one open spool. Call before Start; with a nil
+// spool those producers hold their data as they do without a grant.
 func (p *PushLoop) SetEdgeMetricsSpool(sp *spool.Spool) {
 	if sp == nil {
 		p.edgeMetricsSpool = nil
@@ -189,7 +219,7 @@ func (p *PushLoop) SetEdgeMetricsSpool(sp *spool.Spool) {
 }
 
 // edgeMetricsCapability is the standing grant new metrics batch records are
-// emitted under at now, or nil when metrics take the legacy path.
+// emitted under at now, or nil when metric producers must hold their data.
 func (p *PushLoop) edgeMetricsCapability(now time.Time) *edgev1.EdgeSignedCapabilityV1 {
 	if p.edgeMetricsSpool == nil {
 		return nil
@@ -198,10 +228,9 @@ func (p *PushLoop) edgeMetricsCapability(now time.Time) *edgev1.EdgeSignedCapabi
 }
 
 // edgeMetricsProducer is one metric producer on the edge-record path: its drop
-// telemetry label, its add-on metric feed, and the envelope builder its legacy
-// status push uses, so a record carries exactly the batch the legacy path sent.
-// nothing is the builder's error for items with nothing to record, which the
-// legacy path also skips: such an item is discarded without counting a drop.
+// telemetry label, its add-on metric feed, and its envelope builder. nothing is
+// the builder's error for items with nothing to record: such an item is
+// discarded without counting a drop.
 // single marks a producer whose items each make their own envelope, so no two
 // are packed into one record.
 type edgeMetricsProducer[T any] struct {
@@ -248,7 +277,7 @@ func sweepSummaryEdgeMetrics() edgeMetricsProducer[map[string]any] {
 }
 
 // buildSweepSummaryMetricBatch builds the envelope of one sweep summary sample.
-// An empty payload has nothing to record, as for the legacy path.
+// An empty payload has nothing to record.
 func buildSweepSummaryMetricBatch(payloads []map[string]any, ctx metricEnvelopeContext) (*metricpb.MetricBatch, error) {
 	if len(payloads) != 1 || len(payloads[0]) == 0 {
 		return nil, errSweepNoMetricPoints
@@ -267,9 +296,9 @@ type edgeMetricsBuilt struct {
 //
 //   - An item entry (hasItem) is an item no part of which the spool has admitted.
 //     Its parts, once built, are kept in ready so a retry reuses their event ids
-//     and counts an unsplittable point once; it may still take the legacy path.
+//     and counts an unsplittable point once.
 //   - A part entry is one built record of an item whose earlier parts are in the
-//     spool. It is appended as built and never takes the legacy path.
+//     spool. It is appended as built.
 type edgeMetricsQueued[T any] struct {
 	item    T
 	hasItem bool
@@ -283,55 +312,27 @@ type edgeMetricsQueue[T any] struct {
 	pending []edgeMetricsQueued[T]
 }
 
-// take detaches the entries of items no part of which the spool has admitted, so
-// they can take the legacy path once the agent no longer holds a grant; none of
-// them was spooled, so nothing is sent twice. Parts of partly admitted items stay
-// queued. The caller restores the detached entries, in order, unless the legacy
-// send delivers them (restoreEdgeMetrics).
-func (q *edgeMetricsQueue[T]) take() []edgeMetricsQueued[T] {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	var taken []edgeMetricsQueued[T]
-	kept := make([]edgeMetricsQueued[T], 0, len(q.pending))
-	for _, entry := range q.pending {
-		if entry.hasItem {
-			taken = append(taken, entry)
-			continue
-		}
-		kept = append(kept, entry)
-	}
-	q.pending = kept
-	return taken
-}
-
-// queuedItems is the items of detached item entries, oldest first.
-func queuedItems[T any](entries []edgeMetricsQueued[T]) []T {
-	items := make([]T, len(entries))
-	for i, entry := range entries {
-		items[i] = entry.item
-	}
-	return items
-}
-
-// restoreEdgeMetrics returns detached entries the legacy path did not deliver to
-// the front of the producer's queue, in order, so a failed legacy send loses
-// nothing. Only overflow of the queue's bound is dropped, and counted.
-func restoreEdgeMetrics[T any](p *PushLoop, m edgeMetricsProducer[T], q *edgeMetricsQueue[T], entries []edgeMetricsQueued[T]) {
-	if len(entries) == 0 {
+// holdEdgeMetrics queues newly drained items, oldest first, while the agent
+// holds no metrics grant. Nothing is built, appended, or sent elsewhere; the
+// next push under a grant spools them. Overflow of the queue's bound drops the
+// oldest entries and counts them as awaiting_grant.
+func holdEdgeMetrics[T any](p *PushLoop, m edgeMetricsProducer[T], q *edgeMetricsQueue[T], drained []T) {
+	p.holdForGrant(m.producer)
+	if len(drained) == 0 {
 		return
 	}
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	pending := make([]edgeMetricsQueued[T], 0, len(entries)+len(q.pending))
-	pending = append(pending, entries...)
-	pending = append(pending, q.pending...)
-	q.pending = trimEdgeMetrics(p, m, pending)
+	for _, item := range drained {
+		q.pending = append(q.pending, edgeMetricsQueued[T]{item: item, hasItem: true})
+	}
+	q.pending = trimEdgeMetrics(p, m, q.pending, edgeDropAwaitingGrant)
 }
 
 // trimEdgeMetrics drops, and counts, the oldest entries beyond the queue bound.
-func trimEdgeMetrics[T any](p *PushLoop, m edgeMetricsProducer[T], pending []edgeMetricsQueued[T]) []edgeMetricsQueued[T] {
+func trimEdgeMetrics[T any](p *PushLoop, m edgeMetricsProducer[T], pending []edgeMetricsQueued[T], reason edgeDropReason) []edgeMetricsQueued[T] {
 	if over := len(pending) - maxPendingEdgeMetrics; over > 0 {
-		p.dropEdgeMetrics(m.producer, edgeDropRetryBufferFull, over, nil)
+		p.dropEdgeMetrics(m.producer, reason, over, nil)
 		return pending[over:]
 	}
 	return pending
@@ -340,8 +341,7 @@ func trimEdgeMetrics[T any](p *PushLoop, m edgeMetricsProducer[T], pending []edg
 // spoolEdgeMetrics appends a producer's queue and newly drained items, oldest
 // first, as metrics batch records under capability. Each record part is appended
 // exactly once: a retryable refusal leaves the unsent parts queued with their
-// event ids, and nothing queued takes the legacy path while the grant holds. It
-// reports whether any record was appended.
+// event ids. It reports whether any record was appended.
 func spoolEdgeMetrics[T any](
 	p *PushLoop,
 	m edgeMetricsProducer[T],
@@ -398,7 +398,7 @@ func spoolEdgeMetrics[T any](
 		}
 	}
 
-	q.pending = trimEdgeMetrics(p, m, pending)
+	q.pending = trimEdgeMetrics(p, m, pending, edgeDropRetryBufferFull)
 
 	if appended > 0 {
 		p.logger.Debug().Str("producer", m.producer.label()).Int("count", appended).
@@ -653,38 +653,50 @@ func (p *PushLoop) metricEnvelopeContext() metricEnvelopeContext {
 	}
 }
 
-// rperfEdgePending holds the built metrics batch record(s) of at most one
-// drained rperf status while the spool refuses admission. While built has
-// unsent parts, the push loop pauses polling the rperf service rather than
-// buffering or dropping statuses.
+// rperfEdgePending is at most one drained rperf metrics status on its way to
+// the spool: held unbuilt while the agent has no metrics grant, then its built
+// record(s) while the spool refuses admission. While either is pending, the
+// push loop pauses polling the rperf service rather than buffering or dropping
+// statuses.
 type rperfEdgePending struct {
 	mu    sync.Mutex
+	held  *rperfHeldStatus
 	built []edgeMetricsBuilt
+}
+
+// rperfHeldStatus is a drained rperf metrics status not yet built into records,
+// with the routing and poll time its records are built with.
+type rperfHeldStatus struct {
+	status      *proto.StatusResponse
+	serviceName string
+	serviceType string
+	polledAt    time.Time
 }
 
 func (r *rperfEdgePending) hasPending() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return len(r.built) > 0
+	return r.held != nil || len(r.built) > 0
 }
 
-func (r *rperfEdgePending) set(parts []edgeMetricsBuilt) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.built = parts
-}
-
-// flushRperfEdgeMetrics appends any unsent parts of the pending rperf item to
-// the edge metrics spool. It returns true when no unsent parts remain.
-func (p *PushLoop) flushRperfEdgeMetrics() bool {
+// flushRperfEdgeMetrics builds a held rperf status under the current metrics
+// grant and appends any unsent parts to the edge metrics spool. It returns true
+// when nothing remains pending; without a grant a held status stays held.
+func (p *PushLoop) flushRperfEdgeMetrics(now time.Time) bool {
 	p.rperfEdge.mu.Lock()
 	defer p.rperfEdge.mu.Unlock()
 
+	if held := p.rperfEdge.held; held != nil {
+		capability := p.edgeMetricsCapability(now)
+		if capability == nil {
+			p.holdForGrant(edgeProducerRperf)
+			return false
+		}
+		p.rperfEdge.held = nil
+		p.rperfEdge.built = p.buildRperfEdgeParts(held, capability)
+	}
 	if len(p.rperfEdge.built) == 0 {
 		return true
-	}
-	if p.edgeMetricsSpool == nil {
-		return false
 	}
 
 	m := edgeMetricsProducer[struct{}]{producer: edgeProducerRperf, feed: "rperf"}
@@ -699,52 +711,45 @@ func (p *PushLoop) flushRperfEdgeMetrics() bool {
 	return true
 }
 
-// spoolRperfMetricsStatus routes an rperf-metrics status response to the edge
-// metrics spool while the agent holds a standing metrics batch grant. It
-// reports whether the status was handled on the edge path (and must therefore
-// be omitted from the status push).
+// spoolRperfMetricsStatus takes an rperf metrics status off the status push and
+// onto the edge metrics spool: built and appended under the metrics grant, or
+// held unbuilt until one is held.
 func (p *PushLoop) spoolRperfMetricsStatus(
 	statusResp *proto.StatusResponse,
 	serviceName string,
 	serviceType string,
 	now time.Time,
-) bool {
-	capability := p.edgeMetricsCapability(now)
-	if capability == nil {
-		return false
-	}
+) {
 	if statusResp == nil || len(statusResp.GetMessage()) == 0 {
-		return true
+		return
 	}
+	p.rperfEdge.mu.Lock()
+	p.rperfEdge.held = &rperfHeldStatus{status: statusResp, serviceName: serviceName, serviceType: serviceType, polledAt: now}
+	p.rperfEdge.mu.Unlock()
+	p.flushRperfEdgeMetrics(now)
+}
 
-	batch, err := p.buildRperfMetricBatch(statusResp, serviceName, serviceType, now)
+// buildRperfEdgeParts builds a held rperf status into metrics batch records under
+// capability, splitting a batch no record holds; what no record can hold is
+// dropped and counted.
+func (p *PushLoop) buildRperfEdgeParts(held *rperfHeldStatus, capability *edgev1.EdgeSignedCapabilityV1) []edgeMetricsBuilt {
+	batch, err := p.buildRperfMetricBatch(held.status, held.serviceName, held.serviceType, held.polledAt)
 	if err != nil {
 		p.dropEdgeMetrics(edgeProducerRperf, edgeDropInvalidRecord, 1, err)
-		return true
+		return nil
 	}
 
 	claims := capability.GetProduction()
 	maxRows := min(uint64(claims.GetMaxProjectedRowCount()), claims.GetMaxProjectedWriteBytes()/edgeMetricsProjectedRowBytes)
-
-	var parts []edgeMetricsBuilt
 	if record, recErr := metricsEdgeRecord(batch, capability, maxRows); recErr == nil {
-		parts = []edgeMetricsBuilt{record}
-	} else {
-		var dropped int
-		parts, dropped = splitMetricBatch(batch, capability, maxRows)
-		if len(parts) == 0 {
-			if dropped == 0 {
-				dropped = 1
-			}
-			p.dropEdgeMetrics(edgeProducerRperf, edgeDropInvalidRecord, dropped, errEdgeMetricsRecordTooLarge)
-			return true
-		}
-		p.dropEdgeMetrics(edgeProducerRperf, edgeDropInvalidRecord, dropped, errEdgeMetricsRecordTooLarge)
+		return []edgeMetricsBuilt{record}
 	}
-
-	p.rperfEdge.set(parts)
-	p.flushRperfEdgeMetrics()
-	return true
+	parts, dropped := splitMetricBatch(batch, capability, maxRows)
+	if len(parts) == 0 && dropped == 0 {
+		dropped = 1
+	}
+	p.dropEdgeMetrics(edgeProducerRperf, edgeDropInvalidRecord, dropped, errEdgeMetricsRecordTooLarge)
+	return parts
 }
 
 func (p *PushLoop) buildRperfMetricBatch(

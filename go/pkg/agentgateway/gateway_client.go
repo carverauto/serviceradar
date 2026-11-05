@@ -53,12 +53,8 @@ var (
 	ErrEnrollmentRejected = errors.New("agent enrollment rejected by gateway")
 	// ErrSecurityRequired indicates security configuration is required for production.
 	ErrSecurityRequired = errors.New("security configuration required: set SR_ALLOW_INSECURE=true for development")
-	// ErrNoChunksToSend indicates no valid status chunks were provided for streaming.
-	ErrNoChunksToSend = errors.New("no status chunks to send")
-	// ErrStreamStatusChunkTooLarge indicates a status stream chunk exceeds the per-message budget.
-	ErrStreamStatusChunkTooLarge = errors.New("stream status chunk too large")
-	// ErrStreamStatusBudgetExceeded indicates a status stream exceeds the per-stream byte budget.
-	ErrStreamStatusBudgetExceeded = errors.New("stream status byte budget exceeded")
+	// ErrNoChunksToSend indicates no valid chunks were provided for streaming.
+	ErrNoChunksToSend = errors.New("no chunks to send")
 	// ErrNoConfigChunks indicates a streamed config response did not contain chunks.
 	ErrNoConfigChunks = errors.New("stream config response contained no chunks")
 	// ErrConfigChunkTooLarge indicates a streamed config chunk exceeds the per-message budget.
@@ -80,8 +76,6 @@ const (
 	defaultConfigTimeout  = 90 * time.Second
 	defaultKeepaliveTime  = 30 * time.Second
 	defaultKeepaliveTTL   = 10 * time.Second
-	streamStatusChunkMax  = 16 * 1024 * 1024
-	streamStatusWindowMax = 64 * 1024 * 1024
 	streamConfigChunkMax  = 2 * 1024 * 1024
 	streamConfigWindowMax = 64 * 1024 * 1024
 )
@@ -354,82 +348,6 @@ func (g *GatewayClient) PushStatus(ctx context.Context, req *proto.GatewayStatus
 	}
 
 	return resp, nil
-}
-
-// StreamStatus streams service status chunks to the gateway.
-func (g *GatewayClient) StreamStatus(ctx context.Context, chunks []*proto.GatewayStatusChunk) (*proto.GatewayStatusResponse, error) {
-	g.mu.RLock()
-	client := g.client
-	connected := g.connected
-	g.mu.RUnlock()
-
-	if !connected || client == nil {
-		return nil, ErrGatewayNotConnected
-	}
-
-	validChunks, err := validateStreamStatusChunks(chunks)
-	if err != nil {
-		return nil, err
-	}
-
-	// For streaming, a fixed short timeout can cancel long chunk sequences.
-	// Prefer the caller context; higher-level code can set deadlines if desired.
-	stream, err := client.StreamStatus(ctx)
-	if err != nil {
-		g.markDisconnected()
-		return nil, fmt.Errorf("failed to create stream: %w", err)
-	}
-
-	for _, chunk := range validChunks {
-		if err := ctx.Err(); err != nil {
-			_ = stream.CloseSend()
-			return nil, err
-		}
-
-		if err := stream.Send(chunk); err != nil {
-			// Ensure stream is closed on send error to prevent resource leak
-			_ = stream.CloseSend()
-			g.markDisconnected()
-			return nil, fmt.Errorf("failed to send chunk: %w", err)
-		}
-	}
-
-	resp, err := stream.CloseAndRecv()
-	if err != nil {
-		g.markDisconnected()
-		return nil, fmt.Errorf("failed to receive response: %w", err)
-	}
-
-	return resp, nil
-}
-
-func validateStreamStatusChunks(chunks []*proto.GatewayStatusChunk) ([]*proto.GatewayStatusChunk, error) {
-	validChunks := make([]*proto.GatewayStatusChunk, 0, len(chunks))
-	totalBytes := 0
-
-	for idx, chunk := range chunks {
-		if chunk == nil {
-			continue
-		}
-
-		chunkBytes := goproto.Size(chunk)
-		if chunkBytes > streamStatusChunkMax {
-			return nil, fmt.Errorf("%w: chunk %d has %d bytes; max %d", ErrStreamStatusChunkTooLarge, idx, chunkBytes, streamStatusChunkMax)
-		}
-
-		totalBytes += chunkBytes
-		if totalBytes > streamStatusWindowMax {
-			return nil, fmt.Errorf("%w: stream has %d bytes; max %d", ErrStreamStatusBudgetExceeded, totalBytes, streamStatusWindowMax)
-		}
-
-		validChunks = append(validChunks, chunk)
-	}
-
-	if len(validChunks) == 0 {
-		return nil, ErrNoChunksToSend
-	}
-
-	return validChunks, nil
 }
 
 // markDisconnectedOnTransportFailure tears down the gateway connection only

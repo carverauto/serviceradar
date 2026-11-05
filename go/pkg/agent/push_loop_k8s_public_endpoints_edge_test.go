@@ -95,7 +95,7 @@ func (g *gatingEdgeAppender) AppendFlow(_ string, eventID, body []byte) (uint64,
 	return uint64(len(g.records)), nil
 }
 
-func TestPushLoopK8sPublicEndpointsEdgeUnderGrantAndLegacySuppression(t *testing.T) {
+func TestPushLoopK8sPublicEndpointsEdgeUnderGrantAndNoStatus(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
@@ -192,9 +192,9 @@ func TestPushLoopK8sPublicEndpointsEdgeUnderGrantAndLegacySuppression(t *testing
 		discoveryGrant(t, edgerecord.K8sPublicEndpointsContractID, edgerecord.K8sPublicEndpointsProjectedWriteBytesPerRecord, "serviceradar.agent.k8s_public_endpoints"),
 	}, time.Now())
 
-	statuses, _ := pl.collectAllStatusesSeparated(context.Background())
+	statuses := pl.collectAllStatuses(context.Background())
 	for _, st := range statuses {
-		assert.NotEqual(t, K8sPublicEndpointsServiceType, st.GetServiceType(), "k8s_public_endpoints must not ride legacy statuses while grant is held")
+		assert.NotEqual(t, K8sPublicEndpointsServiceType, st.GetServiceType(), "k8s_public_endpoints must not ride statuses")
 	}
 
 	record, snap := decodeSpooledK8sSnapshot(t, sp)
@@ -215,7 +215,7 @@ func TestPushLoopK8sPublicEndpointsEdgeUnderGrantAndLegacySuppression(t *testing
 	require.Len(t, snap.GetCorrelationHints(), 1)
 	assert.Equal(t, "192.0.2.50", snap.GetCorrelationHints()[0].GetBackendIp())
 
-	statuses, _ = pl.collectAllStatusesSeparated(context.Background())
+	statuses = pl.collectAllStatuses(context.Background())
 	for _, st := range statuses {
 		assert.NotEqual(t, K8sPublicEndpointsServiceType, st.GetServiceType())
 	}
@@ -247,7 +247,7 @@ func TestPushLoopK8sPublicEndpointsEdgeBackpressurePausesGetStatus(t *testing.T)
 	}, time.Now())
 
 	// First cycle: GetStatus is called once; spool refuses, so item is held in k8sPublicEndpointsEdge.built.
-	statuses, _ := pl.collectAllStatusesSeparated(context.Background())
+	statuses := pl.collectAllStatuses(context.Background())
 	for _, st := range statuses {
 		assert.NotEqual(t, K8sPublicEndpointsServiceType, st.GetServiceType())
 	}
@@ -256,7 +256,7 @@ func TestPushLoopK8sPublicEndpointsEdgeBackpressurePausesGetStatus(t *testing.T)
 	firstEventID := append([]byte(nil), pl.k8sPublicEndpointsEdge.built.record.GetEventId()...)
 
 	// Second cycle while spool still refuses: GetStatus must NOT be called (paused).
-	statuses, _ = pl.collectAllStatusesSeparated(context.Background())
+	statuses = pl.collectAllStatuses(context.Background())
 	for _, st := range statuses {
 		assert.NotEqual(t, K8sPublicEndpointsServiceType, st.GetServiceType())
 	}
@@ -265,14 +265,16 @@ func TestPushLoopK8sPublicEndpointsEdgeBackpressurePausesGetStatus(t *testing.T)
 
 	// Third cycle: spool admits the pending item under its original event_id, then polls and spools a fresh snapshot.
 	appender.allow = true
-	_, _ = pl.collectAllStatusesSeparated(context.Background())
+	pl.collectAllStatuses(context.Background())
 	assert.Nil(t, pl.k8sPublicEndpointsEdge.built)
 	require.Len(t, appender.ids, 2)
 	assert.True(t, bytes.Equal(firstEventID, appender.ids[0]), "retried record must preserve its original event_id")
 	assert.Equal(t, int32(2), svc.calls.Load())
 }
 
-func TestPushLoopK8sPublicEndpointsLegacyWithoutGrant(t *testing.T) {
+// Without a grant the snapshot is neither polled, sent as a status, nor
+// spooled; the hold is counted.
+func TestPushLoopK8sPublicEndpointsNotPolledWithoutGrant(t *testing.T) {
 	t.Parallel()
 
 	payload := []byte(`{"cluster_id":"cluster-alpha","generated_at":"2026-07-01T12:00:00Z","endpoints":[]}`)
@@ -290,16 +292,12 @@ func TestPushLoopK8sPublicEndpointsLegacyWithoutGrant(t *testing.T) {
 	}
 	pl.SetEdgeDiscoverySpool(sp)
 
-	statuses, _ := pl.collectAllStatusesSeparated(context.Background())
-	var found *srproto.GatewayServiceStatus
+	statuses := pl.collectAllStatuses(context.Background())
 	for _, st := range statuses {
-		if st.GetServiceType() == K8sPublicEndpointsServiceType {
-			found = st
-			break
-		}
+		assert.NotEqual(t, K8sPublicEndpointsServiceType, st.GetServiceType(),
+			"k8s_public_endpoints must never ride the status path")
 	}
-	require.NotNil(t, found, "without grant, k8s_public_endpoints must remain on legacy statuses")
-	assert.Equal(t, K8sPublicEndpointsServiceName, found.GetServiceName())
-	assert.Equal(t, K8sPublicEndpointsSourceResults, found.GetSource())
+	assert.Zero(t, svc.calls.Load(), "the snapshot was polled without a grant")
 	assert.Empty(t, spooledRecords(t, sp))
+	assert.Equal(t, uint64(1), pl.server.edgeProducerDrops.grantHolds[edgeProducerK8sPublicEndpoints].Load())
 }

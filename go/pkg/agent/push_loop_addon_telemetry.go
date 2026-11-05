@@ -16,30 +16,16 @@
 
 package agent
 
-import (
-	"context"
-	"fmt"
-	"strings"
-	"time"
+import "strings"
 
-	"github.com/carverauto/serviceradar/proto"
-	gproto "google.golang.org/protobuf/proto"
-)
+const addonTelemetryMaxDrainPerPush = 1024
 
-const (
-	addonTelemetryServiceName          = "addon-telemetry"
-	addonTelemetryServiceType          = "native-addon"
-	addonTelemetrySourcePrefix         = "addon:"
-	addonTelemetryMaxDrainPerPush      = 1024
-	addonTelemetryMaxBatchMessageBytes = 6 * 1024 * 1024
-)
-
-func (p *PushLoop) pushAddonTelemetry(ctx context.Context) bool {
+// pushAddonTelemetry drains native add-on telemetry into the telemetry queue and
+// spools it under the telemetry batch grant, or holds it until one is held. The
+// add-on telemetry buffer counts what it drops before a drain.
+func (p *PushLoop) pushAddonTelemetry() bool {
 	p.server.mu.RLock()
 	buffer := p.server.addonTelemetry
-	agentID := p.server.config.AgentID
-	partition := p.server.config.Partition
-	kvStoreID := p.server.config.KVAddress
 	p.server.mu.RUnlock()
 
 	if buffer == nil {
@@ -47,173 +33,30 @@ func (p *PushLoop) pushAddonTelemetry(ctx context.Context) bool {
 	}
 
 	envelopes, droppedDelta, droppedTotal := buffer.drain(addonTelemetryMaxDrainPerPush)
-
-	// One path per producer: while the agent holds the telemetry standing
-	// grant, batches are spooled as durable records and never also sent on
-	// the legacy status path. Without it, items the spool admitted no part
-	// of go back on the legacy path.
-	if capability := p.edgeTelemetryCapability(time.Now()); capability != nil {
-		if droppedDelta > 0 {
-			p.logger.Warn().
-				Uint64("dropped_since_last", droppedDelta).
-				Uint64("dropped_total", droppedTotal).
-				Msg("Dropped add-on telemetry before push")
-		}
-		items := make([]telemetryEdgeItem, 0, len(envelopes))
-		for _, envelope := range envelopes {
-			items = append(items, telemetryEdgeItem{
-				producerType: "addon",
-				producerID:   addonTelemetryProducerID(envelope.addonID),
-				batch:        envelope.batch,
-				envelope:     &envelope,
-			})
-		}
-		if dropped := p.addonTelemetryEdge.enqueue(items); dropped > 0 {
-			p.dropEdgeTelemetry(edgeProducerAddonTelemetry, edgeDropRetryBufferFull, dropped)
-		}
-		return p.spoolTelemetry(edgeProducerAddonTelemetry, &p.addonTelemetryEdge, capability)
+	if droppedDelta > 0 {
+		p.logger.Warn().
+			Uint64("dropped_since_last", droppedDelta).
+			Uint64("dropped_total", droppedTotal).
+			Msg("Dropped add-on telemetry before push")
 	}
 
-	taken := p.addonTelemetryEdge.take()
-	queued := make([]addonTelemetryEnvelope, 0, len(taken))
-	for _, item := range taken {
-		if item.envelope != nil {
-			queued = append(queued, *item.envelope)
-		}
-	}
-	envelopes = append(queued, envelopes...)
-	if len(envelopes) == 0 {
-		if droppedDelta > 0 {
-			p.logger.Warn().
-				Uint64("dropped_since_last", droppedDelta).
-				Uint64("dropped_total", droppedTotal).
-				Msg("Dropped add-on telemetry before push")
-		}
-		return false
-	}
-
-	// Batches the chunk build skips are dropped for good, as before; batches
-	// that made a chunk but could not be delivered return to the edge queue.
-	var chunkedEnvelopes []addonTelemetryEnvelope
-	restoreUndelivered := func() {
-		items := make([]telemetryEdgeItem, 0, len(chunkedEnvelopes))
-		for _, envelope := range chunkedEnvelopes {
-			items = append(items, telemetryEdgeItem{
-				producerType: "addon",
-				producerID:   addonTelemetryProducerID(envelope.addonID),
-				batch:        envelope.batch,
-				envelope:     &envelope,
-			})
-		}
-		if dropped := p.addonTelemetryEdge.restore(items); dropped > 0 {
-			p.dropEdgeTelemetry(edgeProducerAddonTelemetry, edgeDropRetryBufferFull, dropped)
-		}
-	}
-
-	gatewayID := p.gateway.GetGatewayID()
-	runtimeMetadata := currentRuntimeMetadata()
-	sourceIP := p.getSourceIP()
-	chunks := make([]*proto.GatewayStatusChunk, 0, len(envelopes))
-
+	items := make([]telemetryEdgeItem, 0, len(envelopes))
 	for _, envelope := range envelopes {
-		status, messageByteCount, err := buildAddonTelemetryGatewayStatus(envelope, agentID, gatewayID, partition, kvStoreID)
-		if err != nil {
-			p.logger.Warn().Err(err).Str("addon", envelope.addonID).Msg("Skipping add-on telemetry batch")
-			continue
-		}
-		if messageByteCount > addonTelemetryMaxBatchMessageBytes {
-			p.logger.Warn().
-				Str("addon", envelope.addonID).
-				Int("message_bytes", messageByteCount).
-				Int("max_bytes", addonTelemetryMaxBatchMessageBytes).
-				Msg("Skipping oversized add-on telemetry batch")
-			continue
-		}
-
-		chunkedEnvelopes = append(chunkedEnvelopes, envelope)
-		chunks = append(chunks, &proto.GatewayStatusChunk{
-			Services:  []*proto.GatewayServiceStatus{status},
-			GatewayId: gatewayID,
-			AgentId:   agentID,
-			Timestamp: time.Now().UnixNano(),
-			Partition: partition,
-			SourceIp:  sourceIP,
-			Version:   runtimeMetadata.Version,
-			Hostname:  runtimeMetadata.Hostname,
-			Os:        runtimeMetadata.Os,
-			Arch:      runtimeMetadata.Arch,
+		items = append(items, telemetryEdgeItem{
+			producerType: "addon",
+			producerID:   addonTelemetryProducerID(envelope.addonID),
+			batch:        envelope.batch,
 		})
 	}
-
-	if len(chunks) == 0 {
-		return false
-	}
-
-	totalChunks := int32(len(chunks))
-	for i, chunk := range chunks {
-		chunk.ChunkIndex = int32(i)
-		chunk.TotalChunks = totalChunks
-		chunk.IsFinal = int32(i) == totalChunks-1
-	}
-
-	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	resp, err := p.gateway.StreamStatus(pushCtx, chunks)
-	if err != nil {
-		p.logger.Error().Err(err).Int("chunk_count", len(chunks)).Msg("Failed to stream add-on telemetry")
-		restoreUndelivered()
-		return false
-	}
-	if !resp.Received {
-		p.logger.Warn().Int("chunk_count", len(chunks)).Msg("Gateway did not acknowledge add-on telemetry")
-		restoreUndelivered()
-		return false
-	}
-
-	logEvent := p.logger.Info().Int("chunk_count", len(chunks))
-	if droppedDelta > 0 {
-		logEvent = logEvent.
-			Uint64("dropped_since_last", droppedDelta).
-			Uint64("dropped_total", droppedTotal)
-	}
-	logEvent.Msg("Streamed add-on telemetry")
-	return true
-}
-
-func buildAddonTelemetryGatewayStatus(
-	envelope addonTelemetryEnvelope,
-	agentID, gatewayID, partition, kvStoreID string,
-) (*proto.GatewayServiceStatus, int, error) {
-	messageBytes, err := gproto.Marshal(envelope.batch)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	return &proto.GatewayServiceStatus{
-		ServiceName:  addonTelemetryServiceName,
-		Available:    true,
-		Message:      messageBytes,
-		ServiceType:  addonTelemetryServiceType,
-		ResponseTime: 0,
-		AgentId:      agentID,
-		GatewayId:    gatewayID,
-		Partition:    partition,
-		Source:       addonTelemetrySource(envelope.addonID),
-		KvStoreId:    kvStoreID,
-	}, len(messageBytes), nil
+	return p.queueAndSpoolTelemetry(edgeProducerAddonTelemetry, &p.addonTelemetryEdge, items)
 }
 
 // addonTelemetryProducerID is the host-stamped telemetry producer id of an
-// envelope: the same instance the legacy status source names after `addon:`.
+// envelope: its add-on instance.
 func addonTelemetryProducerID(addonID string) string {
 	clean := strings.TrimSpace(addonID)
 	if clean == "" {
 		clean = unknownTelemetrySource
 	}
 	return clean
-}
-
-func addonTelemetrySource(addonID string) string {
-	return fmt.Sprintf("%s%s", addonTelemetrySourcePrefix, addonTelemetryProducerID(addonID))
 }

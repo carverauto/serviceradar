@@ -637,7 +637,6 @@ func TestSendControlHello_IncludesRuntimeMetadata(t *testing.T) {
 	for _, capability := range []string{
 		capabilityConfigPushChunks,
 		pluginHostAuthorityCapabilityV1,
-		pluginResultRetainedDeliveryCapabilityV1,
 		proxmoxSemanticConnectorCapabilityV1,
 		proxmoxIdentityCapabilityV3,
 		proxmoxConsolePolicyBindingCapabilityV1,

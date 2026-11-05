@@ -46,9 +46,9 @@ sequenceDiagram
   G-->>A: commands and pushed config updates
   A-->>G: command ack/progress/result + config ack
 
-  A->>G: PushStatus() (small payloads)
-  A->>G: StreamStatus() (chunked payloads)
-  G->>C: forward ingestion payloads (ERTS/RPC/PubSub)
+  A->>G: PushStatus() (status summaries)
+  A->>G: EdgeRecordIngestService.Stream() (durable edge records)
+  G->>C: forward status and publish edge records (ERTS/RPC/JetStream)
 ```
 
 ## Edge gRPC API (Gateway)
@@ -58,8 +58,7 @@ The edge agent talks to the platform through `AgentGatewayService`:
 - `Hello`: initial enrollment/identity handshake (mTLS identity is derived from the certificate).
 - `GetConfig`: fetch effective config; supports versioning (`not_modified` when unchanged).
 - `StreamConfig`: server-streaming config delivery; streams the effective config in chunks for large payloads.
-- `PushStatus`: unary push for status/results payloads that fit comfortably in a single request.
-- `StreamStatus`: client-streaming push for large status/results payloads (chunked).
+- `PushStatus`: unary push for latest-wins service status summaries. Durable data (metrics, results, inventory, telemetry) never rides it; the agent sends that as edge records on `EdgeRecordIngestService.Stream`.
 - `ControlStream`: bidirectional stream for command dispatch, command acks/progress/results, and pushed config updates.
 
 ## Security Boundaries

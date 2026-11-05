@@ -93,24 +93,29 @@ func bumblebeeMaxRows(capability *edgev1.EdgeSignedCapabilityV1) uint64 {
 	)
 }
 
-func (p *PushLoop) handleBumblebeeEdgeOrPause(
+// routeBumblebeeEdgeStatus carries the bumblebee scan service on the edge-record
+// path, which is its only path. A pending scan is appended first and keeps the
+// service unpolled while the spool refuses it; without a grant the service is
+// not polled either, so its spooled scan waits on disk for one.
+func (p *PushLoop) routeBumblebeeEdgeStatus(
 	ctx context.Context,
 	svc Service,
 	provider SweepStatusProvider,
 	now time.Time,
-) bool {
+) {
 	p.bumblebeeEdge.mu.Lock()
 	defer p.bumblebeeEdge.mu.Unlock()
 
 	if p.bumblebeeEdge.built != nil {
 		if p.edgeDiscoverySpool == nil || !p.tryFlushPendingBumblebeeEdgeLocked(now) {
-			return true
+			return
 		}
 	}
 
 	capability := p.edgeBumblebeeCapability(now)
 	if capability == nil {
-		return false
+		p.holdForGrant(edgeProducerBumblebee)
+		return
 	}
 
 	var status *proto.StatusResponse
@@ -122,19 +127,14 @@ func (p *PushLoop) handleBumblebeeEdgeOrPause(
 	}
 	if err != nil {
 		p.logger.Warn().Err(err).Str("service", svc.Name()).Msg("Failed to get status from service")
-		return true
+		return
 	}
 	if status == nil {
 		p.logger.Warn().Str("service", svc.Name()).Msg("Status provider returned nil response")
-		return true
+		return
 	}
-	if telemetry, ok := svc.(StatusAddonTelemetryProvider); ok {
-		if addonID, batch := telemetry.AddonTelemetryBatch(status); addonID != "" && batch != nil {
-			p.server.handleAddonTelemetry(addonID, batch)
-		}
-	}
+	p.forwardStatusAddonTelemetry(svc, status)
 	p.emitBumblebeeEdgeLocked(status, capability, now)
-	return true
 }
 
 func (p *PushLoop) tryFlushPendingBumblebeeEdgeLocked(now time.Time) bool {

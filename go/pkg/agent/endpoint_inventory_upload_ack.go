@@ -18,15 +18,12 @@ package agent
 
 import (
 	"encoding/json"
-	"errors"
 	"strings"
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/endpointinventory"
 	"github.com/carverauto/serviceradar/proto"
 )
-
-var errGatewayStatusNotAcknowledged = errors.New("gateway did not acknowledge status push")
 
 const endpointInventoryReconcileFloorDirective = "endpoint_inventory.reconcile_floor"
 
@@ -36,39 +33,22 @@ type endpointInventoryGatewayDirective struct {
 	Message        string `json:"message"`
 }
 
-func (p *PushLoop) recordEndpointInventoryUploadSuccesses(
-	statuses []*proto.GatewayServiceStatus,
-	resp *proto.GatewayStatusResponse,
-) {
-	payloads := endpointInventoryUploadPayloads(statuses)
+// applyEndpointInventoryDirectives records the endpoint inventory reconcile
+// requests a status push response carries. They are control directives: scan
+// payloads themselves travel only as edge records.
+func (p *PushLoop) applyEndpointInventoryDirectives(resp *proto.GatewayStatusResponse) {
 	directives := endpointInventoryGatewayDirectives(resp)
-	if len(payloads) == 0 && len(directives) == 0 {
+	if len(directives) == 0 {
 		return
 	}
 
 	cfg, err := p.endpointInventoryCommandConfig()
 	if err != nil {
-		p.logger.Warn().Err(err).Msg("Failed to resolve endpoint inventory upload ack config")
+		p.logger.Warn().Err(err).Msg("Failed to resolve endpoint inventory directive config")
 		return
 	}
 
 	now := time.Now().UTC()
-	ackedFullUpload := false
-	for _, payload := range payloads {
-		if err := endpointinventory.MarkUploadSucceeded(cfg, &payload, now); err != nil {
-			if !errors.Is(err, endpointinventory.ErrNoPendingUpload) {
-				p.logger.Warn().Err(err).Str("scan_id", payload.ScanID).Msg("Failed to mark endpoint inventory upload succeeded")
-			}
-			continue
-		}
-		if endpointinventory.PayloadRequiresFullUpload(&payload) {
-			ackedFullUpload = true
-		}
-	}
-	if ackedFullUpload {
-		return
-	}
-
 	for _, directive := range directives {
 		reason := directive.Message
 		if reason == "" {
@@ -78,49 +58,6 @@ func (p *PushLoop) recordEndpointInventoryUploadSuccesses(
 			p.logger.Warn().Err(err).Msg("Failed to record endpoint inventory reconcile directive")
 		}
 	}
-}
-
-func (p *PushLoop) recordEndpointInventoryUploadFailures(statuses []*proto.GatewayServiceStatus, cause error) {
-	payloads := endpointInventoryUploadPayloads(statuses)
-	if len(payloads) == 0 {
-		return
-	}
-
-	cfg, err := p.endpointInventoryCommandConfig()
-	if err != nil {
-		p.logger.Warn().Err(err).Msg("Failed to resolve endpoint inventory upload retry config")
-		return
-	}
-
-	now := time.Now().UTC()
-	for _, payload := range payloads {
-		if err := endpointinventory.MarkUploadFailed(cfg, &payload, now, cause); err != nil &&
-			!errors.Is(err, endpointinventory.ErrNoPendingUpload) {
-			p.logger.Warn().Err(err).Str("scan_id", payload.ScanID).Msg("Failed to mark endpoint inventory upload failed")
-		}
-	}
-}
-
-func endpointInventoryUploadPayloads(statuses []*proto.GatewayServiceStatus) []endpointinventory.ScanPayload {
-	payloads := make([]endpointinventory.ScanPayload, 0, 1)
-	for _, status := range statuses {
-		if status == nil ||
-			status.ServiceName != endpointinventory.ServiceName ||
-			status.ServiceType != endpointinventory.ServiceType ||
-			len(status.Message) == 0 {
-			continue
-		}
-
-		var payload endpointinventory.ScanPayload
-		if err := json.Unmarshal(status.Message, &payload); err != nil {
-			continue
-		}
-		if endpointinventory.PayloadRequiresFullUpload(&payload) {
-			payloads = append(payloads, payload)
-		}
-	}
-
-	return payloads
 }
 
 func endpointInventoryGatewayDirectives(resp *proto.GatewayStatusResponse) []endpointInventoryGatewayDirective {
