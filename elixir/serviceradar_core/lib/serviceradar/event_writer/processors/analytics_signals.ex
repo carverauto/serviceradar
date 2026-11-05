@@ -254,8 +254,15 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   # the series or the drain admits them, and the refusal never consumes a
   # JetStream delivery. Any other refusal fails the messages that delivered an
   # unadmitted occurrence, so their redelivery continues the tail instead of
-  # overtaking it.
+  # overtaking it. A node whose alert evaluation is not activated leaves the
+  # series pending for an activated node and fails no message.
   defp admit_pending_series(messages, series, owners_by_series, messages_by_event_id) do
+    if AlertAdmissionBacklog.activated?(),
+      do: admit_activated_series(messages, series, owners_by_series, messages_by_event_id),
+      else: []
+  end
+
+  defp admit_activated_series(messages, series, owners_by_series, messages_by_event_id) do
     message_index = Map.new(Enum.with_index(messages))
 
     {failures, _halted} =
@@ -359,10 +366,15 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   to the next series, so series stuck behind a saturated rule never starve the
   ones behind them. The run ends when every page is scanned, after
   `:max_admissions` admissions, or once `:budget_ms` has elapsed. Returns the
-  number of occurrences admitted.
+  number of occurrences admitted, which is 0 on a node whose alert evaluation is
+  not activated: such a node leaves every pending occurrence in place.
   """
   @spec drain_pending_admissions(keyword()) :: non_neg_integer()
   def drain_pending_admissions(opts \\ []) do
+    if AlertAdmissionBacklog.activated?(), do: drain_activated_series(opts), else: 0
+  end
+
+  defp drain_activated_series(opts) do
     budget = %{
       page_size: Keyword.get(opts, :page_size, 100),
       max_admissions: Keyword.get(opts, :max_admissions, 1_000),
@@ -1378,7 +1390,8 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
   # Each occurrence gets its own row in event-time order, same-time rows in
   # batch order, so `seq` is the series' FIFO. A redelivery conflicts on the
-  # occurrence id and changes nothing.
+  # occurrence id and changes nothing. A node whose alert evaluation is not
+  # activated evaluates nothing, so it queues nothing either.
   defp insert_pending_admissions(rows, batch_rows) do
     position =
       batch_rows
@@ -1393,7 +1406,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
       )
       |> Enum.flat_map(&pending_entry/1)
 
-    if entries != [] do
+    if entries != [] and AlertAdmissionBacklog.activated?() do
       ServiceRadar.Repo.query!(
         """
         INSERT INTO platform.lifecycle_pending_admissions (

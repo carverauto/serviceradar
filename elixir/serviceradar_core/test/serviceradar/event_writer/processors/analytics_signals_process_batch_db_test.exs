@@ -554,6 +554,67 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     refute_receive {:alert_evaluation_events, [%{id: ^event_id}]}, 50
   end
 
+  test "a prepared node leaves a pending occurrence for an activated node" do
+    mode = Application.get_env(:serviceradar_core, :alert_evaluation_mode)
+
+    Application.put_env(
+      :serviceradar_core,
+      :stateful_alert_engine,
+      __MODULE__.CanonicalBodyEngine
+    )
+
+    Application.put_env(
+      :serviceradar_core,
+      :analytics_signals_replay_result,
+      {:error, {:overloaded, :rule_bytes}}
+    )
+
+    on_exit(fn ->
+      restore_env(:alert_evaluation_mode, mode)
+      Application.delete_env(:serviceradar_core, :analytics_signals_replay_result)
+    end)
+
+    message =
+      assessment_message(
+        "synthetic-prepared-drain-#{Ash.UUID.generate()}",
+        "open",
+        "active",
+        "confirmed",
+        "affected"
+      )
+
+    row = AnalyticsSignals.parse_message(message)
+    event_id = uuid_string(row.id)
+
+    assert {:ok, 1} = AnalyticsSignals.process_batch([message])
+    assert_receive {:alert_evaluation_events, [%{id: ^event_id}]}
+    assert pending_occurrence_count(row) == 1
+
+    Application.put_env(:serviceradar_core, :alert_evaluation_mode, :prepared)
+    Application.put_env(:serviceradar_core, :stateful_alert_engine, StatefulAlertEngine)
+
+    assert :ok = LifecycleAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
+    assert pending_occurrence_count(row) == 1
+
+    assert {:ok, 1} = AnalyticsSignals.process_batch([message])
+    assert pending_occurrence_count(row) == 1
+
+    Application.put_env(:serviceradar_core, :alert_evaluation_mode, :active)
+
+    Application.put_env(
+      :serviceradar_core,
+      :stateful_alert_engine,
+      __MODULE__.CanonicalBodyEngine
+    )
+
+    Application.put_env(:serviceradar_core, :analytics_signals_replay_result, :ok)
+
+    assert :ok = LifecycleAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
+    assert_receive {:alert_evaluation_events, [%{id: ^event_id} = admitted]}
+    assert admitted.status == "open"
+    assert pending_occurrence_count(row) == 0
+  end
+
   test "a redelivery whose own occurrence is admitted is acked while a later one waits" do
     Application.put_env(
       :serviceradar_core,

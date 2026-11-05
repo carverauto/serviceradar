@@ -110,23 +110,26 @@ defmodule ServiceRadar.EventWriter.AlertAdmissionBacklog do
   # the deferral, so no record is admitted ahead of an older deferred one.
   defp admit_or_defer(signal, records, opts) do
     fn ->
-      Repo.transaction(fn ->
-        AdvisoryLocks.acquire_ordered!([{:exclusive, @lane_lock_prefix <> lane(signal)}])
+      Repo.transaction(
+        fn ->
+          AdvisoryLocks.acquire_ordered!([{:exclusive, @lane_lock_prefix <> lane(signal)}])
 
-        if pending?(signal) do
-          defer!(signal, records, :behind_backlog, opts, :joined)
-        else
-          case engine_admit(signal, records) do
-            :ok ->
-              :admitted
+          if pending?(signal) do
+            defer!(signal, records, :behind_backlog, opts, :joined)
+          else
+            case engine_admit(signal, records) do
+              :ok ->
+                :admitted
 
-            {:error, reason} ->
-              if retryable?(reason),
-                do: defer!(signal, records, reason, opts, :deferred),
-                else: Repo.rollback(reason)
+              {:error, reason} ->
+                if retryable?(reason),
+                  do: defer!(signal, records, reason, opts, :deferred),
+                  else: Repo.rollback(reason)
+            end
           end
-        end
-      end)
+        end,
+        timeout: :infinity
+      )
     end
     |> Inbox.with_notification_queue()
   rescue
@@ -168,13 +171,16 @@ defmodule ServiceRadar.EventWriter.AlertAdmissionBacklog do
     limit = Inbox.limits().batch_records
 
     fn ->
-      Repo.transaction(fn ->
-        case AdvisoryLocks.try_acquire_ordered([@lane_lock_prefix <> lane(signal)]) do
-          :ok -> admit_locked_head(signal, limit)
-          {:error, {:advisory_locks_busy, _keys}} -> :busy
-          {:error, reason} -> Repo.rollback(reason)
-        end
-      end)
+      Repo.transaction(
+        fn ->
+          case AdvisoryLocks.try_acquire_ordered([@lane_lock_prefix <> lane(signal)]) do
+            :ok -> admit_locked_head(signal, limit)
+            {:error, {:advisory_locks_busy, _keys}} -> :busy
+            {:error, reason} -> Repo.rollback(reason)
+          end
+        end,
+        timeout: :infinity
+      )
     end
     |> Inbox.with_notification_queue()
     |> case do
@@ -505,10 +511,13 @@ defmodule ServiceRadar.EventWriter.AlertAdmissionBacklog do
     end
   end
 
-  # A deployment whose alert evaluation is not activated admits nothing, so it
-  # neither defers to the backlog nor admits or deletes what an activated node
-  # deferred.
-  defp activated?, do: Rollout.mode() != :prepared
+  @doc """
+  Whether this node's alert evaluation is activated. A node that is not admits
+  nothing, so it neither adds to the backlog nor admits or deletes what an
+  activated node deferred, in any lane.
+  """
+  @spec activated?() :: boolean()
+  def activated?, do: Rollout.mode() != :prepared
 
   defp lane(:event), do: "event"
   defp lane(:metric), do: "metric"
