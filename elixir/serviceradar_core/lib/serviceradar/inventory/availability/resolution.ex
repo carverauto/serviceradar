@@ -86,6 +86,12 @@ defmodule ServiceRadar.Inventory.Availability.Resolution do
   WHERE d.uid = v.uid
   """
 
+  @touch_resolved """
+  UPDATE platform.ocsf_devices
+  SET availability_last_resolved_at = clock_timestamp() AT TIME ZONE 'utc'
+  WHERE uid = ANY($1::text[])
+  """
+
   @type result :: %{resolved: non_neg_integer(), written: non_neg_integer()}
 
   @doc "Devices per resolution transaction."
@@ -232,6 +238,9 @@ defmodule ServiceRadar.Inventory.Availability.Resolution do
           end)
 
         write(changed, query_opts)
+
+        probe_touched = Enum.filter(locked, fn uid -> inputs[uid].ledger != [] end)
+        if probe_touched != [], do: Repo.query!(@touch_resolved, [probe_touched], query_opts)
 
         :telemetry.execute(
           [:serviceradar, :availability, :resolution],
