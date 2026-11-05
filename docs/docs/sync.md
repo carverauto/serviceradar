@@ -32,4 +32,4 @@ graph TD
 ## Troubleshooting
 
 - **No config returned**: Verify agent-gateway connectivity and valid mTLS certs.
-- **gRPC size errors**: Reduce chunk size or increase gRPC message limits.
+- **Devices missing after a sync run**: The agent splits each sync page into `serviceradar.sync.page.batch` edge records sized to the row and write-byte limits in its signed edge-record grant. These limits cannot be tuned by the operator. A single device too large to fit in a record by itself is dropped. The agent logs `Dropped sync updates that cannot form an edge record` with a count and records the drop under the sync producer's invalid-record drop counter.
