@@ -238,7 +238,9 @@ defmodule ServiceRadar.Inventory.Availability.Resolution do
           end)
 
         write(changed, query_opts)
-        Repo.query!(@touch_resolved, [locked], query_opts)
+
+        probe_touched = Enum.filter(locked, fn uid -> inputs[uid].ledger != [] end)
+        if probe_touched != [], do: Repo.query!(@touch_resolved, [probe_touched], query_opts)
 
         :telemetry.execute(
           [:serviceradar, :availability, :resolution],
