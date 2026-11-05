@@ -176,6 +176,61 @@ waits for spool admission, the agent stops polling the bumblebee spool. Core fee
 posture, findings and device risk behave as on the legacy path. The
 projection rules are `ServiceRadar.Edge.Projectors.BumblebeeScan`.
 
+## Durable Edge-Record Pipeline
+
+The edge-record pipeline described above is always on. It has no switch in
+Helm, in the environment or in CNPG:
+
+- Core derives the contract registry from the release's contract catalog,
+  records each registry epoch in CNPG, and signs it with its edge issuer key,
+  which it also keeps in CNPG. Derived epochs are numbered from 1,000,000.
+- Gateways receive every non-retired epoch from core in the trust document,
+  verify each signature, and admit a record only against the epoch it names.
+- Agents always run the sender and spool, under
+  `/var/lib/serviceradar/agent/edge-records` unless their config names another
+  `edge_record_sender.spool_dir`. A producer moves to edge records exactly while
+  it holds core's grant for its contract. Core issues those grants to every
+  agent whose partition has a row, and sends the spool byte budget (1 GiB
+  unless changed in the edge pipeline settings) in the agent config.
+
+Docker Compose and hosted installs run the pipeline with no extra
+configuration.
+
+### Upgrading from the static registry
+
+Earlier releases ran the pipeline only when the Helm `edgeRecords` values
+turned it on, with a hand-written contract registry. The release that made it
+always on removed those values. A render that still sets any `edgeRecords`
+key fails with:
+
+```text
+edgeRecords was removed: the durable edge-record pipeline is always on and
+core derives its contract registry. Delete the edgeRecords block from your
+values.
+```
+
+Installs that never set `edgeRecords` need no change. Installs that did:
+
+1. Optional drain, on the old release. Records spooled under the hand-written
+   registry carry an epoch below 1,000,000. After the upgrade the gateway
+   rejects each one permanently as `static_registry_epoch`, counts it, and the
+   agent quarantines it; it never blocks a lane. To deliver that backlog
+   instead, turn sweep leasing off for each participating agent while still on
+   the old release. That revokes the agents' grants, so producers return to the
+   status path. Wait until every agent's `agent_edge_spool_unresolved_bytes`
+   gauge reaches zero.
+2. Delete the `edgeRecords` block from your values, including any copy in an
+   Argo CD `valuesObject` or a values file layered on top.
+3. Upgrade core and every gateway, then the agents.
+4. Confirm that the first derived epoch is active, that agents hold their
+   grants again, and that the agents' spools drain.
+
+Core imports the issuer seed the chart's secret generator created
+(`edge-issuer-seed`) on its first boot, so grants and epochs signed with that
+key keep verifying. Rolling back across this release is not supported: the
+same release removes the legacy status path, and records spooled under derived
+epochs would be withheld by an older gateway.
+
 ## Data Service (datasvc)
 
 `datasvc` is a gRPC service (port `50057`) that fronts the platform's NATS-backed

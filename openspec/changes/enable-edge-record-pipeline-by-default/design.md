@@ -527,10 +527,9 @@ The spool byte budget varies by host disk, so it stays a knob.
   key. The message is:
 
   ```text
-  edgeRecords was removed in <version>: the durable edge-record pipeline is
-  always on and core derives its contract registry. Delete the edgeRecords block
-  from your values. See docs/docs/data-pipeline.md, "Upgrading from the static
-  registry".
+  edgeRecords was removed: the durable edge-record pipeline is always on and
+  core derives its contract registry. Delete the edgeRecords block from your
+  values. See docs/docs/data-pipeline.md, "Upgrading from the static registry".
   ```
 
   `values.yaml` no longer has the block, so an untouched install never trips the
