@@ -1050,6 +1050,13 @@ defmodule ServiceRadar.Inventory.Device do
       description "Per-agent summary: up, down, stale and total non-control agents, plus blocked_verified, policy_violation and inconclusive_control negative-control counts."
     end
 
+    attribute :availability_last_resolved_at, :utc_datetime_usec do
+      writable? false
+      public? true
+
+      description "When this device was last evaluated by the availability resolver. Updated on every resolution pass regardless of whether the state changed."
+    end
+
     attribute :metadata, :map do
       default %{}
       public? true

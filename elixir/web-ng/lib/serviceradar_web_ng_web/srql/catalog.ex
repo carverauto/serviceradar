@@ -302,6 +302,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "source_retired",
         "first_seen",
         "first_seen_time",
+        "availability_last_resolved_at",
         "cve",
         "cve_id",
         "kev"
