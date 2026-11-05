@@ -1,14 +1,28 @@
 defmodule ServiceRadar.EventWriter.LifecycleAdmissionDrainWorker do
   @moduledoc """
-  Admits lifecycle occurrences left in `platform.lifecycle_pending_admissions`.
+  Admits the occurrences left in `platform.lifecycle_pending_admissions` and
+  reports the backlog.
 
-  EventWriter admits a series' pending occurrences after each batch that
-  touches the series. When a source message is dead-lettered at its final
-  delivery and the series receives no later message, nothing else would retry
-  its pending rows. Each run pages through the pending series longest-waiting
-  first, admits each in `seq` order up to its first refusal and continues with
-  the next series, so a series stuck behind a saturated rule does not starve
-  the ones behind it. A run stops after 1,000 admissions or 30 seconds.
+  EventWriter admits a backlog as traffic arrives: a batch that touches a
+  lifecycle series admits that series' pending occurrences, and a batch that
+  joins a deferred event or metric lane admits one chunk from its head. A
+  series or lane that receives no later message would otherwise keep its rows,
+  so each run, every minute:
+
+    * pages through the pending lifecycle series longest-waiting first,
+      admitting each in `seq` order up to its first refusal and continuing
+      with the next, so a series stuck behind a saturated rule does not starve
+      the ones behind it; this part stops after 1,000 admissions or 30
+      seconds (`AnalyticsSignals.drain_pending_admissions/1`);
+    * drains each deferred event and metric lane from its head, chunk by
+      chunk, until it is empty, refused, busy or its own 30-second budget
+      has elapsed (`AlertAdmissionBacklog.drain/1`);
+    * reports the backlog's size and age and its `alert-admission-backlog`
+      health check (`AlertAdmissionBacklog.report/0`).
+
+  The module keeps its lifecycle-only name: jobs already scheduled under it,
+  and the cron entries of pods from the previous release during a rolling
+  upgrade, keep resolving to this worker.
   """
 
   use Oban.Worker,
@@ -16,17 +30,24 @@ defmodule ServiceRadar.EventWriter.LifecycleAdmissionDrainWorker do
     max_attempts: 1,
     unique: [period: :infinity, states: :incomplete]
 
+  alias ServiceRadar.EventWriter.AlertAdmissionBacklog
   alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
 
   require Logger
 
   @impl Oban.Worker
   def perform(_job) do
-    case AnalyticsSignals.drain_pending_admissions() do
-      0 -> :ok
-      count -> Logger.info("Admitted pending lifecycle alert evaluations", count: count)
+    lifecycle = AnalyticsSignals.drain_pending_admissions()
+    deferred = AlertAdmissionBacklog.drain()
+
+    if lifecycle + deferred > 0 do
+      Logger.info("Admitted pending alert evaluations",
+        lifecycle_count: lifecycle,
+        deferred_count: deferred
+      )
     end
 
+    _ = AlertAdmissionBacklog.report()
     :ok
   end
 end

@@ -9,6 +9,11 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
   deltas since the previous acknowledged frame; reporting watermarks advance
   only on PubAck. No agent, device, run, or payload identifier becomes a label.
 
+  The `alert_*` lanes describe stateful alert evaluation, and are published but
+  not listed by `lane_stats/0`. `alert_admission_backlog` reports the
+  `pending_count` and `oldest_pending_ms` of the durable backlog of deferred
+  alert admissions (`ServiceRadar.EventWriter.AlertAdmissionBacklog`).
+
   Two lanes describe work that continues after a result-ingestion lane has
   committed, and are published but not listed by `lane_stats/0`:
 
@@ -49,7 +54,13 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
   @default_interval_ms 30_000
   @publish_outage_reminder_ms 60_000
   @alert_health_ttl_ms 120_000
-  @alert_lanes [:alert_log, :alert_event, :alert_metric, :alert_maintenance]
+  @alert_lanes [
+    :alert_log,
+    :alert_event,
+    :alert_metric,
+    :alert_maintenance,
+    :alert_admission_backlog
+  ]
   @alert_health_gauges [
     :pending_count,
     :pending_bytes,

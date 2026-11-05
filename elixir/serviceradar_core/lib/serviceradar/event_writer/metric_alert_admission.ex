@@ -13,7 +13,9 @@ defmodule ServiceRadar.EventWriter.MetricAlertAdmission do
   (`timestamp`, `gateway_id`, `series_key`, the key of `timeseries_metrics` in
   CNPG and StarRocks alike). A JetStream redelivery therefore rewrites the same
   stored point and is deduplicated by the engine's replay check rather than
-  counted again, which is what lets a refused admission fail the batch.
+  counted again. A capacity or readiness refusal defers the matching points to
+  `ServiceRadar.EventWriter.AlertAdmissionBacklog`, which admits them later in
+  order; only a genuine failure fails the batch.
 
   Configuration:
 
@@ -33,8 +35,8 @@ defmodule ServiceRadar.EventWriter.MetricAlertAdmission do
 
   @doc """
   Admits the rows matching at least one active metric rule. Returns `:ok` when
-  nothing matched, every match was accepted, or alert evaluation is not
-  activated; otherwise the engine's error, so the caller fails its batch.
+  nothing matched, every match was accepted or deferred, or alert evaluation is
+  not activated; otherwise the error, so the caller fails its batch.
   """
   @spec admit([map()]) :: :ok | {:error, term()}
   def admit(rows) when is_list(rows) do

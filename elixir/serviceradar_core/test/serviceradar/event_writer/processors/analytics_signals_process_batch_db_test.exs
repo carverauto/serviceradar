@@ -533,7 +533,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     row = AnalyticsSignals.parse_message(message)
     event_id = uuid_string(row.id)
 
-    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([message])
+    assert {:ok, 1} = AnalyticsSignals.process_batch([message])
     assert_receive {:alert_evaluation_events, [%{id: ^event_id}]}
     assert pending_occurrence_count(row) == 1
 
@@ -552,6 +552,67 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
 
     assert :ok = LifecycleAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
     refute_receive {:alert_evaluation_events, [%{id: ^event_id}]}, 50
+  end
+
+  test "a prepared node leaves a pending occurrence for an activated node" do
+    mode = Application.get_env(:serviceradar_core, :alert_evaluation_mode)
+
+    Application.put_env(
+      :serviceradar_core,
+      :stateful_alert_engine,
+      __MODULE__.CanonicalBodyEngine
+    )
+
+    Application.put_env(
+      :serviceradar_core,
+      :analytics_signals_replay_result,
+      {:error, {:overloaded, :rule_bytes}}
+    )
+
+    on_exit(fn ->
+      restore_env(:alert_evaluation_mode, mode)
+      Application.delete_env(:serviceradar_core, :analytics_signals_replay_result)
+    end)
+
+    message =
+      assessment_message(
+        "synthetic-prepared-drain-#{Ash.UUID.generate()}",
+        "open",
+        "active",
+        "confirmed",
+        "affected"
+      )
+
+    row = AnalyticsSignals.parse_message(message)
+    event_id = uuid_string(row.id)
+
+    assert {:ok, 1} = AnalyticsSignals.process_batch([message])
+    assert_receive {:alert_evaluation_events, [%{id: ^event_id}]}
+    assert pending_occurrence_count(row) == 1
+
+    Application.put_env(:serviceradar_core, :alert_evaluation_mode, :prepared)
+    Application.put_env(:serviceradar_core, :stateful_alert_engine, StatefulAlertEngine)
+
+    assert :ok = LifecycleAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
+    assert pending_occurrence_count(row) == 1
+
+    assert {:ok, 1} = AnalyticsSignals.process_batch([message])
+    assert pending_occurrence_count(row) == 1
+
+    Application.put_env(:serviceradar_core, :alert_evaluation_mode, :active)
+
+    Application.put_env(
+      :serviceradar_core,
+      :stateful_alert_engine,
+      __MODULE__.CanonicalBodyEngine
+    )
+
+    Application.put_env(:serviceradar_core, :analytics_signals_replay_result, :ok)
+
+    assert :ok = LifecycleAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
+    assert_receive {:alert_evaluation_events, [%{id: ^event_id} = admitted]}
+    assert admitted.status == "open"
+    assert pending_occurrence_count(row) == 0
   end
 
   test "a redelivery whose own occurrence is admitted is acked while a later one waits" do
@@ -585,9 +646,9 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
       delete_episode_fixture!(series_key)
     end)
 
-    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([earlier])
+    assert {:ok, 1} = AnalyticsSignals.process_batch([earlier])
     assert_receive {:alert_evaluation_events, [%{message: ^earlier_message}]}
-    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([later])
+    assert {:ok, 1} = AnalyticsSignals.process_batch([later])
     assert_receive {:alert_evaluation_events, [%{message: ^earlier_message}]}
     assert pending_admission_messages(series_key) == [earlier_message, later_message]
 
@@ -639,14 +700,14 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
           1_812_456_000_000
         )
 
-      assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([message])
+      assert {:ok, 1} = AnalyticsSignals.process_batch([message])
       assert_receive {:alert_evaluation_events, [_refused]}
     end
 
     quiet_message =
       capacity_forecast_message(quiet, "drain-quiet", quiet_forecast, 1_812_456_000_000)
 
-    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([quiet_message])
+    assert {:ok, 1} = AnalyticsSignals.process_batch([quiet_message])
     assert_receive {:alert_evaluation_events, [_refused]}
 
     Application.put_env(
@@ -674,7 +735,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     end
   end
 
-  test "a rejected transition stays replayable and its retry is admitted once" do
+  test "a refused transition stays pending and a later delivery admits it once" do
     rule = fill_alert_evaluation_capacity!()
 
     message =
@@ -687,7 +748,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
       )
 
     row = AnalyticsSignals.parse_message(message)
-    assert {:error, {:overloaded, _}} = AnalyticsSignals.process_batch([message])
+    assert {:ok, 1} = AnalyticsSignals.process_batch([message])
     assert event_count(row) == 1
 
     assert [%{position: 1}] =
@@ -708,7 +769,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     assert event_count(row) == 1
   end
 
-  test "an exhausted delivery is dead-lettered and its transition stays pending for admission" do
+  test "an overloaded final delivery is acknowledged and its transition stays pending" do
     rule = fill_alert_evaluation_capacity!()
     parent = self()
 
@@ -740,12 +801,12 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
 
     row = AnalyticsSignals.parse_message(message)
 
-    assert [%Message{status: {:failed, {:overloaded, _}}} = failed] =
+    assert [%Message{status: :ok} = acked] =
              Pipeline.handle_batch(:causal_signals, [message], %{batch_key: :default}, %{})
 
-    assert :ok = Pipeline.ack(:ack_ref, [], [failed])
-    assert_receive {:ack_action, :term}
-    refute_receive {:ack_action, :ack}, 50
+    assert :ok = Pipeline.ack(:ack_ref, [acked], [])
+    assert_receive {:ack_action, :ack}
+    refute_receive {:ack_action, :term}, 50
     refute_receive {:ack_action, {:nack, _delay}}, 50
     assert event_count(row) == 1
     assert pending_occurrence_count(row) == 1
@@ -756,7 +817,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
              |> Ash.read!(actor: SystemActor.system(:alert_engine))
 
     assert {:ok, {:processed, :completed}} = Owner.advance(rule.id)
-    assert {:ok, 1} = AnalyticsSignals.process_batch([raw])
+    assert :ok = LifecycleAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
     assert pending_occurrence_count(row) == 0
 
     assert [%{position: 2}] =
@@ -765,7 +826,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
              |> Ash.read!(actor: SystemActor.system(:alert_engine))
   end
 
-  test "redelivery admits only the lifecycle tail and a sibling message stays acked" do
+  test "a refused lifecycle tail acks both messages and a later delivery admits only the tail" do
     mode = Application.get_env(:serviceradar_core, :alert_evaluation_mode)
     limits = Application.get_env(:serviceradar_core, :alert_evaluation_limits)
     Application.put_env(:serviceradar_core, :alert_evaluation_mode, :active)
@@ -805,10 +866,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     second =
       broadway_assessment("synthetic-tail-b-#{Ash.UUID.generate()}", parent, :second)
 
-    assert [
-             %Message{status: :ok} = admitted,
-             %Message{status: {:failed, {:overloaded, _}}} = pending
-           ] =
+    assert [%Message{status: :ok} = admitted, %Message{status: :ok} = pending] =
              Pipeline.handle_batch(
                :causal_signals,
                [first, second],
@@ -816,11 +874,11 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
                %{}
              )
 
-    assert :ok = Pipeline.ack(:ack_ref, [admitted], [pending])
+    assert :ok = Pipeline.ack(:ack_ref, [admitted, pending], [])
     assert_receive {:ack_action, :first, :ack}
-    assert_receive {:ack_action, :second, {:nack, _}}
-    refute_receive {:ack_action, :first, :nack}, 50
-    refute_receive {:ack_action, :second, :ack}, 50
+    assert_receive {:ack_action, :second, :ack}
+    refute_receive {:ack_action, _which, {:nack, _delay}}, 50
+    refute_receive {:ack_action, _which, :term}, 50
 
     assert event_count(AnalyticsSignals.parse_message(first)) == 1
     assert event_count(AnalyticsSignals.parse_message(second)) == 1
@@ -880,7 +938,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
       delete_episode_fixture!(series_key)
     end)
 
-    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([canonical])
+    assert {:ok, 1} = AnalyticsSignals.process_batch([canonical])
     assert_receive {:alert_evaluation_events, [first_event]}
     assert canonical_transition?(first_event)
     assert stored_anomaly(series_key) == {"canonical-open", "canonical-event", "false"}
@@ -933,9 +991,9 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
       delete_episode_fixture!(series_key)
     end)
 
-    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([open])
+    assert {:ok, 1} = AnalyticsSignals.process_batch([open])
     assert_receive {:alert_evaluation_events, [first]}
-    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([open])
+    assert {:ok, 1} = AnalyticsSignals.process_batch([open])
     assert_receive {:alert_evaluation_events, [redelivered]}
 
     for event <- [first, redelivered] do
@@ -998,13 +1056,13 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
       delete_episode_fixture!(series_key)
     end)
 
-    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([open])
+    assert {:ok, 1} = AnalyticsSignals.process_batch([open])
     assert_receive {:alert_evaluation_events, [opened]}
     assert opened.message == "series-open"
     assert opened.unmapped["event_id"] == "open-event"
     assert stored_series_transitions(series_key) == [{"series-open", "false"}]
 
-    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([clear])
+    assert {:ok, 1} = AnalyticsSignals.process_batch([clear])
     assert_receive {:alert_evaluation_events, [waiting]}
     assert waiting.message == "series-open"
     assert waiting.unmapped["event_id"] == "open-event"
@@ -1062,12 +1120,12 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
       delete_episode_fixture!(series_key)
     end)
 
-    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([earlier])
+    assert {:ok, 1} = AnalyticsSignals.process_batch([earlier])
     assert_receive {:alert_evaluation_events, [first]}
     assert first.message == "forecast-earlier"
     assert pending_admission_messages(series_key) == ["forecast-earlier"]
 
-    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([later])
+    assert {:ok, 1} = AnalyticsSignals.process_batch([later])
     assert_receive {:alert_evaluation_events, [waiting]}
     assert waiting.message == "forecast-earlier"
     refute_receive {:alert_evaluation_events, _events}, 50
@@ -1107,8 +1165,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
       delete_episode_fixture!(series_key)
     end)
 
-    assert {:incomplete, 2, [{^later, {:overloaded, :rule_bytes}}]} =
-             AnalyticsSignals.process_batch([later, earlier])
+    assert {:ok, 2} = AnalyticsSignals.process_batch([later, earlier])
 
     assert_receive {:alert_evaluation_events, [admitted]}
     assert admitted.message == "forecast-earlier"
@@ -1146,8 +1203,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
       delete_episode_fixture!(second_series)
     end)
 
-    assert {:incomplete, 2, [{^second, {:overloaded, :rule_bytes}}]} =
-             AnalyticsSignals.process_batch([first, second])
+    assert {:ok, 2} = AnalyticsSignals.process_batch([first, second])
 
     assert_receive {:alert_evaluation_events, [admitted]}
     assert admitted.message == "forecast-first"
@@ -1189,7 +1245,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
       delete_episode_fixture!(series_key)
     end)
 
-    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([middle])
+    assert {:ok, 1} = AnalyticsSignals.process_batch([middle])
     assert_receive {:alert_evaluation_events, [waiting]}
     assert waiting.message == "forecast-t2"
     assert pending_admission_messages(series_key) == ["forecast-t2"]
@@ -1248,9 +1304,9 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
         older = capacity_forecast_message(series_key, "forecast-older", "forecast-older", time)
         newer = capacity_forecast_message(series_key, "forecast-newer", "forecast-newer", time)
 
-        assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([older])
+        assert {:ok, 1} = AnalyticsSignals.process_batch([older])
         assert_receive {:alert_evaluation_events, [_ignored]}
-        assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([newer])
+        assert {:ok, 1} = AnalyticsSignals.process_batch([newer])
         assert_receive {:alert_evaluation_events, [_ignored]}
         refute_receive {:alert_evaluation_events, _events}, 50
 
@@ -1298,8 +1354,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
 
     assert forecast_event_id(later) < forecast_event_id(earlier)
 
-    assert {:incomplete, 2, [{^later, {:overloaded, :rule_bytes}}]} =
-             AnalyticsSignals.process_batch([earlier, later])
+    assert {:ok, 2} = AnalyticsSignals.process_batch([earlier, later])
 
     assert_receive {:alert_evaluation_events, [admitted]}
     assert admitted.message == "forecast-earlier"
@@ -1315,7 +1370,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     assert pending_admission_messages(series_key) == ["forecast-later"]
   end
 
-  test "a newer inventory close queues behind the pending open and survives exhausted deliveries" do
+  test "a newer inventory close queues behind the pending open and survives repeated refusals" do
     Application.put_env(
       :serviceradar_core,
       :stateful_alert_engine,
@@ -1343,18 +1398,17 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
       delete_event!(row)
     end)
 
-    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([opened])
+    assert {:ok, 1} = AnalyticsSignals.process_batch([opened])
     assert_receive {:alert_evaluation_events, [open_event]}
     assert open_event.status == "open"
     assert open_event.activity_name == "Create"
     assert_receive {:northbound_event, _}
     assert stored_finding(row) == {"open", 1, "Create", "false"}
 
-    # Every one of the close's five JetStream deliveries is refused, so the
-    # source message is never acked and is dropped at max_deliver. The close is
-    # stored on its first delivery and queues behind the open, which keeps
-    # being retried first.
-    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([resolved])
+    # Every delivery of the close is refused. Each is acknowledged, and the
+    # close is stored on its first delivery and queues behind the open, which
+    # keeps being retried first.
+    assert {:ok, 1} = AnalyticsSignals.process_batch([resolved])
     assert_receive {:alert_evaluation_events, [blocked_open]}
     assert blocked_open.status == "open"
     assert blocked_open.activity_name == "Create"
@@ -1362,7 +1416,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     assert northbound_close.status == "resolved"
 
     for _redelivery <- 2..5 do
-      assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([resolved])
+      assert {:ok, 1} = AnalyticsSignals.process_batch([resolved])
       assert_receive {:alert_evaluation_events, [retried_open]}
       assert retried_open.activity_name == "Create"
     end
@@ -1376,7 +1430,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
 
     Application.put_env(:serviceradar_core, :analytics_signals_replay_result, :ok)
 
-    # A later message for the same finding admits the dropped tail in order,
+    # A later message for the same finding admits the pending tail in order,
     # each occurrence with the payload it had when it was stored.
     assert {:ok, 1} = AnalyticsSignals.process_batch([opened])
     assert_receive {:alert_evaluation_events, [admitted_open]}
@@ -1424,14 +1478,14 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
       delete_event!(row)
     end)
 
-    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([opened])
+    assert {:ok, 1} = AnalyticsSignals.process_batch([opened])
     assert_receive {:alert_evaluation_events, [open_event]}
     assert open_event.status == "open"
     assert_receive {:northbound_event, _}
     assert stored_finding(row) == {"open", 1, "Create", "false"}
     assert stored_finding_version(row) == DateTime.to_iso8601(version)
 
-    assert {:error, {:overloaded, :rule_bytes}} = AnalyticsSignals.process_batch([opened])
+    assert {:ok, 1} = AnalyticsSignals.process_batch([opened])
     assert_receive {:alert_evaluation_events, [replayed]}
     assert replayed.status == "open"
     assert replayed.activity_name == "Create"
@@ -1504,7 +1558,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     rule
   end
 
-  test "alert_evaluation_peer_not_ready nacks analytics predictions with delayed backoff and processes once ready (#6062)" do
+  test "alert_evaluation_peer_not_ready acks analytics predictions at every delivery and the drain admits them once ready (#6062)" do
     mode = Application.get_env(:serviceradar_core, :alert_evaluation_mode)
     peer_ready = Application.get_env(:serviceradar_core, :analytics_signals_peer_ready)
     Application.put_env(:serviceradar_core, :alert_evaluation_mode, :active)
@@ -1573,12 +1627,14 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
          }}
     }
 
-    for {delivery_count, delay_ms} <- [{1, 10_000}, {2, 20_000}, {3, 40_000}] do
+    # Every delivery, the final one included, is acknowledged: the refused
+    # admission waits in the durable backlog instead of in JetStream.
+    for delivery_count <- [1, 5] do
       message = put_in(broadway_message.metadata.jetstream_ack.delivery_count, delivery_count)
 
       log =
         ExUnit.CaptureLog.capture_log([level: :info], fn ->
-          assert [%Message{status: {:failed, :alert_evaluation_peer_not_ready}} = failed_msg] =
+          assert [%Message{status: :ok} = acked] =
                    Pipeline.handle_batch(
                      :analytics_predictions,
                      [message],
@@ -1586,21 +1642,15 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
                      %{}
                    )
 
-          assert ^failed_msg = hd(Pipeline.handle_failed([failed_msg], %{}))
-          assert :ok = Pipeline.ack(:ack_ref, [], [failed_msg])
+          assert :ok = Pipeline.ack(:ack_ref, [acked], [])
         end)
 
-      assert_receive {:jetstream_ack, {:nack, ^delay_ms}}
-      refute_receive {:jetstream_ack, :ack}, 50
+      assert_receive {:jetstream_ack, :ack}
+      refute_receive {:jetstream_ack, {:nack, _delay}}, 50
       refute_receive {:jetstream_ack, :term}, 50
-
-      assert log =~ "Deferring causal signals batch until alert evaluation is ready"
-      assert log =~ "Batch deferred until alert evaluation is ready"
-      assert log =~ "[info]"
       refute log =~ "[warning]"
       refute log =~ "[error]"
-      refute log =~ "MatchError"
-      refute log =~ "Causal signals batch insert failed"
+      refute log =~ "terminal JetStream delivery"
 
       assert [[1]] =
                Repo.query!(
@@ -1624,55 +1674,15 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
                |> Ash.read!(actor: actor)
     end
 
-    message = put_in(broadway_message.metadata.jetstream_ack.delivery_count, 5)
-
-    log =
-      ExUnit.CaptureLog.capture_log([level: :info], fn ->
-        assert [%Message{status: {:failed, :alert_evaluation_peer_not_ready}} = failed_msg] =
-                 Pipeline.handle_batch(
-                   :analytics_predictions,
-                   [message],
-                   %{batch_key: :default},
-                   %{}
-                 )
-
-        Pipeline.handle_failed([failed_msg], %{})
-        assert :ok = Pipeline.ack(:ack_ref, [], [failed_msg])
-      end)
-
-    assert_receive {:jetstream_ack, :term}
-    assert log =~ "[error]"
-    assert log =~ "EventWriter message reached terminal JetStream delivery"
-
     Application.put_env(:serviceradar_core, :analytics_signals_peer_ready, true)
-    broadway_message = put_in(broadway_message.metadata.jetstream_ack.delivery_count, 4)
+    assert :ok = LifecycleAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
 
-    assert [%Message{status: :ok} = ok_msg] =
-             Pipeline.handle_batch(
-               :analytics_predictions,
-               [broadway_message],
-               %{batch_key: :default},
-               %{}
-             )
+    assert [%{position: 1}] =
+             AlertEvaluationWork
+             |> Ash.Query.filter(rule_id == ^rule.id)
+             |> Ash.read!(actor: actor)
 
-    assert :ok = Pipeline.ack(:ack_ref, [ok_msg], [])
-    assert_receive {:jetstream_ack, :ack}
-
-    assert [[1]] =
-             Repo.query!(
-               "SELECT count(*) FROM platform.anomaly_episodes WHERE series_key = $1",
-               [series_key]
-             ).rows
-
-    assert [[1]] =
-             Repo.query!(
-               """
-               SELECT count(*)
-               FROM platform.ocsf_events
-               WHERE metadata->'service_radar'->>'series_key' = $1
-               """,
-               [series_key]
-             ).rows
+    assert :ok = LifecycleAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
 
     assert [%{position: 1}] =
              AlertEvaluationWork
@@ -1749,7 +1759,6 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
       assert_receive {:jetstream_ack, ^action}
       assert log =~ "[error]"
       assert log =~ "Batch processing failed"
-      refute log =~ "Batch deferred"
     end
   end
 

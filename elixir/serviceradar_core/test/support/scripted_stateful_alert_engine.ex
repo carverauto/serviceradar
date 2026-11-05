@@ -1,9 +1,9 @@
 defmodule ServiceRadar.TestSupport.ScriptedStatefulAlertEngine do
   @moduledoc """
   Stands in for `ServiceRadar.Observability.StatefulAlertEngine` through the
-  `:stateful_alert_engine` config. Each call sends `{:evaluated, events}` to
-  the test process and answers with the next scripted reply (`:ok` once the
-  script is exhausted).
+  `:stateful_alert_engine` config. Each event or metric call sends
+  `{:evaluated, records}` to the test process and answers with the next
+  scripted reply (`:ok` once the script is exhausted).
 
   Not for `async: true` tests: the config is application-wide.
   """
@@ -28,9 +28,13 @@ defmodule ServiceRadar.TestSupport.ScriptedStatefulAlertEngine do
     end)
   end
 
-  def evaluate_events(events) do
+  def evaluate_events(events), do: reply(events)
+
+  def evaluate_metrics(rows), do: reply(rows)
+
+  defp reply(records) do
     test_pid = Application.fetch_env!(:serviceradar_core, :scripted_engine_test_pid)
-    send(test_pid, {:evaluated, events})
+    send(test_pid, {:evaluated, records})
 
     case Application.get_env(:serviceradar_core, :scripted_engine_replies, []) do
       [reply | rest] ->

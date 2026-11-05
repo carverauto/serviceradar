@@ -518,7 +518,9 @@ defmodule ServiceRadar.Observability.LogPromotion do
 
   # Each promoted event's alert consequences run once (the ledger):
   # synchronously, so an engine failure fails the batch and its redelivery
-  # retries exactly the events that did not finish. A promotion alert that
+  # retries exactly the events that did not finish. A capacity refusal defers
+  # the stateful evaluation to the durable admission backlog, and the promotion
+  # alerts are created then, as for an admitted event. A promotion alert that
   # fails to create is logged and not retried, as a validation failure would
   # fail every redelivery the same way.
   defp apply_consequences([]), do: :ok

@@ -6,6 +6,7 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
 
   alias Ecto.Adapters.SQL, as: SQL
   alias Postgrex.Result
+  alias ServiceRadar.EventWriter.LifecycleAdmissionDrainWorker
   alias ServiceRadar.EventWriter.Processors.K8sNodes
   alias ServiceRadar.EventWriter.Processors.Logs
   alias ServiceRadar.NATS.DurablePublishWorker
@@ -68,6 +69,29 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
     assert alert_count("test.#{label}") == 1
 
     assert {:ok, 0} = LogPromotion.promote([log])
+    assert alert_count("test.#{label}") == 1
+  end
+
+  test "an overloaded evaluation raises the promotion alert once and is admitted from the backlog" do
+    configure_scripted_engine([{:error, {:overloaded, :rule_bytes}}])
+    label = "overloaded-alert-#{Ash.UUID.generate()}"
+    log = create_queue_probe(label, nil, true)
+    LogPromotion.invalidate_rules_cache()
+
+    assert {:ok, 1} = LogPromotion.promote([log])
+    assert_receive {:evaluated, [%{id: event_id}]}
+    assert alert_count("test.#{label}") == 1
+    assert pending_admission_count(event_id) == 1
+
+    # A redelivery finds the event queued: it is neither evaluated nor
+    # promoted again.
+    assert {:ok, 0} = LogPromotion.promote([log])
+    refute_receive {:evaluated, _}
+    assert alert_count("test.#{label}") == 1
+
+    assert :ok = LifecycleAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
+    assert_receive {:evaluated, [%{id: ^event_id}]}
+    assert pending_admission_count(event_id) == 0
     assert alert_count("test.#{label}") == 1
   end
 
@@ -746,6 +770,16 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
     )
     |> Repo.all(prefix: "platform")
     |> Enum.map(&DurablePublishWorker.perform/1)
+  end
+
+  defp pending_admission_count(event_id) do
+    %{rows: [[count]]} =
+      Repo.query!(
+        "SELECT count(*) FROM platform.lifecycle_pending_admissions WHERE event_id = ($1::text)::uuid",
+        [event_id]
+      )
+
+    count
   end
 
   defp alert_count(log_name) do

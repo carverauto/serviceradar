@@ -16,6 +16,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
   alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.Automation.Northbound.EventHandlerRunner
+  alias ServiceRadar.EventWriter.AlertAdmissionBacklog
   alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.DeviceCorrelation
   alias ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry
@@ -243,13 +244,25 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     end
   end
 
-  # Ack a message only when every pending occurrence it delivered is admitted.
-  # A series is admitted in `seq` order from its stored snapshots,
-  # one occurrence per admission transaction that also deletes its pending row,
-  # and stops at its first refusal. Message order sequences different series;
-  # the first refusal blocks everything after it so a redelivery continues the
-  # tail instead of overtaking it.
+  # A series is admitted in `seq` order from its stored snapshots, one
+  # occurrence per admission transaction that also deletes its pending row, and
+  # stops at its first refusal. Message order sequences different series; the
+  # first refusal stops the series after it too.
+  #
+  # A capacity or readiness refusal leaves the occurrences pending and fails no
+  # message: their rows committed with the transition, so the next message of
+  # the series or the drain admits them, and the refusal never consumes a
+  # JetStream delivery. Any other refusal fails the messages that delivered an
+  # unadmitted occurrence, so their redelivery continues the tail instead of
+  # overtaking it. A node whose alert evaluation is not activated leaves the
+  # series pending for an activated node and fails no message.
   defp admit_pending_series(messages, series, owners_by_series, messages_by_event_id) do
+    if AlertAdmissionBacklog.activated?(),
+      do: admit_activated_series(messages, series, owners_by_series, messages_by_event_id),
+      else: []
+  end
+
+  defp admit_activated_series(messages, series, owners_by_series, messages_by_event_id) do
     message_index = Map.new(Enum.with_index(messages))
 
     {failures, _halted} =
@@ -270,8 +283,12 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
             {failures, nil}
 
           {reason, unadmitted} ->
-            owners = unadmitted_owners(unadmitted, messages_by_event_id)
-            {Enum.map(owners, &{&1, reason}) ++ failures, reason}
+            if AlertAdmissionBacklog.retryable?(reason) do
+              {failures, reason}
+            else
+              owners = unadmitted_owners(unadmitted, messages_by_event_id)
+              {Enum.map(owners, &{&1, reason}) ++ failures, reason}
+            end
         end
       end)
 
@@ -285,7 +302,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   # Only the messages that delivered an occurrence of the unadmitted tail fail,
   # so their redelivery continues it. A message whose own occurrences were all
   # admitted is acked; a tail no message in this batch delivered stays pending
-  # for its own redelivery or the drain.
+  # for the next message of its series or the drain.
   defp unadmitted_owners(unadmitted, by_id) do
     unadmitted |> Enum.flat_map(&occurrence_owners(&1, by_id)) |> Enum.uniq()
   end
@@ -318,8 +335,8 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   # a locked row keeps per-series FIFO; both walk a series in `seq` order and
   # hold one row at a time.
   #
-  # An overloaded inbox commits the prefix it accepted, so that refusal is
-  # returned as a value and keeps the pending row for the redelivery that
+  # A capacity or readiness refusal commits the prefix the inbox accepted, so
+  # it is returned as a value and keeps the pending row for the admission that
   # continues it. Any other refusal accepted nothing and rolls back.
   defp admit_occurrence(%{occurrence_id: occurrence_id, record: record}) do
     fn ->
@@ -349,10 +366,15 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   to the next series, so series stuck behind a saturated rule never starve the
   ones behind them. The run ends when every page is scanned, after
   `:max_admissions` admissions, or once `:budget_ms` has elapsed. Returns the
-  number of occurrences admitted.
+  number of occurrences admitted, which is 0 on a node whose alert evaluation is
+  not activated: such a node leaves every pending occurrence in place.
   """
   @spec drain_pending_admissions(keyword()) :: non_neg_integer()
   def drain_pending_admissions(opts \\ []) do
+    if AlertAdmissionBacklog.activated?(), do: drain_activated_series(opts), else: 0
+  end
+
+  defp drain_activated_series(opts) do
     budget = %{
       page_size: Keyword.get(opts, :page_size, 100),
       max_admissions: Keyword.get(opts, :max_admissions, 1_000),
@@ -368,6 +390,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
         """
         SELECT min(seq), class_uid, series_key
         FROM platform.lifecycle_pending_admissions
+        WHERE lane = 'lifecycle'
         GROUP BY class_uid, series_key
         HAVING (min(seq), class_uid, series_key) > ($1::bigint, $2::int, $3::text)
         ORDER BY min(seq), class_uid, series_key
@@ -707,7 +730,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
         events.unmapped ->> 'finding_version',
         EXISTS (
           SELECT 1 FROM platform.lifecycle_pending_admissions AS pending
-          WHERE pending.event_id = events.id
+          WHERE pending.lane = 'lifecycle' AND pending.event_id = events.id
         )
       FROM platform.ocsf_events AS events
       WHERE events.id = ANY($1::uuid[])
@@ -1069,7 +1092,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
       case fun.() do
         {:error, reason} ->
           root_error = resolve_logged_error(reason)
-          log_returned_batch_failure(root_error)
+          log_batch_insert_failure(root_error)
           {:error, root_error}
 
         other ->
@@ -1088,20 +1111,6 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
       Process.delete(@first_statement_error_key)
     end
   end
-
-  defp log_returned_batch_failure(:alert_evaluation_peer_not_ready = reason) do
-    Logger.info("Deferring causal signals batch until alert evaluation is ready",
-      reason: inspect(reason)
-    )
-  end
-
-  defp log_returned_batch_failure({:overloaded, dimension}) do
-    Logger.info("Deferring causal signals batch until alert evaluation has capacity",
-      reason: inspect(dimension)
-    )
-  end
-
-  defp log_returned_batch_failure(reason), do: log_batch_insert_failure(reason)
 
   defp record_statement_error(error, query) do
     if not in_failed_sql_transaction?(error) and is_nil(Process.get(@first_statement_error_key)) do
@@ -1310,7 +1319,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
         """
         SELECT occurrence_id::text, class_uid, series_key, event_id::text, occurrence
         FROM platform.lifecycle_pending_admissions
-        WHERE (class_uid, series_key) IN (
+        WHERE lane = 'lifecycle' AND (class_uid, series_key) IN (
           SELECT * FROM unnest($1::int[], $2::text[])
         )
         ORDER BY class_uid, series_key, seq
@@ -1333,11 +1342,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
   defp restore_occurrence(occurrence, occurrence_id) do
     occurrence
-    |> Input.restore_record()
-    |> Map.new(fn
-      {key, value} when is_binary(key) -> {String.to_existing_atom(key), value}
-      entry -> entry
-    end)
+    |> AlertAdmissionBacklog.restore()
     |> Map.put(@occurrence_key, occurrence_id)
   end
 
@@ -1346,11 +1351,10 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
       :ok ->
         release_pending_admission(occurrence_id)
 
-      {:error, {:overloaded, _dimension}} = overloaded ->
-        overloaded
-
-      {:error, reason} ->
-        ServiceRadar.Repo.rollback(reason)
+      {:error, reason} = refused ->
+        if AlertAdmissionBacklog.retryable?(reason),
+          do: refused,
+          else: ServiceRadar.Repo.rollback(reason)
     end
   end
 
@@ -1386,7 +1390,8 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
   # Each occurrence gets its own row in event-time order, same-time rows in
   # batch order, so `seq` is the series' FIFO. A redelivery conflicts on the
-  # occurrence id and changes nothing.
+  # occurrence id and changes nothing. A node whose alert evaluation is not
+  # activated evaluates nothing, so it queues nothing either.
   defp insert_pending_admissions(rows, batch_rows) do
     position =
       batch_rows
@@ -1401,13 +1406,14 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
       )
       |> Enum.flat_map(&pending_entry/1)
 
-    if entries != [] do
+    if entries != [] and AlertAdmissionBacklog.activated?() do
       ServiceRadar.Repo.query!(
         """
         INSERT INTO platform.lifecycle_pending_admissions (
-          occurrence_id, class_uid, series_key, event_time, event_id, occurrence
+          occurrence_id, lane, class_uid, series_key, event_time, event_id, occurrence
         )
-        SELECT occurrence_id, class_uid, series_key, event_time, event_id, occurrence::jsonb
+        SELECT occurrence_id, 'lifecycle', class_uid, series_key, event_time, event_id,
+               occurrence::jsonb
         FROM unnest(
           $1::uuid[], $2::int[], $3::text[], $4::timestamptz[], $5::uuid[], $6::text[]
         ) WITH ORDINALITY
