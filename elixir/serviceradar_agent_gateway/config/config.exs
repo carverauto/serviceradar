@@ -1,7 +1,5 @@
 import Config
 
-alias ServiceRadar.NATS.Connection
-
 # serviceradar_core's Ash resources are compiled and run under this config.
 # Count string length in codepoints, as the SQL data layer does, so
 # `max_length` bounds the stored size. Required since Ash 3.33.
@@ -35,58 +33,13 @@ config :logger, :console,
     :section_count,
     :chunks,
     :bytes,
-    :limit_bytes,
-    :parts,
-    :dropped_points
+    :limit_bytes
   ]
-
-config :serviceradar_agent_gateway, :icmp_metrics_publisher,
-  enabled: false,
-  subject_prefix: "metrics.icmp",
-  connection: Connection
 
 config :serviceradar_agent_gateway, :metrics,
   enabled: true,
   ip: {0, 0, 0, 0},
   port: 9090
-
-config :serviceradar_agent_gateway, :mtr_metrics_publisher,
-  enabled: false,
-  subject_prefix: "metrics.mtr",
-  connection: Connection
-
-config :serviceradar_agent_gateway, :otlp_relay_publisher,
-  enabled: false,
-  traces_subject: "otel.traces.raw",
-  logs_subject: "logs.otel",
-  metrics_subject: "otel.metrics.raw",
-  derived_metrics_subject: "otel.metrics.derived",
-  connection: Connection
-
-config :serviceradar_agent_gateway, :plugin_metrics_publisher,
-  enabled: false,
-  subject_prefix: "metrics.timeseries",
-  connection: Connection
-
-config :serviceradar_agent_gateway, :rperf_metrics_publisher,
-  enabled: false,
-  subject_prefix: "metrics.rperf",
-  connection: Connection
-
-config :serviceradar_agent_gateway, :snmp_metrics_publisher,
-  enabled: false,
-  subject_prefix: "metrics.snmp",
-  connection: Connection
-
-config :serviceradar_agent_gateway, :sweep_metrics_publisher,
-  enabled: false,
-  subject_prefix: "metrics.sweep",
-  connection: Connection
-
-config :serviceradar_agent_gateway, :sysmon_metrics_publisher,
-  enabled: false,
-  subject_prefix: "metrics.sysmon",
-  connection: Connection
 
 # General application configuration
 config :serviceradar_agent_gateway,

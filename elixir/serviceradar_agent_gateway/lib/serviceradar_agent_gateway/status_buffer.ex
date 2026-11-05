@@ -1,9 +1,10 @@
 defmodule ServiceRadarAgentGateway.StatusBuffer do
   @moduledoc """
-  Buffers status payloads when their downstream consumer is unavailable.
+  Owns an agent's ephemeral status summaries between the status RPC's answer and core.
 
-  This is an in-memory, bounded queue intended to reduce data loss
-  during short core outages. It is not durable across restarts.
+  This is an in-memory, bounded queue that rides out short core outages. It is not durable
+  across restarts, and it does not need to be: it holds only latest-wins summaries, which the
+  agent sends again on its next interval.
 
   Statuses are delivered one at a time by a monitored process, never inside
   this server. A core call can take up to the reservation deadline (or the
@@ -187,7 +188,7 @@ defmodule ServiceRadarAgentGateway.StatusBuffer do
         # covers a delivery that crashed without returning.
         {_pid, ref} =
           spawn_monitor(fn ->
-            exit({:delivery_result, StatusProcessor.process(status, buffer_on_failure: false, from_buffer: true)})
+            exit({:delivery_result, StatusProcessor.process(status, from_buffer: true)})
           end)
 
         %{state | queue: rest, delivery: %{ref: ref, status: status, requested_again?: false}}
@@ -256,32 +257,7 @@ defmodule ServiceRadarAgentGateway.StatusBuffer do
 
   defp encoded_status_bytes(status), do: :erlang.external_size(status)
 
-  defp bounded_source(source)
-       when source in [
-              "status",
-              :status,
-              "results",
-              :results,
-              "plugin-result",
-              :plugin_result,
-              "sysmon-metrics",
-              :sysmon_metrics,
-              "snmp-metrics",
-              :snmp_metrics,
-              "icmp-metrics",
-              :icmp_metrics,
-              "rperf-metrics",
-              :rperf_metrics,
-              "mtr-metrics",
-              :mtr_metrics,
-              "sweep-metrics",
-              :sweep_metrics,
-              "workload-identity",
-              :workload_identity
-            ], do: source |> to_string() |> String.replace("_", "-")
-
-  defp bounded_source("addon:" <> _addon_id), do: "addon"
-  defp bounded_source("plugin:" <> _plugin_id), do: "plugin"
+  defp bounded_source(source) when source in ["status", "plugin-telemetry"], do: source
   defp bounded_source(_source), do: "other"
 
   defp bounded_service_type(service_type)

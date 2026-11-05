@@ -281,9 +281,7 @@ defmodule ServiceRadar.Ingestion.StatusIngestor do
   # Payload kinds that legitimately reach this function and are consumed
   # somewhere else, so arriving here is not a fault.
   #
-  # SERVICERADAR_METRICS is the volume case. On the status path the gateway's
-  # PluginMetricsPublisher publishes them to JetStream and still forwards the
-  # status here with those records intact. On the telemetry edge-record path
+  # SERVICERADAR_METRICS is the volume case.
   # `ServiceRadar.Edge.Projectors.TelemetryBatch` publishes them before this
   # route and then calls in with the same records. Treating them as unknown
   # would log a warning per metric record from every Rust add-on in the fleet.

@@ -47,13 +47,27 @@ defmodule ServiceRadarWebNGWeb.EdgePipelineComponents do
           if(field(detail, :error), do: ": #{field(detail, :error)}", else: ".")
 
       "agent_upgrade_pending" ->
-        "The agent runs a build from before the default-on edge-record sender" <>
-          if(field(detail, :version), do: " (#{field(detail, :version)}).", else: ".")
+        "The agent runs a build from before the edge-record cutover" <>
+          if(field(detail, :version), do: " (#{field(detail, :version)}).", else: ".") <>
+          refused_statuses(field(detail, :refused_statuses))
 
       other ->
         other
     end
   end
+
+  defp refused_statuses(counts) when is_map(counts) and map_size(counts) > 0 do
+    listed =
+      counts
+      |> Enum.map(fn {family, count} -> {to_string(family), count} end)
+      |> Enum.sort()
+      |> Enum.map_join(", ", fn {family, count} -> "#{family} #{count}" end)
+
+    " It still sends durable data on the retired status path, which the gateway refuses " <>
+      "and does not store (#{listed})."
+  end
+
+  defp refused_statuses(_counts), do: ""
 
   defp upgrade_blocked(detail) do
     case detail |> field(:cause) |> to_string() do
