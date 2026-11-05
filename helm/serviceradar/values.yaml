@@ -962,7 +962,7 @@ core:
     #
     # Set to "" to fall back to the old existence-only check (for operators
     # running the chart against a deliberately pinned schema).
-    expectedVersion: "20261104130000"
+    expectedVersion: "20261105100000"
   # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
   reaper:
     # How often to run the reaper job
@@ -1838,28 +1838,6 @@ agent:
     requests:
       cpu: 200m
       memory: 512Mi
-# Durable edge-record pipeline. Core lease settings select participating agents/groups.
-# Core derives its contract registry from the release contract catalog and signs each
-# registry epoch with the issuer key; the gateway admits a record only against the
-# signed epoch it names. Core grants a catalog contract when it is in the signed active
-# epoch and this node's catalog holds its exact bundle. Neither core nor the gateway
-# reads contractRegistry; the chart still requires it when edgeRecords.enabled=true.
-# The agent no longer reads the agent*Enabled flags or maxSpoolBytes: its sender
-# always runs, each family moves to edge records once it holds core's grant, and
-# core delivers the spool budget. See "Durable edge-record
-# canary" in README.md. This whole block is removed by the default-on edge pipeline
-# change (enable-edge-record-pipeline-by-default, task 5.1).
-edgeRecords:
-  enabled: false
-  contractRegistry: {}
-  agentSweepEnabled: false
-  agentMetricsEnabled: false
-  agentTelemetryEnabled: false
-  agentPluginResultsEnabled: false
-  agentDiscoveryEnabled: false
-  agentSyncEnabled: false
-  maxSpoolBytes: 1073741824
-
 agentGateway:
   enabled: true
   replicas: 3

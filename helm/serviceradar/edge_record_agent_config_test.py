@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""The canary agent's rendered agent.json must decode into the agent's config types.
+"""The bundled agent's rendered agent.json names only where its edge-record spool lives.
 
-The agent reads `edge_record_sender.max_bytes` into a Go uint64, and Go's
-encoding/json refuses any number literal with a fraction or exponent for an
-integer field. Helm reads values.yaml numbers as float64 and prints large ones in
-exponent form, so the chart default would stop the agent before its first lease.
+The pipeline has no chart values: the sender and spool always run and core delivers
+the spool budget. The chart still owns the agent's runtime volume
+(agent.runtimeStorage), so it tells the agent to keep its spool on that volume. A
+spool anywhere else would sit on the container's writable layer and lose every
+unsent record when the pod is replaced.
 """
 
 from pathlib import Path
@@ -30,53 +31,6 @@ def _repo_root() -> Path:
 
 CHART_DIR = _repo_root() / "helm" / "serviceradar"
 
-CANARY = {
-    "edgeRecords.enabled": True,
-    "edgeRecords.contractRegistry": {"registry_epoch": 1},
-    "edgeRecords.agentSweepEnabled": True,
-    "agent.runtimeStorage.enabled": True,
-}
-
-# Operator values for a metrics-only agent. Sweep stays at the chart default,
-# which is off. The rendered sender must mean these three flags.
-METRICS_ONLY = {
-    "edgeRecords.enabled": True,
-    "edgeRecords.contractRegistry": {"registry_epoch": 1},
-    "edgeRecords.agentMetricsEnabled": True,
-}
-
-# Operator values for a telemetry-only agent.
-TELEMETRY_ONLY = {
-    "edgeRecords.enabled": True,
-    "edgeRecords.contractRegistry": {"registry_epoch": 1},
-    "edgeRecords.agentTelemetryEnabled": True,
-    "agent.runtimeStorage.enabled": True,
-}
-
-# Operator values for a plugin-results-only agent.
-PLUGIN_RESULTS_ONLY = {
-    "edgeRecords.enabled": True,
-    "edgeRecords.contractRegistry": {"registry_epoch": 1},
-    "edgeRecords.agentPluginResultsEnabled": True,
-    "agent.runtimeStorage.enabled": True,
-}
-
-# Operator values for a discovery-only agent.
-DISCOVERY_ONLY = {
-    "edgeRecords.enabled": True,
-    "edgeRecords.contractRegistry": {"registry_epoch": 1},
-    "edgeRecords.agentDiscoveryEnabled": True,
-    "agent.runtimeStorage.enabled": True,
-}
-
-# Operator values for a sync-only agent.
-SYNC_ONLY = {
-    "edgeRecords.enabled": True,
-    "edgeRecords.contractRegistry": {"registry_epoch": 1},
-    "edgeRecords.agentSyncEnabled": True,
-    "agent.runtimeStorage.enabled": True,
-}
-
 
 def render_agent_config(overrides):
     """Consume helm-unittest's generated ConfigMap snapshot, without golden files."""
@@ -100,7 +54,7 @@ def render_agent_config(overrides):
             "templates": ["templates/serviceradar-config.yaml"],
             "release": {"name": "edge-test", "namespace": "edge-test"},
             "tests": [{
-                "it": "canary",
+                "it": "agent config",
                 "set": overrides,
                 "asserts": [{"matchSnapshot": {"path": "data"}}],
             }],
@@ -121,72 +75,22 @@ def render_agent_config(overrides):
             raise AssertionError(f"Helm rendering failed:\n{rendered.stdout}{rendered.stderr}")
         snapshot_path = tests / "__snapshot__" / "edge_agent_test.yaml.snap"
         with snapshot_path.open(encoding="utf-8") as snapshot:
-            snapshots = list(yaml.safe_load(snapshot)["canary"].values())
+            snapshots = list(yaml.safe_load(snapshot)["agent config"].values())
         if len(snapshots) != 1:
             raise AssertionError(f"expected one emitted snapshot, got {len(snapshots)}")
         return json.loads(yaml.safe_load(snapshots[0])["agent.json"])
 
 
 class EdgeRecordAgentConfigTest(unittest.TestCase):
-    def test_default_spool_limit_is_an_integer_literal(self):
-        sender = render_agent_config(CANARY)["edge_record_sender"]
-        self.assertIs(type(sender["max_bytes"]), int)
-        self.assertEqual(sender["max_bytes"], 1024 ** 3)
-        self.assertTrue(sender["enabled"])
-        self.assertTrue(sender["sweep_enabled"])
-        self.assertEqual(sender["spool_dir"], "/var/lib/serviceradar/agent/edge-records")
+    def test_default_values_place_the_spool_on_the_runtime_volume_and_nothing_else(self):
+        sender = render_agent_config({})["edge_record_sender"]
+        self.assertEqual(sender, {"spool_dir": "/var/lib/serviceradar/agent/edge-records"})
 
-    def test_an_operator_spool_limit_keeps_its_exact_integer_value(self):
-        sender = render_agent_config({**CANARY, "edgeRecords.maxSpoolBytes": 268435456})[
+    def test_the_spool_follows_a_moved_runtime_volume(self):
+        sender = render_agent_config({"agent.runtimeStorage.basePath": "/srv/agent-runtime"})[
             "edge_record_sender"
         ]
-        self.assertIs(type(sender["max_bytes"]), int)
-        self.assertEqual(sender["max_bytes"], 256 * 1024 ** 2)
-
-    def test_metrics_only_sender_enables_metrics_and_leaves_sweep_off(self):
-        sender = render_agent_config(METRICS_ONLY)["edge_record_sender"]
-        self.assertIs(sender["enabled"], True)
-        self.assertIs(sender["sweep_enabled"], False)
-        self.assertIs(sender["metrics_enabled"], True)
-        self.assertIs(sender["telemetry_enabled"], False)
-
-    def test_telemetry_only_sender_enables_telemetry_and_leaves_the_rest_off(self):
-        sender = render_agent_config(TELEMETRY_ONLY)["edge_record_sender"]
-        self.assertIs(sender["enabled"], True)
-        self.assertIs(sender["sweep_enabled"], False)
-        self.assertIs(sender["metrics_enabled"], False)
-        self.assertIs(sender["telemetry_enabled"], True)
-        self.assertIs(sender["plugin_results_enabled"], False)
-
-    def test_plugin_results_only_sender_enables_plugin_results_and_leaves_the_rest_off(self):
-        sender = render_agent_config(PLUGIN_RESULTS_ONLY)["edge_record_sender"]
-        self.assertIs(sender["enabled"], True)
-        self.assertIs(sender["sweep_enabled"], False)
-        self.assertIs(sender["metrics_enabled"], False)
-        self.assertIs(sender["telemetry_enabled"], False)
-        self.assertIs(sender["plugin_results_enabled"], True)
-        self.assertIs(sender["discovery_enabled"], False)
-        self.assertIs(sender["sync_enabled"], False)
-
-    def test_discovery_only_sender_enables_discovery_and_leaves_the_rest_off(self):
-        sender = render_agent_config(DISCOVERY_ONLY)["edge_record_sender"]
-        self.assertIs(sender["enabled"], True)
-        self.assertIs(sender["sweep_enabled"], False)
-        self.assertIs(sender["metrics_enabled"], False)
-        self.assertIs(sender["telemetry_enabled"], False)
-        self.assertIs(sender["plugin_results_enabled"], False)
-        self.assertIs(sender["discovery_enabled"], True)
-        self.assertIs(sender["sync_enabled"], False)
-
-    def test_sync_only_sender_enables_sync_and_leaves_the_rest_off(self):
-        sender = render_agent_config(SYNC_ONLY)["edge_record_sender"]
-        self.assertIs(sender["enabled"], True)
-        self.assertIs(sender["sweep_enabled"], False)
-        self.assertIs(sender["metrics_enabled"], False)
-        self.assertIs(sender["telemetry_enabled"], False)
-        self.assertIs(sender["plugin_results_enabled"], False)
-        self.assertIs(sender["discovery_enabled"], False)
-        self.assertIs(sender["sync_enabled"], True)
+        self.assertEqual(sender, {"spool_dir": "/srv/agent-runtime/edge-records"})
 
 
 if __name__ == "__main__":

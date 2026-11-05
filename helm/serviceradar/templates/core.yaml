@@ -66,6 +66,14 @@
 {{- $deviceEnrichmentFsSecret := default "" $deviceEnrichmentFsOverrides.existingSecret -}}
 {{- $deviceEnrichmentFsClaim := default "" $deviceEnrichmentFsOverrides.existingClaim -}}
 {{- $secrets := default "serviceradar-secrets" .Values.secrets.existingSecretName -}}
+{{- /* Cutover release only (enable-edge-record-pipeline-by-default, design Decision 6):
+     core imports the edge issuer seed once into CNPG on the first boot that finds no
+     stored key, so mount it only where the Secret is known to carry
+     edge-issuer-seed: the secret generator guarantees the key before core starts.
+     A configured seed file that is missing stores no key, so with
+     secrets.autoGenerate=false core is not pointed at it and generates its own.
+     The release after cutover removes the mount and the env var (task 5.7). */ -}}
+{{- $edgeIssuerSeedMounted := not (eq false .Values.secrets.autoGenerate) -}}
 {{- $mailer := default (dict) $coreVals.mailer -}}
 {{- /*
   Notification platform (openspec add-notification-platform, tasks 3.4.6).
@@ -189,11 +197,9 @@ spec:
         - name: metrics
           containerPort: 9090
         env:
-        {{- if (default dict .Values.edgeRecords).enabled }}
+        {{- if $edgeIssuerSeedMounted }}
         - name: SERVICERADAR_EDGE_ISSUER_KEY_FILE
           value: /etc/serviceradar/edge-issuer/seed
-        - name: SERVICERADAR_EDGE_RECORD_CONTRACT_REGISTRY
-          value: {{ include "serviceradar.edgeRecordContractRegistry" . | quote }}
         {{- end }}
         - name: LANG
           value: "C.UTF-8"
@@ -978,7 +984,7 @@ spec:
         {{- end }}
         {{- end }}
         volumeMounts:
-        {{- if (default dict .Values.edgeRecords).enabled }}
+        {{- if $edgeIssuerSeedMounted }}
         - name: edge-issuer
           mountPath: /etc/serviceradar/edge-issuer
           readOnly: true
@@ -1061,7 +1067,7 @@ spec:
           timeoutSeconds: 5
           failureThreshold: 3
       volumes:
-      {{- if (default dict .Values.edgeRecords).enabled }}
+      {{- if $edgeIssuerSeedMounted }}
       - name: edge-issuer
         secret:
           secretName: {{ $secrets | quote }}
