@@ -1894,8 +1894,8 @@ if config_env() == :prod do
     end
 
   # EventWriter configuration (NATS JetStream → CNPG consumer).
-  # Default ON when NATS creds are configured: the helm chart sets
-  # EVENT_WRITER_ENABLED and EVENT_WRITER_NATS_CREDS_FILE together, so an UNSET flag
+  # Default ON when EventWriter's resolved NATS creds (below) are present: the helm
+  # chart sets EVENT_WRITER_ENABLED alongside those creds, so an UNSET flag
   # with creds present is a deploy drift that must still run the EventWriter (edge
   # anomaly verdicts have to persist to CNPG). Stays OFF with no creds so
   # credential-less dev/test deployments don't trip the creds-required raise below.

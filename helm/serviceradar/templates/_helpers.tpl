@@ -509,13 +509,6 @@ securityContext:
 {{- end -}}
 
 {{/*
-Password from an existing Secret (lookup) or from values. Never random.
-
-Argo CD templates on repo-server, which cannot read namespace Secrets, so
-lookup is empty on every sync. randAlphaNum in that path rotated CNPG
-credentials and rolled core/web-ng on each apply.
-*/}}
-{{/*
 Whether this release may render a Secret it reuses by lookup. The secret generator
 creates the CNPG Secrets on a fresh install, without Helm ownership metadata, and
 Helm refuses to adopt an existing object it does not own: rendering such a Secret
@@ -536,6 +529,13 @@ true
 {{- end -}}
 {{- end -}}
 
+{{/*
+Password from an existing Secret (lookup) or from values. Never random.
+
+Argo CD templates on repo-server, which cannot read namespace Secrets, so
+lookup is empty on every sync. randAlphaNum in that path rotated CNPG
+credentials and rolled core/web-ng on each apply.
+*/}}
 {{- define "serviceradar.reuseSecretPassword" -}}
 {{- $existing := lookup "v1" "Secret" .namespace .name -}}
 {{- if and $existing $existing.data $existing.data.password -}}

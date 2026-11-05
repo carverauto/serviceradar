@@ -377,7 +377,7 @@ end
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `EVENT_WRITER_ENABLED` | Enable EventWriter | `false` |
+| `EVENT_WRITER_ENABLED` | Enable EventWriter | `true` when EventWriter NATS creds resolve, else `false` |
 | `EVENT_WRITER_NATS_URL` | NATS connection URL of a separate server | unset: core's `NATS_URL` |
 | `EVENT_WRITER_NATS_TLS` | Enable TLS | unset: core's `NATS_TLS` when the URL is unset, else `false` |
 | `EVENT_WRITER_NATS_SERVER_NAME` | TLS server name (SNI) | unset: core's `NATS_SERVER_NAME` when the URL is unset, else `nats.serviceradar` |
