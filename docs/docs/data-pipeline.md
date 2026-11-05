@@ -47,8 +47,9 @@ consumer promotes logs that match an event rule into
 OCSF events as it stores them; there is no separate promotion consumer, so each
 log is promoted once, under an id derived from the JetStream message.
 
-When a metric batch still arrives on the status path, `agent-gateway` splits
-oversized protobuf batches before publishing them to NATS. The gateway uses the broker-advertised
+A current agent sends no metric batch on the status path (see below). When an
+agent built before edge-record-only delivery still sends one, `agent-gateway`
+splits oversized protobuf batches before publishing them to NATS. The gateway uses the broker-advertised
 `max_payload` with headroom for NATS headers; no agent-side batch-size setting
 is required. Large multi-port sweep groups can therefore produce several
 messages on the same subject. A warning reports the original byte count,
