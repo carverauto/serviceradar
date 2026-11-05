@@ -1374,10 +1374,12 @@ if config_env() == :prod do
       # web-ng assignment actions. Kept in step with serviceradar_core's runtime.exs.
       {"*/5 * * * *", ServiceRadar.Observability.PluginServiceStateReconcileWorker, queue: :maintenance},
       # Merged device availability: drains the invalidation log and re-resolves
-      # devices whose evidence aged out. Kept in step with
-      # serviceradar_core's runtime.exs and config.exs.
+      # devices whose evidence aged out, and detects a silenced deciding agent
+      # within one sweep interval. Kept in step with serviceradar_core's
+      # runtime.exs and config.exs.
       {"* * * * *", ServiceRadar.Inventory.Availability.ResolverWorker, queue: :maintenance},
       {"* * * * *", ServiceRadar.Inventory.Availability.ExpiryWorker, queue: :maintenance},
+      {"* * * * *", ServiceRadar.Inventory.Availability.PinSilenceWorker, queue: :maintenance},
       {"* * * * *", ServiceRadar.Edge.ManagedCertificateReconcileWorker, queue: :maintenance},
       # Composite checks' only scheduler: one evaluation job per enabled check per
       # minute; each job runs the full pass when it is due and the incremental

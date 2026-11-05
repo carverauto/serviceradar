@@ -101,11 +101,13 @@ config :serviceradar_core, Oban,
        {"* * * * *", ServiceRadar.EventWriter.LifecycleAdmissionDrainWorker, queue: :maintenance},
        {"* * * * *", ServiceRadar.Observability.StatefulAlertEngine.RecoveryWorker,
         queue: :alert_recovery},
-       # Merged device availability: drains the invalidation log and re-resolves
-       # devices whose evidence aged out. Kept in step with
-       # serviceradar_core's runtime.exs and serviceradar_core_elx's runtime.exs.
+       # Merged device availability: drains the invalidation log, re-resolves
+       # devices whose evidence aged out, and detects a silenced deciding agent
+       # within one sweep interval. Kept in step with serviceradar_core's
+       # runtime.exs and serviceradar_core_elx's runtime.exs.
        {"* * * * *", ServiceRadar.Inventory.Availability.ResolverWorker, queue: :maintenance},
        {"* * * * *", ServiceRadar.Inventory.Availability.ExpiryWorker, queue: :maintenance},
+       {"* * * * *", ServiceRadar.Inventory.Availability.PinSilenceWorker, queue: :maintenance},
        {"* * * * *", ServiceRadar.Edge.ManagedCertificateReconcileWorker, queue: :maintenance},
        {"*/30 * * * *", ServiceRadar.Observability.ResolveStaleAnomaliesWorker,
         queue: :maintenance}

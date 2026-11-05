@@ -1829,11 +1829,14 @@ if config_env() == :prod do
            {"53 3 * * *", AuditVersionRetentionWorker, queue: :maintenance},
            # Kept in step with serviceradar_core_elx's runtime.exs, as above.
            {"29 * * * *", ServiceRadar.Identity.SAMLAssertionCleanupWorker, queue: :maintenance},
-           # Merged device availability: drains the invalidation log and re-resolves
-           # devices whose evidence aged out. Kept in step with
+           # Merged device availability: drains the invalidation log, re-resolves
+           # devices whose evidence aged out, and detects a silenced deciding
+           # agent within one sweep interval. Kept in step with
            # serviceradar_core_elx's runtime.exs and config.exs.
            {"* * * * *", ServiceRadar.Inventory.Availability.ResolverWorker, queue: :maintenance},
            {"* * * * *", ServiceRadar.Inventory.Availability.ExpiryWorker, queue: :maintenance},
+           {"* * * * *", ServiceRadar.Inventory.Availability.PinSilenceWorker,
+            queue: :maintenance},
            {"* * * * *", ServiceRadar.Edge.ManagedCertificateReconcileWorker,
             queue: :maintenance},
            # Composite checks' only scheduler: one evaluation job per enabled
