@@ -70,7 +70,8 @@ defmodule ServiceRadar.EventWriter.AlertAdmissionBacklog do
   Admits `records` to stateful evaluation, or defers them to the backlog.
 
   Records are admitted directly while their lane is empty. A retryable refusal,
-  or a lane that already holds a backlog, defers them. The lane lock is held
+  or a lane that already holds a backlog, defers them; a refusal that is not
+  retryable fails the call on either path. The lane lock is held
   across that choice, so records never overtake a backlog. Returns `:ok` once
   they are admitted, deferred, or skipped because alert evaluation is not
   activated, in which case nothing is deferred or recorded; `{:error, reason}`
@@ -115,7 +116,7 @@ defmodule ServiceRadar.EventWriter.AlertAdmissionBacklog do
           AdvisoryLocks.acquire_ordered!([{:exclusive, @lane_lock_prefix <> lane(signal)}])
 
           if pending?(signal) do
-            defer!(signal, records, :behind_backlog, opts, :joined)
+            join!(signal, records, opts)
           else
             case engine_admit(signal, records) do
               :ok ->
@@ -134,6 +135,17 @@ defmodule ServiceRadar.EventWriter.AlertAdmissionBacklog do
     |> Inbox.with_notification_queue()
   rescue
     error -> {:error, error}
+  end
+
+  # Joining skips the engine, so a refusal that is not backpressure is checked
+  # here: it fails the call exactly as it would on an empty lane.
+  defp join!(signal, records, opts) do
+    with {:error, reason} <- Rollout.admission_ready(),
+         false <- retryable?(reason) do
+      Repo.rollback(reason)
+    else
+      _ready_or_backpressure -> defer!(signal, records, :behind_backlog, opts, :joined)
+    end
   end
 
   defp defer!(signal, records, reason, opts, outcome) do
@@ -193,15 +205,17 @@ defmodule ServiceRadar.EventWriter.AlertAdmissionBacklog do
 
   @doc """
   Drains each deferred lane from its head, chunk by chunk, until it is empty,
-  refused, held by another drainer, or `:budget_ms` (default 30 seconds) has
-  elapsed. Returns the number of records admitted.
+  refused, held by another drainer, or its own `:budget_ms` (default 30
+  seconds) has elapsed, so a busy lane never takes another lane's turn. Returns
+  the number of records admitted.
   """
   @spec drain(keyword()) :: non_neg_integer()
   def drain(opts \\ []) do
-    deadline =
-      System.monotonic_time(:millisecond) + Keyword.get(opts, :budget_ms, @drain_budget_ms)
+    budget_ms = Keyword.get(opts, :budget_ms, @drain_budget_ms)
 
-    Enum.reduce(@signals, 0, &drain_lane(&1, deadline, &2))
+    Enum.reduce(@signals, 0, fn signal, admitted ->
+      drain_lane(signal, System.monotonic_time(:millisecond) + budget_ms, admitted)
+    end)
   end
 
   @doc """

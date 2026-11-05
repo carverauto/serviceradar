@@ -10,6 +10,17 @@ defmodule ServiceRadar.EventWriter.AlertAdmissionBacklogTest do
 
   @moduletag :integration
 
+  defmodule SlowEventEngine do
+    @moduledoc false
+
+    def evaluate_events(_events) do
+      Process.sleep(100)
+      :ok
+    end
+
+    def evaluate_metrics(_rows), do: :ok
+  end
+
   setup_all do
     TestSupport.start_core!()
     :ok
@@ -61,6 +72,50 @@ defmodule ServiceRadar.EventWriter.AlertAdmissionBacklogTest do
       assert ids(admitted) == ids([first, second])
       assert pending_ids(signal) == []
     end
+  end
+
+  test "a draining node fails records arriving behind a backlog and records nothing" do
+    ScriptedStatefulAlertEngine.use_in_test([{:error, {:overloaded, :rule_bytes}}])
+    [first, second] = for n <- 1..2, do: record(:event, n)
+    parent = self()
+
+    assert :ok = AlertAdmissionBacklog.admit(:event, [first])
+    assert_receive {:evaluated, [_first]}
+    assert pending_ids(:event) == ids([first])
+
+    put_mode(:draining)
+
+    assert {:error, :alert_evaluation_draining} =
+             AlertAdmissionBacklog.admit(:event, [second],
+               record: fn ->
+                 send(parent, :recorded)
+                 :ok
+               end
+             )
+
+    refute_received :recorded
+    assert pending_ids(:event) == ids([first])
+  end
+
+  test "a busy event lane does not spend the metric lane's drain budget" do
+    ScriptedStatefulAlertEngine.use_in_test([
+      {:error, {:overloaded, :rule_bytes}},
+      {:error, {:overloaded, :rule_bytes}}
+    ])
+
+    event = record(:event, 1)
+    metric = record(:metric, 1)
+
+    assert :ok = AlertAdmissionBacklog.admit(:event, [event])
+    assert :ok = AlertAdmissionBacklog.admit(:metric, [metric])
+    assert pending_ids(:event) == ids([event])
+    assert pending_ids(:metric) == ids([metric])
+
+    Application.put_env(:serviceradar_core, :stateful_alert_engine, SlowEventEngine)
+
+    assert AlertAdmissionBacklog.drain(budget_ms: 50) == 2
+    assert pending_ids(:event) == []
+    assert pending_ids(:metric) == []
   end
 
   test "a genuine refusal fails the admission and defers nothing" do
@@ -128,9 +183,12 @@ defmodule ServiceRadar.EventWriter.AlertAdmissionBacklogTest do
   end
 
   defp use_real_engine_in_mode(mode) do
-    previous = Application.fetch_env(:serviceradar_core, :alert_evaluation_mode)
-
     Application.put_env(:serviceradar_core, :stateful_alert_engine, StatefulAlertEngine)
+    put_mode(mode)
+  end
+
+  defp put_mode(mode) do
+    previous = Application.fetch_env(:serviceradar_core, :alert_evaluation_mode)
     Application.put_env(:serviceradar_core, :alert_evaluation_mode, mode)
 
     on_exit(fn ->
