@@ -80,7 +80,9 @@ defmodule ServiceRadar.Inventory.Availability.PinSilenceWorker do
     total = expire_silent_pins("", 0)
 
     if total > 0 do
-      Logger.info("pin_silence: re-resolved #{total} device(s) whose deciding agent missed a sweep")
+      Logger.info(
+        "pin_silence: re-resolved #{total} device(s) whose deciding agent missed a sweep"
+      )
     end
 
     :ok

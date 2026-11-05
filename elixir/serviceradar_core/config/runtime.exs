@@ -1835,7 +1835,8 @@ if config_env() == :prod do
            # serviceradar_core_elx's runtime.exs and config.exs.
            {"* * * * *", ServiceRadar.Inventory.Availability.ResolverWorker, queue: :maintenance},
            {"* * * * *", ServiceRadar.Inventory.Availability.ExpiryWorker, queue: :maintenance},
-           {"* * * * *", ServiceRadar.Inventory.Availability.PinSilenceWorker, queue: :maintenance},
+           {"* * * * *", ServiceRadar.Inventory.Availability.PinSilenceWorker,
+            queue: :maintenance},
            {"* * * * *", ServiceRadar.Edge.ManagedCertificateReconcileWorker,
             queue: :maintenance},
            # Composite checks' only scheduler: one evaluation job per enabled
