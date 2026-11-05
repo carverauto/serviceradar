@@ -88,7 +88,18 @@ positive integer (default `43200`, or 12 hours). Each grant receives uniform +/-
 jitter and is capped at certificate expiry. At the default, the maximum fallback
 bound is 14 hours 24 minutes if every authorizer disappears. New admissions still
 require fresh policy. Revocation and de-adoption use targeted system-account KICK
-requests immediately, without waiting for expiry. The authorizer needs publish
+requests immediately, without waiting for expiry. Each hub grant's user name is
+the certificate fingerprint, a dot, and a SHA-256 of its publish and subscribe
+permissions, the same scheme as the local leaf grants. About every ten seconds
+the authorizer lists presented-certificate sessions and disconnects one whose
+broker-reported `authorized_user` differs from the grant its certificate would
+receive now (an older stored or static grant, or an earlier release's
+bare-fingerprint name); the reconnect receives the current grant. It disconnects
+at most 64 such sessions per scan and waits five minutes before disconnecting a
+certificate again for the same stale name. The first upgrade to a release with
+named grants therefore reconnects every hub session once. A failed database read
+keeps the authorizer's last state; its stale snapshot still stops new
+admissions. The authorizer needs publish
 access to `$SYS.REQ.SERVER.*.KICK` and `$SYS.REQ.SERVER.*.CONNZ`, plus its reply inbox;
 the managed Helm authorization configuration supplies those permissions.
 
@@ -162,7 +173,10 @@ fingerprint must still be adopted, unrevoked and carry a stored grant. A subject
 a release adds to the chart therefore reaches the callout grant without
 re-adopting the component. Host-enrolled components, leaves and any other
 subject keep their stored grant. Without the file, every adopted component keeps
-its stored grant.
+its stored grant. If the file exists but has not yet been read successfully,
+adopted infrastructure certificates are refused (`static identity grants
+unavailable`) rather than granted their stored grant, and no session is
+disconnected for its grant; host-enrolled components are unaffected.
 
 `POST /api/admin/managed-components/adopt` records one existing public
 infrastructure certificate. The JSON body carries `component_id`,
