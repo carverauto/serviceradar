@@ -638,6 +638,25 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
       assert Enum.any?(response["data"], &(&1["id"] == rule.id))
     end
 
+    # The JSON:API media type maps to Phoenix's "json-api" format, not "json". A pipeline
+    # accepting only "json" answered every client that asks for the JSON:API media type --
+    # as the JSON:API spec says clients should -- with 406 before AshJsonApi saw the request.
+    @tag :web_ng_shared_fixture_db
+    test "a client asking for the JSON:API media type is served", %{rule: rule} do
+      user = viewer_user_fixture()
+
+      for accept <- ["application/vnd.api+json", "application/json"] do
+        conn =
+          build_conn()
+          |> log_in_api_user(user)
+          |> put_req_header("accept", accept)
+          |> get("/api/v2/event-rules")
+
+        response = json_response(conn, 200)
+        assert Enum.any?(response["data"], &(&1["id"] == rule.id)), "accept: #{accept}"
+      end
+    end
+
     @tag :web_ng_shared_fixture_db
     test "unauthenticated request returns empty list" do
       conn = build_conn()
