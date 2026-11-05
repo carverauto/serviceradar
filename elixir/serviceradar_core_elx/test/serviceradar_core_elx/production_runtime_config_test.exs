@@ -852,6 +852,48 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     end)
   end
 
+  # A default chart install sets only core's NATS_* variables. EventWriter must
+  # connect to that server: falling back to localhost leaves the install storing no
+  # telemetry at all.
+  test "prod EventWriter uses core's NATS connection when EVENT_WRITER_NATS_URL is unset" do
+    with_env("EVENT_WRITER_ENABLED", "true")
+    with_env("EVENT_WRITER_NATS_URL", nil)
+    with_env("EVENT_WRITER_NATS_TLS", nil)
+    with_env("EVENT_WRITER_NATS_SERVER_NAME", nil)
+    with_env("EVENT_WRITER_NATS_CREDS_FILE", nil)
+    with_env("NATS_URL", "tls://nats.example.internal:4223")
+    with_env("NATS_TLS", "true")
+    with_env("NATS_SERVER_NAME", "nats.example.internal")
+    with_env("NATS_CREDS_FILE", "/run/serviceradar/creds/core.creds")
+
+    nats = read_prod_config()[:serviceradar_core][ServiceRadar.EventWriter][:nats]
+
+    assert nats[:host] == "nats.example.internal"
+    assert nats[:port] == 4223
+    assert nats[:creds_file] == "/run/serviceradar/creds/core.creds"
+    assert nats[:tls][:server_name_indication] == ~c"nats.example.internal"
+  end
+
+  # A writer pointed at a separate server keeps exactly its own settings: it must not
+  # inherit core's TLS or credentials, which belong to a different server.
+  test "prod EventWriter keeps its own settings when EVENT_WRITER_NATS_URL is set" do
+    with_env("EVENT_WRITER_ENABLED", "true")
+    with_env("EVENT_WRITER_NATS_URL", "nats://events.example.internal:4224")
+    with_env("EVENT_WRITER_NATS_TLS", nil)
+    with_env("EVENT_WRITER_NATS_SERVER_NAME", nil)
+    with_env("EVENT_WRITER_NATS_CREDS_FILE", "/run/serviceradar/creds/events.creds")
+    with_env("NATS_URL", "tls://nats.example.internal:4223")
+    with_env("NATS_TLS", "true")
+    with_env("NATS_CREDS_FILE", "/run/serviceradar/creds/core.creds")
+
+    nats = read_prod_config()[:serviceradar_core][ServiceRadar.EventWriter][:nats]
+
+    assert nats[:host] == "events.example.internal"
+    assert nats[:port] == 4224
+    assert nats[:creds_file] == "/run/serviceradar/creds/events.creds"
+    assert nats[:tls] == false
+  end
+
   defp read_prod_config do
     Config.Reader.read!(@runtime_config, env: :prod)
   end

@@ -1648,16 +1648,40 @@ if config_env() == :prod do
     System.get_env("EVENT_WRITER_HOST_SLICE_SUBSCRIBER_ENABLED", "false") in ~w(true 1 yes)
 
   if event_writer_enabled do
-    event_writer_creds = System.get_env("EVENT_WRITER_NATS_CREDS_FILE")
+    # EventWriter uses core's NATS connection (NATS_URL, NATS_TLS, NATS_SERVER_NAME,
+    # NATS_CREDS_FILE) unless EVENT_WRITER_NATS_URL names a separate server. A default chart
+    # install sets only the NATS_* variables; without this fallback EventWriter dialed
+    # localhost and stored no telemetry. When EVENT_WRITER_NATS_URL is set, every
+    # EVENT_WRITER_NATS_* setting applies as given, so a writer pointed at another server
+    # never inherits core's TLS or credentials.
+    present_env = fn name ->
+      case System.get_env(name) do
+        value when value in [nil, ""] -> nil
+        value -> value
+      end
+    end
 
-    if event_writer_creds in [nil, ""] do
+    {nats_url, event_writer_tls, event_writer_server_name, event_writer_creds} =
+      case present_env.("EVENT_WRITER_NATS_URL") do
+        nil ->
+          {present_env.("NATS_URL") || "nats://localhost:4222",
+           present_env.("EVENT_WRITER_NATS_TLS") || present_env.("NATS_TLS") || "false",
+           present_env.("EVENT_WRITER_NATS_SERVER_NAME") || present_env.("NATS_SERVER_NAME") ||
+             "nats.serviceradar", present_env.("EVENT_WRITER_NATS_CREDS_FILE") || present_env.("NATS_CREDS_FILE")}
+
+        url ->
+          {url, present_env.("EVENT_WRITER_NATS_TLS") || "false",
+           present_env.("EVENT_WRITER_NATS_SERVER_NAME") || "nats.serviceradar",
+           present_env.("EVENT_WRITER_NATS_CREDS_FILE")}
+      end
+
+    if event_writer_creds == nil do
       IO.puts("[EventWriter] No NATS creds file set; connecting without JWT auth")
     end
 
-    nats_url = System.get_env("EVENT_WRITER_NATS_URL", "nats://localhost:4222")
     nats_uri = URI.parse(nats_url)
 
-    nats_tls_enabled = System.get_env("EVENT_WRITER_NATS_TLS", "false") in ~w(true 1 yes)
+    nats_tls_enabled = event_writer_tls in ~w(true 1 yes)
     cert_dir = System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs")
 
     nats_tls_config =
@@ -1667,7 +1691,7 @@ if config_env() == :prod do
           cacertfile: Path.join(cert_dir, "root.pem"),
           certfile: Path.join(cert_dir, "core.pem"),
           keyfile: Path.join(cert_dir, "core-key.pem"),
-          server_name_indication: ~c"nats.serviceradar"
+          server_name_indication: String.to_charlist(event_writer_server_name)
         ]
       else
         false
