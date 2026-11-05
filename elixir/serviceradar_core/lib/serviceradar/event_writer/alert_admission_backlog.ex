@@ -40,6 +40,7 @@ defmodule ServiceRadar.EventWriter.AlertAdmissionBacklog do
   alias ServiceRadar.Observability.AdvisoryLocks
   alias ServiceRadar.Observability.StatefulAlertEngine.Inbox
   alias ServiceRadar.Observability.StatefulAlertEngine.Input
+  alias ServiceRadar.Observability.StatefulAlertEngine.Rollout
   alias ServiceRadar.Observability.StatefulEvaluationLedger
   alias ServiceRadar.Observability.TripwireHealth
   alias ServiceRadar.Repo
@@ -69,9 +70,11 @@ defmodule ServiceRadar.EventWriter.AlertAdmissionBacklog do
   Admits `records` to stateful evaluation, or defers them to the backlog.
 
   Records are admitted directly while their lane is empty. A retryable refusal,
-  or a lane that already holds a backlog, defers them. Returns `:ok` once they
-  are admitted, deferred, or skipped because alert evaluation is not activated;
-  `{:error, reason}` only for a genuine failure, so the caller fails its batch.
+  or a lane that already holds a backlog, defers them. The lane lock is held
+  across that choice, so records never overtake a backlog. Returns `:ok` once
+  they are admitted, deferred, or skipped because alert evaluation is not
+  activated, in which case nothing is deferred or recorded; `{:error, reason}`
+  only for a genuine failure, so the caller fails its batch.
 
   Options:
 
@@ -90,30 +93,54 @@ defmodule ServiceRadar.EventWriter.AlertAdmissionBacklog do
   def admit(signal, [], _opts) when signal in @signals, do: :ok
 
   def admit(signal, records, opts) when signal in @signals and is_list(records) do
-    if pending?(signal) do
-      with :ok <- defer(signal, records, :behind_backlog, opts) do
-        admit_head_after_joining(signal)
+    if activated?() do
+      case admit_or_defer(signal, records, opts) do
+        {:ok, :admitted} -> with :ok <- run(opts, :after_admission), do: run(opts, :record)
+        {:ok, :joined} -> admit_head_after_joining(signal)
+        {:ok, :deferred} -> :ok
+        {:error, reason} -> {:error, reason}
       end
     else
-      case engine_admit(signal, records) do
-        :ok ->
-          with :ok <- run(opts, :after_admission), do: run(opts, :record)
-
-        {:error, :alert_evaluation_not_activated} ->
-          {:skipped, _count} = StatefulEvaluationLedger.skip_not_activated(records)
-          :ok
-
-        {:error, reason} ->
-          if retryable?(reason),
-            do: defer(signal, records, reason, opts),
-            else: {:error, reason}
-      end
+      {:skipped, _count} = StatefulEvaluationLedger.skip_not_activated(records)
+      :ok
     end
   end
 
-  @doc "Whether `signal`'s lane holds any deferred record."
-  @spec pending?(signal()) :: boolean()
-  def pending?(signal) when signal in @signals do
+  # The lane lock is held from the empty check through the direct admission or
+  # the deferral, so no record is admitted ahead of an older deferred one.
+  defp admit_or_defer(signal, records, opts) do
+    fn ->
+      Repo.transaction(fn ->
+        AdvisoryLocks.acquire_ordered!([{:exclusive, @lane_lock_prefix <> lane(signal)}])
+
+        if pending?(signal) do
+          defer!(signal, records, :behind_backlog, opts, :joined)
+        else
+          case engine_admit(signal, records) do
+            :ok ->
+              :admitted
+
+            {:error, reason} ->
+              if retryable?(reason),
+                do: defer!(signal, records, reason, opts, :deferred),
+                else: Repo.rollback(reason)
+          end
+        end
+      end)
+    end
+    |> Inbox.with_notification_queue()
+  rescue
+    error -> {:error, error}
+  end
+
+  defp defer!(signal, records, reason, opts, outcome) do
+    case defer(signal, records, reason, opts) do
+      :ok -> outcome
+      {:error, error} -> Repo.rollback(error)
+    end
+  end
+
+  defp pending?(signal) do
     %{rows: [[pending?]]} =
       Repo.query!(
         "SELECT EXISTS (SELECT 1 FROM platform.lifecycle_pending_admissions WHERE lane = $1)",
@@ -125,13 +152,19 @@ defmodule ServiceRadar.EventWriter.AlertAdmissionBacklog do
 
   @doc """
   Admits the head chunk of `signal`'s lane. Returns `{:ok, admitted}`,
-  `{:refused, reason}` when admission is still refused (the rows stay, and the
-  accepted prefix is kept), `:busy` when another drainer holds the lane, or
-  `{:error, reason}`.
+  `{:refused, reason}` when admission is still refused or alert evaluation is
+  not activated (the rows stay, and any accepted prefix is kept), `:busy` when
+  another drainer holds the lane, or `{:error, reason}`.
   """
   @spec admit_head(signal()) ::
           {:ok, non_neg_integer()} | {:refused, term()} | :busy | {:error, term()}
   def admit_head(signal) when signal in @signals do
+    if activated?(),
+      do: admit_activated_head(signal),
+      else: {:refused, :alert_evaluation_not_activated}
+  end
+
+  defp admit_activated_head(signal) do
     limit = Inbox.limits().batch_records
 
     fn ->
@@ -342,10 +375,6 @@ defmodule ServiceRadar.EventWriter.AlertAdmissionBacklog do
           :ok ->
             release(ids)
 
-          {:error, :alert_evaluation_not_activated} ->
-            {:skipped, _count} = StatefulEvaluationLedger.skip_not_activated(records)
-            release(ids)
-
           {:error, reason} ->
             # A capacity refusal commits the prefix the inbox accepted and keeps
             # the rows for the retry that continues it. Any other refusal
@@ -475,6 +504,11 @@ defmodule ServiceRadar.EventWriter.AlertAdmissionBacklog do
       fun when is_function(fun, 0) -> fun.()
     end
   end
+
+  # A deployment whose alert evaluation is not activated admits nothing, so it
+  # neither defers to the backlog nor admits or deletes what an activated node
+  # deferred.
+  defp activated?, do: Rollout.mode() != :prepared
 
   defp lane(:event), do: "event"
   defp lane(:metric), do: "metric"

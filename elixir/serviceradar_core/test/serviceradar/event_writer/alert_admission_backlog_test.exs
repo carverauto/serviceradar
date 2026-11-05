@@ -3,6 +3,7 @@ defmodule ServiceRadar.EventWriter.AlertAdmissionBacklogTest do
 
   alias ServiceRadar.EventWriter.AlertAdmissionBacklog
   alias ServiceRadar.Infrastructure.HealthTracker
+  alias ServiceRadar.Observability.StatefulAlertEngine
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
   alias ServiceRadar.TestSupport.ScriptedStatefulAlertEngine
@@ -30,6 +31,34 @@ defmodule ServiceRadar.EventWriter.AlertAdmissionBacklogTest do
       assert_receive {:evaluated, admitted}
       assert ids(admitted) == ids([first, second, third])
       refute_receive {:evaluated, _records}, 50
+      assert pending_ids(signal) == []
+    end
+  end
+
+  for signal <- [:event, :metric] do
+    test "a prepared node leaves the #{signal} backlog for an activated node" do
+      signal = unquote(signal)
+      ScriptedStatefulAlertEngine.use_in_test([{:error, {:overloaded, :rule_bytes}}])
+      [first, second, third] = for n <- 1..3, do: record(signal, n)
+
+      assert :ok = AlertAdmissionBacklog.admit(signal, [first, second])
+      assert_receive {:evaluated, [_first, _second]}
+      assert pending_ids(signal) == ids([first, second])
+
+      use_real_engine_in_mode(:prepared)
+
+      assert AlertAdmissionBacklog.drain() == 0
+      assert pending_ids(signal) == ids([first, second])
+
+      assert :ok = AlertAdmissionBacklog.admit(signal, [third])
+      assert pending_ids(signal) == ids([first, second])
+
+      ScriptedStatefulAlertEngine.use_in_test([])
+      Application.put_env(:serviceradar_core, :alert_evaluation_mode, :active)
+
+      assert AlertAdmissionBacklog.drain() == 2
+      assert_receive {:evaluated, admitted}
+      assert ids(admitted) == ids([first, second])
       assert pending_ids(signal) == []
     end
   end
@@ -96,6 +125,20 @@ defmodule ServiceRadar.EventWriter.AlertAdmissionBacklogTest do
       metric_name: "synthetic_backlog_metric",
       value: n * 1.0
     }
+  end
+
+  defp use_real_engine_in_mode(mode) do
+    previous = Application.fetch_env(:serviceradar_core, :alert_evaluation_mode)
+
+    Application.put_env(:serviceradar_core, :stateful_alert_engine, StatefulAlertEngine)
+    Application.put_env(:serviceradar_core, :alert_evaluation_mode, mode)
+
+    on_exit(fn ->
+      case previous do
+        {:ok, value} -> Application.put_env(:serviceradar_core, :alert_evaluation_mode, value)
+        :error -> Application.delete_env(:serviceradar_core, :alert_evaluation_mode)
+      end
+    end)
   end
 
   defp ids(records), do: Enum.map(records, &to_string(&1.id))
