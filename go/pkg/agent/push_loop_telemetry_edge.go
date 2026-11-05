@@ -32,7 +32,7 @@ import (
 // Plugin signals and native add-on telemetry share one standing-grant
 // contract (serviceradar.telemetry.batch) and this one producer. A batch stays
 // queued until the spool has admitted every part that formed a valid record,
-// or the one legacy path has carried the item. A record that cannot form a
+// or until it overflows the queue's bound. A record that cannot form a
 // valid part is dropped on its own; the parts already built keep the event
 // ids they were first built with across spool retries, so a part is never
 // re-minted. The host stamp of the producing assignment or add-on is written
@@ -61,7 +61,8 @@ func (p *PushLoop) dropEdgeTelemetry(producer edgeProducer, reason edgeDropReaso
 }
 
 // SetEdgeTelemetrySpool connects telemetry producers to the sender's one open
-// spool. Call before Start; a nil spool keeps telemetry on its legacy path.
+// spool. Call before Start; with a nil spool telemetry is held as it is
+// without a grant.
 func (p *PushLoop) SetEdgeTelemetrySpool(sp *spool.Spool) {
 	if sp == nil {
 		p.edgeTelemetrySpool = nil
@@ -71,7 +72,7 @@ func (p *PushLoop) SetEdgeTelemetrySpool(sp *spool.Spool) {
 }
 
 // edgeTelemetryCapability is the current standing grant for the telemetry
-// batch contract, or nil when telemetry rides its legacy path this cycle.
+// batch contract, or nil when telemetry must be held this cycle.
 func (p *PushLoop) edgeTelemetryCapability(now time.Time) *edgev1.EdgeSignedCapabilityV1 {
 	if p == nil || p.edgeTelemetrySpool == nil {
 		return nil
@@ -79,15 +80,11 @@ func (p *PushLoop) edgeTelemetryCapability(now time.Time) *edgev1.EdgeSignedCapa
 	return p.edgeOutputGrants.current(edgerecord.TelemetryBatchContractID, now)
 }
 
-// telemetryEdgeItem is one drained telemetry batch awaiting the spool. It
-// retains the legacy envelope it came from so an item the spool has admitted
-// no part of can still ride the legacy status path exactly as drained.
+// telemetryEdgeItem is one drained telemetry batch awaiting the spool.
 type telemetryEdgeItem struct {
 	producerType string
 	producerID   string
 	batch        *addonpb.TelemetryBatch
-	signal       *PluginSignalTelemetry
-	envelope     *addonTelemetryEnvelope
 }
 
 func (item telemetryEdgeItem) records() int {
@@ -129,13 +126,6 @@ func (q *telemetryEdgeQueue) enqueue(items []telemetryEdgeItem) int {
 	return q.shedOverflow()
 }
 
-// restore puts items an undelivered legacy send could not carry back at the
-// front of the queue, ahead of anything queued since.
-func (q *telemetryEdgeQueue) restore(items []telemetryEdgeItem) int {
-	q.pending = append(append([]telemetryEdgeItem{}, items...), q.pending...)
-	return q.shedOverflow()
-}
-
 // shedOverflow applies maxEdgeTelemetryQueuedRecords. The head pending batch
 // is kept when it is the only one, or when it alone exceeds the bound; a
 // built batch already handed to the spool is kept too. The oldest backlog
@@ -158,23 +148,8 @@ func (q *telemetryEdgeQueue) shedOverflow() int {
 	return dropped
 }
 
-// take returns the items the legacy path may still carry: everything not yet
-// built, plus a built item no part of which the spool has admitted. An item
-// with a part already in the spool stays queued — sending it on the legacy
-// path too would deliver it twice.
-func (q *telemetryEdgeQueue) take() []telemetryEdgeItem {
-	items := q.pending
-	q.pending = nil
-	if q.built != nil && q.built.next == 0 {
-		items = append([]telemetryEdgeItem{q.built.item}, items...)
-		q.built = nil
-	}
-	return items
-}
-
 // spoolTelemetry appends a producer's queued batches to the durable spool
-// under capability. It reports whether the queue drained (something was
-// handed off durably), matching the legacy push functions' sent signal.
+// under capability. It reports whether anything was handed off durably.
 func (p *PushLoop) spoolTelemetry(
 	producer edgeProducer,
 	queue *telemetryEdgeQueue,
@@ -229,7 +204,7 @@ func (p *PushLoop) appendTelemetryBuilt(producer edgeProducer, built *telemetryB
 
 // buildTelemetryItem stamps the host producer identity onto a clone of the
 // batch, drops records the contract does not route (the OTLP relay kinds,
-// which the legacy core path also counted and dropped), and expands the
+// which travel on the OTLP relay contract), and expands the
 // batch into spooled parts that each form one valid record under the grant.
 // A record that cannot form a part is counted with the filtered records and
 // does not discard parts already built. The spool counters ride the first

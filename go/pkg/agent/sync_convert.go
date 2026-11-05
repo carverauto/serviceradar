@@ -23,9 +23,8 @@ import (
 )
 
 // Conversion of normalized sync device updates into SyncPageBatchV1. The
-// input update is the JSON form of a normalized update map (the same form
-// buildSyncResultsChunks marshals), so the typed page carries precisely
-// what the legacy chunk carried. The projector rebuilds each update with
+// input update is the JSON form of a normalized update map, so the typed
+// page carries precisely what the driver emitted. The projector rebuilds each update with
 // its sync_meta attached and enqueues it into the same sync ingestion
 // pipeline, so the DIRE population guard, conflicting-identity refusal and
 // ingestion ledgers downstream are unchanged.

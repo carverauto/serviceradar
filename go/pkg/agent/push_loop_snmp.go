@@ -23,7 +23,6 @@ import (
 	"time"
 
 	snmpchecker "github.com/carverauto/serviceradar/go/pkg/agent/snmp"
-	"github.com/carverauto/serviceradar/proto"
 )
 
 type snmpMetricResult struct {
@@ -53,15 +52,12 @@ type snmpMetricResult struct {
 	ProfileID string
 }
 
+// pushSNMPMetrics drains the SNMP readings onto the edge spool under the metrics
+// grant, or holds them until one is held.
 func (p *PushLoop) pushSNMPMetrics(ctx context.Context) bool {
 	p.server.mu.RLock()
-	agentID := p.server.config.AgentID
-	partition := p.server.config.Partition
-	kvStoreID := p.server.config.KVAddress
 	snmpSvc := p.server.snmpService
 	p.server.mu.RUnlock()
-	gatewayID := p.gateway.GetGatewayID()
-	runtimeMetadata := currentRuntimeMetadata()
 
 	if snmpSvc == nil || !snmpSvc.IsEnabled() {
 		return false
@@ -84,85 +80,12 @@ func (p *PushLoop) pushSNMPMetrics(ctx context.Context) bool {
 	// 3. Build results for all drained points
 	results := p.buildSNMPDrainedResults(statuses, metrics, snmpSvc.GetProfileID())
 
-	// One path at a time: while the agent holds a metrics grant, SNMP readings go
-	// only to the edge spool. Without one, readings the spool never admitted take
-	// the legacy path with the new ones.
-	if capability := p.edgeMetricsCapability(time.Now()); capability != nil {
-		return spoolEdgeMetrics(p, snmpEdgeMetrics(), &p.snmpEdge, results, capability)
-	}
-	// Readings taken back from the edge queue return to it unless this send
-	// delivers them.
-	taken := p.snmpEdge.take()
-	delivered := false
-	defer func() {
-		if !delivered {
-			restoreEdgeMetrics(p, snmpEdgeMetrics(), &p.snmpEdge, taken)
-		}
-	}()
-	results = append(queuedItems(taken), results...)
-	if len(results) == 0 {
+	capability := p.edgeMetricsCapability(time.Now())
+	if capability == nil {
+		holdEdgeMetrics(p, snmpEdgeMetrics(), &p.snmpEdge, results)
 		return false
 	}
-
-	messageBytes, err := marshalSNMPMetricEnvelope(results, metricEnvelopeContext{
-		AgentID:   agentID,
-		GatewayID: gatewayID,
-		Partition: partition,
-		KvStoreID: kvStoreID,
-	})
-	if err != nil {
-		p.logger.Warn().Err(err).Msg("Failed to marshal SNMP metric envelope")
-		return false
-	}
-	p.publishAddonMetricFeed("snmp", messageBytes)
-
-	status := &proto.GatewayServiceStatus{
-		ServiceName:  "snmp",
-		Available:    true,
-		Message:      messageBytes,
-		ServiceType:  "snmp",
-		ResponseTime: 0,
-		AgentId:      agentID,
-		GatewayId:    gatewayID,
-		Partition:    partition,
-		Source:       "snmp-metrics",
-		KvStoreId:    kvStoreID,
-	}
-
-	chunk := &proto.GatewayStatusChunk{
-		Services:    []*proto.GatewayServiceStatus{status},
-		GatewayId:   gatewayID,
-		AgentId:     agentID,
-		Timestamp:   time.Now().UnixNano(),
-		Partition:   partition,
-		SourceIp:    p.getSourceIP(),
-		IsFinal:     true,
-		ChunkIndex:  0,
-		TotalChunks: 1,
-		KvStoreId:   kvStoreID,
-		Version:     runtimeMetadata.Version,
-		Hostname:    runtimeMetadata.Hostname,
-		Os:          runtimeMetadata.Os,
-		Arch:        runtimeMetadata.Arch,
-	}
-
-	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	resp, err := p.gateway.StreamStatus(pushCtx, []*proto.GatewayStatusChunk{chunk})
-	if err != nil {
-		p.logger.Error().Err(err).Msg("Failed to stream SNMP metrics to gateway")
-		return false
-	}
-
-	if resp.Received {
-		delivered = true
-		p.logger.Info().Int("result_count", len(results)).Msg("Successfully streamed SNMP metrics to gateway")
-		return true
-	}
-
-	p.logger.Warn().Msg("Gateway did not acknowledge SNMP metrics stream")
-	return false
+	return spoolEdgeMetrics(p, snmpEdgeMetrics(), &p.snmpEdge, results, capability)
 }
 
 func (p *PushLoop) buildSNMPDrainedResults(

@@ -35,9 +35,8 @@ import (
 // set; the provenance comes from the host's assignment record and loaded
 // module bytes, never from the guest payload, so core can key the result to
 // its assignment's own service identity. A result stays queued until the
-// spool has admitted every part that formed a valid record, or the legacy
-// status path has carried it; built parts keep the event ids they were first
-// built with across spool retries.
+// spool has admitted every part that formed a valid record; built parts keep
+// the event ids they were first built with across spool retries.
 
 const (
 	// maxEdgePluginQueuedResults bounds the plugin-results retry queue, in
@@ -53,8 +52,8 @@ const (
 var errPluginResultTooLarge = errors.New("plugin result exceeds the durable record body bound")
 
 // SetEdgePluginResultSpool connects the plugin-results producer to the
-// sender's one open spool. Call before Start; a nil spool keeps plugin
-// results on their legacy path.
+// sender's one open spool. Call before Start; with a nil spool plugin results
+// are held as they are without a grant.
 func (p *PushLoop) SetEdgePluginResultSpool(sp *spool.Spool) {
 	if sp == nil {
 		p.edgePluginResultSpool = nil
@@ -64,8 +63,7 @@ func (p *PushLoop) SetEdgePluginResultSpool(sp *spool.Spool) {
 }
 
 // edgePluginResultsCapability is the current standing grant for the plugin
-// results batch contract, or nil when plugin results ride their legacy path
-// this cycle.
+// results batch contract, or nil when plugin results must be held this cycle.
 func (p *PushLoop) edgePluginResultsCapability(now time.Time) *edgev1.EdgeSignedCapabilityV1 {
 	if p == nil || p.edgePluginResultSpool == nil {
 		return nil
@@ -74,9 +72,7 @@ func (p *PushLoop) edgePluginResultsCapability(now time.Time) *edgev1.EdgeSigned
 }
 
 // pluginResultEdgeItem is one provenance group of drained plugin results
-// awaiting the spool. It retains the host results it came from so an item the
-// spool has admitted no part of can still ride the legacy status path exactly
-// as drained.
+// awaiting the spool.
 type pluginResultEdgeItem struct {
 	provenance  *edgev1.PluginResultProvenanceV1
 	serviceName string
@@ -111,41 +107,16 @@ func (q *pluginResultEdgeQueue) queuedResults() int {
 	return total
 }
 
-// enqueue adds items behind anything already queued, or ahead of the pending
-// items when they are older than everything pending (a retained legacy set),
-// dropping the oldest backlog past the bound. The head item is never dropped
-// for exceeding the bound on its own. It returns how many results the bound
-// dropped.
-func (q *pluginResultEdgeQueue) enqueue(items []pluginResultEdgeItem, older bool) (dropped int) {
-	if older {
-		q.pending = append(items, q.pending...)
-	} else {
-		q.pending = append(q.pending, items...)
-	}
+// enqueue adds items behind anything already queued, dropping the oldest
+// backlog past the bound. The head item is never dropped for exceeding the
+// bound on its own. It returns how many results the bound dropped.
+func (q *pluginResultEdgeQueue) enqueue(items []pluginResultEdgeItem) (dropped int) {
+	q.pending = append(q.pending, items...)
 	for q.queuedResults() > maxEdgePluginQueuedResults && len(q.pending) > 1 {
 		dropped += q.pending[0].count()
 		q.pending = q.pending[1:]
 	}
 	return dropped
-}
-
-// take returns, oldest first, the queued items the legacy path may carry in
-// one stream of at most limit results: the built item only when the spool has
-// admitted no part of it, then pending items. Items past limit stay queued.
-func (q *pluginResultEdgeQueue) take(limit int) []pluginResultEdgeItem {
-	var items []pluginResultEdgeItem
-	total := 0
-	if q.built != nil && q.built.next == 0 && q.built.item.count() <= limit {
-		items = append(items, q.built.item)
-		total = q.built.item.count()
-		q.built = nil
-	}
-	for len(q.pending) > 0 && total+q.pending[0].count() <= limit {
-		items = append(items, q.pending[0])
-		total += q.pending[0].count()
-		q.pending = q.pending[1:]
-	}
-	return items
 }
 
 // spoolPluginResults packs and appends queued plugin results under capability
@@ -198,7 +169,7 @@ func (p *PushLoop) appendPluginResultBuilt(built *pluginResultBuiltItem) bool {
 
 // buildPluginResultItem converts one provenance group's host results into
 // typed items and packs them into valid records. A result whose payload does
-// not normalize becomes the same UNKNOWN error result the legacy path sends.
+// not normalize becomes an UNKNOWN error result.
 // A head result that cannot form a valid part for a size, row-ceiling, or
 // record-bound reason is dropped alone (counted in dropped) and packing
 // continues. A semantic batch refusal stops the group: parts already packed
@@ -337,9 +308,9 @@ func groupPluginResults(results []PluginResult) []pluginResultEdgeItem {
 }
 
 // convertPluginResult turns one host result into its typed item, starting
-// from the same normalized payload the legacy status path sends (host labels
-// and acknowledgement list stamped, legacy metrics dropped). A payload that
-// does not normalize becomes the legacy UNKNOWN error result.
+// from its normalized payload (host labels and acknowledgement list stamped,
+// any embedded pre-cutover metrics dropped). A payload that does not
+// normalize becomes an UNKNOWN error result.
 func (p *PushLoop) convertPluginResult(
 	result PluginResult,
 	agentID string,

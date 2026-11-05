@@ -287,4 +287,5 @@ normal interval.
 - Sweep results update device availability and discovery metadata. When one
   agent sweeps a device at several addresses, the device is available from that
   agent if any address answered in the sweep, whatever order the results arrive in.
-- Large result sets are chunked by the agent and streamed to the gateway.
+- Large result sets are split by the agent into several edge records, each within
+  the record size bound.

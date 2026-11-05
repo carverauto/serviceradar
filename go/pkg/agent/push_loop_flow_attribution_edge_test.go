@@ -17,7 +17,6 @@
 package agent
 
 import (
-	"context"
 	"strings"
 	"testing"
 	"time"
@@ -76,7 +75,7 @@ func spooledFlowAttributionRecords(t *testing.T, sp *spool.Spool) ([]*edgev1.Edg
 	})
 }
 
-func TestFlowAttributionWithGrantSpoolsEdgeRecordAndSkipsStreamStatus(t *testing.T) {
+func TestFlowAttributionWithGrantSpoolsEdgeRecord(t *testing.T) {
 	sp := openTestEdgeSpool(t)
 	now := time.Now().UTC()
 	pending := &flowAttributionPendingBatch{
@@ -88,21 +87,15 @@ func TestFlowAttributionWithGrantSpoolsEdgeRecordAndSkipsStreamStatus(t *testing
 		dropBaselinePending: true,
 	}
 
-	streamCalls := 0
 	loop := &PushLoop{
 		server:                  &Server{config: &ServerConfig{AgentID: sysmonEdgeAgentID, Partition: "default", HostIP: "192.0.2.10"}},
 		logger:                  logger.NewTestLogger(),
 		flowAttributionDelivery: flowAttributionDeliveryQueue{pending: pending},
-		flowAttributionStreamStatus: func(_ context.Context, _ []*proto.GatewayStatusChunk) (*proto.GatewayStatusResponse, error) {
-			streamCalls++
-			return &proto.GatewayStatusResponse{Received: true}, nil
-		},
 	}
 	loop.SetEdgeMetricsSpool(sp)
 	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentFlowAttributionGrant(t)}, now)
 
-	require.True(t, loop.pushFlowAttribution(context.Background()))
-	require.Zero(t, streamCalls, "StreamStatus must not be called while the agent holds a flow attribution grant")
+	require.True(t, loop.pushFlowAttribution())
 	require.Nil(t, loop.flowAttributionDelivery.pending)
 	require.Equal(t, uint64(11), loop.flowAttributionDelivery.droppedAcked.Load())
 	require.Equal(t, uint64(3), loop.server.deliveryTelemetry.flowAttributionForwarded.Load())
@@ -115,7 +108,9 @@ func TestFlowAttributionWithGrantSpoolsEdgeRecordAndSkipsStreamStatus(t *testing
 	require.Equal(t, uint32(4), batches[0].GetDroppedSinceLast())
 }
 
-func TestFlowAttributionWithoutGrantUsesLegacyStreamStatus(t *testing.T) {
+// Without a flow attribution grant nothing is sent anywhere: the drained batch
+// stays pending, the wait is counted, and the batch spools once a grant is held.
+func TestFlowAttributionWithoutGrantHoldsBatchUntilGrant(t *testing.T) {
 	sp := openTestEdgeSpool(t)
 	now := time.Now().UTC()
 	pending := &flowAttributionPendingBatch{
@@ -124,25 +119,30 @@ func TestFlowAttributionWithoutGrantUsesLegacyStreamStatus(t *testing.T) {
 		batchEnd:   now,
 	}
 
-	streamCalls := 0
 	loop := &PushLoop{
 		server:                  &Server{config: &ServerConfig{AgentID: sysmonEdgeAgentID, Partition: "default", HostIP: "192.0.2.10"}},
 		logger:                  logger.NewTestLogger(),
 		flowAttributionDelivery: flowAttributionDeliveryQueue{pending: pending},
-		flowAttributionStreamStatus: func(_ context.Context, _ []*proto.GatewayStatusChunk) (*proto.GatewayStatusResponse, error) {
-			streamCalls++
-			return &proto.GatewayStatusResponse{Received: true}, nil
-		},
 	}
 	loop.SetEdgeMetricsSpool(sp)
 
-	require.True(t, loop.pushFlowAttribution(context.Background()))
-	require.Equal(t, 1, streamCalls)
+	require.False(t, loop.pushFlowAttribution())
+	require.Same(t, pending, loop.flowAttributionDelivery.pending, "the held batch must not be dropped or replaced")
 	records, _ := spooledFlowAttributionRecords(t, sp)
 	require.Empty(t, records)
+	var metrics strings.Builder
+	require.NoError(t, loop.server.edgeProducerDrops.write(&metrics))
+	require.Contains(t, metrics.String(), `agent_edge_record_grant_holds_total{producer="flow_attribution"} 1`)
+
+	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentFlowAttributionGrant(t)}, now)
+	require.True(t, loop.pushFlowAttribution())
+	require.Nil(t, loop.flowAttributionDelivery.pending)
+	records, batches := spooledFlowAttributionRecords(t, sp)
+	require.Len(t, records, 1)
+	require.Len(t, batches[0].GetEvents(), 2)
 }
 
-func TestFlowAttributionRetryableSpoolRefusalRetainsBuiltEventIDAndFallbackOnGrantWithdrawal(t *testing.T) {
+func TestFlowAttributionRetryableSpoolRefusalRetainsBuiltEventIDAcrossGrantWithdrawal(t *testing.T) {
 	now := time.Now().UTC()
 	pending := &flowAttributionPendingBatch{
 		events:              sampleFlowAttributionEvents(2),
@@ -161,16 +161,24 @@ func TestFlowAttributionRetryableSpoolRefusalRetainsBuiltEventIDAndFallbackOnGra
 	loop.SetEdgeMetricsSpool(refusingEdgeSpool(t))
 	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentFlowAttributionGrant(t)}, now)
 
-	require.False(t, loop.pushFlowAttribution(context.Background()))
+	require.False(t, loop.pushFlowAttribution())
 	require.NotNil(t, loop.flowAttributionDelivery.pending)
 	require.Zero(t, loop.flowAttributionDelivery.droppedAcked.Load())
 	require.NotNil(t, loop.flowAttributionDelivery.edgePending)
 	cachedEventID := append([]byte(nil), loop.flowAttributionDelivery.edgePending.built.record.GetEventId()...)
 	require.Len(t, cachedEventID, 16)
 
+	// A grant withdrawn while the record waits keeps the built record and its
+	// batch; nothing is sent elsewhere.
 	roomy := openTestEdgeSpool(t)
 	loop.SetEdgeMetricsSpool(roomy)
-	require.True(t, loop.pushFlowAttribution(context.Background()))
+	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, nil, now)
+	require.False(t, loop.pushFlowAttribution())
+	require.NotNil(t, loop.flowAttributionDelivery.edgePending)
+	require.NotNil(t, loop.flowAttributionDelivery.pending)
+
+	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentFlowAttributionGrant(t)}, now)
+	require.True(t, loop.pushFlowAttribution())
 	require.Nil(t, loop.flowAttributionDelivery.pending)
 	require.Nil(t, loop.flowAttributionDelivery.edgePending)
 	require.Equal(t, uint64(7), loop.flowAttributionDelivery.droppedAcked.Load())
@@ -178,28 +186,6 @@ func TestFlowAttributionRetryableSpoolRefusalRetainsBuiltEventIDAndFallbackOnGra
 	records, _ := spooledFlowAttributionRecords(t, roomy)
 	require.Len(t, records, 1)
 	require.Equal(t, cachedEventID, records[0].GetEventId(), "retryable spool refusal must retry the exact same event_id")
-
-	// Also verify fallback to legacy StreamStatus if grant is withdrawn before any record is appended.
-	pendingFallback := &flowAttributionPendingBatch{
-		events:     sampleFlowAttributionEvents(2),
-		batchStart: now.Add(-time.Second),
-		batchEnd:   now,
-	}
-	streamCalls := 0
-	loop.flowAttributionDelivery.pending = pendingFallback
-	loop.SetEdgeMetricsSpool(refusingEdgeSpool(t))
-	loop.flowAttributionStreamStatus = func(_ context.Context, _ []*proto.GatewayStatusChunk) (*proto.GatewayStatusResponse, error) {
-		streamCalls++
-		return &proto.GatewayStatusResponse{Received: true}, nil
-	}
-	require.False(t, loop.pushFlowAttribution(context.Background()))
-	require.NotNil(t, loop.flowAttributionDelivery.edgePending)
-
-	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, nil, now)
-	require.True(t, loop.pushFlowAttribution(context.Background()))
-	require.Equal(t, 1, streamCalls)
-	require.Nil(t, loop.flowAttributionDelivery.edgePending)
-	require.Nil(t, loop.flowAttributionDelivery.pending)
 }
 
 func TestFlowAttributionSingleOversizedEventQuarantinedOnEdgePath(t *testing.T) {
@@ -229,8 +215,10 @@ func TestFlowAttributionSingleOversizedEventQuarantinedOnEdgePath(t *testing.T) 
 	loop.SetEdgeMetricsSpool(sp)
 	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentFlowAttributionGrant(t)}, now)
 
-	require.True(t, loop.pushFlowAttribution(context.Background()))
+	require.True(t, loop.pushFlowAttribution())
 	require.Equal(t, uint64(1), loop.server.deliveryTelemetry.flowAttributionQuarantined.Load())
+	poisonItems, _ := loop.server.deliveryTelemetry.poisonDropTotals(poisonReasonPayloadTooLarge)
+	require.Equal(t, uint64(1), poisonItems)
 	require.Equal(t, uint64(1), loop.server.deliveryTelemetry.flowAttributionForwarded.Load())
 
 	var dropMetrics strings.Builder

@@ -190,24 +190,6 @@ func (s *MultiSweepService) CancelSweepGroup(groupID string) (bool, error) {
 	return svc.CancelRun()
 }
 
-// RunSweepGroupExecution runs one sweep of groupID as the core-minted
-// executionID of a leased slot.
-func (s *MultiSweepService) RunSweepGroupExecution(ctx context.Context, groupID string, executionID string) error {
-	if groupID == "" {
-		return errSweepGroupIDRequired
-	}
-
-	s.mu.RLock()
-	svc := s.groups[groupID]
-	s.mu.RUnlock()
-
-	if svc == nil {
-		return errSweepGroupNotFound
-	}
-
-	return svc.RunOnceForExecution(ctx, executionID)
-}
-
 // SetGroupLeaseDriven replaces a group's local ticker with leased-slot
 // execution, or returns it to its local schedule. The choice is remembered
 // for services a later config push creates for the group, and applies to a

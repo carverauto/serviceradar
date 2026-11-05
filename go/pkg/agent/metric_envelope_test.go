@@ -12,11 +12,11 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func TestMarshalSysmonMetricEnvelope(t *testing.T) {
+func TestBuildSysmonMetricBatch(t *testing.T) {
 	t.Parallel()
 
 	partition := defaultPartition
-	payload, err := marshalSysmonMetricEnvelope(&sysmon.MetricSample{
+	batch, err := buildSysmonMetricBatch([]*sysmon.MetricSample{{
 		Timestamp: "2026-06-12T00:00:00Z",
 		HostID:    "host-1",
 		HostIP:    "10.0.0.10",
@@ -40,10 +40,9 @@ func TestMarshalSysmonMetricEnvelope(t *testing.T) {
 				StartTime:   "2026-06-11T23:00:00Z",
 			},
 		},
-	}, metricEnvelopeContext{AgentID: "agent-fallback", GatewayID: "gateway-1", Partition: "fallback"})
+	}}, metricEnvelopeContext{AgentID: "agent-fallback", GatewayID: "gateway-1", Partition: "fallback"})
 	require.NoError(t, err)
 
-	batch := decodeMetricBatch(t, payload)
 	require.Equal(t, metricEnvelopeSchemaVersion, batch.SchemaVersion)
 	require.Equal(t, "agent-1", batch.Resource.AgentId)
 	require.Equal(t, "gateway-1", batch.Resource.GatewayId)
@@ -72,10 +71,10 @@ func TestMarshalSysmonMetricEnvelope(t *testing.T) {
 	require.Equal(t, "104857600", processMemory.Points[0].RawValue)
 }
 
-func TestMarshalSysmonMetricEnvelopeFallsBackToProcessListLength(t *testing.T) {
+func TestBuildSysmonMetricBatchFallsBackToProcessListLength(t *testing.T) {
 	t.Parallel()
 
-	payload, err := marshalSysmonMetricEnvelope(&sysmon.MetricSample{
+	batch, err := buildSysmonMetricBatch([]*sysmon.MetricSample{{
 		Timestamp: "2026-06-12T00:00:00Z",
 		HostID:    "host-1",
 		HostIP:    "10.0.0.10",
@@ -83,18 +82,18 @@ func TestMarshalSysmonMetricEnvelopeFallsBackToProcessListLength(t *testing.T) {
 			{PID: 1, Name: "init"},
 			{PID: 2, Name: "agent"},
 		},
-	}, metricEnvelopeContext{AgentID: "agent-1", GatewayID: "gateway-1", Partition: "default"})
+	}}, metricEnvelopeContext{AgentID: "agent-1", GatewayID: "gateway-1", Partition: "default"})
 	require.NoError(t, err)
 
-	metrics := metricsByName(decodeMetricBatch(t, payload))
+	metrics := metricsByName(batch)
 	require.InDelta(t, 2.0, metrics["process.count"].Points[0].Value, 1e-9)
 }
 
-func TestMarshalSysmonMetricEnvelopeBatchIncludesMultipleSamples(t *testing.T) {
+func TestBuildSysmonMetricBatchIncludesMultipleSamples(t *testing.T) {
 	t.Parallel()
 
 	partition := defaultPartition
-	payload, err := marshalSysmonMetricEnvelopeBatch([]*sysmon.MetricSample{
+	batch, err := buildSysmonMetricBatch([]*sysmon.MetricSample{
 		{
 			Timestamp: "2026-06-12T00:00:00Z",
 			HostID:    "host-1",
@@ -118,7 +117,6 @@ func TestMarshalSysmonMetricEnvelopeBatchIncludesMultipleSamples(t *testing.T) {
 	}, metricEnvelopeContext{AgentID: "agent-fallback", GatewayID: "gateway-1", Partition: "fallback"})
 	require.NoError(t, err)
 
-	batch := decodeMetricBatch(t, payload)
 	require.Equal(t, metricEnvelopeSchemaVersion, batch.SchemaVersion)
 	require.Equal(t, "sysmon-metrics", batch.IngestIdentity.Source)
 	require.Len(t, batch.Metrics, 4)
@@ -132,11 +130,11 @@ func TestMarshalSysmonMetricEnvelopeBatchIncludesMultipleSamples(t *testing.T) {
 	require.InDelta(t, 20.0, cpuMetrics[secondObservedAt].Points[0].Value, 1e-9)
 }
 
-func TestMarshalSNMPMetricEnvelopePreservesCounterSemantics(t *testing.T) {
+func TestBuildSNMPMetricBatchPreservesCounterSemantics(t *testing.T) {
 	t.Parallel()
 
 	ifIndex := 7
-	payload, err := marshalSNMPMetricEnvelope([]snmpMetricResult{
+	batch, err := buildSNMPMetricBatch([]snmpMetricResult{
 		{
 			Target:       "router-a",
 			Host:         "10.0.0.20",
@@ -152,7 +150,6 @@ func TestMarshalSNMPMetricEnvelopePreservesCounterSemantics(t *testing.T) {
 	}, metricEnvelopeContext{AgentID: "agent-1", GatewayID: "gateway-1", Partition: defaultPartition})
 	require.NoError(t, err)
 
-	batch := decodeMetricBatch(t, payload)
 	require.Equal(t, "snmp-metrics", batch.IngestIdentity.Source)
 	require.Len(t, batch.Metrics, 1)
 
@@ -180,11 +177,11 @@ func TestMarshalSNMPMetricEnvelopePreservesCounterSemantics(t *testing.T) {
 	require.Equal(t, ".1.3.6.1.2.1.31.1.1.1.6.7", entry(metric.Metadata, "oid"))
 }
 
-func TestMarshalSNMPMetricEnvelopeCarriesProfileIDInPointMetadata(t *testing.T) {
+func TestBuildSNMPMetricBatchCarriesProfileIDInPointMetadata(t *testing.T) {
 	t.Parallel()
 
 	profileID := "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-	payload, err := marshalSNMPMetricEnvelope([]snmpMetricResult{
+	batch, err := buildSNMPMetricBatch([]snmpMetricResult{
 		{
 			Target:    "clearpass-a",
 			Host:      "10.0.0.8",
@@ -199,7 +196,6 @@ func TestMarshalSNMPMetricEnvelopeCarriesProfileIDInPointMetadata(t *testing.T) 
 	}, metricEnvelopeContext{AgentID: "agent-1", GatewayID: "gateway-1", Partition: defaultPartition})
 	require.NoError(t, err)
 
-	batch := decodeMetricBatch(t, payload)
 	require.Len(t, batch.Metrics, 1)
 
 	point := batch.Metrics[0].Points[0]
@@ -209,10 +205,10 @@ func TestMarshalSNMPMetricEnvelopeCarriesProfileIDInPointMetadata(t *testing.T) 
 	require.Empty(t, entry(point.Attributes, "snmp_profile_id"))
 }
 
-func TestMarshalICMPMetricEnvelope(t *testing.T) {
+func TestBuildICMPMetricBatch(t *testing.T) {
 	t.Parallel()
 
-	payload, err := marshalICMPMetricEnvelope([]icmpCheckResult{
+	batch, err := buildICMPMetricBatch([]icmpCheckResult{
 		{
 			CheckID:        "check-1",
 			CheckName:      "core-router",
@@ -227,7 +223,6 @@ func TestMarshalICMPMetricEnvelope(t *testing.T) {
 	}, metricEnvelopeContext{AgentID: "agent-1", GatewayID: "gateway-1", Partition: defaultPartition, KvStoreID: "kv-1"})
 	require.NoError(t, err)
 
-	batch := decodeMetricBatch(t, payload)
 	require.Equal(t, metricEnvelopeSchemaVersion, batch.SchemaVersion)
 	require.Equal(t, "icmp-metrics", batch.IngestIdentity.Source)
 	require.Equal(t, "agent-icmp", batch.IngestIdentity.ProducerKind)
@@ -258,10 +253,10 @@ func TestMarshalICMPMetricEnvelope(t *testing.T) {
 	}
 }
 
-func TestMarshalMTRMetricEnvelope(t *testing.T) {
+func TestBuildMTRMetricBatch(t *testing.T) {
 	t.Parallel()
 
-	payload, err := marshalMTRMetricEnvelope([]mtrCheckResult{
+	batch, err := buildMTRMetricBatch([]mtrCheckResult{
 		{
 			CheckID:   "check-1",
 			CheckName: "wan-path",
@@ -300,7 +295,6 @@ func TestMarshalMTRMetricEnvelope(t *testing.T) {
 	}, metricEnvelopeContext{AgentID: "agent-1", GatewayID: "gateway-1", Partition: defaultPartition, KvStoreID: "kv-1"})
 	require.NoError(t, err)
 
-	batch := decodeMetricBatch(t, payload)
 	require.Equal(t, metricEnvelopeSchemaVersion, batch.SchemaVersion)
 	require.Equal(t, "mtr-metrics", batch.IngestIdentity.Source)
 	require.Equal(t, "agent-mtr", batch.IngestIdentity.ProducerKind)
@@ -328,10 +322,10 @@ func TestMarshalMTRMetricEnvelope(t *testing.T) {
 	require.Equal(t, "1100", metrics["mtr.hop.avg_us"].Points[0].RawValue)
 }
 
-func TestMarshalSweepMetricEnvelope(t *testing.T) {
+func TestBuildSweepMetricBatch(t *testing.T) {
 	t.Parallel()
 
-	payload, err := marshalSweepMetricEnvelopeFromMap(map[string]any{
+	batch, err := buildSweepMetricBatchFromMap(map[string]any{
 		"network":         "edge-lan",
 		"execution_id":    "exec-1",
 		"sweep_group_id":  "group-1",
@@ -375,7 +369,6 @@ func TestMarshalSweepMetricEnvelope(t *testing.T) {
 	}, metricEnvelopeContext{AgentID: "agent-1", GatewayID: "gateway-1", Partition: defaultPartition, KvStoreID: "kv-1"})
 	require.NoError(t, err)
 
-	batch := decodeMetricBatch(t, payload)
 	require.Equal(t, metricEnvelopeSchemaVersion, batch.SchemaVersion)
 	require.Equal(t, "sweep-metrics", batch.IngestIdentity.Source)
 	require.Equal(t, "agent-sweep", batch.IngestIdentity.ProducerKind)
@@ -443,14 +436,6 @@ func TestDefaultStatusSourceMarksRperfMetricEnvelope(t *testing.T) {
 	require.Equal(t, "status", defaultStatusSource(&srproto.StatusResponse{Message: payload}, "sweep", "sweep"))
 }
 
-func decodeMetricBatch(t *testing.T, payload []byte) *metricpb.MetricBatch {
-	t.Helper()
-
-	var batch metricpb.MetricBatch
-	require.NoError(t, proto.Unmarshal(payload, &batch))
-	return &batch
-}
-
 func metricsByName(batch *metricpb.MetricBatch) map[string]*metricpb.Metric {
 	metrics := make(map[string]*metricpb.Metric, len(batch.Metrics))
 	for _, metric := range batch.Metrics {
@@ -487,10 +472,10 @@ func entry(entries []*metricpb.StringMapEntry, key string) string {
 // float representation, and used to be dropped here before it ever reached the
 // consumer. That left it with nowhere to land at all, since
 // timeseries_metrics.value is NOT NULL double precision.
-func TestMarshalSNMPMetricEnvelopeKeepsStringReadings(t *testing.T) {
+func TestBuildSNMPMetricBatchKeepsStringReadings(t *testing.T) {
 	t.Parallel()
 
-	payload, err := marshalSNMPMetricEnvelope([]snmpMetricResult{
+	batch, err := buildSNMPMetricBatch([]snmpMetricResult{
 		{
 			Target:    "clearpass-a",
 			Host:      "10.0.0.30",
@@ -504,7 +489,6 @@ func TestMarshalSNMPMetricEnvelopeKeepsStringReadings(t *testing.T) {
 	}, metricEnvelopeContext{AgentID: "agent-1", GatewayID: "gateway-1", Partition: defaultPartition})
 	require.NoError(t, err)
 
-	batch := decodeMetricBatch(t, payload)
 	require.Len(t, batch.Metrics, 1)
 
 	point := batch.Metrics[0].Points[0]
@@ -519,10 +503,10 @@ func TestMarshalSNMPMetricEnvelopeKeepsStringReadings(t *testing.T) {
 
 // A reading with neither a number nor a raw string is genuinely nothing to
 // record, and must still be dropped rather than stored as an empty fact.
-func TestMarshalSNMPMetricEnvelopeStillDropsValuelessReadings(t *testing.T) {
+func TestBuildSNMPMetricBatchStillDropsValuelessReadings(t *testing.T) {
 	t.Parallel()
 
-	payload, err := marshalSNMPMetricEnvelope([]snmpMetricResult{
+	batch, err := buildSNMPMetricBatch([]snmpMetricResult{
 		{
 			Target:    "clearpass-a",
 			Host:      "10.0.0.30",
@@ -536,17 +520,17 @@ func TestMarshalSNMPMetricEnvelopeStillDropsValuelessReadings(t *testing.T) {
 	}, metricEnvelopeContext{AgentID: "agent-1", GatewayID: "gateway-1", Partition: defaultPartition})
 
 	require.ErrorIs(t, err, errSnmpNoMetricPoints)
-	require.Nil(t, payload)
+	require.Nil(t, batch)
 }
 
 // The walk index rides as its own metadata field. Recovering it from
 // interface_uid instead would be wrong for a scalar get on a non-interface OID
 // whose last arc is a positive integer, where ifIndexForSNMPPoint derives
 // "ifindex:<last arc>" from the OID itself.
-func TestMarshalSNMPMetricEnvelopeCarriesRawOIDIndex(t *testing.T) {
+func TestBuildSNMPMetricBatchCarriesRawOIDIndex(t *testing.T) {
 	t.Parallel()
 
-	payload, err := marshalSNMPMetricEnvelope([]snmpMetricResult{
+	batch, err := buildSNMPMetricBatch([]snmpMetricResult{
 		{
 			Target:    "clearpass-a",
 			Host:      "10.0.0.30",
@@ -571,7 +555,6 @@ func TestMarshalSNMPMetricEnvelopeCarriesRawOIDIndex(t *testing.T) {
 	}, metricEnvelopeContext{AgentID: "agent-1", GatewayID: "gateway-1", Partition: defaultPartition})
 	require.NoError(t, err)
 
-	batch := decodeMetricBatch(t, payload)
 	require.Len(t, batch.Metrics, 2)
 
 	byName := map[string]*metricpb.MetricPoint{}

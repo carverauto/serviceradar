@@ -50,28 +50,29 @@ func (p *PushLoop) edgeWorkloadIdentityCapability(now time.Time) *edgev1.EdgeSig
 	return p.edgeOutputGrants.current(edgerecord.WorkloadIdentityContractID, now)
 }
 
+// spoolWorkloadIdentity reads a changed snapshot, builds it under capability,
+// and appends its records, keeping the built snapshot for retry when the spool
+// refuses a part.
 func (p *PushLoop) spoolWorkloadIdentity(capability *edgev1.EdgeSignedCapabilityV1) bool {
 	q := &p.workloadIdentityEdge
-	if q.built == nil {
-		raw, sig, ok := p.nextWorkloadIdentitySnapshot()
-		if !ok {
+	raw, sig, ok := p.nextWorkloadIdentitySnapshot()
+	if !ok {
+		return false
+	}
+	records, bodies, dropped, err := workloadIdentityChunks(raw, capability)
+	p.dropEdgeTelemetry(edgeProducerWorkloadIdentity, edgeDropInvalidRecord, dropped)
+	if err != nil {
+		p.logger.Warn().Err(err).Str("contract", edgerecord.WorkloadIdentityContractID).
+			Msg("Dropping workload identity snapshot that cannot form an edge record")
+		if len(records) == 0 {
+			p.commitWorkloadIdentitySignature(sig)
 			return false
 		}
-		records, bodies, dropped, err := workloadIdentityChunks(raw, capability)
-		p.dropEdgeTelemetry(edgeProducerWorkloadIdentity, edgeDropInvalidRecord, dropped)
-		if err != nil {
-			p.logger.Warn().Err(err).Str("contract", edgerecord.WorkloadIdentityContractID).
-				Msg("Dropping workload identity snapshot that cannot form an edge record")
-			if len(records) == 0 {
-				p.commitWorkloadIdentitySignature(sig)
-				return false
-			}
-		}
-		q.built = &workloadIdentityBuiltItem{
-			sig:     sig,
-			records: records,
-			bodies:  bodies,
-		}
+	}
+	q.built = &workloadIdentityBuiltItem{
+		sig:     sig,
+		records: records,
+		bodies:  bodies,
 	}
 	if !p.appendWorkloadIdentityBuilt(q.built) {
 		return false

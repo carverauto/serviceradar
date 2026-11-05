@@ -58,11 +58,6 @@ type limitedJSONBuffer struct {
 	limit int
 }
 
-type pluginResultStatusStreamer func(
-	context.Context,
-	[]*proto.GatewayStatusChunk,
-) (*proto.GatewayStatusResponse, error)
-
 func (b *limitedJSONBuffer) Write(p []byte) (int, error) {
 	if b.limit > 0 && b.Len()+len(p) > b.limit {
 		remaining := b.limit - b.Len()
@@ -147,25 +142,23 @@ type PushLoop struct {
 	edgeSweepSpool *spool.Spool
 	// edgeMetricsSpool is the sender's one open bulk spool. Metric batches,
 	// flow-attribution windows, and OTLP relay frames append here while the
-	// agent holds the matching standing grant. Nil keeps each of those on its
-	// legacy path.
+	// agent holds the matching standing grant. Nil (the spool did not open)
+	// makes each of those producers hold its data as it does without a grant.
 	edgeMetricsSpool edgeMetricsAppender
 	// edgeTelemetrySpool is the same one open spool, connected for plugin and
-	// add-on telemetry; nil (the spool did not open) keeps telemetry on its
-	// legacy status path.
+	// add-on telemetry; nil when the spool did not open.
 	edgeTelemetrySpool edgeMetricsAppender
 	// Each telemetry producer's bounded retry queue, oldest first.
 	pluginTelemetryEdge telemetryEdgeQueue
 	addonTelemetryEdge  telemetryEdgeQueue
 	// edgePluginResultSpool is the same one open spool, connected for Wasm
-	// plugin results; nil (the spool did not open) keeps plugin results on
-	// their legacy status path.
+	// plugin results; nil when the spool did not open.
 	edgePluginResultSpool edgeMetricsAppender
 	pluginResultsEdge     pluginResultEdgeQueue
 	// edgeDiscoverySpool is the same one open spool, connected for mapper
 	// and netprobe discovery, workload identity snapshots, k8s public endpoint
-	// snapshots, endpoint inventory scans and bumblebee scans; nil (the spool
-	// did not open) keeps them on their legacy status paths.
+	// snapshots, endpoint inventory scans and bumblebee scans; nil when the
+	// spool did not open.
 	edgeDiscoverySpool     edgeMetricsAppender
 	mapperDevicesEdge      discoveryEdgeQueue
 	mapperInterfacesEdge   discoveryEdgeQueue
@@ -188,20 +181,18 @@ type PushLoop struct {
 	// collected again until it is empty.
 	mtrEdge      mtrEdgePending
 	sweepSummary edgeMetricsQueue[map[string]any]
-	// rperfEdge holds the built records of at most one drained rperf metrics
-	// status while the spool refuses admission; polling is paused until empty.
+	// rperfEdge holds at most one drained rperf metrics status, unbuilt while
+	// no metrics grant is held and built while the spool refuses admission;
+	// polling is paused until empty.
 	rperfEdge rperfEdgePending
 	// sweepResultsEdge is the records of the unleased sweep results response
 	// being spooled, including its final record and, after a permanent spool
 	// refusal of a sibling, its cancel record.
 	sweepResultsEdge sweepResultsEdgePending
-	// sweepSummaryInFlight is the queued sweep summary samples the current status
-	// push carries on the legacy path; only the push loop goroutine touches it.
-	sweepSummaryInFlight []edgeMetricsQueued[map[string]any]
-	sweepLeaseMu         sync.Mutex
-	sweepLeases          *sweepLeaseStore // installed sweep schedule leases, opened lazily under sweepLeaseMu
-	sweepLeaseDir        string           // lease store dir override for tests; empty means defaultSweepLeaseDir()
-	sweepLeaseWake       chan struct{}    // wakes the lease executor on install; created under sweepLeaseMu at Start
+	sweepLeaseMu     sync.Mutex
+	sweepLeases      *sweepLeaseStore // installed sweep schedule leases, opened lazily under sweepLeaseMu
+	sweepLeaseDir    string           // lease store dir override for tests; empty means defaultSweepLeaseDir()
+	sweepLeaseWake   chan struct{}    // wakes the lease executor on install; created under sweepLeaseMu at Start
 
 	managedLocalNATSRunning atomic.Bool
 
@@ -234,14 +225,9 @@ type PushLoop struct {
 	ephemeralHelpersMu        sync.Mutex
 	availableEphemeralHelpers map[string]string // ephemeral-helper addon id -> resolved staged binary path
 
-	workloadIdentityMu           sync.Mutex
-	lastWorkloadIdentityFile     workloadIdentityFileSignature
-	flowAttributionDelivery      flowAttributionDeliveryQueue
-	pluginResultDeliveryMu       sync.Mutex
-	pendingPluginResults         []PluginResult
-	pluginResultStreamStatus     pluginResultStatusStreamer
-	flowAttributionStreamStatus  pluginResultStatusStreamer
-	workloadIdentityStreamStatus pluginResultStatusStreamer
+	workloadIdentityMu       sync.Mutex
+	lastWorkloadIdentityFile workloadIdentityFileSignature
+	flowAttributionDelivery  flowAttributionDeliveryQueue
 
 	stateMu  sync.RWMutex // Protects interval, configPollInterval, enrolled, configVersion, lastAttemptedConfigVersion, started
 	cancelMu sync.Mutex
@@ -257,9 +243,6 @@ const (
 	defaultEnrollRetryDelay        = 2 * time.Second
 	maxEnrollRetryDelay            = 30 * time.Second
 	defaultStatusHeartbeatInterval = 5 * time.Minute
-	minSweepResultsStreamTimeout   = 30 * time.Second
-	maxSweepResultsStreamTimeout   = 30 * time.Minute
-	sweepResultsTimeoutPerChunk    = time.Second
 	rdpAdapterAddonID              = "rdp"
 )
 
@@ -323,7 +306,7 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 		icmpLastRun:                    make(map[string]time.Time),
 		statusDebounce:                 debounce,
 		statusHeartbeat:                heartbeat,
-		syncRuntime:                    NewSyncRuntime(server, gateway, log),
+		syncRuntime:                    NewSyncRuntime(server, log),
 		mtrState:                       newMtrCheckerState(),
 		mtrOnDemandSem:                 make(chan struct{}, defaultMaxConcurrentOnDemandMtr),
 		mtrBulkJobSem:                  make(chan struct{}, 1),
@@ -340,13 +323,10 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 	remoteConsoleManager.desktopAdapter = desktopRDPHelperAdapter{HelperPathResolver: pushLoop.remoteAccessRDPAdapterPath}
 
 	// The add-on OTLP relay pumps are registered with the add-on manager at
-	// server construction, before the gateway client exists; hand them the
-	// gateway and edge spool target now that they do.
+	// server construction, before the push loop exists; hand them the edge
+	// spool target now that it does.
 	if server != nil {
 		bindAddonOtlpRelayEdge(server, pushLoop)
-		if gateway != nil {
-			bindAddonOtlpRelayGateway(server, gateway, pushLoop.getSourceIP)
-		}
 	}
 
 	// Take already-leased groups off their local ticker before the server
@@ -628,64 +608,36 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 		return
 	}
 
-	// Collect statuses, separating sysmon from other services
-	statuses, sysmonStatus := p.collectAllStatusesSeparated(ctx)
-
-	// Push regular statuses via StreamStatus
-	delivered := false
+	// Status summaries go out on the status push; every durable data family
+	// is appended to the edge spool by its producer below.
+	statuses := p.collectAllStatuses(ctx)
 	if len(statuses) > 0 {
 		now := time.Now()
 		decision := p.evaluateStatusPush(statuses, now)
 		if decision.shouldPush {
 			if p.pushRegularStatuses(ctx, statuses, decision.reason) {
 				p.recordStatusPush(decision.signature, now)
-				delivered = true
 			}
 		} else {
 			p.logger.Debug().Msg("Status unchanged; skipping status push")
 		}
 	}
-	p.settleSweepSummaryLegacy(delivered)
 
-	// Push sysmon via StreamStatus (it can have large payloads with all processes)
-	sentSysmonMetrics := false
-	if sysmonStatus != nil {
-		sentSysmonMetrics = p.pushSysmonStatus(ctx, sysmonStatus)
-	}
-
-	sentICMPResults := p.pushICMPResults(ctx)
-	sentMtrResults := p.pushMtrResults(ctx)
-	sentSweepResults := p.pushSweepResults(ctx)
-	sentMapperResults := p.pushMapperResults(ctx)
-	sentMapperInterfaces := p.pushMapperInterfaces(ctx)
-	sentMapperTopology := p.pushMapperTopology(ctx)
-	sentSNMPMetrics := p.pushSNMPMetrics(ctx)
-	sentNetprobeResults := p.pushNetprobeResults(ctx)
-	sentFlowAttribution := p.pushFlowAttribution(ctx)
-	sentWorkloadIdentity := p.pushWorkloadIdentity(ctx)
-	sentPluginResults := p.pushPluginResults(ctx)
-	sentPluginSignals := p.pushPluginSignals(ctx)
-	sentPluginTelemetry := p.pushPluginTelemetry(ctx)
-	sentAddonTelemetry := p.pushAddonTelemetry(ctx)
-
-	if len(statuses) == 0 &&
-		!sentSysmonMetrics &&
-		!sentICMPResults &&
-		!sentMtrResults &&
-		!sentSweepResults &&
-		!sentMapperResults &&
-		!sentMapperInterfaces &&
-		!sentMapperTopology &&
-		!sentSNMPMetrics &&
-		!sentNetprobeResults &&
-		!sentFlowAttribution &&
-		!sentWorkloadIdentity &&
-		!sentPluginResults &&
-		!sentPluginSignals &&
-		!sentPluginTelemetry &&
-		!sentAddonTelemetry {
-		p.logger.Debug().Msg("No statuses to push")
-	}
+	p.pushSysmonMetrics()
+	p.pushICMPResults(ctx)
+	p.pushMtrResults(ctx)
+	p.pushSweepResults(ctx)
+	p.pushMapperResults()
+	p.pushMapperInterfaces()
+	p.pushMapperTopology()
+	p.pushSNMPMetrics(ctx)
+	p.pushNetprobeResults()
+	p.pushFlowAttribution()
+	p.pushWorkloadIdentity()
+	p.pushPluginResults()
+	p.pushPluginSignals()
+	p.pushPluginTelemetry(ctx)
+	p.pushAddonTelemetry()
 }
 
 // getSourceIP attempts to determine the source IP of this agent.

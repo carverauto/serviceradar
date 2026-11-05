@@ -22,75 +22,10 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/carverauto/serviceradar/proto"
 )
 
-func (p *PushLoop) buildPluginGatewayStatus(
-	result PluginResult,
-	agentID string,
-	partition string,
-	kvStoreID string,
-) *proto.GatewayServiceStatus {
-	payload, available, err := p.normalizePluginPayload(result, agentID, partition)
-	if err != nil {
-		payload = p.buildPluginErrorPayload(result, err, agentID, partition)
-		available = false
-	}
-
-	serviceName := pluginServiceName(result)
-	gatewayID := gatewayIDFromClient(p.gateway)
-
-	return &proto.GatewayServiceStatus{
-		ServiceName:      serviceName,
-		Available:        available,
-		Message:          payload,
-		ServiceType:      "plugin",
-		ResponseTime:     0,
-		AgentId:          agentID,
-		GatewayId:        gatewayID,
-		Partition:        partition,
-		Source:           "plugin-result",
-		KvStoreId:        kvStoreID,
-		PluginProvenance: pluginResultProvenance(result),
-	}
-}
-
-// pluginResultProvenance puts the host-authored provenance of a result on the
-// wire. It reads only fields the host set from its assignment record and the
-// module bytes it loaded; the plugin payload never contributes, so a plugin
-// cannot claim to be another package or module.
-func pluginResultProvenance(result PluginResult) *proto.PluginResultProvenance {
-	return &proto.PluginResultProvenance{
-		AssignmentId:    result.AssignmentID,
-		PluginId:        result.PluginID,
-		PluginPackageId: result.PackageID,
-		PluginVersion:   result.PackageVersion,
-		ContentHash:     result.ContentHash,
-	}
-}
-
-func (p *PushLoop) normalizePluginPayload(
-	result PluginResult,
-	agentID string,
-	partition string,
-) ([]byte, bool, error) {
-	payload, available, err := p.normalizePluginPayloadMap(result, agentID, partition)
-	if err != nil {
-		return nil, false, err
-	}
-
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return nil, false, fmt.Errorf("marshal payload: %w", err)
-	}
-
-	return data, available, nil
-}
-
 // normalizePluginPayloadMap validates and host-stamps one plugin result
-// payload, returning the map the legacy status path marshals. The edge
-// producer converts this same map, so both paths ingest identical content.
+// payload, returning the map the edge producer converts into its typed item.
 func (p *PushLoop) normalizePluginPayloadMap(
 	result PluginResult,
 	agentID string,

@@ -19,31 +19,20 @@ package agent
 import (
 	"bytes"
 	"context"
-	"encoding/json"
-	"math"
 	"os"
 	"runtime"
 	"strings"
 	"time"
 
-	"github.com/carverauto/serviceradar/go/pkg/agentgateway"
-	"github.com/carverauto/serviceradar/go/pkg/endpointinventory"
 	"github.com/carverauto/serviceradar/go/pkg/sysmon"
 	"github.com/carverauto/serviceradar/proto"
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
-	gproto "google.golang.org/protobuf/proto"
 )
 
 const (
-	sysmonMetricTargetBatchMessageBytes = 6 * 1024 * 1024
-	// The gateway synchronously commits each retry-capable plugin result. Keep
-	// streams small and budget ten seconds per result so modest handler latency
-	// cannot repeatedly time out the same large prefix after partial progress.
-	maxPluginResultsPerStream                = 10
-	minPluginResultStreamTimeout             = 30 * time.Second
-	pluginResultStreamTimeoutPerWave         = 30 * time.Second
-	pluginResultStreamTimeoutGrace           = 15 * time.Second
-	pluginResultRetainedDeliveryCapabilityV1 = "plugin-result-retained:v1"
+	// maxPluginResultsPerDrain bounds the plugin results one push takes from the
+	// plugin manager; the rest wait in its bounded queue for the next push.
+	maxPluginResultsPerDrain = 10
 
 	rperfServiceType   = "rperf"
 	rperfCheckerName   = "rperf-checker"
@@ -95,29 +84,27 @@ func (p *PushLoop) pushRegularStatuses(ctx context.Context, statuses []*proto.Ga
 	}
 
 	req := &proto.GatewayStatusRequest{
-		Services:                                statuses,
-		GatewayId:                               gatewayID,
-		AgentId:                                 agentID,
-		Timestamp:                               time.Now().UnixNano(),
-		Partition:                               partition,
-		SourceIp:                                p.getSourceIP(),
-		KvStoreId:                               kvStoreID,
-		Version:                                 runtimeMetadata.Version,
-		Hostname:                                runtimeMetadata.Hostname,
-		Os:                                      runtimeMetadata.Os,
-		Arch:                                    runtimeMetadata.Arch,
-		EndpointInventoryStandingQuestionCounts: endpointInventoryStandingQuestionCountsFromStatuses(statuses),
+		Services:  statuses,
+		GatewayId: gatewayID,
+		AgentId:   agentID,
+		Timestamp: time.Now().UnixNano(),
+		Partition: partition,
+		SourceIp:  p.getSourceIP(),
+		KvStoreId: kvStoreID,
+		Version:   runtimeMetadata.Version,
+		Hostname:  runtimeMetadata.Hostname,
+		Os:        runtimeMetadata.Os,
+		Arch:      runtimeMetadata.Arch,
 	}
 
 	resp, err := p.gateway.PushStatus(ctx, req)
 	if err != nil {
 		p.logger.Error().Err(err).Int("status_count", len(statuses)).Msg("Failed to push status to gateway")
-		p.recordEndpointInventoryUploadFailures(statuses, err)
 		return false
 	}
 
 	if resp.Received {
-		p.recordEndpointInventoryUploadSuccesses(statuses, resp)
+		p.applyEndpointInventoryDirectives(resp)
 		logEvent := p.logger.Info()
 		if reason == statusPushReasonHeartbeat {
 			logEvent = p.logger.Debug()
@@ -130,403 +117,58 @@ func (p *PushLoop) pushRegularStatuses(ctx context.Context, statuses []*proto.Ga
 	}
 
 	p.logger.Warn().Msg("Gateway did not acknowledge status push")
-	p.recordEndpointInventoryUploadFailures(statuses, errGatewayStatusNotAcknowledged)
 	return false
 }
 
-// pushSysmonStatus sends sysmon metrics via StreamStatus for large payloads.
-func (p *PushLoop) pushSysmonStatus(ctx context.Context, _ *proto.GatewayServiceStatus) bool {
+// pushSysmonMetrics drains the embedded sysmon collector onto the edge spool
+// under the metrics grant, or holds the samples until one is held.
+func (p *PushLoop) pushSysmonMetrics() bool {
 	p.server.mu.RLock()
-	agentID := p.server.config.AgentID
-	partition := p.server.config.Partition
 	sysmonSvc := p.server.sysmonService
 	p.server.mu.RUnlock()
-	gatewayID := p.gateway.GetGatewayID()
-	runtimeMetadata := currentRuntimeMetadata()
+	if sysmonSvc == nil {
+		return false
+	}
 
 	var samples []*sysmon.MetricSample
-	if sysmonSvc != nil {
-		for _, sample := range sysmonSvc.DrainMetrics() {
-			if sample != nil {
-				samples = append(samples, sample)
-			}
+	for _, sample := range sysmonSvc.DrainMetrics() {
+		if sample != nil {
+			samples = append(samples, sample)
 		}
 	}
 
-	// One path at a time: while the agent holds a metrics grant, sysmon samples go
-	// only to the edge spool. Without one, samples the spool never admitted take
-	// the legacy path with the new ones.
-	if capability := p.edgeMetricsCapability(time.Now()); capability != nil {
-		return spoolEdgeMetrics(p, sysmonEdgeMetrics(), &p.sysmonEdge, samples, capability)
-	}
-	taken := p.sysmonEdge.take()
-	samples = append(queuedItems(taken), samples...)
-
-	var statuses []*proto.GatewayServiceStatus
-	var included []*sysmon.MetricSample
-	sampleCount := 0
-	if len(samples) > 0 {
-		statuses, included = p.convertToSysmonGatewayStatusesFromSamples(samples)
-		for _, sample := range samples {
-			if sample != nil {
-				sampleCount++
-			}
-		}
-	}
-
-	if len(statuses) == 0 {
-		restoreEdgeMetrics(p, sysmonEdgeMetrics(), &p.sysmonEdge, taken)
+	capability := p.edgeMetricsCapability(time.Now())
+	if capability == nil {
+		holdEdgeMetrics(p, sysmonEdgeMetrics(), &p.sysmonEdge, samples)
 		return false
 	}
+	return spoolEdgeMetrics(p, sysmonEdgeMetrics(), &p.sysmonEdge, samples, capability)
+}
 
-	chunks := make([]*proto.GatewayStatusChunk, 0, len(statuses))
-	for _, status := range statuses {
-		p.publishAddonMetricFeed("sysmon", status.Message)
-		chunks = append(chunks, &proto.GatewayStatusChunk{
-			Services:  []*proto.GatewayServiceStatus{status},
-			GatewayId: gatewayID,
-			AgentId:   agentID,
-			Timestamp: time.Now().UnixNano(),
-			Partition: partition,
-			SourceIp:  p.getSourceIP(),
-			Version:   runtimeMetadata.Version,
-			Hostname:  runtimeMetadata.Hostname,
-			Os:        runtimeMetadata.Os,
-			Arch:      runtimeMetadata.Arch,
-		})
-	}
-
-	totalChunks := int32(len(chunks))
-	for i, chunk := range chunks {
-		chunk.ChunkIndex = int32(i)
-		chunk.TotalChunks = totalChunks
-		chunk.IsFinal = int32(i) == totalChunks-1
-	}
-
-	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	resp, err := p.gateway.StreamStatus(pushCtx, chunks)
-	if err != nil {
-		p.logger.Error().Err(err).Msg("Failed to stream sysmon metrics to gateway")
-		restoreEdgeMetrics(p, sysmonEdgeMetrics(), &p.sysmonEdge, taken)
+// pushPluginResults moves drained Wasm plugin results onto the edge spool under
+// the plugin results grant. Without one, nothing is drained: the plugin
+// manager's bounded result queue makes plugin executions wait for room, so no
+// result is lost while the agent waits for the grant.
+func (p *PushLoop) pushPluginResults() bool {
+	capability := p.edgePluginResultsCapability(time.Now())
+	if capability == nil {
+		p.holdForGrant(edgeProducerPluginResults)
 		return false
 	}
-
-	if resp.Received {
-		restoreEdgeMetrics(p, sysmonEdgeMetrics(), &p.sysmonEdge, sysmonEdgeNotIncluded(taken, included))
-		p.logger.Info().
-			Int("sample_count", sampleCount).
-			Int("batch_count", len(statuses)).
-			Msg("Successfully streamed sysmon metrics to gateway")
-		return true
-	}
-	p.logger.Warn().Msg("Gateway did not acknowledge sysmon metrics stream")
-	restoreEdgeMetrics(p, sysmonEdgeMetrics(), &p.sysmonEdge, taken)
-	return false
-}
-
-// sysmonEdgeNotIncluded is the taken entries whose samples the legacy statuses did
-// not carry, so they go back to the queue.
-func sysmonEdgeNotIncluded(
-	taken []edgeMetricsQueued[*sysmon.MetricSample],
-	included []*sysmon.MetricSample,
-) []edgeMetricsQueued[*sysmon.MetricSample] {
-	if len(taken) == 0 {
-		return nil
-	}
-	in := make(map[*sysmon.MetricSample]struct{}, len(included))
-	for _, sample := range included {
-		in[sample] = struct{}{}
-	}
-	var pending []edgeMetricsQueued[*sysmon.MetricSample]
-	for _, item := range taken {
-		if _, ok := in[item.item]; ok {
-			continue
-		}
-		pending = append(pending, item)
-	}
-	return pending
-}
-
-func (p *PushLoop) convertToSysmonGatewayStatusesFromSamples(samples []*sysmon.MetricSample) ([]*proto.GatewayServiceStatus, []*sysmon.MetricSample) {
-	if len(samples) == 0 {
-		return nil, nil
-	}
-
-	ctx := p.metricEnvelopeContext()
-	agentID, gatewayID, partition, kvStoreID := ctx.AgentID, ctx.GatewayID, ctx.Partition, ctx.KvStoreID
-
-	current := make([]*sysmon.MetricSample, 0, len(samples))
-	var currentPayload []byte
-	statuses := make([]*proto.GatewayServiceStatus, 0, 1)
-	var included []*sysmon.MetricSample
-
-	for _, sample := range samples {
-		if sample == nil {
-			continue
-		}
-
-		candidate := append(append([]*sysmon.MetricSample(nil), current...), sample)
-		payload, err := marshalSysmonMetricEnvelopeBatch(candidate, ctx)
-		if err != nil {
-			p.logger.Error().Err(err).Msg("Failed to marshal sysmon metric envelope")
-
-			continue
-		}
-
-		if len(current) > 0 && len(payload) > sysmonMetricTargetBatchMessageBytes {
-			statuses = append(statuses, p.sysmonGatewayStatusFromPayload(currentPayload, agentID, gatewayID, partition, kvStoreID))
-			included = append(included, current...)
-			current = []*sysmon.MetricSample{sample}
-			currentPayload, err = marshalSysmonMetricEnvelopeBatch(current, ctx)
-			if err != nil {
-				p.logger.Error().Err(err).Msg("Failed to marshal single sysmon metric envelope")
-				current = current[:0]
-				currentPayload = nil
-			}
-
-			continue
-		}
-
-		current = candidate
-		currentPayload = payload
-	}
-
-	if len(currentPayload) > 0 {
-		statuses = append(statuses, p.sysmonGatewayStatusFromPayload(currentPayload, agentID, gatewayID, partition, kvStoreID))
-		included = append(included, current...)
-	}
-
-	return statuses, included
-}
-
-func (p *PushLoop) sysmonGatewayStatusFromPayload(
-	messageBytes []byte,
-	agentID string,
-	gatewayID string,
-	partition string,
-	kvStoreID string,
-) *proto.GatewayServiceStatus {
-	return &proto.GatewayServiceStatus{
-		ServiceName:  SysmonServiceName,
-		Available:    true,
-		Message:      messageBytes,
-		ServiceType:  SysmonServiceType,
-		ResponseTime: 0,
-		AgentId:      agentID,
-		GatewayId:    gatewayID,
-		Partition:    partition,
-		Source:       "sysmon-metrics",
-		KvStoreId:    kvStoreID,
-	}
-}
-
-func (p *PushLoop) pushPluginResults(ctx context.Context) bool {
-	p.pluginResultDeliveryMu.Lock()
-	defer p.pluginResultDeliveryMu.Unlock()
 
 	p.server.mu.RLock()
 	pluginManager := p.server.pluginManager
 	agentID := p.server.config.AgentID
 	partition := p.server.config.Partition
-	kvStoreID := p.server.config.KVAddress
 	p.server.mu.RUnlock()
-	gatewayID := gatewayIDFromClient(p.gateway)
-	runtimeMetadata := currentRuntimeMetadata()
 
-	// One path per cycle: with a plugin-results grant, drained results move
-	// into the edge queue and only the spool carries them; without one, items
-	// the spool admitted no part of ride the legacy path first, at most one
-	// stream's worth per cycle, before anything new is drained.
-	capability := p.edgePluginResultsCapability(time.Now())
-	results := p.pendingPluginResults
-	retained := len(results) > 0
-	if capability == nil && len(results) == 0 {
-		for _, item := range p.pluginResultsEdge.take(maxPluginResultsPerStream) {
-			results = append(results, item.results...)
-		}
-	}
-	if len(results) == 0 && pluginManager != nil {
-		results = pluginManager.DrainResults(maxPluginResultsPerStream)
-	}
-	p.pendingPluginResults = results
-
-	if capability != nil {
-		if len(results) > 0 {
-			dropped := p.pluginResultsEdge.enqueue(groupPluginResults(results), retained)
+	if pluginManager != nil {
+		if results := pluginManager.DrainResults(maxPluginResultsPerDrain); len(results) > 0 {
+			dropped := p.pluginResultsEdge.enqueue(groupPluginResults(results))
 			p.dropEdgeTelemetry(edgeProducerPluginResults, edgeDropRetryBufferFull, dropped)
-			p.pendingPluginResults = nil
-		}
-		return p.spoolPluginResults(capability, agentID, partition)
-	}
-
-	if len(results) == 0 {
-		return false
-	}
-
-	// Build status chunks - one per result to isolate failures and handle
-	// potentially large payloads (e.g., error messages with stack traces).
-	chunks := make([]*proto.GatewayStatusChunk, 0, len(results))
-	// chunkResults maps each chunk index back to its pending result, so a
-	// partial acknowledgement releases exactly the results the gateway committed.
-	chunkResults := make([]int, 0, len(results))
-	timestamp := time.Now().UnixNano()
-	sourceIP := p.getSourceIP()
-
-	for i, result := range results {
-		status := p.buildPluginGatewayStatus(result, agentID, partition, kvStoreID)
-		if status == nil {
-			continue
-		}
-		chunkResults = append(chunkResults, i)
-
-		chunk := &proto.GatewayStatusChunk{
-			Services:     []*proto.GatewayServiceStatus{status},
-			GatewayId:    gatewayID,
-			AgentId:      agentID,
-			Timestamp:    timestamp,
-			Partition:    partition,
-			SourceIp:     sourceIP,
-			IsFinal:      i == len(results)-1,
-			ChunkIndex:   int32(i),
-			TotalChunks:  int32(len(results)),
-			KvStoreId:    kvStoreID,
-			Version:      runtimeMetadata.Version,
-			Hostname:     runtimeMetadata.Hostname,
-			Os:           runtimeMetadata.Os,
-			Arch:         runtimeMetadata.Arch,
-			Capabilities: pluginResultTransportCapabilities(),
-		}
-		chunks = append(chunks, chunk)
-	}
-
-	if len(chunks) == 0 {
-		return false
-	}
-
-	// Update chunk metadata after filtering nil statuses
-	for i, chunk := range chunks {
-		chunk.ChunkIndex = int32(i)
-		chunk.TotalChunks = int32(len(chunks))
-		chunk.IsFinal = i == len(chunks)-1
-	}
-
-	pushCtx, cancel := context.WithTimeout(ctx, pluginResultStreamTimeout(len(chunks)))
-	defer cancel()
-
-	resp, err := p.streamPluginResultStatus(pushCtx, chunks)
-	if err != nil {
-		if reason, terminal := retainedPoisonDropReason(err); terminal {
-			p.server.deliveryTelemetry.recordPoisonDrop(retainedSourcePlugin, reason, len(chunks), encodedStatusChunkBytes(chunks))
-			p.pendingPluginResults = nil
-			p.logger.Error().Err(err).
-				Str("reason", reason.label()).
-				Int("plugin_results", len(results)).
-				Msg("Poison-dropped terminally invalid plugin result stream")
-			return false
-		}
-
-		p.logger.Warn().Err(err).
-			Int("plugin_results", len(chunks)).
-			Int("retained", len(results)).
-			Msg("Failed to stream plugin results to gateway; retaining for retry")
-		return false
-	}
-
-	if resp != nil && resp.Received {
-		p.pendingPluginResults = nil
-		p.logger.Info().Int("plugin_results", len(chunks)).Msg("Successfully streamed plugin results to gateway")
-		return true
-	}
-
-	remaining := releaseCommittedPluginResults(results, chunkResults, resp.GetCommittedChunkIndexes())
-	p.pendingPluginResults = remaining
-	p.logger.Warn().
-		Int("plugin_results", len(chunks)).
-		Int("committed", len(results)-len(remaining)).
-		Int("retained", len(remaining)).
-		Msg("Gateway did not acknowledge plugin result stream")
-	return false
-}
-
-// releaseCommittedPluginResults drops the results whose chunks the gateway
-// committed despite a negative acknowledgement and keeps the rest, in their
-// original order, for retry. Retrying a committed chunk would re-run its core
-// handlers. Indexes outside the stream are ignored. A gateway that predates
-// committed_chunk_indexes sends none, so the whole set is retried as before.
-func releaseCommittedPluginResults(
-	results []PluginResult,
-	chunkResults []int,
-	committedChunkIndexes []int32,
-) []PluginResult {
-	if len(committedChunkIndexes) == 0 {
-		return results
-	}
-
-	committed := make(map[int]struct{}, len(committedChunkIndexes))
-	for _, chunkIndex := range committedChunkIndexes {
-		if chunkIndex >= 0 && int(chunkIndex) < len(chunkResults) {
-			committed[chunkResults[chunkIndex]] = struct{}{}
 		}
 	}
-	if len(committed) == 0 {
-		return results
-	}
-
-	remaining := make([]PluginResult, 0, len(results)-len(committed))
-	for i, result := range results {
-		if _, ok := committed[i]; !ok {
-			remaining = append(remaining, result)
-		}
-	}
-
-	return remaining
-}
-
-// pluginResultTransportCapabilities returns capabilities implemented by the
-// agent binary and asserted on the transport envelope. They must not be
-// derived from plugin-controlled result labels. Return a fresh slice for each
-// chunk so one stream consumer cannot mutate another chunk's assertion.
-func pluginResultTransportCapabilities() []string {
-	return []string{
-		pluginResultRetainedDeliveryCapabilityV1,
-		pluginHostAuthorityCapabilityV1,
-		proxmoxSemanticConnectorCapabilityV1,
-		proxmoxIdentityCapabilityV3,
-	}
-}
-
-func pluginResultStreamTimeout(chunkCount int) time.Duration {
-	waves := (chunkCount + 1) / 2
-	timeout := time.Duration(waves)*pluginResultStreamTimeoutPerWave + pluginResultStreamTimeoutGrace
-	if timeout < minPluginResultStreamTimeout {
-		return minPluginResultStreamTimeout
-	}
-
-	return timeout
-}
-
-func encodedStatusChunkBytes(chunks []*proto.GatewayStatusChunk) int {
-	total := 0
-	for _, chunk := range chunks {
-		total += gproto.Size(chunk)
-	}
-	return total
-}
-
-func (p *PushLoop) streamPluginResultStatus(
-	ctx context.Context,
-	chunks []*proto.GatewayStatusChunk,
-) (*proto.GatewayStatusResponse, error) {
-	if p.pluginResultStreamStatus != nil {
-		return p.pluginResultStreamStatus(ctx, chunks)
-	}
-	if p.gateway == nil {
-		return nil, agentgateway.ErrGatewayNotConnected
-	}
-
-	return p.gateway.StreamStatus(ctx, chunks)
+	return p.spoolPluginResults(capability, agentID, partition)
 }
 
 func (p *PushLoop) pushPluginTelemetry(ctx context.Context) bool {
@@ -594,48 +236,53 @@ func (p *PushLoop) pushPluginTelemetry(ctx context.Context) bool {
 	return false
 }
 
-// holdForPendingEdgeRecord reports whether svc must not be polled this cycle because its
-// pending edge record is still refused by the spool. For the k8s public endpoints service it
-// also returns the standing-grant capability; a non-nil capability means the snapshot ships as
-// an edge record instead of a status payload.
+// holdForPendingEdgeRecord reports whether svc must not be polled this cycle: an
+// rperf metrics status or k8s public endpoints snapshot it produced is still
+// pending (held for a grant, or refused by the spool), or, for the k8s service,
+// the agent holds no grant to emit a new snapshot under. For the k8s service it
+// also returns the grant the snapshot is emitted under.
 func (p *PushLoop) holdForPendingEdgeRecord(svc Service, now time.Time) (*edgev1.EdgeSignedCapabilityV1, bool) {
-	if isRperfMetricsService(svc) && p.rperfEdge.hasPending() && !p.flushRperfEdgeMetrics() {
+	if isRperfMetricsService(svc) && p.rperfEdge.hasPending() && !p.flushRperfEdgeMetrics(now) {
 		return nil, true
 	}
 	if !isK8sPublicEndpointsService(svc) {
 		return nil, false
 	}
+	if !p.flushPendingK8sPublicEndpointsEdge() {
+		return nil, true
+	}
 	capability := p.edgeK8sPublicEndpointsCapability(now)
-	if capability != nil && !p.flushPendingK8sPublicEndpointsEdge() {
+	if capability == nil {
+		p.holdForGrant(edgeProducerK8sPublicEndpoints)
 		return nil, true
 	}
 	return capability, false
 }
 
-// routeEndpointInventoryEdgeStatus handles the endpoint inventory service on the
-// edge-record path. It returns true when the status was consumed by that path
-// (a pending payload is still waiting, or the standing grant is held) so the
-// caller must not fall back to the legacy status path.
-func (p *PushLoop) routeEndpointInventoryEdgeStatus(ctx context.Context, svc Service, provider SweepStatusProvider) bool {
+// routeEndpointInventoryEdgeStatus carries the endpoint inventory service on the
+// edge-record path, which is its only path: a pending scan is appended first,
+// and without a grant the service is not polled, so its spooled scan waits on
+// disk for one.
+func (p *PushLoop) routeEndpointInventoryEdgeStatus(ctx context.Context, svc Service, provider SweepStatusProvider) {
 	now := time.Now()
 	if p.endpointInventoryEdge.built != nil && !p.flushEndpointInventoryEdge(now) {
-		return true
+		return
 	}
 	capability := p.edgeEndpointInventoryCapability(now)
 	if capability == nil {
-		return false
+		p.holdForGrant(edgeProducerEndpointInventory)
+		return
 	}
 	status, err := provider.GetStatus(ctx)
 	if err != nil {
 		p.logger.Warn().Err(err).Str("service", svc.Name()).Msg("Failed to get status from service")
-		return true
+		return
 	}
 	if status == nil {
 		p.logger.Warn().Str("service", svc.Name()).Msg("Status provider returned nil response")
-		return true
+		return
 	}
 	p.emitEndpointInventoryEdgeStatus(status, capability, now)
-	return true
 }
 
 // resolveServiceStatusRouting derives the service name, service type, and
@@ -675,16 +322,15 @@ func (p *PushLoop) forwardStatusAddonTelemetry(svc Service, status *proto.Status
 	}
 }
 
-// collectAllStatusesSeparated gathers status from all services, separating sysmon from others.
-// Sysmon is returned separately because it uses StreamStatus with Source: "sysmon-metrics".
-func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.GatewayServiceStatus, *proto.GatewayServiceStatus) {
+// collectAllStatuses gathers the status summaries of every service for the
+// status push. Services whose payload is durable data (endpoint inventory,
+// bumblebee, k8s public endpoints, rperf metrics, and the sweep summary metric
+// sample) are carried on the edge-record path instead and add no status.
+func (p *PushLoop) collectAllStatuses(ctx context.Context) []*proto.GatewayServiceStatus {
 	var statuses []*proto.GatewayServiceStatus
-	var sysmonStatus *proto.GatewayServiceStatus
 
-	// Collect from sweep services (SweepStatusProvider)
 	p.server.mu.RLock()
 	services := append([]Service(nil), p.server.services...)
-	sysmonSvc := p.server.sysmonService
 	cfg := p.server.config
 	sidecarStatus := p.server.sidecarStatus
 	addonManager := p.server.addonManager
@@ -696,70 +342,13 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 
 	now := time.Now()
 	for _, svc := range services {
-		if provider, ok := svc.(SweepStatusProvider); ok {
-			k8sCapability, held := p.holdForPendingEdgeRecord(svc, now)
-			if held {
-				continue
-			}
-			if isEndpointInventoryService(svc) && p.routeEndpointInventoryEdgeStatus(ctx, svc, provider) {
-				continue
-			}
-			if isBumblebeeService(svc) && p.handleBumblebeeEdgeOrPause(ctx, svc, provider, now) {
-				continue
-			}
-
-			var metricPayload map[string]any
-			var status *proto.StatusResponse
-			var err error
-
-			if metricProvider, ok := svc.(SweepStatusMetricPayloadProvider); ok {
-				status, metricPayload, err = metricProvider.GetStatusWithMetricPayload(ctx)
-			} else {
-				status, err = provider.GetStatus(ctx)
-			}
-
-			if err != nil {
-				p.logger.Warn().Err(err).Str("service", svc.Name()).Msg("Failed to get status from service")
-				continue
-			}
-			if status == nil {
-				p.logger.Warn().Str("service", svc.Name()).Msg("Status provider returned nil response")
-				continue
-			}
-			serviceName, serviceType, source := resolveServiceStatusRouting(svc, status)
-			if k8sCapability != nil {
-				p.spoolK8sPublicEndpointsStatus(status, k8sCapability, cfg)
-				continue
-			}
-			p.forwardStatusAddonTelemetry(svc, status)
-			if isRperfMetricsPayload(status, serviceName, serviceType, source) &&
-				p.spoolRperfMetricsStatus(status, serviceName, serviceType, now) {
-				continue
-			}
-
-			converted := p.convertToGatewayStatusWithSource(status, svc.Name(), serviceType, source)
-			if converted == nil {
-				p.logger.Warn().Str("service", svc.Name()).Msg("Converted status is nil")
-				continue
-			}
-			statuses = append(statuses, converted)
-
-			if serviceType == sweepType {
-				if metricPayload == nil {
-					p.logger.Warn().
-						Str("service", svc.Name()).
-						Msg("Sweep status provider did not expose typed metric payload; skipping sweep status metrics")
-					continue
-				}
-
-				statuses = append(statuses, p.sweepSummaryMetricStatuses(metricPayload, svc.Name())...)
-			}
+		provider, ok := svc.(SweepStatusProvider)
+		if !ok {
+			continue
 		}
-	}
-
-	// Collect from embedded sysmon service - separate from regular statuses
-	if sysmonSvc != nil && sysmonSvc.IsEnabled() {
-		sysmonStatus = &proto.GatewayServiceStatus{}
+		if status := p.collectServiceStatus(ctx, svc, provider, cfg, now); status != nil {
+			statuses = append(statuses, status)
+		}
 	}
 
 	if status, err := p.server.GetSNMPStatus(ctx); err == nil && status != nil {
@@ -773,50 +362,85 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 		p.logger.Warn().Err(err).Msg("Failed to get SNMP status")
 	}
 
-	return statuses, sysmonStatus
+	return statuses
 }
 
-// sweepSummaryMetricStatuses routes the periodic sweep summary sample. One path
-// at a time: while the agent holds a metrics grant the sample goes only to the
-// edge spool and no status is returned. Without one, samples the spool never
-// admitted take the legacy status path with the new one; those taken samples are
-// held until settleSweepSummaryLegacy learns whether the status push delivered
-// them. A queued sample that cannot be marshalled is not held: it would fail the
-// same way on every retry.
-func (p *PushLoop) sweepSummaryMetricStatuses(payload map[string]any, service string) []*proto.GatewayServiceStatus {
-	if capability := p.edgeMetricsCapability(time.Now()); capability != nil {
-		spoolEdgeMetrics(p, sweepSummaryEdgeMetrics(), &p.sweepSummary, []map[string]any{payload}, capability)
+// collectServiceStatus polls one service and returns its status summary for the
+// status push, or nil when the service has none this cycle: it is held for a
+// grant or a pending edge record, or its payload went to the edge spool.
+func (p *PushLoop) collectServiceStatus(
+	ctx context.Context,
+	svc Service,
+	provider SweepStatusProvider,
+	cfg *ServerConfig,
+	now time.Time,
+) *proto.GatewayServiceStatus {
+	k8sCapability, held := p.holdForPendingEdgeRecord(svc, now)
+	if held {
+		return nil
+	}
+	if isEndpointInventoryService(svc) {
+		p.routeEndpointInventoryEdgeStatus(ctx, svc, provider)
+		return nil
+	}
+	if isBumblebeeService(svc) {
+		p.routeBumblebeeEdgeStatus(ctx, svc, provider, now)
 		return nil
 	}
 
-	taken := p.sweepSummary.take()
-	statuses := make([]*proto.GatewayServiceStatus, 0, len(taken)+1)
-	for _, entry := range taken {
-		metricStatus, err := p.sweepMetricStatusFromMap(entry.item)
-		if err != nil {
-			p.logger.Warn().Err(err).Str("service", service).Msg("Failed to marshal sweep status metric envelope")
-			continue
-		}
-		statuses = append(statuses, metricStatus)
-		p.sweepSummaryInFlight = append(p.sweepSummaryInFlight, entry)
+	var metricPayload map[string]any
+	var status *proto.StatusResponse
+	var err error
+	if metricProvider, ok := svc.(SweepStatusMetricPayloadProvider); ok {
+		status, metricPayload, err = metricProvider.GetStatusWithMetricPayload(ctx)
+	} else {
+		status, err = provider.GetStatus(ctx)
 	}
-	metricStatus, err := p.sweepMetricStatusFromMap(payload)
 	if err != nil {
-		p.logger.Warn().Err(err).Str("service", service).Msg("Failed to marshal sweep status metric envelope")
-		return statuses
+		p.logger.Warn().Err(err).Str("service", svc.Name()).Msg("Failed to get status from service")
+		return nil
 	}
-	return append(statuses, metricStatus)
+	if status == nil {
+		p.logger.Warn().Str("service", svc.Name()).Msg("Status provider returned nil response")
+		return nil
+	}
+	serviceName, serviceType, source := resolveServiceStatusRouting(svc, status)
+	if k8sCapability != nil {
+		p.spoolK8sPublicEndpointsStatus(status, k8sCapability, cfg)
+		return nil
+	}
+	p.forwardStatusAddonTelemetry(svc, status)
+	if isRperfMetricsPayload(status, serviceName, serviceType, source) {
+		p.spoolRperfMetricsStatus(status, serviceName, serviceType, now)
+		return nil
+	}
+
+	converted := p.convertToGatewayStatusWithSource(status, svc.Name(), serviceType, source)
+	if converted == nil {
+		p.logger.Warn().Str("service", svc.Name()).Msg("Converted status is nil")
+		return nil
+	}
+	if serviceType == sweepType {
+		if metricPayload == nil {
+			p.logger.Warn().
+				Str("service", svc.Name()).
+				Msg("Sweep status provider did not expose typed metric payload; skipping sweep status metrics")
+		} else {
+			p.pushSweepSummaryMetrics(metricPayload)
+		}
+	}
+	return converted
 }
 
-// settleSweepSummaryLegacy resolves the queued sweep summary samples the last
-// status collection put on the legacy path: dropped once delivered, otherwise
-// returned to the front of the queue.
-func (p *PushLoop) settleSweepSummaryLegacy(delivered bool) {
-	inFlight := p.sweepSummaryInFlight
-	p.sweepSummaryInFlight = nil
-	if !delivered {
-		restoreEdgeMetrics(p, sweepSummaryEdgeMetrics(), &p.sweepSummary, inFlight)
+// pushSweepSummaryMetrics carries the periodic sweep summary sample onto the
+// edge spool under the metrics grant, or holds it until one is held.
+func (p *PushLoop) pushSweepSummaryMetrics(payload map[string]any) {
+	capability := p.edgeMetricsCapability(time.Now())
+	if capability == nil {
+		holdEdgeMetrics(p, sweepSummaryEdgeMetrics(), &p.sweepSummary, []map[string]any{payload})
+		return
 	}
+	spoolEdgeMetrics(p, sweepSummaryEdgeMetrics(), &p.sweepSummary, []map[string]any{payload}, capability)
 }
 
 func (p *PushLoop) findSweepResultsProvider() SweepResultsProvider {
@@ -920,80 +544,6 @@ func (p *PushLoop) convertToGatewayStatusWithSource(
 	}
 }
 
-func (p *PushLoop) buildResultsStatusChunks(
-	chunks []*proto.ResultsChunk,
-	serviceName string,
-	serviceType string,
-) []*proto.GatewayStatusChunk {
-	p.server.mu.RLock()
-	agentID := p.server.config.AgentID
-	partition := p.server.config.Partition
-	p.server.mu.RUnlock()
-	gatewayID := p.gateway.GetGatewayID()
-	return buildResultsStatusChunksForAgent(chunks, serviceName, serviceType, agentID, partition, gatewayID)
-}
-
-func buildResultsStatusChunksForAgent(
-	chunks []*proto.ResultsChunk,
-	serviceName string,
-	serviceType string,
-	agentID string,
-	partition string,
-	gatewayID string,
-) []*proto.GatewayStatusChunk {
-	if len(chunks) == 0 {
-		return nil
-	}
-
-	statusChunks := make([]*proto.GatewayStatusChunk, 0, len(chunks))
-	runtimeMetadata := currentRuntimeMetadata()
-
-	for _, chunk := range chunks {
-		if chunk == nil {
-			continue
-		}
-
-		status := &proto.GatewayServiceStatus{
-			ServiceName:  serviceName,
-			Available:    true,
-			Message:      chunk.Data,
-			ServiceType:  serviceType,
-			ResponseTime: 0,
-			AgentId:      agentID,
-			GatewayId:    gatewayID,
-			Partition:    partition,
-			Source:       "results",
-			KvStoreId:    "",
-		}
-
-		statusChunks = append(statusChunks, &proto.GatewayStatusChunk{
-			Services:    []*proto.GatewayServiceStatus{status},
-			GatewayId:   gatewayID,
-			AgentId:     agentID,
-			Timestamp:   chunk.Timestamp,
-			Partition:   partition,
-			IsFinal:     false,
-			ChunkIndex:  0,
-			TotalChunks: 0,
-			KvStoreId:   "",
-			Version:     runtimeMetadata.Version,
-			Hostname:    runtimeMetadata.Hostname,
-			Os:          runtimeMetadata.Os,
-			Arch:        runtimeMetadata.Arch,
-		})
-	}
-
-	// GatewayStatusChunk framing is per StreamStatus RPC. Result payloads may carry
-	// their own run-level finality, so keep the outer stream final on every RPC.
-	for idx, chunk := range statusChunks {
-		chunk.ChunkIndex = int32(idx)
-		chunk.TotalChunks = int32(len(statusChunks))
-		chunk.IsFinal = idx == len(statusChunks)-1
-	}
-
-	return statusChunks
-}
-
 type statusRuntimeMetadata struct {
 	Version  string
 	Hostname string
@@ -1013,109 +563,4 @@ func currentRuntimeMetadata() statusRuntimeMetadata {
 		Os:       runtime.GOOS,
 		Arch:     runtime.GOARCH,
 	}
-}
-
-func endpointInventoryStandingQuestionCountsFromStatuses(
-	statuses []*proto.GatewayServiceStatus,
-) []*proto.EndpointInventoryStandingQuestionResultCount {
-	counts := make([]*proto.EndpointInventoryStandingQuestionResultCount, 0)
-
-	for _, status := range statuses {
-		if status == nil || !isEndpointInventoryStatus(status) {
-			continue
-		}
-
-		var payload endpointinventory.ScanPayload
-		if err := json.Unmarshal(status.GetMessage(), &payload); err != nil {
-			continue
-		}
-
-		for _, count := range payload.StandingQuestionResultCounts {
-			if strings.TrimSpace(count.QuestionID) == "" {
-				continue
-			}
-			counts = append(counts, endpointInventoryStandingQuestionCountToProto(count))
-		}
-	}
-
-	if len(counts) == 0 {
-		return nil
-	}
-
-	return counts
-}
-
-func isEndpointInventoryStatus(status *proto.GatewayServiceStatus) bool {
-	return status.GetServiceName() == endpointinventory.ServiceName ||
-		status.GetServiceType() == endpointinventory.ServiceType
-}
-
-func endpointInventoryStandingQuestionCountToProto(
-	count endpointinventory.StandingQuestionResultCount,
-) *proto.EndpointInventoryStandingQuestionResultCount {
-	evaluatedAtUnix := int64(0)
-	if !count.EvaluatedAt.IsZero() {
-		evaluatedAtUnix = count.EvaluatedAt.UTC().Unix()
-	}
-
-	return &proto.EndpointInventoryStandingQuestionResultCount{
-		Schema:          firstNonEmpty(count.Schema, endpointinventory.StandingQuestionResultCountSchema),
-		QuestionId:      count.QuestionID,
-		QuestionVersion: count.QuestionVersion,
-		PredicateHash:   count.PredicateHash,
-		Mode:            count.Mode,
-		Matched:         count.Matched,
-		Count:           boundedInt32(count.Count),
-		PackageSetHash:  count.PackageSetHash,
-		HashAlgorithm:   firstNonEmpty(count.HashAlgorithm, endpointinventory.HashAlgorithm),
-		EvaluatedAtUnix: evaluatedAtUnix,
-		Freshness:       endpointInventoryFreshnessToProto(count.Freshness),
-		Labels:          copyStringMap(count.Labels),
-		Metadata:        copyStringMap(count.Metadata),
-	}
-}
-
-func endpointInventoryFreshnessToProto(freshness endpointinventory.FreshnessVerdict) *proto.EndpointInventoryFreshness {
-	if freshness.Verdict == "" &&
-		freshness.AgeSeconds == 0 &&
-		freshness.StaleThresholdSeconds == 0 &&
-		freshness.LastSuccessfulScanAt == nil {
-		return nil
-	}
-
-	lastSuccessfulScanAtUnix := int64(0)
-	if freshness.LastSuccessfulScanAt != nil {
-		lastSuccessfulScanAtUnix = freshness.LastSuccessfulScanAt.UTC().Unix()
-	}
-
-	return &proto.EndpointInventoryFreshness{
-		Verdict:                  freshness.Verdict,
-		AgeSeconds:               freshness.AgeSeconds,
-		StaleThresholdSeconds:    freshness.StaleThresholdSeconds,
-		LastSuccessfulScanAtUnix: lastSuccessfulScanAtUnix,
-	}
-}
-
-func boundedInt32(value int) int32 {
-	if value < 0 {
-		return 0
-	}
-	if value > math.MaxInt32 {
-		return math.MaxInt32
-	}
-
-	return int32(value)
-}
-
-func copyStringMap(values map[string]string) map[string]string {
-	if len(values) == 0 {
-		return nil
-	}
-
-	copied := make(map[string]string, len(values))
-	for key, value := range values {
-		copied[key] = value
-	}
-
-	return copied
 }

@@ -529,27 +529,25 @@ func (s *Server) WritePrometheusMetrics(w io.Writer) error {
 	if _, err := fmt.Fprintln(w, "# TYPE agent_retained_poison_dropped_bytes_total counter"); err != nil {
 		return fmt.Errorf("write agent retained poison byte metric type: %w", err)
 	}
-	for source := range retainedSourceCount {
-		for reason := range poisonReasonCount {
-			items, bytes := s.deliveryTelemetry.poisonDropTotals(source, reason)
-			if _, err := fmt.Fprintf(
-				w,
-				"agent_retained_poison_dropped_items_total{source=%q,reason=%q} %d\n",
-				source.label(),
-				reason.label(),
-				items,
-			); err != nil {
-				return fmt.Errorf("write agent retained poison item metric: %w", err)
-			}
-			if _, err := fmt.Fprintf(
-				w,
-				"agent_retained_poison_dropped_bytes_total{source=%q,reason=%q} %d\n",
-				source.label(),
-				reason.label(),
-				bytes,
-			); err != nil {
-				return fmt.Errorf("write agent retained poison byte metric: %w", err)
-			}
+	for reason := range poisonReasonCount {
+		items, bytes := s.deliveryTelemetry.poisonDropTotals(reason)
+		if _, err := fmt.Fprintf(
+			w,
+			"agent_retained_poison_dropped_items_total{source=%q,reason=%q} %d\n",
+			retainedPoisonSource,
+			reason.label(),
+			items,
+		); err != nil {
+			return fmt.Errorf("write agent retained poison item metric: %w", err)
+		}
+		if _, err := fmt.Fprintf(
+			w,
+			"agent_retained_poison_dropped_bytes_total{source=%q,reason=%q} %d\n",
+			retainedPoisonSource,
+			reason.label(),
+			bytes,
+		); err != nil {
+			return fmt.Errorf("write agent retained poison byte metric: %w", err)
 		}
 	}
 

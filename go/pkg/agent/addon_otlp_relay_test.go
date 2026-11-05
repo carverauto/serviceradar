@@ -19,79 +19,61 @@ package agent
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"math"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
-	"github.com/carverauto/serviceradar/proto"
 	addonpb "github.com/carverauto/serviceradar/proto/agent/addon/v1"
+	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 	"github.com/stretchr/testify/require"
-	gproto "google.golang.org/protobuf/proto"
 )
 
-var errRelayGatewayDown = errors.New("relay gateway down")
-
-// fakeRelayGateway records StreamStatus calls and fails the first failFirst
-// attempts with errRelayGatewayDown.
-type fakeRelayGateway struct {
-	mu        sync.Mutex
-	failFirst int
-	attempts  int
-	calls     [][]*proto.GatewayStatusChunk
+// refusingRelayAppender delegates to a real spool after refusing the first
+// refuseFirst appends as retryable backpressure, recording each event id tried.
+type refusingRelayAppender struct {
+	mu          sync.Mutex
+	delegate    *spool.Spool
+	refuseFirst int
+	attempts    int
+	eventIDs    [][]byte
 }
 
-func (g *fakeRelayGateway) GetGatewayID() string { return "gateway-test" }
-
-func (g *fakeRelayGateway) StreamStatus(
-	_ context.Context, chunks []*proto.GatewayStatusChunk,
-) (*proto.GatewayStatusResponse, error) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-
-	g.attempts++
-	if g.attempts <= g.failFirst {
-		return nil, errRelayGatewayDown
+func (f *refusingRelayAppender) AppendFlow(_ string, eventID, body []byte) (uint64, error) {
+	f.mu.Lock()
+	f.attempts++
+	attempt := f.attempts
+	f.eventIDs = append(f.eventIDs, append([]byte(nil), eventID...))
+	f.mu.Unlock()
+	if attempt <= f.refuseFirst {
+		return 0, spool.ErrAdmissionPaused
 	}
-
-	g.calls = append(g.calls, chunks)
-	return &proto.GatewayStatusResponse{Received: true}, nil
+	return f.delegate.Append(eventID, body)
 }
 
-func (g *fakeRelayGateway) attemptCount() int {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return g.attempts
+func (f *refusingRelayAppender) attemptCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.attempts
 }
 
-// allStatuses flattens every accepted chunk's services in delivery order.
-func (g *fakeRelayGateway) allStatuses() []*proto.GatewayServiceStatus {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-
-	var statuses []*proto.GatewayServiceStatus
-	for _, chunks := range g.calls {
-		for _, chunk := range chunks {
-			statuses = append(statuses, chunk.GetServices()...)
-		}
-	}
-	return statuses
-}
-
-func newTestOtlpRelayPump(gw otlpRelayGateway) *otlpRelayPump {
+// newTestOtlpRelayPump is a relay pump whose edge target is app under a current
+// OTLP relay grant.
+func newTestOtlpRelayPump(t *testing.T, app edgeMetricsAppender) *otlpRelayPump {
+	t.Helper()
+	now := time.Now()
+	capability := otlpRelayCapability(t, now.Add(-time.Hour), now.Add(8*24*time.Hour), 1024)
 	return &otlpRelayPump{
-		addonID:             "otel-collector",
-		gateway:             gw,
-		agentID:             "agent-test",
-		partition:           "partition-test",
-		kvStoreID:           "kv-test",
-		sourceIP:            func() string { return "10.0.0.9" },
+		addonID: "otel-collector",
+		edgeTarget: func(time.Time) (edgeMetricsAppender, *edgev1.EdgeSignedCapabilityV1) {
+			return app, capability
+		},
 		logger:              logger.NewTestLogger(),
 		flushInterval:       10 * time.Millisecond,
-		pushTimeout:         time.Second,
 		retryBackoffInitial: 5 * time.Millisecond,
 		retryBackoffMax:     20 * time.Millisecond,
 		ackSendTimeout:      time.Second,
@@ -172,9 +154,21 @@ func requireAckedFramesEventually(t *testing.T, pump *otlpRelayPump, expected ui
 	}, time.Second, time.Millisecond, "acked frame counter should reach expected watermark")
 }
 
-func TestOtlpRelayPumpForwardsFramesThenAcks(t *testing.T) {
-	gw := &fakeRelayGateway{}
-	pump := newTestOtlpRelayPump(gw)
+func spooledRelayEventIDs(t *testing.T, sp *spool.Spool) []string {
+	t.Helper()
+	_, frames := spooledOtlpRelayRecords(t, sp)
+	ids := make([]string, 0, len(frames))
+	for _, frame := range frames {
+		for _, record := range frame.GetBatch().GetRecords() {
+			ids = append(ids, record.GetEventId())
+		}
+	}
+	return ids
+}
+
+func TestOtlpRelayPumpSpoolsFramesThenAcks(t *testing.T) {
+	sp := openTestEdgeSpool(t)
+	pump := newTestOtlpRelayPump(t, sp)
 
 	frames := make(chan *addonpb.OtlpRelayFrame, 3)
 	acks := make(chan uint64, 16)
@@ -189,59 +183,17 @@ func TestOtlpRelayPumpForwardsFramesThenAcks(t *testing.T) {
 		require.Greater(t, watermarks[i], watermarks[i-1], "ack watermarks must be cumulative and increasing")
 	}
 
-	statuses := gw.allStatuses()
-	require.Len(t, statuses, 3, "one GatewayServiceStatus per relay frame")
-
-	for i, status := range statuses {
-		require.Equal(t, otlpRelayServiceName, status.GetServiceName())
-		require.Equal(t, otlpRelayServiceType, status.GetServiceType())
-		require.Equal(t, otlpRelaySource, status.GetSource())
-		require.True(t, status.GetAvailable())
-		require.Equal(t, "agent-test", status.GetAgentId())
-		require.Equal(t, "gateway-test", status.GetGatewayId())
-		require.Equal(t, "partition-test", status.GetPartition())
-		require.Equal(t, "kv-test", status.GetKvStoreId())
-
-		var decoded addonpb.TelemetryBatch
-		require.NoError(t, gproto.Unmarshal(status.GetMessage(), &decoded))
-		require.Equal(t, fmt.Sprintf("frame-%d", i+1), decoded.GetRecords()[0].GetEventId(),
-			"statuses must be delivered in relay_id order")
-	}
-
+	require.Equal(t, []string{"frame-1", "frame-2", "frame-3"}, spooledRelayEventIDs(t, sp),
+		"records must be spooled in relay_id order")
 	require.Equal(t, uint64(3), pump.stats.forwarded.Load())
 	requireAckedFramesEventually(t, pump, 3)
 	require.Zero(t, pump.stats.retried.Load())
 	require.Zero(t, pump.stats.skippedOversize.Load())
 }
 
-func TestOtlpRelayPumpRetriesWithoutAckOnGatewayFailure(t *testing.T) {
-	gw := &fakeRelayGateway{failFirst: 2}
-	pump := newTestOtlpRelayPump(gw)
-	// Deterministic single flush: window-full at exactly two frames, timer
-	// effectively disabled.
-	pump.windowMaxFrames = 2
-	pump.flushInterval = time.Hour
-
-	frames := make(chan *addonpb.OtlpRelayFrame, 2)
-	acks := make(chan uint64, 16)
-	frames <- testRelayFrame(1, 64)
-	frames <- testRelayFrame(2, 64)
-
-	startRelayPump(t, pump, frames, acks)
-
-	watermarks := waitForWatermark(t, acks, 2)
-	require.Equal(t, []uint64{2}, watermarks,
-		"no ack may be sent before the gateway accepts the frames")
-
-	require.Equal(t, 3, gw.attemptCount(), "two failed attempts plus the successful one")
-	require.Equal(t, uint64(4), pump.stats.retried.Load(), "2 frames x 2 failed attempts")
-	require.Equal(t, uint64(2), pump.stats.forwarded.Load())
-	requireAckedFramesEventually(t, pump, 2)
-}
-
 func TestOtlpRelayPumpSkipsOversizedFrameAndStillAcksIt(t *testing.T) {
-	gw := &fakeRelayGateway{}
-	pump := newTestOtlpRelayPump(gw)
+	sp := openTestEdgeSpool(t)
+	pump := newTestOtlpRelayPump(t, sp)
 	pump.maxFrameBytes = 1024
 	pump.windowMaxFrames = 2
 	pump.flushInterval = time.Hour
@@ -257,43 +209,16 @@ func TestOtlpRelayPumpSkipsOversizedFrameAndStillAcksIt(t *testing.T) {
 	watermarks := waitForWatermark(t, acks, 3)
 	require.Equal(t, uint64(3), watermarks[len(watermarks)-1],
 		"the skipped frame is covered by the cumulative watermark")
-
-	statuses := gw.allStatuses()
-	require.Len(t, statuses, 2, "the oversized frame must not reach the gateway")
-	for i, wantEvent := range []string{"frame-1", "frame-3"} {
-		var decoded addonpb.TelemetryBatch
-		require.NoError(t, gproto.Unmarshal(statuses[i].GetMessage(), &decoded))
-		require.Equal(t, wantEvent, decoded.GetRecords()[0].GetEventId())
-	}
-
+	require.Equal(t, []string{"frame-1", "frame-3"}, spooledRelayEventIDs(t, sp),
+		"the oversized frame must not be spooled")
 	require.Equal(t, uint64(1), pump.stats.skippedOversize.Load())
 	require.Equal(t, uint64(2), pump.stats.forwarded.Load())
 	requireAckedFramesEventually(t, pump, 3)
 }
 
-func TestOtlpRelayPumpAcksOversizedFrameImmediatelyWhenIdle(t *testing.T) {
-	gw := &fakeRelayGateway{}
-	pump := newTestOtlpRelayPump(gw)
-	pump.maxFrameBytes = 1024
-	pump.flushInterval = time.Hour
-
-	frames := make(chan *addonpb.OtlpRelayFrame, 1)
-	acks := make(chan uint64, 16)
-	frames <- testRelayFrame(7, 4096)
-
-	startRelayPump(t, pump, frames, acks)
-
-	watermarks := waitForWatermark(t, acks, 7)
-	require.Equal(t, []uint64{7}, watermarks)
-	require.Zero(t, gw.attemptCount(), "nothing deliverable: the gateway must not be called")
-	require.Equal(t, uint64(1), pump.stats.skippedOversize.Load())
-	requireAckedFramesEventually(t, pump, 1)
-	require.Zero(t, pump.stats.forwarded.Load())
-}
-
-func TestOtlpRelayPumpStopsPullingWhenAcksStall(t *testing.T) {
-	gw := &fakeRelayGateway{failFirst: math.MaxInt}
-	pump := newTestOtlpRelayPump(gw)
+func TestOtlpRelayPumpStopsPullingWhileTheSpoolRefuses(t *testing.T) {
+	app := &refusingRelayAppender{delegate: openTestEdgeSpool(t), refuseFirst: math.MaxInt}
+	pump := newTestOtlpRelayPump(t, app)
 	const window = 4
 	pump.windowMaxFrames = window
 	pump.flushInterval = time.Hour
@@ -308,22 +233,58 @@ func TestOtlpRelayPumpStopsPullingWhenAcksStall(t *testing.T) {
 	startRelayPump(t, pump, frames, acks)
 
 	// The pump pulls until the window fills (4 frames), then blocks in the
-	// gateway retry loop without pulling further.
+	// spool retry loop without pulling further.
 	require.Eventually(t, func() bool {
-		return len(frames) == fed-window && gw.attemptCount() >= 1
+		return len(frames) == fed-window && app.attemptCount() >= 1
 	}, 5*time.Second, 5*time.Millisecond, "pump should pull exactly one window then stall")
 
 	// Hold for several retry cycles: still no further pulls, still no acks.
 	time.Sleep(100 * time.Millisecond)
-	require.Len(t, frames, fed-window, "pulling must stop while acks are stalled")
-	require.Empty(t, acks, "frames stay unacked while the gateway rejects them")
+	require.Len(t, frames, fed-window, "pulling must stop while the spool refuses")
+	require.Empty(t, acks, "frames stay unacked while the spool refuses them")
 	require.NotZero(t, pump.stats.retried.Load())
 	require.Zero(t, pump.stats.forwarded.Load())
 }
 
+// Without the relay grant (or spool) the pump stops pulling and acks nothing,
+// so frames stay in the add-on's durable spool; once a grant is held the held
+// frame is spooled and acked, and pulling resumes.
+func TestOtlpRelayPumpHoldsFramesUntilAGrantIsHeld(t *testing.T) {
+	sp := openTestEdgeSpool(t)
+	pump := newTestOtlpRelayPump(t, sp)
+	granted := pump.edgeTarget
+	var haveGrant atomic.Bool
+	pump.edgeTarget = func(now time.Time) (edgeMetricsAppender, *edgev1.EdgeSignedCapabilityV1) {
+		if !haveGrant.Load() {
+			return nil, nil
+		}
+		return granted(now)
+	}
+	var holds atomic.Int64
+	pump.recordHold = func() { holds.Add(1) }
+
+	frames := make(chan *addonpb.OtlpRelayFrame, 3)
+	acks := make(chan uint64, 16)
+	frames <- testRelayFrame(1, 64)
+	frames <- testRelayFrame(2, 64)
+	frames <- testRelayFrame(3, 64)
+
+	startRelayPump(t, pump, frames, acks)
+
+	require.Eventually(t, func() bool { return holds.Load() >= 2 }, 5*time.Second, time.Millisecond,
+		"the pump must count its waits for a grant")
+	require.Len(t, frames, 2, "only the frame being held is pulled")
+	require.Empty(t, acks, "nothing is acked without a grant")
+	require.Empty(t, spooledRelayEventIDs(t, sp))
+
+	haveGrant.Store(true)
+	watermarks := waitForWatermark(t, acks, 3)
+	require.Equal(t, uint64(3), watermarks[len(watermarks)-1])
+	require.Equal(t, []string{"frame-1", "frame-2", "frame-3"}, spooledRelayEventIDs(t, sp))
+}
+
 func TestOtlpRelayPumpStopsOnContextCancel(t *testing.T) {
-	gw := &fakeRelayGateway{}
-	pump := newTestOtlpRelayPump(gw)
+	pump := newTestOtlpRelayPump(t, openTestEdgeSpool(t))
 
 	frames := make(chan *addonpb.OtlpRelayFrame)
 	acks := make(chan uint64, 16)
@@ -339,8 +300,8 @@ func TestOtlpRelayPumpStopsOnContextCancel(t *testing.T) {
 }
 
 func TestOtlpRelayPumpStopsWhenStreamCloses(t *testing.T) {
-	gw := &fakeRelayGateway{}
-	pump := newTestOtlpRelayPump(gw)
+	sp := openTestEdgeSpool(t)
+	pump := newTestOtlpRelayPump(t, sp)
 
 	frames := make(chan *addonpb.OtlpRelayFrame)
 	acks := make(chan uint64, 16)
@@ -353,30 +314,5 @@ func TestOtlpRelayPumpStopsWhenStreamCloses(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("pump did not stop when the relay stream closed")
 	}
-	require.Zero(t, gw.attemptCount())
-}
-
-func TestBuildOtlpRelayGatewayStatusWrapsFrameBatch(t *testing.T) {
-	frame := testRelayFrame(42, 128)
-
-	status, messageByteCount, err := buildOtlpRelayGatewayStatus(
-		frame, "agent-a", "gateway-a", "prod-east", "kv-a")
-	require.NoError(t, err)
-
-	require.Equal(t, otlpRelayServiceName, status.GetServiceName())
-	require.Equal(t, otlpRelayServiceType, status.GetServiceType())
-	require.Equal(t, otlpRelaySource, status.GetSource())
-	require.True(t, status.GetAvailable())
-	require.Equal(t, "agent-a", status.GetAgentId())
-	require.Equal(t, "gateway-a", status.GetGatewayId())
-	require.Equal(t, "prod-east", status.GetPartition())
-	require.Equal(t, "kv-a", status.GetKvStoreId())
-	require.Equal(t, len(status.GetMessage()), messageByteCount)
-
-	var decoded addonpb.TelemetryBatch
-	require.NoError(t, gproto.Unmarshal(status.GetMessage(), &decoded))
-	require.Equal(t, "frame-42", decoded.GetRecords()[0].GetEventId())
-	require.Equal(t,
-		addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OTLP_TRACES,
-		decoded.GetRecords()[0].GetPayloadKind())
+	require.Empty(t, spooledRelayEventIDs(t, sp))
 }

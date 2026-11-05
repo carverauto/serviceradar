@@ -29,6 +29,7 @@ import (
 
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
+	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 	gproto "google.golang.org/protobuf/proto"
 )
 
@@ -76,18 +77,20 @@ func TestPluginResultProvenanceIsHostStampedAndUnforgeable(t *testing.T) {
 	}
 	action := receivePluginResult(t, manager)
 
-	loop := &PushLoop{logger: logger.NewTestLogger()}
 	for _, result := range []PluginResult{scheduled, action} {
-		status := loop.buildPluginGatewayStatus(result, "agent-1", "default", "")
-		want := &proto.PluginResultProvenance{
+		items := groupPluginResults([]PluginResult{result})
+		if len(items) != 1 {
+			t.Fatalf("%s grouped into %d edge items, want 1", result.AssignmentID, len(items))
+		}
+		want := &edgev1.PluginResultProvenanceV1{
 			AssignmentId:    result.AssignmentID,
 			PluginId:        "example-check",
 			PluginPackageId: "example-check-package-2",
 			PluginVersion:   provenanceTestVersion,
 			ContentHash:     module.hex,
 		}
-		if !gproto.Equal(status.GetPluginProvenance(), want) {
-			t.Fatalf("%s provenance = %v, want %v", result.AssignmentID, status.GetPluginProvenance(), want)
+		if !gproto.Equal(items[0].provenance, want) {
+			t.Fatalf("%s provenance = %v, want %v", result.AssignmentID, items[0].provenance, want)
 		}
 	}
 	if scheduled.AssignmentID != "assignment-scheduled-1" || action.AssignmentID != "assignment-action-1" {

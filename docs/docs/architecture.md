@@ -79,7 +79,7 @@ These components communicate internally over mTLS-secured Erlang distribution (E
 
 - runs built-in collectors and engines (for example sync integrations, SNMP polling, discovery/mapping, mDNS)
 - executes sandboxed Wasm plugins using `wazero`
-- streams results using unary and streaming gRPC (chunked payloads for large datasets)
+- delivers durable results as edge records over a gRPC stream, and status summaries over unary `PushStatus`
 - participates in a bidirectional control stream for control-plane signaling
 
 See [Edge Model](./edge-model.md).

@@ -11,7 +11,8 @@ ServiceRadar sync is embedded in `serviceradar-agent`. It fetches inventory from
 
 - Configured in the Web UI under **Integrations**.
 - Agents fetch config via `GetConfig`.
-- Updates are streamed to agent-gateway using chunked `StreamStatus`.
+- Updates are spooled as `serviceradar.sync.page.batch` edge records and delivered
+  through the agent-gateway; a run starts only while the agent holds that grant.
 
 ## Architecture
 
@@ -21,7 +22,7 @@ graph TD
     Core -->|GetConfig| Gateway["Agent-Gateway"]
 
     Agent["Agent + Embedded Sync"] -->|Hello, GetConfig| Gateway
-    Agent -->|StreamStatus chunks| Gateway
+    Agent -->|edge records| Gateway
 
     Gateway --> Core
     Core --> DIRE["DIRE"]

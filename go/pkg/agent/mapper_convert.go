@@ -27,12 +27,11 @@ import (
 
 // Conversion of mapper update payloads into the typed mapper batches of
 // proto/edge/v1/json_producer_batches.proto. The input is the exact JSON
-// array the legacy payload builders produce (host agent/gateway/partition
+// array the mapper payload builders produce (host agent/gateway/partition
 // stamps and the candidate-only topology filter already applied), decoded
-// back into maps, so the durable path carries precisely what the legacy
-// status push carried. Metadata maps ride verbatim; the promoted typed
-// fields are read out of the same metadata for typed consumers, and the
-// projector rebuilds the legacy payload from the verbatim maps.
+// back into maps. Metadata maps ride verbatim; the promoted typed fields are
+// read out of the same metadata for typed consumers, and the projector
+// rebuilds the update payload from the verbatim maps.
 
 func decodeUpdateArray(data []byte) []map[string]interface{} {
 	decoder := json.NewDecoder(bytes.NewReader(data))

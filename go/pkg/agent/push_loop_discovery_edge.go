@@ -29,8 +29,8 @@ import (
 
 // Mapper and netprobe discovery ride standing-grant contracts
 // (serviceradar.mapper.*.batch, serviceradar.netprobe.discovery.batch)
-// through this producer. Conversion starts from the exact JSON payloads
-// the legacy builders produced for one drain. A drain the spool has not
+// through this producer. Conversion starts from the JSON update payloads
+// the mapper and netprobe builders produce for one drain. A drain the spool has not
 // yet admitted is held as the family's one pending item, its built parts
 // keeping the event ids they were first built with across retries, and
 // the family is not drained again until it is admitted. One update that
@@ -45,8 +45,8 @@ var (
 
 // SetEdgeDiscoverySpool connects the mapper and netprobe discovery, workload
 // identity, k8s public endpoints, endpoint inventory and bumblebee scan
-// producers to the sender's one open spool. Call before Start; a nil spool
-// keeps them on their legacy paths.
+// producers to the sender's one open spool. Call before Start; with a nil
+// spool those producers hold their data as they do without a grant.
 func (p *PushLoop) SetEdgeDiscoverySpool(sp *spool.Spool) {
 	if sp == nil {
 		p.edgeDiscoverySpool = nil

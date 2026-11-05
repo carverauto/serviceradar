@@ -18,18 +18,18 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
 	"strconv"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/agent/syncsources"
+	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	"github.com/carverauto/serviceradar/go/pkg/models"
-	"github.com/carverauto/serviceradar/proto"
+	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
+	"github.com/stretchr/testify/require"
 )
 
 // fakeSyncSourceType is an integration-neutral source type registered only in
@@ -39,10 +39,7 @@ import (
 const fakeSyncSourceType = "synthetic"
 
 var (
-	errFakeSyncGatewayEmptyStream  = errors.New("empty stream")
-	errFakeSyncGatewayInvalidChunk = errors.New("invalid stream chunk")
-	errFakeSyncGatewayMissingFinal = errors.New("stream ended without final chunk")
-	errFakeSyncDriverFailed        = errors.New("fake sync driver failed")
+	errFakeSyncDriverFailed = errors.New("fake sync driver failed")
 )
 
 // fakeSyncDrivers is the driver registry of a test runtime: the synthetic driver only.
@@ -129,13 +126,15 @@ func fakeDriverInt(creds map[string]string, key string, fallback int) int {
 	return parsed
 }
 
-func newSyncTestRuntime(gateway *fakeSyncGateway) *SyncRuntime {
-	return &SyncRuntime{
-		server:  &Server{config: &ServerConfig{AgentID: "agent-a", Partition: "partition-a"}},
-		gateway: gateway,
-		logger:  createTestLogger(),
-		drivers: fakeSyncDrivers(),
-	}
+// newSyncTestRuntime is a sync runtime on an open edge spool, holding the sync
+// page grant, with the synthetic driver registered.
+func newSyncTestRuntime(t *testing.T) (*SyncRuntime, *PushLoop, *spool.Spool) {
+	t.Helper()
+	sp := openTestEdgeSpool(t)
+	loop, runtime := syncTestRuntime(t, sp)
+	runtime.drivers = fakeSyncDrivers()
+	grantDiscovery(t, loop)
+	return runtime, loop, sp
 }
 
 func newFakeSourceRunner(credentials map[string]string) *syncSourceRunner {
@@ -150,73 +149,61 @@ func newFakeSourceRunner(credentials map[string]string) *syncSourceRunner {
 	}
 }
 
-func TestRunSourceOnceStreamsPagedDriverUpdatesAsGatewayResults(t *testing.T) {
+// spooledSyncDevices is every device a run spooled, in spool order.
+func spooledSyncDevices(t *testing.T, sp *spool.Spool) []*edgev1.SyncDeviceRecordV1 {
+	t.Helper()
+	var devices []*edgev1.SyncDeviceRecordV1
+	for _, page := range decodeSyncPages(t, sp) {
+		devices = append(devices, page.GetDevices()...)
+	}
+	return devices
+}
+
+func TestRunSourceOnceSpoolsPagedDriverUpdatesAsSyncPages(t *testing.T) {
 	const (
 		pages          = 3
 		devicesPerPage = 100
 		totalDevices   = pages * devicesPerPage
 	)
 
-	gateway := &fakeSyncGateway{}
-	runtime := newSyncTestRuntime(gateway)
+	runtime, _, sp := newSyncTestRuntime(t)
 	runner := newFakeSourceRunner(map[string]string{
 		"pages":            strconv.Itoa(pages),
 		"devices_per_page": strconv.Itoa(devicesPerPage),
 	})
 
 	count, err := runtime.runSourceOnce(context.Background(), runner, "discovery", "run-123")
-	if err != nil {
-		t.Fatalf("runSourceOnce returned error: %v", err)
-	}
-	if count != totalDevices {
-		t.Fatalf("count = %d, want %d", count, totalDevices)
-	}
+	require.NoError(t, err)
+	require.Equal(t, totalDevices, count)
 
-	streams := gateway.streamsSnapshot()
-	if len(streams) != pages {
-		t.Fatalf("stream count = %d, want %d pages", len(streams), pages)
-	}
-
+	records := decodeSyncPages(t, sp)
+	require.NotEmpty(t, records)
 	seen := make(map[string]bool, totalDevices)
-	for streamIdx, stream := range streams {
-		if len(stream) == 0 {
-			t.Fatalf("stream %d was empty", streamIdx)
+	for idx, page := range records {
+		meta := page.GetSyncMeta()
+		require.Equal(t, "run-123", meta.GetSyncRunId())
+		require.Equal(t, int32(idx), meta.GetChunkIndex(), "records keep the run's chunk numbering")
+		for _, device := range page.GetDevices() {
+			require.False(t, seen[device.GetDeviceId()], "duplicate device id %q", device.GetDeviceId())
+			seen[device.GetDeviceId()] = true
 		}
-		for chunkIdx, chunk := range stream {
-			assertGatewayResultsChunk(t, streamIdx, chunkIdx, len(stream), chunk)
-			for _, deviceID := range decodedSyncChunkDeviceIDs(t, []*proto.GatewayStatusChunk{chunk}) {
-				if seen[deviceID] {
-					t.Fatalf("duplicate device id %q", deviceID)
-				}
-				seen[deviceID] = true
-			}
-		}
-		lastChunk := stream[len(stream)-1]
-		if !lastChunk.IsFinal {
-			t.Fatalf("stream %d last chunk is not final", streamIdx)
-		}
-		if streamIdx == len(streams)-1 {
-			assertSyncChunkRunFinal(t, lastChunk, true)
-			assertSyncChunkRunTotal(t, lastChunk, totalDevices)
-		} else {
-			assertSyncChunkRunFinal(t, lastChunk, false)
+		last := idx == len(records)-1
+		require.Equal(t, last, meta.GetIsFinal(), "only the run's last record is run-final")
+		if last {
+			require.Equal(t, int32(totalDevices), meta.GetTotalDevices())
 		}
 	}
-
-	if len(seen) != totalDevices {
-		t.Fatalf("streamed device count = %d, want %d", len(seen), totalDevices)
-	}
+	require.Len(t, seen, totalDevices)
 }
 
-func TestRunSourceOnceSendsCollectionFinalAsOwnStreamWhenPopulationReported(t *testing.T) {
+func TestRunSourceOnceSpoolsCollectionFinalAsOwnRecordWhenPopulationReported(t *testing.T) {
 	const (
 		pages          = 2
 		devicesPerPage = 5
 		totalDevices   = pages * devicesPerPage
 	)
 
-	gateway := &fakeSyncGateway{}
-	runtime := newSyncTestRuntime(gateway)
+	runtime, _, sp := newSyncTestRuntime(t)
 	runner := newFakeSourceRunner(map[string]string{
 		"pages":             strconv.Itoa(pages),
 		"devices_per_page":  strconv.Itoa(devicesPerPage),
@@ -224,38 +211,24 @@ func TestRunSourceOnceSendsCollectionFinalAsOwnStreamWhenPopulationReported(t *t
 	})
 
 	count, err := runtime.runSourceOnce(context.Background(), runner, "discovery", "run-pop")
-	if err != nil {
-		t.Fatalf("runSourceOnce returned error: %v", err)
-	}
-	if count != totalDevices {
-		t.Fatalf("count = %d, want %d", count, totalDevices)
-	}
+	require.NoError(t, err)
+	require.Equal(t, totalDevices, count)
 
-	streams := gateway.streamsSnapshot()
-	// Expect pages streams for data + 1 stream for collection_final.
-	wantStreams := pages + 1
-	if len(streams) != wantStreams {
-		t.Fatalf("stream count = %d, want %d (pages=%d + collection_final)", len(streams), wantStreams, pages)
+	records := decodeSyncPages(t, sp)
+	require.Greater(t, len(records), 1)
+	for _, page := range records[:len(records)-1] {
+		require.NotEmpty(t, page.GetDevices())
+		require.False(t, page.GetSyncMeta().GetIsFinal(), "data records are not run-final")
 	}
-
-	// Data streams must not be marked run-final.
-	for i := 0; i < pages; i++ {
-		last := streams[i][len(streams[i])-1]
-		assertSyncChunkRunFinal(t, last, false)
-	}
-
-	// The collection_final stream is the last one and must be run-final.
-	finalStream := streams[wantStreams-1]
-	if len(finalStream) != 1 {
-		t.Fatalf("collection_final stream has %d chunks, want 1", len(finalStream))
-	}
-	assertSyncChunkRunFinal(t, finalStream[0], true)
-	assertSyncChunkRunTotal(t, finalStream[0], totalDevices)
+	final := records[len(records)-1]
+	require.Empty(t, final.GetDevices())
+	require.Equal(t, syncCollectionFinal, final.GetControlMarker().GetControlType())
+	require.True(t, final.GetSyncMeta().GetIsFinal())
+	require.Equal(t, int32(totalDevices), final.GetSyncMeta().GetTotalDevices())
 }
 
 func TestExecuteRunEndsAStalledRunAtItsDeadlineSoTheNextRunProceeds(t *testing.T) {
-	gateway := &fakeSyncGateway{}
-	runtime := newSyncTestRuntime(gateway)
+	runtime, _, sp := newSyncTestRuntime(t)
 	runtime.runTimeout = 200 * time.Millisecond
 	runner := newFakeSourceRunner(map[string]string{"stall": "true"})
 
@@ -271,13 +244,44 @@ func TestExecuteRunEndsAStalledRunAtItsDeadlineSoTheNextRunProceeds(t *testing.T
 		t.Fatal("a stalled sync run never ended; the source would stop syncing")
 	}
 
-	// The source is free again: the next scheduled run executes and streams.
+	// The source is free again: the next scheduled run executes and spools.
 	runner.config.Credentials = map[string]string{"pages": "1"}
 	runtime.executeRun(context.Background(), runner, "poll")
 
-	if streams := gateway.streamsSnapshot(); len(streams) == 0 {
-		t.Fatal("the run after a timed-out run streamed nothing")
-	}
+	require.NotEmpty(t, spooledRecords(t, sp), "the run after a timed-out run spooled nothing")
+}
+
+// countingSyncDriver counts the runs that reached it.
+type countingSyncDriver struct{ runs *int }
+
+func (d countingSyncDriver) Sync(context.Context, syncsources.RunContext) (int, error) {
+	*d.runs++
+	return 0, nil
+}
+
+// Without the sync page grant a run would have nowhere to put its pages: it
+// does not start, so the integration is read again on the next run, and the
+// hold is counted. A page emitted after the grant lapses mid-run fails.
+func TestSyncRunDoesNotStartWithoutTheSyncPageGrant(t *testing.T) {
+	runtime, loop, sp := newSyncTestRuntime(t)
+	runs := 0
+	runtime.drivers = syncsources.Registry{}
+	runtime.drivers.Register(fakeSyncSourceType, func() syncsources.SourceDriver {
+		return countingSyncDriver{runs: &runs}
+	})
+	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, nil, time.Now())
+
+	runner := newFakeSourceRunner(nil)
+	runtime.executeRun(context.Background(), runner, "poll")
+
+	require.Zero(t, runs, "a sync run started without a sync page grant")
+	require.Equal(t, uint64(1), loop.server.edgeProducerDrops.grantHolds[edgeProducerSync].Load())
+	require.Empty(t, spooledRecords(t, sp))
+
+	_, err := runtime.sendSyncUpdates(context.Background(), runner,
+		[]map[string]interface{}{syncUpdate("src-a", "192.0.2.60")}, "run-1", 1, 0, true, nil)
+	require.ErrorIs(t, err, errSyncNoGrant)
+	require.Empty(t, spooledRecords(t, sp))
 }
 
 func TestSyncRunTimeoutFollowsTheScheduleWithinBounds(t *testing.T) {
@@ -299,8 +303,7 @@ func TestSyncRunTimeoutFollowsTheScheduleWithinBounds(t *testing.T) {
 }
 
 func TestRunSourceOnceFlushesEmittedPagesWhenDriverFails(t *testing.T) {
-	gateway := &fakeSyncGateway{}
-	runtime := newSyncTestRuntime(gateway)
+	runtime, _, sp := newSyncTestRuntime(t)
 	runner := newFakeSourceRunner(map[string]string{
 		"pages":            "2",
 		"devices_per_page": "2",
@@ -308,64 +311,34 @@ func TestRunSourceOnceFlushesEmittedPagesWhenDriverFails(t *testing.T) {
 	})
 
 	count, err := runtime.runSourceOnce(context.Background(), runner, "discovery", "run-123")
-	if !errors.Is(err, errFakeSyncDriverFailed) {
-		t.Fatalf("error = %v, want driver failure", err)
-	}
-	if count != 2 {
-		t.Fatalf("count = %d, want flushed first page count", count)
-	}
+	require.ErrorIs(t, err, errFakeSyncDriverFailed)
+	require.Equal(t, 2, count, "the first page is flushed before the error")
 
-	streams := gateway.streamsSnapshot()
-	if len(streams) != 1 {
-		t.Fatalf("stream count = %d, want first page flushed before error", len(streams))
+	require.Len(t, spooledSyncDevices(t, sp), 2)
+	for _, page := range decodeSyncPages(t, sp) {
+		require.False(t, page.GetSyncMeta().GetIsFinal(), "a failed run is never run-final")
 	}
-
-	gotDevices := decodedSyncChunkDeviceIDs(t, gateway.chunks())
-	if len(gotDevices) != 2 {
-		t.Fatalf("streamed device count = %d, want 2: %v", len(gotDevices), gotDevices)
-	}
-
-	lastStream := streams[len(streams)-1]
-	assertSyncChunkRunFinal(t, lastStream[len(lastStream)-1], false)
 }
 
 func TestRunSourceOnceNormalizesEmittedUpdatesForEverySource(t *testing.T) {
-	gateway := &fakeSyncGateway{}
-	runtime := newSyncTestRuntime(gateway)
+	runtime, _, sp := newSyncTestRuntime(t)
 	runner := newFakeSourceRunner(map[string]string{
 		"raw_mac": "junk,00:1A:A0:B9:40:40,001422F42A2A",
 	})
 
 	count, err := runtime.runSourceOnce(context.Background(), runner, "discovery", "run-123")
-	if err != nil {
-		t.Fatalf("runSourceOnce returned error: %v", err)
-	}
-	if count != 1 {
-		t.Fatalf("count = %d, want 1", count)
-	}
+	require.NoError(t, err)
+	require.Equal(t, 1, count)
 
-	updates := decodedSyncChunkUpdates(t, gateway.chunks())
-	if len(updates) != 1 {
-		t.Fatalf("update count = %d, want 1", len(updates))
-	}
-
-	update := updates[0]
-	if update["mac"] != "00:1A:A0:B9:40:40" {
-		t.Fatalf("update[mac] = %q, want first valid atomic MAC", update["mac"])
-	}
-
-	metadata, ok := update["metadata"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("metadata has type %T, want map", update["metadata"])
-	}
-	if got := metadata["mac_addresses"]; got != "001AA0B94040,001422F42A2A" {
-		t.Fatalf("metadata[mac_addresses] = %q, want validated normalized MAC list", got)
-	}
+	devices := spooledSyncDevices(t, sp)
+	require.Len(t, devices, 1)
+	require.Equal(t, "00:1A:A0:B9:40:40", devices[0].GetMac(), "first valid atomic MAC")
+	require.Equal(t, "001AA0B94040,001422F42A2A", devices[0].GetMetadata()["mac_addresses"],
+		"validated normalized MAC list")
 }
 
 func TestRunSourceOnceRejectsUnregisteredSourceType(t *testing.T) {
-	gateway := &fakeSyncGateway{}
-	runtime := newSyncTestRuntime(gateway)
+	runtime, _, sp := newSyncTestRuntime(t)
 	runner := &syncSourceRunner{
 		key: "unknown-source",
 		config: models.SourceConfig{
@@ -375,12 +348,8 @@ func TestRunSourceOnceRejectsUnregisteredSourceType(t *testing.T) {
 	}
 
 	_, err := runtime.runSourceOnce(context.Background(), runner, "discovery", "run-123")
-	if !errors.Is(err, errUnsupportedSyncSourceType) {
-		t.Fatalf("error = %v, want errUnsupportedSyncSourceType", err)
-	}
-	if len(gateway.chunks()) != 0 {
-		t.Fatal("no updates should be streamed for unsupported source types")
-	}
+	require.ErrorIs(t, err, errUnsupportedSyncSourceType)
+	require.Empty(t, spooledRecords(t, sp), "no updates are spooled for unsupported source types")
 }
 
 func TestIsSupportedSourceDerivesFromRegistry(t *testing.T) {
@@ -449,300 +418,6 @@ func TestParseSyncSourcesRejectsInvalidJSON(t *testing.T) {
 	if _, err := parseSyncSources([]byte(`{not json`)); err == nil {
 		t.Fatal("expected decode error")
 	}
-}
-
-type fakeSyncGateway struct {
-	mu      sync.Mutex
-	streams [][]*proto.GatewayStatusChunk
-}
-
-func (f *fakeSyncGateway) StreamStatus(
-	_ context.Context,
-	chunks []*proto.GatewayStatusChunk,
-) (*proto.GatewayStatusResponse, error) {
-	if len(chunks) == 0 {
-		return nil, errFakeSyncGatewayEmptyStream
-	}
-	for i, chunk := range chunks {
-		if chunk == nil {
-			return nil, fmt.Errorf("nil chunk %d: %w", i, errFakeSyncGatewayInvalidChunk)
-		}
-		if chunk.ChunkIndex != int32(i) {
-			return nil, fmt.Errorf("chunk index %d, want %d: %w", chunk.ChunkIndex, i, errFakeSyncGatewayInvalidChunk)
-		}
-		if chunk.TotalChunks != int32(len(chunks)) {
-			return nil, fmt.Errorf(
-				"total chunks %d, want %d: %w",
-				chunk.TotalChunks,
-				len(chunks),
-				errFakeSyncGatewayInvalidChunk,
-			)
-		}
-	}
-	if !chunks[len(chunks)-1].IsFinal {
-		return nil, errFakeSyncGatewayMissingFinal
-	}
-
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	copied := append([]*proto.GatewayStatusChunk(nil), chunks...)
-	f.streams = append(f.streams, copied)
-	return &proto.GatewayStatusResponse{Received: true}, nil
-}
-
-func (*fakeSyncGateway) GetGatewayID() string {
-	return "gateway-a"
-}
-
-func (f *fakeSyncGateway) chunks() []*proto.GatewayStatusChunk {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	var chunks []*proto.GatewayStatusChunk
-	for _, stream := range f.streams {
-		chunks = append(chunks, stream...)
-	}
-	return chunks
-}
-
-func (f *fakeSyncGateway) streamsSnapshot() [][]*proto.GatewayStatusChunk {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	streams := make([][]*proto.GatewayStatusChunk, 0, len(f.streams))
-	for _, stream := range f.streams {
-		streams = append(streams, append([]*proto.GatewayStatusChunk(nil), stream...))
-	}
-
-	return streams
-}
-
-func assertGatewayResultsChunk(
-	t *testing.T,
-	streamIdx int,
-	chunkIdx int,
-	streamLen int,
-	chunk *proto.GatewayStatusChunk,
-) {
-	t.Helper()
-
-	if chunk.AgentId != "agent-a" {
-		t.Fatalf("stream %d chunk %d agent_id = %q", streamIdx, chunkIdx, chunk.AgentId)
-	}
-	if chunk.GatewayId != "gateway-a" {
-		t.Fatalf("stream %d chunk %d gateway_id = %q", streamIdx, chunkIdx, chunk.GatewayId)
-	}
-	if chunk.Partition != "partition-a" {
-		t.Fatalf("stream %d chunk %d partition = %q", streamIdx, chunkIdx, chunk.Partition)
-	}
-	if chunk.TotalChunks <= 0 {
-		t.Fatalf("stream %d chunk %d total_chunks = %d", streamIdx, chunkIdx, chunk.TotalChunks)
-	}
-	if chunk.ChunkIndex != int32(chunkIdx) {
-		t.Fatalf("stream %d chunk %d chunk_index = %d", streamIdx, chunkIdx, chunk.ChunkIndex)
-	}
-	if int(chunk.TotalChunks) != streamLen {
-		t.Fatalf("stream %d chunk %d has inconsistent total_chunks = %d", streamIdx, chunkIdx, chunk.TotalChunks)
-	}
-	if len(chunk.Services) != 1 {
-		t.Fatalf("stream %d chunk %d service count = %d, want 1", streamIdx, chunkIdx, len(chunk.Services))
-	}
-
-	service := chunk.Services[0]
-	if service.ServiceName != syncServiceName {
-		t.Fatalf("stream %d chunk %d service_name = %q", streamIdx, chunkIdx, service.ServiceName)
-	}
-	if service.ServiceType != syncServiceType {
-		t.Fatalf("stream %d chunk %d service_type = %q", streamIdx, chunkIdx, service.ServiceType)
-	}
-	if service.Source != "results" {
-		t.Fatalf("stream %d chunk %d source = %q", streamIdx, chunkIdx, service.Source)
-	}
-	if service.AgentId != chunk.AgentId {
-		t.Fatalf("stream %d chunk %d service agent_id = %q", streamIdx, chunkIdx, service.AgentId)
-	}
-	if service.GatewayId != chunk.GatewayId {
-		t.Fatalf("stream %d chunk %d service gateway_id = %q", streamIdx, chunkIdx, service.GatewayId)
-	}
-	if len(service.Message) == 0 {
-		t.Fatalf("stream %d chunk %d service message is empty", streamIdx, chunkIdx)
-	}
-}
-
-func decodedSyncChunkUpdates(t *testing.T, chunks []*proto.GatewayStatusChunk) []map[string]interface{} {
-	t.Helper()
-	var all []map[string]interface{}
-	for i, chunk := range chunks {
-		for j, service := range chunk.Services {
-			var updates []map[string]interface{}
-			if err := json.Unmarshal(service.Message, &updates); err != nil {
-				t.Fatalf("decode chunk %d service %d: %v", i, j, err)
-			}
-			all = append(all, updates...)
-		}
-	}
-	return all
-}
-
-func decodedSyncChunkDeviceIDs(t *testing.T, chunks []*proto.GatewayStatusChunk) []string {
-	t.Helper()
-	updates := decodedSyncChunkUpdates(t, chunks)
-	deviceIDs := make([]string, 0, len(updates))
-	for _, update := range updates {
-		deviceID, _ := update["device_id"].(string)
-		if deviceID == "" {
-			t.Fatalf("missing device_id in update: %#v", update)
-		}
-		deviceIDs = append(deviceIDs, deviceID)
-	}
-	return deviceIDs
-}
-
-func assertSyncChunkRunTotal(t *testing.T, chunk *proto.GatewayStatusChunk, want int) {
-	t.Helper()
-	meta := syncMetaFromStatusChunk(t, chunk)
-
-	got, ok := meta["total_devices"].(float64)
-	if !ok {
-		t.Fatalf("sync_meta total_devices = %#v", meta["total_devices"])
-	}
-	if int(got) != want {
-		t.Fatalf("sync_meta total_devices = %d, want %d", int(got), want)
-	}
-}
-
-func assertSyncChunkRunFinal(t *testing.T, chunk *proto.GatewayStatusChunk, want bool) {
-	t.Helper()
-	meta := syncMetaFromStatusChunk(t, chunk)
-
-	got, ok := meta["is_final"].(bool)
-	if !ok {
-		t.Fatalf("sync_meta is_final = %#v", meta["is_final"])
-	}
-	if got != want {
-		t.Fatalf("sync_meta is_final = %v, want %v", got, want)
-	}
-}
-
-func syncMetaFromStatusChunk(t *testing.T, chunk *proto.GatewayStatusChunk) map[string]interface{} {
-	t.Helper()
-	if len(chunk.Services) == 0 {
-		t.Fatal("chunk has no services")
-	}
-
-	var updates []map[string]interface{}
-	if err := json.Unmarshal(chunk.Services[0].Message, &updates); err != nil {
-		t.Fatalf("decode chunk: %v", err)
-	}
-	if len(updates) == 0 {
-		t.Fatal("chunk has no updates")
-	}
-
-	meta, ok := updates[len(updates)-1]["sync_meta"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("update missing sync_meta: %#v", updates[len(updates)-1])
-	}
-	return meta
-}
-
-func TestBuildSyncResultsChunksPublishesBoundedPopulationOnlyOnRunFinal(t *testing.T) {
-	examples := make([]string, 120)
-	for i := range examples {
-		examples[i] = strconv.Itoa(i + 1)
-	}
-	population := &syncsources.PopulationStats{
-		RawRows: 130, ExcludedRows: 2, InvalidRows: 3, ValidOccurrences: 125,
-		DistinctSourceIDs: 120, DuplicateOccurrences: 5,
-		DuplicateSourceIDExamples: examples,
-		InvalidRowExamples:        examples,
-		ConflictingDuplicateIDs:   examples,
-	}
-	source := models.SourceConfig{SyncServiceID: "source-a"}
-	update := func() []map[string]interface{} {
-		return []map[string]interface{}{{"device_id": "default:10.0.0.1"}}
-	}
-
-	nonfinal, err := buildSyncResultsChunks(update(), source, "run-a", 1, 0, false, population)
-	if err != nil {
-		t.Fatalf("build non-final chunks: %v", err)
-	}
-	if _, exists := syncMetaFromResultsChunk(t, nonfinal[0])["population"]; exists {
-		t.Fatal("non-final chunk unexpectedly published population accounting")
-	}
-
-	final, err := buildSyncResultsChunks(update(), source, "run-a", 1, 0, true, population)
-	if err != nil {
-		t.Fatalf("build final chunks: %v", err)
-	}
-	got, ok := syncMetaFromResultsChunk(t, final[len(final)-1])["population"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("final chunk population = %#v", got)
-	}
-	if int(got["conflicting_duplicate_ids"].(float64)) != 120 {
-		t.Fatalf("conflicting duplicate count = %#v, want 120", got["conflicting_duplicate_ids"])
-	}
-	if int(got["excluded_rows"].(float64)) != 2 {
-		t.Fatalf("excluded row count = %#v, want 2", got["excluded_rows"])
-	}
-	if gotExamples, _ := got["conflicting_duplicate_examples"].([]interface{}); len(gotExamples) != 100 {
-		t.Fatalf("conflicting duplicate examples = %d, want bounded 100", len(gotExamples))
-	}
-	if gotExamples, _ := got["duplicate_source_id_examples"].([]interface{}); len(gotExamples) != 100 {
-		t.Fatalf("duplicate source-ID examples = %d, want bounded 100", len(gotExamples))
-	}
-	if gotExamples, _ := got["invalid_row_examples"].([]interface{}); len(gotExamples) != 100 {
-		t.Fatalf("invalid row examples = %d, want bounded 100", len(gotExamples))
-	}
-}
-
-func TestBuildSyncResultsChunksPublishesZeroDeviceCollectionFinal(t *testing.T) {
-	population := &syncsources.PopulationStats{
-		RawRows: 2, ExcludedRows: 2,
-	}
-	control := []map[string]interface{}{{
-		syncControlKey: syncCollectionFinal,
-		"timestamp":    "2026-09-01T08:00:00Z",
-	}}
-
-	chunks, err := buildSyncResultsChunks(
-		control,
-		models.SourceConfig{SyncServiceID: "source-a"},
-		"run-empty",
-		0,
-		0,
-		true,
-		population,
-	)
-	if err != nil {
-		t.Fatalf("build empty collection final: %v", err)
-	}
-	if len(chunks) != 1 {
-		t.Fatalf("chunks = %d, want 1", len(chunks))
-	}
-
-	meta := syncMetaFromResultsChunk(t, chunks[0])
-	if got := int(meta["total_devices"].(float64)); got != 0 {
-		t.Fatalf("total_devices = %d, want 0", got)
-	}
-	if got, _ := meta["is_final"].(bool); !got {
-		t.Fatal("empty collection marker is not final")
-	}
-	gotPopulation, _ := meta["population"].(map[string]interface{})
-	if got := int(gotPopulation["excluded_rows"].(float64)); got != 2 {
-		t.Fatalf("excluded_rows = %d, want 2", got)
-	}
-}
-
-func syncMetaFromResultsChunk(t *testing.T, chunk *proto.ResultsChunk) map[string]interface{} {
-	t.Helper()
-	var updates []map[string]interface{}
-	if err := json.Unmarshal(chunk.Data, &updates); err != nil {
-		t.Fatalf("decode results chunk: %v", err)
-	}
-	meta, ok := updates[len(updates)-1][syncMetaKey].(map[string]interface{})
-	if !ok {
-		t.Fatalf("update missing sync_meta: %#v", updates[len(updates)-1])
-	}
-	return meta
 }
 
 func TestScheduledSyncRunPrefersDiscoveryInterval(t *testing.T) {

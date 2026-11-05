@@ -42,9 +42,9 @@ type SweepService struct {
 	logger  logger.Logger
 
 	// Caching fields for sequence tracking. pendingSweeps holds completed
-	// cycles, oldest first, until GetSweepResults publishes them. A catch-up
-	// of several slots finishes before the push loop reads, and two of those
-	// completions can share a LastSweep unix second.
+	// cycles, oldest first, until GetSweepResults publishes them. Runs
+	// triggered outside the schedule can finish before the push loop reads,
+	// and two of those completions can share a LastSweep unix second.
 	cachedResults      *models.SweepSummary
 	pendingSweeps      []*completedSweep
 	cachedCompletion   *completedSweep
@@ -163,22 +163,6 @@ func (s *SweepService) snapshotCompletedSweep(summary *models.SweepSummary) *com
 		cycle.bannerStats = &copy
 	}
 	return cycle
-}
-
-// RunOnceForExecution runs one sweep as the core-minted executionID (a leased
-// slot). The completed cycle is retained here, hosts included, until
-// GetSweepResults publishes it. The sweeper keeps one summary, so the next
-// slot would otherwise replace this cycle before the push loop reads it.
-func (s *SweepService) RunOnceForExecution(ctx context.Context, executionID string) error {
-	if runner, ok := s.sweeper.(interface {
-		RunOnceWithExecution(context.Context, string) error
-	}); ok {
-		return s.runAndRetain(ctx, func(ctx context.Context) error {
-			return runner.RunOnceWithExecution(ctx, executionID)
-		})
-	}
-
-	return s.RunOnce(ctx)
 }
 
 // runAndRetain copies the finished cycle before GetSweepResults is allowed

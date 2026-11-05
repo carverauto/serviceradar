@@ -16,10 +16,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/carverauto/serviceradar/go/pkg/agent/syncsources"
-	"github.com/carverauto/serviceradar/go/pkg/agentgateway"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
-	"github.com/carverauto/serviceradar/proto"
 )
 
 const (
@@ -34,17 +32,16 @@ const (
 var (
 	errSyncRuntimeNoContext      = errors.New("sync runtime requires context")
 	errUnsupportedSyncSourceType = errors.New("unsupported sync source type")
-	errSyncRunSplit              = errors.New("sync run already spooled pages; refusing to split it across paths")
+	errSyncNoGrant               = errors.New("no sync page grant held; sync pages cannot be spooled")
 )
 
 // SyncRuntime executes integration sources delivered via GetConfig. It is
 // integration-agnostic: concrete source drivers are looked up in the
 // syncsources registry, and every update they emit flows through the same
-// normalization, chunking, and gateway streaming pipeline.
+// normalization and chunking pipeline into the edge spool.
 type SyncRuntime struct {
-	server  *Server
-	gateway syncGateway
-	logger  logger.Logger
+	server *Server
+	logger logger.Logger
 
 	mu      sync.Mutex
 	stateMu sync.Mutex
@@ -59,16 +56,10 @@ type SyncRuntime struct {
 	runTimeout time.Duration
 
 	// edgeSpool and edgeGrants connect sync pages to the durable
-	// edge-record pipeline while sync emission is enabled; a nil spool
-	// keeps sync pages on their legacy status path.
+	// edge-record pipeline; without a spool or a sync page grant no run
+	// starts, and a run whose grant goes away mid-run fails.
 	edgeSpool  edgeMetricsAppender
 	edgeGrants *edgeOutputGrants
-	// edgeRuns names the in-flight sync runs that have spooled at least
-	// one page; a run's entry lives until the run ends. A run never splits
-	// across paths: pages arrive in run order on one path or the run
-	// fails, so core never sees a legacy page overtake spooled pages of
-	// the same run.
-	edgeRuns sync.Map
 }
 
 const (
@@ -92,11 +83,6 @@ func syncRunTimeout(source models.SourceConfig) time.Duration {
 	return interval
 }
 
-type syncGateway interface {
-	StreamStatus(context.Context, []*proto.GatewayStatusChunk) (*proto.GatewayStatusResponse, error)
-	GetGatewayID() string
-}
-
 type syncSourceRunner struct {
 	key    string
 	hash   string
@@ -117,10 +103,9 @@ type syncRuntimeRunState struct {
 }
 
 // NewSyncRuntime builds the integration sync runtime for an agent.
-func NewSyncRuntime(server *Server, gateway *agentgateway.GatewayClient, log logger.Logger) *SyncRuntime {
+func NewSyncRuntime(server *Server, log logger.Logger) *SyncRuntime {
 	return &SyncRuntime{
 		server:  server,
-		gateway: gateway,
 		logger:  log,
 		sources: make(map[string]*syncSourceRunner),
 		drivers: syncSourceDrivers(),
@@ -330,6 +315,17 @@ func (r *SyncRuntime) executeRun(ctx context.Context, runner *syncSourceRunner, 
 	}
 	defer runner.finish()
 
+	// A run's pages can only be spooled under the sync page grant. Without one
+	// the run does not start; the source is read again on its next run.
+	if r.syncCapability(time.Now()) == nil {
+		r.logger.Warn().Str("source", runner.key).Str("kind", runKind).
+			Msg("Sync run deferred: no sync page grant held")
+		if r.server != nil {
+			r.server.edgeProducerDrops.recordGrantHold(edgeProducerSync)
+		}
+		return
+	}
+
 	runID := uuid.NewString()
 
 	timeout := r.runTimeout
@@ -365,8 +361,6 @@ func (r *SyncRuntime) runSourceOnce(
 	_ string,
 	runID string,
 ) (int, error) {
-	defer r.edgeRuns.Delete(runID)
-
 	sourceType := syncsources.NormalizeType(runner.config.Type)
 	ctor, ok := r.drivers.Lookup(sourceType)
 	if !ok {
@@ -562,63 +556,12 @@ func (r *SyncRuntime) sendSyncUpdates(
 	runFinalPage bool,
 	population *syncsources.PopulationStats,
 ) (int, error) {
-	if capability := r.syncCapability(time.Now()); capability != nil {
-		return r.spoolSyncUpdates(ctx, updates, runner.config, runID,
-			runTotalDevices, baseChunkIndex, runFinalPage, population, capability)
+	capability := r.syncCapability(time.Now())
+	if capability == nil {
+		return 0, fmt.Errorf("%w: run %s", errSyncNoGrant, runID)
 	}
-	if _, spooled := r.edgeRuns.Load(runID); spooled {
-		return 0, fmt.Errorf("%w: run %s", errSyncRunSplit, runID)
-	}
-
-	chunks, err := buildSyncResultsChunks(
-		updates,
-		runner.config,
-		runID,
-		runTotalDevices,
-		baseChunkIndex,
-		runFinalPage,
-		population,
-	)
-	if err != nil {
-		return 0, err
-	}
-	if len(chunks) == 0 {
-		return 0, nil
-	}
-
-	statusChunks := r.buildResultsStatusChunks(chunks, syncServiceName, syncServiceType)
-	if len(statusChunks) == 0 {
-		return 0, nil
-	}
-	markStatusStreamFinal(statusChunks)
-
-	_, err = r.gateway.StreamStatus(ctx, statusChunks)
-	return len(chunks), err
-}
-
-func (r *SyncRuntime) buildResultsStatusChunks(
-	chunks []*proto.ResultsChunk,
-	serviceName string,
-	serviceType string,
-) []*proto.GatewayStatusChunk {
-	r.server.mu.RLock()
-	agentID := r.server.config.AgentID
-	partition := r.server.config.Partition
-	r.server.mu.RUnlock()
-	gatewayID := r.gateway.GetGatewayID()
-	return buildResultsStatusChunksForAgent(chunks, serviceName, serviceType, agentID, partition, gatewayID)
-}
-
-func markStatusStreamFinal(chunks []*proto.GatewayStatusChunk) {
-	totalChunks := int32(len(chunks))
-	for i, chunk := range chunks {
-		if chunk == nil {
-			continue
-		}
-		chunk.ChunkIndex = int32(i)
-		chunk.TotalChunks = totalChunks
-		chunk.IsFinal = int32(i) == totalChunks-1
-	}
+	return r.spoolSyncUpdates(ctx, updates, runner.config, runID,
+		runTotalDevices, baseChunkIndex, runFinalPage, population, capability)
 }
 
 func (r *syncSourceRunner) tryStart() bool {
@@ -682,132 +625,6 @@ type syncChunkMeta struct {
 	population     *syncsources.PopulationStats
 }
 
-func buildSyncResultsChunks(
-	updates []map[string]interface{},
-	source models.SourceConfig,
-	runID string,
-	runTotalDevices int,
-	baseChunkIndex int,
-	runFinalPage bool,
-	population ...*syncsources.PopulationStats,
-) ([]*proto.ResultsChunk, error) {
-	if len(updates) == 0 {
-		return nil, nil
-	}
-	deviceUpdateCount := 0
-	for _, update := range updates {
-		if update != nil && update[syncControlKey] != syncCollectionFinal {
-			deviceUpdateCount++
-		}
-	}
-	if runTotalDevices < deviceUpdateCount {
-		runTotalDevices = deviceUpdateCount
-	}
-
-	meta := syncChunkMeta{
-		syncServiceID:  source.SyncServiceID,
-		runID:          runID,
-		totalDevices:   runTotalDevices,
-		baseChunkIndex: baseChunkIndex,
-		runFinalPage:   runFinalPage,
-		population:     firstPopulation(population),
-	}
-
-	maxChunkSize, maxHosts := sweepResultsChunkLimits()
-	chunkRanges, err := splitSyncUpdates(updates, maxChunkSize, maxHosts, meta)
-	if err != nil {
-		return nil, err
-	}
-
-	totalChunks := len(chunkRanges)
-	chunks := make([]*proto.ResultsChunk, 0, totalChunks)
-
-	for idx, chunk := range chunkRanges {
-		isFinal := runFinalPage && idx == totalChunks-1
-		applySyncMeta(chunk, meta, meta.baseChunkIndex+idx, syncMetaTotalChunks(meta, totalChunks), isFinal)
-
-		payload, err := json.Marshal(chunk)
-		if err != nil {
-			return nil, fmt.Errorf("marshal sync chunk %d: %w", idx, err)
-		}
-
-		chunks = append(chunks, &proto.ResultsChunk{
-			Data:            payload,
-			IsFinal:         isFinal,
-			ChunkIndex:      int32(idx),
-			TotalChunks:     int32(totalChunks),
-			CurrentSequence: runID,
-			Timestamp:       time.Now().Unix(),
-		})
-	}
-
-	return chunks, nil
-}
-
-func splitSyncUpdates(
-	updates []map[string]interface{},
-	maxChunkSize int,
-	maxHosts int,
-	meta syncChunkMeta,
-) ([][]map[string]interface{}, error) {
-	if len(updates) == 0 {
-		return nil, nil
-	}
-
-	chunks := make([][]map[string]interface{}, 0)
-	current := make([]map[string]interface{}, 0, maxHosts)
-	currentSize := 2
-
-	for _, update := range updates {
-		if update == nil {
-			continue
-		}
-
-		placeholder := buildSyncMeta(meta, 0, 0, false)
-		update[syncMetaKey] = placeholder
-
-		encoded, err := json.Marshal(update)
-		if err != nil {
-			return nil, fmt.Errorf("marshal sync update: %w", err)
-		}
-
-		entrySize := len(encoded)
-		if len(current) > 0 {
-			entrySize++
-		}
-
-		if (currentSize+entrySize > maxChunkSize || len(current) >= maxHosts) && len(current) > 0 {
-			chunks = append(chunks, current)
-			current = make([]map[string]interface{}, 0, maxHosts)
-			currentSize = 2
-		}
-
-		current = append(current, update)
-		currentSize += entrySize
-	}
-
-	if len(current) > 0 {
-		chunks = append(chunks, current)
-	}
-
-	return chunks, nil
-}
-
-func applySyncMeta(
-	updates []map[string]interface{},
-	meta syncChunkMeta,
-	chunkIndex int,
-	totalChunks int,
-	isFinal bool,
-) {
-	for _, update := range updates {
-		if update == nil {
-			continue
-		}
-		update[syncMetaKey] = buildSyncMeta(meta, chunkIndex, totalChunks, isFinal)
-	}
-}
-
 func syncMetaTotalChunks(meta syncChunkMeta, pageTotalChunks int) int {
 	if meta.runFinalPage {
 		return meta.baseChunkIndex + pageTotalChunks
@@ -816,46 +633,10 @@ func syncMetaTotalChunks(meta syncChunkMeta, pageTotalChunks int) int {
 	return 0
 }
 
-func buildSyncMeta(meta syncChunkMeta, chunkIndex int, totalChunks int, isFinal bool) map[string]interface{} {
-	result := map[string]interface{}{
-		"sync_service_id": meta.syncServiceID,
-		"sync_run_id":     meta.runID,
-		"chunk_index":     chunkIndex,
-		"total_chunks":    totalChunks,
-		"total_devices":   meta.totalDevices,
-		"is_final":        isFinal,
-	}
-
-	if isFinal && meta.population != nil {
-		result["population"] = map[string]interface{}{
-			"raw_rows":                       meta.population.RawRows,
-			"excluded_rows":                  meta.population.ExcludedRows,
-			"invalid_rows":                   meta.population.InvalidRows,
-			"valid_occurrences":              meta.population.ValidOccurrences,
-			"distinct_source_ids":            meta.population.DistinctSourceIDs,
-			"duplicate_occurrences":          meta.population.DuplicateOccurrences,
-			"duplicate_source_id_examples":   boundedPopulationExamples(meta.population.DuplicateSourceIDExamples),
-			"invalid_row_examples":           boundedPopulationExamples(meta.population.InvalidRowExamples),
-			"conflicting_duplicate_ids":      len(meta.population.ConflictingDuplicateIDs),
-			"conflicting_duplicate_examples": boundedPopulationExamples(meta.population.ConflictingDuplicateIDs),
-		}
-	}
-
-	return result
-}
-
 func boundedPopulationExamples(values []string) []string {
 	if len(values) > syncPopulationExampleLimit {
 		values = values[:syncPopulationExampleLimit]
 	}
 
 	return append([]string(nil), values...)
-}
-
-func firstPopulation(values []*syncsources.PopulationStats) *syncsources.PopulationStats {
-	if len(values) == 0 {
-		return nil
-	}
-
-	return values[0]
 }

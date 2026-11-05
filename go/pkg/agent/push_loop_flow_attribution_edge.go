@@ -17,7 +17,6 @@
 package agent
 
 import (
-	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -189,7 +188,6 @@ func fitFlowAttributionEdgeChunk(
 }
 
 func (p *PushLoop) pushFlowAttributionEdge(
-	_ context.Context,
 	pending *flowAttributionPendingBatch,
 	spoolApp edgeMetricsAppender,
 	cap *edgev1.EdgeSignedCapabilityV1,
@@ -224,7 +222,7 @@ func (p *PushLoop) pushFlowAttributionEdge(
 				}
 
 				telemetry.flowAttributionQuarantined.Add(1)
-				telemetry.recordPoisonDrop(retainedSourceFlow, poisonReasonPayloadTooLarge, 1, poisonBytes)
+				telemetry.recordPoisonDrop(poisonReasonPayloadTooLarge, 1, poisonBytes)
 				p.dropEdgeMetrics(edgeProducerFlowAttribution, edgeDropInvalidRecord, 1, err)
 				p.logger.Error().Err(err).
 					Uint32("pid", quarantined.GetPid()).
@@ -243,11 +241,10 @@ func (p *PushLoop) pushFlowAttributionEdge(
 		body, err := edgerecord.CanonicalRecordBytes(cached.built.record)
 		if err != nil {
 			p.flowAttributionDelivery.clearEdgePending()
-			_, ok := p.flowAttributionDelivery.dropPrefix(pending, cached.eventCount)
-			if !ok {
+			if !p.flowAttributionDelivery.dropPrefix(pending, cached.eventCount) {
 				break
 			}
-			telemetry.recordPoisonDrop(retainedSourceFlow, poisonReasonInvalidArgument, cached.eventCount, len(cached.built.payload))
+			telemetry.recordPoisonDrop(poisonReasonInvalidArgument, cached.eventCount, len(cached.built.payload))
 			p.dropEdgeMetrics(edgeProducerFlowAttribution, edgeDropRefused, cached.eventCount, err)
 			continue
 		}
@@ -255,15 +252,14 @@ func (p *PushLoop) pushFlowAttributionEdge(
 		if err := appendEdgeMetricsRecord(spoolApp, cached.built.record, body); err != nil {
 			if permanentSpoolRefusal(err) || errors.Is(err, spool.ErrEventIDLength) {
 				p.flowAttributionDelivery.clearEdgePending()
-				_, ok := p.flowAttributionDelivery.dropPrefix(pending, cached.eventCount)
-				if !ok {
+				if !p.flowAttributionDelivery.dropPrefix(pending, cached.eventCount) {
 					break
 				}
 				poison := poisonReasonInvalidArgument
 				if errors.Is(err, spool.ErrBodyTooLarge) {
 					poison = poisonReasonPayloadTooLarge
 				}
-				telemetry.recordPoisonDrop(retainedSourceFlow, poison, cached.eventCount, len(body))
+				telemetry.recordPoisonDrop(poison, cached.eventCount, len(body))
 				p.dropEdgeMetrics(edgeProducerFlowAttribution, sweepPermanentDropReason(err), cached.eventCount, err)
 				continue
 			}

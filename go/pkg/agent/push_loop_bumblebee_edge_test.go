@@ -109,7 +109,7 @@ func bumblebeeGrant(t *testing.T, maxRows uint32) *proto.EdgeOutputGrant {
 	}
 }
 
-func TestPushLoopBumblebeeEdgeSpoolsValidatedRecordAndSuppressesLegacyStatus(t *testing.T) {
+func TestPushLoopBumblebeeEdgeSpoolsValidatedRecordAndNoStatus(t *testing.T) {
 	t.Parallel()
 
 	rawJSON := []byte(`{
@@ -188,10 +188,10 @@ func TestPushLoopBumblebeeEdgeSpoolsValidatedRecordAndSuppressesLegacyStatus(t *
 	pl.SetEdgeDiscoverySpool(sp)
 	pl.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{bumblebeeGrant(t, 64)}, time.Now())
 
-	statuses, _ := pl.collectAllStatusesSeparated(context.Background())
+	statuses := pl.collectAllStatuses(context.Background())
 	for _, st := range statuses {
 		if st.GetServiceType() == bumblebee.ServiceType || st.GetServiceName() == bumblebee.ServiceName {
-			t.Fatalf("bumblebee status leaked onto legacy status slice while grant is held: %+v", st)
+			t.Fatalf("bumblebee status leaked onto the status slice: %+v", st)
 		}
 	}
 	envelopes, _, _ := server.addonTelemetry.drain(0)
@@ -215,13 +215,13 @@ func TestPushLoopBumblebeeEdgeSpoolsValidatedRecordAndSuppressesLegacyStatus(t *
 	require.False(t, decoded.GetFindings()[1].GetHasRiskScore())
 
 	// Second poll with identical payload bytes is deduplicated by hash.
-	pl.collectAllStatusesSeparated(context.Background())
+	pl.collectAllStatuses(context.Background())
 	require.Len(t, spooledRecords(t, sp), 1)
 
 	// An unchanged scan is re-emitted once the refresh interval has passed, so
 	// core re-runs device resolution for it.
 	later := time.Now().Add(bumblebeeEdgeRefreshInterval + time.Minute)
-	require.True(t, pl.handleBumblebeeEdgeOrPause(context.Background(), fakeSvc, fakeSvc, later))
+	pl.routeBumblebeeEdgeStatus(context.Background(), fakeSvc, fakeSvc, later)
 	refreshed := spooledRecords(t, sp)
 	require.Len(t, refreshed, 2)
 	var refreshedScan edgev1.BumblebeeScanPayloadV1
@@ -245,7 +245,7 @@ func TestPushLoopBumblebeeEdgeSpoolsNotScannedPostureWhenSpoolFileIsMissing(t *t
 	pl.SetEdgeDiscoverySpool(sp)
 	pl.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{bumblebeeGrant(t, 64)}, time.Now())
 
-	pl.collectAllStatusesSeparated(context.Background())
+	pl.collectAllStatuses(context.Background())
 
 	records := spooledRecords(t, sp)
 	require.Len(t, records, 1)
@@ -297,7 +297,7 @@ func TestPushLoopBumblebeeEdgeBackpressurePausesSpoolServicePollingAndRetainsEve
 
 	// First poll reads run-1 from BumblebeeSpoolService, builds the edge record,
 	// hits backpressure, and parks the built record in pl.bumblebeeEdge.built.
-	pl.collectAllStatusesSeparated(context.Background())
+	pl.collectAllStatuses(context.Background())
 	require.NotNil(t, pl.bumblebeeEdge.built)
 	firstEventID := append([]byte(nil), pl.bumblebeeEdge.built.record.GetEventId()...)
 
@@ -306,7 +306,7 @@ func TestPushLoopBumblebeeEdgeBackpressurePausesSpoolServicePollingAndRetainsEve
 	// not replace the pending run-1 record while backpressure continues.
 	writeScanFile("run-2")
 
-	pl.collectAllStatusesSeparated(context.Background())
+	pl.collectAllStatuses(context.Background())
 	require.NotNil(t, pl.bumblebeeEdge.built)
 	require.Equal(t, firstEventID, pl.bumblebeeEdge.built.record.GetEventId())
 
@@ -314,7 +314,7 @@ func TestPushLoopBumblebeeEdgeBackpressurePausesSpoolServicePollingAndRetainsEve
 	// EventId and then polls BumblebeeSpoolService to admit run-2.
 	accepting := openTestEdgeSpool(t)
 	pl.SetEdgeDiscoverySpool(accepting)
-	pl.collectAllStatusesSeparated(context.Background())
+	pl.collectAllStatuses(context.Background())
 
 	records := spooledRecords(t, accepting)
 	require.Len(t, records, 2)
@@ -327,7 +327,7 @@ func TestPushLoopBumblebeeEdgeBackpressurePausesSpoolServicePollingAndRetainsEve
 	require.Equal(t, "run-2", secondScan.GetRunId())
 }
 
-func TestPushLoopBumblebeeEdgeCountsInvalidRecordsAndFallsBackWithoutGrant(t *testing.T) {
+func TestPushLoopBumblebeeEdgeCountsInvalidRecordsAndHoldsWithoutGrant(t *testing.T) {
 	t.Parallel()
 
 	fakeSvc := &fakeBumblebeeProvider{
@@ -350,11 +350,11 @@ func TestPushLoopBumblebeeEdgeCountsInvalidRecordsAndFallsBackWithoutGrant(t *te
 	pl.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{bumblebeeGrant(t, 1)}, time.Now())
 
 	// Missing run_id is counted as an invalid record once, not on every poll.
-	pl.collectAllStatusesSeparated(context.Background())
-	pl.collectAllStatusesSeparated(context.Background())
+	pl.collectAllStatuses(context.Background())
+	pl.collectAllStatuses(context.Background())
 	require.Equal(t, uint64(1), edgeDrops(pl, edgeProducerBumblebee, edgeDropInvalidRecord))
 	later := time.Now().Add(bumblebeeEdgeRefreshInterval + time.Minute)
-	require.True(t, pl.handleBumblebeeEdgeOrPause(context.Background(), fakeSvc, fakeSvc, later))
+	pl.routeBumblebeeEdgeStatus(context.Background(), fakeSvc, fakeSvc, later)
 	require.Equal(t, uint64(1), edgeDrops(pl, edgeProducerBumblebee, edgeDropInvalidRecord))
 
 	// Exceeding capability row limit is counted as an invalid record and not truncated.
@@ -368,18 +368,19 @@ func TestPushLoopBumblebeeEdgeCountsInvalidRecordsAndFallsBackWithoutGrant(t *te
 		ServiceName: bumblebee.ServiceName,
 		ServiceType: bumblebee.ServiceType,
 	}
-	pl.collectAllStatusesSeparated(context.Background())
+	pl.collectAllStatuses(context.Background())
 	require.Equal(t, uint64(2), edgeDrops(pl, edgeProducerBumblebee, edgeDropInvalidRecord))
 	require.Empty(t, spooledRecords(t, sp))
 
-	// Without a grant, legacy status emission stays untouched.
+	// Without a grant the scan service is not polled and no status carries it.
 	pl.edgeOutputGrants.replace(sysmonEdgeAgentID, nil, time.Now())
-	statuses, _ := pl.collectAllStatusesSeparated(context.Background())
-	foundLegacy := false
+	polled := fakeSvc.calls
+	statuses := pl.collectAllStatuses(context.Background())
 	for _, st := range statuses {
-		if st.GetServiceType() == bumblebee.ServiceType && st.GetServiceName() == bumblebee.ServiceName {
-			foundLegacy = true
-		}
+		require.False(t, st.GetServiceType() == bumblebee.ServiceType || st.GetServiceName() == bumblebee.ServiceName,
+			"bumblebee must never ride the status path")
 	}
-	require.True(t, foundLegacy, "expected legacy bumblebee status when no grant is held")
+	require.Equal(t, polled, fakeSvc.calls, "the scan service was polled without a grant")
+	require.Equal(t, uint64(1), pl.server.edgeProducerDrops.grantHolds[edgeProducerBumblebee].Load())
+	require.Empty(t, spooledRecords(t, sp))
 }

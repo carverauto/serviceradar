@@ -45,7 +45,6 @@ import (
 // leases slots for.
 const (
 	unleasedTestGroupID = "00000000-0000-4000-8000-0000000000a1"
-	leasedTestGroupID   = "00000000-0000-4000-8000-0000000000b2"
 )
 
 // unleasedSweepGrant is a standing unleased sweep results grant for the loop's
@@ -90,7 +89,6 @@ func unleasedSweepGrant(t *testing.T, maxRows uint32) *proto.EdgeOutputGrant {
 type scriptedSweepResults struct {
 	mu        sync.Mutex
 	responses []*proto.ResultsResponse
-	leased    map[string]bool
 	acks      []string
 	reads     int
 }
@@ -119,8 +117,6 @@ func (s *scriptedSweepResults) AcknowledgeSweepResults(groupID, sequence string)
 		s.responses = s.responses[1:]
 	}
 }
-
-func (s *scriptedSweepResults) GroupLeaseDriven(groupID string) bool { return s.leased[groupID] }
 
 func (s *scriptedSweepResults) acked() []string {
 	s.mu.Lock()
@@ -172,12 +168,12 @@ func reachableHost(addr string) models.HostResult {
 
 // unleasedSweepLoop is a push loop with sp as its edge spool, svc as its sweep
 // results provider, and the given standing grants.
-func unleasedSweepLoop(t *testing.T, sp *spool.Spool, svc *scriptedSweepResults, grants ...*proto.EdgeOutputGrant) (*PushLoop, *sysmonStatusGateway) {
+func unleasedSweepLoop(t *testing.T, sp *spool.Spool, svc *scriptedSweepResults, grants ...*proto.EdgeOutputGrant) *PushLoop {
 	t.Helper()
-	loop, gw, _ := sysmonEdgeLoop(t, sp)
+	loop, _ := sysmonEdgeLoop(t, sp)
 	loop.server.services = []Service{svc}
 	require.Empty(t, loop.edgeOutputGrants.replace(sysmonEdgeAgentID, grants, time.Now()))
-	return loop, gw
+	return loop
 }
 
 // spooledUnleasedSweep decodes the spool's unleased results records, each of
@@ -206,10 +202,10 @@ func spooledUnleasedSweep(t *testing.T, sp *spool.Spool) ([]*edgev1.EdgeRecordV1
 	return records, batches, metrics
 }
 
-// Every field core's sweep results ingest reads from the legacy JSON travels in
-// the typed batch, so the projector can rebuild what the legacy path ingested.
+// Every field core's sweep results ingest reads from the results JSON travels in
+// the typed batch, so the projector can rebuild what core ingests.
 func TestUnleasedSweepResultsBatchCarriesTheIngestedFields(t *testing.T) {
-	loop, _ := unleasedSweepLoop(t, openTestEdgeSpool(t), &scriptedSweepResults{}, unleasedSweepGrant(t, 10_000))
+	loop := unleasedSweepLoop(t, openTestEdgeSpool(t), &scriptedSweepResults{}, unleasedSweepGrant(t, 10_000))
 	capability := loop.edgeOutputGrants.current(edgerecord.UnleasedSweepResultsContractID, time.Now())
 	require.NotNil(t, capability)
 
@@ -294,12 +290,12 @@ func TestUnleasedSweepResultsBatchCarriesTheIngestedFields(t *testing.T) {
 	require.Equal(t, -2*int64(time.Second), hosts[0].GetLastSeenDeltaNano())
 	require.Equal(t, -int64(time.Hour), hosts[0].GetFirstSeenDeltaNano())
 
-	// Every host's legacy JSON is recoverable from the batch byte for byte.
+	// Every host's results JSON is recoverable from the batch byte for byte.
 	require.Len(t, batch.GetHostResults(), len(doc.Hosts))
 	for i := range doc.Hosts {
 		want, err := json.Marshal(doc.Hosts[i])
 		require.NoError(t, err)
-		got, err := json.Marshal(legacyHostFromBatch(t, batch, i))
+		got, err := json.Marshal(resultsHostFromBatch(t, batch, i))
 		require.NoError(t, err)
 		require.JSONEq(t, string(want), string(got))
 		require.Equal(t, string(want), string(got))
@@ -316,15 +312,15 @@ func TestUnleasedSweepResultsBatchCarriesTheIngestedFields(t *testing.T) {
 	require.EqualValues(t, 443, port(hosts[2].GetOpenPorts()[0].GetTestedCheckIndex()))
 	require.EqualValues(t, 3*time.Millisecond+7, hosts[2].GetOpenPorts()[0].GetResponseTimeNano())
 
-	// The chunk's metric batch is the envelope the legacy push sends.
+	// The chunk's metric batch is the chunk's metric payload.
 	chunks, err := buildSweepResultsChunks(response)
 	require.NoError(t, err)
 	require.Equal(t, chunks[0].MetricPayload, metricPayloads[0])
 }
 
-// legacyHostFromBatch rebuilds host i of batch as the agent's results JSON host,
-// from the frozen observation and its legacy host result: what core rebuilds.
-func legacyHostFromBatch(t *testing.T, batch *edgev1.UnleasedSweepResultsBatchV1, i int) models.HostResult {
+// resultsHostFromBatch rebuilds host i of batch as the agent's results JSON host,
+// from the frozen observation and its host result: what core rebuilds.
+func resultsHostFromBatch(t *testing.T, batch *edgev1.UnleasedSweepResultsBatchV1, i int) models.HostResult {
 	t.Helper()
 	host, result := batch.GetHosts()[i], batch.GetHostResults()[i]
 	addr, ok := netip.AddrFromSlice(host.GetAddress())
@@ -394,7 +390,7 @@ func TestUnleasedSweepResultsSplitAcrossRecordsWithinTheGrant(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Setenv("SWEEP_RESULTS_MAX_HOSTS_PER_CHUNK", "50000")
 			t.Setenv("SWEEP_RESULTS_MAX_CHUNK_BYTES", strconv.Itoa(64<<20))
-			loop, _ := unleasedSweepLoop(t, openTestEdgeSpool(t), &scriptedSweepResults{}, unleasedSweepGrant(t, tc.maxRows))
+			loop := unleasedSweepLoop(t, openTestEdgeSpool(t), &scriptedSweepResults{}, unleasedSweepGrant(t, tc.maxRows))
 			capability := loop.edgeOutputGrants.current(edgerecord.UnleasedSweepResultsContractID, time.Now())
 
 			hosts := make([]models.HostResult, total)
@@ -405,7 +401,7 @@ func TestUnleasedSweepResultsSplitAcrossRecordsWithinTheGrant(t *testing.T) {
 
 			parts, _, metricPayloads, err := buildSweepResultsEdgeRecords(response, capability)
 			require.NoError(t, err)
-			require.Len(t, metricPayloads, 1, "one legacy chunk, one metric batch")
+			require.Len(t, metricPayloads, 1, "one results chunk, one metric batch")
 
 			next, largest := 1, uint32(0)
 			for i, part := range parts {
@@ -432,33 +428,10 @@ func TestUnleasedSweepResultsSplitAcrossRecordsWithinTheGrant(t *testing.T) {
 	}
 }
 
-// Each response takes one path: an unleased group's results go to the spool
-// while the agent holds both grants, a leased group's keep the legacy push, and
-// both are acknowledged once.
-func TestUnleasedSweepResultsTakeOnePathPerGroup(t *testing.T) {
-	sp := openTestEdgeSpool(t)
-	svc := &scriptedSweepResults{
-		leased: map[string]bool{leasedTestGroupID: true},
-		responses: []*proto.ResultsResponse{
-			sweepResultsResponse(t, unleasedTestGroupID, "1", []models.HostResult{reachableHost("192.0.2.10")}, nil),
-			sweepResultsResponse(t, leasedTestGroupID, "1", []models.HostResult{reachableHost("192.0.2.20")}, nil),
-		},
-	}
-	loop, gw := unleasedSweepLoop(t, sp, svc, currentMetricsGrant(t), unleasedSweepGrant(t, 10_000))
-
-	require.True(t, loop.pushSweepResults(t.Context()))
-
-	_, batches, metrics := spooledUnleasedSweep(t, sp)
-	require.Len(t, batches, 1)
-	require.Equal(t, uuid.MustParse(unleasedTestGroupID), uuid.UUID(batches[0].GetSweepGroupId()))
-	require.Equal(t, 1, metrics)
-	require.Equal(t, 1, gw.statusesFrom("results"), "only the leased group's chunk is pushed")
-	require.Equal(t, 1, gw.statusesFrom("sweep-metrics"))
-	require.Equal(t, []string{unleasedTestGroupID + "/1", leasedTestGroupID + "/1"}, svc.acked())
-}
-
-// Without both grants every response keeps the legacy push and nothing is spooled.
-func TestUnleasedSweepResultsKeepTheLegacyPathWithoutBothGrants(t *testing.T) {
+// Without both grants no response is read: the sweep service keeps its
+// completed cycles, nothing is spooled, sent elsewhere or acknowledged, and the
+// hold is counted. Once both grants are held the response is spooled.
+func TestUnleasedSweepResultsAreNotReadWithoutBothGrants(t *testing.T) {
 	for name, grants := range map[string]func(*testing.T) []*proto.EdgeOutputGrant{
 		"no grant": func(*testing.T) []*proto.EdgeOutputGrant { return nil },
 		"only results grant": func(t *testing.T) []*proto.EdgeOutputGrant {
@@ -475,21 +448,31 @@ func TestUnleasedSweepResultsKeepTheLegacyPathWithoutBothGrants(t *testing.T) {
 			svc := &scriptedSweepResults{responses: []*proto.ResultsResponse{
 				sweepResultsResponse(t, unleasedTestGroupID, "1", []models.HostResult{reachableHost("192.0.2.10")}, nil),
 			}}
-			loop, gw := unleasedSweepLoop(t, sp, svc, grants(t)...)
+			loop := unleasedSweepLoop(t, sp, svc, grants(t)...)
 
-			require.True(t, loop.pushSweepResults(t.Context()))
+			require.False(t, loop.pushSweepResults(t.Context()))
 
+			require.Zero(t, svc.reads, "a response was read without both grants")
 			_, batches, metrics := spooledUnleasedSweep(t, sp)
 			require.Empty(t, batches)
 			require.Zero(t, metrics)
-			require.Equal(t, 1, gw.statusesFrom("results"))
+			require.Empty(t, svc.acked())
+			require.Equal(t, uint64(1), loop.server.edgeProducerDrops.grantHolds[edgeProducerSweepResults].Load())
+
+			require.Empty(t, loop.edgeOutputGrants.replace(sysmonEdgeAgentID,
+				[]*proto.EdgeOutputGrant{currentMetricsGrant(t), unleasedSweepGrant(t, 10_000)}, time.Now()))
+			require.True(t, loop.pushSweepResults(t.Context()))
+			_, batches, metrics = spooledUnleasedSweep(t, sp)
+			require.Len(t, batches, 1)
+			require.Equal(t, 1, metrics)
 			require.Equal(t, []string{unleasedTestGroupID + "/1"}, svc.acked())
 		})
 	}
 }
 
-// A response the typed batch cannot carry keeps the legacy push whole.
-func TestUnconvertibleSweepResultsKeepTheLegacyPath(t *testing.T) {
+// A response the typed batch cannot carry can never enter the spool: it is
+// dropped, counted and acknowledged, so later responses are not blocked.
+func TestUnconvertibleSweepResultsAreDroppedCountedAndAcknowledged(t *testing.T) {
 	for name, response := range map[string]func(*testing.T) *proto.ResultsResponse{
 		"an address that does not parse": func(t *testing.T) *proto.ResultsResponse {
 			t.Helper()
@@ -518,24 +501,23 @@ func TestUnconvertibleSweepResultsKeepTheLegacyPath(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			sp := openTestEdgeSpool(t)
 			svc := &scriptedSweepResults{responses: []*proto.ResultsResponse{response(t)}}
-			loop, gw := unleasedSweepLoop(t, sp, svc, currentMetricsGrant(t), unleasedSweepGrant(t, 10_000))
+			loop := unleasedSweepLoop(t, sp, svc, currentMetricsGrant(t), unleasedSweepGrant(t, 10_000))
 
-			require.True(t, loop.pushSweepResults(t.Context()))
+			require.False(t, loop.pushSweepResults(t.Context()))
 
 			_, batches, metrics := spooledUnleasedSweep(t, sp)
 			require.Empty(t, batches)
 			require.Zero(t, metrics)
-			require.Equal(t, 1, gw.statusesFrom("results"))
 			require.Equal(t, []string{unleasedTestGroupID + "/1"}, svc.acked())
+			require.Equal(t, uint64(1), sweepDropTotal(loop, edgeProducerSweepResults), "the dropped response is counted")
 		})
 	}
 }
 
 // A spool refusal part way through a response, at its metric batch or at a
 // results record, leaves it unacknowledged and unread again; the next push
-// appends only the unsent records, under their original event ids, on the edge
-// path even after the grants are withdrawn, and only then acknowledges the
-// response once.
+// appends only the unsent records, under their original event ids, even after
+// the grants are withdrawn, and only then acknowledges the response once.
 func TestARefusedUnleasedSweepAppendResumesWithTheUnsentRecords(t *testing.T) {
 	// One metric batch, then three results records of at most two hosts.
 	const records = 4
@@ -549,7 +531,7 @@ func TestARefusedUnleasedSweepAppendResumesWithTheUnsentRecords(t *testing.T) {
 			svc := &scriptedSweepResults{responses: []*proto.ResultsResponse{
 				sweepResultsResponse(t, unleasedTestGroupID, "3", hosts, nil),
 			}}
-			loop, gw := unleasedSweepLoop(t, inner, svc, currentMetricsGrant(t), unleasedSweepGrant(t, 2))
+			loop := unleasedSweepLoop(t, inner, svc, currentMetricsGrant(t), unleasedSweepGrant(t, 2))
 			script := &appendScript{inner: inner, refuseAfter: admitted}
 			loop.edgeMetricsSpool = script
 
@@ -581,48 +563,45 @@ func TestARefusedUnleasedSweepAppendResumesWithTheUnsentRecords(t *testing.T) {
 				carried += len(batches[i].GetHosts())
 			}
 			require.Equal(t, len(hosts), carried)
-			require.Zero(t, gw.statusesFrom("results"))
-			require.Zero(t, gw.statusesFrom("sweep-metrics"))
 			require.Equal(t, []string{unleasedTestGroupID + "/3"}, svc.acked())
 		})
 	}
 }
 
 // A permanent spool refusal, or a chunk metric that cannot be built, before any
-// record of the response is in the spool sends that response on the legacy path
-// unchanged: nothing is spooled, the refusal is not counted as a drop, and the
-// sweep service is acknowledged by the legacy send.
-func TestSweepResultsWithNothingAdmittedReturnToLegacy(t *testing.T) {
+// record of the response is in the spool drops the whole response: nothing is
+// spooled, every unsent record is counted with the refusal's reason, and the
+// sweep service is acknowledged so the next response is read.
+func TestSweepResultsWithNothingAdmittedAreDroppedAndAcknowledged(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		err  error
+		name   string
+		err    error
+		reason edgeDropReason
 	}{
-		{name: "unauthorized scope", err: spool.ErrScopeUnauthorized},
-		{name: "malformed event id", err: spool.ErrEventIDLength},
-		{name: "body too large", err: spool.ErrBodyTooLarge},
+		{name: "unauthorized scope", err: spool.ErrScopeUnauthorized, reason: edgeDropUnauthorizedScope},
+		{name: "malformed event id", err: spool.ErrEventIDLength, reason: edgeDropMalformedEventID},
+		{name: "body too large", err: spool.ErrBodyTooLarge, reason: edgeDropBodyTooLarge},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			inner := openTestEdgeSpool(t)
 			response := sweepResultsResponse(t, unleasedTestGroupID, "1", []models.HostResult{reachableHost("192.0.2.10")}, nil)
 			svc := &scriptedSweepResults{responses: []*proto.ResultsResponse{response}}
-			loop, gw := unleasedSweepLoop(t, inner, svc, currentMetricsGrant(t), unleasedSweepGrant(t, 10_000))
+			loop := unleasedSweepLoop(t, inner, svc, currentMetricsGrant(t), unleasedSweepGrant(t, 10_000))
 			script := &appendScript{inner: inner, refuseAfter: -1, permanentOn: 1, permanentErr: tc.err}
 			loop.edgeMetricsSpool = script
 
-			require.True(t, loop.pushSweepResults(t.Context()))
+			require.False(t, loop.pushSweepResults(t.Context()))
 
 			require.Len(t, script.ids, 1, "later records of a response that never entered the spool are not appended")
 			_, batches, metrics := spooledUnleasedSweep(t, inner)
 			require.Empty(t, batches)
 			require.Zero(t, metrics)
-			require.Equal(t, 1, gw.statusesFrom("results"))
-			require.Equal(t, 1, gw.statusesFrom("sweep-metrics"))
 			require.Equal(t, []string{unleasedTestGroupID + "/1"}, svc.acked())
-			requireSweepDrops(t, loop, edgeProducerSweepResults, edgeDropRefused, 0)
+			// The response's metric record and its one results record.
+			requireSweepDrops(t, loop, edgeProducerSweepResults, tc.reason, 2)
 
 			require.False(t, loop.pushSweepResults(t.Context()))
 			require.Equal(t, []string{unleasedTestGroupID + "/1"}, svc.acked())
-			require.Equal(t, 1, gw.statusesFrom("results"))
 		})
 	}
 
@@ -635,21 +614,19 @@ func TestSweepResultsWithNothingAdmittedReturnToLegacy(t *testing.T) {
 			metricsGrantRows(t, sysmonEdgeAgentID, now.Add(-time.Hour), now.Add(8*24*time.Hour), 0),
 			unleasedSweepGrant(t, 10_000),
 		}
-		loop, gw := unleasedSweepLoop(t, sp, svc, grants...)
+		loop := unleasedSweepLoop(t, sp, svc, grants...)
 		results, metricsGrant := loop.sweepResultsEdgeGrants(time.Now())
 		require.NotNil(t, results)
 		require.NotNil(t, metricsGrant)
 		require.Zero(t, metricsGrant.GetProduction().GetMaxProjectedRowCount())
 
-		require.True(t, loop.pushSweepResults(t.Context()))
+		require.False(t, loop.pushSweepResults(t.Context()))
 
 		_, batches, metrics := spooledUnleasedSweep(t, sp)
 		require.Empty(t, batches)
 		require.Zero(t, metrics)
-		require.Equal(t, 1, gw.statusesFrom("results"))
-		require.Equal(t, 1, gw.statusesFrom("sweep-metrics"))
 		require.Equal(t, []string{unleasedTestGroupID + "/4"}, svc.acked())
-		requireSweepDrops(t, loop, edgeProducerSweepResultsMetrics, edgeDropUnbuildableMetric, 0)
+		requireSweepDrops(t, loop, edgeProducerSweepResults, edgeDropUnbuildableMetric, 1)
 	})
 
 	t.Run("the next response still takes the edge path", func(t *testing.T) {
@@ -658,7 +635,7 @@ func TestSweepResultsWithNothingAdmittedReturnToLegacy(t *testing.T) {
 			sweepResultsResponse(t, unleasedTestGroupID, "1", []models.HostResult{reachableHost("192.0.2.10")}, nil),
 			sweepResultsResponse(t, unleasedTestGroupID, "2", []models.HostResult{reachableHost("192.0.2.11")}, nil),
 		}}
-		loop, gw := unleasedSweepLoop(t, inner, svc, currentMetricsGrant(t), unleasedSweepGrant(t, 10_000))
+		loop := unleasedSweepLoop(t, inner, svc, currentMetricsGrant(t), unleasedSweepGrant(t, 10_000))
 		loop.edgeMetricsSpool = &appendScript{inner: inner, refuseAfter: -1, permanentOn: 1, permanentErr: spool.ErrScopeUnauthorized}
 
 		require.True(t, loop.pushSweepResults(t.Context()))
@@ -667,15 +644,12 @@ func TestSweepResultsWithNothingAdmittedReturnToLegacy(t *testing.T) {
 		require.Len(t, batches, 1)
 		require.EqualValues(t, 2, batches[0].GetSequence())
 		require.Equal(t, 1, metrics)
-		require.Equal(t, 1, gw.statusesFrom("results"))
-		require.Equal(t, 1, gw.statusesFrom("sweep-metrics"))
 		require.Equal(t, []string{unleasedTestGroupID + "/1", unleasedTestGroupID + "/2"}, svc.acked())
 	})
 }
 
 // A permanent refusal after a record of the response is already in the spool
-// drops that record, counts the refusal, acknowledges the response, and does
-// not send the admitted records on the legacy path.
+// drops that record, counts the refusal, and acknowledges the response.
 func TestSweepResultsPermanentRefusalAfterAdmissionDropsAndAcks(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
@@ -690,7 +664,7 @@ func TestSweepResultsPermanentRefusalAfterAdmissionDropsAndAcks(t *testing.T) {
 		{name: "unauthorized scope", err: spool.ErrScopeUnauthorized, reason: edgeDropUnauthorizedScope, producer: edgeProducerSweepResults, hosts: 5, maxRows: 2, permanent: 2},
 		{name: "malformed event id", err: spool.ErrEventIDLength, reason: edgeDropMalformedEventID, producer: edgeProducerSweepResults, hosts: 5, maxRows: 2, permanent: 2},
 		{name: "body too large", err: spool.ErrBodyTooLarge, reason: edgeDropBodyTooLarge, producer: edgeProducerSweepResults, hosts: 5, maxRows: 2, permanent: 2},
-		// Two legacy chunks, so the response has two metric records. The second is refused.
+		// Two results chunks, so the response has two metric records. The second is refused.
 		{name: "a later metric record", err: spool.ErrBodyTooLarge, reason: edgeDropBodyTooLarge, producer: edgeProducerSweepResultsMetrics, hosts: 250, maxRows: 10_000, permanent: 2, chunkBytes: 64 * 1024},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -705,7 +679,7 @@ func TestSweepResultsPermanentRefusalAfterAdmissionDropsAndAcks(t *testing.T) {
 			svc := &scriptedSweepResults{responses: []*proto.ResultsResponse{
 				sweepResultsResponse(t, unleasedTestGroupID, "7", hosts, nil),
 			}}
-			loop, gw := unleasedSweepLoop(t, inner, svc, currentMetricsGrant(t), unleasedSweepGrant(t, tc.maxRows))
+			loop := unleasedSweepLoop(t, inner, svc, currentMetricsGrant(t), unleasedSweepGrant(t, tc.maxRows))
 			script := &appendScript{inner: inner, refuseAfter: -1, permanentOn: tc.permanent, permanentErr: tc.err}
 			loop.edgeMetricsSpool = script
 
@@ -735,8 +709,6 @@ func TestSweepResultsPermanentRefusalAfterAdmissionDropsAndAcks(t *testing.T) {
 				require.Equal(t, 1, metrics)
 				require.Positive(t, hostsInSweepRecord(t, script.bodies[tc.permanent-1]))
 			}
-			require.Zero(t, gw.statusesFrom("results"))
-			require.Zero(t, gw.statusesFrom("sweep-metrics"))
 			require.Equal(t, []string{unleasedTestGroupID + "/7"}, svc.acked())
 			requireSweepDrops(t, loop, tc.producer, tc.reason, 1)
 
@@ -756,7 +728,7 @@ func TestSweepResultsPermanentRefusalAfterAdmissionDropsAndAcks(t *testing.T) {
 		svc := &scriptedSweepResults{responses: []*proto.ResultsResponse{
 			sweepResultsResponse(t, unleasedTestGroupID, "8", hosts, nil),
 		}}
-		loop, gw := unleasedSweepLoop(t, inner, svc, currentMetricsGrant(t), unleasedSweepGrant(t, 2))
+		loop := unleasedSweepLoop(t, inner, svc, currentMetricsGrant(t), unleasedSweepGrant(t, 2))
 		script := &appendScript{inner: inner, refuseAfter: 1, permanentErr: spool.ErrScopeUnauthorized}
 		loop.edgeMetricsSpool = script
 
@@ -782,8 +754,6 @@ func TestSweepResultsPermanentRefusalAfterAdmissionDropsAndAcks(t *testing.T) {
 		}
 		require.Equal(t, len(hosts)-hostsInSweepRecord(t, script.bodies[2]), carried)
 		require.Positive(t, carried)
-		require.Zero(t, gw.statusesFrom("results"))
-		require.Zero(t, gw.statusesFrom("sweep-metrics"))
 		require.Equal(t, []string{unleasedTestGroupID + "/8"}, svc.acked())
 		requireSweepDrops(t, loop, edgeProducerSweepResults, edgeDropUnauthorizedScope, 1)
 	})
@@ -807,7 +777,7 @@ func TestUnleasedSweepFinalIsSpooledImmediatelyAndSurvivesRestart(t *testing.T) 
 		sweepResultsResponse(t, unleasedTestGroupID, "5", hosts, nil),
 		sweepResultsResponse(t, unleasedTestGroupID, "6", []models.HostResult{reachableHost("192.0.2.40")}, nil),
 	}}
-	loop, _ := unleasedSweepLoop(t, sp, svc, currentMetricsGrant(t), unleasedSweepGrant(t, 2))
+	loop := unleasedSweepLoop(t, sp, svc, currentMetricsGrant(t), unleasedSweepGrant(t, 2))
 
 	require.True(t, loop.pushSweepResults(t.Context()))
 	require.Zero(t, sp.Resolved(), "the gateway has resolved nothing")
@@ -876,7 +846,7 @@ func TestPermanentSiblingRefusalSpoolsADurableCancelRecord(t *testing.T) {
 	svc := &scriptedSweepResults{responses: []*proto.ResultsResponse{
 		sweepResultsResponse(t, unleasedTestGroupID, "11", hosts, nil),
 	}}
-	loop, _ := unleasedSweepLoop(t, sp, svc, currentMetricsGrant(t), unleasedSweepGrant(t, 2))
+	loop := unleasedSweepLoop(t, sp, svc, currentMetricsGrant(t), unleasedSweepGrant(t, 2))
 	loop.edgeMetricsSpool = &appendScript{inner: sp, refuseAfter: -1, permanentOn: 2, permanentErr: spool.ErrBodyTooLarge}
 
 	require.True(t, loop.pushSweepResults(t.Context()))
@@ -936,7 +906,7 @@ func TestCancelledSweepWithNoHostsIsADataChunk(t *testing.T) {
 	svc := &scriptedSweepResults{responses: []*proto.ResultsResponse{
 		sweepResultsResponse(t, unleasedTestGroupID, "14", nil, map[string]any{"cancelled": true}),
 	}}
-	loop, _ := unleasedSweepLoop(t, sp, svc, currentMetricsGrant(t), unleasedSweepGrant(t, 2))
+	loop := unleasedSweepLoop(t, sp, svc, currentMetricsGrant(t), unleasedSweepGrant(t, 2))
 
 	require.True(t, loop.pushSweepResults(t.Context()))
 	require.Equal(t, []string{unleasedTestGroupID + "/14"}, svc.acked())
@@ -981,6 +951,15 @@ func hostsInSweepRecord(t *testing.T, body []byte) int {
 	batch := &edgev1.UnleasedSweepResultsBatchV1{}
 	require.NoError(t, gproto.Unmarshal(recordBody(t, record), batch))
 	return len(batch.GetHosts())
+}
+
+// sweepDropTotal is every drop counted for producer, whatever its reason.
+func sweepDropTotal(loop *PushLoop, producer edgeProducer) uint64 {
+	var total uint64
+	for reason := range edgeDropReasonCount {
+		total += edgeDrops(loop, producer, reason)
+	}
+	return total
 }
 
 func requireSweepDrops(t *testing.T, loop *PushLoop, producer edgeProducer, reason edgeDropReason, count uint64) {
@@ -1043,7 +1022,7 @@ func TestUnleasedSweepFidelityFixture(t *testing.T) {
 			"banner_grab":   &models.BannerGrabStats{CandidatesTotal: 2, MatchesTotal: 1, BannerBytesTotal: 64},
 		})
 
-	loop, _ := unleasedSweepLoop(t, openTestEdgeSpool(t), &scriptedSweepResults{}, unleasedSweepGrant(t, 10_000))
+	loop := unleasedSweepLoop(t, openTestEdgeSpool(t), &scriptedSweepResults{}, unleasedSweepGrant(t, 10_000))
 	parts, _, _, err := buildSweepResultsEdgeRecords(response,
 		loop.edgeOutputGrants.current(edgerecord.UnleasedSweepResultsContractID, time.Now()))
 	require.NoError(t, err)

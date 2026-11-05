@@ -21,19 +21,14 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
-	"errors"
 	"fmt"
-	"io"
-	"net"
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc"
 	gproto "google.golang.org/protobuf/proto"
 
 	agentgateway "github.com/carverauto/serviceradar/go/pkg/agentgateway"
@@ -153,114 +148,10 @@ func syntheticSysmonSamples(n int) []*sysmon.MetricSample {
 	return samples
 }
 
-// sysmonStatusGateway is a disposable AgentGatewayService peer that counts the
-// sysmon statuses the agent streams to it over the real StreamStatus RPC.
-type sysmonStreamMode int
-
-const (
-	sysmonStreamOK sysmonStreamMode = iota
-	sysmonStreamError
-	sysmonStreamUnacked
-)
-
-func (m sysmonStreamMode) String() string {
-	switch m {
-	case sysmonStreamError:
-		return "stream error"
-	case sysmonStreamUnacked:
-		return "unacknowledged"
-	case sysmonStreamOK:
-		return "ok"
-	default:
-		return "ok"
-	}
-}
-
-var errSysmonStreamFailed = errors.New("stream failed")
-
-type sysmonStatusGateway struct {
-	proto.UnimplementedAgentGatewayServiceServer
-
-	mu      sync.Mutex
-	sysmon  int
-	sources map[string]int
-	mode    sysmonStreamMode
-}
-
-func (g *sysmonStatusGateway) setMode(mode sysmonStreamMode) {
-	g.mu.Lock()
-	g.mode = mode
-	g.mu.Unlock()
-}
-
-func (g *sysmonStatusGateway) icmpStatuses() int {
-	return g.statusesFrom("icmp-metrics")
-}
-
-func (g *sysmonStatusGateway) StreamStatus(stream grpc.ClientStreamingServer[proto.GatewayStatusChunk, proto.GatewayStatusResponse]) error {
-	g.mu.Lock()
-	mode := g.mode
-	g.mu.Unlock()
-	if mode == sysmonStreamError {
-		return errSysmonStreamFailed
-	}
-	for {
-		chunk, err := stream.Recv()
-		if errors.Is(err, io.EOF) {
-			return stream.SendAndClose(&proto.GatewayStatusResponse{Received: mode != sysmonStreamUnacked})
-		}
-		if err != nil {
-			return err
-		}
-		if mode != sysmonStreamOK {
-			continue
-		}
-		for _, status := range chunk.GetServices() {
-			g.mu.Lock()
-			if g.sources == nil {
-				g.sources = make(map[string]int)
-			}
-			g.sources[status.GetSource()]++
-			if status.GetSource() == "sysmon-metrics" {
-				g.sysmon++
-			}
-			g.mu.Unlock()
-		}
-	}
-}
-
-func (g *sysmonStatusGateway) statusesFrom(source string) int {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return g.sources[source]
-}
-
-func (g *sysmonStatusGateway) sysmonStatuses() int {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return g.sysmon
-}
-
-// sysmonEdgeLoop is a push loop with a real gateway client and server, a sysmon
+// sysmonEdgeLoop is a push loop with an unconnected gateway client, a sysmon
 // service draining the fake collector, and sp as its metrics edge spool.
-func sysmonEdgeLoop(t *testing.T, sp *spool.Spool) (*PushLoop, *sysmonStatusGateway, *fakeSysmonCollector) {
+func sysmonEdgeLoop(t *testing.T, sp *spool.Spool) (*PushLoop, *fakeSysmonCollector) {
 	t.Helper()
-	t.Setenv("SR_ALLOW_INSECURE", "true")
-
-	gw := &sysmonStatusGateway{}
-	lis, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	server := grpc.NewServer()
-	proto.RegisterAgentGatewayServiceServer(server, gw)
-	go func() { _ = server.Serve(lis) }()
-	t.Cleanup(func() {
-		server.Stop()
-		_ = lis.Close()
-	})
-	client := agentgateway.NewGatewayClient(lis.Addr().String(), nil, logger.NewTestLogger())
-	require.NoError(t, client.Connect(t.Context()))
-	t.Cleanup(func() { _ = client.Disconnect() })
-
 	collector := &fakeSysmonCollector{}
 	loop := &PushLoop{
 		server: &Server{
@@ -268,10 +159,12 @@ func sysmonEdgeLoop(t *testing.T, sp *spool.Spool) (*PushLoop, *sysmonStatusGate
 			sysmonService: &SysmonService{collector: collector},
 		},
 		logger:  logger.NewTestLogger(),
-		gateway: client,
+		gateway: agentgateway.NewGatewayClient("192.0.2.1:50052", nil, logger.NewTestLogger()),
 	}
-	loop.SetEdgeMetricsSpool(sp)
-	return loop, gw, collector
+	if sp != nil {
+		loop.SetEdgeMetricsSpool(sp)
+	}
+	return loop, collector
 }
 
 func openTestEdgeSpool(t *testing.T, opts ...spool.Option) *spool.Spool {
@@ -303,13 +196,12 @@ func spooledMetricBatches(t *testing.T, sp *spool.Spool) []*metricpb.MetricBatch
 
 func TestSysmonMetricsWithAGrantGoOnlyToTheEdgeSpool(t *testing.T) {
 	sp := openTestEdgeSpool(t)
-	loop, gw, collector := sysmonEdgeLoop(t, sp)
+	loop, collector := sysmonEdgeLoop(t, sp)
 	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentMetricsGrant(t)}, time.Now())
 	collector.queued = syntheticSysmonSamples(3)
 
-	require.True(t, loop.pushSysmonStatus(context.Background(), nil))
+	require.True(t, loop.pushSysmonMetrics())
 
-	require.Zero(t, gw.sysmonStatuses(), "no legacy StreamStatus while the agent holds a metrics grant")
 	batches := spooledMetricBatches(t, sp)
 	require.Len(t, batches, 1, "three small samples fit one record")
 	require.Equal(t, "sysmon-metrics", batches[0].GetIngestIdentity().GetSource())
@@ -318,15 +210,58 @@ func TestSysmonMetricsWithAGrantGoOnlyToTheEdgeSpool(t *testing.T) {
 	require.Len(t, batches[0].GetMetrics(), len(want.GetMetrics()))
 }
 
-func TestSysmonMetricsWithoutAGrantKeepTheLegacyPath(t *testing.T) {
-	sp := openTestEdgeSpool(t)
-	loop, gw, collector := sysmonEdgeLoop(t, sp)
-	collector.queued = syntheticSysmonSamples(3)
+// Without a metrics grant a metric producer sends its items nowhere: they wait
+// in its bounded queue, the oldest beyond the bound are dropped and counted as
+// awaiting_grant, and the hold is counted. Once the grant is held the queued
+// items are spooled first. The sysmon case drives the real sysmon push; the
+// ICMP case the real ICMP push, whose check against a TEST-NET address returns
+// a result whether or not it can probe.
+func TestMetricsWithoutAGrantAreHeldUntilTheGrantIsHeld(t *testing.T) {
+	t.Run("sysmon", func(t *testing.T) {
+		sp := openTestEdgeSpool(t)
+		loop, collector := sysmonEdgeLoop(t, sp)
+		collector.queued = syntheticSysmonSamples(maxPendingEdgeMetrics + 5)
 
-	require.True(t, loop.pushSysmonStatus(context.Background(), nil))
+		require.False(t, loop.pushSysmonMetrics())
+		require.Empty(t, spooledMetricBatches(t, sp))
+		require.Len(t, queuedItemsOf(&loop.sysmonEdge), maxPendingEdgeMetrics)
+		require.Equal(t, uint64(5), edgeDrops(loop, edgeProducerSysmon, edgeDropAwaitingGrant))
+		require.Equal(t, uint64(1), loop.server.edgeProducerDrops.grantHolds[edgeProducerSysmon].Load())
+		var metrics strings.Builder
+		require.NoError(t, loop.server.edgeProducerDrops.write(&metrics))
+		require.Contains(t, metrics.String(), `agent_edge_record_dropped_samples_total{producer="sysmon",reason="awaiting_grant"} 5`)
+		require.Contains(t, metrics.String(), `agent_edge_record_grant_holds_total{producer="sysmon"} 1`)
 
-	require.Equal(t, 1, gw.sysmonStatuses(), "sysmon metrics take StreamStatus without a grant")
-	require.Empty(t, spooledMetricBatches(t, sp))
+		loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentMetricsGrant(t)}, time.Now())
+		require.True(t, loop.pushSysmonMetrics())
+		require.Empty(t, loop.sysmonEdge.pending)
+		spooled := 0
+		for _, batch := range spooledMetricBatches(t, sp) {
+			spooled += len(batch.GetMetrics())
+		}
+		perSample, err := buildSysmonMetricBatch(syntheticSysmonSamples(1), loop.metricEnvelopeContext())
+		require.NoError(t, err)
+		require.Equal(t, maxPendingEdgeMetrics*len(perSample.GetMetrics()), spooled)
+	})
+	t.Run("icmp", func(t *testing.T) {
+		sp := openTestEdgeSpool(t)
+		loop, _ := sysmonEdgeLoop(t, sp)
+		loop.icmpChecks = map[string]*icmpCheckConfig{"icmp-check-01": {
+			ID: "icmp-check-01", Name: "ping", Target: "192.0.2.50", Enabled: true,
+			Interval: time.Hour, Timeout: 200 * time.Millisecond,
+		}}
+		loop.icmpLastRun = map[string]time.Time{}
+
+		require.False(t, loop.pushICMPResults(context.Background()))
+		require.Empty(t, spooledMetricBatches(t, sp))
+		require.Len(t, queuedItemsOf(&loop.icmpEdge), 1, "the check result waits in the queue")
+		require.Equal(t, uint64(1), loop.server.edgeProducerDrops.grantHolds[edgeProducerICMP].Load())
+
+		loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentMetricsGrant(t)}, time.Now())
+		require.True(t, loop.pushICMPResults(context.Background()))
+		require.Empty(t, loop.icmpEdge.pending)
+		require.Len(t, spooledMetricBatches(t, sp), 1)
+	})
 }
 
 // refusingEdgeSpool admits nothing: its allocator leaves no ordinary headroom
@@ -343,13 +278,12 @@ func refusingEdgeSpool(t *testing.T) *spool.Spool {
 }
 
 func TestARefusedSysmonEdgeAppendRetainsSamplesAndCountsOverflow(t *testing.T) {
-	loop, gw, collector := sysmonEdgeLoop(t, refusingEdgeSpool(t))
+	loop, collector := sysmonEdgeLoop(t, refusingEdgeSpool(t))
 	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentMetricsGrant(t)}, time.Now())
 
 	collector.queued = syntheticSysmonSamples(maxPendingEdgeMetrics + 5)
-	require.False(t, loop.pushSysmonStatus(context.Background(), nil))
+	require.False(t, loop.pushSysmonMetrics())
 
-	require.Zero(t, gw.sysmonStatuses(), "a refused append never falls back to StreamStatus")
 	require.Len(t, loop.sysmonEdge.pending, maxPendingEdgeMetrics)
 	var metrics strings.Builder
 	require.NoError(t, loop.server.edgeProducerDrops.write(&metrics))
@@ -358,7 +292,7 @@ func TestARefusedSysmonEdgeAppendRetainsSamplesAndCountsOverflow(t *testing.T) {
 	// Once the spool admits again, the retained samples are spooled first.
 	roomy := openTestEdgeSpool(t)
 	loop.SetEdgeMetricsSpool(roomy)
-	require.True(t, loop.pushSysmonStatus(context.Background(), nil))
+	require.True(t, loop.pushSysmonMetrics())
 	require.Empty(t, loop.sysmonEdge.pending)
 	spooled := 0
 	for _, batch := range spooledMetricBatches(t, roomy) {
@@ -371,7 +305,7 @@ func TestARefusedSysmonEdgeAppendRetainsSamplesAndCountsOverflow(t *testing.T) {
 
 func TestSysmonPrefixOverCanonicalRecordLimitIsShortened(t *testing.T) {
 	sp := openTestEdgeSpool(t)
-	loop, gw, collector := sysmonEdgeLoop(t, sp)
+	loop, collector := sysmonEdgeLoop(t, sp)
 	now := time.Now()
 	grant := currentMetricsGrant(t)
 	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{grant}, now)
@@ -381,9 +315,8 @@ func TestSysmonPrefixOverCanonicalRecordLimitIsShortened(t *testing.T) {
 	require.NoError(t, err)
 	collector.queued = []*sysmon.MetricSample{first, second}
 
-	require.True(t, loop.pushSysmonStatus(context.Background(), nil))
+	require.True(t, loop.pushSysmonMetrics())
 
-	require.Zero(t, gw.sysmonStatuses())
 	require.Empty(t, loop.sysmonEdge.pending)
 	require.Zero(t, edgeDrops(loop, edgeProducerSysmon, edgeDropInvalidRecord))
 	batches := spooledMetricBatches(t, sp)
@@ -551,33 +484,31 @@ func (a *appendScript) admitAll() {
 	a.bodies = nil
 }
 
-func TestSysmonSplitRemainderStaysOffStreamStatusWithoutAGrant(t *testing.T) {
+func TestSysmonSplitRemainderIsHeldWithoutAGrant(t *testing.T) {
 	inner := openTestEdgeSpool(t)
 	script := &appendScript{inner: inner, refuseAfter: 1}
-	loop, gw, collector := sysmonEdgeLoop(t, nil)
+	loop, collector := sysmonEdgeLoop(t, nil)
 	loop.edgeMetricsSpool = script
 	now := time.Now()
 	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentMetricsGrant(t)}, now)
 
 	sample, original := sysmonSampleOverPayloadCap(t, loop.metricEnvelopeContext())
 	collector.queued = []*sysmon.MetricSample{sample}
-	require.True(t, loop.pushSysmonStatus(context.Background(), nil))
+	require.True(t, loop.pushSysmonMetrics())
 	require.GreaterOrEqual(t, len(script.ids), 2)
 	queued := len(loop.sysmonEdge.pending)
 	require.Positive(t, queued)
 	stored := len(spooledMetricBatches(t, inner))
 
 	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, nil, now)
-	require.False(t, loop.pushSysmonStatus(context.Background(), nil))
+	require.False(t, loop.pushSysmonMetrics())
 
-	require.Zero(t, gw.sysmonStatuses(), "a partly admitted sample does not take StreamStatus")
 	require.Len(t, loop.sysmonEdge.pending, queued)
 	require.Len(t, spooledMetricBatches(t, inner), stored)
 
 	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentMetricsGrant(t)}, now)
 	script.admitAll()
-	require.True(t, loop.pushSysmonStatus(context.Background(), nil))
-	require.Zero(t, gw.sysmonStatuses())
+	require.True(t, loop.pushSysmonMetrics())
 	require.Empty(t, loop.sysmonEdge.pending)
 	require.Equal(t, flattenedMetricPoints([]*metricpb.MetricBatch{original}), flattenedMetricPoints(spooledMetricBatches(t, inner)))
 }
@@ -585,25 +516,23 @@ func TestSysmonSplitRemainderStaysOffStreamStatusWithoutAGrant(t *testing.T) {
 func TestSysmonUnsplittablePointIsCountedOnceAcrossRetries(t *testing.T) {
 	inner := openTestEdgeSpool(t)
 	script := &appendScript{inner: inner, refuseAfter: 0}
-	loop, gw, collector := sysmonEdgeLoop(t, nil)
+	loop, collector := sysmonEdgeLoop(t, nil)
 	loop.edgeMetricsSpool = script
 	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentMetricsGrant(t)}, time.Now())
 
 	sample, original := sysmonSampleWithUnsplittablePoint(t, loop.metricEnvelopeContext())
 	collector.queued = []*sysmon.MetricSample{sample}
-	require.False(t, loop.pushSysmonStatus(context.Background(), nil))
+	require.False(t, loop.pushSysmonMetrics())
 	drops := edgeDrops(loop, edgeProducerSysmon, edgeDropInvalidRecord)
 	require.Equal(t, uint64(1), drops)
-	require.Zero(t, gw.sysmonStatuses())
 	require.Empty(t, spooledMetricBatches(t, inner))
 
-	require.False(t, loop.pushSysmonStatus(context.Background(), nil))
+	require.False(t, loop.pushSysmonMetrics())
 	require.Equal(t, drops, edgeDrops(loop, edgeProducerSysmon, edgeDropInvalidRecord), "a retry does not count the unsplittable point again")
 
 	script.admitAll()
-	require.True(t, loop.pushSysmonStatus(context.Background(), nil))
+	require.True(t, loop.pushSysmonMetrics())
 	require.Equal(t, drops, edgeDrops(loop, edgeProducerSysmon, edgeDropInvalidRecord))
-	require.Zero(t, gw.sysmonStatuses())
 	got := flattenedMetricPoints(spooledMetricBatches(t, inner))
 	originalPoints := flattenedMetricPoints([]*metricpb.MetricBatch{original})
 	require.True(t, metricNamed(originalPoints, "disk.used_percent"))
@@ -769,7 +698,7 @@ func syntheticSweepSummary(sequence int) map[string]any {
 func spoolOnce[T any](t *testing.T, m edgeMetricsProducer[T], items []T) (*PushLoop, []*metricpb.MetricBatch) {
 	t.Helper()
 	sp := openTestEdgeSpool(t)
-	loop, _, _ := sysmonEdgeLoop(t, sp)
+	loop, _ := sysmonEdgeLoop(t, sp)
 	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentMetricsGrant(t)}, time.Now())
 	capability := loop.edgeMetricsCapability(time.Now())
 	require.NotNil(t, capability)
@@ -779,14 +708,14 @@ func spoolOnce[T any](t *testing.T, m edgeMetricsProducer[T], items []T) (*PushL
 	return loop, spooledMetricBatches(t, sp)
 }
 
-// Each producer's records carry exactly the envelope its legacy status push sent
-// for the same items.
-func TestEdgeMetricsRecordsCarryTheLegacyEnvelope(t *testing.T) {
-	check := func(t *testing.T, batches []*metricpb.MetricBatch, legacy *metricpb.MetricBatch, source string) {
+// Each producer's records carry exactly the envelope its builder makes for the
+// same items.
+func TestEdgeMetricsRecordsCarryTheProducerEnvelope(t *testing.T) {
+	check := func(t *testing.T, batches []*metricpb.MetricBatch, want *metricpb.MetricBatch, source string) {
 		t.Helper()
 		require.Len(t, batches, 1)
 		require.Equal(t, source, batches[0].GetIngestIdentity().GetSource())
-		require.True(t, gproto.Equal(withoutEmitTime(legacy), withoutEmitTime(batches[0])))
+		require.True(t, gproto.Equal(withoutEmitTime(want), withoutEmitTime(batches[0])))
 	}
 
 	t.Run("sysmon", func(t *testing.T) {
@@ -846,8 +775,8 @@ func TestEdgeMetricsSplitAcrossRecordsWithinThePayloadBound(t *testing.T) {
 	}
 }
 
-// An item the legacy builder records nothing for is skipped as the legacy path
-// skips it, not counted as a dropped record.
+// An item the envelope builder records nothing for is skipped, not counted as
+// a dropped record.
 func TestEdgeMetricsSkipItemsWithNothingToRecord(t *testing.T) {
 	items := syntheticSNMPResults(2)
 	empty := items[0]
@@ -865,7 +794,7 @@ func TestEdgeMetricsSkipItemsWithNothingToRecord(t *testing.T) {
 // current grant of maxRows rows; it returns that grant's capability.
 func scriptedMetricsLoop(t *testing.T, script edgeMetricsAppender, maxRows uint32) (*PushLoop, *edgev1.EdgeSignedCapabilityV1) {
 	t.Helper()
-	loop, _, _ := sysmonEdgeLoop(t, nil)
+	loop, _ := sysmonEdgeLoop(t, nil)
 	loop.edgeMetricsSpool = script
 	now := time.Now()
 	grant := metricsGrantRows(t, sysmonEdgeAgentID, now.Add(-time.Hour), now.Add(8*24*time.Hour), maxRows)
@@ -933,16 +862,15 @@ func sysmonSplitCase(
 	sample func(*testing.T, metricEnvelopeContext) (*sysmon.MetricSample, *metricpb.MetricBatch),
 ) splitCase {
 	t.Helper()
-	loop, gw, collector := sysmonEdgeLoop(t, nil)
+	loop, collector := sysmonEdgeLoop(t, nil)
 	loop.edgeMetricsSpool = sp
 	now := time.Now()
 	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{metricsGrantRows(t, sysmonEdgeAgentID, now.Add(-time.Hour), now.Add(8*24*time.Hour), maxRows)}, now)
 	item, original := sample(t, loop.metricEnvelopeContext())
 	collector.queued = []*sysmon.MetricSample{item}
-	t.Cleanup(func() { require.Zero(t, gw.sysmonStatuses(), "split sysmon records never take StreamStatus") })
 	return splitCase{
 		original: original, maxRows: int(maxRows), producer: edgeProducerSysmon,
-		push:   func() bool { return loop.pushSysmonStatus(context.Background(), nil) },
+		push:   func() bool { return loop.pushSysmonMetrics() },
 		queued: func() int { return len(loop.sysmonEdge.pending) },
 	}
 }
@@ -966,7 +894,6 @@ func icmpSplitCase(t *testing.T, sp edgeMetricsAppender) (splitCase, *PushLoop) 
 		queued: func() int {
 			if len(queue.pending) > 0 {
 				require.False(t, queue.pending[0].hasItem, "unsent parts are queued as built records")
-				require.Empty(t, queue.take(), "a partly admitted item never returns to the legacy path")
 			}
 			return len(queue.pending)
 		},
@@ -1017,7 +944,7 @@ func TestEdgeMetricsItemOverACapIsSplitAcrossRecords(t *testing.T) {
 }
 
 // A retryable refusal mid-item keeps only the unsent parts, under their event
-// ids, off the legacy path; the retry appends each of them exactly once.
+// ids; the retry appends each of them exactly once.
 func TestEdgeMetricsSplitRetryAppendsEachPartOnce(t *testing.T) {
 	cases := map[string]func(t *testing.T, sp edgeMetricsAppender) splitCase{
 		"sysmon": func(t *testing.T, sp edgeMetricsAppender) splitCase {
@@ -1061,16 +988,15 @@ func TestEdgeMetricsSplitPermanentRefusalDropsOnlyThatPart(t *testing.T) {
 	cases := map[string]func(t *testing.T, sp edgeMetricsAppender) (splitCase, func() *PushLoop){
 		"sysmon": func(t *testing.T, sp edgeMetricsAppender) (splitCase, func() *PushLoop) {
 			t.Helper()
-			loop, gw, collector := sysmonEdgeLoop(t, nil)
+			loop, collector := sysmonEdgeLoop(t, nil)
 			loop.edgeMetricsSpool = sp
 			now := time.Now()
 			loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{metricsGrantRows(t, sysmonEdgeAgentID, now.Add(-time.Hour), now.Add(8*24*time.Hour), 1)}, now)
 			item, original := sysmonSampleOverRowCeiling(t, loop.metricEnvelopeContext())
 			collector.queued = []*sysmon.MetricSample{item}
-			t.Cleanup(func() { require.Zero(t, gw.sysmonStatuses()) })
 			return splitCase{
 				original: original, maxRows: 1, producer: edgeProducerSysmon,
-				push:   func() bool { return loop.pushSysmonStatus(context.Background(), nil) },
+				push:   func() bool { return loop.pushSysmonMetrics() },
 				queued: func() int { return len(loop.sysmonEdge.pending) },
 			}, func() *PushLoop { return loop }
 		},
@@ -1109,92 +1035,12 @@ func queuedItemsOf[T any](q *edgeMetricsQueue[T]) []T {
 	return items
 }
 
-// Items the spool never admitted take the legacy path once the grant is gone. A
-// legacy send that fails or is not acknowledged returns them to the front of the
-// queue, nothing dropped; a partly admitted remainder stays queued and never takes
-// the legacy path. The sysmon case drives the real sysmon push; the ICMP case the
-// real ICMP push, whose check against a TEST-NET address returns a result whether
-// or not it can probe.
-func TestQueuedItemsSurviveAFailedLegacySend(t *testing.T) {
-	type legacyCase struct {
-		push     func() bool
-		queued   func() int
-		items    func() int
-		delivers func() int
-		drops    func() uint64
-		head     func() bool
-	}
-	cases := map[string]func(t *testing.T, loop *PushLoop, gw *sysmonStatusGateway) legacyCase{
-		"sysmon": func(t *testing.T, loop *PushLoop, gw *sysmonStatusGateway) legacyCase {
-			t.Helper()
-			first, second := syntheticSysmonSamples(1)[0], syntheticSysmonSamples(1)[0]
-			second.HostID = "host02.example.com"
-			loop.sysmonEdge.pending = []edgeMetricsQueued[*sysmon.MetricSample]{
-				{item: first, hasItem: true}, {ready: []edgeMetricsBuilt{{}}}, {item: second, hasItem: true},
-			}
-			return legacyCase{
-				push:     func() bool { return loop.pushSysmonStatus(context.Background(), nil) },
-				queued:   func() int { return len(loop.sysmonEdge.pending) },
-				items:    func() int { return len(queuedItemsOf(&loop.sysmonEdge)) },
-				delivers: gw.sysmonStatuses,
-				drops:    func() uint64 { return edgeDrops(loop, edgeProducerSysmon, edgeDropRetryBufferFull) },
-				head:     func() bool { return loop.sysmonEdge.pending[0].hasItem },
-			}
-		},
-		"icmp": func(t *testing.T, loop *PushLoop, gw *sysmonStatusGateway) legacyCase {
-			t.Helper()
-			loop.icmpChecks = map[string]*icmpCheckConfig{"icmp-check-01": {
-				ID: "icmp-check-01", Name: "ping", Target: "192.0.2.50", Enabled: true,
-				Interval: time.Nanosecond, Timeout: 200 * time.Millisecond,
-			}}
-			loop.icmpLastRun = map[string]time.Time{}
-			items := syntheticICMPResults(2)
-			loop.icmpEdge.pending = []edgeMetricsQueued[icmpCheckResult]{
-				{item: items[0], hasItem: true}, {ready: []edgeMetricsBuilt{{}}}, {item: items[1], hasItem: true},
-			}
-			return legacyCase{
-				push:     func() bool { return loop.pushICMPResults(context.Background()) },
-				queued:   func() int { return len(loop.icmpEdge.pending) },
-				items:    func() int { return len(queuedItemsOf(&loop.icmpEdge)) },
-				delivers: gw.icmpStatuses,
-				drops:    func() uint64 { return edgeDrops(loop, edgeProducerICMP, edgeDropRetryBufferFull) },
-				head:     func() bool { return loop.icmpEdge.pending[0].hasItem },
-			}
-		},
-	}
-	for name, setup := range cases {
-		for _, mode := range []sysmonStreamMode{sysmonStreamError, sysmonStreamUnacked} {
-			t.Run(name+" "+mode.String(), func(t *testing.T) {
-				loop, gw, _ := sysmonEdgeLoop(t, openTestEdgeSpool(t))
-				c := setup(t, loop, gw)
-				gw.setMode(mode)
-
-				require.False(t, c.push())
-				require.Zero(t, c.delivers())
-				require.Zero(t, c.drops())
-				require.Equal(t, 2, c.items(), "the unadmitted items are back in the queue")
-				require.Equal(t, 3, c.queued(), "the partly admitted remainder stays queued")
-				require.True(t, c.head(), "restored items return to the front of the queue")
-
-				gw.setMode(sysmonStreamOK)
-				if mode == sysmonStreamError {
-					require.NoError(t, loop.gateway.Connect(t.Context()))
-				}
-				require.True(t, c.push())
-				require.Equal(t, 1, c.delivers())
-				require.Zero(t, c.items(), "a delivered legacy send removes the items")
-				require.Equal(t, 1, c.queued(), "only the partly admitted remainder is left")
-			})
-		}
-	}
-}
-
-// Invalid UTF-8 in a value is replaced on both paths, so the item is spooled with
-// its neighbours instead of failing the record.
+// Invalid UTF-8 in a value is replaced by the envelope builder, so the item is
+// spooled with its neighbours instead of failing the record.
 func TestInvalidUTF8IsSpooledWithItsNeighbours(t *testing.T) {
 	t.Run("sysmon process name", func(t *testing.T) {
 		sp := openTestEdgeSpool(t)
-		loop, gw, collector := sysmonEdgeLoop(t, sp)
+		loop, collector := sysmonEdgeLoop(t, sp)
 		loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentMetricsGrant(t)}, time.Now())
 		neighbor, bad := syntheticSysmonSamples(1)[0], syntheticSysmonSamples(1)[0]
 		const pid = 7
@@ -1203,9 +1049,8 @@ func TestInvalidUTF8IsSpooledWithItsNeighbours(t *testing.T) {
 		}}
 		collector.queued = []*sysmon.MetricSample{neighbor, bad}
 
-		require.True(t, loop.pushSysmonStatus(context.Background(), nil))
+		require.True(t, loop.pushSysmonMetrics())
 
-		require.Zero(t, gw.sysmonStatuses())
 		require.Empty(t, loop.sysmonEdge.pending)
 		require.Zero(t, edgeDrops(loop, edgeProducerSysmon, edgeDropInvalidRecord))
 		batches := spooledMetricBatches(t, sp)
@@ -1215,11 +1060,9 @@ func TestInvalidUTF8IsSpooledWithItsNeighbours(t *testing.T) {
 		require.Equal(t, []string{replaced, replaced}, pointAttributeValues(batches, "name"))
 		require.Contains(t, keys, "process.cpu_usage\tprocess:"+fmt.Sprint(pid)+":"+replaced+"\t1.5")
 
-		legacy, err := marshalSysmonMetricEnvelope(bad, loop.metricEnvelopeContext())
+		direct, err := buildSysmonMetricBatch([]*sysmon.MetricSample{bad}, loop.metricEnvelopeContext())
 		require.NoError(t, err)
-		legacyBatch := &metricpb.MetricBatch{}
-		require.NoError(t, gproto.Unmarshal(legacy, legacyBatch))
-		require.Equal(t, []string{replaced, replaced}, pointAttributeValues([]*metricpb.MetricBatch{legacyBatch}, "name"))
+		require.Equal(t, []string{replaced, replaced}, pointAttributeValues([]*metricpb.MetricBatch{direct}, "name"))
 	})
 	t.Run("snmp target", func(t *testing.T) {
 		items := syntheticSNMPResults(2)
@@ -1231,11 +1074,9 @@ func TestInvalidUTF8IsSpooledWithItsNeighbours(t *testing.T) {
 		replaced := strings.ToValidUTF8(items[1].Target, "\uFFFD")
 		require.Contains(t, pointAttributeValues(batches, "target"), replaced)
 
-		legacy, err := marshalSNMPMetricEnvelope(items, loop.metricEnvelopeContext())
+		direct, err := buildSNMPMetricBatch(items, loop.metricEnvelopeContext())
 		require.NoError(t, err)
-		legacyBatch := &metricpb.MetricBatch{}
-		require.NoError(t, gproto.Unmarshal(legacy, legacyBatch))
-		require.Contains(t, pointAttributeValues([]*metricpb.MetricBatch{legacyBatch}, "target"), replaced)
+		require.Contains(t, pointAttributeValues([]*metricpb.MetricBatch{direct}, "target"), replaced)
 	})
 }
 
@@ -1351,19 +1192,19 @@ func sweepMetricStatuses(statuses []*proto.GatewayServiceStatus) int {
 	return count
 }
 
-// The periodic sweep summary takes exactly one path: the edge spool while the
-// agent holds a metrics grant, the status push otherwise.
+// The periodic sweep summary never rides the status push: it is spooled while
+// the agent holds a metrics grant and held in its queue otherwise.
 func TestSweepSummaryTakesOnePath(t *testing.T) {
 	for name, granted := range map[string]bool{"with a grant": true, "without a grant": false} {
 		t.Run(name, func(t *testing.T) {
 			sp := openTestEdgeSpool(t)
-			loop, _, _ := sysmonEdgeLoop(t, sp)
+			loop, _ := sysmonEdgeLoop(t, sp)
 			loop.server.services = []Service{&fakeSweepSummaryService{payload: syntheticSweepSummary(1)}}
 			if granted {
 				loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentMetricsGrant(t)}, time.Now())
 			}
 
-			statuses, _ := loop.collectAllStatusesSeparated(context.Background())
+			statuses := loop.collectAllStatuses(context.Background())
 
 			batches := spooledMetricBatches(t, sp)
 			if granted {
@@ -1372,8 +1213,9 @@ func TestSweepSummaryTakesOnePath(t *testing.T) {
 				require.Equal(t, "sweep-metrics", batches[0].GetIngestIdentity().GetSource())
 				return
 			}
-			require.Equal(t, 1, sweepMetricStatuses(statuses))
+			require.Zero(t, sweepMetricStatuses(statuses), "no sweep summary status without a grant")
 			require.Empty(t, batches)
+			require.Len(t, queuedItemsOf(&loop.sweepSummary), 1, "the sample waits for the grant")
 		})
 	}
 }
@@ -1396,66 +1238,6 @@ func TestSweepSummariesAreNeverPacked(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, gproto.Equal(withoutEmitTime(legacy), withoutEmitTime(batch)), "sample %d", i)
 	}
-}
-
-// MTR scalar metrics take exactly one path while the traces keep theirs. The
-// check traces a TEST-NET address with a short timeout; a failed or timed-out
-// trace still records its availability metric.
-func TestMTRScalarMetricsTakeOnePathWhileTracesKeepTheirs(t *testing.T) {
-	for name, granted := range map[string]bool{"with a grant": true, "without a grant": false} {
-		t.Run(name, func(t *testing.T) {
-			sp := openTestEdgeSpool(t)
-			loop, gw, _ := sysmonEdgeLoop(t, sp)
-			loop.mtrState = newMtrCheckerState()
-			loop.mtrState.checks["mtr-check-01"] = &mtrCheckConfig{
-				ID: "mtr-check-01", Name: "wan-path", Target: "192.0.2.1", Enabled: true,
-				Interval: time.Hour, Timeout: 200 * time.Millisecond, MaxHops: 2, ProbesPerHop: 1, Protocol: mtr.ProtocolICMP,
-			}
-			if granted {
-				loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentMetricsGrant(t)}, time.Now())
-			}
-
-			loop.pushMtrResults(context.Background())
-
-			require.Equal(t, 1, gw.statusesFrom("results"), "the trace results keep the status path")
-			batches := spooledMetricBatches(t, sp)
-			if granted {
-				require.Zero(t, gw.statusesFrom("mtr-metrics"), "no MTR metric status while the agent holds a grant")
-				require.Len(t, batches, 1)
-				require.Equal(t, "mtr-metrics", batches[0].GetIngestIdentity().GetSource())
-				return
-			}
-			require.Equal(t, 1, gw.statusesFrom("mtr-metrics"))
-			require.Empty(t, batches)
-		})
-	}
-}
-
-// Queued sweep summary samples put on the legacy status push return to the front
-// of the queue unless that push delivers them.
-func TestQueuedSweepSummariesSurviveAnUndeliveredStatusPush(t *testing.T) {
-	loop, _, _ := sysmonEdgeLoop(t, openTestEdgeSpool(t))
-	loop.server.services = []Service{&fakeSweepSummaryService{payload: syntheticSweepSummary(9)}}
-	queued := syntheticSweepSummary(8)
-	loop.sweepSummary.pending = []edgeMetricsQueued[map[string]any]{
-		{item: queued, hasItem: true}, {ready: []edgeMetricsBuilt{{}}},
-	}
-
-	statuses, _ := loop.collectAllStatusesSeparated(context.Background())
-	require.Equal(t, 2, sweepMetricStatuses(statuses), "the queued and the new sample take the status push")
-	require.Len(t, loop.sweepSummary.pending, 1, "the partly admitted remainder stays queued")
-
-	loop.settleSweepSummaryLegacy(false)
-	require.Len(t, loop.sweepSummary.pending, 2)
-	require.True(t, loop.sweepSummary.pending[0].hasItem, "the undelivered sample returns to the front")
-	require.Equal(t, queued, loop.sweepSummary.pending[0].item)
-	require.Zero(t, edgeDrops(loop, edgeProducerSweepSummary, edgeDropRetryBufferFull))
-
-	statuses, _ = loop.collectAllStatusesSeparated(context.Background())
-	require.Equal(t, 2, sweepMetricStatuses(statuses))
-	loop.settleSweepSummaryLegacy(true)
-	require.Len(t, loop.sweepSummary.pending, 1, "a delivered push removes the sample")
-	require.False(t, loop.sweepSummary.pending[0].hasItem)
 }
 
 // Every record a producer emits under one capability competes in one spool
@@ -1549,41 +1331,59 @@ func rperfMetricStatuses(statuses []*proto.GatewayServiceStatus) int {
 	return count
 }
 
-func TestRperfMetricsTakeOnePath(t *testing.T) {
-	for name, granted := range map[string]bool{"with a grant": true, "without a grant": false} {
-		t.Run(name, func(t *testing.T) {
-			sp := openTestEdgeSpool(t)
-			loop, _, _ := sysmonEdgeLoop(t, sp)
-			svc := &fakeRperfMetricsService{queued: []*proto.StatusResponse{syntheticRperfStatus(t, 2)}}
-			loop.server.services = []Service{svc}
-			if granted {
-				loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentMetricsGrant(t)}, time.Now())
-			}
+func TestRperfMetricsWithAGrantGoOnlyToTheEdgeSpool(t *testing.T) {
+	sp := openTestEdgeSpool(t)
+	loop, _ := sysmonEdgeLoop(t, sp)
+	svc := &fakeRperfMetricsService{queued: []*proto.StatusResponse{syntheticRperfStatus(t, 2)}}
+	loop.server.services = []Service{svc}
+	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentMetricsGrant(t)}, time.Now())
 
-			statuses, _ := loop.collectAllStatusesSeparated(context.Background())
+	statuses := loop.collectAllStatuses(context.Background())
 
-			batches := spooledMetricBatches(t, sp)
-			if granted {
-				require.Zero(t, rperfMetricStatuses(statuses), "no rperf-metrics status while the agent holds a grant")
-				require.Len(t, batches, 1)
-				require.Equal(t, "rperf-metrics", batches[0].GetIngestIdentity().GetSource())
-				require.Equal(t, "rperf-checker", batches[0].GetIngestIdentity().GetProducerKind())
-				require.Equal(t, sysmonEdgeAgentID, batches[0].GetResource().GetAgentId())
-				require.Equal(t, "rperf", batches[0].GetResource().GetServiceName())
-				require.Equal(t, "rperf", batches[0].GetResource().GetServiceType())
-				require.Len(t, batches[0].GetMetrics(), 2)
-				return
-			}
-			require.Equal(t, 1, rperfMetricStatuses(statuses))
-			require.Empty(t, batches)
-		})
-	}
+	batches := spooledMetricBatches(t, sp)
+	require.Zero(t, rperfMetricStatuses(statuses), "no rperf-metrics status")
+	require.Len(t, batches, 1)
+	require.Equal(t, "rperf-metrics", batches[0].GetIngestIdentity().GetSource())
+	require.Equal(t, "rperf-checker", batches[0].GetIngestIdentity().GetProducerKind())
+	require.Equal(t, sysmonEdgeAgentID, batches[0].GetResource().GetAgentId())
+	require.Equal(t, "rperf", batches[0].GetResource().GetServiceName())
+	require.Equal(t, "rperf", batches[0].GetResource().GetServiceType())
+	require.Len(t, batches[0].GetMetrics(), 2)
+}
+
+// Without a metrics grant one polled rperf status is held unbuilt and the rperf
+// service is not polled again; once the grant is held the status is built,
+// spooled, and polling resumes.
+func TestRperfMetricsWithoutAGrantHoldOneStatusAndPausePolling(t *testing.T) {
+	sp := openTestEdgeSpool(t)
+	loop, _ := sysmonEdgeLoop(t, sp)
+	svc := &fakeRperfMetricsService{queued: []*proto.StatusResponse{syntheticRperfStatus(t, 2), syntheticRperfStatus(t, 1)}}
+	loop.server.services = []Service{svc}
+
+	statuses := loop.collectAllStatuses(context.Background())
+	require.Zero(t, rperfMetricStatuses(statuses), "rperf metrics never ride the status push")
+	require.Empty(t, spooledMetricBatches(t, sp))
+	require.True(t, loop.rperfEdge.hasPending())
+	require.Equal(t, 1, svc.polls)
+
+	loop.collectAllStatuses(context.Background())
+	require.Equal(t, 1, svc.polls, "rperf polling is paused while a status is held")
+	require.Positive(t, loop.server.edgeProducerDrops.grantHolds[edgeProducerRperf].Load())
+
+	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentMetricsGrant(t)}, time.Now())
+	loop.collectAllStatuses(context.Background())
+	require.False(t, loop.rperfEdge.hasPending())
+	require.Equal(t, 2, svc.polls, "polling resumes once the held status is spooled")
+	batches := spooledMetricBatches(t, sp)
+	require.Len(t, batches, 2)
+	require.Len(t, batches[0].GetMetrics(), 2, "the held status is spooled first")
+	require.Len(t, batches[1].GetMetrics(), 1)
 }
 
 func TestRperfEdgeSpoolBackpressurePausesPollingAndPreservesEventID(t *testing.T) {
 	inner := openTestEdgeSpool(t)
 	script := &appendScript{inner: inner, refuseAfter: 0}
-	loop, _, _ := sysmonEdgeLoop(t, nil)
+	loop, _ := sysmonEdgeLoop(t, nil)
 	loop.edgeMetricsSpool = script
 	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentMetricsGrant(t)}, time.Now())
 
@@ -1597,7 +1397,7 @@ func TestRperfEdgeSpoolBackpressurePausesPollingAndPreservesEventID(t *testing.T
 
 	// First push polls the first rperf status, builds its edge record, and holds
 	// it in rperfEdge when the spool refuses admission.
-	statuses, _ := loop.collectAllStatusesSeparated(context.Background())
+	statuses := loop.collectAllStatuses(context.Background())
 	require.Zero(t, rperfMetricStatuses(statuses))
 	require.Equal(t, 1, svc.polls)
 	require.Len(t, svc.queued, 1, "second status remains in the service until the first is admitted")
@@ -1608,7 +1408,7 @@ func TestRperfEdgeSpoolBackpressurePausesPollingAndPreservesEventID(t *testing.T
 
 	// Second push while the spool still refuses retries the held record with its
 	// original event_id and does not poll the rperf service again.
-	statuses, _ = loop.collectAllStatusesSeparated(context.Background())
+	statuses = loop.collectAllStatuses(context.Background())
 	require.Zero(t, rperfMetricStatuses(statuses))
 	require.Equal(t, 1, svc.polls, "rperf polling is paused while rperfEdge holds an undelivered item")
 	require.Len(t, svc.queued, 1)
@@ -1621,7 +1421,7 @@ func TestRperfEdgeSpoolBackpressurePausesPollingAndPreservesEventID(t *testing.T
 	// Once the spool admits, the retained record is written with its original
 	// event_id and polling resumes for the next queued status.
 	script.admitAll()
-	statuses, _ = loop.collectAllStatusesSeparated(context.Background())
+	statuses = loop.collectAllStatuses(context.Background())
 	require.Zero(t, rperfMetricStatuses(statuses))
 	require.False(t, loop.rperfEdge.hasPending())
 	require.Equal(t, 2, svc.polls)
@@ -1637,7 +1437,7 @@ func TestRperfEdgeSpoolBackpressurePausesPollingAndPreservesEventID(t *testing.T
 
 func TestRperfSplitAndDropInvalidPoint(t *testing.T) {
 	sp := openTestEdgeSpool(t)
-	loop, _, _ := sysmonEdgeLoop(t, sp)
+	loop, _ := sysmonEdgeLoop(t, sp)
 	now := time.Now()
 	grant := metricsGrantRows(t, sysmonEdgeAgentID, now.Add(-time.Hour), now.Add(8*24*time.Hour), 2)
 	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{grant}, now)
@@ -1662,7 +1462,7 @@ func TestRperfSplitAndDropInvalidPoint(t *testing.T) {
 
 	loop.server.services = []Service{&fakeRperfMetricsService{queued: []*proto.StatusResponse{status}}}
 
-	statuses, _ := loop.collectAllStatusesSeparated(context.Background())
+	statuses := loop.collectAllStatuses(context.Background())
 	require.Zero(t, rperfMetricStatuses(statuses))
 	require.Equal(t, uint64(1), edgeDrops(loop, edgeProducerRperf, edgeDropInvalidRecord))
 	batches := spooledMetricBatches(t, sp)

@@ -22,99 +22,19 @@ import (
 
 	"github.com/carverauto/serviceradar/go/pkg/models"
 	"github.com/carverauto/serviceradar/go/pkg/scan"
-	"github.com/carverauto/serviceradar/proto"
 )
 
+// pushICMPResults runs the due ICMP checks and spools their results under the
+// metrics grant, or holds them until one is held.
 func (p *PushLoop) pushICMPResults(ctx context.Context) bool {
 	results := p.collectDueICMPResults(ctx)
 
-	// One path at a time: while the agent holds a metrics grant, ICMP check results
-	// go only to the edge spool. Without one, results the spool never admitted take
-	// the legacy path with the new ones.
-	if capability := p.edgeMetricsCapability(time.Now()); capability != nil {
-		return spoolEdgeMetrics(p, icmpEdgeMetrics(), &p.icmpEdge, results, capability)
-	}
-	// Results taken back from the edge queue return to it unless this send
-	// delivers them.
-	taken := p.icmpEdge.take()
-	delivered := false
-	defer func() {
-		if !delivered {
-			restoreEdgeMetrics(p, icmpEdgeMetrics(), &p.icmpEdge, taken)
-		}
-	}()
-	results = append(queuedItems(taken), results...)
-	if len(results) == 0 {
+	capability := p.edgeMetricsCapability(time.Now())
+	if capability == nil {
+		holdEdgeMetrics(p, icmpEdgeMetrics(), &p.icmpEdge, results)
 		return false
 	}
-
-	p.server.mu.RLock()
-	agentID := p.server.config.AgentID
-	partition := p.server.config.Partition
-	kvStoreID := p.server.config.KVAddress
-	p.server.mu.RUnlock()
-	gatewayID := p.gateway.GetGatewayID()
-	runtimeMetadata := currentRuntimeMetadata()
-
-	message, err := marshalICMPMetricEnvelope(results, metricEnvelopeContext{
-		AgentID:   agentID,
-		GatewayID: gatewayID,
-		Partition: partition,
-		KvStoreID: kvStoreID,
-	})
-	if err != nil {
-		p.logger.Error().Err(err).Msg("Failed to marshal ICMP metric envelope")
-		return false
-	}
-	p.publishAddonMetricFeed("icmp", message)
-
-	status := &proto.GatewayServiceStatus{
-		ServiceName:  "icmp_checks",
-		ServiceType:  "icmp",
-		Available:    true,
-		Message:      message,
-		ResponseTime: 0,
-		AgentId:      agentID,
-		GatewayId:    gatewayID,
-		Partition:    partition,
-		Source:       "icmp-metrics",
-		KvStoreId:    kvStoreID,
-	}
-
-	chunk := &proto.GatewayStatusChunk{
-		Services:    []*proto.GatewayServiceStatus{status},
-		GatewayId:   gatewayID,
-		AgentId:     agentID,
-		Timestamp:   time.Now().UnixNano(),
-		Partition:   partition,
-		SourceIp:    p.getSourceIP(),
-		IsFinal:     true,
-		ChunkIndex:  0,
-		TotalChunks: 1,
-		KvStoreId:   kvStoreID,
-		Version:     runtimeMetadata.Version,
-		Hostname:    runtimeMetadata.Hostname,
-		Os:          runtimeMetadata.Os,
-		Arch:        runtimeMetadata.Arch,
-	}
-
-	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	resp, err := p.gateway.StreamStatus(pushCtx, []*proto.GatewayStatusChunk{chunk})
-	if err != nil {
-		p.logger.Error().Err(err).Msg("Failed to stream ICMP results to gateway")
-		return false
-	}
-
-	if resp.Received {
-		delivered = true
-		p.logger.Info().Int("result_count", len(results)).Msg("Streamed ICMP results to gateway")
-		return true
-	}
-
-	p.logger.Warn().Msg("Gateway did not acknowledge ICMP metrics stream")
-	return false
+	return spoolEdgeMetrics(p, icmpEdgeMetrics(), &p.icmpEdge, results, capability)
 }
 
 func (p *PushLoop) collectDueICMPResults(ctx context.Context) []icmpCheckResult {

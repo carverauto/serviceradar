@@ -40,7 +40,8 @@ var errInvalidEdgeOutputGrant = errors.New("invalid edge output grant")
 // edgeOutputGrants holds the standing output grants of the last applied agent
 // config, one per output contract. Each config response replaces the whole set,
 // so an empty list withdraws every grant. Grants are not persisted: after a
-// restart the agent keeps its legacy paths until the first config arrives.
+// restart producers hold their data until the first config arrives, which
+// enrollment fetches before the first push.
 type edgeOutputGrants struct {
 	mu     sync.RWMutex
 	grants map[string]*edgev1.EdgeSignedCapabilityV1 // by contract id

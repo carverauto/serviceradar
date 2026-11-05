@@ -81,7 +81,7 @@ func (p *PushLoop) flushPendingMtrEdge() (admittedAny bool, empty bool) {
 }
 
 // edgeScheduledMtrCapability returns the standing grant new scheduled MTR trace
-// records are emitted under at now, or nil when traces take the legacy path.
+// records are emitted under at now, or nil when MTR checks must wait for it.
 func (p *PushLoop) edgeScheduledMtrCapability(now time.Time) *edgev1.EdgeSignedCapabilityV1 {
 	if p.edgeMetricsSpool == nil {
 		return nil

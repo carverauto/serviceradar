@@ -17,9 +17,9 @@
 package agent
 
 import (
-	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -45,10 +45,9 @@ func workloadIdentityGrant(t *testing.T, maxRows uint32) *proto.EdgeOutputGrant 
 	})
 }
 
-func newWorkloadIdentityTestLoop(t *testing.T, sp *spool.Spool, grants ...*proto.EdgeOutputGrant) (*PushLoop, string, *int) {
+func newWorkloadIdentityTestLoop(t *testing.T, sp *spool.Spool, grants ...*proto.EdgeOutputGrant) (*PushLoop, string) {
 	t.Helper()
 	configDir := t.TempDir()
-	streamCalls := new(int)
 	srv := &Server{
 		configDir: configDir,
 		config: &ServerConfig{
@@ -61,16 +60,12 @@ func newWorkloadIdentityTestLoop(t *testing.T, sp *spool.Spool, grants ...*proto
 	loop := &PushLoop{
 		server: srv,
 		logger: logger.NewTestLogger(),
-		workloadIdentityStreamStatus: func(_ context.Context, _ []*proto.GatewayStatusChunk) (*proto.GatewayStatusResponse, error) {
-			*streamCalls++
-			return &proto.GatewayStatusResponse{Received: true}, nil
-		},
 	}
 	loop.SetEdgeDiscoverySpool(sp)
 	if len(grants) > 0 {
 		loop.edgeOutputGrants.replace(sysmonEdgeAgentID, grants, time.Now())
 	}
-	return loop, configDir, streamCalls
+	return loop, configDir
 }
 
 func writeWorkloadIdentityTestSnapshot(t *testing.T, configDir, content string) {
@@ -86,7 +81,7 @@ func writeWorkloadIdentityTestSnapshot(t *testing.T, configDir, content string) 
 func TestWorkloadIdentityWithAGrantGoesOnlyToTheEdgeSpool(t *testing.T) {
 	sp := openTestEdgeSpool(t)
 	grant := workloadIdentityGrant(t, 10_000)
-	loop, configDir, streamCalls := newWorkloadIdentityTestLoop(t, sp, grant)
+	loop, configDir := newWorkloadIdentityTestLoop(t, sp, grant)
 
 	writeWorkloadIdentityTestSnapshot(t, configDir, `{
 		"observed_at_unix_nano": 1780000000000000000,
@@ -139,11 +134,10 @@ func TestWorkloadIdentityWithAGrantGoesOnlyToTheEdgeSpool(t *testing.T) {
 		]
 	}`)
 
-	require.True(t, loop.pushWorkloadIdentity(context.Background()))
-	require.Zero(t, *streamCalls, "legacy StreamStatus must not be called while a grant is held")
+	require.True(t, loop.pushWorkloadIdentity())
 
 	// Unchanged snapshot signature is not re-spooled on the next tick.
-	require.False(t, loop.pushWorkloadIdentity(context.Background()))
+	require.False(t, loop.pushWorkloadIdentity())
 
 	records := spooledRecords(t, sp)
 	require.Len(t, records, 1)
@@ -180,7 +174,7 @@ func TestWorkloadIdentityWithAGrantGoesOnlyToTheEdgeSpool(t *testing.T) {
 func TestWorkloadIdentityEmptyDisabledSnapshotEmitsOneRowRecord(t *testing.T) {
 	sp := openTestEdgeSpool(t)
 	grant := workloadIdentityGrant(t, 10_000)
-	loop, configDir, streamCalls := newWorkloadIdentityTestLoop(t, sp, grant)
+	loop, configDir := newWorkloadIdentityTestLoop(t, sp, grant)
 
 	writeWorkloadIdentityTestSnapshot(t, configDir, `{
 		"observed_at_unix_nano": 1780000000000000000,
@@ -191,8 +185,7 @@ func TestWorkloadIdentityEmptyDisabledSnapshotEmitsOneRowRecord(t *testing.T) {
 		"degradation_reason": "workload identity collection disabled"
 	}`)
 
-	require.True(t, loop.pushWorkloadIdentity(context.Background()))
-	require.Zero(t, *streamCalls)
+	require.True(t, loop.pushWorkloadIdentity())
 
 	records := spooledRecords(t, sp)
 	require.Len(t, records, 1)
@@ -201,26 +194,35 @@ func TestWorkloadIdentityEmptyDisabledSnapshotEmitsOneRowRecord(t *testing.T) {
 	require.Equal(t, uint64(edgerecord.WorkloadIdentityProjectedWriteBytesPerRecord), records[0].GetProjectedWriteBytes())
 }
 
-func TestWorkloadIdentityWithoutGrantStreamsLegacyStatus(t *testing.T) {
+// Without a grant the snapshot file is not read or committed: it waits on disk,
+// counted as a grant hold, and spools once the grant is held.
+func TestWorkloadIdentityWithoutGrantLeavesTheSnapshotOnDisk(t *testing.T) {
 	sp := openTestEdgeSpool(t)
-	loop, configDir, streamCalls := newWorkloadIdentityTestLoop(t, sp)
+	loop, configDir := newWorkloadIdentityTestLoop(t, sp)
 
 	writeWorkloadIdentityTestSnapshot(t, configDir, `{
 		"observed_at_unix_nano": 1780000000000000000,
 		"enabled": true,
 		"count": 1,
-		"identities": [{"container_id": "container-legacy", "identity": {"container_id": "container-legacy"}}]
+		"identities": [{"container_id": "container-held", "identity": {"container_id": "container-held"}}]
 	}`)
 
-	require.True(t, loop.pushWorkloadIdentity(context.Background()))
-	require.Equal(t, 1, *streamCalls)
+	require.False(t, loop.pushWorkloadIdentity())
 	require.Empty(t, spooledRecords(t, sp))
+	require.True(t, loop.lastWorkloadIdentityFile.zero(), "an unsent snapshot must not be committed")
+	var metrics strings.Builder
+	require.NoError(t, loop.server.edgeProducerDrops.write(&metrics))
+	require.Contains(t, metrics.String(), `agent_edge_record_grant_holds_total{producer="workload_identity"} 1`)
+
+	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{workloadIdentityGrant(t, 10_000)}, time.Now())
+	require.True(t, loop.pushWorkloadIdentity())
+	require.Len(t, spooledRecords(t, sp), 1)
 }
 
-func TestWorkloadIdentityPausedSpoolHoldsOneSnapshotWithoutDrainingNewerFileOrFallingBack(t *testing.T) {
+func TestWorkloadIdentityPausedSpoolHoldsOneSnapshotWithoutReadingNewerFile(t *testing.T) {
 	paused := refusingEdgeSpool(t)
 	grant := workloadIdentityGrant(t, 10_000)
-	loop, configDir, streamCalls := newWorkloadIdentityTestLoop(t, paused, grant)
+	loop, configDir := newWorkloadIdentityTestLoop(t, paused, grant)
 
 	writeWorkloadIdentityTestSnapshot(t, configDir, `{
 		"observed_at_unix_nano": 1780000000000000000,
@@ -229,8 +231,7 @@ func TestWorkloadIdentityPausedSpoolHoldsOneSnapshotWithoutDrainingNewerFileOrFa
 		"identities": [{"container_id": "container-first", "identity": {"container_id": "container-first"}}]
 	}`)
 
-	require.False(t, loop.pushWorkloadIdentity(context.Background()))
-	require.Zero(t, *streamCalls, "must never fall back to StreamStatus while grant is held")
+	require.False(t, loop.pushWorkloadIdentity())
 	require.NotNil(t, loop.workloadIdentityEdge.built)
 	firstEventID := append([]byte(nil), loop.workloadIdentityEdge.built.records[0].GetEventId()...)
 
@@ -242,22 +243,28 @@ func TestWorkloadIdentityPausedSpoolHoldsOneSnapshotWithoutDrainingNewerFileOrFa
 		"identities": [{"container_id": "container-second", "identity": {"container_id": "container-second"}}]
 	}`)
 
-	require.False(t, loop.pushWorkloadIdentity(context.Background()))
-	require.Zero(t, *streamCalls)
+	require.False(t, loop.pushWorkloadIdentity())
 	require.Zero(t, edgeDrops(loop, edgeProducerWorkloadIdentity, edgeDropRetryBufferFull))
 	require.Equal(t, firstEventID, loop.workloadIdentityEdge.built.records[0].GetEventId(),
 		"pending snapshot must keep its original event ID and pause reading the newer file")
 
-	// Unblock the spool: first call flushes the pending first snapshot, second call reads and spools the newer file.
+	// Unblock the spool with the grant withdrawn: the built snapshot still
+	// finishes under the grant it was built with, but the newer file is not
+	// read until a grant is held again.
 	accepting := openTestEdgeSpool(t)
 	loop.SetEdgeDiscoverySpool(accepting)
+	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, nil, time.Now())
 
-	require.True(t, loop.pushWorkloadIdentity(context.Background()))
+	require.True(t, loop.pushWorkloadIdentity())
 	records := spooledRecords(t, accepting)
 	require.Len(t, records, 1)
 	require.Equal(t, firstEventID, records[0].GetEventId())
 
-	require.True(t, loop.pushWorkloadIdentity(context.Background()))
+	require.False(t, loop.pushWorkloadIdentity())
+	require.Len(t, spooledRecords(t, accepting), 1)
+
+	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{grant}, time.Now())
+	require.True(t, loop.pushWorkloadIdentity())
 	records = spooledRecords(t, accepting)
 	require.Len(t, records, 2)
 }
@@ -265,7 +272,7 @@ func TestWorkloadIdentityPausedSpoolHoldsOneSnapshotWithoutDrainingNewerFileOrFa
 func TestWorkloadIdentitySplitsAcrossMultipleRecordsWhenExceedingRowLimit(t *testing.T) {
 	sp := openTestEdgeSpool(t)
 	grant := workloadIdentityGrant(t, 1)
-	loop, configDir, streamCalls := newWorkloadIdentityTestLoop(t, sp, grant)
+	loop, configDir := newWorkloadIdentityTestLoop(t, sp, grant)
 
 	writeWorkloadIdentityTestSnapshot(t, configDir, `{
 		"observed_at_unix_nano": 1780000000000000000,
@@ -278,8 +285,7 @@ func TestWorkloadIdentitySplitsAcrossMultipleRecordsWhenExceedingRowLimit(t *tes
 		]
 	}`)
 
-	require.True(t, loop.pushWorkloadIdentity(context.Background()))
-	require.Zero(t, *streamCalls)
+	require.True(t, loop.pushWorkloadIdentity())
 
 	records := spooledRecords(t, sp)
 	require.Len(t, records, 2)
@@ -292,7 +298,7 @@ func TestWorkloadIdentitySplitsAcrossMultipleRecordsWhenExceedingRowLimit(t *tes
 func TestWorkloadIdentityInvalidSnapshotRecordsInvalidRecordDrop(t *testing.T) {
 	sp := openTestEdgeSpool(t)
 	grant := workloadIdentityGrant(t, 10_000)
-	loop, configDir, streamCalls := newWorkloadIdentityTestLoop(t, sp, grant)
+	loop, configDir := newWorkloadIdentityTestLoop(t, sp, grant)
 
 	writeWorkloadIdentityTestSnapshot(t, configDir, `{
 		"observed_at_unix_nano": 1780000000000000000,
@@ -301,8 +307,7 @@ func TestWorkloadIdentityInvalidSnapshotRecordsInvalidRecordDrop(t *testing.T) {
 		"identities": [{"identity": {"pod_name": "missing-container-id"}}]
 	}`)
 
-	require.False(t, loop.pushWorkloadIdentity(context.Background()))
-	require.Zero(t, *streamCalls)
+	require.False(t, loop.pushWorkloadIdentity())
 	require.Equal(t, uint64(1), edgeDrops(loop, edgeProducerWorkloadIdentity, edgeDropInvalidRecord))
 	require.Empty(t, spooledRecords(t, sp))
 }

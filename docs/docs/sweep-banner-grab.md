@@ -152,12 +152,13 @@ Operators reviewing privacy or compliance posture should know:
 - **Raw banner bytes stay agent-local.** Every captured banner is forwarded to
   the netprobe sidecar over the host's Unix domain socket
   (`/var/run/serviceradar/netprobe.sock` by default). The bytes are never
-  serialised onto the agent's gRPC status push to core and are never written to
+  serialised into anything the agent sends to core and are never written to
   disk.
 - **Only matched labels reach core.** After netprobe runs the Recog corpus
   against a banner, only the structured match (corpus label, product, version,
-  optional OS family / vendor / CPE) is bridged into the agent's status push
-  as a `FingerprintEvent` with `source = sweep_active`. The originating raw
+  optional OS family / vendor / CPE) is sent to core as a `FingerprintEvent`
+  with `source = sweep_active`, inside a
+  `serviceradar.netprobe.discovery.batch` edge record. The originating raw
   banner bytes are dropped at the netprobe boundary.
 - **Audit summary is counts only.** The AshPaperTrail entry on the parent
   sweep-job record summarises the phase as counts (probes, matches, empty

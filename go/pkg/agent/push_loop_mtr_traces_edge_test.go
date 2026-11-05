@@ -281,60 +281,29 @@ func TestScheduledMtrTraceBatchParity(t *testing.T) {
 	require.InDelta(t, 10, hop2.GetLossPct(), 0.001)
 }
 
-func TestMtrGrantsFourWayCutoffNoDoubleCounting(t *testing.T) {
+// A collection's traces and scalar metrics are spooled together, so MTR checks
+// run only while the agent holds both grants. With either grant missing no
+// check runs, nothing is spooled or sent elsewhere, and the hold is counted.
+func TestMtrChecksRunOnlyWithBothGrants(t *testing.T) {
 	cases := []struct {
-		name               string
-		metricsGrant       bool
-		traceGrant         bool
-		wantSpoolTraces    int
-		wantSpoolMetrics   int
-		wantGatewayResults int
-		wantGatewayMetrics int
+		name         string
+		metricsGrant bool
+		traceGrant   bool
 	}{
-		{
-			name:               "neither grant held uses StreamStatus for both",
-			metricsGrant:       false,
-			traceGrant:         false,
-			wantSpoolTraces:    0,
-			wantSpoolMetrics:   0,
-			wantGatewayResults: 1,
-			wantGatewayMetrics: 1,
-		},
-		{
-			name:               "only metrics grant held spools scalar metrics and streams traces",
-			metricsGrant:       true,
-			traceGrant:         false,
-			wantSpoolTraces:    0,
-			wantSpoolMetrics:   1,
-			wantGatewayResults: 1,
-			wantGatewayMetrics: 0,
-		},
-		{
-			name:               "only trace grant held spools traces and streams scalar metrics",
-			metricsGrant:       false,
-			traceGrant:         true,
-			wantSpoolTraces:    1,
-			wantSpoolMetrics:   0,
-			wantGatewayResults: 0,
-			wantGatewayMetrics: 1,
-		},
-		{
-			name:               "both grants held spools traces and scalar metrics with zero StreamStatus calls",
-			metricsGrant:       true,
-			traceGrant:         true,
-			wantSpoolTraces:    1,
-			wantSpoolMetrics:   1,
-			wantGatewayResults: 0,
-			wantGatewayMetrics: 0,
-		},
+		{name: "neither grant held", metricsGrant: false, traceGrant: false},
+		{name: "only the metrics grant held", metricsGrant: true, traceGrant: false},
+		{name: "only the trace grant held", metricsGrant: false, traceGrant: true},
+		{name: "both grants held", metricsGrant: true, traceGrant: true},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			sp := openTestEdgeSpool(t)
-			loop, gw, _ := sysmonEdgeLoop(t, sp)
+			loop, _ := sysmonEdgeLoop(t, sp)
 			loop.mtrState = newMtrCheckerState()
+			runs := 0
 			loop.mtrState.runCheck = func(context.Context, *mtrCheckConfig) mtrCheckResult {
+				runs++
 				return syntheticMtrCheckResult()
 			}
 			loop.mtrState.checks["mtr-check-01"] = &mtrCheckConfig{
@@ -354,20 +323,27 @@ func TestMtrGrantsFourWayCutoffNoDoubleCounting(t *testing.T) {
 			}
 			loop.edgeOutputGrants.replace(sysmonEdgeAgentID, grants, time.Now())
 
-			require.True(t, loop.pushMtrResults(context.Background()))
+			both := tc.metricsGrant && tc.traceGrant
+			require.Equal(t, both, loop.pushMtrResults(context.Background()))
 
 			traceBatches, metricBatches := spooledMtrAndMetricBatches(t, sp)
-			require.Len(t, traceBatches, tc.wantSpoolTraces)
-			require.Len(t, metricBatches, tc.wantSpoolMetrics)
-			require.Equal(t, tc.wantGatewayResults, gw.statusesFrom("results"))
-			require.Equal(t, tc.wantGatewayMetrics, gw.statusesFrom("mtr-metrics"))
+			if both {
+				require.Equal(t, 1, runs)
+				require.Len(t, traceBatches, 1)
+				require.Len(t, metricBatches, 1)
+				return
+			}
+			require.Zero(t, runs, "an MTR check ran without both grants")
+			require.Empty(t, traceBatches)
+			require.Empty(t, metricBatches)
+			require.Equal(t, uint64(1), loop.server.edgeProducerDrops.grantHolds[edgeProducerMTRTraces].Load())
 		})
 	}
 }
 
 func TestScheduledMtrSpoolBackpressurePausesDueChecksAndPreservesEventIDs(t *testing.T) {
 	refusing := refusingEdgeSpool(t)
-	loop, gw, _ := sysmonEdgeLoop(t, refusing)
+	loop, _ := sysmonEdgeLoop(t, refusing)
 	loop.mtrState = newMtrCheckerState()
 	runs := 0
 	loop.mtrState.runCheck = func(_ context.Context, cfg *mtrCheckConfig) mtrCheckResult {
@@ -392,8 +368,6 @@ func TestScheduledMtrSpoolBackpressurePausesDueChecksAndPreservesEventIDs(t *tes
 
 	require.False(t, loop.pushMtrResults(context.Background()))
 	require.Equal(t, 1, runs)
-	require.Zero(t, gw.statusesFrom("results"))
-	require.Zero(t, gw.statusesFrom("mtr-metrics"))
 	require.True(t, loop.mtrEdge.hasPending())
 	require.Len(t, loop.mtrEdge.traces, 1)
 	require.Len(t, loop.mtrEdge.metrics, 1)
@@ -401,13 +375,11 @@ func TestScheduledMtrSpoolBackpressurePausesDueChecksAndPreservesEventIDs(t *tes
 	preservedMetricEventID := append([]byte(nil), loop.mtrEdge.metrics[0].record.GetEventId()...)
 
 	// While the pending batch is un-admitted, due checks are paused and nothing is
-	// dropped or sent over StreamStatus, even if grants lapse.
+	// dropped, even if grants lapse.
 	delete(loop.mtrState.lastRun, "mtr-check-01")
 	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, nil, time.Now())
 	require.False(t, loop.pushMtrResults(context.Background()))
 	require.Equal(t, 1, runs, "collectDueMtrResults must pause while a pending batch is held")
-	require.Zero(t, gw.statusesFrom("results"))
-	require.Zero(t, gw.statusesFrom("mtr-metrics"))
 	require.Zero(t, edgeDrops(loop, edgeProducerMTRTraces, edgeDropRetryBufferFull))
 	require.Zero(t, edgeDrops(loop, edgeProducerMTR, edgeDropRetryBufferFull))
 
@@ -432,7 +404,7 @@ func TestScheduledMtrSpoolBackpressurePausesDueChecksAndPreservesEventIDs(t *tes
 
 func TestSweepGroupMtrEmitsScheduledTraceEdgeRecordsWithoutSweepLease(t *testing.T) {
 	sp := openTestEdgeSpool(t)
-	loop, gw, _ := sysmonEdgeLoop(t, sp)
+	loop, _ := sysmonEdgeLoop(t, sp)
 	loop.mtrState = newMtrCheckerState()
 	loop.mtrState.runCheck = func(_ context.Context, cfg *mtrCheckConfig) mtrCheckResult {
 		res := syntheticMtrCheckResult()
@@ -485,8 +457,6 @@ func TestSweepGroupMtrEmitsScheduledTraceEdgeRecordsWithoutSweepLease(t *testing
 	require.Len(t, loop.mtrState.sweepChecks, 4)
 
 	require.True(t, loop.pushMtrResults(context.Background()))
-	require.Zero(t, gw.statusesFrom("results"))
-	require.Zero(t, gw.statusesFrom("mtr-metrics"))
 
 	traceBatches, metricBatches := spooledMtrAndMetricBatches(t, sp)
 	require.Len(t, traceBatches, 1)
@@ -675,9 +645,9 @@ func sweepMtrConfigJSON(groupID, targets, schedule string) []byte {
 	}`)
 }
 
-func recordingSweepMtrLoop(t *testing.T, sp *spool.Spool) (*PushLoop, *sysmonStatusGateway, *[]string) {
+func recordingSweepMtrLoop(t *testing.T, sp *spool.Spool) (*PushLoop, *[]string) {
 	t.Helper()
-	loop, gw, _ := sysmonEdgeLoop(t, sp)
+	loop, _ := sysmonEdgeLoop(t, sp)
 	loop.mtrState = newMtrCheckerState()
 	var ran []string
 	loop.mtrState.runCheck = func(_ context.Context, cfg *mtrCheckConfig) mtrCheckResult {
@@ -692,53 +662,7 @@ func recordingSweepMtrLoop(t *testing.T, sp *spool.Spool) (*PushLoop, *sysmonSta
 		res.Trace.TargetIP = cfg.Target
 		return res
 	}
-	return loop, gw, &ran
-}
-
-// The intent forbids a legacy fallback for sweep-group traces: without the
-// scheduled-trace grant they are not run, and their scalar metrics never ride
-// StreamStatus when only the trace grant is held.
-func TestSweepGroupMtrNeverTakesLegacyStreamStatus(t *testing.T) {
-	const groupID = "0197f8a0-0000-7000-8000-000000000051"
-	configJSON := sweepMtrConfigJSON(groupID, `["192.0.2.10", "192.0.2.11"]`, `{"type": "interval", "interval": "5m"}`)
-
-	t.Run("without the scheduled trace grant sweep checks do not run", func(t *testing.T) {
-		sp := openTestEdgeSpool(t)
-		loop, gw, ran := recordingSweepMtrLoop(t, sp)
-		loop.mtrState.checks["mtr-check-01"] = &mtrCheckConfig{
-			ID: "mtr-check-01", Name: "Synthetic Check", Target: "target.example.com",
-			Enabled: true, Interval: time.Hour,
-		}
-		loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentMetricsGrant(t)}, time.Now())
-		loop.applySweepConfig(context.Background(), configJSON)
-		require.Len(t, loop.mtrState.sweepChecks, 2)
-
-		require.True(t, loop.pushMtrResults(context.Background()))
-		require.Equal(t, []string{"mtr-check-01"}, *ran)
-		require.Equal(t, 1, gw.statusesFrom("results"))
-
-		*ran = nil
-		loop.mtrState.checks = map[string]*mtrCheckConfig{}
-		require.False(t, loop.pushMtrResults(context.Background()))
-		require.Empty(t, *ran)
-		require.Equal(t, 1, gw.statusesFrom("results"))
-	})
-
-	t.Run("with only the trace grant sweep metrics are not streamed", func(t *testing.T) {
-		sp := openTestEdgeSpool(t)
-		loop, gw, ran := recordingSweepMtrLoop(t, sp)
-		loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentScheduledMtrGrant(t)}, time.Now())
-		loop.applySweepConfig(context.Background(), configJSON)
-
-		require.True(t, loop.pushMtrResults(context.Background()))
-		require.Len(t, *ran, 2)
-		require.Zero(t, gw.statusesFrom("results"))
-		require.Zero(t, gw.statusesFrom("mtr-metrics"))
-		traceBatches, metricBatches := spooledMtrAndMetricBatches(t, sp)
-		require.Len(t, traceBatches, 1)
-		require.Len(t, traceBatches[0].GetTraces(), 2)
-		require.Empty(t, metricBatches)
-	})
+	return loop, &ran
 }
 
 func TestSweepGroupMtrBoundsTargetsAndPerTickRuns(t *testing.T) {
@@ -746,7 +670,7 @@ func TestSweepGroupMtrBoundsTargetsAndPerTickRuns(t *testing.T) {
 	interval5m := `{"type": "interval", "interval": "5m"}`
 
 	t.Run("a network above the per-group cap derives no checks and is reported", func(t *testing.T) {
-		loop, _, _ := recordingSweepMtrLoop(t, openTestEdgeSpool(t))
+		loop, _ := recordingSweepMtrLoop(t, openTestEdgeSpool(t))
 		var output bytes.Buffer
 		loop.logger = warnCaptureLogger{Logger: loop.logger, output: zerolog.New(&output)}
 		loop.applySweepConfig(context.Background(), sweepMtrConfigJSON(groupID, `["10.0.0.0/16", "192.0.2.10"]`, interval5m))
@@ -760,7 +684,7 @@ func TestSweepGroupMtrBoundsTargetsAndPerTickRuns(t *testing.T) {
 
 	t.Run("each tick runs a bounded batch, least recently run first", func(t *testing.T) {
 		sp := openTestEdgeSpool(t)
-		loop, _, ran := recordingSweepMtrLoop(t, sp)
+		loop, ran := recordingSweepMtrLoop(t, sp)
 		loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{
 			currentMetricsGrant(t), currentScheduledMtrGrant(t),
 		}, time.Now())
@@ -785,7 +709,7 @@ func TestSweepGroupMtrBoundsTargetsAndPerTickRuns(t *testing.T) {
 			`{"type": "interval", "interval": "1m"}`,
 			`{"type": "interval", "interval": "bogus"}`,
 		} {
-			loop, _, _ := recordingSweepMtrLoop(t, openTestEdgeSpool(t))
+			loop, _ := recordingSweepMtrLoop(t, openTestEdgeSpool(t))
 			var output bytes.Buffer
 			loop.logger = warnCaptureLogger{Logger: loop.logger, output: zerolog.New(&output)}
 			loop.applySweepConfig(context.Background(), sweepMtrConfigJSON(groupID, `["192.0.2.10"]`, schedule))

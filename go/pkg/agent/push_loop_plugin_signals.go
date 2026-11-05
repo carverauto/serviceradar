@@ -17,28 +17,19 @@
 package agent
 
 import (
-	"context"
-	"fmt"
 	"strings"
 	"time"
-
-	"github.com/carverauto/serviceradar/proto"
-	gproto "google.golang.org/protobuf/proto"
 )
 
-const (
-	pluginSignalTelemetryServiceName     = "plugin-telemetry"
-	pluginSignalTelemetryServiceType     = "plugin"
-	pluginSignalTelemetrySourcePrefix    = "plugin:"
-	pluginSignalTelemetryMaxDrainPerPush = 1024
-)
+const pluginSignalTelemetryMaxDrainPerPush = 1024
 
-func (p *PushLoop) pushPluginSignals(ctx context.Context) bool {
+// pushPluginSignals drains plugin telemetry signals into the telemetry queue and
+// spools them under the telemetry batch grant. The plugin manager's signal
+// buffer drops when full, so signals are drained into the bounded queue even
+// without a grant; overflow while waiting for one is counted as awaiting_grant.
+func (p *PushLoop) pushPluginSignals() bool {
 	p.server.mu.RLock()
 	pluginManager := p.server.pluginManager
-	agentID := p.server.config.AgentID
-	partition := p.server.config.Partition
-	kvStoreID := p.server.config.KVAddress
 	p.server.mu.RUnlock()
 
 	if pluginManager == nil {
@@ -46,147 +37,19 @@ func (p *PushLoop) pushPluginSignals(ctx context.Context) bool {
 	}
 
 	signals := pluginManager.DrainSignals(pluginSignalTelemetryMaxDrainPerPush)
-
-	// One path per producer: while the agent holds the telemetry standing
-	// grant, batches are spooled as durable records and never also sent on
-	// the legacy status path. Without it, items the spool admitted no part
-	// of go back on the legacy path.
-	if capability := p.edgeTelemetryCapability(time.Now()); capability != nil {
-		items := make([]telemetryEdgeItem, 0, len(signals))
-		for _, signal := range signals {
-			items = append(items, telemetryEdgeItem{
-				producerType: "plugin",
-				producerID:   pluginTelemetryProducerID(signal),
-				batch:        signal.Batch,
-				signal:       &signal,
-			})
-		}
-		if dropped := p.pluginTelemetryEdge.enqueue(items); dropped > 0 {
-			p.dropEdgeTelemetry(edgeProducerPluginTelemetry, edgeDropRetryBufferFull, dropped)
-		}
-		return p.spoolTelemetry(edgeProducerPluginTelemetry, &p.pluginTelemetryEdge, capability)
-	}
-
-	taken := p.pluginTelemetryEdge.take()
-	queued := make([]PluginSignalTelemetry, 0, len(taken))
-	for _, item := range taken {
-		if item.signal != nil {
-			queued = append(queued, *item.signal)
-		}
-	}
-	signals = append(queued, signals...)
-	if len(signals) == 0 {
-		return false
-	}
-	// Signals the chunk build below skips (unmarshalable or oversized) are
-	// dropped for good, as before; signals that made a chunk but could not
-	// be delivered return to the edge queue for the next cycle.
-	var chunkedSignals []PluginSignalTelemetry
-	restoreUndelivered := func() {
-		items := make([]telemetryEdgeItem, 0, len(chunkedSignals))
-		for _, signal := range chunkedSignals {
-			items = append(items, telemetryEdgeItem{
-				producerType: "plugin",
-				producerID:   pluginTelemetryProducerID(signal),
-				batch:        signal.Batch,
-				signal:       &signal,
-			})
-		}
-		if dropped := p.pluginTelemetryEdge.restore(items); dropped > 0 {
-			p.dropEdgeTelemetry(edgeProducerPluginTelemetry, edgeDropRetryBufferFull, dropped)
-		}
-	}
-
-	gatewayID := p.gateway.GetGatewayID()
-	runtimeMetadata := currentRuntimeMetadata()
-	sourceIP := p.getSourceIP()
-	chunks := make([]*proto.GatewayStatusChunk, 0, len(signals))
-
+	items := make([]telemetryEdgeItem, 0, len(signals))
 	for _, signal := range signals {
-		status, messageByteCount, err := buildPluginSignalGatewayStatus(signal, agentID, gatewayID, partition, kvStoreID)
-		if err != nil {
-			p.logger.Warn().Err(err).Str("assignment_id", signal.AssignmentID).Msg("Skipping plugin telemetry batch")
-			continue
-		}
-		if messageByteCount > addonTelemetryMaxBatchMessageBytes {
-			p.logger.Warn().
-				Str("assignment_id", signal.AssignmentID).
-				Int("message_bytes", messageByteCount).
-				Int("max_bytes", addonTelemetryMaxBatchMessageBytes).
-				Msg("Skipping oversized plugin telemetry batch")
-			continue
-		}
-
-		chunkedSignals = append(chunkedSignals, signal)
-		chunks = append(chunks, &proto.GatewayStatusChunk{
-			Services:  []*proto.GatewayServiceStatus{status},
-			GatewayId: gatewayID,
-			AgentId:   agentID,
-			Timestamp: time.Now().UnixNano(),
-			Partition: partition,
-			SourceIp:  sourceIP,
-			Version:   runtimeMetadata.Version,
-			Hostname:  runtimeMetadata.Hostname,
-			Os:        runtimeMetadata.Os,
-			Arch:      runtimeMetadata.Arch,
+		items = append(items, telemetryEdgeItem{
+			producerType: "plugin",
+			producerID:   pluginTelemetryProducerID(signal),
+			batch:        signal.Batch,
 		})
 	}
-
-	if len(chunks) == 0 {
-		return false
-	}
-
-	totalChunks := int32(len(chunks))
-	for i, chunk := range chunks {
-		chunk.ChunkIndex = int32(i)
-		chunk.TotalChunks = totalChunks
-		chunk.IsFinal = int32(i) == totalChunks-1
-	}
-
-	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	resp, err := p.gateway.StreamStatus(pushCtx, chunks)
-	if err != nil {
-		p.logger.Error().Err(err).Int("chunk_count", len(chunks)).Msg("Failed to stream plugin telemetry")
-		restoreUndelivered()
-		return false
-	}
-	if !resp.Received {
-		p.logger.Warn().Int("chunk_count", len(chunks)).Msg("Gateway did not acknowledge plugin telemetry")
-		restoreUndelivered()
-		return false
-	}
-
-	p.logger.Info().Int("chunk_count", len(chunks)).Msg("Streamed plugin telemetry")
-	return true
-}
-
-func buildPluginSignalGatewayStatus(
-	signal PluginSignalTelemetry,
-	agentID, gatewayID, partition, kvStoreID string,
-) (*proto.GatewayServiceStatus, int, error) {
-	messageBytes, err := gproto.Marshal(signal.Batch)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	return &proto.GatewayServiceStatus{
-		ServiceName:  pluginSignalTelemetryServiceName,
-		Available:    true,
-		Message:      messageBytes,
-		ServiceType:  pluginSignalTelemetryServiceType,
-		ResponseTime: 0,
-		AgentId:      agentID,
-		GatewayId:    gatewayID,
-		Partition:    partition,
-		Source:       pluginSignalTelemetrySource(signal),
-		KvStoreId:    kvStoreID,
-	}, len(messageBytes), nil
+	return p.queueAndSpoolTelemetry(edgeProducerPluginTelemetry, &p.pluginTelemetryEdge, items)
 }
 
 // pluginTelemetryProducerID is the host-stamped telemetry producer id of a
-// signal: the same instance the legacy status source names after `plugin:`.
+// signal: its assignment, else its plugin.
 func pluginTelemetryProducerID(signal PluginSignalTelemetry) string {
 	clean := strings.TrimSpace(signal.AssignmentID)
 	if clean == "" {
@@ -198,6 +61,20 @@ func pluginTelemetryProducerID(signal PluginSignalTelemetry) string {
 	return clean
 }
 
-func pluginSignalTelemetrySource(signal PluginSignalTelemetry) string {
-	return fmt.Sprintf("%s%s", pluginSignalTelemetrySourcePrefix, pluginTelemetryProducerID(signal))
+// queueAndSpoolTelemetry queues drained telemetry items and spools the queue
+// under the telemetry batch grant, or holds it until one is held.
+func (p *PushLoop) queueAndSpoolTelemetry(producer edgeProducer, queue *telemetryEdgeQueue, items []telemetryEdgeItem) bool {
+	capability := p.edgeTelemetryCapability(time.Now())
+	reason := edgeDropRetryBufferFull
+	if capability == nil {
+		reason = edgeDropAwaitingGrant
+	}
+	if dropped := queue.enqueue(items); dropped > 0 {
+		p.dropEdgeTelemetry(producer, reason, dropped)
+	}
+	if capability == nil {
+		p.holdForGrant(producer)
+		return false
+	}
+	return p.spoolTelemetry(producer, queue, capability)
 }
