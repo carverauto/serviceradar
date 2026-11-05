@@ -46,7 +46,9 @@ else
     --location
     --connect-timeout 20
     --retry "${retries}"
-    --retry-delay 2
+    # Spread the retries over about a minute: GitHub release downloads return 504
+    # for tens of seconds at a time, which a 2s delay exhausted before it cleared.
+    --retry-delay 15
     --retry-max-time 300
   )
   if curl --help all 2>/dev/null | grep -q -- "--retry-all-errors"; then

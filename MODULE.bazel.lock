@@ -363,7 +363,7 @@
     },
     "//third_party/ubuntu_git:repositories.bzl%ubuntu_git": {
       "general": {
-        "bzlTransitiveDigest": "plmVKQaguziozBIfSemdRKml5xEJZvtXPqfe6qKswbA=",
+        "bzlTransitiveDigest": "0oaDtCV8zAJAzVm3fGvUr+CPDqkgI4D9AWrjBX0eL0Y=",
         "usagesDigest": "sy5HJeMfU4YWIwI034Ga9AHGu6lrYeA8kbdVLY1kq1Y=",
         "recordedInputs": [],
         "generatedRepoSpecs": {

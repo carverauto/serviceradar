@@ -9,8 +9,14 @@ def _git_runtime_repository_impl(repository_ctx):
     )
     for path, sha256 in GIT_RUNTIME_PACKAGES[arch]:
         repository_ctx.download(
+            # Bazel tries these in order and checks every one against the sha256 pin.
+            # snapshot.ubuntu.com serves the pinned versions but fails intermittently;
+            # Launchpad keeps every version Ubuntu ever published (it redirects to
+            # launchpadlibrarian.net); the regular mirror only carries current versions,
+            # so it 404s once a pinned version is superseded.
             url = [
                 "https://snapshot.ubuntu.com/ubuntu/20260908T000000Z/" + path,
+                "https://launchpad.net/ubuntu/+archive/primary/+files/" + path.split("/")[-1],
                 mirror + path,
             ],
             output = path.split("/")[-1],
