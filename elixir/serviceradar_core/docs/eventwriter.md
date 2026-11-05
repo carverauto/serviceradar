@@ -377,13 +377,19 @@ end
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `EVENT_WRITER_ENABLED` | Enable EventWriter | `false` |
-| `EVENT_WRITER_NATS_URL` | NATS connection URL | `nats://localhost:4222` |
-| `EVENT_WRITER_NATS_TLS` | Enable TLS | `false` |
-| `EVENT_WRITER_NATS_CREDS_FILE` | NATS .creds file for JWT auth | (empty) |
+| `EVENT_WRITER_ENABLED` | Enable EventWriter | `true` when EventWriter NATS creds resolve, else `false` |
+| `EVENT_WRITER_NATS_URL` | NATS connection URL of a separate server | unset: core's `NATS_URL` |
+| `EVENT_WRITER_NATS_TLS` | Enable TLS | unset: core's `NATS_TLS` when the URL is unset, else `false` |
+| `EVENT_WRITER_NATS_SERVER_NAME` | TLS server name (SNI) | unset: core's `NATS_SERVER_NAME` when the URL is unset, else `nats.serviceradar` |
+| `EVENT_WRITER_NATS_CREDS_FILE` | NATS .creds file for JWT auth | unset: core's `NATS_CREDS_FILE` when the URL is unset, else none |
 | `SPIFFE_CERT_DIR` | Certificate directory | `/etc/serviceradar/certs` |
 | `EVENT_WRITER_BATCH_SIZE` | Batch size for inserts | `100` |
 | `EVENT_WRITER_BATCH_TIMEOUT` | Batch timeout (ms) | `1000` |
+
+EventWriter uses core's NATS connection unless `EVENT_WRITER_NATS_URL` is set, so a
+default chart install needs none of these. When `EVENT_WRITER_NATS_URL` is set, the
+`EVENT_WRITER_NATS_*` values apply as given and nothing is inherited from core, because
+they describe a different server.
 
 ## Related Files
 

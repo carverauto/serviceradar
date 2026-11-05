@@ -1894,13 +1894,40 @@ if config_env() == :prod do
     end
 
   # EventWriter configuration (NATS JetStream → CNPG consumer).
-  # Default ON when NATS creds are configured: the helm chart sets
-  # EVENT_WRITER_ENABLED and EVENT_WRITER_NATS_CREDS_FILE together, so an UNSET flag
+  # Default ON when EventWriter's resolved NATS creds (below) are present: the helm
+  # chart sets EVENT_WRITER_ENABLED alongside those creds, so an UNSET flag
   # with creds present is a deploy drift that must still run the EventWriter (edge
   # anomaly verdicts have to persist to CNPG). Stays OFF with no creds so
   # credential-less dev/test deployments don't trip the creds-required raise below.
-  event_writer_default =
-    if System.get_env("EVENT_WRITER_NATS_CREDS_FILE") in [nil, ""], do: "false", else: "true"
+  # EventWriter uses core's NATS connection (NATS_URL, NATS_TLS, NATS_SERVER_NAME,
+  # NATS_CREDS_FILE) unless EVENT_WRITER_NATS_URL names a separate server. A default chart
+  # install sets only the NATS_* variables; without this fallback EventWriter dialed
+  # localhost and stored no telemetry. When EVENT_WRITER_NATS_URL is set, every
+  # EVENT_WRITER_NATS_* setting applies as given, so a writer pointed at another server
+  # never inherits core's TLS or credentials.
+  present_env = fn name ->
+    case System.get_env(name) do
+      value when value in [nil, ""] -> nil
+      value -> value
+    end
+  end
+
+  {event_writer_nats_url, event_writer_tls, event_writer_server_name, event_writer_creds} =
+    case present_env.("EVENT_WRITER_NATS_URL") do
+      nil ->
+        {present_env.("NATS_URL") || "nats://localhost:4222",
+         present_env.("EVENT_WRITER_NATS_TLS") || present_env.("NATS_TLS") || "false",
+         present_env.("EVENT_WRITER_NATS_SERVER_NAME") || present_env.("NATS_SERVER_NAME") ||
+           "nats.serviceradar",
+         present_env.("EVENT_WRITER_NATS_CREDS_FILE") || present_env.("NATS_CREDS_FILE")}
+
+      url ->
+        {url, present_env.("EVENT_WRITER_NATS_TLS") || "false",
+         present_env.("EVENT_WRITER_NATS_SERVER_NAME") || "nats.serviceradar",
+         present_env.("EVENT_WRITER_NATS_CREDS_FILE")}
+    end
+
+  event_writer_default = if event_writer_creds == nil, do: "false", else: "true"
 
   event_writer_enabled =
     System.get_env("EVENT_WRITER_ENABLED", event_writer_default) in ~w(true 1 yes)
@@ -1914,20 +1941,18 @@ if config_env() == :prod do
     tls: nats_tls_config
 
   if event_writer_enabled do
-    event_writer_creds = System.get_env("EVENT_WRITER_NATS_CREDS_FILE")
-
-    if event_writer_creds in [nil, ""] do
+    if event_writer_creds == nil do
       raise """
-      EVENT_WRITER_NATS_CREDS_FILE is required when EVENT_WRITER_ENABLED=true.
-      Generate or provision JWT credentials and set EVENT_WRITER_NATS_CREDS_FILE.
+      EventWriter NATS credentials are required when EVENT_WRITER_ENABLED=true.
+      Set NATS_CREDS_FILE (shared with core), or EVENT_WRITER_NATS_CREDS_FILE together
+      with EVENT_WRITER_NATS_URL for a separate server.
       """
     end
 
-    nats_url = System.get_env("EVENT_WRITER_NATS_URL", "nats://localhost:4222")
-    nats_uri = URI.parse(nats_url)
+    nats_uri = URI.parse(event_writer_nats_url)
 
     # Build TLS configuration for mTLS
-    nats_tls_enabled = System.get_env("EVENT_WRITER_NATS_TLS", "false") in ~w(true 1 yes)
+    nats_tls_enabled = event_writer_tls in ~w(true 1 yes)
     cert_dir = System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs")
 
     nats_tls_config =
@@ -1937,7 +1962,7 @@ if config_env() == :prod do
           cacertfile: Path.join(cert_dir, "root.pem"),
           certfile: Path.join(cert_dir, "core.pem"),
           keyfile: Path.join(cert_dir, "core-key.pem"),
-          server_name_indication: ~c"nats.serviceradar"
+          server_name_indication: String.to_charlist(event_writer_server_name)
         ]
       else
         false

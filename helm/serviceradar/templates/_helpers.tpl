@@ -509,6 +509,27 @@ securityContext:
 {{- end -}}
 
 {{/*
+Whether this release may render a Secret it reuses by lookup. The secret generator
+creates the CNPG Secrets on a fresh install, without Helm ownership metadata, and
+Helm refuses to adopt an existing object it does not own: rendering such a Secret
+makes every later `helm upgrade` fail before any hook runs. So render it only when
+it does not exist yet or this release already owns it; a generator-created Secret
+stays the generator's (it carries helm.sh/resource-policy: keep either way).
+Returns "true" or "".
+*/}}
+{{- define "serviceradar.releaseMayRenderSecret" -}}
+{{- $existing := lookup "v1" "Secret" .namespace .name -}}
+{{- if not $existing -}}
+true
+{{- else -}}
+{{- $annotations := default (dict) $existing.metadata.annotations -}}
+{{- if and (eq (default "" (index $annotations "meta.helm.sh/release-name")) .releaseName) (eq (default "" (index $annotations "meta.helm.sh/release-namespace")) .releaseNamespace) -}}
+true
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Password from an existing Secret (lookup) or from values. Never random.
 
 Argo CD templates on repo-server, which cannot read namespace Secrets, so
