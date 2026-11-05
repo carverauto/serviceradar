@@ -8,7 +8,7 @@ ServiceRadar runs a single edge binary, `serviceradar-agent`, on monitored sites
 
 - runs collectors and polling engines close to the network
 - executes sandboxed Wasm plugins (via `wazero`)
-- streams results to the platform using unary and streaming gRPC (chunked payloads when needed)
+- delivers durable results to the platform as edge records over a gRPC stream, and status summaries over unary `PushStatus`
 - participates in a bidirectional control stream for commands and config updates
 
 ## What Runs In The Agent
