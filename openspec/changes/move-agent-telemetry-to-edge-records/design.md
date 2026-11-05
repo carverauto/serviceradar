@@ -230,7 +230,8 @@ does not drop it silently:
   status RPC error makes the agent tear down its gateway connection, and with it the control
   stream that delivers the upgrade.
 
-A status summary is refused whole when its message exceeds 4 KiB; it is never cut.
+A status summary is refused whole when its message exceeds 4 KiB; it is never cut. It is counted
+like a retired source, under the family `oversized_summary`.
 
 The PushStatus response still carries the endpoint inventory directives the agent applies. A
 scan used to produce its `endpoint_inventory.reconcile_floor` directive from its own status-path

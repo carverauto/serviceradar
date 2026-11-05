@@ -13,8 +13,10 @@ defmodule ServiceRadarAgentGateway.RetiredStatusSources do
   sweep, mapper, netprobe discovery, bumblebee, endpoint inventory, k8s endpoints, MTR traces),
   the `*-metrics` sources, `plugin-result`, `workload-identity`, `flow-attribution`,
   `otlp-relay`, and add-on (`addon:<id>`) and plugin (`plugin:<id>`) telemetry. Only an agent
-  built before that release still sends them. The gateway does not publish or forward such a
-  status, and it does not drop it silently either: `refuse/2` counts it per agent and source
+  built before that release still sends them. A summary whose message exceeds
+  4096 bytes is refused whole under the family `oversized_summary`, never cut, since a
+  cut message says something the agent never said. The gateway does not publish or forward a
+  refused status, and it does not drop it silently either: `refuse/2` counts it per agent and
   family in the agent tracker, where the edge pipeline readiness report reads it as
   `agent_upgrade_pending`, and in the gateway's Prometheus metrics.
   """
@@ -36,18 +38,18 @@ defmodule ServiceRadarAgentGateway.RetiredStatusSources do
     "otlp-relay"
   ]
 
-  @doc "Whether a status from the agent is an ephemeral summary the gateway still forwards."
-  @spec accepted?(Monitoring.GatewayServiceStatus.t()) :: boolean()
-  def accepted?(%Monitoring.GatewayServiceStatus{source: source}), do: normalize(source) in @ephemeral_sources
+  @max_summary_bytes 4_096
 
   @doc """
-  The bounded family a refused source is counted under: a known retired source by name,
-  `addon` or `plugin` for package telemetry, and `other` for anything unrecognized, so an
-  agent-chosen string never becomes a metric label.
+  The bounded family a status is refused under, or `nil` for an ephemeral summary the gateway
+  still forwards: `oversized_summary` for a summary over #{@max_summary_bytes} bytes, a known
+  retired source by name, `addon` or `plugin` for package telemetry, and `other` for anything
+  unrecognized, so an agent-chosen string never becomes a metric label.
   """
-  @spec family(term()) :: String.t()
-  def family(source) do
+  @spec refusal_family(Monitoring.GatewayServiceStatus.t()) :: String.t() | nil
+  def refusal_family(%Monitoring.GatewayServiceStatus{source: source, message: message}) do
     case normalize(source) do
+      source when source in @ephemeral_sources -> size_refusal(message)
       source when source in @retired_sources -> source
       "addon:" <> _addon_id -> "addon"
       "plugin:" <> _plugin_id -> "plugin"
@@ -55,8 +57,12 @@ defmodule ServiceRadarAgentGateway.RetiredStatusSources do
     end
   end
 
+  defp size_refusal(message) when is_binary(message) and byte_size(message) > @max_summary_bytes, do: "oversized_summary"
+
+  defp size_refusal(_message), do: nil
+
   @doc """
-  Count the statuses an agent sent on the retired path, without publishing or forwarding them.
+  Count the statuses the gateway refused from an agent, without publishing or forwarding them.
 
   Each family's count is added to the agent's tracker entry and emitted as
   `[:serviceradar, :agent_gateway, :status, :retired_source_refused]`. The first refusal the
@@ -66,7 +72,7 @@ defmodule ServiceRadarAgentGateway.RetiredStatusSources do
   def refuse(_agent_id, []), do: :ok
 
   def refuse(agent_id, statuses) when is_binary(agent_id) and is_list(statuses) do
-    counts = Enum.frequencies_by(statuses, &family(&1.source))
+    counts = Enum.frequencies_by(statuses, &refusal_family/1)
     gateway_id = ServiceRadarAgentGateway.Config.gateway_id()
 
     Enum.each(counts, fn {family, count} ->
@@ -80,9 +86,9 @@ defmodule ServiceRadarAgentGateway.RetiredStatusSources do
     case ServiceRadar.AgentTracker.record_refused_statuses(agent_id, counts) do
       :first ->
         Logger.warning(
-          "Agent #{agent_id} sent durable data on the retired status path " <>
-            "(#{describe(counts)}). It runs a build from before the edge-record cutover; " <>
-            "the gateway does not publish this data. Upgrade the agent."
+          "Agent #{agent_id} sent statuses the status path refuses (#{describe(counts)}). " <>
+            "Durable data reaches the platform only as edge records, and a summary is limited " <>
+            "to #{@max_summary_bytes} bytes; the gateway does not publish this data. Upgrade the agent."
         )
 
       :repeat ->

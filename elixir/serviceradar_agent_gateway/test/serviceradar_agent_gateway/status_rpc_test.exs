@@ -111,7 +111,7 @@ defmodule ServiceRadarAgentGateway.StatusRpcTest do
         assert %Monitoring.GatewayStatusResponse{received: true} = AgentGatewayServer.push_status(mixed, stream)
       end)
 
-    assert log =~ "sent durable data on the retired status path"
+    assert log =~ "sent statuses the status path refuses"
     assert_receive {:forwarded, "agent"}, 1_000
     assert_receive {:refused, "sysmon-metrics", 1}
     assert_receive {:refused, "results", 1}
@@ -127,7 +127,7 @@ defmodule ServiceRadarAgentGateway.StatusRpcTest do
                  AgentGatewayServer.push_status(durable_only, stream)
       end)
 
-    refute log =~ "retired status path"
+    refute log =~ "status path refuses"
     assert_receive {:refused, "flow-attribution", 2}
     refute_receive {:forwarded, _service_name}, 200
   end
@@ -151,26 +151,45 @@ defmodule ServiceRadarAgentGateway.StatusRpcTest do
     assert_receive {:refused, "results", 1}
   end
 
-  test "an oversized summary is refused whole and never cut", context do
+  test "an oversized summary is refused whole and counted, never cut", context do
     agent_id = "oversized-#{System.unique_integer([:positive])}"
     _handler = start_recording_status_handler(self(), :message)
 
     oversized = %{summary("oversized") | message: :binary.copy("x", 4_097)}
     fitting = %{summary("fitting") | message: :binary.copy("y", 4_096)}
 
-    log =
-      capture_log(fn ->
-        assert %Monitoring.GatewayStatusResponse{received: true} =
-                 AgentGatewayServer.push_status(
-                   push_request(agent_id, [oversized, fitting]),
-                   cert_stream(issue_cert_der!(agent_id, context))
-                 )
-      end)
+    capture_log(fn ->
+      assert %Monitoring.GatewayStatusResponse{received: true} =
+               AgentGatewayServer.push_status(
+                 push_request(agent_id, [oversized, fitting]),
+                 cert_stream(issue_cert_der!(agent_id, context))
+               )
+    end)
 
-    assert log =~ "payload_too_large"
+    assert_receive {:refused, "oversized_summary", 1}
     assert_receive {:forwarded, message}, 1_000
     assert message == fitting.message
     refute_receive {:forwarded, _message}, 200
+  end
+
+  test "a push or stream of only an oversized summary is answered as not received, not as an RPC error",
+       context do
+    agent_id = "oversized-only-#{System.unique_integer([:positive])}"
+    _handler = start_recording_status_handler(self())
+    stream = cert_stream(issue_cert_der!(agent_id, context))
+    oversized = %{summary("agent") | message: :binary.copy("x", 4_097)}
+
+    capture_log(fn ->
+      assert %Monitoring.GatewayStatusResponse{received: false} =
+               AgentGatewayServer.push_status(push_request(agent_id, [oversized]), stream)
+
+      assert %Monitoring.GatewayStatusResponse{received: false} =
+               AgentGatewayServer.stream_status([status_chunk(agent_id, 0, 1, [oversized], true)], stream)
+    end)
+
+    assert_receive {:refused, "oversized_summary", 1}
+    assert_receive {:refused, "oversized_summary", 1}
+    refute_receive {:forwarded, _service_name}, 200
   end
 
   test "the capability-status push carries the endpoint inventory directive core reports", context do

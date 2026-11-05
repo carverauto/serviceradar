@@ -63,8 +63,8 @@ defmodule ServiceRadarWebNGWeb.EdgePipelineComponents do
       |> Enum.sort()
       |> Enum.map_join(", ", fn {family, count} -> "#{family} #{count}" end)
 
-    " It still sends durable data on the retired status path, which the gateway refuses " <>
-      "and does not store (#{listed})."
+    " It still sends statuses the status path refuses, durable data or oversized summaries, " <>
+      "which the gateway does not store (#{listed})."
   end
 
   defp refused_statuses(_counts), do: ""

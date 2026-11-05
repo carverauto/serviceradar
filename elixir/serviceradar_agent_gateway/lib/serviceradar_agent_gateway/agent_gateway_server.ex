@@ -28,8 +28,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   Both carry only ephemeral status summaries, which `StatusProcessor` forwards to the core
   cluster. Durable agent data arrives as edge records (`EdgeRecordIngestServer`); a status
-  from a source retired at the edge-record cutover is refused and counted per agent
-  (`RetiredStatusSources`).
+  from a source retired at the edge-record cutover, or an oversized summary, is refused and
+  counted per agent (`RetiredStatusSources`).
   """
 
   use GRPC.Server, service: Monitoring.AgentGatewayService.Service
@@ -60,8 +60,6 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   # Maximum services per push request to prevent resource exhaustion
   @max_services_per_request 5_000
   @max_stream_status_chunks 5_000
-  # Status summaries are small; a larger message is refused rather than cut.
-  @max_status_message_bytes 4_096
   @max_stream_status_chunk_bytes 16 * 1024 * 1024
   @max_stream_status_window_bytes 64 * 1024 * 1024
   # A timeout here is reported to the agent as not_modified, freezing it on its
@@ -505,8 +503,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   Handle a status push from an agent.
 
   Forwards the request's ephemeral status summaries to core. A status whose source carried
-  durable data before the edge-record cutover is refused and counted for the agent
-  (`RetiredStatusSources`); it is never published or forwarded.
+  durable data before the edge-record cutover, or a summary over 4096 bytes, is refused whole
+  and counted for the agent (`RetiredStatusSources`); it is never published, forwarded or cut.
   """
   @spec push_status(Monitoring.GatewayStatusRequest.t(), GRPC.Server.Stream.t()) ::
           Monitoring.GatewayStatusResponse.t()
@@ -667,30 +665,20 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   # Accept the statuses of one push or stream, each paired with the metadata it arrived with.
   #
   # Ephemeral summaries are handed to `StatusBuffer`, which forwards them to core after the RPC
-  # has answered. Statuses from retired sources are refused and counted. The response is
-  # `received: false` only when the agent sent statuses and every one of them was refused, which
-  # is the truth about a push of durable data; it never fails the RPC, because an RPC error makes
-  # the agent tear down its gateway connection and its control stream with it, and that stream is
-  # how the agent receives the upgrade it needs. An ephemeral status that is invalid is dropped
-  # and logged; a push whose ephemeral statuses are all invalid fails with invalid_argument.
+  # has answered. Statuses from retired sources and oversized summaries are refused and counted;
+  # an ephemeral status with invalid fields is dropped and logged. The response is
+  # `received: false` when the agent sent statuses and none was accepted. It never fails the
+  # RPC, because an RPC error makes the agent tear down its gateway connection and its control
+  # stream with it, and that stream is how the agent receives the upgrade it needs.
   defp accept_statuses(entries, agent_id) when is_list(entries) do
-    {ephemeral, retired} =
-      Enum.split_with(entries, fn {service, _metadata} -> RetiredStatusSources.accepted?(service) end)
+    {ephemeral, refused} =
+      Enum.split_with(entries, fn {service, _metadata} -> RetiredStatusSources.refusal_family(service) == nil end)
 
-    RetiredStatusSources.refuse(agent_id, Enum.map(retired, &elem(&1, 0)))
+    RetiredStatusSources.refuse(agent_id, Enum.map(refused, &elem(&1, 0)))
 
     accepted_count = Enum.count(ephemeral, fn {service, metadata} -> accept_status(service, metadata) end)
 
-    cond do
-      ephemeral != [] and accepted_count == 0 ->
-        raise GRPC.RPCError, status: :invalid_argument, message: "no valid service statuses"
-
-      ephemeral == [] and retired != [] ->
-        {0, %Monitoring.GatewayStatusResponse{received: false}}
-
-      true ->
-        {accepted_count, %Monitoring.GatewayStatusResponse{received: true}}
-    end
+    {accepted_count, %Monitoring.GatewayStatusResponse{received: entries == [] or accepted_count > 0}}
   end
 
   defp accept_status(service, metadata) do
@@ -784,7 +772,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     %{
       service_name: service_name,
       available: service.available == true,
-      message: service_message!(service.message),
+      message: service_message(service.message),
       service_type: service_type,
       response_time: normalize_response_time(service.response_time),
       agent_id: metadata.agent_id,
@@ -799,22 +787,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     }
   end
 
-  # A summary is small. One that is not is refused whole rather than cut, since a cut message
-  # says something the agent never said.
-  defp service_message!(nil), do: ""
-
-  defp service_message!(message) when is_binary(message) do
-    if byte_size(message) > @max_status_message_bytes do
-      raise GRPC.RPCError,
-        status: :resource_exhausted,
-        message: "payload_too_large: status message exceeds #{@max_status_message_bytes} bytes"
-    end
-
-    message
-  end
-
-  defp service_message!(message) when is_list(message), do: message |> IO.iodata_to_binary() |> service_message!()
-  defp service_message!(_message), do: ""
+  defp service_message(message) when is_binary(message), do: message
+  defp service_message(_message), do: ""
 
   defp normalize_response_time(rt) when is_integer(rt) and rt >= 0 and rt <= 86_400_000, do: rt
   defp normalize_response_time(rt) when is_integer(rt) and rt > 86_400_000, do: 86_400_000

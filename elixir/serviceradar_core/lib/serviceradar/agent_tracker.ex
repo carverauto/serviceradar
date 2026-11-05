@@ -97,8 +97,8 @@ defmodule ServiceRadar.AgentTracker do
   end
 
   @doc """
-  Count statuses the gateway refused from an agent because their source is retired, keyed by
-  source family. Returns `:first` when these are the first refusals recorded for the agent,
+  Count statuses the gateway refused from an agent, because their source is retired or the
+  summary is oversized, keyed by family. Returns `:first` when these are the first refusals recorded for the agent,
   else `:repeat`, so the caller can log once rather than on every push.
   """
   @spec record_refused_statuses(String.t(), %{String.t() => pos_integer()}) :: :first | :repeat

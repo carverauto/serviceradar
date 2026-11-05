@@ -51,7 +51,9 @@ The agent status RPCs (`PushStatus`, `StreamStatus`) carry only ephemeral status
 summaries: service health heartbeats and plugin-engine counters. `agent-gateway`
 publishes no agent data from them. An agent built before the edge-record cutover
 still sends metrics, results and telemetry there; the gateway refuses that data
-without storing it, counts it per agent and source family
+without storing it, and it refuses a summary over 4 KiB whole rather than cutting
+it. It counts each refusal per agent and family (`oversized_summary` for a
+summary that is too large)
 (`serviceradar_agent_gateway_status_retired_source_refused_count`), and the agent
 shows the `agent_upgrade_pending` edge pipeline condition with the refused counts
 until it is upgraded.
