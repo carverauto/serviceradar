@@ -97,7 +97,7 @@
   {{- $clientCASecret = "serviceradar-cnpg-client-ca" }}
 {{- end }}
 {{- $cnpgAffinity := default (dict) $cnpg.affinity -}}
-{{- if $superPass }}
+{{- if and $superPass (include "serviceradar.releaseMayRenderSecret" (dict "namespace" $ns "name" $superSecretName "releaseName" $.Release.Name "releaseNamespace" $.Release.Namespace)) }}
 ---
 apiVersion: v1
 kind: Secret
@@ -112,7 +112,7 @@ stringData:
   username: {{ $superUser | quote }}
   password: {{ $superPass | quote }}
 {{- end }}
-{{- if $appPass }}
+{{- if and $appPass (include "serviceradar.releaseMayRenderSecret" (dict "namespace" $ns "name" $appSecretName "releaseName" $.Release.Name "releaseNamespace" $.Release.Namespace)) }}
 ---
 apiVersion: v1
 kind: Secret
