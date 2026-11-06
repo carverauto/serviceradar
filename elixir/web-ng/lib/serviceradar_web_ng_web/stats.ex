@@ -536,18 +536,26 @@ defmodule ServiceRadarWebNGWeb.Stats do
   # rows. A probe error (connectivity blip, query timeout) cannot tell a
   # missing relation apart from an unreachable one, so it reports as unknown
   # health rather than a missing relation. The marks are taken over the last
-  # day, which the day partitions (and the summary table's timestamp sort)
-  # prune to; a quiet day reads as no raw traces, not a lag.
+  # day; a quiet day reads as no raw traces, not a lag. otel_traces is
+  # partitioned on `timestamp`, so the cutoff prunes its partitions, and
+  # otel_trace_summaries is unpartitioned but sorted by `timestamp`, so the
+  # cutoff prunes it by zone map. traces_stats_5m is partitioned on `day`, not
+  # `bucket`, so a `bucket` cutoff alone scans every partition the view holds:
+  # its probe also names the cutoff's day. Like the other two probes it has no
+  # upper bound, so all three marks are taken over the same open-ended window.
   defp starrocks_trace_rollup_status(opts) do
     threshold_seconds =
       Keyword.get(opts, :stale_threshold_seconds, trace_rollup_stale_threshold_seconds())
 
     query = Keyword.get(opts, :query, &StarRocksQuery.execute/1)
-    cutoff = DateTime.utc_now() |> DateTime.shift(day: -1) |> warehouse_instant()
+    since = DateTime.shift(DateTime.utc_now(), day: -1)
+    cutoff = warehouse_instant(since)
+    rollup_day = " AND `day` >= '#{Date.to_iso8601(DateTime.to_date(since))} 00:00:00'"
 
     with {:ok, raw} <- warehouse_latest(query, "otel_traces", "timestamp", cutoff),
          {:ok, summary} <- warehouse_latest(query, "otel_trace_summaries", "timestamp", cutoff),
-         {:ok, rollup} <- warehouse_latest(query, "traces_stats_5m", "bucket", cutoff) do
+         {:ok, rollup} <-
+           warehouse_latest(query, "traces_stats_5m", "bucket", cutoff, rollup_day) do
       assess_trace_rollup_status(
         backend: :starrocks,
         summary_table_present?: true,
@@ -569,9 +577,10 @@ defmodule ServiceRadarWebNGWeb.Stats do
       empty_trace_rollup_status()
   end
 
-  defp warehouse_latest(query, table, column, cutoff) do
+  defp warehouse_latest(query, table, column, cutoff, partition_predicate \\ "") do
     sql =
-      "SELECT MAX(`#{column}`) FROM #{StarRocksEnv.table(table)} WHERE `#{column}` >= '#{cutoff}'"
+      "SELECT MAX(`#{column}`) FROM #{StarRocksEnv.table(table)} " <>
+        "WHERE `#{column}` >= '#{cutoff}'#{partition_predicate}"
 
     case query.(sql) do
       {:ok, %{rows: [[value]]}} -> {:ok, warehouse_datetime(value)}

@@ -291,6 +291,33 @@ defmodule ServiceRadarWebNGWeb.ObservabilityAsyncLoadingTest do
       assert after_traces.assigns.tab_loading == false
     end
 
+    # Trace cards load in their own task so the list renders without waiting on
+    # them. The list result must then carry no cards of its own: the copy it
+    # holds is the one from before the load, and applying it after the cards
+    # landed would put the old cards back.
+    test "trace cards load beside the list and a later list result keeps them" do
+      :persistent_term.put({SlowSRQLStub, :delay_ms}, 0)
+      socket = Phoenix.Component.assign(mounted_connected_socket(LogIndex), :trace_stats, :cards_before_load)
+
+      {:noreply, loading} =
+        LogIndex.handle_params(%{}, "http://localhost/observability/traces", socket)
+
+      cards = await_async_result(:tab_cards)
+      list = await_async_result(:tab_load)
+
+      {:noreply, with_cards} = LogIndex.handle_async(:tab_cards, {:ok, cards}, loading)
+      {:noreply, loaded} = LogIndex.handle_async(:tab_load, {:ok, list}, with_cards)
+
+      refute loaded.assigns.tab_loading
+      assert is_map(loaded.assigns.trace_stats)
+      assert loaded.assigns.trace_stats == cards.tab_assigns.trace_stats
+
+      # Cards for a tab the viewer has left are dropped.
+      {:noreply, on_logs} = LogIndex.handle_params(%{}, "http://localhost/observability/logs", loading)
+      {:noreply, after_stale} = LogIndex.handle_async(:tab_cards, {:ok, cards}, on_logs)
+      assert after_stale.assigns.trace_stats == :cards_before_load
+    end
+
     test "handle_async transitions out of loading on error tuple and task exit" do
       :persistent_term.put({SlowSRQLStub, :delay_ms}, 0)
       socket = mounted_connected_socket(LogIndex)

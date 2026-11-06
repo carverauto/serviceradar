@@ -373,6 +373,8 @@ fn dataset_sql(
             &format!("SELECT {select} FROM {from}{where_sql}{group}"),
             &order,
         )?
+    } else if plan.stats.is_none() && dataset.raw_table == "events" {
+        event_rows_sql(plan, &qualified, time_column, &where_sql, &order, window)
     } else {
         format!(
             "SELECT {select} FROM {from}{where_sql}{group}{order} LIMIT {limit} OFFSET {offset}",
@@ -392,6 +394,39 @@ fn dataset_sql(
         },
         viz: None,
     })
+}
+
+/// An `events` row listing, late-materialized. The table carries four JSON
+/// document columns of up to 1 MiB each (metadata, unmapped, device,
+/// observables), so a plain `SELECT * ... ORDER BY time DESC LIMIT n` makes the
+/// TOP-N sort carry every full-width row in the window: on a busy window that is
+/// gigabytes scanned and enough sort memory to exceed the compute node's query
+/// limit. Ranking only the primary key `(id, time)` and then joining back for the
+/// page's own rows reads the documents for `n` rows instead.
+///
+/// The key columns are renamed inside the subquery so the outer `ORDER BY`,
+/// which repeats the plan's own order terms unqualified, can only resolve to
+/// `e`, and the output is exactly `e.*` -- the same columns, in the same order,
+/// that `SELECT *` returned. The outer window predicate restates the inner one
+/// so the join's probe side is partition-pruned too.
+fn event_rows_sql(
+    plan: &QueryPlan,
+    table: &str,
+    time_column: &str,
+    where_sql: &str,
+    order: &str,
+    window: (chrono::DateTime<Utc>, chrono::DateTime<Utc>),
+) -> String {
+    let outer_window = window_sql(&format!("e.`{time_column}`"), window);
+    format!(
+        "SELECT e.* FROM {table} AS e \
+         JOIN (SELECT id AS page_id, `{time_column}` AS page_time FROM {table}{where_sql}{order} \
+         LIMIT {limit} OFFSET {offset}) AS page \
+         ON e.id = page.page_id AND e.`{time_column}` = page.page_time \
+         WHERE {outer_window}{order}",
+        limit = plan.limit.max(1),
+        offset = plan.offset.max(0)
+    )
 }
 
 /// A plan feature this dialect has no translation for is an error, never a
@@ -3256,12 +3291,20 @@ fn time_predicate(
 ) -> (String, Vec<BindParam>) {
     let column = time_column_sql(time_column, qualify_flow);
     (
-        format!(
-            " WHERE {column} >= '{}' AND {column} < '{}'",
-            lower.to_rfc3339_opts(SecondsFormat::Secs, true),
-            upper.to_rfc3339_opts(SecondsFormat::Secs, true)
-        ),
+        format!(" WHERE {}", window_sql(&column, (lower, upper))),
         vec![BindParam::timestamptz(lower), BindParam::timestamptz(upper)],
+    )
+}
+
+/// `column` within the half-open window `[lower, upper)`.
+fn window_sql(
+    column: &str,
+    (lower, upper): (chrono::DateTime<Utc>, chrono::DateTime<Utc>),
+) -> String {
+    format!(
+        "{column} >= '{}' AND {column} < '{}'",
+        lower.to_rfc3339_opts(SecondsFormat::Secs, true),
+        upper.to_rfc3339_opts(SecondsFormat::Secs, true)
     )
 }
 
@@ -4910,6 +4953,61 @@ AND milliseconds_diff({home}, start_time) > 0)"
         assert!(events.sql.contains("`time`"));
         refute_postgres(&logs.sql);
         refute_postgres(&events.sql);
+    }
+
+    // The events table holds four JSON documents of up to 1 MiB each. A
+    // `SELECT * ... ORDER BY time DESC LIMIT n` made the TOP-N carry every
+    // full-width row in the window and failed with MEM_LIMIT_EXCEEDED on a busy
+    // window. The page is ranked on the primary key alone, and the documents
+    // are read back only for the rows on it.
+    #[test]
+    fn an_event_row_listing_ranks_keys_before_reading_documents() {
+        let mut listing = plan(
+            "in:security_findings time:[2026-09-19T10:00:00Z,2026-09-19T16:00:00Z] severity:High limit:20",
+        );
+        listing.offset = 40;
+        let sql = translate(&listing, "serviceradar").expect("events").sql;
+
+        assert_eq!(
+            sql,
+            "SELECT e.* FROM serviceradar.events AS e \
+             JOIN (SELECT id AS page_id, `time` AS page_time FROM serviceradar.events \
+             WHERE `time` >= '2026-09-19T10:00:00Z' AND `time` < '2026-09-19T16:00:00Z' \
+             AND (category_uid = 2) AND severity = 'High' \
+             ORDER BY time DESC LIMIT 20 OFFSET 40) AS page \
+             ON e.id = page.page_id AND e.`time` = page.page_time \
+             WHERE e.`time` >= '2026-09-19T10:00:00Z' AND e.`time` < '2026-09-19T16:00:00Z' \
+             ORDER BY time DESC"
+        );
+
+        // A caller's own order is applied to the key ranking and to the page.
+        let sorted = translate(
+            &plan("in:events time:last_1h sort:severity_id:desc limit:5"),
+            "serviceradar",
+        )
+        .expect("sorted")
+        .sql;
+        assert_eq!(
+            sorted.matches("ORDER BY severity_id DESC").count(),
+            2,
+            "{sorted}"
+        );
+
+        // Aggregates and logs (no document columns) keep their direct shape.
+        let stats = translate(
+            &plan("in:events time:last_1h stats:\"count() as total\""),
+            "serviceradar",
+        )
+        .expect("stats")
+        .sql;
+        assert!(!stats.contains("page_id"), "{stats}");
+        let logs = translate(&plan("in:logs time:last_1h limit:5"), "serviceradar")
+            .expect("logs")
+            .sql;
+        assert!(
+            logs.starts_with("SELECT * FROM serviceradar.logs WHERE"),
+            "{logs}"
+        );
     }
 
     #[test]
