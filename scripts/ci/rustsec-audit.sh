@@ -95,6 +95,15 @@ ignores_for() {
       # atomic-polyfill is unmaintained, in connector 0.10.0's forced sspi/scard build
       #   subtree; ServiceRadar rejects smart-card redirection at runtime.
       echo RUSTSEC-2023-0089
+      # pin-utils 0.1.0 (unmaintained; upstream archived 2026-10-01, no patched release):
+      #   connector 0.10.0 -> sspi 0.21.1 -> async-dnssd 0.5.1, a dependency sspi declares
+      #   only for cfg(any(target_os = "macos", target_os = "ios")). Every async-dnssd
+      #   release since 0.5.0 requires pin-utils, and every sspi release through 0.23.1
+      #   requires async-dnssd ^0.5, so no upgrade in this family drops it. The advisory
+      #   reports no vulnerability; pin-utils is a macro-only crate (pin_mut!).
+      #   https://rustsec.org/advisories/RUSTSEC-2026-0441 . Accepted 2026-11-06; review
+      #   by 2027-02-01, and remove once an async-dnssd release drops pin-utils.
+      echo RUSTSEC-2026-0441
       ;;
   esac
 }
