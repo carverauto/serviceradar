@@ -158,8 +158,8 @@ func (b builder) signPackage(ctx context.Context, opts options, pkg, work string
 	return signed, nil
 }
 
-// staple retries only the staple itself, waiting out ticket propagation; every
-// failure is the same redacted runner error, so retrying cannot hide a cause.
+// staple retries only the staple itself, waiting out ticket propagation. A
+// stapler that hit its command timeout, or a cancelled build, is not retried.
 func (b builder) staple(ctx context.Context, pkg string) error {
 	wait := b.sleep
 	if wait == nil {
@@ -170,7 +170,7 @@ func (b builder) staple(ctx context.Context, pkg string) error {
 		if err == nil {
 			return nil
 		}
-		if attempt > len(stapleBackoff) {
+		if attempt > len(stapleBackoff) || errors.Is(err, errCommandTimeout) || ctx.Err() != nil {
 			return fmt.Errorf("stapling the notarization ticket failed after %d attempts: %w", attempt, err)
 		}
 		delay := stapleBackoff[attempt-1]

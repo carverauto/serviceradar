@@ -26,7 +26,8 @@ const testInstallerIdentity = "Developer ID Installer: Synthetic Software (TESTT
 type fakeTools struct {
 	t             *testing.T
 	fail          string
-	failTimes     int // fail fails its step this many times, then succeeds; 0 fails it always
+	failTimes     int   // fail fails its step this many times, then succeeds; 0 fails it always
+	failErr       error // error returned by the failing step; nil returns errSyntheticPlatform
 	failed        int
 	mutate        string
 	version       string
@@ -46,6 +47,9 @@ func (f *fakeTools) run(_ context.Context, name string, args ...string) ([]byte,
 	f.calls = append(f.calls, step)
 	if f.fail == step && (f.failTimes == 0 || f.failed < f.failTimes) {
 		f.failed++
+		if f.failErr != nil {
+			return nil, f.failErr
+		}
 		return nil, errSyntheticPlatform
 	}
 	switch tool {
@@ -326,7 +330,12 @@ func TestReleaseFailsClosedWithoutExport(t *testing.T) {
 	}
 }
 
-func noSleep(context.Context, time.Duration) error { return nil }
+func recordSleeps(waits *[]time.Duration) func(context.Context, time.Duration) error {
+	return func(_ context.Context, d time.Duration) error {
+		*waits = append(*waits, d)
+		return nil
+	}
+}
 
 func countCalls(calls []string, step string) int {
 	n := 0
@@ -343,8 +352,12 @@ func countCalls(calls []string, step string) int {
 func TestStapleRetriesUntilTheTicketPropagates(t *testing.T) {
 	opts, in := fixtures(t, modeRelease)
 	tools := &fakeTools{t: t, fail: "xcrun stapler staple", failTimes: 2}
-	if _, err := (builder{runner: tools, sleep: noSleep}).build(t.Context(), opts, in); err != nil {
+	var waits []time.Duration
+	if _, err := (builder{runner: tools, sleep: recordSleeps(&waits)}).build(t.Context(), opts, in); err != nil {
 		t.Fatalf("a staple that succeeds on retry failed the release: %v", err)
+	}
+	if want := []time.Duration{5 * time.Second, 10 * time.Second}; !reflect.DeepEqual(waits, want) {
+		t.Fatalf("staple waits = %v, want %v", waits, want)
 	}
 	if got := countCalls(tools.calls, "xcrun stapler staple"); got != 3 {
 		t.Fatalf("stapler staple ran %d times, want 3", got)
@@ -369,15 +382,43 @@ func TestStapleRetriesUntilTheTicketPropagates(t *testing.T) {
 func TestStapleFailsAfterBoundedAttemptsWithoutExport(t *testing.T) {
 	opts, in := fixtures(t, modeRelease)
 	tools := &fakeTools{t: t, fail: "xcrun stapler staple"}
-	_, err := (builder{runner: tools, sleep: noSleep}).build(t.Context(), opts, in)
+	var waits []time.Duration
+	_, err := (builder{runner: tools, sleep: recordSleeps(&waits)}).build(t.Context(), opts, in)
 	if !errors.Is(err, errSyntheticPlatform) {
 		t.Fatalf("expected the stapler failure in the error chain, got %v", err)
 	}
-	if got, want := countCalls(tools.calls, "xcrun stapler staple"), len(stapleBackoff)+1; got != want {
-		t.Fatalf("stapler staple ran %d times, want %d", got, want)
+	if got := countCalls(tools.calls, "xcrun stapler staple"); got != 8 {
+		t.Fatalf("stapler staple ran %d times, want 8", got)
+	}
+	want := []time.Duration{5 * time.Second, 10 * time.Second, 20 * time.Second, 30 * time.Second, 30 * time.Second, 30 * time.Second, 30 * time.Second}
+	if !reflect.DeepEqual(waits, want) {
+		t.Fatalf("staple waits = %v, want %v", waits, want)
 	}
 	if countCalls(tools.calls, "xcrun stapler validate") != 0 {
 		t.Fatal("stapler validate ran after stapling failed")
+	}
+	entries, err := os.ReadDir(opts.OutputDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("failure exported files: %v", entries)
+	}
+}
+
+func TestStapleTimeoutIsNotRetried(t *testing.T) {
+	opts, in := fixtures(t, modeRelease)
+	tools := &fakeTools{t: t, fail: "xcrun stapler staple", failErr: errCommandTimeout}
+	var waits []time.Duration
+	_, err := (builder{runner: tools, sleep: recordSleeps(&waits)}).build(t.Context(), opts, in)
+	if !errors.Is(err, errCommandTimeout) {
+		t.Fatalf("expected the stapler timeout in the error chain, got %v", err)
+	}
+	if got := countCalls(tools.calls, "xcrun stapler staple"); got != 1 {
+		t.Fatalf("stapler staple ran %d times, want 1", got)
+	}
+	if len(waits) != 0 {
+		t.Fatalf("a timed-out staple waited to retry: %v", waits)
 	}
 	entries, err := os.ReadDir(opts.OutputDir)
 	if err != nil {
