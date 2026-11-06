@@ -24,8 +24,8 @@ Three structural problems sit underneath that:
 3. **Evidence is tied to strings, not inventory.** `DeviceCorrelation.resolve/1` is called, but
    its result is a best-effort `device_uid` on the event. A hostname that matches two devices
    silently picks one by sort order, and an unresolved host leaves nothing to re-resolve later.
-   On a StarRocks installation the warehouse `events` row also truncates `message` at 65,533
-   bytes and carries no `raw_data` column at all, so the raw Falco record is not retained there.
+   On a StarRocks installation the warehouse `events` row keeps `raw_data` and `message` whole
+   up to 1,048,576 bytes, but a larger value is dropped from the row rather than retained.
 
 ## What Changes
 

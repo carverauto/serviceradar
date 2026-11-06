@@ -1,22 +1,31 @@
 defmodule ServiceRadar.Analytics.StarRocks.Destination do
   @moduledoc """
-  EventWriter destination seam for opt-in StarRocks shadow writes.
+  EventWriter's warehouse write path.
 
-  CNPG remains the serving authority while shadowing. Each destination is
-  tracked independently: a partial success retries only the missing destination
-  with the same stable identities. Shadow failure does not fail JetStream ACK
-  until the dataset is listed in `cutover_datasets`; from then on Stream Load
-  Success or durable quarantine is required before ACK.
+  Every telemetry dataset is written to exactly one store, the one it is read
+  from; nothing is dual-written. `warehouse?/1` makes that choice per dataset
+  and delegates to `Readers.backend/1`, so the write side and the read side
+  cannot disagree, and `store/3` writes a batch to that store. A dataset
+  routed to the warehouse is loaded through `persist_warehouse/3` and nothing
+  is written to CNPG; any other dataset is written to CNPG and nothing is
+  loaded into the warehouse. The one exception
+  is `AnalyticsSignals` lifecycle events, whose CNPG row is the state their
+  next transition is computed from; they are also loaded into the warehouse
+  when events are routed there.
+
+  Stream Load Success, or durable quarantine, is required before ACK. A failed
+  load is an error, the caller fails its JetStream acknowledgement and the
+  message is redelivered; there is no CNPG fallback.
 
   Flows (`:flows`), scalar metrics (`:metrics`), MTR traces and hops
   (`:mtr_traces`, `:mtr_hops`), OTel metrics (`:otel_metrics`,
-  `:otel_metric_points`), OTel spans (`:otel_traces`) and flow process
-  attribution observations (`:flow_attribution_observations`) are not
-  shadowed: while StarRocks is enabled they are written to the warehouse only,
-  through `persist_warehouse/3`, and a failed load fails the ACK. Flows have no
-  CNPG write at all; without StarRocks they are not stored. Assessment exposure
-  facts and transition history also use the warehouse-only path. Their consumer
-  attaches only when StarRocks is enabled and requires both loads before ACK.
+  `:otel_metric_points`), OTel spans (`:otel_traces`), BMP routing events and
+  flow process attribution observations (`:flow_attribution_observations`)
+  are routed on `enabled?/0` alone. Flows have no CNPG write at all; without
+  StarRocks they are not stored. Logs and events are routed on
+  `cutover_datasets` (`Readers.mode_for/1`). Assessment exposure facts and
+  transition history also use the warehouse-only path. Their consumer attaches
+  only when StarRocks is enabled and requires both loads before ACK.
 
   ## Load sizing
 
@@ -80,7 +89,6 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
           | :exposure_cve_dim
           | :exposure_package_dim
           | :exposure_retired_ordinals
-  @type dest :: :cnpg | :starrocks
 
   @tables %{
     flows: "ocsf_network_activity",
@@ -117,6 +125,35 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
   defdelegate enabled?, to: Readers
 
   @doc """
+  Whether `dataset` is written to the warehouse, and therefore not to CNPG.
+
+  True exactly when `Readers.backend/1` serves the dataset from the warehouse,
+  so a dataset is always written to the one store it is read from. For logs
+  and events that is StarRocks enabled with the dataset in
+  `cutover_datasets`; a dataset that is not routed to the warehouse is written
+  to CNPG only.
+  """
+  @spec warehouse?(dataset()) :: boolean()
+  def warehouse?(dataset), do: Readers.backend(dataset) == :starrocks
+
+  @doc """
+  Writes `rows` to the one store `dataset` is read from: the warehouse when
+  `warehouse?/1`, otherwise CNPG through `cnpg_insert`, which returns the
+  number of rows it inserted. Never both.
+
+  Returns `{:ok, count}`, or the failed warehouse load as `{:error, _}`.
+  """
+  @spec store(dataset(), [map()], (-> non_neg_integer()), keyword()) ::
+          {:ok, non_neg_integer()} | {:error, term()}
+  def store(dataset, rows, cnpg_insert, opts \\ []) when is_function(cnpg_insert, 0) do
+    if warehouse?(dataset) do
+      with {:ok, %{loaded: count}} <- persist_warehouse(dataset, rows, opts), do: {:ok, count}
+    else
+      {:ok, cnpg_insert.()}
+    end
+  end
+
+  @doc """
   Loads rows into the warehouse only, for a dataset whose rows are written to
   the warehouse instead of CNPG while StarRocks is enabled.
 
@@ -132,7 +169,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
   def persist_warehouse(dataset, rows, opts) when is_list(rows) do
     encoded = Rows.encode(dataset, rows)
 
-    case persist_starrocks(dataset, encoded, MapSet.new(), opts) do
+    case persist_starrocks(dataset, encoded, opts) do
       {:ok, result} when is_map(result) ->
         {:ok, Map.merge(%{dataset: dataset, loaded: length(encoded)}, result)}
 
@@ -144,135 +181,33 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
     end
   end
 
-  @spec maybe_shadow(dataset(), [map()], keyword()) ::
-          {:ok, map()} | {:ok, :disabled} | {:error, term()}
-  def maybe_shadow(dataset, rows, opts \\ [])
+  defp persist_starrocks(dataset, encoded, opts) do
+    table = table_for(dataset)
+    persist = Keyword.get(opts, :persist, &StreamLoad.persist/3)
+    limits = stream_load_limits(opts)
 
-  def maybe_shadow(_dataset, [], _opts), do: {:ok, :disabled}
+    persist_opts =
+      opts
+      |> Keyword.take([:http, :http_timeout, :label, :config, :partial_update, :columns])
+      |> Keyword.put_new(:config, client_config())
+      |> Keyword.put(:dataset, dataset)
+      |> dataset_load_opts(dataset)
 
-  def maybe_shadow(dataset, rows, opts) when is_list(rows) do
-    if shadow_enabled?(dataset, opts) do
-      persist_shadow(dataset, rows, opts)
-    else
-      {:ok, :disabled}
-    end
-  rescue
-    error ->
-      Logger.error("StarRocks shadow persist crashed",
-        dataset: dataset,
-        error: Exception.message(error)
-      )
+    chunks = split_loads(encoded, limits)
+    emit_batch_telemetry(dataset, table, chunks)
 
-      {:error, error}
-  end
-
-  @doc """
-  After a CNPG insert, persist to StarRocks.
-
-  When the dataset's reads are cut over, Stream Load Success or durable
-  quarantine is required and a failure fails the EventWriter ACK, so JetStream
-  redelivers the batch. Otherwise shadow writes stay best-effort.
-  """
-  @spec persist_after_cnpg(dataset(), [map()], keyword()) ::
-          {:ok, map()} | {:ok, :disabled} | {:error, term()}
-  def persist_after_cnpg(dataset, rows, opts \\ [])
-
-  def persist_after_cnpg(_dataset, [], _opts), do: {:ok, :disabled}
-
-  def persist_after_cnpg(dataset, rows, opts) when is_list(rows) do
-    if Readers.mode_for(dataset) == "starrocks" do
-      persist_shadow(
-        dataset,
-        rows,
-        opts
-        |> Keyword.put(:completed, [:cnpg])
-        |> Keyword.put(:require_all, true)
-      )
-    else
-      case maybe_shadow(dataset, rows, opts) do
-        {:error, reason} ->
-          Logger.warning("StarRocks shadow persist failed",
-            dataset: dataset,
-            error: inspect(reason)
-          )
-
-          {:ok, :disabled}
-
-        other ->
-          other
-      end
-    end
-  end
-
-  @doc """
-  Persist to every destination not already listed in `:completed`.
-
-  `completed` is a list of `:cnpg` and/or `:starrocks`. A retry after CNPG
-  succeeded therefore loads StarRocks only.
-  """
-  @spec persist_shadow(dataset(), [map()], keyword()) :: {:ok, map()} | {:error, term()}
-  def persist_shadow(dataset, rows, opts \\ []) when is_list(rows) do
-    completed = MapSet.new(Keyword.get(opts, :completed, []))
-    encoded = Rows.encode(dataset, rows)
-
-    starrocks_result = persist_starrocks(dataset, encoded, completed, opts)
-
-    progress = %{
-      dataset: dataset,
-      completed: completed_dests(starrocks_result, completed),
-      missing: missing_dests(starrocks_result, completed)
-    }
-
-    progress =
-      case starrocks_result do
-        {:error, reason} -> Map.put(progress, :errors, %{starrocks: reason})
-        _ -> progress
-      end
-
-    cond do
-      progress.missing == [] ->
-        {:ok, Map.put(progress, :loaded, length(encoded))}
-
-      Keyword.get(opts, :require_all, false) ->
-        {:error, {:missing_destinations, progress}}
-
-      true ->
-        {:ok, Map.put(progress, :partial, true)}
-    end
-  end
-
-  defp persist_starrocks(dataset, encoded, completed, opts) do
-    if MapSet.member?(completed, :starrocks) do
-      :already
-    else
-      table = table_for(dataset)
-      persist = Keyword.get(opts, :persist, &StreamLoad.persist/3)
-      limits = stream_load_limits(opts)
-
+    with :ok <- replace_ids(dataset, table, encoded, persist_opts[:config], opts) do
       persist_opts =
-        opts
-        |> Keyword.take([:http, :http_timeout, :label, :config, :partial_update, :columns])
-        |> Keyword.put_new(:config, client_config())
-        |> Keyword.put(:dataset, dataset)
-        |> Keyword.put(:cnpg_completed, MapSet.member?(completed, :cnpg))
-        |> dataset_load_opts(dataset)
+        if is_nil(opts[:replace]),
+          do: persist_opts,
+          else: Keyword.put(persist_opts, :label, "sr-replace-#{Ecto.UUID.generate()}")
 
-      chunks = split_loads(encoded, limits)
-      emit_batch_telemetry(dataset, table, chunks)
+      case chunks do
+        [{rows, body, _bytes}] ->
+          load_chunk(persist, dataset, table, rows, Keyword.put(persist_opts, :body, body))
 
-      with :ok <- replace_ids(dataset, table, encoded, persist_opts[:config], opts) do
-        persist_opts =
-          if is_nil(opts[:replace]),
-            do: persist_opts,
-            else: Keyword.put(persist_opts, :label, "sr-replace-#{Ecto.UUID.generate()}")
-
-        case chunks do
-          [{rows, body, _bytes}] ->
-            load_chunk(persist, dataset, table, rows, Keyword.put(persist_opts, :body, body))
-
-          chunks ->
-            load_chunks(persist, dataset, table, chunks, persist_opts, limits[:max_in_flight])
-        end
+        chunks ->
+          load_chunks(persist, dataset, table, chunks, persist_opts, limits[:max_in_flight])
       end
     end
   end
@@ -574,32 +509,6 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
     )
   end
 
-  defp completed_dests(starrocks_result, completed) do
-    completed
-    |> maybe_put(:starrocks, starrocks_result)
-    |> MapSet.to_list()
-    |> Enum.sort()
-  end
-
-  defp missing_dests(starrocks_result, completed) do
-    []
-    |> maybe_missing(:starrocks, starrocks_result, completed)
-    |> Enum.sort()
-  end
-
-  defp maybe_put(completed, dest, :already), do: MapSet.put(completed, dest)
-  defp maybe_put(completed, dest, {:ok, _}), do: MapSet.put(completed, dest)
-  defp maybe_put(completed, _dest, _), do: completed
-
-  defp maybe_missing(missing, dest, result, completed) do
-    cond do
-      MapSet.member?(completed, dest) -> missing
-      match?({:ok, _}, result) -> missing
-      result == :already -> missing
-      true -> [dest | missing]
-    end
-  end
-
   # Flow observation identities do not include assessment keys or sequences.
   # Each chunk needs a stable, exposure-specific label, including on redelivery.
   defp exposure_load_label(opts, dataset, table, rows)
@@ -660,35 +569,4 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
   end
 
   defp dataset_load_opts(opts, _dataset), do: opts
-
-  defp shadow_enabled?(dataset, opts) do
-    enabled = enabled_datasets(opts)
-    dataset in enabled or (dataset == :flow_attribution and :flows in enabled)
-  end
-
-  defp enabled_datasets(opts) do
-    case Keyword.fetch(opts, :enabled) do
-      {:ok, true} -> [:flows, :flow_attribution, :metrics, :logs, :events]
-      {:ok, :all} -> [:flows, :flow_attribution, :metrics, :logs, :events]
-      {:ok, value} when is_list(value) -> value
-      :error -> configured_shadow_datasets()
-      {:ok, _} -> []
-    end
-  end
-
-  defp configured_shadow_datasets do
-    env = Application.get_env(:serviceradar_core, StarRocks, [])
-
-    case Keyword.get(env, :shadow_datasets, []) do
-      [] ->
-        if Keyword.get(env, :enabled, false) do
-          [:flows, :flow_attribution, :metrics, :logs, :events]
-        else
-          []
-        end
-
-      datasets ->
-        datasets
-    end
-  end
 end

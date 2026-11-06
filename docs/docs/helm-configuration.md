@@ -542,14 +542,24 @@ Flow storage, acknowledgement and the historical-attribution limitation are
 documented in
 [NetFlow: Flow cutover and delivery](./netflow.md#flow-cutover-and-delivery).
 BMP routing events are warehouse-only while StarRocks is enabled; the table
-and retention contract is in `k8s/starrocks/README.md`. Metric, log and
-event reads stay on CNPG until the dataset is named in
-`analytics.starrocks.cutoverDatasets`.
+and retention contract is in `k8s/starrocks/README.md`. So are scalar metrics,
+MTR and OTel metrics and traces.
+
+Each telemetry dataset is written only to the store it is read from; nothing is
+shadowed into CNPG. Logs and events are written to and read from the warehouse
+only once named in `analytics.starrocks.cutoverDatasets`, and from CNPG only
+until then. The one exception is the lifecycle events that `AnalyticsSignals`
+records (inventory vulnerability findings and causal predictions): their CNPG
+row is the state the next transition is computed from, so it is kept, and the
+event is also loaded into the warehouse when `events` is cut over.
+`analytics.starrocks.shadowDatasets` was removed; the chart refuses to render
+while it is set, including an empty list. Delete it from your values.
 
 web-ng and core read these settings once at boot, so the chart stamps a digest
 of `analytics.starrocks.*` on both pods: a `helm upgrade` that changes the
-cut-over or shadow datasets rolls them without a manual restart. Removing
-`metrics`, `logs` or `events` from the list falls back to CNPG.
+cut-over datasets rolls them without a manual restart. Removing `logs` or
+`events` from the list moves that dataset's writes and reads back to CNPG,
+which does not hold what was written while it was listed.
 
 The StarRocks Frontend is never reached passwordless. With
 `analytics.starrocks.enabled=true` the chart **fails to render** unless

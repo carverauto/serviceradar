@@ -2,12 +2,15 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
   @moduledoc """
   Processor for OCSF Event Log Activity payloads.
 
-  Parses JSON events from NATS and inserts them into the `ocsf_events`
-  hypertable using the OCSF Event Log Activity schema (class_uid: 1008).
+  Parses JSON events from NATS and stores them using the OCSF Event Log
+  Activity schema (class_uid: 1008): in the warehouse `events` table when
+  events are routed there (`Destination.warehouse?/1`), otherwise in the CNPG
+  `ocsf_events` hypertable. Never both.
   """
 
   @behaviour ServiceRadar.EventWriter.Processor
 
+  alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.Events.PubSub, as: EventsPubSub
   alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.FieldParser
@@ -144,6 +147,26 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
   defp insert_event_rows(rows) do
     rows = dedupe_event_rows(rows)
 
+    # Stateful evaluation runs once per event (the ledger), synchronously. A
+    # capacity or readiness refusal defers it to the durable admission backlog;
+    # any other failure fails the batch so JetStream redelivers it. The store
+    # write is idempotent on the event id, so the redelivery repeats only what
+    # did not finish.
+    with {:ok, count} <- store_event_rows(rows),
+         :ok <- StatefulEvaluationLedger.evaluate_once(rows) do
+      {:ok, count}
+    end
+  end
+
+  # Events are written to the one store they are read from.
+  defp store_event_rows(rows) do
+    with {:ok, count} <- Destination.store(:events, rows, fn -> insert_cnpg(rows) end) do
+      broadcast_stored(rows, count)
+      {:ok, count}
+    end
+  end
+
+  defp insert_cnpg(rows) do
     # DB connection's search_path determines the schema
     {count, _} =
       BulkInsert.insert_all(
@@ -153,21 +176,14 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
         returning: false
       )
 
-    if count > 0 do
-      EventsPubSub.broadcast_event(%{count: count})
-      EventsPubSub.broadcast_event_rows(rows)
-    end
+    count
+  end
 
-    # Stateful evaluation runs once per event (the ledger), synchronously. A
-    # capacity or readiness refusal defers it to the durable admission backlog;
-    # any other failure fails the batch so JetStream redelivers it. The insert
-    # and the warehouse load are idempotent on the event id, so the redelivery
-    # repeats only what did not finish.
-    with {:ok, _} <-
-           ServiceRadar.Analytics.StarRocks.Destination.persist_after_cnpg(:events, rows),
-         :ok <- StatefulEvaluationLedger.evaluate_once(rows) do
-      {:ok, count}
-    end
+  defp broadcast_stored(_rows, 0), do: :ok
+
+  defp broadcast_stored(rows, count) do
+    EventsPubSub.broadcast_event(%{count: count})
+    EventsPubSub.broadcast_event_rows(rows)
   end
 
   # DB connection's search_path determines the schema

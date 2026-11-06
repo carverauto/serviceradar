@@ -5,19 +5,19 @@ CREATE DATABASE IF NOT EXISTS serviceradar;
 CREATE TABLE IF NOT EXISTS serviceradar.logs (
   id VARCHAR(64) NOT NULL,
   `timestamp` DATETIME NOT NULL,
-  ingest_identity VARCHAR(256) NOT NULL,
-  severity_text VARCHAR(32),
+  ingest_identity VARCHAR(1048576) NOT NULL,
+  severity_text VARCHAR(1048576),
   severity_number INT,
-  body VARCHAR(65533),
-  service_name VARCHAR(256),
-  source VARCHAR(256),
-  ingest_agent_id VARCHAR(256),
-  ingest_partition VARCHAR(128),
+  body VARCHAR(1048576),
+  service_name VARCHAR(1048576),
+  source VARCHAR(1048576),
+  ingest_agent_id VARCHAR(1048576),
+  ingest_partition VARCHAR(1048576),
   trace_id VARCHAR(64),
   span_id VARCHAR(64),
-  event_name VARCHAR(256),
+  event_name VARCHAR(1048576),
   source_ip VARCHAR(64),
-  service_version VARCHAR(64),
+  service_version VARCHAR(1048576),
   observed_timestamp DATETIME
 )
 PRIMARY KEY (id, `timestamp`)

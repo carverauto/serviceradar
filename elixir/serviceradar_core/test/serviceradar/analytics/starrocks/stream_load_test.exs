@@ -922,39 +922,37 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
     opts = [
       http: http,
       delete: delete,
-      replace: %{ids: [first["id"]], log_provider: "trivy"},
-      completed: [:cnpg],
-      require_all: true
+      replace: %{ids: [first["id"]], log_provider: "trivy"}
     ]
 
-    assert {:ok, %{loaded: 1}} = Destination.persist_shadow(:events, [first], opts)
+    assert {:ok, %{loaded: 1}} = Destination.persist_warehouse(:events, [first], opts)
     assert_received {:loaded, first_label, [_]}
     assert_received {:reconciled, ^first_label}
 
-    assert {:ok, %{loaded: 1}} = Destination.persist_shadow(:events, [second], opts)
+    assert {:ok, %{loaded: 1}} = Destination.persist_warehouse(:events, [second], opts)
     assert_received {:loaded, second_label, [replacement]}
     refute first_label == second_label
     assert :ets.tab2list(warehouse) == [{{second["id"], second["time"]}, replacement}]
 
-    assert {:ok, %{loaded: 1}} = Destination.persist_shadow(:events, [first], opts)
+    assert {:ok, %{loaded: 1}} = Destination.persist_warehouse(:events, [first], opts)
     assert_received {:loaded, restored_label, [restored]}
     assert_received {:reconciled, ^restored_label}
     refute restored_label == first_label
     assert restored["message"] == "first"
     assert :ets.tab2list(warehouse) == [{{first["id"], first["time"]}, restored}]
 
-    assert {:ok, %{loaded: 1}} = Destination.persist_shadow(:events, [second], opts)
+    assert {:ok, %{loaded: 1}} = Destination.persist_warehouse(:events, [second], opts)
     assert_received {:loaded, replay_label, [replayed]}
     refute replay_label == second_label
     assert :ets.tab2list(warehouse) == [{{second["id"], second["time"]}, replayed}]
 
     updated = Map.put(second, "message", "resolved")
-    assert {:ok, %{loaded: 1}} = Destination.persist_shadow(:events, [updated], opts)
+    assert {:ok, %{loaded: 1}} = Destination.persist_warehouse(:events, [updated], opts)
     assert_received {:loaded, updated_label, [latest]}
     refute updated_label == second_label
     assert latest["message"] == "resolved"
 
-    assert {:ok, %{loaded: 1}} = Destination.persist_shadow(:events, [updated], opts)
+    assert {:ok, %{loaded: 1}} = Destination.persist_warehouse(:events, [updated], opts)
     assert_received {:loaded, replay_label, [replayed]}
     refute replay_label == updated_label
     assert :ets.tab2list(warehouse) == [{{second["id"], second["time"]}, replayed}]

@@ -5,10 +5,10 @@ defmodule ServiceRadar.Analytics.StarRocks.Env do
   Dataset names are mapped from a closed list so operator env cannot mint atoms.
   """
 
-  # These name the datasets the shadow and cutover lists may carry. MTR is
-  # deliberately absent: its traces and hops go to the warehouse whenever
-  # StarRocks is enabled and to CNPG otherwise, with no shadow or cutover stage,
-  # so naming it in either list would mean nothing.
+  # These name the datasets the cutover list may carry. MTR is deliberately
+  # absent: its traces and hops go to the warehouse whenever StarRocks is
+  # enabled and to CNPG otherwise, with no cutover stage, so naming it in the
+  # list would mean nothing.
   @datasets %{
     "flows" => :flows,
     "flow_attribution" => :flow_attribution,
@@ -16,8 +16,6 @@ defmodule ServiceRadar.Analytics.StarRocks.Env do
     "logs" => :logs,
     "events" => :events
   }
-
-  @all_datasets [:flows, :flow_attribution, :metrics, :logs, :events]
 
   # Daily partitions, so retention is a partition count. Every dataset the
   # warehouse holds defaults to one year: the warehouse is what makes long
@@ -73,7 +71,6 @@ defmodule ServiceRadar.Analytics.StarRocks.Env do
       enabled: enabled,
       catalog_enabled: truthy?("SERVICERADAR_STARROCKS_CATALOG_ENABLED"),
       cutover_datasets: cutover_datasets(enabled),
-      shadow_datasets: shadow_datasets(enabled),
       fe_http: fe_http(),
       fe_mysql_host: fe_mysql_host(),
       fe_mysql_port: fe_mysql_port(),
@@ -159,13 +156,6 @@ defmodule ServiceRadar.Analytics.StarRocks.Env do
     case Integer.parse(nonempty(name, "")) do
       {days, _} when days > 0 -> days
       _ -> default
-    end
-  end
-
-  defp shadow_datasets(enabled) do
-    case csv_datasets("SERVICERADAR_STARROCKS_SHADOW_DATASETS") do
-      [] when enabled -> @all_datasets
-      datasets -> datasets
     end
   end
 

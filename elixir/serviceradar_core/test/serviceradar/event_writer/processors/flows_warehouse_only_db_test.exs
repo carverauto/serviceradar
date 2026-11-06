@@ -16,6 +16,7 @@ defmodule ServiceRadar.EventWriter.Processors.FlowsWarehouseOnlyDBTest do
   alias ServiceRadar.Analytics.StarRocks
   alias ServiceRadar.EventWriter.Processors.Flows
   alias ServiceRadar.Repo
+  alias ServiceRadar.TestSupport.StreamLoadFE
 
   @moduletag :integration
 
@@ -30,15 +31,7 @@ defmodule ServiceRadar.EventWriter.Processors.FlowsWarehouseOnlyDBTest do
   end
 
   test "with StarRocks enabled a flow batch is loaded into the warehouse and not written to CNPG" do
-    {:ok, listener} =
-      :gen_tcp.listen(0, [:binary, active: false, packet: :http_bin, reuseaddr: true])
-
-    {:ok, {_ip, port}} = :inet.sockname(listener)
-    on_exit(fn -> :gen_tcp.close(listener) end)
-    parent = self()
-    start_supervised!({Task, fn -> serve_stream_loads(listener, parent) end})
-
-    put_starrocks(enabled: true, fe_http: "http://127.0.0.1:#{port}")
+    put_starrocks(enabled: true, fe_http: StreamLoadFE.start!())
 
     assert {:ok, 1} = Flows.process_batch([flow_message()])
 
@@ -93,53 +86,5 @@ defmodule ServiceRadar.EventWriter.Processors.FlowsWarehouseOnlyDBTest do
       SQL.query!(Repo, "SELECT to_regclass('platform.ocsf_network_activity') IS NOT NULL", [])
 
     present?
-  end
-
-  # A StarRocks FE that accepts every Stream Load and reports each row loaded.
-  defp serve_stream_loads(listener, parent) do
-    case :gen_tcp.accept(listener, 5_000) do
-      {:ok, socket} ->
-        {:ok, {:http_request, :PUT, _, _}} = :gen_tcp.recv(socket, 0, 5_000)
-        headers = receive_headers(socket, %{})
-        :ok = :gen_tcp.send(socket, "HTTP/1.1 100 Continue\r\n\r\n")
-        :ok = :inet.setopts(socket, packet: :raw)
-        {:ok, body} = :gen_tcp.recv(socket, String.to_integer(headers["content-length"]), 5_000)
-        rows = Jason.decode!(body)
-        send(parent, {:wire_request, rows})
-
-        response =
-          Jason.encode!(%{
-            "Status" => "Success",
-            "NumberLoadedRows" => length(rows),
-            "NumberFilteredRows" => 0
-          })
-
-        :ok =
-          :gen_tcp.send(socket, [
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: ",
-            Integer.to_string(byte_size(response)),
-            "\r\n\r\n",
-            response
-          ])
-
-        :gen_tcp.close(socket)
-        serve_stream_loads(listener, parent)
-
-      {:error, :closed} ->
-        :ok
-
-      {:error, :timeout} ->
-        serve_stream_loads(listener, parent)
-    end
-  end
-
-  defp receive_headers(socket, headers) do
-    case :gen_tcp.recv(socket, 0, 5_000) do
-      {:ok, :http_eoh} ->
-        headers
-
-      {:ok, {:http_header, _, key, _, value}} ->
-        receive_headers(socket, Map.put(headers, key |> to_string() |> String.downcase(), value))
-    end
   end
 end

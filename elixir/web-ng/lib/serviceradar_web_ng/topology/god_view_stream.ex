@@ -5641,6 +5641,59 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp decode_warehouse_json(_value), do: nil
 
   defp fetch_recent_ocsf_causal_events(cutoff, limit) do
+    case Readers.backend(:events) do
+      :starrocks -> fetch_recent_ocsf_causal_events_warehouse(cutoff, limit)
+      :cnpg -> fetch_recent_ocsf_causal_events_cnpg(cutoff, limit)
+    end
+  end
+
+  # Events cut over to the warehouse are written only there, so the overlay
+  # reads them there. Same predicate and shape as the CNPG query. A row loaded
+  # before priv/starrocks/0036 has no `src_endpoint` document, only its IP
+  # column, which is the one key the overlay reads. A failed read yields `[]`,
+  # as the CNPG rescue does.
+  defp fetch_recent_ocsf_causal_events_warehouse(cutoff, limit) do
+    sql = """
+    SELECT `time`, `metadata`, `device`, `src_endpoint`, `src_endpoint_ip`
+    FROM #{Env.table("events")}
+    WHERE `time` >= '#{warehouse_datetime(cutoff)}'
+      AND (get_json_string(`metadata`, '$.signal_type') = 'mtr'
+        OR ((get_json_string(`metadata`, '$.signal_type') = 'bmp'
+            OR get_json_string(`metadata`, '$.primary_domain') = 'routing')
+          AND COALESCE(`severity_id`, 0) >= #{routing_causal_severity_threshold()}))
+    ORDER BY `time` DESC
+    LIMIT #{limit}
+    """
+
+    case Query.execute(sql) do
+      {:ok, %{columns: columns, rows: rows}} ->
+        Enum.map(rows, fn row ->
+          row = columns |> Enum.zip(row) |> Map.new()
+          metadata = decode_warehouse_json(row["metadata"])
+
+          %{
+            source: "ocsf_events",
+            event_time: warehouse_event_time(row["time"]),
+            event_identity: (metadata || %{})["event_identity"],
+            metadata: metadata,
+            device: decode_warehouse_json(row["device"]),
+            src_endpoint:
+              decode_warehouse_json(row["src_endpoint"]) ||
+                warehouse_src_endpoint(row["src_endpoint_ip"])
+          }
+        end)
+
+      {:error, _reason} ->
+        []
+    end
+  rescue
+    _ -> []
+  end
+
+  defp warehouse_src_endpoint(ip) when is_binary(ip) and ip != "", do: %{"ip" => ip}
+  defp warehouse_src_endpoint(_ip), do: nil
+
+  defp fetch_recent_ocsf_causal_events_cnpg(cutoff, limit) do
     query =
       from(e in "ocsf_events",
         where: e.time >= ^cutoff,

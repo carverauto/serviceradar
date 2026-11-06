@@ -3,8 +3,12 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   Processor for external causal signals (BMP and SIEM) consumed via JetStream.
 
   This processor normalizes external events into a common causal envelope and
-  persists them in `ocsf_events` so downstream topology overlays can evaluate
-  causality from a durable source.
+  persists them as OCSF events so downstream topology overlays can evaluate
+  causality from a durable source. Insert-only events go to the one store
+  events are read from (`Destination.warehouse?/1`). Lifecycle events
+  (inventory vulnerability findings, causal predictions) keep their CNPG
+  `ocsf_events` row, which is their transition state, and are also loaded into
+  the warehouse when events are routed there.
 
   Expected subjects include:
   - `arancini.updates.>`
@@ -175,6 +179,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
         end)
 
       routing_store = store_routing_events(routing_rows)
+      warehouse_events? = Destination.warehouse?(:events)
 
       with {:ok,
             {bulk_ocsf_rows, bulk_ocsf_count, persisted_ocsf_rows, recorded_ocsf_events,
@@ -189,7 +194,13 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
                  |> Enum.map(&Map.drop(&1, admission_keys()))
                  |> dedupe_rows_by_conflict_key(&ocsf_event_conflict_key/1)
 
-               count = insert_rows(table_name(), bulk_rows)
+               # Insert-only events are written to the one store events are
+               # read from; the warehouse load runs after the transaction.
+               count =
+                 if warehouse_events?,
+                   do: length(bulk_rows),
+                   else: insert_rows(table_name(), bulk_rows)
+
                # The transition and its pending admission row commit before
                # admission, so a refused inbox can never roll the transition back.
                {persisted, transitions} = record_ocsf_events(ash_rows)
@@ -201,8 +212,8 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
           admit_pending_series(messages, pending_series, owners_by_series, messages_by_event_id)
 
         warehouse =
-          Destination.persist_after_cnpg(
-            :events,
+          load_warehouse_events(
+            warehouse_events?,
             bulk_ocsf_rows ++ Enum.map(persisted_ocsf_rows, &Map.drop(&1, admission_keys()))
           )
 
@@ -549,6 +560,16 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
     count
   end
+
+  # With events routed to the warehouse, insert-only events are loaded there
+  # and nothing else. Lifecycle events (inventory vulnerability findings and
+  # causal predictions) are the exception: their CNPG row is the state their
+  # next transition is computed from and their pending admission commits with,
+  # so it is kept, and the warehouse also gets the row so event readers see it.
+  # A failed load fails the batch and JetStream redelivers it; the stable event
+  # ids make the retry store nothing twice.
+  defp load_warehouse_events(false, _rows), do: {:ok, :cnpg}
+  defp load_warehouse_events(true, rows), do: Destination.persist_warehouse(:events, rows)
 
   # BMP routing events are append-only telemetry: with the warehouse enabled
   # they are written to `bmp_routing_events` there and nothing to CNPG; with it

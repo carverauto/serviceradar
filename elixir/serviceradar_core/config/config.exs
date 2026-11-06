@@ -118,8 +118,7 @@ config :serviceradar_core, Oban,
 config :serviceradar_core, ServiceRadar.Analytics.StarRocks,
   enabled: false,
   catalog_enabled: false,
-  cutover_datasets: [],
-  shadow_datasets: []
+  cutover_datasets: []
 
 # Edge agent certificate expiry alerting (see AgentCertExpiryMonitor)
 config :serviceradar_core, ServiceRadar.Infrastructure.AgentCertExpiryMonitor,

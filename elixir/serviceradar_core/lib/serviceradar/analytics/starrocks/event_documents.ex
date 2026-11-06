@@ -2,14 +2,15 @@ defmodule ServiceRadar.Analytics.StarRocks.EventDocuments do
   @moduledoc """
   Gives an event row read from the warehouse the shape CNPG gives it.
 
-  `serviceradar.events` keeps the `metadata`, `unmapped`, `device` and
-  `observables` documents as JSON text (`priv/starrocks/0018`, written by
+  `serviceradar.events` keeps the `metadata`, `unmapped`, `device`,
+  `observables`, `actor`, `src_endpoint` and `dst_endpoint` documents as JSON
+  text (`priv/starrocks/0018` and `0036`, written by
   `Rows.encode(:events, ...)`), where CNPG holds them as jsonb and hands back
   maps and lists. Every reader of an event row indexes into those documents, so
   they are decoded here, once, for each path that turns a warehouse result into
   row maps: a caller must not have to know which backend answered.
 
-  Only those four columns, and only for an entity of the events dataset. A
+  Only those columns, and only for an entity of the events dataset. A
   value that does not decode is left as it was and reported at debug level:
   one bad document must not take a page down with it.
 
@@ -34,7 +35,7 @@ defmodule ServiceRadar.Analytics.StarRocks.EventDocuments do
 
   require Logger
 
-  @columns ~w(metadata unmapped device observables)
+  @columns ~w(metadata unmapped device observables actor src_endpoint dst_endpoint)
   @mtr_columns ~w(ecmp_addrs mpls_labels)
   @otel_metric_flags ~w(is_slow is_monotonic)
 

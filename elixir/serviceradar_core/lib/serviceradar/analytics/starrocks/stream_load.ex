@@ -109,8 +109,7 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
           endpoint_role:
             if({uri.host, uri.port} == {fe.host, fe.port}, do: :fe, else: :coordinator),
           reason: reason,
-          retrying: retry?,
-          cnpg_completed: Keyword.get(opts, :cnpg_completed, false)
+          retrying: retry?
         }
 
         Logger.warning(
@@ -124,7 +123,7 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
           metadata
         )
 
-        LoadHealth.report(metadata.dataset, context.rows, metadata.cnpg_completed,
+        LoadHealth.report(metadata.dataset, context.rows,
           timeout: min(500, max(remaining(deadline), 1))
         )
 

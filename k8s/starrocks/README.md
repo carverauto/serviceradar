@@ -833,23 +833,26 @@ SQL on each side was the SRQL compiler's own output for the same query.
     requires only that the alias appear as one, so an alias held under a key
     outside that list (`device.name`, for one) matches here and not on CNPG.
     The `key=value` form is held to CNPG's key list on both.
-  - `dst_endpoint` is not stored in the warehouse, and `src_endpoint` only as
-    `src_endpoint_ip`. An event that names the device only inside
-    `dst_endpoint`, or in `src_endpoint` under a key other than `ip`, is found
-    by CNPG and not here. This is the one case the warehouse misses.
+  - The warehouse matches the device against `src_endpoint_ip` only, not the
+    `src_endpoint` and `dst_endpoint` documents (stored since `0036`). An
+    event that names the device only inside `dst_endpoint`, or in
+    `src_endpoint` under a key other than `ip`, is found by CNPG and not here.
+    This is the one case the warehouse misses.
 
 ### Event row shape
 
 An event row read from the warehouse reaches its caller in CNPG's shape:
-`metadata`, `unmapped`, `device` and `observables` are stored as JSON text and
-decoded back to maps and lists where warehouse rows are built
-(`ServiceRadar.Analytics.StarRocks.EventDocuments`, used by the web API's JSON
-and Arrow paths and by `SRQLRunner`). A NULL document stays nil, and one that
+`metadata`, `unmapped`, `device`, `observables`, `actor`, `src_endpoint` and
+`dst_endpoint` are stored as JSON text and decoded back to maps and lists
+where warehouse rows are built (`ServiceRadar.Analytics.StarRocks.EventDocuments`,
+used by the web API's JSON and Arrow paths and by `SRQLRunner`). A NULL document stays nil, and one that
 does not decode is left as text rather than failing the row.
 
-The event detail page also reads `actor`, `raw_data`, `src_endpoint`,
-`dst_endpoint` and `enrichment`, which the warehouse does not store. Those
-keys are absent from a warehouse row, the page falls back to its empty
-defaults, and the sections built from them render empty where CNPG fills them
-in. Nothing raises, but it is a visible difference to settle before events are
-cut over.
+`0036` adds the rest of the CNPG `ocsf_events` row (the `actor` and endpoint
+documents, `status_code`, `status_detail`, `log_version`, `raw_data` and
+`created_at`), so a cut-over event loses no field; a row loaded before `0036`
+reads NULL in each. `0037` widens the free-text columns of `events` and `logs`
+to `VARCHAR(1048576)` (the shipped NATS `max_payload`), so free text is stored
+whole. An identifier past its protocol width (`trace_id`, `span_id`,
+`src_endpoint_ip`, `source_ip`) is stored as NULL and counted on
+`[:serviceradar, :starrocks, dataset, :scalar_invalid]` rather than cut.

@@ -2,8 +2,10 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   @moduledoc """
   Processor for OpenTelemetry log messages.
 
-  Parses OTEL logs from NATS JetStream and inserts them into the `logs`
-  hypertable using the native OTEL schema.
+  Parses OTEL logs from NATS JetStream and stores them using the native OTEL
+  schema: in the warehouse `logs` table when logs are routed there
+  (`Destination.warehouse?/1`), otherwise in the CNPG `logs` hypertable.
+  Never both.
 
   ## Message Format
 
@@ -24,6 +26,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   alias Opentelemetry.Proto.Logs.V1.ResourceLogs
   alias Opentelemetry.Proto.Logs.V1.ScopeLogs
   alias Opentelemetry.Proto.Logs.V1.SeverityNumber
+  alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.EventWriter.IngestAttribution
@@ -126,34 +129,35 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   end
 
   defp insert_log_rows(rows, opts) do
-    {rows_for_insert, placeholders} = prepare_rows_for_insert(rows)
-    insert_opts = insert_options(placeholders)
-
-    # DB connection's search_path determines the schema
-    {count, _} =
-      BulkInsert.insert_all(
-        table_name(),
-        rows_for_insert,
-        insert_opts
-      )
-
-    SignalTelemetry.emit(:logs, :written, count)
-    LogPubSub.broadcast_ingest(%{count: count})
-
-    shadow =
-      ServiceRadar.Analytics.StarRocks.Destination.persist_after_cnpg(:logs, rows)
-
-    promotion = maybe_promote_logs(rows, opts)
-
-    cond do
-      match?({:error, _}, shadow) -> shadow
-      match?({:error, _}, promotion) -> promotion
-      true -> record_services(rows, count)
+    with {:ok, count} <- store_log_rows(rows),
+         :ok <- promotion_result(maybe_promote_logs(rows, opts)) do
+      record_services(rows, count)
     end
   end
 
-  # After the batch is durable in every destination this mode requires (CNPG,
-  # plus StarRocks when logs are cut over). Best-effort: never fails the batch.
+  # Logs are written to the one store they are read from.
+  defp store_log_rows(rows) do
+    with {:ok, count} <- Destination.store(:logs, rows, fn -> insert_cnpg(rows) end) do
+      SignalTelemetry.emit(:logs, :written, count)
+      LogPubSub.broadcast_ingest(%{count: count})
+      {:ok, count}
+    end
+  end
+
+  defp insert_cnpg(rows) do
+    {rows_for_insert, placeholders} = prepare_rows_for_insert(rows)
+
+    # DB connection's search_path determines the schema
+    {count, _} =
+      BulkInsert.insert_all(table_name(), rows_for_insert, insert_options(placeholders))
+
+    count
+  end
+
+  defp promotion_result({:error, _reason} = error), do: error
+  defp promotion_result(_result), do: :ok
+
+  # After the batch is durable in its store. Best-effort: never fails the batch.
   defp record_services(rows, count) do
     _ = ServiceCatalog.record(:logs, rows)
     {:ok, count}

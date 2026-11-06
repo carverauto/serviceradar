@@ -291,6 +291,32 @@
     acknowledged, stored nowhere and logged once without it). The CNPG flow table, its hourly
     continuous aggregates, retention reconcile and cold-tier registry entry are kept; dropping
     them is a separate, approved change.
+  - [x] Shadow list and logs/events dual-write. `shadowDatasets` is removed from Helm, Compose
+    and `Env`, with `Destination.maybe_shadow/3`, `persist_shadow/3`, `persist_after_cnpg/3`
+    and the partial-write counter; the chart refuses to render while the key is set. Logs and
+    events (EventWriter `Logs`, `Events`, `FalcoEvents`, `TrivyReports`, `AnalyticsSignals`
+    insert-only rows, `LogPromotion`) are written to the one store `Readers.backend/1` serves
+    them from (`Destination.warehouse?/1`): the warehouse only when cut over, CNPG only
+    otherwise. `AnalyticsSignals` lifecycle rows (inventory vulnerability findings, causal
+    predictions) keep their CNPG row, which is their transition and admission state, and are
+    also loaded when events are cut over. `cutoverDatasets` remains for logs, events and the
+    flows reader. Test: `LogsEventsSingleStoreDBTest`.
+  - [x] Event readers that bypassed `Readers`. `OcsfEvent`'s read is served by
+    `TelemetryIndexRead` (`events` table when events are cut over, CNPG otherwise), which routes
+    the dashboard-package event push (`DashboardFrameChannel.Events.visible_ids`), the Security
+    detection detail and `CameraRelayHealth` with their read policy unchanged; God View's
+    `fetch_recent_ocsf_causal_events` has a warehouse branch beside its CNPG query. The
+    AnalyticsLive hourly chart was deleted in #5248.
+  - [x] The warehouse `events` row carries the whole CNPG `ocsf_events` row (`priv/starrocks/0036`:
+    actor, src_endpoint and dst_endpoint documents, status_code, status_detail, log_version,
+    raw_data, created_at), so a cut-over event loses no field. Test: `LogsEventsSingleStoreDBTest`,
+    `RowsTest`.
+  - [x] Nothing is cut on the way into `events` or `logs` (`priv/starrocks/0037`): free text is
+    VARCHAR(1048576) and stored whole; an identifier past its protocol width (trace_id,
+    span_id, src_endpoint_ip, source_ip) is stored as NULL and counted
+    (`[:serviceradar, :starrocks, dataset, :scalar_invalid]`). `SchemaMigrator` skips a
+    `MODIFY COLUMN` whose column already has the type and awaits each one. Test: `RowsTest`,
+    `SchemaMigratorTest`.
 - [ ] 5.3 A shared "unavailable with StarRocks enabled" result for readers with no warehouse
   implementation, rendered explicitly by each page and card, so no reader queries a frozen CNPG
   table; a test per reader until it has a warehouse implementation.

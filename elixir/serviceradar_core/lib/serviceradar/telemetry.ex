@@ -850,7 +850,7 @@ defmodule ServiceRadar.Telemetry do
       counter("serviceradar.starrocks.stream_load.failure.count",
         event_name: [:serviceradar, :starrocks, :stream_load, :failure],
         measurement: :count,
-        tags: [:dataset, :cnpg_completed, :retrying],
+        tags: [:dataset, :retrying],
         description: "Failed warehouse load attempts, including bounded retries"
       ),
       counter("serviceradar.event_writer.producer.pull_request.count",

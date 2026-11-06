@@ -162,7 +162,6 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlistTest do
       "SERVICERADAR_STARROCKS_ENABLED",
       "SERVICERADAR_STARROCKS_CATALOG_ENABLED",
       "SERVICERADAR_STARROCKS_CUTOVER_DATASETS",
-      "SERVICERADAR_STARROCKS_SHADOW_DATASETS",
       "SERVICERADAR_STARROCKS_FE_HTTP"
     ]
 
@@ -180,22 +179,18 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlistTest do
     refute cfg[:enabled]
     refute cfg[:catalog_enabled]
     assert cfg[:cutover_datasets] == []
-    assert cfg[:shadow_datasets] == []
     assert cfg[:fe_http] == "http://127.0.0.1:8030"
 
     System.put_env("SERVICERADAR_STARROCKS_ENABLED", "true")
     cfg = Env.config()
     assert cfg[:enabled]
-    assert cfg[:shadow_datasets] == [:flows, :flow_attribution, :metrics, :logs, :events]
 
     System.put_env("SERVICERADAR_STARROCKS_CATALOG_ENABLED", "true")
     System.put_env("SERVICERADAR_STARROCKS_CUTOVER_DATASETS", "flows,not_a_dataset,metrics")
-    System.put_env("SERVICERADAR_STARROCKS_SHADOW_DATASETS", "logs")
     System.put_env("SERVICERADAR_STARROCKS_FE_HTTP", "http://lab-fe-service.starrocks.svc:8030")
     cfg = Env.config()
     assert cfg[:catalog_enabled]
     assert cfg[:cutover_datasets] == [:flows, :metrics]
-    assert cfg[:shadow_datasets] == [:logs]
     assert cfg[:fe_http] == "http://lab-fe-service.starrocks.svc:8030"
   end
 

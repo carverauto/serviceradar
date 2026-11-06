@@ -18,16 +18,14 @@ defmodule ServiceRadar.Analytics.StarRocks.LoadHealth do
   require Logger
 
   @failure "event_writer_warehouse_load_failures"
-  @partial "event_writer_warehouse_partial_writes"
   @subject "metrics.event_writer.warehouse"
 
   @doc "Publishes a failed attempt; options are passed to JetStreamPublish."
-  def report(dataset, rows, cnpg_completed?, opts \\ []) do
+  def report(dataset, rows, opts \\ []) do
     if health_only?(dataset, rows) do
       :ok
     else
       now = DateTime.to_unix(DateTime.utc_now(), :nanosecond)
-      names = if cnpg_completed?, do: [@failure, @partial], else: [@failure]
 
       body =
         MetricBatch.encode(%MetricBatch{
@@ -43,17 +41,16 @@ defmodule ServiceRadar.Analytics.StarRocks.LoadHealth do
             producer_kind: "core",
             payload_kind: "metrics"
           },
-          metrics:
-            Enum.map(names, fn name ->
-              %Metric{
-                name: name,
-                kind: :METRIC_KIND_SUM,
-                temporality: :METRIC_TEMPORALITY_DELTA,
-                is_monotonic: true,
-                tags: [%StringMapEntry{key: "dataset", value: to_string(dataset)}],
-                points: [%MetricPoint{value: 1.0, observed_at_unix_nano: now}]
-              }
-            end)
+          metrics: [
+            %Metric{
+              name: @failure,
+              kind: :METRIC_KIND_SUM,
+              temporality: :METRIC_TEMPORALITY_DELTA,
+              is_monotonic: true,
+              tags: [%StringMapEntry{key: "dataset", value: to_string(dataset)}],
+              points: [%MetricPoint{value: 1.0, observed_at_unix_nano: now}]
+            }
+          ]
         })
 
       case JetStreamPublish.publish(@subject, body, Keyword.put_new(opts, :timeout, 500)) do
@@ -88,7 +85,7 @@ defmodule ServiceRadar.Analytics.StarRocks.LoadHealth do
 
   defp health_only?(dataset, rows) when dataset in [:metrics, "timeseries_metrics"] do
     Enum.all?(rows, fn row ->
-      (Map.get(row, :metric_name) || Map.get(row, "metric_name")) in [@failure, @partial]
+      (Map.get(row, :metric_name) || Map.get(row, "metric_name")) == @failure
     end)
   end
 

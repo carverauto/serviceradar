@@ -140,8 +140,11 @@ defmodule ServiceRadar.EventWriter.Processors.FlowAttributionUpdatesTest do
         "pid" => 9
       })
 
-    for result <- [{:error, :timeout}, {:quarantine, :filtered_rows}] do
-      assert {:error, {:missing_destinations, %{missing: [:starrocks]}}} =
+    for {result, reason} <- [
+          {{:error, :timeout}, :timeout},
+          {{:quarantine, :filtered_rows}, :filtered_rows}
+        ] do
+      assert {:error, {:warehouse_load, :flow_attribution, ^reason}} =
                FlowAttributionUpdates.process_batch([%{data: body}],
                  version_lookup: fn _ -> %{} end,
                  persist: fn _, _, _ -> result end
