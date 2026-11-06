@@ -2,7 +2,14 @@ defmodule ServiceRadar.Monitoring.OcsfEvent do
   @moduledoc """
   OCSF Event Log Activity records stored in the `ocsf_events` hypertable.
 
-  Read-only here. EventWriter (`ServiceRadar.EventWriter.Processors.Events`
+  Read-only here. The read is served from the store events are written to:
+  the warehouse `events` table when events are cut over to StarRocks, CNPG
+  otherwise (`ServiceRadar.Observability.TelemetryIndexRead`). Warehouse rows
+  carry the columns that table stores; `actor`, `src_endpoint`,
+  `dst_endpoint`, `status_code`, `status_detail`, `log_version` and `raw_data`
+  stay nil there.
+
+  EventWriter (`ServiceRadar.EventWriter.Processors.Events`
   and the processors that emit events) is the only writer, after a JetStream
   hop. Core produces an event through
   `ServiceRadar.Events.OcsfEventPublisher`, which applies the out-of-service
@@ -24,7 +31,10 @@ defmodule ServiceRadar.Monitoring.OcsfEvent do
   end
 
   actions do
-    defaults [:read]
+    read :read do
+      primary? true
+      manual {ServiceRadar.Observability.TelemetryIndexRead, table: "events"}
+    end
   end
 
   policies do

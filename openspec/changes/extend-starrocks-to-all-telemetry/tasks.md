@@ -301,6 +301,12 @@
     predictions) keep their CNPG row, which is their transition and admission state, and are
     also loaded when events are cut over. `cutoverDatasets` remains for logs, events and the
     flows reader. Test: `LogsEventsSingleStoreDBTest`.
+  - [x] Event readers that bypassed `Readers`. `OcsfEvent`'s read is served by
+    `TelemetryIndexRead` (`events` table when events are cut over, CNPG otherwise), which routes
+    the dashboard-package event push (`DashboardFrameChannel.Events.visible_ids`), the Security
+    detection detail and `CameraRelayHealth` with their read policy unchanged; God View's
+    `fetch_recent_ocsf_causal_events` has a warehouse branch beside its CNPG query. The
+    AnalyticsLive hourly chart was deleted in #5248.
 - [ ] 5.3 A shared "unavailable with StarRocks enabled" result for readers with no warehouse
   implementation, rendered explicitly by each page and card, so no reader queries a frozen CNPG
   table; a test per reader until it has a warehouse implementation.

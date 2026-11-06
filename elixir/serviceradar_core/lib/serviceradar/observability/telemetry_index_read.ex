@@ -1,15 +1,16 @@
 defmodule ServiceRadar.Observability.TelemetryIndexRead do
   @moduledoc """
-  Manual read action behind the JSON:API telemetry `index` routes.
+  Manual read action behind the JSON:API telemetry `index` routes and the
+  `ServiceRadar.Monitoring.OcsfEvent` read.
 
   Each dataset is read from the backend that is still receiving its rows.
   With `analytics.starrocks.enabled` off, the read delegates to the resource's
   CNPG data layer query unchanged. With it on, a dataset whose writes have
   moved to the warehouse is served from its warehouse table: OTel metric
   samples and points, OTel traces and summaries, and raw and hourly
-  timeseries metrics follow the enabled flag, while logs follow the
-  per-dataset cutover list, so a row still written to CNPG is still read from CNPG and a
-  `/api/v2` telemetry route never serves history frozen at the switch. A
+  timeseries metrics follow the enabled flag, while logs and OCSF events follow
+  the per-dataset cutover list, so a row still written to CNPG is still read
+  from CNPG and no reader serves history frozen at the switch. A
   dataset with no warehouse table (the interface/disk hourly aggregates and
   the legacy sysmon tables retired under #4861) stays CNPG-backed, because
   its rows are still written to CNPG.
@@ -40,11 +41,16 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
   alias ServiceRadar.Analytics.StarRocks.Env
   alias ServiceRadar.Analytics.StarRocks.Query
   alias ServiceRadar.Analytics.StarRocks.Readers
+  alias ServiceRadar.Types.Jsonb
 
   # table name -> the subset of the resource's attribute names that warehouse
   # table actually stores. Only these are selected; every other attribute stays
   # nil, exactly as it would be for a CNPG column the warehouse does not hold.
   @warehouse_columns %{
+    "events" =>
+      ~w(id time class_uid category_uid type_uid activity_id activity_name severity_id severity
+         message status_id status trace_id span_id log_name log_provider log_level metadata
+         unmapped device observables)a,
     "logs" =>
       ~w(id timestamp observed_timestamp trace_id span_id severity_text severity_number body
          event_name source source_ip service_name service_version ingest_identity
@@ -77,6 +83,7 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
   }
 
   @dataset_for_table %{
+    "events" => :events,
     "logs" => :logs,
     "otel_metrics" => :otel_metrics,
     "otel_metric_points" => :otel_metrics,
@@ -320,6 +327,9 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
   defp to_existing_atom(column) when is_binary(column) do
     String.to_existing_atom(column)
   end
+
+  # The warehouse keeps jsonb documents as JSON text (`priv/starrocks/0018`).
+  defp normalize_value(%{type: Jsonb}, value), do: decode_document(value)
 
   defp normalize_value(%{type: type}, value) do
     case short_type(type) do

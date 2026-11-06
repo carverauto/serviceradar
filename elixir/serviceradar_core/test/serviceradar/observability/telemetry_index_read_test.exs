@@ -4,6 +4,7 @@ defmodule ServiceRadar.Observability.TelemetryIndexReadTest do
   alias Ash.Error.Query.InvalidQuery
   alias AshJsonApi.Resource.Info
   alias ServiceRadar.Analytics.StarRocks
+  alias ServiceRadar.Monitoring.OcsfEvent
   alias ServiceRadar.Observability.JsonApiCompositeId
   alias ServiceRadar.Observability.Log
   alias ServiceRadar.Observability.OtelMetric
@@ -286,6 +287,48 @@ defmodule ServiceRadar.Observability.TelemetryIndexReadTest do
              {:ok, :cnpg_records}
   end
 
+  test "OCSF event reads follow the events cutover, documents decoded, policy applied" do
+    event_opts = [table: "events"]
+
+    with_starrocks(true)
+    assert TelemetryIndexRead.mode(OcsfEvent, event_opts) == :cnpg
+
+    with_starrocks(true, cutover_datasets: [:events])
+    assert TelemetryIndexRead.mode(OcsfEvent, event_opts) == {:starrocks, "events"}
+
+    parent = self()
+
+    read = fn role ->
+      OcsfEvent
+      |> Ash.Query.filter(id in [^@uuid])
+      |> Ash.Query.sort(time: :desc)
+      |> Ash.Query.limit(1)
+      |> Ash.Query.set_context(%{
+        starrocks_query: fn sql ->
+          send(parent, {:sql, role, sql})
+          rows = if sql =~ "1 = 0", do: [], else: [event_row()]
+          {:ok, %{columns: Enum.map(event_row_columns(), &elem(&1, 0)), rows: rows}}
+        end
+      })
+      |> Ash.read(actor: %{role: role})
+    end
+
+    assert {:ok, [event]} = read.(:viewer)
+    assert event.id == @uuid
+    assert event.metadata == %{"signal_type" => "mtr"}
+    assert event.device == %{"uid" => "sr:device-alpha"}
+    assert event.observables == []
+    assert %DateTime{} = event.time
+
+    assert_received {:sql, :viewer, sql}
+    assert sql =~ "FROM serviceradar.events"
+    assert sql =~ "`id` IN ('#{@uuid}')"
+    assert sql =~ "ORDER BY `time` DESC"
+
+    # helpdesk is outside the read policy, which is a filter: nothing is served.
+    assert {:ok, []} = read.(:helpdesk)
+  end
+
   test "serves traces and summaries from the warehouse when enabled" do
     with_starrocks(true)
 
@@ -519,6 +562,22 @@ defmodule ServiceRadar.Observability.TelemetryIndexReadTest do
     keys = Info.primary_key_fields(resource)
     Enum.map_join(keys, delimiter, &JsonApiCompositeId.encode_part(Map.fetch!(record, &1)))
   end
+
+  defp event_row_columns do
+    [
+      {"id", @uuid},
+      {"time", "2026-01-01 00:00:00"},
+      {"class_uid", 1008},
+      {"category_uid", 1},
+      {"type_uid", 100_801},
+      {"activity_id", 1},
+      {"metadata", ~s({"signal_type":"mtr"})},
+      {"device", ~s({"uid":"sr:device-alpha"})},
+      {"observables", "[]"}
+    ]
+  end
+
+  defp event_row, do: Enum.map(event_row_columns(), &elem(&1, 1))
 
   defp index_read_opts(resource) do
     %{manual: {TelemetryIndexRead, opts}} = Ash.Resource.Info.action(resource, :api_index)
