@@ -723,6 +723,13 @@ releases. Without a configured tag, it also scans recent releases. An interactiv
 Plugins UI import stays on the selected tag: a missing release reports an error
 and imports nothing instead of substituting another release's catalog.
 
+A recent-release scan, used by the Wasm plugin and native add-on catalogs,
+skips draft releases. A draft is mutable and its assets never resolve. The scan
+also reads one release at a time, so a release whose index cannot be loaded
+does not hide the others: the catalog lists the remaining releases and shows a
+warning naming each failed release and its index asset. The scan reports an
+error only when every release that publishes the index failed.
+
 For both Wasm and native add-on background sync, a release that exists but lacks
 the required index asset does not trigger fallback. Missing catalogs (including
 a 404 from the fallback feed) and missing index assets do not trigger Oban retries:
