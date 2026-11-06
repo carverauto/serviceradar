@@ -505,6 +505,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   Forwards the request's ephemeral status summaries to core. A status whose source carried
   durable data before the edge-record cutover, or a summary over 4096 bytes, is refused whole
   and counted for the agent (`RetiredStatusSources`); it is never published, forwarded or cut.
+  A push that carried refused durable data is answered `received: false`, so the agent keeps it.
   """
   @spec push_status(Monitoring.GatewayStatusRequest.t(), GRPC.Server.Stream.t()) ::
           Monitoring.GatewayStatusResponse.t()
@@ -667,18 +668,24 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   # Ephemeral summaries are handed to `StatusBuffer`, which forwards them to core after the RPC
   # has answered. Statuses from retired sources and oversized summaries are refused and counted;
   # an ephemeral status with invalid fields is dropped and logged. The response is
-  # `received: false` when the agent sent statuses and none was accepted. It never fails the
-  # RPC, because an RPC error makes the agent tear down its gateway connection and its control
-  # stream with it, and that stream is how the agent receives the upgrade it needs.
+  # `received: false` when the agent sent statuses and none was accepted, and when any of them
+  # was durable data (`RetiredStatusSources.durable?/1`): an agent built before the cutover
+  # treats `received: true` as delivery of everything it sent and discards it. The summaries
+  # of such a push are forwarded all the same, and the agent builds them anew every interval.
+  # It never fails the RPC, because an RPC error makes the agent tear down its gateway
+  # connection and its control stream with it, and that stream is how the agent receives the
+  # upgrade it needs.
   defp accept_statuses(entries, agent_id) when is_list(entries) do
     {ephemeral, refused} =
       Enum.split_with(entries, fn {service, _metadata} -> RetiredStatusSources.refusal_family(service) == nil end)
 
-    RetiredStatusSources.refuse(agent_id, Enum.map(refused, &elem(&1, 0)))
+    refused_statuses = Enum.map(refused, &elem(&1, 0))
+    RetiredStatusSources.refuse(agent_id, refused_statuses)
 
     accepted_count = Enum.count(ephemeral, fn {service, metadata} -> accept_status(service, metadata) end)
+    received = (entries == [] or accepted_count > 0) and not Enum.any?(refused_statuses, &RetiredStatusSources.durable?/1)
 
-    {accepted_count, %Monitoring.GatewayStatusResponse{received: entries == [] or accepted_count > 0}}
+    {accepted_count, %Monitoring.GatewayStatusResponse{received: received}}
   end
 
   defp accept_status(service, metadata) do
