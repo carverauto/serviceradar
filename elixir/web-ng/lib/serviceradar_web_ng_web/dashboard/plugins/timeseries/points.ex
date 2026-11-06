@@ -5,10 +5,9 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points do
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths
 
   @max_points 800
-  # A window this long is labeled by month. Shorter windows keep the sample ticks.
+  # A window this long is labeled by month. A shorter selected window gets
+  # evenly spaced instants; a chart with no window keeps the sample ticks.
   @month_axis_ms 60 * 86_400 * 1_000
-
-  def month_axis_ms, do: @month_axis_ms
   @linear_padding_ratio 0.05
   @constant_padding_ratio 0.05
   @log_padding_ratio 0.05
@@ -57,10 +56,10 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points do
   def x_ticks(points, compact, opts) when is_list(points) do
     domain = Paths.widen_time_domain(Paths.time_domain(points), opts)
 
-    if month_axis?(domain) do
-      month_ticks(domain, opts)
-    else
-      index_ticks(points, compact, opts)
+    cond do
+      month_axis?(domain) -> month_ticks(domain, opts)
+      window_axis?(opts) -> window_ticks(domain, compact, opts)
+      true -> index_ticks(points, compact, opts)
     end
   end
 
@@ -99,6 +98,23 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points do
   end
 
   defp month_axis?(_domain), do: false
+
+  defp window_axis?(%{time_first: first, time_last: last}) when is_integer(first) and is_integer(last), do: last > first
+  defp window_axis?(_opts), do: false
+
+  # Ticks sit on the axis, not on the samples: a window whose data covers only
+  # its last few minutes must still label where the window starts.
+  defp window_ticks(%{first: first, last: last}, compact, opts) do
+    tick_count = if compact, do: 3, else: 5
+    domain = %{count: 2, first: first, last: last}
+
+    0..(tick_count - 1)
+    |> Enum.map(fn idx ->
+      dt = DateTime.from_unix!(first + div((last - first) * idx, tick_count - 1), :millisecond)
+      {Paths.datetime_to_x(dt, domain, opts), dt |> DateTime.truncate(:second) |> canonical_time()}
+    end)
+    |> Enum.reject(fn {x, _iso} -> is_nil(x) end)
+  end
 
   defp month_ticks(%{first: first, last: last}, opts) do
     start = DateTime.from_unix!(first, :millisecond)

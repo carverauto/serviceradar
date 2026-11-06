@@ -141,6 +141,10 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     {series_points, focus_annotation} = Focus.apply(series_points, chart_focus)
     annotations = annotations_from_assigns(assigns, focus_annotation)
 
+    # A focused finding zooms to the samples around it; anchoring that view to
+    # the whole selected window would undo the zoom.
+    time_window = if focus_annotation, do: nil, else: Map.get(assigns, :time_window)
+
     series_data =
       SeriesData.build_series_data(
         series_points,
@@ -152,7 +156,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
         reference_lines: reference_lines,
         y_scale: y_scale,
         chart_overlays: chart_overlays,
-        time_window: Map.get(assigns, :time_window)
+        time_window: time_window
       )
 
     {combined_charts, individual_series} =

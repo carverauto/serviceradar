@@ -6,7 +6,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Sparkline do
 
   def icmp_sparkline(assigns) do
     points = Map.get(assigns.spark, :points, [])
-    {stroke_path, area_path} = sparkline_smooth_paths(points)
+    {stroke_path, area_path} = sparkline_paths(Map.get(assigns.spark, :segments), points)
 
     assigns =
       assigns
@@ -61,39 +61,53 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Sparkline do
   defp format_ms(value) when is_integer(value), do: Integer.to_string(value) <> "ms"
   defp format_ms(_), do: "—"
 
-  # Generate smooth SVG paths using monotone cubic interpolation (Catmull-Rom spline)
-  defp sparkline_smooth_paths(values) when is_list(values) do
-    values = Enum.filter(values, &is_number/1)
+  # Segments place each point at its fraction of the window and split where
+  # buckets are missing. Without them the points are spaced by index.
+  defp sparkline_paths(segments, _values) when is_list(segments) do
+    segments = Enum.map(segments, fn segment -> Enum.filter(segment, fn {_x, v} -> is_number(v) end) end)
+    values = Enum.flat_map(segments, fn segment -> Enum.map(segment, &elem(&1, 1)) end)
 
-    case {values, Enum.min(values, fn -> 0 end), Enum.max(values, fn -> 0 end)} do
-      {[_first, _second | _], min_v, max_v} ->
-        # Normalize values to coordinates
-        range = if max_v == min_v, do: 1.0, else: max_v - min_v
-        len = length(values)
-
-        coords =
-          values
-          |> Enum.with_index()
-          |> Enum.map(fn {v, idx} ->
-            x = idx_to_x(idx, len)
-            y = 110.0 - (v - min_v) / range * 100.0
-            {x * 1.0, y}
-          end)
-
-        stroke_path = monotone_curve_path(coords)
-        area_path = monotone_area_path(coords)
-        {stroke_path, area_path}
-
-      _ ->
-        {"", ""}
-    end
+    segments
+    |> Enum.map(fn segment -> Enum.map(segment, fn {fraction, v} -> {fraction * 400.0, v} end) end)
+    |> smooth_paths(values)
   end
 
-  defp sparkline_smooth_paths(_), do: {"", ""}
+  defp sparkline_paths(_segments, values) when is_list(values) do
+    values = Enum.filter(values, &is_number/1)
+    len = length(values)
+
+    coords =
+      values
+      |> Enum.with_index()
+      |> Enum.map(fn {v, idx} -> {idx_to_x(idx, len) * 1.0, v} end)
+
+    smooth_paths([coords], values)
+  end
+
+  defp sparkline_paths(_segments, _values), do: {"", ""}
+
+  # Generate smooth SVG paths using monotone cubic interpolation (Catmull-Rom spline)
+  defp smooth_paths(segments, [_first, _second | _] = values) do
+    min_v = Enum.min(values)
+    max_v = Enum.max(values)
+    range = if max_v == min_v, do: 1.0, else: max_v - min_v
+
+    segments =
+      segments
+      |> Enum.reject(&(&1 == []))
+      |> Enum.map(fn segment -> Enum.map(segment, fn {x, v} -> {x, 110.0 - (v - min_v) / range * 100.0} end) end)
+
+    {Enum.map_join(segments, " ", &monotone_curve_path/1), segments |> Enum.map(&monotone_area_path/1) |> join_paths()}
+  end
+
+  defp smooth_paths(_segments, _values), do: {"", ""}
+
+  defp join_paths(paths), do: paths |> Enum.reject(&(&1 == "")) |> Enum.join(" ")
 
   # Monotone cubic interpolation for smooth curves that don't overshoot
   defp monotone_curve_path([]), do: ""
-  defp monotone_curve_path([{x, y}]), do: "M #{fmt(x)},#{fmt(y)}"
+  # A lone bucket between holes is a short dash, not an invisible move.
+  defp monotone_curve_path([{x, y}]), do: "M #{fmt(x - 4.0)},#{fmt(y)} L #{fmt(x + 4.0)},#{fmt(y)}"
 
   defp monotone_curve_path(coords) do
     [{x0, y0} | _rest] = coords

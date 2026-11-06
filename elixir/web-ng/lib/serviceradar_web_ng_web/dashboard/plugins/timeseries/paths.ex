@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths do
   @label_char_width 7
   @label_margin 18
   @max_chart_left_pad 160
+  @gap_step_factor 2
 
   def chart_width, do: @chart_width
   def chart_height, do: @chart_height
@@ -66,6 +67,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths do
             {_point, _idx} ->
               :gap
           end)
+          |> break_at_gaps(points, gaps_option(opts) || gaps(points))
 
         segments = contiguous_segments(coords)
 
@@ -111,6 +113,70 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths do
         }
     end
   end
+
+  @doc """
+  The holes in a series, as `{last_before_ms, first_after_ms}` pairs.
+
+  SRQL downsampling returns only the buckets that hold data; it does not emit
+  empty buckets. Two consecutive samples more than `#{@gap_step_factor}` typical
+  steps apart therefore have missing data between them, and the line must stop
+  there rather than draw straight across the hole. The typical step is the
+  median spacing of the series, which is the query's bucket for downsampled
+  data and the collection interval when samples are sparser than the bucket.
+
+  Compute this from the series before it is thinned for drawing: a min/max
+  envelope spaces its survivors unevenly and would read as holes.
+  """
+  @spec gaps(list()) :: [{integer(), integer()}]
+  def gaps(points) when is_list(points) do
+    steps =
+      points
+      |> Enum.flat_map(fn
+        {%DateTime{} = dt, _value} -> [DateTime.to_unix(dt, :millisecond)]
+        _point -> []
+      end)
+      |> Enum.chunk_every(2, 1, :discard)
+      |> Enum.map(fn [before_ms, after_ms] -> {before_ms, after_ms, after_ms - before_ms} end)
+
+    case steps |> Enum.map(&elem(&1, 2)) |> Enum.filter(&(&1 > 0)) |> Enum.sort() do
+      [] ->
+        []
+
+      sorted ->
+        limit = Enum.at(sorted, div(length(sorted), 2)) * @gap_step_factor
+        for {before_ms, after_ms, step} <- steps, step > limit, do: {before_ms, after_ms}
+    end
+  end
+
+  defp gaps_option(opts) when is_map(opts), do: valid_gaps(Map.get(opts, :gaps))
+  defp gaps_option(opts) when is_list(opts), do: valid_gaps(Keyword.get(opts, :gaps))
+  defp gaps_option(_opts), do: nil
+
+  defp valid_gaps(gaps) when is_list(gaps), do: gaps
+  defp valid_gaps(_gaps), do: nil
+
+  # A point drawn after a hole starts a new segment. `gaps` and `points` are
+  # both in time order, and every hole lies between two drawn points, so a hole
+  # is crossed by the first point at or after its far edge.
+  defp break_at_gaps(coords, _points, []), do: coords
+
+  defp break_at_gaps(coords, points, gaps) do
+    {broken, _pending} =
+      coords
+      |> Enum.zip(points)
+      |> Enum.flat_map_reduce(gaps, fn {coord, point}, pending ->
+        {crossed, rest} = Enum.split_while(pending, &crossed_gap?(&1, point))
+        {if(crossed == [], do: [coord], else: [:gap, coord]), rest}
+      end)
+
+    broken
+  end
+
+  defp crossed_gap?({_before_ms, after_ms}, {%DateTime{} = dt, _value}) do
+    after_ms <= DateTime.to_unix(dt, :millisecond)
+  end
+
+  defp crossed_gap?(_gap, _point), do: false
 
   def idx_to_x(idx, len), do: idx_to_x(idx, len, %{})
 
@@ -160,8 +226,9 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths do
 
   def datetime_to_x(_dt, _points, _opts), do: nil
 
-  # A long selected window is the axis, not the samples that happen to exist
-  # inside it. `time_first` / `time_last` are unix milliseconds.
+  # The selected window is the axis, not the samples that happen to exist
+  # inside it, so missing data shows as empty chart. `time_first` / `time_last`
+  # are unix milliseconds.
   def widen_time_domain(domain, opts) when is_map(domain) do
     first = earlier(Map.get(domain, :first), window_bound(opts, :time_first))
     last = later(Map.get(domain, :last), window_bound(opts, :time_last))
