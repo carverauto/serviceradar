@@ -45,7 +45,12 @@ type output struct{ PackagePath, ProvenancePath string }
 type commandRunner interface {
 	run(context.Context, string, ...string) ([]byte, error)
 }
-type builder struct{ runner commandRunner }
+type builder struct {
+	runner commandRunner
+	// sleep waits between staple attempts; nil uses sleepContext. Tests inject a
+	// no-op so retries do not wait in real time.
+	sleep func(context.Context, time.Duration) error
+}
 type systemRunner struct {
 	env []string
 	// limit overrides commandTimeout; tests set it to prove a hang fails fast.
