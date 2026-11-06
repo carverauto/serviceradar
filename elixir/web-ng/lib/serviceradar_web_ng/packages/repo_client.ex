@@ -273,7 +273,8 @@ defmodule ServiceRadarWebNG.Packages.RepoClient do
   `untagged-*` download path that never resolves, and it is never a trust
   anchor. Pages are read until `limit` published releases are collected, so
   drafts cannot consume the window, bounded by `#{@max_release_pages}` pages.
-  A later page that fails keeps the published releases already collected.
+  A later page that fails keeps the published releases already collected, and
+  is returned as an error when no published release was collected before it.
   """
   @spec fetch_recent_releases(%{owner: String.t(), repo: String.t()}, pos_integer(), keyword()) ::
           {:ok, list()} | {:error, term()}
@@ -281,7 +282,7 @@ defmodule ServiceRadarWebNG.Packages.RepoClient do
     capped = normalize_limit(limit)
 
     with {:ok, page} <- fetch_releases_page(parsed, capped, 1, opts) do
-      {:ok, collect_published_releases(parsed, capped, opts, page, 1, [])}
+      collect_published_releases(parsed, capped, opts, page, 1, [])
     end
   end
 
@@ -289,18 +290,21 @@ defmodule ServiceRadarWebNG.Packages.RepoClient do
     collected = Enum.uniq_by(acc ++ Enum.reject(page, &draft_release?/1), &release_identity/1)
 
     if length(collected) >= capped or length(page) < capped or page_number >= @max_release_pages do
-      Enum.take(collected, capped)
+      {:ok, Enum.take(collected, capped)}
     else
       case fetch_releases_page(parsed, capped, page_number + 1, opts) do
         {:ok, next_page} ->
           collect_published_releases(parsed, capped, opts, next_page, page_number + 1, collected)
+
+        {:error, reason} when collected == [] ->
+          {:error, reason}
 
         {:error, reason} ->
           Logger.warning("GitHub release page #{page_number + 1} could not be loaded; keeping earlier pages",
             reason: inspect(reason, limit: 8, printable_limit: 300)
           )
 
-          collected
+          {:ok, collected}
       end
     end
   end
