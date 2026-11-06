@@ -89,13 +89,13 @@ SRQL_INTEGRATION_BUILD = ROOT / "integration_tests/srql/BUILD.bazel"
 SRQL_INTEGRATION_HARNESS = ROOT / "integration_tests/srql/tests/support/harness.rs"
 SRQL_INTEGRATION_ROOT = ROOT / "integration_tests/srql"
 INTEGRATION_DB_ROOT = ROOT / "rust/integration-db"
-ORDINARY_RESULTS_ROUTER = (
+ORDINARY_EDGE_RECORD_DISCOVERY = (
     ROOT
-    / "elixir/serviceradar_core/test/serviceradar/results_router_integration_test.exs"
+    / "elixir/serviceradar_core/test/serviceradar/event_writer/processors/edge_record_discovery_db_test.exs"
 )
-RELEASE_RESULTS_ROUTER = (
+RELEASE_EDGE_RECORD = (
     ROOT
-    / "elixir/serviceradar_core/test/release_gates/large_ingestion/results_router_release_gate_test.exs"
+    / "elixir/serviceradar_core/test/release_gates/large_ingestion/edge_record_release_gate_test.exs"
 )
 RELEASE_IDENTIFIER_CARDINALITY = (
     ROOT
@@ -2855,8 +2855,10 @@ print(open(sys.argv[2]).read().strip())
         core_build = CORE_BUILD.read_text(encoding="utf-8")
         integration_db_build = OBSERVER_BUILD.read_text(encoding="utf-8")
         shard_build = INTEGRATION_SHARDS.read_text(encoding="utf-8")
-        ordinary_router = ORDINARY_RESULTS_ROUTER.read_text(encoding="utf-8")
-        release_router = RELEASE_RESULTS_ROUTER.read_text(encoding="utf-8")
+        ordinary_edge_record = ORDINARY_EDGE_RECORD_DISCOVERY.read_text(
+            encoding="utf-8"
+        )
+        release_edge_record = RELEASE_EDGE_RECORD.read_text(encoding="utf-8")
         release_cardinality = RELEASE_IDENTIFIER_CARDINALITY.read_text(encoding="utf-8")
         all_test_sources = core_build[
             core_build.index("ALL_TEST_SRCS =") : core_build.index(
@@ -2878,21 +2880,25 @@ print(open(sys.argv[2]).read().strip())
         release_provision = ordinary_provision
 
         self.assertNotIn(
-            'test "large Armis sync chunks route through results router into inventory"',
-            ordinary_router,
+            'test "large Armis sync pages and companion sweep, mapper, and metrics edge records route through EdgeRecordIngestServer and EventWriter into inventory"',
+            ordinary_edge_record,
         )
         self.assertIn(
-            'test "large Armis sync chunks route through results router into inventory"',
-            release_router,
+            'test "large Armis sync pages and companion sweep, mapper, and metrics edge records route through EdgeRecordIngestServer and EventWriter into inventory"',
+            release_edge_record,
         )
-        self.assertIn("50_000", release_router)
         self.assertIn(
-            "defmodule ServiceRadar.ResultsRouterLargeIngestionReleaseGateTest",
-            release_router,
+            'test "release gate qualification fails closed on rejected records, revoked grants, incomplete sync runs, missed sweep projections, and threshold breaches"',
+            release_edge_record,
         )
-        self.assertIn("use ServiceRadar.DataCase, async: false", release_router)
-        self.assertIn("@moduletag :integration", release_router)
-        self.assertIn("@moduletag :large_ingestion", release_router)
+        self.assertIn("50_000", release_edge_record)
+        self.assertIn(
+            "defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest",
+            release_edge_record,
+        )
+        self.assertIn("use ServiceRadar.DataCase, async: false", release_edge_record)
+        self.assertIn("@moduletag :integration", release_edge_record)
+        self.assertIn("@moduletag :large_ingestion", release_edge_record)
         for retained in (
             "setup_all do",
             "setup do",
@@ -2902,8 +2908,17 @@ print(open(sys.argv[2]).read().strip())
             "defp ceil_div(left, right)",
             "defp large_ingestion_ip(device_number)",
             "defp scalar_count!(sql, params)",
+            "EdgeRecordIngestServer.stream",
+            "JetStreamPublisher.publish_record",
+            "EdgeRecord.process_batch",
+            "serviceradar.sync.page.batch",
+            "serviceradar.sweep.observation",
+            "serviceradar.sweep.unleased_results",
+            "serviceradar.mapper.devices.batch",
+            "serviceradar.metrics.batch",
+            "qualify_edge_ingestion_run!",
         ):
-            self.assertIn(retained, release_router)
+            self.assertIn(retained, release_edge_record)
         self.assertIn(
             'test "identifier rows stay bounded across churned ingest rounds"',
             release_cardinality,
@@ -2918,7 +2933,7 @@ print(open(sys.argv[2]).read().strip())
             release_cardinality,
         )
         for release_gate_source in (
-            "test/release_gates/large_ingestion/results_router_release_gate_test.exs",
+            "test/release_gates/large_ingestion/edge_record_release_gate_test.exs",
             "test/release_gates/large_ingestion/identifier_cardinality_release_gate_test.exs",
         ):
             self.assertNotIn(release_gate_source, shard_build)
@@ -2940,6 +2955,14 @@ print(open(sys.argv[2]).read().strip())
         self.assertEqual(1, core_build.count('name = "large_ingestion_release_gate"'))
         self.assertIn('size = "enormous"', release_target)
         self.assertIn('"test/release_gates/large_ingestion/*_test.exs"', release_target)
+        self.assertIn(
+            '"test/release_gates/large_ingestion/results_router_release_gate_test.exs"',
+            release_target,
+        )
+        self.assertIn(
+            '"//elixir/serviceradar_agent_gateway:erlang_app"',
+            release_target,
+        )
         self.assertEqual(1, release_target.count(f'"{DATABASE_BOOTSTRAP_SOURCE}"'))
         self.assertIn("allow_empty = False", release_target)
         self.assertIn("data = INTEGRATION_RUNTIME_DATA", release_target)

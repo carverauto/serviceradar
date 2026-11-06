@@ -1167,6 +1167,9 @@ ex_unit_test(
     srcs = glob(
         ["test/release_gates/large_ingestion/*_test.exs"],
         allow_empty = False,
+        exclude = [
+            "test/release_gates/large_ingestion/results_router_release_gate_test.exs",
+        ],
     ) + [
         "test/serviceradar/cluster/database_bootstrap_integration_test.exs",
     ],
@@ -1202,7 +1205,9 @@ ex_unit_test(
         "large_ingestion_test",
     ],
     target_compatible_with = requires_shared_fixture(),
-    deps = INTEGRATION_TEST_DEPS,
+    deps = INTEGRATION_TEST_DEPS + [
+        "//elixir/serviceradar_agent_gateway:erlang_app",
+    ],
 )
 
 # Explicit hosted capacity run on a fresh serial_2 clone. Never run beside the

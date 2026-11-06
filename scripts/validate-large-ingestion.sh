@@ -29,11 +29,11 @@ MSG
   exit 1
 fi
 
-echo "Running core ResultsRouter large-ingestion release gate (${DEVICE_COUNT} devices, chunk size ${CHUNK_SIZE})"
+echo "Running core EdgeRecord large-ingestion release gate (${DEVICE_COUNT} devices, chunk size ${CHUNK_SIZE})"
 (
   cd "${ROOT_DIR}/elixir/serviceradar_core"
   SERVICERADAR_LARGE_INGESTION_DEVICE_COUNT="${DEVICE_COUNT}" \
   SERVICERADAR_LARGE_INGESTION_CHUNK_SIZE="${CHUNK_SIZE}" \
   MIX_ENV=test mix test --include large_ingestion --only large_ingestion \
-    test/serviceradar/results_router_integration_test.exs
+    test/release_gates/large_ingestion/edge_record_release_gate_test.exs
 )
