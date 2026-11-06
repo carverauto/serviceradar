@@ -8,8 +8,10 @@ Every piece of durable data an agent collects reaches the platform as an
 **edge record**: a signed, typed record that the agent writes to an on-disk
 spool and delivers to `agent-gateway`. The agent lets go of a record only once
 the gateway has stored it in NATS JetStream or rejected it permanently, and a
-rejected record is moved to a local quarantine first. EventWriter then projects each record into storage
-exactly once. This is the only path for agent data. It has no on/off switch in
+rejected record is moved to a local quarantine first. EventWriter then projects
+each record from the primary stream into storage exactly once; an audit-stream
+record gets only its ledger row, and a security-quarantine record is held in
+JetStream without being written anywhere. This is the only path for agent data. It has no on/off switch in
 Helm, in the environment or in CNPG, and it runs the same way on Helm, Docker
 Compose and hosted installs and on package-installed agents.
 
@@ -27,13 +29,16 @@ is republished to, which ingestor stores it) are in
   gateway acknowledge it, and only then does the agent reclaim its bytes; a
   permanently rejected record is first copied to the agent's local spool
   quarantine.
-- **Each record is stored once.** EventWriter claims each record's delivery
-  slot and its event ledger row in the same database transaction as the
-  projector's writes. A redelivered or replayed record that the ledger already
+- **Each record is stored once.** For a primary-stream record, EventWriter
+  claims the delivery slot and the event ledger row in the same database
+  transaction as the projector's writes; an audit-stream record claims only
+  the slot and ledger row, and a security-quarantine record writes nothing. A redelivered or replayed record that the ledger already
   holds writes nothing.
 - **Restarts do not lose data.** The agent spool is on disk, the edge-record
   streams are file-backed and replicated, and every hand-off of an accepted
-  record is acknowledged only after the next stage holds it. An agent, gateway, NATS or core
+  record between them is acknowledged only after the next stage holds it (the
+  exception is the OTel log and OCSF republish described under
+  [EventWriter projects the record](#4-eventwriter-projects-the-record)). An agent, gateway, NATS or core
   restart therefore leads to a redelivery, not a gap, as long as EventWriter
   drains the primary stream within its retention (see
   [Messages expired before delivery](#messages-expired-before-delivery)).
@@ -192,17 +197,23 @@ ledger row in one transaction, and the projector's database writes run inside
 that transaction.
 
 A projector whose destination is a JetStream subject (metrics, OTel, logs, flow
-attribution) republishes the record's payload there with a PubAck before the
-transaction, only for a fresh primary delivery. Most of those publishes carry a
-`Nats-Msg-Id` that a redelivery of the same record reproduces, and the id
-differs by projector: metrics use the edge record's event id; metric payloads
-in a telemetry batch use a UUID hashed from the event id and the payload index;
-flow attribution uses `<event uuid>:<split index>`; and the OTLP relay uses
-each inner `TelemetryRecord`'s own `event_id`. Look up a duplicate by the id
-its projector sets, not only by the edge record's event id. OTel log and OCSF
-event payloads in a telemetry batch are republished without a `Nats-Msg-Id`,
-so a redelivery after a failed ledger commit publishes them a second time. Existing consumers on those subjects (storage, alerting,
-anomaly detection) therefore see the data exactly as before. Telemetry storage
+attribution) republishes the record's payload there before the transaction,
+only for a fresh primary delivery, so existing consumers on those subjects
+(storage, alerting, anomaly detection) keep receiving it. Metric payloads,
+flow-attribution splits and OTLP relay chunks wait for the PubAck and carry a
+`Nats-Msg-Id` that a redelivery of the same record reproduces, so JetStream
+drops the repeat within its duplicate window. The id differs by projector:
+metrics use the edge record's event id; metric payloads in a telemetry batch
+use a UUID hashed from the event id and the payload index; flow attribution
+uses `<event uuid>:<split index>`; and the OTLP relay uses each inner
+`TelemetryRecord`'s `event_id`, or `<edge event uuid>:<index>` when that is
+empty. Look up a duplicate by the id its projector sets, not only by the edge
+record's event id.
+
+OTel log and OCSF payloads in a telemetry batch (including edge anomaly
+verdicts) are the exception: they go out as a plain NATS publish, with no
+PubAck wait and no `Nats-Msg-Id`. A redelivery after a failed ledger commit
+publishes them again, and consumers on those subjects see a second copy. Telemetry storage
 follows the platform rule: StarRocks when it is enabled, CNPG otherwise; flows
 and flow attribution are stored only in StarRocks. Inventory and discovery
 records are handed to the existing ingestors (sync, mapper, workload identity,
@@ -396,8 +407,12 @@ kubectl -n <namespace> exec deploy/serviceradar-core -- /app/bin/serviceradar_co
 Both take `subject:`, `from_sequence:` and `limit:` (default 100) and return a
 `next_sequence` for paging. Replay republishes each record to its original
 subject, restores its message id, and deletes the dead-letter copy only after
-the PubAck. Replaying twice changes nothing, and a record that still fails is
-dead-lettered again. The full procedure, headers and result codes are in the
+the PubAck. A record the ledger already holds writes nothing when it is
+replayed, and a record that still fails is dead-lettered again. If the source
+stream still holds a message with the restored id inside its duplicate window,
+JetStream reports a duplicate, nothing is redriven, and the entry's result is
+`{:error, :source_duplicate}`; the dead-letter copy is kept, so replay it
+again once the window has passed. The full procedure, headers and result codes are in the
 [dead-letter runbook](https://github.com/carverauto/serviceradar/blob/staging/docs/edge-record-dead-letter-runbook.md).
 
 ### Security quarantine
@@ -571,7 +586,9 @@ kubectl -n <namespace> exec deploy/serviceradar-tools -- \
 2. List them with `Replay.list/1` (above) and read `Sr-Edge-Dlq-Reason` and
    `Sr-Edge-Dlq-Reason-Detail`.
 3. Fix the cause, then run `Replay.replay/1`. Records that fail again return to
-   the dead-letter stream; nothing is lost.
+   the dead-letter stream. An entry that reports `:source_duplicate` stayed in
+   the dead-letter stream unreplayed; run the replay again after the source
+   stream's duplicate window has passed.
 
 ### An agent shows agent_upgrade_pending
 

@@ -50,7 +50,7 @@ log is promoted once, under an id derived from the JetStream message.
 Every durable agent data family travels only as edge records: the agent spools
 each record to disk, `agent-gateway` verifies it and stores it in JetStream (or
 rejects it permanently, and the agent quarantines it locally), and EventWriter
-projects each stored record once. The agent status RPCs (`PushStatus`,
+projects each primary-stream record once. The agent status RPCs (`PushStatus`,
 `StreamStatus`) carry only ephemeral status summaries, the agent capability
 status and plugin-engine counters, and the gateway refuses and counts any
 durable data an older agent still sends there. A producer emits records only
