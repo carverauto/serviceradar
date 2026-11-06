@@ -47,42 +47,18 @@ consumer promotes logs that match an event rule into
 OCSF events as it stores them; there is no separate promotion consumer, so each
 log is promoted once, under an id derived from the JetStream message.
 
-The agent status RPCs (`PushStatus`, `StreamStatus`) carry only ephemeral status
-summaries: service health heartbeats and plugin-engine counters. `agent-gateway`
-publishes no agent data from them. An agent built before the edge-record cutover
-still sends metrics, results and telemetry there; the gateway refuses that data
-without storing it, and it refuses a summary over 4 KiB whole rather than cutting
-it. It counts each refusal per agent and family (`oversized_summary` for a
-summary that is too large)
-(`serviceradar_agent_gateway_status_retired_source_refused_count`), and the agent
-shows the `agent_upgrade_pending` edge pipeline condition with the refused counts
-until it is upgraded.
-
-Every durable agent data family travels only as edge records in the agent's
-spool. The status path (`PushStatus`) carries nothing but service status
-summaries, the agent capability status and the plugin-engine counters. A
-producer emits records under the standing grant core issues for its contract.
-Without that grant, or without an open spool, a producer holds its data as it
-does when the spool refuses admission; it never sends that data on the status
-path:
-
-- Sysmon, SNMP, ICMP and periodic sweep summary samples, and plugin telemetry
-  signals, wait in the producer's bounded queue. When the queue overflows, the
-  oldest entries are dropped and counted as
-  `agent_edge_record_dropped_samples_total{reason="awaiting_grant"}`.
-- Every other producer stops reading its source, which keeps the data: plugin
-  results, mapper and netprobe discovery, flow attribution (the netprobe
-  sidecar counts what its channel drops, and the next batch reports it), the
-  workload identity, Kubernetes public endpoint, endpoint inventory and
-  bumblebee snapshots, unleased sweep results, rperf, and OTLP relay frames,
-  which stay unacked in the add-on's durable spool. MTR checks do not run
-  without both their grants, and a sync run does not start without its grant.
-- Each push cycle a producer spends holding for a grant is counted as
-  `agent_edge_record_grant_holds_total{producer}`.
-
-Records already built under an earlier grant are appended before anything new
-is read. Core reports an agent that cannot get grants (`partition_not_found`)
-or cannot open its spool (`spool_unavailable`) as an edge pipeline condition.
+Every durable agent data family travels only as edge records: the agent spools
+each record to disk, `agent-gateway` verifies it and stores it in JetStream (or
+rejects it permanently, and the agent quarantines it locally), and EventWriter
+projects each primary-stream record once. The agent status RPCs (`PushStatus`,
+`StreamStatus`) carry only ephemeral status summaries, the agent capability
+status and plugin-engine counters, and the gateway refuses and counts any
+durable data an older agent still sends there. A producer emits records only
+under the standing grant core issues for its contract, and holds its data
+rather than falling back when it has none. The guarantee, grants, hold rules,
+dead-lettering, readiness conditions and troubleshooting are described in
+[Durable Edge Records](./durable-edge-records.md). The rest of this section is
+how each family is projected.
 
 Sysmon, SNMP, ICMP, rperf and MTR scalar metrics and the periodic sweep summary
 share the `serviceradar.metrics.batch` grant. Each producer keeps its own queue
@@ -95,7 +71,8 @@ chunks, are spooled together under the `serviceradar.sweep.unleased_results`
 version 1 and metrics grants. A leased sweep group emits observation batches
 from its lease instead. A results response that cannot form the typed batch,
 or whose first record the spool refuses permanently, is dropped and counted.
-The agent splits each metrics record at 512 KiB. An unleased sweep results
+The agent splits a metrics batch into records of at most 512 KiB; a single
+metric point that no record can hold is dropped and counted. An unleased sweep results
 record is split by halving the host list so it stays within that grant's row
 ceiling and 512 KiB. Core republishes the metric records onto the
 `metrics.sysmon.>`, `metrics.snmp.>`, `metrics.icmp.>`, `metrics.rperf.>`,
@@ -177,22 +154,14 @@ admission, the agent stops polling the bumblebee spool. Core feeds the scan to
 ## Durable Edge-Record Pipeline
 
 The edge-record pipeline described above is always on. It has no switch in
-Helm, in the environment or in CNPG:
+Helm, in the environment or in CNPG, and Docker Compose and hosted installs run
+it with no extra configuration. Core derives the contract registry from the
+release's contract catalog and signs each registry epoch with its edge issuer
+key, both kept in CNPG; derived epochs are numbered from 1,000,000. Agents always
+run the sender and spool.
 
-- Core derives the contract registry from the release's contract catalog,
-  records each registry epoch in CNPG, and signs it with its edge issuer key,
-  which it also keeps in CNPG. Derived epochs are numbered from 1,000,000.
-- Gateways receive every non-retired epoch from core in the trust document,
-  verify each signature, and admit a record only against the epoch it names.
-- Agents always run the sender and spool, under
-  `/var/lib/serviceradar/agent/edge-records` unless their config names another
-  `edge_record_sender.spool_dir`. A producer moves to edge records exactly while
-  it holds core's grant for its contract. Core issues those grants to every
-  agent whose partition has a row, and sends the spool byte budget (1 GiB
-  unless changed in the edge pipeline settings) in the agent config.
-
-Docker Compose and hosted installs run the pipeline with no extra
-configuration.
+See [Durable Edge Records](./durable-edge-records.md) for how the pipeline
+works, how to operate it, and how to troubleshoot it.
 
 ### Upgrading from the static registry
 

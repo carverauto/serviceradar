@@ -27,6 +27,7 @@ Demo site available at https://demo.serviceradar.cloud login: `demo@serviceradar
 ## Features
 
 - **Distributed Architecture**: Multi-component design (Agent, Gateway, Core) for flexible edge deployments.
+- **Durable Edge Data Pipeline**: Agents spool the metrics, results and inventory they collect to disk and deliver them as signed edge records; only ephemeral status summaries stay on the status RPC. The gateway acknowledges an accepted record only after NATS JetStream stores it, and core projects each authoritative (primary-stream) record exactly once, across restarts of the agent, gateway, core or NATS. Agent data no longer travels on the lossy legacy status path. See [Durable Edge Records](./docs/docs/durable-edge-records.md).
 - **WASM Plugin System**: Securely extend monitoring with custom checks in Go or Rust. Runs in a hardware-level sandbox with zero local dependencies and proxied networking.
 - **ServiceRadar Atlas**: GPU-native topology map of the whole estate. World tiles render with [deck.gl](https://deck.gl/) and [Apache Arrow](https://arrow.apache.org/), bounded scenes use a WASM logic layer, and a server-side [roaring bitmap](https://github.com/RoaringBitmap/roaring) index filters the map by inventory attributes. See [Network Topology](./docs/docs/network-topology.md).
 - **Custom React Dashboards**: Build powerful, data-driven dashboards with the [Dashboard SDK](https://developer.serviceradar.cloud/docs/v2/dashboard-sdk). Dashboards run inside ServiceRadar, receive SRQL-backed data frames, and can be developed locally with hot module reloading before publishing.
@@ -232,13 +233,37 @@ Operational enrollment and rotation: [Managed component certificates](docs/manag
 
 ## Architecture
 
-1. **Agent**: Lightweight Go service on monitored hosts; manages WASM execution and local collection.
-2. **Agent-Gateway**: Ingestion point that receives gRPC streams from edge agents.
+1. **Agent**: Lightweight Go service on monitored hosts; manages WASM execution and local collection, and spools collected metrics, results and inventory to disk as signed edge records.
+2. **Agent-Gateway**: Ingestion point for edge agents. It verifies each edge record and publishes it to JetStream, and acknowledges an accepted record only after JetStream stores it.
 3. **Core (core-elx)**: Control plane (Elixir/Phoenix/Ash) for orchestration, ERTS, and job scheduling (Oban). Its EventWriter consumes the JetStream telemetry streams and writes them to StarRocks, or to CloudNativePG when the warehouse is off.
 4. **Web UI (web-ng)**: Real-time LiveView dashboard, ServiceRadar Atlas, and APIs for configuration and visualization.
-5. **NATS**: [NATS JetStream](https://docs.nats.io/nats-concepts/jetstream) message broker for bulk ingestion streams.
+5. **NATS**: [NATS JetStream](https://docs.nats.io/nats-concepts/jetstream) message broker for the replicated edge-record streams and bulk ingestion streams.
 6. **Collectors**: Collect bulk data (netflow, logs, SNMP, etc.).
 7. **Storage**: CloudNativePG for inventory and current state, Dgraph for the topology graph, and the optional StarRocks warehouse (local disks or S3-backed) for telemetry.
+
+### Durable data pipeline
+
+Every metric, result and inventory snapshot an agent produces follows one path,
+and the gateway acknowledges an accepted record only after JetStream has
+stored it:
+
+```text
+agent producers -> on-disk spool -> agent-gateway (verify grant + signature)
+  -> JetStream TELEMETRY_EDGE_RECORD_V1_BULK (replicated, PubAck)
+  -> EventWriter projector + event ledger -> CloudNativePG or StarRocks
+                 |
+                 +-> dead-letter stream after repeated failures -> replay
+```
+
+The agent reclaims a record only after the gateway reports it stored or
+permanently rejected (a rejected record moves to a local quarantine), so a
+restart of any component leads to a redelivery. The EventWriter ledger turns a
+redelivery of a record it already holds into a no-op, and a record whose
+ledger commit never happened is projected on redelivery (telemetry-batch OTel
+log and OCSF payloads can then be republished twice). Core signs a grant per agent and output contract;
+a producer without one holds its data instead of falling back. The pipeline is
+always on, and agents must be upgraded with the platform. Details, metrics and
+troubleshooting: [Durable Edge Records](https://docs.serviceradar.cloud/docs/durable-edge-records).
 
 ## Documentation
 
