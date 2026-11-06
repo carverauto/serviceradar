@@ -20,19 +20,22 @@ Tracking epic: #6271 ("Falco transport" item).
   diagnostics (process, parent, user, file, network, container, Kubernetes), MITRE `attacks`,
   observables, an attribution status, and a `finding_info` whose uid hashes
   `{rule, source, subject, class_uid, hostname, namespace, pod, container_id}`.
-- **Per event, FalcoEvents writes** a `logs` row with the whole payload, an `ocsf_events` row with
-  `message = output`, `unmapped = payload` and `raw_data`, both through
-  `Destination.persist_after_cnpg/3`, then admits every row into `StatefulAlertEngine` through
-  `StatefulEvaluationLedger.evaluate_once/1`.
+- **Per event, FalcoEvents writes** a `logs` row with the whole payload and an event row with
+  `message = output`, `unmapped = payload` and `raw_data`, each through `Destination.store/3` to
+  exactly one store (the warehouse `logs`/`events` tables when that dataset is cut over to
+  StarRocks, CNPG `logs`/`ocsf_events` otherwise), then admits every row into
+  `StatefulAlertEngine` through `StatefulEvaluationLedger.evaluate_once/1`.
 - **Alerting.** The managed rule `falco_critical_incident` (template v1) matches `log_name`
   prefix `falco.` at severity >= Critical with `group_by: ["rule", "hostname"]`.
 - **Device correlation.** `DeviceCorrelation.resolve/1` tries the explicit uid, the agent id
   (including an inferred `agent-<hostname>`), `platform.workload_identity_current`, IP, then
   hostname, and on a shared hostname takes the first device by sort order.
-- **Warehouse widths.** `ServiceRadar.Analytics.StarRocks.Rows` truncates the event `message` to
-  65,533 bytes and drops document columns over 1,048,576 bytes; the warehouse `events` table has
-  no `raw_data` column; `logs.body` is `VARCHAR(65533)` with no guard; BMP, OTel span and flow
-  attribution columns are also truncated to their widths.
+- **Warehouse widths.** The warehouse `events` table stores `raw_data` and the other fields CNPG
+  keeps (`priv/starrocks/0036`), and event and log free text, including `message` and
+  `logs.body`, is `VARCHAR(1048576)` (`0037`). `ServiceRadar.Analytics.StarRocks.Rows` stores that
+  text whole, but drops (and reports) a text field or document column over 1,048,576 bytes
+  instead of spilling it, and stores an over-long identifier as NULL. BMP, OTel span and flow
+  attribution columns are still truncated to their widths.
 
 ### The agent edge spool
 
