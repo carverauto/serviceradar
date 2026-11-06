@@ -43,21 +43,20 @@ defmodule ServiceRadar.Analytics.StarRocks.DestinationTest do
     end
 
     assert :ok =
-             LoadHealth.report(:metrics, [%{metric_name: "cpu_usage"}], true, request: request)
+             LoadHealth.report(:metrics, [%{metric_name: "cpu_usage"}], request: request)
 
     assert_received {:published, "metrics.event_writer.warehouse", body}
     assert {:ok, rows} = MetricEnvelope.decode_rows(body)
 
-    assert Enum.sort(Enum.map(rows, & &1.metric_name)) ==
-             ["event_writer_warehouse_load_failures", "event_writer_warehouse_partial_writes"]
+    assert Enum.map(rows, & &1.metric_name) == ["event_writer_warehouse_load_failures"]
 
     assert Enum.all?(rows, &(&1.is_delta and &1.value == 1.0 and &1.tags["dataset"] == "metrics"))
 
-    assert :ok = LoadHealth.report(:metrics, rows, true, request: request)
+    assert :ok = LoadHealth.report(:metrics, rows, request: request)
     refute_received {:published, _, _}
 
     assert {:error, {:jetstream, %{"code" => 503}}} =
-             LoadHealth.report(:otel_traces, [%{id: "span-01"}], false,
+             LoadHealth.report(:otel_traces, [%{id: "span-01"}],
                request: fn _, _, _ ->
                  {:ok, %{body: Jason.encode!(%{"error" => %{"code" => 503}})}}
                end
@@ -77,32 +76,6 @@ defmodule ServiceRadar.Analytics.StarRocks.DestinationTest do
 
     assert hd(encoded)["id"] == "550e8400-e29b-41d4-a716-446655440000"
     assert {:ok, _} = Jason.encode(encoded)
-  end
-
-  test "shadow persist crash does not fail ACK while cutover is empty" do
-    prev = Application.get_env(:serviceradar_core, StarRocks, [])
-
-    Application.put_env(
-      :serviceradar_core,
-      StarRocks,
-      prev
-      |> Keyword.put(:enabled, true)
-      |> Keyword.put(:shadow_datasets, [:logs])
-      |> Keyword.put(:cutover_datasets, [])
-    )
-
-    try do
-      persist = fn _table, _rows, _opts -> raise "stream load unavailable" end
-
-      assert {:ok, :disabled} =
-               Destination.persist_after_cnpg(
-                 :logs,
-                 [%{id: "log-alpha-0001", timestamp: ~U[2026-01-15 10:00:01Z], body: "x"}],
-                 persist: persist
-               )
-    after
-      Application.put_env(:serviceradar_core, StarRocks, prev)
-    end
   end
 
   test "flow identity is the observation, not only the five-tuple" do
@@ -217,11 +190,8 @@ defmodule ServiceRadar.Analytics.StarRocks.DestinationTest do
 
     persist = fn _table, _rows, _opts -> {:quarantine, {:filtered_rows, 3, "label-alpha"}} end
 
-    assert {:ok, %{missing: [], completed: [:cnpg, :starrocks]}} =
-             Destination.persist_shadow(:flows, @flow_rows,
-               completed: [:cnpg],
-               persist: persist
-             )
+    assert {:ok, %{quarantine: true}} =
+             Destination.persist_warehouse(:flows, @flow_rows, persist: persist)
 
     assert_received {:quarantined, %{rows: 3}, %{dataset: :flows, table: "ocsf_network_activity"}}
   end
@@ -315,8 +285,8 @@ defmodule ServiceRadar.Analytics.StarRocks.DestinationTest do
     test "the provider's rows with those ids are deleted before the load" do
       {:ok, raw_other} = Ecto.UUID.dump(@other_report_id)
 
-      assert {:ok, %{missing: []}} =
-               Destination.persist_shadow(:events, [@report_event],
+      assert {:ok, %{loaded: 1}} =
+               Destination.persist_warehouse(:events, [@report_event],
                  config: @replace_config,
                  replace: %{ids: [@report_id, raw_other, @report_id], log_provider: "trivy"},
                  delete: recording(self(), {:ok, %{}}),
@@ -364,11 +334,10 @@ defmodule ServiceRadar.Analytics.StarRocks.DestinationTest do
       assert labels |> List.flatten() |> Enum.uniq() |> length() == 4
     end
 
-    test "a failed delete loads nothing and fails a required load" do
-      assert {:error, {:missing_destinations, %{missing: [:starrocks]}}} =
-               Destination.persist_shadow(:events, [@report_event],
+    test "a failed delete loads nothing and fails the load" do
+      assert {:error, {:warehouse_load, :events, {:replace_failed, :connect_failed}}} =
+               Destination.persist_warehouse(:events, [@report_event],
                  config: @replace_config,
-                 require_all: true,
                  replace: %{ids: [@report_id], log_provider: "trivy"},
                  delete: recording(self(), {:error, :connect_failed}),
                  persist: loading(self())
@@ -383,10 +352,9 @@ defmodule ServiceRadar.Analytics.StarRocks.DestinationTest do
             %{ids: [@report_id, "x') OR ('1'='1"], log_provider: "trivy"},
             %{ids: [@report_id], log_provider: "trivy' OR '1'='1"}
           ] do
-        assert {:error, {:missing_destinations, _}} =
-                 Destination.persist_shadow(:events, [@report_event],
+        assert {:error, {:warehouse_load, :events, _reason}} =
+                 Destination.persist_warehouse(:events, [@report_event],
                    config: @replace_config,
-                   require_all: true,
                    replace: replace,
                    delete: recording(self(), {:ok, %{}}),
                    persist: loading(self())
@@ -397,8 +365,8 @@ defmodule ServiceRadar.Analytics.StarRocks.DestinationTest do
     end
 
     test "without a replace nothing is deleted" do
-      assert {:ok, %{missing: []}} =
-               Destination.persist_shadow(:events, [@report_event],
+      assert {:ok, %{loaded: 1}} =
+               Destination.persist_warehouse(:events, [@report_event],
                  config: @replace_config,
                  delete: recording(self(), {:ok, %{}}),
                  persist: loading(self())
@@ -449,47 +417,6 @@ defmodule ServiceRadar.Analytics.StarRocks.DestinationTest do
     end
   end
 
-  test "disabled shadow writes are a no-op" do
-    assert {:ok, :disabled} = Destination.maybe_shadow(:flows, @flow_rows, enabled: false)
-  end
-
-  test "partial success retries only the missing StarRocks destination" do
-    persist_calls = :counters.new(1, [])
-
-    persist = fn table, rows, _opts ->
-      :counters.add(persist_calls, 1, 1)
-      assert table == "ocsf_network_activity"
-      assert hd(rows)["id"] == "flow-alpha-0001"
-      {:ok, %{loaded: 1, label: "sr-flow-alpha"}}
-    end
-
-    assert {:ok, %{completed: [:cnpg, :starrocks], missing: [], loaded: 1}} =
-             Destination.persist_shadow(:flows, @flow_rows,
-               completed: [:cnpg],
-               persist: persist
-             )
-
-    assert :counters.get(persist_calls, 1) == 1
-
-    assert {:ok, %{completed: [:cnpg, :starrocks], missing: []}} =
-             Destination.persist_shadow(:flows, @flow_rows,
-               completed: [:cnpg, :starrocks],
-               persist: persist
-             )
-
-    assert :counters.get(persist_calls, 1) == 1
-  end
-
-  test "StarRocks failure leaves the destination missing without requiring CNPG rewrite" do
-    persist = fn _table, _rows, _opts -> {:error, :publish_timeout} end
-
-    assert {:ok, %{completed: [:cnpg], missing: [:starrocks], partial: true}} =
-             Destination.persist_shadow(:flows, @flow_rows,
-               completed: [:cnpg],
-               persist: persist
-             )
-  end
-
   test "metrics, logs and events encode through the destination seam" do
     persist = fn table, rows, _opts ->
       send(self(), {:loaded, table, rows})
@@ -521,50 +448,21 @@ defmodule ServiceRadar.Analytics.StarRocks.DestinationTest do
       severity_id: 1
     }
 
-    assert {:ok, %{missing: []}} =
-             Destination.persist_shadow(:metrics, [metric], completed: [:cnpg], persist: persist)
+    assert {:ok, %{loaded: 1}} =
+             Destination.persist_warehouse(:metrics, [metric], persist: persist)
 
     assert_received {:loaded, "timeseries_metrics", [loaded_metric]}
     assert loaded_metric["series_key"] == "if:1:bytes_in"
 
-    assert {:ok, %{missing: []}} =
-             Destination.persist_shadow(:logs, [log], completed: [:cnpg], persist: persist)
+    assert {:ok, %{loaded: 1}} = Destination.persist_warehouse(:logs, [log], persist: persist)
 
     assert_received {:loaded, "logs", [loaded_log]}
     assert loaded_log["id"] == "log-alpha-0001"
 
-    assert {:ok, %{missing: []}} =
-             Destination.persist_shadow(:events, [event], completed: [:cnpg], persist: persist)
+    assert {:ok, %{loaded: 1}} = Destination.persist_warehouse(:events, [event], persist: persist)
 
     assert_received {:loaded, "events", [loaded_event]}
     assert loaded_event["id"] == "evt-alpha-0001"
-  end
-
-  test "enabling the warehouse shadows every telemetry dataset" do
-    prev = Application.get_env(:serviceradar_core, StarRocks, [])
-
-    Application.put_env(
-      :serviceradar_core,
-      StarRocks,
-      prev |> Keyword.put(:enabled, true) |> Keyword.put(:shadow_datasets, [])
-    )
-
-    try do
-      persist = fn table, _rows, _opts -> {:ok, %{loaded: 1, label: "sr-#{table}"}} end
-
-      log = %{
-        id: "log-alpha-0001",
-        timestamp: ~U[2026-01-15 10:00:01Z],
-        ingest_identity: "seq:1:0",
-        severity_text: "info",
-        body: "synthetic log line"
-      }
-
-      assert {:ok, %{missing: []}} =
-               Destination.maybe_shadow(:logs, [log], persist: persist)
-    after
-      Application.put_env(:serviceradar_core, StarRocks, prev)
-    end
   end
 
   test "raw flow loads protect attribution across regrouped deliveries" do

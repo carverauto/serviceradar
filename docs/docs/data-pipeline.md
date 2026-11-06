@@ -216,8 +216,11 @@ history -- flows, scalar metrics, logs, event history, and further append-only
 datasets, including BMP routing events -- written by the same EventWriter path.
 The BMP table and retention contract is in `k8s/starrocks/README.md`. CNPG
 remains the system of record for inventory,
-configuration, credentials and current alert state, and keeps serving scalar
-metrics, logs and event history until each is explicitly cut over. Flows are
+configuration, credentials and current alert state. Each telemetry dataset is
+written only to the store it is read from, never to both: with the warehouse
+enabled, scalar metrics, MTR, OTel metrics and traces and BMP routing events
+are stored there only, and logs and event history are stored there only once
+named in `analytics.starrocks.cutoverDatasets` (CNPG only until then). Flows are
 stored only in StarRocks and are never written to CNPG. Without the warehouse
 they are not stored, and `in:flows` and the NetFlow dashboard are refused. See
 [NetFlow](./netflow.md#flow-cutover-and-delivery) and

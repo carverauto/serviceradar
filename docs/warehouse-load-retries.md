@@ -53,15 +53,16 @@ another attempt is planned. An unresolved label also logs a warning with the
 table, label, what started reconciliation (the load's status or an HTTP
 timeout), and the `get_load_state` answer: the state, the HTTP status and
 body, a payload without `state`, or the transport error. Only the frontend's
-response is logged, never the request. Partial-write errors retain the underlying
-warehouse error alongside completed and missing destinations.
+response is logged, never the request. A failed load returns
+`{:warehouse_load, dataset, reason}` with the underlying warehouse error.
 
-`event_writer_warehouse_load_failures` and, after a completed CNPG insert,
-`event_writer_warehouse_partial_writes` are delta counters tagged by dataset.
-They publish on `metrics.event_writer.warehouse` and require a JetStream
-PubAck, with a bounded 500 ms wait. EventWriter persists the samples through
-the normal metric pipeline. Their own load failures do not generate more
-failure samples. Failed health publication is logged; local failure telemetry
+`event_writer_warehouse_load_failures` is a delta counter tagged by dataset.
+There is no partial-write counter: telemetry is not shadowed into CNPG, and a
+batch is acknowledged only after its warehouse load succeeds. The counter
+publishes on `metrics.event_writer.warehouse` and requires a JetStream PubAck,
+with a bounded 500 ms wait. EventWriter persists the samples through the
+normal metric pipeline. Their own load failures do not generate more failure
+samples. Failed health publication is logged; local failure telemetry
 and the Prometheus counter remain available while NATS is unavailable.
 
 For recurring connection failures, inspect coordinator and frontend pod restart

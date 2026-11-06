@@ -108,7 +108,8 @@ Optional profiles:
 # Every StarRocks command below needs STARROCKS_ROOT_PASSWORD in .env first;
 # see "StarRocks root password".
 
-# Warehouse only (metrics/logs/events shadow). No flow collector.
+# Warehouse only, no flow collector. Logs and events stay on CNPG until named
+# in STARROCKS_CUTOVER_DATASETS; nothing is written to both.
 STARROCKS_ENABLED=true docker compose --profile starrocks up -d
 
 # Warehouse + NetFlow/sFlow collector. NetFlow requires the warehouse.

@@ -122,10 +122,26 @@ defmodule ServiceRadar.Observability.LogPromotion do
 
   defp insert_events([]), do: {:ok, 0}
 
-  # A warehouse load failure is returned, not ignored: once `events` is served
-  # from the warehouse a swallowed failure would lose the event there, and the
-  # stable event ids make the caller's retry store nothing twice.
+  # Promoted events are written to the one store events are read from
+  # (`Destination.store/3`). A warehouse load failure is returned, not
+  # ignored: the stable event ids make the caller's retry store nothing twice.
   defp insert_events(events) do
+    with {:ok, count} <- Destination.store(:events, events, fn -> insert_cnpg(events) end) do
+      if count > 0 do
+        ServiceRadar.Events.PubSub.broadcast_event(%{count: count})
+      end
+
+      :telemetry.execute(
+        [:serviceradar, :log_promotion, :events_created],
+        %{count: count},
+        %{}
+      )
+
+      {:ok, count}
+    end
+  end
+
+  defp insert_cnpg(events) do
     # DB connection's search_path determines the schema
     {count, _} =
       BulkInsert.insert_all(
@@ -135,20 +151,7 @@ defmodule ServiceRadar.Observability.LogPromotion do
         returning: false
       )
 
-    if count > 0 do
-      ServiceRadar.Events.PubSub.broadcast_event(%{count: count})
-    end
-
-    :telemetry.execute(
-      [:serviceradar, :log_promotion, :events_created],
-      %{count: count},
-      %{}
-    )
-
-    case Destination.persist_after_cnpg(:events, events) do
-      {:error, reason} -> {:error, reason}
-      _ -> {:ok, count}
-    end
+    count
   end
 
   defp match_rules(log, rules) do

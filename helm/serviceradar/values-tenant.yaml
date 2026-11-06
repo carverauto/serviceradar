@@ -247,7 +247,6 @@ trapd:
 analytics:
   starrocks:
     enabled: true
-    shadowDatasets: []
     cutoverDatasets: []
     catalog:
       # Required while StarRocks is enabled: the chart refuses to render a

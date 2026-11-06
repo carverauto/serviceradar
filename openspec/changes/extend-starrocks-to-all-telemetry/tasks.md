@@ -291,6 +291,16 @@
     acknowledged, stored nowhere and logged once without it). The CNPG flow table, its hourly
     continuous aggregates, retention reconcile and cold-tier registry entry are kept; dropping
     them is a separate, approved change.
+  - [x] Shadow list and logs/events dual-write. `shadowDatasets` is removed from Helm, Compose
+    and `Env`, with `Destination.maybe_shadow/3`, `persist_shadow/3`, `persist_after_cnpg/3`
+    and the partial-write counter; the chart refuses to render while the key is set. Logs and
+    events (EventWriter `Logs`, `Events`, `FalcoEvents`, `TrivyReports`, `AnalyticsSignals`
+    insert-only rows, `LogPromotion`) are written to the one store `Readers.backend/1` serves
+    them from (`Destination.warehouse?/1`): the warehouse only when cut over, CNPG only
+    otherwise. `AnalyticsSignals` lifecycle rows (inventory vulnerability findings, causal
+    predictions) keep their CNPG row, which is their transition and admission state, and are
+    also loaded when events are cut over. `cutoverDatasets` remains for logs, events and the
+    flows reader. Test: `LogsEventsSingleStoreDBTest`.
 - [ ] 5.3 A shared "unavailable with StarRocks enabled" result for readers with no warehouse
   implementation, rendered explicitly by each page and card, so no reader queries a frozen CNPG
   table; a test per reader until it has a warehouse implementation.

@@ -4,8 +4,9 @@ defmodule ServiceRadar.EventWriter.Processors.FlowAttributionUpdates do
   `events.flow.attribution` to the StarRocks destination.
 
   Traffic totals are not in the payload. Current-state attribution rows stay in
-  CNPG; this processor only shadows historical flow enrichment via a partial
-  PRIMARY KEY update so bytes_in/time cannot be NULLed.
+  CNPG; this processor only loads historical flow enrichment into the
+  warehouse, via a partial PRIMARY KEY update so bytes_in/time cannot be
+  NULLed. A failed load fails the batch and JetStream redelivers it.
   """
 
   @behaviour ServiceRadar.EventWriter.Processor
@@ -36,11 +37,7 @@ defmodule ServiceRadar.EventWriter.Processors.FlowAttributionUpdates do
   defp persist_updates([], _opts), do: {:ok, :empty}
 
   defp persist_updates(rows, opts) do
-    Destination.persist_shadow(
-      :flow_attribution,
-      rows,
-      opts |> Keyword.put(:completed, [:cnpg]) |> Keyword.put(:require_all, true)
-    )
+    Destination.persist_warehouse(:flow_attribution, rows, opts)
   end
 
   @impl true

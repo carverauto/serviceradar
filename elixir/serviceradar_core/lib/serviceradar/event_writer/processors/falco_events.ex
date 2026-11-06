@@ -2,9 +2,10 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
   @moduledoc """
   Processor for Falco runtime security events published via NATS JetStream.
 
-  Dual-path behavior:
-  - Persist all Falco payloads into `logs` as raw observability records.
-  - Auto-promote all Falco payloads into `ocsf_events` for analytics.
+  Each dataset is written to the one store it is read from: the warehouse when
+  it is routed there (`Destination.warehouse?/1`), CNPG otherwise.
+  - Persist all Falco payloads as `logs` raw observability records.
+  - Auto-promote all Falco payloads into OCSF events for analytics.
   - Evaluate promoted events against stateful alert rules for incident handling.
   """
 
@@ -73,7 +74,6 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
       {:ok, 0}
     else
       log_rows = Enum.map(entries, & &1.log_row)
-      log_count = insert_log_rows(log_rows)
 
       promoted_rows =
         entries
@@ -81,19 +81,21 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
         |> Enum.map(& &1.event_row)
         |> dedupe_rows_by_conflict_key(&Map.get(&1, :id))
 
-      event_count = insert_event_rows(promoted_rows)
-
-      # Every promoted row, not only those this delivery inserted: a delivery
-      # redelivered after a failed warehouse load or evaluation finds its rows
-      # already in CNPG, and must still finish both. The warehouse load is
-      # idempotent on the event id, and the ledger evaluates only the events no
-      # earlier delivery finished. A capacity or readiness refusal defers the
-      # evaluation to the durable admission backlog and the batch succeeds; any
-      # other evaluation failure fails the batch so JetStream redelivers it.
-      stored =
-        with {:ok, _} <- Destination.persist_after_cnpg(:logs, log_rows),
-             {:ok, _} <- Destination.persist_after_cnpg(:events, promoted_rows) do
-          StatefulEvaluationLedger.evaluate_once(promoted_rows)
+      # Each dataset is written to the one store it is read from
+      # (`Destination.store/3`). Every promoted row is evaluated, not only
+      # those this delivery inserted: a delivery redelivered after a failed
+      # load or evaluation finds its rows already stored, and must still
+      # finish. Both stores are idempotent on the row id, and the ledger
+      # evaluates only the events no earlier delivery finished. A capacity or
+      # readiness refusal defers the evaluation to the durable admission
+      # backlog and the batch succeeds; any other evaluation failure fails the
+      # batch so JetStream redelivers it.
+      {stored, log_count, event_count} =
+        with {:ok, log_count} <- store_log_rows(log_rows),
+             {:ok, event_count} <- store_event_rows(promoted_rows) do
+          {StatefulEvaluationLedger.evaluate_once(promoted_rows), log_count, event_count}
+        else
+          {:error, _reason} = error -> {error, 0, 0}
         end
 
       maybe_broadcast_logs(log_count)
@@ -338,27 +340,31 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
     }
   end
 
-  defp insert_log_rows([]), do: 0
+  defp store_log_rows([]), do: {:ok, 0}
 
-  defp insert_log_rows(rows) do
-    rows_for_insert = Enum.map(rows, &encode_text_columns/1)
+  defp store_log_rows(rows) do
+    Destination.store(:logs, rows, fn ->
+      rows_for_insert = Enum.map(rows, &encode_text_columns/1)
 
-    {count, _} =
-      BulkInsert.insert_all("logs", rows_for_insert,
-        on_conflict: :nothing,
-        returning: false
-      )
+      {count, _} =
+        BulkInsert.insert_all("logs", rows_for_insert,
+          on_conflict: :nothing,
+          returning: false
+        )
 
-    count
+      count
+    end)
   end
 
-  defp insert_event_rows([]), do: 0
+  defp store_event_rows([]), do: {:ok, 0}
 
-  defp insert_event_rows(rows) do
-    {count, _} =
-      BulkInsert.insert_all("ocsf_events", rows, on_conflict: :nothing, returning: false)
+  defp store_event_rows(rows) do
+    Destination.store(:events, rows, fn ->
+      {count, _} =
+        BulkInsert.insert_all("ocsf_events", rows, on_conflict: :nothing, returning: false)
 
-    count
+      count
+    end)
   end
 
   defp dedupe_rows_by_conflict_key(rows, key_fun)

@@ -2,9 +2,11 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
   @moduledoc """
   Processor for Trivy Operator report envelopes published by `trivy-sidecar`.
 
-  Dual-path behavior:
-  - Persist all Trivy payloads into `logs` as raw observability records.
-  - Auto-promote higher-priority findings into `ocsf_events`.
+  Logs and events are each written to the one store they are read from: the
+  warehouse when the dataset is routed there (`Destination.warehouse?/1`),
+  CNPG otherwise. Reports and findings are current state and stay in CNPG.
+  - Persist all Trivy payloads as `logs` raw observability records.
+  - Auto-promote higher-priority findings into OCSF events.
   - Auto-create alerts for critical promoted events.
 
   ## Routine "scan completed" status events are suppressed by default
@@ -130,7 +132,7 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
       {:ok, 0}
     else
       log_rows = Enum.map(entries, & &1.log_row)
-      log_count = insert_log_rows(log_rows)
+      log_stored = store_log_rows(log_rows)
 
       report_rows = Enum.map(entries, & &1.report_row)
       report_count = upsert_report_rows(report_rows)
@@ -153,21 +155,25 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
            |> Enum.map(& &1.event_row))
 
       promoted_rows = dedupe_rows_by_conflict_key(promoted_rows, &Map.get(&1, :id))
-      {event_count, inserted_events} = insert_event_rows(promoted_rows)
+      events_stored = store_event_rows(promoted_rows)
 
-      # Every promoted row, not only those this delivery inserted: a delivery
-      # redelivered after a failed warehouse load or evaluation finds its rows
-      # already in CNPG, and must still finish both. The warehouse load is
-      # idempotent on the event id, and the ledger evaluates only the events no
-      # earlier delivery finished. A capacity or readiness refusal defers the
-      # evaluation to the durable admission backlog and the batch succeeds; any
-      # other evaluation failure fails the batch so JetStream redelivers it.
+      # Logs and events are each written to the one store they are read from
+      # (`Destination.warehouse?/1`). Every promoted row is evaluated, not only
+      # those this delivery inserted: a delivery redelivered after a failed
+      # load or evaluation finds its rows already stored, and must still
+      # finish. Both stores replace a report's event by id, and the ledger
+      # evaluates only the events no earlier delivery finished. A capacity or
+      # readiness refusal defers the evaluation to the durable admission
+      # backlog and the batch succeeds; any other evaluation failure fails the
+      # batch so JetStream redelivers it.
       stored =
-        with {:ok, _} <- Destination.persist_after_cnpg(:logs, log_rows),
-             {:ok, _} <- persist_warehouse_events(promoted_rows) do
+        with {:ok, _} <- log_stored,
+             {:ok, _} <- events_stored do
           StatefulEvaluationLedger.evaluate_once(promoted_rows)
         end
 
+      {log_count, _} = stored_counts(log_stored)
+      {event_count, inserted_events} = stored_counts(events_stored)
       alert_count = maybe_create_priority_alerts(inserted_events)
 
       maybe_broadcast_logs(log_count)
@@ -770,16 +776,20 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
     end)
   end
 
-  defp insert_log_rows([]), do: 0
+  defp store_log_rows([]), do: {:ok, 0}
 
-  defp insert_log_rows(rows) do
-    rows_for_insert = Enum.map(rows, &encode_text_columns/1)
-
-    insert_all_count("logs", rows_for_insert,
-      on_conflict: :nothing,
-      returning: false
-    )
+  defp store_log_rows(rows) do
+    Destination.store(:logs, rows, fn ->
+      rows_for_insert = Enum.map(rows, &encode_text_columns/1)
+      insert_all_count("logs", rows_for_insert, on_conflict: :nothing, returning: false)
+    end)
   end
+
+  # `{count, rows to raise priority alerts for}`; nothing when the store failed,
+  # because the redelivery raises them.
+  defp stored_counts({:ok, {count, rows}}), do: {count, rows}
+  defp stored_counts({:ok, count}) when is_integer(count), do: {count, []}
+  defp stored_counts({:error, _reason}), do: {0, []}
 
   defp insert_all_count(_table, [], _opts), do: 0
 
@@ -917,7 +927,13 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
     |> Enum.map(&Map.fetch!(latest_by_key, &1))
   end
 
-  defp insert_event_rows([]), do: {0, []}
+  defp store_event_rows([]), do: {:ok, {0, []}}
+
+  defp store_event_rows(rows) do
+    if Destination.warehouse?(:events),
+      do: load_warehouse_events(rows),
+      else: {:ok, insert_event_rows(rows)}
+  end
 
   defp insert_event_rows(rows) do
     rows = dedupe_rows_by_conflict_key(rows, &Map.get(&1, :id))
@@ -954,20 +970,18 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
   # A report's event keeps its id across rescans while its time moves forward,
   # and `insert_event_rows/1` replaces it in CNPG by id. The warehouse keys
   # events on (id, time), so the same replacement is made there -- delete the
-  # ids, then load -- or every rescan would add a row. It runs under the lock
-  # the CNPG replace takes, so two batches carrying the same report cannot
-  # interleave their deletes and loads and leave both rows behind.
-  defp persist_warehouse_events([]), do: {:ok, :disabled}
-
-  defp persist_warehouse_events(rows) do
+  # ids, then load -- or every rescan would add a row. It runs under the
+  # advisory lock the CNPG replace takes, so two batches carrying the same
+  # report cannot interleave their deletes and loads and leave both rows behind.
+  defp load_warehouse_events(rows) do
     replace = %{ids: Enum.map(rows, & &1.id), log_provider: "trivy"}
 
     ServiceRadar.Repo.transaction(
       fn ->
         lock_trivy_event_rows()
 
-        case Destination.persist_after_cnpg(:events, rows, replace: replace) do
-          {:ok, result} -> result
+        case Destination.persist_warehouse(:events, rows, replace: replace) do
+          {:ok, %{loaded: count}} -> {count, rows}
           {:error, reason} -> ServiceRadar.Repo.rollback(reason)
         end
       end,
