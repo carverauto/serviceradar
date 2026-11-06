@@ -50,11 +50,22 @@ defmodule ServiceRadarWebNG.Packages.RepoClientEgressTest do
            }}
 
         String.contains?(url, "api.github.com/repos/acme/demo/releases") ->
-          body = Process.get(:release_list_body, ~s([{"tag_name":"v1.0.0","assets":[]}]))
-          {:ok, %Req.Response{status: 200, body: body, headers: %{}}}
+          {:ok, %Req.Response{status: 200, body: release_list_body(url), headers: %{}}}
 
         true ->
           {:ok, %Req.Response{status: 404, body: "", headers: %{}}}
+      end
+    end
+
+    # :release_pages maps a `page` query value to that page's releases.
+    defp release_list_body(url) do
+      case Process.get(:release_pages) do
+        %{} = pages ->
+          page = url |> URI.parse() |> Map.get(:query) |> URI.decode_query() |> Map.get("page")
+          pages |> Map.get(page, []) |> Jason.encode!()
+
+        nil ->
+          Process.get(:release_list_body, ~s([{"tag_name":"v1.0.0","assets":[]}]))
       end
     end
   end
@@ -125,6 +136,18 @@ defmodule ServiceRadarWebNG.Packages.RepoClientEgressTest do
       Process.put(:release_list_body, body)
       assert RepoClient.fetch_recent_releases(repo, 5, opts) == expected
     end
+  end
+
+  test "fetch_recent_releases drops drafts and reads on until the limit is published", %{repo: repo, opts: opts} do
+    release = fn id, tag, draft -> %{"id" => id, "tag_name" => tag, "draft" => draft} end
+
+    Process.put(:release_pages, %{
+      "1" => [release.(4004, "v4.0.0", true), release.(4003, "v3.0.0", false)],
+      "2" => [release.(4002, "v2.0.0", false), release.(4001, "v1.0.0", false)]
+    })
+
+    assert {:ok, releases} = RepoClient.fetch_recent_releases(repo, 2, opts)
+    assert Enum.map(releases, & &1["tag_name"]) == ["v3.0.0", "v2.0.0"]
   end
 
   describe "release endpoints answering 401, 403 or 429" do

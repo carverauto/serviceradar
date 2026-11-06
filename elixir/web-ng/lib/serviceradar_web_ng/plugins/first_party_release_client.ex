@@ -125,6 +125,8 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
       (String.contains?(reason, "Release asset ") and String.contains?(reason, " was not found"))
   end
 
+  def permanent_failure?({:release_index_unavailable, _release_tag, _asset_name, reason}), do: permanent_failure?(reason)
+
   def permanent_failure?(_reason), do: false
 
   # Sentinel release option in the Plugins settings UI meaning "every release
@@ -233,6 +235,58 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
       end
     end
   end
+
+  @doc """
+  Collects catalog entries from every release in `releases` that publishes
+  `asset_name`, isolating failures per release.
+
+  `release_entries` reads one release's index and returns its entries. A
+  release whose index cannot be read is reported in `failed_releases` as
+  `%{release_tag:, asset_name:, reason:}`, with `reason` wrapped as
+  `{:release_index_unavailable, release_tag, asset_name, inner}`, and the
+  remaining releases are still listed: one unreadable release must not hide the
+  others. `indexed_releases` counts the releases that were read. The result is
+  `{:error, reason}` only when every indexed release failed, naming the first
+  failure; a list in which no release publishes the asset is an empty success.
+  """
+  @spec collect_release_entries([map()], String.t(), (map() -> {:ok, [map()]} | {:error, term()})) ::
+          {:ok, %{entries: [map()], indexed_releases: non_neg_integer(), failed_releases: [map()]}}
+          | {:error, term()}
+  def collect_release_entries(releases, asset_name, release_entries) when is_function(release_entries, 1) do
+    initial = %{entries: [], indexed_releases: 0, failed_releases: []}
+
+    summary =
+      releases
+      |> Enum.filter(&(release_tag(&1) && release_asset_present?(&1, asset_name)))
+      |> Enum.reduce(initial, fn release, acc ->
+        case release_entries.(release) do
+          {:ok, entries} ->
+            %{acc | entries: acc.entries ++ entries, indexed_releases: acc.indexed_releases + 1}
+
+          {:error, reason} ->
+            %{acc | failed_releases: acc.failed_releases ++ [release_failure(release, asset_name, reason)]}
+        end
+      end)
+
+    case summary do
+      %{indexed_releases: 0, failed_releases: [first | _]} -> {:error, first.reason}
+      summary -> {:ok, summary}
+    end
+  end
+
+  defp release_failure(release, asset_name, reason) do
+    tag = release_tag(release)
+    wrapped = {:release_index_unavailable, tag, asset_name, reason}
+
+    Logger.warning("GitHub release #{tag} index #{asset_name} could not be loaded; listing the other releases",
+      reason: ImportFailureMessages.reason_to_text(wrapped)
+    )
+
+    %{release_tag: tag, asset_name: asset_name, reason: wrapped}
+  end
+
+  defp release_tag(release) when is_map(release), do: normalize_string(Map.get(release, "tag_name"))
+  defp release_tag(_release), do: nil
 
   def release_asset_present?(release, asset_name) do
     release

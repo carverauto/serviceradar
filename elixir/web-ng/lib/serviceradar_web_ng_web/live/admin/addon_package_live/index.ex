@@ -23,6 +23,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
   alias ServiceRadarWebNG.Plugins.AddonFleet
   alias ServiceRadarWebNG.Plugins.AddonPackages
   alias ServiceRadarWebNG.Plugins.AddonProfiles
+  alias ServiceRadarWebNG.Plugins.ImportFailureMessages
   alias ServiceRadarWebNG.Plugins.NativeAddonImporter
   alias ServiceRadarWebNG.Plugins.NativeAddonSync
   alias ServiceRadarWebNG.RBAC
@@ -57,6 +58,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
        |> assign(:first_party_catalog, [])
        |> assign(:first_party_catalog_all, [])
        |> assign(:first_party_catalog_error, nil)
+       |> assign(:first_party_catalog_warning, nil)
        |> assign(:first_party_catalog_status, nil)
        |> assign(:first_party_release_options, release_options)
        |> assign(:first_party_release_tag, selected_first_party_release(release_options, nil))
@@ -644,6 +646,14 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
               {@first_party_catalog_error}
             </div>
           <% end %>
+
+          <div
+            :if={@first_party_catalog_warning}
+            id="admin-addon-catalog-release-warning"
+            class={ui_alert_class(variant: "warning", class: "mb-3 text-sm")}
+          >
+            {@first_party_catalog_warning}
+          </div>
 
           <%= if @first_party_catalog_status do %>
             <div class="mb-3 text-xs text-sr-muted">
@@ -1726,6 +1736,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
           selected_first_party_release(release_options, socket.assigns[:first_party_release_tag])
         )
         |> assign(:first_party_catalog_error, format_error(reason))
+        |> assign(:first_party_catalog_warning, nil)
         |> assign(
           :first_party_catalog_status,
           first_party_catalog_status([], socket.assigns.packages, socket.assigns[:first_party_catalog_synced_at])
@@ -1741,6 +1752,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
 
     socket
     |> assign(:first_party_catalog_error, nil)
+    |> assign(:first_party_catalog_warning, failed_releases_warning(summary))
     |> assign(:first_party_catalog_synced_at, DateTime.utc_now())
     |> assign_first_party_catalog_view(Map.get(summary, :addons, []), requested_release_tag)
   end
@@ -1837,7 +1849,19 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
           "No official release is selected."
       end
 
-    "Catalog refreshed from the registry (#{scanned} release(s) scanned, #{indexed} with add-on indexes). #{release_part} Nothing was imported."
+    failed_part =
+      case failed_releases_warning(summary) do
+        nil -> ""
+        warning -> " #{warning}."
+      end
+
+    "Catalog refreshed from the registry (#{scanned} release(s) scanned, #{indexed} with add-on indexes). #{release_part} Nothing was imported.#{failed_part}"
+  end
+
+  defp failed_releases_warning(summary) do
+    summary
+    |> Map.get(:failed_releases, [])
+    |> ImportFailureMessages.failed_releases_text()
   end
 
   defp normalize_catalog_sync_time(%DateTime{} = value), do: value
@@ -3082,6 +3106,10 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
   # back, a row whose release changed while the import ran, or a row whose
   # partial provenance genuinely mismatches — only the last one is resolved by
   # an explicit Replace on that catalog row.
+  defp format_error({:release_index_unavailable, _release_tag, _asset_name, _reason} = error) do
+    error |> ImportFailureMessages.reason_to_text() |> truncate_error()
+  end
+
   defp format_error({:native_addon_version_source_conflict, details}) when is_map(details) do
     details
     |> source_conflict_message(Map.get(details, :addon_id) || "addon", Map.get(details, :version) || "unknown")
