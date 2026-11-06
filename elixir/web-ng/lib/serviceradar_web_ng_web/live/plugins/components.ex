@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNGWeb.Plugins.Components do
   use ServiceRadarWebNGWeb, :html
 
   alias Ash.Error.Invalid
+  alias ServiceRadarWebNG.Plugins.ImportFailureMessages
 
   @settings_base_path "/settings/agents/plugins"
   @admin_base_path "/admin/plugins"
@@ -278,5 +279,9 @@ defmodule ServiceRadarWebNGWeb.Plugins.Components do
   def format_error(:already_on_target_version), do: "assignment is already on that version"
   def format_error(error) when is_atom(error), do: Atom.to_string(error)
   def format_error(%Invalid{} = error), do: Exception.message(error)
+
+  def format_error({:release_index_unavailable, _release_tag, _asset_name, _reason} = error),
+    do: ImportFailureMessages.reason_to_text(error)
+
   def format_error(error), do: inspect(error)
 end

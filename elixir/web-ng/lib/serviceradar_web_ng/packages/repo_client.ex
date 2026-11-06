@@ -25,7 +25,11 @@ defmodule ServiceRadarWebNG.Packages.RepoClient do
   alias ServiceRadar.HTTP.EgressClient
   alias ServiceRadar.Plugins.RepoUrl
 
+  require Logger
+
   @github_api_host "api.github.com"
+  # Upper bound on release pages read while skipping drafts.
+  @max_release_pages 5
   @max_ref_length 200
   @max_path_length 240
 
@@ -261,12 +265,58 @@ defmodule ServiceRadarWebNG.Packages.RepoClient do
     end
   end
 
-  @doc "Fetches the `limit` most recent releases for a repository."
+  @doc """
+  Fetches the `limit` most recent published releases for a repository.
+
+  Draft releases are dropped. A token with push access sees drafts, and GitHub
+  lists them first; a draft is mutable, its assets are served from an
+  `untagged-*` download path that never resolves, and it is never a trust
+  anchor. Pages are read until `limit` published releases are collected, so
+  drafts cannot consume the window, bounded by `#{@max_release_pages}` pages.
+  A later page that fails keeps the published releases already collected, and
+  is returned as an error when no published release was collected before it.
+  """
   @spec fetch_recent_releases(%{owner: String.t(), repo: String.t()}, pos_integer(), keyword()) ::
           {:ok, list()} | {:error, term()}
-  def fetch_recent_releases(%{owner: owner, repo: repo} = parsed, limit, opts \\ []) do
+  def fetch_recent_releases(%{owner: _owner, repo: _repo} = parsed, limit, opts \\ []) do
     capped = normalize_limit(limit)
-    url = "https://#{@github_api_host}/repos/#{owner}/#{repo}/releases?per_page=#{capped}"
+
+    with {:ok, page} <- fetch_releases_page(parsed, capped, 1, opts) do
+      collect_published_releases(parsed, capped, opts, page, 1, [])
+    end
+  end
+
+  defp collect_published_releases(parsed, capped, opts, page, page_number, acc) do
+    collected = Enum.uniq_by(acc ++ Enum.reject(page, &draft_release?/1), &release_identity/1)
+
+    if length(collected) >= capped or length(page) < capped or page_number >= @max_release_pages do
+      {:ok, Enum.take(collected, capped)}
+    else
+      case fetch_releases_page(parsed, capped, page_number + 1, opts) do
+        {:ok, next_page} ->
+          collect_published_releases(parsed, capped, opts, next_page, page_number + 1, collected)
+
+        {:error, reason} when collected == [] ->
+          {:error, reason}
+
+        {:error, reason} ->
+          Logger.warning("GitHub release page #{page_number + 1} could not be loaded; keeping earlier pages",
+            reason: inspect(reason, limit: 8, printable_limit: 300)
+          )
+
+          {:ok, collected}
+      end
+    end
+  end
+
+  defp draft_release?(release) when is_map(release), do: Map.get(release, "draft") == true
+  defp draft_release?(_release), do: false
+
+  defp release_identity(release) when is_map(release), do: Map.get(release, "id") || Map.get(release, "tag_name")
+  defp release_identity(release), do: release
+
+  defp fetch_releases_page(%{owner: owner, repo: repo} = parsed, per_page, page, opts) do
+    url = "https://#{@github_api_host}/repos/#{owner}/#{repo}/releases?per_page=#{per_page}&page=#{page}"
     headers = build_headers(opts, [{"accept", "application/vnd.github+json"}])
 
     case do_fetch_json(url, headers, opts) do
