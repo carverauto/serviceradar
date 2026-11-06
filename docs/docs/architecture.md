@@ -83,8 +83,8 @@ These components communicate internally over mTLS-secured Erlang distribution (E
 - participates in a bidirectional control stream for control-plane signaling
 
 See [Edge Model](./edge-model.md). Edge records are spooled on the agent's disk,
-verified by `agent-gateway`, stored in JetStream and projected once by
-EventWriter; see [Durable Edge Records](./durable-edge-records.md).
+verified by `agent-gateway`, stored in JetStream (or permanently rejected
+into the agent's local quarantine) and projected once by EventWriter; see [Durable Edge Records](./durable-edge-records.md).
 
 ## Live Media (WebRTC) And The TURN Relay
 

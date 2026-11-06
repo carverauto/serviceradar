@@ -6,8 +6,9 @@ title: Durable Edge Records
 
 Every piece of durable data an agent collects reaches the platform as an
 **edge record**: a signed, typed record that the agent writes to an on-disk
-spool and delivers to `agent-gateway`, which stores it in NATS JetStream before
-the agent lets go of it. EventWriter then projects each record into storage
+spool and delivers to `agent-gateway`. The agent lets go of a record only once
+the gateway has stored it in NATS JetStream or rejected it permanently, and a
+rejected record is moved to a local quarantine first. EventWriter then projects each record into storage
 exactly once. This is the only path for agent data. It has no on/off switch in
 Helm, in the environment or in CNPG, and it runs the same way on Helm, Docker
 Compose and hosted installs and on package-installed agents.
@@ -20,17 +21,19 @@ is republished to, which ingestor stores it) are in
 
 ## What the pipeline guarantees
 
-- **Nothing is reclaimed before it is stored.** A record stays in the agent
+- **Nothing is reclaimed before it is resolved.** A record stays in the agent
   spool until the gateway has published it to a replicated JetStream stream and
-  received the PubAck. Only then does the gateway acknowledge it, and only then
-  does the agent reclaim its bytes.
+  received the PubAck, or has rejected it permanently. Only then does the
+  gateway acknowledge it, and only then does the agent reclaim its bytes; a
+  permanently rejected record is first copied to the agent's local spool
+  quarantine.
 - **Each record is stored once.** EventWriter claims each record's delivery
   slot and its event ledger row in the same database transaction as the
   projector's writes. A redelivered or replayed record that the ledger already
   holds writes nothing.
 - **Restarts do not lose data.** The agent spool is on disk, the edge-record
-  streams are file-backed and replicated, and every hand-off is acknowledged
-  only after the next stage holds the record. An agent, gateway, NATS or core
+  streams are file-backed and replicated, and every hand-off of an accepted
+  record is acknowledged only after the next stage holds it. An agent, gateway, NATS or core
   restart therefore leads to a redelivery, not a gap, as long as EventWriter
   drains the primary stream within its retention (see
   [Messages expired before delivery](#messages-expired-before-delivery)).
@@ -87,7 +90,8 @@ flowchart LR
   PRI --> EW --> Store
   AUD --> EW
   EW -->|"projection keeps failing"| DLQ
-  DLQ -.->|"replay"| PRI
+  DLQ -.->|"replay to its source stream"| PRI
+  DLQ -.->|"or, if it came from audit"| AUD
 ```
 
 ### 1. Producers append to the spool
@@ -189,13 +193,15 @@ that transaction.
 
 A projector whose destination is a JetStream subject (metrics, OTel, logs, flow
 attribution) republishes the record's payload there with a PubAck before the
-transaction, only for a fresh primary delivery, with a `Nats-Msg-Id` that a
-redelivery of the same record reproduces. The id differs by projector: metrics
-use the edge record's event id; telemetry batches use a UUID hashed from the
-event id and the payload index; flow attribution uses
-`<event uuid>:<split index>`; and the OTLP relay uses each inner
-`TelemetryRecord`'s own `event_id`. Look up a duplicate by the id its
-projector sets, not only by the edge record's event id. Existing consumers on those subjects (storage, alerting,
+transaction, only for a fresh primary delivery. Most of those publishes carry a
+`Nats-Msg-Id` that a redelivery of the same record reproduces, and the id
+differs by projector: metrics use the edge record's event id; metric payloads
+in a telemetry batch use a UUID hashed from the event id and the payload index;
+flow attribution uses `<event uuid>:<split index>`; and the OTLP relay uses
+each inner `TelemetryRecord`'s own `event_id`. Look up a duplicate by the id
+its projector sets, not only by the edge record's event id. OTel log and OCSF
+event payloads in a telemetry batch are republished without a `Nats-Msg-Id`,
+so a redelivery after a failed ledger commit publishes them a second time. Existing consumers on those subjects (storage, alerting,
 anomaly detection) therefore see the data exactly as before. Telemetry storage
 follows the platform rule: StarRocks when it is enabled, CNPG otherwise; flows
 and flow attribution are stored only in StarRocks. Inventory and discovery
@@ -280,8 +286,11 @@ exactly like a spool refusal. It never sends that data on the status path:
   signals, wait in the producer's bounded queue. When the queue overflows, the
   oldest entries are dropped and counted as
   `agent_edge_record_dropped_samples_total{reason="awaiting_grant"}`.
+- Flow attribution stops draining the netprobe sidecar. The sidecar keeps the
+  events that still fit and counts what its channel drops; the next batch
+  reports that count, and the dropped events are not kept.
 - Every other producer stops reading its source, which keeps the data: plugin
-  results, mapper and netprobe discovery, flow attribution, workload identity,
+  results, mapper and netprobe discovery, workload identity,
   Kubernetes public endpoint, endpoint inventory and bumblebee snapshots,
   unleased sweep results, rperf, and OTLP relay frames (which stay unacked in
   the add-on's own spool). MTR checks do not run without both their grants, and

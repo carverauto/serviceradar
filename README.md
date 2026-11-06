@@ -244,7 +244,8 @@ Operational enrollment and rotation: [Managed component certificates](docs/manag
 ### Durable data pipeline
 
 Every metric, result and inventory snapshot an agent produces follows one path,
-and each hand-off is acknowledged only after the next stage has stored it:
+and each hand-off of an accepted record is acknowledged only after the next
+stage has stored it:
 
 ```text
 agent producers -> on-disk spool -> agent-gateway (verify grant + signature)

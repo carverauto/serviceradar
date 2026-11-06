@@ -48,8 +48,9 @@ OCSF events as it stores them; there is no separate promotion consumer, so each
 log is promoted once, under an id derived from the JetStream message.
 
 Every durable agent data family travels only as edge records: the agent spools
-each record to disk, `agent-gateway` verifies it and stores it in JetStream, and
-EventWriter projects it once. The agent status RPCs (`PushStatus`,
+each record to disk, `agent-gateway` verifies it and stores it in JetStream (or
+rejects it permanently, and the agent quarantines it locally), and EventWriter
+projects each stored record once. The agent status RPCs (`PushStatus`,
 `StreamStatus`) carry only ephemeral status summaries, the agent capability
 status and plugin-engine counters, and the gateway refuses and counts any
 durable data an older agent still sends there. A producer emits records only
@@ -70,7 +71,8 @@ chunks, are spooled together under the `serviceradar.sweep.unleased_results`
 version 1 and metrics grants. A leased sweep group emits observation batches
 from its lease instead. A results response that cannot form the typed batch,
 or whose first record the spool refuses permanently, is dropped and counted.
-The agent splits each metrics record at 512 KiB. An unleased sweep results
+The agent splits a metrics batch into records of at most 512 KiB; a single
+metric point that no record can hold is dropped and counted. An unleased sweep results
 record is split by halving the host list so it stays within that grant's row
 ceiling and 512 KiB. Core republishes the metric records onto the
 `metrics.sysmon.>`, `metrics.snmp.>`, `metrics.icmp.>`, `metrics.rperf.>`,

@@ -56,8 +56,9 @@ sequenceDiagram
 Everything durable the agent collects (metrics, sweep results, plugin results,
 discovery, inventory snapshots, add-on telemetry) is written to an on-disk
 spool as signed edge records and sent on `EdgeRecordIngestService.Stream`. The
-gateway verifies each record, stores it in JetStream, and acknowledges it only
-after the PubAck, so the agent keeps every record until it is stored. A producer
+gateway verifies each record, stores it in JetStream, and acknowledges an
+accepted record only after the PubAck, so the agent keeps every record until it is stored or permanently rejected
+(a rejected record moves to a local spool quarantine). A producer
 needs core's grant for its contract and holds its data while it has none. See
 [Durable Edge Records](./durable-edge-records.md).
 
