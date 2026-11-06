@@ -1,11 +1,17 @@
 defmodule ServiceRadarAgentGateway.RuntimeMetrics do
   @moduledoc """
-  Publishes the gateway's own core-call latency and status-buffer depth.
+  Publishes the gateway's own core-call latency, status-buffer depth and status refusals.
 
   Samples are queued here, bounded, and published as a ServiceRadar metric
   envelope on `metrics.agent_gateway`. EventWriter's metrics consumer
   persists that subject. A full queue drops the sample. PushStatus never
   waits on this GenServer, and a failed publish does not fail delivery.
+
+  Refused statuses are published as `agent_gateway_status_retired_source_refused_count`, a
+  monotonic delta sum per refusal family. Refusals reported while a publish is pending are
+  added together, so one sample per family covers them and the pending state stays bounded
+  by the number of families. A count the gateway has not yet published is lost if it
+  restarts; a published one is not.
   """
 
   use GenServer
@@ -22,8 +28,13 @@ defmodule ServiceRadarAgentGateway.RuntimeMetrics do
   require Logger
 
   @subject "metrics.agent_gateway"
+  @refused_metric "agent_gateway_status_retired_source_refused_count"
   @max_pending 100
   @publish_timeout_ms 5_000
+
+  # The depth gauge, the core-call queue and the refusal counts take turns, so a steady
+  # stream of one cannot keep the others from being published.
+  @turns [:depth, :queue, :refused]
 
   def start_link(opts \\ []) do
     name = Keyword.get(opts, :name, __MODULE__)
@@ -51,23 +62,36 @@ defmodule ServiceRadarAgentGateway.RuntimeMetrics do
     enqueue(%{name: "agent_gateway_status_buffer_depth", value: depth, unit: "entries", tags: %{}})
   end
 
+  @doc false
+  @spec report_refused_statuses(%{optional(String.t()) => pos_integer()}) :: :ok
+  def report_refused_statuses(counts) when is_map(counts) do
+    if map_size(counts) == 0, do: :ok, else: cast({:refused, counts})
+  end
+
   # A cast, not a call: reporting runs on the PushStatus path and must never
   # block it. A call with a short timeout silently dropped samples whenever the
   # BEAM was busy (CI runners under memory pressure, a loaded gateway), which is
   # exactly when the metric matters. The queue stays bounded by @max_pending.
-  defp enqueue(sample) do
+  defp enqueue(sample), do: cast({:enqueue, sample})
+
+  defp cast(message) do
     case Process.whereis(__MODULE__) do
-      pid when is_pid(pid) -> GenServer.cast(pid, {:enqueue, sample})
+      pid when is_pid(pid) -> GenServer.cast(pid, message)
       _missing -> :ok
     end
   end
 
   @impl true
   def init(_opts) do
-    {:ok, %{queue: :queue.new(), depth: nil, publishing: false, turn: :depth}}
+    {:ok, %{queue: :queue.new(), depth: nil, refused: %{}, publishing: false, turn: :depth}}
   end
 
   @impl true
+  def handle_cast({:refused, counts}, state) do
+    refused = Map.merge(state.refused, counts, fn _family, pending, count -> pending + count end)
+    {:noreply, schedule_publish(%{state | refused: refused})}
+  end
+
   def handle_cast({:enqueue, %{name: "agent_gateway_status_buffer_depth"} = sample}, state) do
     {:noreply, schedule_publish(%{state | depth: sample})}
   end
@@ -89,8 +113,8 @@ defmodule ServiceRadarAgentGateway.RuntimeMetrics do
       {:empty, state} ->
         {:noreply, state}
 
-      {sample, state} ->
-        publish_sample(sample)
+      {samples, state} ->
+        publish_sample(samples)
         {:noreply, schedule_publish(state)}
     end
   end
@@ -102,24 +126,36 @@ defmodule ServiceRadarAgentGateway.RuntimeMetrics do
     %{state | publishing: true}
   end
 
-  defp next_sample(%{depth: sample, queue: queue} = state) when not is_nil(sample) do
-    if :queue.is_empty(queue) or Map.get(state, :turn, :depth) == :depth do
-      {sample, %{state | depth: nil, turn: :queue}}
-    else
-      {{:value, queued}, rest} = :queue.out(queue)
-      {queued, %{state | queue: rest, turn: :depth}}
-    end
-  end
-
   defp next_sample(state) do
+    {before, from_turn} = Enum.split_while(@turns, &(&1 != state.turn))
+    Enum.find_value(from_turn ++ before, {:empty, state}, &take_sample(&1, state))
+  end
+
+  defp take_sample(:depth, %{depth: nil}), do: nil
+  defp take_sample(:depth, state), do: {[state.depth], %{state | depth: nil, turn: :queue}}
+
+  defp take_sample(:queue, state) do
     case :queue.out(state.queue) do
-      {:empty, queue} -> {:empty, %{state | queue: queue}}
-      {{:value, sample}, queue} -> {sample, %{state | queue: queue}}
+      {:empty, _queue} -> nil
+      {{:value, sample}, rest} -> {[sample], %{state | queue: rest, turn: :refused}}
     end
   end
 
-  defp publish_sample(sample) do
-    body = sample |> batch() |> MetricBatch.encode()
+  defp take_sample(:refused, %{refused: refused}) when map_size(refused) == 0, do: nil
+
+  defp take_sample(:refused, state) do
+    samples =
+      state.refused
+      |> Enum.sort()
+      |> Enum.map(fn {family, count} ->
+        %{name: @refused_metric, value: count, unit: "statuses", tags: %{"source" => family}, kind: :sum}
+      end)
+
+    {samples, %{state | refused: %{}, turn: :depth}}
+  end
+
+  defp publish_sample(samples) do
+    body = samples |> batch() |> MetricBatch.encode()
 
     case publish_body(body) do
       :ok ->
@@ -142,7 +178,7 @@ defmodule ServiceRadarAgentGateway.RuntimeMetrics do
     end
   end
 
-  defp batch(sample) do
+  defp batch(samples) do
     observed_at = System.system_time(:nanosecond)
 
     %MetricBatch{
@@ -158,15 +194,26 @@ defmodule ServiceRadarAgentGateway.RuntimeMetrics do
         producer_kind: "gateway"
       },
       emitted_at_unix_nano: observed_at,
-      metrics: [
-        %Metric{
-          name: sample.name,
-          kind: :METRIC_KIND_GAUGE,
-          unit: sample.unit,
-          tags: Enum.map(sample.tags, fn {key, value} -> %StringMapEntry{key: key, value: value} end),
-          points: [%MetricPoint{value: sample.value * 1.0, observed_at_unix_nano: observed_at}]
-        }
-      ]
+      metrics: Enum.map(samples, &metric(&1, observed_at))
+    }
+  end
+
+  defp metric(%{kind: :sum} = sample, observed_at) do
+    %{
+      metric(Map.delete(sample, :kind), observed_at)
+      | kind: :METRIC_KIND_SUM,
+        temporality: :METRIC_TEMPORALITY_DELTA,
+        is_monotonic: true
+    }
+  end
+
+  defp metric(sample, observed_at) do
+    %Metric{
+      name: sample.name,
+      kind: :METRIC_KIND_GAUGE,
+      unit: sample.unit,
+      tags: Enum.map(sample.tags, fn {key, value} -> %StringMapEntry{key: key, value: value} end),
+      points: [%MetricPoint{value: sample.value * 1.0, observed_at_unix_nano: observed_at}]
     }
   end
 

@@ -4,6 +4,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueDbTest do
   import ExUnit.CaptureLog
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Edge.Projectors.DiscoveryCommon
   alias ServiceRadar.EventWriter.Processors.Metrics
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Ingestion.RuntimeMetrics
@@ -434,6 +435,40 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueDbTest do
 
     assert_eventually(fn -> snapshot_count(source.id, complete_run) == 1 end)
     assert present_count(source.id) == 2
+  end
+
+  test "a redelivered chunk after a transient refusal leaves its run activatable", %{
+    source: source
+  } do
+    if !Process.whereis(WorkerBudget), do: start_supervised!({WorkerBudget, pool_size: 8})
+    tasks = start_supervised!({Task.Supervisor, []})
+    queue = start_supervised!({SyncIngestorQueue, name: nil, task_supervisor: tasks})
+
+    previous = Application.fetch_env(:serviceradar_core, :sync_ingestor_queue_server)
+    on_exit(fn -> restore_queue_server(previous) end)
+
+    run = "redelivered-#{Ecto.UUID.generate()}"
+    chunk_0 = Jason.encode!([device_update(source.id, run, 91, 0, 2, false, nil)])
+    final = Jason.encode!([device_update(source.id, run, 92, 1, 2, true, population(2))])
+
+    # The first delivery finds no queue anywhere; the edge record is redelivered.
+    Application.put_env(:serviceradar_core, :sync_ingestor_queue_server, :no_sync_ingest_queue)
+
+    assert {:error, :sync_ingest_queue_unavailable} =
+             DiscoveryCommon.schedule_sync_ingestion(chunk_0)
+
+    Application.put_env(:serviceradar_core, :sync_ingestor_queue_server, queue)
+    assert :ok = DiscoveryCommon.schedule_sync_ingestion(chunk_0)
+    assert_eventually(fn -> :sys.get_state(queue).bytes == 0 end)
+    assert :ok = DiscoveryCommon.schedule_sync_ingestion(final)
+
+    assert_eventually(fn -> snapshot_count(source.id, run) == 1 end)
+
+    assert %{rows: [[false, [0, 1], 2]]} =
+             Repo.query!(
+               "SELECT incomplete, received_chunks, total_chunks FROM platform.sync_ingest_runs WHERE sync_service_id = $1 AND sync_run_id = $2",
+               [Ecto.UUID.dump!(source.id), run]
+             )
   end
 
   def forward_repo_query(_event, _measurements, _metadata, test_pid) do

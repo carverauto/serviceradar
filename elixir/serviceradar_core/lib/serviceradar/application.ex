@@ -87,6 +87,10 @@ defmodule ServiceRadar.Application do
         # Which core-elx node hosts each camera relay (:pg scope on every node)
         ServiceRadar.Camera.RelayHosts,
 
+        # Which node hosts the coordinator's sync ingestion queue (:pg scope on
+        # every node); EventWriter workers on every replica enqueue into it.
+        ServiceRadar.Inventory.SyncIngestorQueue.Directory,
+
         # WebRTC ICE credential mint rate limiter (bounded ETS sliding window)
         ServiceRadar.WebRTC.IceCredentials.MintLimiter,
 

@@ -51,6 +51,17 @@ sequenceDiagram
   G->>C: forward status and publish edge records (ERTS/RPC/JetStream)
 ```
 
+## Durable Data Delivery
+
+Everything durable the agent collects (metrics, sweep results, plugin results,
+discovery, inventory snapshots, add-on telemetry) is written to an on-disk
+spool as signed edge records and sent on `EdgeRecordIngestService.Stream`. The
+gateway verifies each record, stores it in JetStream, and acknowledges an
+accepted record only after the PubAck, so the agent keeps every record until it is stored or permanently rejected
+(a rejected record moves to a local spool quarantine). A producer
+needs core's grant for its contract and holds its data while it has none. See
+[Durable Edge Records](./durable-edge-records.md).
+
 ## Edge gRPC API (Gateway)
 
 The edge agent talks to the platform through `AgentGatewayService`:
@@ -58,7 +69,7 @@ The edge agent talks to the platform through `AgentGatewayService`:
 - `Hello`: initial enrollment/identity handshake (mTLS identity is derived from the certificate).
 - `GetConfig`: fetch effective config; supports versioning (`not_modified` when unchanged).
 - `StreamConfig`: server-streaming config delivery; streams the effective config in chunks for large payloads.
-- `PushStatus`: unary push for latest-wins service status summaries. Durable data (metrics, results, inventory, telemetry) never rides it; the agent sends that as edge records on `EdgeRecordIngestService.Stream`.
+- `PushStatus`: unary push for latest-wins service status summaries. Durable data (metrics, results, inventory, telemetry) never rides it; the agent sends that as edge records on `EdgeRecordIngestService.Stream`. See [Durable Edge Records](./durable-edge-records.md).
 - `ControlStream`: bidirectional stream for command dispatch, command acks/progress/results, and pushed config updates.
 
 ## Security Boundaries

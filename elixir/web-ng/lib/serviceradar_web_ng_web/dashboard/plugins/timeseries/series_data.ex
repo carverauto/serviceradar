@@ -44,12 +44,11 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
     geometry_with_window(geometry, {:ok, DateTime.to_unix(start, :millisecond), DateTime.to_unix(finish, :millisecond)})
   end
 
-  defp geometry_with_window(geometry, {:ok, first, last}) when is_integer(first) and is_integer(last) do
-    if last - first >= Points.month_axis_ms() do
-      Map.merge(geometry, %{time_first: first, time_last: last})
-    else
-      geometry
-    end
+  # A known window is the x-axis, so a series that covers only part of it
+  # leaves the rest of the chart empty instead of stretching across it. Without
+  # a window the axis is the span of the data.
+  defp geometry_with_window(geometry, {:ok, first, last}) when is_integer(first) and is_integer(last) and last > first do
+    Map.merge(geometry, %{time_first: first, time_last: last})
   end
 
   defp geometry_with_window(geometry, _window), do: geometry
@@ -109,6 +108,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
     unit = Metrics.unit_for_series(series, spec, rate_mode)
     points = Enum.sort_by(points, fn {dt, _} -> DateTime.to_unix(dt, :millisecond) end)
     raw_stats = Paths.stats(points)
+    gaps = Paths.gaps(points)
     cap = Points.points_cap(points)
     points = Points.limit_points(points, cap)
     chart_points = Points.chart_points(points, unit, compact, cap)
@@ -117,7 +117,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
     y_ticks = Points.y_ticks(y_domain, compact, unit)
     chart_left_pad = Paths.chart_left_pad(y_ticks)
     geometry = geometry_with_window(%{chart_left_pad: chart_left_pad}, Map.get(opts, :time_window))
-    paths = chart_points |> Paths.chart_paths(y_domain, geometry) |> Map.merge(raw_stats)
+    paths = chart_points |> Paths.chart_paths(y_domain, Map.put(geometry, :gaps, gaps)) |> Map.merge(raw_stats)
     utilization = Metrics.compute_utilization(paths.avg, effective_max)
 
     %{
@@ -129,6 +129,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
       point_data: point_data(chart_points, geometry),
       unit: unit,
       raw_points: points,
+      gaps: gaps,
       y_domain: y_domain,
       x_ticks: Points.x_ticks(points, compact, geometry),
       y_ticks: y_ticks,
@@ -143,8 +144,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
       reference_lines: reference_line_markers(reference_lines, y_domain, series, display_name, unit),
       raw_reference_lines: reference_lines,
       raw_chart_overlays: chart_overlays,
-      first_dt: Points.series_first_dt(points),
-      last_dt: Points.series_last_dt(points),
+      first_dt: axis_first_dt(Points.series_first_dt(points), Map.get(geometry, :time_first)),
+      last_dt: axis_last_dt(Points.series_last_dt(points), Map.get(geometry, :time_last)),
       max_speed: effective_max,
       utilization: utilization
     }
@@ -262,7 +263,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
       points = Map.get(series, :raw_points, [])
       chart_points = Points.chart_points(points, unit, compact, length(points))
       raw_stats = Paths.stats(points)
-      paths = chart_points |> Paths.chart_paths(y_domain, geometry) |> Map.merge(raw_stats)
+      path_geometry = Map.put(geometry, :gaps, Map.get(series, :gaps))
+      paths = chart_points |> Paths.chart_paths(y_domain, path_geometry) |> Map.merge(raw_stats)
 
       %{
         series
@@ -371,39 +373,19 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
 
   defp annotation_position(_dt, [], _geometry), do: nil
 
+  # Before/after is judged against the axis, which is the selected window when
+  # there is one, so a marker inside the window but outside the data still
+  # lands at its instant.
   defp annotation_position(%DateTime{} = dt, points, geometry) when is_list(points) do
-    times =
-      points
-      |> Enum.map(fn
-        {%DateTime{} = point_dt, _value} -> DateTime.to_unix(point_dt, :millisecond)
-        _point -> nil
-      end)
-      |> Enum.reject(&is_nil/1)
-
+    domain = points |> Paths.time_domain() |> Paths.widen_time_domain(geometry)
     target = DateTime.to_unix(dt, :millisecond)
 
-    case times do
-      [] ->
-        nil
-
-      [only] when target == only ->
-        {chart_left_pad(geometry), :in_window}
-
-      [only] when target < only ->
-        {chart_left_pad(geometry), :before_window}
-
-      [_only] ->
-        {chart_right_edge(geometry), :after_window}
-
-      _ ->
-        first = List.first(times)
-        last = List.last(times)
-
-        cond do
-          target < first -> {chart_left_pad(geometry), :before_window}
-          target > last -> {chart_right_edge(geometry), :after_window}
-          true -> {Paths.datetime_to_x(dt, points, geometry), :in_window}
-        end
+    case domain do
+      %{count: 0} -> nil
+      %{first: first} when target < first -> {chart_left_pad(geometry), :before_window}
+      %{last: last} when target > last -> {chart_right_edge(geometry), :after_window}
+      %{count: 1} -> {chart_left_pad(geometry), :in_window}
+      _ -> {Paths.datetime_to_x(dt, domain, geometry), :in_window}
     end
   end
 
@@ -414,6 +396,20 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
   defp annotation_title(label, dt, :after_window), do: "#{label} - #{canonical_time(dt)} (after chart window)"
 
   defp annotation_title(label, dt, _position), do: "#{label} - #{canonical_time(dt)}"
+
+  # The footer times label the ends of the axis, which reach past the data when
+  # the window does.
+  defp axis_first_dt(%DateTime{} = dt, first) when is_integer(first) do
+    if first < DateTime.to_unix(dt, :millisecond), do: DateTime.from_unix!(first, :millisecond), else: dt
+  end
+
+  defp axis_first_dt(dt, _first), do: dt
+
+  defp axis_last_dt(%DateTime{} = dt, last) when is_integer(last) do
+    if last > DateTime.to_unix(dt, :millisecond), do: DateTime.from_unix!(last, :millisecond), else: dt
+  end
+
+  defp axis_last_dt(dt, _last), do: dt
 
   defp chart_left_pad(%{chart_left_pad: left}) when is_number(left), do: left
   defp chart_left_pad(_geometry), do: Paths.chart_left_pad()

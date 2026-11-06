@@ -34,7 +34,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
   @spec default_repo_url() :: String.t()
   def default_repo_url, do: FirstPartyReleaseClient.default_repo_url()
 
-  @spec list_recent_plugins(map(), pos_integer()) :: {:ok, [map()]} | {:error, String.t()}
+  @spec list_recent_plugins(map(), pos_integer()) :: {:ok, [map()]} | {:error, term()}
   def list_recent_plugins(attrs \\ %{}, limit \\ @default_recent_release_limit)
 
   def list_recent_plugins(attrs, limit) when is_map(attrs) do
@@ -45,40 +45,24 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
 
   def list_recent_plugins(_attrs, _limit), do: {:error, "Plugin import settings are invalid"}
 
-  @spec list_recent_plugins_with_summary(map(), pos_integer()) :: {:ok, map()} | {:error, String.t()}
+  @spec list_recent_plugins_with_summary(map(), pos_integer()) :: {:ok, map()} | {:error, term()}
   def list_recent_plugins_with_summary(attrs \\ %{}, limit \\ @default_recent_release_limit)
 
   def list_recent_plugins_with_summary(attrs, limit) when is_map(attrs) do
+    index_name = index_asset_name(attrs)
+
     with {:ok, repo} <- import_repo(attrs),
-         {:ok, releases} <- fetch_recent_releases(repo, clamp_recent_release_limit(limit)) do
-      index_name = index_asset_name(attrs)
-
-      releases
-      |> Enum.reduce_while({:ok, %{plugins: [], indexed_releases: 0}}, fn release, {:ok, acc} ->
-        if release_asset_present?(release, index_name) do
-          case release_plugins(repo, release, attrs) do
-            {:ok, plugins} ->
-              {:cont, {:ok, %{acc | plugins: acc.plugins ++ plugins, indexed_releases: acc.indexed_releases + 1}}}
-
-            {:error, reason} ->
-              {:halt, {:error, reason}}
-          end
-        else
-          {:cont, {:ok, acc}}
-        end
-      end)
-      |> case do
-        {:ok, summary} ->
-          {:ok,
-           Map.merge(summary, %{
-             scanned_releases: length(releases),
-             index_asset_name: index_name,
-             repo_url: repo.repo_url
-           })}
-
-        {:error, reason} ->
-          {:error, reason}
-      end
+         {:ok, releases} <- fetch_recent_releases(repo, clamp_recent_release_limit(limit)),
+         {:ok, listing} <- collect_release_entries(releases, index_name, &release_plugins(repo, &1, attrs)) do
+      {:ok,
+       %{
+         plugins: listing.entries,
+         indexed_releases: listing.indexed_releases,
+         failed_releases: listing.failed_releases,
+         scanned_releases: length(releases),
+         index_asset_name: index_name,
+         repo_url: repo.repo_url
+       }}
     end
   end
 
@@ -196,25 +180,14 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
   def import(_attrs), do: {:error, :invalid_attributes}
 
   defp release_plugins(repo, release, attrs) do
-    tag = normalize_string(Map.get(release, "tag_name"))
+    with {:ok, index} <- fetch_release_index(repo, release, attrs) do
+      entries =
+        index
+        |> index_entries()
+        |> Enum.map(&summarize_entry(repo, release, &1))
+        |> Enum.reject(&is_nil/1)
 
-    cond do
-      is_nil(tag) ->
-        {:ok, []}
-
-      not release_asset_present?(release, index_asset_name(attrs)) ->
-        {:ok, []}
-
-      true ->
-        with {:ok, index} <- fetch_release_index(repo, release, attrs) do
-          entries =
-            index
-            |> index_entries()
-            |> Enum.map(&summarize_entry(repo, release, &1))
-            |> Enum.reject(&is_nil/1)
-
-          {:ok, entries}
-        end
+      {:ok, entries}
     end
   end
 

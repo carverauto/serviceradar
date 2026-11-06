@@ -60,6 +60,7 @@ defmodule ServiceRadarWebNGWeb.Plugins.CatalogLive do
        |> assign(:first_party_catalog_page, 1)
        |> assign(:first_party_catalog_page_size, @first_party_catalog_page_size)
        |> assign(:first_party_catalog_error, nil)
+       |> assign(:first_party_catalog_warning, nil)
        |> assign(:first_party_catalog_status, nil)
        |> assign(:first_party_catalog_loading?, false)
        |> assign(:first_party_release_options, [])
@@ -306,6 +307,14 @@ defmodule ServiceRadarWebNGWeb.Plugins.CatalogLive do
               {@first_party_catalog_error}
             </div>
           <% end %>
+
+          <div
+            :if={@first_party_catalog_warning}
+            id="plugin-catalog-release-warning"
+            class="rounded-xl border border-warning/30 bg-warning/5 p-3 text-xs text-warning"
+          >
+            {@first_party_catalog_warning}
+          </div>
 
           <%= if @first_party_catalog_status do %>
             <div class="rounded-xl border border-warning/30 bg-warning/5 p-3 text-xs text-sr-muted">
@@ -1351,6 +1360,7 @@ defmodule ServiceRadarWebNGWeb.Plugins.CatalogLive do
     |> assign(:first_party_catalog_loading?, false)
     |> assign_first_party_catalog_view([], socket.assigns[:first_party_release_tag])
     |> assign(:first_party_catalog_error, nil)
+    |> assign(:first_party_catalog_warning, nil)
     |> assign(
       :first_party_catalog_status,
       "No enabled plugin repository. Add one, or enable an existing one, to browse a catalog."
@@ -1394,6 +1404,10 @@ defmodule ServiceRadarWebNGWeb.Plugins.CatalogLive do
         socket
         |> assign(:first_party_catalog_error, nil)
         |> assign(
+          :first_party_catalog_warning,
+          ImportFailureMessages.failed_releases_text(Map.get(summary, :failed_releases, []))
+        )
+        |> assign(
           :first_party_catalog_status,
           first_party_catalog_status(summary, socket.assigns.first_party_catalog, summary.plugins)
         )
@@ -1415,6 +1429,7 @@ defmodule ServiceRadarWebNGWeb.Plugins.CatalogLive do
           )
         )
         |> assign(:first_party_catalog_error, format_error(reason))
+        |> assign(:first_party_catalog_warning, nil)
         |> assign(:first_party_catalog_status, nil)
     end
   end

@@ -561,7 +561,9 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
   test "rejects malformed first-party import index assets" do
     Process.put(:first_party_index_body, "[not-an-object]")
 
-    assert {:error, "Plugin import index asset is not valid JSON"} =
+    assert {:error,
+            {:release_index_unavailable, "v1.2.3", "serviceradar-wasm-plugin-index.json",
+             "Plugin import index asset is not valid JSON"}} =
              FirstPartyImporter.list_recent_plugins(%{"repo_url" => @repo_url}, 10)
   end
 

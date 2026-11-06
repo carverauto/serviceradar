@@ -78,6 +78,13 @@ defmodule ServiceRadarWebNG.Plugins.ImportFailureMessages do
 
   def reason_to_text({:artifact_http_error, status}), do: "plugin artifact download returned HTTP #{status}"
 
+  # One release's catalog index could not be read. Names the release and the
+  # asset only: the asset's download URL may be pre-signed, and its query is a
+  # credential.
+  def reason_to_text({:release_index_unavailable, release_tag, asset_name, reason}) do
+    "release #{release_tag} index #{asset_name} could not be loaded: #{reason_to_text(reason)}"
+  end
+
   def reason_to_text(:untrusted_oci_registry), do: "plugin registry is not trusted for this source"
 
   def reason_to_text(%Ash.Error.Invalid{errors: errors}) when is_list(errors) do
@@ -132,6 +139,21 @@ defmodule ServiceRadarWebNG.Plugins.ImportFailureMessages do
   def reason_to_text(reason) when is_binary(reason), do: reason
 
   def reason_to_text(_reason), do: "import was rejected"
+
+  @doc """
+  Renders the `failed_releases` of a catalog listing as one warning line, or
+  `nil` when every indexed release was read.
+  """
+  @spec failed_releases_text([map()] | nil) :: String.t() | nil
+  def failed_releases_text(failed_releases) when is_list(failed_releases) and failed_releases != [] do
+    details = Enum.map_join(failed_releases, "; ", &reason_to_text(Map.get(&1, :reason)))
+    count = length(failed_releases)
+    {noun, verb} = if count == 1, do: {"release", "is"}, else: {"releases", "are"}
+
+    "#{count} #{noun} could not be read and #{verb} not listed: #{details}"
+  end
+
+  def failed_releases_text(_failed_releases), do: nil
 
   defp extract_ash_error_text(errors) do
     Enum.find_value(errors, fn

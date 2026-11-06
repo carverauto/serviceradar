@@ -226,9 +226,18 @@ does not drop it silently:
   (`ServiceRadar.Edge.PipelineReadiness`) now also holds for an agent the gateway refused
   anything from, with `refused_statuses` and `last_refused_at` in its detail. It shows in the
   readiness report, the agent API and the agent detail page. No parallel mechanism is added.
-- The RPC answers `received: false` when every status in it was refused and never fails: a
-  status RPC error makes the agent tear down its gateway connection, and with it the control
-  stream that delivers the upgrade.
+- The RPC answers `received: false` when every status in it was refused, and also when any
+  status in it was refused durable data (any family but `oversized_summary`), even though its
+  accepted summaries are forwarded. An agent built before the cutover treats `received: true`
+  as delivery of everything the push carried and discards it; on `received: false` it keeps
+  that data and sends it again, so it survives until the agent is upgraded. The agent rebuilds
+  its summaries every interval, so they still arrive. The RPC never fails: a status RPC error
+  makes the agent tear down its gateway connection, and with it the control stream that
+  delivers the upgrade.
+- The refusal count is also published as the delta sum
+  `agent_gateway_status_retired_source_refused_count{source}` on `metrics.agent_gateway`
+  (`ServiceRadarAgentGateway.RuntimeMetrics`), which EventWriter persists, so it survives a
+  gateway restart; the Prometheus counter does not.
 
 A status summary is refused whole when its message exceeds 4 KiB; it is never cut. It is counted
 like a retired source, under the family `oversized_summary`.

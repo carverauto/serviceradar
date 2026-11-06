@@ -1,8 +1,9 @@
 defmodule ServiceRadarAgentGateway.StatusRpcTest do
   @moduledoc """
   PushStatus and StreamStatus after the edge-record cutover: ephemeral summaries are forwarded
-  to core, statuses from retired durable-data sources are refused and counted, and neither
-  outcome fails the RPC.
+  to core, statuses from retired durable-data sources are refused and counted, a push that
+  carried durable data is not acknowledged so the agent keeps it, and neither outcome fails
+  the RPC.
   """
   use ExUnit.Case, async: false
 
@@ -93,9 +94,11 @@ defmodule ServiceRadarAgentGateway.StatusRpcTest do
     :ok
   end
 
-  test "PushStatus forwards summaries and refuses durable-data sources without failing the RPC", context do
+  test "PushStatus forwards summaries, refuses durable-data sources and does not acknowledge them",
+       context do
     agent_id = "push-#{System.unique_integer([:positive])}"
     _handler = start_recording_status_handler(self())
+    install_runtime_metric_publisher!(self())
     stream = cert_stream(issue_cert_der!(agent_id, context))
 
     mixed =
@@ -106,9 +109,11 @@ defmodule ServiceRadarAgentGateway.StatusRpcTest do
         retired("netprobe", "addon:netprobe")
       ])
 
+    # An agent built before the cutover discards everything a `received: true` push carried, so
+    # the push is not acknowledged; its summary is forwarded all the same.
     log =
       capture_log(fn ->
-        assert %Monitoring.GatewayStatusResponse{received: true} = AgentGatewayServer.push_status(mixed, stream)
+        assert %Monitoring.GatewayStatusResponse{received: false} = AgentGatewayServer.push_status(mixed, stream)
       end)
 
     assert log =~ "sent statuses the status path refuses"
@@ -116,6 +121,15 @@ defmodule ServiceRadarAgentGateway.StatusRpcTest do
     assert_receive {:refused, "sysmon-metrics", 1}
     assert_receive {:refused, "results", 1}
     assert_receive {:refused, "addon", 1}
+
+    # The refusal count is also published for EventWriter, so it outlives a gateway restart.
+    refused =
+      await_runtime_metric("agent_gateway_status_retired_source_refused_count", fn row ->
+        row.tags["source"] == "results"
+      end)
+
+    assert refused.is_delta
+    assert refused.value >= 1
 
     # Durable data alone is answered as not received, still without an RPC error, and the
     # repeat is counted but not logged again.
@@ -142,7 +156,7 @@ defmodule ServiceRadarAgentGateway.StatusRpcTest do
     ]
 
     capture_log(fn ->
-      assert %Monitoring.GatewayStatusResponse{received: true} =
+      assert %Monitoring.GatewayStatusResponse{received: false} =
                AgentGatewayServer.stream_status(chunks, cert_stream(issue_cert_der!(agent_id, context)))
     end)
 
@@ -151,7 +165,8 @@ defmodule ServiceRadarAgentGateway.StatusRpcTest do
     assert_receive {:refused, "results", 1}
   end
 
-  test "an oversized summary is refused whole and counted, never cut", context do
+  test "an oversized summary is refused whole and counted, never cut, and does not withhold the ack",
+       context do
     agent_id = "oversized-#{System.unique_integer([:positive])}"
     _handler = start_recording_status_handler(self(), :message)
 

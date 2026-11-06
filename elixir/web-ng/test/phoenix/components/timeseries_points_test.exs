@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesPointsTest do
 
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points
+  alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData
 
   @moduletag :unit
   @moduletag :db_free
@@ -57,5 +58,43 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesPointsTest do
     late = Paths.datetime_to_x(~U[2026-09-21 07:00:00Z], points, opts)
     [{left, _} | _] = ticks
     assert late > left
+  end
+
+  test "a 24 hour window whose data covers only its last ten minutes starts the axis at the window start" do
+    finish = ~U[2026-03-10 12:00:00Z]
+    start = DateTime.shift(finish, day: -1)
+    points = for minute <- -10..0, do: {DateTime.shift(finish, minute: minute), 20.0 + minute}
+
+    [series] =
+      SeriesData.build_series_data([{"cpu", points}],
+        spec: %{y: "usage_percent"},
+        time_window: {:ok, start, finish}
+      )
+
+    [{first_tick_x, first_tick_iso} | _] = series.x_ticks
+    assert first_tick_iso == DateTime.to_iso8601(start)
+    assert first_tick_x == series.chart_left_pad
+    assert DateTime.compare(series.first_dt, start) == :eq
+
+    usable = Paths.chart_width() - series.chart_left_pad - Paths.chart_right_pad()
+    [earliest | _] = series.point_data
+    assert earliest.x > series.chart_left_pad + 0.99 * usable
+  end
+
+  for {name, points, segments} <- [
+        {"an evenly spaced series thinned for drawing",
+         for(minute <- 0..999, do: {DateTime.shift(~U[2026-03-01 00:00:00Z], minute: minute), rem(minute, 7) * 1.0}), 1},
+        {"two clusters 30 hours apart",
+         for(
+           cluster_start <- [~U[2026-03-01 00:00:00Z], ~U[2026-03-02 06:55:00Z]],
+           step <- 0..11,
+           do: {DateTime.shift(cluster_start, minute: step * 5), 40.0 + step}
+         ), 2}
+      ] do
+    test "#{name} draws #{segments} line segment(s)" do
+      [series] = SeriesData.build_series_data([{"cpu", unquote(Macro.escape(points))}], spec: %{y: "usage_percent"})
+
+      assert length(Regex.scan(~r/M /, series.paths.line)) == unquote(segments)
+    end
   end
 end

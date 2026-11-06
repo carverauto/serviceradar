@@ -8,6 +8,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexData.Telemetry do
   @sparkline_min_points 2
   @sparkline_bucket "5m"
   @sparkline_window "last_1h"
+  # The same bucket and window in milliseconds, for placing points in time.
+  @sparkline_bucket_ms 5 * 60 * 1000
+  @sparkline_window_ms 60 * 60 * 1000
   @sparkline_threshold_ms 100.0
   @presence_window "last_24h"
   @presence_bucket "24h"
@@ -137,11 +140,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexData.Telemetry do
   defp presence_from_downsample(_), do: %{}
 
   defp build_icmp_sparklines(rows) when is_list(rows) do
+    window_end_ms = System.system_time(:millisecond)
+
     rows
     |> Enum.filter(&is_map/1)
     |> Enum.reduce(%{}, &accumulate_icmp_point/2)
     |> Map.new(fn {device_uid, points} ->
-      {device_uid, icmp_sparkline_data(points)}
+      {device_uid, icmp_sparkline_data(points, window_end_ms)}
     end)
   end
 
@@ -164,7 +169,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexData.Telemetry do
     end
   end
 
-  defp icmp_sparkline_data(points) do
+  defp icmp_sparkline_data(points, window_end_ms) do
     points =
       points
       |> Enum.sort_by(fn p -> p.ts end)
@@ -181,7 +186,61 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexData.Telemetry do
         do: title <> " · Insufficient history for a trend in the last hour",
         else: title
 
-    %{points: values, latest_ms: latest_ms, tone: tone, title: title, sparse: sparse}
+    %{
+      points: values,
+      segments: sparkline_segments(points, window_end_ms),
+      latest_ms: latest_ms,
+      tone: tone,
+      title: title,
+      sparse: sparse
+    }
+  end
+
+  # Downsampling returns only buckets that hold data, so a point's place in the
+  # list says nothing about its time. Each point is placed at its fraction of
+  # the window, and the line breaks where buckets are missing, so an hour with
+  # one early probe and one late probe does not look like a steady hour.
+  # `nil` when a timestamp cannot be read; the sparkline then spaces by index.
+  defp sparkline_segments(points, window_end_ms) do
+    window_start_ms = window_end_ms - @sparkline_window_ms
+
+    placed =
+      Enum.map(points, fn %{ts: ts, v: value} ->
+        with true <- is_binary(ts),
+             {:ok, dt, _offset} <- DateTime.from_iso8601(ts) do
+          {DateTime.to_unix(dt, :millisecond), value}
+        else
+          _ -> nil
+        end
+      end)
+
+    if Enum.any?(placed, &is_nil/1) do
+      nil
+    else
+      placed
+      |> Enum.chunk_while(
+        [],
+        fn
+          {ms, _value} = point, [{previous_ms, _} | _] = segment when ms - previous_ms >= 2 * @sparkline_bucket_ms ->
+            {:cont, Enum.reverse(segment), [point]}
+
+          point, segment ->
+            {:cont, [point | segment]}
+        end,
+        fn
+          [] -> {:cont, []}
+          segment -> {:cont, Enum.reverse(segment), []}
+        end
+      )
+      |> Enum.map(fn segment ->
+        Enum.map(segment, fn {ms, value} -> {window_fraction(ms, window_start_ms), value} end)
+      end)
+    end
+  end
+
+  defp window_fraction(ms, window_start_ms) do
+    offset = min(max(ms - window_start_ms, 0), @sparkline_window_ms)
+    offset / @sparkline_window_ms
   end
 
   defp icmp_tone(latest_ms) do

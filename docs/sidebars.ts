@@ -54,6 +54,7 @@ const sidebars: SidebarsConfig = {
       label: 'Edge & Agents',
       items: [
         {type: 'doc', id: 'edge-model', label: 'Edge Model'},
+        {type: 'doc', id: 'durable-edge-records', label: 'Durable Edge Records'},
         {type: 'doc', id: 'edge-agent-onboarding', label: 'Edge Onboarding'},
         {type: 'doc', id: 'agent-configuration', label: 'Agent Configuration'},
         {type: 'doc', id: 'mtr-protocols', label: 'MTR Probe Protocols'},

@@ -38,12 +38,14 @@ defmodule ServiceRadar.Edge.Projectors.DiscoveryCommon do
   @doc """
   Hands a rebuilt legacy JSON payload to the sync ingestion pipeline the
   same way `ServiceRadar.Ingestion.ResultIngestor.schedule_sync_ingestion/1`
-  does: queued when async ingestion is enabled, inline otherwise.
+  does: queued when async ingestion is enabled, inline otherwise. A refusal
+  fails the record, which is redelivered, so a transient queue refusal does
+  not mark the sync run incomplete.
   """
   @spec schedule_sync_ingestion(binary()) :: :ok | {:error, term()}
   def schedule_sync_ingestion(message) do
     if Application.get_env(:serviceradar_core, :sync_ingestor_async, true) do
-      case SyncIngestorQueue.enqueue(message) do
+      case SyncIngestorQueue.enqueue(message, caller_retries: true) do
         :ok -> :ok
         {:ok, _} -> :ok
         {:error, reason} -> {:error, reason}

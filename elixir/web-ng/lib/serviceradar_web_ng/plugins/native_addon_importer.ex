@@ -48,37 +48,21 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporter do
   def list_recent_addons_with_summary(attrs \\ %{}, limit \\ @default_recent_release_limit)
 
   def list_recent_addons_with_summary(attrs, limit) when is_map(attrs) do
+    index_name = index_asset_name(attrs)
+
     with {:ok, repo} <- import_repo(attrs),
-         {:ok, releases} <- Client.fetch_recent_releases(repo, limit) do
-      index_name = index_asset_name(attrs)
-
-      releases
-      |> Enum.reduce_while({:ok, %{addons: [], indexed_releases: 0}}, fn release, {:ok, acc} ->
-        if Client.release_asset_present?(release, index_name) do
-          case release_addons(repo, release, attrs) do
-            {:ok, addons} ->
-              {:cont, {:ok, %{acc | addons: acc.addons ++ addons, indexed_releases: acc.indexed_releases + 1}}}
-
-            {:error, reason} ->
-              {:halt, {:error, reason}}
-          end
-        else
-          {:cont, {:ok, acc}}
-        end
-      end)
-      |> case do
-        {:ok, summary} ->
-          {:ok,
-           Map.merge(summary, %{
-             addons: Enum.reject(summary.addons, &RetiredNativeAddons.retired?(&1.addon_id)),
-             scanned_releases: length(releases),
-             index_asset_name: index_name,
-             repo_url: repo.repo_url
-           })}
-
-        {:error, reason} ->
-          {:error, reason}
-      end
+         {:ok, releases} <- Client.fetch_recent_releases(repo, limit),
+         {:ok, listing} <-
+           Client.collect_release_entries(releases, index_name, &release_addons(repo, &1, attrs)) do
+      {:ok,
+       %{
+         addons: Enum.reject(listing.entries, &RetiredNativeAddons.retired?(&1.addon_id)),
+         indexed_releases: listing.indexed_releases,
+         failed_releases: listing.failed_releases,
+         scanned_releases: length(releases),
+         index_asset_name: index_name,
+         repo_url: repo.repo_url
+       }}
     end
   end
 
@@ -243,25 +227,14 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporter do
   end
 
   defp release_addons(repo, release, attrs) do
-    tag = Client.normalize_string(Map.get(release, "tag_name"))
+    with {:ok, index} <- fetch_release_index(repo, release, attrs) do
+      entries =
+        index
+        |> index_entries()
+        |> Enum.map(&summarize_entry(repo, release, &1))
+        |> Enum.reject(&is_nil/1)
 
-    cond do
-      is_nil(tag) ->
-        {:ok, []}
-
-      not Client.release_asset_present?(release, index_asset_name(attrs)) ->
-        {:ok, []}
-
-      true ->
-        with {:ok, index} <- fetch_release_index(repo, release, attrs) do
-          entries =
-            index
-            |> index_entries()
-            |> Enum.map(&summarize_entry(repo, release, &1))
-            |> Enum.reject(&is_nil/1)
-
-          {:ok, entries}
-        end
+      {:ok, entries}
     end
   end
 
