@@ -60,6 +60,35 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SparklineTest do
     end
   end
 
+  for {name, minutes_ago, segments} <- [
+        {"evenly spaced buckets", [20, 15, 10, 5], 1},
+        {"buckets either side of a missing half hour", [55, 50, 15, 10], 2}
+      ] do
+    test "#{name} draw #{segments} line segment(s) placed in time" do
+      now = DateTime.utc_now()
+
+      rows =
+        for minutes <- unquote(minutes_ago) do
+          %{
+            "series" => @uid,
+            "value" => 12_500_000,
+            "timestamp" => now |> DateTime.shift(minute: -minutes) |> DateTime.to_iso8601()
+          }
+        end
+
+      Process.put(:sweep_rows, rows)
+      {sparklines, nil} = Telemetry.icmp_sparklines(%{}, [%{"uid" => @uid}])
+
+      [stroke] =
+        sparklines |> Map.fetch!(@uid) |> render_spark() |> LazyHTML.query("path[fill='none']") |> LazyHTML.attribute("d")
+
+      assert length(Regex.scan(~r/M /, stroke)) == unquote(segments)
+      # The earliest bucket sits at its place in the hour, not at the left edge.
+      [_, first_x] = Regex.run(~r/^M ([0-9.]+),/, stroke)
+      assert_in_delta String.to_float(first_x), (60 - hd(unquote(minutes_ago))) / 60 * 400, 2.0
+    end
+  end
+
   test "a caller without a sparse flag cannot render an empty or single-point chart" do
     for points <- [[], [12.5]] do
       document = render_spark(%{points: points, latest_ms: 12.5})
