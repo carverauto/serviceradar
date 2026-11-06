@@ -18,8 +18,17 @@ defmodule ServiceRadarAgentGateway.RetiredStatusSources do
   cut message says something the agent never said. The gateway does not publish or forward a
   refused status, and it does not drop it silently either: `refuse/2` counts it per agent and
   family in the agent tracker, where the edge pipeline readiness report reads it as
-  `agent_upgrade_pending`, and in the gateway's Prometheus metrics.
+  `agent_upgrade_pending`, in the gateway's Prometheus metrics, and as the metric
+  `agent_gateway_status_retired_source_refused_count` on `metrics.agent_gateway`
+  (`RuntimeMetrics`), which outlives a gateway restart.
+
+  A push that carried durable data is not acknowledged (`durable?/1`), even when its summaries
+  were accepted: an agent built before the cutover keeps data it was not told was delivered,
+  and still sends it, so the data survives until the agent is upgraded instead of being
+  dropped on a false acknowledgement.
   """
+
+  alias ServiceRadarAgentGateway.RuntimeMetrics
 
   require Logger
 
@@ -57,6 +66,14 @@ defmodule ServiceRadarAgentGateway.RetiredStatusSources do
     end
   end
 
+  @doc """
+  Whether the gateway refuses `status` as durable data the sender should keep: any refusal
+  except an oversized summary. A summary is latest-wins and the agent builds a new one every
+  interval, so refusing one is no reason to withhold the acknowledgement of a push.
+  """
+  @spec durable?(Monitoring.GatewayServiceStatus.t()) :: boolean()
+  def durable?(%Monitoring.GatewayServiceStatus{} = status), do: refusal_family(status) not in [nil, "oversized_summary"]
+
   defp size_refusal(message) when is_binary(message) and byte_size(message) > @max_summary_bytes, do: "oversized_summary"
 
   defp size_refusal(_message), do: nil
@@ -64,9 +81,10 @@ defmodule ServiceRadarAgentGateway.RetiredStatusSources do
   @doc """
   Count the statuses the gateway refused from an agent, without publishing or forwarding them.
 
-  Each family's count is added to the agent's tracker entry and emitted as
-  `[:serviceradar, :agent_gateway, :status, :retired_source_refused]`. The first refusal the
-  tracker records for an agent is logged; later ones are only counted.
+  Each family's count is added to the agent's tracker entry, emitted as
+  `[:serviceradar, :agent_gateway, :status, :retired_source_refused]` and published through
+  `RuntimeMetrics`. The first refusal the tracker records for an agent is logged; later ones
+  are only counted.
   """
   @spec refuse(String.t(), [Monitoring.GatewayServiceStatus.t()]) :: :ok
   def refuse(_agent_id, []), do: :ok
@@ -82,6 +100,8 @@ defmodule ServiceRadarAgentGateway.RetiredStatusSources do
         %{source: family, gateway_id: gateway_id}
       )
     end)
+
+    RuntimeMetrics.report_refused_statuses(counts)
 
     case ServiceRadar.AgentTracker.record_refused_statuses(agent_id, counts) do
       :first ->

@@ -363,9 +363,16 @@ RTSP and other live media are not records and are not on this pipeline.
 The gateway refuses any durable data that still arrives on the status RPCs from
 an agent built before this pipeline became the only path. It does not store,
 forward or buffer it. It counts each refusal per agent and source family
-(`serviceradar_agent_gateway_status_retired_source_refused_count{source}`) and
-reports the agent as `agent_upgrade_pending`. A status summary larger than
-4 KiB is refused whole under the family `oversized_summary`.
+(`serviceradar_agent_gateway_status_retired_source_refused_count{source}`, also
+persisted as `agent_gateway_status_retired_source_refused_count` on
+`metrics.agent_gateway`) and reports the agent as `agent_upgrade_pending`. A
+status summary larger than 4 KiB is refused whole under the family
+`oversized_summary`.
+
+A push that carried refused durable data is answered `received: false`, even
+when its summaries were accepted and forwarded, so the older agent keeps that
+data and retries it instead of discarding it as delivered. An oversized summary
+alone does not withhold the acknowledgement.
 
 ## Failure handling
 
@@ -534,7 +541,8 @@ The pipeline became the only path for agent data in v1.4.102:
   set `edgeRecords` need no change.
 - **Upgrade agents with the platform.** An older agent still sends its data on
   the status path, which the gateway refuses. Until the agent is upgraded, that
-  data is counted and shown as `agent_upgrade_pending`, but not stored. Check the
+  data is counted and shown as `agent_upgrade_pending`, but not stored; the
+  agent is told it was not received, so it keeps the data and retries. Check the
   readiness report before and after the upgrade.
 - **The issuer key moves into CNPG.** Core imports the existing
   `edge-issuer-seed` once on first start. Installs that set
