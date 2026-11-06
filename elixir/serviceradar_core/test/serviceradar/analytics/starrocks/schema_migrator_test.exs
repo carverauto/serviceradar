@@ -353,6 +353,20 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
     assert result.running == nil
   end
 
+  test "a column-type probe that fails stops the migration without sending the MODIFY" do
+    migrations =
+      Schema.build([
+        {"0001_widen.sql",
+         "ALTER TABLE serviceradar.flows MODIFY COLUMN comm VARCHAR(1048576) NULL;"}
+      ])
+
+    agent = start_warehouse(%{fail_on: ~r/COLUMN_TYPE/})
+
+    assert {:error, {1, {:starrocks_mysql, "boom"}}} = migrate(agent, migrations: migrations)
+    refute Enum.any?(state(agent).ddl, &(&1 =~ "MODIFY COLUMN"))
+    assert state(agent).ledger == []
+  end
+
   test "the shipped schema marks exactly the day-partitioned rollups as needing partitioned tables" do
     waiting =
       Schema.migrations()
