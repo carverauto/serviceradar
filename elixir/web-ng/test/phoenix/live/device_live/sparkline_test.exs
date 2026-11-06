@@ -62,6 +62,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SparklineTest do
 
   for {name, minutes_ago, segments} <- [
         {"evenly spaced buckets", [20, 15, 10, 5], 1},
+        {"buckets either side of one missing 5m bucket", [20, 15, 5], 2},
         {"buckets either side of a missing half hour", [55, 50, 15, 10], 2}
       ] do
     test "#{name} draw #{segments} line segment(s) placed in time" do

@@ -221,7 +221,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexData.Telemetry do
       |> Enum.chunk_while(
         [],
         fn
-          {ms, _value} = point, [{previous_ms, _} | _] = segment when ms - previous_ms > 2 * @sparkline_bucket_ms ->
+          {ms, _value} = point, [{previous_ms, _} | _] = segment when ms - previous_ms >= 2 * @sparkline_bucket_ms ->
             {:cont, Enum.reverse(segment), [point]}
 
           point, segment ->
