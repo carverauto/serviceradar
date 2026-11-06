@@ -311,6 +311,12 @@
     actor, src_endpoint and dst_endpoint documents, status_code, status_detail, log_version,
     raw_data, created_at), so a cut-over event loses no field. Test: `LogsEventsSingleStoreDBTest`,
     `RowsTest`.
+  - [x] Nothing is cut on the way into `events` or `logs` (`priv/starrocks/0037`): free text is
+    VARCHAR(1048576) and stored whole; an identifier past its protocol width (trace_id,
+    span_id, src_endpoint_ip, source_ip) is stored as NULL and counted
+    (`[:serviceradar, :starrocks, dataset, :scalar_invalid]`). `SchemaMigrator` skips a
+    `MODIFY COLUMN` whose column already has the type and awaits each one. Test: `RowsTest`,
+    `SchemaMigratorTest`.
 - [ ] 5.3 A shared "unavailable with StarRocks enabled" result for readers with no warehouse
   implementation, rendered explicitly by each page and card, so no reader queries a frozen CNPG
   table; a test per reader until it has a warehouse implementation.

@@ -298,19 +298,19 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
     %{
       "id" => Identity.record_id(:logs, row),
       "timestamp" => datetime(field(row, :timestamp)),
-      "ingest_identity" => stringify(field(row, :ingest_identity) || ""),
-      "severity_text" => stringify(field(row, :severity_text)),
+      "ingest_identity" => text(:logs, :ingest_identity, field(row, :ingest_identity) || ""),
+      "severity_text" => text(:logs, :severity_text, field(row, :severity_text)),
       "severity_number" => field(row, :severity_number),
-      "body" => stringify(field(row, :body)),
-      "service_name" => stringify(field(row, :service_name)),
-      "source" => stringify(field(row, :source)),
-      "ingest_agent_id" => stringify(field(row, :ingest_agent_id)),
-      "ingest_partition" => stringify(field(row, :ingest_partition)),
-      "trace_id" => stringify(field(row, :trace_id)),
-      "span_id" => stringify(field(row, :span_id)),
-      "event_name" => stringify(field(row, :event_name)),
-      "source_ip" => stringify(field(row, :source_ip)),
-      "service_version" => stringify(field(row, :service_version)),
+      "body" => text(:logs, :body, field(row, :body)),
+      "service_name" => text(:logs, :service_name, field(row, :service_name)),
+      "source" => text(:logs, :source, field(row, :source)),
+      "ingest_agent_id" => text(:logs, :ingest_agent_id, field(row, :ingest_agent_id)),
+      "ingest_partition" => text(:logs, :ingest_partition, field(row, :ingest_partition)),
+      "trace_id" => identifier(:logs, :trace_id, field(row, :trace_id)),
+      "span_id" => identifier(:logs, :span_id, field(row, :span_id)),
+      "event_name" => text(:logs, :event_name, field(row, :event_name)),
+      "source_ip" => identifier(:logs, :source_ip, field(row, :source_ip)),
+      "service_version" => text(:logs, :service_version, field(row, :service_version)),
       "observed_timestamp" => datetime(field(row, :observed_timestamp))
     }
   end
@@ -324,20 +324,20 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
       "type_uid" => field(row, :type_uid),
       "activity_id" => field(row, :activity_id),
       "severity_id" => field(row, :severity_id),
-      "severity" => bounded_string(:severity, field(row, :severity)),
-      "source" => bounded_string(:source, field(row, :source)),
-      "src_endpoint_ip" => bounded_string(:src_endpoint_ip, src_endpoint_ip(row)),
-      "firewall_rule_name" => bounded_string(:firewall_rule_name, firewall_rule_name(row)),
-      "source_type" => bounded_string(:source_type, source_type(row)),
-      "message" => bounded_string(:message, field(row, :message)),
-      "activity_name" => bounded_string(:activity_name, field(row, :activity_name)),
-      "status" => bounded_string(:status, field(row, :status)),
+      "severity" => text(:events, :severity, field(row, :severity)),
+      "source" => text(:events, :source, field(row, :source)),
+      "src_endpoint_ip" => identifier(:events, :src_endpoint_ip, src_endpoint_ip(row)),
+      "firewall_rule_name" => text(:events, :firewall_rule_name, firewall_rule_name(row)),
+      "source_type" => text(:events, :source_type, source_type(row)),
+      "message" => text(:events, :message, field(row, :message)),
+      "activity_name" => text(:events, :activity_name, field(row, :activity_name)),
+      "status" => text(:events, :status, field(row, :status)),
       "status_id" => field(row, :status_id),
-      "log_name" => bounded_string(:log_name, field(row, :log_name)),
-      "log_provider" => bounded_string(:log_provider, field(row, :log_provider)),
-      "trace_id" => bounded_string(:trace_id, field(row, :trace_id)),
-      "span_id" => bounded_string(:span_id, field(row, :span_id)),
-      "log_level" => bounded_string(:log_level, field(row, :log_level)),
+      "log_name" => text(:events, :log_name, field(row, :log_name)),
+      "log_provider" => text(:events, :log_provider, field(row, :log_provider)),
+      "trace_id" => identifier(:events, :trace_id, field(row, :trace_id)),
+      "span_id" => identifier(:events, :span_id, field(row, :span_id)),
+      "log_level" => text(:events, :log_level, field(row, :log_level)),
       "metadata" => document(row, :metadata),
       "unmapped" => document(row, :unmapped),
       "device" => document(row, :device),
@@ -345,10 +345,10 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
       "actor" => document(row, :actor),
       "src_endpoint" => document(row, :src_endpoint),
       "dst_endpoint" => document(row, :dst_endpoint),
-      "status_code" => text(row, :status_code),
-      "status_detail" => text(row, :status_detail),
-      "log_version" => text(row, :log_version),
-      "raw_data" => text(row, :raw_data),
+      "status_code" => text(:events, :status_code, field(row, :status_code)),
+      "status_detail" => text(:events, :status_detail, field(row, :status_detail)),
+      "log_version" => text(:events, :log_version, field(row, :log_version)),
+      "raw_data" => text(:events, :raw_data, field(row, :raw_data)),
       "created_at" => datetime(field(row, :created_at))
     }
   end
@@ -452,39 +452,45 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
   # filter, so the drop is reported rather than left invisible.
   @max_document_bytes 1_048_576
 
-  # priv/starrocks/0004: the scalar event columns are bounded VARCHARs whose
-  # CNPG counterparts are unbounded text. A value wider than its column makes
-  # StarRocks FILTER that row out of the Stream Load batch: the row never
-  # reaches the warehouse while StreamLoad.interpret_load/4 reports "filtered
-  # rows" and Destination.persist_starrocks/4 still returns success. That is
-  # the events-only row-count shortfall -- logs match exactly because none of
-  # their columns overflow. Truncate here (UTF-8-safe) so the row always lands,
-  # and report the truncation rather than leaving a silent drop.
-  @scalar_limits %{
-    severity: 32,
-    source: 256,
-    src_endpoint_ip: 64,
-    firewall_rule_name: 256,
-    source_type: 64,
-    message: 65_533,
-    activity_name: 128,
-    status: 64,
-    log_name: 256,
-    log_provider: 128,
-    trace_id: 64,
-    span_id: 64,
-    log_level: 32
+  # Identifier columns keep the width their protocol allows (priv/starrocks/0003,
+  # 0004): a W3C trace id is 32 hex characters, a span id 16, an IP address at
+  # most 45, all within the 64-byte columns. A wider value is not that
+  # identifier, and a cut one would name a different trace, span or host, so it
+  # is stored as NULL and counted, never truncated.
+  @identifier_limits %{
+    events: %{src_endpoint_ip: 64, trace_id: 64, span_id: 64},
+    logs: %{trace_id: 64, span_id: 64, source_ip: 64}
   }
 
-  defp bounded_string(column, value) do
+  defp identifier(dataset, column, value) do
     value = stringify(value)
-    max = Map.fetch!(@scalar_limits, column)
+    max = @identifier_limits |> Map.fetch!(dataset) |> Map.fetch!(column)
 
     if is_binary(value) and byte_size(value) > max do
-      scalar_truncated(column, byte_size(value), max)
-      truncate_binary(value, max)
+      :telemetry.execute(
+        [:serviceradar, :starrocks, dataset, :scalar_invalid],
+        %{bytes: byte_size(value), max_bytes: max},
+        %{field: Atom.to_string(column)}
+      )
+
+      nil
     else
       value
+    end
+  end
+
+  # Free text has no bound in CNPG, and its warehouse column is VARCHAR(1048576)
+  # (priv/starrocks/0037): one NATS message (1 MiB max_payload as shipped)
+  # cannot carry more, so the value is stored whole. One wider than the column
+  # is dropped from its field and reported, as an oversized document is, rather
+  # than cut, so the row still lands.
+  defp text(dataset, column, value) do
+    case stringify(value) do
+      value when is_binary(value) and byte_size(value) > @max_document_bytes ->
+        document_dropped(dataset, column, :too_large, byte_size(value))
+
+      value ->
+        value
     end
   end
 
@@ -502,28 +508,6 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
     end
   end
 
-  defp scalar_truncated(column, bytes, max) do
-    :telemetry.execute(
-      [:serviceradar, :starrocks, :events, :scalar_truncated],
-      %{bytes: bytes, max_bytes: max},
-      %{field: Atom.to_string(column)}
-    )
-  end
-
-  # priv/starrocks/0036: text fields CNPG stores unbounded, held in
-  # VARCHAR(1048576) columns. Under the shipped 1 MiB NATS max_payload no value
-  # can exceed that; one that does is dropped from its field and reported, as an
-  # oversized document is, rather than cut.
-  defp text(row, key) do
-    case stringify(field(row, key)) do
-      value when is_binary(value) and byte_size(value) > @max_document_bytes ->
-        document_dropped(key, :too_large, byte_size(value))
-
-      value ->
-        value
-    end
-  end
-
   defp document(row, key) do
     value = field(row, key)
 
@@ -532,13 +516,13 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
         json
 
       json when is_binary(json) ->
-        document_dropped(key, :too_large, byte_size(json))
+        document_dropped(:events, key, :too_large, byte_size(json))
 
       nil when is_nil(value) ->
         nil
 
       nil ->
-        document_dropped(key, :not_a_document, document_bytes(value))
+        document_dropped(:events, key, :not_a_document, document_bytes(value))
     end
   end
 
@@ -557,9 +541,9 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
   defp document_bytes(value) when is_binary(value), do: byte_size(value)
   defp document_bytes(_value), do: 0
 
-  defp document_dropped(key, reason, bytes) do
+  defp document_dropped(dataset, key, reason, bytes) do
     :telemetry.execute(
-      [:serviceradar, :starrocks, :events, :document_dropped],
+      [:serviceradar, :starrocks, dataset, :document_dropped],
       %{bytes: bytes},
       %{field: Atom.to_string(key), reason: reason}
     )

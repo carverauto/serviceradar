@@ -7,9 +7,6 @@ defmodule ServiceRadar.Analytics.StarRocks.RowsTest do
 
   @moduletag :db_free
 
-  # 65_533 is the StarRocks events.message VARCHAR limit (priv/starrocks/0004).
-  @message_limit 65_533
-
   test "flow records retain attribution with atom and JSON field names" do
     flow = %{
       id: "flow-example-01",
@@ -89,37 +86,59 @@ defmodule ServiceRadar.Analytics.StarRocks.RowsTest do
     )
   end
 
-  test "an oversized message is truncated so the event still lands" do
-    message = String.duplicate("x", @message_limit + 100)
-
-    assert [%{"message" => truncated}] =
-             Rows.encode(:events, [encode_event(%{"message" => message})])
-
-    assert byte_size(truncated) == @message_limit
-    assert String.valid?(truncated)
-    assert truncated == String.duplicate("x", @message_limit)
-  end
-
-  test "an oversized source is truncated to its 256-byte column limit" do
-    source = String.duplicate("s", 300)
-
-    assert [%{"source" => truncated}] =
-             Rows.encode(:events, [encode_event(%{"source" => source})])
-
-    assert byte_size(truncated) == 256
-  end
-
-  test "a multi-byte value truncates on a UTF-8 boundary rather than mid-codepoint" do
-    # 40_000 precomposed "e-acute" is 80_000 bytes; the cut would otherwise
-    # fall inside the final codepoint and produce invalid UTF-8.
+  test "free text past its old column width is stored whole, in events and logs" do
     message = String.duplicate("é", 40_000)
+    source = String.duplicate("s", 300)
+    body = String.duplicate("b", 70_000)
 
-    assert [%{"message" => truncated}] =
-             Rows.encode(:events, [encode_event(%{"message" => message})])
+    assert [%{"message" => ^message, "source" => ^source}] =
+             Rows.encode(:events, [encode_event(%{"message" => message, "source" => source})])
 
-    assert byte_size(truncated) <= @message_limit
-    assert String.valid?(truncated)
-    assert rem(byte_size(truncated), 2) == 0
+    assert [%{"body" => ^body}] =
+             Rows.encode(:logs, [
+               %{id: "log-alpha-0001", timestamp: ~U[2026-09-22 12:00:00Z], body: body}
+             ])
+  end
+
+  test "an identifier past its protocol width is stored as NULL and counted, never cut" do
+    handler = {__MODULE__, :scalar_invalid, System.unique_integer()}
+    parent = self()
+
+    :telemetry.attach_many(
+      handler,
+      [
+        [:serviceradar, :starrocks, :events, :scalar_invalid],
+        [:serviceradar, :starrocks, :logs, :scalar_invalid]
+      ],
+      fn event, measurements, metadata, _ -> send(parent, {event, measurements, metadata}) end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+    long_id = String.duplicate("a", 65)
+
+    assert [%{"trace_id" => nil, "span_id" => "00f067aa0ba902b7"}] =
+             Rows.encode(:events, [
+               encode_event(%{"trace_id" => long_id, "span_id" => "00f067aa0ba902b7"})
+             ])
+
+    assert_received {[:serviceradar, :starrocks, :events, :scalar_invalid],
+                     %{bytes: 65, max_bytes: 64}, %{field: "trace_id"}}
+
+    assert [%{"source_ip" => nil, "trace_id" => "4bf92f3577b34da6a3ce929d0e0e4736"}] =
+             Rows.encode(:logs, [
+               %{
+                 id: "log-alpha-0001",
+                 timestamp: ~U[2026-09-22 12:00:00Z],
+                 source_ip: long_id,
+                 trace_id: "4bf92f3577b34da6a3ce929d0e0e4736"
+               }
+             ])
+
+    assert_received {[:serviceradar, :starrocks, :logs, :scalar_invalid],
+                     %{bytes: 65, max_bytes: 64}, %{field: "source_ip"}}
+
+    refute_received {_event, _measurements, _metadata}
   end
 
   test "an event row carries every column of the shipped CREATE, CNPG's fields included" do

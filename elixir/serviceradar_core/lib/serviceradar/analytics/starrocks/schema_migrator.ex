@@ -9,7 +9,8 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
 
   A warehouse that predates the ledger is adopted rather than rejected: CREATEs
   are `IF NOT EXISTS`, the rollup rebuild drops before it creates, and an
-  `ADD COLUMN` whose column is already there is skipped. The same property
+  `ADD COLUMN` whose column is already there, or a `MODIFY COLUMN` whose
+  column already has the target type, is skipped. The same property
   makes a migration that failed half way safe to run again, which is the only
   recovery a failed migration needs. A new statement kind that cannot be
   repeated needs a guard here before it ships.
@@ -333,9 +334,39 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
   end
 
   defp execute(state, statement) do
-    case Schema.add_column(statement) do
+    with :error <- Schema.add_column(statement),
+         :error <- Schema.modify_column(statement) do
+      run_statement(state, statement)
+    else
       {:ok, {table, column}} -> add_column(state, statement, table, column)
-      :error -> run_statement(state, statement)
+      {:ok, {table, column, type}} -> modify_column(state, statement, table, column, type)
+    end
+  end
+
+  defp modify_column(state, statement, table, column, type) do
+    type_sql =
+      "SELECT COLUMN_TYPE FROM information_schema.columns WHERE table_schema = '#{state.database}' " <>
+        "AND table_name = '#{table}' AND column_name = '#{column}'"
+
+    case state.query.(type_sql) do
+      {:ok, %{rows: [[current | _] | _]}} when is_binary(current) ->
+        if String.downcase(current) == type do
+          :ok
+        else
+          alter_and_await(state, statement, table)
+        end
+
+      {:ok, _none} ->
+        alter_and_await(state, statement, table)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp alter_and_await(state, statement, table) do
+    with :ok <- run_statement(state, statement) do
+      await_alter(state, table, @alter_poll_attempts)
     end
   end
 
@@ -349,9 +380,7 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
         :ok
 
       {:ok, _none} ->
-        with :ok <- run_statement(state, statement) do
-          await_alter(state, table, @alter_poll_attempts)
-        end
+        alter_and_await(state, statement, table)
 
       {:error, reason} ->
         {:error, reason}
