@@ -68,6 +68,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
   alias ServiceRadar.Ingestion.ResultIngestor
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceAgentAvailability
+  alias ServiceRadar.Inventory.ProxmoxEnrichmentIngestor
   alias Serviceradar.Metric.V1.IngestIdentity
   alias Serviceradar.Metric.V1.Metric
   alias Serviceradar.Metric.V1.MetricBatch
@@ -1051,6 +1052,41 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
       assert ledger_count(frame.record) == 0
       assert [] = plugin_service_names(frame.agent_id)
+    end
+
+    # The Proxmox source-scope resolver gates on the delivering agent's
+    # authenticated capabilities, which the edge path takes from the agent's
+    # stored record. With them the resolver moves on to the assignment lookup
+    # (absent here); without them it refuses at the capability gate.
+    test "a Proxmox result is gated on the authenticated agent's stored capabilities" do
+      proxmox_capabilities = [
+        "plugin-host-authority:v1",
+        "proxmox-semantic-connector:v1",
+        "proxmox-identity:v3"
+      ]
+
+      for {capabilities, expected} <- [
+            {proxmox_capabilities ++ ["synthetic-other:v1"], "plugin_assignment_not_found"},
+            {["plugin-host-authority:v1"], "missing_proxmox_identity_delivery_capabilities"}
+          ] do
+        {agent_id, partition} = plugin_result_agent!(capabilities)
+
+        frame =
+          build_plugin_result_frame([proxmox_result_item()],
+            agent_id: agent_id,
+            partition: partition
+          )
+
+        error =
+          assert_raise RuntimeError, fn ->
+            EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
+          end
+
+        assert error.message =~ "plugin_result_handlers_failed"
+        assert error.message =~ inspect(ProxmoxEnrichmentIngestor)
+        assert error.message =~ expected
+        assert ledger_count(frame.record) == 0
+      end
     end
 
     test "a batch without host provenance is refused at decode" do
@@ -3155,12 +3191,31 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
     |> Map.merge(%{agent_id: agent_id, partition_id: partition.id})
   end
 
-  defp plugin_result_agent! do
+  defp plugin_result_agent!(capabilities \\ []) do
     actor = SystemActor.system(:edge_record_test)
     partition = partition!(random_uuid(4), actor)
     agent_id = "agent-#{System.unique_integer([:positive])}"
-    ensure_agent!(agent_id, partition, actor)
+    ensure_agent!(agent_id, partition, actor, capabilities)
     {agent_id, partition}
+  end
+
+  defp proxmox_result_item do
+    details = %{
+      "schema" => "serviceradar.proxmox_enrichment.v1",
+      "targets" => [
+        %{
+          "cluster" => [%{"type" => "cluster", "id" => "lab01", "name" => "lab01"}],
+          "nodes" => [%{"node" => "pve01", "status" => "online"}],
+          "guests" => []
+        }
+      ]
+    }
+
+    %{
+      plugin_result_item("proxmox-inventory")
+      | details: Jason.encode!(details),
+        labels: %{"assignment_id" => Ecto.UUID.generate(), "plugin_id" => "proxmox-inventory"}
+    }
   end
 
   defp plugin_result_item(name) do
@@ -3574,7 +3629,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
     end
   end
 
-  defp ensure_agent!(agent_id, partition, actor) do
+  defp ensure_agent!(agent_id, partition, actor, capabilities \\ []) do
     if !Repo.get(Agent, agent_id) do
       device =
         Device
@@ -3591,7 +3646,9 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
         |> Ash.create!()
 
       Agent
-      |> Ash.Changeset.for_create(:register, %{uid: agent_id, device_uid: device.uid},
+      |> Ash.Changeset.for_create(
+        :register,
+        %{uid: agent_id, device_uid: device.uid, capabilities: capabilities},
         actor: actor
       )
       |> Ash.create!()

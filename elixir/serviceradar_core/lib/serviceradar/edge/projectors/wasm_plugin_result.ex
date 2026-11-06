@@ -23,6 +23,12 @@ defmodule ServiceRadar.Edge.Projectors.WasmPluginResult do
   twice for a committed result. The one identity the durable path cannot
   carry is the connecting gateway's id, which projected statuses leave unset
   rather than guessing.
+
+  `delivery_capabilities` (which handlers such as the Proxmox source-scope
+  resolver gate on) come from the authenticated agent's recorded capability
+  list, read once per batch for the record's verified origin principal, never
+  from the record payload. An agent with no record projects an empty list, so
+  a capability-gated handler refuses the result.
   """
 
   @behaviour ServiceRadar.Edge.Projector
@@ -34,6 +40,7 @@ defmodule ServiceRadar.Edge.Projectors.WasmPluginResult do
   alias Serviceradar.Edge.V1.WasmPluginResultBatchV1
   alias Serviceradar.Edge.V1.WasmPluginResultItemV1
   alias ServiceRadar.Edge.WireDecode
+  alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Infrastructure.Partition
   alias ServiceRadar.Observability.PluginResultIngestor
 
@@ -88,7 +95,8 @@ defmodule ServiceRadar.Edge.Projectors.WasmPluginResult do
              context.authority_epoch
            ),
          {:ok, partition} <- partition(record.network_scope_id),
-         :ok <- ingest_results(batch, provenance, agent_id, partition) do
+         :ok <-
+           ingest_results(batch, provenance, agent_id, partition, delivery_capabilities(agent_id)) do
       :ok
     else
       {:error, :output_grant_not_current} -> {:refused, :output_grant_not_current}
@@ -96,10 +104,10 @@ defmodule ServiceRadar.Edge.Projectors.WasmPluginResult do
     end
   end
 
-  defp ingest_results(batch, provenance, agent_id, partition) do
+  defp ingest_results(batch, provenance, agent_id, partition, capabilities) do
     Enum.reduce_while(batch.results, :ok, fn item, :ok ->
       payload = result_payload(item)
-      status = result_status(item, provenance, agent_id, partition)
+      status = result_status(item, provenance, agent_id, partition, capabilities)
 
       case PluginResultIngestor.ingest(payload, status) do
         :ok -> {:cont, :ok}
@@ -112,7 +120,15 @@ defmodule ServiceRadar.Edge.Projectors.WasmPluginResult do
   # connecting gateway's id. `plugin_provenance` is the host stamp the
   # ingestor keys its per-assignment service identity on; dropping it would
   # silently merge coexisting assignments under the bare package name.
-  defp result_status(%WasmPluginResultItemV1{} = item, provenance, agent_id, partition) do
+  # `delivery_capabilities` replaces the per-chunk capabilities the gateway
+  # stamped from the agent's authenticated session.
+  defp result_status(
+         %WasmPluginResultItemV1{} = item,
+         provenance,
+         agent_id,
+         partition,
+         capabilities
+       ) do
     observed_at = observed_at_iso(item)
 
     %{
@@ -124,8 +140,16 @@ defmodule ServiceRadar.Edge.Projectors.WasmPluginResult do
       available: item.status in [:PLUGIN_RESULT_STATUS_OK, :PLUGIN_RESULT_STATUS_WARNING],
       timestamp: observed_at,
       agent_timestamp: observed_at,
-      plugin_provenance: provenance
+      plugin_provenance: provenance,
+      delivery_capabilities: capabilities
     }
+  end
+
+  defp delivery_capabilities(agent_id) do
+    case Agent.get_by_uid(agent_id, actor: SystemActor.system(:wasm_plugin_result_projector)) do
+      {:ok, %Agent{capabilities: capabilities}} when is_list(capabilities) -> capabilities
+      _ -> []
+    end
   end
 
   defp service_name(%WasmPluginResultItemV1{service_name: name}, _provenance)
