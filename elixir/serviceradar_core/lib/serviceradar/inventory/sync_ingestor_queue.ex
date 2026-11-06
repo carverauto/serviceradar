@@ -49,9 +49,25 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
   def child_spec(opts),
     do: %{id: Keyword.get(opts, :name, __MODULE__), start: {__MODULE__, :start_link, [opts]}}
 
+  @transient_refusals [
+    :sync_ingest_queue_full,
+    :sync_ingest_queue_busy,
+    :sync_ingest_queue_unavailable
+  ]
+
+  @doc """
+  Admits one sync result chunk, or returns why it was not admitted.
+
+  A refused chunk marks its run incomplete in `SyncRunLedger`, so a run missing
+  a chunk never activates its source snapshot. Pass `caller_retries: true` when
+  the caller retries a refusal itself, as an edge record is redelivered: a
+  transient refusal (full, busy, unavailable) then leaves the ledger alone,
+  because the retry either commits the chunk or the run fails closed on the
+  chunk index it never received. Any other refusal still marks the run.
+  """
   # The producer extracts the small ordering identity. It is already a bounded
   # ingestion worker; no JSON decode or database call occurs in queue callbacks.
-  def enqueue(message) do
+  def enqueue(message, opts \\ []) do
     bytes = if is_binary(message), do: byte_size(message), else: 0
 
     if bytes > @max_bytes do
@@ -67,8 +83,15 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
       descriptor = %{bytes: bytes, key: run_key(headers)}
       result = reserve_and_submit(Directory.whereis(queue_server()), descriptor, message)
 
-      if match?({:error, _}, result) do
-        SyncRunLedger.reject(headers)
+      case result do
+        {:error, reason} when reason in @transient_refusals ->
+          if !Keyword.get(opts, :caller_retries, false), do: SyncRunLedger.reject(headers)
+
+        {:error, _reason} ->
+          SyncRunLedger.reject(headers)
+
+        _admitted ->
+          :ok
       end
 
       result
