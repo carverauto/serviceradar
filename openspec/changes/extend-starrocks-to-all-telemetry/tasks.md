@@ -307,6 +307,10 @@
     detection detail and `CameraRelayHealth` with their read policy unchanged; God View's
     `fetch_recent_ocsf_causal_events` has a warehouse branch beside its CNPG query. The
     AnalyticsLive hourly chart was deleted in #5248.
+  - [x] The warehouse `events` row carries the whole CNPG `ocsf_events` row (`priv/starrocks/0036`:
+    actor, src_endpoint and dst_endpoint documents, status_code, status_detail, log_version,
+    raw_data, created_at), so a cut-over event loses no field. Test: `LogsEventsSingleStoreDBTest`,
+    `RowsTest`.
 - [ ] 5.3 A shared "unavailable with StarRocks enabled" result for readers with no warehouse
   implementation, rendered explicitly by each page and card, so no reader queries a frozen CNPG
   table; a test per reader until it has a warehouse implementation.

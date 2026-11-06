@@ -122,6 +122,32 @@ defmodule ServiceRadar.Analytics.StarRocks.RowsTest do
     assert rem(byte_size(truncated), 2) == 0
   end
 
+  test "an event row carries every column of the shipped CREATE, CNPG's fields included" do
+    row =
+      encode_event(%{
+        "actor" => %{"user" => %{"name" => "operator-example"}},
+        "src_endpoint" => %{"ip" => "192.0.2.10"},
+        "dst_endpoint" => %{"ip" => "198.51.100.20"},
+        "status_code" => "E-EXAMPLE-01",
+        "status_detail" => "synthetic status detail",
+        "log_version" => "1.7.0",
+        "raw_data" => "synthetic raw payload",
+        "created_at" => ~U[2026-09-22 12:00:01Z]
+      })
+
+    assert [encoded] = Rows.encode(:events, [row])
+    assert encoded |> Map.keys() |> Enum.sort() == ddl_columns("events")
+
+    assert Jason.decode!(encoded["actor"]) == %{"user" => %{"name" => "operator-example"}}
+    assert Jason.decode!(encoded["src_endpoint"]) == %{"ip" => "192.0.2.10"}
+    assert Jason.decode!(encoded["dst_endpoint"]) == %{"ip" => "198.51.100.20"}
+    assert encoded["status_code"] == "E-EXAMPLE-01"
+    assert encoded["status_detail"] == "synthetic status detail"
+    assert encoded["log_version"] == "1.7.0"
+    assert encoded["raw_data"] == "synthetic raw payload"
+    assert encoded["created_at"] == "2026-09-22T12:00:01Z"
+  end
+
   test "a normal event row is unchanged" do
     row = encode_event(%{})
 

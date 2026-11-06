@@ -341,7 +341,15 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
       "metadata" => document(row, :metadata),
       "unmapped" => document(row, :unmapped),
       "device" => document(row, :device),
-      "observables" => document(row, :observables)
+      "observables" => document(row, :observables),
+      "actor" => document(row, :actor),
+      "src_endpoint" => document(row, :src_endpoint),
+      "dst_endpoint" => document(row, :dst_endpoint),
+      "status_code" => text(row, :status_code),
+      "status_detail" => text(row, :status_detail),
+      "log_version" => text(row, :log_version),
+      "raw_data" => text(row, :raw_data),
+      "created_at" => datetime(field(row, :created_at))
     }
   end
 
@@ -500,6 +508,20 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
       %{bytes: bytes, max_bytes: max},
       %{field: Atom.to_string(column)}
     )
+  end
+
+  # priv/starrocks/0036: text fields CNPG stores unbounded, held in
+  # VARCHAR(1048576) columns. Under the shipped 1 MiB NATS max_payload no value
+  # can exceed that; one that does is dropped from its field and reported, as an
+  # oversized document is, rather than cut.
+  defp text(row, key) do
+    case stringify(field(row, key)) do
+      value when is_binary(value) and byte_size(value) > @max_document_bytes ->
+        document_dropped(key, :too_large, byte_size(value))
+
+      value ->
+        value
+    end
   end
 
   defp document(row, key) do

@@ -2,8 +2,8 @@ defmodule ServiceRadar.EventWriter.Processors.LogsEventsSingleStoreDBTest do
   @moduledoc """
   Logs and events are written to exactly one store: the one they are read from.
 
-  Cut over on an enabled warehouse, a batch is Stream Loaded there and nothing
-  is written to CNPG. Not cut over, it is written to CNPG and nothing is loaded
+  Cut over on an enabled warehouse, a batch is Stream Loaded there, carrying
+  every field CNPG would have stored, and nothing is written to CNPG. Not cut over, it is written to CNPG and nothing is loaded
   into the warehouse, whether the warehouse is enabled or not: there is no
   shadow copy.
   """
@@ -20,6 +20,18 @@ defmodule ServiceRadar.EventWriter.Processors.LogsEventsSingleStoreDBTest do
   alias ServiceRadar.TestSupport.StreamLoadFE
 
   @moduletag :integration
+
+  # The CNPG ocsf_events fields the warehouse row did not carry before
+  # priv/starrocks/0036. Documents load as JSON text.
+  @event_fields %{
+    "actor" => %{"user" => %{"name" => "operator-example"}},
+    "src_endpoint" => %{"ip" => "192.0.2.10", "port" => 51_000},
+    "dst_endpoint" => %{"ip" => "198.51.100.20", "port" => 443},
+    "status_code" => "E-EXAMPLE-01",
+    "status_detail" => "synthetic status detail",
+    "log_version" => "1.7.0",
+    "raw_data" => "synthetic raw payload"
+  }
 
   setup_all do
     TestSupport.start_core!()
@@ -51,6 +63,7 @@ defmodule ServiceRadar.EventWriter.Processors.LogsEventsSingleStoreDBTest do
 
       assert_receive {:wire_request, [row]}, 5_000
       assert loaded_marker(@dataset, row) == marker
+      assert_carries_cnpg_fields(@dataset, row)
       assert cnpg_count(@dataset, marker) == 0
     end
 
@@ -100,8 +113,22 @@ defmodule ServiceRadar.EventWriter.Processors.LogsEventsSingleStoreDBTest do
     }
 
     Events.process_batch([
-      %{data: Jason.encode!(payload), metadata: %{subject: "events.ocsf.processed"}}
+      %{
+        data: Jason.encode!(Map.merge(payload, @event_fields)),
+        metadata: %{subject: "events.ocsf.processed"}
+      }
     ])
+  end
+
+  defp assert_carries_cnpg_fields(:logs, _row), do: :ok
+
+  defp assert_carries_cnpg_fields(:events, row) do
+    for {field, expected} <- @event_fields do
+      loaded = if is_map(expected), do: Jason.decode!(row[field] || "null"), else: row[field]
+      assert loaded == expected, "#{field} was not carried: #{inspect(row[field])}"
+    end
+
+    assert is_binary(row["created_at"])
   end
 
   defp loaded_marker(:logs, row), do: row["body"]

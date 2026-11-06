@@ -318,6 +318,8 @@ defmodule ServiceRadar.Observability.TelemetryIndexReadTest do
     assert event.metadata == %{"signal_type" => "mtr"}
     assert event.device == %{"uid" => "sr:device-alpha"}
     assert event.observables == []
+    assert event.src_endpoint == %{"ip" => "192.0.2.10"}
+    assert event.raw_data == "synthetic raw payload"
     assert %DateTime{} = event.time
 
     assert_received {:sql, :viewer, sql}
@@ -573,7 +575,9 @@ defmodule ServiceRadar.Observability.TelemetryIndexReadTest do
       {"activity_id", 1},
       {"metadata", ~s({"signal_type":"mtr"})},
       {"device", ~s({"uid":"sr:device-alpha"})},
-      {"observables", "[]"}
+      {"observables", "[]"},
+      {"src_endpoint", ~s({"ip":"192.0.2.10"})},
+      {"raw_data", "synthetic raw payload"}
     ]
   end
 

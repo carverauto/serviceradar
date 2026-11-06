@@ -4,10 +4,9 @@ defmodule ServiceRadar.Monitoring.OcsfEvent do
 
   Read-only here. The read is served from the store events are written to:
   the warehouse `events` table when events are cut over to StarRocks, CNPG
-  otherwise (`ServiceRadar.Observability.TelemetryIndexRead`). Warehouse rows
-  carry the columns that table stores; `actor`, `src_endpoint`,
-  `dst_endpoint`, `status_code`, `status_detail`, `log_version` and `raw_data`
-  stay nil there.
+  otherwise (`ServiceRadar.Observability.TelemetryIndexRead`). The warehouse
+  table carries every attribute here (`priv/starrocks/0036`); a row loaded
+  before 0036 has nil for the fields that file added.
 
   EventWriter (`ServiceRadar.EventWriter.Processors.Events`
   and the processors that emit events) is the only writer, after a JetStream

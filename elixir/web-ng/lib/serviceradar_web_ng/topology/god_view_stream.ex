@@ -5648,12 +5648,13 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   # Events cut over to the warehouse are written only there, so the overlay
-  # reads them there. Same predicate and shape as the CNPG query; the warehouse
-  # stores `src_endpoint` only as its IP column, which is the one key the
-  # overlay reads. A failed read yields `[]`, as the CNPG rescue does.
+  # reads them there. Same predicate and shape as the CNPG query. A row loaded
+  # before priv/starrocks/0036 has no `src_endpoint` document, only its IP
+  # column, which is the one key the overlay reads. A failed read yields `[]`,
+  # as the CNPG rescue does.
   defp fetch_recent_ocsf_causal_events_warehouse(cutoff, limit) do
     sql = """
-    SELECT `time`, `metadata`, `device`, `src_endpoint_ip`
+    SELECT `time`, `metadata`, `device`, `src_endpoint`, `src_endpoint_ip`
     FROM #{Env.table("events")}
     WHERE `time` >= '#{warehouse_datetime(cutoff)}'
       AND (get_json_string(`metadata`, '$.signal_type') = 'mtr'
@@ -5676,7 +5677,9 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
             event_identity: (metadata || %{})["event_identity"],
             metadata: metadata,
             device: decode_warehouse_json(row["device"]),
-            src_endpoint: warehouse_src_endpoint(row["src_endpoint_ip"])
+            src_endpoint:
+              decode_warehouse_json(row["src_endpoint"]) ||
+                warehouse_src_endpoint(row["src_endpoint_ip"])
           }
         end)
 

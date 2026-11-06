@@ -28,7 +28,15 @@ CREATE TABLE IF NOT EXISTS serviceradar.events (
   metadata VARCHAR(1048576),
   unmapped VARCHAR(1048576),
   device VARCHAR(1048576),
-  observables VARCHAR(1048576)
+  observables VARCHAR(1048576),
+  status_code VARCHAR(1048576),
+  status_detail VARCHAR(1048576),
+  log_version VARCHAR(1048576),
+  actor VARCHAR(1048576),
+  src_endpoint VARCHAR(1048576),
+  dst_endpoint VARCHAR(1048576),
+  raw_data VARCHAR(1048576),
+  created_at DATETIME
 )
 PRIMARY KEY (id, `time`)
 PARTITION BY date_trunc('day', `time`)

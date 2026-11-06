@@ -49,8 +49,9 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
   @warehouse_columns %{
     "events" =>
       ~w(id time class_uid category_uid type_uid activity_id activity_name severity_id severity
-         message status_id status trace_id span_id log_name log_provider log_level metadata
-         unmapped device observables)a,
+         message status_id status status_code status_detail trace_id span_id log_name
+         log_provider log_level log_version metadata unmapped device observables actor
+         src_endpoint dst_endpoint raw_data created_at)a,
     "logs" =>
       ~w(id timestamp observed_timestamp trace_id span_id severity_text severity_number body
          event_name source source_ip service_name service_version ingest_identity
