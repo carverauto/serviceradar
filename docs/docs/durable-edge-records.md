@@ -46,6 +46,9 @@ is republished to, which ingestor stores it) are in
   queue overflowing while it waits for a grant, a record the gateway rejects
   permanently, a projection that keeps failing) it is counted, quarantined or
   dead-lettered, and it shows up in metrics, alerts or the readiness report.
+  The one deliberate exception is flow attribution without StarRocks: core
+  acknowledges those records and discards them (see
+  [EventWriter projects the record](#4-eventwriter-projects-the-record)).
 
 The guarantee starts when a producer's record is admitted to the spool.
 Before that, a producer applies the hold rules in
@@ -200,7 +203,8 @@ A projector whose destination is a JetStream subject (metrics, OTel, logs, flow
 attribution) republishes the record's payload there before the transaction,
 only for a fresh primary delivery, so existing consumers on those subjects
 (storage, alerting, anomaly detection) keep receiving it. Metric payloads,
-flow-attribution splits and OTLP relay chunks wait for the PubAck and carry a
+flow-attribution splits (while attribution is enabled) and OTLP relay chunks
+wait for the PubAck and carry a
 `Nats-Msg-Id` that a redelivery of the same record reproduces, so JetStream
 drops the repeat within its duplicate window. The id differs by projector:
 metrics use the edge record's event id; metric payloads in a telemetry batch
@@ -213,9 +217,13 @@ record's event id.
 OTel log and OCSF payloads in a telemetry batch (including edge anomaly
 verdicts) are the exception: they go out as a plain NATS publish, with no
 PubAck wait and no `Nats-Msg-Id`. A redelivery after a failed ledger commit
-publishes them again, and consumers on those subjects see a second copy. Telemetry storage
-follows the platform rule: StarRocks when it is enabled, CNPG otherwise; flows
-and flow attribution are stored only in StarRocks. Inventory and discovery
+publishes them again, and consumers on those subjects see a second copy.
+
+Telemetry storage follows the platform rule: StarRocks when it is enabled,
+CNPG otherwise; flows and flow attribution are stored only in StarRocks.
+Without StarRocks, flow attribution is disabled: a flow-attribution record
+commits its ledger row and publishes nothing, with no drop counter, quarantine
+or dead letter, and enabling StarRocks later does not republish it. Inventory and discovery
 records are handed to the existing ingestors (sync, mapper, workload identity,
 endpoint inventory, bumblebee and so on).
 
@@ -583,8 +591,10 @@ kubectl -n <namespace> exec deploy/serviceradar-tools -- \
 
 1. `nats stream info TELEMETRY_EDGE_RECORD_DLQ_V1_BULK` shows how many records
    are held.
-2. List them with `Replay.list/1` (above) and read `Sr-Edge-Dlq-Reason` and
-   `Sr-Edge-Dlq-Reason-Detail`.
+2. List them with `Replay.list/1` (above) and read each entry's failure map:
+   the `Sr-Edge-Dlq-Reason` and `Sr-Edge-Dlq-Reason-Detail` headers appear
+   there as `"reason"` and `"reason-detail"` (the EventWriter log names them
+   `reason=` and `reason_detail=`).
 3. Fix the cause, then run `Replay.replay/1`. Records that fail again return to
    the dead-letter stream. An entry that reports `:source_duplicate` stayed in
    the dead-letter stream unreplayed; run the replay again after the source

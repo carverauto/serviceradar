@@ -244,8 +244,8 @@ Operational enrollment and rotation: [Managed component certificates](docs/manag
 ### Durable data pipeline
 
 Every metric, result and inventory snapshot an agent produces follows one path,
-and each hand-off of an accepted record is acknowledged only after the next
-stage has stored it:
+and the gateway acknowledges an accepted record only after JetStream has
+stored it:
 
 ```text
 agent producers -> on-disk spool -> agent-gateway (verify grant + signature)
@@ -257,8 +257,10 @@ agent producers -> on-disk spool -> agent-gateway (verify grant + signature)
 
 The agent reclaims a record only after the gateway reports it stored or
 permanently rejected (a rejected record moves to a local quarantine), so a
-restart of any component leads to a redelivery, and the EventWriter ledger
-turns a redelivery into a no-op. Core signs a grant per agent and output contract;
+restart of any component leads to a redelivery. The EventWriter ledger turns a
+redelivery of a record it already holds into a no-op, and a record whose
+ledger commit never happened is projected on redelivery (telemetry-batch OTel
+log and OCSF payloads can then be republished twice). Core signs a grant per agent and output contract;
 a producer without one holds its data instead of falling back. The pipeline is
 always on, and agents must be upgraded with the platform. Details, metrics and
 troubleshooting: [Durable Edge Records](https://docs.serviceradar.cloud/docs/durable-edge-records).
