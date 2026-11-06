@@ -34,7 +34,8 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumers do
       SELECT time_slice(`#{column}`, INTERVAL #{bucket_seconds} SECOND), \
       COALESCE(severity_id, 0), #{total} \
       FROM #{table} \
-      WHERE `#{column}` >= '#{iso(lower)}' AND `#{column}` < '#{iso(upper)}' \
+      WHERE `#{column}` >= '#{iso(lower)}' AND `#{column}` < '#{iso(upper)}'\
+      #{partition_predicate(column, lower, upper)} \
       GROUP BY 1, 2 ORDER BY 1, 2
       """
 
@@ -60,6 +61,16 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumers do
     {Env.table("events"), "time", "COUNT(*)"}
   end
 
+  # events_hourly is partitioned by `day`, not `bucket`, so a window on `bucket`
+  # alone scans every partition the view holds. Every bucket in
+  # `[lower, upper)` lies on a day in `[floor_day(lower), upper)`, which prunes
+  # to the window's own days without changing the rows it selects. The raw
+  # table is partitioned on `time` itself and needs nothing more.
+  defp partition_predicate("bucket", lower, upper),
+    do: " AND `day` >= '#{iso(floor_day(lower))}' AND `day` < '#{iso(upper)}'"
+
+  defp partition_predicate(_column, _lower, _upper), do: ""
+
   # A whole-hour bucket is scored on the hour, and window bounds are
   # `now - seconds`..`now` and never hour-aligned, so both edge hours belong in
   # the answer whole. The bounds follow the bucket, never the source: the
@@ -73,6 +84,8 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumers do
   defp window_bounds(start_at, end_at, _bucket_seconds), do: {start_at, end_at}
 
   defp floor_hour(%DateTime{} = at), do: %{at | minute: 0, second: 0, microsecond: {0, 0}}
+
+  defp floor_day(%DateTime{} = at), do: %{floor_hour(at) | hour: 0}
 
   @spec dns_rpz_clients(pos_integer(), pos_integer(), keyword()) ::
           {:ok, %{rows: [list()]}} | {:error, term()}

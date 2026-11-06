@@ -35,19 +35,31 @@ defmodule ServiceRadarWebNGWeb.StatsTraceRollupStarRocksTest do
         {"traces_stats_5m", {:ok, %{rows: [[~N[2026-01-15 09:55:00]]]}}}
       ])
 
+    day_before = Date.add(Date.utc_today(), -1)
     status = Stats.trace_rollup_status(query: query)
+    day_after = Date.add(Date.utc_today(), -1)
 
     assert status.healthy?
     assert status.raw_latest_timestamp == ~U[2026-01-15 10:00:00Z]
     assert status.summary_latest_timestamp == ~U[2026-01-15 09:59:30Z]
     assert status.rollup_latest_bucket == ~U[2026-01-15 09:55:00Z]
 
-    for _probe <- 1..3 do
-      assert_received {:sql, sql}
-      assert sql =~ "SELECT MAX("
-      refute sql =~ "NOW()"
-      refute sql =~ "platform."
-    end
+    probes =
+      for _probe <- 1..3 do
+        assert_received {:sql, sql}
+        assert sql =~ "SELECT MAX("
+        refute sql =~ "NOW()"
+        refute sql =~ "platform."
+        sql
+      end
+
+    # traces_stats_5m is partitioned on `day`; a `bucket`-only cutoff scans
+    # every partition the view holds. The raw tables partition on `timestamp`.
+    {rollup, raw} = Enum.split_with(probes, &(&1 =~ "traces_stats_5m"))
+    assert [rollup_sql] = rollup
+    assert [_, rollup_day] = Regex.run(~r/`day` >= '(\d{4}-\d{2}-\d{2}) 00:00:00'/, rollup_sql)
+    assert rollup_day in Enum.map([day_before, day_after], &Date.to_iso8601/1)
+    refute Enum.any?(raw, &(&1 =~ "`day`"))
   end
 
   test "reports a lagging summary table when all probes succeed" do

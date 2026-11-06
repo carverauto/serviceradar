@@ -265,7 +265,9 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumersTest do
       {~U[1999-06-15 00:37:12Z], ~U[1999-06-16 00:37:12Z], "1999-06-15T00:00:00Z",
        "1999-06-16T01:00:00Z"},
       {~U[1999-06-15 00:00:00Z], ~U[1999-06-16 00:00:00Z], "1999-06-15T00:00:00Z",
-       "1999-06-16T01:00:00Z"}
+       "1999-06-16T01:00:00Z"},
+      {~U[1999-06-15 06:37:12Z], ~U[1999-06-16 06:37:12Z], "1999-06-15T06:00:00Z",
+       "1999-06-16T07:00:00Z"}
     ]
 
     for {start_at, end_at, lower, upper} <- windows do
@@ -275,6 +277,10 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumersTest do
       assert fresh =~ "serviceradar.events_hourly"
       assert stale =~ "serviceradar.events"
       refute stale =~ "events_hourly"
+
+      # The view is partitioned by `day`; a `bucket`-only window scans all of it.
+      assert fresh =~ "`day` >= '1999-06-15T00:00:00Z' AND `day` < '#{upper}'"
+      refute stale =~ "`day`"
 
       for sql <- [fresh, stale] do
         assert sql =~ ">= '#{lower}'"

@@ -59,6 +59,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   @refresh_debounce_ms 5_000
   @default_events_limit 20
   @max_events_limit 100
+  # Tabs whose cards load in their own task beside the list; see start_tab_cards_load/5.
+  @independent_card_tabs ["events", "traces"]
   @default_alerts_limit 25
   @max_alerts_limit 100
   @default_netflow_window "last_1h"
@@ -90,6 +92,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
      |> assign(:alerts, [])
      |> assign(:alert_selection, MapSet.new())
      |> assign(:alert_bulk_result, nil)
+     # Read by the alerts tab load (it asks every cluster node); :active hides
+     # the not-activated notice until that load says otherwise.
+     |> assign(:alert_evaluation_mode, :active)
      |> assign(:alert_bulk_duration, AlertActions.default_snooze_value())
      |> assign(:can_manage_alerts?, RBAC.can?(socket.assigns[:current_scope], AlertActions.permission()))
      |> assign(:netflows, [])
@@ -320,7 +325,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       socket
       |> assign(:alert_selection, MapSet.new())
       |> assign(:alert_bulk_result, nil)
-      |> assign(:alert_evaluation_mode, ClusterStatus.alert_evaluation_mode())
       |> assign(:service_filter_notice?, ObservabilityPaths.service_filter_not_carried?(params))
       |> assign(:service_filter_allowed?, ServicePicker.authorized?(socket.assigns[:current_scope], tab))
 
@@ -1501,6 +1505,20 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   def handle_async(:tab_load, {:exit, reason}, socket) do
     {:noreply, assign_tab_load_error(socket, reason)}
+  end
+
+  def handle_async(:tab_cards, {:ok, %{tab: tab, match_params: match_params, tab_assigns: tab_assigns}}, socket) do
+    if current_tab_load?(socket, tab, match_params) do
+      {:noreply, assign(socket, tab_assigns)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  # A failed card load leaves the cards as they were; the list is unaffected.
+  def handle_async(:tab_cards, {:exit, reason}, socket) do
+    Logger.warning("observability cards failed to load: #{inspect(reason, limit: 10)}")
+    {:noreply, socket}
   end
 
   @impl true
@@ -8408,13 +8426,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     query = socket.assigns |> Map.get(:srql, %{}) |> Map.get(:query) |> to_string()
     service_scope = socket |> service_stats_scope() |> trace_cards_scope()
     window = extract_time_from_query(query) || "last_24h"
+    rollup_status = Task.async(fn -> Stats.trace_rollup_status() end)
     {trace_stats, trace_latency} = load_trace_summary_cards(srql_module, scope, service_scope, window)
 
     socket
     |> assign(:service_stats_scope, service_scope)
     |> assign(:trace_stats, trace_stats)
     |> assign(:trace_latency, trace_latency)
-    |> assign(:trace_rollup_status, Stats.trace_rollup_status())
+    |> assign(:trace_rollup_status, Task.await(rollup_status, :infinity))
     |> assign(:metrics_stats, empty_metrics_stats())
   end
 
@@ -8448,6 +8467,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     socket
     |> assign(:alert_summary, summary)
+    |> assign(:alert_evaluation_mode, ClusterStatus.alert_evaluation_mode())
     |> assign(:event_summary, empty_event_summary())
     |> assign(:netflow_summary, empty_netflow_summary())
     |> assign(:trace_stats, empty_trace_stats())
@@ -8456,6 +8476,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   @tab_secondary_assign_keys [
+    :alert_evaluation_mode,
     :service_stats_scope,
     :trace_stats,
     :trace_latency,
@@ -8748,6 +8769,33 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     |> start_async(:tab_load, fn ->
       run_tab_load_task(worker_socket, tab, match_params, query_params, request, srql_mod)
     end)
+    |> start_tab_cards_load(tab, match_params, worker_socket, srql_mod)
+  end
+
+  # The events and traces cards read their own aggregates (the event rollup,
+  # the trace rollups and their health probes) and nothing from the list, so
+  # they load beside it instead of after it: the list renders as soon as its
+  # own query returns, and slow cards no longer hold it back. Every other tab's
+  # secondary assigns still load with its list, which some of them read.
+  defp start_tab_cards_load(socket, tab, match_params, worker_socket, srql_mod) when tab in @independent_card_tabs do
+    socket
+    |> cancel_async(:tab_cards)
+    |> start_async(:tab_cards, fn ->
+      cards = apply_tab_assigns(worker_socket, tab, srql_mod)
+      %{tab: tab, match_params: match_params, tab_assigns: Map.take(cards.assigns, @tab_secondary_assign_keys)}
+    end)
+  end
+
+  defp start_tab_cards_load(socket, _tab, _match_params, _worker_socket, _srql_mod), do: cancel_async(socket, :tab_cards)
+
+  # The list task of a tab whose cards load on their own returns no secondary
+  # assigns: what it would return is the socket's current, older cards, and
+  # applying them after the cards task finished would undo it.
+  defp list_tab_assigns(worker_socket, tab, _srql_mod) when tab in @independent_card_tabs, do: {worker_socket, %{}}
+
+  defp list_tab_assigns(worker_socket, tab, srql_mod) do
+    worker_socket = apply_tab_assigns(worker_socket, tab, srql_mod)
+    {worker_socket, Map.take(worker_socket.assigns, @tab_secondary_assign_keys)}
   end
 
   defp run_tab_load_task(worker_socket, tab, match_params, query_params, request, srql_mod) do
@@ -8778,11 +8826,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         end
       end)
 
-    worker_socket =
+    {worker_socket, tab_assigns} =
       worker_socket
       |> assign(:srql, worker_srql)
       |> assign(list_key, rows)
-      |> apply_tab_assigns(tab, srql_mod)
+      |> list_tab_assigns(tab, srql_mod)
 
     %{
       tab: tab,
@@ -8795,7 +8843,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           do: Map.take(worker_socket.assigns, [:selected_netflow, :netflow_context, :netflow_arin_lookup]),
           else: %{}
         ),
-      tab_assigns: Map.take(worker_socket.assigns, @tab_secondary_assign_keys)
+      tab_assigns: tab_assigns
     }
   end
 
@@ -9266,19 +9314,28 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   # Error Rate are then counted from `in:otel_trace_summaries` with the list's
   # own service filter and window. Duration percentiles have no such source, so
   # those cards keep the unscoped rollup and are labelled "All services".
+  #
+  # The rollup, the scoped counts and the service count are independent
+  # queries, so they run side by side rather than one after another.
   defp load_trace_summary_cards(srql_module, scope, names, window) when is_list(names) and names != [] do
+    service_count = Task.async(fn -> trace_service_count(srql_module, scope, nil) end)
+
+    counts =
+      Task.async(fn -> Stats.trace_summary_counts(names, srql_module: srql_module, scope: scope, time: window) end)
+
     rollup = Stats.traces_summary(srql_module: srql_module, scope: scope)
 
     trace_stats =
-      case Stats.trace_summary_counts(names, srql_module: srql_module, scope: scope, time: window) do
+      case Task.await(counts, :infinity) do
         {:ok, %{total: total, errors: errors}} -> %{total: total, error_traces: errors, slow_traces: 0}
         {:error, _reason} -> %{total: nil, error_traces: nil, slow_traces: 0}
       end
 
-    {trace_stats, trace_latency(srql_module, scope, rollup, true)}
+    {trace_stats, trace_latency(rollup, Task.await(service_count, :infinity), true)}
   end
 
   defp load_trace_summary_cards(srql_module, scope, _service_scope, _window) do
+    service_count = Task.async(fn -> trace_service_count(srql_module, scope, nil) end)
     summary = Stats.traces_summary(srql_module: srql_module, scope: scope)
 
     trace_stats = %{
@@ -9287,16 +9344,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       slow_traces: 0
     }
 
-    {trace_stats, trace_latency(srql_module, scope, summary, false)}
+    {trace_stats, trace_latency(summary, Task.await(service_count, :infinity), false)}
   end
 
   # Latency cards (and the services count beside P95) always come from the
   # unscoped rollup; `all_services?` says so when the pane is service-filtered.
-  defp trace_latency(srql_module, scope, rollup, all_services?) do
+  defp trace_latency(rollup, service_count, all_services?) do
     %{
       avg_duration_ms: Map.get(rollup, :avg_duration_ms, 0.0),
       p95_duration_ms: Map.get(rollup, :p95_duration_ms, 0.0),
-      service_count: trace_service_count(srql_module, scope, nil),
+      service_count: service_count,
       sample_size: Map.get(rollup, :total, 0),
       all_services?: all_services?
     }
