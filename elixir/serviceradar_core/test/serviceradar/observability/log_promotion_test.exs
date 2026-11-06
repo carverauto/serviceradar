@@ -10,6 +10,7 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
   alias ServiceRadar.EventWriter.Processors.K8sNodes
   alias ServiceRadar.EventWriter.Processors.Logs
   alias ServiceRadar.NATS.DurablePublishWorker
+  alias ServiceRadar.Observability.AlertPubSub
   alias ServiceRadar.Observability.EventRule
   alias ServiceRadar.Observability.LogPromotion
   alias ServiceRadar.Observability.StatefulAlertEngine
@@ -73,26 +74,31 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
   end
 
   test "an overloaded evaluation raises the promotion alert once and is admitted from the backlog" do
+    Phoenix.PubSub.subscribe(ServiceRadar.PubSub, AlertPubSub.topic())
     configure_scripted_engine([{:error, {:overloaded, :rule_bytes}}])
     label = "overloaded-alert-#{Ash.UUID.generate()}"
     log = create_queue_probe(label, nil, true)
     LogPromotion.invalidate_rules_cache()
 
-    assert {:ok, 1} = LogPromotion.promote([log])
+    output = capture_log(fn -> assert {:ok, 1} = LogPromotion.promote([log]) end)
+    refute output =~ "Missed"
     assert_receive {:evaluated, [%{id: event_id}]}
-    assert alert_count("test.#{label}") == 1
+    assert [alert_id] = alert_ids("test.#{label}")
+    assert_receive {:alert_created, %{id: ^alert_id}}
     assert pending_admission_count(event_id) == 1
 
     # A redelivery finds the event queued: it is neither evaluated nor
     # promoted again.
     assert {:ok, 0} = LogPromotion.promote([log])
     refute_receive {:evaluated, _}
-    assert alert_count("test.#{label}") == 1
+    refute_receive {:alert_created, _}
+    assert alert_ids("test.#{label}") == [alert_id]
 
     assert :ok = LifecycleAdmissionDrainWorker.perform(%Oban.Job{args: %{}})
     assert_receive {:evaluated, [%{id: ^event_id}]}
+    refute_receive {:alert_created, _}
     assert pending_admission_count(event_id) == 0
-    assert alert_count("test.#{label}") == 1
+    assert alert_ids("test.#{label}") == [alert_id]
   end
 
   test "node transitions commit with their publish queued, and evaluation is retried by redelivery" do
@@ -782,15 +788,17 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
     count
   end
 
-  defp alert_count(log_name) do
-    %{rows: [[count]]} =
+  defp alert_ids(log_name) do
+    %{rows: rows} =
       Repo.query!(
-        "SELECT count(*) FROM alerts a JOIN ocsf_events e ON a.event_id = e.id WHERE e.log_name = $1",
+        "SELECT a.id::text FROM alerts a JOIN ocsf_events e ON a.event_id = e.id WHERE e.log_name = $1",
         [log_name]
       )
 
-    count
+    List.flatten(rows)
   end
+
+  defp alert_count(log_name), do: length(alert_ids(log_name))
 
   defp create_queue_probe(label, subject \\ nil, alert? \\ false) do
     actor = %{id: "system", role: :admin}

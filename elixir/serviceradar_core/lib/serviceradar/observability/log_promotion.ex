@@ -13,6 +13,7 @@ defmodule ServiceRadar.Observability.LogPromotion do
   alias ServiceRadar.EventWriter.StableId
   alias ServiceRadar.Monitoring.AlertGenerator
   alias ServiceRadar.Observability.EventRule
+  alias ServiceRadar.Observability.StatefulAlertEngine.Inbox
   alias ServiceRadar.Observability.StatefulEvaluationLedger
 
   require Ash.Query
@@ -712,9 +713,13 @@ defmodule ServiceRadar.Observability.LogPromotion do
 
   defp update_alert_counts(%{event: event, alert: alert_config}, {created, attempted}) do
     # DB connection's search_path determines the schema
-    case AlertGenerator.from_event(event, alert: alert_config) do
-      {:ok, %{} = _alert} -> {created + 1, attempted + 1}
-      _ -> {created, attempted + 1}
+    case AlertGenerator.from_event(event, alert: alert_config, return_notifications?: true) do
+      {:ok, %{} = _alert, notifications} ->
+        Inbox.notify_after_commit(notifications)
+        {created + 1, attempted + 1}
+
+      _ ->
+        {created, attempted + 1}
     end
   end
 
