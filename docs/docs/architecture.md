@@ -82,7 +82,9 @@ These components communicate internally over mTLS-secured Erlang distribution (E
 - delivers durable results as edge records over a gRPC stream, and status summaries over unary `PushStatus`
 - participates in a bidirectional control stream for control-plane signaling
 
-See [Edge Model](./edge-model.md).
+See [Edge Model](./edge-model.md). Edge records are spooled on the agent's disk,
+verified by `agent-gateway`, stored in JetStream and projected once by
+EventWriter; see [Durable Edge Records](./durable-edge-records.md).
 
 ## Live Media (WebRTC) And The TURN Relay
 
