@@ -26,6 +26,8 @@ const testInstallerIdentity = "Developer ID Installer: Synthetic Software (TESTT
 type fakeTools struct {
 	t             *testing.T
 	fail          string
+	failTimes     int // fail fails its step this many times, then succeeds; 0 fails it always
+	failed        int
 	mutate        string
 	version       string
 	root, scripts string
@@ -42,7 +44,8 @@ func (f *fakeTools) run(_ context.Context, name string, args ...string) ([]byte,
 		step += " " + args[1]
 	}
 	f.calls = append(f.calls, step)
-	if f.fail == step {
+	if f.fail == step && (f.failTimes == 0 || f.failed < f.failTimes) {
+		f.failed++
 		return nil, errSyntheticPlatform
 	}
 	switch tool {
@@ -302,7 +305,7 @@ func TestReleaseExportRequiresCompleteVerification(t *testing.T) {
 
 func TestReleaseFailsClosedWithoutExport(t *testing.T) {
 	cases := []struct{ name, fail, mutate string }{
-		{"codesign fails", "codesign --force", ""}, {"binary verification fails", "codesign --verify", ""}, {"package build fails", "pkgbuild --root", ""}, {"product signing fails", "productsign --sign", ""}, {"notarytool fails", "xcrun notarytool", ""}, {"stapling fails", "xcrun stapler staple", ""}, {"staple validation fails", "xcrun stapler validate", ""}, {"signature validation fails", "pkgutil --check-signature", ""}, {"Gatekeeper fails", "spctl --assess", ""},
+		{"codesign fails", "codesign --force", ""}, {"binary verification fails", "codesign --verify", ""}, {"package build fails", "pkgbuild --root", ""}, {"product signing fails", "productsign --sign", ""}, {"notarytool fails", "xcrun notarytool", ""}, {"staple validation fails", "xcrun stapler validate", ""}, {"signature validation fails", "pkgutil --check-signature", ""}, {"Gatekeeper fails", "spctl --assess", ""},
 		{"wrong embedded version", "", "version"}, {"wrong app signer", "", "app-identity"}, {"runtime missing", "", "runtime"}, {"ad hoc signature", "", "adhoc"}, {"app timestamp missing", "", "app-timestamp"}, {"untrusted installer", "", "untrusted-status"}, {"wrong installer signer", "", "installer-identity"}, {"installer timestamp missing", "", "installer-timestamp"}, {"notary rejected", "", "notary-invalid"}, {"notary malformed", "", "notary-json"}, {"Gatekeeper rejected", "", "gatekeeper"}, {"package metadata wrong", "", "package-version"}, {"payload changed", "", "payload-config"}, {"packaged srctl changed", "", "payload-srctl"},
 	}
 	for _, tc := range cases {
@@ -320,6 +323,68 @@ func TestReleaseFailsClosedWithoutExport(t *testing.T) {
 				t.Fatalf("failure exported files: %v", entries)
 			}
 		})
+	}
+}
+
+func noSleep(context.Context, time.Duration) error { return nil }
+
+func countCalls(calls []string, step string) int {
+	n := 0
+	for _, call := range calls {
+		if call == step {
+			n++
+		}
+	}
+	return n
+}
+
+// Apple's notarization ticket reaches its CDN shortly after notarytool reports
+// Accepted, so the first staples can fail before one succeeds.
+func TestStapleRetriesUntilTheTicketPropagates(t *testing.T) {
+	opts, in := fixtures(t, modeRelease)
+	tools := &fakeTools{t: t, fail: "xcrun stapler staple", failTimes: 2}
+	if _, err := (builder{runner: tools, sleep: noSleep}).build(t.Context(), opts, in); err != nil {
+		t.Fatalf("a staple that succeeds on retry failed the release: %v", err)
+	}
+	if got := countCalls(tools.calls, "xcrun stapler staple"); got != 3 {
+		t.Fatalf("stapler staple ran %d times, want 3", got)
+	}
+	if got := countCalls(tools.calls, "xcrun stapler validate"); got != 1 {
+		t.Fatalf("stapler validate ran %d times, want 1", got)
+	}
+	var lastStaple, validate int
+	for i, call := range tools.calls {
+		switch call {
+		case "xcrun stapler staple":
+			lastStaple = i
+		case "xcrun stapler validate":
+			validate = i
+		}
+	}
+	if validate < lastStaple {
+		t.Fatalf("stapler validate ran before the successful staple: %v", tools.calls)
+	}
+}
+
+func TestStapleFailsAfterBoundedAttemptsWithoutExport(t *testing.T) {
+	opts, in := fixtures(t, modeRelease)
+	tools := &fakeTools{t: t, fail: "xcrun stapler staple"}
+	_, err := (builder{runner: tools, sleep: noSleep}).build(t.Context(), opts, in)
+	if !errors.Is(err, errSyntheticPlatform) {
+		t.Fatalf("expected the stapler failure in the error chain, got %v", err)
+	}
+	if got, want := countCalls(tools.calls, "xcrun stapler staple"), len(stapleBackoff)+1; got != want {
+		t.Fatalf("stapler staple ran %d times, want %d", got, want)
+	}
+	if countCalls(tools.calls, "xcrun stapler validate") != 0 {
+		t.Fatal("stapler validate ran after stapling failed")
+	}
+	entries, err := os.ReadDir(opts.OutputDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("failure exported files: %v", entries)
 	}
 }
 
@@ -568,13 +633,7 @@ func TestPackageShipsSigningCheckedSrctl(t *testing.T) {
 	}
 	// verifyPayload already requires the packaged srctl to match the signed one;
 	// here, both executables must have been signed.
-	signed := 0
-	for _, call := range tools.calls {
-		if call == "codesign --force" {
-			signed++
-		}
-	}
-	if signed != 2 {
+	if signed := countCalls(tools.calls, "codesign --force"); signed != 2 {
 		t.Fatalf("codesign --force ran %d times, want 2 (agent and srctl)", signed)
 	}
 }

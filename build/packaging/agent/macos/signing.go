@@ -3,12 +3,32 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
+
+// stapleBackoff is the wait before each staple retry: 8 attempts, at most 155s of
+// waiting. Apple publishes the notarization ticket to its CDN shortly after
+// notarytool reports Accepted, so a staple straight after --wait can fail
+// (stapler exit status 68) until the ticket propagates.
+var stapleBackoff = []time.Duration{5 * time.Second, 10 * time.Second, 20 * time.Second, 30 * time.Second, 30 * time.Second, 30 * time.Second, 30 * time.Second}
+
+func sleepContext(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
 
 type signingEvidence struct {
 	Identity        string `json:"identity"`
@@ -115,7 +135,7 @@ func (b builder) signPackage(ctx context.Context, opts options, pkg, work string
 		return "", fmt.Errorf("%w: notarization was not Accepted with a valid submission ID", errInvalidPackage)
 	}
 	proof.Notarization = notarizationEvidence{Status: submitted.Status, SubmissionID: submitted.ID}
-	if _, err := b.runner.run(ctx, "/usr/bin/xcrun", "stapler", "staple", signed); err != nil {
+	if err := b.staple(ctx, signed); err != nil {
 		return "", err
 	}
 	proof.Notarization.Stapled = true
@@ -136,6 +156,29 @@ func (b builder) signPackage(ctx context.Context, opts options, pkg, work string
 	}
 	proof.GatekeeperVerified = true
 	return signed, nil
+}
+
+// staple retries only the staple itself, waiting out ticket propagation; every
+// failure is the same redacted runner error, so retrying cannot hide a cause.
+func (b builder) staple(ctx context.Context, pkg string) error {
+	wait := b.sleep
+	if wait == nil {
+		wait = sleepContext
+	}
+	for attempt := 1; ; attempt++ {
+		_, err := b.runner.run(ctx, "/usr/bin/xcrun", "stapler", "staple", pkg)
+		if err == nil {
+			return nil
+		}
+		if attempt > len(stapleBackoff) {
+			return fmt.Errorf("stapling the notarization ticket failed after %d attempts: %w", attempt, err)
+		}
+		delay := stapleBackoff[attempt-1]
+		fmt.Fprintf(os.Stderr, "    stapler staple attempt %d failed (%v); retrying in %s\n", attempt, err, delay)
+		if waitErr := wait(ctx, delay); waitErr != nil {
+			return fmt.Errorf("stapling the notarization ticket stopped after %d attempts: %w", attempt, errors.Join(err, waitErr))
+		}
+	}
 }
 
 func (b builder) verifyInstallerSignature(ctx context.Context, pkg, identity string) (signingEvidence, error) {
