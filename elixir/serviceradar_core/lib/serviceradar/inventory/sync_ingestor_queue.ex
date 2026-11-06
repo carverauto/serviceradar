@@ -4,6 +4,21 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
 
   In schema-agnostic mode, operates as a single queue since the DB schema
   is set by CNPG search_path credentials.
+
+  The queue runs on the coordinator node only, while its producers (EventWriter
+  edge-record projectors) run on every core replica. `enqueue/1` therefore
+  resolves the queue through `ServiceRadar.Inventory.SyncIngestorQueue.Directory`,
+  which finds it on another node when it is not registered on this one.
+
+  `enqueue/1` reports why a payload was not admitted:
+
+    * `:sync_ingest_queue_full` - the queue answered and its admission limits
+      (`max_items`, `max_bytes`, per-run) are reached.
+    * `:sync_ingest_queue_busy` - the queue exists but did not answer within the
+      call window. Like `:sync_ingest_queue_full`, this is backpressure: retry
+      later.
+    * `:sync_ingest_queue_unavailable` - no queue is running anywhere in the
+      cluster, or it went away during the call.
   """
 
   use GenServer
@@ -14,6 +29,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Inventory.ArmisSourceSnapshot
   alias ServiceRadar.Inventory.SyncIngestor
+  alias ServiceRadar.Inventory.SyncIngestorQueue.Directory
   alias ServiceRadar.Inventory.SyncRunLedger
   alias ServiceRadar.Repo
 
@@ -21,6 +37,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
 
   @max_items 64
   @max_bytes 64 * 1_024 * 1_024
+  @call_timeout_ms 1_000
 
   def start_link(opts \\ []) do
     case Keyword.get(opts, :name, __MODULE__) do
@@ -48,7 +65,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
         end
 
       descriptor = %{bytes: bytes, key: run_key(headers)}
-      result = reserve_and_submit(queue_server(), descriptor, message)
+      result = reserve_and_submit(Directory.whereis(queue_server()), descriptor, message)
 
       if match?({:error, _}, result) do
         SyncRunLedger.reject(headers)
@@ -58,12 +75,27 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     end
   end
 
-  defp reserve_and_submit(server, descriptor, message) do
-    with {:ok, id} <- GenServer.call(server, {:reserve, descriptor}, 1_000) do
-      GenServer.call(server, {:submit, id, message}, 1_000)
+  # Both calls go to the one resolved pid: a reservation is held by the queue
+  # that granted it.
+  defp reserve_and_submit(nil, descriptor, _message),
+    do: not_admitted(:sync_ingest_queue_unavailable, descriptor)
+
+  defp reserve_and_submit(queue, descriptor, message) do
+    with {:ok, id} <- GenServer.call(queue, {:reserve, descriptor}, @call_timeout_ms) do
+      GenServer.call(queue, {:submit, id, message}, @call_timeout_ms)
     end
   catch
-    :exit, _ -> {:error, :sync_ingest_queue_unavailable}
+    :exit, {:timeout, _call} -> not_admitted(:sync_ingest_queue_busy, descriptor)
+    :exit, _reason -> not_admitted(:sync_ingest_queue_unavailable, descriptor)
+  end
+
+  # The queue records its own refusals; these are the ones it could not record.
+  defp not_admitted(reason, descriptor) do
+    lane_reason =
+      if reason == :sync_ingest_queue_busy, do: :admission_timeout, else: :lane_unavailable
+
+    emit(:rejected, %{count: 1, payload_bytes: descriptor.bytes}, %{reason: lane_reason})
+    {:error, reason}
   end
 
   def ingest_sync_results(message), do: do_ingest_results(message)
@@ -79,6 +111,11 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
            is_integer(coalesce_window_ms()) and coalesce_window_ms() >= 0 and
            is_integer(queue_max_chunks()) and queue_max_chunks() > 0) do
       raise ArgumentError, "invalid sync ingestion queue limits"
+    end
+
+    case Keyword.get(opts, :name, __MODULE__) do
+      nil -> :ok
+      name -> Directory.advertise(name, self())
     end
 
     {:ok,

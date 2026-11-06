@@ -10,6 +10,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
 
   alias ServiceRadar.Ingestion.WorkerBudget
   alias ServiceRadar.Inventory.SyncIngestorQueue
+  alias ServiceRadar.Inventory.SyncIngestorQueue.Directory
 
   defmodule TestIngestor do
     @moduledoc false
@@ -288,6 +289,58 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
     device = %{"device_id" => "device-a"}
 
     assert SyncIngestorQueue.strip_sync_control_updates([control, device]) == [device]
+  end
+
+  # The queue runs on the coordinator only; its producers run on every replica.
+  # A queue that is advertised but not registered on this node is exactly what a
+  # non-coordinator replica sees.
+  test "enqueues into a queue that runs on another node" do
+    Application.put_env(:serviceradar_core, :sync_ingestor_coalesce_ms, 0)
+
+    case start_supervised(Directory) do
+      {:ok, _scope} -> :ok
+      {:error, {{:already_started, _scope}, _child}} -> :ok
+    end
+
+    name = :sync_ingest_queue_on_another_node
+    {:ok, tasks} = start_supervised(Task.Supervisor, id: :remote_queue_tasks)
+    start_supervised!({SyncIngestorQueue, name: name, task_supervisor: tasks})
+    Process.unregister(name)
+    Application.put_env(:serviceradar_core, :sync_ingestor_queue_server, name)
+
+    update = %{"device_id" => "dev-remote", "ip" => "192.0.2.10"}
+
+    assert :ok = SyncIngestorQueue.enqueue(Jason.encode!([update]))
+    assert_receive {:ingest_started, [^update]}, 2_000
+  end
+
+  test "reports a queue that cannot answer as busy and a missing queue as unavailable",
+       %{test: test} do
+    handler = {__MODULE__, test}
+    parent = self()
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        [:serviceradar, :admission_lane, :rejected],
+        fn _event, _measurements, metadata, _ -> send(parent, {:rejected, metadata.reason}) end,
+        nil
+      )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    payload = Jason.encode!([%{"device_id" => "dev-held", "ip" => "192.0.2.11"}])
+    queue = Application.fetch_env!(:serviceradar_core, :sync_ingestor_queue_server)
+
+    # A queue whose process is held (a slow callback) is backpressure, not absence.
+    :ok = :sys.suspend(queue)
+    assert {:error, :sync_ingest_queue_busy} = SyncIngestorQueue.enqueue(payload)
+    :ok = :sys.resume(queue)
+    assert_receive {:rejected, :admission_timeout}
+
+    Application.put_env(:serviceradar_core, :sync_ingestor_queue_server, :no_sync_ingest_queue)
+    assert {:error, :sync_ingest_queue_unavailable} = SyncIngestorQueue.enqueue(payload)
+    assert_receive {:rejected, :lane_unavailable}
   end
 
   defp receive_batches(expected_updates, batches \\ []) do
