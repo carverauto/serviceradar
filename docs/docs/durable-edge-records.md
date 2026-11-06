@@ -80,9 +80,9 @@ flowchart LR
   Store[("CNPG or StarRocks")]
 
   TX -->|"EdgeRecordIngestService.Stream (mTLS)"| AU
-  AU -->|"publish, wait for PubAck"| PRI
-  AU --> AUD
-  AU --> QUA
+  AU -->|"authorized: publish, wait for PubAck"| PRI
+  AU -->|"or, late-fenced delivery"| AUD
+  AU -->|"or, compromise-revoked key"| QUA
   AU -.->|"resolved watermark"| TX
   PRI --> EW --> Store
   AUD --> EW
@@ -113,8 +113,12 @@ agent config sets `edge_record_sender.spool_dir`.
   fixed quantum more than the least-served flow, so one busy producer cannot
   starve the others.
 
-Records are sized to their contract's bounds. Metric records are split at
-512 KiB; larger results are split into several records.
+Records are sized to their contract's bounds (512 KiB for metric records).
+Metric batches and unleased sweep results too large for one record are split
+into several. Input that no single record can hold is not split: a metric
+point or an OTLP relay record that large is dropped and counted (the relay
+record is still acked to the add-on), and an endpoint-inventory scan that
+cannot form a record is dropped once and its upload marked failed.
 
 ### 2. The sender delivers to the gateway
 
@@ -131,8 +135,10 @@ traffic class, the validity window, and the registry epoch the record names.
 It then admits the record against the exact contract entry of that signed
 epoch.
 
-The gateway publishes an authorized record to one of three streams, waits for
-the PubAck, and only then reports the sequence as resolved. Acks carry a
+The gateway publishes each authorized record to exactly one of three streams
+(the primary stream; the audit stream for a late-fenced delivery; the
+security-quarantine stream for a record signed by a compromise-revoked key),
+waits for the PubAck, and only then reports the sequence as resolved. Acks carry a
 contiguous **resolved watermark**: the first sequence a session cannot resolve
 (withheld, paused or retryable) caps the lane, and the agent's next session
 replays from it. A record the gateway rejects permanently is resolved as
@@ -147,16 +153,30 @@ rejected, and the agent moves it to a local spool quarantine.
 | `TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK` | `telemetry.edge-record-security-quarantine.v1.bulk.pNN` | records signed by a compromise-revoked key | logged and counted, nothing written |
 | `TELEMETRY_EDGE_RECORD_DLQ_V1_BULK` | `telemetry.edge-record-dlq.v1.bulk.pNN.<contract>.v<version>` | records whose projection kept failing | replay only |
 
-`pNN` is the partition derived from the record's network scope. All four
-streams are file-backed and use three replicas (capped to `nats.replicas`). The
-primary stream keeps records for 24 hours (`MaxAge`) and discards the oldest
-when it reaches its byte limit, so EventWriter must keep up with it. The
-security-quarantine and dead-letter streams have no `MaxAge` and refuse new
-messages when full (`DiscardNew`), so nothing ages out of them. EventWriter's
-compiled defaults are 1 GiB for the primary stream and 64 MiB for the other
-three; the chart's JetStream profile sets the sizes, and
-`core.eventWriter.streams.<stream>.maxBytes` overrides them (see
-[Helm Configuration](./helm-configuration.md)).
+`pNN` is the partition derived from the record's network scope. In the
+dead-letter subject, `<contract>` is the contract id lowercased with every
+character outside `[a-z0-9_-]` replaced by `_`, so `serviceradar.metrics.batch`
+version 1 dead-letters under
+`telemetry.edge-record-dlq.v1.bulk.pNN.serviceradar_metrics_batch.v1`.
+
+All four streams are file-backed and use three replicas (capped to
+`nats.replicas`). The primary and audit streams keep records for 24 hours
+(`MaxAge`) and discard the oldest when they reach their byte limit, so
+EventWriter must keep up with them. The gateway has already acknowledged those
+records to the agent, so a record that ages or is discarded out of either
+stream before EventWriter reads it is never projected or recorded in the
+ledger, and the agent no longer holds a copy. The security-quarantine and
+dead-letter streams have no `MaxAge` and refuse new messages when full
+(`DiscardNew`), so nothing ages out of them; a refused quarantine publish
+leaves the sequence unresolved and the agent keeps the bytes.
+
+EventWriter's compiled defaults are 1 GiB for the primary stream and 64 MiB
+for the other three. On a Helm install the chart's JetStream profile
+(`nats.jetstream.profile`) sets the sizes, and they differ by profile: the
+`small` profile gives the dead-letter stream 32 MiB, and `tenant-2g` gives the
+primary stream 32 MiB, the audit and security-quarantine streams 8 MiB each and
+the dead-letter stream 4 MiB. `core.eventWriter.streams.<stream>.maxBytes`
+overrides any one of them (see [Helm Configuration](./helm-configuration.md)).
 
 ### 4. EventWriter projects the record
 
@@ -169,8 +189,13 @@ that transaction.
 
 A projector whose destination is a JetStream subject (metrics, OTel, logs, flow
 attribution) republishes the record's payload there with a PubAck before the
-transaction, using the record's event id as `Nats-Msg-Id`, and only for a fresh
-primary delivery. Existing consumers on those subjects (storage, alerting,
+transaction, only for a fresh primary delivery, with a `Nats-Msg-Id` that a
+redelivery of the same record reproduces. The id differs by projector: metrics
+use the edge record's event id; telemetry batches use a UUID hashed from the
+event id and the payload index; flow attribution uses
+`<event uuid>:<split index>`; and the OTLP relay uses each inner
+`TelemetryRecord`'s own `event_id`. Look up a duplicate by the id its
+projector sets, not only by the edge record's event id. Existing consumers on those subjects (storage, alerting,
 anomaly detection) therefore see the data exactly as before. Telemetry storage
 follows the platform rule: StarRocks when it is enabled, CNPG otherwise; flows
 and flow attribution are stored only in StarRocks. Inventory and discovery
@@ -413,8 +438,9 @@ container image are upgraded with the image and are never reported as
 
 ### Settings
 
-The pipeline's only settings are rows in `platform.edge_pipeline_settings`
-(`ServiceRadar.Edge.PipelineSetting`), at global, partition or agent scope. A
+The spool budget and the sweep horizon are set only by rows in
+`platform.edge_pipeline_settings` (`ServiceRadar.Edge.PipelineSetting`), at
+global, partition or agent scope. A
 field left empty inherits from the wider scope, and a deployment with no rows
 runs on the code defaults:
 
@@ -424,7 +450,9 @@ runs on the code defaults:
 | `horizon_seconds` | 7 days | how far ahead core leases sweeps |
 | `max_horizon_seconds` | 30 days (global row only) | ceiling on any horizon |
 
-There are no Helm values for the pipeline.
+There are no Helm values for these settings. The only pipeline sizes Helm
+controls are the JetStream stream byte limits described under
+[JetStream holds the record](#3-jetstream-holds-the-record).
 
 ### Metrics and alerts
 
