@@ -38,6 +38,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
   @max_items 64
   @max_bytes 64 * 1_024 * 1_024
   @call_timeout_ms 1_000
+  @advertise_retry_ms 100
+  @advertise_retry_max_ms 5_000
 
   def start_link(opts \\ []) do
     case Keyword.get(opts, :name, __MODULE__) do
@@ -136,22 +138,21 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
       raise ArgumentError, "invalid sync ingestion queue limits"
     end
 
-    case Keyword.get(opts, :name, __MODULE__) do
-      nil -> :ok
-      name -> Directory.advertise(name, self())
-    end
+    state = %{
+      jobs: %{},
+      pending: :queue.new(),
+      bytes: 0,
+      timer: nil,
+      active: nil,
+      task_supervisor: Keyword.get(opts, :task_supervisor, task_supervisor()),
+      max_items: max_items,
+      max_bytes: max_bytes,
+      name: Keyword.get(opts, :name, __MODULE__),
+      scope_monitor: nil,
+      advertise_retry_ms: nil
+    }
 
-    {:ok,
-     %{
-       jobs: %{},
-       pending: :queue.new(),
-       bytes: 0,
-       timer: nil,
-       active: nil,
-       task_supervisor: Keyword.get(opts, :task_supervisor, task_supervisor()),
-       max_items: max_items,
-       max_bytes: max_bytes
-     }}
+    {:ok, advertise(state)}
   end
 
   @impl true
@@ -269,12 +270,50 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     end
   end
 
+  def handle_info({:DOWN, ref, :process, _pid, _reason}, %{scope_monitor: ref} = state),
+    do: {:noreply, retry_advertise(%{state | scope_monitor: nil})}
+
   def handle_info({:DOWN, ref, :process, _pid, _reason}, state) do
     ids = for {id, %{monitor: monitor}} <- state.jobs, monitor == ref, do: id
     {:noreply, release(state, ids)}
   end
 
+  def handle_info(:advertise, state), do: {:noreply, advertise(state)}
+
   def handle_info(_message, state), do: {:noreply, state}
+
+  defp advertise(%{name: nil} = state), do: state
+
+  defp advertise(state) do
+    case Directory.advertise(state.name, self()) do
+      {:ok, scope} ->
+        if state.advertise_retry_ms, do: Logger.info("Sync ingestion queue advertised again")
+        %{state | scope_monitor: Process.monitor(scope), advertise_retry_ms: nil}
+
+      :error ->
+        retry_advertise(state)
+    end
+  end
+
+  # Other replicas cannot reach the queue until it is advertised again; retry
+  # with a capped backoff and log once per outage.
+  defp retry_advertise(state) do
+    retry_ms =
+      case state.advertise_retry_ms do
+        nil ->
+          Logger.warning(
+            "Sync ingestion queue directory is unavailable; other replicas cannot reach the queue until it is advertised again"
+          )
+
+          @advertise_retry_ms
+
+        previous ->
+          min(previous * 2, @advertise_retry_max_ms)
+      end
+
+    Process.send_after(self(), :advertise, retry_ms)
+    %{state | advertise_retry_ms: retry_ms}
+  end
 
   defp maybe_flush(state) do
     if :queue.len(state.pending) >= queue_max_chunks(),

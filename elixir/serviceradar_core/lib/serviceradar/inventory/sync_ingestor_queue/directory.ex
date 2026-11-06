@@ -14,6 +14,10 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue.Directory do
   replicates that membership to every node in the scope, where it is a local
   lookup. Membership is tied to the queue process, so a queue stops being
   advertised the moment it or its node goes away.
+
+  Membership is also held by the scope process. A restarted scope has forgotten
+  the queue, so the queue monitors the scope it joined and advertises itself
+  again once a scope is running.
   """
 
   @scope :serviceradar_sync_ingest_queue
@@ -23,12 +27,23 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue.Directory do
   end
 
   @doc """
-  Advertises `pid`, which must be local, as the queue registered as `name`.
-  Without a running scope this is a no-op and only same-node callers find it.
+  Advertises `pid`, which must be local, as the queue registered as `name`, and
+  returns the scope process that now holds the membership. Returns `:error`
+  when no scope is running; until `pid` is advertised again only same-node
+  callers find it.
   """
-  @spec advertise(atom(), pid()) :: :ok
+  @spec advertise(atom(), pid()) :: {:ok, pid()} | :error
   def advertise(name, pid) when is_atom(name) and is_pid(pid) do
-    if Process.whereis(@scope), do: :pg.join(@scope, name, pid), else: :ok
+    case Process.whereis(@scope) do
+      nil ->
+        :error
+
+      scope ->
+        :ok = :pg.join(scope, name, pid)
+        {:ok, scope}
+    end
+  catch
+    :exit, _reason -> :error
   end
 
   @doc """

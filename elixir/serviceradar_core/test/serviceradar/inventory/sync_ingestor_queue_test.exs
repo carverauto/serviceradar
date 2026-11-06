@@ -314,6 +314,38 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
     assert_receive {:ingest_started, [^update]}, 2_000
   end
 
+  # The scope process holds the membership, so a restarted scope has forgotten
+  # every queue; other replicas must find the queue again once a scope is back.
+  test "advertises the queue again after its directory scope restarts" do
+    Application.put_env(:serviceradar_core, :sync_ingestor_coalesce_ms, 0)
+
+    case start_supervised(Directory) do
+      {:ok, _scope} -> :ok
+      {:error, {{:already_started, _scope}, _child}} -> :ok
+    end
+
+    name = :sync_ingest_queue_across_scope_restart
+    {:ok, tasks} = start_supervised(Task.Supervisor, id: :scope_restart_queue_tasks)
+    queue = start_supervised!({SyncIngestorQueue, name: name, task_supervisor: tasks})
+    Process.unregister(name)
+    assert Directory.whereis(name) == queue
+
+    scope = Process.whereis(:serviceradar_sync_ingest_queue)
+    ref = Process.monitor(scope)
+    Process.exit(scope, :kill)
+    assert_receive {:DOWN, ^ref, :process, ^scope, :killed}
+
+    assert eventually(fn -> Directory.whereis(name) == queue end),
+           "the queue was not advertised in the restarted scope"
+
+    refute Process.whereis(:serviceradar_sync_ingest_queue) in [nil, scope]
+
+    Application.put_env(:serviceradar_core, :sync_ingestor_queue_server, name)
+    update = %{"device_id" => "dev-rescoped", "ip" => "192.0.2.12"}
+    assert :ok = SyncIngestorQueue.enqueue(Jason.encode!([update]))
+    assert_receive {:ingest_started, [^update]}, 2_000
+  end
+
   test "reports a queue that cannot answer as busy and a missing queue as unavailable",
        %{test: test} do
     handler = {__MODULE__, test}
@@ -349,6 +381,20 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
     else
       assert_receive {:ingest_started, updates}, 2_000
       receive_batches(expected_updates, [updates | batches])
+    end
+  end
+
+  defp eventually(check, attempts \\ 100) do
+    cond do
+      check.() ->
+        true
+
+      attempts <= 1 ->
+        false
+
+      true ->
+        Process.sleep(20)
+        eventually(check, attempts - 1)
     end
   end
 
