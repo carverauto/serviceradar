@@ -56,6 +56,15 @@ active legacy relay cannot adopt a new identity. This does not reconcile a lost
 command, fence an earlier runtime, or prove physical retirement. Control reconnect
 does not replace the source registry. Pools and continuous recording remain open.
 
+Stop-target incarnation checkpoint for 2.5: Core carries a relay's persisted
+source incarnation through the command ledger and control-stream stop payload.
+The agent rejects a different incarnation before looking up or cancelling the
+session. A matching stop still targets the captured session ID. Missing identities
+retain the existing compatibility behavior and remain unknown; older agents do
+not enforce the new field. This is a prerequisite for interrupted-stop recovery,
+not a replay/reconciliation implementation or proof of physical retirement.
+Task 2.5 remains open.
+
 ## 3. Storage modes and recovery
 
 - [ ] 3.1 Install qualified exclusive per-recorder filesystem volumes with explicit identities/initialization for Kubernetes and supported customer hosts.

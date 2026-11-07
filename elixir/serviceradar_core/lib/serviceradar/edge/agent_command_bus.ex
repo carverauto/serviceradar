@@ -1417,7 +1417,9 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
     reason = Map.get(payload, :reason) || Map.get(payload, "reason")
 
-    maybe_put(%{relay_session_id: relay_session_id}, :reason, reason)
+    %{relay_session_id: relay_session_id}
+    |> maybe_put(:reason, reason)
+    |> maybe_put(:source_incarnation_id, payload_value(payload, :source_incarnation_id))
   end
 
   defp normalize_camera_relay_stop_payload(_payload), do: %{}

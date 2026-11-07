@@ -44,6 +44,7 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
       command_type = unquote(command_type)
       identity_field = unquote(identity_field)
       status = unquote(status)
+      incarnation = Ecto.UUID.generate()
       agent_id = "agent-relay-#{Ecto.UUID.generate()}"
       {:ok, _source} = Source.update_source(ctx.source, %{assigned_agent_id: agent_id}, ctx.opts)
       parent = self()
@@ -98,8 +99,13 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
           :close ->
             {:ok, opening} = Fixtures.open(ctx)
 
+            {:ok, active} =
+              Fixtures.activate(ctx, opening, Ecto.UUID.generate(), %{
+                source_incarnation_id: incarnation
+              })
+
             fn ->
-              RelaySessionManager.request_close(opening.id,
+              RelaySessionManager.request_close(active.id,
                 actor: ctx.actor,
                 force: true,
                 dispatch_close: dispatch
@@ -124,7 +130,11 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
       assert reserved.id == payload["relay_session_id"]
       assert Map.fetch!(reserved, identity_field) == command.command_id
 
-      if operation == :close, do: refute(reserved.command_id == command.command_id)
+      if operation == :close do
+        refute reserved.command_id == command.command_id
+        assert payload["source_incarnation_id"] == incarnation
+        assert reserved.source_incarnation_id == incarnation
+      end
 
       assert %{rows: [[^command_type, ^agent_id, stored_payload]]} =
                Repo.query!(
