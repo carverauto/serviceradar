@@ -396,9 +396,10 @@ fn dataset_sql(
     })
 }
 
-/// An `events` row listing, late-materialized. The table carries four JSON
+/// An `events` row listing, late-materialized. The table carries JSON
 /// document columns of up to 1 MiB each (metadata, unmapped, device,
-/// observables), so a plain `SELECT * ... ORDER BY time DESC LIMIT n` makes the
+/// observables, actor, src_endpoint, dst_endpoint) and the producer's raw
+/// payload, so a plain `SELECT * ... ORDER BY time DESC LIMIT n` makes the
 /// TOP-N sort carry every full-width row in the window: on a busy window that is
 /// gigabytes scanned and enough sort memory to exceed the compute node's query
 /// limit. Ranking only the primary key `(id, time)` and then joining back for the
@@ -921,7 +922,20 @@ const EVENT_DEVICE_IDENTITY_KEYS: &[&str] = &[
     "uid",
     "id",
 ];
-const EVENT_DOCUMENTS: &[&str] = &["device", "metadata", "unmapped", "observables"];
+/// The documents a raw device id is scanned for, as CNPG's
+/// `apply_metadata_identity_filter` scans them.
+const EVENT_IDENTITY_SCAN_DOCUMENTS: &[&str] = &["device", "metadata", "unmapped", "observables"];
+/// The documents matched against a device's inventory aliases: CNPG's
+/// `EVENT_ALIAS_MATCH_COLUMNS`, which add the two endpoint documents to the
+/// identity scan's four.
+const EVENT_ALIAS_MATCH_DOCUMENTS: &[&str] = &[
+    "device",
+    "metadata",
+    "unmapped",
+    "observables",
+    "src_endpoint",
+    "dst_endpoint",
+];
 
 fn event_paths_equal(paths: &[EventPath], value: &str) -> Result<String> {
     let literal = sql_literal(value);
@@ -999,7 +1013,7 @@ fn events_naming_an_alias_sql(table: &str, bounds: &str, aliases: &str) -> Strin
             sql_literal(&format!("%{}=", escape_like_fragment(key)))
         ));
     }
-    let mentions = EVENT_DOCUMENTS
+    let mentions = EVENT_ALIAS_MATCH_DOCUMENTS
         .iter()
         .map(|document| format!("LOWER(e.{document}) LIKE dp.pattern"))
         .collect::<Vec<_>>()
@@ -1052,7 +1066,7 @@ fn event_device_identity_filter_sql(filter: &Filter, table: &str, bounds: &str) 
             );
             clauses.push(format!(
                 "COALESCE({}, FALSE)",
-                EVENT_DOCUMENTS
+                EVENT_IDENTITY_SCAN_DOCUMENTS
                     .iter()
                     .map(|document| format!("LOWER({document}) LIKE {pattern}"))
                     .collect::<Vec<_>>()
@@ -1346,6 +1360,8 @@ const EVENT_TEXT_FILTER_FIELDS: &[&str] = &[
     "log_provider",
     "log_level",
     "status",
+    "status_code",
+    "status_detail",
     "trace_id",
     "span_id",
 ];
@@ -2606,7 +2622,7 @@ fn field_sql(plan: &QueryPlan, field: &str) -> Result<String> {
             "id timestamp ingest_identity severity_text severity_number body service_name source ingest_agent_id ingest_partition trace_id span_id event_name source_ip service_version observed_timestamp"
         }
         "events" => {
-            "id time class_uid category_uid type_uid activity_id severity_id severity source src_endpoint_ip firewall_rule_name source_type message activity_name status status_id log_name log_provider log_level trace_id span_id"
+            "id time class_uid category_uid type_uid activity_id severity_id severity source src_endpoint_ip firewall_rule_name source_type message activity_name status status_id status_code status_detail log_name log_provider log_level trace_id span_id"
         }
         _ => "",
     };
@@ -6418,6 +6434,18 @@ AND milliseconds_diff({home}, start_time) > 0)"
             assert!(raw.sql.contains("LOWER(device) LIKE "), "{}", raw.sql);
             assert!(raw.sql.contains("LOWER(unmapped) LIKE "), "{}", raw.sql);
             assert!(raw.sql.contains("LOWER(observables) LIKE "), "{}", raw.sql);
+            // CNPG matches the endpoint documents against aliases only, never
+            // in this scan.
+            assert!(
+                !raw.sql.contains("LOWER(src_endpoint) LIKE '"),
+                "{}",
+                raw.sql
+            );
+            assert!(
+                !raw.sql.contains("LOWER(dst_endpoint) LIKE '"),
+                "{}",
+                raw.sql
+            );
         }
     }
 
@@ -6454,7 +6482,7 @@ AND milliseconds_diff({home}, start_time) > 0)"
             // Every key CNPG accepts in a label string, the last one included.
             assert!(
                 sql.contains(&format!(
-                    "CONCAT('%id=', {alias}, '%')]) AS p(pattern)) dp ON LOWER(e.device) LIKE dp.pattern OR LOWER(e.metadata) LIKE dp.pattern OR LOWER(e.unmapped) LIKE dp.pattern OR LOWER(e.observables) LIKE dp.pattern WHERE `time` >= '1999-06-15T00:00:00Z' AND `time` < '1999-06-16T00:00:00Z'{scope})"
+                    "CONCAT('%id=', {alias}, '%')]) AS p(pattern)) dp ON LOWER(e.device) LIKE dp.pattern OR LOWER(e.metadata) LIKE dp.pattern OR LOWER(e.unmapped) LIKE dp.pattern OR LOWER(e.observables) LIKE dp.pattern OR LOWER(e.src_endpoint) LIKE dp.pattern OR LOWER(e.dst_endpoint) LIKE dp.pattern WHERE `time` >= '1999-06-15T00:00:00Z' AND `time` < '1999-06-16T00:00:00Z'{scope})"
                 )),
                 "{entity}: {sql}"
             );
@@ -6531,6 +6559,14 @@ AND milliseconds_diff({home}, start_time) > 0)"
             (
                 "in:events time:last_1h !status:(open,new)",
                 "AND (status IS NULL OR status NOT IN ('open', 'new'))",
+            ),
+            (
+                "in:events time:last_1h status_code:E_TIMEOUT",
+                "AND status_code = 'E_TIMEOUT'",
+            ),
+            (
+                "in:events time:last_1h !status_detail:refused",
+                "AND (status_detail IS NULL OR status_detail != 'refused')",
             ),
         ] {
             let compiled = translate(&plan(query), "serviceradar").expect(query);
