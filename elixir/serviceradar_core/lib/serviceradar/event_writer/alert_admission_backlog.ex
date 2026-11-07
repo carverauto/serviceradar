@@ -36,6 +36,7 @@ defmodule ServiceRadar.EventWriter.AlertAdmissionBacklog do
   oldest row has waited 10 minutes or the backlog reaches 100,000 rows.
   """
 
+  alias ServiceRadar.Ash.NotificationQueue
   alias ServiceRadar.Ingestion.RuntimeMetrics
   alias ServiceRadar.Observability.AdvisoryLocks
   alias ServiceRadar.Observability.StatefulAlertEngine.Inbox
@@ -110,7 +111,7 @@ defmodule ServiceRadar.EventWriter.AlertAdmissionBacklog do
   # The lane lock is held from the empty check through the direct admission or
   # the deferral, so no record is admitted ahead of an older deferred one.
   defp admit_or_defer(signal, records, opts) do
-    Inbox.with_notification_queue(fn ->
+    NotificationQueue.with_queue(fn ->
       Repo.transaction(
         fn ->
           AdvisoryLocks.acquire_ordered!([{:exclusive, @lane_lock_prefix <> lane(signal)}])
@@ -193,7 +194,7 @@ defmodule ServiceRadar.EventWriter.AlertAdmissionBacklog do
         timeout: :infinity
       )
     end
-    |> Inbox.with_notification_queue()
+    |> NotificationQueue.with_queue()
     |> case do
       {:ok, result} -> result
       {:error, reason} -> {:error, reason}

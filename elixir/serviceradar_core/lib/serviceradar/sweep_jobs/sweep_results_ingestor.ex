@@ -22,6 +22,14 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         "last_sweep_time" => "2024-01-01T00:00:00Z"
       }
 
+  ## Ash notifications
+
+  The edge sweep projectors call `ingest_results/3` inside the EventWriter
+  ledger transaction. Every Ash action here that produces notifications runs
+  with `return_notifications?: true` and hands them to
+  `ServiceRadar.Ash.NotificationQueue`, which sends them once that transaction
+  commits, and right away when no transaction is open.
+
   ## Schema Isolation
 
   This module operates in schema-agnostic mode where the database connection's
@@ -37,6 +45,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   import Ecto.Query
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Ash.NotificationQueue
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Identity.DeviceLookup
@@ -774,8 +783,13 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     Enum.each(detected_alias_map, fn {ip, {_record, alias_state}} ->
       metadata = %{"sweep_execution_id" => execution_id, "sweep_ip" => ip}
 
-      case DeviceAliasState.confirm_from_sweep(alias_state, %{metadata: metadata}, actor: actor) do
-        {:ok, _confirmed} ->
+      case DeviceAliasState.confirm_from_sweep(alias_state, %{metadata: metadata},
+             actor: actor,
+             return_notifications?: true
+           ) do
+        {:ok, _confirmed, notifications} ->
+          NotificationQueue.notify_after_commit(notifications)
+
           Logger.debug(
             "SweepResultsIngestor: Confirmed detected alias #{ip} for device #{alias_state.device_id}"
           )
@@ -1198,7 +1212,15 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
     Device
     |> Ash.Changeset.for_create(:create, attrs)
-    |> Ash.create(actor: actor)
+    |> Ash.create(actor: actor, return_notifications?: true)
+    |> case do
+      {:ok, device, notifications} ->
+        NotificationQueue.notify_after_commit(notifications)
+        {:ok, device}
+
+      {:error, _reason} = error ->
+        error
+    end
   end
 
   # A sweep response is reachability evidence on an address, not identity evidence: when the
@@ -3111,10 +3133,10 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   defp record_group_execution(%{expectation: :expected, group: %SweepGroup{} = group}, actor) do
     group
     |> Ash.Changeset.for_update(:record_execution, %{}, actor: actor)
-    |> Ash.update(actor: actor)
+    |> Ash.update(actor: actor, return_notifications?: true)
     |> case do
-      {:ok, _updated} ->
-        :ok
+      {:ok, _updated, notifications} ->
+        NotificationQueue.notify_after_commit(notifications)
 
       {:error, reason} ->
         Logger.warning(

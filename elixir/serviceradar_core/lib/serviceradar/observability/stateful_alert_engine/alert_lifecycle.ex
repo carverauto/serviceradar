@@ -32,6 +32,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
   import ServiceRadar.Observability.StatefulAlertEngine.Severity
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Ash.NotificationQueue
   alias ServiceRadar.Events.OcsfEventPublisher
   alias ServiceRadar.EventWriter.DeviceCorrelation
   alias ServiceRadar.EventWriter.OCSF
@@ -68,7 +69,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
              return_notifications?: true
            ) do
         {:ok, %Alert{} = alert, notifications} ->
-          Inbox.notify_after_commit(notifications)
+          NotificationQueue.notify_after_commit(notifications)
 
           if !synthetic_liveness_check? do
             record_history(rule, snapshot, :fired, now, alert.id, %{"event_id" => ocsf_event.id})
@@ -250,7 +251,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
   end
 
   def send_renotify(alert_id, rule, _snapshot, now) when is_binary(alert_id) do
-    case Inbox.with_notification_queue(fn ->
+    case NotificationQueue.with_queue(fn ->
            Repo.transaction(fn ->
              actor = SystemActor.system(:alert_engine)
 
@@ -336,7 +337,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
            alert
            |> Ash.Changeset.for_update(:record_notification, %{}, actor: actor)
            |> Ash.update(return_notifications?: true) do
-      Inbox.notify_after_commit(notifications)
+      NotificationQueue.notify_after_commit(notifications)
 
       # Bookkeeping advances only after the routing request is durable. If the
       # enqueue fails, the cadence remains due and the continuation scan tries
@@ -351,7 +352,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
       )
       |> case do
         %Ash.BulkResult{status: :success, notifications: notifications} ->
-          Inbox.notify_after_commit(notifications || [])
+          NotificationQueue.notify_after_commit(notifications || [])
 
         %Ash.BulkResult{errors: errors} ->
           {:error, errors}
@@ -398,7 +399,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
                |> Ash.Changeset.for_update(:update_metadata, %{metadata: metadata}, actor: actor)
                |> Ash.update(return_notifications?: true) do
             {:ok, _updated, notifications} ->
-              Inbox.notify_after_commit(notifications)
+              NotificationQueue.notify_after_commit(notifications)
               snapshot
 
             {:error, reason} ->

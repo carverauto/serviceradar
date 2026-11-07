@@ -14,6 +14,8 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
   use ServiceRadar.DataCase, async: true
 
+  import ExUnit.CaptureLog
+
   alias Broadway.Message
   alias ServiceRadar.Actors.SystemActor
   alias Serviceradar.Agent.Addon.V1.OtlpRelayFrame
@@ -468,7 +470,11 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
   end
 
   describe "ingest/4 test hook" do
-    test "a :before_commit hook that raises rolls the whole transaction back" do
+    # The projection records the sweep group's execution and creates the device
+    # for an unknown answering host with Ash actions. Their notifications reach
+    # the notifiers once the ledger transaction commits, and never from an
+    # attempt that rolled back.
+    test "a :before_commit hook that raises rolls the whole transaction back, notifications included" do
       %{record_bytes: record_bytes, headers: headers, record: record, batch: batch} =
         build_frame()
 
@@ -477,19 +483,104 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
         _point, _event_id, _result -> :ok
       end
 
-      assert_raise RuntimeError, "injected rollback", fn ->
-        EdgeRecord.ingest(record_bytes, headers, Repo, test_hook: hook)
+      test_pid = self()
+
+      notified = fn
+        _event, _measurements, %{resource: resource, action: action}, _config
+        when self() == test_pid and resource in [SweepGroup, Device] ->
+          send(test_pid, {:notified, resource, action, Repo.in_transaction?()})
+
+        _event, _measurements, _metadata, _config ->
+          :ok
       end
 
-      assert ledger_count(record) == 0
-      assert delivery_slot_count(record) == 0
-      assert sweep_batch_slot_count(record, batch) == 0
-      assert projected_row_keys(record) == []
-      assert Repo.get(SweepGroupExecution, Ecto.UUID.cast!(batch.execution_id)) == nil
+      with_telemetry([[:ash, :notifier, :stop]], notified, fn ->
+        rollback_log =
+          capture_log(fn ->
+            assert_raise RuntimeError, "injected rollback", fn ->
+              EdgeRecord.ingest(record_bytes, headers, Repo, test_hook: hook)
+            end
+          end)
 
-      # Nothing of the rolled-back attempt survives, so a redelivery commits.
-      assert {:ok, :inserted} = EdgeRecord.ingest(record_bytes, headers, Repo)
+        refute rollback_log =~ "Missed"
+        refute_received {:notified, _resource, _action, _in_transaction?}
+
+        assert ledger_count(record) == 0
+        assert delivery_slot_count(record) == 0
+        assert sweep_batch_slot_count(record, batch) == 0
+        assert projected_row_keys(record) == []
+        assert Repo.get(SweepGroupExecution, Ecto.UUID.cast!(batch.execution_id)) == nil
+
+        # Nothing of the rolled-back attempt survives, so a redelivery commits.
+        commit_log =
+          capture_log(fn ->
+            assert {:ok, :inserted} = EdgeRecord.ingest(record_bytes, headers, Repo)
+          end)
+
+        refute commit_log =~ "Missed"
+        assert_received {:notified, SweepGroup, :record_execution, false}
+        assert_received {:notified, Device, :create, false}
+      end)
+
       assert ledger_count(record) == 1
+
+      assert %{last_run_at: %DateTime{}} =
+               Repo.get!(SweepGroup, Ecto.UUID.cast!(batch.sweep_group_id))
+    end
+
+    test "inside an enclosing Ash transaction, notifications wait for that transaction to commit" do
+      %{record_bytes: record_bytes, headers: headers, record: record, batch: batch} =
+        build_frame()
+
+      test_pid = self()
+
+      notified = fn
+        _event, _measurements, %{resource: resource, action: action}, _config
+        when self() == test_pid and resource in [SweepGroup, Device] ->
+          send(test_pid, {:notified, resource, action, Repo.in_transaction?()})
+
+        _event, _measurements, _metadata, _config ->
+          :ok
+      end
+
+      with_telemetry([[:ash, :notifier, :stop]], notified, fn ->
+        rollback_log =
+          capture_log(fn ->
+            # Ash.transact/3 rolls back on {:error, reason} and returns the reason wrapped
+            # as an Ash error.
+            assert {:error, %Ash.Error.Unknown.UnknownError{error: abort_reason}} =
+                     Ash.transact([SweepGroup], fn ->
+                       assert {:ok, :inserted} = EdgeRecord.ingest(record_bytes, headers, Repo)
+                       refute_received {:notified, _resource, _action, _in_transaction?}
+                       {:error, :outer_abort}
+                     end)
+
+            assert abort_reason =~ "outer_abort"
+          end)
+
+        refute rollback_log =~ "Missed"
+        refute rollback_log =~ "dropped"
+        refute_received {:notified, _resource, _action, _in_transaction?}
+        assert ledger_count(record) == 0
+
+        commit_log =
+          capture_log(fn ->
+            assert {:ok, _result} =
+                     Ash.transact([SweepGroup], fn ->
+                       assert {:ok, :inserted} = EdgeRecord.ingest(record_bytes, headers, Repo)
+                       refute_received {:notified, _resource, _action, _in_transaction?}
+                       {:ok, :committed}
+                     end)
+          end)
+
+        refute commit_log =~ "Missed"
+        refute commit_log =~ "dropped"
+        assert_received {:notified, SweepGroup, :record_execution, false}
+        assert_received {:notified, Device, :create, false}
+      end)
+
+      assert ledger_count(record) == 1
+      assert sweep_batch_slot_count(record, batch) == 1
     end
 
     test "the :transaction_result hook observes the committed outcome and the delivery-slot conflict" do

@@ -7,6 +7,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Owner do
   The disposable ETS working copy is always discarded, including on rollback.
   """
 
+  alias ServiceRadar.Ash.NotificationQueue
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Observability.AdvisoryLocks
   alias ServiceRadar.Observability.AlertEvaluationLane, as: Lane
@@ -84,7 +85,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Owner do
                   )
                   |> Ash.update!(return_notifications?: true)
 
-                Inbox.notify_after_commit(notifications)
+                NotificationQueue.notify_after_commit(notifications)
 
               _ ->
                 :ok

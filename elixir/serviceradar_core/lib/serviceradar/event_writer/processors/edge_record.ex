@@ -53,6 +53,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
 
   @behaviour ServiceRadar.EventWriter.Processor
 
+  alias ServiceRadar.Ash.NotificationQueue
   alias ServiceRadar.Edge.ContractCatalog
   alias ServiceRadar.Edge.PublicationIdentity
   alias Serviceradar.Edge.V1.EdgeRecordV1
@@ -279,25 +280,29 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
     event_id = record.event_id
     semantic_digest = record.semantic_envelope_sha256
 
+    # Ash actions a projector runs here queue their notifications until this
+    # transaction commits (`NotificationQueue`).
     result =
-      repo.transaction(fn ->
-        with {:ok, _slot_outcome} <-
-               upsert_delivery_slot(
-                 repo,
-                 provenance.slot,
-                 record_sha256,
-                 event_id,
-                 semantic_digest
-               ),
-             {:ok, ledger_outcome} <-
-               upsert_ledger(repo, network_scope_id, event_id, semantic_digest, record_sha256),
-             :ok <-
-               project(repo, provenance, record, projector, body, ledger_outcome, gateway_id) do
-          run_test_hook(test_hook, :before_commit, event_id, {:ok, ledger_outcome})
-          ledger_outcome
-        else
-          {:error, reason} -> repo.rollback(reason)
-        end
+      NotificationQueue.with_queue(fn ->
+        repo.transaction(fn ->
+          with {:ok, _slot_outcome} <-
+                 upsert_delivery_slot(
+                   repo,
+                   provenance.slot,
+                   record_sha256,
+                   event_id,
+                   semantic_digest
+                 ),
+               {:ok, ledger_outcome} <-
+                 upsert_ledger(repo, network_scope_id, event_id, semantic_digest, record_sha256),
+               :ok <-
+                 project(repo, provenance, record, projector, body, ledger_outcome, gateway_id) do
+            run_test_hook(test_hook, :before_commit, event_id, {:ok, ledger_outcome})
+            ledger_outcome
+          else
+            {:error, reason} -> repo.rollback(reason)
+          end
+        end)
       end)
 
     run_test_hook(test_hook, :transaction_result, event_id, result)
