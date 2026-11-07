@@ -206,6 +206,122 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReportsIntegrationTest do
     refute_receive {:evaluated, _}
   end
 
+  describe "finding events are transitions of a report's promoted state" do
+    setup do
+      ScriptedStatefulAlertEngine.use_in_test()
+      %{report: Ash.UUID.generate()}
+    end
+
+    test "identical rescans append no event and never delete one", %{report: report} do
+      deletes = capture_event_deletes()
+
+      assert {:ok, 1} = TrivyReports.process_batch([scan(report, 1, high: 2)])
+      assert {:ok, 1} = TrivyReports.process_batch([scan(report, 2, high: 2)])
+      assert {:ok, 1} = TrivyReports.process_batch([scan(report, 3, high: 2)])
+
+      assert deletes.() == []
+      assert transitions(report) == [{"new", 1}]
+      assert recorded_digest(report) == "s4:n2"
+    end
+
+    test "a severity change appends exactly one update", %{report: report} do
+      assert {:ok, 1} = TrivyReports.process_batch([scan(report, 1, high: 1)])
+      assert {:ok, 1} = TrivyReports.process_batch([scan(report, 2, critical: 1, high: 1)])
+      assert {:ok, 1} = TrivyReports.process_batch([scan(report, 3, critical: 1, high: 1)])
+
+      assert transitions(report) == [{"new", 1}, {"changed", 2}]
+      assert recorded_digest(report) == "s5:n2"
+    end
+
+    test "dropping below High appends one close and clears the state", %{report: report} do
+      assert {:ok, 1} = TrivyReports.process_batch([scan(report, 1, high: 1)])
+      assert {:ok, 1} = TrivyReports.process_batch([scan(report, 2, medium: 1)])
+      assert {:ok, 1} = TrivyReports.process_batch([scan(report, 3, medium: 1)])
+
+      assert transitions(report) == [{"new", 1}, {"resolved", 2}]
+      assert recorded_digest(report) == nil
+    end
+  end
+
+  # Report ids are generated, so the rows a test leaves behind cannot collide
+  # with another test's; DataCase rolls them back.
+  defp scan(report, minute, counts) do
+    summary =
+      for {level, count} <- counts, into: %{}, do: {"#{level}Count", count}
+
+    %{
+      data:
+        Jason.encode!(%{
+          "event_id" => report,
+          "report_kind" => "VulnerabilityReport",
+          "cluster_id" => "cluster-example",
+          "namespace" => "app-example",
+          "name" => "replicaset-app-example-0001",
+          "uid" => "00000000-0000-4000-8000-0000000000a1",
+          "observed_at" => "2026-01-15T10:0#{minute}:00Z",
+          "correlation" => %{
+            "resource_kind" => "ReplicaSet",
+            "resource_name" => "app-example-0001",
+            "resource_namespace" => "app-example",
+            "host_ip" => "192.0.2.21",
+            "node_name" => "node01.example.com"
+          },
+          "summary" => summary,
+          "report" => %{"report" => %{"summary" => summary, "vulnerabilities" => []}}
+        }),
+      metadata: %{subject: "trivy.report.vulnerability", received_at: DateTime.utc_now()}
+    }
+  end
+
+  # The report's finding events, oldest first: {transition, observation minute}.
+  defp transitions(report) do
+    %{rows: rows} =
+      SQL.query!(
+        Repo,
+        """
+        SELECT metadata->'service_radar'->>'transition', EXTRACT(MINUTE FROM time)::int
+        FROM platform.ocsf_events
+        WHERE metadata->>'event_id' = $1
+          AND metadata->'service_radar'->>'promotion' = 'trivy_priority_auto'
+        ORDER BY time
+        """,
+        [report]
+      )
+
+    Enum.map(rows, &List.to_tuple/1)
+  end
+
+  defp recorded_digest(report) do
+    %{rows: [[digest]]} =
+      SQL.query!(
+        Repo,
+        "SELECT last_promoted_digest FROM platform.trivy_reports WHERE event_uuid = $1::uuid",
+        [Ecto.UUID.dump!(report)]
+      )
+
+    digest
+  end
+
+  # Records every DELETE this process sends against the event log.
+  defp capture_event_deletes do
+    handler = "trivy-event-deletes-#{System.unique_integer([:positive])}"
+    {:ok, seen} = Agent.start_link(fn -> [] end)
+    event = Repo.config() |> Keyword.fetch!(:telemetry_prefix) |> Kernel.++([:query])
+
+    :telemetry.attach(
+      handler,
+      event,
+      fn _event, _measurements, %{query: query}, _config ->
+        if query =~ ~r/DELETE\s+FROM\s+\S*ocsf_events/i,
+          do: Agent.update(seen, &[query | &1])
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+    fn -> Agent.get(seen, & &1) end
+  end
+
   defp trivy_event_count(event_id) do
     %{rows: [[count]]} =
       SQL.query!(

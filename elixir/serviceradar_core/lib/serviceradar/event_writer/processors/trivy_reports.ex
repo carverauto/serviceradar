@@ -6,8 +6,30 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
   warehouse when the dataset is routed there (`Destination.warehouse?/1`),
   CNPG otherwise. Reports and findings are current state and stay in CNPG.
   - Persist all Trivy payloads as `logs` raw observability records.
-  - Auto-promote higher-priority findings into OCSF events.
+  - Append an OCSF finding event when a report's promoted state changes.
   - Auto-create alerts for critical promoted events.
+
+  ## Finding events are transitions
+
+  A report is promoted while its severity is High or above. Its promoted state
+  is that severity and its finding count, recorded as a digest in
+  `trivy_reports.last_promoted_digest` (nil while it is not promoted). A
+  rescan appends a finding event only when that digest changes: `Create` when
+  a report becomes promoted, `Update` when a promoted report's severity or
+  count changes, and `Close` when it drops below the threshold. An identical
+  rescan appends nothing. Each transition has its own event id, derived from
+  the report, the new state and the observation time, so a redelivered batch
+  writes the same rows again rather than new ones, and the event log is never
+  deleted from or rewritten -- in either store. The current state of a report
+  and its findings stays in CNPG `trivy_reports` and `trivy_findings`.
+
+  The report row is upserted first (its findings reference it), but its digest
+  is recorded only after the batch's events are stored and evaluated, so a
+  batch that fails before then is redelivered and computes the same
+  transitions. Within one batch only a report's latest scan is
+  compared. Two batches carrying the same report concurrently can both
+  compare against the same recorded state; the cost is at most one redundant
+  transition event.
 
   ## Routine "scan completed" status events are suppressed by default
 
@@ -148,11 +170,12 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
           []
         end
 
+      latest = latest_entry_per_report(entries)
+      prior = recorded_promoted_digests(latest)
+
       promoted_rows =
         scan_activity_rows ++
-          (entries
-           |> Enum.filter(fn entry -> promote_to_event?(entry.severity_id) end)
-           |> Enum.map(& &1.event_row))
+          Enum.flat_map(latest, &transition_rows(&1, Map.get(prior, &1.event_uuid)))
 
       promoted_rows = dedupe_rows_by_conflict_key(promoted_rows, &Map.get(&1, :id))
       events_stored = store_event_rows(promoted_rows)
@@ -161,16 +184,20 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
       # (`Destination.warehouse?/1`). Every promoted row is evaluated, not only
       # those this delivery inserted: a delivery redelivered after a failed
       # load or evaluation finds its rows already stored, and must still
-      # finish. Both stores replace a report's event by id, and the ledger
-      # evaluates only the events no earlier delivery finished. A capacity or
-      # readiness refusal defers the evaluation to the durable admission
-      # backlog and the batch succeeds; any other evaluation failure fails the
-      # batch so JetStream redelivers it.
+      # finish. Transition ids are deterministic, so both stores keep one row
+      # per transition, and the ledger evaluates only the events no earlier
+      # delivery finished. A capacity or readiness refusal defers the
+      # evaluation to the durable admission backlog and the batch succeeds; any
+      # other evaluation failure fails the batch so JetStream redelivers it.
       stored =
         with {:ok, _} <- log_stored,
              {:ok, _} <- events_stored do
           StatefulEvaluationLedger.evaluate_once(promoted_rows)
         end
+
+      # The new state is recorded only once its transitions are stored and
+      # evaluated; otherwise a redelivery would find no transition to retry.
+      if stored == :ok, do: record_promoted_digests(latest, prior)
 
       {log_count, _} = stored_counts(log_stored)
       {event_count, inserted_events} = stored_counts(events_stored)
@@ -336,14 +363,19 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
         context: context
       })
 
+    promoted_digest = promoted_digest(severity)
+
     {:ok,
      %{
+       event_uuid: event_uuid,
+       event_time: event_time,
        log_row: log_row,
        report_row: report_row,
        finding_rows: finding_rows,
        scan_activity_row: scan_activity_row,
        event_row: event_row,
-       severity_id: severity_id
+       severity_id: severity_id,
+       promoted_digest: promoted_digest
      }}
   end
 
@@ -504,7 +536,10 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
          context: context,
          severity: severity
        }) do
-    scan_uuid = deterministic_uuid("#{event_uuid}:trivy:scan_activity")
+    # One status event per scan, appended like every other event.
+    scan_uuid =
+      deterministic_uuid("#{event_uuid}:trivy:scan_activity:#{DateTime.to_iso8601(event_time)}")
+
     agent_id = trivy_agent_id(context)
     device_uid = trivy_device_uid(payload, context)
 
@@ -936,104 +971,126 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
   end
 
   defp insert_event_rows(rows) do
-    rows = dedupe_rows_by_conflict_key(rows, &Map.get(&1, :id))
-
-    {:ok, result} =
-      ServiceRadar.Repo.transaction(
-        fn ->
-          lock_trivy_event_rows()
-          delete_existing_trivy_event_rows(rows)
-
-          {count, inserted} =
-            insert_all_returning("ocsf_events", rows,
-              on_conflict: :nothing,
-              conflict_target: [:time, :id],
-              returning: [:time, :id]
-            )
-
-          inserted_keys =
-            MapSet.new(Enum.map(inserted, fn row -> ocsf_event_conflict_key(row) end))
-
-          inserted_rows =
-            rows
-            |> Enum.filter(&MapSet.member?(inserted_keys, ocsf_event_conflict_key(&1)))
-            |> dedupe_rows_by_conflict_key(&Map.get(&1, :id))
-
-          {count, inserted_rows}
-        end,
-        timeout: :infinity
+    {_count, inserted} =
+      insert_all_returning("ocsf_events", rows,
+        on_conflict: :nothing,
+        conflict_target: [:time, :id],
+        returning: [:time, :id]
       )
 
-    result
+    inserted_keys = MapSet.new(inserted, &ocsf_event_conflict_key/1)
+    inserted_rows = Enum.filter(rows, &MapSet.member?(inserted_keys, ocsf_event_conflict_key(&1)))
+
+    {length(inserted_rows), inserted_rows}
   end
 
-  # A report's event keeps its id across rescans while its time moves forward,
-  # and `insert_event_rows/1` replaces it in CNPG by id. The warehouse keys
-  # events on (id, time), so the same replacement is made there -- delete the
-  # ids, then load -- or every rescan would add a row. It runs under the
-  # advisory lock the CNPG replace takes, so two batches carrying the same
-  # report cannot interleave their deletes and loads and leave both rows behind.
+  # Events are appended: a redelivered transition has the same (id, time) and
+  # upserts onto itself in the warehouse's primary key.
   defp load_warehouse_events(rows) do
-    replace = %{ids: Enum.map(rows, & &1.id), log_provider: "trivy"}
-
-    ServiceRadar.Repo.transaction(
-      fn ->
-        lock_trivy_event_rows()
-
-        case Destination.persist_warehouse(:events, rows, replace: replace) do
-          {:ok, %{loaded: count}} -> {count, rows}
-          {:error, reason} -> ServiceRadar.Repo.rollback(reason)
-        end
-      end,
-      timeout: :infinity
-    )
-  end
-
-  defp lock_trivy_event_rows do
-    ServiceRadar.Repo.query!(
-      "SELECT pg_advisory_xact_lock($1::bigint)",
-      [7_284_636_437_057_309_481]
-    )
+    case Destination.persist_warehouse(:events, rows) do
+      {:ok, %{loaded: count}} -> {:ok, {count, rows}}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   defp ocsf_event_conflict_key(row) when is_map(row) do
     {Map.get(row, :time), Map.get(row, :id)}
   end
 
-  defp delete_existing_trivy_event_rows(rows) when is_list(rows) do
-    ids =
-      rows
-      |> Enum.map(&Map.get(&1, :id))
-      |> Enum.map(&uuid_param/1)
-      |> Enum.reject(&is_nil/1)
-      |> Enum.uniq()
+  # A scan's promoted state: its severity and finding count once it is High or
+  # above, nil below. The migration that added the column seeds it in the same
+  # `s<severity>:n<count>` form.
+  defp promoted_digest(%{severity_id: severity_id, findings_count: count}) do
+    if promote_to_event?(severity_id), do: "s#{severity_id}:n#{count}"
+  end
 
-    Enum.each(Enum.chunk_every(ids, 500), fn chunk ->
-      ServiceRadar.Repo.query!(
-        """
-        DELETE FROM platform.ocsf_events
-        WHERE id = ANY($1::uuid[])
-          AND COALESCE(
-            metadata->'service_radar'->>'source_type',
-            metadata->'serviceradar'->>'source_type',
-            log_provider
-          ) = 'trivy'
-        """,
-        [chunk]
-      )
+  defp latest_entry_per_report(entries) do
+    entries
+    |> Enum.group_by(& &1.event_uuid)
+    |> Enum.map(fn {_report, scans} ->
+      Enum.max_by(scans, & &1.event_time, DateTime, fn -> List.last(scans) end)
     end)
   end
 
-  defp uuid_param(value) when is_binary(value) and byte_size(value) == 16, do: value
+  defp recorded_promoted_digests([]), do: %{}
 
-  defp uuid_param(value) when is_binary(value) do
-    case Ecto.UUID.dump(value) do
-      {:ok, binary} -> binary
-      :error -> nil
-    end
+  defp recorded_promoted_digests(entries) do
+    ids = Enum.map(entries, &Ecto.UUID.dump!(&1.event_uuid))
+
+    %{rows: rows} =
+      ServiceRadar.Repo.query!(
+        "SELECT event_uuid, last_promoted_digest FROM platform.trivy_reports " <>
+          "WHERE event_uuid = ANY($1::uuid[])",
+        [ids]
+      )
+
+    Map.new(rows, fn [event_uuid, digest] -> {Ecto.UUID.load!(event_uuid), digest} end)
   end
 
-  defp uuid_param(_value), do: nil
+  defp record_promoted_digests(entries, prior) do
+    changed = Enum.reject(entries, &(&1.promoted_digest == Map.get(prior, &1.event_uuid)))
+
+    if changed != [] do
+      ServiceRadar.Repo.query!(
+        """
+        UPDATE platform.trivy_reports AS report
+        SET last_promoted_digest = recorded.digest
+        FROM unnest($1::uuid[], $2::text[]) AS recorded(event_uuid, digest)
+        WHERE report.event_uuid = recorded.event_uuid
+        """,
+        [
+          Enum.map(changed, &Ecto.UUID.dump!(&1.event_uuid)),
+          Enum.map(changed, & &1.promoted_digest)
+        ]
+      )
+    end
+
+    :ok
+  end
+
+  defp transition_rows(%{promoted_digest: digest}, digest), do: []
+
+  defp transition_rows(%{promoted_digest: nil} = entry, previous),
+    do: [transition_row(entry, :resolved, previous)]
+
+  defp transition_rows(entry, nil), do: [transition_row(entry, :new, nil)]
+  defp transition_rows(entry, previous), do: [transition_row(entry, :changed, previous)]
+
+  defp transition_row(entry, kind, previous) do
+    %{event_row: row, event_uuid: report_uuid, event_time: time, promoted_digest: digest} = entry
+    activity_id = transition_activity(kind)
+
+    id =
+      deterministic_uuid(
+        "#{report_uuid}:trivy:transition:#{digest || "resolved"}:#{DateTime.to_iso8601(time)}"
+      )
+
+    metadata =
+      Map.update(row.metadata, "service_radar", %{}, fn service_radar ->
+        Map.merge(service_radar, %{
+          "transition" => Atom.to_string(kind),
+          "promoted_digest" => digest,
+          "previous_promoted_digest" => previous
+        })
+      end)
+
+    %{
+      row
+      | id: Ecto.UUID.dump!(id),
+        type_uid: OCSF.type_uid(row.class_uid, activity_id),
+        activity_id: activity_id,
+        activity_name: OCSF.finding_activity_name(activity_id),
+        message: transition_message(kind, row.message),
+        metadata: metadata
+    }
+  end
+
+  defp transition_activity(:new), do: OCSF.activity_finding_create()
+  defp transition_activity(:changed), do: OCSF.activity_finding_update()
+  defp transition_activity(:resolved), do: OCSF.activity_finding_close()
+
+  defp transition_message(:resolved, message), do: "Resolved below High: #{message}"
+  defp transition_message(_kind, message), do: message
 
   defp maybe_create_priority_alerts(events) do
     {created, attempted} =

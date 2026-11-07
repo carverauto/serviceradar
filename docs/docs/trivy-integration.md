@@ -24,6 +24,12 @@ structured vulnerability reports.
 - **Ingestion**: The core event-writer pipeline consumes those messages and persists
   them to the `trivy_reports` table in CNPG, where retention is managed alongside the
   rest of ServiceRadar's telemetry.
+- **Events**: A report whose severity is High or above appears in the event log
+  when that changes, not on every rescan: one `Create` event when it first
+  reaches High, one `Update` event when its severity or finding count changes,
+  and one `Close` event when it drops below High. Identical rescans add no
+  event, and alerts for Critical reports fire on those changes. The report's
+  current state stays in `trivy_reports` and its findings in `trivy_findings`.
 - **Querying**: Once ingested, vulnerability data is available for review through the
   ServiceRadar UI and SRQL like any other dataset.
 
