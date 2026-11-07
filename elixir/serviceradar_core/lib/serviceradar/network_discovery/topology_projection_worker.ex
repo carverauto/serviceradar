@@ -59,8 +59,11 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
 
   A failed projection is logged, counted as `not_accepted` on the
   `topology_projection` lane, reported as an Oban job exception, and retried
-  with backoff. A projection that exhausts its attempts is also counted as
-  `failed`. The next mapper result for the device enqueues a fresh projection.
+  with backoff. Transient Dgraph transaction aborts are logged at `:info` while
+  retries remain and at `:warning` when attempts are exhausted; other failures
+  are logged at `:warning` on every attempt. A projection that exhausts its
+  attempts is also counted as `failed`. The next mapper result for the device
+  enqueues a fresh projection.
   """
 
   use Oban.Worker,
@@ -169,25 +172,71 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
       queue_wait_ms: queue_wait_ms(job)
     }
 
-    case result do
-      :ok ->
-        RuntimeMetrics.record(@lane, :completion, Map.put(measurements, :outcome, :accepted))
-        :ok
-
-      {:error, reason} ->
-        RuntimeMetrics.record(@lane, :completion, Map.put(measurements, :outcome, :not_accepted))
-        if job.attempt >= job.max_attempts, do: RuntimeMetrics.record(@lane, :failed, %{})
-
-        Logger.warning("Topology projection failed; the graph lags CNPG until it succeeds",
-          device_id: device_id,
-          attempt: job.attempt,
-          max_attempts: job.max_attempts,
-          reason: inspect(reason)
-        )
-
-        {:error, reason}
-    end
+    record_outcome(result, device_id, job, measurements)
   end
+
+  @doc false
+  @spec record_outcome(:ok | {:error, term()}, String.t(), Oban.Job.t(), map()) ::
+          :ok | {:error, term()}
+  def record_outcome(:ok, _device_id, _job, measurements) do
+    RuntimeMetrics.record(@lane, :completion, Map.put(measurements, :outcome, :accepted))
+    :ok
+  end
+
+  def record_outcome({:error, reason}, device_id, %Oban.Job{} = job, measurements) do
+    RuntimeMetrics.record(@lane, :completion, Map.put(measurements, :outcome, :not_accepted))
+    if job.attempt >= job.max_attempts, do: RuntimeMetrics.record(@lane, :failed, %{})
+
+    log_failure(device_id, job, reason)
+
+    {:error, reason}
+  end
+
+  @doc false
+  @spec log_failure(String.t(), Oban.Job.t(), term()) :: :ok
+  def log_failure(device_id, %Oban.Job{} = job, reason) do
+    Logger.log(
+      failure_log_level(job, reason),
+      "Topology projection failed; the graph lags CNPG until it succeeds",
+      device_id: device_id,
+      attempt: job.attempt,
+      max_attempts: job.max_attempts,
+      reason: inspect(reason)
+    )
+  end
+
+  @doc false
+  @spec failure_log_level(Oban.Job.t(), term()) :: :info | :warning
+  def failure_log_level(%Oban.Job{attempt: attempt, max_attempts: max_attempts}, reason)
+      when is_integer(attempt) and is_integer(max_attempts) and attempt < max_attempts do
+    if transient_abort?(reason), do: :info, else: :warning
+  end
+
+  def failure_log_level(%Oban.Job{}, _reason), do: :warning
+
+  @doc false
+  @spec transient_abort?(term()) :: boolean()
+  def transient_abort?(reason) when is_binary(reason) do
+    downcased = String.downcase(reason)
+
+    String.contains?(downcased, "transaction aborted") or
+      String.contains?(downcased, "transaction has been aborted")
+  end
+
+  def transient_abort?(reason) when is_exception(reason) do
+    transient_abort?(Exception.message(reason))
+  end
+
+  def transient_abort?({_tag, inner}), do: transient_abort?(inner)
+
+  def transient_abort?(%{reason: inner}), do: transient_abort?(inner)
+
+  def transient_abort?(%{message: message}) when is_binary(message), do: transient_abort?(message)
+
+  def transient_abort?(%{"message" => message}) when is_binary(message),
+    do: transient_abort?(message)
+
+  def transient_abort?(_reason), do: false
 
   defp watermark(device_id, cutoff) do
     %Postgrex.Result{rows: [watermark]} =
