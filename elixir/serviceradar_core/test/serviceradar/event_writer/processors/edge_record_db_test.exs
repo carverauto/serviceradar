@@ -528,6 +528,57 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
                Repo.get!(SweepGroup, Ecto.UUID.cast!(batch.sweep_group_id))
     end
 
+    test "inside an enclosing Ash transaction, notifications wait for that transaction to commit" do
+      %{record_bytes: record_bytes, headers: headers, record: record, batch: batch} =
+        build_frame()
+
+      test_pid = self()
+
+      notified = fn
+        _event, _measurements, %{resource: resource, action: action}, _config
+        when self() == test_pid and resource in [SweepGroup, Device] ->
+          send(test_pid, {:notified, resource, action, Repo.in_transaction?()})
+
+        _event, _measurements, _metadata, _config ->
+          :ok
+      end
+
+      with_telemetry([[:ash, :notifier, :stop]], notified, fn ->
+        rollback_log =
+          capture_log(fn ->
+            assert {:error, :outer_abort} =
+                     Ash.transact([SweepGroup], fn ->
+                       assert {:ok, :inserted} = EdgeRecord.ingest(record_bytes, headers, Repo)
+                       refute_received {:notified, _resource, _action, _in_transaction?}
+                       {:error, :outer_abort}
+                     end)
+          end)
+
+        refute rollback_log =~ "Missed"
+        refute rollback_log =~ "dropped"
+        refute_received {:notified, _resource, _action, _in_transaction?}
+        assert ledger_count(record) == 0
+
+        commit_log =
+          capture_log(fn ->
+            assert {:ok, _result} =
+                     Ash.transact([SweepGroup], fn ->
+                       assert {:ok, :inserted} = EdgeRecord.ingest(record_bytes, headers, Repo)
+                       refute_received {:notified, _resource, _action, _in_transaction?}
+                       {:ok, :committed}
+                     end)
+          end)
+
+        refute commit_log =~ "Missed"
+        refute commit_log =~ "dropped"
+        assert_received {:notified, SweepGroup, :record_execution, false}
+        assert_received {:notified, Device, :create, false}
+      end)
+
+      assert ledger_count(record) == 1
+      assert sweep_batch_slot_count(record, batch) == 1
+    end
+
     test "the :transaction_result hook observes the committed outcome and the delivery-slot conflict" do
       %{record_bytes: record_bytes, headers: headers, record: record, slot: slot} = build_frame()
       test_pid = self()

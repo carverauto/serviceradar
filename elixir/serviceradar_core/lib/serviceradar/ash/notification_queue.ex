@@ -19,7 +19,8 @@ defmodule ServiceRadar.Ash.NotificationQueue do
   Sends `notifications` once the outermost queue commits, and drops them if
   that transaction rolls back. A call nested in an open queue appends to it, so
   a savepoint commit does not send before the outermost transaction commits.
-  With no queue open, sends them now.
+  With no queue open, sends them now, or hands them to an enclosing Ash
+  transaction, which sends them once it commits.
   """
   @spec notify_after_commit([Ash.Notifier.Notification.t()]) :: :ok
   def notify_after_commit(notifications) when is_list(notifications) do
@@ -36,7 +37,8 @@ defmodule ServiceRadar.Ash.NotificationQueue do
 
   The outermost call sends what `notify_after_commit/1` queued only when `work`
   returns `{:ok, _}`. Any other result, a rollback included, drops the queue. A
-  call nested inside an open queue leaves sending to that outer owner.
+  call nested inside an open queue leaves sending to that outer owner; one
+  nested inside an Ash transaction hands its queue to that transaction.
   """
   @spec with_queue((-> result)) :: result when result: term()
   def with_queue(work) when is_function(work, 0) do
@@ -61,18 +63,24 @@ defmodule ServiceRadar.Ash.NotificationQueue do
   end
 
   # Ash.Notifier.notify/1 returns, unsent, any notification whose resource is
-  # still inside a transaction: one that no queue owns. Say so instead of
-  # dropping it silently, as Ash would for the action itself.
+  # still inside a transaction. An enclosing Ash transaction sends its own queue
+  # once it commits and drops it on rollback, so the notification joins that
+  # queue. Otherwise nothing owns the transaction: say so instead of dropping it
+  # silently.
   defp send_now(notifications) do
     case Ash.Notifier.notify(notifications) do
       [] ->
         :ok
 
       unsent ->
-        Logger.warning(
-          "NotificationQueue: dropped #{length(unsent)} notification(s) sent inside a " <>
-            "transaction no queue owns: " <> describe(unsent)
-        )
+        if Process.get(:ash_started_transaction?) do
+          Ash.Actions.Helpers.queue_notifications(unsent)
+        else
+          Logger.warning(
+            "NotificationQueue: dropped #{length(unsent)} notification(s) sent inside a " <>
+              "transaction no queue owns: " <> describe(unsent)
+          )
+        end
     end
   end
 
