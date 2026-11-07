@@ -136,6 +136,8 @@ defmodule ServiceRadarAgentGateway.Application do
           ServiceRadarAgentGateway.ControlStreamTelemetry,
           ServiceRadarAgentGateway.StatusBuffer,
           ServiceRadarAgentGateway.RuntimeMetrics,
+          # Per-contract admission counts the edge-record lane writes and Settings -> Cluster reads.
+          ServiceRadar.Edge.PipelineStats,
           ServiceRadarAgentGateway.CameraMediaSessionTracker,
           ServiceRadarAgentGateway.DesktopMediaSessionTracker,
           ServiceRadarAgentGateway.DesktopMediaCloseReconciler,

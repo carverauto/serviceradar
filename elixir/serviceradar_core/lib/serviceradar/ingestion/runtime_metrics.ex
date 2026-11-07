@@ -9,6 +9,14 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
   deltas since the previous acknowledged frame; reporting watermarks advance
   only on PubAck. No agent, device, run, or payload identifier becomes a label.
 
+  `lane_stats/0` lists the core admission lanes that still have producers: `status` (the
+  ephemeral agent status summaries the gateway forwards) and `sync` (`SyncIngestorQueue`, fed
+  by the edge-record discovery projectors). Durable agent data reaches core only as edge
+  records, which `ServiceRadar.Edge.PipelineStats` counts per output contract. The other
+  result-ingestion lanes are recorded by the pre-edge-record ingest tree that issue #6339
+  deletes (`ResultsRouter`, `SweepQueue`, the flow and retained-plugin lanes); they are
+  published when something records them and never listed.
+
   The `alert_*` lanes describe stateful alert evaluation, and are published but
   not listed by `lane_stats/0`. `alert_admission_backlog` reports the
   `pending_count` and `oldest_pending_ms` of the durable backlog of deferred
@@ -66,7 +74,10 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
     :retrying_count,
     :failed_count
   ]
-  @result_ingestion_lanes [
+  @core_admission_lanes [:status, :sync]
+  # Recorded by the ingest tree issue #6339 removes, and go with it. The one other recorder is
+  # `EventWriter.DeviceCorrelation`, which files its lookup timeouts under `other_results`.
+  @retired_result_lanes [
     :flow_attribution,
     :retained_plugin_result,
     :sweep,
@@ -75,12 +86,10 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
     :legacy_plugin,
     :endpoint,
     :other_results,
-    :status,
-    :sync,
     :service_state
   ]
   @continuation_lanes [:topology_projection, :dgraph]
-  @lanes @result_ingestion_lanes ++ @alert_lanes ++ @continuation_lanes
+  @lanes @core_admission_lanes ++ @retired_result_lanes ++ @alert_lanes ++ @continuation_lanes
   @dgraph_handler {__MODULE__, :dgraph_call}
   @dgraph_events [
     [:serviceradar, :dgraph, :call, :stop],
@@ -162,13 +171,8 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
   @doc """
-  Returns the ordered list of result-ingestion lanes tracked by `RuntimeMetrics`.
-  """
-  def result_ingestion_lanes, do: @result_ingestion_lanes
-
-  @doc """
-  Returns a cheap, non-blocking snapshot of all result-ingestion lanes on this node
-  directly from ETS without calling any lane GenServer or touching the database.
+  Returns a cheap, non-blocking snapshot of the core admission lanes on this node directly
+  from ETS without calling any lane GenServer or touching the database.
   """
   @spec lane_stats() :: {:ok, map()} | {:error, :unavailable}
   def lane_stats do
@@ -176,7 +180,7 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
       {:ok,
        %{
          node: to_string(node()),
-         lanes: Enum.map(@result_ingestion_lanes, &lane_snapshot/1)
+         lanes: Enum.map(@core_admission_lanes, &lane_snapshot/1)
        }}
     else
       {:error, :unavailable}
@@ -533,8 +537,6 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
         lookup_int(:events, lane, :crash) +
           lookup_int(:events, lane, :worker_crash),
       incomplete_run_total: lookup_int(:events, lane, :incomplete_run),
-      coalesced_total: lookup_int(:events, lane, :coalesced),
-      expired_total: lookup_int(:events, lane, :expired),
       queue_wait_ms: lookup_int(:gauge, lane, :queue_wait_ms),
       execution_ms:
         max(lookup_int(:gauge, lane, :duration_ms), lookup_int(:gauge, lane, :execution_ms)),
@@ -542,26 +544,13 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
     }
   end
 
-  defp lane_capacity(:flow_attribution), do: {16, 64 * 1_024 * 1_024}
-
-  defp lane_capacity(:retained_plugin_result), do: {32, 64 * 1_024 * 1_024}
-
-  defp lane_capacity(:sweep), do: {128, 32 * 1_024 * 1_024}
-
   defp lane_capacity(:sync) do
     opts = Application.get_env(:serviceradar_core, SyncIngestorQueue, [])
     {Keyword.get(opts, :max_items, 64), Keyword.get(opts, :max_bytes, 64 * 1_024 * 1_024)}
   end
 
-  defp lane_capacity(:service_state) do
-    {
-      Application.get_env(:serviceradar_core, :results_router_max_buffer, 200),
-      Application.get_env(:serviceradar_core, :results_router_max_bytes, 32 * 1_024 * 1_024)
-    }
-  end
-
-  defp lane_capacity(lane) do
-    limits = LaneSupervisor.limits(lane)
+  defp lane_capacity(:status) do
+    limits = LaneSupervisor.limits(:status)
     {Keyword.fetch!(limits, :max_items), Keyword.fetch!(limits, :max_bytes)}
   end
 

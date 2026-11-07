@@ -4,6 +4,7 @@ defmodule ServiceRadar.AdmissionLaneTest do
   alias ServiceRadar.Admission.Lane
   alias ServiceRadar.Cluster.CoordinatorChildren
   alias ServiceRadar.EventWriter.Processors.Metrics
+  alias ServiceRadar.Ingestion.LaneSupervisor
   alias ServiceRadar.Ingestion.LeaseSupervisor
   alias ServiceRadar.Ingestion.RuntimeMetrics
   alias ServiceRadar.Ingestion.WorkerBudget
@@ -956,7 +957,7 @@ defmodule ServiceRadar.AdmissionLaneTest do
     end
   end
 
-  test "RuntimeMetrics.lane_stats/0 returns unavailable when stopped and non-blocking ETS snapshots when active" do
+  test "RuntimeMetrics.lane_stats/0 lists only the live core admission lanes from ETS, unavailable when stopped" do
     if Process.whereis(RuntimeMetrics), do: stop_supervised!(RuntimeMetrics)
     assert {:error, :unavailable} = RuntimeMetrics.lane_stats()
 
@@ -964,48 +965,36 @@ defmodule ServiceRadar.AdmissionLaneTest do
       {RuntimeMetrics, interval_ms: 60_000, publish_opts: [request: fn _, _, _ -> :ok end]}
     )
 
-    RuntimeMetrics.record(:retained_plugin_result, :state, %{
+    RuntimeMetrics.record(:status, :state, %{
       pending_count: 3,
       pending_bytes: 6_144,
       in_flight_count: 1,
       in_flight_bytes: 2_048
     })
 
-    RuntimeMetrics.record(:retained_plugin_result, :admitted, %{count: 4})
-    RuntimeMetrics.record(:retained_plugin_result, :rejected, %{count: 2, reason: :count_full})
-
-    RuntimeMetrics.record(:retained_plugin_result, :completion, %{
-      count: 1,
-      outcome: :not_accepted
-    })
-
+    RuntimeMetrics.record(:status, :admitted, %{count: 4})
+    RuntimeMetrics.record(:status, :rejected, %{count: 2, reason: :count_full})
+    RuntimeMetrics.record(:status, :completion, %{count: 1, outcome: :not_accepted})
     RuntimeMetrics.record(:sync, :incomplete_run, %{count: 1})
+    # Durable agent data arrives as edge records; these lanes have no production producer.
+    RuntimeMetrics.record(:retained_plugin_result, :admitted, %{count: 7})
     RuntimeMetrics.record(:service_state, :admitted, %{count: 5})
-    RuntimeMetrics.record(:service_state, :coalesced, %{count: 2})
-    RuntimeMetrics.record(:service_state, :expired, %{count: 1})
 
     assert {:ok, %{node: node_name, lanes: lanes}} = RuntimeMetrics.lane_stats()
     assert is_binary(node_name)
+    assert Enum.map(lanes, & &1.lane) == [:status, :sync]
 
-    retained = Enum.find(lanes, &(&1.lane == :retained_plugin_result))
-    assert retained.pending_count == 3
-    assert retained.pending_bytes == 6_144
-    assert retained.in_flight_count == 1
-    assert retained.in_flight_bytes == 2_048
-    assert retained.max_items == 32
-    assert retained.max_bytes == 64 * 1_024 * 1_024
-    assert retained.admitted_total == 4
-    assert retained.rejected_total == 2
-    assert retained.not_accepted_total == 1
-
-    sync = Enum.find(lanes, &(&1.lane == :sync))
+    [status, sync] = lanes
+    assert status.pending_count == 3
+    assert status.pending_bytes == 6_144
+    assert status.in_flight_count == 1
+    assert status.in_flight_bytes == 2_048
+    assert status.max_items == Keyword.fetch!(LaneSupervisor.limits(:status), :max_items)
+    assert status.max_bytes == Keyword.fetch!(LaneSupervisor.limits(:status), :max_bytes)
+    assert status.admitted_total == 4
+    assert status.rejected_total == 2
+    assert status.not_accepted_total == 1
     assert sync.incomplete_run_total == 1
-
-    # Entries released without a commit are counted, so admitted reconciles.
-    service_state = Enum.find(lanes, &(&1.lane == :service_state))
-    assert service_state.admitted_total == 5
-    assert service_state.coalesced_total == 2
-    assert service_state.expired_total == 1
   end
 
   test "Dgraph call telemetry is published on the dgraph lane" do

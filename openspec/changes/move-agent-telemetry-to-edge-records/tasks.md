@@ -165,6 +165,9 @@
     `StatusIngestor` clauses, and the corresponding dead runtime config env vars. The
     LargeIngestionGate release qualification runs `edge_record_release_gate_test.exs` through
     `EdgeRecordIngestServer` and the EventWriter `EdgeRecord` processor (#6339).
+    Settings -> Cluster no longer lists the retired lanes: it lists only `status` and `sync` as
+    core admission lanes, and an Edge Pipeline panel counts every family per output contract
+    (`ServiceRadar.Edge.PipelineStats`).
 - [x] 8.2 Confirm no durable agent data remains on `StreamStatus`/`PushStatus`; only control
   traffic and ephemeral status summaries stay there.
   DONE (2026-11-07, #6339): agent, gateway, and core confirmed. The agent opens no `StreamStatus`

@@ -43,6 +43,10 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
       registry, a bundle no live core node can project) is never offered and records nothing, so
       the sequence stays unresolved.
 
+  Each admission, permanent refusal and withhold is counted under the record's output contract
+  in `ServiceRadar.Edge.PipelineStats` (a refusal made before the record's contract is known as
+  `unattributed`), which Settings -> Cluster aggregates across gateways.
+
   ## Deliberately narrow scope
 
   This server does NOT implement the exact-byte/retained-memory binding of task 3.4, the
@@ -154,6 +158,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
 
   use GRPC.Server, service: Serviceradar.Edge.V1.EdgeRecordIngestService.Service
 
+  alias ServiceRadar.Edge.PipelineStats
   alias ServiceRadar.Edge.PublicationIdentity
   alias ServiceRadar.Edge.PublisherLane
   alias ServiceRadar.Edge.PublishPipeline
@@ -349,6 +354,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
         # agent accepts a disposition without an id.
         Logger.warning("edge record permanently rejected: #{inspect(reason)}")
         count_epoch_rejection(reason)
+        PipelineStats.record(:gateway_refused, nil)
         reject_frame(stream, remember_event_id(state, sequence, event_id), sequence)
 
       {:error, :retryable, reason, _event_id} ->
@@ -356,6 +362,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
         # installed trust snapshot -- so nothing is offered or recorded, and the sequence stays a gap
         # that caps the watermark.
         Logger.warning("edge record withheld (not resolved, no disposition sent): #{inspect(reason)}")
+        PipelineStats.record(:gateway_withheld, nil)
         state
 
       {:error, :paused, reason, _event_id} ->
@@ -445,8 +452,11 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
       traffic_class: state.traffic_class
     }
 
+    contract = PipelineStats.contract_ref(record)
+
     case EdgeContractRegistry.admit(record, session, decision.registry) do
       {:ok, route} ->
+        PipelineStats.record(:gateway_admitted, contract)
         offer_frame(state, stream, sequence, frame, decision, route)
 
       {:reject, reason} ->
@@ -454,12 +464,14 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
         # integrity failure, but under the decoded record's event id.
         Logger.warning("edge record rejected by contract registry: #{inspect(reason)}")
         count_epoch_rejection(reason)
+        PipelineStats.record(:gateway_refused, contract)
         reject_frame(stream, remember_event_id(state, sequence, record.event_id), sequence)
 
       {:withhold, reason} ->
         # Not proof of poison: nothing is offered or recorded, so the sequence stays a gap that caps
         # the watermark, exactly like a retryable publish outcome.
         Logger.warning("edge record withheld by contract registry: #{inspect(reason)}")
+        PipelineStats.record(:gateway_withheld, contract)
         state
     end
   end

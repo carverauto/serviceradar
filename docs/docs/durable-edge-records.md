@@ -487,6 +487,27 @@ the agent's last check-in and its live tracker entry, so they are reported for c
 container image are upgraded with the image and are never reported as
 `agent_upgrade_blocked`.
 
+### Cluster status panel
+
+**Settings -> Cluster Status** has an **Edge Pipeline** panel with one row per
+output contract (sweep observations, metrics batches, plugin results, mapper,
+sync pages, flow attribution and the rest of the supported families). For each
+contract it shows, summed across every connected gateway and core node:
+
+| Column | Meaning |
+| --- | --- |
+| Gateway admitted / refused / withheld | records the gateway's contract registry admitted, rejected permanently, or held back for the agent to send again |
+| Projected / Projector refused | records EventWriter committed, or acknowledged without projecting |
+| Failed attempts | projections that raised; JetStream redelivers each one |
+| Dead-lettered | records stored on the dead-letter stream |
+| Last projected | how long ago the contract last projected a record |
+
+A record refused before its contract was known is counted as `unattributed`.
+A second table shows the pending, ack-pending and redelivered counts of each
+edge-record durable and its stream's message count; for
+`TELEMETRY_EDGE_RECORD_DLQ_V1_BULK` that count is the dead-letter depth. The
+counts start at zero when a gateway or core process starts.
+
 ### Settings
 
 The spool budget and the sweep horizon are set only by rows in
@@ -580,7 +601,8 @@ kubectl -n <namespace> exec deploy/serviceradar-tools -- \
 ### Records are not arriving
 
 1. Open the readiness report. Any condition on the agent explains why it is off
-   the pipeline.
+   the pipeline. The [cluster status panel](#cluster-status-panel) shows which
+   stage a contract's records stop at.
 2. On the agent, check `agent_edge_record_grant_holds_total`. If it grows, the
    agent has no grant: look for `partition_not_found`, or confirm the agent has
    fetched a config since core started.

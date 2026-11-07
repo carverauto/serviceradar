@@ -7,6 +7,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
   - Horde-managed gateways (standalone Elixir releases)
   - Horde-managed agents (standalone Elixir releases)
   - Cluster health metrics
+  - The edge-record pipeline per output contract (`ClusterLive.EdgePipeline`) and the core
+    admission lanes that still carry agent status and sync ingestion
   - Oban job queue status
   """
   use ServiceRadarWebNGWeb, :live_view
@@ -17,6 +19,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
   alias ServiceRadarWebNG.Dashboards.SystemReports
   alias ServiceRadarWebNG.Jobs.JobCatalog
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.Settings.ClusterLive.EdgePipeline
   alias ServiceRadarWebNGWeb.Settings.Shell
 
   @refresh_interval to_timeout(second: 10)
@@ -70,6 +73,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
           if(connected?, do: load_oban_stats(), else: %{queues: %{}, total_executing: 0})
         )
         |> assign(:ingestion_stats, ingestion_stats_for_mount(connected?))
+        |> assign(:edge_pipeline_stats, EdgePipeline.stats_for_mount(connected?))
         |> assign(:events, [])
 
       {:ok, socket}
@@ -109,7 +113,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
      |> assign_agents(refreshed_agents_cache)
      |> assign(:job_counts, job_counts)
      |> assign(:oban_stats, load_oban_stats())
-     |> assign(:ingestion_stats, load_ingestion_stats())}
+     |> assign(:ingestion_stats, load_ingestion_stats())
+     |> assign(:edge_pipeline_stats, EdgePipeline.load())}
   end
 
   def handle_info({:node_up, node}, socket) do
@@ -264,7 +269,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
      |> assign_agents(refreshed_agents_cache)
      |> assign(:job_counts, job_counts)
      |> assign(:oban_stats, load_oban_stats())
-     |> assign(:ingestion_stats, load_ingestion_stats())}
+     |> assign(:ingestion_stats, load_ingestion_stats())
+     |> assign(:edge_pipeline_stats, EdgePipeline.load())}
   end
 
   @impl true
@@ -426,7 +432,10 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
           </.ui_panel>
         </div>
 
-        <!-- Ingestion Lanes -->
+        <!-- Edge Pipeline -->
+        <EdgePipeline.panel stats={@edge_pipeline_stats} />
+
+        <!-- Core Admission Lanes -->
         <.ingestion_lanes_panel ingestion_stats={@ingestion_stats} />
 
         <!-- Oban Queue Status -->
@@ -1193,9 +1202,9 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
     <.ui_panel>
       <:header>
         <div>
-          <div class="text-sm font-semibold">Ingestion Lanes</div>
+          <div class="text-sm font-semibold">Core Admission Lanes</div>
           <p class="text-xs text-sr-muted">
-            Bounded core admission lane depth, byte credit, and completion outcomes
+            Bounded core lanes for agent status summaries and sync ingestion: depth, byte credit, and completion outcomes
           </p>
         </div>
         <.link
@@ -1231,7 +1240,6 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
               <th>Accepted</th>
               <th>Not Accepted</th>
               <th>Timeouts / Crashes</th>
-              <th>Coalesced / Expired</th>
               <th>Incomplete Runs</th>
             </tr>
           </thead>
@@ -1255,9 +1263,6 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
               </td>
               <td class={"font-mono text-xs #{if lane.timeout_total + lane.crash_total > 0, do: "text-warning", else: "text-sr-muted"}"}>
                 {lane.timeout_total} / {lane.crash_total}
-              </td>
-              <td class="font-mono text-xs text-sr-muted">
-                {Map.get(lane, :coalesced_total, 0)} / {Map.get(lane, :expired_total, 0)}
               </td>
               <td class={"font-mono text-xs #{if lane.incomplete_run_total > 0, do: "text-error font-semibold", else: "text-sr-muted"}"}>
                 {lane.incomplete_run_total}
@@ -1296,8 +1301,6 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
       not_accepted_total: 0,
       timeout_total: 0,
       crash_total: 0,
-      coalesced_total: 0,
-      expired_total: 0,
       incomplete_run_total: 0
     }
   end
@@ -1346,13 +1349,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
     Enum.map(ordered_names, fn lane_name ->
       entries = Map.get(by_lane, lane_name, [])
 
-      first =
-        entries
-        |> hd()
-        |> Map.put_new(:coalesced_total, 0)
-        |> Map.put_new(:expired_total, 0)
-
-      Enum.reduce(tl(entries), first, fn entry, acc ->
+      Enum.reduce(tl(entries), hd(entries), fn entry, acc ->
         %{
           acc
           | pending_count: acc.pending_count + entry.pending_count,
@@ -1367,8 +1364,6 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
             not_accepted_total: acc.not_accepted_total + entry.not_accepted_total,
             timeout_total: acc.timeout_total + entry.timeout_total,
             crash_total: acc.crash_total + entry.crash_total,
-            coalesced_total: acc.coalesced_total + Map.get(entry, :coalesced_total, 0),
-            expired_total: acc.expired_total + Map.get(entry, :expired_total, 0),
             incomplete_run_total: acc.incomplete_run_total + entry.incomplete_run_total,
             queue_wait_ms: max(acc.queue_wait_ms, entry.queue_wait_ms),
             execution_ms: max(acc.execution_ms, entry.execution_ms),
@@ -1391,8 +1386,6 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
         not_accepted_total: acc.not_accepted_total + lane.not_accepted_total,
         timeout_total: acc.timeout_total + lane.timeout_total,
         crash_total: acc.crash_total + lane.crash_total,
-        coalesced_total: acc.coalesced_total + Map.get(lane, :coalesced_total, 0),
-        expired_total: acc.expired_total + Map.get(lane, :expired_total, 0),
         incomplete_run_total: acc.incomplete_run_total + lane.incomplete_run_total
       }
     end)

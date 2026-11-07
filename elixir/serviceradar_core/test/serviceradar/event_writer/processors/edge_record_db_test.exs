@@ -31,6 +31,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
   alias ServiceRadar.Edge.IssuerKey
   alias ServiceRadar.Edge.OutputContract
   alias ServiceRadar.Edge.OutputGrants
+  alias ServiceRadar.Edge.PipelineStats
   alias ServiceRadar.Edge.ProjectionRows
   alias ServiceRadar.Edge.Projectors.UnleasedSweepResults
   alias ServiceRadar.Edge.PublicationIdentity
@@ -401,6 +402,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
     end
 
     test "an ingest failure fails only its own record, with nothing committed, and the redelivery projects once" do
+      start_supervised!(PipelineStats)
       frame = build_frame()
       other = build_frame()
       execution_id = Ecto.UUID.cast!(frame.batch.execution_id)
@@ -426,6 +428,8 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       assert {:incomplete, 1, [{^message, %RuntimeError{}}]} =
                EdgeRecord.process_batch([message, other_message])
 
+      assert %{failed: 1, projected: 1} = contract_counts(frame.record)
+
       assert ledger_count(other.record) == 1
       assert ledger_count(frame.record) == 0
       assert delivery_slot_count(frame.record) == 0
@@ -442,6 +446,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
       assert {:ok, 1} = EdgeRecord.process_batch([message])
       assert ledger_count(frame.record) == 1
+      assert %{failed: 1, projected: 2} = contract_counts(frame.record)
 
       assert %{status: :completed, hosts_total: 1, hosts_available: 1, hosts_failed: 0} =
                Repo.get!(SweepGroupExecution, execution_id)
@@ -3849,6 +3854,13 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       )
 
     %{semantic_envelope_sha256: semantic_envelope_sha256, record_sha256: record_sha256}
+  end
+
+  # The record's contract row of this node's `PipelineStats`.
+  defp contract_counts(record) do
+    label = record |> PipelineStats.contract_ref() |> PipelineStats.contract_label()
+    {:ok, %{contracts: contracts}} = PipelineStats.snapshot()
+    Enum.find(contracts, &(&1.contract == label))
   end
 
   defp ledger_count(record) do

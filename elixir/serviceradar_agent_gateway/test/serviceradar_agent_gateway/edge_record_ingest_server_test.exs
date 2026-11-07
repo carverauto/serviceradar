@@ -1,6 +1,7 @@
 defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
   use ExUnit.Case, async: false
 
+  alias ServiceRadar.Edge.PipelineStats
   alias ServiceRadar.Edge.PublicationIdentity
   alias ServiceRadar.Edge.PublishPipeline
   alias Serviceradar.Edge.V1.EdgeDeliveryAckV1
@@ -268,6 +269,24 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
     unknown = record(output_contract: %{Factory.contract_ref() | contract_id: "serviceradar.test.unknown"})
 
     assert_rejected_then_accepted(unknown)
+  end
+
+  test "counts each admission, refusal and withhold under the record's output contract" do
+    if !Process.whereis(PipelineStats), do: start_supervised!(PipelineStats)
+    before = contract_counts()
+    ahead = %{Factory.contract_ref() | registry_epoch: Factory.contract_ref().registry_epoch + 1}
+
+    # Each helper reads the whole mailbox of its own stream, so the withhold runs first.
+    assert_caps_later_sequences(record(output_contract: ahead))
+    assert_rejected_then_accepted(record(principal: "agent-2"))
+
+    # The gateway's synthetic contract is not in core's catalog, so it is counted under the
+    # bounded `uncataloged` label; a frame refused before its contract is known is unattributed.
+    assert delta(before, contract_counts(), "uncataloged") ==
+             %{gateway_admitted: 2, gateway_refused: 0, gateway_withheld: 1}
+
+    assert delta(before, contract_counts(), "unattributed") ==
+             %{gateway_admitted: 0, gateway_refused: 1, gateway_withheld: 0}
   end
 
   # An installation-static epoch can never verify against a derived registry, so withholding it
@@ -868,6 +887,19 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
   end
 
   # Each record is delivered at its 1-based position.
+  defp contract_counts do
+    {:ok, %{contracts: contracts}} = PipelineStats.snapshot()
+    Map.new(contracts, &{&1.contract, &1})
+  end
+
+  defp delta(before, after_counts, label) do
+    empty = PipelineStats.empty_counts(label)
+
+    Map.new([:gateway_admitted, :gateway_refused, :gateway_withheld], fn event ->
+      {event, Map.get(after_counts, label, empty)[event] - Map.get(before, label, empty)[event]}
+    end)
+  end
+
   defp open_and_records(records) do
     frames = records |> Enum.with_index(1) |> Enum.map(fn {record, sequence} -> frame(sequence, record) end)
     [client({:lane_open, lane_open()}) | Enum.map(frames, &client({:delivery_frame, &1}))]

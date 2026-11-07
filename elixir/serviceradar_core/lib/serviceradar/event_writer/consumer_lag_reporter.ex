@@ -7,7 +7,8 @@ defmodule ServiceRadar.EventWriter.ConsumerLagReporter do
   pull-consumer slowdown from an accumulating JetStream backlog. It also polls
   each consumer's JetStream stream once per interval. For flow and edge-record
   consumers it combines MaxBytes/current bytes plus MaxAge/oldest
-  retained-message age into the retention-risk telemetry event.
+  retained-message age into the retention-risk telemetry event, and it keeps the latest state
+  of each edge-record durable in `ServiceRadar.Edge.PipelineStats`.
 
   The stream's first sequence also shows a durable losing messages it never
   received (`ServiceRadar.EventWriter.Telemetry.expired_before_delivery/2`):
@@ -19,6 +20,7 @@ defmodule ServiceRadar.EventWriter.ConsumerLagReporter do
 
   alias Gnat.Jetstream.API.Consumer
   alias Gnat.Jetstream.API.Stream
+  alias ServiceRadar.Edge.PipelineStats
   alias ServiceRadar.EventWriter.Config
   alias ServiceRadar.EventWriter.Telemetry, as: EventWriterTelemetry
   alias ServiceRadar.NATS.Connection
@@ -145,6 +147,8 @@ defmodule ServiceRadar.EventWriter.ConsumerLagReporter do
       expired,
       consumer
     )
+
+    PipelineStats.record_consumer(consumer, info, Map.get(stream_info, consumer.stream))
 
     track_expiry(state, consumer, expired)
   end

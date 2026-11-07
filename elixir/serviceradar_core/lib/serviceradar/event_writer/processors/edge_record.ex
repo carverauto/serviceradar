@@ -57,6 +57,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
 
   alias ServiceRadar.Ash.NotificationQueue
   alias ServiceRadar.Edge.ContractCatalog
+  alias ServiceRadar.Edge.PipelineStats
   alias ServiceRadar.Edge.PublicationIdentity
   alias Serviceradar.Edge.V1.EdgeRecordV1
   alias ServiceRadar.Edge.WireDecode
@@ -95,12 +96,21 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
     end
   end
 
-  defp process_one(%{data: data, metadata: metadata} = message) when is_binary(data) do
+  # Each outcome is also counted per output contract (`ServiceRadar.Edge.PipelineStats`).
+  defp process_one(%{data: data} = message) when is_binary(data) do
+    process_one(message, PipelineStats.contract_of(data))
+  end
+
+  defp process_one(_message), do: {:ok, 0}
+
+  defp process_one(%{data: data, metadata: metadata} = message, contract) do
     headers = Map.get(metadata || %{}, :headers, %{})
     opts = [test_hook: test_hook(), publication: publication_of(metadata)]
 
     case ingest(data, headers, Repo, opts) do
       {:ok, outcome} ->
+        PipelineStats.record(:projected, contract)
+
         :telemetry.execute(
           [:serviceradar, :event_writer, :edge_record, :ingested],
           %{count: 1},
@@ -110,20 +120,21 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
         {:ok, 1}
 
       {:error, reason} ->
+        PipelineStats.record(:projector_refused, contract)
         refused(message, %EdgeRecordRefusedError{reason: reason})
     end
   rescue
     # The broker's denial is logged once per subject and hold (`BrokerErrorLogFilter`), not
     # once per record.
     denied in PublishDeniedError ->
+      PipelineStats.record(:failed, contract)
       {:failed, denied}
 
     e ->
+      PipelineStats.record(:failed, contract)
       Logger.error("Edge record failed: #{inspect(e)}")
       {:failed, e}
   end
-
-  defp process_one(_message), do: {:ok, 0}
 
   # A refused record is dead-lettered on its first delivery: redelivering the same bytes is
   # refused the same way, and acknowledging it would lose the record with nothing to inspect or
