@@ -411,6 +411,8 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
     end
 
     test "a stale-fence replay under its delivery capability is published for audit and resolves audit-only" do
+      if !Process.whereis(PipelineStats), do: start_supervised!(PipelineStats)
+      before = contract_counts()
       assignment = Factory.uuidv7()
       install_trust(fences: [default_fence(), {Factory.network_scope_id(), assignment, 0, 2}])
       replay = record(producer_assignment_id: assignment)
@@ -434,9 +436,14 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
 
       assert Enum.map(acks_through(2), &{&1.sequence, &1.event_id, &1.kind}) ==
                [{1, replay.event_id, @audit_only}, {2, valid.event_id, @accepted}]
+
+      # The audit delivery is never projected, so only the primary record counts as admitted.
+      assert %{gateway_admitted: 1} = delta(before, contract_counts(), "uncataloged")
     end
 
     test "a record signed by a compromise-revoked key is published to security quarantine and resolves quarantined" do
+      if !Process.whereis(PipelineStats), do: start_supervised!(PipelineStats)
+      before = contract_counts()
       install_trust(status: "historically_revoked")
       revoked = record()
 
@@ -448,6 +455,8 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
 
       assert Enum.map(acks_through(1), &{&1.sequence, &1.event_id, &1.kind}) ==
                [{1, revoked.event_id, @quarantine}]
+
+      assert %{gateway_admitted: 0} = delta(before, contract_counts(), "uncataloged")
     end
 
     test "a late drain under a renewal is published with its delivery mode and proof" do

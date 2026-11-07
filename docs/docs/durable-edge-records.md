@@ -496,7 +496,7 @@ contract it shows, summed across every connected gateway and core node:
 
 | Column | Meaning |
 | --- | --- |
-| Gateway admitted / refused / withheld | records the gateway admitted, rejected permanently, or held back for the agent to send again |
+| Gateway admitted / refused / withheld | records the gateway admitted for projection (audit and security-quarantine deliveries are not counted), rejected permanently, or held back for the agent to send again |
 | Projected / Projector refused | first primary deliveries EventWriter committed (a replay or late-fenced audit delivery is not counted), or records acknowledged without projecting |
 | Failed attempts | projections that raised; JetStream redelivers each one |
 | Dead-lettered | records stored on the dead-letter stream |

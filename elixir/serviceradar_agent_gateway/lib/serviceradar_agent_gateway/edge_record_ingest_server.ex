@@ -456,7 +456,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
 
     case EdgeContractRegistry.admit(record, session, decision.registry) do
       {:ok, route} ->
-        PipelineStats.record(:gateway_admitted, contract)
+        if decision.publication == :primary, do: PipelineStats.record(:gateway_admitted, contract)
         offer_frame(state, stream, sequence, frame, decision, route)
 
       {:reject, reason} ->

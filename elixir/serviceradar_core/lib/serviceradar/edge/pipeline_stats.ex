@@ -7,8 +7,8 @@ defmodule ServiceRadar.Edge.PipelineStats do
   it:
 
     * the agent gateway (`ServiceRadarAgentGateway.EdgeRecordIngestServer`): records it
-      admitted (`:gateway_admitted`), refused for good (`:gateway_refused`), and withheld for
-      the agent to send again (`:gateway_withheld`);
+      admitted for primary publication (`:gateway_admitted`), refused for good
+      (`:gateway_refused`), and withheld for the agent to send again (`:gateway_withheld`);
     * the EventWriter edge-record processor (`ServiceRadar.EventWriter.Processors.EdgeRecord`):
       first primary deliveries committed through the ledger and projector (`:projected`), refused without a
       projection (`:projector_refused`), and failed attempts JetStream will redeliver
