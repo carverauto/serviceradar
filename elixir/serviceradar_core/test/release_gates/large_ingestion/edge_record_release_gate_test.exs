@@ -1053,7 +1053,7 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
     {:ok, assignment} = ProducerAssignments.ensure(group.id, agent_id, partition.id)
 
     {:ok, execution_slot} =
-      ExecutionSlots.schedule(assignment, now, DateTime.shift(now, minute: 60),
+      ExecutionSlots.schedule(assignment, now, DateTime.shift(now, hour: 1),
         targets: [target_cidr],
         check_set_sha256: HashGrammar.check_set_digest([{1, 1, 0}, {3, 2, 443}]),
         lease_id: Ash.UUID.generate()
