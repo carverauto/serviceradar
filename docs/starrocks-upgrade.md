@@ -1,6 +1,7 @@
 # StarRocks 3.5 to 4.1 upgrade
 
-Fresh installs use 4.1.3. Existing clusters follow 3.5.21 -> 4.0.14 -> 4.1.3.
+Fresh installs use 4.1.7. A 3.5 cluster follows 3.5.21 -> 4.0.14 -> 4.1.7.
+A cluster already on 4.1 takes the [4.1 patch roll](#41-patch-roll) instead.
 Keep the existing shared-data or shared-nothing architecture, storage volumes,
 credentials, JDBC driver, replica counts, and resource settings throughout.
 
@@ -35,7 +36,7 @@ and `SR_FE_STATEFULSET` for those selected values.
 ## Each version hop
 
 Complete this sequence for target 4.0.14, verify it, create and synchronize a
-metadata image, then repeat for target 4.1.3. Stop on any failed node or health
+metadata image, then repeat for target 4.1.7. Stop on any failed node or health
 check; do not continue to the next phase or silently roll back.
 
 1. Upgrade only compute nodes. Set the cluster's `starRocksCnSpec.image` to
@@ -113,36 +114,77 @@ check; do not continue to the next phase or silently roll back.
    Keep `waitForFullRollout` enabled. For the next frontend hop, again set
    `OnDelete` and its new image atomically before restarting any pod.
 
-For the second hop, repeat steps 1-5 with target 4.1.3 under the same compute-first, follower-before-leader, image-synchronization, and backup/health prerequisites. The compute image patch is:
+For the second hop, repeat steps 1-5 with target 4.1.7 under the same compute-first, follower-before-leader, image-synchronization, and backup/health prerequisites. The compute image patch is:
 
    ```sh
    kubectl --context "$SR_CONTEXT" -n "$SR_NAMESPACE" patch starrockscluster "$SR_CLUSTER" \
-     --type merge -p '{"spec":{"starRocksCnSpec":{"image":"starrocks/cn-ubuntu:4.1.3"}}}'
+     --type merge -p '{"spec":{"starRocksCnSpec":{"image":"starrocks/cn-ubuntu:4.1.7"}}}'
    ```
 
    for shared-data, or:
 
    ```sh
    kubectl --context "$SR_CONTEXT" -n "$SR_NAMESPACE" patch starrockscluster "$SR_CLUSTER" \
-     --type merge -p '{"spec":{"starRocksBeSpec":{"image":"starrocks/be-ubuntu:4.1.3"}}}'
+     --type merge -p '{"spec":{"starRocksBeSpec":{"image":"starrocks/be-ubuntu:4.1.7"}}}'
    ```
 
    for shared-nothing. The atomic frontend patch is:
 
    ```sh
    kubectl --context "$SR_CONTEXT" -n "$SR_NAMESPACE" patch starrockscluster "$SR_CLUSTER" \
-     --type merge -p '{"spec":{"starRocksFeSpec":{"image":"starrocks/fe-ubuntu:4.1.3","updateStrategy":{"type":"OnDelete","rollingUpdate":null}}}}'
+     --type merge -p '{"spec":{"starRocksFeSpec":{"image":"starrocks/fe-ubuntu:4.1.7","updateStrategy":{"type":"OnDelete","rollingUpdate":null}}}}'
    ```
 
-At completion, persist the final 4.1.3 pins in the Helm release using its
+At completion, persist the final 4.1.7 pins in the Helm release using its
 existing profile and operational overrides, with
 `initPassword.isInstall=false`. Verify the rendered changes first: no storage,
 credential, architecture, or resource change should accompany the image pins.
 Restore the frontend's recorded update strategy after every frontend runs
-4.1.3 and its metadata image has synchronized, as in step 5. Explicitly remove
+4.1.7 and its metadata image has synchronized, as in step 5. Explicitly remove
 or replace the temporary cluster override and verify the resulting
 StatefulSet strategy; omitting `OnDelete` from Helm values does not prove that
 a manually added field was removed from the live cluster.
+
+## 4.1 patch roll
+
+A patch upgrade within 4.1, such as 4.1.3 -> 4.1.7, is one hop: steps 1-5
+above with the target patch version, under the same prerequisites. Upstream
+supports a direct jump across patch versions; there is no intermediate
+version to visit and no second hop to gate on a metadata image, though
+creating one after the frontends finish (step 4) is still the checkpoint a
+rollback starts from.
+
+Two things apply whenever a cluster reaches 4.1.6 or later from an earlier
+release, including the second hop of a 3.5 upgrade:
+
+- **Online optimize is opt-in.** 4.1.6 changed the frontend default of
+  `enable_online_optimize_table` from `true` to `false`. Both lab values files
+  set it to `true` in the frontend config, so the frontend configuration
+  changes in the same roll as the image. The operator restarts frontends when
+  their ConfigMap changes, so apply that configuration while the frontend uses
+  `OnDelete` (after step 2, before deleting any pod) and let each frontend
+  pick up image and configuration in one restart. Add the line to the
+  release's live values (`helm get values`) rather than re-applying these
+  files, unless the release already matches them: a live release can carry
+  operational overrides, such as a compute `mem_limit` or init container,
+  that a render from the files would change and restart compute nodes for.
+  Confirm the strategy is still `OnDelete` after applying it. After step 3, check every frontend
+  reports the key as `true` with `ADMIN SHOW FRONTEND CONFIG LIKE
+  'enable_online_optimize_table'`. `ADMIN SET FRONTEND CONFIG` changes only
+  the frontend it runs on and does not survive a restart.
+- **A 4.1.0-4.1.5 compute data cache starts cold once.** On x86, 4.1.0-4.1.5
+  key the data cache with CRC-32C, while 4.0 and 4.1.6+ use MurmurHash3
+  (StarRocks #79262). A shared-data cluster going from 4.1.0-4.1.5 to 4.1.6+
+  loses every cached block once, and mixed-version compute nodes miss each
+  other's peer cache during the roll. Expect a temporary rise in
+  object-storage reads and query latency until the cache refills; a rollback
+  to an earlier 4.1 patch invalidates it again. A 4.0 -> 4.1.7 hop keeps its
+  cache.
+
+To roll back a patch upgrade, follow the upstream downgrade order, the
+reverse of the upgrade: create and synchronize a metadata image, then
+frontends (followers first, leader last, under `OnDelete`), then compute
+nodes.
 
 ## Completion and rollback limits
 
@@ -162,4 +204,5 @@ supported downgrade, preserving its required component order.
 - [Upgrade procedure and metadata synchronization](https://docs.starrocks.io/docs/deployment/manage_deployment/upgrade/)
 - [4.0 release notes](https://docs.starrocks.io/releasenotes/release-4.0/)
 - [4.1 release notes and downgrade limits](https://docs.starrocks.io/releasenotes/release-4.1/)
+- [Downgrade procedure and component order](https://docs.starrocks.io/docs/deployment/manage_deployment/downgrade/)
 - [Operator 1.11.7 component update strategies](https://github.com/StarRocks/starrocks-kubernetes-operator/blob/v1.11.7/pkg/apis/starrocks/v1/component_type.go)

@@ -28,6 +28,11 @@ starrocksCluster:
   enabledCn: true
 
 starrocksFESpec:
+  # enable_online_optimize_table: StarRocks 4.1.6 made online optimize opt-in
+  # (default false). A bucket rewrite (ALTER TABLE ... DISTRIBUTED BY ...
+  # BUCKETS n) that runs while EventWriter keeps loading needs the online
+  # path: the fallback job blocks writes, and a load that lands during it
+  # cancels the job. 4.1.3 defaulted to true; 3.5 and 4.0 default to false.
   config: |
     LOG_DIR = ${STARROCKS_HOME}/log
     DATE = "$(date +%Y%m%d-%H%M%S)"
@@ -39,6 +44,7 @@ starrocksFESpec:
     mysql_service_nio_enabled = true
     sys_log_level = INFO
     min_graceful_exit_time_second = 25
+    enable_online_optimize_table = true
     run_mode = shared_data
     cloud_native_meta_port = 6090
     cloud_native_storage_type = S3
@@ -48,7 +54,7 @@ starrocksCnSpec:
   replicas: 3
   image:
     repository: starrocks/cn-ubuntu
-    tag: "4.1.3"
+    tag: "4.1.7"
   imagePullPolicy: IfNotPresent
   runAsNonRoot: false
   service:
