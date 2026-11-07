@@ -937,6 +937,10 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       assert_received {:sweep_execution_completed, %{execution_id: ^unleased_execution_id}}
       refute_received {:sweep_execution_completed, %{execution_id: ^unleased_execution_id}}
 
+      # Two committed writes touch the existing device, and each announces it once: the
+      # availability update, and the mapper-promotion state recording its skipped
+      # promotion (the fixture partition has no eligible mapper job).
+      assert_received {:devices_invalidated, [^existing_device_uid]}
       assert_received {:devices_invalidated, [^existing_device_uid]}
       refute_received {:devices_invalidated, [^existing_device_uid]}
 
