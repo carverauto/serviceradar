@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS serviceradar.mtr_traces (
 )
 PRIMARY KEY (id, `time`)
 PARTITION BY date_trunc('day', `time`)
-DISTRIBUTED BY HASH(id) BUCKETS 8
+DISTRIBUTED BY HASH(id) BUCKETS 1
 ORDER BY (`time`, id)
 PROPERTIES (
   "replication_num" = "3",
@@ -102,7 +102,7 @@ CREATE TABLE IF NOT EXISTS serviceradar.mtr_hops (
 )
 PRIMARY KEY (id, `time`)
 PARTITION BY date_trunc('day', `time`)
-DISTRIBUTED BY HASH(id) BUCKETS 8
+DISTRIBUTED BY HASH(id) BUCKETS 2
 ORDER BY (`time`, trace_id, hop_number)
 PROPERTIES (
   "replication_num" = "3",

@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS serviceradar.logs (
 )
 PRIMARY KEY (id, `timestamp`)
 PARTITION BY date_trunc('day', `timestamp`)
-DISTRIBUTED BY HASH(id) BUCKETS 16
+DISTRIBUTED BY HASH(id) BUCKETS 2
 ORDER BY (`timestamp`, id)
 PROPERTIES (
   "replication_num" = "3",

@@ -564,13 +564,181 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
     assert state(agent).ledger == []
   end
 
+  # A warehouse that runs optimize jobs: `buckets` maps a table to its
+  # partitions' bucket counts; a rewrite is a job polled through `lifecycle`
+  # that applies the new count only when it reaches FINISHED. StarRocks
+  # refuses any distribution change while a job holds the table.
+  defp start_bucket_warehouse(overrides) do
+    initial =
+      Map.merge(
+        %{
+          lifecycle: ["PENDING", "RUNNING", "FINISHED"],
+          buckets: %{},
+          jobs: %{},
+          ledger: [],
+          sent: [],
+          refused: []
+        },
+        overrides
+      )
+
+    {:ok, agent} = Agent.start_link(fn -> initial end)
+    agent
+  end
+
+  defp bucket_query(agent), do: fn sql -> Agent.get_and_update(agent, &bucket_answer(&1, sql)) end
+
+  defp bucket_answer(state, sql) do
+    cond do
+      match =
+          Regex.run(
+            ~r/^ALTER TABLE \S+?\.(\w+) DISTRIBUTED BY HASH\([^)]*\) (DEFAULT )?BUCKETS (\d+)/,
+            sql
+          ) ->
+        [_, table, default, count] = match
+        distribute(state, table, default != "", String.to_integer(count))
+
+      match = Regex.run(~r/^SHOW ALTER TABLE OPTIMIZE .* TableName = '(\w+)'/, sql) ->
+        [_, table] = match
+        optimize_poll(state, table)
+
+      String.starts_with?(sql, "SHOW ALTER TABLE COLUMN") ->
+        {result(["State"], []), state}
+
+      match =
+          Regex.run(
+            ~r/^SELECT BUCKETS FROM information_schema.partitions_meta .* TABLE_NAME = '(\w+)'/,
+            sql
+          ) ->
+        [_, table] = match
+        {result(["BUCKETS"], state.buckets |> Map.get(table, []) |> Enum.map(&[&1])), state}
+
+      String.starts_with?(sql, "SHOW BACKENDS") ->
+        {nodes(1), state}
+
+      String.starts_with?(sql, "SELECT version FROM") ->
+        {result(["version"], Enum.map(state.ledger, &[&1])), state}
+
+      match = Regex.run(~r/^INSERT INTO .* VALUES \((\d+),/, sql) ->
+        [_, version] = match
+        {result([], []), %{state | ledger: state.ledger ++ [String.to_integer(version)]}}
+
+      true ->
+        {result([], []), state}
+    end
+  end
+
+  defp distribute(state, table, default?, count) do
+    kind = if default?, do: :default, else: :rewrite
+
+    case Map.get(state.jobs, table) do
+      {_count, [stage | _]} when stage not in ["FINISHED", "CANCELLED"] ->
+        message = "(1064) Table #{table} is in OPTIMIZE state, cannot alter it."
+
+        {{:error, {:starrocks_mysql, message}},
+         %{state | refused: state.refused ++ [{kind, table}]}}
+
+      _idle when default? ->
+        {result([], []), %{state | sent: state.sent ++ [{kind, table}]}}
+
+      _idle ->
+        state = %{state | jobs: Map.put(state.jobs, table, {count, state.lifecycle})}
+        {result([], []), %{state | sent: state.sent ++ [{kind, table}]}}
+    end
+  end
+
+  defp optimize_poll(state, table) do
+    case Map.get(state.jobs, table) do
+      nil ->
+        {result(["State"], []), state}
+
+      {count, [stage]} ->
+        {result(["State"], [[stage]]), finish(state, table, count, stage)}
+
+      {count, [stage | stages]} ->
+        state = %{state | jobs: Map.put(state.jobs, table, {count, stages})}
+        {result(["State"], [[stage]]), finish(state, table, count, stage)}
+    end
+  end
+
+  defp finish(state, table, count, "FINISHED") do
+    counts = state.buckets |> Map.get(table, []) |> Enum.map(fn _ -> count end)
+    %{state | buckets: Map.put(state.buckets, table, counts)}
+  end
+
+  defp finish(state, _table, _count, _stage), do: state
+
+  test "bucket rewrites wait for any running optimize, skip converged tables, and finish in order" do
+    migration = shipped(39)
+
+    tables =
+      for statement <- migration.statements,
+          [_, table, count] <- [
+            Regex.run(
+              ~r/ALTER TABLE \S+?\.(\w+) DISTRIBUTED BY HASH\([^)]*\) BUCKETS (\d+)$/,
+              statement
+            )
+          ],
+          do: {table, String.to_integer(count)}
+
+    [{converged, target} | _] = tables
+    {busy, _} = List.last(tables)
+
+    buckets =
+      tables
+      |> Map.new(fn {table, _count} -> {table, [16, 16, 8]} end)
+      |> Map.put(converged, [target, target])
+
+    # A runner that lost the lock left an optimize job running on the last table.
+    agent =
+      start_bucket_warehouse(%{
+        buckets: buckets,
+        jobs: %{busy => {16, ["RUNNING", "RUNNING", "FINISHED"]}}
+      })
+
+    assert migrate(agent, query: bucket_query(agent), migrations: [migration]) == {:ok, [39]}
+
+    result = state(agent)
+    assert result.refused == []
+
+    # Every table gets its new default; only tables with other counts are rewritten.
+    assert result.sent ==
+             Enum.flat_map(tables, fn
+               {^converged, _} -> [{:default, converged}]
+               {table, _} -> [{:default, table}, {:rewrite, table}]
+             end)
+
+    for {table, count} <- tables do
+      assert Enum.all?(result.buckets[table], &(&1 == count)),
+             "#{table} not rewritten to #{count}"
+    end
+  end
+
+  test "a rewrite that StarRocks cancels fails the migration and is not recorded" do
+    migration = shipped(39)
+    [_, table] = Regex.run(~r/ALTER TABLE \S+?\.(\w+) /, hd(migration.statements))
+
+    agent =
+      start_bucket_warehouse(%{
+        buckets: %{table => [8, 8]},
+        lifecycle: ["RUNNING", "CANCELLED"]
+      })
+
+    assert {:error, {39, {:alter_cancelled, ^table}}} =
+             migrate(agent, query: bucket_query(agent), migrations: [migration])
+
+    assert state(agent).ledger == []
+    assert state(agent).sent == [{:default, table}, {:rewrite, table}]
+  end
+
   test "the shipped schema marks exactly the day-partitioned rollups as needing partitioned tables" do
     waiting =
       Schema.migrations()
       |> Enum.filter(&Schema.needs_partitioned_tables?/1)
       |> Enum.map(& &1.version)
 
-    # 17 and 22 are the earlier rollups; 25 and 28 create the MTR rollups.
-    assert waiting == [17, 22, 25, 28]
+    # 17 and 22 are the earlier rollups; 25 and 28 create the MTR rollups; 40
+    # rebuilds all of them with one bucket per day.
+    assert waiting == [17, 22, 25, 28, 40]
   end
 end

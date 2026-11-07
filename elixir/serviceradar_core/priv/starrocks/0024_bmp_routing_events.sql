@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS serviceradar.bmp_routing_events (
 )
 PRIMARY KEY (id, `time`)
 PARTITION BY date_trunc('day', `time`)
-DISTRIBUTED BY HASH(id) BUCKETS 8
+DISTRIBUTED BY HASH(id) BUCKETS 1
 ORDER BY (`time`, id)
 PROPERTIES (
   "replication_num" = "3",

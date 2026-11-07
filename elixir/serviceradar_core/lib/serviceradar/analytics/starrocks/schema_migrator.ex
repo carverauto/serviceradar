@@ -9,8 +9,11 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
 
   A warehouse that predates the ledger is adopted rather than rejected: CREATEs
   are `IF NOT EXISTS`, the rollup rebuild drops before it creates, and an
-  `ADD COLUMN` whose column is already there, or a `MODIFY COLUMN` whose
-  column already has the target type, is skipped. The same property
+  `ADD COLUMN` whose column is already there, a `MODIFY COLUMN` whose
+  column already has the target type, or a bucket rewrite
+  (`DISTRIBUTED BY ... BUCKETS n`) whose partitions all have n buckets, is
+  skipped. A bucket rewrite is an online optimize job: the migrator waits out
+  any optimize already on the table, then its own, accepting only FINISHED. The same property
   makes a migration that failed half way safe to run again, which is the only
   recovery a failed migration needs. A new statement kind that cannot be
   repeated needs a guard here before it ships.
@@ -59,6 +62,11 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
   @memory_exhausted_delay_ms 600_000
   @alter_poll_ms 1_000
   @alter_poll_attempts 600
+  # An optimize job rewrites every partition of a table; on a large one that
+  # takes far longer than a column change, so it is polled less often and for
+  # as long as the DDL client waits for any statement (@ddl_timeout_ms).
+  @optimize_poll_ms 5_000
+  @optimize_poll_attempts div(@ddl_timeout_ms, @optimize_poll_ms)
   @max_replication 3
 
   @spec child_spec(term()) :: Supervisor.child_spec() | nil
@@ -367,11 +375,65 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
 
   defp execute(state, statement) do
     with :error <- Schema.add_column(statement),
-         :error <- Schema.modify_column(statement) do
+         :error <- Schema.modify_column(statement),
+         :error <- Schema.redistribute(statement) do
       run_statement(state, statement)
     else
-      {:ok, {table, column}} -> add_column(state, statement, table, column)
-      {:ok, {table, column, type}} -> modify_column(state, statement, table, column, type)
+      {:ok, {table, column}} ->
+        add_column(state, statement, table, column)
+
+      {:ok, {table, buckets, kind}} when is_integer(buckets) ->
+        redistribute(state, statement, table, buckets, kind)
+
+      {:ok, {table, column, type}} ->
+        modify_column(state, statement, table, column, type)
+    end
+  end
+
+  # A new default bucket count is metadata and takes effect at once, but
+  # StarRocks refuses it while an optimize job holds the table.
+  defp redistribute(state, statement, table, _buckets, :default) do
+    with :ok <- poll_alter(state, table, :previous, :optimize) do
+      run_statement(state, statement)
+    end
+  end
+
+  # A rewrite is an optimize job. Partitions loaded while it runs keep their
+  # layout and the job still finishes, so a table can stay partly rewritten;
+  # the statement is skipped only when every partition already has the count.
+  defp redistribute(state, statement, table, buckets, :rewrite) do
+    with :ok <- poll_alter(state, table, :previous, :column),
+         :ok <- poll_alter(state, table, :previous, :optimize),
+         {:ok, counts} <- partition_buckets(state, table) do
+      if Enum.all?(counts, &(&1 == buckets)) do
+        :ok
+      else
+        state.still_locked.()
+
+        with :ok <- run_statement(state, statement) do
+          poll_alter(state, table, :own, :optimize)
+        end
+      end
+    end
+  end
+
+  defp partition_buckets(state, table) do
+    sql =
+      "SELECT BUCKETS FROM information_schema.partitions_meta " <>
+        "WHERE DB_NAME = '#{state.database}' AND TABLE_NAME = '#{table}'"
+
+    case state.query.(sql) do
+      {:ok, %{rows: rows}} -> {:ok, Enum.map(rows, &to_integer(List.first(&1)))}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp to_integer(value) when is_integer(value), do: value
+
+  defp to_integer(value) do
+    case Integer.parse(to_string(value)) do
+      {integer, _} -> integer
+      :error -> nil
     end
   end
 
@@ -440,19 +502,28 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
   # a table while one is still running. Only FINISHED and CANCELLED are final.
   # A shared-data table passes through FINISHED_REWRITING first, and is still
   # mid-change there: an ALTER sent then is refused.
-  defp await_alter(state, table), do: poll_alter(state, table, :own, @alter_poll_attempts)
+  defp await_alter(state, table), do: poll_alter(state, table, :own, :column)
 
   # Before an ALTER, waits out any change still running on the table -- one a
   # runner that lost the lock, or died, left behind. How that one ended is not
   # this runner's concern: a cancelled change left the column as it was, and
   # the probe that follows sees what a finished one did.
-  defp await_quiet(state, table), do: poll_alter(state, table, :previous, @alter_poll_attempts)
+  defp await_quiet(state, table), do: poll_alter(state, table, :previous, :column)
 
-  defp poll_alter(_state, table, _whose, 0), do: {:error, {:alter_not_finished, table}}
+  # Column changes and optimize jobs are listed apart (SHOW ALTER TABLE COLUMN
+  # and SHOW ALTER TABLE OPTIMIZE) with the same State semantics.
+  defp poll_alter(state, table, whose, :column),
+    do: poll_alter(state, table, whose, "COLUMN", @alter_poll_ms, @alter_poll_attempts)
 
-  defp poll_alter(state, table, whose, attempts_left) do
+  defp poll_alter(state, table, whose, :optimize),
+    do: poll_alter(state, table, whose, "OPTIMIZE", @optimize_poll_ms, @optimize_poll_attempts)
+
+  defp poll_alter(_state, table, _whose, _kind, _interval, 0),
+    do: {:error, {:alter_not_finished, table}}
+
+  defp poll_alter(state, table, whose, kind, interval, attempts_left) do
     sql =
-      "SHOW ALTER TABLE COLUMN FROM #{state.database} WHERE TableName = '#{table}' " <>
+      "SHOW ALTER TABLE #{kind} FROM #{state.database} WHERE TableName = '#{table}' " <>
         "ORDER BY CreateTime DESC LIMIT 1"
 
     case alter_state(state.query.(sql)) do
@@ -463,8 +534,8 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
         :ok
 
       {:ok, _running} ->
-        state.sleep.(@alter_poll_ms)
-        poll_alter(state, table, whose, attempts_left - 1)
+        state.sleep.(interval)
+        poll_alter(state, table, whose, kind, interval, attempts_left - 1)
 
       {:error, reason} ->
         {:error, reason}

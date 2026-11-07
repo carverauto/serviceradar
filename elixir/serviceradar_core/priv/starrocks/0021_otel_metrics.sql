@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS serviceradar.otel_metrics (
 )
 PRIMARY KEY (id, `timestamp`)
 PARTITION BY date_trunc('day', `timestamp`)
-DISTRIBUTED BY HASH(id) BUCKETS 8
+DISTRIBUTED BY HASH(id) BUCKETS 1
 ORDER BY (`timestamp`, id)
 PROPERTIES (
   "replication_num" = "3",
@@ -83,7 +83,7 @@ CREATE TABLE IF NOT EXISTS serviceradar.otel_metric_points (
 )
 PRIMARY KEY (id, `timestamp`)
 PARTITION BY date_trunc('day', `timestamp`)
-DISTRIBUTED BY HASH(id) BUCKETS 8
+DISTRIBUTED BY HASH(id) BUCKETS 1
 ORDER BY (`timestamp`, id)
 PROPERTIES (
   "replication_num" = "3",
