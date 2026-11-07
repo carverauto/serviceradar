@@ -273,7 +273,8 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
       setup_scheduled_sweep!(
         partition,
         agent_id,
-        [large_ingestion_ip(1), large_ingestion_ip(2)],
+        "10.250.0.8/31",
+        [large_ingestion_ip(8), large_ingestion_ip(9)],
         active_epoch,
         key,
         now,
@@ -1019,7 +1020,18 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
     wrap_delivery_frame(record, spool_id, sequence)
   end
 
-  defp setup_scheduled_sweep!(partition, agent_id, targets, active_epoch, key, now, actor) do
+  # One CIDR target plans exactly one range, so the slot has one source authorization and
+  # completes once every host in that range has reported.
+  defp setup_scheduled_sweep!(
+         partition,
+         agent_id,
+         target_cidr,
+         targets,
+         active_epoch,
+         key,
+         now,
+         actor
+       ) do
     group =
       SweepGroup
       |> Ash.Changeset.for_create(
@@ -1030,7 +1042,7 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
           enabled: false,
           interval: "15m",
           agent_ids: [agent_id],
-          static_targets: targets,
+          static_targets: [target_cidr],
           sweep_modes: ["icmp", "tcp_connect"],
           ports: [443]
         },
@@ -1042,7 +1054,7 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
 
     {:ok, execution_slot} =
       ExecutionSlots.schedule(assignment, now, DateTime.shift(now, minute: 15),
-        targets: targets,
+        targets: [target_cidr],
         check_set_sha256: HashGrammar.check_set_digest([{1, 1, 0}, {3, 2, 443}]),
         lease_id: Ash.UUID.generate()
       )
