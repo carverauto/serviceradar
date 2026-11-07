@@ -34,82 +34,116 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
 
   setup do: Fixtures.context()
 
-  test "the dispatched command remains linked after the opener dies before receiving its reply",
-       ctx do
-    agent_id = "agent-relay-#{Ecto.UUID.generate()}"
-    {:ok, _source} = Source.update_source(ctx.source, %{assigned_agent_id: agent_id}, ctx.opts)
-    parent = self()
+  for {operation, command_type, identity_field, status} <- [
+        {:open, "camera.open_relay", :command_id, :opening},
+        {:close, "camera.close_relay", :close_command_id, :closing}
+      ] do
+    test "#{operation} command remains linked after its caller dies before receiving its reply",
+         ctx do
+      operation = unquote(operation)
+      command_type = unquote(command_type)
+      identity_field = unquote(identity_field)
+      status = unquote(status)
+      agent_id = "agent-relay-#{Ecto.UUID.generate()}"
+      {:ok, _source} = Source.update_source(ctx.source, %{assigned_agent_id: agent_id}, ctx.opts)
+      parent = self()
 
-    assert {:ok, cleanup_job} = AgentCommandCleanupWorker.ensure_scheduled()
+      assert {:ok, cleanup_job} = AgentCommandCleanupWorker.ensure_scheduled()
 
-    if match?(%Oban.Job{conflict?: false}, cleanup_job) do
+      if match?(%Oban.Job{conflict?: false}, cleanup_job) do
+        on_exit(fn ->
+          Repo.query!("DELETE FROM platform.oban_jobs WHERE id = $1", [cleanup_job.id])
+        end)
+      end
+
       on_exit(fn ->
-        Repo.query!("DELETE FROM platform.oban_jobs WHERE id = $1", [cleanup_job.id])
-      end)
-    end
+        Repo.query!("DELETE FROM platform.agent_commands WHERE agent_id = $1", [agent_id])
 
-    on_exit(fn ->
-      Repo.query!("DELETE FROM platform.agent_commands WHERE agent_id = $1", [agent_id])
-
-      assert %{rows: [[0]]} =
-               Repo.query!("SELECT count(*) FROM platform.agent_commands WHERE agent_id = $1", [
-                 agent_id
-               ])
-    end)
-
-    name =
-      ProcessRegistry.via({:agent_control, "default", agent_id, node()}, %{
-        agent_id: agent_id,
-        partition_id: "default",
-        gateway_node: ctx.source.assigned_gateway_id,
-        pending_config_version: nil
-      })
-
-    session = start_supervised!({HoldingControlSession, name: name, test_pid: parent})
-    assert wait_for_control_session("default", agent_id, session)
-
-    dispatch = fn agent, payload, opts, _requester ->
-      AgentCommandBus.start_camera_relay(
-        agent,
-        Map.put(payload, :source_url, "rtsp://host01.example.com/stream/main"),
-        opts
-      )
-    end
-
-    {opener, monitor} =
-      spawn_monitor(fn ->
-        result = Fixtures.open(ctx, dispatch_open: dispatch)
-        send(parent, {:open_result, result})
+        assert %{rows: [[0]]} =
+                 Repo.query!("SELECT count(*) FROM platform.agent_commands WHERE agent_id = $1", [
+                   agent_id
+                 ])
       end)
 
-    on_exit(fn ->
-      if Process.alive?(opener), do: Process.exit(opener, :kill)
-    end)
+      name =
+        ProcessRegistry.via({:agent_control, "default", agent_id, node()}, %{
+          agent_id: agent_id,
+          partition_id: "default",
+          gateway_node: ctx.source.assigned_gateway_id,
+          pending_config_version: nil
+        })
 
-    assert_receive {:relay_command, %Monitoring.CommandRequest{} = command}, 5_000
-    payload = Jason.decode!(command.payload_json)
-    assert command.command_type == "camera.open_relay"
-    assert [%{status: :opening} = reserved] = Fixtures.sessions(ctx)
-    assert reserved.id == payload["relay_session_id"]
-    assert reserved.command_id == command.command_id
+      session = start_supervised!({HoldingControlSession, name: name, test_pid: parent})
+      assert wait_for_control_session("default", agent_id, session)
 
-    assert %{rows: [["camera.open_relay", ^agent_id, stored_payload]]} =
-             Repo.query!(
-               "SELECT command_type, agent_id, payload FROM platform.agent_commands " <>
-                 "WHERE command_id = $1::text::uuid",
-               [command.command_id]
-             )
+      dispatch = fn agent, payload, opts, _requester ->
+        case operation do
+          :open ->
+            AgentCommandBus.start_camera_relay(
+              agent,
+              Map.put(payload, :source_url, "rtsp://host01.example.com/stream/main"),
+              opts
+            )
 
-    assert stored_payload == payload
+          :close ->
+            AgentCommandBus.stop_camera_relay(agent, payload, opts)
+        end
+      end
 
-    Process.exit(opener, :kill)
-    assert_receive {:DOWN, ^monitor, :process, ^opener, :killed}
-    refute_received {:open_result, _}
+      request =
+        case operation do
+          :open ->
+            fn -> Fixtures.open(ctx, dispatch_open: dispatch) end
 
-    assert {:ok, reused} = Fixtures.open(ctx, dispatch_open: dispatch)
-    assert reused.id == reserved.id
-    assert reused.command_id == command.command_id
-    refute_received {:relay_command, _}
+          :close ->
+            {:ok, opening} = Fixtures.open(ctx)
+
+            fn ->
+              RelaySessionManager.request_close(opening.id,
+                actor: ctx.actor,
+                force: true,
+                dispatch_close: dispatch
+              )
+            end
+        end
+
+      {caller, monitor} =
+        spawn_monitor(fn ->
+          result = request.()
+          send(parent, {:request_result, result})
+        end)
+
+      on_exit(fn ->
+        if Process.alive?(caller), do: Process.exit(caller, :kill)
+      end)
+
+      assert_receive {:relay_command, %Monitoring.CommandRequest{} = command}, 5_000
+      payload = Jason.decode!(command.payload_json)
+      assert command.command_type == command_type
+      assert [%{status: ^status} = reserved] = Fixtures.sessions(ctx)
+      assert reserved.id == payload["relay_session_id"]
+      assert Map.fetch!(reserved, identity_field) == command.command_id
+
+      if operation == :close, do: refute(reserved.command_id == command.command_id)
+
+      assert %{rows: [[^command_type, ^agent_id, stored_payload]]} =
+               Repo.query!(
+                 "SELECT command_type, agent_id, payload FROM platform.agent_commands " <>
+                   "WHERE command_id = $1::text::uuid",
+                 [command.command_id]
+               )
+
+      assert stored_payload == payload
+
+      Process.exit(caller, :kill)
+      assert_receive {:DOWN, ^monitor, :process, ^caller, :killed}
+      refute_received {:request_result, _}
+
+      assert {:ok, reused} = request.()
+      assert reused.id == reserved.id
+      assert Map.fetch!(reused, identity_field) == command.command_id
+      refute_received {:relay_command, _}
+    end
   end
 
   test "committed concurrent opens dispatch one pull and reuse its persisted opening reservation",
@@ -367,8 +401,8 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
     close_opts = [
       actor: ctx.actor,
       reason: "viewer idle timeout",
-      dispatch_close: fn _, _, _, _ ->
-        {:ok, Ecto.UUID.generate()}
+      dispatch_close: fn _, _, opts, _ ->
+        {:ok, opts[:command_id]}
       end
     ]
 
@@ -388,9 +422,9 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
     opts = [
       actor: ctx.actor,
       reason: "viewer idle timeout",
-      dispatch_close: fn _, payload, _, _ ->
-        send(parent, {:closed, payload.relay_session_id})
-        {:ok, Ecto.UUID.generate()}
+      dispatch_close: fn _, payload, dispatch_opts, _ ->
+        send(parent, {:closed, payload.relay_session_id, dispatch_opts[:command_id]})
+        {:ok, dispatch_opts[:command_id]}
       end
     ]
 
@@ -398,10 +432,15 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
       for _ <- 1..4, do: Task.async(fn -> RelaySessionManager.request_close(session.id, opts) end)
 
     results = Enum.map(tasks, &Task.await(&1, 10_000))
-    assert Enum.all?(results, &match?({:ok, %{status: :closing}}, &1))
-    assert_receive {:closed, id}
+    assert_receive {:closed, id, close_command_id}
+
+    assert Enum.all?(
+             results,
+             &match?({:ok, %{status: :closing, close_command_id: ^close_command_id}}, &1)
+           )
+
     assert id == session.id
-    refute_received {:closed, _}
+    refute_received {:closed, _, _}
 
     assert {:error, :ownership_lost} =
              IngestOwnership.acquire_consumer(
@@ -423,11 +462,11 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
         RelaySessionManager.request_close(session.id,
           actor: ctx.actor,
           force: true,
-          dispatch_close: fn _, payload, _, _ ->
+          dispatch_close: fn _, payload, dispatch_opts, _ ->
             send(parent, {:close_waiting, self(), payload.relay_session_id})
 
             receive do
-              :finish -> {:ok, Ecto.UUID.generate()}
+              :finish -> {:ok, dispatch_opts[:command_id]}
             after
               5_000 -> {:error, :test_timeout}
             end
@@ -465,6 +504,24 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
              RelaySessionManager.request_close(Ecto.UUID.generate(), ctx.opts)
   end
 
+  test "a mismatched stop reply preserves both operation identities and the closing fence", ctx do
+    {:ok, opening} = Fixtures.open(ctx)
+    other_id = Ecto.UUID.generate()
+
+    assert {:error, :relay_command_id_mismatch} =
+             RelaySessionManager.request_close(opening.id,
+               actor: ctx.actor,
+               force: true,
+               dispatch_close: fn _, _, _, _ -> {:ok, other_id} end
+             )
+
+    assert {:ok, %{status: :closing} = closing} = Fixtures.reload(ctx, opening)
+    assert closing.command_id == opening.command_id
+    assert {:ok, _} = Ecto.UUID.cast(closing.close_command_id)
+    refute closing.close_command_id in [other_id, opening.command_id]
+    assert {:error, :relay_closing} = Fixtures.open(ctx)
+  end
+
   test "an unambiguous legacy relay closes on the ownership fence", ctx do
     legacy = Fixtures.legacy(ctx)
     parent = self()
@@ -473,9 +530,9 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
              RelaySessionManager.request_close(legacy.id,
                actor: ctx.actor,
                reason: "viewer idle timeout",
-               dispatch_close: fn _, payload, _, _ ->
+               dispatch_close: fn _, payload, dispatch_opts, _ ->
                  send(parent, {:stop, payload.relay_session_id})
-                 {:ok, Ecto.UUID.generate()}
+                 {:ok, dispatch_opts[:command_id]}
                end
              )
 
@@ -493,9 +550,9 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
     assert {:error, :ambiguous_live_relays} = Fixtures.open(ctx)
     parent = self()
 
-    dispatch = fn _, payload, _, _ ->
+    dispatch = fn _, payload, dispatch_opts, _ ->
       send(parent, {:stop, payload.relay_session_id, payload.reason})
-      {:ok, Ecto.UUID.generate()}
+      {:ok, dispatch_opts[:command_id]}
     end
 
     retained = renew_viewers(ctx, first, 2)
@@ -566,9 +623,9 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
     Fixtures.expire_owner(ctx, Fixtures.owner(ctx))
     parent = self()
 
-    dispatch = fn _, payload, _, _ ->
+    dispatch = fn _, payload, dispatch_opts, _ ->
       send(parent, {:stop, payload.relay_session_id})
-      {:ok, Ecto.UUID.generate()}
+      {:ok, dispatch_opts[:command_id]}
     end
 
     assert {:ok, %{status: :active}} =
@@ -612,9 +669,9 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
     opts = [
       actor: ctx.actor,
       reason: "viewer idle timeout",
-      dispatch_close: fn _, payload, _, _ ->
+      dispatch_close: fn _, payload, dispatch_opts, _ ->
         send(parent, {:stop, payload.relay_session_id})
-        {:ok, Ecto.UUID.generate()}
+        {:ok, dispatch_opts[:command_id]}
       end
     ]
 
@@ -686,9 +743,9 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
   test "ambiguous close refuses a relay that is not an authenticated active stream", ctx do
     parent = self()
 
-    dispatch = fn _, payload, _, _ ->
+    dispatch = fn _, payload, dispatch_opts, _ ->
       send(parent, {:stop, payload.relay_session_id})
-      {:ok, Ecto.UUID.generate()}
+      {:ok, dispatch_opts[:command_id]}
     end
 
     refused =

@@ -143,6 +143,7 @@ defmodule ServiceRadar.Camera.RelaySession do
       accept [:close_reason]
 
       change transition_state(:closing)
+      change set_attribute(:close_command_id, &Ecto.UUID.generate/0)
       change set_attribute(:close_requested_at, &DateTime.utc_now/0)
     end
 
@@ -204,6 +205,11 @@ defmodule ServiceRadar.Camera.RelaySession do
     end
 
     attribute :command_id, :uuid do
+      public? true
+    end
+
+    attribute :close_command_id, :uuid do
+      description "Stop operation reserved with the closing transition; nil for legacy sessions"
       public? true
     end
 
