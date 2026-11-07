@@ -546,12 +546,16 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       with_telemetry([[:ash, :notifier, :stop]], notified, fn ->
         rollback_log =
           capture_log(fn ->
-            assert {:error, :outer_abort} =
+            # Ash.transact/3 rolls back on {:error, reason} and returns the reason wrapped
+            # as an Ash error.
+            assert {:error, %Ash.Error.Unknown.UnknownError{error: abort_reason}} =
                      Ash.transact([SweepGroup], fn ->
                        assert {:ok, :inserted} = EdgeRecord.ingest(record_bytes, headers, Repo)
                        refute_received {:notified, _resource, _action, _in_transaction?}
                        {:error, :outer_abort}
                      end)
+
+            assert abort_reason =~ "outer_abort"
           end)
 
         refute rollback_log =~ "Missed"
