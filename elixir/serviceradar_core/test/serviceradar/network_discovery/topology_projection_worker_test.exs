@@ -18,12 +18,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorkerTest do
       assert TopologyProjectionWorker.transient_abort?(
                "Transaction Aborted: the server aborted this transaction"
              )
-
-      assert TopologyProjectionWorker.transient_abort?(
-               "Aborted: Transaction has been aborted. Please retry"
-             )
-
-      assert TopologyProjectionWorker.transient_abort?({:dgraph_error, @transient_abort_reason})
     end
 
     test "rejects non-abort errors" do
@@ -43,6 +37,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorkerTest do
       job = %Oban.Job{attempt: 1, max_attempts: 10}
       measurements = %{duration_ms: 12, queue_wait_ms: 4}
       metadata_keys = [:device_id, :attempt, :max_attempts, :reason]
+      Logger.put_module_level(TopologyProjectionWorker, :info)
+      on_exit(fn -> Logger.delete_module_level(TopologyProjectionWorker) end)
 
       assert TopologyProjectionWorker.failure_log_level(job, @transient_abort_reason) == :info
 

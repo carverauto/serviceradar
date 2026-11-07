@@ -217,24 +217,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
   @doc false
   @spec transient_abort?(term()) :: boolean()
   def transient_abort?(reason) when is_binary(reason) do
-    downcased = String.downcase(reason)
-
-    String.contains?(downcased, "transaction aborted") or
-      String.contains?(downcased, "transaction has been aborted")
+    reason |> String.downcase() |> String.contains?("transaction aborted")
   end
-
-  def transient_abort?(reason) when is_exception(reason) do
-    transient_abort?(Exception.message(reason))
-  end
-
-  def transient_abort?({_tag, inner}), do: transient_abort?(inner)
-
-  def transient_abort?(%{reason: inner}), do: transient_abort?(inner)
-
-  def transient_abort?(%{message: message}) when is_binary(message), do: transient_abort?(message)
-
-  def transient_abort?(%{"message" => message}) when is_binary(message),
-    do: transient_abort?(message)
 
   def transient_abort?(_reason), do: false
 
