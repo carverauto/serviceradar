@@ -645,10 +645,12 @@ retention is `analytics.starrocks.retentionDays.mtr` (default 365), applied to
 both tables.
 
 `0020` deletes the extra Trivy rows in `events`, keeping each report id's latest
-row. A Trivy report's event keeps its id across rescans while its time moves
-forward, so the `(id, time)` key kept every rescan; EventWriter now deletes the
-id before loading (`Destination` `replace:`), and `0020` clears what accumulated
-earlier. Only `log_provider = 'trivy'` rows are touched, and a rerun is a no-op.
+row. A Trivy report's event used to keep its id across rescans while its time
+moved forward, so the `(id, time)` key kept every rescan; `0020` clears what
+accumulated. EventWriter no longer rewrites Trivy events: it appends one event
+per change of a report's promoted state, each with its own id (see
+`ServiceRadar.EventWriter.Processors.TrivyReports`). Only
+`log_provider = 'trivy'` rows are touched, and a rerun is a no-op.
 
 `0021` creates `otel_metrics` and `otel_metric_points`, with the column names
 of the CNPG tables of the same name, partitioned by day from the start. Each
