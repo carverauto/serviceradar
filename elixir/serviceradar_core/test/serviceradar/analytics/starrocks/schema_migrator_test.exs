@@ -94,7 +94,8 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
       with_lock: fn fun -> fun.(fn -> :ok end) end,
       migrations: @migrations,
       database: "serviceradar",
-      sleep: fn _ms -> :ok end
+      sleep: fn _ms -> :ok end,
+      workload_groups: fn _query -> :ok end
     ]
     |> Keyword.merge(opts)
     |> SchemaMigrator.migrate()
@@ -194,6 +195,37 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
     assert Enum.any?(state(agent).ddl, &(&1 =~ "lab.flows"))
 
     assert migrate(agent, database: "lab; DROP") == {:error, {:invalid_database, "lab; DROP"}}
+  end
+
+  test "resource groups converge after the schema, and their failure does not fail it" do
+    agent = start_warehouse()
+    parent = self()
+
+    groups = fn query ->
+      # The versioned DDL is already recorded by the time groups converge.
+      send(parent, {:ledger_at_groups, state(agent).ledger})
+      query.("SHOW RESOURCE GROUPS ALL")
+
+      {:error,
+       {:starrocks_mysql, "Access denied; you need (at least one of) the GRANT privilege"}}
+    end
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert migrate(agent, workload_groups: groups) == {:ok, [1, 2, 3]}
+      end)
+
+    assert_received {:ledger_at_groups, [1, 2, 3]}
+    assert log =~ "StarRocks resource groups not applied"
+    assert List.last(state(agent).ddl) == "SHOW RESOURCE GROUPS ALL"
+
+    # A failed migration stops before the groups: the retry converges them.
+    failing = start_warehouse(%{fail_on: ~r/ADD COLUMN comm/})
+
+    assert {:error, {3, _}} =
+             migrate(failing,
+               workload_groups: fn _ -> flunk("groups before a complete schema") end
+             )
   end
 
   test "run gives up after its attempts without crashing the supervisor" do

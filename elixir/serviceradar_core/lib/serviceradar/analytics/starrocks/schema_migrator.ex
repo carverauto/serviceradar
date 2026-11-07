@@ -20,6 +20,10 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
   `PartitionRebuild` does ahead of the first migration that needs partitioned
   tables (0017's rollups). Migrations before that one are not held up by it.
 
+  After the versioned DDL, the interactive and background resource groups are
+  converged to the limits `Workload` ships, on every start. A failure there is
+  logged and does not fail the migration.
+
   The advisory lock is a PostgreSQL transaction, and a connection that drops
   releases it while this process carries on. So the lock is checked, with a
   query inside that transaction, before every statement sent to StarRocks: a
@@ -35,6 +39,7 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
   alias ServiceRadar.Analytics.StarRocks.PartitionRebuild
   alias ServiceRadar.Analytics.StarRocks.Retention
   alias ServiceRadar.Analytics.StarRocks.Schema
+  alias ServiceRadar.Analytics.StarRocks.Workload
 
   require Logger
 
@@ -130,7 +135,8 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
           database: database,
           migrations: Keyword.get_lazy(opts, :migrations, &Schema.migrations/0),
           sleep: Keyword.get(opts, :sleep, &Process.sleep/1),
-          retention_days: Keyword.get_lazy(opts, :retention_days, &Retention.days_by_table/0)
+          retention_days: Keyword.get_lazy(opts, :retention_days, &Retention.days_by_table/0),
+          workload_groups: Keyword.get(opts, :workload_groups, &Workload.ensure/1)
         }
 
         with {:ok, replication_num} <- replication_num(query) do
@@ -139,7 +145,12 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
 
           try do
             with_lock.(fn still_locked ->
-              apply_pending(Map.put(state, :still_locked, still_locked))
+              state = Map.put(state, :still_locked, still_locked)
+
+              with {:ok, _applied} = applied <- apply_pending(state) do
+                converge_workload_groups(state)
+                applied
+              end
             end)
           rescue
             # A connection that drops under an hours-long transaction raises,
@@ -222,6 +233,25 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
     case result do
       {:ok, value} -> value
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # Resource groups are cluster settings, not versioned schema: they converge
+  # to the values Workload ships on every start, so a later release can resize
+  # them. Best effort, because isolation is an optimisation -- a warehouse user
+  # that may not manage resource groups must not stop the schema migrating.
+  defp converge_workload_groups(state) do
+    state.still_locked.()
+
+    case state.workload_groups.(state.query) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "StarRocks resource groups not applied; interactive and background " <>
+            "queries share default_wg: #{inspect(reason)}"
+        )
     end
   end
 
