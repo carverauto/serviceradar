@@ -10,6 +10,7 @@ defmodule ServiceRadar.EventWriter.Processors.K8sNodes do
 
   @behaviour ServiceRadar.EventWriter.Processor
 
+  alias ServiceRadar.Ash.NotificationQueue
   alias ServiceRadar.Events.InternalLogPublisher
   alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.Processors.Logs
@@ -120,25 +121,27 @@ defmodule ServiceRadar.EventWriter.Processors.K8sNodes do
     keys = Enum.map(rows, & &1.node_key)
 
     fn ->
-      if advance_snapshot?(cluster_id, snapshot_at) do
-        previous = load_previous_ready(cluster_id)
+      Repo.transaction(fn ->
+        if advance_snapshot?(cluster_id, snapshot_at) do
+          previous = load_previous_ready(cluster_id)
 
-        if rows != [] do
-          BulkInsert.insert_all(@table, rows,
-            prefix: @prefix,
-            on_conflict: {:replace, @replace_fields},
-            conflict_target: [:node_key]
-          )
+          if rows != [] do
+            BulkInsert.insert_all(@table, rows,
+              prefix: @prefix,
+              on_conflict: {:replace, @replace_fields},
+              conflict_target: [:node_key]
+            )
+          end
+
+          soft_delete_missing!(cluster_id, snapshot_at, keys)
+          emit_transitions(previous, rows)
+          length(rows)
+        else
+          0
         end
-
-        soft_delete_missing!(cluster_id, snapshot_at, keys)
-        emit_transitions(previous, rows)
-        length(rows)
-      else
-        0
-      end
+      end)
     end
-    |> Repo.transaction()
+    |> NotificationQueue.with_queue()
     |> case do
       {:ok, count} ->
         :telemetry.execute(

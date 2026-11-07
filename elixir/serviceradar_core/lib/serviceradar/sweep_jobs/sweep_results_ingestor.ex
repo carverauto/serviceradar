@@ -1920,11 +1920,15 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           availability_policy
         )
 
-      # These SQL writes have committed independently. Publish the returned
-      # identities; the merged resolver publishes the availability transitions.
-      (recovered_rows ++ down_rows)
-      |> Stream.map(fn [uid | _state] -> uid end)
-      |> ServiceRadar.Inventory.DevicePubSub.broadcast_invalidated()
+      # Publish the returned identities once the transaction commits; the merged
+      # resolver publishes the availability transitions.
+      invalidated_uids = Enum.map(recovered_rows ++ down_rows, fn [uid | _state] -> uid end)
+
+      if invalidated_uids != [] do
+        NotificationQueue.after_commit(fn ->
+          ServiceRadar.Inventory.DevicePubSub.broadcast_invalidated(invalidated_uids)
+        end)
+      end
 
       maybe_add_sweep_source(changed_uids)
     end
@@ -3216,7 +3220,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
             config_version: config_version
           }
 
-          SweepPubSub.broadcast_started(execution)
+          NotificationQueue.after_commit(fn -> SweepPubSub.broadcast_started(execution) end)
           record_group_execution(reporter_context, actor)
 
           :ok
@@ -3379,17 +3383,19 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         devices_updated: stats.devices_updated
       }
 
-      SweepPubSub.broadcast_progress(execution_id, progress)
+      NotificationQueue.after_commit(fn ->
+        SweepPubSub.broadcast_progress(execution_id, progress)
 
-      if terminal in [:completed, :cancelled, :reclassified] do
-        SweepPubSub.broadcast_completed(execution, %{
-          hosts_total: execution.hosts_total,
-          hosts_available: hosts_available,
-          hosts_failed: hosts_failed,
-          devices_created: stats.devices_created,
-          devices_updated: stats.devices_updated
-        })
-      end
+        if terminal in [:completed, :cancelled, :reclassified] do
+          SweepPubSub.broadcast_completed(execution, %{
+            hosts_total: execution.hosts_total,
+            hosts_available: hosts_available,
+            hosts_failed: hosts_failed,
+            devices_created: stats.devices_created,
+            devices_updated: stats.devices_updated
+          })
+        end
+      end)
     end
   end
 end

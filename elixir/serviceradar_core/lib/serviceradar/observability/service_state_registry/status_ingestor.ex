@@ -4,6 +4,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.StatusIngestor do
   import Ash.Query
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Ash.NotificationQueue
   alias ServiceRadar.EventWriter.StateChangePublisher
   alias ServiceRadar.Observability.ServiceState
   alias ServiceRadar.Observability.ServiceStatePubSub
@@ -43,7 +44,12 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.StatusIngestor do
          end) do
       {:ok, {notifications, side_effects}} ->
         _ = Ash.Notifier.notify(notifications)
-        SideEffects.dispatch(side_effects)
+
+        if NotificationQueue.queuing?() do
+          NotificationQueue.after_commit(fn -> SideEffects.dispatch(side_effects) end)
+        else
+          SideEffects.dispatch(side_effects)
+        end
 
       {:error, reason} ->
         {:error, reason}

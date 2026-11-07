@@ -10,6 +10,7 @@ defmodule ServiceRadar.Events.InternalLogPublisher do
   `Nats-Msg-Id` gives it a stable row id so a retry stores it once.
   """
 
+  alias ServiceRadar.Ash.NotificationQueue
   alias ServiceRadar.EventWriter.LogSeverity
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.NATS.Channels
@@ -76,18 +77,22 @@ defmodule ServiceRadar.Events.InternalLogPublisher do
 
   defp maybe_publish(subject, json, opts) do
     if nats_live_publish?(opts) do
-      case publish_to_nats(publisher(opts), subject, json) do
-        :ok ->
-          :ok
+      publisher = publisher(opts)
 
-        {:error, reason} ->
-          Logger.warning("Failed to publish internal log live copy",
-            subject: subject,
-            reason: inspect(reason)
-          )
+      NotificationQueue.after_commit(fn ->
+        case publish_to_nats(publisher, subject, json) do
+          :ok ->
+            :ok
 
-          :ok
-      end
+          {:error, reason} ->
+            Logger.warning("Failed to publish internal log live copy",
+              subject: subject,
+              reason: inspect(reason)
+            )
+
+            :ok
+        end
+      end)
     else
       :ok
     end
