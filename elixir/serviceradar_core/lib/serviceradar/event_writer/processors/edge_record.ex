@@ -57,6 +57,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
 
   alias ServiceRadar.Ash.NotificationQueue
   alias ServiceRadar.Edge.ContractCatalog
+  alias ServiceRadar.Edge.PipelineStats
   alias ServiceRadar.Edge.PublicationIdentity
   alias Serviceradar.Edge.V1.EdgeRecordV1
   alias ServiceRadar.Edge.WireDecode
@@ -95,12 +96,23 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
     end
   end
 
-  defp process_one(%{data: data, metadata: metadata} = message) when is_binary(data) do
+  # Each outcome is also counted per output contract (`ServiceRadar.Edge.PipelineStats`).
+  defp process_one(%{data: data} = message) when is_binary(data) do
+    decoded = WireDecode.decode_record(data)
+    process_one(message, decoded, contract_of(decoded))
+  end
+
+  defp process_one(_message), do: {:ok, 0}
+
+  defp process_one(%{data: data, metadata: metadata} = message, decoded, contract) do
     headers = Map.get(metadata || %{}, :headers, %{})
     opts = [test_hook: test_hook(), publication: publication_of(metadata)]
 
-    case ingest(data, headers, Repo, opts) do
+    case ingest_decoded(data, decoded, headers, Repo, opts) do
       {:ok, outcome} ->
+        if outcome == :inserted and opts[:publication] == :primary,
+          do: PipelineStats.record(:projected, contract)
+
         :telemetry.execute(
           [:serviceradar, :event_writer, :edge_record, :ingested],
           %{count: 1},
@@ -110,20 +122,21 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
         {:ok, 1}
 
       {:error, reason} ->
+        PipelineStats.record(:projector_refused, contract)
         refused(message, %EdgeRecordRefusedError{reason: reason})
     end
   rescue
     # The broker's denial is logged once per subject and hold (`BrokerErrorLogFilter`), not
     # once per record.
     denied in PublishDeniedError ->
+      PipelineStats.record(:failed, contract)
       {:failed, denied}
 
     e ->
+      PipelineStats.record(:failed, contract)
       Logger.error("Edge record failed: #{inspect(e)}")
       {:failed, e}
   end
-
-  defp process_one(_message), do: {:ok, 0}
 
   # A refused record is dead-lettered on its first delivery: redelivering the same bytes is
   # refused the same way, and acknowledging it would lose the record with nothing to inspect or
@@ -148,6 +161,9 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
       {:ok, 0}
     end
   end
+
+  defp contract_of({:ok, record}), do: PipelineStats.contract_ref(record)
+  defp contract_of({:error, _reason}), do: nil
 
   # The audit route carries only late-fenced deliveries; `ingest/4` refuses anything else there.
   defp publication_of(%{subject: "telemetry.edge-record-audit." <> _}), do: :audit
@@ -185,12 +201,16 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   @spec ingest(binary(), map() | list(), module(), keyword()) ::
           {:ok, :inserted | :replay} | {:error, term()}
   def ingest(record_bytes, headers, repo \\ Repo, opts \\ []) when is_binary(record_bytes) do
+    ingest_decoded(record_bytes, WireDecode.decode_record(record_bytes), headers, repo, opts)
+  end
+
+  defp ingest_decoded(record_bytes, decoded, headers, repo, opts) do
     with {:ok, header_set} <- PublicationIdentity.extract_header_set(headers),
          {:ok, provenance} <-
            PublicationIdentity.decode_transport_provenance(header_set.provenance),
          {:edge, slot} <- {provenance.kind, provenance.slot},
          :ok <- audit_delivery(Keyword.get(opts, :publication, :primary), provenance),
-         {:ok, %EdgeRecordV1{} = record} <- WireDecode.decode_record(record_bytes),
+         {:ok, %EdgeRecordV1{} = record} <- decoded,
          :ok <- check_slot_matches_record(slot, record),
          {:ok, projector} <- projector_for(record),
          {:ok, body} <- projector.decode(record),

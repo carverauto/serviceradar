@@ -73,7 +73,7 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter do
   The DLQ catalog, its retention and its redrive belong to `add-edge-record-stream-partitioning`.
   """
 
-  alias ServiceRadar.Edge.ContractCatalog
+  alias ServiceRadar.Edge.PipelineStats
   alias ServiceRadar.Edge.StreamRoute
   alias ServiceRadar.Edge.WireDecode
   alias ServiceRadar.EventWriter.EdgeRecordDeadLetter.FailureLog
@@ -347,12 +347,7 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter do
   defp contract_label(nil), do: nil
 
   # A bounded telemetry label: a catalogued contract by name, anything else lumped together.
-  defp contract_tag({id, version} = ref) do
-    case ContractCatalog.fetch(ref) do
-      {:ok, _entry} -> "#{id}/#{version}"
-      :error -> "uncataloged"
-    end
-  end
+  defp contract_tag({_id, _version} = ref), do: PipelineStats.contract_label(ref)
 
   defp contract_tag(nil), do: "undecodable"
 
@@ -485,6 +480,7 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter do
 
   # The level is the failure's (`log_level/1`).
   defp report(letter, {:ok, %{stream: stream, seq: seq}}) do
+    PipelineStats.record(:dead_lettered, letter.contract)
     emit(letter, "stored")
 
     Logger.log(

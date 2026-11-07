@@ -268,6 +268,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveTest do
     assert has_element?(view, "#cluster-ingestion-lanes-unavailable")
     refute has_element?(view, "#cluster-ingestion-lanes-table")
     assert has_element?(view, ~s(a[href="/dashboard/result-ingestion-lanes"]))
+    assert has_element?(view, "#cluster-edge-pipeline-unavailable")
   end
 
   test "disconnected mount skips RuntimeMetrics while connected mount renders populated lane stats", %{
@@ -275,23 +276,11 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveTest do
   } do
     start_supervised!({RuntimeMetrics, interval_ms: 60_000, publish_opts: [request: fn _, _, _ -> :ok end]})
 
-    RuntimeMetrics.record(:retained_plugin_result, :state, %{
+    RuntimeMetrics.record(:status, :state, %{
       pending_count: 3,
       pending_bytes: 6_144,
       in_flight_count: 1,
       in_flight_bytes: 2_048
-    })
-
-    RuntimeMetrics.record(:retained_plugin_result, :admitted, %{count: 5})
-
-    RuntimeMetrics.record(:retained_plugin_result, :rejected, %{
-      count: 2,
-      reason: :count_full
-    })
-
-    RuntimeMetrics.record(:retained_plugin_result, :completion, %{
-      count: 1,
-      outcome: :not_accepted
     })
 
     RuntimeMetrics.record(:sync, :incomplete_run, %{count: 1})
@@ -305,8 +294,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveTest do
     {:ok, view, connected_html} = live(conn, ~p"/settings/cluster")
     assert connected_html =~ "3 queued / 1 active"
     assert has_element?(view, "#cluster-ingestion-lanes-table")
-    assert has_element?(view, "#cluster-ingestion-lane-retained_plugin_result", "3 / 32")
-    assert has_element?(view, "#cluster-ingestion-lane-retained_plugin_result", "8.0 KiB / 64.0 MiB")
+    assert has_element?(view, "#cluster-ingestion-lane-status", "3 / 32")
+    assert has_element?(view, "#cluster-ingestion-lane-status", "8.0 KiB / 32.0 MiB")
     assert has_element?(view, "#cluster-ingestion-lane-sync", "1")
   end
 end

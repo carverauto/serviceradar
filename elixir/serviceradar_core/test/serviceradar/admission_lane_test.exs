@@ -42,8 +42,8 @@ defmodule ServiceRadar.AdmissionLaneTest do
         table_size = fn -> :ets.info(RuntimeMetrics, :size) end
         assert table_size.() == 0
 
-        RuntimeMetrics.record(:sweep, :admitted, %{count: 1})
-        RuntimeMetrics.record(:sweep, :state, %{pending_count: 2, pending_bytes: 512})
+        RuntimeMetrics.record(:other_results, :admitted, %{count: 1})
+        RuntimeMetrics.record(:other_results, :state, %{pending_count: 2, pending_bytes: 512})
         RuntimeMetrics.record(:alert_event, :admitted, %{count: 2})
         RuntimeMetrics.record(:alert_event, :state, %{oldest_pending_ms: 250, retrying_count: 1})
         seeded_slots = table_size.()
@@ -53,14 +53,14 @@ defmodule ServiceRadar.AdmissionLaneTest do
                        1_000
 
         batch1 = MetricBatch.decode(frame1)
-        admitted1 = find_metric!(batch1, "result_ingestion_events_admitted", "sweep")
+        admitted1 = find_metric!(batch1, "result_ingestion_events_admitted", "other_results")
         admitted1_point = point!(admitted1)
         assert admitted1_point.value == 1.0
         assert admitted1.temporality == :METRIC_TEMPORALITY_DELTA
         assert admitted1_point.start_time_unix_nano > 0
         assert admitted1_point.start_time_unix_nano <= admitted1_point.observed_at_unix_nano
 
-        gauge1 = find_metric!(batch1, "result_ingestion_pending_count", "sweep")
+        gauge1 = find_metric!(batch1, "result_ingestion_pending_count", "other_results")
         assert point!(gauge1).value == 2.0
         assert gauge1.temporality == :METRIC_TEMPORALITY_UNSPECIFIED
 
@@ -86,8 +86,10 @@ defmodule ServiceRadar.AdmissionLaneTest do
         # While the first frame waits for its PubAck, a thousand events land
         # and unknown labels are rejected without growing ETS.
         for _ <- 1..1_000 do
-          RuntimeMetrics.record(:sweep, :admitted, %{count: 1})
+          RuntimeMetrics.record(:other_results, :admitted, %{count: 1})
           RuntimeMetrics.record("invented-unbounded-label", :state, %{pending_count: 1})
+          # A lane whose producers were deleted with the pre-edge-record ingest tree.
+          RuntimeMetrics.record(:sweep, :admitted, %{count: 1})
         end
 
         assert table_size.() == seeded_slots
@@ -106,7 +108,7 @@ defmodule ServiceRadar.AdmissionLaneTest do
 
         assert retry1 == frame1
         assert headers2 == headers1
-        assert counter_value(retry1, "result_ingestion_events_admitted", "sweep") == 1.0
+        assert counter_value(retry1, "result_ingestion_events_admitted", "other_results") == 1.0
 
         send(publisher, {:puback, {:error, :timeout}})
 
@@ -122,14 +124,14 @@ defmodule ServiceRadar.AdmissionLaneTest do
 
         # Records landing between the snapshot and its PubAck are covered by
         # the ack only up to the snapshot; they surface in the next interval.
-        for _ <- 1..7, do: RuntimeMetrics.record(:sweep, :admitted, %{count: 1})
+        for _ <- 1..7, do: RuntimeMetrics.record(:other_results, :admitted, %{count: 1})
         send(publisher, {:puback, {:ok, %{body: Jason.encode!(%{stream: "METRICS", seq: 1})}}})
 
         assert_receive {:metric_publish, ^publisher, "metrics.ingestion_lanes", frame2, _headers},
                        1_000
 
         batch2 = MetricBatch.decode(frame2)
-        admitted2 = find_metric!(batch2, "result_ingestion_events_admitted", "sweep")
+        admitted2 = find_metric!(batch2, "result_ingestion_events_admitted", "other_results")
         admitted2_point = point!(admitted2)
         assert admitted2_point.value == 1_007.0
         assert admitted2_point.start_time_unix_nano == admitted1_point.observed_at_unix_nano
@@ -149,25 +151,25 @@ defmodule ServiceRadar.AdmissionLaneTest do
 
         assert point!(coalesced2).value == 2.0
 
-        RuntimeMetrics.record(:sweep, :state, %{pending_count: 0, pending_bytes: 0})
+        RuntimeMetrics.record(:other_results, :state, %{pending_count: 0, pending_bytes: 0})
         send(publisher, {:puback, {:ok, %{body: Jason.encode!(%{stream: "METRICS", seq: 2})}}})
 
         assert_receive {:metric_publish, ^publisher, "metrics.ingestion_lanes", frame3, _headers},
                        1_000
 
-        assert counter_value(frame3, "result_ingestion_events_admitted", "sweep") == 0.0
+        assert counter_value(frame3, "result_ingestion_events_admitted", "other_results") == 0.0
 
         batch3 = MetricBatch.decode(frame3)
 
         admitted3_point =
           batch3
-          |> find_metric!("result_ingestion_events_admitted", "sweep")
+          |> find_metric!("result_ingestion_events_admitted", "other_results")
           |> point!()
 
         # Records landing while a succeeding frame is in flight appear next,
         # exactly once: the ack advances to that frame's snapshot, not to the
         # live ETS totals.
-        for _ <- 1..5, do: RuntimeMetrics.record(:sweep, :admitted, %{count: 1})
+        for _ <- 1..5, do: RuntimeMetrics.record(:other_results, :admitted, %{count: 1})
         send(publisher, {:puback, {:ok, %{body: Jason.encode!(%{stream: "METRICS", seq: 3})}}})
 
         assert_receive {:metric_publish, ^publisher, "metrics.ingestion_lanes", frame4, _headers},
@@ -177,26 +179,26 @@ defmodule ServiceRadar.AdmissionLaneTest do
           find_metric!(
             MetricBatch.decode(frame4),
             "result_ingestion_events_admitted",
-            "sweep"
+            "other_results"
           )
 
         admitted4_point = point!(admitted4)
         assert admitted4_point.value == 5.0
         assert admitted4_point.start_time_unix_nano == admitted3_point.observed_at_unix_nano
 
-        for _ <- 1..3, do: RuntimeMetrics.record(:sweep, :admitted, %{count: 1})
+        for _ <- 1..3, do: RuntimeMetrics.record(:other_results, :admitted, %{count: 1})
         send(publisher, {:puback, {:ok, %{body: Jason.encode!(%{stream: "METRICS", seq: 4})}}})
 
         assert_receive {:metric_publish, ^publisher, "metrics.ingestion_lanes", frame5, _headers},
                        1_000
 
-        assert counter_value(frame5, "result_ingestion_events_admitted", "sweep") == 3.0
+        assert counter_value(frame5, "result_ingestion_events_admitted", "other_results") == 3.0
         send(publisher, {:puback, {:ok, %{body: Jason.encode!(%{stream: "METRICS", seq: 5})}}})
 
         assert_receive {:metric_publish, ^publisher, "metrics.ingestion_lanes", frame6, _headers},
                        1_000
 
-        assert counter_value(frame6, "result_ingestion_events_admitted", "sweep") == 0.0
+        assert counter_value(frame6, "result_ingestion_events_admitted", "other_results") == 0.0
 
         rows =
           Metrics.parse_message(%{
@@ -208,10 +210,10 @@ defmodule ServiceRadar.AdmissionLaneTest do
         bytes = Enum.find(rows, &(&1.metric_name == "result_ingestion_pending_bytes"))
         assert depth.value == 0
         assert bytes.value == 0
-        assert depth.tags["lane"] == "sweep"
+        assert depth.tags["lane"] == "other_results"
         assert depth.is_delta == false
         assert Enum.all?(rows, &(&1.metric_type == "core.result_ingestion"))
-        refute Enum.any?(rows, &(&1.tags["lane"] == "invented-unbounded-label"))
+        refute Enum.any?(rows, &(&1.tags["lane"] in ["invented-unbounded-label", "sweep"]))
         send(publisher, {:puback, {:ok, %{body: Jason.encode!(%{stream: "METRICS", seq: 6})}}})
       end)
 
@@ -238,7 +240,7 @@ defmodule ServiceRadar.AdmissionLaneTest do
     log =
       ExUnit.CaptureLog.capture_log([level: :warning], fn ->
         start_supervised!({RuntimeMetrics, interval_ms: 20, publish_opts: [request: request]})
-        RuntimeMetrics.record(:sweep, :state, %{pending_count: 1})
+        RuntimeMetrics.record(:other_results, :state, %{pending_count: 1})
 
         assert_receive {:metric_publish, publisher, frame}, 1_000
         send(publisher, {:puback, {:error, :timeout}})
@@ -956,7 +958,7 @@ defmodule ServiceRadar.AdmissionLaneTest do
     end
   end
 
-  test "RuntimeMetrics.lane_stats/0 returns unavailable when stopped and non-blocking ETS snapshots when active" do
+  test "RuntimeMetrics.lane_stats/0 lists only the live core admission lanes from ETS, unavailable when stopped" do
     if Process.whereis(RuntimeMetrics), do: stop_supervised!(RuntimeMetrics)
     assert {:error, :unavailable} = RuntimeMetrics.lane_stats()
 
@@ -964,48 +966,36 @@ defmodule ServiceRadar.AdmissionLaneTest do
       {RuntimeMetrics, interval_ms: 60_000, publish_opts: [request: fn _, _, _ -> :ok end]}
     )
 
-    RuntimeMetrics.record(:retained_plugin_result, :state, %{
+    RuntimeMetrics.record(:status, :state, %{
       pending_count: 3,
       pending_bytes: 6_144,
       in_flight_count: 1,
       in_flight_bytes: 2_048
     })
 
-    RuntimeMetrics.record(:retained_plugin_result, :admitted, %{count: 4})
-    RuntimeMetrics.record(:retained_plugin_result, :rejected, %{count: 2, reason: :count_full})
-
-    RuntimeMetrics.record(:retained_plugin_result, :completion, %{
-      count: 1,
-      outcome: :not_accepted
-    })
-
+    RuntimeMetrics.record(:status, :admitted, %{count: 4})
+    RuntimeMetrics.record(:status, :rejected, %{count: 2, reason: :count_full})
+    RuntimeMetrics.record(:status, :completion, %{count: 1, outcome: :not_accepted})
     RuntimeMetrics.record(:sync, :incomplete_run, %{count: 1})
+    # Durable agent data arrives as edge records; these lanes have no production producer.
+    RuntimeMetrics.record(:retained_plugin_result, :admitted, %{count: 7})
     RuntimeMetrics.record(:service_state, :admitted, %{count: 5})
-    RuntimeMetrics.record(:service_state, :coalesced, %{count: 2})
-    RuntimeMetrics.record(:service_state, :expired, %{count: 1})
 
     assert {:ok, %{node: node_name, lanes: lanes}} = RuntimeMetrics.lane_stats()
     assert is_binary(node_name)
+    assert Enum.map(lanes, & &1.lane) == [:status, :sync]
 
-    retained = Enum.find(lanes, &(&1.lane == :retained_plugin_result))
-    assert retained.pending_count == 3
-    assert retained.pending_bytes == 6_144
-    assert retained.in_flight_count == 1
-    assert retained.in_flight_bytes == 2_048
-    assert retained.max_items == 32
-    assert retained.max_bytes == 64 * 1_024 * 1_024
-    assert retained.admitted_total == 4
-    assert retained.rejected_total == 2
-    assert retained.not_accepted_total == 1
-
-    sync = Enum.find(lanes, &(&1.lane == :sync))
+    [status, sync] = lanes
+    assert status.pending_count == 3
+    assert status.pending_bytes == 6_144
+    assert status.in_flight_count == 1
+    assert status.in_flight_bytes == 2_048
+    assert status.max_items == 32
+    assert status.max_bytes == 32 * 1_024 * 1_024
+    assert status.admitted_total == 4
+    assert status.rejected_total == 2
+    assert status.not_accepted_total == 1
     assert sync.incomplete_run_total == 1
-
-    # Entries released without a commit are counted, so admitted reconciles.
-    service_state = Enum.find(lanes, &(&1.lane == :service_state))
-    assert service_state.admitted_total == 5
-    assert service_state.coalesced_total == 2
-    assert service_state.expired_total == 1
   end
 
   test "Dgraph call telemetry is published on the dgraph lane" do

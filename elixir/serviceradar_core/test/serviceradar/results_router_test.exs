@@ -44,8 +44,8 @@ defmodule ServiceRadar.ResultsRouterTest do
     end
 
     start_supervised!({RuntimeMetrics, interval_ms: 20, publish_opts: [request: request]})
-    RuntimeMetrics.record(:mapper, :state, %{pending_count: 3})
-    RuntimeMetrics.record(:mapper, :admitted, %{count: 4})
+    RuntimeMetrics.record(:other_results, :state, %{pending_count: 3})
+    RuntimeMetrics.record(:other_results, :admitted, %{count: 4})
     assert_receive {:ingestion_metric_wire, body}, 1_000
     stop_supervised!(RuntimeMetrics)
     message = %{data: body, metadata: %{subject: "metrics.ingestion_lanes"}}

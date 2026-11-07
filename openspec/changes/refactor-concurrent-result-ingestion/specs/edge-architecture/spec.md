@@ -159,12 +159,12 @@ Core SHALL publish ingestion lane metrics (per lane or class: queue depth and by
 - **THEN** core SHALL publish one MetricBatch for that interval
 
 ### Requirement: Ingestion lane metrics are visible to operators
-Ingestion lane metrics SHALL be available on three surfaces: Prometheus metrics in the core-elx scrape with panels in the chart's Grafana ingestion dashboards; a seeded ServiceRadar dashboard charting the persisted lane metrics from `timeseries_metrics`; and Settings -> Cluster Status, which shows current queued and in-flight depth on the Ingestion summary and per-lane pending depth against capacity on the Ingestion Lanes table. Pending depth, in-flight work, byte occupancy, and both caps are summed across connected cores, so pending against capacity is cluster occupancy over cluster capacity. Outcome columns are cumulative totals summed the same way. Cluster Status SHALL read live values from a lane-stats call rather than a database query and SHALL show an unavailable state when lane stats cannot be read.
+Ingestion lane metrics SHALL be available on three surfaces: Prometheus metrics in the core-elx scrape with panels in the chart's Grafana ingestion dashboards; a seeded ServiceRadar dashboard charting the persisted lane metrics from `timeseries_metrics`; and Settings -> Cluster Status, which shows current queued and in-flight depth on the Ingestion summary and per-lane pending depth against capacity on the Core Admission Lanes table, which lists only the lanes that still have producers (`status` and `sync`). Pending depth, in-flight work, byte occupancy, and both caps are summed across connected cores, so pending against capacity is cluster occupancy over cluster capacity. Outcome columns are cumulative totals summed the same way. Cluster Status SHALL read live values from a lane-stats call rather than a database query and SHALL show an unavailable state when lane stats cannot be read.
 
 #### Scenario: Cluster Status shows lane depth
-- **GIVEN** the retained-plugin lane holds queued work
+- **GIVEN** the sync lane holds queued work
 - **WHEN** an operator opens Settings -> Cluster Status
-- **THEN** the Ingestion Lanes table SHALL show that lane's pending depth against its capacity
+- **THEN** the Core Admission Lanes table SHALL show that lane's pending depth against its capacity
 
 #### Scenario: Lane stats unavailable
 - **GIVEN** core cannot return lane stats

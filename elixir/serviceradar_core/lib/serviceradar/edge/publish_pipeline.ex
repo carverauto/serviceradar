@@ -134,6 +134,7 @@ defmodule ServiceRadar.Edge.PublishPipeline do
 
   use GenServer
 
+  alias ServiceRadar.Edge.PipelineStats
   alias ServiceRadar.Edge.PublisherLane
   alias ServiceRadar.Edge.ResolvedPrefix
 
@@ -238,7 +239,8 @@ defmodule ServiceRadar.Edge.PublishPipeline do
   the watermark.
 
   The publication's `:publication` (`:primary` when absent, `:audit` or `:security_quarantine`)
-  selects the kind its PubAck resolves to.
+  selects the kind its PubAck resolves to. Its optional `:contract` is the output contract the
+  publish outcome is counted under in `ServiceRadar.Edge.PipelineStats`.
 
   Refusals: `:lane_not_open`, `:queue_full`, `:slot` (the publication carries no usable slot),
   `:publication` (an unknown publication).
@@ -456,7 +458,9 @@ defmodule ServiceRadar.Edge.PublishPipeline do
           monitor: monitor,
           sequence: sequence,
           accepted: accepted,
-          publication: publication
+          publication: publication,
+          kind: Map.get(publication, :publication, :primary),
+          contract: Map.get(publication, :contract)
         }
 
         {:reply, :ok,
@@ -470,10 +474,11 @@ defmodule ServiceRadar.Edge.PublishPipeline do
       {nil, _} ->
         {:noreply, state}
 
-      {%{lane: lane, monitor: monitor, sequence: sequence, accepted: accepted}, rest} ->
+      {%{lane: lane, monitor: monitor, sequence: sequence, accepted: accepted} = work, rest} ->
         # The task succeeded, so its :DOWN carries no information and is flushed rather than
         # falling through to the crash clause below and recording a second outcome.
         Process.demonitor(ref, [:flush])
+        count_publish(work, result)
 
         state =
           record(
@@ -493,7 +498,8 @@ defmodule ServiceRadar.Edge.PublishPipeline do
       {nil, _} ->
         {:noreply, owner_down(state, ref)}
 
-      {%{lane: lane, monitor: monitor, sequence: sequence}, rest} ->
+      {%{lane: lane, monitor: monitor, sequence: sequence} = work, rest} ->
+        PipelineStats.record(:gateway_publish_retry, work.contract)
         # The worker died without reporting. RETRYABLE, never resolved: process death says nothing
         # about whether the bytes reached the broker, and the reservation it owned stays charged in
         # the pool because owner death is not termination.
@@ -557,6 +563,20 @@ defmodule ServiceRadar.Edge.PublishPipeline do
   defp disposition_of({:ok, _pub_ack}, accepted), do: accepted
   defp disposition_of({:error, :poison}, _accepted), do: @permanent
   defp disposition_of(_other, _accepted), do: @retryable
+
+  # Admitted means JetStream stored a new primary message; a duplicate PubAck stored nothing new.
+  defp count_publish(%{contract: contract, kind: kind}, {:ok, pub_ack}) do
+    cond do
+      Map.get(pub_ack, :duplicate) == true -> PipelineStats.record(:gateway_duplicate, contract)
+      kind == :primary -> PipelineStats.record(:gateway_admitted, contract)
+      true -> :ok
+    end
+  end
+
+  defp count_publish(_work, {:error, :poison}), do: :ok
+
+  defp count_publish(%{contract: contract}, _result),
+    do: PipelineStats.record(:gateway_publish_retry, contract)
 
   defp accepted_of(publication) do
     case Map.fetch(@accepted, Map.get(publication, :publication, :primary)) do

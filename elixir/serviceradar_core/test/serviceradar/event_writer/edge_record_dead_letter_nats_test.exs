@@ -12,6 +12,7 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetterNatsTest do
   use ExUnit.Case, async: false
 
   alias Broadway.Message
+  alias ServiceRadar.Edge.PipelineStats
   alias ServiceRadar.EventWriter.Config
   alias ServiceRadar.EventWriter.ConsumerReconciler
   alias ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay
@@ -78,6 +79,8 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetterNatsTest do
   end
 
   test "a failing record is held until its copy is stored, then replayed without loss", ctx do
+    start_supervised!(PipelineStats)
+
     ExposureBroker.with_broker(ctx.tmp_dir, fn conn, port ->
       config = config(port)
       [source, dead_letter] = config.streams
@@ -92,6 +95,8 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetterNatsTest do
       assert_receive {:delivered, 1, 1, @record}, 20_000
       assert_receive {:dead_letter, "failed"}, 20_000
       assert %{"error" => %{"code" => 404}} = api(conn, "STREAM.INFO.#{@dlq_stream}", "")
+      # A copy the dead-letter stream refused is not counted as dead-lettered.
+      assert dead_lettered() == 0
 
       assert :ok = ConsumerReconciler.ensure_stream(conn, config, dead_letter)
 
@@ -107,6 +112,8 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetterNatsTest do
       assert_receive {:delivered, 1, 2, @record}, 30_000
       assert_receive {:dead_letter, "stored"}, 10_000
       await_settled(conn)
+      # The record does not decode, so its contract is not known.
+      assert dead_lettered() == 1
 
       assert {:ok, %{entries: [held]}} = Replay.list()
       assert held.dlq_subject == "telemetry.edge-record-dlq.v1.bulk.p07.unknown.v0"
@@ -359,5 +366,14 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetterNatsTest do
   defp api(conn, api, body) do
     {:ok, %{body: reply}} = Gnat.request(conn, "$JS.API." <> api, body, receive_timeout: 5_000)
     Jason.decode!(reply)
+  end
+
+  defp dead_lettered do
+    {:ok, %{contracts: contracts}} = PipelineStats.snapshot()
+
+    case Enum.find(contracts, &(&1.contract == "unattributed")) do
+      nil -> 0
+      counts -> counts.dead_lettered
+    end
   end
 end

@@ -31,7 +31,7 @@ defmodule ServiceRadar.Ingestion.RuntimeMetricsCadenceTest do
     Application.put_env(:serviceradar_core, RuntimeMetrics, interval_ms: 20)
     start_metrics!()
 
-    RuntimeMetrics.record(:sweep, :state, %{pending_count: 1})
+    RuntimeMetrics.record(:other_results, :state, %{pending_count: 1})
 
     assert_receive {:metric_publish, "metrics.ingestion_lanes"}, 1_000
   end
@@ -40,7 +40,7 @@ defmodule ServiceRadar.Ingestion.RuntimeMetricsCadenceTest do
     Application.delete_env(:serviceradar_core, RuntimeMetrics)
     start_metrics!()
 
-    RuntimeMetrics.record(:sweep, :state, %{pending_count: 1})
+    RuntimeMetrics.record(:other_results, :state, %{pending_count: 1})
 
     # The former 1-second default would publish inside this window.
     refute_receive {:metric_publish, _subject}, 1_500

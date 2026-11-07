@@ -13,7 +13,8 @@ an older pending projection. On the `service_state` lane, that replacement is
 counted as `coalesced`, and a reservation that times out or whose caller exits
 before publish is counted as `expired`. Admitted work on that lane reconciles
 against accepted completions, those two counts, and entries still pending.
-Settings -> Cluster shows the counts as Coalesced / Expired.
+They are published on `metrics.ingestion_lanes`; Settings -> Cluster no longer
+lists the `service_state` lane (see Cluster Status below).
 
 ## Acknowledgements and version pairing
 
@@ -282,22 +283,43 @@ in-memory coordinator state:
   completion: queue-wait timeouts, lane execution timeouts, sweep execution
   timeouts that exhaust retries, sweep cancellations, worker failures, and
   persistence failures.
-- **Cluster Status (`Settings -> Cluster Status`)**: Queries
-  `ServiceRadar.Ingestion.RuntimeMetrics.lane_stats/0` on connected mount and
-  refresh (never in disconnected mount) to render the **Ingestion** summary card
-  and the **Ingestion Lanes** table directly from ETS without calling any lane
-  GenServer or touching the database. The card shows current queued and in-flight
-  depth (`N queued / M active`) and shows Unavailable when no core coordinator
-  is reachable. The table shows one row per lane. Pending depth, in-flight work,
-  byte occupancy, and both caps are
-  summed across connected cores, so pending / max is cluster occupancy over
-  cluster capacity. Admitted, rejected, accepted, not-accepted, timeout, crash,
-  coalesced, expired, and incomplete-run totals are summed the same way. The
-  Coalesced / Expired column is the `service_state` counts above; other lanes
-  show zero. Those outcome columns are cumulative for the life of each core
-  process; the summary card does not use them. The `topology_projection` and
-  `dgraph` lanes are published on `metrics.ingestion_lanes` and are not rows in
-  this table; see [Projection lag](docs/network-topology.md#projection-lag).
+- **Cluster Status (`Settings -> Cluster Status`)**: On connected mount and
+  refresh (never in disconnected mount), and without touching the database:
+  - The **Edge Pipeline** panel reads `ServiceRadar.Edge.PipelineStats.snapshot/0`
+    on every connected node and sums it. Durable agent data reaches core only
+    as edge records, so this is where sweep, mapper, flow attribution, plugin
+    results, metrics, sync and the other families show up: one row per output
+    contract in `ServiceRadar.Edge.ContractCatalog`, with primary records
+    JetStream stored as new messages (Gateway admitted; audit and
+    security-quarantine deliveries are not counted), records the gateway
+    refused or withheld, duplicate PubAcks and publish attempts that did not
+    store, records EventWriter projected or refused, failed attempts it will
+    redeliver, records stored on the dead-letter stream, and how long ago the
+    contract last admitted and last projected a record. A fresh Last admitted
+    beside an old Last projected means records are stuck between the gateway
+    and EventWriter. A second table shows
+    the latest JetStream state of each edge-record durable from the
+    coordinator's `ConsumerLagReporter`: pending, ack pending, redelivered, and
+    the stream's message count, which for `TELEMETRY_EDGE_RECORD_DLQ_V1_BULK`
+    is the DLQ depth. Counts are cumulative for the life of each process.
+  - The **Ingestion** summary card and the **Core Admission Lanes** table read
+    `ServiceRadar.Ingestion.RuntimeMetrics.lane_stats/0`, which lists only the
+    lanes that still have producers: `status` (agent status summaries the
+    gateway forwards) and `sync` (`SyncIngestorQueue`, fed by the edge-record
+    discovery projectors). The card shows current queued and in-flight depth
+    (`N queued / M active`) and shows Unavailable when no core coordinator is
+    reachable. Pending depth, in-flight work, byte occupancy, and both caps are
+    summed across connected cores, so pending / max is cluster occupancy over
+    cluster capacity. Admitted, rejected, accepted, not-accepted, timeout,
+    crash and incomplete-run totals are summed the same way, cumulative for the
+    life of each core process; the summary card does not use them. The lanes of
+    the retired pre-edge-record ingest tree (flow attribution, sweep, mapper,
+    bumblebee, endpoint and legacy plugin results) no longer exist. The
+    `retained_plugin_result` (plugin result quarantine), `other_results`
+    (device correlation timeouts), `service_state`, `topology_projection` and
+    `dgraph` lanes are published on `metrics.ingestion_lanes` and are not rows
+    in this table; for the last two see
+    [Projection lag](docs/network-topology.md#projection-lag).
 
 Two synthetic harnesses are selected by ordinary PR BazelCI:
 

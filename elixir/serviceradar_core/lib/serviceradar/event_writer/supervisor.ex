@@ -17,15 +17,17 @@ defmodule ServiceRadar.EventWriter.Supervisor do
 
   ## Children
 
-  1. `EventWriter.ServiceCatalogCache` - node-local seen-cache for the OTel
+  1. `Edge.PipelineStats` - owner of the per-contract edge-record counters the
+     edge-record processor, dead-letter and lag reporter write
+  2. `EventWriter.ServiceCatalogCache` - node-local seen-cache for the OTel
      service catalog upsert; started before the pipelines that use it
-  2. `EventWriter.AnomalyEpisodeGuardTables` - owner of the anomaly episode
+  3. `EventWriter.AnomalyEpisodeGuardTables` - owner of the anomaly episode
      rate-guard and flood-tripwire counters; started before the pipelines
-  3. `EventWriter.EdgeRecordDeadLetter.FailureLog` - first failure of each
+  4. `EventWriter.EdgeRecordDeadLetter.FailureLog` - first failure of each
      edge-record delivery still being retried, named by its dead-letter
-  4. One `EventWriter.Pipeline` per consumer group of the worker streams, named
+  5. One `EventWriter.Pipeline` per consumer group of the worker streams, named
      `ServiceRadar.EventWriter.Pipeline.<Group>`
-  5. One `EventWriter.Pipeline` per consumer group of the raw-flow streams, named
+  6. One `EventWriter.Pipeline` per consumer group of the raw-flow streams, named
      `ServiceRadar.EventWriter.FlowPipeline.<Group>`, with the flow pull settings
 
   Each consumer group is its own Broadway demand domain
@@ -76,6 +78,7 @@ defmodule ServiceRadar.EventWriter.Supervisor do
 
     children =
       [
+        ServiceRadar.Edge.PipelineStats,
         ServiceRadar.EventWriter.ServiceCatalogCache,
         ServiceRadar.EventWriter.AnomalyEpisodeGuardTables,
         ServiceRadar.EventWriter.EdgeRecordDeadLetter.FailureLog

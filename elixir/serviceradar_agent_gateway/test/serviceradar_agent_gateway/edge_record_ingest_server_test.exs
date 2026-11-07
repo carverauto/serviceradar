@@ -1,6 +1,7 @@
 defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
   use ExUnit.Case, async: false
 
+  alias ServiceRadar.Edge.PipelineStats
   alias ServiceRadar.Edge.PublicationIdentity
   alias ServiceRadar.Edge.PublishPipeline
   alias Serviceradar.Edge.V1.EdgeDeliveryAckV1
@@ -270,6 +271,26 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
     assert_rejected_then_accepted(unknown)
   end
 
+  test "counts each admission, refusal and withhold under the record's output contract" do
+    if !Process.whereis(PipelineStats), do: start_supervised!(PipelineStats)
+    before = contract_counts()
+    ahead = %{Factory.contract_ref() | registry_epoch: Factory.contract_ref().registry_epoch + 1}
+
+    # Each helper reads the whole mailbox of its own stream, so the withhold runs first.
+    assert_caps_later_sequences(record(output_contract: ahead))
+    assert_caps_later_sequences(record(producer_assignment_id: Factory.uuidv7()))
+    assert_rejected_then_accepted(record(principal: "agent-2"))
+
+    # The gateway's synthetic contract is not in core's catalog, so it is counted under the
+    # bounded `uncataloged` label, including a decoded record that authorization refused or
+    # withheld before registry admission.
+    assert delta(before, contract_counts(), "uncataloged") ==
+             %{gateway_admitted: 3, gateway_refused: 1, gateway_withheld: 2}
+
+    assert delta(before, contract_counts(), "unattributed") ==
+             %{gateway_admitted: 0, gateway_refused: 0, gateway_withheld: 0}
+  end
+
   # An installation-static epoch can never verify against a derived registry, so withholding it
   # would cap the lane for good (design Decision 7).
   test "permanently rejects a record stamped with a static registry epoch, and the lane continues" do
@@ -390,6 +411,8 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
     end
 
     test "a stale-fence replay under its delivery capability is published for audit and resolves audit-only" do
+      if !Process.whereis(PipelineStats), do: start_supervised!(PipelineStats)
+      before = contract_counts()
       assignment = Factory.uuidv7()
       install_trust(fences: [default_fence(), {Factory.network_scope_id(), assignment, 0, 2}])
       replay = record(producer_assignment_id: assignment)
@@ -413,9 +436,14 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
 
       assert Enum.map(acks_through(2), &{&1.sequence, &1.event_id, &1.kind}) ==
                [{1, replay.event_id, @audit_only}, {2, valid.event_id, @accepted}]
+
+      # The audit delivery is never projected, so only the primary record counts as admitted.
+      assert %{gateway_admitted: 1} = delta(before, contract_counts(), "uncataloged")
     end
 
     test "a record signed by a compromise-revoked key is published to security quarantine and resolves quarantined" do
+      if !Process.whereis(PipelineStats), do: start_supervised!(PipelineStats)
+      before = contract_counts()
       install_trust(status: "historically_revoked")
       revoked = record()
 
@@ -427,6 +455,8 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
 
       assert Enum.map(acks_through(1), &{&1.sequence, &1.event_id, &1.kind}) ==
                [{1, revoked.event_id, @quarantine}]
+
+      assert %{gateway_admitted: 0} = delta(before, contract_counts(), "uncataloged")
     end
 
     test "a late drain under a renewal is published with its delivery mode and proof" do
@@ -505,6 +535,53 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
       assert_receive {:edge_record_published, %{slot: %{sequence: 1}}}
       assert_receive {:edge_record_published, %{slot: %{sequence: 2}}}
       refute_received {:edge_record_stream_reply, %EdgeRecordServerMessage{payload: {:ack, _}}}
+    end
+
+    test "a duplicate PubAck counts as a duplicate, not an admission, and leaves Last admitted alone" do
+      if !Process.whereis(PipelineStats), do: start_supervised!(PipelineStats)
+      duplicate = {:ok, %{stream: "TELEMETRY_EDGE_RECORD_V1_BULK", seq: 1, duplicate: true}}
+      EdgeRecordPublisherStub.start_pipeline!(EdgeRecordPublisherStub.publisher(self(), duplicate))
+      before = contract_counts()
+      replayed = record()
+
+      assert :ok = run_one_frame(replayed)
+
+      # JetStream already stored it, so it still resolves for the agent.
+      assert Enum.map(acks_through(1), &{&1.sequence, &1.kind}) == [{1, @accepted}]
+
+      after_counts = contract_counts()
+
+      assert delta(before, after_counts, "uncataloged", [:gateway_admitted, :gateway_duplicate, :gateway_publish_retry]) ==
+               %{gateway_admitted: 0, gateway_duplicate: 1, gateway_publish_retry: 0}
+
+      assert last_admitted(after_counts) == last_admitted(before)
+    end
+
+    test "a publish that times out and then stores counts one retry and one admission" do
+      if !Process.whereis(PipelineStats), do: start_supervised!(PipelineStats)
+      attempts = :counters.new(1, [])
+      test = self()
+
+      EdgeRecordPublisherStub.start_pipeline!(fn publication, _opts ->
+        send(test, {:edge_record_published, publication})
+        :counters.add(attempts, 1, 1)
+        if :counters.get(attempts, 1) == 1, do: {:error, :timeout}, else: durable()
+      end)
+
+      before = contract_counts()
+      resent = record()
+
+      # The agent sends the unresolved sequence again on its next stream.
+      assert :ok = run_one_frame(resent)
+      assert :ok = run_one_frame(resent)
+      assert Enum.map(acks_through(1), &{&1.sequence, &1.kind}) == [{1, @accepted}]
+
+      assert delta(before, contract_counts(), "uncataloged", [
+               :gateway_admitted,
+               :gateway_duplicate,
+               :gateway_publish_retry
+             ]) ==
+               %{gateway_admitted: 1, gateway_duplicate: 0, gateway_publish_retry: 1}
     end
 
     test "a permanent rejection after the lane is bound fills its place, so later sequences resolve" do
@@ -868,6 +945,21 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
   end
 
   # Each record is delivered at its 1-based position.
+  defp contract_counts do
+    {:ok, %{contracts: contracts}} = PipelineStats.snapshot()
+    Map.new(contracts, &{&1.contract, &1})
+  end
+
+  defp delta(before, after_counts, label, events \\ [:gateway_admitted, :gateway_refused, :gateway_withheld]) do
+    empty = PipelineStats.empty_counts(label)
+
+    Map.new(events, fn event ->
+      {event, Map.get(after_counts, label, empty)[event] - Map.get(before, label, empty)[event]}
+    end)
+  end
+
+  defp last_admitted(counts), do: get_in(counts, ["uncataloged", :last_admitted_at_ms])
+
   defp open_and_records(records) do
     frames = records |> Enum.with_index(1) |> Enum.map(fn {record, sequence} -> frame(sequence, record) end)
     [client({:lane_open, lane_open()}) | Enum.map(frames, &client({:delivery_frame, &1}))]

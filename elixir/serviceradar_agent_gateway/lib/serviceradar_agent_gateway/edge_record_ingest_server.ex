@@ -43,6 +43,10 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
       registry, a bundle no live core node can project) is never offered and records nothing, so
       the sequence stays unresolved.
 
+  Each admission, permanent refusal and withhold is counted under the record's output contract
+  in `ServiceRadar.Edge.PipelineStats` (a refusal made before the record's contract is known as
+  `unattributed`), which Settings -> Cluster aggregates across gateways.
+
   ## Deliberately narrow scope
 
   This server does NOT implement the exact-byte/retained-memory binding of task 3.4, the
@@ -154,6 +158,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
 
   use GRPC.Server, service: Serviceradar.Edge.V1.EdgeRecordIngestService.Service
 
+  alias ServiceRadar.Edge.PipelineStats
   alias ServiceRadar.Edge.PublicationIdentity
   alias ServiceRadar.Edge.PublisherLane
   alias ServiceRadar.Edge.PublishPipeline
@@ -349,6 +354,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
         # agent accepts a disposition without an id.
         Logger.warning("edge record permanently rejected: #{inspect(reason)}")
         count_epoch_rejection(reason)
+        PipelineStats.record(:gateway_refused, PipelineStats.contract_of(frame.record_bytes))
         reject_frame(stream, remember_event_id(state, sequence, event_id), sequence)
 
       {:error, :retryable, reason, _event_id} ->
@@ -356,11 +362,12 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
         # installed trust snapshot -- so nothing is offered or recorded, and the sequence stays a gap
         # that caps the watermark.
         Logger.warning("edge record withheld (not resolved, no disposition sent): #{inspect(reason)}")
+        PipelineStats.record(:gateway_withheld, PipelineStats.contract_of(frame.record_bytes))
         state
 
       {:error, :paused, reason, _event_id} ->
         Logger.warning("edge record decode paused (not resolved, no disposition sent): #{inspect(reason)}")
-
+        PipelineStats.record(:gateway_withheld, PipelineStats.contract_of(frame.record_bytes))
         state
     end
   end
@@ -445,28 +452,32 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
       traffic_class: state.traffic_class
     }
 
+    contract = PipelineStats.contract_ref(record)
+
     case EdgeContractRegistry.admit(record, session, decision.registry) do
       {:ok, route} ->
-        offer_frame(state, stream, sequence, frame, decision, route)
+        offer_frame(state, stream, sequence, frame, decision, route, contract)
 
       {:reject, reason} ->
         # Proven invalid for this session and registry: it resolves in the prefix exactly like an
         # integrity failure, but under the decoded record's event id.
         Logger.warning("edge record rejected by contract registry: #{inspect(reason)}")
         count_epoch_rejection(reason)
+        PipelineStats.record(:gateway_refused, contract)
         reject_frame(stream, remember_event_id(state, sequence, record.event_id), sequence)
 
       {:withhold, reason} ->
         # Not proof of poison: nothing is offered or recorded, so the sequence stays a gap that caps
         # the watermark, exactly like a retryable publish outcome.
         Logger.warning("edge record withheld by contract registry: #{inspect(reason)}")
+        PipelineStats.record(:gateway_withheld, contract)
         state
     end
   end
 
   # The decision's publication selects the route family and the kind its PubAck resolves to, so an
   # audit or security-quarantine record cannot reach the primary stream.
-  defp offer_frame(state, stream, sequence, frame, %{record: record} = decision, route) do
+  defp offer_frame(state, stream, sequence, frame, %{record: record} = decision, route, contract) do
     log_non_authoritative(decision)
 
     publication =
@@ -485,7 +496,8 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
           partition_rule: route.partition_rule,
           record_bytes: frame.record_bytes,
           record_sha256: frame.record_sha256,
-          semantic_envelope_sha256: record.semantic_envelope_sha256
+          semantic_envelope_sha256: record.semantic_envelope_sha256,
+          contract: contract
         },
         decision
       )
