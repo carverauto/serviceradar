@@ -31,6 +31,7 @@ import (
 	"github.com/stretchr/testify/require"
 	gproto "google.golang.org/protobuf/proto"
 
+	snmpchecker "github.com/carverauto/serviceradar/go/pkg/agent/snmp"
 	agentgateway "github.com/carverauto/serviceradar/go/pkg/agentgateway"
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
 	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
@@ -1468,4 +1469,49 @@ func TestRperfSplitAndDropInvalidPoint(t *testing.T) {
 	batches := spooledMetricBatches(t, sp)
 	require.Len(t, batches, 2, "three valid metrics split across two maxRows=2 records")
 	assertMetricsRecordsWithinCaps(t, sp, batches, 2)
+}
+
+// A target whose poll failed has no readings to spool; its availability point is
+// spooled as a metrics record, value 0, carrying the target's identity and the
+// poll's error whole.
+func TestSNMPFailedPollSpoolsAvailabilityPointWithItsError(t *testing.T) {
+	pollErr := "snmp get failed - request timeout (after 3 retries) " + strings.Repeat("x", 3000)
+	observedAt := time.Date(2026, 6, 13, 18, 20, 0, 0, time.UTC)
+
+	statuses := map[string]snmpchecker.TargetStatus{
+		"switch01": {HostIP: "192.0.2.10", HostName: "switch01.example.com", Target: &snmpchecker.Target{}},
+	}
+	metrics := map[string][]snmpchecker.DataPoint{
+		"switch01|" + snmpchecker.TargetAvailableMetric: {{
+			OIDName: snmpchecker.TargetAvailableMetric, Value: 0.0, RawValue: false, Timestamp: observedAt,
+			DataType: snmpchecker.TypeBoolean, Scale: 1, Kind: "gauge", Error: pollErr,
+		}},
+	}
+
+	results := (&PushLoop{}).buildSNMPDrainedResults(statuses, metrics, "")
+	_, batches := spoolOnce(t, snmpEdgeMetrics(), results)
+	require.Len(t, batches, 1)
+	require.Len(t, batches[0].GetMetrics(), 1)
+
+	metric := batches[0].GetMetrics()[0]
+	require.Equal(t, "snmp_target_available", metric.GetName())
+	require.Len(t, metric.GetPoints(), 1)
+
+	point := metric.GetPoints()[0]
+	require.InDelta(t, 0.0, point.GetValue(), 0)
+	require.Equal(t, "false", point.GetRawValue())
+	require.Equal(t, uint64(observedAt.UnixNano()), point.GetObservedAtUnixNano())
+
+	attributes := map[string]string{}
+	for _, entry := range point.GetAttributes() {
+		attributes[entry.GetKey()] = entry.GetValue()
+	}
+	require.Equal(t, map[string]string{"target": "switch01", "host": "192.0.2.10"}, attributes)
+
+	metadata := map[string]string{}
+	for _, entry := range point.GetMetadata() {
+		metadata[entry.GetKey()] = entry.GetValue()
+	}
+	require.Equal(t, pollErr, metadata["error"])
+	require.Equal(t, "switch01.example.com", metadata["host_name"])
 }

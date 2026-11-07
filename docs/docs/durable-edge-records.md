@@ -374,6 +374,9 @@ summary's size, not as an upgrade. Agent summaries carry counts rather than
 per-target or per-group lists (the SNMP summary counts its targets, the sweep
 summary counts its configured CIDRs and leased groups), so their size does not
 grow with the agent's configuration; per-target data travels as edge records.
+Each SNMP poll also emits a `snmp_target_available` metric point for its target,
+1 or 0, and a failed poll's point carries the error whole in its `error`
+metadata, so a target that returned no readings still reaches the platform.
 
 A push that carried refused durable data is answered `received: false`, even
 when its summaries were accepted and forwarded, so the older agent keeps that

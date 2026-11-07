@@ -82,7 +82,7 @@ defmodule ServiceRadar.AgentTrackerTest do
              AgentTracker.record_refused_statuses(agent_id, %{"results" => 1})
   end
 
-  test "records each oversized summary's service and size, new services once, up to a bound" do
+  test "records every oversized summary's service and its largest size, new services once" do
     agent_id = "agent-tracker-oversized-#{System.unique_integer([:positive])}"
     on_exit(fn -> AgentTracker.remove_agent(agent_id) end)
 
@@ -108,13 +108,26 @@ defmodule ServiceRadar.AgentTrackerTest do
              }
            } = AgentTracker.get_agent(agent_id)
 
-    # The service name is the agent's own string, so the services recorded are bounded; the
-    # family count still counts every refusal.
+    # A later, smaller summary from a recorded service keeps the larger size.
+    assert %{families: [], oversized_services: []} =
+             AgentTracker.record_refused_statuses(agent_id, %{"oversized_summary" => 1}, %{
+               "snmp" => %{bytes: 4_200, limit: 4_096}
+             })
+
+    assert %{"snmp" => %{bytes: 5_000, limit: 4_096}} =
+             AgentTracker.get_agent(agent_id).oversized_summaries
+
+    # Every service is recorded and reported as new once, however many there are.
     many = Map.new(1..40, &{"service-#{&1}", %{bytes: 4_097, limit: 4_096}})
-    AgentTracker.record_refused_statuses(agent_id, %{"oversized_summary" => 40}, many)
+
+    assert %{oversized_services: new_services} =
+             AgentTracker.record_refused_statuses(agent_id, %{"oversized_summary" => 40}, many)
+
+    assert Enum.sort(new_services) == many |> Map.keys() |> Enum.sort()
 
     agent = AgentTracker.get_agent(agent_id)
-    assert map_size(agent.oversized_summaries) == 16
-    assert agent.refused_statuses == %{"oversized_summary" => 43}
+    assert map_size(agent.oversized_summaries) == 42
+    assert Map.take(agent.oversized_summaries, Map.keys(many)) == many
+    assert agent.refused_statuses == %{"oversized_summary" => 44}
   end
 end

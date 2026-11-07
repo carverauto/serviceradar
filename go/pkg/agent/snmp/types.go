@@ -120,6 +120,8 @@ type DataPoint struct {
 	Temporality  string      `json:"temporality,omitempty"`
 	IsMonotonic  bool        `json:"is_monotonic,omitempty"`
 	CounterWidth int         `json:"counter_width,omitempty"`
+	// Error is the poll failure a TargetAvailableMetric point reports, whole.
+	Error string `json:"error,omitempty"`
 }
 
 // CounterValue preserves SNMP counter wire width alongside the numeric value.

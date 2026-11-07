@@ -38,7 +38,6 @@ defmodule ServiceRadar.AgentTracker do
   # atomic update_counter, which a read-merge-insert of the agent's info map in track_agent/2
   # cannot overwrite.
   @refused_table :agent_tracker_refused_statuses
-  @max_oversized_services 16
   @stale_threshold_ms to_timeout(minute: 2)
   @cleanup_interval_ms to_timeout(minute: 1)
 
@@ -103,9 +102,8 @@ defmodule ServiceRadar.AgentTracker do
   @doc """
   Record statuses the gateway refused from an agent: `counts` by source family, and
   `oversized`, the size of each oversized summary by the service that sent it, as
-  `%{service => %{bytes: bytes, limit: limit}}`. At most #{@max_oversized_services} services
-  are recorded per agent, since the service name is the agent's own string; a summary from a
-  further service is still counted under its family.
+  `%{service => %{bytes: bytes, limit: limit}}`. Every service is recorded; for a service
+  already recorded, the larger of the stored and the new size is kept.
 
   Returns what this call recorded for the agent for the first time, the families and the
   oversized services, so the caller can log each once rather than on every push.
@@ -122,19 +120,11 @@ defmodule ServiceRadar.AgentTracker do
       :ets.update_counter(@refused_table, {agent_id, family}, {2, count}, {{agent_id, family}, 0})
     end)
 
-    new_services =
-      oversized
-      |> Enum.sort()
-      |> Enum.reject(fn {service, _size} -> Map.has_key?(known_services, service) end)
-      |> Enum.take(max(@max_oversized_services - map_size(known_services), 0))
-      |> Enum.map(fn {service, _size} -> service end)
-
-    oversized
-    |> Enum.filter(fn {service, _size} ->
-      Map.has_key?(known_services, service) or service in new_services
-    end)
-    |> Enum.each(fn {service, size} ->
-      :ets.insert(@refused_table, {{agent_id, {:oversized_summary, service}}, size})
+    Enum.each(oversized, fn {service, size} ->
+      :ets.insert(
+        @refused_table,
+        {{agent_id, {:oversized_summary, service}}, largest_size(known_services[service], size)}
+      )
     end)
 
     :ets.insert(@refused_table, {{agent_id, :last_refused_at}, DateTime.utc_now()})
@@ -142,12 +132,18 @@ defmodule ServiceRadar.AgentTracker do
     %{
       families:
         counts |> Map.keys() |> Enum.reject(&Map.has_key?(known_families, &1)) |> Enum.sort(),
-      oversized_services: new_services
+      oversized_services:
+        oversized |> Map.keys() |> Enum.reject(&Map.has_key?(known_services, &1)) |> Enum.sort()
     }
   rescue
     ArgumentError ->
       %{families: counts |> Map.keys() |> Enum.sort(), oversized_services: Map.keys(oversized)}
   end
+
+  defp largest_size(%{bytes: known_bytes} = known, %{bytes: bytes}) when known_bytes >= bytes,
+    do: known
+
+  defp largest_size(_known, size), do: size
 
   @doc """
   Check if an agent is active (pushed status recently).

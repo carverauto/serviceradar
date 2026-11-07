@@ -26,10 +26,11 @@ import (
 )
 
 type snmpMetricResult struct {
-	Target string
-	Host   string
-	Metric string
-	OID    string
+	Target   string
+	Host     string
+	HostName string
+	Metric   string
+	OID      string
 	// Raw walk-row index; empty for a scalar get. Carried explicitly because
 	// the only other place it survives is InterfaceUID, which folds it together
 	// with a derived ifIndex and cannot be told apart from one downstream.
@@ -50,6 +51,8 @@ type snmpMetricResult struct {
 	// only: device_snmp_facts uses it for provenance, and it must not become a
 	// series-key tag.
 	ProfileID string
+	// Poll failure of a target availability point, whole.
+	Error string
 }
 
 // pushSNMPMetrics drains the SNMP readings onto the edge spool under the metrics
@@ -151,6 +154,7 @@ func (p *PushLoop) buildSNMPDrainedResults(
 			result := snmpMetricResult{
 				Target:       targetName,
 				Host:         status.HostIP,
+				HostName:     status.HostName,
 				Metric:       metricName,
 				OID:          pointOID,
 				OIDIndex:     point.OIDIndex,
@@ -166,6 +170,7 @@ func (p *PushLoop) buildSNMPDrainedResults(
 				CounterWidth: point.CounterWidth,
 				InterfaceUID: interfaceUIDForSNMPPoint(parsedUID, ifIndex, point.OIDIndex),
 				ProfileID:    profileID,
+				Error:        point.Error,
 			}
 
 			if ifIndex != nil {
