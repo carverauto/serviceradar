@@ -333,3 +333,6 @@ __pycache__/
 *.beam
 
 /elixir/web-ng/camera_recordings_browser_fixture.html
+
+# Vendored third-party source tarballs (a Bazel distdir; see third_party/source_mirror/README.md).
+!third_party/source_mirror/*.tar.gz
