@@ -1,8 +1,10 @@
 defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Analytics.StarRocks.MySQL
   alias ServiceRadar.Analytics.StarRocks.Schema
   alias ServiceRadar.Analytics.StarRocks.SchemaMigrator
+  alias ServiceRadar.Analytics.StarRocks.Workload
 
   @moduletag :db_free
 
@@ -164,6 +166,11 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
 
     assert state(agent).ledger == [1]
     refute Enum.any?(state(agent).ddl, &(&1 =~ "ADD COLUMN"))
+  end
+
+  test "the migrator's connection runs DDL in default_wg while the pool's sessions are pinned" do
+    assert {Workload, :pin_session, [_group]} = MySQL.connection_opts([])[:after_connect]
+    refute Keyword.has_key?(SchemaMigrator.connection_opts([]), :after_connect)
   end
 
   test "replication follows the live backends; shared-data keeps the pinned factor" do

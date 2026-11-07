@@ -185,22 +185,30 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
     end
   end
 
-  # The shared pool names the database in its connection options, so it cannot
-  # connect until this module has created that database. Migrations therefore
-  # run on a connection of their own that names none.
+  @doc """
+  The migrator's own warehouse connection, built from the pool's settings.
+
+  The pool names the database in its connection options, so it cannot connect
+  until this module has created that database; this connection names none.
+  Nor is it pinned to the node's resource group: the background group's
+  per-query memory cap is sized for background reads, and a bucket rewrite or
+  a `PartitionRebuild` copy needs more, so DDL runs in `default_wg`.
+  """
+  @spec connection_opts(keyword()) :: keyword()
+  def connection_opts(config) do
+    config
+    |> MySQL.connection_opts()
+    |> Keyword.drop([:database, :after_connect])
+    |> Keyword.merge(name: @conn, pool_size: 1)
+  end
+
   defp with_query(opts, fun) do
     case Keyword.fetch(opts, :query) do
       {:ok, query} ->
         fun.(query)
 
       :error ->
-        conn_opts =
-          Env.config()
-          |> MySQL.connection_opts()
-          |> Keyword.delete(:database)
-          |> Keyword.merge(name: @conn, pool_size: 1)
-
-        case MyXQL.start_link(conn_opts) do
+        case MyXQL.start_link(connection_opts(Env.config())) do
           {:ok, pid} ->
             try do
               fun.(&MySQL.query(&1, conn: @conn, timeout: @ddl_timeout_ms))
