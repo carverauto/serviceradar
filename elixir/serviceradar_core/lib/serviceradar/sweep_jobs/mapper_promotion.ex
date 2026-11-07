@@ -3,6 +3,7 @@ defmodule ServiceRadar.SweepJobs.MapperPromotion do
   Promotes eligible sweep-discovered live hosts into on-demand mapper discovery.
   """
 
+  alias ServiceRadar.Ash.NotificationQueue
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Identity.IdentityCache
@@ -36,7 +37,7 @@ defmodule ServiceRadar.SweepJobs.MapperPromotion do
 
   def promote(results, device_map, sweep_group_id, sweep_agent_id, opts \\ []) do
     actor = Keyword.get(opts, :actor)
-    dispatcher = Keyword.get(opts, :dispatcher, &AgentCommandBus.run_mapper_job/2)
+    dispatcher = Keyword.get_lazy(opts, :dispatcher, &default_dispatcher/0)
     now = Keyword.get(opts, :now, DateTime.truncate(DateTime.utc_now(), :second))
     cooldown_seconds = Keyword.get(opts, :cooldown_seconds, cooldown_seconds())
     partition = sweep_group_partition(sweep_group_id, actor)
@@ -57,15 +58,23 @@ defmodule ServiceRadar.SweepJobs.MapperPromotion do
       {promotable, final_decisions} =
         Enum.split_with(decisions, fn decision -> decision.status == :promote end)
 
+      Enum.each(final_decisions, &log_decision/1)
+      record_promotion_states(final_decisions, devices, now, cooldown_seconds)
+
       dispatched_decisions =
-        dispatch_promotions(promotable, dispatcher, actor, cooldown_seconds)
+        maybe_defer_promotions(promotable, dispatcher, actor, devices, now, cooldown_seconds)
 
-      all_decisions = final_decisions ++ dispatched_decisions
-      Enum.each(all_decisions, &log_decision/1)
-      record_promotion_states(all_decisions, devices, now, cooldown_seconds)
-
-      summarize(all_decisions)
+      summarize(final_decisions ++ dispatched_decisions)
     end
+  end
+
+  defp default_dispatcher do
+    Process.get({__MODULE__, :dispatcher}) ||
+      Application.get_env(
+        :serviceradar_core,
+        :sweep_mapper_promotion_dispatcher,
+        &AgentCommandBus.run_mapper_job/2
+      )
   end
 
   defp cooldown_seconds do
@@ -274,6 +283,51 @@ defmodule ServiceRadar.SweepJobs.MapperPromotion do
 
   defp job_interval_cooldown_at(_job), do: nil
 
+  defp maybe_defer_promotions([], _dispatcher, _actor, _devices, _now, _cooldown_seconds), do: []
+
+  defp maybe_defer_promotions(promotable, dispatcher, actor, devices, now, cooldown_seconds) do
+    if NotificationQueue.queuing?() do
+      NotificationQueue.after_commit(fn ->
+        _ =
+          dispatch_and_record_promotions(
+            promotable,
+            dispatcher,
+            actor,
+            devices,
+            now,
+            cooldown_seconds
+          )
+
+        :ok
+      end)
+
+      mark_promotions_dispatched(promotable, nil)
+    else
+      dispatch_and_record_promotions(
+        promotable,
+        dispatcher,
+        actor,
+        devices,
+        now,
+        cooldown_seconds
+      )
+    end
+  end
+
+  defp dispatch_and_record_promotions(
+         promotable,
+         dispatcher,
+         actor,
+         devices,
+         now,
+         cooldown_seconds
+       ) do
+    dispatched_decisions = dispatch_promotions(promotable, dispatcher, actor, cooldown_seconds)
+    Enum.each(dispatched_decisions, &log_decision/1)
+    record_promotion_states(dispatched_decisions, devices, now, cooldown_seconds)
+    dispatched_decisions
+  end
+
   defp dispatch_promotions([], _dispatcher, _actor, _cooldown_seconds), do: []
 
   defp dispatch_promotions(promotable, dispatcher, actor, _cooldown_seconds) do
@@ -419,12 +473,16 @@ defmodule ServiceRadar.SweepJobs.MapperPromotion do
   end
 
   # What DeviceNotifier does for a Device update.
-  defp notify_promotion_updates(rows, devices, modified_time) do
-    Enum.each(rows, fn [uid, metadata] ->
-      device = %{Map.fetch!(devices, uid) | metadata: metadata, modified_time: modified_time}
+  defp notify_promotion_updates([], _devices, _modified_time), do: :ok
 
-      if is_binary(device.ip) and device.ip != "", do: IdentityCache.delete(device.ip)
-      DevicePubSub.broadcast_updated(device)
+  defp notify_promotion_updates(rows, devices, modified_time) do
+    NotificationQueue.after_commit(fn ->
+      Enum.each(rows, fn [uid, metadata] ->
+        device = %{Map.fetch!(devices, uid) | metadata: metadata, modified_time: modified_time}
+
+        if is_binary(device.ip) and device.ip != "", do: IdentityCache.delete(device.ip)
+        DevicePubSub.broadcast_updated(device)
+      end)
     end)
   end
 

@@ -2,6 +2,7 @@ defmodule ServiceRadar.Ingestion.ResultIngestor do
   @moduledoc "Sweep result ingestion and service-state writes."
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Ash.NotificationQueue
   alias ServiceRadar.Observability.PluginResultIngestor
   alias ServiceRadar.Observability.PluginResultQuarantine
   alias ServiceRadar.Observability.ServiceStateRegistry
@@ -84,7 +85,7 @@ defmodule ServiceRadar.Ingestion.ResultIngestor do
 
   def publish_service_state(status, _opts) do
     with :ok <- ServiceStateRegistry.upsert_from_status_strict(status) do
-      ServiceStatusPubSub.broadcast_update(status)
+      NotificationQueue.after_commit(fn -> ServiceStatusPubSub.broadcast_update(status) end)
     end
   rescue
     error ->

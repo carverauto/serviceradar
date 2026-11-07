@@ -1,6 +1,7 @@
 defmodule ServiceRadar.Events.InternalLogPublisherTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Ash.NotificationQueue
   alias ServiceRadar.Events.InternalLogPublisher
 
   test "publishes internal logs to JetStream before the live NATS copy" do
@@ -95,6 +96,43 @@ defmodule ServiceRadar.Events.InternalLogPublisherTest do
 
     assert_receive {:persist_attempt, "logs.internal.health"}
     refute_receive {:published_log, _subject, _json}
+  end
+
+  test "defers live NATS publish until NotificationQueue.with_queue commits and drops it on rollback" do
+    assert {:error, :rolled_back} =
+             NotificationQueue.with_queue(fn ->
+               assert :ok =
+                        InternalLogPublisher.publish(
+                          "k8s",
+                          %{severity_text: "WARN", body: "node NotReady"},
+                          durable_publish: durable_publish(self()),
+                          publisher: {__MODULE__, :publish, [self()]}
+                        )
+
+               assert_received {:persisted_logs, "logs.internal.k8s", _json, _opts}
+               refute_received {:published_log, "live.logs.internal.k8s", _json}
+               {:error, :rolled_back}
+             end)
+
+    refute_receive {:published_log, "live.logs.internal.k8s", _json}
+
+    assert {:ok, :committed} =
+             NotificationQueue.with_queue(fn ->
+               assert :ok =
+                        InternalLogPublisher.publish(
+                          "k8s",
+                          %{severity_text: "WARN", body: "node NotReady"},
+                          durable_publish: durable_publish(self()),
+                          publisher: {__MODULE__, :publish, [self()]}
+                        )
+
+               assert_received {:persisted_logs, "logs.internal.k8s", _json, _opts}
+               refute_received {:published_log, "live.logs.internal.k8s", _json}
+               {:ok, :committed}
+             end)
+
+    assert_receive {:published_log, "live.logs.internal.k8s", _json}
+    refute_receive {:published_log, "live.logs.internal.k8s", _json}
   end
 
   defp durable_publish(pid) do

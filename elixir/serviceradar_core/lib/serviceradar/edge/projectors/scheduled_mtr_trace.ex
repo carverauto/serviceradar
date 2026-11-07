@@ -15,6 +15,7 @@ defmodule ServiceRadar.Edge.Projectors.ScheduledMtrTrace do
 
   @behaviour ServiceRadar.Edge.Projector
 
+  alias ServiceRadar.Ash.NotificationQueue
   alias ServiceRadar.Edge.Compression
   alias ServiceRadar.Edge.OutputGrants
   alias Serviceradar.Edge.V1.AgentScheduledMtrTraceBatchV1
@@ -107,7 +108,7 @@ defmodule ServiceRadar.Edge.Projectors.ScheduledMtrTrace do
          :ok <-
            MtrProcessor.persist_ledger_rows([%{payload: payload, status: status, broadcast: nil}]),
          :ok <- ServiceStateRegistry.upsert_from_status_strict(status) do
-      ServiceStatusPubSub.broadcast_update(status)
+      NotificationQueue.after_commit(fn -> ServiceStatusPubSub.broadcast_update(status) end)
       :ok
     else
       {:error, _reason} = error -> error

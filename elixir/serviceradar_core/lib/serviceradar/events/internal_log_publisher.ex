@@ -10,6 +10,7 @@ defmodule ServiceRadar.Events.InternalLogPublisher do
   `Nats-Msg-Id` gives it a stable row id so a retry stores it once.
   """
 
+  alias ServiceRadar.Ash.NotificationQueue
   alias ServiceRadar.EventWriter.LogSeverity
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.NATS.Channels
@@ -53,7 +54,10 @@ defmodule ServiceRadar.Events.InternalLogPublisher do
   end
 
   defp persist_log(subject, json, opts) do
-    durable_publish = Keyword.get(opts, :durable_publish, &DurablePublish.publish/3)
+    durable_publish =
+      Keyword.get_lazy(opts, :durable_publish, fn ->
+        Process.get({__MODULE__, :durable_publish}, &DurablePublish.publish/3)
+      end)
 
     case durable_publish.(subject, json, msg_id: Ash.UUID.generate()) do
       :ok ->
@@ -76,18 +80,22 @@ defmodule ServiceRadar.Events.InternalLogPublisher do
 
   defp maybe_publish(subject, json, opts) do
     if nats_live_publish?(opts) do
-      case publish_to_nats(publisher(opts), subject, json) do
-        :ok ->
-          :ok
+      publisher = publisher(opts)
 
-        {:error, reason} ->
-          Logger.warning("Failed to publish internal log live copy",
-            subject: subject,
-            reason: inspect(reason)
-          )
+      NotificationQueue.after_commit(fn ->
+        case publish_to_nats(publisher, subject, json) do
+          :ok ->
+            :ok
 
-          :ok
-      end
+          {:error, reason} ->
+            Logger.warning("Failed to publish internal log live copy",
+              subject: subject,
+              reason: inspect(reason)
+            )
+
+            :ok
+        end
+      end)
     else
       :ok
     end
@@ -100,7 +108,9 @@ defmodule ServiceRadar.Events.InternalLogPublisher do
   end
 
   defp publisher(opts) do
-    Keyword.get(opts, :publisher, {Connection, :publish, []})
+    Keyword.get_lazy(opts, :publisher, fn ->
+      Process.get({__MODULE__, :publisher}, {Connection, :publish, []})
+    end)
   end
 
   defp publish_to_nats({mod, fun, extra_args}, subject, payload) do

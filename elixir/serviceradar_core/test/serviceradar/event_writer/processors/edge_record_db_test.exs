@@ -16,6 +16,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
   import ExUnit.CaptureLog
 
+  alias Ash.Error.Unknown.UnknownError
   alias Broadway.Message
   alias ServiceRadar.Actors.SystemActor
   alias Serviceradar.Agent.Addon.V1.OtlpRelayFrame
@@ -71,6 +72,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
   alias ServiceRadar.Ingestion.ResultIngestor
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceAgentAvailability
+  alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Inventory.ProxmoxEnrichmentIngestor
   alias Serviceradar.Metric.V1.IngestIdentity
   alias Serviceradar.Metric.V1.Metric
@@ -78,22 +80,26 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
   alias Serviceradar.Metric.V1.MetricPoint
   alias Serviceradar.Metric.V1.MetricResource
   alias ServiceRadar.NATS.PublishDeniedError
+  alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.Observability.MtrHop
   alias ServiceRadar.Observability.MtrMetricsIngestor
   alias ServiceRadar.Observability.MtrTrace
   alias ServiceRadar.Observability.PluginResultRepairAssignmentSupport
   alias ServiceRadar.Observability.ServiceState
   alias ServiceRadar.Observability.ServiceStateRegistry
+  alias ServiceRadar.Observability.ServiceStatusPubSub
   alias ServiceRadar.Repo
   alias ServiceRadar.StatusHandler
   alias ServiceRadar.SweepJobs.ExecutionSlots
   alias ServiceRadar.SweepJobs.LeaseCapabilities
+  alias ServiceRadar.SweepJobs.MapperPromotion
   alias ServiceRadar.SweepJobs.ProducerAssignments
   alias ServiceRadar.SweepJobs.SweepExecutionSlot
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepGroupExecution
   alias ServiceRadar.SweepJobs.SweepHostResult
   alias ServiceRadar.SweepJobs.SweepProducerAssignment
+  alias ServiceRadar.SweepJobs.SweepPubSub
 
   require Ecto.Query
 
@@ -584,7 +590,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
           capture_own_log(fn ->
             # Ash.transact/3 rolls back on {:error, reason} and returns the reason wrapped
             # as an Ash error.
-            assert {:error, %Ash.Error.Unknown.UnknownError{error: abort_reason}} =
+            assert {:error, %UnknownError{error: abort_reason}} =
                      Ash.transact([SweepGroup], fn ->
                        assert {:ok, :inserted} = EdgeRecord.ingest(record_bytes, headers, Repo)
                        refute_received {:notified, _resource, _action, _in_transaction?}
@@ -617,6 +623,287 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
       assert ledger_count(record) == 1
       assert sweep_batch_slot_count(record, batch) == 1
+    end
+
+    test "sweep PubSub, service status PubSub, device invalidation, and mapper promotion wait for commit and drop on rollback" do
+      %{
+        record_bytes: record_bytes,
+        headers: headers,
+        record: record,
+        batch: batch,
+        slot: %{authenticated_agent_id: agent_id}
+      } = build_frame(gateway_header: "gw-sweep-after-commit")
+
+      actor = SystemActor.system(:edge_record_test)
+      partition = Repo.get!(Partition, Ecto.UUID.cast!(record.network_scope_id))
+      partition_slug = partition.slug
+      execution_id = Ecto.UUID.cast!(batch.execution_id)
+
+      mapper_job =
+        MapperJob
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "mapper-#{System.unique_integer([:positive])}",
+            partition: partition_slug,
+            enabled: true,
+            discovery_mode: :snmp,
+            discovery_type: :full
+          },
+          actor: actor
+        )
+        |> Ash.create!()
+
+      mapper_job_id = mapper_job.id
+      test_pid = self()
+
+      on_exit(fn ->
+        Process.delete({MapperPromotion, :dispatcher})
+      end)
+
+      Process.put({MapperPromotion, :dispatcher}, fn job, opts ->
+        send(
+          test_pid,
+          {:mapper_dispatched, job.id, Keyword.get(opts, :seeds), Repo.in_transaction?()}
+        )
+
+        {:ok, "cmd-after-commit"}
+      end)
+
+      assert :ok = SweepPubSub.subscribe_execution(execution_id)
+      assert :ok = DevicePubSub.subscribe()
+
+      assert :ok =
+               Phoenix.PubSub.subscribe(ServiceRadar.PubSub, DevicePubSub.invalidation_topic())
+
+      assert :ok = ServiceStatusPubSub.subscribe()
+
+      rollback_hook = fn
+        :before_commit, _event_id, _result ->
+          assert Repo.in_transaction?()
+          refute_received {:sweep_execution_started, %{execution_id: ^execution_id}}
+          refute_received {:sweep_execution_progress, %{execution_id: ^execution_id}}
+          refute_received {:sweep_execution_completed, %{execution_id: ^execution_id}}
+          refute_received {:service_status_updated, %{agent_id: ^agent_id}}
+          refute_received {:mapper_dispatched, ^mapper_job_id, _seeds, _in_tx?}
+          refute_received {:device_updated, _uid, %{partition: ^partition_slug}}
+          raise "injected rollback"
+
+        _point, _event_id, _result ->
+          :ok
+      end
+
+      assert_raise RuntimeError, "injected rollback", fn ->
+        EdgeRecord.ingest(record_bytes, headers, Repo, test_hook: rollback_hook)
+      end
+
+      refute_received {:sweep_execution_started, %{execution_id: ^execution_id}}
+      refute_received {:sweep_execution_progress, %{execution_id: ^execution_id}}
+      refute_received {:sweep_execution_completed, %{execution_id: ^execution_id}}
+      refute_received {:service_status_updated, %{agent_id: ^agent_id}}
+      refute_received {:mapper_dispatched, ^mapper_job_id, _seeds, _in_tx?}
+      refute_received {:device_updated, _uid, %{partition: ^partition_slug}}
+
+      assert {:error, %UnknownError{}} =
+               Ash.transact([SweepGroup], fn ->
+                 assert {:ok, :inserted} = EdgeRecord.ingest(record_bytes, headers, Repo)
+                 refute_received {:sweep_execution_started, %{execution_id: ^execution_id}}
+                 refute_received {:sweep_execution_progress, %{execution_id: ^execution_id}}
+                 refute_received {:sweep_execution_completed, %{execution_id: ^execution_id}}
+                 refute_received {:service_status_updated, %{agent_id: ^agent_id}}
+                 refute_received {:mapper_dispatched, ^mapper_job_id, _seeds, _in_tx?}
+                 refute_received {:device_updated, _uid, %{partition: ^partition_slug}}
+                 {:error, :outer_abort}
+               end)
+
+      refute_received {:sweep_execution_started, %{execution_id: ^execution_id}}
+      refute_received {:sweep_execution_progress, %{execution_id: ^execution_id}}
+      refute_received {:sweep_execution_completed, %{execution_id: ^execution_id}}
+      refute_received {:service_status_updated, %{agent_id: ^agent_id}}
+      refute_received {:mapper_dispatched, ^mapper_job_id, _seeds, _in_tx?}
+      refute_received {:device_updated, _uid, %{partition: ^partition_slug}}
+
+      commit_hook = fn
+        :before_commit, _event_id, _result ->
+          assert Repo.in_transaction?()
+          refute_received {:sweep_execution_started, %{execution_id: ^execution_id}}
+          refute_received {:sweep_execution_progress, %{execution_id: ^execution_id}}
+          refute_received {:sweep_execution_completed, %{execution_id: ^execution_id}}
+          refute_received {:service_status_updated, %{agent_id: ^agent_id}}
+          refute_received {:mapper_dispatched, ^mapper_job_id, _seeds, _in_tx?}
+          refute_received {:device_updated, _uid, %{partition: ^partition_slug}}
+          :ok
+
+        _point, _event_id, _result ->
+          :ok
+      end
+
+      assert {:ok, :inserted} =
+               EdgeRecord.ingest(record_bytes, headers, Repo, test_hook: commit_hook)
+
+      device =
+        Repo.one!(
+          Ecto.Query.from(d in Device,
+            where: d.partition == ^partition_slug and d.ip == "192.0.2.1"
+          )
+        )
+
+      device_uid = device.uid
+
+      assert_received {:sweep_execution_started, %{execution_id: ^execution_id}}
+      refute_received {:sweep_execution_started, %{execution_id: ^execution_id}}
+
+      assert_received {:sweep_execution_progress,
+                       %{execution_id: ^execution_id, hosts_processed: 1}}
+
+      assert_received {:sweep_execution_completed, %{execution_id: ^execution_id}}
+      refute_received {:sweep_execution_completed, %{execution_id: ^execution_id}}
+
+      assert_received {:service_status_updated,
+                       %{agent_id: ^agent_id, service_name: "network_sweep"}}
+
+      refute_received {:service_status_updated, %{agent_id: ^agent_id}}
+
+      assert_received {:mapper_dispatched, ^mapper_job_id, ["192.0.2.1"], false}
+      refute_received {:mapper_dispatched, ^mapper_job_id, _seeds, _in_tx?}
+
+      assert_received {:device_updated, ^device_uid, %{partition: ^partition_slug}}
+      refute_received {:device_updated, ^device_uid, _device}
+
+      assert_received {:devices_invalidated, [^device_uid]}
+
+      assert device.metadata["sweep_mapper_promotion"]["command_id"] == "cmd-after-commit"
+    end
+
+    test "scheduled MTR and unleased sweep side effects wait for commit and drop on rollback" do
+      mtr_frame = build_scheduled_mtr_frame(gateway_header: "gw-mtr-after-commit")
+      mtr_agent_id = mtr_frame.agent_id
+
+      unleased_frame = build_unleased_sweep_frame(gateway?: true)
+      unleased_agent_id = unleased_frame.agent_id
+      unleased_execution_id = unleased_frame.execution_id
+      unleased_partition_slug = unleased_frame.partition_slug
+
+      actor = SystemActor.system(:edge_record_test)
+
+      existing_device =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: "device-existing-#{System.unique_integer([:positive])}",
+            ip: "192.0.2.10",
+            partition: unleased_partition_slug,
+            hostname: "existing.example.com",
+            is_available: false
+          },
+          actor: actor
+        )
+        |> Ash.create!()
+
+      existing_device_uid = existing_device.uid
+
+      assert :ok = ServiceStatusPubSub.subscribe()
+      assert :ok = SweepPubSub.subscribe_execution(unleased_execution_id)
+
+      assert :ok =
+               Phoenix.PubSub.subscribe(ServiceRadar.PubSub, DevicePubSub.invalidation_topic())
+
+      mtr_rollback_hook = fn
+        :before_commit, _event_id, _result ->
+          refute_received {:service_status_updated, %{agent_id: ^mtr_agent_id}}
+          raise "injected mtr rollback"
+
+        _point, _event_id, _result ->
+          :ok
+      end
+
+      assert_raise RuntimeError, "injected mtr rollback", fn ->
+        EdgeRecord.ingest(mtr_frame.record_bytes, mtr_frame.headers, Repo,
+          test_hook: mtr_rollback_hook
+        )
+      end
+
+      refute_received {:service_status_updated, %{agent_id: ^mtr_agent_id}}
+
+      mtr_commit_hook = fn
+        :before_commit, _event_id, _result ->
+          refute_received {:service_status_updated, %{agent_id: ^mtr_agent_id}}
+          :ok
+
+        _point, _event_id, _result ->
+          :ok
+      end
+
+      assert {:ok, :inserted} =
+               EdgeRecord.ingest(mtr_frame.record_bytes, mtr_frame.headers, Repo,
+                 test_hook: mtr_commit_hook
+               )
+
+      assert_received {:service_status_updated,
+                       %{agent_id: ^mtr_agent_id, service_name: "mtr_traces"}}
+
+      refute_received {:service_status_updated, %{agent_id: ^mtr_agent_id}}
+
+      unleased_rollback_hook = fn
+        :before_commit, _event_id, _result ->
+          refute_received {:sweep_execution_started, %{execution_id: ^unleased_execution_id}}
+          refute_received {:sweep_execution_progress, %{execution_id: ^unleased_execution_id}}
+          refute_received {:sweep_execution_completed, %{execution_id: ^unleased_execution_id}}
+          refute_received {:devices_invalidated, [^existing_device_uid]}
+          refute_received {:service_status_updated, %{agent_id: ^unleased_agent_id}}
+          raise "injected unleased rollback"
+
+        _point, _event_id, _result ->
+          :ok
+      end
+
+      assert_raise RuntimeError, "injected unleased rollback", fn ->
+        EdgeRecord.ingest(unleased_frame.record_bytes, unleased_frame.headers, Repo,
+          test_hook: unleased_rollback_hook
+        )
+      end
+
+      refute_received {:sweep_execution_started, %{execution_id: ^unleased_execution_id}}
+      refute_received {:sweep_execution_progress, %{execution_id: ^unleased_execution_id}}
+      refute_received {:sweep_execution_completed, %{execution_id: ^unleased_execution_id}}
+      refute_received {:devices_invalidated, [^existing_device_uid]}
+      refute_received {:service_status_updated, %{agent_id: ^unleased_agent_id}}
+
+      unleased_commit_hook = fn
+        :before_commit, _event_id, _result ->
+          refute_received {:sweep_execution_started, %{execution_id: ^unleased_execution_id}}
+          refute_received {:sweep_execution_progress, %{execution_id: ^unleased_execution_id}}
+          refute_received {:sweep_execution_completed, %{execution_id: ^unleased_execution_id}}
+          refute_received {:devices_invalidated, [^existing_device_uid]}
+          refute_received {:service_status_updated, %{agent_id: ^unleased_agent_id}}
+          :ok
+
+        _point, _event_id, _result ->
+          :ok
+      end
+
+      assert {:ok, :inserted} =
+               EdgeRecord.ingest(unleased_frame.record_bytes, unleased_frame.headers, Repo,
+                 test_hook: unleased_commit_hook
+               )
+
+      assert_received {:sweep_execution_started, %{execution_id: ^unleased_execution_id}}
+      refute_received {:sweep_execution_started, %{execution_id: ^unleased_execution_id}}
+
+      assert_received {:sweep_execution_progress, %{execution_id: ^unleased_execution_id}}
+      refute_received {:sweep_execution_progress, %{execution_id: ^unleased_execution_id}}
+
+      assert_received {:sweep_execution_completed, %{execution_id: ^unleased_execution_id}}
+      refute_received {:sweep_execution_completed, %{execution_id: ^unleased_execution_id}}
+
+      assert_received {:devices_invalidated, [^existing_device_uid]}
+      refute_received {:devices_invalidated, [^existing_device_uid]}
+
+      assert_received {:service_status_updated,
+                       %{agent_id: ^unleased_agent_id, service_name: "network_sweep"}}
+
+      refute_received {:service_status_updated, %{agent_id: ^unleased_agent_id}}
     end
 
     test "the :transaction_result hook observes the committed outcome and the delivery-slot conflict" do
