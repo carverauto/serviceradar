@@ -2,23 +2,14 @@ defmodule ServiceRadar.Ingestion.Supervisor do
   @moduledoc false
   use Supervisor
 
-  alias ServiceRadar.Ingestion.Admission
   alias ServiceRadar.Ingestion.LaneSupervisor
-  alias ServiceRadar.Ingestion.SweepQueue
   alias ServiceRadar.Inventory.SyncIngestorQueue
-
-  @sweep_tasks ServiceRadar.Ingestion.SweepTaskSupervisor
 
   def start_link(opts \\ []), do: Supervisor.start_link(__MODULE__, opts, name: __MODULE__)
 
   @impl true
   def init(_opts) do
     lanes = [
-      mapper: 2,
-      bumblebee: 2,
-      legacy_plugin: 2,
-      endpoint: 4,
-      other_results: 2,
       status: 2
     ]
 
@@ -27,16 +18,8 @@ defmodule ServiceRadar.Ingestion.Supervisor do
     children = [
       {Registry, keys: :unique, name: ServiceRadar.Ingestion.Registry},
       ServiceRadar.Ingestion.WorkerBudget,
-      task_supervisor(ServiceRadar.Ingestion.ServiceStateTaskSupervisor, 1),
-      ServiceRadar.ResultsRouter,
-      ServiceRadar.Admission.FlowSupervisor,
-      ServiceRadar.Admission.RetainedPluginSupervisor,
       task_supervisor(ServiceRadar.SyncIngestor.TaskSupervisor, 1),
-      SyncIngestorQueue,
-      # Sweep chunks are acknowledged once queued and ingested in the background;
-      # the queue answers the lane protocol under the sweep lane's name.
-      task_supervisor(@sweep_tasks, Keyword.fetch!(SweepQueue.limits(), :concurrency)),
-      {SweepQueue, name: Admission.server(:sweep), task_supervisor: @sweep_tasks}
+      SyncIngestorQueue
       | Enum.map(lanes, fn {type, workers} -> {LaneSupervisor, type: type, workers: workers} end)
     ]
 
@@ -55,15 +38,12 @@ defmodule ServiceRadar.Ingestion.Supervisor do
     raw_bytes =
       Enum.reduce(lanes, 0, fn lane, total ->
         total + Keyword.fetch!(LaneSupervisor.limits(lane), :max_bytes)
-      end) + Keyword.fetch!(SweepQueue.limits(), :max_bytes) +
-        Keyword.fetch!(ServiceRadar.Admission.FlowLane.limits(), :max_bytes) +
-        Keyword.fetch!(ServiceRadar.Admission.RetainedPluginLane.limits(), :max_bytes) +
+      end) +
         Keyword.get(
           Application.get_env(:serviceradar_core, SyncIngestorQueue, []),
           :max_bytes,
           64 * 1_024 * 1_024
-        ) +
-        Application.get_env(:serviceradar_core, :results_router_max_bytes, 32 * 1_024 * 1_024)
+        )
 
     if !(is_integer(budget) and budget > 0 and is_integer(reserve) and reserve >= 0 and
            is_integer(amplification) and amplification >= 8 and

@@ -2956,10 +2956,6 @@ print(open(sys.argv[2]).read().strip())
         self.assertIn('size = "enormous"', release_target)
         self.assertIn('"test/release_gates/large_ingestion/*_test.exs"', release_target)
         self.assertIn(
-            '"test/release_gates/large_ingestion/results_router_release_gate_test.exs"',
-            release_target,
-        )
-        self.assertIn(
             '"//elixir/serviceradar_agent_gateway:erlang_app"',
             release_target,
         )

@@ -199,8 +199,6 @@ defmodule ServiceRadar.TestSupport do
     ids = [
       ServiceRadar.Ingestion.Supervisor,
       ServiceRadar.Ingestion.LeaseSupervisor,
-      ServiceRadar.Admission.FlowLeaseSupervisor,
-      ServiceRadar.Admission.RetainedPluginLeaseSupervisor,
       ServiceRadar.StatusHandler
     ]
 

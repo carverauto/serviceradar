@@ -87,39 +87,4 @@ defmodule ServiceRadar.Inventory.Sync.SourcePolicyMdnsTest do
              )
     end
   end
-
-  describe "router and policy must agree on what mDNS is called" do
-    test "every mDNS service type the router accepts is one SourcePolicy recognises" do
-      # If these drift, the router hands mDNS payloads to the SyncIngestor
-      # while the enrichment gate does not recognise them -- so announcements
-      # mint devices, with no error anywhere to say so.
-      for service_type <- ServiceRadar.ResultsRouter.mdns_service_types() do
-        source = service_type |> to_string() |> String.replace("_", "-")
-
-        assert SourcePolicy.enrichment_only_source?(update(source, %{})),
-               "router accepts service_type #{inspect(service_type)} but SourcePolicy " <>
-                 "does not recognise #{inspect(source)} as enrichment-only"
-      end
-    end
-
-    test "the Go agent's source string is one of them" do
-      # models.DiscoverySourceNetprobeMdns in go/pkg/models/discovery.go. A
-      # drift there is a cross-language break with no compiler on either side.
-      assert "netprobe-mdns" in Enum.map(
-               ServiceRadar.ResultsRouter.mdns_service_types(),
-               &to_string/1
-             )
-
-      assert SourcePolicy.enrichment_only_source?(update("netprobe-mdns", %{}))
-    end
-
-    test "the mDNS and census routes stay distinct" do
-      # Two streams with opposite creation rules. One list swallowing the other
-      # would apply the wrong rule to a whole stream.
-      census = MapSet.new(ServiceRadar.ResultsRouter.census_service_types(), &to_string/1)
-      mdns = MapSet.new(ServiceRadar.ResultsRouter.mdns_service_types(), &to_string/1)
-
-      assert MapSet.disjoint?(census, mdns)
-    end
-  end
 end

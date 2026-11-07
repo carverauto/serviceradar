@@ -6,7 +6,7 @@ title: Data Pipeline
 
 ServiceRadar uses two primary data paths:
 
-- Agent ingestion (edge status, discovery, sync) via mTLS gRPC to `agent-gateway`
+- Agent ingestion (durable edge records and ephemeral status summaries) via mTLS gRPC to `agent-gateway`
 - Bulk telemetry ingestion via NATS JetStream. EventWriter persists logs and the other CNPG telemetry datasets. NetFlow is stored only in StarRocks; see [NetFlow](./netflow.md#flow-cutover-and-delivery).
 
 This page is intentionally high-level. It focuses on the mental model and the moving parts you will see when debugging.

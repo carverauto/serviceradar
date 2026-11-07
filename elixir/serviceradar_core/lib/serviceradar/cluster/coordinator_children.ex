@@ -24,8 +24,6 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
         cluster_health_child(),
         state_monitor_child(),
         ingestion_lease_supervisor_child(),
-        flow_lease_supervisor_child(),
-        retained_plugin_lease_supervisor_child(),
         ingestion_supervisor_child(),
         status_handler_child(),
         command_result_coordination_supervisor_child(),
@@ -102,14 +100,6 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
   # Database workers and their admission credits restart together inside that tree.
   defp ingestion_lease_supervisor_child do
     ingestion_lease_supervisor(ServiceRadar.Ingestion.LeaseSupervisor, 224)
-  end
-
-  defp flow_lease_supervisor_child do
-    ingestion_lease_supervisor(ServiceRadar.Admission.FlowLeaseSupervisor, 16)
-  end
-
-  defp retained_plugin_lease_supervisor_child do
-    ingestion_lease_supervisor(ServiceRadar.Admission.RetainedPluginLeaseSupervisor, 32)
   end
 
   defp ingestion_lease_supervisor(name, max_children) do

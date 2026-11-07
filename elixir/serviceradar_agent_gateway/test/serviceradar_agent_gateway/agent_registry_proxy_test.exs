@@ -9,8 +9,6 @@ defmodule ServiceRadarAgentGateway.AgentRegistryProxyTest do
   alias ServiceRadarAgentGateway.AgentRegistryProxy
   alias ServiceRadarAgentGateway.ControlStreamSession
 
-  @retained_plugin_capability "plugin-result-retained:v1"
-
   setup do
     {:ok, _apps} = Application.ensure_all_started(:horde)
     {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
@@ -202,15 +200,14 @@ defmodule ServiceRadarAgentGateway.AgentRegistryProxyTest do
              })
   end
 
-  test "an agent silent for the stale window is unregistered and its capabilities dropped", ctx do
-    connect_agent(ctx, [@retained_plugin_capability])
-    assert AgentRegistryProxy.delivery_capabilities(ctx.partition_id, ctx.agent_id) == [@retained_plugin_capability]
+  test "an agent silent for the stale window is unregistered", ctx do
+    connect_agent(ctx)
+    assert [{_pid, _metadata}] = AgentRegistry.lookup(ctx.agent_id)
 
     Application.put_env(:serviceradar_agent_gateway, :agent_registry_stale_after_ms, 0)
     :ok = AgentRegistryProxy.sweep_stale_agents()
 
     assert AgentRegistry.lookup(ctx.agent_id) == []
-    assert AgentRegistryProxy.delivery_capabilities(ctx.partition_id, ctx.agent_id) == []
   end
 
   test "a control session that shuts down normally marks the agent :disconnected via terminate/2", ctx do
@@ -226,14 +223,13 @@ defmodule ServiceRadarAgentGateway.AgentRegistryProxyTest do
   end
 
   test "an agent with a live control session is never swept as stale", ctx do
-    connect_agent(ctx, [@retained_plugin_capability])
-    _session = start_control_session!(ctx, [@retained_plugin_capability])
+    connect_agent(ctx)
+    _session = start_control_session!(ctx)
 
     Application.put_env(:serviceradar_agent_gateway, :agent_registry_stale_after_ms, 0)
     :ok = AgentRegistryProxy.sweep_stale_agents()
 
     assert agent_status(ctx.agent_id) == :connected
-    assert AgentRegistryProxy.delivery_capabilities(ctx.partition_id, ctx.agent_id) == [@retained_plugin_capability]
   end
 
   defp connect_agent(ctx, capabilities \\ []) do

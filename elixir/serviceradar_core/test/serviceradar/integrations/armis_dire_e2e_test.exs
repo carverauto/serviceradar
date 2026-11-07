@@ -30,6 +30,7 @@ defmodule ServiceRadar.Integrations.ArmisDireE2ETest do
   alias ServiceRadar.Inventory.Remediation.DireRemediation
   alias ServiceRadar.Inventory.SourceIdentityDrift
   alias ServiceRadar.Inventory.SyncIngestor
+  alias ServiceRadar.Inventory.SyncIngestorQueue
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.TestSupport
@@ -74,18 +75,15 @@ defmodule ServiceRadar.Integrations.ArmisDireE2ETest do
 
   setup do
     previous_async = Application.get_env(:serviceradar_core, :sync_ingestor_async)
-    previous_batching = Application.get_env(:serviceradar_core, :results_router_batching)
 
     previous_concurrency =
       Application.get_env(:serviceradar_core, :sync_ingestor_batch_concurrency)
 
     Application.put_env(:serviceradar_core, :sync_ingestor_async, false)
     Application.put_env(:serviceradar_core, :sync_ingestor_batch_concurrency, 1)
-    Application.put_env(:serviceradar_core, :results_router_batching, false)
 
     on_exit(fn ->
       restore_env(:sync_ingestor_async, previous_async)
-      restore_env(:results_router_batching, previous_batching)
       restore_env(:sync_ingestor_batch_concurrency, previous_concurrency)
     end)
 
@@ -797,7 +795,7 @@ defmodule ServiceRadar.Integrations.ArmisDireE2ETest do
         do: [%{"_sync_control" => "collection_final", "sync_meta" => sync_meta}],
         else: updates
 
-    :ok = ServiceRadar.Inventory.SyncIngestorQueue.ingest_sync_results(Jason.encode!(updates))
+    :ok = SyncIngestorQueue.ingest_sync_results(Jason.encode!(updates))
   end
 
   # The sync_meta of a one-chunk sync run of the source reporting `count` distinct ids, with
@@ -908,21 +906,8 @@ defmodule ServiceRadar.Integrations.ArmisDireE2ETest do
 
   defp ingest_sync_pages!(pages) do
     Enum.each(pages, fn page ->
-      sync_meta = page["updates"] |> List.first() |> Map.fetch!("sync_meta")
-
-      status = %{
-        source: "results",
-        service_type: "sync",
-        agent_id: "armis-e2e-agent",
-        gateway_id: "armis-e2e-gateway",
-        partition: "default",
-        message: Jason.encode!(page["updates"]),
-        chunk_index: sync_meta["chunk_index"],
-        total_chunks: sync_meta["total_chunks"],
-        is_final: sync_meta["is_final"]
-      }
-
-      assert :ok = ResultIngestor.process_and_publish(status)
+      assert :ok =
+               SyncIngestorQueue.ingest_sync_results(Jason.encode!(page["updates"]))
     end)
   end
 

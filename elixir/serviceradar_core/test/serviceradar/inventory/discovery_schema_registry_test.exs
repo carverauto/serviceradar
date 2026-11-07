@@ -129,30 +129,4 @@ defmodule ServiceRadar.Inventory.DiscoverySchemaRegistryTest do
       assert Registry.fetch(nil) == :error
     end
   end
-
-  describe "the existing router/policy pairing is not orphaned" do
-    test "every registered source stays routable by service type while both paths are live" do
-      # ResultsRouter still carries the census and mDNS routes, and
-      # source_policy_census_test.exs / source_policy_mdns_test.exs assert THOSE
-      # against SourcePolicy. The discovery path bypasses ResultsRouter
-      # entirely, so without this the two invariants drift apart silently: those
-      # tests would keep passing while guarding a route nothing uses.
-      #
-      # Asserting the registry's sources are the same strings keeps the old and
-      # new routes pinned to one another until the old one is retired.
-      router_sources =
-        MapSet.new(
-          ServiceRadar.ResultsRouter.census_service_types() ++
-            ServiceRadar.ResultsRouter.mdns_service_types() ++
-            ServiceRadar.ResultsRouter.passive_netprobe_service_types(),
-          &to_string/1
-        )
-
-      for {schema, entry} <- Registry.all() do
-        assert entry.source in router_sources,
-               "#{schema}: source #{inspect(entry.source)} is not one ResultsRouter accepts. " <>
-                 "If the legacy route was retired, retire this assertion with it."
-      end
-    end
-  end
 end

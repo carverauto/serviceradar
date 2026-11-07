@@ -31,10 +31,7 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
   """
   use GenServer
 
-  alias ServiceRadar.Admission.FlowLane
-  alias ServiceRadar.Admission.RetainedPluginLane
   alias ServiceRadar.Ingestion.LaneSupervisor
-  alias ServiceRadar.Ingestion.SweepQueue
   alias ServiceRadar.Inventory.SyncIngestorQueue
   alias Serviceradar.Metric.V1.IngestIdentity
   alias Serviceradar.Metric.V1.Metric
@@ -545,20 +542,11 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
     }
   end
 
-  defp lane_capacity(:flow_attribution) do
-    limits = FlowLane.limits()
-    {Keyword.fetch!(limits, :max_items), Keyword.fetch!(limits, :max_bytes)}
-  end
+  defp lane_capacity(:flow_attribution), do: {16, 64 * 1_024 * 1_024}
 
-  defp lane_capacity(:retained_plugin_result) do
-    limits = RetainedPluginLane.limits()
-    {Keyword.fetch!(limits, :max_items), Keyword.fetch!(limits, :max_bytes)}
-  end
+  defp lane_capacity(:retained_plugin_result), do: {32, 64 * 1_024 * 1_024}
 
-  defp lane_capacity(:sweep) do
-    limits = SweepQueue.limits()
-    {Keyword.fetch!(limits, :max_items), Keyword.fetch!(limits, :max_bytes)}
-  end
+  defp lane_capacity(:sweep), do: {128, 32 * 1_024 * 1_024}
 
   defp lane_capacity(:sync) do
     opts = Application.get_env(:serviceradar_core, SyncIngestorQueue, [])

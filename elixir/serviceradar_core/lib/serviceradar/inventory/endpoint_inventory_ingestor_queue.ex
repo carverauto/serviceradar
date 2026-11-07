@@ -2,7 +2,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueue do
   @moduledoc """
   Bounded admission queue for endpoint inventory ingestion.
 
-  The queue keeps expensive package/SBOM ingestion out of the ResultsRouter
+  The queue keeps expensive package/SBOM ingestion out of the caller's
   process and gives correlated fleet changes a clear backpressure boundary.
   Callers may either enqueue and return immediately, or wait for the queued job
   result when an agent needs the scan acknowledgement directives.
