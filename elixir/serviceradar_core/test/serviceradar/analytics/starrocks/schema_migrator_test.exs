@@ -258,99 +258,264 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
     assert migrate(agent, migrations: migrations) == {:ok, [3, 4]}
   end
 
-  test "each events document column is added only after the previous ALTER has finished" do
-    migration = Enum.find(Schema.migrations(), &(&1.version == 18))
-    added = ~w(log_level metadata unmapped device observables)
+  # A warehouse that runs each schema change as a background job and, like
+  # StarRocks, refuses an ALTER while one is still running. Each SHOW ALTER poll
+  # advances the running job one stage of `lifecycle`, and its column changes
+  # only when it reaches FINISHED; CANCELLED ends it with the column unchanged.
+  # `columns` maps {table, column} to its type.
+  defp start_alter_warehouse(overrides) do
+    initial =
+      Map.merge(
+        %{
+          lifecycle: ["RUNNING", "FINISHED"],
+          columns: %{},
+          running: nil,
+          last_state: %{},
+          ledger: [],
+          sent: [],
+          refused: []
+        },
+        overrides
+      )
 
-    # StarRocks refuses a second ALTER on a table while one is running, so this
-    # warehouse does too, and every schema change takes two polls to finish.
-    {:ok, agent} = Agent.start_link(fn -> %{running: nil, polls: 0, added: [], refused: []} end)
+    {:ok, agent} = Agent.start_link(fn -> initial end)
+    agent
+  end
 
-    query = fn sql ->
-      Agent.get_and_update(agent, fn state ->
-        cond do
-          match = Regex.run(~r/ADD COLUMN `?([a-z_]+)`?/, sql) ->
-            [_, column] = match
+  defp alter_query(agent), do: fn sql -> Agent.get_and_update(agent, &alter_answer(&1, sql)) end
 
-            if state.running,
-              do:
-                {{:error, {:starrocks_mysql, "schema change in progress"}},
-                 %{state | refused: state.refused ++ [column]}},
-              else: {{:ok, %{columns: [], rows: []}}, %{state | running: column, polls: 0}}
+  defp alter_answer(state, sql) do
+    cond do
+      match = Regex.run(~r/^ALTER TABLE \S+?\.(\w+) (?:ADD|MODIFY) COLUMN `?(\w+)`? (\S+)/, sql) ->
+        [_, table, column, type] = match
+        start_alter(state, {table, column}, String.downcase(type))
 
-          String.starts_with?(sql, "SHOW ALTER TABLE COLUMN") and state.polls == 0 ->
-            {{:ok, %{columns: ["State"], rows: [["RUNNING"]]}}, %{state | polls: 1}}
+      match = Regex.run(~r/^SHOW ALTER TABLE COLUMN .* TableName = '(\w+)'/, sql) ->
+        [_, table] = match
+        poll(state, table)
 
-          String.starts_with?(sql, "SHOW ALTER TABLE COLUMN") ->
-            {{:ok, %{columns: ["State"], rows: [["FINISHED"]]}},
-             %{state | running: nil, added: state.added ++ [state.running]}}
+      match =
+          Regex.run(
+            ~r/^SELECT (1|COLUMN_TYPE) FROM .* table_name = '(\w+)' AND column_name = '(\w+)'/,
+            sql
+          ) ->
+        [_, probe, table, column] = match
+        {probe_result(probe, Map.get(state.columns, {table, column})), state}
 
-          String.starts_with?(sql, "SHOW BACKENDS") ->
-            {{:ok, %{columns: ["BackendId", "Alive"], rows: [[1, "true"]]}}, state}
+      String.starts_with?(sql, "SHOW BACKENDS") ->
+        {nodes(1), state}
 
-          true ->
-            {{:ok, %{columns: [], rows: []}}, state}
-        end
-      end)
+      String.starts_with?(sql, "SELECT version FROM") ->
+        {result(["version"], Enum.map(state.ledger, &[&1])), state}
+
+      match = Regex.run(~r/^INSERT INTO .* VALUES \((\d+),/, sql) ->
+        [_, version] = match
+        {result([], []), %{state | ledger: state.ledger ++ [String.to_integer(version)]}}
+
+      true ->
+        {result([], []), state}
     end
+  end
 
-    assert migrate(agent, query: query, migrations: [migration]) == {:ok, [18]}
+  defp start_alter(%{running: nil} = state, key, type) do
+    {result([], []), %{state | running: {key, type, state.lifecycle}, sent: state.sent ++ [key]}}
+  end
 
-    result = Agent.get(agent, & &1)
+  defp start_alter(state, {table, _column} = key, _type) do
+    message = "(1064) A schema change operation is in progress on the table #{table}."
+    {{:error, {:starrocks_mysql, message}}, %{state | refused: state.refused ++ [key]}}
+  end
+
+  defp poll(%{running: {{table, _} = key, type, [stage | stages]}} = state, table) do
+    state = %{state | last_state: Map.put(state.last_state, table, stage)}
+
+    state =
+      case stage do
+        "FINISHED" -> %{state | running: nil, columns: Map.put(state.columns, key, type)}
+        "CANCELLED" -> %{state | running: nil}
+        _running -> %{state | running: {key, type, stages}}
+      end
+
+    {result(["State"], [[stage]]), state}
+  end
+
+  defp poll(state, table) do
+    case Map.fetch(state.last_state, table) do
+      {:ok, stage} -> {result(["State"], [[stage]]), state}
+      :error -> {result(["State"], []), state}
+    end
+  end
+
+  defp probe_result(_probe, nil), do: result(["1"], [])
+  defp probe_result("1", _type), do: result(["1"], [[1]])
+  defp probe_result("COLUMN_TYPE", type), do: result(["COLUMN_TYPE"], [[type]])
+
+  # One lock for every runner, as the PostgreSQL advisory lock is one for
+  # every replica.
+  defp shared_lock do
+    {:ok, holder} = Agent.start_link(fn -> nil end)
+
+    fn fun ->
+      acquire(holder)
+
+      try do
+        fun.(fn -> :ok end)
+      after
+        Agent.update(holder, fn _ -> nil end)
+      end
+    end
+  end
+
+  defp acquire(holder) do
+    me = self()
+
+    case Agent.get_and_update(holder, fn
+           nil -> {:ok, me}
+           other -> {:busy, other}
+         end) do
+      :ok ->
+        :ok
+
+      :busy ->
+        Process.sleep(5)
+        acquire(holder)
+    end
+  end
+
+  defp shipped(version), do: Enum.find(Schema.migrations(), &(&1.version == version))
+
+  defp added_columns(migration) do
+    for statement <- migration.statements,
+        [_, table, column] <- [
+          Regex.run(~r/ALTER TABLE \S+?\.(\w+) ADD COLUMN `?(\w+)`?/, statement)
+        ],
+        do: {table, column}
+  end
+
+  test "each events document column is added only after the previous ALTER has finished" do
+    agent = start_alter_warehouse(%{})
+
+    assert migrate(agent, query: alter_query(agent), migrations: [shipped(18)]) == {:ok, [18]}
+
+    result = state(agent)
     assert result.refused == []
-    assert result.added == added
+
+    assert result.sent ==
+             Enum.map(~w(log_level metadata unmapped device observables), &{"events", &1})
+
     assert result.running == nil
   end
 
   test "a free-text column is widened only when it is narrower, each after the previous ALTER" do
-    migration = Enum.find(Schema.migrations(), &(&1.version == 37))
+    migration = shipped(37)
+
     # An upgraded warehouse: events.message and logs.body still carry their
     # old widths, every other column already has the target type.
-    narrow = %{{"events", "message"} => "varchar(65533)", {"logs", "body"} => "VARCHAR(65533)"}
+    columns =
+      for statement <- migration.statements,
+          [_, table, column, type] <-
+            [Regex.run(~r/ALTER TABLE \S+?\.(\w+) MODIFY COLUMN (\w+) (\S+)/, statement)],
+          into: %{},
+          do: {{table, column}, String.downcase(type)}
 
-    {:ok, agent} =
-      Agent.start_link(fn -> %{running: nil, polls: 0, modified: [], refused: []} end)
+    columns =
+      Map.merge(columns, %{
+        {"events", "message"} => "varchar(65533)",
+        {"logs", "body"} => "VARCHAR(65533)"
+      })
 
-    query = fn sql ->
-      Agent.get_and_update(agent, fn state ->
-        cond do
-          match = Regex.run(~r/table_name = '(\w+)' AND column_name = '(\w+)'/, sql) ->
-            [_, table, column] = match
-            type = Map.get(narrow, {table, column}, "varchar(1048576)")
-            {{:ok, %{columns: ["COLUMN_TYPE"], rows: [[type]]}}, state}
+    agent = start_alter_warehouse(%{columns: columns})
 
-          match = Regex.run(~r/^ALTER TABLE \S+?\.(\w+) MODIFY COLUMN (\w+)/, sql) ->
-            [_, table, column] = match
+    assert migrate(agent, query: alter_query(agent), migrations: [migration]) == {:ok, [37]}
 
-            if state.running,
-              do:
-                {{:error, {:starrocks_mysql, "schema change in progress"}},
-                 %{state | refused: state.refused ++ [column]}},
-              else:
-                {{:ok, %{columns: [], rows: []}}, %{state | running: {table, column}, polls: 0}}
+    result = state(agent)
+    assert result.refused == []
+    assert result.sent == [{"events", "message"}, {"logs", "body"}]
+    assert result.running == nil
+  end
 
-          String.starts_with?(sql, "SHOW ALTER TABLE COLUMN") and state.polls == 0 ->
-            {{:ok, %{columns: ["State"], rows: [["RUNNING"]]}}, %{state | polls: 1}}
+  test "replicas migrating a shared-data warehouse send each ALTER once, never into a running change" do
+    migration = shipped(36)
 
-          String.starts_with?(sql, "SHOW ALTER TABLE COLUMN") ->
-            {{:ok, %{columns: ["State"], rows: [["FINISHED"]]}},
-             %{state | running: nil, modified: state.modified ++ [state.running]}}
+    # A shared-data table is still mid-change at FINISHED_REWRITING. The last
+    # change on events was cancelled in some earlier run; that holds nothing up.
+    agent =
+      start_alter_warehouse(%{
+        lifecycle: ["PENDING", "RUNNING", "FINISHED_REWRITING", "FINISHED_REWRITING", "FINISHED"],
+        last_state: %{"events" => "CANCELLED"}
+      })
 
-          String.starts_with?(sql, "SHOW BACKENDS") ->
-            {{:ok, %{columns: ["BackendId", "Alive"], rows: [[1, "true"]]}}, state}
+    lock = shared_lock()
 
-          true ->
-            {{:ok, %{columns: [], rows: []}}, state}
-        end
+    results =
+      [:replica_a, :replica_b]
+      |> Enum.map(fn _replica ->
+        Task.async(fn ->
+          migrate(agent, query: alter_query(agent), migrations: [migration], with_lock: lock)
+        end)
       end)
+      |> Task.await_many(10_000)
+
+    # One replica applies 36; the other takes the lock afterwards, finds it in
+    # the ledger and sends nothing.
+    assert Enum.sort(results) == [{:ok, []}, {:ok, [36]}]
+
+    result = state(agent)
+    assert result.refused == []
+    assert result.sent == added_columns(migration)
+    assert result.ledger == [36]
+  end
+
+  test "a runner that takes over mid-ALTER waits for that change, then skips its column" do
+    migration = shipped(36)
+    [{_table, orphaned} = first | rest] = added_columns(migration)
+
+    # The previous holder died after sending the first ADD COLUMN; StarRocks is
+    # still running it, and the column is not there yet.
+    agent =
+      start_alter_warehouse(%{
+        lifecycle: ["RUNNING", "FINISHED_REWRITING", "FINISHED"],
+        running: {first, "varchar(1048576)", ["RUNNING", "FINISHED_REWRITING", "FINISHED"]}
+      })
+
+    assert migrate(agent, query: alter_query(agent), migrations: [migration]) == {:ok, [36]}
+
+    result = state(agent)
+    assert result.refused == []
+    assert result.sent == rest
+    assert Map.has_key?(result.columns, {"events", orphaned})
+    assert result.ledger == [36]
+  end
+
+  test "a runner that loses the lock while waiting out a change that is then cancelled sends no ALTER" do
+    migration = shipped(36)
+    [first | _rest] = added_columns(migration)
+
+    # A crashed holder's ADD COLUMN is still running and ends cancelled, so the
+    # column stays absent. This runner's connection drops during that wait,
+    # and the replica that takes the lock over will send the ALTER itself.
+    agent =
+      start_alter_warehouse(%{
+        running: {first, "varchar(1048576)", ["RUNNING", "CANCELLED"]}
+      })
+
+    still_locked = fn ->
+      if Agent.get(agent, &(&1.last_state["events"] == "CANCELLED")),
+        do: raise("lock lost"),
+        else: :ok
     end
 
-    assert migrate(agent, query: query, migrations: [migration]) == {:ok, [37]}
+    assert {:error, %RuntimeError{message: "lock lost"}} =
+             migrate(agent,
+               query: alter_query(agent),
+               migrations: [migration],
+               with_lock: fn fun -> fun.(still_locked) end
+             )
 
-    result = Agent.get(agent, & &1)
+    result = state(agent)
+    assert result.sent == []
     assert result.refused == []
-    assert result.modified == [{"events", "message"}, {"logs", "body"}]
-    assert result.running == nil
+    assert result.ledger == []
   end
 
   test "a column-type probe that fails stops the migration without sending the MODIFY" do
