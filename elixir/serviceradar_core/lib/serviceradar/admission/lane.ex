@@ -633,7 +633,7 @@ defmodule ServiceRadar.Admission.Lane do
   end
 
   # Public for owners that speak this reservation protocol without being a
-  # lane, such as ServiceRadar.Ingestion.SweepQueue.
+  # lane.
   @doc false
   def validate_descriptor(descriptor) when is_map(descriptor) do
     case descriptor do

@@ -60,7 +60,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
   `Ash.bulk_create(:upsert, ...)`.
 
   Returns `:ok`; failures are logged and never raise (matches the per-status
-  path's best-effort contract on the ResultsRouter hot path).
+  path's best-effort contract on the status ingestion hot path).
   """
   @spec bulk_upsert_from_statuses([map()]) :: :ok
   defdelegate bulk_upsert_from_statuses(statuses), to: StatusIngestor, as: :bulk_upsert
