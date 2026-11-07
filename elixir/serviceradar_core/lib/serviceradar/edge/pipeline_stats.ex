@@ -6,11 +6,11 @@ defmodule ServiceRadar.Edge.PipelineStats do
   Each owner counts its own stage into one public ETS table, and never waits on anything to do
   it:
 
-    * the agent gateway (`ServiceRadarAgentGateway.EdgeRecordIngestServer`): records the
-      contract registry admitted (`:gateway_admitted`), refused for good (`:gateway_refused`),
-      and withheld for the agent to send again (`:gateway_withheld`);
+    * the agent gateway (`ServiceRadarAgentGateway.EdgeRecordIngestServer`): records it
+      admitted (`:gateway_admitted`), refused for good (`:gateway_refused`), and withheld for
+      the agent to send again (`:gateway_withheld`);
     * the EventWriter edge-record processor (`ServiceRadar.EventWriter.Processors.EdgeRecord`):
-      records committed through the ledger and projector (`:projected`), refused without a
+      first primary deliveries committed through the ledger and projector (`:projected`), refused without a
       projection (`:projector_refused`), and failed attempts JetStream will redeliver
       (`:failed`);
     * `ServiceRadar.EventWriter.EdgeRecordDeadLetter`: records stored on the dead-letter stream

@@ -354,7 +354,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
         # agent accepts a disposition without an id.
         Logger.warning("edge record permanently rejected: #{inspect(reason)}")
         count_epoch_rejection(reason)
-        PipelineStats.record(:gateway_refused, nil)
+        PipelineStats.record(:gateway_refused, PipelineStats.contract_of(frame.record_bytes))
         reject_frame(stream, remember_event_id(state, sequence, event_id), sequence)
 
       {:error, :retryable, reason, _event_id} ->
@@ -362,12 +362,12 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
         # installed trust snapshot -- so nothing is offered or recorded, and the sequence stays a gap
         # that caps the watermark.
         Logger.warning("edge record withheld (not resolved, no disposition sent): #{inspect(reason)}")
-        PipelineStats.record(:gateway_withheld, nil)
+        PipelineStats.record(:gateway_withheld, PipelineStats.contract_of(frame.record_bytes))
         state
 
       {:error, :paused, reason, _event_id} ->
         Logger.warning("edge record decode paused (not resolved, no disposition sent): #{inspect(reason)}")
-
+        PipelineStats.record(:gateway_withheld, PipelineStats.contract_of(frame.record_bytes))
         state
     end
   end

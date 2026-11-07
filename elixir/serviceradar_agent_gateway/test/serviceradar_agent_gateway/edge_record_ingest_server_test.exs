@@ -278,15 +278,17 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
 
     # Each helper reads the whole mailbox of its own stream, so the withhold runs first.
     assert_caps_later_sequences(record(output_contract: ahead))
+    assert_caps_later_sequences(record(producer_assignment_id: Factory.uuidv7()))
     assert_rejected_then_accepted(record(principal: "agent-2"))
 
     # The gateway's synthetic contract is not in core's catalog, so it is counted under the
-    # bounded `uncataloged` label; a frame refused before its contract is known is unattributed.
+    # bounded `uncataloged` label, including a decoded record that authorization refused or
+    # withheld before registry admission.
     assert delta(before, contract_counts(), "uncataloged") ==
-             %{gateway_admitted: 2, gateway_refused: 0, gateway_withheld: 1}
+             %{gateway_admitted: 3, gateway_refused: 1, gateway_withheld: 2}
 
     assert delta(before, contract_counts(), "unattributed") ==
-             %{gateway_admitted: 0, gateway_refused: 1, gateway_withheld: 0}
+             %{gateway_admitted: 0, gateway_refused: 0, gateway_withheld: 0}
   end
 
   # An installation-static epoch can never verify against a derived registry, so withholding it

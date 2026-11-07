@@ -453,6 +453,10 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
       assert {:ok, :replay} = EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo)
 
+      # A redelivered record the ledger already holds writes no domain rows, so it is not projected.
+      assert {:ok, 1} = EdgeRecord.process_batch([message])
+      assert %{failed: 1, projected: 2} = contract_counts(frame.record)
+
       assert [%{ip: "192.0.2.1"}] =
                Repo.all(
                  Ecto.Query.from(h in SweepHostResult, where: h.execution_id == ^execution_id)

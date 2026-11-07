@@ -109,7 +109,8 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
 
     case ingest(data, headers, Repo, opts) do
       {:ok, outcome} ->
-        PipelineStats.record(:projected, contract)
+        if outcome == :inserted and opts[:publication] == :primary,
+          do: PipelineStats.record(:projected, contract)
 
         :telemetry.execute(
           [:serviceradar, :event_writer, :edge_record, :ingested],

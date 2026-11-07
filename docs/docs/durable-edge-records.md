@@ -496,13 +496,13 @@ contract it shows, summed across every connected gateway and core node:
 
 | Column | Meaning |
 | --- | --- |
-| Gateway admitted / refused / withheld | records the gateway's contract registry admitted, rejected permanently, or held back for the agent to send again |
-| Projected / Projector refused | records EventWriter committed, or acknowledged without projecting |
+| Gateway admitted / refused / withheld | records the gateway admitted, rejected permanently, or held back for the agent to send again |
+| Projected / Projector refused | first primary deliveries EventWriter committed (a replay or late-fenced audit delivery is not counted), or records acknowledged without projecting |
 | Failed attempts | projections that raised; JetStream redelivers each one |
 | Dead-lettered | records stored on the dead-letter stream |
 | Last projected | how long ago the contract last projected a record |
 
-A record refused before its contract was known is counted as `unattributed`.
+A record refused or withheld before its bytes decoded is counted as `unattributed`.
 A second table shows the pending, ack-pending and redelivered counts of each
 edge-record durable and its stream's message count; for
 `TELEMETRY_EDGE_RECORD_DLQ_V1_BULK` that count is the dead-letter depth. The
