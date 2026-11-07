@@ -261,7 +261,7 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
   # A warehouse that runs each schema change as a background job and, like
   # StarRocks, refuses an ALTER while one is still running. Each SHOW ALTER poll
   # advances the running job one stage of `lifecycle`, and its column changes
-  # only when it reaches FINISHED. `columns` maps {table, column} to its type.
+  # only when it reaches FINISHED; CANCELLED ends it with the column unchanged. `columns` maps {table, column} to its type.
   defp start_alter_warehouse(overrides) do
     initial =
       Map.merge(
@@ -329,9 +329,11 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
     state = %{state | last_state: Map.put(state.last_state, table, stage)}
 
     state =
-      if stage == "FINISHED",
-        do: %{state | running: nil, columns: Map.put(state.columns, key, type)},
-        else: %{state | running: {key, type, stages}}
+      case stage do
+        "FINISHED" -> %{state | running: nil, columns: Map.put(state.columns, key, type)}
+        "CANCELLED" -> %{state | running: nil}
+        _running -> %{state | running: {key, type, stages}}
+      end
 
     {result(["State"], [[stage]]), state}
   end
@@ -482,6 +484,37 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
     assert result.sent == rest
     assert Map.has_key?(result.columns, {"events", orphaned})
     assert result.ledger == [36]
+  end
+
+  test "a runner that loses the lock while waiting out a change that is then cancelled sends no ALTER" do
+    migration = shipped(36)
+    [first | _rest] = added_columns(migration)
+
+    # A crashed holder's ADD COLUMN is still running and ends cancelled, so the
+    # column stays absent. This runner's connection drops during that wait,
+    # and the replica that takes the lock over will send the ALTER itself.
+    agent =
+      start_alter_warehouse(%{
+        running: {first, "varchar(1048576)", ["RUNNING", "CANCELLED"]}
+      })
+
+    still_locked = fn ->
+      if Agent.get(agent, &(&1.last_state["events"] == "CANCELLED")),
+        do: raise("lock lost"),
+        else: :ok
+    end
+
+    assert {:error, %RuntimeError{message: "lock lost"}} =
+             migrate(agent,
+               query: alter_query(agent),
+               migrations: [migration],
+               with_lock: fn fun -> fun.(still_locked) end
+             )
+
+    result = state(agent)
+    assert result.sent == []
+    assert result.refused == []
+    assert result.ledger == []
   end
 
   test "a column-type probe that fails stops the migration without sending the MODIFY" do

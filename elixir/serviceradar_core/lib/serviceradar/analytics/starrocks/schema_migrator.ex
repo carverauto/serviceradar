@@ -373,6 +373,8 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
   end
 
   defp alter_and_await(state, statement, table) do
+    state.still_locked.()
+
     with :ok <- run_statement(state, statement) do
       await_alter(state, table)
     end
