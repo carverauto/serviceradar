@@ -261,7 +261,8 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
   # A warehouse that runs each schema change as a background job and, like
   # StarRocks, refuses an ALTER while one is still running. Each SHOW ALTER poll
   # advances the running job one stage of `lifecycle`, and its column changes
-  # only when it reaches FINISHED; CANCELLED ends it with the column unchanged. `columns` maps {table, column} to its type.
+  # only when it reaches FINISHED; CANCELLED ends it with the column unchanged.
+  # `columns` maps {table, column} to its type.
   defp start_alter_warehouse(overrides) do
     initial =
       Map.merge(
