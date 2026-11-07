@@ -241,6 +241,34 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReportsIntegrationTest do
       assert transitions(report) == [{"new", 1}, {"resolved", 2}]
       assert recorded_digest(report) == nil
     end
+
+    test "a Critical transition whose alert fails is redelivered until it alerts", %{
+      report: report
+    } do
+      SQL.query!(
+        Repo,
+        "ALTER TABLE platform.alerts ADD CONSTRAINT trivy_test_alert_rejected CHECK (false) NOT VALID"
+      )
+
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert {:error, {:trivy_alerts_failed, [^report]}} =
+                 TrivyReports.process_batch([scan(report, 1, critical: 1)])
+      end)
+
+      assert recorded_digest(report) == nil
+      assert alerts(report) == 0
+
+      SQL.query!(Repo, "ALTER TABLE platform.alerts DROP CONSTRAINT trivy_test_alert_rejected")
+
+      assert {:ok, 1} = TrivyReports.process_batch([scan(report, 1, critical: 1)])
+      assert transitions(report) == [{"new", 1}]
+      assert recorded_digest(report) == "s5:n1"
+      assert alerts(report) == 1
+
+      # Once alerted, an identical rescan alerts no more.
+      assert {:ok, 1} = TrivyReports.process_batch([scan(report, 2, critical: 1)])
+      assert alerts(report) == 1
+    end
   end
 
   # Report ids are generated, so the rows a test leaves behind cannot collide
@@ -289,6 +317,21 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReportsIntegrationTest do
       )
 
     Enum.map(rows, &List.to_tuple/1)
+  end
+
+  defp alerts(report) do
+    %{rows: [[count]]} =
+      SQL.query!(
+        Repo,
+        """
+        SELECT count(*) FROM platform.alerts AS alert
+        JOIN platform.ocsf_events AS event ON event.id = alert.event_id
+        WHERE event.metadata->>'event_id' = $1
+        """,
+        [report]
+      )
+
+    count
   end
 
   defp recorded_digest(report) do

@@ -24,9 +24,9 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
   and its findings stays in CNPG `trivy_reports` and `trivy_findings`.
 
   The report row is upserted first (its findings reference it), but its digest
-  is recorded only after the batch's events are stored and evaluated, so a
-  batch that fails before then is redelivered and computes the same
-  transitions. Within one batch only a report's latest scan is
+  is recorded only after the batch's events are stored and evaluated and its
+  Critical alert is created, so a batch that fails before then is redelivered
+  and computes the same transitions. Within one batch only a report's latest scan is
   compared. Two batches carrying the same report concurrently can both
   compare against the same recorded state; the cost is at most one redundant
   transition event.
@@ -173,9 +173,12 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
       latest = latest_entry_per_report(entries)
       prior = recorded_promoted_digests(latest)
 
-      promoted_rows =
-        scan_activity_rows ++
-          Enum.flat_map(latest, &transition_rows(&1, Map.get(prior, &1.event_uuid)))
+      transitions =
+        for entry <- latest,
+            row <- transition_rows(entry, Map.get(prior, entry.event_uuid)),
+            do: {entry.event_uuid, row}
+
+      promoted_rows = scan_activity_rows ++ Enum.map(transitions, &elem(&1, 1))
 
       promoted_rows = dedupe_rows_by_conflict_key(promoted_rows, &Map.get(&1, :id))
       events_stored = store_event_rows(promoted_rows)
@@ -195,13 +198,17 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
           StatefulEvaluationLedger.evaluate_once(promoted_rows)
         end
 
-      # The new state is recorded only once its transitions are stored and
-      # evaluated; otherwise a redelivery would find no transition to retry.
-      if stored == :ok, do: record_promoted_digests(latest, prior)
+      # A report's new state is recorded only once its transition is stored,
+      # evaluated and alerted; otherwise a redelivery would find no transition
+      # to retry.
+      {alert_count, unalerted} =
+        if stored == :ok, do: maybe_create_priority_alerts(transitions), else: {0, []}
+
+      if stored == :ok,
+        do: record_promoted_digests(Enum.reject(latest, &(&1.event_uuid in unalerted)), prior)
 
       {log_count, _} = stored_counts(log_stored)
-      {event_count, inserted_events} = stored_counts(events_stored)
-      alert_count = maybe_create_priority_alerts(inserted_events)
+      {event_count, _} = stored_counts(events_stored)
 
       maybe_broadcast_logs(log_count)
       maybe_broadcast_events(event_count)
@@ -218,13 +225,16 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
         %{}
       )
 
-      case stored do
-        :ok ->
+      case {stored, unalerted} do
+        {:ok, []} ->
           # Best-effort OTel service catalog upsert; never fails the batch.
           _ = ServiceCatalog.record(:logs, log_rows)
           {:ok, log_count}
 
-        {:error, reason} ->
+        {:ok, unalerted} ->
+          {:error, {:trivy_alerts_failed, unalerted}}
+
+        {{:error, reason}, _} ->
           {:error, reason}
       end
     end
@@ -1092,10 +1102,10 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
   defp transition_message(:resolved, message), do: "Resolved below High: #{message}"
   defp transition_message(_kind, message), do: message
 
-  defp maybe_create_priority_alerts(events) do
-    {created, attempted} =
-      Enum.reduce(events, {0, 0}, fn event, {created, attempted} ->
-        maybe_create_priority_alert(event, created, attempted)
+  defp maybe_create_priority_alerts(transitions) do
+    {created, attempted, unalerted} =
+      Enum.reduce(transitions, {0, 0, []}, fn {report_uuid, event}, acc ->
+        maybe_create_priority_alert(report_uuid, event, acc)
       end)
 
     if attempted > 0 do
@@ -1106,24 +1116,24 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
       )
     end
 
-    created
+    {created, unalerted}
   end
 
-  defp maybe_create_priority_alert(event, created, attempted) do
+  defp maybe_create_priority_alert(report_uuid, event, {created, attempted, unalerted} = acc) do
     if promote_to_alert?(event.severity_id) do
       case AlertGenerator.from_event(event, alert: alert_override(event)) do
         {:ok, %{} = _alert} ->
-          {created + 1, attempted + 1}
+          {created + 1, attempted + 1, unalerted}
 
         {:ok, :skipped} ->
-          {created, attempted + 1}
+          {created, attempted + 1, unalerted}
 
         {:error, reason} ->
           Logger.warning("Failed to auto-create Trivy alert: #{inspect(reason)}")
-          {created, attempted + 1}
+          {created, attempted + 1, [report_uuid | unalerted]}
       end
     else
-      {created, attempted}
+      acc
     end
   end
 

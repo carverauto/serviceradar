@@ -95,7 +95,8 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
       migrations: @migrations,
       database: "serviceradar",
       sleep: fn _ms -> :ok end,
-      workload_groups: fn _query -> :ok end
+      workload_groups: fn _query -> :ok end,
+      repin_sessions: fn -> :ok end
     ]
     |> Keyword.merge(opts)
     |> SchemaMigrator.migrate()
@@ -226,6 +227,25 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
              migrate(failing,
                workload_groups: fn _ -> flunk("groups before a complete schema") end
              )
+  end
+
+  test "pooled sessions are re-pinned once the resource groups exist, and only then" do
+    parent = self()
+    repin = fn -> send(parent, :repinned) end
+
+    assert migrate(start_warehouse(), workload_groups: fn _ -> :ok end, repin_sessions: repin) ==
+             {:ok, [1, 2, 3]}
+
+    assert_received :repinned
+
+    ExUnit.CaptureLog.capture_log(fn ->
+      assert migrate(start_warehouse(),
+               workload_groups: fn _ -> {:error, :no_live_starrocks_node} end,
+               repin_sessions: repin
+             ) == {:ok, [1, 2, 3]}
+    end)
+
+    refute_received :repinned
   end
 
   test "run gives up after its attempts without crashing the supervisor" do
@@ -819,6 +839,30 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
              migrate(agent, query: query, migrations: [migration])
 
     assert state(agent).ledger == []
+  end
+
+  test "a rewrite that loses its connection or runs out of memory fails the migration, to be resumed" do
+    migration = shipped(39)
+    [{table, _count} | _] = shipped_rewrites(migration)
+
+    for message <- [
+          "(2013) Lost connection to MySQL server during query",
+          "(2006) MySQL server has gone away",
+          "(5609) Memory of process exceed limit. Used: 2000, Limit: 1000."
+        ] do
+      agent = start_bucket_warehouse(%{buckets: %{table => %{"p20260101" => 8}}})
+
+      query = fn sql ->
+        if sql =~ "PARTITIONS (",
+          do: {:error, {:starrocks_mysql, message}},
+          else: bucket_query(agent).(sql)
+      end
+
+      assert {:error, {39, {:starrocks_mysql, ^message}}} =
+               migrate(agent, query: query, migrations: [migration])
+
+      assert state(agent).ledger == []
+    end
   end
 
   test "the shipped schema marks exactly the day-partitioned rollups as needing partitioned tables" do

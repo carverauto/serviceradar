@@ -31,9 +31,11 @@ defmodule ServiceRadar.Analytics.StarRocks.Workload do
 
   `ensure/1` creates the groups, or converges their limits to the values here
   when they exist. `SchemaMigrator` runs it after the versioned DDL, under the
-  same lock, on every start. It is best effort: a warehouse user without the
-  privilege to manage resource groups keeps working, unisolated, and the
-  failure is logged rather than blocking later migrations.
+  same lock, on every start, then reconnects the pool so sessions opened
+  before the groups existed are pinned too. It is best effort: a warehouse
+  user without the privilege to manage resource groups keeps working,
+  unisolated, and the failure is logged rather than blocking later
+  migrations.
 
   ## Sizing
 

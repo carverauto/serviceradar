@@ -53,6 +53,17 @@ defmodule ServiceRadar.Analytics.StarRocks.MySQL do
     end
   end
 
+  @doc """
+  Reconnects every pooled session, so each is pinned again by `after_connect`.
+  Sessions opened before the resource groups existed stay in `default_wg`
+  until this runs.
+  """
+  @spec repin_sessions() :: :ok
+  def repin_sessions do
+    if Process.whereis(@pool), do: DBConnection.disconnect_all(@pool, 0)
+    :ok
+  end
+
   @spec connection_opts(keyword()) :: keyword()
   def connection_opts(config) when is_list(config) do
     [

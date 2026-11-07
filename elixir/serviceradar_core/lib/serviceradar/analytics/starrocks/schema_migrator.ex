@@ -154,7 +154,8 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
           migrations: Keyword.get_lazy(opts, :migrations, &Schema.migrations/0),
           sleep: Keyword.get(opts, :sleep, &Process.sleep/1),
           retention_days: Keyword.get_lazy(opts, :retention_days, &Retention.days_by_table/0),
-          workload_groups: Keyword.get(opts, :workload_groups, &Workload.ensure/1)
+          workload_groups: Keyword.get(opts, :workload_groups, &Workload.ensure/1),
+          repin_sessions: Keyword.get(opts, :repin_sessions, &MySQL.repin_sessions/0)
         }
 
         with {:ok, replication_num} <- replication_num(query) do
@@ -263,7 +264,7 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
 
     case state.workload_groups.(state.query) do
       :ok ->
-        :ok
+        state.repin_sessions.()
 
       {:error, reason} ->
         Logger.warning(
@@ -420,7 +421,8 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
   # retention. So partitions StarRocks will not rewrite (their job CANCELLED,
   # or the ALTER refused) are reported and skipped rather than failing the
   # migration, which would otherwise be retried forever and hold back every
-  # later one. A lost connection still fails it, to be resumed.
+  # later one. A lost connection or a node out of memory still fails it, to be
+  # resumed.
   defp redistribute(state, statement, table, buckets, :rewrite) do
     with :ok <- poll_alter(state, table, :previous, :column),
          :ok <- poll_alter(state, table, :previous, :optimize),
@@ -478,12 +480,16 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
           {:error, reason} -> {:error, reason}
         end
 
-      {:error, {:starrocks_mysql, message}} ->
-        {:skipped, {:refused, message}}
+      {:error, {:starrocks_mysql, message} = reason} ->
+        if retryable?(reason), do: {:error, reason}, else: {:skipped, {:refused, message}}
 
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  defp retryable?({:starrocks_mysql, message} = reason) do
+    memory_exhausted?(reason) or message =~ ~r/lost connection|server has gone away/i
   end
 
   defp report_rewrite({:ok, []}, _table, _buckets, _pending), do: :ok
