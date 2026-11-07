@@ -12,7 +12,8 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
   `ADD COLUMN` whose column is already there, a `MODIFY COLUMN` whose
   column already has the target type, or a bucket rewrite
   (`DISTRIBUTED BY ... BUCKETS n`) whose partitions all have n buckets, is
-  skipped. A bucket rewrite runs optimize jobs over size-bounded batches of
+  skipped. A bucket rewrite runs optimize jobs over batches, bounded in stored
+  size and rows, of
   the partitions that still have another count, oldest first, waiting out any
   optimize already on the table and then each of its own until FINISHED. A partition StarRocks will
   not rewrite is reported (an error log and a `rewrite_skipped` telemetry
@@ -73,12 +74,21 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
   # tens of seconds even for a small batch, so it is polled every two seconds,
   # for as long as the DDL client waits for any statement (@ddl_timeout_ms).
   @optimize_poll_ms 2_000
-  # A job rewrites its partitions in parallel, so its memory follows the data
-  # it rewrites (about 4x on a measured 3.5 backend). Batches are cut at this
-  # much stored data, or this many partitions; a partition larger than the
-  # budget, or whose size StarRocks has not reported yet, goes alone. Small
-  # tables then take one job, and a large table's history one day at a time.
+  # A job rewrites its partitions in parallel, on the same compute node, so its
+  # memory follows the sum of what it rewrites: about 4x the stored data on a
+  # measured 3.5 backend, and more for a table that compresses well, where
+  # stored bytes understate the rows. Batches are therefore cut at this much
+  # stored data, this many rows, or this many partitions, whichever comes
+  # first; a partition over either budget, or whose size or row count StarRocks
+  # has not reported, goes alone. Small tables then take one job, and a large
+  # table's history one day at a time.
+  #
+  # The row budget is measured: on a node with about 2.5 GB free, one job over
+  # a single 400k-row log partition finished in seconds, while one over four
+  # partitions of 0.65M to 2.5M rows each ran out of memory on every task. A
+  # job is held to the size of the one that finished.
   @rewrite_batch_bytes 134_217_728
+  @rewrite_batch_rows 500_000
   @rewrite_batch_partitions 32
   @optimize_poll_attempts div(@ddl_timeout_ms, @optimize_poll_ms)
   @max_replication 3
@@ -452,7 +462,8 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
 
   # A rewrite is StarRocks' optimize job, run over batches of the partitions
   # that still have another count, oldest first, each batch held to
-  # @rewrite_batch_bytes of data: a whole-table optimize rewrites every
+  # @rewrite_batch_bytes of data and @rewrite_batch_rows rows: a whole-table
+  # optimize rewrites every
   # partition at once, which a compute node with little headroom cannot absorb
   # for the largest tables. A fresh install, or a resumed run, finds nothing
   # pending for what is already rewritten.
@@ -468,7 +479,8 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
     with :ok <- poll_alter(state, table, :previous, :column),
          :ok <- poll_alter(state, table, :previous, :optimize),
          {:ok, partitions} <- partition_buckets(state, table) do
-      pending = for {name, count, size} <- partitions, count != buckets, do: {name, size}
+      pending =
+        for {name, count, size, rows} <- partitions, count != buckets, do: {name, size, rows}
 
       pending
       |> rewrite_batches()
@@ -486,20 +498,23 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
   defp rewrite_batches(pending) do
     Enum.chunk_while(
       pending,
-      {[], 0},
-      fn {name, size}, {batch, bytes} ->
+      {[], 0, 0},
+      fn {name, size, rows}, {batch, batch_bytes, batch_rows} ->
         size = if is_integer(size), do: size, else: @rewrite_batch_bytes
+        rows = if is_integer(rows), do: rows, else: @rewrite_batch_rows
 
         if batch != [] and
-             (bytes + size > @rewrite_batch_bytes or length(batch) >= @rewrite_batch_partitions) do
-          {:cont, Enum.reverse(batch), {[name], size}}
+             (batch_bytes + size > @rewrite_batch_bytes or
+                batch_rows + rows > @rewrite_batch_rows or
+                length(batch) >= @rewrite_batch_partitions) do
+          {:cont, Enum.reverse(batch), {[name], size, rows}}
         else
-          {:cont, {[name | batch], bytes + size}}
+          {:cont, {[name | batch], batch_bytes + size, batch_rows + rows}}
         end
       end,
       fn
-        {[], _bytes} -> {:cont, []}
-        {batch, _bytes} -> {:cont, Enum.reverse(batch), []}
+        {[], _bytes, _rows} -> {:cont, []}
+        {batch, _bytes, _rows} -> {:cont, Enum.reverse(batch), []}
       end
     )
   end
@@ -555,26 +570,38 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
 
   defp report_rewrite({:error, _reason} = error, _table, _buckets, _pending), do: error
 
-  # Partitions with their bucket count and stored bytes, oldest first. The
-  # automatic partitioning placeholder holds no rows and is left alone.
+  # Partitions with their bucket count, stored bytes and rows, oldest first.
+  # The automatic partitioning placeholder holds no rows and is left alone.
   defp partition_buckets(state, table) do
     sql =
-      "SELECT PARTITION_NAME, BUCKETS, DATA_SIZE FROM information_schema.partitions_meta " <>
+      "SELECT PARTITION_NAME, BUCKETS, DATA_SIZE, ROW_COUNT " <>
+        "FROM information_schema.partitions_meta " <>
         "WHERE DB_NAME = '#{state.database}' AND TABLE_NAME = '#{table}' " <>
         "ORDER BY PARTITION_NAME"
 
     case state.query.(sql) do
       {:ok, %{rows: rows}} ->
         partitions =
-          for [name, count, size | _] <- rows,
+          for [name, count, size, row_count | _] <- rows,
               name = to_string(name),
-              not String.starts_with?(name, "$"),
-              do: {name, to_integer(count), data_size(size)}
+              not String.starts_with?(name, "$") do
+            size = data_size(size)
+            {name, to_integer(count), size, row_count(row_count, size)}
+          end
 
         {:ok, partitions}
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  # A partition that holds data but reports no rows has statistics StarRocks
+  # has not refreshed yet, so its row count is unknown, not zero.
+  defp row_count(rows, size) do
+    case to_integer(rows) do
+      0 when is_integer(size) and size > 0 -> nil
+      rows -> rows
     end
   end
 

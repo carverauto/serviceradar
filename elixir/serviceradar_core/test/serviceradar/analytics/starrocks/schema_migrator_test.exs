@@ -690,10 +690,11 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
   end
 
   # A warehouse that runs optimize jobs: `buckets` maps a table to
-  # %{partition => bucket count} and `sizes` a partition to its stored bytes
-  # (1 MiB when absent). A rewrite of a batch of partitions is a job polled
-  # through its stages (`stages` per {table, first partition}, else
-  # `lifecycle`) that applies the new count only on FINISHED. `refuse` lists
+  # %{partition => bucket count}, `sizes` a partition to its stored bytes
+  # (1 MiB when absent) and `rows` to its row count (10k when absent). A
+  # rewrite of a batch of partitions is a job polled through its stages
+  # (`stages` per {table, first partition}, else `lifecycle`) that applies
+  # the new count only on FINISHED. `refuse` lists
   # partitions whose ALTER StarRocks rejects. Any distribution change on a
   # table with a running job is refused, as StarRocks refuses it.
   defp start_bucket_warehouse(overrides) do
@@ -703,6 +704,7 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
           lifecycle: ["PENDING", "RUNNING", "FINISHED"],
           stages: %{},
           sizes: %{},
+          rows: %{},
           refuse: [],
           buckets: %{},
           jobs: %{},
@@ -739,16 +741,21 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
 
       match =
           Regex.run(
-            ~r/^SELECT PARTITION_NAME, BUCKETS, DATA_SIZE FROM information_schema.partitions_meta .* TABLE_NAME = '(\w+)'/,
+            ~r/^SELECT PARTITION_NAME, .* FROM information_schema.partitions_meta .* TABLE_NAME = '(\w+)'/,
             sql
           ) ->
         [_, table] = match
 
         rows =
           for {partition, count} <- state.buckets |> Map.get(table, %{}) |> Enum.sort(),
-              do: [partition, count, Map.get(state.sizes, partition, 1_048_576)]
+              do: [
+                partition,
+                count,
+                Map.get(state.sizes, partition, 1_048_576),
+                Map.get(state.rows, partition, 10_000)
+              ]
 
-        {result(["PARTITION_NAME", "BUCKETS", "DATA_SIZE"], rows), state}
+        {result(["PARTITION_NAME", "BUCKETS", "DATA_SIZE", "ROW_COUNT"], rows), state}
 
       String.starts_with?(sql, "SHOW BACKENDS") ->
         {nodes(1), state}
@@ -871,40 +878,61 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
     end
   end
 
-  test "a large table's history is rewritten a budget of data at a time, oldest first" do
-    migration = shipped(39)
-    [{table, count} | _] = shipped_rewrites(migration)
-    mib = 1_048_576
+  @mib 1_048_576
 
-    agent =
-      start_bucket_warehouse(%{
-        buckets:
-          ~w(p20260101 p20260102 p20260103 p20260104 p20260105)
-          |> Map.new(&{&1, 8})
-          |> then(&%{table => &1}),
-        # 100 + 20 MiB fit one 128 MiB job; 200 MiB goes alone, whether StarRocks
-        # reports bytes (4.x) or text (3.5); an unreported size goes alone.
-        sizes: %{
-          "p20260101" => 100 * mib,
-          "p20260102" => "20MB",
-          "p20260103" => "200.5MB",
-          "p20260104" => nil,
-          "p20260105" => "1MB"
-        }
-      })
+  # {partition, stored bytes, rows} oldest first, and the jobs expected.
+  # StarRocks 4.x reports DATA_SIZE in bytes, 3.5 as text.
+  @rewrite_batching [
+    {"100 + 20 MiB share one 128 MiB job; 200 MiB goes alone",
+     [
+       {"p20260101", 100 * @mib, 10_000},
+       {"p20260102", "20MB", 10_000},
+       {"p20260103", "200.5MB", 10_000},
+       {"p20260104", "1MB", 10_000}
+     ], [~w(p20260101 p20260102), ~w(p20260103), ~w(p20260104)]},
+    {"compressible partitions far under the byte budget each take a job past 500k rows",
+     [
+       {"p20260101", 10 * @mib, 700_000},
+       {"p20260102", 40 * @mib, 2_500_000},
+       {"p20260103", 25 * @mib, 1_100_000},
+       {"p20260104", 30 * @mib, 1_300_000}
+     ], [~w(p20260101), ~w(p20260102), ~w(p20260103), ~w(p20260104)]},
+    {"small partitions share a job up to 500k rows",
+     [
+       {"p20260101", @mib, 200_000},
+       {"p20260102", @mib, 250_000},
+       {"p20260103", @mib, 100_000},
+       {"p20260104", @mib, 400_000}
+     ], [~w(p20260101 p20260102), ~w(p20260103 p20260104)]},
+    {"an unreported size or row count, or none reported for stored data, goes alone",
+     [
+       {"p20260101", nil, 10_000},
+       {"p20260102", @mib, nil},
+       {"p20260103", 50 * @mib, 0},
+       {"p20260104", @mib, 10_000},
+       {"p20260105", @mib, 10_000}
+     ], [~w(p20260101), ~w(p20260102), ~w(p20260103), ~w(p20260104 p20260105)]}
+  ]
 
-    assert migrate(agent, query: bucket_query(agent), migrations: [migration]) == {:ok, [39]}
+  for {name, partitions, jobs} <- @rewrite_batching do
+    test "bucket rewrite batching: #{name}" do
+      migration = shipped(39)
+      [{table, count} | _] = shipped_rewrites(migration)
+      partitions = unquote(Macro.escape(partitions))
 
-    rewrites = Enum.filter(state(agent).sent, &match?({:rewrite, ^table, _batch}, &1))
+      agent =
+        start_bucket_warehouse(%{
+          buckets: %{table => Map.new(partitions, fn {partition, _, _} -> {partition, 8} end)},
+          sizes: Map.new(partitions, fn {partition, size, _} -> {partition, size} end),
+          rows: Map.new(partitions, fn {partition, _, rows} -> {partition, rows} end)
+        })
 
-    assert rewrites == [
-             {:rewrite, table, ["p20260101", "p20260102"]},
-             {:rewrite, table, ["p20260103"]},
-             {:rewrite, table, ["p20260104"]},
-             {:rewrite, table, ["p20260105"]}
-           ]
+      assert migrate(agent, query: bucket_query(agent), migrations: [migration]) == {:ok, [39]}
 
-    assert state(agent).buckets[table] |> Map.values() |> Enum.uniq() == [count]
+      rewrites = for {:rewrite, ^table, batch} <- state(agent).sent, do: batch
+      assert rewrites == unquote(jobs)
+      assert state(agent).buckets[table] |> Map.values() |> Enum.uniq() == [count]
+    end
   end
 
   test "partitions StarRocks will not rewrite are reported and skipped, never failing the migration" do
