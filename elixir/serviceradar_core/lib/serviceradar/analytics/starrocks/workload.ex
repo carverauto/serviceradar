@@ -27,15 +27,14 @@ defmodule ServiceRadar.Analytics.StarRocks.Workload do
   `:interactive`). `ServiceRadar.Analytics.StarRocks.MySQL` pins every pooled
   session to that group with `SET resource_group` when it connects. A group
   that does not exist yet is not an error: StarRocks then classifies the query
-  as before, into `default_wg`.
+  as before, into `default_wg`, and `Workload.Pinner` pins the pool once the
+  group appears.
 
   `ensure/1` creates the groups, or converges their limits to the values here
   when they exist. `SchemaMigrator` runs it after the versioned DDL, under the
-  same lock, on every start, then reconnects the pool so sessions opened
-  before the groups existed are pinned too. It is best effort: a warehouse
-  user without the privilege to manage resource groups keeps working,
-  unisolated, and the failure is logged rather than blocking later
-  migrations.
+  same lock, on every start. It is best effort: a warehouse user without the
+  privilege to manage resource groups keeps working, unisolated, and the
+  failure is logged rather than blocking later migrations.
 
   ## Sizing
 
@@ -52,7 +51,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Workload do
   core count, so the weights are derived from the smallest live node.
   """
 
-  require Logger
+  alias ServiceRadar.Analytics.StarRocks.Workload.Pinner
 
   @type workload :: :interactive | :background
 
@@ -86,22 +85,25 @@ defmodule ServiceRadar.Analytics.StarRocks.Workload do
 
   @doc """
   Pins a freshly connected session to `group`. Used as the pool's
-  `after_connect`; a failure is logged and leaves the session in the group
-  StarRocks would have classified it into anyway.
+  `after_connect`, so it never fails the connection: a session that cannot be
+  pinned stays in the group StarRocks would have classified it into anyway,
+  and is reported to `Workload.Pinner`, which pins it once the group exists.
   """
   @spec pin_session(term(), String.t(), (term(), String.t() -> {:ok, term()} | {:error, term()})) ::
           :ok
   def pin_session(conn, group, query \\ &text_query/2) do
+    with {:error, reason} <- pin(conn, group, query) do
+      Pinner.session_unpinned(reason)
+    end
+  end
+
+  @doc "Runs the session's statements in `group` from now on."
+  @spec pin(term(), String.t(), (term(), String.t() -> {:ok, term()} | {:error, term()})) ::
+          :ok | {:error, term()}
+  def pin(conn, group, query) do
     case query.(conn, "SET resource_group = '#{group}'") do
-      {:ok, _result} ->
-        :ok
-
-      {:error, reason} ->
-        Logger.warning("StarRocks session not pinned to resource group #{group}",
-          reason: inspect(reason)
-        )
-
-        :ok
+      {:ok, _result} -> :ok
+      {:error, reason} -> {:error, reason}
     end
   end
 

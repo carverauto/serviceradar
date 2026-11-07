@@ -69,6 +69,8 @@ defmodule ServiceRadar.Application do
         repo_child(),
         control_repo_child(),
         starrocks_schema_migrator_child(),
+        # Before the pool, so the sessions it opens can report a failed pin.
+        starrocks_workload_pinner_child(),
         starrocks_mysql_child(),
         starrocks_rollup_freshness_cache_child(),
         ServiceRadar.Analytics.StarRocks.LoadSupervisor,
@@ -265,6 +267,12 @@ defmodule ServiceRadar.Application do
   defp starrocks_schema_migrator_child do
     if repo_enabled?() do
       ServiceRadar.Analytics.StarRocks.SchemaMigrator.child_spec([])
+    end
+  end
+
+  defp starrocks_workload_pinner_child do
+    if ServiceRadar.Analytics.StarRocks.Env.config()[:enabled] do
+      ServiceRadar.Analytics.StarRocks.Workload.Pinner
     end
   end
 

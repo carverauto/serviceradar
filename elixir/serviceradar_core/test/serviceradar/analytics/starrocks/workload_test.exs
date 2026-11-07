@@ -5,6 +5,7 @@ defmodule ServiceRadar.Analytics.StarRocks.WorkloadTest do
 
   alias ServiceRadar.Analytics.StarRocks.MySQL
   alias ServiceRadar.Analytics.StarRocks.Workload
+  alias ServiceRadar.Analytics.StarRocks.Workload.Pinner
 
   @moduletag :db_free
 
@@ -111,16 +112,80 @@ defmodule ServiceRadar.Analytics.StarRocks.WorkloadTest do
       assert connect_statements() == "SET resource_group = 'sr_interactive'"
     end
 
-    test "a session that cannot be pinned still connects" do
+    # A warehouse whose resource groups an operator (or another replica's
+    # migrator) creates at some point. It answers SET resource_group the way
+    # StarRocks does -- an error until the group exists -- and records the
+    # group each session ends up in.
+    defp start_groupless_warehouse do
+      start_supervised!({Agent, fn -> %{groups: MapSet.new(), sessions: %{}} end})
+    end
+
+    defp session_query(warehouse) do
+      fn session, "SET resource_group = '" <> quoted ->
+        group = String.trim_trailing(quoted, "'")
+
+        Agent.get_and_update(warehouse, fn state ->
+          if MapSet.member?(state.groups, group) do
+            {{:ok, %{}}, put_in(state, [:sessions, session], group)}
+          else
+            {{:error, {:starrocks_mysql, "resource group not exists: #{group}"}}, state}
+          end
+        end)
+      end
+    end
+
+    defp flush_probes do
+      receive do
+        {:probed, _} -> flush_probes()
+      after
+        0 -> :ok
+      end
+    end
+
+    test "a session opened before its group exists is pinned once the group is created" do
       Application.delete_env(:serviceradar_core, Workload)
+      warehouse = start_groupless_warehouse()
+      query = session_query(warehouse)
+      parent = self()
+
+      # The pool's after_connect, run the way DBConnection runs it -- on the
+      # first connect and again on every reconnect.
+      {module, function, args} = MySQL.connection_opts([])[:after_connect]
+      connect = fn session -> apply(module, function, [session | args] ++ [query]) end
 
       log =
         capture_log(fn ->
-          assert connect_statements({:error, :unknown_variable}) ==
-                   "SET resource_group = 'sr_background'"
+          start_supervised!(
+            {Pinner,
+             probe_interval_ms: 5,
+             probe: fn group ->
+               result = Workload.pin(:probed_session, group, query)
+               send(parent, {:probed, result})
+               result
+             end,
+             repin: fn ->
+               connect.(:pooled_session)
+               send(parent, :repinned)
+             end}
+          )
+
+          assert connect.(:pooled_session) == :ok
+          assert_receive {:probed, {:error, _}}
+          assert_receive {:probed, {:error, _}}
+          assert Agent.get(warehouse, & &1.sessions) == %{}
+
+          Agent.update(warehouse, &%{&1 | groups: MapSet.put(&1.groups, "sr_background")})
+
+          assert_receive :repinned
+          # Pinned: the probing stops.
+          flush_probes()
+          refute_receive {:probed, _}, 50
         end)
 
-      assert log =~ "not pinned to resource group sr_background"
+      assert Agent.get(warehouse, & &1.sessions[:pooled_session]) == "sr_background"
+
+      assert [_once] =
+               Regex.scan(~r/not pinned to resource group sr_background/, log)
     end
   end
 end

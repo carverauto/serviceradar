@@ -28,7 +28,8 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
 
   After the versioned DDL, the interactive and background resource groups are
   converged to the limits `Workload` ships, on every start. A failure there is
-  logged and does not fail the migration.
+  logged and does not fail the migration. Pooled sessions opened before the
+  groups existed are pinned by `Workload.Pinner` on every node, not here.
 
   The advisory lock is a PostgreSQL transaction, and a connection that drops
   releases it while this process carries on. So the lock is checked, with a
@@ -154,8 +155,7 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
           migrations: Keyword.get_lazy(opts, :migrations, &Schema.migrations/0),
           sleep: Keyword.get(opts, :sleep, &Process.sleep/1),
           retention_days: Keyword.get_lazy(opts, :retention_days, &Retention.days_by_table/0),
-          workload_groups: Keyword.get(opts, :workload_groups, &Workload.ensure/1),
-          repin_sessions: Keyword.get(opts, :repin_sessions, &MySQL.repin_sessions/0)
+          workload_groups: Keyword.get(opts, :workload_groups, &Workload.ensure/1)
         }
 
         with {:ok, replication_num} <- replication_num(query) do
@@ -262,15 +262,11 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
   defp converge_workload_groups(state) do
     state.still_locked.()
 
-    case state.workload_groups.(state.query) do
-      :ok ->
-        state.repin_sessions.()
-
-      {:error, reason} ->
-        Logger.warning(
-          "StarRocks resource groups not applied; interactive and background " <>
-            "queries share default_wg: #{inspect(reason)}"
-        )
+    with {:error, reason} <- state.workload_groups.(state.query) do
+      Logger.warning(
+        "StarRocks resource groups not applied; interactive and background " <>
+          "queries share default_wg: #{inspect(reason)}"
+      )
     end
   end
 

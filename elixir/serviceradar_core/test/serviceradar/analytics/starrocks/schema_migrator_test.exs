@@ -95,8 +95,7 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
       migrations: @migrations,
       database: "serviceradar",
       sleep: fn _ms -> :ok end,
-      workload_groups: fn _query -> :ok end,
-      repin_sessions: fn -> :ok end
+      workload_groups: fn _query -> :ok end
     ]
     |> Keyword.merge(opts)
     |> SchemaMigrator.migrate()
@@ -227,25 +226,6 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
              migrate(failing,
                workload_groups: fn _ -> flunk("groups before a complete schema") end
              )
-  end
-
-  test "pooled sessions are re-pinned once the resource groups exist, and only then" do
-    parent = self()
-    repin = fn -> send(parent, :repinned) end
-
-    assert migrate(start_warehouse(), workload_groups: fn _ -> :ok end, repin_sessions: repin) ==
-             {:ok, [1, 2, 3]}
-
-    assert_received :repinned
-
-    ExUnit.CaptureLog.capture_log(fn ->
-      assert migrate(start_warehouse(),
-               workload_groups: fn _ -> {:error, :no_live_starrocks_node} end,
-               repin_sessions: repin
-             ) == {:ok, [1, 2, 3]}
-    end)
-
-    refute_received :repinned
   end
 
   test "run gives up after its attempts without crashing the supervisor" do
