@@ -741,7 +741,7 @@ fields is rejected. Not a time-series entity; `time:` filters on `updated_at`.
 | `device_uid` | `device_id`, `uid` | Owning device |
 | `availability_status` | `availability`, `status` | e.g. `available`, `unavailable` |
 | `assigned_agent_id` | `agent_id` | Agent that pulls the stream |
-| `assigned_gateway_id` | `gateway_id` | Gateway on the relay path |
+| `assigned_gateway_id` | `gateway_id` | Last known gateway on the relay path; a hint, since opening a relay resolves the agent's live gateway |
 | `last_event_type` | | Type of the camera's last event |
 | `viewable` | `relay_eligible`, `has_viewable_profile` | `true` for cameras with at least one relay-eligible profile |
 
