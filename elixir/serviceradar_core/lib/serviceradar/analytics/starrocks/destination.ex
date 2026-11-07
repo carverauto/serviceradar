@@ -39,32 +39,21 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
   call does, so the batch keeps a single ACK decision. A batch within both
   limits is one load, labelled exactly as before; a split load's label is still
   derived from its own rows (or suffixed from a caller-supplied label), so a
-  retry of the same batch reuses the same labels unless replacing rows by id.
+  retry of the same batch reuses the same labels.
   Primary-key tables upsert
   retries even when rows regroup into different loads. Exposure history is
   append-only: regrouped retries can append the same transition again.
 
-  ## Replacing rows by id
-
-  The warehouse keys `events` on `(id, time)`. A producer that keeps one row per
-  id and moves its time forward -- Trivy, which replaces a report's event on
-  every rescan -- passes `replace: %{ids: ids, log_provider: provider}`: before
-  loading, rows with those ids and that `log_provider` are deleted except for
-  incoming `(id, time)` keys, which are upserted by the load.
-  The delete runs only when the load does, and
-  a failed delete fails the call without loading, so a redelivery repeats both.
-  Each replacement call uses a fresh load label, overriding any supplied label;
-  retries within that call reuse it. Split loads suffix that label per chunk.
-  Callers serialise concurrent replaces of the same ids themselves.
+  Loads only append or upsert by primary key; nothing here deletes from a
+  telemetry table. A producer whose state changes (Trivy reports) appends an
+  event per change and keeps the current state in CNPG.
   """
 
   alias ServiceRadar.Analytics.StarRocks
   alias ServiceRadar.Analytics.StarRocks.Attribution
   alias ServiceRadar.Analytics.StarRocks.Env
-  alias ServiceRadar.Analytics.StarRocks.MySQL
   alias ServiceRadar.Analytics.StarRocks.Readers
   alias ServiceRadar.Analytics.StarRocks.Rows
-  alias ServiceRadar.Analytics.StarRocks.Schema
   alias ServiceRadar.Analytics.StarRocks.StreamLoad
 
   require Logger
@@ -196,108 +185,12 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
     chunks = split_loads(encoded, limits)
     emit_batch_telemetry(dataset, table, chunks)
 
-    with :ok <- replace_ids(dataset, table, encoded, persist_opts[:config], opts) do
-      persist_opts =
-        if is_nil(opts[:replace]),
-          do: persist_opts,
-          else: Keyword.put(persist_opts, :label, "sr-replace-#{Ecto.UUID.generate()}")
+    case chunks do
+      [{rows, body, _bytes}] ->
+        load_chunk(persist, dataset, table, rows, Keyword.put(persist_opts, :body, body))
 
-      case chunks do
-        [{rows, body, _bytes}] ->
-          load_chunk(persist, dataset, table, rows, Keyword.put(persist_opts, :body, body))
-
-        chunks ->
-          load_chunks(persist, dataset, table, chunks, persist_opts, limits[:max_in_flight])
-      end
-    end
-  end
-
-  @replace_chunk 500
-  @provider_pattern ~r/^[a-z0-9_.-]+$/
-
-  defp replace_ids(dataset, table, encoded, config, opts) do
-    case Keyword.get(opts, :replace) do
-      nil ->
-        :ok
-
-      %{ids: ids, log_provider: provider} when dataset == :events ->
-        delete = Keyword.get(opts, :delete, &MySQL.query/1)
-
-        with {:ok, database} <- replace_database(config),
-             {:ok, provider} <- replace_provider(provider),
-             {:ok, ids} <- canonical_ids(ids),
-             {:ok, keys} <- replacement_keys(encoded) do
-          ids
-          |> Enum.chunk_every(@replace_chunk)
-          |> Enum.reduce_while(:ok, fn chunk, :ok ->
-            sql =
-              "DELETE FROM #{database}.#{table} WHERE log_provider = '#{provider}' " <>
-                "AND id IN (#{Enum.map_join(chunk, ", ", &"'#{&1}'")})" <>
-                preserve_keys(keys, chunk)
-
-            case delete.(sql) do
-              {:ok, _result} -> {:cont, :ok}
-              {:error, reason} -> {:halt, {:error, {:replace_failed, reason}}}
-            end
-          end)
-        end
-
-      other ->
-        raise ArgumentError, "unsupported replace for #{inspect(dataset)}: #{inspect(other)}"
-    end
-  end
-
-  defp replacement_keys(rows) do
-    Enum.reduce_while(rows, {:ok, []}, fn row, {:ok, keys} ->
-      with {:ok, id} <- Ecto.UUID.cast(row["id"]),
-           time when is_binary(time) <- row["time"],
-           {:ok, time} <- NaiveDateTime.from_iso8601(time) do
-        {:cont, {:ok, [{id, NaiveDateTime.to_string(time)} | keys]}}
-      else
-        _ -> {:halt, {:error, :invalid_replace_key}}
-      end
-    end)
-  end
-
-  defp preserve_keys(keys, ids) do
-    predicates =
-      keys
-      |> Enum.filter(fn {id, _time} -> id in ids end)
-      |> Enum.uniq()
-      |> Enum.map_join(" OR ", fn {id, time} -> "(id = '#{id}' AND time = '#{time}')" end)
-
-    if predicates == "", do: "", else: " AND NOT (#{predicates})"
-  end
-
-  defp replace_database(%{database: database}) when is_binary(database) do
-    if Schema.valid_database?(database),
-      do: {:ok, database},
-      else: {:error, {:invalid_database, database}}
-  end
-
-  defp replace_database(_config), do: {:error, :no_database}
-
-  defp replace_provider(provider) when is_binary(provider) do
-    if Regex.match?(@provider_pattern, provider),
-      do: {:ok, provider},
-      else: {:error, {:invalid_log_provider, provider}}
-  end
-
-  defp replace_provider(provider), do: {:error, {:invalid_log_provider, provider}}
-
-  # Ids are interpolated into SQL text (the FE client speaks the text protocol),
-  # so each is re-rendered from a cast UUID and nothing else reaches the query.
-  defp canonical_ids(ids) do
-    ids
-    |> Enum.reduce_while({:ok, []}, fn id, {:ok, acc} ->
-      case Ecto.UUID.cast(id) do
-        {:ok, uuid} -> {:cont, {:ok, [uuid | acc]}}
-        :error -> {:halt, {:error, {:invalid_replace_id, id}}}
-      end
-    end)
-    |> case do
-      {:ok, uuids} -> {:ok, uuids |> Enum.reverse() |> Enum.uniq()}
-      error -> error
+      chunks ->
+        load_chunks(persist, dataset, table, chunks, persist_opts, limits[:max_in_flight])
     end
   end
 

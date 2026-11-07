@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS serviceradar.timeseries_metrics (
 )
 PRIMARY KEY (`timestamp`, gateway_id, series_key)
 PARTITION BY date_trunc('day', `timestamp`)
-DISTRIBUTED BY HASH(series_key) BUCKETS 16
+DISTRIBUTED BY HASH(series_key) BUCKETS 4
 PROPERTIES (
   "replication_num" = "3",
   "enable_persistent_index" = "true",

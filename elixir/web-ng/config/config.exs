@@ -108,6 +108,11 @@ config :serviceradar_core, Oban,
   ],
   peer: {Oban.Peers.Database, []}
 
+# Web-ng serves the interactive warehouse reads (LiveViews, SRQL, API, MCP), so
+# its StarRocks sessions run in the interactive resource group, apart from the
+# background work core sends. See ServiceRadar.Analytics.StarRocks.Workload.
+config :serviceradar_core, ServiceRadar.Analytics.StarRocks.Workload, workload: :interactive
+
 # Configure the shared repo from serviceradar_core
 # Ash manages all migrations in serviceradar_core/priv/repo/migrations/
 config :serviceradar_core, ServiceRadar.Repo, migration_source: "ash_schema_migrations"

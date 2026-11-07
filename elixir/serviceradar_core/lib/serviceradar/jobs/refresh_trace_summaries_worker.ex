@@ -315,6 +315,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   # Delay before the trailing refresh, so it coalesces the batches that
   # arrive right behind a run.
   @trailing_refresh_delay_seconds 1
+  @default_warehouse_refresh_interval_seconds 60
   @default_cleanup_batch_size 5_000
   @default_cleanup_time_budget_ms 10_000
   @default_retention_days 3
@@ -639,14 +640,29 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   end
 
   @doc """
-  Warehouse refreshes coalesce for 10 seconds by default. This is a minimum
-  interval after the last watermark write, checked under the advisory lock;
-  enqueue/completion races, cron and operator jobs cannot bypass it. Ingest
-  freshness is this interval plus queue/query time. The two-minute cron remains
-  the repair bound for a commit racing the trailing probe. CNPG stays immediate.
+  Warehouse refreshes coalesce for #{@default_warehouse_refresh_interval_seconds} seconds by
+  default. This is a minimum interval after the last watermark write, checked
+  under the advisory lock; enqueue/completion races, cron and operator jobs
+  cannot bypass it. Ingest freshness is this interval plus queue/query time.
+  The two-minute cron remains the repair bound for a commit racing the trailing
+  probe. CNPG stays immediate.
+
+  Every run re-reads the #{@watermark_overlap_seconds}-second watermark overlap
+  and re-summarizes each trace in it over its whole day of spans, so the
+  interval sets how often that fixed cost is paid: under steady ingest the
+  worker runs once per interval, around the clock. At 10 seconds it ran about
+  5,000 times a day on a measured deployment, the largest background statement
+  there by scan and memory; at 60 it runs at most 1,440 times, and a new trace
+  reaches the list within about a minute.
   """
   def refresh_interval_seconds do
-    if warehouse?(), do: config_positive_integer(:warehouse_refresh_interval_seconds, 10), else: 0
+    if warehouse?(),
+      do:
+        config_positive_integer(
+          :warehouse_refresh_interval_seconds,
+          @default_warehouse_refresh_interval_seconds
+        ),
+      else: 0
   end
 
   defp refresh_when_due do

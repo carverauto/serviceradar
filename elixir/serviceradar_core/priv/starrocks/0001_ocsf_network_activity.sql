@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS serviceradar.ocsf_network_activity (
 )
 PRIMARY KEY (id, `time`)
 PARTITION BY date_trunc('day', `time`)
-DISTRIBUTED BY HASH(id) BUCKETS 16
+DISTRIBUTED BY HASH(id) BUCKETS 2
 ORDER BY (`time`, id)
 PROPERTIES (
   "replication_num" = "3",

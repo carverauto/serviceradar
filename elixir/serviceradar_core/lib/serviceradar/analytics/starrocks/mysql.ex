@@ -6,9 +6,14 @@ defmodule ServiceRadar.Analytics.StarRocks.MySQL do
   loader reads use this pool so they do not pay JSON HTTP per query. Queries
   are submitted as text protocol statements: SRQL already emits full SQL, and
   StarRocks prepared-statement support is narrower than MySQL's.
+
+  Each connection is pinned to the node's resource group when it opens
+  (`ServiceRadar.Analytics.StarRocks.Workload`), so web-ng's interactive reads
+  and core's background work are isolated from each other.
   """
 
   alias ServiceRadar.Analytics.StarRocks.Env
+  alias ServiceRadar.Analytics.StarRocks.Workload
 
   @pool __MODULE__
   @query_timeout_ms 15_000
@@ -48,6 +53,17 @@ defmodule ServiceRadar.Analytics.StarRocks.MySQL do
     end
   end
 
+  @doc """
+  Reconnects every pooled session, so each is pinned again by `after_connect`.
+  Sessions opened before the resource groups existed stay in `default_wg`
+  until this runs.
+  """
+  @spec repin_sessions() :: :ok
+  def repin_sessions do
+    if Process.whereis(@pool), do: DBConnection.disconnect_all(@pool, 0)
+    :ok
+  end
+
   @spec connection_opts(keyword()) :: keyword()
   def connection_opts(config) when is_list(config) do
     [
@@ -62,7 +78,9 @@ defmodule ServiceRadar.Analytics.StarRocks.MySQL do
       cache_size: 0,
       pool_size: Keyword.get(config, :mysql_pool_size, 8),
       timeout: @query_timeout_ms,
-      connect_timeout: 3_000
+      connect_timeout: 3_000,
+      # Every session runs in this node's resource group (Workload).
+      after_connect: {Workload, :pin_session, [Workload.resource_group(Workload.current())]}
     ]
   end
 

@@ -16,6 +16,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Schema do
   @file_pattern ~r/^(\d{4})_([a-z0-9_]+)\.sql$/
   @database_pattern ~r/^[A-Za-z_][A-Za-z0-9_]*$/
   @add_column_pattern ~r/^ALTER\s+TABLE\s+(\S+)\s+ADD\s+COLUMN\s+`?([A-Za-z_][A-Za-z0-9_]*)`?\s/i
+  @redistribute_pattern ~r/^ALTER\s+TABLE\s+(\S+)\s+DISTRIBUTED\s+BY\s+HASH\s*\([^)]*\)\s+(DEFAULT\s+)?BUCKETS\s+(\d+)\s*$/i
   @modify_column_pattern ~r/^ALTER\s+TABLE\s+(\S+)\s+MODIFY\s+COLUMN\s+`?([A-Za-z_][A-Za-z0-9_]*)`?\s+([A-Za-z]+(?:\(\d+\))?)/i
 
   @paths @dir |> Path.join("*.sql") |> Path.wildcard() |> Enum.sort()
@@ -147,6 +148,28 @@ defmodule ServiceRadar.Analytics.StarRocks.Schema do
     case Regex.run(@modify_column_pattern, statement) do
       [_, table, column, type] ->
         {:ok, {table |> String.split(".") |> List.last(), column, String.downcase(type)}}
+
+      nil ->
+        :error
+    end
+  end
+
+  @doc """
+  Recognises a bucket-count change, `ALTER TABLE t DISTRIBUTED BY HASH(...)
+  [DEFAULT] BUCKETS n`.
+
+  With DEFAULT it sets only the count new partitions are created with, at
+  once. Without it, it is StarRocks' optimize job, which rewrites the existing
+  partitions in the background; the migrator skips it when nothing would
+  change and waits for it to finish.
+  """
+  @spec redistribute(String.t()) ::
+          {:ok, {String.t(), pos_integer(), :default | :rewrite}} | :error
+  def redistribute(statement) when is_binary(statement) do
+    case Regex.run(@redistribute_pattern, statement) do
+      [_, table, default, buckets] ->
+        kind = if default == "", do: :rewrite, else: :default
+        {:ok, {table |> String.split(".") |> List.last(), String.to_integer(buckets), kind}}
 
       nil ->
         :error

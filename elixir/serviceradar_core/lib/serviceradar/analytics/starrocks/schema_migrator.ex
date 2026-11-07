@@ -9,8 +9,14 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
 
   A warehouse that predates the ledger is adopted rather than rejected: CREATEs
   are `IF NOT EXISTS`, the rollup rebuild drops before it creates, and an
-  `ADD COLUMN` whose column is already there, or a `MODIFY COLUMN` whose
-  column already has the target type, is skipped. The same property
+  `ADD COLUMN` whose column is already there, a `MODIFY COLUMN` whose
+  column already has the target type, or a bucket rewrite
+  (`DISTRIBUTED BY ... BUCKETS n`) whose partitions all have n buckets, is
+  skipped. A bucket rewrite runs optimize jobs over size-bounded batches of
+  the partitions that still have another count, oldest first, waiting out any
+  optimize already on the table and then each of its own until FINISHED. A partition StarRocks will
+  not rewrite is reported (an error log and a `rewrite_skipped` telemetry
+  event) and left to age out, so it cannot hold back later migrations. The same property
   makes a migration that failed half way safe to run again, which is the only
   recovery a failed migration needs. A new statement kind that cannot be
   repeated needs a guard here before it ships.
@@ -19,6 +25,10 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
   daily partitioning has to be rebuilt beside itself and swapped in, which
   `PartitionRebuild` does ahead of the first migration that needs partitioned
   tables (0017's rollups). Migrations before that one are not held up by it.
+
+  After the versioned DDL, the interactive and background resource groups are
+  converged to the limits `Workload` ships, on every start. A failure there is
+  logged and does not fail the migration.
 
   The advisory lock is a PostgreSQL transaction, and a connection that drops
   releases it while this process carries on. So the lock is checked, with a
@@ -35,6 +45,7 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
   alias ServiceRadar.Analytics.StarRocks.PartitionRebuild
   alias ServiceRadar.Analytics.StarRocks.Retention
   alias ServiceRadar.Analytics.StarRocks.Schema
+  alias ServiceRadar.Analytics.StarRocks.Workload
 
   require Logger
 
@@ -54,6 +65,18 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
   @memory_exhausted_delay_ms 600_000
   @alter_poll_ms 1_000
   @alter_poll_attempts 600
+  # A bucket rewrite runs optimize jobs over batches of partitions. A job takes
+  # tens of seconds even for a small batch, so it is polled every two seconds,
+  # for as long as the DDL client waits for any statement (@ddl_timeout_ms).
+  @optimize_poll_ms 2_000
+  # A job rewrites its partitions in parallel, so its memory follows the data
+  # it rewrites (about 4x on a measured 3.5 backend). Batches are cut at this
+  # much stored data, or this many partitions; a partition larger than the
+  # budget, or whose size StarRocks has not reported yet, goes alone. Small
+  # tables then take one job, and a large table's history one day at a time.
+  @rewrite_batch_bytes 134_217_728
+  @rewrite_batch_partitions 32
+  @optimize_poll_attempts div(@ddl_timeout_ms, @optimize_poll_ms)
   @max_replication 3
 
   @spec child_spec(term()) :: Supervisor.child_spec() | nil
@@ -130,7 +153,9 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
           database: database,
           migrations: Keyword.get_lazy(opts, :migrations, &Schema.migrations/0),
           sleep: Keyword.get(opts, :sleep, &Process.sleep/1),
-          retention_days: Keyword.get_lazy(opts, :retention_days, &Retention.days_by_table/0)
+          retention_days: Keyword.get_lazy(opts, :retention_days, &Retention.days_by_table/0),
+          workload_groups: Keyword.get(opts, :workload_groups, &Workload.ensure/1),
+          repin_sessions: Keyword.get(opts, :repin_sessions, &MySQL.repin_sessions/0)
         }
 
         with {:ok, replication_num} <- replication_num(query) do
@@ -139,7 +164,12 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
 
           try do
             with_lock.(fn still_locked ->
-              apply_pending(Map.put(state, :still_locked, still_locked))
+              state = Map.put(state, :still_locked, still_locked)
+
+              with {:ok, _applied} = applied <- apply_pending(state) do
+                converge_workload_groups(state)
+                applied
+              end
             end)
           rescue
             # A connection that drops under an hours-long transaction raises,
@@ -222,6 +252,25 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
     case result do
       {:ok, value} -> value
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # Resource groups are cluster settings, not versioned schema: they converge
+  # to the values Workload ships on every start, so a later release can resize
+  # them. Best effort, because isolation is an optimisation -- a warehouse user
+  # that may not manage resource groups must not stop the schema migrating.
+  defp converge_workload_groups(state) do
+    state.still_locked.()
+
+    case state.workload_groups.(state.query) do
+      :ok ->
+        state.repin_sessions.()
+
+      {:error, reason} ->
+        Logger.warning(
+          "StarRocks resource groups not applied; interactive and background " <>
+            "queries share default_wg: #{inspect(reason)}"
+        )
     end
   end
 
@@ -337,11 +386,192 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
 
   defp execute(state, statement) do
     with :error <- Schema.add_column(statement),
-         :error <- Schema.modify_column(statement) do
+         :error <- Schema.modify_column(statement),
+         :error <- Schema.redistribute(statement) do
       run_statement(state, statement)
     else
-      {:ok, {table, column}} -> add_column(state, statement, table, column)
-      {:ok, {table, column, type}} -> modify_column(state, statement, table, column, type)
+      {:ok, {table, column}} ->
+        add_column(state, statement, table, column)
+
+      {:ok, {table, buckets, kind}} when is_integer(buckets) ->
+        redistribute(state, statement, table, buckets, kind)
+
+      {:ok, {table, column, type}} ->
+        modify_column(state, statement, table, column, type)
+    end
+  end
+
+  # A new default bucket count is metadata and takes effect at once, but
+  # StarRocks refuses it while an optimize job holds the table.
+  defp redistribute(state, statement, table, _buckets, :default) do
+    with :ok <- poll_alter(state, table, :previous, :optimize) do
+      run_statement(state, statement)
+    end
+  end
+
+  # A rewrite is StarRocks' optimize job, run over batches of the partitions
+  # that still have another count, oldest first, each batch held to
+  # @rewrite_batch_bytes of data: a whole-table optimize rewrites every
+  # partition at once, which a compute node with little headroom cannot absorb
+  # for the largest tables. A fresh install, or a resumed run, finds nothing
+  # pending for what is already rewritten.
+  #
+  # The rewrite only shrinks history: the DEFAULT statement before it already
+  # gives every new day the new count, and an old partition ages out with
+  # retention. So partitions StarRocks will not rewrite (their job CANCELLED,
+  # or the ALTER refused) are reported and skipped rather than failing the
+  # migration, which would otherwise be retried forever and hold back every
+  # later one. A lost connection or a node out of memory still fails it, to be
+  # resumed.
+  defp redistribute(state, statement, table, buckets, :rewrite) do
+    with :ok <- poll_alter(state, table, :previous, :column),
+         :ok <- poll_alter(state, table, :previous, :optimize),
+         {:ok, partitions} <- partition_buckets(state, table) do
+      pending = for {name, count, size} <- partitions, count != buckets, do: {name, size}
+
+      pending
+      |> rewrite_batches()
+      |> Enum.reduce_while({:ok, []}, fn batch, {:ok, skipped} ->
+        case rewrite_batch(state, statement, table, batch) do
+          :ok -> {:cont, {:ok, skipped}}
+          {:skipped, reason} -> {:cont, {:ok, Enum.map(batch, &{&1, reason}) ++ skipped}}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+      end)
+      |> report_rewrite(table, buckets, length(pending))
+    end
+  end
+
+  defp rewrite_batches(pending) do
+    Enum.chunk_while(
+      pending,
+      {[], 0},
+      fn {name, size}, {batch, bytes} ->
+        size = if is_integer(size), do: size, else: @rewrite_batch_bytes
+
+        if batch != [] and
+             (bytes + size > @rewrite_batch_bytes or length(batch) >= @rewrite_batch_partitions) do
+          {:cont, Enum.reverse(batch), {[name], size}}
+        else
+          {:cont, {[name | batch], bytes + size}}
+        end
+      end,
+      fn
+        {[], _bytes} -> {:cont, []}
+        {batch, _bytes} -> {:cont, Enum.reverse(batch), []}
+      end
+    )
+  end
+
+  defp rewrite_batch(state, statement, table, batch) do
+    state.still_locked.()
+    names = Enum.map_join(batch, ", ", &"`#{&1}`")
+
+    sql =
+      String.replace(statement, ~r/^(ALTER\s+TABLE\s+\S+)\s+/i, "\\1 PARTITIONS (#{names}) ",
+        global: false
+      )
+
+    case run_statement(state, sql) do
+      :ok ->
+        case poll_alter(state, table, :own, :optimize) do
+          :ok -> :ok
+          {:error, {:alter_cancelled, _table}} -> {:skipped, :cancelled}
+          {:error, reason} -> {:error, reason}
+        end
+
+      {:error, {:starrocks_mysql, message} = reason} ->
+        if retryable?(reason), do: {:error, reason}, else: {:skipped, {:refused, message}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp retryable?({:starrocks_mysql, message} = reason) do
+    memory_exhausted?(reason) or message =~ ~r/lost connection|server has gone away/i
+  end
+
+  defp report_rewrite({:ok, []}, _table, _buckets, _pending), do: :ok
+
+  defp report_rewrite({:ok, skipped}, table, buckets, pending) do
+    :telemetry.execute(
+      [:serviceradar, :starrocks, :schema_migrator, :rewrite_skipped],
+      %{partitions: length(skipped), pending: pending},
+      %{table: table, buckets: buckets}
+    )
+
+    Logger.error(
+      "StarRocks kept the old bucket count on #{length(skipped)} of #{pending} " <>
+        "partitions of #{table}; new partitions use #{buckets} buckets and these age out " <>
+        "with retention, or rewrite them with " <>
+        "ALTER TABLE #{table} PARTITIONS (...) DISTRIBUTED BY ... BUCKETS #{buckets}: " <>
+        inspect(Enum.reverse(skipped))
+    )
+
+    :ok
+  end
+
+  defp report_rewrite({:error, _reason} = error, _table, _buckets, _pending), do: error
+
+  # Partitions with their bucket count and stored bytes, oldest first. The
+  # automatic partitioning placeholder holds no rows and is left alone.
+  defp partition_buckets(state, table) do
+    sql =
+      "SELECT PARTITION_NAME, BUCKETS, DATA_SIZE FROM information_schema.partitions_meta " <>
+        "WHERE DB_NAME = '#{state.database}' AND TABLE_NAME = '#{table}' " <>
+        "ORDER BY PARTITION_NAME"
+
+    case state.query.(sql) do
+      {:ok, %{rows: rows}} ->
+        partitions =
+          for [name, count, size | _] <- rows,
+              name = to_string(name),
+              not String.starts_with?(name, "$"),
+              do: {name, to_integer(count), data_size(size)}
+
+        {:ok, partitions}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp to_integer(value) when is_integer(value), do: value
+
+  # StarRocks 4.x reports DATA_SIZE in bytes; 3.5 reports text such as
+  # "157MB" or "156.9MB". Anything else is unknown, and an unknown size is
+  # batched as a full budget.
+  @size_units %{"B" => 1, "KB" => 1024, "MB" => 1024 ** 2, "GB" => 1024 ** 3, "TB" => 1024 ** 4}
+
+  defp data_size(size) when is_integer(size), do: size
+
+  defp data_size(size) when is_binary(size) do
+    case Regex.run(~r/^\s*(\d+(?:\.\d+)?)\s*([KMGT]?B)?\s*$/i, size) do
+      [_, amount, unit] ->
+        round(parse_number(amount) * Map.fetch!(@size_units, String.upcase(unit)))
+
+      [_, amount] ->
+        round(parse_number(amount))
+
+      nil ->
+        nil
+    end
+  end
+
+  defp data_size(_size), do: nil
+
+  defp parse_number(text) do
+    {number, ""} = Float.parse(text)
+    number
+  end
+
+  defp to_integer(nil), do: nil
+
+  defp to_integer(value) do
+    case Integer.parse(to_string(value)) do
+      {integer, _} -> integer
+      :error -> nil
     end
   end
 
@@ -410,19 +640,28 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
   # a table while one is still running. Only FINISHED and CANCELLED are final.
   # A shared-data table passes through FINISHED_REWRITING first, and is still
   # mid-change there: an ALTER sent then is refused.
-  defp await_alter(state, table), do: poll_alter(state, table, :own, @alter_poll_attempts)
+  defp await_alter(state, table), do: poll_alter(state, table, :own, :column)
 
   # Before an ALTER, waits out any change still running on the table -- one a
   # runner that lost the lock, or died, left behind. How that one ended is not
   # this runner's concern: a cancelled change left the column as it was, and
   # the probe that follows sees what a finished one did.
-  defp await_quiet(state, table), do: poll_alter(state, table, :previous, @alter_poll_attempts)
+  defp await_quiet(state, table), do: poll_alter(state, table, :previous, :column)
 
-  defp poll_alter(_state, table, _whose, 0), do: {:error, {:alter_not_finished, table}}
+  # Column changes and optimize jobs are listed apart (SHOW ALTER TABLE COLUMN
+  # and SHOW ALTER TABLE OPTIMIZE) with the same State semantics.
+  defp poll_alter(state, table, whose, :column),
+    do: poll_alter(state, table, whose, "COLUMN", @alter_poll_ms, @alter_poll_attempts)
 
-  defp poll_alter(state, table, whose, attempts_left) do
+  defp poll_alter(state, table, whose, :optimize),
+    do: poll_alter(state, table, whose, "OPTIMIZE", @optimize_poll_ms, @optimize_poll_attempts)
+
+  defp poll_alter(_state, table, _whose, _kind, _interval, 0),
+    do: {:error, {:alter_not_finished, table}}
+
+  defp poll_alter(state, table, whose, kind, interval, attempts_left) do
     sql =
-      "SHOW ALTER TABLE COLUMN FROM #{state.database} WHERE TableName = '#{table}' " <>
+      "SHOW ALTER TABLE #{kind} FROM #{state.database} WHERE TableName = '#{table}' " <>
         "ORDER BY CreateTime DESC LIMIT 1"
 
     case alter_state(state.query.(sql)) do
@@ -433,8 +672,8 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
         :ok
 
       {:ok, _running} ->
-        state.sleep.(@alter_poll_ms)
-        poll_alter(state, table, whose, attempts_left - 1)
+        state.sleep.(interval)
+        poll_alter(state, table, whose, kind, interval, attempts_left - 1)
 
       {:error, reason} ->
         {:error, reason}

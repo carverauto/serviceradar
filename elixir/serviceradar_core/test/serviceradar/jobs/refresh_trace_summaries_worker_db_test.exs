@@ -35,7 +35,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorkerDbTest do
     age_watermark_write!(0)
 
     assert {:ok, %Oban.Job{id: id, state: "scheduled", scheduled_at: due}} = request_refresh()
-    assert DateTime.diff(due, DateTime.utc_now()) in 9..10
+    assert DateTime.diff(due, DateTime.utc_now()) in 59..60
 
     for _ <- 1..20 do
       assert {:ok, %Oban.Job{conflict?: true, id: ^id}} = request_refresh()
@@ -55,7 +55,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorkerDbTest do
 
     for _ <- 1..3 do
       assert {:snooze, seconds} = RefreshTraceSummariesWorker.perform(%Oban.Job{})
-      assert seconds in 1..10
+      assert seconds in 50..60
     end
 
     assert SQL.query!(

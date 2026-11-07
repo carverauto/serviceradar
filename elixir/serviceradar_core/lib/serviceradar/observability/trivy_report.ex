@@ -70,6 +70,11 @@ defmodule ServiceRadar.Observability.TrivyReport do
     attribute :report_metadata, :map, allow_nil?: false, public?: true
     attribute :report_payload, :map, allow_nil?: false, public?: true
     attribute :raw_payload, :map, allow_nil?: false, public?: true
+
+    # The promoted state the event log last recorded for this report (severity
+    # and finding count), or nil while the report is below the promotion
+    # threshold. EventWriter emits a finding event only when this changes.
+    attribute :last_promoted_digest, :string, public?: true
     create_timestamp :created_at
     update_timestamp :updated_at
   end

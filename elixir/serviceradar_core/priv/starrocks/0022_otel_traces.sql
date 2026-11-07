@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS serviceradar.otel_traces (
 )
 PRIMARY KEY (trace_id, span_id, `timestamp`)
 PARTITION BY date_trunc('day', `timestamp`)
-DISTRIBUTED BY HASH(trace_id) BUCKETS 8
+DISTRIBUTED BY HASH(trace_id) BUCKETS 2
 ORDER BY (trace_id, `timestamp`)
 PROPERTIES (
   "replication_num" = "3",

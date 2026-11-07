@@ -72,9 +72,10 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshnessTest do
   end
 
   test "a scheduled view fails closed after a stale or failed refresh within the same bucket" do
+    # The hourly flow view refreshes every 300 seconds (0038), plus 90 of slack.
     for metadata <- [
           [["true", "FAILED", 10]],
-          [["true", "SUCCESS", 121]],
+          [["true", "SUCCESS", 391]],
           [["false", "SUCCESS", 5]],
           []
         ] do
@@ -85,6 +86,57 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshnessTest do
       end
 
       refute RollupFreshness.fresh?(:flows, query: query)
+    end
+  end
+
+  # Each view is trusted for its own cadence plus 90 seconds of slack. A gate
+  # stricter than the schedule rejects every view between two refreshes and
+  # sends every rollup read to the raw table; one looser than it serves a view
+  # that has missed a refresh. The cadences are read from the newest
+  # `REFRESH ASYNC EVERY` each view has in the shipped DDL.
+  test "each scheduled view is trusted for exactly its DDL cadence plus slack" do
+    schedules = ddl_refresh_seconds()
+    assert map_size(schedules) == 7
+
+    for {view, cadence} <- schedules do
+      dataset = RollupFreshness.dataset_for_sql("SELECT 1 FROM #{Env.table(view)}")
+      assert dataset, "#{view} is scheduled in the DDL but not gated"
+
+      assert RollupFreshness.fresh?(dataset, query: refreshed_ago(cadence + 90)),
+             "#{view} refreshed within its #{cadence}s cadence must stay on the rollup"
+
+      refute RollupFreshness.fresh?(dataset, query: refreshed_ago(cadence + 91)),
+             "#{view} past its #{cadence}s cadence plus slack must fall back to raw"
+    end
+  end
+
+  defp ddl_refresh_seconds do
+    pattern =
+      ~r/^ALTER\s+MATERIALIZED\s+VIEW\s+serviceradar\.(\w+)\s+REFRESH\s+ASYNC\s+EVERY\s*\(\s*INTERVAL\s+(\d+)\s+(SECOND|MINUTE|HOUR)\s*\)/i
+
+    for migration <- ServiceRadar.Analytics.StarRocks.Schema.migrations(),
+        statement <- migration.statements,
+        [_, view, amount, unit] <- [Regex.run(pattern, statement)],
+        reduce: %{} do
+      acc -> Map.put(acc, view, String.to_integer(amount) * unit_seconds(unit))
+    end
+  end
+
+  defp unit_seconds(unit) do
+    case String.upcase(unit) do
+      "SECOND" -> 1
+      "MINUTE" -> 60
+      "HOUR" -> 3_600
+    end
+  end
+
+  # A view whose last successful refresh started `age` seconds ago and whose
+  # newest bucket matches its source table's.
+  defp refreshed_ago(age) do
+    fn sql ->
+      if String.contains?(sql, "information_schema.materialized_views"),
+        do: result([["true", "SUCCESS", age]]),
+        else: result([[~N[1999-06-15 12:00:00]]])
     end
   end
 

@@ -25,6 +25,37 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaTest do
     end
   end
 
+  # A distribution change the migrator does not recognise would be sent as a
+  # plain statement: an optimize job it never waits for, colliding with the
+  # next ALTER. And a fresh install, whose CREATE already has the count, must
+  # find nothing to rewrite.
+  test "every shipped bucket change is recognised and matches its table's CREATE" do
+    statements = Enum.flat_map(Schema.migrations(), & &1.statements)
+
+    created =
+      for statement <- statements,
+          [_, table, count] <-
+            [
+              Regex.run(
+                ~r/^CREATE TABLE IF NOT EXISTS serviceradar\.(\w+) .*DISTRIBUTED BY HASH\([^)]*\) BUCKETS (\d+)/s,
+                statement
+              )
+            ],
+          reduce: %{} do
+        acc -> Map.put(acc, table, String.to_integer(count))
+      end
+
+    changes = Enum.filter(statements, &(&1 =~ ~r/^ALTER TABLE \S+ DISTRIBUTED BY/))
+    assert changes != []
+
+    for statement <- changes do
+      assert {:ok, {table, count, _kind}} = Schema.redistribute(statement)
+
+      assert created[table] == count,
+             "#{table}: CREATE has #{created[table]} buckets, #{statement}"
+    end
+  end
+
   test "statements drops comment lines and splits on terminators" do
     sql = """
     -- Leading header the Frontend would reject.

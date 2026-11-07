@@ -36,6 +36,13 @@
 # documents, status_code, status_detail, log_version, raw_data, created_at).
 # 0037 widens the free-text events and logs columns to VARCHAR(1048576), so no
 # value is cut or filtered (MODIFY COLUMN; the migrator skips an applied one).
+# 0038 sets each rollup's refresh cadence from its bucket width: 5 minutes for
+# the hourly views, 1 minute for traces_stats_5m (RollupFreshness matches).
+# 0039 right-sizes the telemetry tables' buckets: a new default for new day
+# partitions, then an optimize of the existing ones in size-bounded batches (the
+# migrator skips converged partitions, waits for each job to FINISH, and logs a
+# partition StarRocks will not rewrite). 0040 rebuilds every rollup
+# with one bucket per day, backfilled one day per refresh task.
 # The cnpg_platform JDBC catalog is not here: it is created by
 # helm/serviceradar/templates/starrocks-catalog-job.yaml, and the relations it
 # may expose are owned by ServiceRadar.Analytics.StarRocks.CatalogAllowlist.

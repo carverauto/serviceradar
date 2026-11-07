@@ -60,7 +60,8 @@ defmodule ServiceRadar.EventWriter.Processors.FlowAttributionUpdates do
   def parse_message(_message), do: nil
 
   defp select_monotonic(rows, opts) do
-    lookup = Keyword.get(opts, :version_lookup, &default_stored_versions/1)
+    lookup =
+      Keyword.get(opts, :version_lookup, &default_stored_versions(&1, time_window(rows), opts))
 
     case lookup.(Enum.map(rows, & &1["id"])) do
       {:error, _} = error -> error
@@ -91,9 +92,9 @@ defmodule ServiceRadar.EventWriter.Processors.FlowAttributionUpdates do
     Map.get(stored, id) || Map.get(stored, to_string(id)) || 0
   end
 
-  defp default_stored_versions([]), do: %{}
+  defp default_stored_versions([], _window, _opts), do: %{}
 
-  defp default_stored_versions(ids) do
+  defp default_stored_versions(ids, window, opts) do
     quoted =
       ids
       |> Enum.filter(&(&1 =~ ~r/^[A-Za-z0-9:_-]+$/))
@@ -103,9 +104,10 @@ defmodule ServiceRadar.EventWriter.Processors.FlowAttributionUpdates do
       %{}
     else
       sql =
-        "SELECT id, attribution_version FROM #{Env.table("ocsf_network_activity")} WHERE id IN (#{quoted})"
+        "SELECT id, attribution_version FROM #{Env.table("ocsf_network_activity")} " <>
+          "WHERE id IN (#{quoted})" <> time_predicate(window)
 
-      case Query.execute(sql) do
+      case Query.execute(sql, Keyword.take(opts, [:mysql])) do
         {:ok, %{columns: columns, rows: rows}} ->
           id_idx = Enum.find_index(columns, &(&1 == "id")) || 0
           ver_idx = Enum.find_index(columns, &(&1 == "attribution_version")) || 1
@@ -119,6 +121,56 @@ defmodule ServiceRadar.EventWriter.Processors.FlowAttributionUpdates do
       end
     end
   end
+
+  # The flow table is partitioned by day on `time` and sorted by (`time`, id),
+  # and an update names the exact `time` of the flow it enriches (the partial
+  # update would miss the row otherwise). An `id IN` probe without a time
+  # predicate reads every retained day partition -- on a measured deployment
+  # 0.85 billion rows a day for lookups of a few ids each. Bounding the probe to
+  # the batch's flow times keeps it to their days. The day of margin on each
+  # side covers a time whose text the warehouse reads in another zone; a batch
+  # with any unreadable time falls back to the unbounded probe, never to a
+  # narrower one that could miss a stored version.
+  defp time_window(rows) do
+    rows
+    |> Enum.reduce_while([], fn row, acc ->
+      case parse_time(row["time"]) do
+        {:ok, time} -> {:cont, [time | acc]}
+        :error -> {:halt, :unbounded}
+      end
+    end)
+    |> case do
+      times when is_list(times) and times != [] ->
+        {NaiveDateTime.add(Enum.min(times, NaiveDateTime), -1, :day),
+         NaiveDateTime.add(Enum.max(times, NaiveDateTime), 1, :day)}
+
+      _ ->
+        :unbounded
+    end
+  end
+
+  defp parse_time(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, time, _offset} ->
+        {:ok, DateTime.to_naive(time)}
+
+      {:error, _} ->
+        case NaiveDateTime.from_iso8601(value) do
+          {:ok, time} -> {:ok, time}
+          {:error, _} -> :error
+        end
+    end
+  end
+
+  defp parse_time(_value), do: :error
+
+  defp time_predicate(:unbounded), do: ""
+
+  defp time_predicate({from, to}),
+    do: " AND `time` >= '#{datetime_literal(from)}' AND `time` <= '#{datetime_literal(to)}'"
+
+  defp datetime_literal(%NaiveDateTime{} = time),
+    do: time |> NaiveDateTime.truncate(:second) |> NaiveDateTime.to_string()
 
   defp to_int(value) when is_integer(value), do: value
   defp to_int(value) when is_binary(value), do: String.to_integer(value)
