@@ -25,7 +25,10 @@ that later call a no-op -- Mix runs a task once per invocation.
 Two rules share one script:
 
   * `elixir_quality_test` is the check. It fails on the first unformatted file or Credo issue and
-    prints the formatter's diff.
+    prints the formatter's diff. With `ash_codegen_app` set it also runs AshPostgres
+    `codegen --check` against the compiled project app, so a resource the generator cannot handle
+    fails here. Missing snapshots are tolerated; only drift in a committed
+    `priv/resource_snapshots/repo/<table>/` fails, because most tables have no snapshot.
   * `elixir_formatted_tree` runs `mix format` as a build action and emits the formatted inputs as a
     tree artifact. `//build/elixir_quality:apply` copies the files that changed back into the
     workspace, so fixing formatting needs no local Erlang or Mix either.
