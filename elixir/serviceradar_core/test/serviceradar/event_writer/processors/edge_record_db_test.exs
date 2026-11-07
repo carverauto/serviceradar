@@ -532,7 +532,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
       with_telemetry([[:ash, :notifier, :stop]], notified, fn ->
         rollback_log =
-          capture_log(fn ->
+          capture_own_log(fn ->
             assert_raise RuntimeError, "injected rollback", fn ->
               EdgeRecord.ingest(record_bytes, headers, Repo, test_hook: hook)
             end
@@ -549,7 +549,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
         # Nothing of the rolled-back attempt survives, so a redelivery commits.
         commit_log =
-          capture_log(fn ->
+          capture_own_log(fn ->
             assert {:ok, :inserted} = EdgeRecord.ingest(record_bytes, headers, Repo)
           end)
 
@@ -581,7 +581,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
       with_telemetry([[:ash, :notifier, :stop]], notified, fn ->
         rollback_log =
-          capture_log(fn ->
+          capture_own_log(fn ->
             # Ash.transact/3 rolls back on {:error, reason} and returns the reason wrapped
             # as an Ash error.
             assert {:error, %Ash.Error.Unknown.UnknownError{error: abort_reason}} =
@@ -600,7 +600,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
         assert ledger_count(record) == 0
 
         commit_log =
-          capture_log(fn ->
+          capture_own_log(fn ->
             assert {:ok, _result} =
                      Ash.transact([SweepGroup], fn ->
                        assert {:ok, :inserted} = EdgeRecord.ingest(record_bytes, headers, Repo)
@@ -3921,6 +3921,18 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
     after
       :telemetry.detach(handler_id)
     end
+  end
+
+  # capture_log/1 in an async test also captures every concurrent test's log
+  # lines, so keep only the first line of each entry this process logged.
+  defp capture_own_log(fun) do
+    tag = "pid=#{:erlang.pid_to_list(self())} "
+
+    [format: "$metadata[$level] $message\n", metadata: [:pid]]
+    |> capture_log(fun)
+    |> String.split("\n")
+    |> Enum.filter(&String.starts_with?(&1, tag))
+    |> Enum.join("\n")
   end
 
   # --- database assertions ---------------------------------------------------
