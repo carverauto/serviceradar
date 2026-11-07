@@ -47,6 +47,8 @@ defmodule ServiceRadar.SweepJobs.SweepExecutionSlot do
     repo ServiceRadar.Repo
     schema "platform"
     migrate? false
+
+    identity_wheres_to_sql unique_assignment_slot: "state = 'scheduled'"
   end
 
   actions do
