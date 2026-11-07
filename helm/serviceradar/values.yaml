@@ -3149,7 +3149,7 @@ analytics:
     profile: sharedNothing
     operatorChartVersion: "1.11.7"
     # Fresh installs target 4.1.7. Existing 3.5 clusters must follow
-    # docs/starrocks-upgrade.md through 4.0.14 before applying these pins;
+    # docs/starrocks-upgrade.md through 4.0.17 before applying these pins;
     # existing 4.1 clusters take the patch roll in the same runbook.
     imageTag: "4.1.7"
     # The warehouse database core and web read, load and retain through. The

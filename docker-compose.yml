@@ -918,8 +918,13 @@ services:
   #
   # Ports are published on loopback only. Set STARROCKS_PUBLIC_BIND to expose
   # them on another interface; nothing in this stack needs that.
+  #
+  # STARROCKS_IMAGE exists for the version upgrade in docs/starrocks-upgrade.md.
+  # Changing it alone does NOT upgrade an existing warehouse: this image keeps
+  # its StarRocks binaries under /data, which is the starrocks-data volume, so
+  # a populated volume keeps running the version it was created with.
   starrocks:
-    image: starrocks/allin1-ubuntu:3.5.21
+    image: ${STARROCKS_IMAGE:-starrocks/allin1-ubuntu:3.5.21}
     container_name: serviceradar-starrocks
     hostname: starrocks
     profiles:

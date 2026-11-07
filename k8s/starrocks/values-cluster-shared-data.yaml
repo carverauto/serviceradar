@@ -28,6 +28,36 @@ starrocksCluster:
   enabledCn: true
 
 starrocksFESpec:
+  # As for the compute nodes below: carverauto runs the JDBC fetch with BusyBox wget, as it was installed.
+  # carverauto has IPv6 egress, so wget works here; values-cluster.yaml keeps
+  # curl for every other cluster (see README.md). Keeping the live form means
+  # re-applying these files does not restart pods for an init-container edit.
+  initContainers:
+    - name: postgresql-jdbc
+      image: alpine:3.21.3
+      command:
+        - sh
+        - -c
+        - |
+          set -eu
+          dest=/opt/starrocks/jdbc/postgresql.jar
+          want=6e0e4cc2d8cae902084f8a2b18728b073a6fd9d1f87c9d8bff8f298c18185b93
+          if [ -f "$dest" ] && echo "$want  $dest" | sha256sum -c; then
+            exit 0
+          fi
+          url="https://repo1.maven.org/maven2/org/postgresql/postgresql/42.7.13/postgresql-42.7.13.jar"
+          i=0
+          while [ "$i" -lt 5 ]; do
+            if wget -T 30 -O "$dest" "$url"; then
+              break
+            fi
+            i=$((i + 1))
+            sleep 2
+          done
+          echo "$want  $dest" | sha256sum -c
+      volumeMounts:
+        - name: jdbc
+          mountPath: /opt/starrocks/jdbc
   # enable_online_optimize_table: StarRocks 4.1.6 made online optimize opt-in
   # (default false). A bucket rewrite (ALTER TABLE ... DISTRIBUTED BY ...
   # BUCKETS n) that runs while EventWriter keeps loading needs the online
@@ -74,9 +104,13 @@ starrocksCnSpec:
   emptyDirs:
     - name: jdbc
       mountPath: /opt/starrocks/jdbc
+  # carverauto runs the JDBC fetch with BusyBox wget, as it was installed.
+  # carverauto has IPv6 egress, so wget works here; values-cluster.yaml keeps
+  # curl for every other cluster (see README.md). Keeping the live form means
+  # re-applying these files does not restart pods for an init-container edit.
   initContainers:
     - name: postgresql-jdbc
-      image: curlimages/curl:8.11.1
+      image: alpine:3.21.3
       command:
         - sh
         - -c
@@ -88,10 +122,14 @@ starrocksCnSpec:
             exit 0
           fi
           url="https://repo1.maven.org/maven2/org/postgresql/postgresql/42.7.13/postgresql-42.7.13.jar"
-          # curl falls back to IPv4 when IPv6 is unreachable; busybox wget
-          # does not, and a cluster without IPv6 egress fails every retry.
-          curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors \
-            --connect-timeout 20 -o "$dest" "$url"
+          i=0
+          while [ "$i" -lt 5 ]; do
+            if wget -T 30 -O "$dest" "$url"; then
+              break
+            fi
+            i=$((i + 1))
+            sleep 2
+          done
           echo "$want  $dest" | sha256sum -c
       volumeMounts:
         - name: jdbc
@@ -105,11 +143,14 @@ starrocksCnSpec:
             labelSelector:
               matchLabels:
                 app.starrocks.io/component: cn
+  # mem_limit is 60% of the 10Gi limit, matching the live carverauto CNs: it
+  # was lowered from 90% while unattributed CN memory is investigated, to
+  # leave headroom below the container limit.
   config: |
     sys_log_level = INFO
     thrift_port = 9060
     webserver_port = 8040
     heartbeat_service_port = 9050
     brpc_port = 8060
-    mem_limit = 90%
+    mem_limit = 60%
     storage_root_path = /opt/starrocks/cn/storage

@@ -128,6 +128,12 @@ There is no separate schema container: core creates and upgrades the
 warehouse schema itself at startup, sizing replication to the single backend
 Compose runs, and retries with backoff until the warehouse accepts it.
 
+The warehouse runs StarRocks 3.5.21. Moving an existing warehouse to a newer
+StarRocks takes two hops (3.5.21 -> 4.0.17 -> 4.1.7), each with a fresh data
+volume: this image keeps its StarRocks binaries inside the `starrocks-data`
+volume, so changing the image tag alone leaves the old version running. Follow
+[the Compose upgrade procedure](docs/starrocks-upgrade.md#docker-compose-allin1).
+
 ### StarRocks root password
 
 The warehouse's Frontend `root` account is never left passwordless.

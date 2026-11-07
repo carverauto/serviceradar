@@ -18,7 +18,7 @@ stays on the shared-nothing file.
 
 These pins are for fresh installs and clusters that have completed the upgrade.
 For an existing 3.5 cluster, follow [the staged upgrade runbook](../../docs/starrocks-upgrade.md):
-3.5.21 -> 4.0.14 -> 4.1.7, compute nodes before frontends, with the leader
+3.5.21 -> 4.0.17 -> 4.1.7, compute nodes before frontends, with the leader
 frontend last. A cluster already on 4.1 takes the patch roll in the same
 runbook. Applying the final values to all components at once skips that
 ordering. After reaching 4.1, rollback is supported only to 4.0.6 or later.
