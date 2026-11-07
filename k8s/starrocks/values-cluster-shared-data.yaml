@@ -146,9 +146,14 @@ starrocksCnSpec:
             labelSelector:
               matchLabels:
                 app.starrocks.io/component: cn
-  # mem_limit is 60% of the 10Gi limit, matching the live carverauto CNs: it
-  # was lowered from 90% while unattributed CN memory is investigated, to
-  # leave headroom below the container limit.
+  # mem_limit is 60% of the 10Gi limit, matching the live carverauto CNs.
+  # lake_metadata_cache_limit: the "unattributed" CN memory was the lake
+  # metadata cache, an LRU that only evicts under pressure and is not
+  # reported by mem_tracker. At its 2 GiB default it held each CN at ~75% of
+  # mem_limit and left too little for queries and loads (MEM_LIMIT_EXCEEDED
+  # under a schema rewrite). After the #6360 bucket resize (~2,400 tablets),
+  # 512 MiB is enough: measured on the lab, each CN dropped from ~75% to
+  # ~44% of mem_limit with no load or query errors.
   config: |
     sys_log_level = INFO
     thrift_port = 9060
@@ -156,4 +161,5 @@ starrocksCnSpec:
     heartbeat_service_port = 9050
     brpc_port = 8060
     mem_limit = 60%
+    lake_metadata_cache_limit = 536870912
     storage_root_path = /opt/starrocks/cn/storage
