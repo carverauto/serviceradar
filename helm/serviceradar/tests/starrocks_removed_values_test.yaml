@@ -1,0 +1,29 @@
+suite: removed StarRocks analytics values refuse to render
+templates:
+- templates/serviceradar-config.yaml
+release:
+  namespace: serviceradar-test
+tests:
+# Each telemetry dataset is written only to the store it is read from, so a
+# shadow (dual-write) list has nothing to mean. A stale key, even an empty list
+# on a disabled warehouse, must stop the render instead of being ignored.
+- it: refuses values that still carry analytics.starrocks.shadowDatasets
+  set:
+    analytics.starrocks.enabled: true
+    analytics.starrocks.catalog.fePasswordSecretName: sr-fe-password
+    analytics.starrocks.shadowDatasets: [flows, metrics, logs, events]
+  asserts:
+  - failedTemplate:
+      errorMessage: 'analytics.starrocks.shadowDatasets was removed: each telemetry dataset is written only to the store it is read from, so nothing is shadowed into CNPG. Delete the key from your values. See docs/docs/helm-configuration.md, "Optional StarRocks Analytics".'
+
+- it: refuses an empty shadowDatasets list on a disabled warehouse
+  set:
+    analytics.starrocks.shadowDatasets: []
+  asserts:
+  - failedTemplate:
+      errorMessage: 'analytics.starrocks.shadowDatasets was removed: each telemetry dataset is written only to the store it is read from, so nothing is shadowed into CNPG. Delete the key from your values. See docs/docs/helm-configuration.md, "Optional StarRocks Analytics".'
+
+- it: renders the default values
+  asserts:
+  - isKind:
+      of: ConfigMap

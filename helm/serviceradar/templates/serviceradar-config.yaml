@@ -1,6 +1,7 @@
 {{- /* This ConfigMap always renders, so it carries the chart-wide guard against the
-     removed edgeRecords values. */ -}}
+     removed edgeRecords and analytics.starrocks.shadowDatasets values. */ -}}
 {{- include "serviceradar.rejectRemovedEdgeRecordValues" . -}}
+{{- include "serviceradar.rejectRemovedStarRocksValues" . -}}
 {{- /* Render the base serviceradar-config ConfigMap with templating enabled (tpl) */ -}}
 {{- $cfg := .Files.Get "files/serviceradar-config.yaml" -}}
 {{ tpl $cfg . }}
