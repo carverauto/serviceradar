@@ -14,14 +14,16 @@
 --   * `DISTRIBUTED BY ... DEFAULT BUCKETS n` changes only the count new day
 --     partitions are created with. It is metadata, takes effect at once, and
 --     rewrites nothing.
---   * `DISTRIBUTED BY ... BUCKETS n` is StarRocks' optimize job: it rewrites
---     the existing partitions into n buckets through temporary partitions,
---     online, while loads continue. A partition loaded during the job (today's,
---     or a late day) keeps its old layout rather than failing the job or a
---     load; it ages out with retention. SchemaMigrator skips the statement when
---     every partition already has n buckets, waits for any optimize job already
---     on the table, and waits for its own to reach FINISHED (CANCELLED fails
---     the migration, which is then retried) before the next statement.
+--   * `DISTRIBUTED BY ... BUCKETS n` rewrites the existing partitions into n
+--     buckets with StarRocks' optimize job, through temporary partitions, while
+--     loads continue. SchemaMigrator runs it over batches of partitions, oldest
+--     first, each holding at most 128 MiB of data (a larger partition goes
+--     alone), skipping partitions that already have n buckets, so a job's
+--     memory follows the batch rather than the table, and waits for each job
+--     to FINISH. A partition loaded during its job (today's, or a late day) keeps
+--     its old layout rather than failing the job or the load, and ages out with
+--     retention. A partition StarRocks will not rewrite is logged as an error
+--     and skipped; it never fails the migration or holds back later ones.
 --
 -- The default is set first so day partitions created while the rewrite runs
 -- already use the new count. The largest table goes last. The rollups are

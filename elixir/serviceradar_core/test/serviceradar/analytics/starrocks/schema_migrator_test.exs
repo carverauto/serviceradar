@@ -564,15 +564,21 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
     assert state(agent).ledger == []
   end
 
-  # A warehouse that runs optimize jobs: `buckets` maps a table to its
-  # partitions' bucket counts; a rewrite is a job polled through `lifecycle`
-  # that applies the new count only when it reaches FINISHED. StarRocks
-  # refuses any distribution change while a job holds the table.
+  # A warehouse that runs optimize jobs: `buckets` maps a table to
+  # %{partition => bucket count} and `sizes` a partition to its stored bytes
+  # (1 MiB when absent). A rewrite of a batch of partitions is a job polled
+  # through its stages (`stages` per {table, first partition}, else
+  # `lifecycle`) that applies the new count only on FINISHED. `refuse` lists
+  # partitions whose ALTER StarRocks rejects. Any distribution change on a
+  # table with a running job is refused, as StarRocks refuses it.
   defp start_bucket_warehouse(overrides) do
     initial =
       Map.merge(
         %{
           lifecycle: ["PENDING", "RUNNING", "FINISHED"],
+          stages: %{},
+          sizes: %{},
+          refuse: [],
           buckets: %{},
           jobs: %{},
           ledger: [],
@@ -592,11 +598,12 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
     cond do
       match =
           Regex.run(
-            ~r/^ALTER TABLE \S+?\.(\w+) DISTRIBUTED BY HASH\([^)]*\) (DEFAULT )?BUCKETS (\d+)/,
+            ~r/^ALTER TABLE \S+?\.(\w+) (?:PARTITIONS \(([^)]*)\) )?DISTRIBUTED BY HASH\([^)]*\) (DEFAULT )?BUCKETS (\d+)$/,
             sql
           ) ->
-        [_, table, default, count] = match
-        distribute(state, table, default != "", String.to_integer(count))
+        [_, table, partitions, default, count] = match
+        batch = partitions |> String.split(", ", trim: true) |> Enum.map(&String.trim(&1, "`"))
+        distribute(state, table, batch, default != "", String.to_integer(count))
 
       match = Regex.run(~r/^SHOW ALTER TABLE OPTIMIZE .* TableName = '(\w+)'/, sql) ->
         [_, table] = match
@@ -607,11 +614,16 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
 
       match =
           Regex.run(
-            ~r/^SELECT BUCKETS FROM information_schema.partitions_meta .* TABLE_NAME = '(\w+)'/,
+            ~r/^SELECT PARTITION_NAME, BUCKETS, DATA_SIZE FROM information_schema.partitions_meta .* TABLE_NAME = '(\w+)'/,
             sql
           ) ->
         [_, table] = match
-        {result(["BUCKETS"], state.buckets |> Map.get(table, []) |> Enum.map(&[&1])), state}
+
+        rows =
+          for {partition, count} <- state.buckets |> Map.get(table, %{}) |> Enum.sort(),
+              do: [partition, count, Map.get(state.sizes, partition, 1_048_576)]
+
+        {result(["PARTITION_NAME", "BUCKETS", "DATA_SIZE"], rows), state}
 
       String.starts_with?(sql, "SHOW BACKENDS") ->
         {nodes(1), state}
@@ -628,23 +640,35 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
     end
   end
 
-  defp distribute(state, table, default?, count) do
-    kind = if default?, do: :default, else: :rewrite
+  defp distribute(state, table, batch, default?, count) do
+    sent = if default?, do: {:default, table}, else: {:rewrite, table, batch}
 
-    case Map.get(state.jobs, table) do
-      {_count, [stage | _]} when stage not in ["FINISHED", "CANCELLED"] ->
+    cond do
+      running?(state, table) ->
         message = "(1064) Table #{table} is in OPTIMIZE state, cannot alter it."
+        {{:error, {:starrocks_mysql, message}}, %{state | refused: state.refused ++ [sent]}}
 
-        {{:error, {:starrocks_mysql, message}},
-         %{state | refused: state.refused ++ [{kind, table}]}}
+      default? ->
+        {result([], []), %{state | sent: state.sent ++ [sent]}}
 
-      _idle when default? ->
-        {result([], []), %{state | sent: state.sent ++ [{kind, table}]}}
+      Enum.any?(batch, &(&1 in state.refuse)) ->
+        message = "(1064) Partitions #{inspect(batch)} cannot be optimized."
+        {{:error, {:starrocks_mysql, message}}, %{state | sent: state.sent ++ [sent]}}
 
-      _idle ->
-        state = %{state | jobs: Map.put(state.jobs, table, {count, state.lifecycle})}
-        {result([], []), %{state | sent: state.sent ++ [{kind, table}]}}
+      true ->
+        stages = Map.get(state.stages, {table, hd(batch)}, state.lifecycle)
+        job = {batch, count, stages}
+
+        {result([], []),
+         %{state | jobs: Map.put(state.jobs, table, job), sent: state.sent ++ [sent]}}
     end
+  end
+
+  defp running?(state, table) do
+    match?(
+      {_partition, _count, [stage | _]} when stage not in ["FINISHED", "CANCELLED"],
+      Map.get(state.jobs, table)
+    )
   end
 
   defp optimize_poll(state, table) do
@@ -652,48 +676,52 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
       nil ->
         {result(["State"], []), state}
 
-      {count, [stage]} ->
-        {result(["State"], [[stage]]), finish(state, table, count, stage)}
+      {partition, count, [stage]} ->
+        {result(["State"], [[stage]]), finish(state, table, partition, count, stage)}
 
-      {count, [stage | stages]} ->
-        state = %{state | jobs: Map.put(state.jobs, table, {count, stages})}
-        {result(["State"], [[stage]]), finish(state, table, count, stage)}
+      {partition, count, [stage | stages]} ->
+        state = %{state | jobs: Map.put(state.jobs, table, {partition, count, stages})}
+        {result(["State"], [[stage]]), finish(state, table, partition, count, stage)}
     end
   end
 
-  defp finish(state, table, count, "FINISHED") do
-    counts = state.buckets |> Map.get(table, []) |> Enum.map(fn _ -> count end)
-    %{state | buckets: Map.put(state.buckets, table, counts)}
+  defp finish(state, table, batch, count, "FINISHED") when is_list(batch) do
+    Enum.reduce(batch, state, fn partition, state ->
+      %{state | buckets: put_in(state.buckets, [table, partition], count)}
+    end)
   end
 
-  defp finish(state, _table, _count, _stage), do: state
+  defp finish(state, _table, _partition, _count, _stage), do: state
 
-  test "bucket rewrites wait for any running optimize, skip converged tables, and finish in order" do
+  defp shipped_rewrites(migration) do
+    for statement <- migration.statements,
+        [_, table, count] <- [
+          Regex.run(
+            ~r/ALTER TABLE \S+?\.(\w+) DISTRIBUTED BY HASH\([^)]*\) BUCKETS (\d+)$/,
+            statement
+          )
+        ],
+        do: {table, String.to_integer(count)}
+  end
+
+  test "bucket rewrites batch a table's history, after any running optimize, skipping converged ones" do
     migration = shipped(39)
-
-    tables =
-      for statement <- migration.statements,
-          [_, table, count] <- [
-            Regex.run(
-              ~r/ALTER TABLE \S+?\.(\w+) DISTRIBUTED BY HASH\([^)]*\) BUCKETS (\d+)$/,
-              statement
-            )
-          ],
-          do: {table, String.to_integer(count)}
-
+    tables = shipped_rewrites(migration)
     [{converged, target} | _] = tables
     {busy, _} = List.last(tables)
 
+    old = %{"$shadow_automatic_partition" => 16, "p20260101" => 16, "p20260102" => 8}
+
     buckets =
       tables
-      |> Map.new(fn {table, _count} -> {table, [16, 16, 8]} end)
-      |> Map.put(converged, [target, target])
+      |> Map.new(fn {table, _count} -> {table, old} end)
+      |> Map.put(converged, %{"p20260101" => target, "p20260102" => target})
 
-    # A runner that lost the lock left an optimize job running on the last table.
+    # A runner that lost the lock left a job running on the last table.
     agent =
       start_bucket_warehouse(%{
         buckets: buckets,
-        jobs: %{busy => {16, ["RUNNING", "RUNNING", "FINISHED"]}}
+        jobs: %{busy => {nil, 16, ["RUNNING", "RUNNING", "FINISHED"]}}
       })
 
     assert migrate(agent, query: bucket_query(agent), migrations: [migration]) == {:ok, [39]}
@@ -701,34 +729,96 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
     result = state(agent)
     assert result.refused == []
 
-    # Every table gets its new default; only tables with other counts are rewritten.
+    # Small partitions share one job; the converged table and the placeholder
+    # are left alone.
     assert result.sent ==
              Enum.flat_map(tables, fn
-               {^converged, _} -> [{:default, converged}]
-               {table, _} -> [{:default, table}, {:rewrite, table}]
+               {^converged, _} ->
+                 [{:default, converged}]
+
+               {table, _} ->
+                 [{:default, table}, {:rewrite, table, ["p20260101", "p20260102"]}]
              end)
 
     for {table, count} <- tables do
-      assert Enum.all?(result.buckets[table], &(&1 == count)),
-             "#{table} not rewritten to #{count}"
+      assert Map.delete(result.buckets[table], "$shadow_automatic_partition") ==
+               %{"p20260101" => count, "p20260102" => count}
     end
   end
 
-  test "a rewrite that StarRocks cancels fails the migration and is not recorded" do
+  test "a large table's history is rewritten a budget of data at a time, oldest first" do
     migration = shipped(39)
-    [_, table] = Regex.run(~r/ALTER TABLE \S+?\.(\w+) /, hd(migration.statements))
+    [{table, count} | _] = shipped_rewrites(migration)
+    mib = 1_048_576
 
     agent =
       start_bucket_warehouse(%{
-        buckets: %{table => [8, 8]},
-        lifecycle: ["RUNNING", "CANCELLED"]
+        buckets:
+          ~w(p20260101 p20260102 p20260103 p20260104 p20260105)
+          |> Map.new(&{&1, 8})
+          |> then(&%{table => &1}),
+        # 100 + 20 MiB fit one 128 MiB job; 200 MiB goes alone, whether StarRocks
+        # reports bytes (4.x) or text (3.5); an unreported size goes alone.
+        sizes: %{
+          "p20260101" => 100 * mib,
+          "p20260102" => "20MB",
+          "p20260103" => "200.5MB",
+          "p20260104" => nil,
+          "p20260105" => "1MB"
+        }
       })
 
-    assert {:error, {39, {:alter_cancelled, ^table}}} =
-             migrate(agent, query: bucket_query(agent), migrations: [migration])
+    assert migrate(agent, query: bucket_query(agent), migrations: [migration]) == {:ok, [39]}
+
+    rewrites = Enum.filter(state(agent).sent, &match?({:rewrite, ^table, _batch}, &1))
+
+    assert rewrites == [
+             {:rewrite, table, ["p20260101", "p20260102"]},
+             {:rewrite, table, ["p20260103"]},
+             {:rewrite, table, ["p20260104"]},
+             {:rewrite, table, ["p20260105"]}
+           ]
+
+    assert state(agent).buckets[table] |> Map.values() |> Enum.uniq() == [count]
+  end
+
+  test "partitions StarRocks will not rewrite are reported and skipped, never failing the migration" do
+    migration = shipped(39)
+    [{table, count} | _] = shipped_rewrites(migration)
+    big = 200 * 1_048_576
+
+    agent =
+      start_bucket_warehouse(%{
+        buckets: %{table => %{"p20260101" => 8, "p20260102" => 8, "p20260103" => 8}},
+        sizes: %{"p20260101" => big, "p20260102" => big, "p20260103" => big},
+        stages: %{{table, "p20260101"} => ["RUNNING", "CANCELLED"]},
+        refuse: ["p20260102"]
+      })
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert migrate(agent, query: bucket_query(agent), migrations: [migration]) == {:ok, [39]}
+      end)
+
+    result = state(agent)
+    assert result.ledger == [39]
+    assert result.buckets[table] == %{"p20260101" => 8, "p20260102" => 8, "p20260103" => count}
+    assert log =~ "StarRocks kept the old bucket count on 2 of 3 partitions of #{table}"
+  end
+
+  test "a rewrite that loses its connection fails the migration, to be resumed" do
+    migration = shipped(39)
+    [{table, _count} | _] = shipped_rewrites(migration)
+    agent = start_bucket_warehouse(%{buckets: %{table => %{"p20260101" => 8}}})
+
+    query = fn sql ->
+      if sql =~ "PARTITIONS (", do: {:error, :connect_failed}, else: bucket_query(agent).(sql)
+    end
+
+    assert {:error, {39, :connect_failed}} =
+             migrate(agent, query: query, migrations: [migration])
 
     assert state(agent).ledger == []
-    assert state(agent).sent == [{:default, table}, {:rewrite, table}]
   end
 
   test "the shipped schema marks exactly the day-partitioned rollups as needing partitioned tables" do

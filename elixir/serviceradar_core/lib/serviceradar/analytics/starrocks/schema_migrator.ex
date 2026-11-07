@@ -12,8 +12,11 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
   `ADD COLUMN` whose column is already there, a `MODIFY COLUMN` whose
   column already has the target type, or a bucket rewrite
   (`DISTRIBUTED BY ... BUCKETS n`) whose partitions all have n buckets, is
-  skipped. A bucket rewrite is an online optimize job: the migrator waits out
-  any optimize already on the table, then its own, accepting only FINISHED. The same property
+  skipped. A bucket rewrite runs optimize jobs over size-bounded batches of
+  the partitions that still have another count, oldest first, waiting out any
+  optimize already on the table and then each of its own until FINISHED. A partition StarRocks will
+  not rewrite is reported (an error log and a `rewrite_skipped` telemetry
+  event) and left to age out, so it cannot hold back later migrations. The same property
   makes a migration that failed half way safe to run again, which is the only
   recovery a failed migration needs. A new statement kind that cannot be
   repeated needs a guard here before it ships.
@@ -62,10 +65,17 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
   @memory_exhausted_delay_ms 600_000
   @alter_poll_ms 1_000
   @alter_poll_attempts 600
-  # An optimize job rewrites every partition of a table; on a large one that
-  # takes far longer than a column change, so it is polled less often and for
-  # as long as the DDL client waits for any statement (@ddl_timeout_ms).
-  @optimize_poll_ms 5_000
+  # A bucket rewrite runs optimize jobs over batches of partitions. A job takes
+  # tens of seconds even for a small batch, so it is polled every two seconds,
+  # for as long as the DDL client waits for any statement (@ddl_timeout_ms).
+  @optimize_poll_ms 2_000
+  # A job rewrites its partitions in parallel, so its memory follows the data
+  # it rewrites (about 4x on a measured 3.5 backend). Batches are cut at this
+  # much stored data, or this many partitions; a partition larger than the
+  # budget, or whose size StarRocks has not reported yet, goes alone. Small
+  # tables then take one job, and a large table's history one day at a time.
+  @rewrite_batch_bytes 134_217_728
+  @rewrite_batch_partitions 32
   @optimize_poll_attempts div(@ddl_timeout_ms, @optimize_poll_ms)
   @max_replication 3
 
@@ -398,37 +408,159 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
     end
   end
 
-  # A rewrite is an optimize job. Partitions loaded while it runs keep their
-  # layout and the job still finishes, so a table can stay partly rewritten;
-  # the statement is skipped only when every partition already has the count.
+  # A rewrite is StarRocks' optimize job, run over batches of the partitions
+  # that still have another count, oldest first, each batch held to
+  # @rewrite_batch_bytes of data: a whole-table optimize rewrites every
+  # partition at once, which a compute node with little headroom cannot absorb
+  # for the largest tables. A fresh install, or a resumed run, finds nothing
+  # pending for what is already rewritten.
+  #
+  # The rewrite only shrinks history: the DEFAULT statement before it already
+  # gives every new day the new count, and an old partition ages out with
+  # retention. So partitions StarRocks will not rewrite (their job CANCELLED,
+  # or the ALTER refused) are reported and skipped rather than failing the
+  # migration, which would otherwise be retried forever and hold back every
+  # later one. A lost connection still fails it, to be resumed.
   defp redistribute(state, statement, table, buckets, :rewrite) do
     with :ok <- poll_alter(state, table, :previous, :column),
          :ok <- poll_alter(state, table, :previous, :optimize),
-         {:ok, counts} <- partition_buckets(state, table) do
-      if Enum.all?(counts, &(&1 == buckets)) do
-        :ok
-      else
-        state.still_locked.()
+         {:ok, partitions} <- partition_buckets(state, table) do
+      pending = for {name, count, size} <- partitions, count != buckets, do: {name, size}
 
-        with :ok <- run_statement(state, statement) do
-          poll_alter(state, table, :own, :optimize)
+      pending
+      |> rewrite_batches()
+      |> Enum.reduce_while({:ok, []}, fn batch, {:ok, skipped} ->
+        case rewrite_batch(state, statement, table, batch) do
+          :ok -> {:cont, {:ok, skipped}}
+          {:skipped, reason} -> {:cont, {:ok, Enum.map(batch, &{&1, reason}) ++ skipped}}
+          {:error, reason} -> {:halt, {:error, reason}}
         end
-      end
+      end)
+      |> report_rewrite(table, buckets, length(pending))
     end
   end
 
+  defp rewrite_batches(pending) do
+    Enum.chunk_while(
+      pending,
+      {[], 0},
+      fn {name, size}, {batch, bytes} ->
+        size = if is_integer(size), do: size, else: @rewrite_batch_bytes
+
+        if batch != [] and
+             (bytes + size > @rewrite_batch_bytes or length(batch) >= @rewrite_batch_partitions) do
+          {:cont, Enum.reverse(batch), {[name], size}}
+        else
+          {:cont, {[name | batch], bytes + size}}
+        end
+      end,
+      fn
+        {[], _bytes} -> {:cont, []}
+        {batch, _bytes} -> {:cont, Enum.reverse(batch), []}
+      end
+    )
+  end
+
+  defp rewrite_batch(state, statement, table, batch) do
+    state.still_locked.()
+    names = Enum.map_join(batch, ", ", &"`#{&1}`")
+
+    sql =
+      String.replace(statement, ~r/^(ALTER\s+TABLE\s+\S+)\s+/i, "\\1 PARTITIONS (#{names}) ",
+        global: false
+      )
+
+    case run_statement(state, sql) do
+      :ok ->
+        case poll_alter(state, table, :own, :optimize) do
+          :ok -> :ok
+          {:error, {:alter_cancelled, _table}} -> {:skipped, :cancelled}
+          {:error, reason} -> {:error, reason}
+        end
+
+      {:error, {:starrocks_mysql, message}} ->
+        {:skipped, {:refused, message}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp report_rewrite({:ok, []}, _table, _buckets, _pending), do: :ok
+
+  defp report_rewrite({:ok, skipped}, table, buckets, pending) do
+    :telemetry.execute(
+      [:serviceradar, :starrocks, :schema_migrator, :rewrite_skipped],
+      %{partitions: length(skipped), pending: pending},
+      %{table: table, buckets: buckets}
+    )
+
+    Logger.error(
+      "StarRocks kept the old bucket count on #{length(skipped)} of #{pending} " <>
+        "partitions of #{table}; new partitions use #{buckets} buckets and these age out " <>
+        "with retention, or rewrite them with " <>
+        "ALTER TABLE #{table} PARTITIONS (...) DISTRIBUTED BY ... BUCKETS #{buckets}: " <>
+        inspect(Enum.reverse(skipped))
+    )
+
+    :ok
+  end
+
+  defp report_rewrite({:error, _reason} = error, _table, _buckets, _pending), do: error
+
+  # Partitions with their bucket count and stored bytes, oldest first. The
+  # automatic partitioning placeholder holds no rows and is left alone.
   defp partition_buckets(state, table) do
     sql =
-      "SELECT BUCKETS FROM information_schema.partitions_meta " <>
-        "WHERE DB_NAME = '#{state.database}' AND TABLE_NAME = '#{table}'"
+      "SELECT PARTITION_NAME, BUCKETS, DATA_SIZE FROM information_schema.partitions_meta " <>
+        "WHERE DB_NAME = '#{state.database}' AND TABLE_NAME = '#{table}' " <>
+        "ORDER BY PARTITION_NAME"
 
     case state.query.(sql) do
-      {:ok, %{rows: rows}} -> {:ok, Enum.map(rows, &to_integer(List.first(&1)))}
-      {:error, reason} -> {:error, reason}
+      {:ok, %{rows: rows}} ->
+        partitions =
+          for [name, count, size | _] <- rows,
+              name = to_string(name),
+              not String.starts_with?(name, "$"),
+              do: {name, to_integer(count), data_size(size)}
+
+        {:ok, partitions}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
   defp to_integer(value) when is_integer(value), do: value
+
+  # StarRocks 4.x reports DATA_SIZE in bytes; 3.5 reports text such as
+  # "157MB" or "156.9MB". Anything else is unknown, and an unknown size is
+  # batched as a full budget.
+  @size_units %{"B" => 1, "KB" => 1024, "MB" => 1024 ** 2, "GB" => 1024 ** 3, "TB" => 1024 ** 4}
+
+  defp data_size(size) when is_integer(size), do: size
+
+  defp data_size(size) when is_binary(size) do
+    case Regex.run(~r/^\s*(\d+(?:\.\d+)?)\s*([KMGT]?B)?\s*$/i, size) do
+      [_, amount, unit] ->
+        round(parse_number(amount) * Map.fetch!(@size_units, String.upcase(unit)))
+
+      [_, amount] ->
+        round(parse_number(amount))
+
+      nil ->
+        nil
+    end
+  end
+
+  defp data_size(_size), do: nil
+
+  defp parse_number(text) do
+    {number, ""} = Float.parse(text)
+    number
+  end
+
+  defp to_integer(nil), do: nil
 
   defp to_integer(value) do
     case Integer.parse(to_string(value)) do
