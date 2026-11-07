@@ -909,7 +909,8 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
       |> Enum.map(& &1.version)
 
     # 17 and 22 are the earlier rollups; 25 and 28 create the MTR rollups; 40
-    # rebuilds all of them with one bucket per day.
-    assert waiting == [17, 22, 25, 28, 40]
+    # rebuilds all of them with one bucket per day; 41 recreates the two span
+    # rollups after widening the span columns.
+    assert waiting == [17, 22, 25, 28, 40, 41]
   end
 end
