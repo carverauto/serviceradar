@@ -24,22 +24,6 @@
 {{- $datasvcCertDir := default "/etc/serviceradar/certs" $datasvc.certDir -}}
 {{- $datasvcCertName := default "gateway" $datasvc.certName -}}
 {{- $datasvcServerName := default "datasvc.serviceradar" $datasvc.serverName -}}
-{{- $sysmonMetricsEnabled := true -}}
-{{- if hasKey $gateway "sysmonMetricsEnabled" -}}
-{{- $sysmonMetricsEnabled = $gateway.sysmonMetricsEnabled -}}
-{{- end -}}
-{{- $snmpMetricsEnabled := true -}}
-{{- if hasKey $gateway "snmpMetricsEnabled" -}}
-{{- $snmpMetricsEnabled = $gateway.snmpMetricsEnabled -}}
-{{- end -}}
-{{- $pluginMetricsEnabled := true -}}
-{{- if hasKey $gateway "pluginMetricsEnabled" -}}
-{{- $pluginMetricsEnabled = $gateway.pluginMetricsEnabled -}}
-{{- end -}}
-{{- $otlpRelayPublishEnabled := true -}}
-{{- if hasKey $gateway "otlpRelayPublishEnabled" -}}
-{{- $otlpRelayPublishEnabled = $gateway.otlpRelayPublishEnabled -}}
-{{- end -}}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -118,35 +102,6 @@ spec:
           value: {{ default 9090 $gateway.service.metricsPort | quote }}
         - name: GATEWAY_CAPABILITIES
           value: {{ default "icmp,tcp,http,grpc" $gateway.capabilities | quote }}
-        - name: AGENT_GATEWAY_SYSMON_METRICS_ENABLED
-          value: {{ $sysmonMetricsEnabled | quote }}
-        - name: AGENT_GATEWAY_SYSMON_METRICS_SUBJECT_PREFIX
-          value: {{ default "metrics.sysmon" $gateway.sysmonMetricsSubjectPrefix | quote }}
-        - name: AGENT_GATEWAY_SNMP_METRICS_ENABLED
-          value: {{ $snmpMetricsEnabled | quote }}
-        - name: AGENT_GATEWAY_SNMP_METRICS_SUBJECT_PREFIX
-          value: {{ default "metrics.snmp" $gateway.snmpMetricsSubjectPrefix | quote }}
-        {{- if $gateway.snmpInterfaceMetrics }}
-        # "all" to publish every collected SNMP interface OID, or a comma-separated
-        # allowlist of metric names. Unset keeps the built-in default
-        # (ifHCInOctets, ifHCOutOctets). See fj #3788 REC7e.
-        - name: AGENT_GATEWAY_SNMP_INTERFACE_METRICS
-          value: {{ $gateway.snmpInterfaceMetrics | quote }}
-        {{- end }}
-        - name: AGENT_GATEWAY_PLUGIN_METRICS_ENABLED
-          value: {{ $pluginMetricsEnabled | quote }}
-        - name: AGENT_GATEWAY_PLUGIN_METRICS_SUBJECT_PREFIX
-          value: {{ default "metrics.timeseries" $gateway.pluginMetricsSubjectPrefix | quote }}
-        - name: AGENT_GATEWAY_OTLP_RELAY_PUBLISH_ENABLED
-          value: {{ $otlpRelayPublishEnabled | quote }}
-        - name: AGENT_GATEWAY_OTLP_RELAY_TRACES_SUBJECT
-          value: {{ default "otel.traces.raw" $gateway.otlpRelayTracesSubject | quote }}
-        - name: AGENT_GATEWAY_OTLP_RELAY_LOGS_SUBJECT
-          value: {{ default "logs.otel" $gateway.otlpRelayLogsSubject | quote }}
-        - name: AGENT_GATEWAY_OTLP_RELAY_METRICS_SUBJECT
-          value: {{ default "otel.metrics.raw" $gateway.otlpRelayMetricsSubject | quote }}
-        - name: AGENT_GATEWAY_OTLP_RELAY_DERIVED_METRICS_SUBJECT
-          value: {{ default "otel.metrics.derived" $gateway.otlpRelayDerivedMetricsSubject | quote }}
         {{- /* The edge-record publisher always runs, so the gateway always connects to
              NATS, whatever the status-path publishers are set to. */}}
         - name: AGENT_GATEWAY_NATS_URL

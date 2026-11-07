@@ -1,12 +1,7 @@
 defmodule ServiceRadar.Ingestion.ResultIngestor do
-  @moduledoc "Type-specific ingestion and service-state writes, owned by bounded workers."
+  @moduledoc "Sweep result ingestion and service-state writes."
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Inventory.BumblebeeIngestor
-  alias ServiceRadar.Inventory.EndpointInventoryIngestorQueue
-  alias ServiceRadar.Inventory.SyncIngestorQueue
-  alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
-  alias ServiceRadar.Observability.MtrResultPublisher
   alias ServiceRadar.Observability.PluginResultIngestor
   alias ServiceRadar.Observability.PluginResultQuarantine
   alias ServiceRadar.Observability.ServiceStateRegistry
@@ -78,9 +73,8 @@ defmodule ServiceRadar.Ingestion.ResultIngestor do
 
   @doc """
   Records the service state a results status reports, in the service state registry, and
-  broadcasts it; a best-effort status goes through `ServiceRadar.ResultsRouter` batching.
-  `process_and_publish/2` calls it after ingesting a status, and a projector whose results
-  reach their tables another way calls it for the service state alone.
+  broadcasts it. `process_and_publish/2` calls it after ingesting a status, and a projector
+  whose results reach their tables another way calls it for the service state alone.
   """
   @spec publish_service_state(map(), keyword()) :: :ok | {:error, term()}
   def publish_service_state(status, opts \\ [])
@@ -88,14 +82,9 @@ defmodule ServiceRadar.Ingestion.ResultIngestor do
   def publish_service_state(%{source: source}, _opts)
       when source in ["plugin-result", :plugin_result], do: :ok
 
-  def publish_service_state(status, opts) do
-    if Keyword.get(opts, :best_effort?, false) and
-         Application.get_env(:serviceradar_core, :results_router_batching, true) do
-      ServiceRadar.ResultsRouter.publish_completed(status)
-    else
-      with :ok <- ServiceStateRegistry.upsert_from_status_strict(status) do
-        ServiceStatusPubSub.broadcast_update(status)
-      end
+  def publish_service_state(status, _opts) do
+    with :ok <- ServiceStateRegistry.upsert_from_status_strict(status) do
+      ServiceStatusPubSub.broadcast_update(status)
     end
   rescue
     error ->
@@ -105,208 +94,12 @@ defmodule ServiceRadar.Ingestion.ResultIngestor do
       {:error, {:service_status_publish_failed, reason}}
   end
 
-  # Service types carried by the netprobe passive device census stream.
-  #
-  # Exposed via census_service_types/0 so the unit tier can assert that every
-  # value here is one SourcePolicy.passive_census_source?/1 recognises. That
-  # pairing is the whole guardrail: the router decides whether the payload
-  # reaches the SyncIngestor, and the policy decides whether its MAC may anchor
-  # a device. If the two lists drift, the stream ingests with the guardrail
-  # silently inert -- no error, just randomized MACs minting devices.
-  #
-  # It cannot be checked in results_router_test.exs: that file uses
-  # ServiceRadar.DataCase, which carries @moduletag :requires_app, and the unit
-  # tier excludes :requires_app -- so those tests run only in the integration
-  # shards.
-  # Passive netprobe evidence: fingerprints, DPI and the local process listing.
-  # In an attribute with an accessor for the same reason as the census and mDNS
-  # lists below -- discovery_schema_registry_test.exs pins the DISCOVERY_V1
-  # sources against the routes they replace, so the two cannot drift apart
-  # silently while both paths are live.
-  @passive_netprobe_service_types ["passive-netprobe", :passive_netprobe]
-
-  @doc false
-  def passive_netprobe_service_types, do: @passive_netprobe_service_types
-
-  @census_service_types ["netprobe-census", :netprobe_census, "passive-census"]
-
-  @doc false
-  def census_service_types, do: @census_service_types
-
-  # Service types carried by the netprobe mDNS identification stream.
-  #
-  # Paired with SourcePolicy.enrichment_only_source?/1 exactly as the census
-  # list is paired with passive_census_source?/1, and asserted in the unit tier
-  # for the same reason: if the two drift, mDNS ingests as an ordinary source
-  # and starts MINTING devices from announcements instead of only describing
-  # ones the census already found.
-  @mdns_service_types ["netprobe-mdns", :netprobe_mdns, "passive-mdns"]
-
-  @doc false
-  def mdns_service_types, do: @mdns_service_types
-
-  defp process(%{source: source, service_type: "sync"} = status, _opts)
-       when source in ["results", :results] do
-    handle_sync_results(status)
-  end
-
   defp process(%{source: source, service_type: "sweep"} = status, _opts)
        when source in ["results", :results] do
     handle_sweep_results(status)
   end
 
-  defp process(%{source: source, service_type: service_type} = status, _opts)
-       when source in ["results", :results] and service_type in ["mapper", "mapper_discovery"] do
-    handle_mapper_results(status)
-  end
-
-  defp process(%{source: source, service_type: service_type} = status, _opts)
-       when source in ["results", :results] and service_type in @passive_netprobe_service_types do
-    schedule_sync_ingestion(status)
-  end
-
-  # The netprobe passive L2 device census (ARP/NDP sightings).
-  #
-  # Same SyncIngestor path as passive-netprobe, deliberately: that pipeline is
-  # where SourcePolicy.include_mac_identifier?/1 is consulted, and the census
-  # MAC guardrail is inert anywhere else.
-  #
-  # Without this clause the stream falls through to the catch-all below, which
-  # returns :ok and lets publish_service_state/2 run -- so the service reports
-  # HEALTHY while its entire payload is discarded with no log line.
-  defp process(%{source: source, service_type: service_type} = status, _opts)
-       when source in ["results", :results] and service_type in @census_service_types do
-    schedule_sync_ingestion(status)
-  end
-
-  # The netprobe mDNS identification stream.
-  #
-  # Same SyncIngestor path again, and the same reason it cannot be left to the
-  # catch-all: that clause returns :ok and publishes a HEALTHY status while
-  # discarding the entire payload without a log line.
-  #
-  # What makes this stream different is what happens once it arrives. Its
-  # updates carry no IP and are not allowed to create a device -- see
-  # SourcePolicy.enrichment_only_source?/1 and the gate in SyncIngestor. An
-  # mDNS announcement describes a host; only the census establishes that the
-  # host is there.
-  defp process(%{source: source, service_type: service_type} = status, _opts)
-       when source in ["results", :results] and service_type in @mdns_service_types do
-    schedule_sync_ingestion(status)
-  end
-
-  defp process(%{source: source, service_type: "mapper_interfaces"} = status, _opts)
-       when source in ["results", :results] do
-    handle_mapper_interfaces(status)
-  end
-
-  defp process(%{source: source, service_type: "mapper_topology"} = status, _opts)
-       when source in ["results", :results] do
-    handle_mapper_topology(status)
-  end
-
-  defp process(%{source: source, service_type: "bumblebee"} = status, _opts)
-       when source in ["results", :results] do
-    handle_bumblebee_results(status)
-  end
-
-  defp process(%{source: source, service_type: "endpoint_inventory"} = status, opts)
-       when source in ["results", :results] do
-    handle_endpoint_inventory_results(status, opts)
-  end
-
-  defp process(%{source: source} = status, _opts)
-       when source in ["sysmon-metrics", :sysmon_metrics] do
-    handle_sysmon_metrics(status)
-  end
-
-  defp process(%{source: source} = status, _opts)
-       when source in ["snmp-metrics", :snmp_metrics] do
-    handle_snmp_metrics(status)
-  end
-
-  defp process(%{source: source} = status, _opts)
-       when source in ["icmp-metrics", :icmp_metrics] do
-    handle_icmp_results(status)
-  end
-
-  defp process(%{source: source} = status, _opts)
-       when source in ["rperf-metrics", :rperf_metrics] do
-    handle_rperf_metrics(status)
-  end
-
-  defp process(%{source: source} = status, _opts) when source in ["mtr-metrics", :mtr_metrics] do
-    handle_mtr_metrics(status)
-  end
-
-  defp process(%{source: source} = status, _opts)
-       when source in ["sweep-metrics", :sweep_metrics] do
-    handle_sweep_metrics(status)
-  end
-
-  defp process(%{source: source} = status, _opts)
-       when source in ["plugin-result", :plugin_result] do
-    handle_plugin_results(status)
-  end
-
-  defp process(%{source: source, service_type: "mtr"} = status, _opts)
-       when source in ["results", :results] do
-    handle_mtr_results(status)
-  end
-
   defp process(_status, _opts), do: :ok
-
-  defp handle_sync_results(status) do
-    # In schema-agnostic mode, DB schema is set by CNPG search_path
-    schedule_sync_ingestion(status)
-  end
-
-  defp handle_mapper_results(status) do
-    # Mapper results are device updates; use sync ingestion pipeline.
-    MapperResultsIngestor.record_runs_from_payload(status[:message])
-    schedule_sync_ingestion(status)
-  end
-
-  defp handle_mapper_interfaces(status) do
-    MapperResultsIngestor.ingest_interfaces(status[:message], status)
-  end
-
-  defp handle_mapper_topology(status) do
-    MapperResultsIngestor.ingest_topology(status[:message], status)
-  end
-
-  defp handle_bumblebee_results(status) do
-    with {:ok, payload} <- decode_payload(status[:message]) do
-      payload
-      |> bind_result_identity(status)
-      |> BumblebeeIngestor.ingest_scan()
-    end
-  end
-
-  defp handle_endpoint_inventory_results(status, _opts) do
-    with {:ok, payload} <- decode_payload(status[:message]) do
-      payload
-      |> bind_result_identity(status)
-      |> EndpointInventoryIngestorQueue.ingest_now()
-    end
-  end
-
-  defp bind_result_identity(payload, status) do
-    payload
-    |> Map.drop([:agent_id, :device_uid, "device_uid"])
-    |> Map.put("agent_id", status[:agent_id])
-  end
-
-  defp schedule_sync_ingestion(status) do
-    message = status[:message]
-    async_enabled = Application.get_env(:serviceradar_core, :sync_ingestor_async, true)
-
-    if async_enabled do
-      SyncIngestorQueue.enqueue(message)
-    else
-      SyncIngestorQueue.ingest_sync_results(message)
-    end
-  end
 
   defp handle_sweep_results(status) do
     # In schema-agnostic mode, DB schema is set by CNPG search_path
@@ -348,18 +141,6 @@ defmodule ServiceRadar.Ingestion.ResultIngestor do
     end
   end
 
-  defp handle_sysmon_metrics(status) do
-    reject_gateway_metric_status(status)
-  end
-
-  defp handle_snmp_metrics(status) do
-    reject_gateway_metric_status(status)
-  end
-
-  defp handle_sweep_metrics(status) do
-    reject_gateway_metric_status(status)
-  end
-
   defp handle_plugin_results(status) do
     case decode_payload(status[:message]) do
       {:ok, payload} ->
@@ -395,27 +176,6 @@ defmodule ServiceRadar.Ingestion.ResultIngestor do
   end
 
   defp legacy_plugin_metrics?(_payload), do: false
-
-  defp handle_icmp_results(status) do
-    reject_gateway_metric_status(status)
-  end
-
-  defp handle_rperf_metrics(status) do
-    reject_gateway_metric_status(status)
-  end
-
-  defp handle_mtr_metrics(status) do
-    reject_gateway_metric_status(status)
-  end
-
-  # Full traces go to JetStream; EventWriter's Mtr processor stores them.
-  defp handle_mtr_results(status) do
-    case decode_payload(status[:message]) do
-      {:ok, payload} when is_map(payload) -> mtr_result_publisher().publish(payload, status)
-      {:ok, _payload} -> {:error, :invalid_payload}
-      {:error, reason} -> {:error, reason}
-    end
-  end
 
   defp decode_payload(message) when is_binary(message) and byte_size(message) > 0 do
     Jason.decode(message)
@@ -771,19 +531,11 @@ defmodule ServiceRadar.Ingestion.ResultIngestor do
 
   defp parse_integer(_value), do: nil
 
-  defp reject_gateway_metric_status(status) do
-    {:error, {:gateway_metric_status_not_core_routable, status[:source]}}
-  end
-
   defp sweep_ingestor do
     Application.get_env(:serviceradar_core, :sweep_ingestor, SweepResultsIngestor)
   end
 
   defp plugin_ingestor do
     Application.get_env(:serviceradar_core, :plugin_result_ingestor, PluginResultIngestor)
-  end
-
-  defp mtr_result_publisher do
-    Application.get_env(:serviceradar_core, :mtr_result_publisher, MtrResultPublisher)
   end
 end

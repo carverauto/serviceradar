@@ -36,7 +36,6 @@ defmodule ServiceRadar.Observability.PluginResultIngestorTestSupport do
       alias ServiceRadar.Observability.ServiceStatus
       alias ServiceRadar.Observability.ServiceStatusPubSub
       alias ServiceRadar.Repo
-      alias ServiceRadar.ResultsRouter
 
       setup do
         Enum.each(

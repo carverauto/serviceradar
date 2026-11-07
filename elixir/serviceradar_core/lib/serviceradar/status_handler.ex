@@ -9,7 +9,6 @@ defmodule ServiceRadar.StatusHandler do
 
   def start_link(_opts), do: GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
 
-  defdelegate process_flow_attribution(status, opts \\ []), to: StatusIngestor
   defdelegate emit_flow_attribution_committed(metadata), to: StatusIngestor
 
   def admission_protocol, do: :reserved_v1

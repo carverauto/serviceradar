@@ -16,16 +16,9 @@ defmodule ServiceRadarAgentGateway.AgentRegistryProxy do
       session is monitored. A status push updates liveness and never sets
       `:connected`.
     * Agents not heard from (no touch, no session report) for the stale window
-      and without a live session are unregistered, and their negotiated delivery
-      capabilities are dropped. The window is longer than the agent's slowest
-      heartbeat, so this only removes agents that have gone away.
-
-  Negotiated capabilities still survive the end of a control session, but
-  nothing reads them any more: the gateway refuses retained results on the
-  status RPCs, and `delivery_capabilities/2` has no remaining caller. The store
-  stays only because control sessions report through the same
-  `sync_delivery_capabilities/3` call that this proxy uses to track them. Its
-  removal is tracked in issue #6339.
+      and without a live session are unregistered. The window is longer than
+      the agent's slowest heartbeat, so this only removes agents that have gone
+      away.
   """
 
   use GenServer
@@ -48,18 +41,6 @@ defmodule ServiceRadarAgentGateway.AgentRegistryProxy do
   @spec touch_agent(String.t(), map()) :: :ok | {:error, term()}
   def touch_agent(agent_id, metadata) do
     GenServer.call(__MODULE__, {:touch_agent, agent_id, metadata})
-  end
-
-  @doc "Returns capabilities negotiated for one authenticated edge principal."
-  @spec delivery_capabilities(String.t(), String.t()) :: [String.t()]
-  def delivery_capabilities(partition_id, agent_id) do
-    case live_control_capabilities(partition_id, agent_id) do
-      {:ok, capabilities} ->
-        capabilities
-
-      :not_found ->
-        GenServer.call(__MODULE__, {:delivery_capabilities, partition_id, agent_id})
-    end
   end
 
   @doc false
@@ -116,7 +97,6 @@ defmodule ServiceRadarAgentGateway.AgentRegistryProxy do
     schedule_sweep(sweep_interval_ms)
 
     state = %{
-      capabilities: %{},
       # agent_id => %{session_pid => monitor_ref}
       sessions: %{},
       # monitor_ref => {agent_id, session_pid}
@@ -136,10 +116,7 @@ defmodule ServiceRadarAgentGateway.AgentRegistryProxy do
     # with no session routable again.
     metadata = Map.delete(metadata, :status)
 
-    next_state =
-      state
-      |> put_delivery_capabilities(agent_id, metadata)
-      |> mark_seen(agent_id)
+    next_state = mark_seen(state, agent_id)
 
     case ProcessRegistry.update_value({:agent, agent_id, node()}, fn existing ->
            existing
@@ -160,17 +137,9 @@ defmodule ServiceRadarAgentGateway.AgentRegistryProxy do
     end
   end
 
-  @impl true
-  def handle_call({:delivery_capabilities, partition_id, agent_id}, _from, state) do
-    capabilities = Map.get(state.capabilities, {partition_id, agent_id}, [])
-
-    {:reply, capabilities, state}
-  end
-
-  def handle_call({:sync_delivery_capabilities, partition_id, agent_id, capabilities}, {session, _tag}, state) do
+  def handle_call({:sync_delivery_capabilities, _partition_id, agent_id, _capabilities}, {session, _tag}, state) do
     state =
       state
-      |> put_in([:capabilities, {partition_id, agent_id}], capabilities)
       |> mark_seen(agent_id)
       |> track_session(agent_id, session)
 
@@ -200,13 +169,6 @@ defmodule ServiceRadarAgentGateway.AgentRegistryProxy do
   end
 
   def handle_info(_message, state), do: {:noreply, state}
-
-  defp put_delivery_capabilities(state, agent_id, %{partition_id: partition_id, capabilities: capabilities})
-       when is_binary(partition_id) and is_list(capabilities) do
-    put_in(state, [:capabilities, {partition_id, agent_id}], capabilities)
-  end
-
-  defp put_delivery_capabilities(state, _agent_id, _metadata), do: state
 
   defp mark_seen(state, agent_id) do
     put_in(state, [:last_seen, agent_id], System.monotonic_time(:millisecond))
@@ -298,11 +260,7 @@ defmodule ServiceRadarAgentGateway.AgentRegistryProxy do
 
     Logger.debug("Unregistered stale agent #{agent_id}")
 
-    %{
-      state
-      | last_seen: Map.delete(state.last_seen, agent_id),
-        capabilities: Map.reject(state.capabilities, fn {{_partition_id, id}, _caps} -> id == agent_id end)
-    }
+    %{state | last_seen: Map.delete(state.last_seen, agent_id)}
   end
 
   defp stale_after_ms do
@@ -317,28 +275,6 @@ defmodule ServiceRadarAgentGateway.AgentRegistryProxy do
     ArgumentError -> :ok
   end
 
-  defp live_control_capabilities(partition_id, agent_id) when is_binary(partition_id) and is_binary(agent_id) do
-    key = {:agent_control, partition_id, agent_id, node()}
-
-    if Process.whereis(ProcessRegistry.registry_name()) do
-      key
-      |> ProcessRegistry.lookup()
-      |> Enum.find_value(:not_found, &live_capabilities/1)
-    else
-      :not_found
-    end
-  catch
-    :exit, _reason -> :not_found
-  end
-
-  defp live_control_capabilities(_partition_id, _agent_id), do: :not_found
-
-  defp live_capabilities({pid, %{capabilities: capabilities}}) when is_pid(pid) and is_list(capabilities) do
-    if node(pid) == node() and Process.alive?(pid), do: {:ok, capabilities}
-  end
-
-  defp live_capabilities(_entry), do: nil
-
   # After a restart, the proxy re-learns the sessions that are still running from
   # their own registry entries, which die with them.
   defp live_control_sessions do
@@ -351,14 +287,10 @@ defmodule ServiceRadarAgentGateway.AgentRegistryProxy do
     :exit, _reason -> []
   end
 
-  defp adopt_live_session(
-         {{:agent_control, partition_id, agent_id, registry_node}, pid, %{capabilities: capabilities}},
-         state
-       )
-       when is_binary(partition_id) and is_binary(agent_id) and is_pid(pid) and is_list(capabilities) do
+  defp adopt_live_session({{:agent_control, partition_id, agent_id, registry_node}, pid, _metadata}, state)
+       when is_binary(partition_id) and is_binary(agent_id) and is_pid(pid) do
     if registry_node == node() and node(pid) == node() and Process.alive?(pid) do
       state
-      |> put_in([:capabilities, {partition_id, agent_id}], capabilities)
       |> mark_seen(agent_id)
       |> track_session(agent_id, pid)
     else

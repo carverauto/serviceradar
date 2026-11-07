@@ -234,7 +234,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestorFailureTest do
     retained_status = Map.put(status, :message, Jason.encode!(payload))
 
     assert {:error, {:plugin_result_artifact_cleanup_failed, [{^handler, error_text}]}} =
-             ResultsRouter.process_retained_plugin(retained_status)
+             ServiceRadar.Ingestion.ResultIngestor.process_retained_plugin(retained_status)
 
     assert error_text =~ "running_config_artifact_cleanup_failed"
     assert [[false, _, _]] = current_state_rows(status)

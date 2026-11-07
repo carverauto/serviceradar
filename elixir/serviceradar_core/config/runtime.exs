@@ -77,34 +77,11 @@ ingestion_lane_bytes =
 ingestion_config = Application.get_env(:serviceradar_core, ServiceRadar.Ingestion.Supervisor, [])
 
 ingestion_config =
-  Enum.reduce(
-    [:sweep, :mapper, :bumblebee, :legacy_plugin, :endpoint, :other_results, :status],
+  Keyword.put(
     ingestion_config,
-    fn lane, config ->
-      Keyword.put(
-        config,
-        lane,
-        Keyword.put(Keyword.get(config, lane, []), :max_bytes, ingestion_lane_bytes)
-      )
-    end
+    :status,
+    Keyword.put(Keyword.get(ingestion_config, :status, []), :max_bytes, ingestion_lane_bytes)
   )
-
-# The sweep queue acknowledges chunks once queued and ingests them in the
-# background (ServiceRadar.Ingestion.SweepQueue). Unset values keep its defaults.
-sweep_queue_config =
-  Enum.reject(
-    [
-      max_items: ingestion_positive_env.("SERVICERADAR_SWEEP_INGESTION_MAX_ITEMS", nil),
-      max_items_per_agent:
-        ingestion_positive_env.("SERVICERADAR_SWEEP_INGESTION_MAX_ITEMS_PER_AGENT", nil),
-      worker_timeout_ms:
-        ingestion_positive_env.("SERVICERADAR_SWEEP_INGESTION_WORKER_TIMEOUT_MS", nil)
-    ],
-    fn {_key, value} -> is_nil(value) end
-  )
-
-ingestion_config =
-  Keyword.update!(ingestion_config, :sweep, &Keyword.merge(&1, sweep_queue_config))
 
 callback_deployment =
   RuntimeConfig.callback_deployment_config!(%{
@@ -131,13 +108,6 @@ config :serviceradar,
        :nats_static_users_file,
        System.get_env("SERVICERADAR_NATS_STATIC_USERS_FILE")
 
-config :serviceradar_core, ServiceRadar.Admission.FlowLane,
-  max_bytes: ingestion_positive_env.("SERVICERADAR_FLOW_INGESTION_MAX_BYTES", 64 * 1_024 * 1_024)
-
-config :serviceradar_core, ServiceRadar.Admission.RetainedPluginLane,
-  max_bytes:
-    ingestion_positive_env.("SERVICERADAR_PLUGIN_INGESTION_MAX_BYTES", 64 * 1_024 * 1_024)
-
 config :serviceradar_core,
        ServiceRadar.Ingestion.Supervisor,
        Keyword.put(
@@ -151,10 +121,6 @@ config :serviceradar_core,
 
 config :serviceradar_core, ServiceRadar.Inventory.SyncIngestorQueue,
   max_bytes: ingestion_positive_env.("SERVICERADAR_SYNC_INGESTION_MAX_BYTES", 64 * 1_024 * 1_024)
-
-config :serviceradar_core,
-       :results_router_max_bytes,
-       ingestion_positive_env.("SERVICERADAR_SERVICE_STATE_MAX_BYTES", 32 * 1_024 * 1_024)
 
 config :serviceradar_core,
        ServiceRadar.Observability.StatefulAlertEngine.Rollout.runtime_config!()
@@ -1481,13 +1447,6 @@ if config_env() == :prod do
     # prune (e.g. after a deliberate topology cutover), then unset.
     canonical_prune_guard_override:
       parse_bool.("SERVICERADAR_TOPOLOGY_CANONICAL_PRUNE_GUARD_OVERRIDE", false)
-
-  # Capability-retained plugin results are admitted by the bounded retained-plugin
-  # lane. "false" is the kill switch back to the previous synchronous path.
-  # Mirrored in serviceradar_core_elx/config/runtime.exs, the one a release reads.
-  config :serviceradar_core, ServiceRadar.StatusHandler,
-    retained_plugin_admission_enabled:
-      System.get_env("RETAINED_PLUGIN_ADMISSION_ENABLED", "true") in ~w(true 1 yes)
 
   # Change-detection skip-guard for workload-identity snapshot upserts (fj #33).
   # persist_snapshot/1 runs once per agent status; on a stable cluster the

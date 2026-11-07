@@ -1426,29 +1426,25 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
           end
         end,
         fn ->
-          publisher =
-            {FlowAttribution, :publish_observations,
-             [
-               [
-                 enabled: true,
-                 publish: fn subject, body, msg_id ->
-                   send(test_pid, {:legacy_flow_published, subject, body, msg_id})
-                   :ok
-                 end
-               ]
-             ]}
-
-          assert {:ok, legacy_committed} =
-                   StatusHandler.process_flow_attribution(
-                     %{
-                       partition: frame.partition_slug,
-                       agent_id: frame.agent_id,
-                       message: FlowAttributionEventBatch.encode(frame.batch)
-                     },
-                     flow_attribution_publisher: publisher
+          assert :ok =
+                   FlowAttribution.publish_observations(
+                     frame.batch.events,
+                     frame.partition_slug,
+                     frame.agent_id,
+                     enabled: true,
+                     publish: fn subject, body, msg_id ->
+                       send(test_pid, {:legacy_flow_published, subject, body, msg_id})
+                       :ok
+                     end
                    )
 
-          StatusHandler.emit_flow_attribution_committed(legacy_committed)
+          StatusHandler.emit_flow_attribution_committed(%{
+            count: 1,
+            event_count: length(frame.batch.events),
+            dropped_since_last: frame.batch.dropped_since_last,
+            partition_id: frame.partition_slug,
+            agent_id: frame.agent_id
+          })
 
           assert_received {:legacy_flow_published, legacy_subject, legacy_body, nil}
           assert_received {:flow_batch_received, legacy_measurements, legacy_metadata}

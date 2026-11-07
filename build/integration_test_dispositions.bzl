@@ -439,7 +439,6 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/serviceradar/registry_sync_test.exs": 1,
     "test/serviceradar/repo/ash_schema_migrations_sync_db_test.exs": 1,
     "test/serviceradar/repo/direct_session_db_test.exs": 1,
-    "test/serviceradar/results_router_integration_test.exs": 1,
     "test/serviceradar/results_router_test.exs": 1,
     "test/serviceradar/scans/adhoc_scan_nats_e2e_test.exs": 1,
     "test/serviceradar/security/edge_isolation_test.exs": 1,

@@ -3,9 +3,7 @@ defmodule ServiceRadar.Ingestion.StatusIngestor do
 
   alias Serviceradar.Agent.Addon.V1.TelemetryBatch
   alias Serviceradar.Agent.Addon.V1.TelemetryRecord
-  alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEventBatch
   alias ServiceRadar.EventWriter.OCSF
-  alias ServiceRadar.Ingestion.ResultIngestor
   alias ServiceRadar.Inventory.DiscoveryIngestor
   alias ServiceRadar.NATS.Connection
   alias ServiceRadar.Observability.AnomalyDetection.SeriesKey
@@ -13,24 +11,8 @@ defmodule ServiceRadar.Ingestion.StatusIngestor do
 
   require Logger
 
-  @flow_attribution_source "flow-attribution"
-  @workload_identity_source "workload-identity"
   @addon_source_prefix "addon:"
   @plugin_source_prefix "plugin:"
-  @metric_only_sources [
-    "sysmon-metrics",
-    :sysmon_metrics,
-    "snmp-metrics",
-    :snmp_metrics,
-    "icmp-metrics",
-    :icmp_metrics,
-    "rperf-metrics",
-    :rperf_metrics,
-    "mtr-metrics",
-    :mtr_metrics,
-    "sweep-metrics",
-    :sweep_metrics
-  ]
   @addon_ocsf_subject "pdns.ocsf"
   @addon_otel_log_subject "logs.otel.addon"
   @plugin_ocsf_subject "events.ocsf.processed"
@@ -55,33 +37,8 @@ defmodule ServiceRadar.Ingestion.StatusIngestor do
     :attributed_flow,
     :batch_received
   ]
-  @telemetry_batch_decode_failed [
-    :serviceradar,
-    :event_writer,
-    :attributed_flow,
-    :batch_decode_failed
-  ]
 
   def ingest(status, opts \\ []), do: process(status, opts)
-
-  defp process(%{source: source}, _opts) when source in @metric_only_sources do
-    {:error, {:gateway_metric_status_not_core_routable, source}}
-  end
-
-  defp process(%{source: source} = status, opts)
-       when source in ["results", :results, "plugin-result", :plugin_result] do
-    ResultIngestor.process_and_publish(status, opts)
-  end
-
-  defp process(%{source: source} = status, opts)
-       when source in [@flow_attribution_source, :flow_attribution] do
-    process_flow_attribution(status, opts)
-  end
-
-  defp process(%{source: source} = status, _opts)
-       when source in [@workload_identity_source, :workload_identity] do
-    ServiceRadar.WorkloadIdentity.persist_snapshot(status)
-  end
 
   defp process(%{source: @addon_source_prefix <> addon_id} = status, opts) do
     handle_package_telemetry(status, :addon, addon_id, opts)
@@ -102,62 +59,6 @@ defmodule ServiceRadar.Ingestion.StatusIngestor do
   defp process(_status, _opts), do: :ok
 
   @doc false
-  def process_flow_attribution(status, opts \\ []) do
-    partition_id = status[:partition] || "default"
-    agent_id = status[:agent_id]
-    message = status[:message]
-
-    case decode_batch(message) do
-      {:ok, %FlowAttributionEventBatch{events: events, dropped_since_last: dropped}} ->
-        # Publish the pushed attributions on JetStream; EventWriter loads them
-        # into the warehouse, where the correlator joins them against collected
-        # NetFlow. NetFlow stays the flow source; netprobe only supplies the
-        # process context.
-        case publish_flow_attribution(events || [], partition_id, agent_id, opts) do
-          :ok ->
-            committed_flow_result(events, dropped, partition_id, agent_id)
-
-          {:ok, _result} ->
-            committed_flow_result(events, dropped, partition_id, agent_id)
-
-          {:error, _reason} = error ->
-            error
-
-          other ->
-            {:error, {:unexpected_flow_attribution_publish_result, other}}
-        end
-
-      :error ->
-        :telemetry.execute(
-          @telemetry_batch_decode_failed,
-          %{count: 1},
-          %{partition_id: partition_id, agent_id: agent_id}
-        )
-
-        Logger.warning(
-          "StatusHandler: failed to decode FlowAttributionEventBatch",
-          partition_id: partition_id,
-          agent_id: agent_id,
-          message_size: byte_size_or_nil(message)
-        )
-
-        {:error, :flow_attribution_decode_failed}
-    end
-  end
-
-  defp decode_batch(message) when is_binary(message) and byte_size(message) > 0 do
-    case FlowAttributionEventBatch.decode(message) do
-      {:ok, %FlowAttributionEventBatch{} = batch} -> {:ok, batch}
-      %FlowAttributionEventBatch{} = batch -> {:ok, batch}
-      _ -> :error
-    end
-  rescue
-    _ -> :error
-  end
-
-  defp decode_batch(_), do: :error
-
-  @doc false
   def emit_flow_attribution_committed(%{
         event_count: event_count,
         dropped_since_last: dropped,
@@ -169,38 +70,6 @@ defmodule ServiceRadar.Ingestion.StatusIngestor do
       %{count: 1, event_count: event_count, dropped_since_last: dropped},
       %{partition_id: partition_id, agent_id: agent_id}
     )
-  end
-
-  defp committed_flow_result(events, dropped, partition_id, agent_id) do
-    {:ok,
-     %{
-       event_count: length(events || []),
-       dropped_since_last: dropped || 0,
-       partition_id: partition_id,
-       agent_id: agent_id
-     }}
-  end
-
-  defp publish_flow_attribution(events, partition_id, agent_id, opts) do
-    case flow_attribution_publisher(opts) do
-      {mod, fun, extra_args} -> apply(mod, fun, [events, partition_id, agent_id | extra_args])
-      fun when is_function(fun, 3) -> fun.(events, partition_id, agent_id)
-    end
-  end
-
-  defp flow_attribution_publisher(opts) do
-    case Keyword.fetch(opts, :flow_attribution_publisher) do
-      {:ok, publisher} when not is_nil(publisher) ->
-        publisher
-
-      _ ->
-        :serviceradar_core
-        |> Application.get_env(ServiceRadar.StatusHandler, [])
-        |> Keyword.get(
-          :flow_attribution_publisher,
-          {ServiceRadar.FlowAttribution, :publish_observations, []}
-        )
-    end
   end
 
   defp handle_package_telemetry(status, producer_type, producer_id, opts) do

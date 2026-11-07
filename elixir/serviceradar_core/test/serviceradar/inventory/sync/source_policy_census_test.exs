@@ -147,39 +147,6 @@ defmodule ServiceRadar.Inventory.Sync.SourcePolicyCensusTest do
     end
   end
 
-  describe "router and policy must agree on what the census is called" do
-    test "every census service type the router accepts is one SourcePolicy recognises" do
-      # THE guardrail pairing. The router decides whether a census payload
-      # reaches the SyncIngestor at all; SourcePolicy decides whether its MAC
-      # may anchor a device. If these two lists drift, the stream ingests
-      # normally with the guardrail silently inert -- no error anywhere, just
-      # randomized MACs minting a device per rotation.
-      #
-      # This lives in the unit tier on purpose: results_router_test.exs uses
-      # ServiceRadar.DataCase (@moduletag :requires_app), which the unit tier
-      # excludes, so the routing assertions there run only in the integration
-      # shards. This invariant needs no app.
-      for service_type <- ServiceRadar.ResultsRouter.census_service_types() do
-        source = service_type |> to_string() |> String.replace("_", "-")
-
-        assert SourcePolicy.passive_census_source?(update(source, %{})),
-               "router accepts service_type #{inspect(service_type)} but SourcePolicy " <>
-                 "does not recognise #{inspect(source)} as a census source"
-      end
-    end
-
-    test "the Go agent's source string is one of them" do
-      # models.DiscoverySourceNetprobeCensus in go/pkg/models/discovery.go. A
-      # drift there is a cross-language break with no compiler on either side.
-      assert "netprobe-census" in Enum.map(
-               ServiceRadar.ResultsRouter.census_service_types(),
-               &to_string/1
-             )
-
-      assert SourcePolicy.passive_census_source?(update("netprobe-census", %{}))
-    end
-  end
-
   describe "addressless census observations may not create a device" do
     # RFC 5227 ARP probes are a designed, golden-pinned observation: a host
     # asking whether an address is free sends ARP with a zero sender address.
