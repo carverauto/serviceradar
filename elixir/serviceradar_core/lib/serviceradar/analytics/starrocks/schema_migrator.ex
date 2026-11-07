@@ -25,7 +25,9 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
   query inside that transaction, before every statement sent to StarRocks: a
   runner that has lost the lock raises there, stops, and contends for the lock
   again like any other replica. What this does not cover is the one statement
-  already in flight when the lock is lost. That one completes.
+  already in flight when the lock is lost. That one completes, and the runner
+  that takes the lock next waits for its schema change to finish before it
+  sends one of its own, then finds the column there and skips it.
   """
 
   alias ServiceRadar.Analytics.StarRocks.Env
@@ -348,7 +350,13 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
       "SELECT COLUMN_TYPE FROM information_schema.columns WHERE table_schema = '#{state.database}' " <>
         "AND table_name = '#{table}' AND column_name = '#{column}'"
 
-    case state.query.(type_sql) do
+    with :ok <- await_quiet(state, table) do
+      modify_unless_typed(state, statement, table, type, state.query.(type_sql))
+    end
+  end
+
+  defp modify_unless_typed(state, statement, table, type, probe) do
+    case probe do
       {:ok, %{rows: [[current | _] | _]}} when is_binary(current) ->
         if String.downcase(current) == type do
           :ok
@@ -366,7 +374,7 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
 
   defp alter_and_await(state, statement, table) do
     with :ok <- run_statement(state, statement) do
-      await_alter(state, table, @alter_poll_attempts)
+      await_alter(state, table)
     end
   end
 
@@ -375,15 +383,17 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
       "SELECT 1 FROM information_schema.columns WHERE table_schema = '#{state.database}' " <>
         "AND table_name = '#{table}' AND column_name = '#{column}'"
 
-    case state.query.(exists_sql) do
-      {:ok, %{rows: [_ | _]}} ->
-        :ok
+    with :ok <- await_quiet(state, table) do
+      case state.query.(exists_sql) do
+        {:ok, %{rows: [_ | _]}} ->
+          :ok
 
-      {:ok, _none} ->
-        alter_and_await(state, statement, table)
+        {:ok, _none} ->
+          alter_and_await(state, statement, table)
 
-      {:error, reason} ->
-        {:error, reason}
+        {:error, reason} ->
+          {:error, reason}
+      end
     end
   end
 
@@ -395,27 +405,34 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
   end
 
   # A schema change is a background job, and StarRocks refuses a second ALTER on
-  # a table while one is still running.
-  defp await_alter(_state, table, 0), do: {:error, {:alter_not_finished, table}}
+  # a table while one is still running. Only FINISHED and CANCELLED are final.
+  # A shared-data table passes through FINISHED_REWRITING first, and is still
+  # mid-change there: an ALTER sent then is refused.
+  defp await_alter(state, table), do: poll_alter(state, table, :own, @alter_poll_attempts)
 
-  defp await_alter(state, table, attempts_left) do
+  # Before an ALTER, waits out any change still running on the table -- one a
+  # runner that lost the lock, or died, left behind. How that one ended is not
+  # this runner's concern: a cancelled change left the column as it was, and
+  # the probe that follows sees what a finished one did.
+  defp await_quiet(state, table), do: poll_alter(state, table, :previous, @alter_poll_attempts)
+
+  defp poll_alter(_state, table, _whose, 0), do: {:error, {:alter_not_finished, table}}
+
+  defp poll_alter(state, table, whose, attempts_left) do
     sql =
       "SHOW ALTER TABLE COLUMN FROM #{state.database} WHERE TableName = '#{table}' " <>
         "ORDER BY CreateTime DESC LIMIT 1"
 
     case alter_state(state.query.(sql)) do
-      {:ok, "CANCELLED"} ->
+      {:ok, "CANCELLED"} when whose == :own ->
         {:error, {:alter_cancelled, table}}
 
-      {:ok, "FINISHED" <> _} ->
-        :ok
-
-      {:ok, :none} ->
+      {:ok, final} when final in ["FINISHED", "CANCELLED", :none] ->
         :ok
 
       {:ok, _running} ->
         state.sleep.(@alter_poll_ms)
-        await_alter(state, table, attempts_left - 1)
+        poll_alter(state, table, whose, attempts_left - 1)
 
       {:error, reason} ->
         {:error, reason}
