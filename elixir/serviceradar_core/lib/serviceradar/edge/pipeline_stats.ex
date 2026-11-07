@@ -17,7 +17,7 @@ defmodule ServiceRadar.Edge.PipelineStats do
       (`:dead_lettered`);
     * `ServiceRadar.EventWriter.ConsumerLagReporter`: the latest JetStream state of each
       edge-record durable (pending, ack pending, redelivered, and its stream's message count,
-      which for the dead-letter stream is the DLQ depth).
+      which for the dead-letter stream is the DLQ depth, or nil when that stream's poll failed).
 
   The contract label is bounded: a catalogued contract as `<contract_id>/<version>`
   (`ServiceRadar.Edge.ContractCatalog`), any other contract as `uncataloged`, and a record whose
@@ -32,6 +32,7 @@ defmodule ServiceRadar.Edge.PipelineStats do
 
   alias ServiceRadar.Edge.ContractCatalog
   alias Serviceradar.Edge.V1.EdgeRecordV1
+  alias ServiceRadar.Edge.WireDecode
 
   @table __MODULE__
   @events [
@@ -73,7 +74,7 @@ defmodule ServiceRadar.Edge.PipelineStats do
           required(:pending) => non_neg_integer(),
           required(:ack_pending) => non_neg_integer(),
           required(:redelivered) => non_neg_integer(),
-          required(:stream_messages) => non_neg_integer(),
+          required(:stream_messages) => non_neg_integer() | nil,
           required(:sampled_at_ms) => integer()
         }
 
@@ -120,9 +121,10 @@ defmodule ServiceRadar.Edge.PipelineStats do
   """
   @spec contract_of(binary()) :: contract_ref()
   def contract_of(record_bytes) when is_binary(record_bytes) do
-    record_bytes |> EdgeRecordV1.decode() |> contract_ref()
-  rescue
-    _error -> nil
+    case WireDecode.decode_record(record_bytes) do
+      {:ok, record} -> contract_ref(record)
+      {:error, _reason} -> nil
+    end
   end
 
   @doc "Counts `count` records of `contract` at `event`. A no-op where the table is not running."
@@ -164,7 +166,7 @@ defmodule ServiceRadar.Edge.PipelineStats do
       pending: count(consumer_info, :num_pending),
       ack_pending: count(consumer_info, :num_ack_pending),
       redelivered: count(consumer_info, :num_redelivered),
-      stream_messages: stream_info |> value(:state) |> count(:messages),
+      stream_messages: stream_info |> value(:state) |> known_count(:messages),
       sampled_at_ms: System.system_time(:millisecond)
     }
 
@@ -219,10 +221,12 @@ defmodule ServiceRadar.Edge.PipelineStats do
   defp value(map, key) when is_map(map), do: Map.get(map, key, Map.get(map, Atom.to_string(key)))
   defp value(_map, _key), do: nil
 
-  defp count(map, key) do
+  defp count(map, key), do: known_count(map, key) || 0
+
+  defp known_count(map, key) do
     case value(map, key) do
       n when is_integer(n) and n >= 0 -> n
-      _other -> 0
+      _other -> nil
     end
   end
 end

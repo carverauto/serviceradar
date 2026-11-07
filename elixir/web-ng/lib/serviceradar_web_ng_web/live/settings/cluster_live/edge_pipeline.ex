@@ -44,7 +44,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.EdgePipeline do
 
   @doc """
   Sums node snapshots: one row per catalogued contract in catalog order, then any other label a
-  node counted; the latest sample of each durable. `now_ms` is when the ages are measured from.
+  node counted; the latest sample of each durable, with its stream depth taken from the latest
+  sample that read it. `now_ms` is when the ages are measured from.
   """
   @spec merge([map()], integer()) :: map()
   def merge([], _now_ms), do: unavailable()
@@ -58,7 +59,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.EdgePipeline do
       snapshots
       |> Enum.flat_map(& &1.consumers)
       |> Enum.group_by(&{&1.stream, &1.durable})
-      |> Enum.map(fn {_durable, samples} -> Enum.max_by(samples, & &1.sampled_at_ms) end)
+      |> Enum.map(fn {_durable, samples} -> latest_sample(samples) end)
       |> Enum.sort_by(&{&1.subject_class, &1.durable})
 
     %{
@@ -68,6 +69,16 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.EdgePipeline do
       consumers: consumers,
       now_ms: now_ms
     }
+  end
+
+  defp latest_sample(samples) do
+    sample = Enum.max_by(samples, & &1.sampled_at_ms)
+    known = for %{stream_messages: messages} = known <- samples, is_integer(messages), do: known
+
+    case {sample.stream_messages, known} do
+      {nil, [_ | _]} -> %{sample | stream_messages: Enum.max_by(known, & &1.sampled_at_ms).stream_messages}
+      _known_or_none -> sample
+    end
   end
 
   defp merge_contract(label, entries) do
@@ -206,7 +217,9 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.EdgePipeline do
                 <td class={count_class(consumer.redelivered, "text-warning")}>
                   {consumer.redelivered}
                 </td>
-                <td class={stream_messages_class(consumer)}>{consumer.stream_messages}</td>
+                <td class={stream_messages_class(consumer)}>
+                  {consumer.stream_messages || "unknown"}
+                </td>
                 <td class="font-mono text-xs text-sr-muted">
                   {format_age(consumer.sampled_at_ms, @stats.now_ms)}
                 </td>

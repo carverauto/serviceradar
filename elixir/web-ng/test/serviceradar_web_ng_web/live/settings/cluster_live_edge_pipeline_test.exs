@@ -124,6 +124,36 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveEdgePipelineTest do
     assert EdgePipeline.format_age(nil, stats.now_ms) == "never"
   end
 
+  test "a node whose stream poll failed does not hide another node's dead-letter depth" do
+    sample = fn name, pending, messages, sampled_at ->
+      %{
+        node: name,
+        contracts: [],
+        consumers: [
+          %{
+            subject_class: "edge_record_dlq",
+            stream: "TELEMETRY_EDGE_RECORD_DLQ_V1_BULK",
+            durable: "serviceradar-event-writer-edge-record-dlq",
+            pending: pending,
+            ack_pending: 0,
+            redelivered: 0,
+            stream_messages: messages,
+            sampled_at_ms: sampled_at
+          }
+        ]
+      }
+    end
+
+    stats = EdgePipeline.merge([sample.("core-a", 1, 12, 1_000), sample.("core-b", 2, nil, 2_000)], 3_000)
+    assert [%{pending: 2, stream_messages: 12, sampled_at_ms: 2_000}] = stats.consumers
+
+    unknown = EdgePipeline.merge([sample.("core-b", 2, nil, 2_000)], 3_000)
+    assert [%{stream_messages: nil}] = unknown.consumers
+
+    html = render_component(&EdgePipeline.panel/1, stats: unknown)
+    assert html =~ "unknown"
+  end
+
   test "the disconnected mount and a cluster with no reporting node render the unavailable state" do
     start_supervised!(PipelineStats)
     PipelineStats.record(:projected, {"serviceradar.sweep.observation", 1})

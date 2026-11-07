@@ -78,6 +78,27 @@ defmodule ServiceRadar.Edge.PipelineStatsTest do
     assert %{projector_refused: 1} = by_label["unattributed"]
   end
 
+  test "a record's contract is read only from bytes the edge wire boundary accepts" do
+    contract = %EdgeOutputContractRef{
+      contract_id: "serviceradar.sweep.observation",
+      contract_version: 1
+    }
+
+    assert PipelineStats.contract_of(
+             EdgeRecordV1.encode(%EdgeRecordV1{output_contract: contract})
+           ) == @sweep
+
+    # 512 KiB is the edge record's frozen physical bound; a larger body is refused before decode.
+    oversized =
+      EdgeRecordV1.encode(%EdgeRecordV1{
+        output_contract: contract,
+        payload: :binary.copy(<<0>>, 512 * 1024)
+      })
+
+    assert PipelineStats.contract_of(oversized) == nil
+    assert PipelineStats.contract_of(<<255, 255, 255>>) == nil
+  end
+
   test "the lag reporter keeps the latest state of each edge-record durable and its stream depth" do
     start_supervised!(PipelineStats)
 
@@ -114,5 +135,10 @@ defmodule ServiceRadar.Edge.PipelineStatsTest do
              redelivered: 4,
              stream_messages: 6
            } = consumer
+
+    # A failed stream poll leaves the depth unknown rather than reporting an empty stream.
+    _state = ConsumerLagReporter.report_consumer(state, dlq, %{info | num_pending: 3}, %{})
+
+    assert {:ok, %{consumers: [%{pending: 3, stream_messages: nil}]}} = PipelineStats.snapshot()
   end
 end

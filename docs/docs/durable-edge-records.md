@@ -505,8 +505,8 @@ contract it shows, summed across every connected gateway and core node:
 A record refused or withheld before its bytes decoded is counted as `unattributed`.
 A second table shows the pending, ack-pending and redelivered counts of each
 edge-record durable and its stream's message count; for
-`TELEMETRY_EDGE_RECORD_DLQ_V1_BULK` that count is the dead-letter depth. The
-counts start at zero when a gateway or core process starts.
+`TELEMETRY_EDGE_RECORD_DLQ_V1_BULK` that count is the dead-letter depth. A
+stream no node could read shows `unknown`, not 0. The counts start at zero when a gateway or core process starts.
 
 ### Settings
 
