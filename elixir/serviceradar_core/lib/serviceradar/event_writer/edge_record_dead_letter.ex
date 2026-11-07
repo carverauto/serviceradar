@@ -19,7 +19,10 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter do
   A failure that no redelivery can fix is due at once, whatever its delivery count: a
   projector's republish the NATS broker denied (`ServiceRadar.NATS.PublishDeniedError`). It stays
   denied until the grant changes, so retrying it only spends a PubAck timeout per delivery.
-  Once the grant is fixed, replay restores the dead-lettered records.
+  Once the grant is fixed, replay restores the dead-lettered records. A record the processor
+  refused (`ServiceRadar.EventWriter.EdgeRecordRefusedError`: a failed check, a grant or assignment
+  that is no longer current, a conflicting slot) is refused again on every redelivery, so it is
+  due at once too; its `Reason` header is the refusal's class.
 
   ## Never lose the record
 
@@ -74,6 +77,7 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter do
   alias ServiceRadar.Edge.StreamRoute
   alias ServiceRadar.Edge.WireDecode
   alias ServiceRadar.EventWriter.EdgeRecordDeadLetter.FailureLog
+  alias ServiceRadar.EventWriter.EdgeRecordRefusedError
   alias ServiceRadar.EventWriter.Telemetry, as: EventWriterTelemetry
   alias ServiceRadar.NATS.JetStreamPublish
   alias ServiceRadar.NATS.PublishDeniedError
@@ -127,9 +131,13 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter do
 
   def due?(_message), do: false
 
-  @doc "Whether a failed delivery failed in a way no redelivery can fix: a denied republish."
+  @doc """
+  Whether a failed delivery failed in a way no redelivery can fix: a denied republish, or a
+  record the processor refused.
+  """
   @spec terminal?(map()) :: boolean()
   def terminal?(%{status: {:failed, %PublishDeniedError{}}}), do: true
+  def terminal?(%{status: {:failed, %EdgeRecordRefusedError{}}}), do: true
   def terminal?(_message), do: false
 
   @doc "Records a failed delivery that is not yet due, so the dead-letter can name its first failure."
@@ -216,9 +224,17 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter do
       reason_class: reason_class(message),
       reason_detail: reason_detail(message),
       attempts: attempts(message),
-      terminal: terminal?(message)
+      terminal: terminal?(message),
+      log_level: log_level(message)
     }
   end
+
+  # A denied republish is logged once per subject and hold by the broker error filter, and the
+  # dead-letter counter drives the alert, so each such record logs at debug. A refusal is the
+  # record's own outcome and is logged once, here. Any other failure exhausted its retries.
+  defp log_level(%{status: {:failed, %PublishDeniedError{}}}), do: :debug
+  defp log_level(%{status: {:failed, %EdgeRecordRefusedError{}}}), do: :warning
+  defp log_level(_message), do: :error
 
   @doc """
   Splits the headers of a stored dead-letter message into the record's original transport
@@ -349,6 +365,9 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter do
 
   defp attempts(_message), do: 1
 
+  defp reason_class(%{status: {:failed, %EdgeRecordRefusedError{reason: reason}}}),
+    do: EventWriterTelemetry.failure_class(reason)
+
   defp reason_class(%{status: status}), do: EventWriterTelemetry.failure_class(status)
   defp reason_class(_message), do: "error"
 
@@ -448,7 +467,8 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter do
       reason_class: reason_class(message),
       reason_detail: reason_detail(message),
       attempts: attempts(message),
-      terminal: terminal?(message)
+      terminal: terminal?(message),
+      log_level: log_level(message)
     }
   end
 
@@ -463,14 +483,12 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter do
     :ok
   end
 
-  # A denied republish dead-letters every record of its subject while the grant is missing. The
-  # broker's denial is logged once per subject and hold (`BrokerErrorLogFilter`), and the
-  # counter below drives the alert, so each such record logs at debug rather than as an error.
+  # The level is the failure's (`log_level/1`).
   defp report(letter, {:ok, %{stream: stream, seq: seq}}) do
     emit(letter, "stored")
 
     Logger.log(
-      if(letter.terminal, do: :debug, else: :error),
+      letter.log_level,
       "Edge record dead-lettered: " <> fields(letter, dlq_stream: stream, dlq_sequence: seq)
     )
 

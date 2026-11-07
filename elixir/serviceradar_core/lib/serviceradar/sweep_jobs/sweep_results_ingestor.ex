@@ -69,6 +69,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   alias ServiceRadar.SweepJobs.SweepMonitorWorker
   alias ServiceRadar.SweepJobs.SweepPubSub
 
+  require Ash.Expr
   require Ash.Query
   require Logger
 
@@ -1102,7 +1103,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
              with :ok <- advance_seed_head(plan) do
                case plan.action do
                  :progress -> {:ok, :advanced}
-                 :create -> insert_provisional_device(result, plan.next, partition, actor)
+                 :create -> fenced_provisional_device(result, plan.next, partition, actor)
                end
              end
            else
@@ -1118,11 +1119,21 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
         0
 
+      {:ok, {{:existing, existing}, _stale}} ->
+        handle_existing_seed(ip, plan.next, partition, existing, track_collisions?)
+
       {:ok, _} ->
         0
 
       {:error, reason} ->
         handle_provisional_create_error(ip, plan.next, partition, reason, track_collisions?)
+    end
+  end
+
+  defp fenced_provisional_device(result, uid, partition, actor) do
+    case insert_provisional_device(result, uid, partition, actor) do
+      {:existing, device} -> {:ok, {:existing, device}}
+      created_or_error -> created_or_error
     end
   end
 
@@ -1183,6 +1194,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         Logger.info("SweepResultsIngestor: Created provisional sweep device #{uid} for #{ip}")
         0
 
+      {:existing, existing} ->
+        handle_existing_seed(ip, uid, partition, existing, track_collisions?)
+
       {:error, reason} ->
         handle_provisional_create_error(ip, uid, partition, reason, track_collisions?)
     end
@@ -1210,16 +1224,56 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       }
     }
 
+    # The seed uid is derived from the address, so a concurrent sweep of the same address (another
+    # agent's batch, or the next cycle while this one is still projecting) creates the same uid.
+    # A plain INSERT would raise a unique violation, which inside the edge-record ledger
+    # transaction aborts that transaction: Ash rolls it back with the failed changeset and the
+    # whole batch is lost. Creating on conflict-do-nothing instead waits for the other writer,
+    # then returns the row it committed, unchanged: never revived, never overwritten.
     Device
-    |> Ash.Changeset.for_create(:create, attrs)
+    |> Ash.Changeset.for_create(:create, attrs,
+      upsert?: true,
+      upsert_identity: :unique_uid,
+      upsert_fields: [],
+      upsert_condition: Ash.Expr.expr(false),
+      return_skipped_upsert?: true
+    )
     |> Ash.create(actor: actor, return_notifications?: true)
     |> case do
+      {:ok, %Device{__metadata__: %{upsert_skipped: true}} = existing, _notifications} ->
+        {:existing, existing}
+
       {:ok, device, notifications} ->
         NotificationQueue.notify_after_commit(notifications)
         {:ok, device}
 
       {:error, _reason} = error ->
         error
+    end
+  end
+
+  # Another writer holds the seed uid. Its row is used as it is: the sweep's address lookup that
+  # follows finds it when it is the live device at this address, and a tombstone stays deleted.
+  defp handle_existing_seed(ip, uid, partition, existing, track_collisions?) do
+    cond do
+      not is_nil(existing.deleted_at) ->
+        Logger.debug(
+          "SweepResultsIngestor: Seed uid #{uid} for #{ip} is held by a deleted device, skipping create"
+        )
+
+        0
+
+      {existing.partition, existing.ip} != {partition, ip} ->
+        record_seed_uid_collision(ip, uid, partition, existing, track_collisions?)
+
+      true ->
+        clear_seed_uid_collisions(partition, [ip], track_collisions?)
+
+        Logger.debug(
+          "SweepResultsIngestor: Provisional sweep device already exists for #{ip}, skipping duplicate create"
+        )
+
+        0
     end
   end
 

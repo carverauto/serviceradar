@@ -457,6 +457,7 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/serviceradar/sweep_jobs/sweep_group_declared_targets_db_test.exs": 1,
     "test/serviceradar/sweep_jobs/sweep_group_run_now_test.exs": 1,
     "test/serviceradar/sweep_jobs/sweep_host_result_coverage_db_test.exs": 1,
+    "test/serviceradar/sweep_jobs/sweep_ingest_transaction_db_test.exs": 1,
     "test/serviceradar/sweep_jobs/sweep_results_flow_e2e_test.exs": 1,
     "test/serviceradar/sweep_jobs/sweep_status_update_lock_order_db_test.exs": 1,
     "test/serviceradar/sweep_jobs/sweep_targeting_integration_test.exs": 1,

@@ -5,6 +5,7 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
   alias ServiceRadar.Analytics.StarRocks.LoadSupervisor
   alias ServiceRadar.Analytics.StarRocks.StreamLoad
   alias ServiceRadar.EventWriter.Config
+  alias ServiceRadar.EventWriter.EdgeRecordRefusedError
   alias ServiceRadar.EventWriter.Pipeline
   alias ServiceRadar.EventWriter.Processors.AdhocScan
   alias ServiceRadar.EventWriter.Processors.Mtr
@@ -328,6 +329,27 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
 
       # The broker's denial is logged once per subject, so its records are not each an error.
       refute log =~ ~r/\[error\][^\n]*Edge record dead-lettered/
+    end
+
+    # A refused record is refused again on every redelivery; it is copied, never NAKed or dropped.
+    test "a record the processor refused is dead-lettered on its first delivery" do
+      message =
+        1
+        |> failed_edge_record(20, -1, stored(4))
+        |> Message.failed(%EdgeRecordRefusedError{reason: {:refused, :gateway_unknown}})
+
+      log = ExUnit.CaptureLog.capture_log(fn -> Pipeline.ack(:ack_ref, [], [message]) end)
+
+      assert [{:publish, _subject, @record_bytes, opts}, {:ack, :ack}] = steps()
+      assert header(opts, "Sr-Edge-Dlq-Reason") == "refused"
+
+      assert header(opts, "Sr-Edge-Dlq-Reason-Detail") ==
+               "edge record refused: {:refused, :gateway_unknown}"
+
+      assert_received {:dead_letter_event, %{count: 1, attempts: 1},
+                       %{reason_class: "refused", result: "stored"}}
+
+      assert log =~ ~r/\[warning\][^\n]*Edge record dead-lettered/
     end
 
     test "a dead-letter that is not stored leaves the source unacknowledged and NAKs it" do
