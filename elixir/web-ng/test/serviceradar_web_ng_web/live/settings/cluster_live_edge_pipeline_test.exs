@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveEdgePipelineTest do
 
   import Phoenix.LiveViewTest
 
+  alias ServiceRadar.Edge.ContractCatalog
   alias ServiceRadar.Edge.PipelineStats
   alias ServiceRadarWebNGWeb.Settings.ClusterLive.EdgePipeline
 
@@ -40,7 +41,19 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveEdgePipelineTest do
 
     # Every catalogued contract has a row, so a family that is not flowing reads as zero.
     labels = Enum.map(stats.contracts, & &1.contract)
-    assert Enum.take(labels, length(PipelineStats.contract_labels())) == PipelineStats.contract_labels()
+    catalog = Enum.map(ContractCatalog.entries(), fn %{ref: {id, version}} -> "#{id}/#{version}" end)
+    assert Enum.take(labels, length(catalog)) == catalog
+
+    for family <- [
+          @sweep,
+          "serviceradar.netprobe.flow_attribution/1",
+          "serviceradar.mapper.devices.batch/1",
+          "serviceradar.mapper.interfaces.batch/1",
+          "serviceradar.mapper.topology.batch/1"
+        ] do
+      assert family in labels
+    end
+
     assert "unattributed" in labels
 
     html = render_component(&EdgePipeline.panel/1, stats: stats)
