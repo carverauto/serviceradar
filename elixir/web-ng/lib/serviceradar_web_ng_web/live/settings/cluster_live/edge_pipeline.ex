@@ -146,6 +146,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.EdgePipeline do
                 <th>Projector refused</th>
                 <th>Failed attempts</th>
                 <th>Dead-lettered</th>
+                <th>Last admitted</th>
                 <th>Last projected</th>
               </tr>
             </thead>
@@ -169,6 +170,9 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.EdgePipeline do
                 <td class={count_class(row.failed, "text-warning")}>{row.failed}</td>
                 <td class={count_class(row.dead_lettered, "text-error font-semibold")}>
                   {row.dead_lettered}
+                </td>
+                <td class="font-mono text-xs text-sr-muted">
+                  {format_age(row.last_admitted_at_ms, @stats.now_ms)}
                 </td>
                 <td class="font-mono text-xs text-sr-muted">
                   {format_age(row.last_projected_at_ms, @stats.now_ms)}

@@ -500,6 +500,7 @@ contract it shows, summed across every connected gateway and core node:
 | Projected / Projector refused | first primary deliveries EventWriter committed (a replay or late-fenced audit delivery is not counted), or records acknowledged without projecting |
 | Failed attempts | projections that raised; JetStream redelivers each one |
 | Dead-lettered | records stored on the dead-letter stream |
+| Last admitted | how long ago a gateway last admitted a record of the contract; recent admissions with an old Last projected mean records are stuck between the gateway and EventWriter |
 | Last projected | how long ago the contract last projected a record |
 
 A record refused or withheld before its bytes decoded is counted as `unattributed`.
