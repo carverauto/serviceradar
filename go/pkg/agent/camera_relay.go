@@ -149,12 +149,15 @@ type cameraRelayHandle struct {
 	cancel context.CancelCauseFunc
 	done   chan struct{}
 	source cameraRelaySourceKey
+	// Written before done closes; readers must wait for done.
+	closeErr error
 }
 
 type cameraRelayManager struct {
 	// The source registry lifetime, not the gateway connection lifetime.
 	incarnationID       string
 	mu                  sync.Mutex
+	stopOperations      map[string]cameraRelayStopOperation
 	sessions            map[string]*cameraRelayHandle
 	sources             map[cameraRelaySourceKey]*cameraRelayHandle
 	gateway             cameraRelayGateway
@@ -167,6 +170,7 @@ type cameraRelayManager struct {
 func newCameraRelayManager(gateway cameraRelayGateway, log logger.Logger) *cameraRelayManager {
 	return &cameraRelayManager{
 		incarnationID:   uuid.NewString(),
+		stopOperations:  make(map[string]cameraRelayStopOperation),
 		sessions:        make(map[string]*cameraRelayHandle),
 		sources:         make(map[cameraRelaySourceKey]*cameraRelayHandle),
 		gateway:         gateway,
@@ -248,7 +252,7 @@ func (m *cameraRelayManager) Start(ctx context.Context, spec cameraRelaySessionS
 		return nil, err
 	}
 	if err = runCtx.Err(); err != nil {
-		_ = stream.Close()
+		handle.closeErr = stream.Close()
 		return nil, err
 	}
 
@@ -287,6 +291,10 @@ func (m *cameraRelayManager) Stop(ctx context.Context, payload cameraRelayStopPa
 		return errCameraRelaySessionNotFound
 	}
 
+	return stopCameraRelayHandle(ctx, handle, reason)
+}
+
+func stopCameraRelayHandle(ctx context.Context, handle *cameraRelayHandle, reason string) error {
 	handle.cancel(relayStopCause{reason: reason})
 
 	if ctx == nil {
@@ -295,6 +303,9 @@ func (m *cameraRelayManager) Stop(ctx context.Context, payload cameraRelayStopPa
 
 	select {
 	case <-handle.done:
+		if handle.closeErr != nil {
+			return errCameraRelaySourceCloseFailed
+		}
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -311,7 +322,8 @@ func (m *cameraRelayManager) runSession(
 	defer close(handle.done)
 	defer m.unregisterSession(spec.RelaySessionID, handle)
 	defer func() {
-		if err := stream.Close(); err != nil {
+		handle.closeErr = stream.Close()
+		if err := handle.closeErr; err != nil {
 			m.logger.Debug().Err(err).Str("relay_session_id", spec.RelaySessionID).Msg("Camera relay source close returned error")
 		}
 	}()

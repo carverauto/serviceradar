@@ -231,27 +231,50 @@ func (p *runtimeMediaPeer) UploadMedia(stream grpc.ClientStreamingServer[proto.M
 type runtimeCommandSink struct {
 	grpc.BidiStreamingClient[proto.ControlStreamRequest, proto.ControlStreamResponse]
 	result *proto.CommandResult
+	drop   bool
 }
 
 func (s *runtimeCommandSink) Send(req *proto.ControlStreamRequest) error {
+	if s.drop {
+		return io.ErrClosedPipe
+	}
 	s.result = req.GetCommandResult()
 	return nil
 }
-func runtimeCommand(t *testing.T, ctx context.Context, loop *PushLoop, payload any, stop bool) *proto.CommandResult {
+
+var runtimeCommandSequence atomic.Uint64
+
+func runtimeRequest(t *testing.T, payload any, stop bool) *proto.CommandRequest {
 	t.Helper()
 	body, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatal(err)
 	}
-	sink := &runtimeCommandSink{}
-	sender := newControlStreamSender(sink)
-	cmd := &proto.CommandRequest{CommandId: "invented-command", PayloadJson: body}
+	commandType := commandTypeCameraRelayOpen
 	if stop {
+		commandType = commandTypeCameraRelayStop
+	}
+	return &proto.CommandRequest{CommandId: "invented-command-" + strconv.FormatUint(runtimeCommandSequence.Add(1), 10), CommandType: commandType, PayloadJson: body, CreatedAt: time.Now().Unix(), TtlSeconds: 60}
+}
+
+func runtimeCommand(t *testing.T, ctx context.Context, loop *PushLoop, payload any, stop bool) *proto.CommandResult {
+	t.Helper()
+	return runtimeSendCommand(t, ctx, loop, runtimeRequest(t, payload, stop), false)
+}
+
+func runtimeSendCommand(t *testing.T, ctx context.Context, loop *PushLoop, cmd *proto.CommandRequest, drop bool) *proto.CommandResult {
+	t.Helper()
+	sink := &runtimeCommandSink{drop: drop}
+	sender := newControlStreamSender(sink)
+	switch cmd.CommandType {
+	case commandTypeCameraRelayStop:
 		loop.handleCameraRelayStop(ctx, cmd, sender)
-	} else {
+	case commandTypeCameraRelayReconcileStop:
+		loop.handleCameraRelayReconcileStop(cmd, sender)
+	default:
 		loop.handleCameraRelayOpen(ctx, cmd, sender)
 	}
-	if sink.result == nil {
+	if sink.result == nil && !drop {
 		t.Fatal("command returned no result")
 	}
 	return sink.result
@@ -434,7 +457,51 @@ func TestCameraSharedRuntime(t *testing.T) {
 			if result := runtimeCommand(t, ctx, loop, conflict, false); !result.Success {
 				t.Fatalf("replacement: %v", result)
 			}
-			if result := runtimeCommand(t, ctx, loop, cameraRelayStopPayload{RelaySessionID: conflict.RelaySessionID}, true); !result.Success {
+			stopRequest := runtimeRequest(t, cameraRelayStopPayload{RelaySessionID: conflict.RelaySessionID, SourceIncarnationID: incarnation}, true)
+			runtimeSendCommand(t, ctx, loop, stopRequest, true)
+			runtimeAwait(t, ctx, "lost-reply stop closed source", func() bool { return camera.opened.Load() == camera.closed.Load() })
+			if result := runtimeSendCommand(t, ctx, loop, stopRequest, false); !result.Success {
+				t.Fatalf("same stop after lost reply: %v", result)
+			}
+			query := cameraRelayStopQuery{OperationID: stopRequest.CommandId, RelaySessionID: conflict.RelaySessionID, SourceIncarnationID: incarnation}
+			queryRequest := runtimeRequest(t, query, false)
+			queryRequest.CommandType = commandTypeCameraRelayReconcileStop
+			observation := runtimeSendCommand(t, ctx, loop, queryRequest, false)
+			var body cameraRelayStopObservation
+			if !observation.Success || json.Unmarshal(observation.PayloadJson, &body) != nil || body.State != "completed" || body.CameraSourceID != conflict.CameraSourceID || body.StreamProfileID != conflict.StreamProfileID {
+				t.Fatalf("lost stop reply observation: %v", observation)
+			}
+			// Reuse the relay ID to prove a retry retains its captured handle.
+			// Empty old uploads before requiring new media from the replacement.
+			for len(peer.chunks) > 0 {
+				<-peer.chunks
+			}
+			if result := runtimeCommand(t, ctx, loop, conflict, false); !result.Success {
+				t.Fatalf("reused relay ID: %v", result)
+			}
+			if result := runtimeSendCommand(t, ctx, loop, stopRequest, false); !result.Success {
+				t.Fatalf("old stop replay: %v", result)
+			}
+			changed := runtimeRequest(t, cameraRelayStopPayload{RelaySessionID: conflict.RelaySessionID, SourceIncarnationID: incarnation, Reason: "changed stop content"}, true)
+			changed.CommandId, changed.CreatedAt, changed.TtlSeconds = stopRequest.CommandId, stopRequest.CreatedAt, stopRequest.TtlSeconds
+			if result := runtimeSendCommand(t, ctx, loop, changed, false); result.Success || result.Message != errCameraRelayStopConflict.Error() {
+				t.Fatalf("changed operation content: %v", result)
+			}
+			legacyReplay := runtimeRequest(t, cameraRelayStopPayload{RelaySessionID: conflict.RelaySessionID}, true)
+			legacyReplay.CommandId = stopRequest.CommandId
+			if result := runtimeSendCommand(t, ctx, loop, legacyReplay, false); result.Success || result.Message != errCameraRelayStopConflict.Error() {
+				t.Fatalf("stripped incarnation on replay: %v", result)
+			}
+			runtimeAwait(t, ctx, "replacement survives old stop replay", func() bool {
+				send()
+				select {
+				case chunk := <-peer.chunks:
+					return chunk.RelaySessionId == conflict.RelaySessionID && bytes.Contains(chunk.Payload, []byte{0, 0, 0, 1})
+				default:
+					return false
+				}
+			})
+			if result := runtimeCommand(t, ctx, loop, cameraRelayStopPayload{RelaySessionID: conflict.RelaySessionID, SourceIncarnationID: incarnation}, true); !result.Success {
 				t.Fatalf("replacement cleanup: %v", result)
 			}
 			if plugin {

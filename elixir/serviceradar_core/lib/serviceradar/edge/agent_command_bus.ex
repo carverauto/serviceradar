@@ -1049,6 +1049,17 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     dispatch(agent_id, "camera.close_relay", payload, opts)
   end
 
+  @doc "Queries the outcome of a previous stop without replaying its mutation."
+  def reconcile_camera_relay_stop(agent_id, payload, opts \\ []) do
+    payload = %{
+      operation_id: payload_value(payload, :operation_id),
+      relay_session_id: payload_value(payload, :relay_session_id),
+      source_incarnation_id: payload_value(payload, :source_incarnation_id)
+    }
+
+    dispatch(agent_id, "camera.reconcile_relay_stop", payload, add_context(opts, payload))
+  end
+
   def push_config(agent_id)
 
   def push_config(agent_id) when is_binary(agent_id) do

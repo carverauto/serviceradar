@@ -98,6 +98,42 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
 
   def close_session(session, opts \\ []), do: request_close(session, opts)
 
+  @doc """
+  Queries the saved stop operation on its original agent and source incarnation.
+
+  The fresh query command and its response are retained by the command ledger.
+  This does not change relay ownership or interpret completion as retirement.
+  Expired or process-lost observations remain unknown.
+  """
+  def reconcile_close(session_or_id, opts \\ []) do
+    requester = resolve_requester(opts)
+    read_opts = Keyword.put(read_ash_opts(opts, requester), :not_found_error?, false)
+
+    with :ok <- authorize_requester(requester),
+         {:ok, id} <- session_id(session_or_id),
+         {:ok, %RelaySession{} = session} <- RelaySession.get_by_id(id, read_opts),
+         :ok <- require_stop_identity(session) do
+      AgentCommandBus.reconcile_camera_relay_stop(
+        session.agent_id,
+        %{
+          operation_id: session.close_command_id,
+          relay_session_id: session.id,
+          source_incarnation_id: session.source_incarnation_id
+        },
+        opts |> dispatch_opts(requester, session.gateway_id) |> Keyword.delete(:command_id)
+      )
+    else
+      {:ok, nil} -> {:error, :not_found}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp require_stop_identity(%{close_command_id: operation, source_incarnation_id: incarnation})
+       when is_binary(operation) and operation != "" and is_binary(incarnation) and
+              incarnation != "", do: :ok
+
+  defp require_stop_identity(_session), do: {:error, :unknown_stop_identity}
+
   defp dispatch_reserved_session(session, requester, opts, write_opts) do
     dispatch = Keyword.get(opts, :dispatch_open, &dispatch_open_command/4)
     payload = Map.take(session, [:camera_source_id, :stream_profile_id, :lease_token])

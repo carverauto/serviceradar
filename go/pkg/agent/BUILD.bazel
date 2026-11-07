@@ -111,6 +111,7 @@ go_library(
         "bumblebee_convert.go",
         "bumblebee_spool_service.go",
         "camera_relay.go",
+        "camera_relay_control.go",
         "camera_relay_rtsp.go",
         "cert_renewal.go",
         "config_section_state.go",
