@@ -18,6 +18,8 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -217,6 +219,53 @@ func TestSNMPAgentServiceLifecycleEnabled(t *testing.T) {
 
 	// Should no longer be enabled
 	assert.False(t, svc.IsEnabled())
+}
+
+// The SNMP status summary counts its targets instead of listing them, so a
+// profile with hundreds of targets still fits under the gateway's summary limit.
+func TestSNMPAgentServiceGetStatusSummaryIsBoundedByTargetCount(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	cfg := testSNMPConfig()
+	cfg.Enabled = true
+
+	const targetCount = 400
+	for i := 0; i < targetCount; i++ {
+		cfg.Targets = append(cfg.Targets, snmp.Target{
+			Name:      fmt.Sprintf("switch-%03d.example.com", i),
+			Host:      fmt.Sprintf("192.0.2.%d", i%254+1),
+			Port:      161,
+			Version:   "2c",
+			Community: "public",
+			Timeout:   1,
+			OIDs: []snmp.OIDConfig{
+				{OID: ".1.3.6.1.2.1.1.3.0", Name: "sysUpTime", DataType: snmp.TypeGauge},
+			},
+		})
+	}
+
+	svc, err := NewSNMPAgentService(SNMPAgentServiceConfig{
+		AgentID:        "synthetic-agent",
+		CachePath:      filepath.Join(t.TempDir(), "cache", "snmp-config.json"),
+		Logger:         logger.NewTestLogger(),
+		TestConfig:     cfg,
+		ServiceFactory: &mockSNMPServiceFactory{},
+	})
+	require.NoError(t, err)
+	require.NoError(t, svc.Start(ctx))
+	t.Cleanup(func() { _ = svc.Stop(ctx) })
+
+	status, err := svc.GetStatus(ctx)
+	require.NoError(t, err)
+	require.True(t, status.Available)
+	require.LessOrEqual(t, len(status.Message), gatewayStatusSummaryLimitBytes)
+
+	var summary map[string]any
+	require.NoError(t, json.Unmarshal(status.Message, &summary))
+	require.InDelta(t, float64(targetCount), summary["target_count"], 0)
+	require.InDelta(t, float64(targetCount), summary["available_count"], 0)
+	require.NotContains(t, summary, "targets")
 }
 
 func TestSNMPAgentServiceGetStatus_NotStarted(t *testing.T) {

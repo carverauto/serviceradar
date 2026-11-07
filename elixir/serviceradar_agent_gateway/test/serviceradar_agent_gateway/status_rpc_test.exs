@@ -116,7 +116,8 @@ defmodule ServiceRadarAgentGateway.StatusRpcTest do
         assert %Monitoring.GatewayStatusResponse{received: false} = AgentGatewayServer.push_status(mixed, stream)
       end)
 
-    assert log =~ "sent statuses the status path refuses"
+    assert log =~ "sent durable data on the retired status path (addon: 1, results: 1, sysmon-metrics: 1)"
+    assert log =~ "upgrade it"
     assert_receive {:forwarded, "agent"}, 1_000
     assert_receive {:refused, "sysmon-metrics", 1}
     assert_receive {:refused, "results", 1}
@@ -131,9 +132,9 @@ defmodule ServiceRadarAgentGateway.StatusRpcTest do
     assert refused.is_delta
     assert refused.value >= 1
 
-    # Durable data alone is answered as not received, still without an RPC error, and the
-    # repeat is counted but not logged again.
-    durable_only = push_request(agent_id, [retired("flow", "flow-attribution"), retired("flow2", "flow-attribution")])
+    # Durable data alone is answered as not received, still without an RPC error, and a
+    # family already refused from the agent is counted but not logged again.
+    durable_only = push_request(agent_id, [retired("sweep", "results"), retired("sweep2", "results")])
 
     log =
       capture_log(fn ->
@@ -141,8 +142,8 @@ defmodule ServiceRadarAgentGateway.StatusRpcTest do
                  AgentGatewayServer.push_status(durable_only, stream)
       end)
 
-    refute log =~ "status path refuses"
-    assert_receive {:refused, "flow-attribution", 2}
+    refute log =~ "retired status path"
+    assert_receive {:refused, "results", 2}
     refute_receive {:forwarded, _service_name}, 200
   end
 
@@ -173,18 +174,30 @@ defmodule ServiceRadarAgentGateway.StatusRpcTest do
     oversized = %{summary("oversized") | message: :binary.copy("x", 4_097)}
     fitting = %{summary("fitting") | message: :binary.copy("y", 4_096)}
 
-    capture_log(fn ->
-      assert %Monitoring.GatewayStatusResponse{received: true} =
-               AgentGatewayServer.push_status(
-                 push_request(agent_id, [oversized, fitting]),
-                 cert_stream(issue_cert_der!(agent_id, context))
-               )
-    end)
+    log =
+      capture_log(fn ->
+        assert %Monitoring.GatewayStatusResponse{received: true} =
+                 AgentGatewayServer.push_status(
+                   push_request(agent_id, [oversized, fitting]),
+                   cert_stream(issue_cert_der!(agent_id, context))
+                 )
+      end)
 
     assert_receive {:refused, "oversized_summary", 1}
     assert_receive {:forwarded, message}, 1_000
     assert message == fitting.message
     refute_receive {:forwarded, _message}, 200
+
+    # The refusal names the service and its size, for the log and the readiness report, and
+    # does not tell the operator to upgrade an agent whose build may be current.
+    assert log =~ ~s(sent a "oversized" status summary of 4097 bytes, over the 4096-byte summary limit)
+    refute log =~ "before the edge-record cutover"
+    refute log =~ "upgrade it"
+
+    assert %{
+             refused_statuses: %{"oversized_summary" => 1},
+             oversized_summaries: %{"oversized" => %{bytes: 4_097, limit: 4_096}}
+           } = ServiceRadar.AgentTracker.get_agent(agent_id)
   end
 
   test "a push or stream of only an oversized summary is answered as not received, not as an RPC error",

@@ -31,10 +31,16 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
     * `:agent_upgrade_pending` - the agent runs a build from before the edge-record cutover:
       its last check-in carried no spool status, or it still sends durable data on the retired
       status RPCs, which the gateway refuses and counts in its agent tracker. Detail: `version`,
-      and, when the gateway refused anything, `refused_statuses` (count by source family) and
-      `last_refused_at`.
+      and, when the gateway refused retired-source data, `refused_statuses` (count by source
+      family) and `last_refused_at`.
+    * `:oversized_summary` - the gateway refused status summaries from the agent because they
+      exceeded its summary size limit (`ServiceRadarAgentGateway.RetiredStatusSources`). Any
+      build can send one, so this says nothing about the agent's version, and the agent's edge
+      records still flow; the summaries themselves are not stored. Detail: `count`, the
+      refused summaries; `summaries`, each refusing service's largest summary as
+      `%{service => %{bytes: bytes, limit: limit}}`; and `last_refused_at`.
 
-  The last two come from the agent's last check-in (`metadata.edge_record_spool`, which the
+  The last three come from the agent's last check-in (`metadata.edge_record_spool`, which the
   gateway records from the hello) and the live tracker entry, so they are reported for
   connected agents only.
 
@@ -56,6 +62,8 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
   # comes from an image rather than a package the release rollout replaces.
   @image_deployment_types ~w(kubernetes docker container)
   @finished_target_statuses [:healthy, :failed, :rolled_back, :canceled]
+  # The gateway's refusal family for a summary over its size limit.
+  @oversized_family "oversized_summary"
 
   @type reason ::
           :partition_not_found
@@ -63,6 +71,7 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
           | :agent_upgrade_blocked
           | :spool_unavailable
           | :agent_upgrade_pending
+          | :oversized_summary
   @type condition :: %{reason: reason(), detail: map()}
   @type entry :: %{
           agent_id: String.t(),
@@ -170,10 +179,13 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
   defp spool_conditions(agent, runtime) do
     refused = refused_detail(runtime)
 
-    case recorded_spool(agent) do
-      nil -> [upgrade_pending(agent, refused)]
-      spool -> spool_status_conditions(spool) ++ refused_conditions(agent, refused)
-    end
+    upgrade =
+      case recorded_spool(agent) do
+        nil -> [upgrade_pending(agent, refused)]
+        spool -> spool_status_conditions(spool) ++ refused_conditions(agent, refused)
+      end
+
+    upgrade ++ oversized_conditions(runtime)
   end
 
   defp refused_conditions(_agent, refused) when map_size(refused) == 0, do: []
@@ -182,13 +194,33 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
   defp upgrade_pending(agent, refused),
     do: %{reason: :agent_upgrade_pending, detail: Map.put(refused, :version, agent.version)}
 
+  # Only retired sources say the agent predates the cutover; an oversized summary does not.
   defp refused_detail(runtime) do
-    case runtime[:refused_statuses] do
-      %{} = counts when map_size(counts) > 0 ->
+    case Map.delete(runtime[:refused_statuses] || %{}, @oversized_family) do
+      counts when map_size(counts) > 0 ->
         %{refused_statuses: counts, last_refused_at: runtime[:last_refused_at]}
 
       _none ->
         %{}
+    end
+  end
+
+  defp oversized_conditions(runtime) do
+    case runtime[:refused_statuses] do
+      %{@oversized_family => count} ->
+        [
+          %{
+            reason: :oversized_summary,
+            detail: %{
+              count: count,
+              summaries: runtime[:oversized_summaries] || %{},
+              last_refused_at: runtime[:last_refused_at]
+            }
+          }
+        ]
+
+      _none ->
+        []
     end
   end
 

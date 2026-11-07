@@ -130,6 +130,7 @@ defmodule ServiceRadar.AgentRuntimeMetadata do
       arch: runtime_field(agent, :arch),
       deployment_type: runtime_field(agent, :deployment_type),
       refused_statuses: runtime_field(agent, :refused_statuses),
+      oversized_summaries: runtime_field(agent, :oversized_summaries),
       last_refused_at: runtime_field(agent, :last_refused_at)
     }
   end

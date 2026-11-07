@@ -520,7 +520,7 @@ func TestSweepLeaseExecutorRevokeDuringPassSkipsRemainingSlots(t *testing.T) {
 	require.NoError(t, err)
 	var doc map[string]any
 	require.NoError(t, json.Unmarshal(status.Message, &doc))
-	_, present := doc["sweep_lease"]
+	_, present := doc["sweep_leases"]
 	require.False(t, present)
 }
 
@@ -546,9 +546,10 @@ func TestSweepLeaseExecutorSkipsSlotRemovedDuringPass(t *testing.T) {
 	require.True(t, fixture.sweeper.manualSchedule)
 }
 
-// The pushed status document lists every leased group, including one whose
-// last_sweep is older than another group's and one that has not completed.
-func TestMultiSweepStatusReportsEveryLeasedGroup(t *testing.T) {
+// The pushed status document counts every leased group, including one whose
+// last_sweep is older than another group's and one that has not completed, and
+// its size does not grow with the number of leased groups.
+func TestMultiSweepStatusCountsEveryLeasedGroup(t *testing.T) {
 	newer := newLeaseStatusGroup("group-newer", 200)
 	older := newLeaseStatusGroup("group-older", 100)
 	quiet := newLeaseStatusGroup("group-quiet", 0)
@@ -565,13 +566,25 @@ func TestMultiSweepStatusReportsEveryLeasedGroup(t *testing.T) {
 		logger:     logger.NewTestLogger(),
 	}
 
+	const extraLeased = 300
+	for i := 0; i < extraLeased; i++ {
+		group := fmt.Sprintf("group-leased-%03d", i)
+		svc := newLeaseStatusGroup(group, int64(10+i%50))
+		svc.SetLeaseState(sweepLeaseStateActive, int64(1_000+i), 1)
+		multi.groups[group] = svc
+		multi.groupOrder = append(multi.groupOrder, group)
+	}
+
 	status, err := multi.GetStatus(context.Background())
 	require.NoError(t, err)
-	leases := sweepLeaseStates(t, status.Message)
-	require.NotContains(t, leases, "group-newer")
-	require.Equal(t, sweepLeaseStateActive, leases["group-older"]["state"])
-	require.Equal(t, sweepLeaseStateExhausted, leases["group-quiet"]["state"])
-	require.InDelta(t, float64(2), leases["group-older"]["slots_remaining"], 0)
+	require.LessOrEqual(t, len(status.Message), gatewayStatusSummaryLimitBytes)
+
+	leases := sweepLeaseSummaryOf(t, status.Message)
+	require.InDelta(t, float64(2+extraLeased), leases["groups"], 0)
+	require.InDelta(t, float64(1+extraLeased), leases["active"], 0)
+	require.InDelta(t, float64(1), leases["exhausted"], 0)
+	require.InDelta(t, float64(2+extraLeased), leases["slots_remaining"], 0)
+	require.InDelta(t, float64(50), leases["next_slot_unix_nano"], 0)
 }
 
 func twoDueLeaseSlots(t *testing.T) (lease *edgev1.SweepLeaseV1, firstID, secondID string) {
@@ -603,23 +616,15 @@ func newLeaseStatusGroup(group string, lastSweep int64) *SweepService {
 	}
 }
 
-func sweepLeaseStates(t *testing.T, message []byte) map[string]map[string]any {
+func sweepLeaseSummaryOf(t *testing.T, message []byte) map[string]any {
 	t.Helper()
 
 	var doc map[string]any
 	require.NoError(t, json.Unmarshal(message, &doc))
-	raw, ok := doc["sweep_lease"].([]any)
-	require.True(t, ok, "status message sweep_lease = %#v", doc["sweep_lease"])
+	leases, ok := doc["sweep_leases"].(map[string]any)
+	require.True(t, ok, "status message sweep_leases = %#v", doc["sweep_leases"])
 
-	states := make(map[string]map[string]any, len(raw))
-	for _, item := range raw {
-		lease, ok := item.(map[string]any)
-		require.True(t, ok)
-		group, _ := lease["sweep_group_id"].(string)
-		states[group] = lease
-	}
-
-	return states
+	return leases
 }
 
 // sameSecondSweeper keeps one summary and rewrites it in place. Both
@@ -690,9 +695,10 @@ func TestSweepLeaseExecutorDoesNotDispatchSlotsExpiredDuringScan(t *testing.T) {
 	require.Equal(t, sweepLeaseExecutorMaxWait, wait)
 	status, err := fixture.multi.GetStatus(context.Background())
 	require.NoError(t, err)
-	state := sweepLeaseStates(t, status.Message)[fixture.group]
-	require.Equal(t, sweepLeaseStateExhausted, state["state"])
-	require.InDelta(t, float64(0), state["slots_remaining"], 0)
+	leases := sweepLeaseSummaryOf(t, status.Message)
+	require.InDelta(t, float64(1), leases["exhausted"], 0)
+	require.InDelta(t, float64(0), leases["active"], 0)
+	require.InDelta(t, float64(0), leases["slots_remaining"], 0)
 }
 
 func TestSweepLeaseExecutorRefreshesClockBetweenGroups(t *testing.T) {

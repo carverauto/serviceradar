@@ -589,9 +589,9 @@ func sweepLeaseFromPayload(payload map[string]any) (map[string]any, bool) {
 	return lease, true
 }
 
-// attachSweepLeaseReport puts every leased group's sweep_lease on the status
-// document the agent pushes. The document is one per sweep service, so a
-// group that is not the newest last_sweep still has to be listed here.
+// attachSweepLeaseReport puts the lease summary of every leased group on the
+// status document the agent pushes. The document is one per sweep service, so
+// a group that is not the newest last_sweep still has to be counted here.
 func attachSweepLeaseReport(message []byte, leases []map[string]any) []byte {
 	if len(leases) == 0 {
 		return message
@@ -603,7 +603,7 @@ func attachSweepLeaseReport(message []byte, leases []map[string]any) []byte {
 			doc = map[string]any{}
 		}
 	}
-	doc["sweep_lease"] = leases
+	doc["sweep_leases"] = sweepLeaseSummary(leases)
 
 	encoded, err := json.Marshal(doc)
 	if err != nil {

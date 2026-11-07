@@ -19,6 +19,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -232,6 +233,10 @@ func TestSweepService_GetSweepResults_SequenceIncrementsCorrectly(t *testing.T) 
 	assert.Equal(t, "2", response3.CurrentSequence)
 }
 
+// gatewayStatusSummaryLimitBytes is the agent gateway's limit on one status
+// summary (ServiceRadarAgentGateway.RetiredStatusSources); it refuses a larger one.
+const gatewayStatusSummaryLimitBytes = 4096
+
 func TestSweepService_GetStatus_LightweightResponse(t *testing.T) {
 	// Setup mock sweeper
 	mockSweeperInstance := &mockSweeper{
@@ -255,10 +260,17 @@ func TestSweepService_GetStatus_LightweightResponse(t *testing.T) {
 		},
 	}
 
+	// A group that lists its targets one address at a time: its summary must
+	// still fit under the gateway's summary limit.
+	networks := make([]string, 0, 2048)
+	for i := 0; i < cap(networks); i++ {
+		networks = append(networks, fmt.Sprintf("198.51.%d.%d/32", 100+i/256, i%256))
+	}
+
 	sweepService := &SweepService{
 		sweeper: mockSweeperInstance,
 		config: &models.Config{
-			Networks: []string{"192.168.1.0/24"},
+			Networks: networks,
 		},
 		stats:           newScanStats(),
 		logger:          createTestLogger(),
@@ -285,9 +297,10 @@ func TestSweepService_GetStatus_LightweightResponse(t *testing.T) {
 	// Verify lightweight response (no metric-bearing payloads)
 	assert.Equal(t, "collecting", statusData["status"])
 	assert.InDelta(t, float64(5), statusData["sequence"], 0.1)
-	assert.Equal(t, "192.168.1.0/24", statusData["network"])
+	assert.InDelta(t, float64(len(networks)), statusData["defined_cidrs"], 0)
+	assert.LessOrEqual(t, len(response.Message), gatewayStatusSummaryLimitBytes)
 
-	for _, key := range []string{"hosts", "total_hosts", "available_hosts", "ports", "unique_ips", "banner_grab"} {
+	for _, key := range []string{"network", "hosts", "total_hosts", "available_hosts", "ports", "unique_ips", "banner_grab"} {
 		_, present := statusData[key]
 		assert.False(t, present, "GetStatus should not include %s in the regular status payload", key)
 	}

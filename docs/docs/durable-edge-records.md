@@ -365,9 +365,15 @@ an agent built before this pipeline became the only path. It does not store,
 forward or buffer it. It counts each refusal per agent and source family
 (`serviceradar_agent_gateway_status_retired_source_refused_count{source}`, also
 persisted as `agent_gateway_status_retired_source_refused_count` on
-`metrics.agent_gateway`) and reports the agent as `agent_upgrade_pending`. A
-status summary larger than 4 KiB is refused whole under the family
-`oversized_summary`.
+`metrics.agent_gateway`) and reports the agent as `agent_upgrade_pending`.
+
+A status summary larger than 4 KiB is refused whole under the family
+`oversized_summary`, never cut. Any agent build can send one, so it is reported
+as its own condition, `oversized_summary`, with the service that sent it and the
+summary's size, not as an upgrade. Agent summaries carry counts rather than
+per-target or per-group lists (the SNMP summary counts its targets, the sweep
+summary counts its configured CIDRs and leased groups), so their size does not
+grow with the agent's configuration; per-target data travels as edge records.
 
 A push that carried refused durable data is answered `received: false`, even
 when its summaries were accepted and forwarded, so the older agent keeps that
@@ -468,10 +474,11 @@ condition.
 | `agent_disconnected` | No core node has seen the agent recently. | Check the agent and its connection to the gateway. |
 | `agent_upgrade_blocked` | The release rollout cannot deliver a new agent build. Detail `cause`: `rollout_paused`, `no_published_release` or `no_release_artifact` (with `release` and `platform`). | Resume the rollout or publish a release with an artifact for the platform. |
 | `spool_unavailable` | The agent reported that its spool could not be opened. Detail: `error`. | Fix the spool directory (permissions, disk). |
-| `agent_upgrade_pending` | The agent runs a build from before the edge-record cutover: its check-in carried no spool status, or the gateway refused durable data from it. Detail: `version`, and `refused_statuses` (count per source family) and `last_refused_at` when anything was refused. | Upgrade the agent. Its refused data is not stored. |
+| `agent_upgrade_pending` | The agent runs a build from before the edge-record cutover: its check-in carried no spool status, or the gateway refused durable data from it. Detail: `version`, and `refused_statuses` (count per retired source family) and `last_refused_at` when durable data was refused. | Upgrade the agent. Its refused data is not stored. |
+| `oversized_summary` | The gateway refused status summaries from the agent over its 4 KiB summary limit. The agent's edge records are not affected. Detail: `count`, `summaries` (each service's largest refused summary, with `bytes` and `limit`) and `last_refused_at`. | Report the service and size: a summary that large is an agent defect. Its summaries are not stored. |
 
-`spool_unavailable` and `agent_upgrade_pending` come from the agent's last
-check-in, so they are reported for connected agents only. Agents that run from a
+`spool_unavailable`, `agent_upgrade_pending` and `oversized_summary` come from
+the agent's last check-in and its live tracker entry, so they are reported for connected agents only. Agents that run from a
 container image are upgraded with the image and are never reported as
 `agent_upgrade_blocked`.
 
