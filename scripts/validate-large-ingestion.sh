@@ -13,27 +13,23 @@ echo "Running Armis agent large-ingestion release gate (${DEVICE_COUNT} devices)
     -count=1
 )
 
-if [[ -z "${SERVICERADAR_TEST_DATABASE_URL:-}" && -f /tmp/sr_identity_validation_db_info ]]; then
-  # Created by the srql-fixtures-db-tests workflow. The file stores a URL-escaped
-  # password and must not be printed.
-  # shellcheck disable=SC1091
-  source /tmp/sr_identity_validation_db_info
-  export SERVICERADAR_TEST_DATABASE_URL="postgres://${ADMIN_USER}:${ADMIN_PASS_ENC}@${DB_HOST}:${DB_PORT}/${DB}?sslmode=require"
-fi
+RUN_ID="${SERVICERADAR_INTEGRATION_RUN_ID:-}"
 
-if [[ -z "${SERVICERADAR_TEST_DATABASE_URL:-}" && -z "${SRQL_TEST_DATABASE_URL:-}" ]]; then
+if [[ -z "${RUN_ID}" ]]; then
   cat >&2 <<'MSG'
-SERVICERADAR_TEST_DATABASE_URL or SRQL_TEST_DATABASE_URL is required for the core ingestion gate.
-Use the $srql-fixtures-db-tests workflow to create an isolated CNPG database, then rerun this script.
+SERVICERADAR_INTEGRATION_RUN_ID is required for the core ingestion gate.
+Prepare the schema generation and run //rust/integration-db:provision_generation_large_ingestion
+under that run id first (docs/agent-runbooks.md), then rerun this script with the same id.
 MSG
   exit 1
 fi
 
-echo "Running core ResultsRouter large-ingestion release gate (${DEVICE_COUNT} devices, chunk size ${CHUNK_SIZE})"
+echo "Running core EdgeRecord large-ingestion release gate (${DEVICE_COUNT} devices, chunk size ${CHUNK_SIZE})"
 (
-  cd "${ROOT_DIR}/elixir/serviceradar_core"
-  SERVICERADAR_LARGE_INGESTION_DEVICE_COUNT="${DEVICE_COUNT}" \
-  SERVICERADAR_LARGE_INGESTION_CHUNK_SIZE="${CHUNK_SIZE}" \
-  MIX_ENV=test mix test --include large_ingestion --only large_ingestion \
-    test/serviceradar/results_router_integration_test.exs
+  cd "${ROOT_DIR}"
+  bazel test -c opt --//build:enable_integration_tests "--//build:run_id=${RUN_ID}" \
+    --strategy=TestRunner=local --nocache_test_results \
+    "--test_env=SERVICERADAR_LARGE_INGESTION_DEVICE_COUNT=${DEVICE_COUNT}" \
+    "--test_env=SERVICERADAR_LARGE_INGESTION_CHUNK_SIZE=${CHUNK_SIZE}" \
+    //elixir/serviceradar_core:large_ingestion_release_gate
 )

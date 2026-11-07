@@ -160,8 +160,9 @@
     Remaining: the chart (the dead gateway publisher env vars), and deleting core's
     now-unreachable durable ingest tree (the flow, retained-plugin, sweep and result lanes,
     `SweepQueue`, `ResultsRouter`, the non-sweep `ResultIngestor` clauses and the durable
-    `StatusIngestor` clauses), which needs the LargeIngestionGate release qualification moved off
-    `results_router_release_gate_test.exs` and `results_router_integration_test.exs` first.
+    `StatusIngestor` clauses). The LargeIngestionGate release qualification no longer depends on
+    that tree: it runs `edge_record_release_gate_test.exs` through `EdgeRecordIngestServer` and
+    the EventWriter `EdgeRecord` processor (#6339 Part 1).
 - [ ] 8.2 Confirm no durable agent data remains on `StreamStatus`/`PushStatus`; only control
   traffic and ephemeral status summaries stay there.
   PARTIAL (2026-11-04): agent side confirmed. The agent opens no `StreamStatus` stream, and

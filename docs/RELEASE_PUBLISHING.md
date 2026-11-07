@@ -147,12 +147,16 @@ For an additional operator check:
 make verify_publish VERIFY_TAG="v$(cat VERSION)"
 ```
 
-For releases that touch sync streaming, ResultsRouter, identity reconciliation,
-sweep ingestion, mapper promotion, or Armis ingestion, also run the large
-ingestion gate against an isolated CNPG test database before tagging:
+For releases that touch sync streaming, edge-record ingestion, identity
+reconciliation, sweep ingestion, mapper promotion, or Armis ingestion, also run
+the large ingestion gate before tagging. The script runs
+`//elixir/serviceradar_core:large_ingestion_release_gate` under a run id whose
+database was provisioned with
+`//rust/integration-db:provision_generation_large_ingestion` (see the SRQL
+fixture lifecycle in `docs/agent-runbooks.md`):
 
 ```bash
-scripts/validate-large-ingestion.sh
+SERVICERADAR_INTEGRATION_RUN_ID=<run id> scripts/validate-large-ingestion.sh
 ```
 
 ## Demo Handoff
