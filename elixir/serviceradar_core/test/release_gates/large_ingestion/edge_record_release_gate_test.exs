@@ -248,7 +248,7 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
     Application.put_env(:serviceradar_core, :sync_ingestor_batch_concurrency, 1)
 
     actor = system_actor()
-    now = DateTime.utc_now()
+    now = DateTime.truncate(DateTime.utc_now(), :millisecond)
     {key, active_epoch} = ensure_issuer_and_epoch!(now)
 
     partition = ensure_partition!("default", actor)
