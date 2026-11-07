@@ -211,11 +211,16 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
     case dispatch.(
            session.agent_id,
            %{relay_session_id: session.id, reason: reason},
-           dispatch_opts(opts, requester, session.gateway_id),
+           opts
+           |> dispatch_opts(requester, session.gateway_id)
+           |> Keyword.put(:command_id, session.close_command_id),
            requester
          ) do
-      {:ok, _command_id} ->
+      {:ok, command_id} when command_id == session.close_command_id ->
         {:ok, session}
+
+      {:ok, _other_command_id} ->
+        {:error, :relay_command_id_mismatch}
 
       {:error, failure} = error ->
         fail_dispatch(session, failure, "request_close", write_opts)

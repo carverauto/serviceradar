@@ -35,8 +35,17 @@ command UUID before dispatch, and the command ledger and control-stream request
 use that UUID. Concurrent opens reuse the reservation; an interrupted opener
 does not erase its command correlation. This does not replay an interrupted
 dispatch, reconcile an agent incarnation, or prove physical retirement. Those
-recovery and handoff tasks remain open, as do durable close-operation identity
-and command-ledger retention beyond its existing cleanup policy.
+recovery and handoff tasks remain open, as does command-ledger retention beyond
+its existing cleanup policy.
+
+Close-command identity checkpoint for 2.5: the closing transition reserves a
+separate stop-command UUID before dispatch. The command ledger and control-stream
+request use that UUID; repeated close requests retain it without sending a second
+stop. A mismatched dispatch reply cannot replace it or reopen the closing relay.
+Existing closing and terminal rows retain an unknown stop identity. This provides
+correlation after a caller dies; it does not replay an interrupted stop, interpret
+an acknowledgement as physical retirement, extend ledger retention or implement
+incarnation-aware reconciliation. Task 2.5 remains open.
 
 Source-runtime identity checkpoint for 2.5: a camera relay manager generates one
 UUID for its source registry lifetime and sends it on authenticated media open.

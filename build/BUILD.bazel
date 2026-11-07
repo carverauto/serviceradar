@@ -98,6 +98,7 @@ filegroup(
 
 exports_files([
     "camera_ingest_schema.exs",
+    "camera_relay_close_schema.exs",
     "camera_consumer_expiry_schema.exs",
     "camera_recorder_schema.exs",
     "camera_recording_block_schema.exs",

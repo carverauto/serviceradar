@@ -205,7 +205,7 @@ defmodule ServiceRadar.Camera.RelaySessionLifecycleTest do
           actor: ctx.actor,
           force: true,
           reason: "viewer idle timeout",
-          dispatch_close: fn _, _, _, _ -> {:ok, Ecto.UUID.generate()} end
+          dispatch_close: fn _, _, opts, _ -> {:ok, opts[:command_id]} end
         )
 
       before = Fixtures.owner(ctx)
