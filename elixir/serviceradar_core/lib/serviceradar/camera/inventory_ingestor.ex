@@ -177,34 +177,35 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     else
       source_state = derive_source_state(descriptor, descriptors, payload, status, observed_at)
 
+      # The gateway is only a routing hint: results projected from edge records
+      # carry no gateway, and an upsert must not erase the stored one. The relay
+      # path resolves the live control-session gateway when it opens a stream.
+      assigned_gateway_id =
+        string_value(descriptor, [
+          "assigned_gateway_id",
+          "assignedGatewayId",
+          "gateway_id",
+          "gatewayId"
+        ]) || status[:gateway_id]
+
       {:ok,
-       Map.merge(
-         %{
-           device_uid: device_uid,
-           vendor: vendor,
-           vendor_camera_id: vendor_camera_id,
-           display_name: string_value(descriptor, ["display_name", "displayName", "name"]),
-           source_url:
-             string_value(descriptor, ["source_url", "sourceUrl", "rtsp_url", "rtspUrl"]),
-           assigned_agent_id:
-             string_value(descriptor, [
-               "assigned_agent_id",
-               "assignedAgentId",
-               "agent_id",
-               "agentId"
-             ]) || status[:agent_id],
-           assigned_gateway_id:
-             string_value(descriptor, [
-               "assigned_gateway_id",
-               "assignedGatewayId",
-               "gateway_id",
-               "gatewayId"
-             ]) ||
-               status[:gateway_id],
-           metadata: map_value(descriptor, ["metadata"]) || %{}
-         },
-         source_state
-       )}
+       %{
+         device_uid: device_uid,
+         vendor: vendor,
+         vendor_camera_id: vendor_camera_id,
+         display_name: string_value(descriptor, ["display_name", "displayName", "name"]),
+         source_url: string_value(descriptor, ["source_url", "sourceUrl", "rtsp_url", "rtspUrl"]),
+         assigned_agent_id:
+           string_value(descriptor, [
+             "assigned_agent_id",
+             "assignedAgentId",
+             "agent_id",
+             "agentId"
+           ]) || status[:agent_id],
+         metadata: map_value(descriptor, ["metadata"]) || %{}
+       }
+       |> maybe_put(:assigned_gateway_id, assigned_gateway_id)
+       |> Map.merge(source_state)}
     end
   end
 

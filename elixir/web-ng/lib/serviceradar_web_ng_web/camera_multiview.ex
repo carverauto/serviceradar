@@ -28,7 +28,7 @@ defmodule ServiceRadarWebNGWeb.CameraMultiview do
         source
         |> candidate_from_source()
         |> case do
-          nil -> %{label: "Camera", detail: "Primary stream", session: nil, error: "No relay-capable stream profile"}
+          nil -> %{label: "Camera", detail: "Primary stream", session: nil, error: preview_unavailable_reason(source)}
           candidate -> open_tile(candidate, scope)
         end
 
@@ -239,8 +239,14 @@ defmodule ServiceRadarWebNGWeb.CameraMultiview do
     end
   end
 
-  defp assigned_for_relay?(source) do
-    present?(Map.get(source, :assigned_agent_id)) and present?(Map.get(source, :assigned_gateway_id))
+  # Only the agent is required: the stored gateway is a hint, and core resolves
+  # the agent's live control-session gateway when it opens the relay.
+  defp assigned_for_relay?(source), do: present?(Map.get(source, :assigned_agent_id))
+
+  defp preview_unavailable_reason(source) do
+    if assigned_for_relay?(source),
+      do: "No relay-capable stream profile",
+      else: "Camera source has no assigned agent"
   end
 
   defp unavailable?(source) do

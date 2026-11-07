@@ -280,17 +280,12 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
     end
   end
 
+  # The stored gateway is only a hint; resolve_current_source_gateway/3 asks the
+  # agent's live control session for the authoritative gateway node.
   defp validate_source_assignment(source) do
-    cond do
-      blank?(source.assigned_agent_id) ->
-        {:error, "camera source is not assigned to an edge agent"}
-
-      blank?(source.assigned_gateway_id) ->
-        {:error, "camera source is not assigned to an edge gateway"}
-
-      true ->
-        :ok
-    end
+    if blank?(source.assigned_agent_id),
+      do: {:error, "camera source is not assigned to an edge agent"},
+      else: :ok
   end
 
   defp force_close?(opts), do: opts[:force] == true or opts[:force_close] == true

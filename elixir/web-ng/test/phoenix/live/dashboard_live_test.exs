@@ -264,7 +264,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
       Enum.each(overrides, fn {key, value} -> Application.put_env(:serviceradar_web_ng, key, value) end)
       on_exit(fn -> Enum.each(previous, fn {key, value} -> restore_env(key, value) end) end)
 
-      %{conn: log_in_user(conn, admin_user_fixture()), source_id: source.id, relay_id: relay_id}
+      %{conn: log_in_user(conn, admin_user_fixture()), source: source, source_id: source.id, relay_id: relay_id}
     end
 
     for {page, player_prefix} <- [{:multiview, "camera-multiview-relay"}, {:detail, "camera-detail-relay"}] do
@@ -279,6 +279,24 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
         _html = render_async(view, 5_000)
         assert has_element?(view, "##{unquote(player_prefix)}-#{ctx.relay_id}")
       end
+    end
+
+    test "detail opens the relay for a source with an agent and no stored gateway", ctx do
+      {:ok, _} = CameraSource.update_source(ctx.source, %{assigned_gateway_id: nil}, actor: system_actor())
+      {:ok, view, _html} = live(ctx.conn, "/cameras/#{ctx.source_id}")
+
+      assert_receive {:relay_open_started, open_pid}, 5_000
+      send(open_pid, :finish_relay_open)
+      _html = render_async(view, 5_000)
+      assert has_element?(view, "#camera-detail-relay-#{ctx.relay_id}")
+    end
+
+    test "detail explains that a source without an agent cannot open a relay", ctx do
+      {:ok, _} = CameraSource.update_source(ctx.source, %{assigned_agent_id: nil}, actor: system_actor())
+      {:ok, view, _html} = live(ctx.conn, "/cameras/#{ctx.source_id}")
+
+      assert render_async(view, 5_000) =~ "Camera source has no assigned agent"
+      refute_received {:relay_open_started, _}
     end
 
     test "a layout change waits for the relay open in flight and the newest layout wins", ctx do
