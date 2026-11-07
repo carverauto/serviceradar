@@ -47,7 +47,7 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
   alias Serviceradar.Edge.V1.MapperDeviceBatchV1
   alias Serviceradar.Edge.V1.MapperDeviceRecordV1
   alias Serviceradar.Edge.V1.MapperSnmpFingerprintV1
-  alias Serviceradar.Edge.V1.MapperSnmpSystemV1
+  alias Serviceradar.Edge.V1.MapperSnmpSystemFingerprintV1
   alias Serviceradar.Edge.V1.SweepHostObservationV1
   alias Serviceradar.Edge.V1.SweepIcmpSummaryV1
   alias Serviceradar.Edge.V1.SweepObservationBatchV1
@@ -55,10 +55,10 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
   alias Serviceradar.Edge.V1.SweepPortErrorV1
   alias Serviceradar.Edge.V1.SweepTcpSummaryV1
   alias Serviceradar.Edge.V1.SweepTestV1
-  alias Serviceradar.Edge.V1.SyncDeviceUpdateV1
+  alias Serviceradar.Edge.V1.SyncDeviceRecordV1
+  alias Serviceradar.Edge.V1.SyncMetaV1
   alias Serviceradar.Edge.V1.SyncPageBatchV1
-  alias Serviceradar.Edge.V1.SyncPageMetaV1
-  alias Serviceradar.Edge.V1.SyncPopulationSummaryV1
+  alias Serviceradar.Edge.V1.SyncPopulationReportV1
   alias Serviceradar.Edge.V1.UnleasedSweepHostResultV1
   alias Serviceradar.Edge.V1.UnleasedSweepPortCountV1
   alias Serviceradar.Edge.V1.UnleasedSweepPortResultV1
@@ -137,10 +137,12 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
         {:ok, %{body: ~s({"stream":"metrics","seq":1})}}
       end
 
+      {:ok, record} = RecordValidate.validate_bytes(payload)
+
       batch_result =
-        if String.ends_with?(subject, ".serviceradar.metrics.batch") do
+        if record.output_contract.contract_id == "serviceradar.metrics.batch" do
           case EdgeRecord.ingest(payload, headers, Repo, request: metrics_request) do
-            {:ok, _outcome} -> EdgeRecord.process_batch([message])
+            {:ok, _outcome} -> {:ok, 1}
             {:error, _reason} -> {:ok, 0}
           end
         else
@@ -702,8 +704,8 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
     ledger_before_revoked = ledger_rows_for_scope(network_scope_id)
     revoked_acks = stream_raw_frame!(revoked_frame, revoked_spool, 1)
 
-    assert_receive {:edge_record_refused,
-                    "telemetry.edge-record.v1.bulk.serviceradar.sweep.unleased_results"}
+    assert_receive {:edge_record_refused, revoked_subject}
+    assert revoked_subject =~ ~r/\Atelemetry\.edge-record\.v1\.bulk\.p\d{2}\z/
 
     assert [] = revoked_acks
     assert ledger_rows_for_scope(network_scope_id) == ledger_before_revoked
@@ -958,7 +960,7 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
 
     population =
       if is_final do
-        %SyncPopulationSummaryV1{
+        %SyncPopulationReportV1{
           raw_rows: total_devices,
           excluded_rows: 0,
           invalid_rows: 0,
@@ -969,39 +971,41 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
         }
       end
 
-    updates =
+    devices =
       Enum.map(device_range, fn device_number ->
-        %SyncDeviceUpdateV1{
+        source_device_id = Integer.to_string(device_number)
+
+        %SyncDeviceRecordV1{
+          uid: source_device_id,
           ip: large_ingestion_ip(device_number),
-          hostname: "armis-host-#{device_number}",
+          hostname: "armis-host-#{device_number}.example.com",
           source: "armis",
           timestamp_unix_nano: observed_nano,
           is_available: true,
           agent_id: agent_id,
           gateway_id: gateway_id,
           partition: partition.slug,
-          service_type: "sync",
-          service_id: sync_service_id,
           metadata: %{
-            "armis_device_id" => Integer.to_string(device_number),
-            "integration_id" => sync_service_id,
-            "collector_agent_id" => agent_id
+            "source_device_id" => source_device_id,
+            "armis_device_id" => source_device_id,
+            "integration_id" => source_device_id,
+            "integration_type" => "armis",
+            "sync_service_id" => sync_service_id
           }
         }
       end)
 
     batch = %SyncPageBatchV1{
-      sync_meta: %SyncPageMetaV1{
+      sync_meta: %SyncMetaV1{
         sync_service_id: sync_service_id,
         sync_run_id: sync_run_id,
         chunk_index: chunk_index,
         total_chunks: total_chunks,
         is_final: is_final,
         total_devices: total_devices,
-        source_type: "armis",
         population: population
       },
-      updates: updates
+      devices: devices
     }
 
     payload = SyncPageBatchV1.encode(batch)
@@ -1013,7 +1017,7 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
         agent_id,
         Ecto.UUID.dump!(partition.id),
         payload,
-        length(updates),
+        length(devices),
         now
       )
 
@@ -1347,7 +1351,7 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
           partition: partition.slug,
           metadata: %{"sys_descr" => "Synthetic Edge SwitchOS"},
           snmp_fingerprint: %MapperSnmpFingerprintV1{
-            system: %MapperSnmpSystemV1{
+            system: %MapperSnmpSystemFingerprintV1{
               sys_name: "mapper-enriched-#{index}",
               sys_descr: "Synthetic Edge SwitchOS",
               sys_object_id: ".1.3.6.1.4.1.55555.1",
