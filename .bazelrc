@@ -35,7 +35,13 @@ common --java_runtime_version=remotejdk_21
 # Use Bazel defaults (~/.cache/bazel) or machine-local .bazelrc.local instead.
 
 # This is a deliberate exception to the "no distdir under the source tree" rule above. These are immutable vendored source crates.
-common --distdir=%workspace%/third_party/crate_mirror
+# Paths are workspace-relative: Bazel does NOT expand %workspace% in --distdir (it logged
+# "non-existent distdir .../%workspace%/third_party/crate_mirror", so this mirror was never consulted).
+common --distdir=third_party/crate_mirror
+# Same exception for immutable third-party source tarballs whose only upstream is unreliable from CI
+# (archive.apache.org refuses connections from the build cluster). Bazel uses a distdir file only when
+# its basename matches the URL basename and its sha256 matches the http_archive pin. See its README.
+common --distdir=third_party/source_mirror
 
 build --keep_going
 build --jobs=auto
