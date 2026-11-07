@@ -56,6 +56,29 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaTest do
     end
   end
 
+  test "every shipped column-type modification is recognised and matches its table's CREATE" do
+    statements = Enum.flat_map(Schema.migrations(), & &1.statements)
+
+    created =
+      for statement <- statements,
+          [_, table] <-
+            [Regex.run(~r/^CREATE TABLE IF NOT EXISTS serviceradar\.(\w+) \(/, statement)],
+          [_, column, type] <- Regex.scan(~r/^\s+`?(\w+)`?\s+([A-Z]+(?:\(\d+\))?)/m, statement),
+          reduce: %{} do
+        acc -> Map.put(acc, {table, column}, String.downcase(type))
+      end
+
+    modifications = Enum.filter(statements, &(&1 =~ ~r/^ALTER TABLE \S+ MODIFY COLUMN/))
+    assert modifications != []
+
+    for statement <- modifications do
+      assert {:ok, {table, column, type}} = Schema.modify_column(statement)
+
+      assert created[{table, column}] == type,
+             "#{table}.#{column}: CREATE has #{created[{table, column}]}, #{statement}"
+    end
+  end
+
   test "statements drops comment lines and splits on terminators" do
     sql = """
     -- Leading header the Frontend would reject.

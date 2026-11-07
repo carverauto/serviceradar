@@ -5,4 +5,4 @@
 -- Fresh installs get this from 0026's CREATE; this ALTER covers existing
 -- warehouses. JSON Stream Load ignores unknown keys, so the writer may ship
 -- before this applies.
-ALTER TABLE serviceradar.flow_process_attribution_observations ADD COLUMN executable_ownership VARCHAR(65533);
+ALTER TABLE serviceradar.flow_process_attribution_observations ADD COLUMN executable_ownership VARCHAR(1048576);

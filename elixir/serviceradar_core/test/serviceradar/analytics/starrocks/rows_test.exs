@@ -546,18 +546,80 @@ defmodule ServiceRadar.Analytics.StarRocks.RowsTest do
       assert {:ok, _json} = Jason.encode(Rows.encode(:otel_traces, [span()]))
     end
 
-    test "an oversized attributes value is truncated to its column limit and still encodes" do
-      # 1_048_576 is the StarRocks otel_traces.attributes VARCHAR limit
-      # (priv/starrocks/0022); a multi-byte filler proves the cut lands on a
-      # UTF-8 boundary rather than mid-codepoint.
-      attributes = String.duplicate("é", 600_000)
+    test "free text past its old column width is stored whole; values over 1 MiB are dropped as NULL" do
+      handler = {__MODULE__, :otel_document_dropped, System.unique_integer()}
+      parent = self()
 
-      assert [%{"attributes" => truncated} = row] =
-               Rows.encode(:otel_traces, [span(%{attributes: attributes})])
+      :telemetry.attach(
+        handler,
+        [:serviceradar, :starrocks, :otel_traces, :document_dropped],
+        fn event, measurements, metadata, _ -> send(parent, {event, measurements, metadata}) end,
+        nil
+      )
 
-      assert byte_size(truncated) <= 1_048_576
-      assert String.valid?(truncated)
+      on_exit(fn -> :telemetry.detach(handler) end)
+
+      name = String.duplicate("é", 35_000)
+      status_message = String.duplicate("m", 70_000)
+      service_name = String.duplicate("s", 2_000)
+      ingest_partition = String.duplicate("p", 300)
+      oversized_attributes = String.duplicate("é", 600_000)
+
+      assert [
+               %{
+                 "name" => ^name,
+                 "status_message" => ^status_message,
+                 "service_name" => ^service_name,
+                 "ingest_partition" => ^ingest_partition,
+                 "attributes" => nil
+               } = row
+             ] =
+               Rows.encode(:otel_traces, [
+                 span(%{
+                   name: name,
+                   status_message: status_message,
+                   service_name: service_name,
+                   ingest_partition: ingest_partition,
+                   attributes: oversized_attributes
+                 })
+               ])
+
+      assert_received {[:serviceradar, :starrocks, :otel_traces, :document_dropped],
+                       %{bytes: 1_200_000}, %{field: "attributes", reason: :too_large}}
+
       assert {:ok, _json} = Jason.encode(row)
+    end
+
+    test "span identifiers past their protocol width are stored as NULL and counted, never cut" do
+      handler = {__MODULE__, :otel_scalar_invalid, System.unique_integer()}
+      parent = self()
+
+      :telemetry.attach(
+        handler,
+        [:serviceradar, :starrocks, :otel_traces, :scalar_invalid],
+        fn event, measurements, metadata, _ -> send(parent, {event, measurements, metadata}) end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler) end)
+
+      assert [%{"trace_id" => nil, "span_id" => nil, "parent_span_id" => nil}] =
+               Rows.encode(:otel_traces, [
+                 span(%{
+                   trace_id: String.duplicate("a", 33),
+                   span_id: String.duplicate("b", 17),
+                   parent_span_id: String.duplicate("c", 17)
+                 })
+               ])
+
+      assert_received {[:serviceradar, :starrocks, :otel_traces, :scalar_invalid],
+                       %{bytes: 33, max_bytes: 32}, %{field: "trace_id"}}
+
+      assert_received {[:serviceradar, :starrocks, :otel_traces, :scalar_invalid],
+                       %{bytes: 17, max_bytes: 16}, %{field: "span_id"}}
+
+      assert_received {[:serviceradar, :starrocks, :otel_traces, :scalar_invalid],
+                       %{bytes: 17, max_bytes: 16}, %{field: "parent_span_id"}}
     end
   end
 
@@ -621,21 +683,196 @@ defmodule ServiceRadar.Analytics.StarRocks.RowsTest do
       assert Map.has_key?(row, "metadata")
     end
 
-    test "an oversized message and raw_data are truncated UTF-8-safely" do
+    test "free text past its old column width is stored whole; values over 1 MiB are dropped as NULL" do
+      handler = {__MODULE__, :bmp_document_dropped, System.unique_integer()}
+      parent = self()
+
+      :telemetry.attach(
+        handler,
+        [:serviceradar, :starrocks, :bmp_routing_events, :document_dropped],
+        fn event, measurements, metadata, _ -> send(parent, {event, measurements, metadata}) end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler) end)
+
+      event_type = String.duplicate("t", 300)
       message = String.duplicate("é", 33_000)
+      raw_data = String.duplicate("x", 70_000)
 
-      [row] =
-        Rows.encode(:bmp_routing_events, [
-          bmp_row(%{message: message, raw_data: String.duplicate("x", 70_000)})
-        ])
+      assert [
+               %{
+                 "event_type" => ^event_type,
+                 "message" => ^message,
+                 "raw_data" => ^raw_data
+               }
+             ] =
+               Rows.encode(:bmp_routing_events, [
+                 bmp_row(%{event_type: event_type, message: message, raw_data: raw_data})
+               ])
 
-      assert byte_size(row["message"]) <= 65_533
-      assert String.valid?(row["message"])
-      assert byte_size(row["raw_data"]) == 65_533
+      assert [%{"raw_data" => nil}] =
+               Rows.encode(:bmp_routing_events, [
+                 bmp_row(%{raw_data: String.duplicate("x", 1_048_577)})
+               ])
+
+      assert_received {[:serviceradar, :starrocks, :bmp_routing_events, :document_dropped],
+                       %{bytes: 1_048_577}, %{field: "raw_data", reason: :too_large}}
+    end
+
+    test "BMP identifiers past their protocol width are stored as NULL and counted, never cut" do
+      handler = {__MODULE__, :bmp_scalar_invalid, System.unique_integer()}
+      parent = self()
+
+      :telemetry.attach(
+        handler,
+        [:serviceradar, :starrocks, :bmp_routing_events, :scalar_invalid],
+        fn event, measurements, metadata, _ -> send(parent, {event, measurements, metadata}) end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler) end)
+
+      assert [
+               %{
+                 "router_id" => nil,
+                 "router_ip" => nil,
+                 "peer_ip" => nil,
+                 "prefix" => nil
+               }
+             ] =
+               Rows.encode(:bmp_routing_events, [
+                 bmp_row(%{
+                   router_id: String.duplicate("r", 257),
+                   router_ip: String.duplicate("1", 65),
+                   peer_ip: String.duplicate("2", 65),
+                   prefix: String.duplicate("3", 129)
+                 })
+               ])
+
+      assert_received {[:serviceradar, :starrocks, :bmp_routing_events, :scalar_invalid],
+                       %{bytes: 257, max_bytes: 256}, %{field: "router_id"}}
+
+      assert_received {[:serviceradar, :starrocks, :bmp_routing_events, :scalar_invalid],
+                       %{bytes: 65, max_bytes: 64}, %{field: "router_ip"}}
+
+      assert_received {[:serviceradar, :starrocks, :bmp_routing_events, :scalar_invalid],
+                       %{bytes: 65, max_bytes: 64}, %{field: "peer_ip"}}
+
+      assert_received {[:serviceradar, :starrocks, :bmp_routing_events, :scalar_invalid],
+                       %{bytes: 129, max_bytes: 128}, %{field: "prefix"}}
     end
 
     test "encoded rows survive the Stream Load JSON encoding" do
       assert {:ok, _json} = Jason.encode(Rows.encode(:bmp_routing_events, [bmp_row()]))
+    end
+  end
+
+  describe "flow process attribution observations" do
+    defp observation_row(overrides \\ %{}) do
+      Map.merge(
+        %{
+          observed_at: ~U[2026-01-15 10:00:00Z],
+          partition: "default",
+          proto: 6,
+          local_ip: "192.0.2.10",
+          local_port: 8443,
+          remote_ip: "198.51.100.20",
+          remote_port: 51_234,
+          agent_id: "agent-example-01",
+          attribution_key: "attr-key-01",
+          pid: 1234,
+          comm: "nginx",
+          cmdline: "nginx -g daemon off;",
+          uid: 101,
+          container_id: "container-example-01",
+          workload_identity: %{"namespace" => "example"},
+          executable_ownership: %{"binary_package" => "nginx"}
+        },
+        overrides
+      )
+    end
+
+    test "an observation row carries exactly the warehouse columns" do
+      [row] = Rows.encode(:flow_attribution_observations, [observation_row()])
+
+      assert row |> Map.keys() |> Enum.sort() ==
+               ddl_columns("flow_process_attribution_observations")
+    end
+
+    test "free text past its old column width is stored whole; values over 1 MiB are dropped as NULL" do
+      handler = {__MODULE__, :obs_document_dropped, System.unique_integer()}
+      parent = self()
+
+      :telemetry.attach(
+        handler,
+        [:serviceradar, :starrocks, :flow_attribution_observations, :document_dropped],
+        fn event, measurements, metadata, _ -> send(parent, {event, measurements, metadata}) end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler) end)
+
+      comm = String.duplicate("c", 300)
+      cmdline = String.duplicate("é", 35_000)
+      ownership = Jason.encode!(%{"binary_package" => String.duplicate("p", 70_000)})
+
+      assert [
+               %{
+                 "comm" => ^comm,
+                 "cmdline" => ^cmdline,
+                 "executable_ownership" => ^ownership,
+                 "workload_identity" => nil
+               }
+             ] =
+               Rows.encode(:flow_attribution_observations, [
+                 observation_row(%{
+                   comm: comm,
+                   cmdline: cmdline,
+                   executable_ownership: ownership,
+                   workload_identity: String.duplicate("w", 1_048_577)
+                 })
+               ])
+
+      assert_received {
+        [:serviceradar, :starrocks, :flow_attribution_observations, :document_dropped],
+        %{bytes: 1_048_577},
+        %{field: "workload_identity", reason: :too_large}
+      }
+    end
+
+    test "observation identifiers past their protocol width are stored as NULL and counted, never cut" do
+      handler = {__MODULE__, :obs_scalar_invalid, System.unique_integer()}
+      parent = self()
+
+      :telemetry.attach(
+        handler,
+        [:serviceradar, :starrocks, :flow_attribution_observations, :scalar_invalid],
+        fn event, measurements, metadata, _ -> send(parent, {event, measurements, metadata}) end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler) end)
+
+      assert [%{"agent_id" => nil, "container_id" => nil}] =
+               Rows.encode(:flow_attribution_observations, [
+                 observation_row(%{
+                   agent_id: String.duplicate("a", 257),
+                   container_id: String.duplicate("c", 257)
+                 })
+               ])
+
+      assert_received {
+        [:serviceradar, :starrocks, :flow_attribution_observations, :scalar_invalid],
+        %{bytes: 257, max_bytes: 256},
+        %{field: "agent_id"}
+      }
+
+      assert_received {
+        [:serviceradar, :starrocks, :flow_attribution_observations, :scalar_invalid],
+        %{bytes: 257, max_bytes: 256},
+        %{field: "container_id"}
+      }
     end
   end
 

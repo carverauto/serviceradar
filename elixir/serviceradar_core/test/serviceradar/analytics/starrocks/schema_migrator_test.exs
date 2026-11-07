@@ -486,6 +486,43 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
     assert result.running == nil
   end
 
+  test "OTel span, BMP, and flow-observation free-text columns are widened when narrower" do
+    migration = shipped(41)
+
+    columns =
+      for statement <- migration.statements,
+          [_, table, column, type] <-
+            [Regex.run(~r/ALTER TABLE \S+?\.(\w+) MODIFY COLUMN (\w+) (\S+)/, statement)],
+          into: %{},
+          do: {{table, column}, String.downcase(type)}
+
+    columns =
+      Map.merge(columns, %{
+        {"otel_traces", "name"} => "varchar(65533)",
+        {"otel_traces", "service_name"} => "varchar(1024)",
+        {"bmp_routing_events", "event_type"} => "varchar(256)",
+        {"bmp_routing_events", "message"} => "varchar(65533)",
+        {"flow_process_attribution_observations", "comm"} => "varchar(256)"
+      })
+
+    agent = start_alter_warehouse(%{columns: columns})
+
+    assert migrate(agent, query: alter_query(agent), migrations: [migration]) == {:ok, [41]}
+
+    result = state(agent)
+    assert result.refused == []
+
+    assert result.sent == [
+             {"otel_traces", "name"},
+             {"otel_traces", "service_name"},
+             {"bmp_routing_events", "event_type"},
+             {"bmp_routing_events", "message"},
+             {"flow_process_attribution_observations", "comm"}
+           ]
+
+    assert result.running == nil
+  end
+
   test "replicas migrating a shared-data warehouse send each ALTER once, never into a running change" do
     migration = shipped(36)
 

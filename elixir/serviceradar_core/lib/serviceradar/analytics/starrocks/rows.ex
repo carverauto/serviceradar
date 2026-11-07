@@ -5,8 +5,6 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
 
   alias ServiceRadar.Analytics.StarRocks.Identity
 
-  require Logger
-
   @type dataset ::
           Identity.dataset()
           | :mtr_traces
@@ -46,20 +44,6 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
                      unreachable_code reply_time_exceeded reply_unreachable reply_synack
                      reply_rst)a
 
-  # priv/starrocks/0024: every column of platform.bmp_routing_events under the
-  # same name, as built by AnalyticsSignals.build_routing_event_row/1. `id` is
-  # the stable event identity (`Ecto.UUID.dump!`), so a redelivery upserts the
-  # same row. `metadata` is a JSON document; `message` and `raw_data` are
-  # truncated UTF-8-safely to their column widths so no row is filtered out of
-  # a Stream Load batch.
-  @bmp_message_limit 65_533
-  @bmp_raw_data_limit 65_533
-  @bmp_event_type_limit 256
-  @bmp_router_id_limit 256
-  @bmp_router_ip_limit 64
-  @bmp_peer_ip_limit 64
-  @bmp_prefix_limit 128
-
   # priv/starrocks/0021: every column of platform.otel_metrics /
   # platform.otel_metric_points under the same name, as built by the
   # OtelMetrics processor for its CNPG insert.
@@ -79,57 +63,15 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
 
   # priv/starrocks/0022: every column of platform.otel_traces under the same
   # name, as built by the OtelTraces processor. Its key is the CNPG primary key.
-  @otel_span_text ~w(trace_id span_id parent_span_id trace_state name service_name
-                     service_version service_instance service_namespace
-                     deployment_environment scope_name scope_version scope_attributes
-                     status_message attributes resource_attributes events links
-                     ingest_identity ingest_agent_id ingest_partition)a
+  @otel_span_identifiers ~w(trace_id span_id parent_span_id)a
+
+  @otel_span_text ~w(trace_state name service_name service_version service_instance
+                     service_namespace deployment_environment scope_name scope_version
+                     scope_attributes status_message attributes resource_attributes
+                     events links ingest_identity ingest_agent_id ingest_partition)a
 
   @otel_span_values ~w(kind start_time_unix_nano end_time_unix_nano status_code
                        dropped_attributes_count dropped_events_count dropped_links_count)a
-
-  # priv/starrocks/0022 column widths. A span's attributes/events/links are
-  # producer-controlled and unbounded on CNPG, so a large payload (big HTTP
-  # bodies, wide exception stacks) can exceed these VARCHARs; StarRocks FILTERS
-  # an over-wide row out of the Stream Load rather than truncating it, which
-  # silently drops the whole span. Truncate here (UTF-8-safe) so the span
-  # always lands, and report the truncation rather than leaving a silent drop.
-  @otel_span_limits %{
-    trace_id: 32,
-    span_id: 16,
-    parent_span_id: 16,
-    trace_state: 65_533,
-    name: 65_533,
-    status_message: 65_533,
-    service_name: 1024,
-    service_version: 1024,
-    service_instance: 1024,
-    service_namespace: 1024,
-    deployment_environment: 1024,
-    scope_name: 1024,
-    scope_version: 1024,
-    ingest_identity: 1024,
-    ingest_agent_id: 256,
-    ingest_partition: 128,
-    scope_attributes: 1_048_576,
-    attributes: 1_048_576,
-    resource_attributes: 1_048_576,
-    events: 1_048_576,
-    links: 1_048_576
-  }
-
-  # priv/starrocks/0026: every column of flow_process_attribution_observations
-  # under the same name, as built by FlowAttribution.EventRows. comm, cmdline,
-  # workload_identity and executable_ownership come from the edge and are truncated
-  # UTF-8-safely to their column widths so no observation is filtered out of a Stream
-  # Load batch.
-  @observation_limits %{
-    comm: 256,
-    cmdline: 65_533,
-    container_id: 256,
-    workload_identity: 1_048_576,
-    executable_ownership: 65_533
-  }
 
   # Live event-owned exposure fact columns (migrations 0032 and 0034).
   # A live after-image must never overwrite the snapshot generation.
@@ -193,17 +135,26 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
       "local_port" => value(row, :local_port),
       "remote_ip" => stringify(value(row, :remote_ip)),
       "remote_port" => value(row, :remote_port),
-      "agent_id" => stringify(value(row, :agent_id)),
+      "agent_id" => identifier(:flow_attribution_observations, :agent_id, value(row, :agent_id)),
       "attribution_key" => stringify(value(row, :attribution_key)),
       "pid" => value(row, :pid),
-      "comm" => observation_bounded(:comm, value(row, :comm)),
-      "cmdline" => observation_bounded(:cmdline, value(row, :cmdline)),
+      "comm" => text(:flow_attribution_observations, :comm, value(row, :comm)),
+      "cmdline" => text(:flow_attribution_observations, :cmdline, value(row, :cmdline)),
       "uid" => value(row, :uid),
-      "container_id" => observation_bounded(:container_id, value(row, :container_id)),
+      "container_id" =>
+        identifier(:flow_attribution_observations, :container_id, value(row, :container_id)),
       "workload_identity" =>
-        observation_bounded(:workload_identity, json_text(value(row, :workload_identity))),
+        text(
+          :flow_attribution_observations,
+          :workload_identity,
+          json_text(value(row, :workload_identity))
+        ),
       "executable_ownership" =>
-        observation_bounded(:executable_ownership, json_text(value(row, :executable_ownership)))
+        text(
+          :flow_attribution_observations,
+          :executable_ownership,
+          json_text(value(row, :executable_ownership))
+        )
     }
   end
 
@@ -381,9 +332,20 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
   end
 
   defp encode_row(:otel_traces, row) do
-    row
-    |> mtr_columns(@otel_span_text, @otel_span_values)
-    |> truncate_otel_span_columns(row)
+    identifiers =
+      Map.new(
+        @otel_span_identifiers,
+        &{Atom.to_string(&1), identifier(:otel_traces, &1, value(row, &1))}
+      )
+
+    text =
+      Map.new(@otel_span_text, &{Atom.to_string(&1), text(:otel_traces, &1, value(row, &1))})
+
+    values = Map.new(@otel_span_values, &{Atom.to_string(&1), value(row, &1)})
+
+    identifiers
+    |> Map.merge(text)
+    |> Map.merge(values)
     |> Map.merge(%{
       "timestamp" => datetime(value(row, :timestamp)),
       "created_at" => created_at(row)
@@ -394,17 +356,17 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
     %{
       "id" => uuid_text(value(row, :id)),
       "time" => datetime(value(row, :time)),
-      "event_type" => bmp_bounded(value(row, :event_type), @bmp_event_type_limit),
+      "event_type" => text(:bmp_routing_events, :event_type, value(row, :event_type)),
       "severity_id" => value(row, :severity_id),
-      "router_id" => bmp_bounded(value(row, :router_id), @bmp_router_id_limit),
-      "router_ip" => bmp_bounded(value(row, :router_ip), @bmp_router_ip_limit),
-      "peer_ip" => bmp_bounded(value(row, :peer_ip), @bmp_peer_ip_limit),
+      "router_id" => identifier(:bmp_routing_events, :router_id, value(row, :router_id)),
+      "router_ip" => identifier(:bmp_routing_events, :router_ip, value(row, :router_ip)),
+      "peer_ip" => identifier(:bmp_routing_events, :peer_ip, value(row, :peer_ip)),
       "peer_asn" => value(row, :peer_asn),
       "local_asn" => value(row, :local_asn),
-      "prefix" => bmp_bounded(value(row, :prefix), @bmp_prefix_limit),
-      "message" => bmp_bounded(value(row, :message), @bmp_message_limit),
+      "prefix" => identifier(:bmp_routing_events, :prefix, value(row, :prefix)),
+      "message" => text(:bmp_routing_events, :message, value(row, :message)),
       "metadata" => json_document(value(row, :metadata)),
-      "raw_data" => bmp_bounded(value(row, :raw_data), @bmp_raw_data_limit),
+      "raw_data" => text(:bmp_routing_events, :raw_data, value(row, :raw_data)),
       "created_at" => created_at(row)
     }
   end
@@ -432,20 +394,6 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
     })
   end
 
-  # A wider value would make StarRocks FILTER the row out of the Stream Load
-  # batch; truncate UTF-8-safely instead so the event still lands.
-  defp bmp_bounded(nil, _max), do: nil
-
-  defp bmp_bounded(value, max) do
-    value = stringify(value)
-
-    if is_binary(value) and byte_size(value) > max do
-      value |> binary_part(0, max) |> trim_incomplete_utf8()
-    else
-      value
-    end
-  end
-
   # priv/starrocks/0018: the documents are VARCHAR(1048576), and a value wider
   # than its column is a load error. An oversized document is dropped so the
   # event itself still lands. That event is then outside every document-path
@@ -453,13 +401,17 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
   @max_document_bytes 1_048_576
 
   # Identifier columns keep the width their protocol allows (priv/starrocks/0003,
-  # 0004): a W3C trace id is 32 hex characters, a span id 16, an IP address at
-  # most 45, all within the 64-byte columns. A wider value is not that
-  # identifier, and a cut one would name a different trace, span or host, so it
-  # is stored as NULL and counted, never truncated.
+  # 0004, 0022, 0024, 0026): a W3C trace id is 32 hex characters, a span id 16,
+  # an IP address at most 45, all within their columns. A wider value is not
+  # that identifier, and a cut one would name a different trace, span, router,
+  # prefix, agent or container, so it is stored as NULL and counted, never
+  # truncated.
   @identifier_limits %{
+    bmp_routing_events: %{router_id: 256, router_ip: 64, peer_ip: 64, prefix: 128},
     events: %{src_endpoint_ip: 64, trace_id: 64, span_id: 64},
-    logs: %{trace_id: 64, span_id: 64, source_ip: 64}
+    flow_attribution_observations: %{agent_id: 256, container_id: 256},
+    logs: %{trace_id: 64, span_id: 64, source_ip: 64},
+    otel_traces: %{trace_id: 32, span_id: 16, parent_span_id: 16}
   }
 
   defp identifier(dataset, column, value) do
@@ -480,7 +432,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
   end
 
   # Free text has no bound in CNPG, and its warehouse column is VARCHAR(1048576)
-  # (priv/starrocks/0037): one NATS message (1 MiB max_payload as shipped)
+  # (priv/starrocks/0037, 0041): one NATS message (1 MiB max_payload as shipped)
   # cannot carry more, so the value is stored whole. One wider than the column
   # is dropped from its field and reported, as an oversized document is, rather
   # than cut, so the row still lands.
@@ -491,20 +443,6 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
 
       value ->
         value
-    end
-  end
-
-  defp truncate_binary(value, max_bytes) do
-    value
-    |> binary_part(0, max_bytes)
-    |> trim_incomplete_utf8()
-  end
-
-  defp trim_incomplete_utf8(value) do
-    if String.valid?(value) do
-      value
-    else
-      trim_incomplete_utf8(binary_part(value, 0, byte_size(value) - 1))
     end
   end
 
@@ -567,40 +505,6 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
     text = Map.new(text_columns, &{Atom.to_string(&1), stringify(value(row, &1))})
     values = Map.new(value_columns, &{Atom.to_string(&1), value(row, &1)})
     Map.merge(text, values)
-  end
-
-  defp truncate_otel_span_columns(encoded, row) do
-    trace_id = value(row, :trace_id)
-    span_id = value(row, :span_id)
-
-    Enum.reduce(@otel_span_limits, encoded, fn {column, max}, acc ->
-      key = Atom.to_string(column)
-
-      case Map.get(acc, key) do
-        text when is_binary(text) and byte_size(text) > max ->
-          otel_span_truncated(column, byte_size(text), max, trace_id, span_id)
-          Map.put(acc, key, truncate_binary(text, max))
-
-        _ ->
-          acc
-      end
-    end)
-  end
-
-  defp otel_span_truncated(column, bytes, max, trace_id, span_id) do
-    Logger.warning("StarRocks otel_traces column truncated",
-      column: Atom.to_string(column),
-      bytes: bytes,
-      max_bytes: max,
-      trace_id: trace_id,
-      span_id: span_id
-    )
-
-    :telemetry.execute(
-      [:serviceradar, :starrocks, :otel_traces, :truncated],
-      %{bytes: bytes, max_bytes: max},
-      %{field: Atom.to_string(column), trace_id: trace_id, span_id: span_id}
-    )
   end
 
   # SHA-256 over the key parts, length-prefixed so ("ab", "c") and ("a", "bc")
@@ -725,9 +629,6 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
       _ -> nil
     end
   end
-
-  defp observation_bounded(column, value),
-    do: bmp_bounded(value, Map.fetch!(@observation_limits, column))
 
   defp json_text(nil), do: nil
   defp json_text(value) when is_binary(value), do: value
