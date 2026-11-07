@@ -1,8 +1,10 @@
 defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Analytics.StarRocks.MySQL
   alias ServiceRadar.Analytics.StarRocks.Schema
   alias ServiceRadar.Analytics.StarRocks.SchemaMigrator
+  alias ServiceRadar.Analytics.StarRocks.Workload
 
   @moduletag :db_free
 
@@ -91,12 +93,11 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
   defp migrate(agent, opts \\ []) do
     [
       query: query_fun(agent),
-      with_lock: fn fun -> fun.(fn -> :ok end) end,
+      try_lock: fn fun -> fun.(fn -> :ok end) end,
       migrations: @migrations,
       database: "serviceradar",
       sleep: fn _ms -> :ok end,
-      workload_groups: fn _query -> :ok end,
-      repin_sessions: fn -> :ok end
+      workload_groups: fn _query -> :ok end
     ]
     |> Keyword.merge(opts)
     |> SchemaMigrator.migrate()
@@ -161,10 +162,100 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
     end
 
     assert {:error, %RuntimeError{message: "lock lost"}} =
-             migrate(agent, with_lock: fn fun -> fun.(still_locked) end)
+             migrate(agent, try_lock: fn fun -> fun.(still_locked) end)
 
     assert state(agent).ledger == [1]
     refute Enum.any?(state(agent).ddl, &(&1 =~ "ADD COLUMN"))
+  end
+
+  # A replica's migration, stopped at its first statement under the lock until
+  # the test sends :go -- standing in for hours of DDL.
+  defp start_holder(agent, lock) do
+    parent = self()
+    query = query_fun(agent)
+
+    holder =
+      spawn(fn ->
+        gated = fn
+          sql when sql in ["SHOW BACKENDS", "SHOW COMPUTE NODES"] ->
+            query.(sql)
+
+          sql ->
+            if Process.put(:gated, true) == nil do
+              send(parent, {:holding, self()})
+
+              receive do
+                :go -> :ok
+              end
+            end
+
+            query.(sql)
+        end
+
+        send(parent, {:holder_done, migrate(agent, query: gated, try_lock: lock)})
+      end)
+
+    assert_receive {:holding, ^holder}, 5_000
+    holder
+  end
+
+  defp start_waiter(agent, lock) do
+    parent = self()
+
+    Task.async(fn ->
+      migrate(agent,
+        try_lock: lock,
+        sleep: fn ms ->
+          send(parent, {:waiting, ms})
+          Process.sleep(1)
+        end
+      )
+    end)
+  end
+
+  defp waits(count) do
+    for _ <- 1..count do
+      assert_receive {:waiting, ms}, 5_000
+      ms
+    end
+  end
+
+  test "a replica that finds the lock held polls for it, backing off, then finds the schema current" do
+    agent = start_warehouse()
+    lock = pg_lock()
+    holder = start_holder(agent, lock)
+    waiter = start_waiter(agent, lock)
+
+    # Each refusal returns at once; the waiter never sits on the lock.
+    assert waits(7) == [1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 30_000]
+
+    send(holder, :go)
+    assert_receive {:holder_done, {:ok, [1, 2, 3]}}, 5_000
+    assert Task.await(waiter) == {:ok, []}
+    # The migrations went out once, from the holder; the waiter only made sure
+    # the database and ledger were there before reading the ledger.
+    reference = start_warehouse()
+    assert migrate(reference) == {:ok, [1, 2, 3]}
+    [database, ledger | _migrations] = state(reference).ddl
+    assert state(agent).ddl == state(reference).ddl ++ [database, ledger]
+  end
+
+  test "a holder that dies mid-migration leaves the lock to a waiting replica, which resumes" do
+    agent = start_warehouse()
+    lock = pg_lock()
+    holder = start_holder(agent, lock)
+    waiter = start_waiter(agent, lock)
+
+    waits(2)
+    Process.exit(holder, :kill)
+
+    assert Task.await(waiter) == {:ok, [1, 2, 3]}
+    assert state(agent).ledger == [1, 2, 3]
+  end
+
+  test "the migrator's connection runs DDL in default_wg while the pool's sessions are pinned" do
+    assert {Workload, :pin_session, [_group]} = MySQL.connection_opts([])[:after_connect]
+    refute Keyword.has_key?(SchemaMigrator.connection_opts([]), :after_connect)
   end
 
   test "replication follows the live backends; shared-data keeps the pinned factor" do
@@ -229,31 +320,12 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
              )
   end
 
-  test "pooled sessions are re-pinned once the resource groups exist, and only then" do
-    parent = self()
-    repin = fn -> send(parent, :repinned) end
-
-    assert migrate(start_warehouse(), workload_groups: fn _ -> :ok end, repin_sessions: repin) ==
-             {:ok, [1, 2, 3]}
-
-    assert_received :repinned
-
-    ExUnit.CaptureLog.capture_log(fn ->
-      assert migrate(start_warehouse(),
-               workload_groups: fn _ -> {:error, :no_live_starrocks_node} end,
-               repin_sessions: repin
-             ) == {:ok, [1, 2, 3]}
-    end)
-
-    refute_received :repinned
-  end
-
   test "run gives up after its attempts without crashing the supervisor" do
     agent = start_warehouse(%{backends: 0})
 
     assert SchemaMigrator.run(
              query: query_fun(agent),
-             with_lock: fn fun -> fun.(fn -> :ok end) end,
+             try_lock: fn fun -> fun.(fn -> :ok end) end,
              migrations: @migrations,
              database: "serviceradar",
              attempts: 2,
@@ -268,7 +340,7 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
 
       SchemaMigrator.run(
         query: query_fun(agent),
-        with_lock: fn fun -> fun.(fn -> :ok end) end,
+        try_lock: fn fun -> fun.(fn -> :ok end) end,
         migrations: @migrations,
         database: "serviceradar",
         attempts: 3,
@@ -402,35 +474,31 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
   defp probe_result("1", _type), do: result(["1"], [[1]])
   defp probe_result("COLUMN_TYPE", type), do: result(["COLUMN_TYPE"], [[type]])
 
-  # One lock for every runner, as the PostgreSQL advisory lock is one for
-  # every replica.
-  defp shared_lock do
-    {:ok, holder} = Agent.start_link(fn -> nil end)
+  # pg_try_advisory_xact_lock: one lock for every replica, granted at once
+  # when it is free -- or when its holder's session has died -- and refused at
+  # once, never queued, when it is held.
+  defp pg_lock do
+    {:ok, lock} = Agent.start_link(fn -> nil end)
 
     fn fun ->
-      acquire(holder)
+      me = self()
 
-      try do
-        fun.(fn -> :ok end)
-      after
-        Agent.update(holder, fn _ -> nil end)
+      granted? =
+        Agent.get_and_update(lock, fn holder ->
+          if is_nil(holder) or not Process.alive?(holder),
+            do: {true, me},
+            else: {false, holder}
+        end)
+
+      if granted? do
+        try do
+          fun.(fn -> :ok end)
+        after
+          Agent.update(lock, fn holder -> if holder == me, do: nil, else: holder end)
+        end
+      else
+        :busy
       end
-    end
-  end
-
-  defp acquire(holder) do
-    me = self()
-
-    case Agent.get_and_update(holder, fn
-           nil -> {:ok, me}
-           other -> {:busy, other}
-         end) do
-      :ok ->
-        :ok
-
-      :busy ->
-        Process.sleep(5)
-        acquire(holder)
     end
   end
 
@@ -534,13 +602,13 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
         last_state: %{"events" => "CANCELLED"}
       })
 
-    lock = shared_lock()
+    lock = pg_lock()
 
     results =
       [:replica_a, :replica_b]
       |> Enum.map(fn _replica ->
         Task.async(fn ->
-          migrate(agent, query: alter_query(agent), migrations: [migration], with_lock: lock)
+          migrate(agent, query: alter_query(agent), migrations: [migration], try_lock: lock)
         end)
       end)
       |> Task.await_many(10_000)
@@ -598,7 +666,7 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
              migrate(agent,
                query: alter_query(agent),
                migrations: [migration],
-               with_lock: fn fun -> fun.(still_locked) end
+               try_lock: fn fun -> fun.(still_locked) end
              )
 
     result = state(agent)
@@ -622,10 +690,11 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
   end
 
   # A warehouse that runs optimize jobs: `buckets` maps a table to
-  # %{partition => bucket count} and `sizes` a partition to its stored bytes
-  # (1 MiB when absent). A rewrite of a batch of partitions is a job polled
-  # through its stages (`stages` per {table, first partition}, else
-  # `lifecycle`) that applies the new count only on FINISHED. `refuse` lists
+  # %{partition => bucket count}, `sizes` a partition to its stored bytes
+  # (1 MiB when absent) and `rows` to its row count (10k when absent). A
+  # rewrite of a batch of partitions is a job polled through its stages
+  # (`stages` per {table, first partition}, else `lifecycle`) that applies
+  # the new count only on FINISHED. `refuse` lists
   # partitions whose ALTER StarRocks rejects. Any distribution change on a
   # table with a running job is refused, as StarRocks refuses it.
   defp start_bucket_warehouse(overrides) do
@@ -635,6 +704,7 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
           lifecycle: ["PENDING", "RUNNING", "FINISHED"],
           stages: %{},
           sizes: %{},
+          rows: %{},
           refuse: [],
           buckets: %{},
           jobs: %{},
@@ -671,16 +741,21 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
 
       match =
           Regex.run(
-            ~r/^SELECT PARTITION_NAME, BUCKETS, DATA_SIZE FROM information_schema.partitions_meta .* TABLE_NAME = '(\w+)'/,
+            ~r/^SELECT PARTITION_NAME, .* FROM information_schema.partitions_meta .* TABLE_NAME = '(\w+)'/,
             sql
           ) ->
         [_, table] = match
 
         rows =
           for {partition, count} <- state.buckets |> Map.get(table, %{}) |> Enum.sort(),
-              do: [partition, count, Map.get(state.sizes, partition, 1_048_576)]
+              do: [
+                partition,
+                count,
+                Map.get(state.sizes, partition, 1_048_576),
+                Map.get(state.rows, partition, 10_000)
+              ]
 
-        {result(["PARTITION_NAME", "BUCKETS", "DATA_SIZE"], rows), state}
+        {result(["PARTITION_NAME", "BUCKETS", "DATA_SIZE", "ROW_COUNT"], rows), state}
 
       String.starts_with?(sql, "SHOW BACKENDS") ->
         {nodes(1), state}
@@ -803,40 +878,61 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
     end
   end
 
-  test "a large table's history is rewritten a budget of data at a time, oldest first" do
-    migration = shipped(39)
-    [{table, count} | _] = shipped_rewrites(migration)
-    mib = 1_048_576
+  @mib 1_048_576
 
-    agent =
-      start_bucket_warehouse(%{
-        buckets:
-          ~w(p20260101 p20260102 p20260103 p20260104 p20260105)
-          |> Map.new(&{&1, 8})
-          |> then(&%{table => &1}),
-        # 100 + 20 MiB fit one 128 MiB job; 200 MiB goes alone, whether StarRocks
-        # reports bytes (4.x) or text (3.5); an unreported size goes alone.
-        sizes: %{
-          "p20260101" => 100 * mib,
-          "p20260102" => "20MB",
-          "p20260103" => "200.5MB",
-          "p20260104" => nil,
-          "p20260105" => "1MB"
-        }
-      })
+  # {partition, stored bytes, rows} oldest first, and the jobs expected.
+  # StarRocks 4.x reports DATA_SIZE in bytes, 3.5 as text.
+  @rewrite_batching [
+    {"100 + 20 MiB share one 128 MiB job; 200 MiB goes alone",
+     [
+       {"p20260101", 100 * @mib, 10_000},
+       {"p20260102", "20MB", 10_000},
+       {"p20260103", "200.5MB", 10_000},
+       {"p20260104", "1MB", 10_000}
+     ], [~w(p20260101 p20260102), ~w(p20260103), ~w(p20260104)]},
+    {"compressible partitions far under the byte budget each take a job past 500k rows",
+     [
+       {"p20260101", 10 * @mib, 700_000},
+       {"p20260102", 40 * @mib, 2_500_000},
+       {"p20260103", 25 * @mib, 1_100_000},
+       {"p20260104", 30 * @mib, 1_300_000}
+     ], [~w(p20260101), ~w(p20260102), ~w(p20260103), ~w(p20260104)]},
+    {"small partitions share a job up to 500k rows",
+     [
+       {"p20260101", @mib, 200_000},
+       {"p20260102", @mib, 250_000},
+       {"p20260103", @mib, 100_000},
+       {"p20260104", @mib, 400_000}
+     ], [~w(p20260101 p20260102), ~w(p20260103 p20260104)]},
+    {"an unreported size or row count, or none reported for stored data, goes alone",
+     [
+       {"p20260101", nil, 10_000},
+       {"p20260102", @mib, nil},
+       {"p20260103", 50 * @mib, 0},
+       {"p20260104", @mib, 10_000},
+       {"p20260105", @mib, 10_000}
+     ], [~w(p20260101), ~w(p20260102), ~w(p20260103), ~w(p20260104 p20260105)]}
+  ]
 
-    assert migrate(agent, query: bucket_query(agent), migrations: [migration]) == {:ok, [39]}
+  for {name, partitions, jobs} <- @rewrite_batching do
+    test "bucket rewrite batching: #{name}" do
+      migration = shipped(39)
+      [{table, count} | _] = shipped_rewrites(migration)
+      partitions = unquote(Macro.escape(partitions))
 
-    rewrites = Enum.filter(state(agent).sent, &match?({:rewrite, ^table, _batch}, &1))
+      agent =
+        start_bucket_warehouse(%{
+          buckets: %{table => Map.new(partitions, fn {partition, _, _} -> {partition, 8} end)},
+          sizes: Map.new(partitions, fn {partition, size, _} -> {partition, size} end),
+          rows: Map.new(partitions, fn {partition, _, rows} -> {partition, rows} end)
+        })
 
-    assert rewrites == [
-             {:rewrite, table, ["p20260101", "p20260102"]},
-             {:rewrite, table, ["p20260103"]},
-             {:rewrite, table, ["p20260104"]},
-             {:rewrite, table, ["p20260105"]}
-           ]
+      assert migrate(agent, query: bucket_query(agent), migrations: [migration]) == {:ok, [39]}
 
-    assert state(agent).buckets[table] |> Map.values() |> Enum.uniq() == [count]
+      rewrites = for {:rewrite, ^table, batch} <- state(agent).sent, do: batch
+      assert rewrites == unquote(jobs)
+      assert state(agent).buckets[table] |> Map.values() |> Enum.uniq() == [count]
+    end
   end
 
   test "partitions StarRocks will not rewrite are reported and skipped, never failing the migration" do

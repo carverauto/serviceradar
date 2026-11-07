@@ -12,7 +12,8 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
   `ADD COLUMN` whose column is already there, a `MODIFY COLUMN` whose
   column already has the target type, or a bucket rewrite
   (`DISTRIBUTED BY ... BUCKETS n`) whose partitions all have n buckets, is
-  skipped. A bucket rewrite runs optimize jobs over size-bounded batches of
+  skipped. A bucket rewrite runs optimize jobs over batches, bounded in stored
+  size and rows, of
   the partitions that still have another count, oldest first, waiting out any
   optimize already on the table and then each of its own until FINISHED. A partition StarRocks will
   not rewrite is reported (an error log and a `rewrite_skipped` telemetry
@@ -28,7 +29,11 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
 
   After the versioned DDL, the interactive and background resource groups are
   converged to the limits `Workload` ships, on every start. A failure there is
-  logged and does not fail the migration.
+  logged and does not fail the migration. Pooled sessions opened before the
+  groups existed are pinned by `Workload.Pinner` on every node, not here.
+
+  Replicas waiting for the lock poll for it (`pg_try_advisory_xact_lock`)
+  instead of queueing on a connection for as long as the holder works.
 
   The advisory lock is a PostgreSQL transaction, and a connection that drops
   releases it while this process carries on. So the lock is checked, with a
@@ -69,15 +74,34 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
   # tens of seconds even for a small batch, so it is polled every two seconds,
   # for as long as the DDL client waits for any statement (@ddl_timeout_ms).
   @optimize_poll_ms 2_000
-  # A job rewrites its partitions in parallel, so its memory follows the data
-  # it rewrites (about 4x on a measured 3.5 backend). Batches are cut at this
-  # much stored data, or this many partitions; a partition larger than the
-  # budget, or whose size StarRocks has not reported yet, goes alone. Small
-  # tables then take one job, and a large table's history one day at a time.
+  # A job rewrites its partitions in parallel, on the same compute node, so its
+  # memory follows the sum of what it rewrites: about 4x the stored data on a
+  # measured 3.5 backend, and more for a table that compresses well, where
+  # stored bytes understate the rows. Batches are therefore cut at this much
+  # stored data, this many rows, or this many partitions, whichever comes
+  # first; a partition over either budget, or whose size or row count StarRocks
+  # has not reported, goes alone. Small tables then take one job, and a large
+  # table's history one day at a time.
+  #
+  # The row budget is measured: on a node with about 2.5 GB free, one job over
+  # a single 400k-row log partition finished in seconds, while one over four
+  # partitions of 0.65M to 2.5M rows each ran out of memory on every task. A
+  # job is held to the size of the one that finished.
   @rewrite_batch_bytes 134_217_728
+  @rewrite_batch_rows 500_000
   @rewrite_batch_partitions 32
   @optimize_poll_attempts div(@ddl_timeout_ms, @optimize_poll_ms)
   @max_replication 3
+  # A replica that finds the lock taken retries after this long, doubling up
+  # to the cap. Waiting replicas then cost one short statement each per
+  # interval, and one starts within the cap of the holder finishing.
+  @lock_poll_initial_ms 1_000
+  @lock_poll_max_ms 30_000
+  # The holder's transaction spans its whole run, and DBConnection drops a
+  # connection checked out for longer than this, which releases the lock. Well
+  # beyond any run so far; one that outlasts it loses the lock at its next
+  # check and resumes, like any runner that lost it.
+  @lock_hold_ms 86_400_000
 
   @spec child_spec(term()) :: Supervisor.child_spec() | nil
   def child_spec(_opts) do
@@ -139,8 +163,11 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
   @doc """
   Applies every pending migration and returns the versions it applied.
 
-  `:query`, `:with_lock`, `:migrations` and `:database` are injectable so the
+  `:query`, `:try_lock`, `:migrations` and `:database` are injectable so the
   ordering, adoption and failure behaviour can be tested without a warehouse.
+  `:try_lock` runs the function it is given under the migration lock and
+  returns its result, or returns `:busy` without waiting when another replica
+  holds the lock.
   """
   @spec migrate(keyword()) :: {:ok, [pos_integer()]} | {:error, term()}
   def migrate(opts \\ []) do
@@ -154,23 +181,27 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
           migrations: Keyword.get_lazy(opts, :migrations, &Schema.migrations/0),
           sleep: Keyword.get(opts, :sleep, &Process.sleep/1),
           retention_days: Keyword.get_lazy(opts, :retention_days, &Retention.days_by_table/0),
-          workload_groups: Keyword.get(opts, :workload_groups, &Workload.ensure/1),
-          repin_sessions: Keyword.get(opts, :repin_sessions, &MySQL.repin_sessions/0)
+          workload_groups: Keyword.get(opts, :workload_groups, &Workload.ensure/1)
         }
 
         with {:ok, replication_num} <- replication_num(query) do
-          with_lock = Keyword.get(opts, :with_lock, &with_advisory_lock/1)
+          try_lock = Keyword.get(opts, :try_lock, &try_advisory_lock/1)
           state = Map.put(state, :replication_num, replication_num)
 
           try do
-            with_lock.(fn still_locked ->
-              state = Map.put(state, :still_locked, still_locked)
+            poll_lock(
+              try_lock,
+              fn still_locked ->
+                state = Map.put(state, :still_locked, still_locked)
 
-              with {:ok, _applied} = applied <- apply_pending(state) do
-                converge_workload_groups(state)
-                applied
-              end
-            end)
+                with {:ok, _applied} = applied <- apply_pending(state) do
+                  converge_workload_groups(state)
+                  applied
+                end
+              end,
+              state.sleep,
+              @lock_poll_initial_ms
+            )
           rescue
             # A connection that drops under an hours-long transaction raises,
             # from the transaction or from the lock check. Returned as an error
@@ -185,22 +216,30 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
     end
   end
 
-  # The shared pool names the database in its connection options, so it cannot
-  # connect until this module has created that database. Migrations therefore
-  # run on a connection of their own that names none.
+  @doc """
+  The migrator's own warehouse connection, built from the pool's settings.
+
+  The pool names the database in its connection options, so it cannot connect
+  until this module has created that database; this connection names none.
+  Nor is it pinned to the node's resource group: the background group's
+  per-query memory cap is sized for background reads, and a bucket rewrite or
+  a `PartitionRebuild` copy needs more, so DDL runs in `default_wg`.
+  """
+  @spec connection_opts(keyword()) :: keyword()
+  def connection_opts(config) do
+    config
+    |> MySQL.connection_opts()
+    |> Keyword.drop([:database, :after_connect])
+    |> Keyword.merge(name: @conn, pool_size: 1)
+  end
+
   defp with_query(opts, fun) do
     case Keyword.fetch(opts, :query) do
       {:ok, query} ->
         fun.(query)
 
       :error ->
-        conn_opts =
-          Env.config()
-          |> MySQL.connection_opts()
-          |> Keyword.delete(:database)
-          |> Keyword.merge(name: @conn, pool_size: 1)
-
-        case MyXQL.start_link(conn_opts) do
+        case MyXQL.start_link(connection_opts(Env.config())) do
           {:ok, pid} ->
             try do
               fun.(&MySQL.query(&1, conn: @conn, timeout: @ddl_timeout_ms))
@@ -214,43 +253,59 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
     end
   end
 
-  defp with_advisory_lock(fun) do
+  # A replica waiting for the lock polls for it rather than queueing on
+  # pg_advisory_xact_lock. A queued wait sits silent on a pooled connection for
+  # as long as the holder works -- hours, for a rebuild -- and an idle
+  # connection through the pooler can be dropped with neither end told: the
+  # waiter then blocks for good, and the lock it is eventually granted belongs
+  # to a session nobody is reading. A poll holds a connection for one
+  # statement, and a dead one fails that statement instead of hanging.
+  defp poll_lock(try_lock, fun, sleep, delay) do
+    case try_lock.(fun) do
+      :busy ->
+        if delay == @lock_poll_initial_ms,
+          do: Logger.info("StarRocks schema migration running on another replica; waiting")
+
+        sleep.(delay)
+        poll_lock(try_lock, fun, sleep, min(delay * 2, @lock_poll_max_ms))
+
+      result ->
+        result
+    end
+  end
+
+  # Runs `fun` holding the lock, or returns :busy at once if another replica
+  # holds it. The lock belongs to this transaction, so a holder whose
+  # connection or node dies releases it.
+  defp try_advisory_lock(fun) do
     result =
       ServiceRadar.Repo.transaction(
         fn ->
-          # Another replica may hold this for as long as a rebuild takes. The
-          # server's own limits would cancel the wait long before that: a role
-          # or database statement_timeout ends it as query_canceled, and the
-          # retry loop warns every few seconds on every waiting replica for
-          # the whole rebuild. Both are lifted for this transaction only.
-          ServiceRadar.Repo.query!("SET LOCAL statement_timeout = 0")
-          ServiceRadar.Repo.query!("SET LOCAL lock_timeout = 0")
+          case ServiceRadar.Repo.query!("SELECT pg_try_advisory_xact_lock($1)", [@lock_key]) do
+            %{rows: [[true]]} ->
+              # The transaction then sits idle for as long as StarRocks works.
+              # A deployment that sets idle_in_transaction_session_timeout
+              # would have it killed, the lock released, and a second replica
+              # start rebuilding the same tables.
+              ServiceRadar.Repo.query!("SET LOCAL idle_in_transaction_session_timeout = 0")
 
-          # The client side has a timeout too: the default query timeout would
-          # raise here after 15s and take the migrator down with it, leaving
-          # nobody to resume if that replica dies.
-          ServiceRadar.Repo.query!("SELECT pg_advisory_xact_lock($1)", [@lock_key],
-            timeout: :infinity
-          )
+              # Inside this transaction, so it raises once the connection
+              # holding the lock is gone.
+              fun.(fn ->
+                ServiceRadar.Repo.query!("SELECT 1")
+                :ok
+              end)
 
-          # The lock is this transaction, which then sits idle for as long as
-          # StarRocks works -- hours, for a partition rebuild. A deployment that
-          # sets idle_in_transaction_session_timeout would have it killed, the
-          # lock released, and a second replica start rebuilding the same tables.
-          ServiceRadar.Repo.query!("SET LOCAL idle_in_transaction_session_timeout = 0")
-
-          # Inside this transaction, so it raises once the connection holding
-          # the lock is gone.
-          fun.(fn ->
-            ServiceRadar.Repo.query!("SELECT 1")
-            :ok
-          end)
+            %{rows: [[false]]} ->
+              ServiceRadar.Repo.rollback(:busy)
+          end
         end,
-        timeout: :infinity
+        timeout: @lock_hold_ms
       )
 
     case result do
       {:ok, value} -> value
+      {:error, :busy} -> :busy
       {:error, reason} -> {:error, reason}
     end
   end
@@ -262,15 +317,11 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
   defp converge_workload_groups(state) do
     state.still_locked.()
 
-    case state.workload_groups.(state.query) do
-      :ok ->
-        state.repin_sessions.()
-
-      {:error, reason} ->
-        Logger.warning(
-          "StarRocks resource groups not applied; interactive and background " <>
-            "queries share default_wg: #{inspect(reason)}"
-        )
+    with {:error, reason} <- state.workload_groups.(state.query) do
+      Logger.warning(
+        "StarRocks resource groups not applied; interactive and background " <>
+          "queries share default_wg: #{inspect(reason)}"
+      )
     end
   end
 
@@ -411,7 +462,8 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
 
   # A rewrite is StarRocks' optimize job, run over batches of the partitions
   # that still have another count, oldest first, each batch held to
-  # @rewrite_batch_bytes of data: a whole-table optimize rewrites every
+  # @rewrite_batch_bytes of data and @rewrite_batch_rows rows: a whole-table
+  # optimize rewrites every
   # partition at once, which a compute node with little headroom cannot absorb
   # for the largest tables. A fresh install, or a resumed run, finds nothing
   # pending for what is already rewritten.
@@ -427,7 +479,8 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
     with :ok <- poll_alter(state, table, :previous, :column),
          :ok <- poll_alter(state, table, :previous, :optimize),
          {:ok, partitions} <- partition_buckets(state, table) do
-      pending = for {name, count, size} <- partitions, count != buckets, do: {name, size}
+      pending =
+        for {name, count, size, rows} <- partitions, count != buckets, do: {name, size, rows}
 
       pending
       |> rewrite_batches()
@@ -445,20 +498,23 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
   defp rewrite_batches(pending) do
     Enum.chunk_while(
       pending,
-      {[], 0},
-      fn {name, size}, {batch, bytes} ->
+      {[], 0, 0},
+      fn {name, size, rows}, {batch, batch_bytes, batch_rows} ->
         size = if is_integer(size), do: size, else: @rewrite_batch_bytes
+        rows = if is_integer(rows), do: rows, else: @rewrite_batch_rows
 
         if batch != [] and
-             (bytes + size > @rewrite_batch_bytes or length(batch) >= @rewrite_batch_partitions) do
-          {:cont, Enum.reverse(batch), {[name], size}}
+             (batch_bytes + size > @rewrite_batch_bytes or
+                batch_rows + rows > @rewrite_batch_rows or
+                length(batch) >= @rewrite_batch_partitions) do
+          {:cont, Enum.reverse(batch), {[name], size, rows}}
         else
-          {:cont, {[name | batch], bytes + size}}
+          {:cont, {[name | batch], batch_bytes + size, batch_rows + rows}}
         end
       end,
       fn
-        {[], _bytes} -> {:cont, []}
-        {batch, _bytes} -> {:cont, Enum.reverse(batch), []}
+        {[], _bytes, _rows} -> {:cont, []}
+        {batch, _bytes, _rows} -> {:cont, Enum.reverse(batch), []}
       end
     )
   end
@@ -514,26 +570,38 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
 
   defp report_rewrite({:error, _reason} = error, _table, _buckets, _pending), do: error
 
-  # Partitions with their bucket count and stored bytes, oldest first. The
-  # automatic partitioning placeholder holds no rows and is left alone.
+  # Partitions with their bucket count, stored bytes and rows, oldest first.
+  # The automatic partitioning placeholder holds no rows and is left alone.
   defp partition_buckets(state, table) do
     sql =
-      "SELECT PARTITION_NAME, BUCKETS, DATA_SIZE FROM information_schema.partitions_meta " <>
+      "SELECT PARTITION_NAME, BUCKETS, DATA_SIZE, ROW_COUNT " <>
+        "FROM information_schema.partitions_meta " <>
         "WHERE DB_NAME = '#{state.database}' AND TABLE_NAME = '#{table}' " <>
         "ORDER BY PARTITION_NAME"
 
     case state.query.(sql) do
       {:ok, %{rows: rows}} ->
         partitions =
-          for [name, count, size | _] <- rows,
+          for [name, count, size, row_count | _] <- rows,
               name = to_string(name),
-              not String.starts_with?(name, "$"),
-              do: {name, to_integer(count), data_size(size)}
+              not String.starts_with?(name, "$") do
+            size = data_size(size)
+            {name, to_integer(count), size, row_count(row_count, size)}
+          end
 
         {:ok, partitions}
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  # A partition that holds data but reports no rows has statistics StarRocks
+  # has not refreshed yet, so its row count is unknown, not zero.
+  defp row_count(rows, size) do
+    case to_integer(rows) do
+      0 when is_integer(size) and size > 0 -> nil
+      rows -> rows
     end
   end
 

@@ -68,9 +68,9 @@ wait is cancelled by Postgres `statement_timeout`.
 - **Bounded maintenance.** Warehouse maintenance that moves data (the partition rebuild, future
   backfills) works in units sized to the smallest supported compute node and backs off on
   memory pressure instead of retrying into it.
-- **The migration lock wait is not cancelled by a timeout.** The transaction that holds the
-  warehouse migration lock clears Postgres `statement_timeout` and `lock_timeout` for itself, so
-  a replica waiting behind a long rebuild keeps waiting instead of failing (issue #4525).
+- **The migration lock wait is not cancelled by a timeout.** A replica waiting behind a long
+  rebuild polls for the warehouse migration lock in short transactions instead of queueing on
+  it, so neither a Postgres timeout nor a dropped pooled connection ends the wait (issue #4525).
 - **Decide log search honestly.** Free-text search over long log retention is accepted only on
   measured evidence of which index types the deployed StarRocks profile supports.
 

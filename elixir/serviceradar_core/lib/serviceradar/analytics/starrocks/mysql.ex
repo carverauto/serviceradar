@@ -8,8 +8,9 @@ defmodule ServiceRadar.Analytics.StarRocks.MySQL do
   StarRocks prepared-statement support is narrower than MySQL's.
 
   Each connection is pinned to the node's resource group when it opens
-  (`ServiceRadar.Analytics.StarRocks.Workload`), so web-ng's interactive reads
-  and core's background work are isolated from each other.
+  (`ServiceRadar.Analytics.StarRocks.Workload`), or by `Workload.Pinner` once
+  the group exists, so web-ng's interactive reads and core's background work
+  are isolated from each other.
   """
 
   alias ServiceRadar.Analytics.StarRocks.Env
@@ -55,8 +56,8 @@ defmodule ServiceRadar.Analytics.StarRocks.MySQL do
 
   @doc """
   Reconnects every pooled session, so each is pinned again by `after_connect`.
-  Sessions opened before the resource groups existed stay in `default_wg`
-  until this runs.
+  `Workload.Pinner` runs it once the resource group a session could not be
+  pinned to exists.
   """
   @spec repin_sessions() :: :ok
   def repin_sessions do

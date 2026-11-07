@@ -99,7 +99,7 @@ Core SHALL NOT write MTR traces or hops to either store directly. MTR hop rollup
 
 ### Requirement: Warehouse maintenance is bounded by the smallest supported node
 The system SHALL perform warehouse maintenance that moves data in units sized so that a single statement stays within the memory of the smallest supported compute node, SHALL resume at that unit, and SHALL lengthen its retry interval on a memory-limit error instead of retrying at the normal rate.
-The transaction that holds the warehouse migration lock SHALL clear Postgres `statement_timeout` and `lock_timeout` for itself only, so waiting for a long maintenance run is not cancelled (issue #4525).
+A replica waiting for the warehouse migration lock SHALL poll for it with a non-blocking try-lock, one short transaction per attempt with backoff capped at 30 seconds, instead of queueing on a connection for as long as the holder works, so a Postgres timeout cannot cancel the wait and a pooled connection dropped while idle cannot hang it (issue #4525).
 
 #### Scenario: A legacy table is rebuilt on a small warehouse
 - **WHEN** a table large enough that one day exceeds a compute node's memory is rebuilt onto daily partitions
@@ -112,8 +112,9 @@ The transaction that holds the warehouse migration lock SHALL clear Postgres `st
 - **AND** the log states how many units remain
 
 #### Scenario: A replica waits for the migration lock behind a long rebuild
-- **WHEN** one replica holds the warehouse migration lock for longer than the database's configured `statement_timeout` or `lock_timeout`
-- **THEN** the waiting replica's lock transaction is not cancelled by either timeout, because it clears both for itself
+- **WHEN** one replica holds the warehouse migration lock for longer than the database's configured `statement_timeout` or `lock_timeout`, or than the pooler keeps an idle connection
+- **THEN** the waiting replica holds no connection between attempts and keeps retrying
+- **AND** it acquires the lock within the backoff cap of the holder releasing it, including a holder whose connection died
 - **AND** the timeouts of every other transaction are unchanged
 
 ### Requirement: Log search behaviour is stated from measurement
