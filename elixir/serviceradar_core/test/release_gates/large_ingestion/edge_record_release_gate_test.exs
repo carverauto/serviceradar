@@ -101,6 +101,7 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
 
   @bulk_stream "TELEMETRY_EDGE_RECORD_V1_BULK"
   @broker_state_key {__MODULE__, :broker_state}
+  @publish_timeout_ms to_timeout(minute: 5)
 
   defmodule InProcessEdgeRecordBroker do
     @moduledoc false
@@ -162,6 +163,47 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
     end
   end
 
+  defmodule CertAdapter do
+    @moduledoc false
+
+    def get_cert(:release_gate), do: <<1, 2, 3>>
+  end
+
+  defmodule IdentityResolver do
+    @moduledoc false
+
+    alias ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest
+
+    def resolve_edge_identity(_cert_der, :agent) do
+      state = EdgeRecordLargeIngestionReleaseGateTest.broker_state()
+
+      {:ok,
+       %{
+         component_id: state.agent_id,
+         component_type: :agent,
+         partition_id: state.partition_slug,
+         installation_trust_id: "release-gate-installation",
+         gateway_id: state.gateway_id,
+         spiffe_id: nil
+       }}
+    end
+  end
+
+  defmodule Capability do
+    @moduledoc false
+
+    def id, do: "edge-records:v1"
+    def ready?, do: true
+  end
+
+  @gateway_ingest_env [
+    :edge_record_ingest_pipelines,
+    :edge_record_ingest_identity_resolver,
+    :edge_record_ingest_capability,
+    :edge_record_ingest_task_supervisor,
+    :edge_record_ingest_drain_timeout_ms
+  ]
+
   def broker_state do
     :persistent_term.get(@broker_state_key)
   end
@@ -178,7 +220,7 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
     prev_batch_conc = Application.get_env(:serviceradar_core, :sync_ingestor_batch_concurrency)
 
     prev_gateway_ingest =
-      Application.get_env(:serviceradar_agent_gateway, :edge_record_ingest_server)
+      Map.new(@gateway_ingest_env, &{&1, Application.get_env(:serviceradar_agent_gateway, &1)})
 
     Application.put_env(:serviceradar_core, :sync_ingestor_async, false)
 
@@ -187,8 +229,12 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
       restore_env(:serviceradar_core, :sync_ingestor_coalesce_ms, prev_coalesce)
       restore_env(:serviceradar_core, :sync_ingestor_queue_max_chunks, prev_queue_max)
       restore_env(:serviceradar_core, :sync_ingestor_batch_concurrency, prev_batch_conc)
-      restore_env(:serviceradar_agent_gateway, :edge_record_ingest_server, prev_gateway_ingest)
-      EdgeRecordTrust.clear_for_test()
+
+      Enum.each(prev_gateway_ingest, fn {key, value} ->
+        restore_env(:serviceradar_agent_gateway, key, value)
+      end)
+
+      EdgeRecordTrust.clear()
       ContractRegistry.invalidate()
       :persistent_term.erase({IssuerKey, :key})
       :persistent_term.erase(@broker_state_key)
@@ -240,8 +286,7 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
       start_edge_pipeline_harness!(
         agent_id: agent_id,
         partition_slug: partition.slug,
-        gateway_id: gateway_id,
-        now: now
+        gateway_id: gateway_id
       )
 
     total_devices = large_ingestion_device_count()
@@ -516,8 +561,7 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
       start_edge_pipeline_harness!(
         agent_id: agent_id,
         partition_slug: partition.slug,
-        gateway_id: gateway_id,
-        now: now
+        gateway_id: gateway_id
       )
 
     {:ok, sync_contract} = OutputContract.from_epoch(active_epoch, {@sync_contract, 1})
@@ -565,7 +609,7 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
 
     # 2. Incomplete Armis sync run (chunk 0 dropped, final chunk 1 arrives alone):
     # ArmisSourceSnapshot.activate fails with :sync_run_incomplete, rolling back the
-    # EventWriter ledger commit and withholding the sequence as REJECTED_RETRYABLE.
+    # EventWriter ledger commit; the retryable outcome leaves the sequence unacked.
     incomplete_run_id = Ecto.UUID.generate()
     incomplete_spool = random_uuid(7)
     ledger_before_incomplete = ledger_rows_for_scope(network_scope_id)
@@ -594,18 +638,7 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
     assert_receive {:edge_record_failed, failure_message}
     assert failure_message =~ ":sync_run_incomplete"
 
-    assert [
-             %EdgeDeliveryAckV1{
-               resolved_through_sequence: 0,
-               dispositions: [
-                 %{
-                   sequence: 1,
-                   kind: :EDGE_RECORD_DISPOSITION_KIND_REJECTED_RETRYABLE
-                 }
-               ]
-             }
-           ] = incomplete_acks
-
+    assert [] = incomplete_acks
     assert ledger_rows_for_scope(network_scope_id) == ledger_before_incomplete
 
     active_snapshots =
@@ -647,8 +680,8 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
     assert {:ok, :inserted} = EdgeRecord.ingest(late_frame.record_bytes, late_headers, Repo)
     assert Repo.get(SweepGroupExecution, late_exec_id) == nil
 
-    # 4. Revoked standing grant at EventWriter is refused with :output_grant_not_current,
-    # routed to the terminal DLQ, and withheld by EdgeRecordIngestServer:
+    # 4. Revoked standing grant at EventWriter is refused with :output_grant_not_current
+    # and its sequence is left unacked by EdgeRecordIngestServer:
     revoked_spool = random_uuid(7)
 
     {revoked_frame, revoked_exec_id} =
@@ -672,20 +705,14 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
     assert_receive {:edge_record_refused,
                     "telemetry.edge-record.v1.bulk.serviceradar.sweep.unleased_results"}
 
-    assert [
-             %EdgeDeliveryAckV1{
-               resolved_through_sequence: 0,
-               dispositions: [
-                 %{
-                   sequence: 1,
-                   kind: :EDGE_RECORD_DISPOSITION_KIND_REJECTED_RETRYABLE
-                 }
-               ]
-             }
-           ] = revoked_acks
-
+    assert [] = revoked_acks
     assert ledger_rows_for_scope(network_scope_id) == ledger_before_revoked
     assert Repo.get(SweepGroupExecution, revoked_exec_id) == nil
+
+    assert scalar_count!(
+             "SELECT count(*) FROM platform.sweep_host_results WHERE execution_id = $1::uuid",
+             [Ecto.UUID.dump!(revoked_exec_id)]
+           ) == 0
 
     # 5. Threshold and invariant breaches fail qualify_edge_ingestion_run!/1:
     passing_ack = %EdgeDeliveryAckV1{
@@ -799,70 +826,58 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
     agent_id = Keyword.fetch!(opts, :agent_id)
     partition_slug = Keyword.fetch!(opts, :partition_slug)
     gateway_id = Keyword.fetch!(opts, :gateway_id)
-    now = Keyword.fetch!(opts, :now)
-    now_nano = DateTime.to_unix(now, :nanosecond)
 
     GatewayConfig.setup(gateway_id: gateway_id, domain: partition_slug)
 
-    seq_counter = :atomics.new(1, signed: false)
-
     :persistent_term.put(@broker_state_key, %{
       test_pid: self(),
-      seq_counter: seq_counter,
-      expected_stream: @bulk_stream
+      seq_counter: :atomics.new(1, signed: false),
+      expected_stream: @bulk_stream,
+      agent_id: agent_id,
+      partition_slug: partition_slug,
+      gateway_id: gateway_id
     })
 
     pool =
       start_supervised!(
         {PublisherPool,
-         name: :"release_gate_pool_#{System.unique_integer([:positive])}",
-         class: :bulk,
-         frame_credits: 64,
-         byte_credits: 64 * 1_024 * 1_024},
-        id: {:release_gate_pool, System.unique_integer([:positive])}
+         name: nil, class: :bulk, frame_credits: 64, byte_credits: 64 * 1_024 * 1_024},
+        id: make_ref()
       )
 
     assert {:ok, _generation} = PublisherPool.register_transport(pool, self())
 
+    publish_tasks = start_supervised!({Task.Supervisor, []}, id: make_ref())
+    stream_tasks = start_supervised!({Task.Supervisor, []}, id: make_ref())
+
     pipeline =
       start_supervised!(
         {PublishPipeline,
-         name: :"release_gate_pipeline_#{System.unique_integer([:positive])}",
+         name: nil,
          class: :bulk,
+         pool: pool,
+         task_supervisor: publish_tasks,
+         publisher: &JetStreamPublisher.publish_record/2,
+         publish_opts: [
+           connection: InProcessEdgeRecordBroker,
+           receive_timeout: @publish_timeout_ms
+         ],
          max_inflight: 1,
-         max_queue: 256,
-         publisher: fn publication ->
-           JetStreamPublisher.publish_record(
-             publication,
-             pools: %{bulk: pool},
-             connection: InProcessEdgeRecordBroker
-           )
-         end},
-        id: {:release_gate_pipeline, System.unique_integer([:positive])}
+         max_queue: 256},
+        id: make_ref()
       )
 
-    test_pid = self()
-
-    Application.put_env(:serviceradar_agent_gateway, :edge_record_ingest_server,
-      identity_resolver: fn _stream ->
-        {:ok,
-         %{
-           component_type: "agent",
-           component_id: agent_id,
-           partition_id: partition_slug
-         }}
-      end,
-      stream_sender: fn stream, msg ->
-        send(test_pid, {:edge_ingest_server_msg, msg})
-        stream
-      end,
-      pipeline_selector: fn :bulk -> pipeline end,
-      now_unix_nano: fn -> now_nano end,
-      gateway_id: fn -> gateway_id end
-    )
+    put_gateway_env(:edge_record_ingest_pipelines, %{bulk: pipeline})
+    put_gateway_env(:edge_record_ingest_identity_resolver, IdentityResolver)
+    put_gateway_env(:edge_record_ingest_capability, Capability)
+    put_gateway_env(:edge_record_ingest_task_supervisor, stream_tasks)
+    put_gateway_env(:edge_record_ingest_drain_timeout_ms, @publish_timeout_ms)
 
     %{pool: pool, pipeline: pipeline}
   end
+
+  defp put_gateway_env(key, value),
+    do: Application.put_env(:serviceradar_agent_gateway, key, value)
 
   defp stream_single_frame!(%EdgeDeliveryFrameV1{} = frame, spool_id, sequence) do
     acks = stream_raw_frame!(frame, spool_id, sequence)
@@ -892,29 +907,30 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
              spool_id: spool_id,
              route_profile: :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
              traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_BULK,
-             first_unresolved_sequence: sequence
+             first_unresolved_sequence: sequence,
+             requested_frame_credits: 1,
+             requested_byte_credits: byte_size(frame.record_bytes)
            }}
       },
-      %EdgeRecordClientMessage{payload: {:frame, frame}}
+      %EdgeRecordClientMessage{payload: {:delivery_frame, frame}}
     ]
 
-    assert :test_stream = EdgeRecordIngestServer.stream(messages, :test_stream)
-
-    server_messages = drain_server_messages()
+    stream = %{adapter: CertAdapter, payload: :release_gate, test_pid: self()}
+    assert :ok = EdgeRecordIngestServer.stream(messages, stream)
 
     assert [
              %EdgeRecordServerMessage{
                payload: {:lane_open_ack, %EdgeRecordLaneOpenAck{spool_id: ^spool_id}}
              }
              | rest
-           ] = server_messages
+           ] = drain_server_messages()
 
-    for %EdgeRecordServerMessage{payload: {:delivery_ack, ack}} <- rest, do: ack
+    for %EdgeRecordServerMessage{payload: {:ack, ack}} <- rest, do: ack
   end
 
   defp drain_server_messages(acc \\ []) do
     receive do
-      {:edge_ingest_server_msg, msg} -> drain_server_messages([msg | acc])
+      {:edge_record_stream_reply, msg} -> drain_server_messages([msg | acc])
     after
       0 -> Enum.reverse(acc)
     end
