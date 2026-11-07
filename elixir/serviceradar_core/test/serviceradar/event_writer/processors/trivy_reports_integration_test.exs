@@ -260,7 +260,9 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReportsIntegrationTest do
 
       SQL.query!(Repo, "ALTER TABLE platform.alerts DROP CONSTRAINT trivy_test_alert_rejected")
 
-      assert {:ok, 1} = TrivyReports.process_batch([scan(report, 1, critical: 1)])
+      # The redelivery is the same message, so its log row was already stored by
+      # the failed delivery and none is newly inserted; the alert is what retries.
+      assert {:ok, 0} = TrivyReports.process_batch([scan(report, 1, critical: 1)])
       assert transitions(report) == [{"new", 1}]
       assert recorded_digest(report) == "s5:n1"
       assert alerts(report) == 1
