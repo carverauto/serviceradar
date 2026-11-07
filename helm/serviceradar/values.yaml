@@ -962,7 +962,7 @@ core:
     #
     # Set to "" to fall back to the old existence-only check (for operators
     # running the chart against a deliberately pinned schema).
-    expectedVersion: "20261105100000"
+    expectedVersion: "20261105110000"
   # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
   reaper:
     # How often to run the reaper job
@@ -3136,8 +3136,8 @@ sweep:
 # Optional telemetry warehouse for flows, scalar metrics, logs and events.
 # Disabled, metrics, logs and events are written to and read from CNPG.
 # NetFlow requires it: flows are written only to the warehouse, and
-# flowCollector.enabled refuses to render without it. Empty shadowDatasets
-# means all four datasets; flows ignore it, because they are never shadowed.
+# flowCollector.enabled refuses to render without it. Each dataset is written
+# only to the store it is read from: nothing is shadowed into CNPG.
 # For flow routing and delivery, see docs/docs/netflow.md#flow-cutover-and-delivery.
 # Lab clusters use the shared-nothing profile in k8s/starrocks/.
 analytics:
@@ -3248,11 +3248,13 @@ analytics:
       maxBytes: 33554432
       maxAgeMs: 10000
       maxInFlight: 4
-    # Shadow writes are opt-in per dataset. A blank cutoverDatasets on an
-    # enabled warehouse cuts flows over by default (hard cutover); naming
-    # datasets replaces the default, so an explicit list without flows refuses
-    # flow reads again. Current alert state is never listed here.
-    shadowDatasets: []
+    # Logs and events listed here are written to and read from the warehouse
+    # only; unlisted, they are written to and read from CNPG only. Metrics,
+    # MTR, OTel and BMP follow `enabled` and ignore this list. A blank
+    # cutoverDatasets on an enabled warehouse cuts flows over by default (hard
+    # cutover); naming datasets replaces the default, so an explicit list
+    # without flows refuses flow reads again. Current alert state is never
+    # listed here.
     cutoverDatasets: []
     # JDBC catalog onto CNPG current-state tables for attribution/enrichment
     # joins. Default chart stays off; values-demo.yaml enables it.

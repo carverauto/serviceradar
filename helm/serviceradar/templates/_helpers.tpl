@@ -260,24 +260,27 @@ are acknowledged and dropped. Refuse to render it instead.
 {{- end }}
 {{- end -}}
 
-{{- define "serviceradar.starrocksShadowDatasets" -}}
+{{/*
+Every telemetry dataset is written to exactly one store, so there is no shadow
+(dual-write) list. Values that still carry the removed
+analytics.starrocks.shadowDatasets key, even an empty one, would otherwise
+render silently and leave the operator believing CNPG keeps a copy.
+*/}}
+{{- define "serviceradar.rejectRemovedStarRocksValues" -}}
 {{- $sr := default (dict) (default (dict) .Values.analytics).starrocks -}}
-{{- $shadow := $sr.shadowDatasets | default list -}}
-{{- if eq (len $shadow) 0 -}}
-{{- $shadow = list "flows" "metrics" "logs" "events" -}}
+{{- if hasKey $sr "shadowDatasets" -}}
+{{- fail "analytics.starrocks.shadowDatasets was removed: each telemetry dataset is written only to the store it is read from, so nothing is shadowed into CNPG. Delete the key from your values. See docs/docs/helm-configuration.md, \"Optional StarRocks Analytics\"." -}}
 {{- end -}}
-{{- $shadow | join "," -}}
 {{- end -}}
 
 {{/*
 A digest of every StarRocks analytics setting, for a pod annotation. It hashes
 the values rather than the rendered ConfigMap so a template that is rendered on
 its own, as the chart tests do, does not need the ConfigMap template loaded.
-The shadow list is included explicitly because it is derived, not set.
 */}}
 {{- define "serviceradar.starrocksAnalyticsChecksum" -}}
 {{- $sr := default (dict) (default (dict) .Values.analytics).starrocks -}}
-{{- printf "%s|%s" (toJson $sr) (include "serviceradar.starrocksShadowDatasets" .) | sha256sum -}}
+{{- toJson $sr | sha256sum -}}
 {{- end -}}
 
 {{/*
@@ -308,8 +311,6 @@ the built-in 90-day default; the releases reject anything outside 7..365 at boot
     configMapKeyRef:
       name: {{ include "serviceradar.fullname" . }}-starrocks-analytics
       key: cutoverDatasets
-- name: SERVICERADAR_STARROCKS_SHADOW_DATASETS
-  value: {{ include "serviceradar.starrocksShadowDatasets" . | quote }}
 - name: SERVICERADAR_STARROCKS_DATABASE
   valueFrom:
     configMapKeyRef:
