@@ -74,11 +74,14 @@ starrocksFESpec:
     mysql_service_nio_enabled = true
     sys_log_level = INFO
     min_graceful_exit_time_second = 25
-    enable_online_optimize_table = true
     run_mode = shared_data
     cloud_native_meta_port = 6090
     cloud_native_storage_type = S3
     enable_load_volume_from_conf = false
+
+
+    # Re-enable online optimize (4.1.6 made it opt-in); needed for non-blocking bucket rewrites (#6360).
+    enable_online_optimize_table = true
 
 starrocksCnSpec:
   replicas: 3
