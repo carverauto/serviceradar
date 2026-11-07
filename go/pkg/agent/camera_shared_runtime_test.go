@@ -184,6 +184,7 @@ type runtimeMediaPeer struct {
 	chunks         chan *proto.MediaChunk
 	pluginSnapshot func() PluginEngineSnapshot
 	admissions     chan runtimeAdmission
+	incarnations   chan string
 }
 
 type runtimeAdmission struct {
@@ -193,6 +194,7 @@ type runtimeAdmission struct {
 
 func (p *runtimeMediaPeer) OpenRelaySession(_ context.Context, req *proto.OpenRelaySessionRequest) (*proto.OpenRelaySessionResponse, error) {
 	p.opens.Add(1)
+	p.incarnations <- req.GetSourceIncarnationId()
 	if p.pluginSnapshot != nil {
 		p.admissions <- runtimeAdmission{relayID: req.RelaySessionId, snapshot: p.pluginSnapshot()}
 	}
@@ -266,7 +268,7 @@ func TestCameraSharedRuntime(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 			defer cancel()
 			camera, sourceURL, send := startRuntimeCamera(t, ctx)
-			peer := &runtimeMediaPeer{chunks: make(chan *proto.MediaChunk, 128), admissions: make(chan runtimeAdmission, 16)}
+			peer := &runtimeMediaPeer{chunks: make(chan *proto.MediaChunk, 128), admissions: make(chan runtimeAdmission, 16), incarnations: make(chan string, 16)}
 			listener, err := net.Listen("tcp", "127.0.0.1:0")
 			if err != nil {
 				t.Fatal(err)
@@ -340,6 +342,17 @@ func TestCameraSharedRuntime(t *testing.T) {
 			case <-ctx.Done():
 				t.Fatal("owner failed to start")
 			}
+			incarnation := <-peer.incarnations
+			if incarnation == "" {
+				t.Fatal("media open omitted the source incarnation")
+			}
+			stop := map[string]string{"relay_session_id": payload.RelaySessionID, "source_incarnation_id": "00000000-0000-4000-8000-000000000001"}
+			result := runtimeCommand(t, ctx, loop, stop, true)
+			if result.Success || result.Message != "camera relay source incarnation mismatch" {
+				t.Fatalf("stop for a different runtime: %v", result)
+			}
+			stop["source_incarnation_id"] = incarnation
+			// A rejected stop must leave the physical source delivering media.
 			// Both connectors have completed PLAY before a chunk can reach ingress.
 			runtimeAwait(t, ctx, "media reaches real upload", func() bool {
 				send()
@@ -381,7 +394,7 @@ func TestCameraSharedRuntime(t *testing.T) {
 				// is legal only after the old executor and sockets are released.
 				stopCtx, stopCancel := context.WithCancel(ctx)
 				stopCancel()
-				result := runtimeCommand(t, stopCtx, loop, cameraRelayStopPayload{RelaySessionID: payload.RelaySessionID}, true)
+				result := runtimeCommand(t, stopCtx, loop, stop, true)
 				if result.Success || result.Message != context.Canceled.Error() {
 					t.Fatalf("bounded stop: %v", result)
 				}
@@ -409,7 +422,7 @@ func TestCameraSharedRuntime(t *testing.T) {
 					t.Fatalf("replacement during cleanup: %v", result)
 				}
 			}
-			result := runtimeCommand(t, ctx, loop, cameraRelayStopPayload{RelaySessionID: payload.RelaySessionID}, true)
+			result = runtimeCommand(t, ctx, loop, stop, true)
 			if !result.Success && result.Message != errCameraRelaySessionNotFound.Error() {
 				t.Fatalf("stop: %v", result)
 			}

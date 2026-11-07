@@ -210,7 +210,11 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
 
     case dispatch.(
            session.agent_id,
-           %{relay_session_id: session.id, reason: reason},
+           %{
+             relay_session_id: session.id,
+             source_incarnation_id: session.source_incarnation_id,
+             reason: reason
+           },
            opts
            |> dispatch_opts(requester, session.gateway_id)
            |> Keyword.put(:command_id, session.close_command_id),

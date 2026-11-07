@@ -31,17 +31,18 @@ import (
 )
 
 var (
-	errCameraRelayGatewayUnavailable = errors.New("camera relay gateway unavailable")
-	errCameraRelaySessionExists      = errors.New("camera relay session already active")
-	errCameraRelaySourceActive       = errors.New("camera source profile already active")
-	errCameraRelaySessionNotFound    = errors.New("camera relay session not found")
-	errCameraRelayDrainRequested     = errors.New("camera relay drain requested")
-	errCameraRelayPluginUnavailable  = errors.New("camera relay streaming plugin unavailable")
-	errCameraRelaySessionIDRequired  = errors.New("relay_session_id is required")
-	errCameraRelayAgentIDRequired    = errors.New("agent_id is required")
-	errCameraRelaySourceIDRequired   = errors.New("camera_source_id is required")
-	errCameraRelayProfileIDRequired  = errors.New("stream_profile_id is required")
-	errCameraRelayLeaseTokenRequired = errors.New("lease_token is required")
+	errCameraRelayGatewayUnavailable  = errors.New("camera relay gateway unavailable")
+	errCameraRelaySessionExists       = errors.New("camera relay session already active")
+	errCameraRelaySourceActive        = errors.New("camera source profile already active")
+	errCameraRelaySessionNotFound     = errors.New("camera relay session not found")
+	errCameraRelayIncarnationMismatch = errors.New("camera relay source incarnation mismatch")
+	errCameraRelayDrainRequested      = errors.New("camera relay drain requested")
+	errCameraRelayPluginUnavailable   = errors.New("camera relay streaming plugin unavailable")
+	errCameraRelaySessionIDRequired   = errors.New("relay_session_id is required")
+	errCameraRelayAgentIDRequired     = errors.New("agent_id is required")
+	errCameraRelaySourceIDRequired    = errors.New("camera_source_id is required")
+	errCameraRelayProfileIDRequired   = errors.New("stream_profile_id is required")
+	errCameraRelayLeaseTokenRequired  = errors.New("lease_token is required")
 )
 
 const (
@@ -85,8 +86,9 @@ type cameraRelayStartPayload struct {
 }
 
 type cameraRelayStopPayload struct {
-	RelaySessionID string `json:"relay_session_id"`
-	Reason         string `json:"reason,omitempty"`
+	RelaySessionID      string `json:"relay_session_id"`
+	Reason              string `json:"reason,omitempty"`
+	SourceIncarnationID string `json:"source_incarnation_id,omitempty"`
 }
 
 type cameraRelaySessionSpec struct {
@@ -262,6 +264,12 @@ func (m *cameraRelayManager) Start(ctx context.Context, spec cameraRelaySessionS
 func (m *cameraRelayManager) Stop(ctx context.Context, payload cameraRelayStopPayload) error {
 	if m == nil {
 		return errCameraRelaySessionNotFound
+	}
+
+	// An omitted identity retains legacy stop behavior; a known identity may
+	// only target the source registry that authenticated the media open.
+	if payload.SourceIncarnationID != "" && payload.SourceIncarnationID != m.incarnationID {
+		return errCameraRelayIncarnationMismatch
 	}
 
 	relaySessionID := strings.TrimSpace(payload.RelaySessionID)
