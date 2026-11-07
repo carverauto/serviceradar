@@ -39,8 +39,9 @@ defmodule ServiceRadar.Analytics.StarRocks.Env do
   ]
 
   # How far an hourly materialized view may lag its source table before a
-  # reader stops trusting it. The views refresh asynchronously with no
-  # schedule, so this is the operator's tolerance, not a refresh interval.
+  # reader stops trusting it, in whole buckets. This is the operator's
+  # tolerance, not the refresh interval: the views refresh on the schedule in
+  # priv/starrocks/0038, which RollupFreshness checks separately.
   @default_rollup_stale_after_seconds 7_200
 
   # How long a high-water mark may be reused before the gate re-probes. Purely

@@ -7,14 +7,17 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshness do
   trace rollups `traces_stats_5m` and `spans_red_1h` from `0022`, and the MTR
   rollups `mtr_hops_hourly` and `mtr_destination_hourly` from `0025` (the
   destination view rebuilt by `0028` for trace/hop event-day alignment), are built
-  the same way and gated the same way. They
-  use a 30-second schedule after migration `0027`, so a reader must verify the view has
-  caught up before trusting it: an unrefreshed view returns short counts with
-  no error.
+  the same way and gated the same way. They refresh on a schedule matched to
+  their bucket width (`0038`: every 5 minutes for the hourly views, every minute
+  for the 5-minute one), so a reader must verify the view has caught up before
+  trusting it: an unrefreshed view returns short counts with no error.
 
-  A recent successful refresh (within 120 seconds, plus the cache TTL) is
-  required alongside the view's lag behind its own source table. This catches
-  failed refreshes and late rows that bucket maxima alone cannot detect.
+  A recent successful refresh (within the view's cadence plus 90 seconds of
+  execution slack, plus the cache TTL) is required alongside the view's lag
+  behind its own source table. This catches failed refreshes and late rows
+  that bucket maxima alone cannot detect. The cadences below must match the
+  newest `REFRESH ASYNC EVERY` in `priv/starrocks`; a gate stricter than the
+  schedule would send every rollup read to the raw table.
   After that health check, a source table holding no rows reads as fresh.
   Any error, empty result, or unparseable
   high-water mark reads as stale, which routes the query to the StarRocks
@@ -61,23 +64,27 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshness do
   require Logger
 
   # dataset => {materialized view, source table, source time column, bucket
-  # width in minutes}
+  # width in minutes, refresh cadence in seconds (priv/starrocks/0038)}
   @sources %{
-    flows: {"ocsf_network_activity_hourly", "ocsf_network_activity", "time", 60},
-    metrics: {"timeseries_metrics_hourly", "timeseries_metrics", "timestamp", 60},
-    events: {"events_hourly", "events", "time", 60},
-    traces_stats: {"traces_stats_5m", "otel_traces", "timestamp", 5},
-    traces_red: {"spans_red_1h", "otel_traces", "timestamp", 60},
-    mtr_hops: {"mtr_hops_hourly", "mtr_hops", "time", 60},
+    flows: {"ocsf_network_activity_hourly", "ocsf_network_activity", "time", 60, 300},
+    metrics: {"timeseries_metrics_hourly", "timeseries_metrics", "timestamp", 60, 300},
+    events: {"events_hourly", "events", "time", 60, 300},
+    traces_stats: {"traces_stats_5m", "otel_traces", "timestamp", 5, 60},
+    traces_red: {"spans_red_1h", "otel_traces", "timestamp", 60, 300},
+    mtr_hops: {"mtr_hops_hourly", "mtr_hops", "time", 60, 300},
     # The destination view is built over a join, but its buckets are the trace
     # hours (a row exists for every hour with any trace), so its source mark is
     # mtr_traces' newest row, not the join's.
-    mtr_destination: {"mtr_destination_hourly", "mtr_traces", "time", 60}
+    mtr_destination: {"mtr_destination_hourly", "mtr_traces", "time", 60, 300}
   }
+
+  # How long a scheduled refresh may run past its cadence before the view is
+  # treated as having missed it.
+  @refresh_slack_seconds 90
 
   @spec dataset_for_sql(term()) :: atom() | nil
   def dataset_for_sql(sql) when is_binary(sql) do
-    Enum.find_value(@sources, fn {dataset, {mv, _raw, _column, _grain}} ->
+    Enum.find_value(@sources, fn {dataset, {mv, _raw, _column, _grain, _cadence}} ->
       if String.contains?(sql, Env.table(mv)), do: dataset
     end)
   end
@@ -130,10 +137,10 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshness do
 
   def fresh?(dataset, opts) when is_atom(dataset) and is_list(opts) do
     case Map.get(@sources, dataset) do
-      {mv, raw, column, grain} ->
+      {mv, raw, column, grain, cadence} ->
         run = runner(opts)
 
-        refresh_healthy?(run, dataset, mv, opts) and
+        refresh_healthy?(run, dataset, mv, cadence, opts) and
           caught_up?(run, dataset, mv, raw, column, grain, opts)
 
       nil ->
@@ -148,9 +155,9 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshness do
   # Bucket maxima cannot detect a failed refresh or missing late rows within
   # the newest bucket. Scheduled views must also have a recent successful
   # refresh. Probe metadata rather than scanning the raw table a second time.
-  # The 30-second schedule has 90 seconds of execution slack. Cache age adds at
+  # Each view's schedule gets 90 seconds of execution slack. Cache age adds at
   # most its configured TTL. Missing/failed metadata always selects raw SQL.
-  defp refresh_healthy?(run, dataset, mv, opts) do
+  defp refresh_healthy?(run, dataset, mv, cadence, opts) do
     sql = """
     SELECT IS_ACTIVE, LAST_REFRESH_STATE,
       TIMESTAMPDIFF(SECOND, LAST_REFRESH_START_TIME, CURRENT_TIMESTAMP())
@@ -158,7 +165,7 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshness do
     WHERE TABLE_SCHEMA = '#{Env.config()[:database]}' AND TABLE_NAME = '#{mv}'
     """
 
-    max_age = Keyword.get(opts, :refresh_stale_after_seconds, 120)
+    max_age = Keyword.get(opts, :refresh_stale_after_seconds, cadence + @refresh_slack_seconds)
 
     key = {dataset, :refresh, max_age}
 
