@@ -205,8 +205,9 @@ results: the unleased sweep results contract shipped (#6255, #6302), and the fam
 release gates (the farm01 M4.1 run of the release candidate,
 `enable-edge-record-pipeline-by-default` Decision 13), not code gates. With the gateway
 forwarding only summaries, core's durable status ingest (the flow, retained-plugin, sweep and
-result lanes, `SweepQueue`, `ResultsRouter`) receives nothing; deleting it is tracked in task 8.1
-because the LargeIngestionGate release qualification runs on it today.
+result lanes, `SweepQueue`, `ResultsRouter`) receives nothing; deleting it is tracked in task 8.1.
+The LargeIngestionGate release qualification was rebased onto edge records first (#6339 Part 1),
+so it no longer runs on that tree.
 
 What stays on the status RPCs is ephemeral and latest-wins: source `status` (service health
 heartbeats, including the `agent` capability status core reads add-on state from) and
