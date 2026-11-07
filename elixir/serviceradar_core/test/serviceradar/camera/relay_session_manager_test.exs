@@ -2,6 +2,7 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
   use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Camera.IngestOwnership
+  alias ServiceRadar.Camera.InventoryIngestor
   alias ServiceRadar.Camera.RelaySession
   alias ServiceRadar.Camera.RelaySessionLifecycle
   alias ServiceRadar.Camera.RelaySessionManager
@@ -189,6 +190,55 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
                scope: %{user: user, actor: nil},
                dispatch_open: fn _, _, _, _ -> flunk("anonymous scope dispatched a relay") end
              )
+  end
+
+  test "resolves the live control gateway for a source with no stored gateway", ctx do
+    {:ok, _} = Source.update_source(ctx.source, %{assigned_gateway_id: nil}, ctx.opts)
+    parent = self()
+
+    assert {:error, {:agent_offline, "agent-example"}} =
+             Fixtures.open(ctx,
+               control_gateway_resolver: fn _, _ ->
+                 {:error, {:agent_offline, "agent-example"}}
+               end
+             )
+
+    assert Fixtures.sessions(ctx) == []
+
+    resolver = fn agent, hint ->
+      send(parent, {:resolved, agent, hint})
+      {:ok, "gateway-live"}
+    end
+
+    assert {:ok, session} = Fixtures.open(ctx, control_gateway_resolver: resolver)
+    assert_receive {:resolved, "agent-example", nil}
+    assert session.gateway_id == "gateway-live"
+
+    assert {:ok, %{assigned_gateway_id: "gateway-live"}} =
+             Source.get_by_id(ctx.source.id, ctx.opts)
+  end
+
+  test "inventory ingest without a gateway keeps the stored gateway hint", ctx do
+    payload = %{
+      "camera_descriptors" => [
+        %{
+          "device_uid" => ctx.source.device_uid,
+          "vendor" => ctx.source.vendor,
+          "camera_id" => ctx.source.vendor_camera_id,
+          "name" => "Example Camera"
+        }
+      ]
+    }
+
+    assert :ok =
+             InventoryIngestor.ingest(payload, %{agent_id: "agent-example"},
+               actor: ctx.actor,
+               device_sync: fn _, _, _, _ -> :ok end,
+               resolve_device_uid: fn _, _, _ -> {:ok, nil} end
+             )
+
+    assert {:ok, %{display_name: "Example Camera", assigned_gateway_id: "gateway-example"}} =
+             Source.get_by_id(ctx.source.id, ctx.opts)
   end
 
   test "rejects missing assignment and unavailable agent control without creating a relay", ctx do
