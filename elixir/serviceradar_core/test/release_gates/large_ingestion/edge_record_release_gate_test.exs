@@ -296,6 +296,7 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
     total_chunks = ceil_div(total_devices, chunk_size)
 
     baseline_devices = scalar_count!("SELECT count(*) FROM platform.ocsf_devices", [])
+    baseline_armis_identifiers = armis_identifier_count()
     baseline_ledger_rows = ledger_rows_for_scope(network_scope_id)
     baseline_delivery_slots = delivery_slots_for_scope(network_scope_id)
 
@@ -440,11 +441,7 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
 
     total_devices_in_db = scalar_count!("SELECT count(*) FROM platform.ocsf_devices", [])
 
-    armis_identifiers =
-      scalar_count!(
-        "SELECT count(*) FROM platform.device_identifiers WHERE id_type = 'armis_device_id'",
-        []
-      )
+    armis_identifiers = armis_identifier_count() - baseline_armis_identifiers
 
     ip_identifiers =
       scalar_count!(
@@ -454,14 +451,14 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
 
     active_snapshot_records =
       scalar_count!(
-        "SELECT COALESCE(sum(device_count), 0)::bigint FROM platform.device_source_snapshots WHERE source_id = $1::uuid AND active = TRUE",
-        [Ecto.UUID.dump!(sync_source.id)]
+        "SELECT COALESCE(sum(device_count), 0)::bigint FROM platform.device_source_snapshots WHERE source = 'armis' AND source_instance = $1 AND collection_id = $2",
+        [sync_service_id, sync_run_id]
       )
 
     completed_sync_runs =
       scalar_count!(
-        "SELECT count(*) FROM platform.sync_ingest_runs WHERE sync_service_id = $1 AND sync_run_id = $2 AND status = 'completed' AND total_chunks = $3",
-        [sync_service_id, sync_run_id, total_chunks]
+        "SELECT count(*) FROM platform.sync_ingest_runs WHERE sync_service_id = $1::uuid AND sync_run_id = $2 AND incomplete = FALSE AND total_chunks = $3 AND received_chunks = ARRAY(SELECT generate_series(0, $3 - 1))",
+        [Ecto.UUID.dump!(sync_service_id), sync_run_id, total_chunks]
       )
 
     scheduled_execution = Repo.get!(SweepGroupExecution, scheduled_sweep.execution_slot.id)
@@ -645,8 +642,8 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
 
     active_snapshots =
       scalar_count!(
-        "SELECT count(*) FROM platform.device_source_snapshots WHERE source_id = $1::uuid AND active = TRUE",
-        [Ecto.UUID.dump!(sync_source.id)]
+        "SELECT count(*) FROM platform.device_source_snapshots WHERE source = 'armis' AND source_instance = $1",
+        [sync_service_id]
       )
 
     assert active_snapshots == 0
@@ -1649,6 +1646,13 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
     new_v = Bitwise.bor(Bitwise.bsl(version, 4), Bitwise.band(v, 0x0F))
     new_var = Bitwise.bor(0x80, Bitwise.band(var, 0x3F))
     <<b0::binary, new_v::8, b1::8, new_var::8, b2::binary>>
+  end
+
+  defp armis_identifier_count do
+    scalar_count!(
+      "SELECT count(*) FROM platform.device_identifiers WHERE identifier_type = 'armis_device_id'",
+      []
+    )
   end
 
   defp ledger_rows_for_scope(network_scope_id) do
