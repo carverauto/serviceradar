@@ -85,7 +85,17 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
   @doc "Fact load columns, including the warehouse-only compaction marker."
   def exposure_fact_load_columns, do: @exposure_fact_columns ++ ["payload_compacted"]
 
+  # trace_id and span_id are the span's NOT NULL warehouse key
+  # (priv/starrocks/0022). One stored as NULL because it was wider than its
+  # identifier (already counted as :scalar_invalid) would be filtered by Stream
+  # Load and fail every span in the load, so that span is left out instead.
   @spec encode(dataset(), [map()]) :: [map()]
+  def encode(:otel_traces, rows) when is_list(rows) do
+    rows
+    |> Enum.map(&encode_row(:otel_traces, &1))
+    |> Enum.reject(&(is_nil(&1["trace_id"]) or is_nil(&1["span_id"])))
+  end
+
   def encode(dataset, rows) when is_list(rows) do
     Enum.map(rows, &encode_row(dataset, &1))
   end

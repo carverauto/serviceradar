@@ -603,13 +603,15 @@ defmodule ServiceRadar.Analytics.StarRocks.RowsTest do
 
       on_exit(fn -> :telemetry.detach(handler) end)
 
-      assert [%{"trace_id" => nil, "span_id" => nil, "parent_span_id" => nil}] =
+      kept = span(%{span_id: "1111111111111111", parent_span_id: String.duplicate("c", 17)})
+
+      # trace_id and span_id are the NOT NULL warehouse key: a span whose key
+      # would be NULL is left out, and the rest of the batch still loads.
+      assert [%{"span_id" => "1111111111111111", "parent_span_id" => nil}] =
                Rows.encode(:otel_traces, [
-                 span(%{
-                   trace_id: String.duplicate("a", 33),
-                   span_id: String.duplicate("b", 17),
-                   parent_span_id: String.duplicate("c", 17)
-                 })
+                 span(%{trace_id: String.duplicate("a", 33)}),
+                 kept,
+                 span(%{span_id: String.duplicate("b", 17)})
                ])
 
       assert_received {[:serviceradar, :starrocks, :otel_traces, :scalar_invalid],

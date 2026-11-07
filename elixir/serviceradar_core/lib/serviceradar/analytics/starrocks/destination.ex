@@ -153,11 +153,15 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
   @spec persist_warehouse(dataset(), [map()], keyword()) :: {:ok, map()} | {:error, term()}
   def persist_warehouse(dataset, rows, opts \\ [])
 
-  def persist_warehouse(dataset, [], _opts), do: {:ok, %{dataset: dataset, loaded: 0}}
-
   def persist_warehouse(dataset, rows, opts) when is_list(rows) do
-    encoded = Rows.encode(dataset, rows)
+    dataset
+    |> Rows.encode(rows)
+    |> persist_encoded(dataset, opts)
+  end
 
+  defp persist_encoded([], dataset, _opts), do: {:ok, %{dataset: dataset, loaded: 0}}
+
+  defp persist_encoded(encoded, dataset, opts) do
     case persist_starrocks(dataset, encoded, opts) do
       {:ok, result} when is_map(result) ->
         {:ok, Map.merge(%{dataset: dataset, loaded: length(encoded)}, result)}
