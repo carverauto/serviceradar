@@ -9,7 +9,7 @@ it to a dead-letter stream instead of retrying until the edge-record stream's
 
 This is not the security-quarantine route. Records signed by a revoked key
 are covered by `docs/edge-record-quarantine-runbook.md`. The dead-letter only
-holds records that are valid but could not be projected.
+holds records that could not be projected or that EventWriter refused.
 
 ## How a record gets here
 
@@ -42,6 +42,14 @@ A projector republish the NATS broker denied (`Permissions Violation for
 Publish`, surfaced as `ServiceRadar.NATS.PublishDeniedError`) is dead-lettered
 on its first delivery instead: no retry succeeds until core's NATS grant
 covers the subject. Fix the grant, then replay.
+
+A record EventWriter refuses (`ServiceRadar.EventWriter.EdgeRecordRefusedError`:
+a failed header, slot, wire or contract check, a grant or assignment that is no
+longer current, a delivery slot or event id bound to other bytes, or a
+projector refusal) is also dead-lettered on its first delivery, because the
+same bytes are refused again on every redelivery. `Sr-Edge-Dlq-Reason` is the
+refusal's class. A failed database write (a constraint race, a deadlock, a lock
+timeout) is not a refusal: it is retried as above.
 
 | Header | Meaning |
 | --- | --- |
@@ -80,8 +88,9 @@ or was removed by an operator. EventWriter acknowledges the source, logs
   above 80% of `MaxBytes`. When full it refuses new copies.
 
 For every record EventWriter logs one line naming both stream sequences, at
-error level (at debug for a denied republish, whose broker denial is logged
-once per subject per 60-second hold as `NATS broker error on connection ...`):
+error level (at warning for a refused record, and at debug for a denied
+republish, whose broker denial is logged once per subject per 60-second hold as
+`NATS broker error on connection ...`):
 
 ```
 Edge record dead-lettered: source_stream=TELEMETRY_EDGE_RECORD_V1_BULK source_sequence=<seq> source_subject=<subject> dlq_subject=<subject> contract=<id>/<version> event_id=<uuid> agent_id=<agent> attempts=<n> reason=<class> reason_detail=<message> dlq_stream=TELEMETRY_EDGE_RECORD_DLQ_V1_BULK dlq_sequence=<seq>

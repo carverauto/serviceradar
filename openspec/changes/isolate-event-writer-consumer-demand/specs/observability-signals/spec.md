@@ -13,7 +13,7 @@ The EventWriter SHALL consume each consumer group's JetStream durables through a
 - **THEN** they SHALL run in one pipeline with one `:flows_raw` batcher
 
 ### Requirement: Edge-record projection failures are per record
-The EventWriter SHALL fail only the edge records that raised during projection. Records of the same batch that were ingested or refused SHALL be acknowledged and SHALL NOT be redelivered because another record failed. A failed record SHALL keep the dead-letter handling of `ServiceRadar.EventWriter.EdgeRecordDeadLetter`.
+The EventWriter SHALL fail only the edge records that raised or were refused during projection. Records of the same batch that were ingested SHALL be acknowledged and SHALL NOT be redelivered because another record failed. A failed record SHALL keep the dead-letter handling of `ServiceRadar.EventWriter.EdgeRecordDeadLetter`; a refused record SHALL be dead-lettered on its first delivery, because the same bytes are refused again on every redelivery.
 
 #### Scenario: One failing record in a batch
 - **WHEN** an edge-record batch holds a record whose projection raises and a record that projects
