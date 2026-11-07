@@ -153,7 +153,42 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
       assert reused.id == reserved.id
       assert Map.fetch!(reused, identity_field) == command.command_id
       refute_received {:relay_command, _}
+
+      if operation == :close, do: assert_stop_reconciliation(ctx, reserved, agent_id)
     end
+  end
+
+  defp assert_stop_reconciliation(ctx, reserved, agent_id) do
+    {caller, monitor} =
+      spawn_monitor(fn -> RelaySessionManager.reconcile_close(reserved.id, actor: ctx.actor) end)
+
+    on_exit(fn ->
+      if Process.alive?(caller), do: Process.exit(caller, :kill)
+    end)
+
+    assert_receive {:relay_command, %Monitoring.CommandRequest{} = command}, 5_000
+    assert command.command_type == "camera.reconcile_relay_stop"
+    refute command.command_id == reserved.close_command_id
+    payload = Jason.decode!(command.payload_json)
+
+    assert payload == %{
+             "operation_id" => reserved.close_command_id,
+             "relay_session_id" => reserved.id,
+             "source_incarnation_id" => reserved.source_incarnation_id
+           }
+
+    assert %{rows: [["camera.reconcile_relay_stop", ^agent_id, ^payload]]} =
+             Repo.query!(
+               "SELECT command_type, agent_id, payload FROM platform.agent_commands " <>
+                 "WHERE command_id = $1::text::uuid",
+               [command.command_id]
+             )
+
+    Process.exit(caller, :kill)
+    assert_receive {:DOWN, ^monitor, :process, ^caller, :killed}
+    assert {:ok, current} = RelaySession.get_by_id(reserved.id, ctx.opts)
+    assert current.status == :closing
+    assert current.close_command_id == reserved.close_command_id
   end
 
   test "committed concurrent opens dispatch one pull and reuse its persisted opening reservation",

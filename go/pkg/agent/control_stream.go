@@ -70,6 +70,7 @@ const (
 	commandTypeMtrBulkRun                  = "mtr.bulk_run"
 	commandTypeCameraRelayOpen             = "camera.open_relay"
 	commandTypeCameraRelayStop             = "camera.close_relay"
+	commandTypeCameraRelayReconcileStop    = "camera.reconcile_relay_stop"
 	commandTypeAgentUpdate                 = "agent.update_release"
 	commandTypePluginSnapshot              = "plugin.debug_snapshot"
 	commandTypeSysmonDebugSpike            = "sysmon.debug_spike"
@@ -686,6 +687,8 @@ func (p *PushLoop) handleCommand(ctx context.Context, cmd *proto.CommandRequest,
 			p.handleCameraRelayOpen(ctx, cmd, sender)
 		case commandTypeCameraRelayStop:
 			p.handleCameraRelayStop(ctx, cmd, sender)
+		case commandTypeCameraRelayReconcileStop:
+			p.handleCameraRelayReconcileStop(cmd, sender)
 		case commandTypeAgentUpdate:
 			p.handleAgentUpdateRelease(ctx, cmd, sender)
 		case commandTypePluginSnapshot:
@@ -1816,7 +1819,7 @@ func (p *PushLoop) handleCameraRelayStop(ctx context.Context, cmd *proto.Command
 	stopCtx, cancel := context.WithTimeout(ctx, defaultCameraRelayCloseTimeout)
 	defer cancel()
 
-	if err := p.cameraRelayManager.Stop(stopCtx, payload); err != nil {
+	if err := p.cameraRelayManager.StopCommand(stopCtx, cmd, payload); err != nil {
 		_ = sender.Send(commandResult(cmd, false, err.Error(), nil))
 		return
 	}

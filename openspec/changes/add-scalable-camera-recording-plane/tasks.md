@@ -65,6 +65,23 @@ not enforce the new field. This is a prerequisite for interrupted-stop recovery,
 not a replay/reconciliation implementation or proof of physical retirement.
 Task 2.5 remains open.
 
+Stop-observation checkpoint for 2.5: an incarnation-aware stop captures its
+session handle before cancellation. Retries with the same command identity,
+normalized content and original deadline observe that handle, including after a
+lost reply or relay-ID reuse. Changed content is refused. A read-only command
+reports pending, completed, unresolved source-close errors or unknown operations;
+Core addresses it using the persisted stop UUID and source incarnation and stores
+the response in the existing command ledger without changing relay ownership.
+
+Observations are process-local, limited to 4,096 entries and retained only through
+the original command deadline (at most five minutes). Capacity exhaustion refuses
+new tracked stops before cancellation; expiry returns unknown and refuses the
+expired mutation. Restarted registries reject the old incarnation. Stops without
+an incarnation keep legacy behavior and have no recoverable observation. This
+checkpoint does not automatically replay interrupted dispatches, persist an agent
+journal, interpret local completion as qualified physical retirement, or change
+the compatibility lease/reaper. Task 2.5 remains open.
+
 ## 3. Storage modes and recovery
 
 - [ ] 3.1 Install qualified exclusive per-recorder filesystem volumes with explicit identities/initialization for Kubernetes and supported customer hosts.

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"strings"
@@ -29,6 +30,7 @@ var (
 	errCameraRelayStreamFailed      = errors.New("camera relay stream failed")
 	errRTSPDialFailed               = errors.New("rtsp dial failed")
 	errPluginTerminatedUnexpectedly = errors.New("plugin terminated unexpectedly")
+	errSyntheticCloseFailure        = errors.New("synthetic close failure")
 )
 
 type fakeCameraRelayGateway struct {
@@ -890,9 +892,10 @@ func TestCameraRelayManagerRejectsDuplicateRelaySession(t *testing.T) {
 // gatedCameraRelayStream keeps source teardown pending after upstream has closed.
 type gatedCameraRelayStream struct {
 	blockingCameraRelayStream
-	closing chan struct{}
-	release chan struct{}
-	ctx     context.Context
+	closing  chan struct{}
+	release  chan struct{}
+	ctx      context.Context
+	closeErr error
 }
 
 func (s *gatedCameraRelayStream) Close() error {
@@ -901,7 +904,7 @@ func (s *gatedCameraRelayStream) Close() error {
 	case <-s.release:
 	case <-s.ctx.Done():
 	}
-	return nil
+	return s.closeErr
 }
 
 func TestCameraRelayManagerReservesSourceProfileUntilClose(t *testing.T) {
@@ -1471,5 +1474,134 @@ func TestCameraRelayTimestampDecoderHandlesRTPWraparound(t *testing.T) {
 	want := int64(301)
 	if got != want {
 		t.Fatalf("expected wraparound pts %d, got %d", want, got)
+	}
+}
+
+// Teardown can outlive the caller, or return an error even though the upstream
+// relay has already closed. Neither case may be reported as completed early.
+func TestCameraRelayStopObservationDuringTeardown(t *testing.T) {
+	for _, closeErr := range []error{nil, errSyntheticCloseFailure} {
+		name := cameraRelayStopStateCompleted
+		if closeErr != nil {
+			name = cameraRelayStopStateUnresolved
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			manager := newCameraRelayManager(newFakeCameraRelayGateway(), createTestLogger())
+			stream := &gatedCameraRelayStream{closing: make(chan struct{}), release: make(chan struct{}), ctx: ctx, closeErr: closeErr}
+			manager.sourceFactory = func(cameraRelaySessionSpec) (cameraRelayChunkStream, error) { return stream, nil }
+			spec := cameraRelaySessionSpec{RelaySessionID: "relay-observed", AgentID: "agent-synthetic", CameraSourceID: "camera-synthetic", StreamProfileID: "main", LeaseToken: "lease-synthetic"}
+			if _, err := manager.Start(ctx, spec); err != nil {
+				t.Fatal(err)
+			}
+			cmd := &proto.CommandRequest{CommandId: "synthetic-stop", CreatedAt: time.Now().Unix(), TtlSeconds: 60}
+			payload := cameraRelayStopPayload{RelaySessionID: spec.RelaySessionID, SourceIncarnationID: manager.incarnationID}
+			query := cameraRelayStopQuery{OperationID: cmd.CommandId, RelaySessionID: spec.RelaySessionID, SourceIncarnationID: manager.incarnationID}
+			caller, cancelCaller := context.WithCancel(ctx)
+			cancelCaller()
+			if err := manager.StopCommand(caller, cmd, payload); !errors.Is(err, context.Canceled) {
+				t.Fatalf("cancelled caller: %v", err)
+			}
+			select {
+			case <-stream.closing:
+			case <-ctx.Done():
+				t.Fatal("source close did not start")
+			}
+			if observation, err := manager.ReconcileStop(query); err != nil || observation.State != cameraRelayStopStatePending {
+				t.Fatalf("pending observation: %+v, %v", observation, err)
+			}
+			wrong := query
+			wrong.RelaySessionID = "relay-other"
+			if _, err := manager.ReconcileStop(wrong); !errors.Is(err, errCameraRelayStopConflict) {
+				t.Fatalf("wrong session query: %v", err)
+			}
+			wrong = query
+			wrong.OperationID = "unobserved-stop"
+			if observation, err := manager.ReconcileStop(wrong); err != nil || observation.State != cameraRelayStopStateUnknown {
+				t.Fatalf("unknown observation: %+v, %v", observation, err)
+			}
+			newManager := newCameraRelayManager(newFakeCameraRelayGateway(), createTestLogger())
+			if _, err := newManager.ReconcileStop(query); !errors.Is(err, errCameraRelayIncarnationMismatch) {
+				t.Fatalf("new runtime query: %v", err)
+			}
+			close(stream.release)
+			err := manager.StopCommand(ctx, cmd, payload)
+			if (closeErr == nil && err != nil) || (closeErr != nil && !errors.Is(err, errCameraRelaySourceCloseFailed)) {
+				t.Fatalf("close outcome: %v", err)
+			}
+			if observation, err := manager.ReconcileStop(query); err != nil || observation.State != name {
+				t.Fatalf("final observation: %+v, %v", observation, err)
+			}
+		})
+	}
+}
+
+func TestCameraRelayStopObservationRetention(t *testing.T) {
+	for _, capacity := range []bool{false, true} {
+		name := "expiry"
+		if capacity {
+			name = "capacity"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+			defer cancel()
+			manager := newCameraRelayManager(newFakeCameraRelayGateway(), createTestLogger())
+			stream := &gatedCameraRelayStream{closing: make(chan struct{}), release: make(chan struct{}), ctx: ctx}
+			manager.sourceFactory = func(cameraRelaySessionSpec) (cameraRelayChunkStream, error) { return stream, nil }
+			spec := cameraRelaySessionSpec{RelaySessionID: "relay-retained", AgentID: "agent-synthetic", CameraSourceID: "camera-synthetic", StreamProfileID: "main", LeaseToken: "lease-synthetic"}
+			if _, err := manager.Start(ctx, spec); err != nil {
+				t.Fatal(err)
+			}
+			payload := cameraRelayStopPayload{RelaySessionID: spec.RelaySessionID, SourceIncarnationID: manager.incarnationID}
+			cmd := &proto.CommandRequest{CommandId: "synthetic-stop", CreatedAt: time.Now().Unix(), TtlSeconds: 2}
+			if capacity {
+				cmd.TtlSeconds = 60
+			}
+			query := cameraRelayStopQuery{OperationID: cmd.CommandId, RelaySessionID: spec.RelaySessionID, SourceIncarnationID: manager.incarnationID}
+			caller, cancelCaller := context.WithCancel(ctx)
+			cancelCaller()
+			if err := manager.StopCommand(caller, cmd, payload); !errors.Is(err, context.Canceled) {
+				t.Fatal(err)
+			}
+			if capacity {
+				for i := 1; i < 4096; i++ {
+					next := &proto.CommandRequest{CommandId: fmt.Sprintf("synthetic-stop-%d", i), CreatedAt: cmd.CreatedAt, TtlSeconds: cmd.TtlSeconds}
+					if err := manager.StopCommand(caller, next, payload); !errors.Is(err, context.Canceled) {
+						t.Fatalf("capture %d: %v", i, err)
+					}
+				}
+				next := &proto.CommandRequest{CommandId: "synthetic-over-capacity", CreatedAt: cmd.CreatedAt, TtlSeconds: cmd.TtlSeconds}
+				if err := manager.StopCommand(caller, next, payload); !errors.Is(err, errCameraRelayStopCapacity) {
+					t.Fatalf("capacity refusal: %v", err)
+				}
+				if err := manager.StopCommand(caller, cmd, payload); !errors.Is(err, context.Canceled) {
+					t.Fatalf("retained operation at capacity: %v", err)
+				}
+				if observation, err := manager.ReconcileStop(query); err != nil || observation.State != cameraRelayStopStatePending {
+					t.Fatalf("retained observation: %+v, %v", observation, err)
+				}
+			} else {
+				timer := time.NewTimer(time.Until(time.Unix(cmd.CreatedAt+cmd.TtlSeconds, 0)))
+				defer timer.Stop()
+				select {
+				case <-timer.C:
+				case <-ctx.Done():
+					t.Fatal("deadline wait timed out")
+				}
+				if observation, err := manager.ReconcileStop(query); err != nil || observation.State != cameraRelayStopStateUnknown {
+					t.Fatalf("expired observation: %+v, %v", observation, err)
+				}
+				if err := manager.StopCommand(caller, cmd, payload); !errors.Is(err, errCameraRelayStopEnvelope) {
+					t.Fatalf("expired replay: %v", err)
+				}
+			}
+			close(stream.release)
+			if err := manager.Stop(ctx, payload); err != nil && !errors.Is(err, errCameraRelaySessionNotFound) {
+				t.Fatal(err)
+			}
+		})
 	}
 }
