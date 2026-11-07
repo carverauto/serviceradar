@@ -313,10 +313,11 @@ in-memory coordinator state:
     cluster capacity. Admitted, rejected, accepted, not-accepted, timeout,
     crash and incomplete-run totals are summed the same way, cumulative for the
     life of each core process; the summary card does not use them. The lanes of
-    the pre-edge-record ingest tree (flow attribution, retained and legacy
-    plugin results, sweep, mapper, bumblebee, endpoint, other results and
-    service state) have had no producer since the edge-record cutover and are
-    not listed; they are removed with that tree (issue #6339). The
+    the retired pre-edge-record ingest tree (flow attribution, sweep, mapper,
+    bumblebee, endpoint and legacy plugin results) no longer exist. The
+    `retained_plugin_result` (plugin result quarantine), `other_results`
+    (device correlation timeouts) and `service_state` lanes are published on
+    `metrics.ingestion_lanes` and are not rows in this table. The
     `topology_projection` and `dgraph` lanes are published on
     `metrics.ingestion_lanes` and are not rows in this table; see
     [Projection lag](docs/network-topology.md#projection-lag).

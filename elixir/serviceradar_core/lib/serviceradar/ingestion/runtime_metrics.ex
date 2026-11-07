@@ -12,10 +12,11 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
   `lane_stats/0` lists the core admission lanes that still have producers: `status` (the
   ephemeral agent status summaries the gateway forwards) and `sync` (`SyncIngestorQueue`, fed
   by the edge-record discovery projectors). Durable agent data reaches core only as edge
-  records, which `ServiceRadar.Edge.PipelineStats` counts per output contract. The other
-  result-ingestion lanes are recorded by the pre-edge-record ingest tree that issue #6339
-  deletes (`ResultsRouter`, `SweepQueue`, the flow and retained-plugin lanes); they are
-  published when something records them and never listed.
+  records, which `ServiceRadar.Edge.PipelineStats` counts per output contract. Three other
+  lanes are published but not listed: `retained_plugin_result` (plugin result quarantine
+  attempts, `ServiceRadar.Observability.PluginResultQuarantine`), `other_results`
+  (`EventWriter.DeviceCorrelation` lookup timeouts) and `service_state` (this module's own
+  coalesced intervals and publish failures).
 
   The `alert_*` lanes describe stateful alert evaluation, and are published but
   not listed by `lane_stats/0`. `alert_admission_backlog` reports the
@@ -75,21 +76,9 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
     :failed_count
   ]
   @core_admission_lanes [:status, :sync]
-  # Recorded by the ingest tree issue #6339 removes, and go with it. The one other recorder is
-  # `EventWriter.DeviceCorrelation`, which files its lookup timeouts under `other_results`.
-  @retired_result_lanes [
-    :flow_attribution,
-    :retained_plugin_result,
-    :sweep,
-    :mapper,
-    :bumblebee,
-    :legacy_plugin,
-    :endpoint,
-    :other_results,
-    :service_state
-  ]
+  @unlisted_lanes [:retained_plugin_result, :other_results, :service_state]
   @continuation_lanes [:topology_projection, :dgraph]
-  @lanes @core_admission_lanes ++ @retired_result_lanes ++ @alert_lanes ++ @continuation_lanes
+  @lanes @core_admission_lanes ++ @unlisted_lanes ++ @alert_lanes ++ @continuation_lanes
   @dgraph_handler {__MODULE__, :dgraph_call}
   @dgraph_events [
     [:serviceradar, :dgraph, :call, :stop],

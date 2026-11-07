@@ -58,7 +58,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveIngestionTest do
     refute html =~ "cluster-ingestion-lanes-table"
   end
 
-  test "connected mount renders the live core lanes and no lane retired by the edge-record cutover" do
+  test "connected mount renders the live core lanes and no unlisted lane" do
     start_supervised!({RuntimeMetrics, interval_ms: 60_000, publish_opts: [request: fn _, _, _ -> :ok end]})
 
     RuntimeMetrics.record(:status, :state, %{
@@ -70,9 +70,9 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveIngestionTest do
 
     RuntimeMetrics.record(:status, :admitted, %{count: 5})
     RuntimeMetrics.record(:sync, :incomplete_run, %{count: 1})
-    # Recorded by the unreached pre-edge-record ingest tree only.
+    # Published, never listed.
     RuntimeMetrics.record(:retained_plugin_result, :state, %{pending_count: 9})
-    RuntimeMetrics.record(:sweep, :admitted, %{count: 2})
+    RuntimeMetrics.record(:other_results, :admitted, %{count: 2})
 
     stats = ClusterLive.ingestion_stats_for_mount(true)
     assert stats.available == true
@@ -91,9 +91,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveIngestionTest do
     assert html =~ "cluster-ingestion-lane-sync"
     assert html =~ "/dashboard/result-ingestion-lanes"
 
-    for retired <-
-          ~w(flow_attribution retained_plugin_result sweep mapper bumblebee legacy_plugin endpoint other_results service_state) do
-      refute html =~ "cluster-ingestion-lane-#{retired}"
+    for unlisted <- ~w(retained_plugin_result other_results service_state) do
+      refute html =~ "cluster-ingestion-lane-#{unlisted}"
     end
   end
 
