@@ -93,7 +93,7 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
   defp migrate(agent, opts \\ []) do
     [
       query: query_fun(agent),
-      with_lock: fn fun -> fun.(fn -> :ok end) end,
+      try_lock: fn fun -> fun.(fn -> :ok end) end,
       migrations: @migrations,
       database: "serviceradar",
       sleep: fn _ms -> :ok end,
@@ -162,10 +162,95 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
     end
 
     assert {:error, %RuntimeError{message: "lock lost"}} =
-             migrate(agent, with_lock: fn fun -> fun.(still_locked) end)
+             migrate(agent, try_lock: fn fun -> fun.(still_locked) end)
 
     assert state(agent).ledger == [1]
     refute Enum.any?(state(agent).ddl, &(&1 =~ "ADD COLUMN"))
+  end
+
+  # A replica's migration, stopped at its first statement under the lock until
+  # the test sends :go -- standing in for hours of DDL.
+  defp start_holder(agent, lock) do
+    parent = self()
+    query = query_fun(agent)
+
+    holder =
+      spawn(fn ->
+        gated = fn
+          sql when sql in ["SHOW BACKENDS", "SHOW COMPUTE NODES"] ->
+            query.(sql)
+
+          sql ->
+            if Process.put(:gated, true) == nil do
+              send(parent, {:holding, self()})
+
+              receive do
+                :go -> :ok
+              end
+            end
+
+            query.(sql)
+        end
+
+        send(parent, {:holder_done, migrate(agent, query: gated, try_lock: lock)})
+      end)
+
+    assert_receive {:holding, ^holder}, 5_000
+    holder
+  end
+
+  defp start_waiter(agent, lock) do
+    parent = self()
+
+    Task.async(fn ->
+      migrate(agent,
+        try_lock: lock,
+        sleep: fn ms ->
+          send(parent, {:waiting, ms})
+          Process.sleep(1)
+        end
+      )
+    end)
+  end
+
+  defp waits(count) do
+    for _ <- 1..count do
+      assert_receive {:waiting, ms}, 5_000
+      ms
+    end
+  end
+
+  test "a replica that finds the lock held polls for it, backing off, then finds the schema current" do
+    agent = start_warehouse()
+    lock = pg_lock()
+    holder = start_holder(agent, lock)
+    waiter = start_waiter(agent, lock)
+
+    # Each refusal returns at once; the waiter never sits on the lock.
+    assert waits(7) == [1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 30_000]
+
+    send(holder, :go)
+    assert_receive {:holder_done, {:ok, [1, 2, 3]}}, 5_000
+    assert Task.await(waiter) == {:ok, []}
+    # The migrations went out once, from the holder; the waiter only made sure
+    # the database and ledger were there before reading the ledger.
+    reference = start_warehouse()
+    assert migrate(reference) == {:ok, [1, 2, 3]}
+    [database, ledger | _migrations] = state(reference).ddl
+    assert state(agent).ddl == state(reference).ddl ++ [database, ledger]
+  end
+
+  test "a holder that dies mid-migration leaves the lock to a waiting replica, which resumes" do
+    agent = start_warehouse()
+    lock = pg_lock()
+    holder = start_holder(agent, lock)
+    waiter = start_waiter(agent, lock)
+
+    waits(2)
+    Process.exit(holder, :kill)
+
+    assert Task.await(waiter) == {:ok, [1, 2, 3]}
+    assert state(agent).ledger == [1, 2, 3]
   end
 
   test "the migrator's connection runs DDL in default_wg while the pool's sessions are pinned" do
@@ -240,7 +325,7 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
 
     assert SchemaMigrator.run(
              query: query_fun(agent),
-             with_lock: fn fun -> fun.(fn -> :ok end) end,
+             try_lock: fn fun -> fun.(fn -> :ok end) end,
              migrations: @migrations,
              database: "serviceradar",
              attempts: 2,
@@ -255,7 +340,7 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
 
       SchemaMigrator.run(
         query: query_fun(agent),
-        with_lock: fn fun -> fun.(fn -> :ok end) end,
+        try_lock: fn fun -> fun.(fn -> :ok end) end,
         migrations: @migrations,
         database: "serviceradar",
         attempts: 3,
@@ -389,35 +474,31 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
   defp probe_result("1", _type), do: result(["1"], [[1]])
   defp probe_result("COLUMN_TYPE", type), do: result(["COLUMN_TYPE"], [[type]])
 
-  # One lock for every runner, as the PostgreSQL advisory lock is one for
-  # every replica.
-  defp shared_lock do
-    {:ok, holder} = Agent.start_link(fn -> nil end)
+  # pg_try_advisory_xact_lock: one lock for every replica, granted at once
+  # when it is free -- or when its holder's session has died -- and refused at
+  # once, never queued, when it is held.
+  defp pg_lock do
+    {:ok, lock} = Agent.start_link(fn -> nil end)
 
     fn fun ->
-      acquire(holder)
+      me = self()
 
-      try do
-        fun.(fn -> :ok end)
-      after
-        Agent.update(holder, fn _ -> nil end)
+      granted? =
+        Agent.get_and_update(lock, fn holder ->
+          if is_nil(holder) or not Process.alive?(holder),
+            do: {true, me},
+            else: {false, holder}
+        end)
+
+      if granted? do
+        try do
+          fun.(fn -> :ok end)
+        after
+          Agent.update(lock, fn holder -> if holder == me, do: nil, else: holder end)
+        end
+      else
+        :busy
       end
-    end
-  end
-
-  defp acquire(holder) do
-    me = self()
-
-    case Agent.get_and_update(holder, fn
-           nil -> {:ok, me}
-           other -> {:busy, other}
-         end) do
-      :ok ->
-        :ok
-
-      :busy ->
-        Process.sleep(5)
-        acquire(holder)
     end
   end
 
@@ -521,13 +602,13 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
         last_state: %{"events" => "CANCELLED"}
       })
 
-    lock = shared_lock()
+    lock = pg_lock()
 
     results =
       [:replica_a, :replica_b]
       |> Enum.map(fn _replica ->
         Task.async(fn ->
-          migrate(agent, query: alter_query(agent), migrations: [migration], with_lock: lock)
+          migrate(agent, query: alter_query(agent), migrations: [migration], try_lock: lock)
         end)
       end)
       |> Task.await_many(10_000)
@@ -585,7 +666,7 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
              migrate(agent,
                query: alter_query(agent),
                migrations: [migration],
-               with_lock: fn fun -> fun.(still_locked) end
+               try_lock: fn fun -> fun.(still_locked) end
              )
 
     result = state(agent)

@@ -31,6 +31,9 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
   logged and does not fail the migration. Pooled sessions opened before the
   groups existed are pinned by `Workload.Pinner` on every node, not here.
 
+  Replicas waiting for the lock poll for it (`pg_try_advisory_xact_lock`)
+  instead of queueing on a connection for as long as the holder works.
+
   The advisory lock is a PostgreSQL transaction, and a connection that drops
   releases it while this process carries on. So the lock is checked, with a
   query inside that transaction, before every statement sent to StarRocks: a
@@ -79,6 +82,16 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
   @rewrite_batch_partitions 32
   @optimize_poll_attempts div(@ddl_timeout_ms, @optimize_poll_ms)
   @max_replication 3
+  # A replica that finds the lock taken retries after this long, doubling up
+  # to the cap. Waiting replicas then cost one short statement each per
+  # interval, and one starts within the cap of the holder finishing.
+  @lock_poll_initial_ms 1_000
+  @lock_poll_max_ms 30_000
+  # The holder's transaction spans its whole run, and DBConnection drops a
+  # connection checked out for longer than this, which releases the lock. Well
+  # beyond any run so far; one that outlasts it loses the lock at its next
+  # check and resumes, like any runner that lost it.
+  @lock_hold_ms 86_400_000
 
   @spec child_spec(term()) :: Supervisor.child_spec() | nil
   def child_spec(_opts) do
@@ -140,8 +153,11 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
   @doc """
   Applies every pending migration and returns the versions it applied.
 
-  `:query`, `:with_lock`, `:migrations` and `:database` are injectable so the
+  `:query`, `:try_lock`, `:migrations` and `:database` are injectable so the
   ordering, adoption and failure behaviour can be tested without a warehouse.
+  `:try_lock` runs the function it is given under the migration lock and
+  returns its result, or returns `:busy` without waiting when another replica
+  holds the lock.
   """
   @spec migrate(keyword()) :: {:ok, [pos_integer()]} | {:error, term()}
   def migrate(opts \\ []) do
@@ -159,18 +175,23 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
         }
 
         with {:ok, replication_num} <- replication_num(query) do
-          with_lock = Keyword.get(opts, :with_lock, &with_advisory_lock/1)
+          try_lock = Keyword.get(opts, :try_lock, &try_advisory_lock/1)
           state = Map.put(state, :replication_num, replication_num)
 
           try do
-            with_lock.(fn still_locked ->
-              state = Map.put(state, :still_locked, still_locked)
+            poll_lock(
+              try_lock,
+              fn still_locked ->
+                state = Map.put(state, :still_locked, still_locked)
 
-              with {:ok, _applied} = applied <- apply_pending(state) do
-                converge_workload_groups(state)
-                applied
-              end
-            end)
+                with {:ok, _applied} = applied <- apply_pending(state) do
+                  converge_workload_groups(state)
+                  applied
+                end
+              end,
+              state.sleep,
+              @lock_poll_initial_ms
+            )
           rescue
             # A connection that drops under an hours-long transaction raises,
             # from the transaction or from the lock check. Returned as an error
@@ -222,43 +243,59 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
     end
   end
 
-  defp with_advisory_lock(fun) do
+  # A replica waiting for the lock polls for it rather than queueing on
+  # pg_advisory_xact_lock. A queued wait sits silent on a pooled connection for
+  # as long as the holder works -- hours, for a rebuild -- and an idle
+  # connection through the pooler can be dropped with neither end told: the
+  # waiter then blocks for good, and the lock it is eventually granted belongs
+  # to a session nobody is reading. A poll holds a connection for one
+  # statement, and a dead one fails that statement instead of hanging.
+  defp poll_lock(try_lock, fun, sleep, delay) do
+    case try_lock.(fun) do
+      :busy ->
+        if delay == @lock_poll_initial_ms,
+          do: Logger.info("StarRocks schema migration running on another replica; waiting")
+
+        sleep.(delay)
+        poll_lock(try_lock, fun, sleep, min(delay * 2, @lock_poll_max_ms))
+
+      result ->
+        result
+    end
+  end
+
+  # Runs `fun` holding the lock, or returns :busy at once if another replica
+  # holds it. The lock belongs to this transaction, so a holder whose
+  # connection or node dies releases it.
+  defp try_advisory_lock(fun) do
     result =
       ServiceRadar.Repo.transaction(
         fn ->
-          # Another replica may hold this for as long as a rebuild takes. The
-          # server's own limits would cancel the wait long before that: a role
-          # or database statement_timeout ends it as query_canceled, and the
-          # retry loop warns every few seconds on every waiting replica for
-          # the whole rebuild. Both are lifted for this transaction only.
-          ServiceRadar.Repo.query!("SET LOCAL statement_timeout = 0")
-          ServiceRadar.Repo.query!("SET LOCAL lock_timeout = 0")
+          case ServiceRadar.Repo.query!("SELECT pg_try_advisory_xact_lock($1)", [@lock_key]) do
+            %{rows: [[true]]} ->
+              # The transaction then sits idle for as long as StarRocks works.
+              # A deployment that sets idle_in_transaction_session_timeout
+              # would have it killed, the lock released, and a second replica
+              # start rebuilding the same tables.
+              ServiceRadar.Repo.query!("SET LOCAL idle_in_transaction_session_timeout = 0")
 
-          # The client side has a timeout too: the default query timeout would
-          # raise here after 15s and take the migrator down with it, leaving
-          # nobody to resume if that replica dies.
-          ServiceRadar.Repo.query!("SELECT pg_advisory_xact_lock($1)", [@lock_key],
-            timeout: :infinity
-          )
+              # Inside this transaction, so it raises once the connection
+              # holding the lock is gone.
+              fun.(fn ->
+                ServiceRadar.Repo.query!("SELECT 1")
+                :ok
+              end)
 
-          # The lock is this transaction, which then sits idle for as long as
-          # StarRocks works -- hours, for a partition rebuild. A deployment that
-          # sets idle_in_transaction_session_timeout would have it killed, the
-          # lock released, and a second replica start rebuilding the same tables.
-          ServiceRadar.Repo.query!("SET LOCAL idle_in_transaction_session_timeout = 0")
-
-          # Inside this transaction, so it raises once the connection holding
-          # the lock is gone.
-          fun.(fn ->
-            ServiceRadar.Repo.query!("SELECT 1")
-            :ok
-          end)
+            %{rows: [[false]]} ->
+              ServiceRadar.Repo.rollback(:busy)
+          end
         end,
-        timeout: :infinity
+        timeout: @lock_hold_ms
       )
 
     case result do
       {:ok, value} -> value
+      {:error, :busy} -> :busy
       {:error, reason} -> {:error, reason}
     end
   end
