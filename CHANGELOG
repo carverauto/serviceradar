@@ -1,3 +1,129 @@
+# ServiceRadar v1.5.0
+
+This release completes the move to the durable edge-record pipeline
+that began in v1.4.102. That release made the pipeline the only path for
+agent data. This one fixes what broke in production after it shipped:
+- Proxmox enrichment was rejected.
+- Sync and discovery records failed on every core replica except one.
+- Camera live streams could not open.
+- A single bad GitHub release could empty the add-on and plugin catalogs.
+- During upgrades, older agents silently dropped data the gateway had
+  refused.
+
+When StarRocks is enabled, it is now the only store for the telemetry
+it holds. Logs and events are no longer written to both CNPG and the
+warehouse, and nothing written to the warehouse is truncated. The
+events and traces pages read the warehouse with queries that use a
+small fraction of the memory they used before.
+
+## Upgrade Notes
+
+- **Upgrade agents immediately after the platform.** As in v1.4.102,
+  the gateway refuses durable data that older agents send on the legacy
+  status path. It now tells those agents that the data was not received,
+  so they keep it and retry instead of dropping it. Retries that are held
+  in memory are lost when the agent restarts to upgrade, so keep the gap
+  between upgrading the gateway and upgrading the agents short (#6363).
+- **Remove `analytics.starrocks.shadowDatasets` from your values.**
+  Shadow (dual-write) mode is gone. The chart refuses to render while the
+  key is set, including when it is set to an empty list. Datasets listed
+  in `cutoverDatasets` are written to StarRocks only. Logs and events that
+  are not cut over are written to CNPG only, which is also where they are
+  read from (#6370).
+- **StarRocks schema changes run at core start.** Warehouse DDL `0036`
+  adds the OCSF event fields that were previously kept only in CNPG:
+  actor, source and destination endpoints, status code and detail, log
+  version, raw data, and created-at. DDL `0037` widens event and log free
+  text to 1 MiB. One core replica applies them, waiting for each schema
+  change to finish. On a large events table this can take several
+  minutes, and the warehouse keeps loading while it runs (#6370, #6375).
+- **New migration:** `20261105110000` adds
+  `availability_last_resolved_at` to devices (#6347).
+
+## Whats New
+
+**Durable pipeline hardening**
+
+- Plugin results projected from edge records carry the authenticated
+  agent's delivery capabilities again, so Proxmox inventory enrichment is
+  ingested instead of being rejected and redelivered (#6362).
+- The sync ingest queue can be reached from every core replica, not only
+  the coordinator. The queue reports transient refusals as `busy` or
+  `unavailable`, and these show up in the ingestion-lane metrics. A
+  transient refusal no longer marks a redelivered sync run incomplete,
+  which used to block its inventory snapshot from activating (#6369).
+- The gateway publishes its refused-source counter through JetStream, so
+  the record of a refusal survives a gateway pod restart (#6363).
+
+**Cameras**
+
+- Camera live streams open again. Camera inventory arriving through the
+  edge pipeline no longer clears a camera's stored gateway. The stored
+  gateway is now only a hint: opening a stream finds the agent's live
+  gateway and saves it (#6376).
+
+**StarRocks as the single telemetry store**
+
+- Logs and events go to exactly one store. When events are cut over,
+  every events reader follows them to the warehouse: the dashboard live
+  feed, the Atlas causal overlay, the security detection detail and
+  camera relay health (#6370).
+- Event and log free text is stored whole, up to 1 MiB. An identifier
+  longer than its protocol allows, such as a trace id, span id or IP, is
+  stored as NULL and counted, never cut short (#6370).
+- `in:events` on the warehouse returns the new OCSF event fields, can be
+  filtered by `status_code` and `status_detail`, and matches device
+  aliases in source and destination endpoints, the same as on CNPG
+  (#6371).
+- The warehouse schema migrator waits for StarRocks shared-data schema
+  changes to really finish (`FINISHED`, not `FINISHED_REWRITING`) before
+  sending the next one. A replica that takes over halfway through waits
+  out the change already running (#6375).
+
+**Faster observability pages**
+
+- Event listings rank row keys first and only then read the 20 full rows.
+  On a busy 7-day window this took the events list from 2.5 s and 1.3 GB
+  of StarRocks memory to about 120 ms and 22 MB (#6364).
+- The events and traces summary cards prune to the day partitions in
+  their window. The cards load separately from the list, so the list
+  appears first (#6364).
+- Opening a tab other than alerts no longer makes a cross-node alert
+  evaluation-mode call (#6364).
+
+**Add-on and plugin catalog**
+
+- Catalog sync ignores draft releases, isolates a failing release from
+  the rest, and names the release and file that failed. When one release
+  is unavailable, the catalog still shows the others along with a warning
+  (#6365).
+
+**Charts**
+
+- Device metric charts span the selected time window and break the line
+  where data is missing, instead of stretching the available data across
+  the chart. Device-list sparklines place each point at its time, so gaps
+  are visible (#6366).
+
+**Devices**
+
+- `availability_last_resolved_at` records when the availability resolver
+  last evaluated a device. It is exposed as a `Device` attribute and an
+  `in:devices` field (#6347).
+
+## Security
+
+- arrow-* is upgraded to 60.1.0 for RUSTSEC-2026-0442. The pin-utils
+  advisory (RUSTSEC-2026-0441) is ignored, with a recorded reason, for the
+  RDP probe's macOS-only dependency chain (#6367).
+
+## Build and Release
+
+- macOS notarization stapling retries fast failures and stops at a
+  command timeout (#6355).
+- New documentation page: Durable Edge Records. The README explains the
+  durable data pipeline (#6361).
+
 # ServiceRadar v1.4.102
 
 This release makes the durable edge-record pipeline the only way agent
