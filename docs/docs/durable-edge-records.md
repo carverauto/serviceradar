@@ -496,11 +496,12 @@ contract it shows, summed across every connected gateway and core node:
 
 | Column | Meaning |
 | --- | --- |
-| Gateway admitted / refused / withheld | records the gateway admitted for projection (audit and security-quarantine deliveries are not counted), rejected permanently, or held back for the agent to send again |
+| Gateway admitted / refused / withheld | primary records JetStream stored as a new message (audit and security-quarantine deliveries are not counted), records rejected permanently, or records held back for the agent to send again |
+| Dup / retry | publishes JetStream answered as a duplicate of a message it already stored (an agent replay), and publish attempts that did not store; neither moves Gateway admitted or Last admitted |
 | Projected / Projector refused | first primary deliveries EventWriter committed (a replay or late-fenced audit delivery is not counted), or records acknowledged without projecting |
 | Failed attempts | projections that raised; JetStream redelivers each one |
 | Dead-lettered | records stored on the dead-letter stream |
-| Last admitted | how long ago a gateway last admitted a record of the contract; recent admissions with an old Last projected mean records are stuck between the gateway and EventWriter |
+| Last admitted | how long ago JetStream last stored a new primary record of the contract; recent admissions with an old Last projected mean records are stuck between the gateway and EventWriter |
 | Last projected | how long ago the contract last projected a record |
 
 A record refused or withheld before its bytes decoded is counted as `unattributed`.

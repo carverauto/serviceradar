@@ -142,6 +142,9 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.EdgePipeline do
                 <th>Gateway admitted</th>
                 <th>Gateway refused</th>
                 <th>Gateway withheld</th>
+                <th title="Duplicate PubAcks / publish attempts that did not store">
+                  Dup / retry
+                </th>
                 <th>Projected</th>
                 <th>Projector refused</th>
                 <th>Failed attempts</th>
@@ -162,6 +165,9 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.EdgePipeline do
                 </td>
                 <td class={count_class(row.gateway_withheld, "text-warning")}>
                   {row.gateway_withheld}
+                </td>
+                <td class={count_class(row.gateway_publish_retry, "text-warning")}>
+                  {row.gateway_duplicate} / {row.gateway_publish_retry}
                 </td>
                 <td class="font-mono text-xs text-success">{row.projected}</td>
                 <td class={count_class(row.projector_refused, "text-warning font-semibold")}>

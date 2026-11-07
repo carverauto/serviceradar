@@ -537,6 +537,53 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
       refute_received {:edge_record_stream_reply, %EdgeRecordServerMessage{payload: {:ack, _}}}
     end
 
+    test "a duplicate PubAck counts as a duplicate, not an admission, and leaves Last admitted alone" do
+      if !Process.whereis(PipelineStats), do: start_supervised!(PipelineStats)
+      duplicate = {:ok, %{stream: "TELEMETRY_EDGE_RECORD_V1_BULK", seq: 1, duplicate: true}}
+      EdgeRecordPublisherStub.start_pipeline!(EdgeRecordPublisherStub.publisher(self(), duplicate))
+      before = contract_counts()
+      replayed = record()
+
+      assert :ok = run_one_frame(replayed)
+
+      # JetStream already stored it, so it still resolves for the agent.
+      assert Enum.map(acks_through(1), &{&1.sequence, &1.kind}) == [{1, @accepted}]
+
+      after_counts = contract_counts()
+
+      assert delta(before, after_counts, "uncataloged", [:gateway_admitted, :gateway_duplicate, :gateway_publish_retry]) ==
+               %{gateway_admitted: 0, gateway_duplicate: 1, gateway_publish_retry: 0}
+
+      assert last_admitted(after_counts) == last_admitted(before)
+    end
+
+    test "a publish that times out and then stores counts one retry and one admission" do
+      if !Process.whereis(PipelineStats), do: start_supervised!(PipelineStats)
+      attempts = :counters.new(1, [])
+      test = self()
+
+      EdgeRecordPublisherStub.start_pipeline!(fn publication, _opts ->
+        send(test, {:edge_record_published, publication})
+        :counters.add(attempts, 1, 1)
+        if :counters.get(attempts, 1) == 1, do: {:error, :timeout}, else: durable()
+      end)
+
+      before = contract_counts()
+      resent = record()
+
+      # The agent sends the unresolved sequence again on its next stream.
+      assert :ok = run_one_frame(resent)
+      assert :ok = run_one_frame(resent)
+      assert Enum.map(acks_through(1), &{&1.sequence, &1.kind}) == [{1, @accepted}]
+
+      assert delta(before, contract_counts(), "uncataloged", [
+               :gateway_admitted,
+               :gateway_duplicate,
+               :gateway_publish_retry
+             ]) ==
+               %{gateway_admitted: 1, gateway_duplicate: 0, gateway_publish_retry: 1}
+    end
+
     test "a permanent rejection after the lane is bound fills its place, so later sequences resolve" do
       first = record()
       third = record()
@@ -903,13 +950,15 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
     Map.new(contracts, &{&1.contract, &1})
   end
 
-  defp delta(before, after_counts, label) do
+  defp delta(before, after_counts, label, events \\ [:gateway_admitted, :gateway_refused, :gateway_withheld]) do
     empty = PipelineStats.empty_counts(label)
 
-    Map.new([:gateway_admitted, :gateway_refused, :gateway_withheld], fn event ->
+    Map.new(events, fn event ->
       {event, Map.get(after_counts, label, empty)[event] - Map.get(before, label, empty)[event]}
     end)
   end
+
+  defp last_admitted(counts), do: get_in(counts, ["uncataloged", :last_admitted_at_ms])
 
   defp open_and_records(records) do
     frames = records |> Enum.with_index(1) |> Enum.map(fn {record, sequence} -> frame(sequence, record) end)

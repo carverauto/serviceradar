@@ -4,7 +4,6 @@ defmodule ServiceRadar.AdmissionLaneTest do
   alias ServiceRadar.Admission.Lane
   alias ServiceRadar.Cluster.CoordinatorChildren
   alias ServiceRadar.EventWriter.Processors.Metrics
-  alias ServiceRadar.Ingestion.LaneSupervisor
   alias ServiceRadar.Ingestion.LeaseSupervisor
   alias ServiceRadar.Ingestion.RuntimeMetrics
   alias ServiceRadar.Ingestion.WorkerBudget
@@ -989,8 +988,8 @@ defmodule ServiceRadar.AdmissionLaneTest do
     assert status.pending_bytes == 6_144
     assert status.in_flight_count == 1
     assert status.in_flight_bytes == 2_048
-    assert status.max_items == Keyword.fetch!(LaneSupervisor.limits(:status), :max_items)
-    assert status.max_bytes == Keyword.fetch!(LaneSupervisor.limits(:status), :max_bytes)
+    assert status.max_items == 32
+    assert status.max_bytes == 32 * 1_024 * 1_024
     assert status.admitted_total == 4
     assert status.rejected_total == 2
     assert status.not_accepted_total == 1

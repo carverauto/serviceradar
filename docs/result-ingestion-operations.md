@@ -289,10 +289,15 @@ in-memory coordinator state:
     on every connected node and sums it. Durable agent data reaches core only
     as edge records, so this is where sweep, mapper, flow attribution, plugin
     results, metrics, sync and the other families show up: one row per output
-    contract in `ServiceRadar.Edge.ContractCatalog`, with records the gateway
-    admitted, refused or withheld, records EventWriter projected or refused,
-    failed attempts it will redeliver, records stored on the dead-letter
-    stream, and how long ago the contract last projected. A second table shows
+    contract in `ServiceRadar.Edge.ContractCatalog`, with primary records
+    JetStream stored as new messages (Gateway admitted; audit and
+    security-quarantine deliveries are not counted), records the gateway
+    refused or withheld, duplicate PubAcks and publish attempts that did not
+    store, records EventWriter projected or refused, failed attempts it will
+    redeliver, records stored on the dead-letter stream, and how long ago the
+    contract last admitted and last projected a record. A fresh Last admitted
+    beside an old Last projected means records are stuck between the gateway
+    and EventWriter. A second table shows
     the latest JetStream state of each edge-record durable from the
     coordinator's `ConsumerLagReporter`: pending, ack pending, redelivered, and
     the stream's message count, which for `TELEMETRY_EDGE_RECORD_DLQ_V1_BULK`

@@ -456,8 +456,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
 
     case EdgeContractRegistry.admit(record, session, decision.registry) do
       {:ok, route} ->
-        if decision.publication == :primary, do: PipelineStats.record(:gateway_admitted, contract)
-        offer_frame(state, stream, sequence, frame, decision, route)
+        offer_frame(state, stream, sequence, frame, decision, route, contract)
 
       {:reject, reason} ->
         # Proven invalid for this session and registry: it resolves in the prefix exactly like an
@@ -478,7 +477,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
 
   # The decision's publication selects the route family and the kind its PubAck resolves to, so an
   # audit or security-quarantine record cannot reach the primary stream.
-  defp offer_frame(state, stream, sequence, frame, %{record: record} = decision, route) do
+  defp offer_frame(state, stream, sequence, frame, %{record: record} = decision, route, contract) do
     log_non_authoritative(decision)
 
     publication =
@@ -497,7 +496,8 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
           partition_rule: route.partition_rule,
           record_bytes: frame.record_bytes,
           record_sha256: frame.record_sha256,
-          semantic_envelope_sha256: record.semantic_envelope_sha256
+          semantic_envelope_sha256: record.semantic_envelope_sha256,
+          contract: contract
         },
         decision
       )

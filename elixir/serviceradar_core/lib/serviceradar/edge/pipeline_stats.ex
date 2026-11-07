@@ -7,8 +7,12 @@ defmodule ServiceRadar.Edge.PipelineStats do
   it:
 
     * the agent gateway (`ServiceRadarAgentGateway.EdgeRecordIngestServer`): records it
-      admitted for primary publication (`:gateway_admitted`), refused for good
-      (`:gateway_refused`), and withheld for the agent to send again (`:gateway_withheld`);
+      refused for good (`:gateway_refused`) and withheld for the agent to send again
+      (`:gateway_withheld`);
+    * the gateway's `ServiceRadar.Edge.PublishPipeline`: primary records JetStream stored as a
+      new message (`:gateway_admitted`), publishes JetStream answered as a duplicate of a stored
+      message (`:gateway_duplicate`), and publish attempts that did not store
+      (`:gateway_publish_retry`);
     * the EventWriter edge-record processor (`ServiceRadar.EventWriter.Processors.EdgeRecord`):
       first primary deliveries committed through the ledger and projector (`:projected`), refused without a
       projection (`:projector_refused`), and failed attempts JetStream will redeliver
@@ -37,6 +41,8 @@ defmodule ServiceRadar.Edge.PipelineStats do
   @table __MODULE__
   @events [
     :gateway_admitted,
+    :gateway_duplicate,
+    :gateway_publish_retry,
     :gateway_refused,
     :gateway_withheld,
     :projected,
@@ -58,6 +64,8 @@ defmodule ServiceRadar.Edge.PipelineStats do
   @type contract_counts :: %{
           required(:contract) => String.t(),
           required(:gateway_admitted) => non_neg_integer(),
+          required(:gateway_duplicate) => non_neg_integer(),
+          required(:gateway_publish_retry) => non_neg_integer(),
           required(:gateway_refused) => non_neg_integer(),
           required(:gateway_withheld) => non_neg_integer(),
           required(:projected) => non_neg_integer(),

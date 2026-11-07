@@ -102,8 +102,20 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveEdgePipelineTest do
     stats =
       EdgePipeline.merge(
         [
-          node.("gateway-a", %{gateway_admitted: 5, gateway_withheld: 1, last_admitted_at_ms: 104_000}, nil, 1_000, 7),
-          node.("gateway-b", %{gateway_admitted: 2, last_admitted_at_ms: 80_000}, nil, 900, 7),
+          node.(
+            "gateway-a",
+            %{
+              gateway_admitted: 5,
+              gateway_withheld: 1,
+              gateway_duplicate: 2,
+              gateway_publish_retry: 1,
+              last_admitted_at_ms: 104_000
+            },
+            nil,
+            1_000,
+            7
+          ),
+          node.("gateway-b", %{gateway_admitted: 2, gateway_publish_retry: 3, last_admitted_at_ms: 80_000}, nil, 900, 7),
           node.("core-a", %{projected: 4, projector_refused: 1}, 50_000, 2_000, 2),
           node.("core-b", %{projected: 1}, 40_000, 1_500, 9)
         ],
@@ -137,6 +149,9 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveEdgePipelineTest do
              "6s ago",
              "1m ago"
            ]
+
+    # Duplicates and publish retries sum across gateways beside the admissions they did not add to.
+    assert html |> cells("#cluster-edge-contract-serviceradar-sweep-observation-1 td") |> Enum.at(4) == "2 / 4"
   end
 
   test "a node whose stream poll failed does not hide another node's dead-letter depth" do
