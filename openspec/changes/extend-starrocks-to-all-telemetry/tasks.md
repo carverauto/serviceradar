@@ -260,7 +260,7 @@
 
 - [ ] 4.1 Partition rebuild copies and catches up by hour with hour-level resume (issue #4525).
 - [ ] 4.2 Long backoff on memory-limit errors; progress logged as units remaining.
-- [ ] 4.3 `SET LOCAL statement_timeout = 0` and `lock_timeout = 0` on the migration lock transaction, so a replica waiting behind a long rebuild is not cancelled (issue #4525).
+- [x] 4.3 A replica waiting for the migration lock polls `pg_try_advisory_xact_lock` in short transactions with backoff capped at 30 s, so a replica waiting behind a long rebuild is neither cancelled by a timeout nor hung on a dropped pooled connection (issue #4525).
 - [ ] 4.4 Re-run the rebuild probe on a warehouse sized to the minimum supported profile and record peak memory.
 
 ## 5. Warehouse-only telemetry when StarRocks is enabled
