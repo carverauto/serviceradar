@@ -270,6 +270,27 @@ defmodule ServiceRadar.Analytics.StarRocks.DestinationTest do
     assert {:ok, %{loaded: 0}} = Destination.persist_warehouse(:mtr_hops, [], persist: persist)
   end
 
+  test "spans whose key is not a valid trace or span id are left out of the load" do
+    persist = fn table, rows, _opts ->
+      send(self(), {:loaded, table, rows})
+      {:ok, %{loaded: length(rows)}}
+    end
+
+    keyed = %{trace_id: "0123456789abcdef0123456789abcdef", span_id: "0123456789abcdef"}
+    over_wide = %{keyed | trace_id: String.duplicate("a", 33)}
+
+    assert {:ok, %{loaded: 1}} =
+             Destination.persist_warehouse(:otel_traces, [over_wide, keyed], persist: persist)
+
+    assert_received {:loaded, "otel_traces",
+                     [%{"trace_id" => "0123456789abcdef0123456789abcdef"}]}
+
+    assert {:ok, %{loaded: 0}} =
+             Destination.persist_warehouse(:otel_traces, [over_wide],
+               persist: fn _table, _rows, _opts -> flunk("nothing to load") end
+             )
+  end
+
   test "the backend switch reads analytics.starrocks.enabled" do
     prev = Application.get_env(:serviceradar_core, StarRocks, [])
 

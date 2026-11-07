@@ -43,6 +43,10 @@
 # migrator skips converged partitions, waits for each job to FINISH, and logs a
 # partition StarRocks will not rewrite). 0040 rebuilds every rollup
 # with one bucket per day, backfilled one day per refresh task.
+# 0041 widens the free-text OTel span, BMP routing event, and flow attribution
+# observation columns, and the trace-summary columns copied from spans, to
+# VARCHAR(1048576), so no value is cut or filtered; it recreates the two span
+# rollups so their columns take the new widths.
 # The cnpg_platform JDBC catalog is not here: it is created by
 # helm/serviceradar/templates/starrocks-catalog-job.yaml, and the relations it
 # may expose are owned by ServiceRadar.Analytics.StarRocks.CatalogAllowlist.

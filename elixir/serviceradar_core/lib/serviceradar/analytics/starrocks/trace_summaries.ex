@@ -14,7 +14,8 @@ defmodule ServiceRadar.Analytics.StarRocks.TraceSummaries do
   all of its spans from the last day and inside retention; the root is the
   true root span (NULL parent) when there is one, otherwise the earliest span;
   `timestamp` is the newest span's; `service_set` is the sorted distinct
-  service names; `error_count` counts `status_code = 2`. The table's primary
+  service names, leaving out one wider than its 1024-byte element
+  (`priv/starrocks/0022`) rather than cutting it; `error_count` counts `status_code = 2`. The table's primary
   key is `trace_id`, so a re-run upserts. Unlike CNPG it rewrites every
   summary it computes, not only the changed ones, so its count is the rows
   written.
@@ -35,6 +36,7 @@ defmodule ServiceRadar.Analytics.StarRocks.TraceSummaries do
   alias ServiceRadar.Analytics.StarRocks.Query
 
   @candidate_floor_seconds 86_400
+  @max_service_set_name_bytes 1024
 
   @doc "Whether any span with a trace id was ingested in `(from, to]`."
   @spec any_ingested?(DateTime.t(), DateTime.t(), keyword()) ::
@@ -150,7 +152,10 @@ defmodule ServiceRadar.Analytics.StarRocks.TraceSummaries do
         MIN(start_time_unix_nano) AS start_ns,
         MAX(end_time_unix_nano) AS end_ns,
         CASE WHEN COUNT(service_name) = 0 THEN NULL
-          ELSE array_sort(array_distinct(array_filter(x -> x IS NOT NULL, array_agg(service_name))))
+          ELSE array_sort(array_distinct(array_filter(
+            x -> x IS NOT NULL AND length(x) <= #{@max_service_set_name_bytes},
+            array_agg(service_name)
+          )))
         END AS service_set,
         COUNT(*) AS span_count,
         SUM(CASE WHEN status_code = 2 THEN 1 ELSE 0 END) AS error_count

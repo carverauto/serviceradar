@@ -19,16 +19,17 @@
 -- partition_live_number is the one-year retention default;
 -- SERVICERADAR_STARROCKS_RETENTION_DAYS_BMP is applied on top at boot.
 --
--- Text columns are sized so that no value the processor writes is wider than
--- its column: StarRocks filters such a row out of a Stream Load batch. The
--- two unbounded CNPG columns (`message`, `raw_data`) are truncated UTF-8-safely
--- by Rows.encode/2 to their column widths rather than dropped.
+-- Free-text columns (`event_type`, `message`, `raw_data`) are VARCHAR(1048576),
+-- the 1 MiB shipped NATS max_payload, so values are stored whole rather than
+-- cut. Protocol-bounded identifiers (`router_id`, `router_ip`, `peer_ip`,
+-- `prefix`) keep their widths; Rows.encode/2 stores an over-wide identifier as
+-- NULL rather than a truncated one.
 CREATE DATABASE IF NOT EXISTS serviceradar;
 
 CREATE TABLE IF NOT EXISTS serviceradar.bmp_routing_events (
   id VARCHAR(64) NOT NULL,
   `time` DATETIME NOT NULL,
-  event_type VARCHAR(256) NOT NULL,
+  event_type VARCHAR(1048576) NOT NULL,
   severity_id INT,
   router_id VARCHAR(256),
   router_ip VARCHAR(64),
@@ -36,9 +37,9 @@ CREATE TABLE IF NOT EXISTS serviceradar.bmp_routing_events (
   peer_asn BIGINT,
   local_asn BIGINT,
   prefix VARCHAR(128),
-  message VARCHAR(65533),
+  message VARCHAR(1048576),
   metadata JSON,
-  raw_data VARCHAR(65533),
+  raw_data VARCHAR(1048576),
   created_at DATETIME
 )
 PRIMARY KEY (id, `time`)
