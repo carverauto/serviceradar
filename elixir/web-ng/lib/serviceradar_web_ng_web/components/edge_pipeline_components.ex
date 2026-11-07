@@ -51,6 +51,9 @@ defmodule ServiceRadarWebNGWeb.EdgePipelineComponents do
           if(field(detail, :version), do: " (#{field(detail, :version)}).", else: ".") <>
           refused_statuses(field(detail, :refused_statuses))
 
+      "oversized_summary" ->
+        oversized_summary(detail)
+
       other ->
         other
     end
@@ -63,11 +66,28 @@ defmodule ServiceRadarWebNGWeb.EdgePipelineComponents do
       |> Enum.sort()
       |> Enum.map_join(", ", fn {family, count} -> "#{family} #{count}" end)
 
-    " It still sends statuses the status path refuses, durable data or oversized summaries, " <>
-      "which the gateway does not store (#{listed})."
+    " It still sends durable data on the retired status path, which the gateway does not " <>
+      "store (#{listed})."
   end
 
   defp refused_statuses(_counts), do: ""
+
+  defp oversized_summary(detail) do
+    summaries = field(detail, :summaries) || %{}
+
+    listed =
+      summaries
+      |> Enum.map(fn {service, size} -> {to_string(service), size} end)
+      |> Enum.sort()
+      |> Enum.map_join(", ", fn {service, size} ->
+        "#{service} (#{field(size, :bytes)} bytes, limit #{field(size, :limit)})"
+      end)
+
+    "The gateway refused #{field(detail, :count)} status summaries over its size limit and does " <>
+      "not store them" <>
+      if(listed == "", do: ".", else: ": #{listed}.") <>
+      " The agent's edge records are not affected."
+  end
 
   defp upgrade_blocked(detail) do
     case detail |> field(:cause) |> to_string() do
@@ -88,6 +108,7 @@ defmodule ServiceRadarWebNGWeb.EdgePipelineComponents do
   defp variant(condition) do
     case reason(condition) do
       "agent_disconnected" -> "warning"
+      "oversized_summary" -> "warning"
       _ -> "error"
     end
   end

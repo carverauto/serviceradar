@@ -30,15 +30,12 @@ defmodule ServiceRadar.Edge.Projectors.UnleasedSweepResults do
 
   alias ServiceRadar.Edge.Compression
   alias ServiceRadar.Edge.OutputGrants
+  alias ServiceRadar.Edge.SweepServiceState
   alias Serviceradar.Edge.V1.EdgeRecordV1
   alias Serviceradar.Edge.V1.UnleasedSweepResultsBatchV1
   alias ServiceRadar.Edge.WireDecode
-  alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Infrastructure.Partition
   alias ServiceRadar.Ingestion.ResultIngestor
-
-  @service_name "network_sweep"
-  @service_type "sweep"
 
   @scanner_labels ~w(protocol address_family scanner_path)a
 
@@ -107,7 +104,7 @@ defmodule ServiceRadar.Edge.Projectors.UnleasedSweepResults do
              producer.authority_epoch
            ),
          %Partition{slug: partition} <- repo.get(Partition, network_scope_id),
-         {:ok, gateway_id} <- sweep_gateway(repo, agent_id, context.gateway_id) do
+         {:ok, gateway_id} <- SweepServiceState.gateway(repo, agent_id, context.gateway_id) do
       batch
       |> status(agent_id, gateway_id, partition)
       |> ResultIngestor.process_and_publish()
@@ -127,23 +124,15 @@ defmodule ServiceRadar.Edge.Projectors.UnleasedSweepResults do
 
   # The `results` status the gateway builds from the agent's results chunk.
   defp status(batch, agent_id, gateway_id, partition) do
-    status = %{
-      service_name: @service_name,
-      service_type: @service_type,
-      available: true,
-      message: legacy_json(batch),
-      response_time: 0,
-      agent_id: agent_id,
-      gateway_id: gateway_id,
-      partition: partition,
-      authenticated_partition: partition,
-      source: "results",
-      kv_store_id: "",
-      timestamp: System.os_time(:second),
-      agent_timestamp: div(batch.batch_completed_at_unix_nano, 1_000_000_000),
-      total_chunks: batch.total_chunks,
-      is_final: batch.is_final
-    }
+    status =
+      agent_id
+      |> SweepServiceState.status(
+        gateway_id,
+        partition,
+        legacy_json(batch),
+        div(batch.batch_completed_at_unix_nano, 1_000_000_000)
+      )
+      |> Map.merge(%{total_chunks: batch.total_chunks, is_final: batch.is_final})
 
     if batch.is_cancel_marker do
       Map.merge(status, %{
@@ -152,19 +141,6 @@ defmodule ServiceRadar.Edge.Projectors.UnleasedSweepResults do
       })
     else
       Map.put(status, :chunk_index, batch.chunk_index)
-    end
-  end
-
-  defp sweep_gateway(_repo, _agent_id, header) when is_binary(header) and header != "",
-    do: {:ok, header}
-
-  defp sweep_gateway(repo, agent_id, _header) do
-    case repo.get(Agent, agent_id) do
-      %Agent{gateway_id: gateway_id} when is_binary(gateway_id) and gateway_id != "" ->
-        {:ok, gateway_id}
-
-      _ ->
-        {:error, {:refused, :gateway_unknown}}
     end
   end
 

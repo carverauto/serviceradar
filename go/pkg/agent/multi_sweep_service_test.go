@@ -142,16 +142,11 @@ func assertCronLeaseReport(t *testing.T, service *MultiSweepService, state strin
 	require.Equal(t, nextSlot, typed["next_slot_unix_nano"])
 	require.Equal(t, remaining, typed["slots_remaining"])
 
-	var doc map[string]any
-	require.NoError(t, json.Unmarshal(status.Message, &doc))
-	raw, ok := doc["sweep_lease"].([]any)
-	require.True(t, ok, "serialized status sweep_lease = %#v", doc["sweep_lease"])
-	require.Len(t, raw, 1)
-	serialized, ok := raw[0].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, state, serialized["state"])
-	require.InDelta(t, float64(nextSlot), serialized["next_slot_unix_nano"], 0)
-	require.InDelta(t, float64(remaining), serialized["slots_remaining"], 0)
+	leases := sweepLeaseSummaryOf(t, status.Message)
+	require.InDelta(t, float64(1), leases["groups"], 0)
+	require.InDelta(t, float64(1), leases[state], 0)
+	require.InDelta(t, float64(nextSlot), leases["next_slot_unix_nano"], 0)
+	require.InDelta(t, float64(remaining), leases["slots_remaining"], 0)
 }
 
 func assertCronLeaseReportAbsent(t *testing.T, service *MultiSweepService) {
@@ -164,6 +159,6 @@ func assertCronLeaseReportAbsent(t *testing.T, service *MultiSweepService) {
 
 	var doc map[string]any
 	require.NoError(t, json.Unmarshal(status.Message, &doc))
-	_, present = doc["sweep_lease"]
-	require.False(t, present, "serialized status still reports sweep_lease: %#v", doc["sweep_lease"])
+	_, present = doc["sweep_leases"]
+	require.False(t, present, "serialized status still reports sweep_leases: %#v", doc["sweep_leases"])
 }

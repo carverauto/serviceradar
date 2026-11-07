@@ -6,9 +6,14 @@ defmodule ServiceRadar.Edge.Projectors.SweepObservation do
   `decode/1` validates the sweep body and its correlation with the record's signed source
   authority. `project/4` runs inside the EventWriter ledger transaction: it claims the batch
   coordinate, and a primary delivery projects into the ordinary sweep and inventory tables
-  through `ServiceRadar.Edge.SweepProjection`. A delivery that does not project (a replay or a
-  late-fenced delivery) still locks the sweep execution slot before its batch coordinate
-  commits. Conflicting coordinates roll back the whole transaction.
+  through `ServiceRadar.Edge.SweepProjection`, and records the agent's `network_sweep` service
+  state from the execution's progress (`ServiceRadar.Edge.SweepServiceState`). A delivery that
+  does not project (a replay or a late-fenced delivery) still locks the sweep execution slot
+  before its batch coordinate commits. Conflicting coordinates roll back the whole transaction.
+
+  The service state is a health report about data that is already stored, so it never refuses
+  the batch: when neither the publishing gateway's header nor the agent's gateway column names a
+  gateway, or the registry declines the status, the batch commits and the refusal is logged.
   """
 
   @behaviour ServiceRadar.Edge.Projector
@@ -17,10 +22,14 @@ defmodule ServiceRadar.Edge.Projectors.SweepObservation do
   alias ServiceRadar.Edge.ProjectionRows
   alias ServiceRadar.Edge.SweepCorrelate
   alias ServiceRadar.Edge.SweepProjection
+  alias ServiceRadar.Edge.SweepServiceState
   alias Serviceradar.Edge.V1.EdgeRecordV1
   alias Serviceradar.Edge.V1.SweepObservationBatchV1
   alias ServiceRadar.Edge.WireDecode
   alias ServiceRadar.EventWriter.BulkInsert
+  alias ServiceRadar.Ingestion.ResultIngestor
+
+  require Logger
 
   @impl true
   def decode(%EdgeRecordV1{payload_family: :EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1} = record) do
@@ -34,7 +43,7 @@ defmodule ServiceRadar.Edge.Projectors.SweepObservation do
   def decode(%EdgeRecordV1{}), do: {:error, :unsupported_payload_family}
 
   @impl true
-  def project(repo, record, %SweepObservationBatchV1{} = batch, %{primary?: primary?}) do
+  def project(repo, record, %SweepObservationBatchV1{} = batch, %{primary?: primary?} = context) do
     network_scope_id = record.network_scope_id
     event_id = record.event_id
     semantic_digest = record.semantic_envelope_sha256
@@ -51,13 +60,53 @@ defmodule ServiceRadar.Edge.Projectors.SweepObservation do
            ) do
       if primary? do
         case SweepProjection.project(repo, record, batch) do
-          :ok -> project_domain_rows(repo, network_scope_id, event_id, semantic_digest, batch)
-          {:error, reason} -> repo.rollback(reason)
+          {:ok, progress} ->
+            project_domain_rows(repo, network_scope_id, event_id, semantic_digest, batch)
+            record_service_state(repo, progress, Map.get(context, :gateway_id))
+
+          {:error, reason} ->
+            repo.rollback(reason)
         end
       end
 
       :ok
     end
+  end
+
+  defp record_service_state(repo, progress, gateway_header) do
+    with {:ok, gateway_id} <- SweepServiceState.gateway(repo, progress.agent_id, gateway_header),
+         :ok <-
+           progress.agent_id
+           |> SweepServiceState.status(
+             gateway_id,
+             progress.partition,
+             service_message(progress),
+             progress.observed_at
+           )
+           |> ResultIngestor.publish_service_state() do
+      :ok
+    else
+      {:error, reason} ->
+        Logger.warning(
+          "Sweep service state for agent #{progress.agent_id} was not recorded: #{inspect(reason)}"
+        )
+    end
+  end
+
+  defp service_message(progress) do
+    state = if progress.completed, do: "sweep complete", else: "sweep in progress"
+
+    Jason.encode!(%{
+      "summary" =>
+        "#{progress.available_hosts} of #{progress.swept_hosts} swept hosts available; #{state}",
+      "execution_id" => progress.execution_id,
+      "sweep_group_id" => progress.sweep_group_id,
+      "total_hosts" => progress.total_hosts,
+      "swept_hosts" => progress.swept_hosts,
+      "available_hosts" => progress.available_hosts,
+      "completed" => progress.completed,
+      "last_sweep" => DateTime.to_unix(progress.observed_at)
+    })
   end
 
   defp lock_unprojected_slot(_repo, true, _execution_id), do: :ok

@@ -18,12 +18,14 @@ defmodule ServiceRadar.AgentTracker do
 
   ## Refused statuses
 
-  An agent built before the edge-record cutover still sends durable data on the status RPCs.
-  The gateway refuses it and counts it here with `record_refused_statuses/2`, per agent and
-  source family. `list_agents/0` and `get_agent/1` report the counts as `refused_statuses`
-  and the time of the latest refusal as `last_refused_at`; the edge pipeline readiness report
-  reads them through `ServiceRadar.AgentRuntimeMetadata`. The counts live as long as the
-  agent's tracker entry.
+  An agent built before the edge-record cutover still sends durable data on the status RPCs,
+  and any agent can send a status summary over the gateway's size limit. The gateway refuses
+  both and records them here with `record_refused_statuses/3`, per agent: a count per source
+  family, and for each oversized summary the service that sent it, with its size and the limit
+  it exceeded. `list_agents/0` and `get_agent/1` report them as `refused_statuses`,
+  `oversized_summaries` and `last_refused_at` (the time of the latest refusal); the edge
+  pipeline readiness report reads them through `ServiceRadar.AgentRuntimeMetadata`. They live
+  as long as the agent's tracker entry.
   """
 
   use GenServer
@@ -31,9 +33,10 @@ defmodule ServiceRadar.AgentTracker do
   require Logger
 
   @table :agent_tracker
-  # {{agent_id, family}, count} and {{agent_id, :last_refused_at}, DateTime}. A table of its
-  # own so an increment is one atomic update_counter, which a read-merge-insert of the
-  # agent's info map in track_agent/2 cannot overwrite.
+  # {{agent_id, family}, count}, {{agent_id, {:oversized_summary, service}}, %{bytes:, limit:}}
+  # and {{agent_id, :last_refused_at}, DateTime}. A table of its own so an increment is one
+  # atomic update_counter, which a read-merge-insert of the agent's info map in track_agent/2
+  # cannot overwrite.
   @refused_table :agent_tracker_refused_statuses
   @stale_threshold_ms to_timeout(minute: 2)
   @cleanup_interval_ms to_timeout(minute: 1)
@@ -97,23 +100,50 @@ defmodule ServiceRadar.AgentTracker do
   end
 
   @doc """
-  Count statuses the gateway refused from an agent, because their source is retired or the
-  summary is oversized, keyed by family. Returns `:first` when these are the first refusals recorded for the agent,
-  else `:repeat`, so the caller can log once rather than on every push.
+  Record statuses the gateway refused from an agent: `counts` by source family, and
+  `oversized`, the size of each oversized summary by the service that sent it, as
+  `%{service => %{bytes: bytes, limit: limit}}`. Every service is recorded; for a service
+  already recorded, the larger of the stored and the new size is kept.
+
+  Returns what this call recorded for the agent for the first time, the families and the
+  oversized services, so the caller can log each once rather than on every push.
   """
-  @spec record_refused_statuses(String.t(), %{String.t() => pos_integer()}) :: :first | :repeat
-  def record_refused_statuses(agent_id, counts) when is_binary(agent_id) and is_map(counts) do
-    first? = refused_statuses(agent_id) == %{}
+  @spec record_refused_statuses(String.t(), %{String.t() => pos_integer()}, %{String.t() => map()}) ::
+          %{families: [String.t()], oversized_services: [String.t()]}
+  def record_refused_statuses(agent_id, counts, oversized \\ %{})
+      when is_binary(agent_id) and is_map(counts) and is_map(oversized) do
+    known = refused_fields(agent_id)
+    known_families = Map.get(known, :refused_statuses, %{})
+    known_services = Map.get(known, :oversized_summaries, %{})
 
     Enum.each(counts, fn {family, count} ->
       :ets.update_counter(@refused_table, {agent_id, family}, {2, count}, {{agent_id, family}, 0})
     end)
 
+    Enum.each(oversized, fn {service, size} ->
+      :ets.insert(
+        @refused_table,
+        {{agent_id, {:oversized_summary, service}}, largest_size(known_services[service], size)}
+      )
+    end)
+
     :ets.insert(@refused_table, {{agent_id, :last_refused_at}, DateTime.utc_now()})
-    if first?, do: :first, else: :repeat
+
+    %{
+      families:
+        counts |> Map.keys() |> Enum.reject(&Map.has_key?(known_families, &1)) |> Enum.sort(),
+      oversized_services:
+        oversized |> Map.keys() |> Enum.reject(&Map.has_key?(known_services, &1)) |> Enum.sort()
+    }
   rescue
-    ArgumentError -> :first
+    ArgumentError ->
+      %{families: counts |> Map.keys() |> Enum.sort(), oversized_services: Map.keys(oversized)}
   end
+
+  defp largest_size(%{bytes: known_bytes} = known, %{bytes: bytes}) when known_bytes >= bytes,
+    do: known
+
+  defp largest_size(_known, size), do: size
 
   @doc """
   Check if an agent is active (pushed status recently).
@@ -213,11 +243,11 @@ defmodule ServiceRadar.AgentTracker do
 
   defp refused_entry(:last_refused_at, at, fields), do: Map.put(fields, :last_refused_at, at)
 
+  defp refused_entry({:oversized_summary, service}, size, fields),
+    do: Map.update(fields, :oversized_summaries, %{service => size}, &Map.put(&1, service, size))
+
   defp refused_entry(family, count, fields),
     do: Map.update(fields, :refused_statuses, %{family => count}, &Map.put(&1, family, count))
-
-  defp refused_statuses(agent_id),
-    do: agent_id |> refused_fields() |> Map.get(:refused_statuses, %{})
 
   defp delete_refused(agent_id) do
     :ets.match_delete(@refused_table, {{agent_id, :_}, :_})

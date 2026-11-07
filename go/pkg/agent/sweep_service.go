@@ -360,15 +360,17 @@ func (s *SweepService) GetStatusWithMetricPayload(ctx context.Context) (*proto.S
 	}
 	s.mu.RUnlock()
 
+	// The status summary carries counts, never the configured targets or a
+	// per-group list: its size must not grow with the sweep's configuration,
+	// because the gateway refuses a summary over its byte limit.
 	statusDoc := map[string]any{
-		"network":       network,
 		"last_sweep":    summary.LastSweep,
 		"defined_cidrs": definedCIDRs,
 		"sequence":      s.currentSequence,
 		"status":        "collecting",
 	}
 	if leaseReport != nil {
-		statusDoc["sweep_lease"] = []map[string]any{leaseReport}
+		statusDoc["sweep_leases"] = sweepLeaseSummary([]map[string]any{leaseReport})
 	}
 	statusJSON, err := json.Marshal(statusDoc)
 	if err != nil {
@@ -678,6 +680,42 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 		SweepGroupId:    sweepGroupID,
 		SweepCompletion: sweepCompletion,
 	}, nil
+}
+
+// sweepLeaseSummary counts lease reports by state for the status summary: the
+// leased groups, how many are active and exhausted, the slots they have left,
+// and the earliest next slot among them. Per-group lease state reaches core in
+// each slot's lease acknowledgement and edge records.
+func sweepLeaseSummary(leases []map[string]any) map[string]any {
+	active, exhausted, slotsRemaining := 0, 0, 0
+	var nextSlot int64
+
+	for _, lease := range leases {
+		switch lease["state"] {
+		case sweepLeaseStateActive:
+			active++
+		case sweepLeaseStateExhausted:
+			exhausted++
+		}
+		if remaining, ok := intLikeFromAny(lease["slots_remaining"]); ok {
+			slotsRemaining += int(remaining)
+		}
+		if next, ok := intLikeFromAny(lease["next_slot_unix_nano"]); ok && next > 0 && (nextSlot == 0 || next < nextSlot) {
+			nextSlot = next
+		}
+	}
+
+	summary := map[string]any{
+		"groups":          len(leases),
+		"active":          active,
+		"exhausted":       exhausted,
+		"slots_remaining": slotsRemaining,
+	}
+	if nextSlot > 0 {
+		summary["next_slot_unix_nano"] = nextSlot
+	}
+
+	return summary
 }
 
 func sweepLeaseReport(state string, nextSlotUnixNano int64, slotsRemaining int, sweepGroupID string) map[string]any {

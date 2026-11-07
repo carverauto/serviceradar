@@ -38,6 +38,9 @@ const (
 	counterKindSum               = "sum"
 	counterTemporalityCumulative = "cumulative"
 	maxCounter32                 = uint64(1<<32 - 1)
+	// TargetAvailableMetric is the point each poll emits for its target: 1 when
+	// every OID was polled, 0 with the poll's error when one failed.
+	TargetAvailableMetric = "snmp_target_available"
 	// walkIndexSeparator suffixes a walked row's OID index onto the configured
 	// OID name. It reuses the existing "name::label" series-identity convention
 	// (see ifHCInOctets::ifindex:7), so every row of a table gets its own series
@@ -81,7 +84,7 @@ func NewCollector(target *Target, log logger.Logger) (Collector, error) {
 // walk is budgeted a larger share to keep the poll loop from stalling on a full
 // channel between drains. Get-only targets keep their previous buffer size.
 func dataChanBuffer(target *Target) int {
-	buffer := 0
+	buffer := 1
 
 	for i := range target.OIDs {
 		if target.OIDs[i].IsWalk() {
@@ -185,12 +188,41 @@ func (c *SNMPCollector) pollTarget(ctx context.Context) error {
 		err := errors.Join(errs...)
 		c.updateStatus(false, err.Error())
 
-		return err
+		return errors.Join(err, c.emitAvailability(ctx, false, err.Error()))
 	}
 
 	c.updateStatus(true, "")
 
-	return nil
+	return c.emitAvailability(ctx, true, "")
+}
+
+// emitAvailability sends the poll's TargetAvailableMetric point, so a failed
+// poll's error reaches the edge records with the target's other readings.
+func (c *SNMPCollector) emitAvailability(ctx context.Context, available bool, errorMsg string) error {
+	value := 0.0
+	if available {
+		value = 1.0
+	}
+
+	point := DataPoint{
+		OIDName:   TargetAvailableMetric,
+		Value:     value,
+		RawValue:  available,
+		Timestamp: time.Now(),
+		DataType:  TypeBoolean,
+		Scale:     1,
+		Kind:      "gauge",
+		Error:     errorMsg,
+	}
+
+	select {
+	case c.dataChan <- point:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-c.done:
+		return ErrCollectorStopped
+	}
 }
 
 // partitionOIDs splits the target's OIDs into the ones fetched in a single GET

@@ -1174,6 +1174,14 @@ func snmpPointMetadata(result snmpMetricResult, numeric bool) map[string]string 
 		metadata["snmp_profile_id"] = result.ProfileID
 	}
 
+	if result.HostName != "" {
+		metadata["host_name"] = result.HostName
+	}
+
+	if result.Error != "" {
+		metadata["error"] = result.Error
+	}
+
 	if !numeric {
 		metadata["non_numeric"] = "true"
 	}

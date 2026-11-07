@@ -57,9 +57,10 @@ defmodule ServiceRadar.AgentTrackerTest do
 
     :ok = AgentTracker.track_agent(agent_id, %{version: "1.4.0"})
 
-    assert :first = AgentTracker.record_refused_statuses(agent_id, %{"results" => 2})
+    assert %{families: ["results"], oversized_services: []} =
+             AgentTracker.record_refused_statuses(agent_id, %{"results" => 2})
 
-    assert :repeat =
+    assert %{families: ["sysmon-metrics"], oversized_services: []} =
              AgentTracker.record_refused_statuses(agent_id, %{
                "results" => 1,
                "sysmon-metrics" => 4
@@ -76,6 +77,57 @@ defmodule ServiceRadar.AgentTrackerTest do
              Enum.find(AgentTracker.list_agents(), &(&1.agent_id == agent_id))
 
     :ok = AgentTracker.remove_agent(agent_id)
-    assert :first = AgentTracker.record_refused_statuses(agent_id, %{"results" => 1})
+
+    assert %{families: ["results"]} =
+             AgentTracker.record_refused_statuses(agent_id, %{"results" => 1})
+  end
+
+  test "records every oversized summary's service and its largest size, new services once" do
+    agent_id = "agent-tracker-oversized-#{System.unique_integer([:positive])}"
+    on_exit(fn -> AgentTracker.remove_agent(agent_id) end)
+
+    :ok = AgentTracker.track_agent(agent_id, %{version: "1.4.102"})
+
+    assert %{families: ["oversized_summary"], oversized_services: ["snmp"]} =
+             AgentTracker.record_refused_statuses(agent_id, %{"oversized_summary" => 1}, %{
+               "snmp" => %{bytes: 4_800, limit: 4_096}
+             })
+
+    # The same service again updates its size and is not new; another service is.
+    assert %{families: [], oversized_services: ["network_sweep"]} =
+             AgentTracker.record_refused_statuses(agent_id, %{"oversized_summary" => 2}, %{
+               "snmp" => %{bytes: 5_000, limit: 4_096},
+               "network_sweep" => %{bytes: 4_200, limit: 4_096}
+             })
+
+    assert %{
+             refused_statuses: %{"oversized_summary" => 3},
+             oversized_summaries: %{
+               "snmp" => %{bytes: 5_000, limit: 4_096},
+               "network_sweep" => %{bytes: 4_200, limit: 4_096}
+             }
+           } = AgentTracker.get_agent(agent_id)
+
+    # A later, smaller summary from a recorded service keeps the larger size.
+    assert %{families: [], oversized_services: []} =
+             AgentTracker.record_refused_statuses(agent_id, %{"oversized_summary" => 1}, %{
+               "snmp" => %{bytes: 4_200, limit: 4_096}
+             })
+
+    assert %{"snmp" => %{bytes: 5_000, limit: 4_096}} =
+             AgentTracker.get_agent(agent_id).oversized_summaries
+
+    # Every service is recorded and reported as new once, however many there are.
+    many = Map.new(1..40, &{"service-#{&1}", %{bytes: 4_097, limit: 4_096}})
+
+    assert %{oversized_services: new_services} =
+             AgentTracker.record_refused_statuses(agent_id, %{"oversized_summary" => 40}, many)
+
+    assert Enum.sort(new_services) == many |> Map.keys() |> Enum.sort()
+
+    agent = AgentTracker.get_agent(agent_id)
+    assert map_size(agent.oversized_summaries) == 42
+    assert Map.take(agent.oversized_summaries, Map.keys(many)) == many
+    assert agent.refused_statuses == %{"oversized_summary" => 44}
   end
 end

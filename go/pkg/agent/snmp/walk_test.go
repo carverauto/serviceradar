@@ -379,14 +379,29 @@ func TestCollectorPollTarget_Modes(t *testing.T) {
 			points := drainDataPoints(collector)
 			values := make(map[string]interface{}, len(points))
 			indexes := make(map[string]string, len(points))
+			var availability []DataPoint
 
 			for _, point := range points {
+				if point.OIDName == TargetAvailableMetric {
+					availability = append(availability, point)
+					continue
+				}
 				values[point.OIDName] = point.Value
 				indexes[point.OIDName] = point.OIDIndex
 			}
 
 			require.Equal(t, tt.wantPoints, values)
 			require.Equal(t, tt.wantPointIndex, indexes)
+
+			require.Len(t, availability, 1, "every poll reports its target's availability once")
+			require.Equal(t, tt.wantAvailable, availability[0].RawValue)
+			if tt.wantAvailable {
+				require.InDelta(t, 1.0, availability[0].Value, 0)
+				require.Empty(t, availability[0].Error)
+			} else {
+				require.InDelta(t, 0.0, availability[0].Value, 0)
+				require.Equal(t, err.Error(), availability[0].Error)
+			}
 		})
 	}
 }
@@ -435,12 +450,12 @@ func TestDataChanBuffer(t *testing.T) {
 		want int
 	}{
 		{
-			name: "get only target keeps its previous buffer size",
+			name: "get only target is budgeted per OID plus its availability point",
 			oids: []OIDConfig{
 				{OID: ".1.3.6.1.2.1.1.5.0", Name: "sysName"},
 				{OID: ".1.3.6.1.2.1.1.3.0", Name: "sysUpTime"},
 			},
-			want: 2 * defaultDataChanBufferMultiplier,
+			want: 1 + 2*defaultDataChanBufferMultiplier,
 		},
 		{
 			name: "a walked OID is budgeted for its rows",
@@ -448,7 +463,7 @@ func TestDataChanBuffer(t *testing.T) {
 				{OID: ".1.3.6.1.2.1.1.5.0", Name: "sysName"},
 				{OID: cppmServiceNameColumn, Name: "cppmServiceName", Mode: ModeWalk},
 			},
-			want: defaultDataChanBufferMultiplier + defaultWalkChanBufferRows,
+			want: 1 + defaultDataChanBufferMultiplier + defaultWalkChanBufferRows,
 		},
 	}
 

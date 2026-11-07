@@ -225,7 +225,7 @@ does not drop it silently:
   refusal per agent.
 - The existing per-agent condition `agent_upgrade_pending`
   (`ServiceRadar.Edge.PipelineReadiness`) now also holds for an agent the gateway refused
-  anything from, with `refused_statuses` and `last_refused_at` in its detail. It shows in the
+  retired-source data from, with `refused_statuses` and `last_refused_at` in its detail. It shows in the
   readiness report, the agent API and the agent detail page. No parallel mechanism is added.
 - The RPC answers `received: false` when every status in it was refused, and also when any
   status in it was refused durable data (any family but `oversized_summary`), even though its
@@ -241,7 +241,8 @@ does not drop it silently:
   gateway restart; the Prometheus counter does not.
 
 A status summary is refused whole when its message exceeds 4 KiB; it is never cut. It is counted
-like a retired source, under the family `oversized_summary`.
+like a retired source, under the family `oversized_summary`, but readiness reports it as its own
+condition `oversized_summary`, not as `agent_upgrade_pending`: any agent build can send one.
 
 The PushStatus response still carries the endpoint inventory directives the agent applies. A
 scan used to produce its `endpoint_inventory.reconcile_floor` directive from its own status-path

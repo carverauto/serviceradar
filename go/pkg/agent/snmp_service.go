@@ -83,22 +83,20 @@ var ErrSNMPOIDSetMissing = errors.New("SNMP target references a missing OID set"
 // ErrSNMPOIDSetInvalidKey is returned when an SNMP OID set has an empty or duplicate key.
 var ErrSNMPOIDSetInvalidKey = errors.New("SNMP OID set has an empty or duplicate key")
 
+// snmpStatusSummary is the SNMP service's status summary: counts over every
+// target, so its size does not grow with the target count. The gateway refuses
+// a summary over its byte limit, and a summary listing each target outgrew it at
+// a few dozen targets. Per-target readings travel as SNMP metric edge records.
 type snmpStatusSummary struct {
-	Available      bool                         `json:"available"`
-	ResponseTime   int64                        `json:"response_time"`
-	TargetCount    int                          `json:"target_count"`
-	AvailableCount int                          `json:"available_count"`
-	Targets        map[string]snmpTargetSummary `json:"targets,omitempty"`
-}
-
-type snmpTargetSummary struct {
-	Available  bool      `json:"available"`
-	LastPoll   time.Time `json:"last_poll,omitempty"`
-	ErrorCount int       `json:"error_count,omitempty"`
-	Error      string    `json:"error,omitempty"`
-	HostIP     string    `json:"host_ip,omitempty"`
-	HostName   string    `json:"host_name,omitempty"`
-	OIDCount   int       `json:"oid_count,omitempty"`
+	Available          bool      `json:"available"`
+	ResponseTime       int64     `json:"response_time"`
+	TargetCount        int       `json:"target_count"`
+	AvailableCount     int       `json:"available_count"`
+	FailingTargetCount int       `json:"failing_target_count,omitempty"`
+	OIDCount           int       `json:"oid_count,omitempty"`
+	OIDErrorCount      int       `json:"oid_error_count,omitempty"`
+	NewestPoll         time.Time `json:"newest_poll,omitzero"`
+	OldestPoll         time.Time `json:"oldest_poll,omitzero"`
 }
 
 // SNMPAgentService wraps the SNMP service as an agent Service.
@@ -313,28 +311,11 @@ func (s *SNMPAgentService) GetStatus(ctx context.Context) (*proto.StatusResponse
 		}, nil
 	}
 
-	// Determine overall availability
-	available := true
-	for _, targetStatus := range statusMap {
-		if !targetStatus.Available {
-			available = false
-			break
-		}
-	}
-
 	// Status JSON is deliberately lightweight. Full SNMP values are shipped only
 	// through the protobuf metrics envelope drained by the push loop.
-	payload := snmpStatusSummary{
-		Available:    available,
-		ResponseTime: time.Since(start).Nanoseconds(),
-		Targets:      summarizeSNMPTargets(statusMap),
-	}
-	payload.TargetCount = len(payload.Targets)
-	for _, target := range payload.Targets {
-		if target.Available {
-			payload.AvailableCount++
-		}
-	}
+	payload := summarizeSNMPTargets(statusMap)
+	payload.ResponseTime = time.Since(start).Nanoseconds()
+	available := payload.Available
 
 	messageBytes, err := json.Marshal(payload)
 	if err != nil {
@@ -357,30 +338,35 @@ func (s *SNMPAgentService) GetStatus(ctx context.Context) (*proto.StatusResponse
 	}, nil
 }
 
-func summarizeSNMPTargets(statusMap map[string]snmp.TargetStatus) map[string]snmpTargetSummary {
-	if len(statusMap) == 0 {
-		return nil
-	}
+func summarizeSNMPTargets(statusMap map[string]snmp.TargetStatus) snmpStatusSummary {
+	summary := snmpStatusSummary{Available: true, TargetCount: len(statusMap)}
 
-	summaries := make(map[string]snmpTargetSummary, len(statusMap))
-	for targetName, targetStatus := range statusMap {
-		summary := snmpTargetSummary{
-			Available: targetStatus.Available,
-			LastPoll:  targetStatus.LastPoll,
-			Error:     targetStatus.Error,
-			HostIP:    targetStatus.HostIP,
-			HostName:  targetStatus.HostName,
-			OIDCount:  len(targetStatus.OIDStatus),
+	for _, targetStatus := range statusMap {
+		if targetStatus.Available {
+			summary.AvailableCount++
+		} else {
+			summary.Available = false
+		}
+		if targetStatus.Error != "" {
+			summary.FailingTargetCount++
 		}
 
+		summary.OIDCount += len(targetStatus.OIDStatus)
 		for _, oidStatus := range targetStatus.OIDStatus {
-			summary.ErrorCount += oidStatus.ErrorCount
+			summary.OIDErrorCount += oidStatus.ErrorCount
 		}
 
-		summaries[targetName] = summary
+		if poll := targetStatus.LastPoll; !poll.IsZero() {
+			if summary.NewestPoll.IsZero() || poll.After(summary.NewestPoll) {
+				summary.NewestPoll = poll
+			}
+			if summary.OldestPoll.IsZero() || poll.Before(summary.OldestPoll) {
+				summary.OldestPoll = poll
+			}
+		}
 	}
 
-	return summaries
+	return summary
 }
 
 // GetTargetStatuses returns the raw SNMP target status map, including target config.

@@ -425,7 +425,11 @@ representation and in the web UI's agent detail. The reasons SHALL include:
 - `no_live_gateway_on_active_epoch`;
 - `spool_unavailable`, when the agent reports that its spool cannot be opened;
 - `agent_upgrade_pending`, when the agent still runs a build from before the
-  cutover release.
+  cutover release;
+- `oversized_summary`, when the gateway refused status summaries from the agent
+  over its summary size limit, naming each refusing service and the summary's
+  size. An oversized summary SHALL NOT by itself make the agent
+  `agent_upgrade_pending`, since any build can send one.
 
 Core SHALL NOT create a partition from an agent-reported partition slug. A healthy
 agent SHALL show no condition.
@@ -441,6 +445,12 @@ agent SHALL show no condition.
 - **GIVEN** an agent showing `partition_not_found`
 - **WHEN** an operator creates that partition
 - **THEN** the agent's next config carries its grants and the condition clears
+
+#### Scenario: A current agent sends an oversized summary
+- **GIVEN** an agent that reports its spool and sends no retired-source data
+- **WHEN** the gateway refuses one of its status summaries for exceeding the size limit
+- **THEN** the agent shows `oversized_summary` with the service name and the summary's size
+- **AND** it does not show `agent_upgrade_pending`
 
 ### Requirement: The agent spool budget is a scoped runtime setting
 Core SHALL resolve the agent spool byte budget from CNPG settings, in the order

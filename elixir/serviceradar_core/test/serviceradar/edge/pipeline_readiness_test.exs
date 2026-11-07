@@ -155,4 +155,48 @@ defmodule ServiceRadar.Edge.PipelineReadinessTest do
     assert [%{reason: :agent_upgrade_pending, detail: %{refused_statuses: %{"results" => 1}}}] =
              PipelineReadiness.conditions(agent(%{metadata: %{}, version: "1.4.0"}), refusing)
   end
+
+  test "an oversized summary is its own condition naming the service and size, not an upgrade" do
+    refused_at = ~U[2026-11-04 12:00:00Z]
+    snmp = %{bytes: 4_812, limit: 4_096}
+
+    oversized_only =
+      runtime(%{
+        refused_statuses: %{"oversized_summary" => 35},
+        oversized_summaries: %{"snmp" => snmp},
+        last_refused_at: refused_at
+      })
+
+    # A current build that reports its spool and sends only an oversized summary.
+    assert [
+             %{
+               reason: :oversized_summary,
+               detail: %{count: 35, summaries: %{"snmp" => ^snmp}, last_refused_at: ^refused_at}
+             }
+           ] =
+             PipelineReadiness.conditions(
+               agent(%{version: "1.4.102"}),
+               facts(%{runtime: %{"agent-1" => oversized_only}})
+             )
+
+    # Retired sources alongside it still make the agent upgrade pending, without the
+    # oversized count in that condition.
+    mixed =
+      runtime(%{
+        refused_statuses: %{"oversized_summary" => 2, "results" => 1},
+        oversized_summaries: %{"snmp" => snmp},
+        last_refused_at: refused_at
+      })
+
+    assert [
+             %{reason: :agent_upgrade_pending, detail: %{refused_statuses: refused}},
+             %{reason: :oversized_summary, detail: %{count: 2}}
+           ] =
+             PipelineReadiness.conditions(
+               agent(%{version: "1.4.1"}),
+               facts(%{runtime: %{"agent-1" => mixed}})
+             )
+
+    assert refused == %{"results" => 1}
+  end
 end
