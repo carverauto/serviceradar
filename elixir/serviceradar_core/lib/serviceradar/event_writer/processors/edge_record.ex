@@ -16,7 +16,9 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
       redelivering it cannot succeed until the grant changes.
 
   Each record of a batch succeeds or fails on its own (`process_batch/1`). A record that raises
-  is the only one redelivered; the records before and after it are acknowledged.
+  is the only one redelivered; the records before and after it are acknowledged. A record
+  `ingest/4` refuses is failed as `ServiceRadar.EventWriter.EdgeRecordRefusedError`, which the
+  pipeline dead-letters on its first delivery: no failure acknowledges a record unrecorded.
     * A projector's database writes (`project/4`) run inside the transaction, told whether the
       delivery is primary. A replay makes no domain changes; late-fenced deliveries remain
       ledger-only.
@@ -58,10 +60,14 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   alias ServiceRadar.Edge.PublicationIdentity
   alias Serviceradar.Edge.V1.EdgeRecordV1
   alias ServiceRadar.Edge.WireDecode
+  alias ServiceRadar.EventWriter.EdgeRecordDeadLetter
+  alias ServiceRadar.EventWriter.EdgeRecordRefusedError
   alias ServiceRadar.NATS.PublishDeniedError
   alias ServiceRadar.Repo
 
   require Logger
+
+  @ash_inputs [Ash.Changeset, Ash.Query, Ash.ActionInput]
 
   @impl true
   def table_name, do: "event_ledger"
@@ -69,8 +75,9 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   @doc """
   Ingests each record on its own. Returns `{:ok, count}` when none raised, else
   `{:incomplete, count, failures}` naming each record that raised with its exception, so only
-  those are redelivered (or dead-lettered). `count` is the records ingested; a refused record
-  is acknowledged without being counted.
+  those are redelivered (or dead-lettered), and each refused record with its
+  `ServiceRadar.EventWriter.EdgeRecordRefusedError`, so it is dead-lettered at once. `count` is the
+  records ingested.
   """
   @impl true
   def process_batch(messages) do
@@ -88,7 +95,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
     end
   end
 
-  defp process_one(%{data: data, metadata: metadata}) when is_binary(data) do
+  defp process_one(%{data: data, metadata: metadata} = message) when is_binary(data) do
     headers = Map.get(metadata || %{}, :headers, %{})
     opts = [test_hook: test_hook(), publication: publication_of(metadata)]
 
@@ -103,14 +110,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
         {:ok, 1}
 
       {:error, reason} ->
-        :telemetry.execute(
-          [:serviceradar, :event_writer, :edge_record, :rejected],
-          %{count: 1},
-          %{reason: inspect(reason)}
-        )
-
-        Logger.warning("Edge record rejected", reason: inspect(reason))
-        {:ok, 0}
+        refused(message, %EdgeRecordRefusedError{reason: reason})
     end
   rescue
     # The broker's denial is logged once per subject and hold (`BrokerErrorLogFilter`), not
@@ -124,6 +124,30 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   end
 
   defp process_one(_message), do: {:ok, 0}
+
+  # A refused record is dead-lettered on its first delivery: redelivering the same bytes is
+  # refused the same way, and acknowledging it would lose the record with nothing to inspect or
+  # replay. Only a delivery that has no dead-letter (`EdgeRecordDeadLetter.applies?/1` is false,
+  # which neither edge-record stream's deliveries are) is still acknowledged, and says so.
+  defp refused(message, %EdgeRecordRefusedError{reason: reason} = refusal) do
+    :telemetry.execute(
+      [:serviceradar, :event_writer, :edge_record, :rejected],
+      %{count: 1},
+      %{reason: inspect(reason)}
+    )
+
+    if EdgeRecordDeadLetter.applies?(message) do
+      Logger.debug("Edge record rejected; dead-lettering it: #{Exception.message(refusal)}")
+      {:failed, refusal}
+    else
+      Logger.warning(
+        "Edge record rejected on a subject without a dead-letter route; acknowledging it: " <>
+          Exception.message(refusal)
+      )
+
+      {:ok, 0}
+    end
+  end
 
   # The audit route carries only late-fenced deliveries; `ingest/4` refuses anything else there.
   defp publication_of(%{subject: "telemetry.edge-record-audit." <> _}), do: :audit
@@ -146,8 +170,11 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   reason from `ServiceRadar.Edge.WireDecode`. A metrics publish failure other than
   `:output_grant_not_current` raises before the ledger transaction, so no
   ledger row is written and `process_batch/1` fails the record for JetStream
-  redelivery; a publish the broker denied raises `ServiceRadar.NATS.PublishDeniedError`. A domain projection failure that is not an authority refusal
-  raises after the transaction rolls back, with the same redelivery.
+  redelivery; a publish the broker denied raises `ServiceRadar.NATS.PublishDeniedError`. A
+  domain projection failure that is not an authority refusal raises after the transaction
+  rolls back, with the same redelivery. That includes a write an Ash action rolled the
+  transaction back with (its changeset or error is the rollback value, not a refusal) and a
+  database error such as a deadlock.
 
   `opts[:test_hook]` is the test-only hook described in the moduledoc; it
   defaults to `nil`, which disables it. `opts[:publication]` is `:audit` for a
@@ -322,10 +349,34 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
       {:error, :rollback} ->
         raise "edge record transaction #{inspect(event_id)} rolled back"
 
-      result ->
-        result
+      {:error, reason} = result ->
+        if write_failure?(reason) do
+          raise "edge record transaction #{inspect(event_id)} failed: #{describe_failure(reason)}"
+        else
+          result
+        end
     end
   end
+
+  # A refusal names why the record cannot project: an atom, or a tuple tagged with one
+  # (`{:delivery_slot_conflict, existing}`, `{:refused, :gateway_unknown}`). A write that failed
+  # is an exception or the changeset, query or input an Ash action rolled the transaction back
+  # with (a constraint race, a deadlock, a timeout): the same record can succeed on redelivery,
+  # so it raises and JetStream redelivers it with backoff, then dead-letters it at its threshold.
+  defp write_failure?(reason) when is_exception(reason), do: true
+  defp write_failure?(%struct{}) when struct in @ash_inputs, do: true
+  defp write_failure?(reason) when is_list(reason), do: Enum.any?(reason, &write_failure?/1)
+
+  defp write_failure?(reason) when is_tuple(reason),
+    do: reason |> Tuple.to_list() |> Enum.any?(&write_failure?/1)
+
+  defp write_failure?(_reason), do: false
+
+  defp describe_failure(%struct{errors: errors}) when struct in @ash_inputs,
+    do: errors |> Ash.Error.to_error_class() |> Exception.message()
+
+  defp describe_failure(reason) when is_exception(reason), do: Exception.message(reason)
+  defp describe_failure(reason), do: inspect(reason, limit: 8, printable_limit: 256)
 
   defp project(repo, provenance, record, projector, body, ledger_outcome, gateway_id) do
     if function_exported?(projector, :project, 4) do

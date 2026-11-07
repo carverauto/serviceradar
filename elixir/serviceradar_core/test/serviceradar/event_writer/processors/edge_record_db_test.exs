@@ -62,6 +62,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
   alias Serviceradar.Edge.V1.WasmPluginResultItemV1
   alias ServiceRadar.EventWriter.EdgeRecordDeadLetter
   alias ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay
+  alias ServiceRadar.EventWriter.EdgeRecordRefusedError
   alias ServiceRadar.EventWriter.Processors.EdgeRecord
   alias ServiceRadar.FlowAttribution
   alias ServiceRadar.FlowAttribution.Observations
@@ -531,7 +532,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
       with_telemetry([[:ash, :notifier, :stop]], notified, fn ->
         rollback_log =
-          capture_log(fn ->
+          capture_own_log(fn ->
             assert_raise RuntimeError, "injected rollback", fn ->
               EdgeRecord.ingest(record_bytes, headers, Repo, test_hook: hook)
             end
@@ -548,7 +549,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
         # Nothing of the rolled-back attempt survives, so a redelivery commits.
         commit_log =
-          capture_log(fn ->
+          capture_own_log(fn ->
             assert {:ok, :inserted} = EdgeRecord.ingest(record_bytes, headers, Repo)
           end)
 
@@ -580,7 +581,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
       with_telemetry([[:ash, :notifier, :stop]], notified, fn ->
         rollback_log =
-          capture_log(fn ->
+          capture_own_log(fn ->
             # Ash.transact/3 rolls back on {:error, reason} and returns the reason wrapped
             # as an Ash error.
             assert {:error, %Ash.Error.Unknown.UnknownError{error: abort_reason}} =
@@ -599,7 +600,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
         assert ledger_count(record) == 0
 
         commit_log =
-          capture_log(fn ->
+          capture_own_log(fn ->
             assert {:ok, _result} =
                      Ash.transact([SweepGroup], fn ->
                        assert {:ok, :inserted} = EdgeRecord.ingest(record_bytes, headers, Repo)
@@ -645,6 +646,36 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
                        {:error, {:delivery_slot_conflict, %{record_sha256: ^first_sha256}}}}
 
       refute_received {:edge_record_hook, :before_commit, ^conflicting_event_id, _result}
+    end
+
+    # A unique violation inside the transaction makes Ash roll the caller's transaction back with
+    # the failed changeset as its value. That is a failed write, not a refusal: returned as an
+    # `{:error, reason}` the record was acknowledged and its batch lost.
+    test "a write an Ash action rolled the transaction back with raises, so the record is redelivered" do
+      %{record_bytes: record_bytes, headers: headers, record: record} = build_frame()
+      actor = SystemActor.system(:edge_record_test)
+      uid = "sr:" <> Ash.UUID.generate()
+
+      Device
+      |> Ash.Changeset.for_create(:create, %{uid: uid}, actor: actor)
+      |> Ash.create!()
+
+      hook = fn
+        :before_commit, _event_id, _result ->
+          Device
+          |> Ash.Changeset.for_create(:create, %{uid: uid}, actor: actor)
+          |> Ash.create()
+
+        _point, _event_id, _result ->
+          :ok
+      end
+
+      assert_raise RuntimeError, ~r/^edge record transaction .* failed: /, fn ->
+        EdgeRecord.ingest(record_bytes, headers, Repo, test_hook: hook)
+      end
+
+      assert ledger_count(record) == 0
+      assert {:ok, :inserted} = EdgeRecord.ingest(record_bytes, headers, Repo)
     end
   end
 
@@ -1288,6 +1319,28 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
       assert unleased_host_results(frame.execution_id) == []
       assert Repo.get(SweepGroupExecution, frame.execution_id) == nil
+      assert ledger_count(frame.record) == 0
+    end
+
+    test "a refused record is failed for the dead-letter on its first delivery, not acknowledged" do
+      frame = build_unleased_sweep_frame()
+      assert {:ok, 1} = OutputGrants.revoke_agent(frame.agent_id)
+
+      message = %{
+        data: frame.record_bytes,
+        metadata: %{
+          headers: frame.headers,
+          subject: "telemetry.edge-record.v1.bulk.p07",
+          dead_letter_after: 20,
+          max_deliver: -1
+        }
+      }
+
+      assert {:incomplete, 0,
+              [{^message, %EdgeRecordRefusedError{reason: :output_grant_not_current} = refused}]} =
+               EdgeRecord.process_batch([message])
+
+      assert EdgeRecordDeadLetter.due?(Map.put(message, :status, {:failed, refused}))
       assert ledger_count(frame.record) == 0
     end
 
@@ -3868,6 +3921,18 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
     after
       :telemetry.detach(handler_id)
     end
+  end
+
+  # capture_log/1 in an async test also captures every concurrent test's log
+  # lines, so keep only the first line of each entry this process logged.
+  defp capture_own_log(fun) do
+    tag = "pid=#{:erlang.pid_to_list(self())} "
+
+    [format: "$metadata[$level] $message\n", metadata: [:pid]]
+    |> capture_log(fun)
+    |> String.split("\n")
+    |> Enum.filter(&String.starts_with?(&1, tag))
+    |> Enum.join("\n")
   end
 
   # --- database assertions ---------------------------------------------------

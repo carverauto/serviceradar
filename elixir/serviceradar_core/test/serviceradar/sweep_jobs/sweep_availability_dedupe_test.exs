@@ -68,4 +68,20 @@ defmodule ServiceRadar.SweepJobs.SweepAvailabilityDedupeTest do
     assert keys == Enum.sort(keys)
     assert length(keys) == 64
   end
+
+  # Host results share the contract: one row per conflict key, in key order, with an
+  # answered result kept over one that did not answer.
+  test "host result rows are one per (execution_id, ip), in key order, answered first" do
+    rows =
+      for n <- 64..1//-1, status <- [:available, :unavailable] do
+        %{execution_id: "exec-a", ip: "192.0.2.#{n}", status: status}
+      end
+
+    deduped = SweepResultsIngestor.dedupe_host_results(rows)
+    keys = Enum.map(deduped, &{&1.execution_id, &1.ip})
+
+    assert keys == Enum.sort(keys)
+    assert length(keys) == 64
+    assert Enum.all?(deduped, &(&1.status == :available))
+  end
 end

@@ -415,7 +415,9 @@ too, EventWriter copies the record's original bytes and headers, plus
 the PubAck and only then acknowledges the source. If the copy cannot be stored,
 the source stays on the primary stream and keeps retrying. A republish the NATS
 broker denies is dead-lettered on its first failed delivery, because retrying
-cannot succeed until the permission changes.
+cannot succeed until the permission changes. So is a record EventWriter refuses
+(a failed check, a grant or assignment that is no longer current, a conflicting
+delivery slot), because the same bytes are refused again on every delivery.
 
 Fix the cause first (the `Sr-Edge-Dlq-Reason-Detail` header and the EventWriter
 log name it), then list and replay from a core pod:

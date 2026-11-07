@@ -40,6 +40,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.EventWriter.Config
   alias ServiceRadar.EventWriter.EdgeRecordDeadLetter
+  alias ServiceRadar.EventWriter.EdgeRecordRefusedError
   alias ServiceRadar.EventWriter.JetStreamAck
   alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
   alias ServiceRadar.EventWriter.Processors.EdgeRecord
@@ -406,14 +407,22 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   end
 
   # Returns the level it logged at. A denied republish is logged once per subject by the broker
-  # error filter and dead-lettered (`EdgeRecordDeadLetter.terminal?/1`), so it is not logged
-  # again for every batch. Alert-evaluation backpressure never reaches here: processors defer
-  # it to `ServiceRadar.EventWriter.AlertAdmissionBacklog` and succeed.
+  # error filter, and a refused edge record once by its dead-letter; both are dead-lettered
+  # (`EdgeRecordDeadLetter.terminal?/1`), so they are not logged again for every batch.
+  # Alert-evaluation backpressure never reaches here: processors defer it to
+  # `ServiceRadar.EventWriter.AlertAdmissionBacklog` and succeed.
   defp log_batch_failure(batcher, reason, message_count) do
     {level, text} =
-      if match?(%PublishDeniedError{}, reason),
-        do: {:debug, "Batch holds records whose republish the NATS broker denied"},
-        else: {:error, "Batch processing failed"}
+      case reason do
+        %PublishDeniedError{} ->
+          {:debug, "Batch holds records whose republish the NATS broker denied"}
+
+        %EdgeRecordRefusedError{} ->
+          {:debug, "Batch holds edge records the processor refused"}
+
+        _other ->
+          {:error, "Batch processing failed"}
+      end
 
     Logger.log(level, text,
       batcher: batcher,
@@ -429,7 +438,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
     Enum.each(messages, fn message ->
       {level, text} =
         if EdgeRecordDeadLetter.terminal?(message),
-          do: {:debug, "Message republish denied by the NATS broker; dead-lettering it"},
+          do: {:debug, "Message cannot succeed on redelivery; dead-lettering it"},
           else: {:warning, "Message failed"}
 
       Logger.log(level, text,
