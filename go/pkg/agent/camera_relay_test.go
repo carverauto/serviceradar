@@ -30,6 +30,7 @@ var (
 	errCameraRelayStreamFailed      = errors.New("camera relay stream failed")
 	errRTSPDialFailed               = errors.New("rtsp dial failed")
 	errPluginTerminatedUnexpectedly = errors.New("plugin terminated unexpectedly")
+	errSyntheticCloseFailure        = errors.New("synthetic close failure")
 )
 
 type fakeCameraRelayGateway struct {
@@ -1479,10 +1480,10 @@ func TestCameraRelayTimestampDecoderHandlesRTPWraparound(t *testing.T) {
 // Teardown can outlive the caller, or return an error even though the upstream
 // relay has already closed. Neither case may be reported as completed early.
 func TestCameraRelayStopObservationDuringTeardown(t *testing.T) {
-	for _, closeErr := range []error{nil, errors.New("synthetic close failure")} {
-		name := "completed"
+	for _, closeErr := range []error{nil, errSyntheticCloseFailure} {
+		name := cameraRelayStopStateCompleted
 		if closeErr != nil {
-			name = "unresolved"
+			name = cameraRelayStopStateUnresolved
 		}
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -1508,7 +1509,7 @@ func TestCameraRelayStopObservationDuringTeardown(t *testing.T) {
 			case <-ctx.Done():
 				t.Fatal("source close did not start")
 			}
-			if observation, err := manager.ReconcileStop(query); err != nil || observation.State != "pending" {
+			if observation, err := manager.ReconcileStop(query); err != nil || observation.State != cameraRelayStopStatePending {
 				t.Fatalf("pending observation: %+v, %v", observation, err)
 			}
 			wrong := query
@@ -1518,7 +1519,7 @@ func TestCameraRelayStopObservationDuringTeardown(t *testing.T) {
 			}
 			wrong = query
 			wrong.OperationID = "unobserved-stop"
-			if observation, err := manager.ReconcileStop(wrong); err != nil || observation.State != "unknown" {
+			if observation, err := manager.ReconcileStop(wrong); err != nil || observation.State != cameraRelayStopStateUnknown {
 				t.Fatalf("unknown observation: %+v, %v", observation, err)
 			}
 			newManager := newCameraRelayManager(newFakeCameraRelayGateway(), createTestLogger())
@@ -1579,7 +1580,7 @@ func TestCameraRelayStopObservationRetention(t *testing.T) {
 				if err := manager.StopCommand(caller, cmd, payload); !errors.Is(err, context.Canceled) {
 					t.Fatalf("retained operation at capacity: %v", err)
 				}
-				if observation, err := manager.ReconcileStop(query); err != nil || observation.State != "pending" {
+				if observation, err := manager.ReconcileStop(query); err != nil || observation.State != cameraRelayStopStatePending {
 					t.Fatalf("retained observation: %+v, %v", observation, err)
 				}
 			} else {
@@ -1590,7 +1591,7 @@ func TestCameraRelayStopObservationRetention(t *testing.T) {
 				case <-ctx.Done():
 					t.Fatal("deadline wait timed out")
 				}
-				if observation, err := manager.ReconcileStop(query); err != nil || observation.State != "unknown" {
+				if observation, err := manager.ReconcileStop(query); err != nil || observation.State != cameraRelayStopStateUnknown {
 					t.Fatalf("expired observation: %+v, %v", observation, err)
 				}
 				if err := manager.StopCommand(caller, cmd, payload); !errors.Is(err, errCameraRelayStopEnvelope) {

@@ -468,7 +468,7 @@ func TestCameraSharedRuntime(t *testing.T) {
 			queryRequest.CommandType = commandTypeCameraRelayReconcileStop
 			observation := runtimeSendCommand(t, ctx, loop, queryRequest, false)
 			var body cameraRelayStopObservation
-			if !observation.Success || json.Unmarshal(observation.PayloadJson, &body) != nil || body.State != "completed" || body.CameraSourceID != conflict.CameraSourceID || body.StreamProfileID != conflict.StreamProfileID {
+			if !observation.Success || json.Unmarshal(observation.PayloadJson, &body) != nil || body.State != cameraRelayStopStateCompleted || body.CameraSourceID != conflict.CameraSourceID || body.StreamProfileID != conflict.StreamProfileID {
 				t.Fatalf("lost stop reply observation: %v", observation)
 			}
 			// Reuse the relay ID to prove a retry retains its captured handle.

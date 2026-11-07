@@ -17,6 +17,14 @@ const (
 	maxCameraRelayStopTTL        = 5 * time.Minute
 )
 
+// Wire values of camera.reconcile_relay_stop observation states.
+const (
+	cameraRelayStopStateUnknown    = "unknown"
+	cameraRelayStopStatePending    = "pending"
+	cameraRelayStopStateCompleted  = "completed"
+	cameraRelayStopStateUnresolved = "unresolved"
+)
+
 var (
 	errCameraRelayStopEnvelope      = errors.New("camera relay stop requires an operation ID and a valid deadline within five minutes")
 	errCameraRelayStopConflict      = errors.New("camera relay stop operation content conflict")
@@ -130,7 +138,7 @@ func (m *cameraRelayManager) ReconcileStop(query cameraRelayStopQuery) (*cameraR
 	m.pruneStopOperations(time.Now())
 	operation, ok := m.stopOperations[query.OperationID]
 	m.mu.Unlock()
-	observation := &cameraRelayStopObservation{cameraRelayStopQuery: query, State: "unknown"}
+	observation := &cameraRelayStopObservation{cameraRelayStopQuery: query, State: cameraRelayStopStateUnknown}
 	if !ok {
 		return observation, nil
 	}
@@ -139,12 +147,12 @@ func (m *cameraRelayManager) ReconcileStop(query cameraRelayStopQuery) (*cameraR
 	}
 	observation.CameraSourceID = operation.handle.source.cameraSourceID
 	observation.StreamProfileID = operation.handle.source.streamProfileID
-	observation.State = "pending"
+	observation.State = cameraRelayStopStatePending
 	select {
 	case <-operation.handle.done:
-		observation.State = "completed"
+		observation.State = cameraRelayStopStateCompleted
 		if operation.handle.closeErr != nil {
-			observation.State = "unresolved"
+			observation.State = cameraRelayStopStateUnresolved
 		}
 	default:
 	}
