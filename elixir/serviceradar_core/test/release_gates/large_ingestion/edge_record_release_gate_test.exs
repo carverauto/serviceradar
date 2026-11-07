@@ -455,7 +455,7 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
 
     completed_sync_runs =
       scalar_count!(
-        "SELECT count(*) FROM platform.sync_ingest_runs WHERE sync_service_id = $1::uuid AND sync_run_id = $2 AND incomplete = FALSE AND total_chunks = $3 AND received_chunks = ARRAY(SELECT generate_series(0, $3 - 1))",
+        "SELECT count(*) FROM platform.sync_ingest_runs WHERE sync_service_id = $1::uuid AND sync_run_id = $2 AND incomplete = FALSE AND total_chunks = $3 AND received_chunks = ARRAY(SELECT generate_series(0, $3::integer - 1))",
         [Ecto.UUID.dump!(sync_service_id), sync_run_id, total_chunks]
       )
 

@@ -27,7 +27,7 @@ fi
 echo "Running core EdgeRecord large-ingestion release gate (${DEVICE_COUNT} devices, chunk size ${CHUNK_SIZE})"
 (
   cd "${ROOT_DIR}"
-  bazel test -c opt --config=ci --//build:enable_integration_tests "--//build:run_id=${RUN_ID}" \
+  bazel test -c opt --//build:enable_integration_tests "--//build:run_id=${RUN_ID}" \
     --strategy=TestRunner=local --nocache_test_results \
     "--test_env=SERVICERADAR_LARGE_INGESTION_DEVICE_COUNT=${DEVICE_COUNT}" \
     "--test_env=SERVICERADAR_LARGE_INGESTION_CHUNK_SIZE=${CHUNK_SIZE}" \
