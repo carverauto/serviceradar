@@ -19,6 +19,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   @behaviour ServiceRadar.EventWriter.Processor
 
   alias ServiceRadar.Analytics.StarRocks.Destination
+  alias ServiceRadar.Ash.NotificationQueue
   alias ServiceRadar.Automation.Northbound.EventHandlerRunner
   alias ServiceRadar.EventWriter.AlertAdmissionBacklog
   alias ServiceRadar.EventWriter.BulkInsert
@@ -32,7 +33,6 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   alias ServiceRadar.Observability.AnomalyDispositionReporter
   alias ServiceRadar.Observability.BmpSettingsRuntime
   alias ServiceRadar.Observability.CausalPubSub
-  alias ServiceRadar.Observability.StatefulAlertEngine.Inbox
   alias ServiceRadar.Observability.StatefulAlertEngine.Input
   alias ServiceRadar.Observability.StatefulEvaluationLedger
 
@@ -359,7 +359,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
         end
       end)
     end
-    |> Inbox.with_notification_queue()
+    |> NotificationQueue.with_queue()
     |> case do
       {:ok, :ok} -> :ok
       {:ok, :already_admitted} -> :already_admitted

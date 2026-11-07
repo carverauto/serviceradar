@@ -22,6 +22,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Ash.NotificationQueue
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Observability.AdvisoryLocks
   alias ServiceRadar.Observability.AlertEvaluationLane, as: Lane
@@ -51,7 +52,6 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
   @admission_key "alert-evaluation:admission:v1"
   @client_backstop_multiplier 10
   @min_client_timeout_ms 10_000
-  @pending_notifications {__MODULE__, :pending_notifications}
 
   @doc """
   Admits every eligible rule occurrence of `records` that capacity allows, in
@@ -259,66 +259,14 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
 
   def evaluation_key(rule_id), do: "alert-evaluation:owner:v1:#{rule_id}"
 
-  @doc """
-  Sends Ash notifications once the outermost notification queue commits, and
-  drops them if that transaction rolls back. With no queue open, sends them now.
-
-  `transact/2` owns the queue. A caller that opens its own `Repo.transaction`
-  owns the same queue by wrapping that transaction in `with_notification_queue/1`.
-  A nested call appends to the queue already open, so a savepoint commit does
-  not send before the outermost transaction commits.
-
-  An Ash action run inside a plain `Repo.transaction` cannot send its own
-  notifications: Ash holds them back and logs them as missed. Actions here run
-  with `return_notifications?: true` and pass the result to this function.
-  """
-  @spec notify_after_commit([Ash.Notifier.Notification.t()]) :: :ok
-  def notify_after_commit(notifications) when is_list(notifications) do
-    case Process.get(@pending_notifications) do
-      nil -> _ = Ash.Notifier.notify(notifications)
-      pending -> Process.put(@pending_notifications, [notifications | pending])
-    end
-
-    :ok
-  end
-
-  @doc """
-  Owns the notification queue around one transaction result.
-
-  The outermost call sends what `notify_after_commit/1` queued only when `work`
-  returns `{:ok, _}`. Any other result, including a rollback, drops the queue.
-  A call nested inside an open queue, including `transact/2`, leaves sending to
-  that outer owner.
-  """
-  @spec with_notification_queue((-> result)) :: result when result: term()
-  def with_notification_queue(work) when is_function(work, 0) do
-    if Process.get(@pending_notifications) do
-      work.()
-    else
-      Process.put(@pending_notifications, [])
-
-      try do
-        result = work.()
-        pending = Process.get(@pending_notifications)
-
-        if match?({:ok, _}, result) do
-          _ = pending |> Enum.reverse() |> List.flatten() |> Ash.Notifier.notify()
-        end
-
-        result
-      after
-        Process.delete(@pending_notifications)
-      end
-    end
-  end
-
   # PostgreSQL's lock and statement timeouts enforce `timeout` per statement: an
   # expired statement is cancelled, the transaction rolls back and the connection
   # stays usable. The client checkout deadline is per transaction and only
   # backstops a store PostgreSQL cannot reach, so size it for multiple round
-  # trips with a floor for short tail polls in Completion.await/2.
+  # trips with a floor for short tail polls in Completion.await/2. The
+  # transaction owns the notification queue (`NotificationQueue.with_queue/1`).
   def transact(timeout, work, opts \\ []) do
-    with_notification_queue(fn -> run_transaction(timeout, work, opts) end)
+    NotificationQueue.with_queue(fn -> run_transaction(timeout, work, opts) end)
   end
 
   defp run_transaction(timeout, work, opts) do
@@ -659,7 +607,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
           )
           |> Ash.update!(return_notifications?: true)
 
-        notify_after_commit(registered ++ reserved)
+        NotificationQueue.notify_after_commit(registered ++ reserved)
 
         Enum.with_index(records, lane.next_position + 1)
       end)

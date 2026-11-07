@@ -340,7 +340,8 @@ produced effects, one fenced CNPG transaction applies them with
 insert-if-absent and guarded updates. Generated OCSF events go through the
 existing DurablePublish outbox in that same transaction, so publication stays
 JetStream-first. Ash notifications are sent after commit
-(`Inbox.notify_after_commit/1` semantics, moved to the owner).
+(`ServiceRadar.Ash.NotificationQueue.notify_after_commit/1` semantics, moved
+to the owner).
 
 Decisions never depend on an effect's outcome. A transient failure (store
 unavailable, lock timeout, fence lost) aborts the commit, and the owner

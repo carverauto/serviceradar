@@ -7,13 +7,13 @@ defmodule ServiceRadar.Observability.LogPromotion do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Analytics.StarRocks.Destination
+  alias ServiceRadar.Ash.NotificationQueue
   alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.FalcoDecomposition
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.EventWriter.StableId
   alias ServiceRadar.Monitoring.AlertGenerator
   alias ServiceRadar.Observability.EventRule
-  alias ServiceRadar.Observability.StatefulAlertEngine.Inbox
   alias ServiceRadar.Observability.StatefulEvaluationLedger
 
   require Ash.Query
@@ -718,7 +718,7 @@ defmodule ServiceRadar.Observability.LogPromotion do
     # DB connection's search_path determines the schema
     case AlertGenerator.from_event(event, alert: alert_config, return_notifications?: true) do
       {:ok, %{} = _alert, notifications} ->
-        Inbox.notify_after_commit(notifications)
+        NotificationQueue.notify_after_commit(notifications)
         {created + 1, attempted + 1}
 
       _ ->

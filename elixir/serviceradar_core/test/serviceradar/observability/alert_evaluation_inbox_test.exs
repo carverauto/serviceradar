@@ -5,6 +5,7 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
 
   alias Ash.Notifier.Notification
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Ash.NotificationQueue
   alias ServiceRadar.Ingestion.RuntimeMetrics, as: MetricPublisher
   alias Serviceradar.Metric.V1.MetricBatch
   alias ServiceRadar.Observability.AlertEvaluationLane
@@ -800,15 +801,17 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
         Inbox.transact(2_000, fn ->
           case outcome do
             :commit ->
-              Inbox.notify_after_commit([notification])
+              NotificationQueue.notify_after_commit([notification])
 
             :rollback ->
-              Inbox.notify_after_commit([notification])
+              NotificationQueue.notify_after_commit([notification])
               Repo.rollback(:test)
 
             :nested ->
               assert {:ok, :ok} =
-                       Inbox.transact(2_000, fn -> Inbox.notify_after_commit([notification]) end)
+                       Inbox.transact(2_000, fn ->
+                         NotificationQueue.notify_after_commit([notification])
+                       end)
 
               refute_received {:delivered, :nested}
               :ok
@@ -843,9 +846,9 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
     end
 
     assert {:ok, :committed} =
-             Inbox.with_notification_queue(fn ->
+             NotificationQueue.with_queue(fn ->
                Repo.transaction(fn ->
-                 Inbox.notify_after_commit([delivered.(:plain_commit)])
+                 NotificationQueue.notify_after_commit([delivered.(:plain_commit)])
                  :committed
                end)
              end)
@@ -854,9 +857,9 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
     refute_receive {:delivered, :plain_commit}, 100
 
     assert {:error, :test} =
-             Inbox.with_notification_queue(fn ->
+             NotificationQueue.with_queue(fn ->
                Repo.transaction(fn ->
-                 Inbox.notify_after_commit([delivered.(:plain_rollback)])
+                 NotificationQueue.notify_after_commit([delivered.(:plain_rollback)])
                  Repo.rollback(:test)
                end)
              end)
@@ -866,9 +869,9 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
     assert {:error, :outer} =
              Inbox.transact(2_000, fn ->
                assert {:ok, :saved} =
-                        Inbox.with_notification_queue(fn ->
+                        NotificationQueue.with_queue(fn ->
                           Repo.transaction(fn ->
-                            Inbox.notify_after_commit([delivered.(:outer_rollback)])
+                            NotificationQueue.notify_after_commit([delivered.(:outer_rollback)])
                             :saved
                           end)
                         end)
