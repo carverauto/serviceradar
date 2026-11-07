@@ -153,43 +153,21 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.StatusNormalizer do
   defp normalize_available(0), do: false
   defp normalize_available(_), do: false
 
+  # The status's own summary, kept whole. A JSON payload's summary is its `summary`, `message` or
+  # `status` field; a payload that is not JSON is its own summary. A structured payload with no
+  # summary field has none: the payload is kept whole in `details`, so copying it into `message`
+  # would store it twice, and cutting it would store something the sender never said.
   defp normalize_message(message) when is_binary(message) do
     case Jason.decode(message) do
-      {:ok, decoded} when is_map(decoded) ->
-        decoded["summary"] || decoded["message"] || decoded["status"] || slice_message(message)
-
-      {:ok, decoded} when is_list(decoded) ->
-        normalize_message(decoded) || slice_message(message)
-
-      _ ->
-        slice_message(message)
+      {:ok, decoded} when is_map(decoded) or is_list(decoded) -> normalize_message(decoded)
+      _ -> message
     end
   end
 
-  defp normalize_message(message) when is_map(message) do
-    summary =
-      Map.get(message, "summary") ||
-        Map.get(message, :summary) ||
-        Map.get(message, "message") ||
-        Map.get(message, :message) ||
-        Map.get(message, "status") ||
-        Map.get(message, :status)
+  defp normalize_message(message) when is_map(message), do: message_summary(message)
 
-    if is_binary(summary) do
-      slice_message(summary)
-    else
-      slice_message(FieldParser.encode_json(message))
-    end
-  end
-
-  defp normalize_message(message) when is_list(message) do
-    message
-    |> Enum.find_value(&message_summary/1)
-    |> case do
-      summary when is_binary(summary) -> slice_message(summary)
-      _ -> slice_message(FieldParser.encode_json(message))
-    end
-  end
+  defp normalize_message(message) when is_list(message),
+    do: Enum.find_value(message, &message_summary/1)
 
   defp normalize_message(_), do: nil
 
@@ -203,9 +181,6 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.StatusNormalizer do
   end
 
   defp message_summary(_message), do: nil
-
-  defp slice_message(nil), do: nil
-  defp slice_message(message) when is_binary(message), do: String.slice(message, 0, 2048)
 
   defp normalize_message_value(value) when is_binary(value) or is_nil(value), do: value
 

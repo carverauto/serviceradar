@@ -33,4 +33,48 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.StatusNormalizerTest d
     assert attrs.gateway_id == "farm01-gateway"
     assert attrs.partition == "farm01"
   end
+
+  describe "attrs_from_status/3 message" do
+    defp attrs(message) do
+      StatusNormalizer.attrs_from_status(
+        %{
+          agent_id: "agent-1",
+          gateway_id: "gateway-1",
+          partition: "default",
+          service_type: "sweep",
+          service_name: "network_sweep",
+          available: true,
+          message: message
+        },
+        nil,
+        preserve_gateway?: true
+      )
+    end
+
+    test "a message longer than 2048 characters is kept whole, never cut" do
+      text = String.duplicate("probe timed out on 192.0.2.10; ", 200)
+      assert String.length(text) > 2048
+
+      assert attrs(text).message == text
+
+      summary = String.duplicate("é", 3_000)
+      assert attrs(Jason.encode!(%{"summary" => summary, "hosts" => []})).message == summary
+    end
+
+    test "a structured payload with no summary of its own is kept whole in details, not copied into message" do
+      document = %{
+        "total_hosts" => 600,
+        "hosts" =>
+          Enum.map(1..600, &%{"host" => "198.51.100.#{rem(&1, 250)}", "available" => false})
+      }
+
+      encoded = Jason.encode!(document)
+      assert byte_size(encoded) > 2048
+
+      result = attrs(encoded)
+
+      assert result.message == nil
+      assert Jason.decode!(result.details) == document
+    end
+  end
 end
