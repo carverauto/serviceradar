@@ -490,7 +490,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestorResultsRouterTest do
        task_supervisor: task_sup,
        lease_supervisor: lease_sup,
        processor: {ResultIngestor, :process_retained_plugin, []},
-       timeout_hook: {PluginResultQuarantine, :record_execution_timeout, []},
+       on_execution_timeout: {PluginResultQuarantine, :record_execution_timeout, []},
        source_max_bytes: 16 * 1_024 * 1_024,
        gateway_max_ms: 15_000,
        config:
