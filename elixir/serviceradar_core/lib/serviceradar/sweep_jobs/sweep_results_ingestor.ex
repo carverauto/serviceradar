@@ -916,10 +916,13 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
       hosts_to_create = Map.drop(available_unknown_hosts, Map.keys(active_existing_map))
 
+      # Created in uid order, the order every other writer locks device rows in, so two
+      # transactions seeding overlapping addresses wait on each other instead of deadlocking.
       seed_uid_collisions =
         hosts_to_create
         |> Map.values()
         |> seed_uids(partition, actor)
+        |> Enum.sort_by(&seed_creation_uid/1)
         |> Enum.reduce(0, fn
           {result, plan}, acc when is_map(plan) ->
             acc + commit_seed_plan(result, plan, partition, actor, track_collisions?)
@@ -940,6 +943,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       {created_map, seed_uid_collisions}
     end
   end
+
+  defp seed_creation_uid({_result, %{next: uid}}), do: uid
+  defp seed_creation_uid({_result, uid}), do: uid
 
   defp log_unseeded_hosts(_group, [], _reason), do: :ok
 
@@ -1818,7 +1824,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     {count, _} =
       Repo.insert_all(
         SweepHostResult,
-        records,
+        dedupe_host_results(records),
         on_conflict: on_conflict_query,
         conflict_target: [:execution_id, :ip],
         returning: false
@@ -1831,8 +1837,37 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     :ok
   rescue
     e ->
+      raise_in_transaction!(e, __STACKTRACE__)
       Logger.error("SweepResultsIngestor: Failed to insert host results: #{inspect(e)}")
       {:error, e}
+  end
+
+  # One row per (execution_id, ip), in that key order. A batch that reports an address twice
+  # would otherwise make Postgres refuse the whole INSERT (an ON CONFLICT DO UPDATE cannot
+  # affect a row twice), and two concurrent batches inserting overlapping keys in different
+  # orders can deadlock on the unique index. An answered result wins over one that did not
+  # answer, and otherwise the later one wins.
+  @doc false
+  def dedupe_host_results(records) do
+    records
+    |> Enum.with_index()
+    |> Enum.group_by(fn {record, _index} -> {record.execution_id, record.ip} end)
+    |> Enum.sort_by(fn {key, _rows} -> key end)
+    |> Enum.map(fn {_key, rows} ->
+      {record, _index} =
+        Enum.max_by(rows, fn {record, index} -> {record.status == :available, index} end)
+
+      record
+    end)
+  end
+
+  # Inside a transaction (the edge-record ledger transaction) a failed statement has aborted the
+  # whole transaction: nothing after it can run, so logging the error and carrying on only
+  # fails a later statement under a misleading cause. Raise it instead, so the record is
+  # redelivered whole. Outside a transaction each statement stands alone and the caller's
+  # best-effort handling applies.
+  defp raise_in_transaction!(error, stacktrace) do
+    if Repo.in_transaction?(), do: reraise(error, stacktrace), else: :ok
   end
 
   # Default threshold: require 2 consecutive failures before marking unavailable
@@ -2039,6 +2074,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     accepted_observations
   rescue
     e ->
+      raise_in_transaction!(e, __STACKTRACE__)
       Logger.error("SweepResultsIngestor: Failed to upsert per-agent availability: #{inspect(e)}")
       []
   end
@@ -2547,15 +2583,19 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   #
   # Ordering cannot close every cycle: a writer that locks a second set of rows after
   # its first (DeviceWrites' address release inside the fenced sync write) can still meet
-  # one of these statements in the middle. Each is a single autocommit statement, so a
-  # deadlock rolls all of it back and running it again is safe; retry a bounded number
-  # of times before reporting the error.
+  # one of these statements in the middle. Outside a transaction each is a single
+  # autocommit statement, so a deadlock rolls all of it back and running it again is safe;
+  # retry a bounded number of times before reporting the error. Inside one (the edge-record
+  # ledger transaction) the deadlock aborted the whole transaction, so the error is raised
+  # and the record is redelivered (`raise_in_transaction!/2`).
   @status_update_attempts 3
 
   # One legacy availability statement in its own transaction: the returned legacy values
   # go to the compatibility table in the same transaction. Each returned row is
   # [uid, previous legacy value, new legacy value, hostname, ip].
   defp availability_status_update(sql, params, attempt \\ 1) do
+    in_transaction? = Repo.in_transaction?()
+
     result =
       Repo.transaction(fn ->
         case Repo.query(sql, params) do
@@ -2572,6 +2612,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       {:ok, rows} ->
         {:ok, rows}
 
+      {:error, error} when is_exception(error) and in_transaction? ->
+        raise error
+
       {:error, %Postgrex.Error{postgres: %{code: :deadlock_detected}} = error}
       when attempt < @status_update_attempts ->
         Logger.info(
@@ -2587,7 +2630,12 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   end
 
   defp query_status_update(sql, params, attempt \\ 1) do
+    in_transaction? = Repo.in_transaction?()
+
     case Repo.query(sql, params) do
+      {:error, error} when is_exception(error) and in_transaction? ->
+        raise error
+
       {:error, %Postgrex.Error{postgres: %{code: :deadlock_detected}} = error}
       when attempt < @status_update_attempts ->
         Logger.info(

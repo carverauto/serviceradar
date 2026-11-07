@@ -85,6 +85,52 @@ defmodule ServiceRadar.SweepJobs.SweepIngestTransactionDbTest do
     assert availability_agents(uid) == Enum.sort([first_agent, second_agent])
   end
 
+  # A deadlock (here a lock timeout, which takes the same path and does not depend on timing)
+  # aborts the caller's transaction. Logging it and carrying on left the transaction to fail
+  # later under an unrelated cause, and the caller acknowledged the record.
+  test "a database error from the availability upsert propagates out of the transaction", ctx do
+    agent_id = "agent-availability-lock-#{System.unique_integer([:positive])}"
+    assert {:ok, _stats} = ingest(ctx, agent_id)
+    assert [[uid, nil]] = device_rows(ctx.ip)
+
+    holder = hold_availability_row(uid, agent_id)
+    assert_receive {:availability_locked, holder_pid}, @wait_ms
+    assert holder_pid == holder.pid
+
+    try do
+      error =
+        assert_raise Postgrex.Error, fn ->
+          Repo.transaction(fn ->
+            Repo.query!("SET LOCAL lock_timeout = '200ms'")
+            ingest(ctx, agent_id)
+          end)
+        end
+
+      assert error.postgres.code == :lock_not_available
+    after
+      send(holder.pid, :release)
+      Task.await(holder, @wait_ms)
+    end
+  end
+
+  test "a batch that reports one address twice records it once, answered", ctx do
+    agent_id = "agent-duplicate-host-#{System.unique_integer([:positive])}"
+    execution_id = Ash.UUID.generate()
+
+    results = [
+      %{"host_ip" => ctx.ip, "available" => false},
+      %{"host_ip" => ctx.ip, "available" => true}
+    ]
+
+    assert {:ok, _stats} = ingest(ctx, agent_id, results, execution_id)
+
+    assert %{rows: [["available"]]} =
+             Repo.query!(
+               "SELECT status FROM platform.sweep_host_results WHERE execution_id = $1::text::uuid",
+               [execution_id]
+             )
+  end
+
   # The caller's transaction runs the whole ingest. `hold?` keeps it open after the ingest until
   # the test sends `:commit`; otherwise the ingest starts on `:go`.
   defp start_ingest_transaction(ctx, agent_id, hold?: hold?) do
@@ -120,10 +166,30 @@ defmodule ServiceRadar.SweepJobs.SweepIngestTransactionDbTest do
     %{task: task, backend: backend}
   end
 
-  defp ingest(ctx, agent_id) do
-    results = [%{"host_ip" => ctx.ip, "available" => true}]
+  defp hold_availability_row(uid, agent_id) do
+    parent = self()
 
-    SweepResultsIngestor.ingest_results(results, Ash.UUID.generate(),
+    Task.async(fn ->
+      Repo.transaction(fn ->
+        Repo.query!(
+          """
+          SELECT 1 FROM platform.device_agent_availability
+          WHERE device_uid = $1 AND agent_id = $2
+          FOR UPDATE
+          """,
+          [uid, agent_id]
+        )
+
+        send(parent, {:availability_locked, self()})
+        receive(do: (:release -> :ok))
+      end)
+    end)
+  end
+
+  defp ingest(ctx, agent_id, results \\ nil, execution_id \\ Ash.UUID.generate()) do
+    results = results || [%{"host_ip" => ctx.ip, "available" => true}]
+
+    SweepResultsIngestor.ingest_results(results, execution_id,
       actor: ctx.actor,
       sweep_group_id: ctx.group.id,
       agent_id: agent_id,
