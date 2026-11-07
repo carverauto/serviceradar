@@ -316,10 +316,9 @@ in-memory coordinator state:
     the retired pre-edge-record ingest tree (flow attribution, sweep, mapper,
     bumblebee, endpoint and legacy plugin results) no longer exist. The
     `retained_plugin_result` (plugin result quarantine), `other_results`
-    (device correlation timeouts) and `service_state` lanes are published on
-    `metrics.ingestion_lanes` and are not rows in this table. The
-    `topology_projection` and `dgraph` lanes are published on
-    `metrics.ingestion_lanes` and are not rows in this table; see
+    (device correlation timeouts), `service_state`, `topology_projection` and
+    `dgraph` lanes are published on `metrics.ingestion_lanes` and are not rows
+    in this table; for the last two see
     [Projection lag](docs/network-topology.md#projection-lag).
 
 Two synthetic harnesses are selected by ordinary PR BazelCI:
