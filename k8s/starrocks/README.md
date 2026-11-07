@@ -12,15 +12,21 @@ cache); LKE node sysctl still belongs with the SaaS cluster, not here.
 
 Cluster-scoped operator, pinned to chart/operator **1.11.7**. The default lab
 `StarRocksCluster` is shared-nothing FE+BE (`values-cluster.yaml`), pinned to
-StarRocks **4.1.3**. Carverauto demo uses the shared-data overlay
+StarRocks **4.1.7**. Carverauto demo uses the shared-data overlay
 `values-cluster-shared-data.yaml` (CN + Linode analytics bucket). Farm01
 stays on the shared-nothing file.
 
 These pins are for fresh installs and clusters that have completed the upgrade.
 For an existing 3.5 cluster, follow [the staged upgrade runbook](../../docs/starrocks-upgrade.md):
-3.5.21 -> 4.0.14 -> 4.1.3, compute nodes before frontends, with the leader
-frontend last. Applying the final values to all components at once skips that
+3.5.21 -> 4.0.17 -> 4.1.7, compute nodes before frontends, with the leader
+frontend last. A cluster already on 4.1 takes the patch roll in the same
+runbook. Applying the final values to all components at once skips that
 ordering. After reaching 4.1, rollback is supported only to 4.0.6 or later.
+
+Both values files set `enable_online_optimize_table = true` in the frontend
+config. StarRocks 4.1.6 made online optimize opt-in, and without it a bucket
+rewrite (`ALTER TABLE ... DISTRIBUTED BY ... BUCKETS n`) blocks loads and is
+cancelled by one that lands while it runs.
 
 The CNPG JDBC catalog (`cnpg_platform`) is opt-in and off by default. FE/BE
 expect the pinned PostgreSQL JDBC driver at
@@ -782,7 +788,7 @@ seccomp) or farm01 `serviceradar`.
 | Operator chart | `starrocks/operator` `1.11.7` |
 | Cluster chart | `starrocks/starrocks` `1.11.7` |
 | Operator image | `starrocks/operator:v1.11.7` |
-| FE/BE/CN image | `starrocks/fe-ubuntu:4.1.3`, `starrocks/be-ubuntu:4.1.3`, `starrocks/cn-ubuntu:4.1.3` |
+| FE/BE/CN image | `starrocks/fe-ubuntu:4.1.7`, `starrocks/be-ubuntu:4.1.7`, `starrocks/cn-ubuntu:4.1.7` |
 | CRD | `starrocksclusters.starrocks.com` from operator tag `v1.11.7` |
 | Namespace | `starrocks`, PSS `baseline` (audit/warn `restricted`) |
 | Profile | farm01: 3 FE + 3 BE shared-nothing; carverauto: 3 FE + 3 CN shared-data |
