@@ -1460,9 +1460,10 @@ ex_unit_test(
     ],
 )
 
-# `mix format --check-formatted` + `mix credo --strict`, as CI's Elixir Quality job runs them.
+# `mix format --check-formatted` + `mix credo --strict` + `mix ash.codegen --check`.
 # See //build:elixir_quality.bzl.
 elixir_quality(
+    ash_codegen_app = ":erlang_app",
     extra_inputs = [
         "bench/exposure_compaction_capacity_test.exs",
         "bench/exposure_reconciliation_capacity_test.exs",

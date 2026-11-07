@@ -25,7 +25,10 @@ that later call a no-op -- Mix runs a task once per invocation.
 Two rules share one script:
 
   * `elixir_quality_test` is the check. It fails on the first unformatted file or Credo issue and
-    prints the formatter's diff.
+    prints the formatter's diff. With `ash_codegen_app` set it also runs AshPostgres
+    `codegen --check` against the compiled project app, so a resource the generator cannot handle
+    fails here. Missing snapshots are tolerated; only drift in a committed
+    `priv/resource_snapshots/repo/<table>/` fails, because most tables have no snapshot.
   * `elixir_formatted_tree` runs `mix format` as a build action and emits the formatted inputs as a
     tree artifact. `//build/elixir_quality:apply` copies the files that changed back into the
     workspace, so fixing formatting needs no local Erlang or Mix either.
@@ -166,14 +169,40 @@ if ! mix do {loadpaths} + format --check-formatted; then
     echo "FAILED: mix format --check-formatted. Fix with: bazel run --config=remote //{package}:format" >&2
     status=1
 fi
-{credo}
-exit $status
+{credo}{ash_codegen}exit $status
 """
 
 _CREDO_COMMANDS = """\
 echo "==> mix credo --strict ({project_dir})"
 if ! mix do {loadpaths} + credo --strict; then
     echo "FAILED: mix credo --strict" >&2
+    status=1
+fi
+"""
+
+_ASH_CODEGEN_EXPR = """\
+committed = "priv/resource_snapshots/repo/*/*.json" |> Path.wildcard() |> MapSet.new(&(&1 |> Path.dirname() |> Path.basename()))
+try do
+  AshPostgres.DataLayer.codegen(["--check", "--quiet", "--no-format"])
+rescue
+  e in Ash.Error.Framework.PendingCodegen ->
+    drifted =
+      for {file, _} <- e.diff,
+          String.ends_with?(file, ".json"),
+          table = file |> Path.dirname() |> Path.basename(),
+          MapSet.member?(committed, table),
+          uniq: true,
+          do: table
+    if drifted != [] do
+      Mix.raise("AshPostgres committed resource_snapshots are out of date for: #{Enum.join(drifted, ", ")}")
+    end
+end
+"""
+
+_ASH_CODEGEN_COMMANDS = """\
+echo "==> mix ash.codegen --check ({project_dir})"
+if ! mix do {loadpaths} + run --no-deps-check --no-compile --no-start -e '{expr}'; then
+    echo "FAILED: mix ash.codegen --check" >&2
     status=1
 fi
 """
@@ -211,9 +240,12 @@ def _project_dir(ctx):
 def _test_impl(ctx):
     project_dir = _project_dir(ctx)
     erl_libs_dir = ctx.label.name + "_deps"
+    tool_deps = list(ctx.attr.tool_deps)
+    if ctx.attr.ash_codegen_app:
+        tool_deps.append(ctx.attr.ash_codegen_app)
     erl_libs_files = erl_libs_contents(
         ctx,
-        deps = flat_deps(ctx.attr.tool_deps),
+        deps = flat_deps(tool_deps),
         headers = False,
         dir = erl_libs_dir,
     )
@@ -230,6 +262,11 @@ def _test_impl(ctx):
         package = ctx.label.package,
         loadpaths = _LOADPATHS,
         credo = _CREDO_COMMANDS.format(project_dir = project_dir, loadpaths = _LOADPATHS) if ctx.attr.credo else "",
+        ash_codegen = _ASH_CODEGEN_COMMANDS.format(
+            project_dir = project_dir,
+            loadpaths = _LOADPATHS,
+            expr = _ASH_CODEGEN_EXPR,
+        ) if ctx.attr.ash_codegen_app else "",
     )
     script = _script(
         ctx,
@@ -252,7 +289,14 @@ def _test_impl(ctx):
 
 elixir_quality_test = rule(
     implementation = _test_impl,
-    attrs = dict(_common_attrs(), credo = attr.bool(default = True)),
+    attrs = dict(
+        _common_attrs(),
+        credo = attr.bool(default = True),
+        ash_codegen_app = attr.label(
+            providers = [ErlangAppInfo],
+            doc = "Compiled project app (e.g. :erlang_app) to run `mix ash.codegen --check` against.",
+        ),
+    ),
     toolchains = [_TOOLCHAIN],
     test = True,
 )
@@ -390,6 +434,13 @@ _DEFAULT_INPUTS = [
     "test/**/*.heex",
 ]
 
+# Inputs `mix ash.codegen --check` reads when `ash_codegen_app` is set.
+_ASH_CODEGEN_INPUTS = [
+    "priv/resource_snapshots/**/*.json",
+    "priv/repo/migrations/**/*.exs",
+    "priv/repo/tenant_migrations/**/*.exs",
+]
+
 # The shared Credo configuration every project's .credo.exs evaluates from `..`.
 _SHARED_CREDO = [
     "//:elixir/.credo.base.exs",
@@ -405,6 +456,7 @@ def elixir_quality(
         extra_inputs = [],
         extra_srcs = [],
         credo = True,
+        ash_codegen_app = None,
         **kwargs):
     """Declares :quality_check, :formatted and :format for the Mix project in this package.
 
@@ -422,9 +474,12 @@ def elixir_quality(
       extra_inputs: more globs, for a formatter `inputs` or Credo `included` beyond the default.
       extra_srcs: files from other packages a config reads (a Credo `requires:` across projects).
       credo: run `mix credo --strict` as well (every CI-linted project does).
+      ash_codegen_app: compiled project app (e.g. `:erlang_app`) to run `mix ash.codegen --check`
+        against inside `:quality_check`.
       **kwargs: passed to the test (tags, size, ...).
     """
     srcs = native.glob(_DEFAULT_INPUTS + extra_inputs, allow_empty = True) + _SHARED_CREDO + extra_srcs
+    test_srcs = srcs + (native.glob(_ASH_CODEGEN_INPUTS, allow_empty = True) if ash_codegen_app else [])
 
     # Projects pass their mix_app dependency lists plus the dev-only linters, which overlap.
     tools = []
@@ -434,11 +489,12 @@ def elixir_quality(
     tool_deps = tools
     elixir_quality_test(
         name = "quality_check",
-        srcs = srcs,
+        srcs = test_srcs,
         tool_deps = tool_deps,
         formatter_deps = formatter_deps,
         source_deps = source_deps,
         credo = credo,
+        ash_codegen_app = ash_codegen_app,
         **kwargs
     )
     elixir_formatted_tree(
