@@ -358,8 +358,19 @@ For each hop, with `FROM` the running version and `TO` the target:
 8. Remove `$VOL-next`. Keep `$VOL-backup-$FROM` until the next hop has
    verified.
 
-To roll back a hop, stop the container, copy `$VOL-backup-$FROM` back into
-`$VOL` as in step 5, and set `STARROCKS_IMAGE` to `FROM`. Loads written to the
+To roll back a hop, run `docker compose stop starrocks`, then copy the step 3
+backup back into `$VOL`:
+
+```sh
+docker run --rm -v "$VOL":/to -v "$VOL-backup-$FROM":/from:ro alpine:3.21.3 sh -c '
+  set -eu
+  test -d /from/deploy/starrocks/fe/meta
+  find /to -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+  cp -a /from/. /to/'
+```
+
+Set `STARROCKS_IMAGE=starrocks/allin1-ubuntu:$FROM` in `.env` and start it as
+in step 6; `q "SELECT current_version()"` must print `FROM`. Loads written to the
 warehouse after the backup are lost unless JetStream still holds them. Once a
 warehouse has run 4.1, it cannot go back below 4.0.6, so a return to 3.5.21 is
 only this restore of the 3.5.21 backup.
