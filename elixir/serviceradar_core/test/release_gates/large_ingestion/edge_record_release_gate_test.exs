@@ -68,7 +68,6 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
   alias ServiceRadar.Infrastructure.Gateway
   alias ServiceRadar.Infrastructure.Partition
   alias ServiceRadar.Integrations.IntegrationSource
-  alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceAgentAvailability
   alias Serviceradar.Metric.V1.IngestIdentity
   alias Serviceradar.Metric.V1.Metric
@@ -82,7 +81,6 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
   alias ServiceRadar.SweepJobs.ProducerAssignments
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepGroupExecution
-  alias ServiceRadar.SweepJobs.SweepHostResult
   alias ServiceRadarAgentGateway.Config, as: GatewayConfig
   alias ServiceRadarAgentGateway.EdgeRecordIngestServer
   alias ServiceRadarAgentGateway.EdgeRecordTrust
@@ -1572,7 +1570,9 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
     |> Ash.create!(domain: ServiceRadar.Infrastructure)
 
     Agent
-    |> Ash.Changeset.for_create(:register, %{uid: agent_id, name: agent_id}, actor: actor)
+    |> Ash.Changeset.for_create(:register_connected, %{uid: agent_id, name: agent_id},
+      actor: actor
+    )
     |> Ash.create!()
 
     Repo.query!("UPDATE platform.ocsf_agents SET gateway_id = $1 WHERE uid = $2", [
