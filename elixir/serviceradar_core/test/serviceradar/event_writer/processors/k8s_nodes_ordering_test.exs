@@ -1,8 +1,8 @@
 defmodule ServiceRadar.EventWriter.Processors.K8sNodesOrderingTest do
   use ServiceRadar.DataCase, async: false
 
-  alias ServiceRadar.Events.InternalLogPublisher
   alias ServiceRadar.EventWriter.Processors.K8sNodes
+  alias ServiceRadar.NATS.DurablePublishWorker
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
@@ -59,42 +59,26 @@ defmodule ServiceRadar.EventWriter.Processors.K8sNodesOrderingTest do
     assert {:ok, 1} = apply_nodes(cluster, 4, [node_payload(true)])
   end
 
-  test "readiness transition NATS publish fires once after commit and never on rollback", %{
-    cluster: cluster
-  } do
-    test_pid = self()
-
-    on_exit(fn ->
-      Process.delete({InternalLogPublisher, :durable_publish})
-      Process.delete({InternalLogPublisher, :publisher})
-    end)
-
-    Process.put({InternalLogPublisher, :publisher}, {__MODULE__, :publish_live_log, [test_pid]})
-
+  test "readiness transitions are queued for JetStream with the snapshot and dropped with its rollback",
+       %{cluster: cluster} do
     assert {:ok, 2} =
              apply_nodes(cluster, 1, [node_payload(true), node_payload(true, "node2.example.com")])
 
-    Process.put({InternalLogPublisher, :durable_publish}, fn subject, json, _opts ->
-      {:ok, decoded} = Jason.decode(json)
-      send(test_pid, {:durable_k8s_log, subject, decoded["attributes"]["k8s.node.name"]})
-      refute_received {:live_k8s_log, _subject, _node_name, _in_tx?}
+    baseline = readiness_job_ids(cluster)
 
-      if decoded["attributes"]["k8s.node.name"] == "node2.example.com" do
-        {:error, :injected_rollback}
-      else
-        :ok
-      end
-    end)
+    assert {:error, :rolled_back} =
+             Repo.transaction(fn ->
+               assert {:ok, 2} =
+                        apply_nodes(cluster, 2, [
+                          node_payload(false),
+                          node_payload(false, "node2.example.com")
+                        ])
 
-    assert {:error, :batch_failed} =
-             apply_nodes(cluster, 2, [
-               node_payload(false),
-               node_payload(false, "node2.example.com")
-             ])
+               assert length(readiness_job_ids(cluster) -- baseline) == 2
+               Repo.rollback(:rolled_back)
+             end)
 
-    assert_received {:durable_k8s_log, "logs.internal.k8s", "node1.example.com"}
-    assert_received {:durable_k8s_log, "logs.internal.k8s", "node2.example.com"}
-    refute_received {:live_k8s_log, _subject, _node_name, _in_tx?}
+    assert readiness_job_ids(cluster) == baseline
 
     assert %{rows: [["node1.example.com", true], ["node2.example.com", true]]} =
              Repo.query!(
@@ -102,35 +86,46 @@ defmodule ServiceRadar.EventWriter.Processors.K8sNodesOrderingTest do
                [cluster]
              )
 
-    Process.put({InternalLogPublisher, :durable_publish}, fn subject, json, _opts ->
-      {:ok, decoded} = Jason.decode(json)
-      send(test_pid, {:durable_k8s_log, subject, decoded["attributes"]["k8s.node.name"]})
-      refute_received {:live_k8s_log, _subject, _node_name, _in_tx?}
-      :ok
-    end)
-
     assert {:ok, 2} =
              apply_nodes(cluster, 2, [
                node_payload(false),
                node_payload(false, "node2.example.com")
              ])
 
-    assert_received {:durable_k8s_log, "logs.internal.k8s", "node1.example.com"}
-    assert_received {:durable_k8s_log, "logs.internal.k8s", "node2.example.com"}
-    assert_received {:live_k8s_log, "live.logs.internal.k8s", "node1.example.com", false}
-    assert_received {:live_k8s_log, "live.logs.internal.k8s", "node2.example.com", false}
-    refute_received {:live_k8s_log, _subject, _node_name, _in_tx?}
+    assert ["node1.example.com", "node2.example.com"] =
+             cluster
+             |> readiness_jobs()
+             |> Enum.reject(&(&1.id in baseline))
+             |> Enum.map(& &1.node)
+             |> Enum.sort()
+
+    assert {:ok, 0} = apply_nodes(cluster, 1, [node_payload(true)])
+    assert length(readiness_job_ids(cluster) -- baseline) == 2
   end
 
-  def publish_live_log(subject, json, pid) do
-    {:ok, decoded} = Jason.decode(json)
+  defp readiness_job_ids(cluster), do: cluster |> readiness_jobs() |> Enum.map(& &1.id)
 
-    send(
-      pid,
-      {:live_k8s_log, subject, decoded["attributes"]["k8s.node.name"], Repo.in_transaction?()}
-    )
+  defp readiness_jobs(cluster) do
+    %{rows: rows} =
+      Repo.query!(
+        """
+        SELECT id, args->>'body'
+        FROM platform.oban_jobs
+        WHERE worker = $1 AND args->>'subject' = $2
+        ORDER BY id
+        """,
+        [inspect(DurablePublishWorker), "logs.internal.k8s"]
+      )
 
-    :ok
+    Enum.flat_map(rows, fn [id, body] ->
+      attributes = Jason.decode!(body)["attributes"]
+
+      if attributes["cluster_id"] == cluster do
+        [%{id: id, node: attributes["node"]}]
+      else
+        []
+      end
+    end)
   end
 
   defp node_payload(ready, name \\ "node1.example.com"), do: %{"name" => name, "ready" => ready}

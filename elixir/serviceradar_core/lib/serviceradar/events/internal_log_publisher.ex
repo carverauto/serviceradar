@@ -54,10 +54,7 @@ defmodule ServiceRadar.Events.InternalLogPublisher do
   end
 
   defp persist_log(subject, json, opts) do
-    durable_publish =
-      Keyword.get_lazy(opts, :durable_publish, fn ->
-        Process.get({__MODULE__, :durable_publish}, &DurablePublish.publish/3)
-      end)
+    durable_publish = Keyword.get(opts, :durable_publish, &DurablePublish.publish/3)
 
     case durable_publish.(subject, json, msg_id: Ash.UUID.generate()) do
       :ok ->
@@ -108,9 +105,7 @@ defmodule ServiceRadar.Events.InternalLogPublisher do
   end
 
   defp publisher(opts) do
-    Keyword.get_lazy(opts, :publisher, fn ->
-      Process.get({__MODULE__, :publisher}, {Connection, :publish, []})
-    end)
+    Keyword.get(opts, :publisher, {Connection, :publish, []})
   end
 
   defp publish_to_nats({mod, fun, extra_args}, subject, payload) do

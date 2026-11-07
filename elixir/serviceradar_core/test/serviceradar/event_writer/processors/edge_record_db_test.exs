@@ -92,7 +92,6 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
   alias ServiceRadar.StatusHandler
   alias ServiceRadar.SweepJobs.ExecutionSlots
   alias ServiceRadar.SweepJobs.LeaseCapabilities
-  alias ServiceRadar.SweepJobs.MapperPromotion
   alias ServiceRadar.SweepJobs.ProducerAssignments
   alias ServiceRadar.SweepJobs.SweepExecutionSlot
   alias ServiceRadar.SweepJobs.SweepGroup
@@ -657,11 +656,24 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       mapper_job_id = mapper_job.id
       test_pid = self()
 
+      original_dispatcher =
+        Application.fetch_env(:serviceradar_core, :sweep_mapper_promotion_dispatcher)
+
       on_exit(fn ->
-        Process.delete({MapperPromotion, :dispatcher})
+        case original_dispatcher do
+          {:ok, dispatcher} ->
+            Application.put_env(
+              :serviceradar_core,
+              :sweep_mapper_promotion_dispatcher,
+              dispatcher
+            )
+
+          :error ->
+            Application.delete_env(:serviceradar_core, :sweep_mapper_promotion_dispatcher)
+        end
       end)
 
-      Process.put({MapperPromotion, :dispatcher}, fn job, opts ->
+      Application.put_env(:serviceradar_core, :sweep_mapper_promotion_dispatcher, fn job, opts ->
         send(
           test_pid,
           {:mapper_dispatched, job.id, Keyword.get(opts, :seeds), Repo.in_transaction?()}
@@ -732,6 +744,18 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
           refute_received {:service_status_updated, %{agent_id: ^agent_id}}
           refute_received {:mapper_dispatched, ^mapper_job_id, _seeds, _in_tx?}
           refute_received {:device_updated, _uid, %{partition: ^partition_slug}}
+
+          pending_promotion =
+            Repo.one!(
+              Ecto.Query.from(d in Device,
+                where: d.partition == ^partition_slug and d.ip == "192.0.2.1",
+                select: d.metadata
+              )
+            )["sweep_mapper_promotion"]
+
+          assert pending_promotion["last_status"] == "dispatched"
+          assert is_binary(pending_promotion["cooldown_until"])
+          refute Map.has_key?(pending_promotion, "command_id")
           :ok
 
         _point, _event_id, _result ->
@@ -767,12 +791,28 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       assert_received {:mapper_dispatched, ^mapper_job_id, ["192.0.2.1"], false}
       refute_received {:mapper_dispatched, ^mapper_job_id, _seeds, _in_tx?}
 
-      assert_received {:device_updated, ^device_uid, %{partition: ^partition_slug}}
+      assert_received {:device_updated, ^device_uid,
+                       %{
+                         partition: ^partition_slug,
+                         metadata: %{"sweep_mapper_promotion" => pending_promotion}
+                       }}
+
+      refute Map.has_key?(pending_promotion, "command_id")
+
+      assert_received {:device_updated, ^device_uid,
+                       %{
+                         partition: ^partition_slug,
+                         metadata: %{
+                           "sweep_mapper_promotion" => %{"command_id" => "cmd-after-commit"}
+                         }
+                       }}
+
       refute_received {:device_updated, ^device_uid, _device}
 
       assert_received {:devices_invalidated, [^device_uid]}
 
       assert device.metadata["sweep_mapper_promotion"]["command_id"] == "cmd-after-commit"
+      assert is_binary(device.metadata["sweep_mapper_promotion"]["cooldown_until"])
     end
 
     test "scheduled MTR and unleased sweep side effects wait for commit and drop on rollback" do

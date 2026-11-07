@@ -69,12 +69,11 @@ defmodule ServiceRadar.SweepJobs.MapperPromotion do
   end
 
   defp default_dispatcher do
-    Process.get({__MODULE__, :dispatcher}) ||
-      Application.get_env(
-        :serviceradar_core,
-        :sweep_mapper_promotion_dispatcher,
-        &AgentCommandBus.run_mapper_job/2
-      )
+    Application.get_env(
+      :serviceradar_core,
+      :sweep_mapper_promotion_dispatcher,
+      &AgentCommandBus.run_mapper_job/2
+    )
   end
 
   defp cooldown_seconds do
@@ -287,6 +286,9 @@ defmodule ServiceRadar.SweepJobs.MapperPromotion do
 
   defp maybe_defer_promotions(promotable, dispatcher, actor, devices, now, cooldown_seconds) do
     if NotificationQueue.queuing?() do
+      pending_decisions = mark_promotions_dispatched(promotable, nil)
+      record_promotion_states(pending_decisions, devices, now, cooldown_seconds)
+
       NotificationQueue.after_commit(fn ->
         _ =
           dispatch_and_record_promotions(
@@ -301,7 +303,7 @@ defmodule ServiceRadar.SweepJobs.MapperPromotion do
         :ok
       end)
 
-      mark_promotions_dispatched(promotable, nil)
+      pending_decisions
     else
       dispatch_and_record_promotions(
         promotable,
