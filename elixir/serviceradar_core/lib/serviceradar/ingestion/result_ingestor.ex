@@ -65,10 +65,10 @@ defmodule ServiceRadar.Ingestion.ResultIngestor do
     # No per-message log here — hot path. Breadcrumbs come from the OTel span.
     case process(status, opts) do
       :ok ->
-        publish_status_update(status, opts)
+        publish_service_state(status, opts)
 
       {:ok, _result} = ok ->
-        with :ok <- publish_status_update(status, opts), do: ok
+        with :ok <- publish_service_state(status, opts), do: ok
 
       {:error, reason} = error ->
         Logger.warning("Results processing failed: #{inspect(reason)}")
@@ -76,10 +76,19 @@ defmodule ServiceRadar.Ingestion.ResultIngestor do
     end
   end
 
-  defp publish_status_update(%{source: source}, _opts)
-       when source in ["plugin-result", :plugin_result], do: :ok
+  @doc """
+  Records the service state a results status reports, in the service state registry, and
+  broadcasts it; a best-effort status goes through `ServiceRadar.ResultsRouter` batching.
+  `process_and_publish/2` calls it after ingesting a status, and a projector whose results
+  reach their tables another way calls it for the service state alone.
+  """
+  @spec publish_service_state(map(), keyword()) :: :ok | {:error, term()}
+  def publish_service_state(status, opts \\ [])
 
-  defp publish_status_update(status, opts) do
+  def publish_service_state(%{source: source}, _opts)
+      when source in ["plugin-result", :plugin_result], do: :ok
+
+  def publish_service_state(status, opts) do
     if Keyword.get(opts, :best_effort?, false) and
          Application.get_env(:serviceradar_core, :results_router_batching, true) do
       ServiceRadar.ResultsRouter.publish_completed(status)
@@ -163,7 +172,7 @@ defmodule ServiceRadar.Ingestion.ResultIngestor do
   # MAC guardrail is inert anywhere else.
   #
   # Without this clause the stream falls through to the catch-all below, which
-  # returns :ok and lets publish_status_update/1 run -- so the service reports
+  # returns :ok and lets publish_service_state/2 run -- so the service reports
   # HEALTHY while its entire payload is discarded with no log line.
   defp process(%{source: source, service_type: service_type} = status, _opts)
        when source in ["results", :results] and service_type in @census_service_types do

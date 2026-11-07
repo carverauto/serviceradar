@@ -35,7 +35,13 @@ defmodule ServiceRadar.Edge.SweepProjection do
   # not run it; both stay closed.
   @committable_slot_states [:scheduled, :missed_offline, :missed_exhausted]
 
-  @doc "Project a correlated scheduled batch in the caller's database transaction."
+  @doc """
+  Project a correlated scheduled batch in the caller's database transaction.
+
+  Returns the execution's progress after the batch: its agent, partition, sweep group and
+  execution, the targets the plan holds (`total_hosts`), the hosts swept so far and how many of
+  them were available, whether the execution is complete, and the batch's observation time.
+  """
   def project(repo, record, batch) do
     execution_id = Ecto.UUID.cast!(batch.execution_id)
 
@@ -61,7 +67,20 @@ defmodule ServiceRadar.Edge.SweepProjection do
       ]
 
       ingest!(results, execution_id, opts)
-      finish_if_complete(repo, execution_id, header, opts)
+      {swept, available} = finish_if_complete(repo, execution_id, header, opts)
+
+      {:ok,
+       %{
+         agent_id: slot.agent_id,
+         partition: partition,
+         sweep_group_id: slot.sweep_group_id,
+         execution_id: execution_id,
+         total_hosts: header.total_target_count,
+         swept_hosts: swept,
+         available_hosts: available,
+         completed: swept == header.total_target_count,
+         observed_at: DateTime.from_unix!(batch.observed_at_unix_nano, :nanosecond)
+       }}
     else
       nil -> {:error, :sweep_partition_not_found}
       {:error, _} = error -> error
@@ -213,7 +232,7 @@ defmodule ServiceRadar.Edge.SweepProjection do
       ingest!([], execution_id, Keyword.put(opts, :is_final, true))
     end
 
-    :ok
+    {count, available}
   end
 
   defp ingest!(results, execution_id, opts) do

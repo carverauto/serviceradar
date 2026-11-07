@@ -155,6 +155,41 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
                )
     end
 
+    test "a leased sweep batch records the agent's network_sweep service state" do
+      %{record_bytes: record_bytes, headers: headers, batch: batch, slot: slot} =
+        build_frame(gateway_header: "gw-sweep-publish")
+
+      assert {:ok, :inserted} = EdgeRecord.ingest(record_bytes, headers, Repo)
+
+      agent_id = slot.authenticated_agent_id
+
+      assert [
+               %ServiceState{
+                 gateway_id: "gw-sweep-publish",
+                 available: true,
+                 message: "1 of 1 swept hosts available; sweep complete",
+                 details: details
+               }
+             ] =
+               Repo.all(
+                 Ecto.Query.from(s in ServiceState,
+                   where:
+                     s.agent_id == ^agent_id and s.service_type == "sweep" and
+                       s.service_name == "network_sweep"
+                 )
+               )
+
+      assert %{
+               "execution_id" => execution_id,
+               "total_hosts" => 1,
+               "swept_hosts" => 1,
+               "available_hosts" => 1,
+               "completed" => true
+             } = Jason.decode!(details)
+
+      assert execution_id == Ecto.UUID.cast!(batch.execution_id)
+    end
+
     test "a batch that commits after the slot was marked missed reopens the slot" do
       %{record_bytes: record_bytes, headers: headers, batch: batch} = build_frame()
       execution_id = Ecto.UUID.cast!(batch.execution_id)
