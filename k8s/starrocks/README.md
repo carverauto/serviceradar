@@ -821,8 +821,8 @@ SQL on each side was the SRQL compiler's own output for the same query.
   total, and no tail row was emitted when nothing was left over. CNPG answers
   the one-key form from its hourly talkers aggregate, which the comparison
   stood in for with a view over the same rows.
-- `device_id:` on events differs from CNPG in three ways. The first two are
-  rows the warehouse returns and CNPG does not; the third is the reverse:
+- `device_id:` on events differs from CNPG in two ways, both rows the
+  warehouse returns and CNPG does not:
   - Inside CNPG's alias `EXISTS`, the unqualified `metadata` resolves to the
     device row's own `metadata` column rather than the event's, so CNPG does
     not find an event that names the device only in its metadata -- a
@@ -833,11 +833,6 @@ SQL on each side was the SRQL compiler's own output for the same query.
     requires only that the alias appear as one, so an alias held under a key
     outside that list (`device.name`, for one) matches here and not on CNPG.
     The `key=value` form is held to CNPG's key list on both.
-  - The warehouse matches the device against `src_endpoint_ip` only, not the
-    `src_endpoint` and `dst_endpoint` documents (stored since `0036`). An
-    event that names the device only inside `dst_endpoint`, or in
-    `src_endpoint` under a key other than `ip`, is found by CNPG and not here.
-    This is the one case the warehouse misses.
 
 ### Event row shape
 
