@@ -6228,30 +6228,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:timezone, :string, required: true)
 
   defp netflow_details_modal(assigns) do
-    ocsf =
-      case Map.get(assigns.flow, "ocsf_payload") do
-        %{} = payload -> payload
-        _ -> %{}
-      end
-
-    src_provider =
-      flow_get(assigns.flow, ["src_hosting_provider"]) ||
-        flow_get_in(ocsf, ["enrichment", "src_hosting_provider"])
-
-    dst_provider =
-      flow_get(assigns.flow, ["dst_hosting_provider"]) ||
-        flow_get_in(ocsf, ["enrichment", "dst_hosting_provider"])
+    src_provider = flow_get(assigns.flow, ["src_hosting_provider"])
+    dst_provider = flow_get(assigns.flow, ["dst_hosting_provider"])
 
     src_prefix_tags = netflow_prefix_tags(assigns.flow, :src)
     dst_prefix_tags = netflow_prefix_tags(assigns.flow, :dst)
 
-    direction_label =
-      flow_get(assigns.flow, ["direction_label"]) ||
-        flow_get_in(ocsf, ["enrichment", "direction_label"])
+    direction_label = flow_get(assigns.flow, ["direction_label"])
 
-    tcp_flags_labels =
-      flow_get(assigns.flow, ["tcp_flags_labels"]) ||
-        flow_get_in(ocsf, ["enrichment", "tcp_flags_labels"])
+    tcp_flags_labels = flow_get(assigns.flow, ["tcp_flags_labels"])
 
     tcp_flags_labels =
       if is_list(tcp_flags_labels), do: Enum.map(tcp_flags_labels, &to_string/1), else: []
@@ -6532,7 +6517,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
               <div class="mt-3 space-y-4 text-xs leading-relaxed">
                 <div>
-                  <div class="font-semibold">Process attribution</div>
+                  <div class="flex items-center justify-between gap-2">
+                    <div class="font-semibold">Process attribution</div>
+                    <.ui_badge :if={is_map(@attribution)} size="xs" variant="success">
+                      attributed
+                    </.ui_badge>
+                  </div>
                   <%= if is_map(@attribution) do %>
                     <div class="mt-1 text-sr-muted">
                       Process:
@@ -6545,12 +6535,42 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                       <span class="font-mono">
                         {display_text(netflow_attribution_agent_id(@flow))}
                       </span>
+                      <span
+                        :if={partition = netflow_attribution_partition(@flow)}
+                        class="ml-2 font-mono text-sr-muted"
+                      >
+                        ({partition})
+                      </span>
+                    </div>
+                    <div
+                      :if={uid = netflow_attribution_uid(@attribution)}
+                      class="mt-1 text-sr-muted"
+                    >
+                      UID: <span class="font-mono">{uid}</span>
+                    </div>
+                    <div
+                      :if={container_id = netflow_attribution_container_id(@attribution)}
+                      class="mt-1 text-sr-muted"
+                    >
+                      Container: <span class="font-mono break-all">{container_id}</span>
                     </div>
                     <div class="mt-1 text-sr-muted">
                       Workload:
                       <span class="font-mono">
                         {display_text(netflow_attribution_workload_label(@attribution))}
                       </span>
+                    </div>
+                    <div
+                      :if={cmdline = netflow_attribution_cmdline(@attribution)}
+                      class="mt-1 text-sr-muted"
+                    >
+                      Command: <span class="font-mono break-all">{cmdline}</span>
+                    </div>
+                    <div
+                      :if={public_endpoint = netflow_attribution_public_endpoint_label(@attribution)}
+                      class="mt-1 text-sr-muted"
+                    >
+                      Public endpoint: <span class="font-mono break-all">{public_endpoint}</span>
                     </div>
                     <div class="mt-2 flex flex-wrap gap-2">
                       <.ui_button href={attributed_flow_path(@flow)} variant="ghost" size="xs">
@@ -6887,9 +6907,36 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp netflow_bytes(flow), do: netflow_value(flow, ["bytes_total", "octets"])
 
   defp netflow_attribution(flow) when is_map(flow) do
-    case flow |> Map.get("ocsf_payload") |> flow_get_in(["attribution"]) do
-      %{} = attribution when map_size(attribution) > 0 -> attribution
-      _ -> nil
+    pid = flow |> flow_get(["pid"]) |> clean_display_value()
+    uid = flow |> flow_get(["uid"]) |> clean_display_value()
+    comm = flow |> flow_get(["comm"]) |> clean_display_value()
+    cmdline = flow |> flow_get(["cmdline"]) |> clean_display_value()
+    container_id = flow |> flow_get(["container_id"]) |> clean_display_value()
+    workload_identity = flow |> flow_get(["workload_identity"]) |> normalize_json_map()
+    public_endpoint = flow |> flow_get(["public_endpoint"]) |> normalize_json_map()
+    attribution_status = flow |> flow_get(["attribution_status"]) |> clean_display_value()
+
+    attributed? =
+      not is_nil(pid) or
+        not is_nil(uid) or
+        not is_nil(comm) or
+        not is_nil(cmdline) or
+        not is_nil(container_id) or
+        map_size(workload_identity) > 0 or
+        map_size(public_endpoint) > 0 or
+        attribution_status == "attributed"
+
+    if attributed? do
+      %{
+        "pid" => pid,
+        "uid" => uid,
+        "comm" => comm,
+        "cmdline" => cmdline,
+        "container_id" => container_id,
+        "workload_identity" => workload_identity,
+        "public_endpoint" => public_endpoint,
+        "attribution_status" => attribution_status
+      }
     end
   end
 
@@ -6910,27 +6957,124 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp netflow_attribution_process_label(_), do: "No process match"
 
   defp netflow_attribution_agent_id(flow) when is_map(flow) do
-    payload = Map.get(flow, "ocsf_payload") || %{}
-    clean_display_value(Map.get(payload, "agent_id") || flow_get_in(payload, ["metadata", "agent_id"]))
+    flow |> flow_get(["agent_id"]) |> clean_display_value()
   end
 
   defp netflow_attribution_agent_id(_), do: nil
 
+  defp netflow_attribution_partition(flow) when is_map(flow) do
+    flow |> flow_get(["partition"]) |> clean_display_value()
+  end
+
+  defp netflow_attribution_partition(_), do: nil
+
+  defp netflow_attribution_uid(%{} = attribution) do
+    attribution |> flow_get_in(["uid"]) |> clean_display_value()
+  end
+
+  defp netflow_attribution_uid(_), do: nil
+
+  defp netflow_attribution_container_id(%{} = attribution) do
+    attribution |> flow_get_in(["container_id"]) |> clean_display_value()
+  end
+
+  defp netflow_attribution_container_id(_), do: nil
+
+  defp netflow_attribution_cmdline(%{} = attribution) do
+    attribution |> flow_get_in(["cmdline"]) |> clean_display_value()
+  end
+
+  defp netflow_attribution_cmdline(_), do: nil
+
   defp netflow_attribution_workload_label(%{} = attribution) do
-    workload = flow_get_in(attribution, ["workload_identity"]) || %{}
-    ns = workload |> flow_get_in(["pod_namespace"]) |> clean_display_value()
-    pod = workload |> flow_get_in(["pod_name"]) |> clean_display_value()
-    container = workload |> flow_get_in(["container_name"]) |> clean_display_value()
+    workload = attribution |> flow_get_in(["workload_identity"]) |> normalize_json_map()
+    ns = workload |> flow_get(["pod_namespace", "namespace"]) |> clean_display_value()
+    pod = workload |> flow_get(["pod_name", "workload_name"]) |> clean_display_value()
+    kind = workload |> flow_get(["workload_kind"]) |> clean_display_value()
+    container = workload |> flow_get(["container_name"]) |> clean_display_value()
+    node = workload |> flow_get(["node_hostname"]) |> clean_display_value()
+
+    base =
+      cond do
+        is_binary(ns) and is_binary(kind) and is_binary(pod) -> "#{ns}/#{kind}/#{pod}"
+        is_binary(ns) and is_binary(pod) -> "#{ns}/#{pod}"
+        is_binary(pod) -> pod
+        is_binary(container) -> container
+        true -> nil
+      end
 
     cond do
-      is_binary(ns) and is_binary(pod) -> "#{ns}/#{pod}"
-      is_binary(pod) -> pod
-      is_binary(container) -> container
+      is_binary(base) and is_binary(node) -> "#{base} @ #{node}"
+      is_binary(base) -> base
+      is_binary(node) -> node
       true -> nil
     end
   end
 
   defp netflow_attribution_workload_label(_), do: nil
+
+  defp netflow_attribution_public_endpoint_label(%{} = attribution) do
+    endpoint = attribution |> flow_get_in(["public_endpoint"]) |> normalize_json_map()
+    service_name = endpoint |> flow_get(["service_name"]) |> clean_display_value()
+    namespace = endpoint |> flow_get(["namespace"]) |> clean_display_value()
+    gateway_name = endpoint |> flow_get(["gateway_name"]) |> clean_display_value()
+    exposure_class = endpoint |> flow_get(["exposure_class"]) |> clean_display_value()
+    route_kind = endpoint |> flow_get(["route_kind"]) |> clean_display_value()
+    route_name = endpoint |> flow_get(["route_name"]) |> clean_display_value()
+    external_ip = endpoint |> flow_get(["external_ip"]) |> clean_display_value()
+    external_port = endpoint |> flow_get(["external_port"]) |> clean_display_value()
+
+    service_label =
+      cond do
+        is_binary(namespace) and is_binary(service_name) -> "#{namespace}/#{service_name}"
+        is_binary(service_name) -> service_name
+        true -> nil
+      end
+
+    route_label =
+      cond do
+        is_binary(route_kind) and is_binary(route_name) -> "#{route_kind}/#{route_name}"
+        is_binary(route_name) -> route_name
+        is_binary(route_kind) -> route_kind
+        true -> nil
+      end
+
+    external_label =
+      cond do
+        is_binary(external_ip) and is_binary(external_port) -> "#{external_ip}:#{external_port}"
+        is_binary(external_ip) -> external_ip
+        is_binary(external_port) -> ":#{external_port}"
+        true -> nil
+      end
+
+    [
+      service_label,
+      if(is_binary(gateway_name), do: "gateway #{gateway_name}"),
+      exposure_class,
+      route_label,
+      external_label
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> case do
+      [] -> nil
+      parts -> Enum.join(parts, " · ")
+    end
+  end
+
+  defp netflow_attribution_public_endpoint_label(_), do: nil
+
+  defp normalize_json_map(%{} = map) do
+    Map.new(map, fn {k, v} -> {to_string(k), v} end)
+  end
+
+  defp normalize_json_map(value) when is_binary(value) do
+    case Jason.decode(String.trim(value)) do
+      {:ok, %{} = decoded} -> normalize_json_map(decoded)
+      _ -> %{}
+    end
+  end
+
+  defp normalize_json_map(_), do: %{}
 
   defp attributed_flow_path(flow) do
     "/observability/flows/attributed?" <>
@@ -6980,11 +7124,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp clean_display_value(value) when is_binary(value) do
     case String.trim(value) do
       "" -> nil
+      "nil" -> nil
+      "null" -> nil
+      "undefined" -> nil
       trimmed -> trimmed
     end
   end
 
-  defp clean_display_value(value), do: to_string(value)
+  defp clean_display_value(value), do: value |> to_string() |> clean_display_value()
 
   defp netflow_value(flow, keys) when is_map(flow) and is_list(keys) do
     Enum.find_value(keys, fn key ->
@@ -7336,10 +7483,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp netflow_prefix_tags(flow, side) when side in [:src, :dst] do
     prefix = to_string(side)
-
-    tags =
-      flow_get(flow, ["#{prefix}_prefix_tags"]) ||
-        flow_get_in(flow, ["ocsf_payload", "enrichment", "#{prefix}_prefix_tags"])
+    tags = flow_get(flow, ["#{prefix}_prefix_tags"])
 
     PrefixTagChips.normalize_tags(tags, 4)
   end
