@@ -36,7 +36,12 @@ metadata:
     "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
     {{- end }}
 spec:
+  {{- if .Release.IsUpgrade }}
+  # Hook only. On install this Job is a release resource: if the TTL controller
+  # deletes it while `helm install --wait` is still waiting on slower resources,
+  # Helm reports it NotFound and the install fails.
   ttlSecondsAfterFinished: 300
+  {{- end }}
   backoffLimit: 2
   template:
     metadata:

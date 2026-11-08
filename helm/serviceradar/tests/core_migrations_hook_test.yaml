@@ -17,6 +17,11 @@ tests:
           path: metadata.annotations["argocd.argoproj.io/hook"]
       - notExists:
           path: metadata.annotations["argocd.argoproj.io/sync-wave"]
+      # A release resource that the TTL controller deletes makes `helm install
+      # --wait` report it NotFound and fail if other resources are still
+      # becoming Ready when the TTL expires.
+      - notExists:
+          path: spec.ttlSecondsAfterFinished
       - equal:
           path: spec.template.spec.initContainers[0].name
           value: wait-for-cnpg
