@@ -106,18 +106,26 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
   This does not change relay ownership or interpret completion as retirement.
   Expired or process-lost observations remain unknown.
   """
-  def reconcile_close(session_or_id, opts \\ []) do
+  def reconcile_close(session_or_id, opts \\ []),
+    do: reconcile_operation(session_or_id, :close, opts)
+
+  @doc "Queries historical startup without replaying the open or changing ownership."
+  def reconcile_open(session_or_id, opts \\ []),
+    do: reconcile_operation(session_or_id, :open, opts)
+
+  defp reconcile_operation(session_or_id, operation, opts) do
     requester = resolve_requester(opts)
     read_opts = Keyword.put(read_ash_opts(opts, requester), :not_found_error?, false)
 
     with :ok <- authorize_requester(requester),
          {:ok, id} <- session_id(session_or_id),
          {:ok, %RelaySession{} = session} <- RelaySession.get_by_id(id, read_opts),
-         :ok <- require_stop_identity(session) do
-      AgentCommandBus.reconcile_camera_relay_stop(
+         :ok <- require_operation_identity(session, operation) do
+      dispatch_reconciliation(
+        operation,
         session.agent_id,
         %{
-          operation_id: session.close_command_id,
+          operation_id: operation_id(session, operation),
           relay_session_id: session.id,
           source_incarnation_id: session.source_incarnation_id
         },
@@ -137,25 +145,32 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
   correlated query. Even a completed local stop is not qualified retirement proof.
   Missing or cleaned-up commands return `:not_found`, never inferred completion.
   """
-  def close_observation(session_or_id, query_id, opts \\ []) do
+  def close_observation(session_or_id, query_id, opts \\ []),
+    do: operation_observation(session_or_id, query_id, :close, opts)
+
+  @doc "Reads a retained open query; startup success is not current liveness or retirement proof."
+  def open_observation(session_or_id, query_id, opts \\ []),
+    do: operation_observation(session_or_id, query_id, :open, opts)
+
+  defp operation_observation(session_or_id, query_id, operation, opts) do
     requester = resolve_requester(opts)
     read_opts = Keyword.put(read_ash_opts(opts, requester), :not_found_error?, false)
 
     with :ok <- authorize_requester(requester),
          {:ok, id} <- session_id(session_or_id),
          {:ok, %RelaySession{} = session} <- RelaySession.get_by_id(id, read_opts),
-         :ok <- require_stop_identity(session),
+         :ok <- require_operation_identity(session, operation),
          {:ok, %AgentCommand{} = command} <-
            AgentCommand.get_by_id(query_id,
              actor: SystemActor.system(:camera_relay_session_manager),
              not_found_error?: false
            ),
-         :ok <- correlate_stop_query(command, session),
-         {:ok, observation} <- stop_observation(command, session) do
+         :ok <- correlate_operation_query(command, session, operation),
+         {:ok, observation} <- read_observation(command, session, operation) do
       {:ok,
        %{
          command_id: command.id,
-         query_status: stop_query_status(command),
+         query_status: query_status(command),
          query_completed_at: command.completed_at,
          observation: observation,
          retirement_proven: false
@@ -166,27 +181,29 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
     end
   end
 
-  defp correlate_stop_query(command, session) do
-    if command.command_type == "camera.reconcile_relay_stop" and
-         command.agent_id == session.agent_id and stop_identity_matches?(command.payload, session),
+  defp correlate_operation_query(command, session, operation) do
+    if command.command_type == reconciliation_type(operation) and
+         command.agent_id == session.agent_id and
+         operation_identity_matches?(command.payload, session, operation),
        do: :ok,
        else: {:error, :not_found}
   end
 
-  defp stop_identity_matches?(payload, session) when is_map(payload) do
-    payload["operation_id"] == session.close_command_id and
+  defp operation_identity_matches?(payload, session, operation) when is_map(payload) do
+    payload["operation_id"] == operation_id(session, operation) and
       payload["relay_session_id"] == session.id and
       payload["source_incarnation_id"] == session.source_incarnation_id
   end
 
-  defp stop_identity_matches?(_payload, _session), do: false
+  defp operation_identity_matches?(_payload, _session, _operation), do: false
 
-  defp stop_observation(%{status: :completed, result_payload: payload}, session)
+  defp read_observation(%{status: :completed, result_payload: payload}, session, operation)
        when is_map(payload) do
     state = payload["state"]
 
-    if state in ["pending", "completed", "unresolved", "unknown"] and
-         stop_identity_matches?(payload, session) and stop_source_matches?(payload, session) do
+    if state in observation_states(operation) and
+         operation_identity_matches?(payload, session, operation) and
+         observation_source_matches?(payload, session) do
       {:ok,
        Map.take(payload, [
          "state",
@@ -197,37 +214,58 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
          "stream_profile_id"
        ])}
     else
-      {:error, :invalid_stop_observation}
+      {:error, invalid_observation(operation)}
     end
   end
 
-  defp stop_observation(%{status: :completed}, _session), do: {:error, :invalid_stop_observation}
+  defp read_observation(%{status: :completed}, _session, operation),
+    do: {:error, invalid_observation(operation)}
 
-  defp stop_observation(_command, _session), do: {:ok, nil}
+  defp read_observation(_command, _session, _operation), do: {:ok, nil}
 
-  defp stop_source_matches?(%{"state" => "unknown"} = payload, session) do
+  defp observation_source_matches?(%{"state" => "unknown"} = payload, session) do
     Map.get(payload, "camera_source_id", session.camera_source_id) == session.camera_source_id and
       Map.get(payload, "stream_profile_id", session.stream_profile_id) ==
         session.stream_profile_id
   end
 
-  defp stop_source_matches?(payload, session) do
+  defp observation_source_matches?(payload, session) do
     payload["camera_source_id"] == session.camera_source_id and
       payload["stream_profile_id"] == session.stream_profile_id
   end
 
-  defp stop_query_status(%{status: status, expires_at: expires_at})
+  defp query_status(%{status: status, expires_at: expires_at})
        when status in [:queued, :sent, :acknowledged, :running] do
     if DateTime.after?(expires_at, DateTime.utc_now()), do: status, else: :expired
   end
 
-  defp stop_query_status(command), do: command.status
+  defp query_status(command), do: command.status
 
-  defp require_stop_identity(%{close_command_id: operation, source_incarnation_id: incarnation})
-       when is_binary(operation) and operation != "" and is_binary(incarnation) and
-              incarnation != "", do: :ok
+  defp operation_id(session, :open), do: session.command_id
+  defp operation_id(session, :close), do: session.close_command_id
+  defp reconciliation_type(:open), do: "camera.reconcile_relay_open"
+  defp reconciliation_type(:close), do: "camera.reconcile_relay_stop"
+  defp observation_states(:open), do: ["pending", "succeeded", "failed", "unknown"]
+  defp observation_states(:close), do: ["pending", "completed", "unresolved", "unknown"]
+  defp invalid_observation(:open), do: :invalid_open_observation
+  defp invalid_observation(:close), do: :invalid_stop_observation
+  defp unknown_identity(:open), do: :unknown_open_identity
+  defp unknown_identity(:close), do: :unknown_stop_identity
 
-  defp require_stop_identity(_session), do: {:error, :unknown_stop_identity}
+  defp require_operation_identity(session, operation) do
+    id = operation_id(session, operation)
+    incarnation = session.source_incarnation_id
+
+    if is_binary(id) and id != "" and is_binary(incarnation) and incarnation != "",
+      do: :ok,
+      else: {:error, unknown_identity(operation)}
+  end
+
+  defp dispatch_reconciliation(:open, agent_id, payload, opts),
+    do: AgentCommandBus.reconcile_camera_relay_open(agent_id, payload, opts)
+
+  defp dispatch_reconciliation(:close, agent_id, payload, opts),
+    do: AgentCommandBus.reconcile_camera_relay_stop(agent_id, payload, opts)
 
   defp dispatch_reserved_session(session, requester, opts, write_opts) do
     dispatch = Keyword.get(opts, :dispatch_open, &dispatch_open_command/4)

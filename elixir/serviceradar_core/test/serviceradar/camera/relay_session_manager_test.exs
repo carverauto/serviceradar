@@ -156,30 +156,65 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
       assert Map.fetch!(reused, identity_field) == command.command_id
       refute_received {:relay_command, _}
 
-      if operation == :close, do: assert_stop_reconciliation(ctx, reserved, agent_id)
+      reserved =
+        if operation == :open do
+          assert {:error, :unknown_open_identity} =
+                   RelaySessionManager.reconcile_open(reserved.id, ctx.opts)
+
+          assert {:error, :unknown_open_identity} =
+                   RelaySessionManager.open_observation(
+                     reserved.id,
+                     Ecto.UUID.generate(),
+                     ctx.opts
+                   )
+
+          refute_received {:relay_command, _}
+
+          {:ok, admitted} =
+            Fixtures.activate(ctx, reserved, Ecto.UUID.generate(), %{
+              source_incarnation_id: incarnation
+            })
+
+          admitted
+        else
+          reserved
+        end
+
+      assert_reconciliation(ctx, reserved, agent_id, operation)
     end
   end
 
-  defp assert_stop_reconciliation(ctx, reserved, agent_id) do
+  defp assert_reconciliation(ctx, reserved, agent_id, operation) do
+    {dispatch, read, command_type, operation_id, state} =
+      case operation do
+        :open ->
+          {&RelaySessionManager.reconcile_open/2, &RelaySessionManager.open_observation/3,
+           "camera.reconcile_relay_open", reserved.command_id, "succeeded"}
+
+        :close ->
+          {&RelaySessionManager.reconcile_close/2, &RelaySessionManager.close_observation/3,
+           "camera.reconcile_relay_stop", reserved.close_command_id, "completed"}
+      end
+
     {caller, monitor} =
-      spawn_monitor(fn -> RelaySessionManager.reconcile_close(reserved.id, actor: ctx.actor) end)
+      spawn_monitor(fn -> dispatch.(reserved.id, actor: ctx.actor) end)
 
     on_exit(fn ->
       if Process.alive?(caller), do: Process.exit(caller, :kill)
     end)
 
     assert_receive {:relay_command, %Monitoring.CommandRequest{} = command}, 5_000
-    assert command.command_type == "camera.reconcile_relay_stop"
-    refute command.command_id == reserved.close_command_id
+    assert command.command_type == command_type
+    refute command.command_id == operation_id
     payload = Jason.decode!(command.payload_json)
 
     assert payload == %{
-             "operation_id" => reserved.close_command_id,
+             "operation_id" => operation_id,
              "relay_session_id" => reserved.id,
              "source_incarnation_id" => reserved.source_incarnation_id
            }
 
-    assert %{rows: [["camera.reconcile_relay_stop", ^agent_id, ^payload]]} =
+    assert %{rows: [[^command_type, ^agent_id, ^payload]]} =
              Repo.query!(
                "SELECT command_type, agent_id, payload FROM platform.agent_commands " <>
                  "WHERE command_id = $1::text::uuid",
@@ -187,17 +222,19 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
              )
 
     assert {:ok, %{query_status: :queued, observation: nil, retirement_proven: false}} =
-             RelaySessionManager.close_observation(reserved.id, command.command_id, ctx.opts)
+             read.(reserved.id, command.command_id, ctx.opts)
 
     Process.exit(caller, :kill)
     assert_receive {:DOWN, ^monitor, :process, ^caller, :killed}
 
     worker =
-      start_supervised!({PersistenceWorker, name: __MODULE__.StopResults, result_consumers: []})
+      start_supervised!(
+        {PersistenceWorker, name: __MODULE__.RecoveryResults, result_consumers: []}
+      )
 
     observation =
       Map.merge(payload, %{
-        "state" => "completed",
+        "state" => state,
         "camera_source_id" => reserved.camera_source_id,
         "stream_profile_id" => reserved.stream_profile_id
       })
@@ -221,121 +258,141 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
     viewer = %{id: Ecto.UUID.generate(), permissions: ["devices.view", "devices.cameras.view"]}
 
     assert {:ok, %{query_status: :completed, observation: ^observation, retirement_proven: false}} =
-             RelaySessionManager.close_observation(reserved.id, command.command_id, actor: viewer)
+             read.(reserved.id, command.command_id, actor: viewer)
 
     refute_received {:relay_command, _}
     assert {:ok, current} = RelaySession.get_by_id(reserved.id, ctx.opts)
-    assert current.status == :closing
+    assert current.status == reserved.status
     assert current.close_command_id == reserved.close_command_id
+    assert current.command_id == reserved.command_id
+    assert current.source_incarnation_id == reserved.source_incarnation_id
   end
 
-  test "retained stop results require the saved target and explicit observation state", ctx do
-    {:ok, opening} = Fixtures.open(ctx)
+  for operation <- [:open, :close] do
+    test "retained #{operation} results require the saved target and explicit observation state",
+         ctx do
+      operation = unquote(operation)
 
-    {:ok, active} =
-      Fixtures.activate(ctx, opening, Ecto.UUID.generate(), %{
-        source_incarnation_id: Ecto.UUID.generate()
-      })
+      {read, command_type, states, invalid_error} =
+        case operation do
+          :open ->
+            {&RelaySessionManager.open_observation/3, "camera.reconcile_relay_open",
+             ["pending", "succeeded", "failed", "unknown"], :invalid_open_observation}
 
-    {:ok, closing} =
-      RelaySessionManager.request_close(active.id,
-        actor: ctx.actor,
-        force: true,
-        dispatch_close: fn _agent, _payload, opts, _requester -> {:ok, opts[:command_id]} end
-      )
+          :close ->
+            {&RelaySessionManager.close_observation/3, "camera.reconcile_relay_stop",
+             ["pending", "completed", "unresolved", "unknown"], :invalid_stop_observation}
+        end
 
-    identity = %{
-      "operation_id" => closing.close_command_id,
-      "relay_session_id" => closing.id,
-      "source_incarnation_id" => closing.source_incarnation_id
-    }
+      {:ok, opening} = Fixtures.open(ctx)
 
-    known =
-      Map.merge(identity, %{
-        "state" => "completed",
-        "camera_source_id" => closing.camera_source_id,
-        "stream_profile_id" => closing.stream_profile_id
-      })
+      {:ok, active} =
+        Fixtures.activate(ctx, opening, Ecto.UUID.generate(), %{
+          source_incarnation_id: Ecto.UUID.generate()
+        })
 
-    attrs = %{
-      agent_id: closing.agent_id,
-      command_type: "camera.reconcile_relay_stop",
-      payload: identity
-    }
+      {:ok, closing} =
+        RelaySessionManager.request_close(active.id,
+          actor: ctx.actor,
+          force: true,
+          dispatch_close: fn _agent, _payload, opts, _requester -> {:ok, opts[:command_id]} end
+        )
 
-    for state <- ["pending", "completed", "unresolved", "unknown"] do
-      payload =
-        if state == "unknown",
-          do: Map.put(identity, "state", state),
-          else: Map.put(known, "state", state)
+      identity = %{
+        "operation_id" =>
+          if(operation == :open, do: closing.command_id, else: closing.close_command_id),
+        "relay_session_id" => closing.id,
+        "source_incarnation_id" => closing.source_incarnation_id
+      }
 
-      query = stop_query(ctx, attrs, Map.put(payload, "untrusted_extra", "discard"))
+      known =
+        Map.merge(identity, %{
+          "state" => Enum.at(states, 1),
+          "camera_source_id" => closing.camera_source_id,
+          "stream_profile_id" => closing.stream_profile_id
+        })
 
-      assert {:ok, %{observation: ^payload, retirement_proven: false}} =
-               RelaySessionManager.close_observation(closing.id, query.id, ctx.opts)
-    end
+      attrs = %{
+        agent_id: closing.agent_id,
+        command_type: command_type,
+        payload: identity
+      }
 
-    invalid_payloads =
-      [nil, %{}, Map.put(known, "state", "retired"), Map.delete(known, "camera_source_id")] ++
-        Enum.map(Map.keys(known) -- ["state"], &Map.put(known, &1, Ecto.UUID.generate())) ++
+      for state <- states do
+        payload =
+          if state == "unknown",
+            do: Map.put(identity, "state", state),
+            else: Map.put(known, "state", state)
+
+        query = reconciliation_query(ctx, attrs, Map.put(payload, "untrusted_extra", "discard"))
+
+        assert {:ok, %{observation: ^payload, retirement_proven: false}} =
+                 read.(closing.id, query.id, ctx.opts)
+      end
+
+      invalid_payloads =
+        [nil, %{}, Map.put(known, "state", "retired"), Map.delete(known, "camera_source_id")] ++
+          Enum.map(Map.keys(known) -- ["state"], &Map.put(known, &1, Ecto.UUID.generate())) ++
+          [
+            identity
+            |> Map.put("state", "unknown")
+            |> Map.put("stream_profile_id", Ecto.UUID.generate())
+          ]
+
+      for payload <- invalid_payloads do
+        query = reconciliation_query(ctx, attrs, payload)
+
+        assert {:error, ^invalid_error} =
+                 read.(closing.id, query.id, ctx.opts)
+      end
+
+      mismatched_queries =
         [
-          identity
-          |> Map.put("state", "unknown")
-          |> Map.put("stream_profile_id", Ecto.UUID.generate())
-        ]
+          Map.put(attrs, :agent_id, "agent-other-example"),
+          Map.put(attrs, :command_type, "camera.close_relay")
+        ] ++
+          Enum.map(Map.keys(identity), fn key ->
+            Map.put(attrs, :payload, Map.put(identity, key, Ecto.UUID.generate()))
+          end)
 
-    for payload <- invalid_payloads do
-      query = stop_query(ctx, attrs, payload)
+      for other <- mismatched_queries do
+        query = reconciliation_query(ctx, other, known)
 
-      assert {:error, :invalid_stop_observation} =
-               RelaySessionManager.close_observation(closing.id, query.id, ctx.opts)
-    end
+        assert {:error, :not_found} =
+                 read.(closing.id, query.id, ctx.opts)
+      end
 
-    mismatched_queries =
-      [
-        Map.put(attrs, :agent_id, "agent-other-example"),
-        Map.put(attrs, :command_type, "camera.close_relay")
-      ] ++
-        Enum.map(Map.keys(identity), fn key ->
-          Map.put(attrs, :payload, Map.put(identity, key, Ecto.UUID.generate()))
-        end)
+      query = reconciliation_query(ctx, attrs, known)
 
-    for other <- mismatched_queries do
-      query = stop_query(ctx, other, known)
+      assert {:error, :forbidden} =
+               read.(closing.id, query.id,
+                 actor: %{id: Ecto.UUID.generate(), permissions: ["devices.view"]}
+               )
+
+      Ash.destroy!(query, ctx.opts)
 
       assert {:error, :not_found} =
-               RelaySessionManager.close_observation(closing.id, query.id, ctx.opts)
+               read.(closing.id, query.id, ctx.opts)
+
+      expired =
+        reconciliation_query(ctx, Map.put(attrs, :expires_at, ~U[2000-01-01 00:00:00Z]), :queued)
+
+      assert {:ok, %{query_status: :expired, observation: nil, retirement_proven: false}} =
+               read.(closing.id, expired.id, ctx.opts)
+
+      failed = reconciliation_query(ctx, attrs, :queued)
+      {:ok, _} = AgentCommand.fail(failed, %{result_payload: known}, ctx.opts)
+
+      assert {:ok, %{query_status: :failed, observation: nil}} =
+               read.(closing.id, failed.id, ctx.opts)
+
+      assert {:ok, current} = RelaySession.get_by_id(closing.id, ctx.opts)
+      assert current.status == :closing
+      assert current.close_command_id == closing.close_command_id
     end
-
-    query = stop_query(ctx, attrs, known)
-
-    assert {:error, :forbidden} =
-             RelaySessionManager.close_observation(closing.id, query.id,
-               actor: %{id: Ecto.UUID.generate(), permissions: ["devices.view"]}
-             )
-
-    Ash.destroy!(query, ctx.opts)
-
-    assert {:error, :not_found} =
-             RelaySessionManager.close_observation(closing.id, query.id, ctx.opts)
-
-    expired = stop_query(ctx, Map.put(attrs, :expires_at, ~U[2000-01-01 00:00:00Z]), :queued)
-
-    assert {:ok, %{query_status: :expired, observation: nil, retirement_proven: false}} =
-             RelaySessionManager.close_observation(closing.id, expired.id, ctx.opts)
-
-    failed = stop_query(ctx, attrs, :queued)
-    {:ok, _} = AgentCommand.fail(failed, %{result_payload: known}, ctx.opts)
-
-    assert {:ok, %{query_status: :failed, observation: nil}} =
-             RelaySessionManager.close_observation(closing.id, failed.id, ctx.opts)
-
-    assert {:ok, current} = RelaySession.get_by_id(closing.id, ctx.opts)
-    assert current.status == :closing
-    assert current.close_command_id == closing.close_command_id
   end
 
-  defp stop_query(ctx, attrs, result) do
+  defp reconciliation_query(ctx, attrs, result) do
     {:ok, query} = AgentCommand.create_command(attrs, ctx.opts)
 
     on_exit(fn ->

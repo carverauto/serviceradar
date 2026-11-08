@@ -269,6 +269,8 @@ func runtimeSendCommand(t *testing.T, ctx context.Context, loop *PushLoop, cmd *
 	switch cmd.CommandType {
 	case commandTypeCameraRelayStop:
 		loop.handleCameraRelayStop(ctx, cmd, sender)
+	case commandTypeCameraRelayReconcileOpen:
+		loop.handleCameraRelayReconcileOpen(cmd, sender)
 	case commandTypeCameraRelayReconcileStop:
 		loop.handleCameraRelayReconcileStop(cmd, sender)
 	default:
@@ -341,6 +343,24 @@ func TestCameraSharedRuntime(t *testing.T) {
 			case <-ctx.Done():
 				t.Fatal("source never reached DESCRIBE")
 			}
+			incarnation := <-peer.incarnations
+			observeOpen := func(expected string) {
+				t.Helper()
+				query := runtimeRequest(t, map[string]string{"operation_id": openRequest.CommandId, "relay_session_id": payload.RelaySessionID, "source_incarnation_id": incarnation}, false)
+				query.CommandType = commandTypeCameraRelayReconcileOpen
+				before := peer.opens.Load()
+				result := runtimeSendCommand(t, ctx, loop, query, false)
+				var observation cameraRelayOpenObservation
+				if !result.Success || json.Unmarshal(result.PayloadJson, &observation) != nil || observation.State != expected || observation.CameraSourceID != "camera-a" || observation.StreamProfileID != "main" {
+					t.Fatalf("open observation expected %s: %v", expected, result)
+				}
+				if peer.opens.Load() != before {
+					t.Fatal("read-only query opened another ingress")
+				}
+			}
+			if !plugin {
+				observeOpen(cameraRelayOpenStatePending)
+			}
 			conflict := payload
 			conflict.RelaySessionID = "invented-conflict"
 			conflict.CameraSourceID = "camera-a"
@@ -399,7 +419,7 @@ func TestCameraSharedRuntime(t *testing.T) {
 			if peer.opens.Load() != 1 || camera.opened.Load() != 1 {
 				t.Fatal("concurrent duplicate opened another ingress or camera")
 			}
-			incarnation := <-peer.incarnations
+			observeOpen(cameraRelayOpenStateSucceeded)
 			if incarnation == "" {
 				t.Fatal("media open omitted the source incarnation")
 			}
@@ -510,6 +530,7 @@ func TestCameraSharedRuntime(t *testing.T) {
 			if peer.opens.Load() != beforeGateway || camera.opened.Load() != beforeCamera {
 				t.Fatal("open replay after teardown opened another gateway session or camera")
 			}
+			observeOpen(cameraRelayOpenStateSucceeded)
 			conflict.RelaySessionID = "invented-replacement"
 			if result := runtimeCommand(t, ctx, loop, conflict, false); !result.Success {
 				t.Fatalf("replacement: %v", result)
@@ -520,7 +541,7 @@ func TestCameraSharedRuntime(t *testing.T) {
 			if result := runtimeSendCommand(t, ctx, loop, stopRequest, false); !result.Success {
 				t.Fatalf("same stop after lost reply: %v", result)
 			}
-			query := cameraRelayStopQuery{OperationID: stopRequest.CommandId, RelaySessionID: conflict.RelaySessionID, SourceIncarnationID: incarnation}
+			query := cameraRelayOperationQuery{OperationID: stopRequest.CommandId, RelaySessionID: conflict.RelaySessionID, SourceIncarnationID: incarnation}
 			queryRequest := runtimeRequest(t, query, false)
 			queryRequest.CommandType = commandTypeCameraRelayReconcileStop
 			observation := runtimeSendCommand(t, ctx, loop, queryRequest, false)

@@ -70,6 +70,7 @@ const (
 	commandTypeMtrBulkRun                  = "mtr.bulk_run"
 	commandTypeCameraRelayOpen             = "camera.open_relay"
 	commandTypeCameraRelayStop             = "camera.close_relay"
+	commandTypeCameraRelayReconcileOpen    = "camera.reconcile_relay_open"
 	commandTypeCameraRelayReconcileStop    = "camera.reconcile_relay_stop"
 	commandTypeAgentUpdate                 = "agent.update_release"
 	commandTypePluginSnapshot              = "plugin.debug_snapshot"
@@ -687,6 +688,8 @@ func (p *PushLoop) handleCommand(ctx context.Context, cmd *proto.CommandRequest,
 			p.handleCameraRelayOpen(ctx, cmd, sender)
 		case commandTypeCameraRelayStop:
 			p.handleCameraRelayStop(ctx, cmd, sender)
+		case commandTypeCameraRelayReconcileOpen:
+			p.handleCameraRelayReconcileOpen(cmd, sender)
 		case commandTypeCameraRelayReconcileStop:
 			p.handleCameraRelayReconcileStop(cmd, sender)
 		case commandTypeAgentUpdate:

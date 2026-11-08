@@ -629,6 +629,14 @@ defmodule ServiceRadarWebNGWeb.Router do
       :close_observation
     )
 
+    post("/camera-relay-sessions/:id/reconcile-open", CameraRelaySessionController, :reconcile_open)
+
+    get(
+      "/camera-relay-sessions/:id/open-observations/:command_id",
+      CameraRelaySessionController,
+      :open_observation
+    )
+
     get("/cameras/:camera_source_id/recordings", CameraRecordingController, :index)
     get("/cameras/:camera_source_id/recordings/:id", CameraRecordingController, :show)
     post("/proxmox/console-sessions", ProxmoxConsoleSessionController, :create)
