@@ -36,7 +36,7 @@ var (
 	errCameraRelayStopConflict      = errors.New("camera relay stop operation content conflict")
 	errCameraRelayStopCapacity      = errors.New("camera relay stop observation capacity reached")
 	errCameraRelaySourceCloseFailed = errors.New("camera relay source close unresolved")
-	errCameraRelayStopQuery         = errors.New("operation_id, relay_session_id and source_incarnation_id are required")
+	errCameraRelayOperationQuery    = errors.New("operation_id, relay_session_id and source_incarnation_id are required")
 )
 
 // Open and tracked stop receipts have the same bounded original envelope.
@@ -52,13 +52,16 @@ func cameraRelayCommandDeadline(cmd *proto.CommandRequest, now time.Time) (time.
 // The digest avoids retaining source credentials with a historical receipt.
 // Result fields are written once, before done closes.
 type cameraRelayStartOperation struct {
-	digest    [sha256.Size]byte
-	createdAt int64
-	ttl       int64
-	expiresAt time.Time
-	done      chan struct{}
-	state     *cameraRelaySessionState
-	err       error
+	relaySessionID  string
+	cameraSourceID  string
+	streamProfileID string
+	digest          [sha256.Size]byte
+	createdAt       int64
+	ttl             int64
+	expiresAt       time.Time
+	done            chan struct{}
+	state           *cameraRelaySessionState
+	err             error
 }
 
 // StartCommand returns the original startup outcome, not current source liveness.
@@ -78,7 +81,7 @@ func (m *cameraRelayManager) StartCommand(ctx context.Context, cmd *proto.Comman
 	if err != nil {
 		return nil, err
 	}
-	operation, first, err := m.captureStartOperation(cmd, sha256.Sum256(content))
+	operation, first, err := m.captureStartOperation(cmd, sha256.Sum256(content), spec)
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +112,7 @@ func (operation *cameraRelayStartOperation) outcome() (*cameraRelaySessionState,
 	return &state, operation.err
 }
 
-func (m *cameraRelayManager) captureStartOperation(cmd *proto.CommandRequest, digest [sha256.Size]byte) (*cameraRelayStartOperation, bool, error) {
+func (m *cameraRelayManager) captureStartOperation(cmd *proto.CommandRequest, digest [sha256.Size]byte, spec cameraRelaySessionSpec) (*cameraRelayStartOperation, bool, error) {
 	now := time.Now()
 	expiresAt, valid := cameraRelayCommandDeadline(cmd, now)
 	if !valid {
@@ -133,10 +136,76 @@ func (m *cameraRelayManager) captureStartOperation(cmd *proto.CommandRequest, di
 		return nil, false, errCameraRelayStartCapacity
 	}
 	operation := &cameraRelayStartOperation{
+		relaySessionID: spec.RelaySessionID, cameraSourceID: spec.CameraSourceID, streamProfileID: spec.StreamProfileID,
 		digest: digest, createdAt: cmd.GetCreatedAt(), ttl: cmd.GetTtlSeconds(), expiresAt: expiresAt, done: make(chan struct{}),
 	}
 	m.startOperations[cmd.GetCommandId()] = operation
 	return operation, true, nil
+}
+
+const (
+	cameraRelayOpenStateUnknown   = "unknown"
+	cameraRelayOpenStatePending   = "pending"
+	cameraRelayOpenStateSucceeded = "succeeded"
+	cameraRelayOpenStateFailed    = "failed"
+)
+
+type cameraRelayOpenObservation struct {
+	cameraRelayOperationQuery
+	State           string `json:"state"`
+	CameraSourceID  string `json:"camera_source_id,omitempty"`
+	StreamProfileID string `json:"stream_profile_id,omitempty"`
+}
+
+// ReconcileOpen observes the original startup attempt without replaying it.
+// Success is historical; it does not establish current liveness or ownership.
+func (m *cameraRelayManager) ReconcileOpen(query cameraRelayOperationQuery) (*cameraRelayOpenObservation, error) {
+	if query.OperationID == "" || query.RelaySessionID == "" || query.SourceIncarnationID == "" {
+		return nil, errCameraRelayOperationQuery
+	}
+	if m == nil || query.SourceIncarnationID != m.incarnationID {
+		return nil, errCameraRelayIncarnationMismatch
+	}
+	m.mu.Lock()
+	operation := m.startOperations[query.OperationID]
+	if operation != nil && !operation.expiresAt.After(time.Now()) {
+		delete(m.startOperations, query.OperationID)
+		operation = nil
+	}
+	m.mu.Unlock()
+	observation := &cameraRelayOpenObservation{cameraRelayOperationQuery: query, State: cameraRelayOpenStateUnknown}
+	if operation == nil {
+		return observation, nil
+	}
+	if operation.relaySessionID != query.RelaySessionID {
+		return nil, errCameraRelayStartConflict
+	}
+	observation.CameraSourceID = operation.cameraSourceID
+	observation.StreamProfileID = operation.streamProfileID
+	observation.State = cameraRelayOpenStatePending
+	select {
+	case <-operation.done:
+		observation.State = cameraRelayOpenStateSucceeded
+		if operation.err != nil {
+			observation.State = cameraRelayOpenStateFailed
+		}
+	default:
+	}
+	return observation, nil
+}
+
+func (p *PushLoop) handleCameraRelayReconcileOpen(cmd *proto.CommandRequest, sender *controlStreamSender) {
+	query := cameraRelayOperationQuery{}
+	if err := json.Unmarshal(cmd.PayloadJson, &query); err != nil {
+		_ = sender.Send(commandResult(cmd, false, "invalid camera relay open query", nil))
+		return
+	}
+	observation, err := p.cameraRelayManager.ReconcileOpen(query)
+	if err != nil {
+		_ = sender.Send(commandResult(cmd, false, err.Error(), nil))
+		return
+	}
+	_ = sender.Send(commandResult(cmd, true, "camera relay open observation", observation))
 }
 
 type cameraRelayStopOperation struct {
@@ -147,14 +216,14 @@ type cameraRelayStopOperation struct {
 	handle    *cameraRelayHandle
 }
 
-type cameraRelayStopQuery struct {
+type cameraRelayOperationQuery struct {
 	OperationID         string `json:"operation_id"`
 	RelaySessionID      string `json:"relay_session_id"`
 	SourceIncarnationID string `json:"source_incarnation_id"`
 }
 
 type cameraRelayStopObservation struct {
-	cameraRelayStopQuery
+	cameraRelayOperationQuery
 	State           string `json:"state"`
 	CameraSourceID  string `json:"camera_source_id,omitempty"`
 	StreamProfileID string `json:"stream_profile_id,omitempty"`
@@ -231,9 +300,9 @@ func (m *cameraRelayManager) pruneStopOperations(now time.Time) {
 	}
 }
 
-func (m *cameraRelayManager) ReconcileStop(query cameraRelayStopQuery) (*cameraRelayStopObservation, error) {
+func (m *cameraRelayManager) ReconcileStop(query cameraRelayOperationQuery) (*cameraRelayStopObservation, error) {
 	if query.OperationID == "" || query.RelaySessionID == "" || query.SourceIncarnationID == "" {
-		return nil, errCameraRelayStopQuery
+		return nil, errCameraRelayOperationQuery
 	}
 	if m == nil || query.SourceIncarnationID != m.incarnationID {
 		return nil, errCameraRelayIncarnationMismatch
@@ -242,7 +311,7 @@ func (m *cameraRelayManager) ReconcileStop(query cameraRelayStopQuery) (*cameraR
 	m.pruneStopOperations(time.Now())
 	operation, ok := m.stopOperations[query.OperationID]
 	m.mu.Unlock()
-	observation := &cameraRelayStopObservation{cameraRelayStopQuery: query, State: cameraRelayStopStateUnknown}
+	observation := &cameraRelayStopObservation{cameraRelayOperationQuery: query, State: cameraRelayStopStateUnknown}
 	if !ok {
 		return observation, nil
 	}
@@ -264,7 +333,7 @@ func (m *cameraRelayManager) ReconcileStop(query cameraRelayStopQuery) (*cameraR
 }
 
 func (p *PushLoop) handleCameraRelayReconcileStop(cmd *proto.CommandRequest, sender *controlStreamSender) {
-	query := cameraRelayStopQuery{}
+	query := cameraRelayOperationQuery{}
 	if err := json.Unmarshal(cmd.PayloadJson, &query); err != nil {
 		_ = sender.Send(commandResult(cmd, false, "invalid camera relay stop query", nil))
 		return

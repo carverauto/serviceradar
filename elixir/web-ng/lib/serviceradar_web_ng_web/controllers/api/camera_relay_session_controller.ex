@@ -80,11 +80,19 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionController do
     end
   end
 
-  def reconcile_close(conn, %{"id" => relay_session_id}) do
+  def reconcile_close(conn, params), do: reconcile(conn, params, &relay_session_manager().reconcile_close/2)
+
+  def reconcile_open(conn, params), do: reconcile(conn, params, &relay_session_manager().reconcile_open/2)
+
+  def close_observation(conn, params), do: observation(conn, params, &relay_session_manager().close_observation/3)
+
+  def open_observation(conn, params), do: observation(conn, params, &relay_session_manager().open_observation/3)
+
+  defp reconcile(conn, %{"id" => relay_session_id}, dispatch) do
     with :ok <- require_authenticated(conn),
          :ok <- require_permission(conn, "devices.cameras.view"),
          {:ok, id} <- normalize_uuid_param(relay_session_id, "id"),
-         {:ok, command_id} <- relay_session_manager().reconcile_close(id, scope: get_scope(conn)) do
+         {:ok, command_id} <- dispatch.(id, scope: get_scope(conn)) do
       conn
       |> put_status(:accepted)
       |> json(%{data: %{command_id: command_id}})
@@ -93,13 +101,13 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionController do
     end
   end
 
-  def close_observation(conn, %{"id" => relay_session_id, "command_id" => query_id}) do
+  defp observation(conn, %{"id" => relay_session_id, "command_id" => query_id}, read) do
     with :ok <- require_authenticated(conn),
          :ok <- require_permission(conn, "devices.cameras.view"),
          {:ok, id} <- normalize_uuid_param(relay_session_id, "id"),
          {:ok, command_id} <- normalize_uuid_param(query_id, "command_id"),
          {:ok, result} <-
-           relay_session_manager().close_observation(id, command_id, scope: get_scope(conn)) do
+           read.(id, command_id, scope: get_scope(conn)) do
       json(conn, %{data: result})
     else
       error -> recovery_error(conn, error)
@@ -110,7 +118,13 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionController do
     conn |> put_status(:bad_request) |> json(%{error: "invalid_request", message: message})
   end
 
-  defp recovery_error(conn, {:error, reason}) when reason in [:unknown_stop_identity, :invalid_stop_observation] do
+  defp recovery_error(conn, {:error, reason})
+       when reason in [
+              :unknown_stop_identity,
+              :invalid_stop_observation,
+              :unknown_open_identity,
+              :invalid_open_observation
+            ] do
     conn |> put_status(:conflict) |> json(%{error: reason})
   end
 

@@ -1498,7 +1498,7 @@ func TestCameraRelayStopObservationDuringTeardown(t *testing.T) {
 			}
 			cmd := &proto.CommandRequest{CommandId: "synthetic-stop", CreatedAt: time.Now().Unix(), TtlSeconds: 60}
 			payload := cameraRelayStopPayload{RelaySessionID: spec.RelaySessionID, SourceIncarnationID: manager.incarnationID}
-			query := cameraRelayStopQuery{OperationID: cmd.CommandId, RelaySessionID: spec.RelaySessionID, SourceIncarnationID: manager.incarnationID}
+			query := cameraRelayOperationQuery{OperationID: cmd.CommandId, RelaySessionID: spec.RelaySessionID, SourceIncarnationID: manager.incarnationID}
 			caller, cancelCaller := context.WithCancel(ctx)
 			cancelCaller()
 			if err := manager.StopCommand(caller, cmd, payload); !errors.Is(err, context.Canceled) {
@@ -1560,7 +1560,7 @@ func TestCameraRelayStopObservationRetention(t *testing.T) {
 			if capacity {
 				cmd.TtlSeconds = 60
 			}
-			query := cameraRelayStopQuery{OperationID: cmd.CommandId, RelaySessionID: spec.RelaySessionID, SourceIncarnationID: manager.incarnationID}
+			query := cameraRelayOperationQuery{OperationID: cmd.CommandId, RelaySessionID: spec.RelaySessionID, SourceIncarnationID: manager.incarnationID}
 			caller, cancelCaller := context.WithCancel(ctx)
 			cancelCaller()
 			if err := manager.StopCommand(caller, cmd, payload); !errors.Is(err, context.Canceled) {
@@ -1622,6 +1622,26 @@ func TestCameraRelayOpenFailureReceipt(t *testing.T) {
 			t.Fatalf("failed startup receipt %d: %v", i, err)
 		}
 	}
+	query := cameraRelayOperationQuery{OperationID: cmd.CommandId, RelaySessionID: spec.RelaySessionID, SourceIncarnationID: manager.incarnationID}
+	if result, err := manager.ReconcileOpen(query); err != nil || result.State != cameraRelayOpenStateFailed || result.CameraSourceID != spec.CameraSourceID || result.StreamProfileID != spec.StreamProfileID {
+		t.Fatalf("failed startup observation: %v %v", result, err)
+	}
+	wrong := query
+	wrong.RelaySessionID = "invented-mismatched-relay"
+	if _, err := manager.ReconcileOpen(wrong); !errors.Is(err, errCameraRelayStartConflict) {
+		t.Fatalf("wrong target: %v", err)
+	}
+	wrong = query
+	wrong.OperationID = "invented-absent-open"
+	if result, err := manager.ReconcileOpen(wrong); err != nil || result.State != cameraRelayOpenStateUnknown {
+		t.Fatalf("unknown operation: %v %v", result, err)
+	}
+	if _, err := newCameraRelayManager(gateway, createTestLogger()).ReconcileOpen(query); !errors.Is(err, errCameraRelayIncarnationMismatch) {
+		t.Fatalf("old incarnation: %v", err)
+	}
+	if _, err := manager.ReconcileOpen(cameraRelayOperationQuery{}); !errors.Is(err, errCameraRelayOperationQuery) {
+		t.Fatalf("missing identity: %v", err)
+	}
 	for _, change := range []struct {
 		name string
 		edit func(*cameraRelaySessionSpec, *proto.CommandRequest)
@@ -1653,6 +1673,10 @@ func TestCameraRelayOpenFailureReceipt(t *testing.T) {
 	}
 	if attempts != 1 || len(gateway.openRequests) != 1 || len(gateway.closeRequests) != 1 {
 		t.Fatalf("failed startup repeated work: source=%d opens=%d closes=%d", attempts, len(gateway.openRequests), len(gateway.closeRequests))
+	}
+	manager.startOperations[cmd.CommandId].expiresAt = time.Now().Add(-time.Second)
+	if result, err := manager.ReconcileOpen(query); err != nil || result.State != cameraRelayOpenStateUnknown || result.CameraSourceID != "" {
+		t.Fatalf("expired observation: %v %v", result, err)
 	}
 	cmd.CommandId = "synthetic-new-attempt"
 	if _, err := manager.StartCommand(t.Context(), cmd, spec); !errors.Is(err, errRTSPDialFailed) || attempts != 2 {

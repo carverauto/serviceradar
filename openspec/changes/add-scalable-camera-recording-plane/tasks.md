@@ -105,6 +105,16 @@ See [open retry limits](../../../docs/camera-relay-open-recovery.md). This is
 registry-local deduplication, not restart fencing or automatic Core replay.
 Task 2.5 remains open.
 
+Open-observation checkpoint for 2.5: authenticated camera recovery routes query
+and read the original open outcome without replaying startup. Agent receipts
+retain non-secret target identities and return pending, succeeded, failed or
+unknown within their original deadline. Core correlates the command, agent,
+session, operation, incarnation and source/profile; missing incarnation remains
+explicitly unqueryable. Retained ledger replies survive a requesting caller.
+Historical outcomes do not change ownership, prove liveness or retirement, or
+authorize a replacement. Durable recovery, fencing and task 2.5 remain open.
+
+
 ## 3. Storage modes and recovery
 
 - [ ] 3.1 Install qualified exclusive per-recorder filesystem volumes with explicit identities/initialization for Kubernetes and supported customer hosts.

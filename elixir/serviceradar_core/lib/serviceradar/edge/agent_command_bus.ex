@@ -1050,14 +1050,21 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   end
 
   @doc "Queries the outcome of a previous stop without replaying its mutation."
-  def reconcile_camera_relay_stop(agent_id, payload, opts \\ []) do
+  def reconcile_camera_relay_stop(agent_id, payload, opts \\ []),
+    do: reconcile_camera_relay(agent_id, "camera.reconcile_relay_stop", payload, opts)
+
+  @doc "Queries the outcome of a previous open without replaying its mutation."
+  def reconcile_camera_relay_open(agent_id, payload, opts \\ []),
+    do: reconcile_camera_relay(agent_id, "camera.reconcile_relay_open", payload, opts)
+
+  defp reconcile_camera_relay(agent_id, command_type, payload, opts) do
     payload = %{
       operation_id: payload_value(payload, :operation_id),
       relay_session_id: payload_value(payload, :relay_session_id),
       source_incarnation_id: payload_value(payload, :source_incarnation_id)
     }
 
-    dispatch(agent_id, "camera.reconcile_relay_stop", payload, add_context(opts, payload))
+    dispatch(agent_id, command_type, payload, add_context(opts, payload))
   end
 
   def push_config(agent_id)
