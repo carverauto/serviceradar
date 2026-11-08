@@ -1,3 +1,114 @@
+# ServiceRadar v1.5.1
+
+This release cuts the load ServiceRadar puts on StarRocks and keeps
+interactive queries apart from background work, so the warehouse no
+longer runs out of memory under its own maintenance. It also stops two
+ways the durable edge pipeline could lose data silently, retires the
+legacy ingest code that no longer receives traffic, and moves StarRocks
+4.1 installs to 4.1.7.
+
+## Upgrade Notes
+
+- **StarRocks schema changes run at core start, and one of them rewrites
+  history.** Warehouse DDL `0038` matches each rollup's refresh schedule
+  to its bucket. `0039` and `0040` lower the bucket counts of the
+  telemetry tables and rebuild the seven rollups with one bucket; existing
+  partitions are rewritten oldest first, in batches of at most 128 MiB,
+  500,000 rows or 32 partitions. `0041` stores OTel span, BMP and
+  flow-attribution free text whole. One core replica applies them while
+  the others wait. On a large deployment the timeseries rewrite can take
+  40 to 60 minutes. Loads continue throughout, and rollup readers serve
+  from the raw tables until the rollups are current (#6390, #6397, #6401).
+- **StarRocks 4.1 installs move to 4.1.7.** The chart's
+  `analytics.starrocks.imageTag` default is now `4.1.7`. StarRocks 4.1.6
+  made online optimize opt-in; the bucket rewrites need it, so set
+  `enable_online_optimize_table = true` in the FE config if you manage
+  StarRocks yourself. There is no supported direct upgrade from 3.5:
+  go through 4.0.17 first. `docs/starrocks-upgrade.md` has the two-hop
+  procedures for Kubernetes and Docker Compose (#6394).
+- **New StarRocks resource groups.** Core creates `sr_interactive` (the
+  web UI) and `sr_background` (core) and assigns every warehouse session
+  to one of them. Nothing needs configuring. If the groups cannot be
+  created, queries keep running in the default group and core logs a
+  warning (#6390, #6401).
+- **New migrations:** `20261106120000` adds the last promoted digest to
+  Trivy reports and seeds it for existing reports, so the upgrade does not
+  emit a burst of vulnerability events (#6390). `20261107031000` records
+  the stop command for camera relays (#6381).
+- **Removed settings.** Core no longer reads the legacy ingest
+  environment variables, including `RETAINED_PLUGIN_ADMISSION_ENABLED` and
+  the sweep-queue, flow and retained-plugin lane settings. The agent
+  gateway chart no longer renders its unused `AGENT_GATEWAY_*` lane
+  variables. Remove any overrides you set for them (#6389).
+- **Upgrade agents to get bounded status summaries.** Agents with many
+  SNMP targets or sweep hosts sent status summaries larger than the
+  gateway's 4 KiB limit, and every push was refused. v1.5.1 agents send
+  counts only; the details already travel as edge records (#6392).
+
+## Whats New
+
+**StarRocks workload**
+
+- Background work is cut sharply. Hourly rollups refresh every 5 minutes
+  instead of continuously, trace summaries refresh every 60 seconds
+  instead of every 10, and the flow-attribution version check reads only
+  the partitions near the batch it is checking (#6390).
+- Telemetry tables use far fewer tablets. On the demo the count fell from
+  about 8,350 to about 2,390 (#6390).
+- Trivy appends an event only when a report's promoted state changes, and
+  never deletes and rewrites events (#6390).
+- Interactive and background queries run in separate resource groups.
+  Sessions opened before the groups exist are moved into them as soon as
+  they appear. The migrator's own DDL stays outside the background group,
+  so its per-query limit does not cancel a schema change (#6390, #6401).
+- Core replicas waiting for a schema migration poll for the lock instead
+  of queueing on a pooled connection. Before, a long migration could leave
+  the waiting replicas hung for good (#6401).
+- Bucket rewrites are bounded by row count as well as size, so a
+  compressible partition no longer runs out of memory during the rewrite
+  (#6401).
+- The lab StarRocks values cap the compute-node lake metadata cache at
+  512 MiB. The cache is not reported in StarRocks memory tracking and held
+  each node near its limit (#6400).
+
+**Durable pipeline**
+
+- An edge record is no longer acknowledged and dropped when its write
+  fails. Transient errors such as deadlocks are redelivered, and records
+  that can never be written go to the dead-letter queue. Concurrent sweep
+  batches seeding the same device no longer collide (#6391).
+- Ash notifications from sweep ingestion are delivered after the
+  edge-record transaction commits, instead of being lost (#6387).
+- PubSub broadcasts and NATS publishes from edge-record processing run
+  only after the transaction commits, and are discarded if it rolls back
+  (#6399).
+- Settings > Cluster shows the edge-record pipeline per contract:
+  admitted, refused, projected and failed counts for sweep, mapper, flow
+  attribution and the other agent data (#6393).
+- Edge Pipeline Readiness reports oversized status summaries as their own
+  condition instead of telling the operator to upgrade an agent that is
+  already current. Leased sweep groups update the network sweep service
+  state again, and service state messages are stored whole (#6392).
+- The legacy ingest path, which stopped receiving traffic in v1.4.102,
+  is removed. The large-ingestion release gate now drives edge records
+  (#6380, #6389).
+
+**Cameras**
+
+- Stopping a camera relay is safer under failures. Core records the stop
+  command before sending it, the agent rejects a stop aimed at an older
+  instance of the stream, and a stop whose reply was lost can be checked
+  instead of retried blindly (#6381, #6385, #6388).
+
+**Fixes**
+
+- Topology projection logs transient Dgraph transaction conflicts at info
+  while retries remain (#6395).
+- `mix ash.codegen` works again, and the core quality gate now checks
+  that the generated migrations are current (#6396).
+- OTel spans with an invalid trace or span ID are dropped and counted
+  instead of being stored with a cut identifier (#6397).
+
 # ServiceRadar v1.5.0
 
 This release completes the move to the durable edge-record pipeline
