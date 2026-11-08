@@ -1605,3 +1605,114 @@ func TestCameraRelayStopObservationRetention(t *testing.T) {
 		})
 	}
 }
+
+func TestCameraRelayOpenFailureReceipt(t *testing.T) {
+	t.Parallel()
+	gateway := newFakeCameraRelayGateway()
+	manager := newCameraRelayManager(gateway, createTestLogger())
+	attempts := 0
+	manager.sourceFactory = func(cameraRelaySessionSpec) (cameraRelayChunkStream, error) {
+		attempts++
+		return nil, errRTSPDialFailed
+	}
+	spec := cameraRelaySessionSpec{RelaySessionID: "relay-open-receipt", AgentID: "agent-synthetic", CameraSourceID: "camera-synthetic", StreamProfileID: "main", LeaseToken: "lease-synthetic", SourceURL: "rtsp://camera.example.test/stream"}
+	cmd := &proto.CommandRequest{CommandId: "synthetic-open", CreatedAt: time.Now().Unix(), TtlSeconds: 60}
+	for i := 0; i < 2; i++ {
+		if _, err := manager.StartCommand(t.Context(), cmd, spec); !errors.Is(err, errRTSPDialFailed) {
+			t.Fatalf("failed startup receipt %d: %v", i, err)
+		}
+	}
+	for _, change := range []struct {
+		name string
+		edit func(*cameraRelaySessionSpec, *proto.CommandRequest)
+	}{
+		{"session", func(s *cameraRelaySessionSpec, _ *proto.CommandRequest) { s.RelaySessionID += "-other" }},
+		{"source", func(s *cameraRelaySessionSpec, _ *proto.CommandRequest) { s.CameraSourceID += "-other" }},
+		{"profile", func(s *cameraRelaySessionSpec, _ *proto.CommandRequest) { s.StreamProfileID = "sub" }},
+		{"lease", func(s *cameraRelaySessionSpec, _ *proto.CommandRequest) { s.LeaseToken += "-other" }},
+		{"plugin", func(s *cameraRelaySessionSpec, _ *proto.CommandRequest) { s.PluginAssignmentID = "invented-plugin" }},
+		{"transport", func(s *cameraRelaySessionSpec, _ *proto.CommandRequest) { s.RTSPTransport = "udp" }},
+		{"tls", func(s *cameraRelaySessionSpec, _ *proto.CommandRequest) { s.InsecureSkipVerify = true }},
+		{"deadline", func(_ *cameraRelaySessionSpec, c *proto.CommandRequest) { c.TtlSeconds++ }},
+		{"creation", func(_ *cameraRelaySessionSpec, c *proto.CommandRequest) { c.CreatedAt++ }},
+	} {
+		t.Run(change.name, func(t *testing.T) {
+			changedSpec := spec
+			changedCmd := &proto.CommandRequest{CommandId: cmd.CommandId, CreatedAt: cmd.CreatedAt, TtlSeconds: cmd.TtlSeconds}
+			change.edit(&changedSpec, changedCmd)
+			if _, err := manager.StartCommand(t.Context(), changedCmd, changedSpec); !errors.Is(err, errCameraRelayStartConflict) {
+				t.Fatalf("changed content: %v", err)
+			}
+		})
+	}
+	if attempts != 1 || len(gateway.openRequests) != 1 || len(gateway.closeRequests) != 1 {
+		t.Fatalf("failed startup repeated work: source=%d opens=%d closes=%d", attempts, len(gateway.openRequests), len(gateway.closeRequests))
+	}
+	cmd.CommandId = "synthetic-new-attempt"
+	if _, err := manager.StartCommand(t.Context(), cmd, spec); !errors.Is(err, errRTSPDialFailed) || attempts != 2 {
+		t.Fatalf("separate operation could not attempt startup: attempts=%d err=%v", attempts, err)
+	}
+}
+
+func TestCameraRelayOpenAdmissionBounds(t *testing.T) {
+	for _, mode := range []string{"invalid", "expiry", "capacity"} {
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+			gateway := newFakeCameraRelayGateway()
+			manager := newCameraRelayManager(gateway, createTestLogger())
+			manager.sourceFactory = func(cameraRelaySessionSpec) (cameraRelayChunkStream, error) { return nil, errRTSPDialFailed }
+			spec := cameraRelaySessionSpec{RelaySessionID: "relay-bounded", AgentID: "agent-synthetic", CameraSourceID: "camera-synthetic", StreamProfileID: "main", LeaseToken: "lease-synthetic"}
+			cmd := &proto.CommandRequest{CommandId: "synthetic-open", CreatedAt: time.Now().Unix(), TtlSeconds: 60}
+			switch mode {
+			case "invalid":
+				for _, invalid := range []*proto.CommandRequest{
+					nil,
+					{CreatedAt: cmd.CreatedAt, TtlSeconds: 60},
+					{CommandId: cmd.CommandId, TtlSeconds: 60},
+					{CommandId: cmd.CommandId, CreatedAt: cmd.CreatedAt},
+					{CommandId: cmd.CommandId, CreatedAt: cmd.CreatedAt, TtlSeconds: -1},
+					{CommandId: cmd.CommandId, CreatedAt: cmd.CreatedAt, TtlSeconds: 301},
+					{CommandId: cmd.CommandId, CreatedAt: cmd.CreatedAt - 120, TtlSeconds: 60},
+					{CommandId: cmd.CommandId, CreatedAt: cmd.CreatedAt + 600, TtlSeconds: 60},
+				} {
+					if _, err := manager.StartCommand(t.Context(), invalid, spec); !errors.Is(err, errCameraRelayStartEnvelope) {
+						t.Fatalf("invalid envelope: %v", err)
+					}
+				}
+				if len(gateway.openRequests) != 0 {
+					t.Fatal("invalid envelope opened upstream")
+				}
+			case "expiry":
+				cmd.TtlSeconds = 2
+				if _, err := manager.StartCommand(t.Context(), cmd, spec); !errors.Is(err, errRTSPDialFailed) {
+					t.Fatal(err)
+				}
+				timer := time.NewTimer(time.Until(time.Unix(cmd.CreatedAt+cmd.TtlSeconds, 0)))
+				defer timer.Stop()
+				select {
+				case <-timer.C:
+				case <-t.Context().Done():
+					t.Fatal("deadline wait cancelled")
+				}
+				if _, err := manager.StartCommand(t.Context(), cmd, spec); !errors.Is(err, errCameraRelayStartEnvelope) || len(gateway.openRequests) != 1 {
+					t.Fatalf("expired operation replay: opens=%d err=%v", len(gateway.openRequests), err)
+				}
+			case "capacity":
+				for i := 0; i < 4096; i++ {
+					cmd.CommandId = fmt.Sprintf("synthetic-open-%d", i)
+					if _, err := manager.StartCommand(t.Context(), cmd, spec); !errors.Is(err, errRTSPDialFailed) {
+						t.Fatalf("capture %d: %v", i, err)
+					}
+				}
+				cmd.CommandId = "synthetic-over-capacity"
+				if _, err := manager.StartCommand(t.Context(), cmd, spec); !errors.Is(err, errCameraRelayStartCapacity) || len(gateway.openRequests) != 4096 {
+					t.Fatalf("capacity: opens=%d err=%v", len(gateway.openRequests), err)
+				}
+				cmd.CommandId = "synthetic-open-0"
+				if _, err := manager.StartCommand(t.Context(), cmd, spec); !errors.Is(err, errRTSPDialFailed) || len(gateway.openRequests) != 4096 {
+					t.Fatalf("retained receipt at capacity: opens=%d err=%v", len(gateway.openRequests), err)
+				}
+			}
+		})
+	}
+}

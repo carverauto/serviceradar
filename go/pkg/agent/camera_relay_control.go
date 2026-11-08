@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -13,8 +14,9 @@ import (
 // Observations live only until the original command deadline. They are not a
 // durable retirement journal and must never authorize a replacement source.
 const (
-	maxCameraRelayStopOperations = 4096
-	maxCameraRelayStopTTL        = 5 * time.Minute
+	maxCameraRelayStartOperations = 4096
+	maxCameraRelayStopOperations  = 4096
+	maxCameraRelayCommandTTL      = 5 * time.Minute
 )
 
 // Wire values of camera.reconcile_relay_stop observation states.
@@ -26,12 +28,106 @@ const (
 )
 
 var (
+	errCameraRelayStartEnvelope     = errors.New("camera relay open requires an operation ID and a valid deadline within five minutes")
+	errCameraRelayStartConflict     = errors.New("camera relay open operation content conflict")
+	errCameraRelayStartCapacity     = errors.New("camera relay open receipt capacity reached")
 	errCameraRelayStopEnvelope      = errors.New("camera relay stop requires an operation ID and a valid deadline within five minutes")
 	errCameraRelayStopConflict      = errors.New("camera relay stop operation content conflict")
 	errCameraRelayStopCapacity      = errors.New("camera relay stop observation capacity reached")
 	errCameraRelaySourceCloseFailed = errors.New("camera relay source close unresolved")
 	errCameraRelayStopQuery         = errors.New("operation_id, relay_session_id and source_incarnation_id are required")
 )
+
+// Open and tracked stop receipts have the same bounded original envelope.
+func cameraRelayCommandDeadline(cmd *proto.CommandRequest, now time.Time) (time.Time, bool) {
+	if strings.TrimSpace(cmd.GetCommandId()) == "" || cmd.GetCreatedAt() <= 0 || cmd.GetTtlSeconds() <= 0 ||
+		cmd.GetTtlSeconds() > int64(maxCameraRelayCommandTTL/time.Second) {
+		return time.Time{}, false
+	}
+	expiresAt := time.Unix(cmd.GetCreatedAt(), 0).Add(time.Duration(cmd.GetTtlSeconds()) * time.Second)
+	return expiresAt, expiresAt.After(now) && !expiresAt.After(now.Add(maxCameraRelayCommandTTL))
+}
+
+// The digest avoids retaining source credentials with a historical receipt.
+// Result fields are written once, before done closes.
+type cameraRelayStartOperation struct {
+	digest    [sha256.Size]byte
+	createdAt int64
+	ttl       int64
+	expiresAt time.Time
+	done      chan struct{}
+	state     *cameraRelaySessionState
+	err       error
+}
+
+// StartCommand returns the original startup outcome, not current source liveness.
+// Records belong to this registry lifetime only; this is not restart fencing.
+func (m *cameraRelayManager) StartCommand(ctx context.Context, cmd *proto.CommandRequest, spec cameraRelaySessionSpec) (*cameraRelaySessionState, error) {
+	if m == nil || m.gateway == nil {
+		return nil, errCameraRelayGatewayUnavailable
+	}
+	spec, err := normalizeCameraRelaySpec(spec)
+	if err != nil {
+		return nil, err
+	}
+	if spec.GatewayID == "" {
+		spec.GatewayID = strings.TrimSpace(m.gateway.GetGatewayID())
+	}
+	content, err := json.Marshal(spec)
+	if err != nil {
+		return nil, err
+	}
+	operation, first, err := m.captureStartOperation(cmd, sha256.Sum256(content))
+	if err != nil {
+		return nil, err
+	}
+	if first {
+		operation.state, operation.err = m.Start(ctx, spec)
+		close(operation.done)
+	}
+	waitCtx, cancel := context.WithDeadline(ctx, operation.expiresAt)
+	defer cancel()
+	select {
+	case <-operation.done:
+		if operation.state == nil {
+			return nil, operation.err
+		}
+		state := *operation.state
+		return &state, operation.err
+	case <-waitCtx.Done():
+		return nil, waitCtx.Err()
+	}
+}
+
+func (m *cameraRelayManager) captureStartOperation(cmd *proto.CommandRequest, digest [sha256.Size]byte) (*cameraRelayStartOperation, bool, error) {
+	now := time.Now()
+	expiresAt, valid := cameraRelayCommandDeadline(cmd, now)
+	if !valid {
+		return nil, false, errCameraRelayStartEnvelope
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for id, operation := range m.startOperations {
+		if !operation.expiresAt.After(now) {
+			delete(m.startOperations, id)
+		}
+	}
+	if operation, ok := m.startOperations[cmd.GetCommandId()]; ok {
+		if operation.digest != digest || operation.createdAt != cmd.GetCreatedAt() || operation.ttl != cmd.GetTtlSeconds() {
+			return nil, false, errCameraRelayStartConflict
+		}
+		return operation, false, nil
+	}
+	if len(m.startOperations) >= maxCameraRelayStartOperations {
+		return nil, false, errCameraRelayStartCapacity
+	}
+	operation := &cameraRelayStartOperation{
+		digest: digest, createdAt: cmd.GetCreatedAt(), ttl: cmd.GetTtlSeconds(), expiresAt: expiresAt, done: make(chan struct{}),
+	}
+	m.startOperations[cmd.GetCommandId()] = operation
+	return operation, true, nil
+}
 
 type cameraRelayStopOperation struct {
 	payload   cameraRelayStopPayload
@@ -89,10 +185,8 @@ func (m *cameraRelayManager) StopCommand(ctx context.Context, cmd *proto.Command
 
 func (m *cameraRelayManager) captureStopOperation(cmd *proto.CommandRequest, payload cameraRelayStopPayload) (*cameraRelayHandle, error) {
 	now := time.Now()
-	expiresAt := time.Unix(cmd.GetCreatedAt(), 0).Add(time.Duration(cmd.GetTtlSeconds()) * time.Second)
-	if strings.TrimSpace(cmd.GetCommandId()) == "" || cmd.GetCreatedAt() <= 0 || cmd.GetTtlSeconds() <= 0 ||
-		cmd.GetTtlSeconds() > int64(maxCameraRelayStopTTL/time.Second) ||
-		!expiresAt.After(now) || expiresAt.After(now.Add(maxCameraRelayStopTTL)) {
+	expiresAt, valid := cameraRelayCommandDeadline(cmd, now)
+	if !valid {
 		return nil, errCameraRelayStopEnvelope
 	}
 
