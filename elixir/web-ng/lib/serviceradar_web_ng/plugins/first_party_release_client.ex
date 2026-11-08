@@ -259,12 +259,12 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
 
   defp maybe_fallback_binary_asset(repo, fallback_url, primary_url, fallback_mode, reason, original_error) do
     if timeout_error?(reason) and is_binary(fallback_url) and fallback_url != primary_url do
-      case validate_provider_asset_url(repo, fallback_url) do
-        {:ok, validated_fallback_url} ->
-          fetch_url_binary(repo, validated_fallback_url, @max_asset_redirects, fallback_mode)
-
-        {:error, _reason} ->
-          original_error
+      with {:ok, validated_fallback_url} <- validate_provider_asset_url(repo, fallback_url),
+           {:ok, _body} = result <-
+             fetch_url_binary(repo, validated_fallback_url, @max_asset_redirects, fallback_mode) do
+        result
+      else
+        _ -> original_error
       end
     else
       original_error

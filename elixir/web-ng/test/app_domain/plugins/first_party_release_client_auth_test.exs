@@ -233,6 +233,35 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClientAuthTest do
       assert authorization(api_headers) == "Bearer ghp_secret"
       assert browser_url == "https://github.com/acme/sr-plugins/releases/download/v1/bundle.zip"
     end
+
+    test "keeps the token-bound API timeout when the private browser_download_url returns 404", %{repo: repo} do
+      defmodule TimeoutApiPrivateBrowserClient do
+        @moduledoc false
+
+        def get(url, opts) do
+          send(self(), {:request, url, Keyword.get(opts, :headers, [])})
+
+          cond do
+            String.contains?(url, "api.github.com/repos/acme/sr-plugins/releases/assets/42") ->
+              {:error, %Req.TransportError{reason: :timeout}}
+
+            String.contains?(url, "github.com/acme/sr-plugins/releases/download") ->
+              {:ok, %Req.Response{status: 404, body: "Not Found", headers: %{}}}
+          end
+        end
+      end
+
+      Application.put_env(:serviceradar_web_ng, :first_party_plugin_import_http_client, TimeoutApiPrivateBrowserClient)
+      repo = Client.with_token(repo, "ghp_secret")
+
+      asset = %{
+        "url" => "https://api.github.com/repos/acme/sr-plugins/releases/assets/42",
+        "browser_download_url" => "https://github.com/acme/sr-plugins/releases/download/v1/bundle.zip"
+      }
+
+      assert {:error, %Req.TransportError{reason: :timeout}} = Client.fetch_binary_asset(repo, asset)
+      assert length(collect_requests()) == 2
+    end
   end
 
   defmodule RefusingRedirectClient do
