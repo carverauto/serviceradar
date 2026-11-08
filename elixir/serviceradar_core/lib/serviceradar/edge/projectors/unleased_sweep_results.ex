@@ -80,9 +80,12 @@ defmodule ServiceRadar.Edge.Projectors.UnleasedSweepResults do
 
   @doc """
   Ingests a primary delivery's results through the legacy results path. A replay or late-fenced
-  delivery writes nothing. A grant that is not current, a network scope with no partition, or a
-  record with no gateway id rolls the record back as refused. Results the legacy path declines
-  commit as they do there: logged, with whatever the ingest recorded kept.
+  delivery writes nothing. A grant that is not current, a network scope with no partition, a
+  record with no gateway id, or a permanent payload failure rolls the record back as an atom
+  refusal so it is dead-lettered on first delivery. A transient lookup or persistence failure
+  rolls the transaction back with its exception so the record is redelivered with backoff and
+  dead-lettered at the stream threshold. Results the ingest deliberately declines (skip or
+  quarantine) commit as they do today: logged, with whatever the ingest recorded kept.
   """
   @impl true
   def project(
@@ -107,12 +110,12 @@ defmodule ServiceRadar.Edge.Projectors.UnleasedSweepResults do
          {:ok, gateway_id} <- SweepServiceState.gateway(repo, agent_id, context.gateway_id) do
       batch
       |> status(agent_id, gateway_id, partition)
-      |> ResultIngestor.process_and_publish()
+      |> ResultIngestor.process_and_publish(repo: repo)
       |> case do
         :ok -> :ok
         {:ok, _result} -> :ok
-        # process_and_publish/2 has logged it, as on the legacy path.
-        {:error, _reason} -> :ok
+        {:declined, _reason} -> :ok
+        {:error, reason} -> {:error, classify_ingest_failure(reason)}
       end
     else
       nil -> {:error, :sweep_partition_not_found}
@@ -121,6 +124,27 @@ defmodule ServiceRadar.Edge.Projectors.UnleasedSweepResults do
   end
 
   def project(_repo, _record, _batch, _context), do: :ok
+
+  defp classify_ingest_failure({:execution_lookup_failed, exception})
+       when is_exception(exception), do: exception
+
+  defp classify_ingest_failure({:group_lookup_failed, exception}) when is_exception(exception),
+    do: exception
+
+  defp classify_ingest_failure({:service_status_publish_failed, exception})
+       when is_exception(exception), do: exception
+
+  defp classify_ingest_failure({:service_status_publish_failed, reason}),
+    do: RuntimeError.exception("unleased sweep service state publish failed: #{inspect(reason)}")
+
+  defp classify_ingest_failure(%Jason.DecodeError{}), do: :invalid_payload_json
+
+  defp classify_ingest_failure(exception) when is_exception(exception), do: exception
+
+  defp classify_ingest_failure(reason) when is_atom(reason), do: reason
+
+  defp classify_ingest_failure(reason),
+    do: RuntimeError.exception("unleased sweep results ingest failed: #{inspect(reason)}")
 
   # The `results` status the gateway builds from the agent's results chunk.
   defp status(batch, agent_id, gateway_id, partition) do

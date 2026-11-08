@@ -66,6 +66,10 @@ defmodule ServiceRadar.Ingestion.ResultIngestor do
       {:ok, _result} = ok ->
         with :ok <- publish_service_state(status, opts), do: ok
 
+      {:declined, reason} = declined ->
+        Logger.warning("Results processing declined: #{inspect(reason)}")
+        declined
+
       {:error, reason} = error ->
         Logger.warning("Results processing failed: #{inspect(reason)}")
         error
@@ -95,14 +99,14 @@ defmodule ServiceRadar.Ingestion.ResultIngestor do
       {:error, {:service_status_publish_failed, reason}}
   end
 
-  defp process(%{source: source, service_type: "sweep"} = status, _opts)
+  defp process(%{source: source, service_type: "sweep"} = status, opts)
        when source in ["results", :results] do
-    handle_sweep_results(status)
+    handle_sweep_results(status, opts)
   end
 
   defp process(_status, _opts), do: :ok
 
-  defp handle_sweep_results(status) do
+  defp handle_sweep_results(status, ingest_opts) do
     # In schema-agnostic mode, DB schema is set by CNPG search_path
     with {:ok, payload} <- decode_payload(status[:message]),
          {:ok, results, execution_id, sweep_group_id} <- sweep_results(payload) do
@@ -129,15 +133,28 @@ defmodule ServiceRadar.Ingestion.ResultIngestor do
             is_final: status[:is_final],
             is_cancelled: is_cancelled,
             cancel_marker: status[:cancel_marker],
-            marker_chunk_indexes: status[:marker_chunk_indexes]
+            marker_chunk_indexes: status[:marker_chunk_indexes],
+            repo: Keyword.get(ingest_opts, :repo)
           ],
           fn {_key, value} -> is_nil(value) or value == "" end
         )
 
       case sweep_ingestor().ingest_results(results, execution_id, opts) do
-        :ok -> :ok
-        {:ok, _stats} -> :ok
-        {:error, reason} -> {:error, reason}
+        :ok ->
+          :ok
+
+        {:ok, _stats} ->
+          :ok
+
+        {:declined, reason} ->
+          {:declined, reason}
+
+        {:error, reason} ->
+          if SweepResultsIngestor.declined_reason?(reason) do
+            {:declined, reason}
+          else
+            {:error, reason}
+          end
       end
     end
   end
@@ -203,7 +220,7 @@ defmodule ServiceRadar.Ingestion.ResultIngestor do
         {:ok, [], execution_id, sweep_group_id}
 
       true ->
-        {:error, :no_hosts}
+        {:declined, :no_hosts}
     end
   end
 

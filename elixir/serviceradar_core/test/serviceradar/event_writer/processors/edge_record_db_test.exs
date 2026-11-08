@@ -1597,6 +1597,22 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
     end
   end
 
+  defmodule FailingExecutionLookupRepo do
+    @moduledoc false
+    defdelegate get(queryable, id), to: Repo
+    defdelegate query(sql, params), to: Repo
+    defdelegate query!(sql, params), to: Repo
+    defdelegate transaction(fun), to: Repo
+    defdelegate rollback(value), to: Repo
+    defdelegate insert_all(schema, entries, opts), to: Repo
+
+    def one(%Ecto.Query{from: %{source: {"sweep_group_executions", _}}}) do
+      raise DBConnection.ConnectionError, message: "transient execution lookup failure"
+    end
+
+    def one(queryable), do: Repo.one(queryable)
+  end
+
   describe "ingest/4 of unleased sweep results records" do
     test "a fresh record ingests its hosts through the sweep results ingest under the authenticated agent" do
       frame = build_unleased_sweep_frame(gateway_header: "gw-at-publish")
@@ -1724,6 +1740,114 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       assert unleased_host_results(frame.execution_id) == []
       assert Repo.get(SweepGroupExecution, frame.execution_id) == nil
       assert ledger_count(frame.record) == 0
+    end
+
+    test "a lookup that raises leaves the delivery failed for redelivery with no ledger row, and dead-letters at the stream threshold" do
+      frame = build_unleased_sweep_frame(gateway_header: "gw-at-publish")
+
+      Repo.query!(
+        "UPDATE platform.sweep_groups SET schedule_type = $1 WHERE id = $2::uuid",
+        ["corrupt_schedule_type_for_6416_lookup_failure", Ecto.UUID.dump!(frame.group_id)]
+      )
+
+      message = %{
+        data: frame.record_bytes,
+        metadata: %{
+          headers: frame.headers,
+          subject: "telemetry.edge-record.v1.bulk.p07",
+          dead_letter_after: 20,
+          max_deliver: -1,
+          jetstream_ack: %{
+            stream: "TELEMETRY_EDGE_RECORD_V1_BULK",
+            stream_sequence: 1,
+            delivery_count: 1
+          }
+        }
+      }
+
+      assert {:incomplete, 0, [{^message, %RuntimeError{} = failure}]} =
+               EdgeRecord.process_batch([message])
+
+      assert failure.message =~ "corrupt_schedule_type_for_6416_lookup_failure"
+      refute EdgeRecordDeadLetter.due?(Map.put(message, :status, {:failed, failure}))
+
+      threshold_message = put_in(message, [:metadata, :jetstream_ack, :delivery_count], 20)
+      assert EdgeRecordDeadLetter.due?(Map.put(threshold_message, :status, {:failed, failure}))
+
+      assert ledger_count(frame.record) == 0
+      assert delivery_slot_count(frame.record) == 0
+      assert unleased_host_results(frame.execution_id) == []
+      assert Repo.get(SweepGroupExecution, frame.execution_id) == nil
+
+      Repo.query!(
+        "UPDATE platform.sweep_groups SET schedule_type = 'interval' WHERE id = $1::uuid",
+        [Ecto.UUID.dump!(frame.group_id)]
+      )
+
+      exec_failure =
+        assert_raise RuntimeError, ~r/transient execution lookup failure/, fn ->
+          EdgeRecord.ingest(frame.record_bytes, frame.headers, FailingExecutionLookupRepo)
+        end
+
+      refute EdgeRecordDeadLetter.due?(Map.put(message, :status, {:failed, exec_failure}))
+      assert ledger_count(frame.record) == 0
+      assert delivery_slot_count(frame.record) == 0
+
+      assert {:ok, 1} = EdgeRecord.process_batch([message])
+      assert ledger_count(frame.record) == 1
+      assert length(unleased_host_results(frame.execution_id)) == 2
+    end
+
+    test "a deliberate decline commits the ledger row while a permanent failure is dead-lettered on first delivery" do
+      declined_frame = build_unleased_sweep_frame(gateway_header: "gw-at-publish")
+
+      Repo.query!(
+        "DELETE FROM platform.sweep_groups WHERE id = $1::uuid",
+        [Ecto.UUID.dump!(declined_frame.group_id)]
+      )
+
+      declined_message = %{
+        data: declined_frame.record_bytes,
+        metadata: %{
+          headers: declined_frame.headers,
+          subject: "telemetry.edge-record.v1.bulk.p07",
+          dead_letter_after: 20,
+          max_deliver: -1
+        }
+      }
+
+      assert {:ok, 1} = EdgeRecord.process_batch([declined_message])
+      assert ledger_count(declined_frame.record) == 1
+      assert delivery_slot_count(declined_frame.record) == 1
+      assert unleased_host_results(declined_frame.execution_id) == []
+      assert Repo.get(SweepGroupExecution, declined_frame.execution_id) == nil
+
+      refused_frame = build_unleased_sweep_frame(gateway_header: "gw-at-publish")
+
+      Repo.query!(
+        "DELETE FROM platform.partitions WHERE id = $1::uuid",
+        [refused_frame.record.network_scope_id]
+      )
+
+      refused_message = %{
+        data: refused_frame.record_bytes,
+        metadata: %{
+          headers: refused_frame.headers,
+          subject: "telemetry.edge-record.v1.bulk.p07",
+          dead_letter_after: 20,
+          max_deliver: -1
+        }
+      }
+
+      assert {:incomplete, 0,
+              [
+                {^refused_message,
+                 %EdgeRecordRefusedError{reason: :sweep_partition_not_found} = refused}
+              ]} = EdgeRecord.process_batch([refused_message])
+
+      assert EdgeRecordDeadLetter.due?(Map.put(refused_message, :status, {:failed, refused}))
+      assert ledger_count(refused_frame.record) == 0
+      assert delivery_slot_count(refused_frame.record) == 0
     end
   end
 
