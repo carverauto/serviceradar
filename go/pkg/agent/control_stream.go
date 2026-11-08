@@ -1776,7 +1776,7 @@ func (p *PushLoop) handleCameraRelayOpen(ctx context.Context, cmd *proto.Command
 	agentID := p.server.config.AgentID
 	p.server.mu.RUnlock()
 
-	state, err := p.cameraRelayManager.Start(ctx, cameraRelaySessionSpec{
+	state, err := p.cameraRelayManager.StartCommand(ctx, cmd, cameraRelaySessionSpec{
 		RelaySessionID:     payload.RelaySessionID,
 		AgentID:            agentID,
 		GatewayID:          p.gateway.GetGatewayID(),

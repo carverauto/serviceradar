@@ -36,6 +36,11 @@ import (
 
 const defaultCameraRelayChunkBuffer = 64
 
+const (
+	cameraRelayRTSPTransportTCP = "tcp"
+	cameraRelayRTSPTransportUDP = "udp"
+)
+
 var (
 	errCameraRelaySourceURLRequired    = errors.New("source_url is required")
 	errUnsupportedCameraRelaySource    = errors.New("unsupported camera relay source")
@@ -278,9 +283,9 @@ func (s *rtspCameraRelayStream) finish(err error) {
 
 func parseCameraRelayRTSPTransport(value string) (gortsplib.Protocol, error) {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "", "tcp":
+	case "", cameraRelayRTSPTransportTCP:
 		return gortsplib.ProtocolTCP, nil
-	case "udp":
+	case cameraRelayRTSPTransportUDP:
 		return gortsplib.ProtocolUDP, nil
 	default:
 		return 0, fmt.Errorf("%w %q", errUnsupportedCameraRelayTransport, value)

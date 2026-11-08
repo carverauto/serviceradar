@@ -94,6 +94,17 @@ unqualified for retirement and cannot mutate relay ownership or leases. See the
 reconciliation, physical fencing and durable agent journaling remain open, as
 does task 2.5.
 
+Open-retry checkpoint for 2.5: the agent coalesces identical open commands and
+retains the original startup outcome, including failures and successful receipts
+after source teardown. Changed normalized content or command deadlines are
+refused while retained. The cache admits at most 4,096 operations through their
+original deadlines (at most five minutes); expired commands and new operations
+at capacity cannot open a gateway session or camera. Synthetic native RTSP and
+Wazero runtime coverage exercises lost replies, duplicate opens and teardown.
+See [open retry limits](../../../docs/camera-relay-open-recovery.md). This is
+registry-local deduplication, not restart fencing or automatic Core replay.
+Task 2.5 remains open.
+
 ## 3. Storage modes and recovery
 
 - [ ] 3.1 Install qualified exclusive per-recorder filesystem volumes with explicit identities/initialization for Kubernetes and supported customer hosts.

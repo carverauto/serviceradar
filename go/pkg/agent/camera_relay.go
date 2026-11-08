@@ -157,6 +157,7 @@ type cameraRelayManager struct {
 	// The source registry lifetime, not the gateway connection lifetime.
 	incarnationID       string
 	mu                  sync.Mutex
+	startOperations     map[string]*cameraRelayStartOperation
 	stopOperations      map[string]cameraRelayStopOperation
 	sessions            map[string]*cameraRelayHandle
 	sources             map[cameraRelaySourceKey]*cameraRelayHandle
@@ -170,6 +171,7 @@ type cameraRelayManager struct {
 func newCameraRelayManager(gateway cameraRelayGateway, log logger.Logger) *cameraRelayManager {
 	return &cameraRelayManager{
 		incarnationID:   uuid.NewString(),
+		startOperations: make(map[string]*cameraRelayStartOperation),
 		stopOperations:  make(map[string]cameraRelayStopOperation),
 		sessions:        make(map[string]*cameraRelayHandle),
 		sources:         make(map[cameraRelaySourceKey]*cameraRelayHandle),

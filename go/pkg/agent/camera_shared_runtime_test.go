@@ -334,7 +334,8 @@ func TestCameraSharedRuntime(t *testing.T) {
 				}
 			}()
 			owner := make(chan *proto.CommandResult, 1)
-			go func() { owner <- runtimeCommand(t, ctx, loop, payload, false) }()
+			openRequest := runtimeRequest(t, payload, false)
+			go func() { owner <- runtimeSendCommand(t, ctx, loop, openRequest, true) }()
 			select {
 			case <-camera.described:
 			case <-ctx.Done():
@@ -356,14 +357,47 @@ func TestCameraSharedRuntime(t *testing.T) {
 				}
 			}
 			checkConflict("opening")
+			awaitOwner := func() {
+				t.Helper()
+				select {
+				case result := <-owner:
+					if result != nil {
+						t.Fatal("original open reply was not dropped")
+					}
+				case <-ctx.Done():
+					t.Fatal("original open did not finish")
+				}
+			}
+			// A duplicate can abandon a pending wait without cancelling the first
+			// open, but a completed open is reported despite the cancelled caller.
+			cancelled, cancelDuplicate := context.WithCancel(ctx)
+			cancelDuplicate()
+			if plugin {
+				awaitOwner()
+				if result := runtimeSendCommand(t, cancelled, loop, openRequest, false); !result.Success {
+					t.Fatalf("cancelled duplicate after startup: %v", result)
+				}
+			} else if result := runtimeSendCommand(t, cancelled, loop, openRequest, false); result.Success || result.Message != context.Canceled.Error() {
+				t.Fatalf("cancelled duplicate during startup: %v", result)
+			}
+			recovery := make(chan *proto.CommandResult, 1)
+			go func() { recovery <- runtimeSendCommand(t, ctx, loop, openRequest, false) }()
 			close(camera.gate)
+			var openReceipt []byte
 			select {
-			case result := <-owner:
+			case result := <-recovery:
+				openReceipt = result.PayloadJson
 				if !result.Success {
 					t.Fatal(result)
 				}
 			case <-ctx.Done():
 				t.Fatal("owner failed to start")
+			}
+			if !plugin {
+				awaitOwner()
+			}
+			if peer.opens.Load() != 1 || camera.opened.Load() != 1 {
+				t.Fatal("concurrent duplicate opened another ingress or camera")
 			}
 			incarnation := <-peer.incarnations
 			if incarnation == "" {
@@ -387,6 +421,20 @@ func TestCameraSharedRuntime(t *testing.T) {
 				}
 			})
 			checkConflict("streaming")
+			normalized := payload
+			normalized.CameraSourceID, normalized.StreamProfileID = "camera-a", "main"
+			retry := runtimeRequest(t, normalized, false)
+			retry.CommandId, retry.CreatedAt, retry.TtlSeconds = openRequest.CommandId, openRequest.CreatedAt, openRequest.TtlSeconds
+			if result := runtimeSendCommand(t, ctx, loop, retry, false); !result.Success || !bytes.Equal(result.PayloadJson, openReceipt) {
+				t.Fatalf("normalized live open replay: %v", result)
+			}
+			changedOpen := payload
+			changedOpen.SourceURL += "-changed"
+			changedRequest := runtimeRequest(t, changedOpen, false)
+			changedRequest.CommandId, changedRequest.CreatedAt, changedRequest.TtlSeconds = openRequest.CommandId, openRequest.CreatedAt, openRequest.TtlSeconds
+			if result := runtimeSendCommand(t, ctx, loop, changedRequest, false); result.Success || result.Message != errCameraRelayStartConflict.Error() {
+				t.Fatalf("changed live open: %v", result)
+			}
 			if result := runtimeCommand(t, ctx, loop, payload, false); result.Success || result.Message != errCameraRelaySessionExists.Error() {
 				t.Fatalf("same ID: %v", result)
 			}
@@ -452,6 +500,15 @@ func TestCameraSharedRuntime(t *testing.T) {
 			runtimeAwait(t, ctx, "physical sockets closed", func() bool { return camera.closed.Load() == camera.opened.Load() })
 			if plugin && (plugins.Snapshot().ActiveExecutions != 0 || plugins.Snapshot().OpenConnections != 0) {
 				t.Fatal("Stop returned with executor or sockets live")
+			}
+			// A repeated open is a historical startup receipt, even after teardown.
+			beforeGateway, beforeCamera := peer.opens.Load(), camera.opened.Load()
+			replayed := runtimeSendCommand(t, ctx, loop, openRequest, false)
+			if !replayed.Success || !bytes.Equal(replayed.PayloadJson, openReceipt) {
+				t.Fatalf("open replay after teardown: %v", replayed)
+			}
+			if peer.opens.Load() != beforeGateway || camera.opened.Load() != beforeCamera {
+				t.Fatal("open replay after teardown opened another gateway session or camera")
 			}
 			conflict.RelaySessionID = "invented-replacement"
 			if result := runtimeCommand(t, ctx, loop, conflict, false); !result.Success {
