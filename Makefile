@@ -68,7 +68,7 @@ BAZEL_UNIT_TEST_FILTERS ?= --test_tag_filters=-integration_test,-acceptance_test
 # `palisade`, which CI does lint. Because the loop runs under `set -eu` and
 # elixir_quality.sh exits non-zero on a missing directory, `make lint-elixir` -- and therefore
 # `make lint` -- died on the FIRST entry and never analyzed a single project.
-ELIXIR_PROJECTS ?= datasvc palisade serviceradar_agent_gateway serviceradar_core serviceradar_core_elx serviceradar_srql web-ng
+ELIXIR_PROJECTS ?= datasvc palisade serviceradar_agent_gateway serviceradar_core serviceradar_core_elx serviceradar_recording serviceradar_srql web-ng
 
 # Rust configuration
 CARGO ?= cargo

@@ -1,9 +1,9 @@
-defmodule ServiceRadarCoreElx.CameraRecording.Sink do
+defmodule ServiceRadarRecording.Sink do
   @moduledoc false
   use Membrane.Sink
 
   alias Membrane.MP4.Container
-  alias ServiceRadarCoreElx.CameraRecording.Boundary
+  alias ServiceRadarRecording.Boundary
 
   def_input_pad(:input, flow_control: :auto, accepted_format: Membrane.CMAF.Track)
   def_options(max_fragment_bytes: [spec: pos_integer()])

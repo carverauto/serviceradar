@@ -1,4 +1,4 @@
-defmodule ServiceRadarCoreElx.CameraRecording.Inbox do
+defmodule ServiceRadarRecording.Inbox do
   @moduledoc """
   Node-local recording admission, checked before any media enters a mailbox.
 

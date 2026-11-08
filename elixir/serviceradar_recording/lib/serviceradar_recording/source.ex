@@ -1,8 +1,8 @@
-defmodule ServiceRadarCoreElx.CameraRecording.Source do
+defmodule ServiceRadarRecording.Source do
   @moduledoc false
   use Membrane.Source
 
-  alias ServiceRadarCoreElx.CameraRecording.Boundary
+  alias ServiceRadarRecording.Boundary
 
   def_output_pad(:output, flow_control: :push, accepted_format: Membrane.H264)
 

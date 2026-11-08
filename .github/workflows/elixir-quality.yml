@@ -85,6 +85,8 @@ jobs:
             project: elixir/serviceradar_core
           - name: serviceradar_core_elx
             project: elixir/serviceradar_core_elx
+          - name: serviceradar_recording
+            project: elixir/serviceradar_recording
           - name: serviceradar_srql
             project: elixir/serviceradar_srql
           - name: web-ng

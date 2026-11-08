@@ -22,9 +22,9 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
   alias ServiceRadar.Test.CameraRelayFixtures, as: Fixtures
   alias ServiceRadarCoreElx.CameraRecording.ArchivePublication
   alias ServiceRadarCoreElx.CameraRecording.MediaUpload
-  alias ServiceRadarCoreElx.CameraRecording.Spool
-  alias ServiceRadarCoreElx.CameraRecording.Storage
   alias ServiceRadarCoreElx.Test.StorageHTTPFixture, as: Provider
+  alias ServiceRadarRecording.Spool
+  alias ServiceRadarRecording.Storage
   alias ServiceRadarWebNG.ArchiveStorageHTTP
   alias ServiceRadarWebNG.AshTestHelpers
   alias ServiceRadarWebNG.Auth.Guardian

@@ -50,11 +50,11 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
   alias ServiceRadar.Camera.RecordingBlocks
   alias ServiceRadar.Camera.RecordingDescriptor
   alias ServiceRadar.Camera.RelaySessionManager
-  alias ServiceRadarCoreElx.CameraRecording.Inbox
-  alias ServiceRadarCoreElx.CameraRecording.Packaging
-  alias ServiceRadarCoreElx.CameraRecording.Spool
-  alias ServiceRadarCoreElx.CameraRecording.Storage
   alias ServiceRadarCoreElx.CameraRelay.PipelineManager
+  alias ServiceRadarRecording.Inbox
+  alias ServiceRadarRecording.Packaging
+  alias ServiceRadarRecording.Spool
+  alias ServiceRadarRecording.Storage
 
   @lease_ms 30_000
 

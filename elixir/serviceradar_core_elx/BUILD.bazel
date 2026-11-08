@@ -126,7 +126,10 @@ mix_app(
         "config :serviceradar_core, ServiceRadar.Observability.DispositionKernels, skip_compilation?: true",
     ],
     mix_env = "prod",
-    deps = ["//elixir/serviceradar_core:erlang_app_prod"] + CORE_ELX_DEPS,
+    deps = [
+        "//elixir/serviceradar_core:erlang_app_prod",
+        "//elixir/serviceradar_recording:erlang_app_prod",
+    ] + CORE_ELX_DEPS,
 )
 
 # The :test build ExUnit runs against. Until this existed nothing ran core_elx's ExUnit
@@ -141,7 +144,10 @@ mix_app(
         "config :serviceradar_core, ServiceRadar.Observability.DispositionKernels, skip_compilation?: true",
     ],
     mix_env = "test",
-    deps = ["//elixir/serviceradar_core:erlang_app"] + CORE_ELX_DEPS,
+    deps = [
+        "//elixir/serviceradar_core:erlang_app",
+        "//elixir/serviceradar_recording:erlang_app",
+    ] + CORE_ELX_DEPS,
 )
 
 # Assembly-only release: no deps.get, no recompilation, no cargo, no network, and no
@@ -156,6 +162,7 @@ elixir_release(
         "//third_party/hex_vendored/connection:mix.exs",
         "//third_party/hex_vendored/elixir_uuid:mix.exs",
         "//elixir/serviceradar_core:mix.exs",
+        "//elixir/serviceradar_recording:mix.exs",
         "//elixir/serviceradar_srql:mix.exs",
         "//third_party/hex_vendored/opentelemetry_oban:mix.exs",
     ],
@@ -309,7 +316,10 @@ camera_browser_fixture(
 # See //build:elixir_quality.bzl.
 elixir_quality(
     source_deps = ["@hexpm//:ex_dna"],
-    tool_deps = ["//elixir/serviceradar_core:erlang_app_prod"] + CORE_ELX_DEPS + [
+    tool_deps = [
+        "//elixir/serviceradar_core:erlang_app_prod",
+        "//elixir/serviceradar_recording:erlang_app_prod",
+    ] + CORE_ELX_DEPS + [
         "@hexpm//:ash_credo",
         "@hexpm//:ex_dna",
         "@hexpm//:ex_slop",

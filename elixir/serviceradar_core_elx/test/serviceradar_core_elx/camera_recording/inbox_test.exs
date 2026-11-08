@@ -2,9 +2,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.InboxTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.Camera.RelayPubSub
-  alias ServiceRadarCoreElx.CameraRecording.Inbox
   alias ServiceRadarCoreElx.CameraRelay.Pipeline
   alias ServiceRadarCoreElx.CameraRelay.ViewerRegistry
+  alias ServiceRadarRecording.Inbox
 
   setup do
     previous = Application.get_env(:serviceradar_core_elx, :camera_recording_enabled, false)

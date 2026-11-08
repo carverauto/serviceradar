@@ -9,7 +9,7 @@ for the actual volume/UUID association and preservation before replacement.
 ## Provision once, verify during use
 
 Infrastructure explicitly calls
-`ServiceRadarCoreElx.CameraRecording.Storage.initialize(root, storage_uuid)`
+`ServiceRadarRecording.Storage.initialize(root, storage_uuid)`
 while it owns the volume exclusively, before starting recording. This is a
 release-callable provisioning function, not a recorder startup hook. The
 [isolated filesystem command](../../../docs/camera-spool-initialization.md)

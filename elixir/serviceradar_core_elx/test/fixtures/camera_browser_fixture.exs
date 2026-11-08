@@ -1,9 +1,9 @@
 defmodule CameraBrowserFixture do
   @moduledoc false
 
-  alias ServiceRadarCoreElx.CameraRecording.Packaging
-  alias ServiceRadarCoreElx.CameraRecording.Spool
-  alias ServiceRadarCoreElx.CameraRecording.Storage
+  alias ServiceRadarRecording.Packaging
+  alias ServiceRadarRecording.Spool
+  alias ServiceRadarRecording.Storage
 
   @clock %{
     clock_epoch: "synthetic-browser-clock",

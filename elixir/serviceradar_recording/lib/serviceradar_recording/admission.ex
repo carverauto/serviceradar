@@ -1,8 +1,8 @@
-defmodule ServiceRadarCoreElx.CameraRecording.Admission do
+defmodule ServiceRadarRecording.Admission do
   @moduledoc false
   use Membrane.Filter
 
-  alias ServiceRadarCoreElx.CameraRecording.Boundary
+  alias ServiceRadarRecording.Boundary
 
   def_input_pad(:input, flow_control: :auto, accepted_format: Membrane.H264)
   def_output_pad(:output, flow_control: :auto, accepted_format: Membrane.H264)

@@ -1,4 +1,4 @@
-defmodule ServiceRadarCoreElx.CameraRecording.Storage do
+defmodule ServiceRadarRecording.Storage do
   @moduledoc """
   Binds a private POSIX spool root to its provisioned storage-lifetime UUID.
 

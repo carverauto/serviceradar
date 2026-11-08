@@ -22,6 +22,7 @@ MIX_LOCKS = [
     "//elixir/serviceradar_agent_gateway:mix.lock",
     "//elixir/serviceradar_core:mix.lock",
     "//elixir/serviceradar_core_elx:mix.lock",
+    "//elixir/serviceradar_recording:mix.lock",
     "//elixir/serviceradar_srql:mix.lock",
     "//elixir/web-ng:mix.lock",
 ]

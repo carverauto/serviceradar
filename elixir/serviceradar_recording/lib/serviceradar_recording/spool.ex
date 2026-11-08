@@ -1,4 +1,4 @@
-defmodule ServiceRadarCoreElx.CameraRecording.Spool do
+defmodule ServiceRadarRecording.Spool do
   @moduledoc """
   A bounded, append-only local recording block and its committed byte map.
 
@@ -31,7 +31,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.Spool do
   provenance as a JSON string when the packager inferred its final sample's duration.
   """
 
-  alias ServiceRadarCoreElx.CameraRecording.Storage
+  alias ServiceRadarRecording.Storage
 
   @identity_keys ~w(source_id profile recorder_epoch block_sequence)a
   @record_bytes 4096
