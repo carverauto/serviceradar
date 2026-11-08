@@ -44,18 +44,19 @@ defmodule ServiceRadar.Edge.ContractRegistryTransition do
   """
   @spec status() :: map() | nil
   def status do
-    case Process.whereis(__MODULE__) do
-      nil -> nil
-      pid -> GenServer.call(pid, :status, 1_000)
+    case :ets.lookup(__MODULE__, :status) do
+      [{:status, status}] -> status
+      [] -> nil
     end
-  catch
-    :exit, _reason -> nil
+  rescue
+    ArgumentError -> nil
   end
 
   @impl true
   def init(opts) do
+    :ets.new(__MODULE__, [:named_table, :public, :set, read_concurrency: true])
     interval = Keyword.get(opts, :interval_ms, @interval_ms)
-    {:ok, %{interval: interval, status: nil, last_outcome: nil}, {:continue, :evaluate}}
+    {:ok, %{interval: interval, last_outcome: nil}, {:continue, :evaluate}}
   end
 
   @impl true
@@ -65,9 +66,6 @@ defmodule ServiceRadar.Edge.ContractRegistryTransition do
   def handle_info(:evaluate, state), do: {:noreply, evaluate(state)}
   def handle_info(_message, state), do: {:noreply, state}
 
-  @impl true
-  def handle_call(:status, _from, state), do: {:reply, state.status, state}
-
   defp evaluate(state) do
     now = DateTime.utc_now()
 
@@ -75,11 +73,13 @@ defmodule ServiceRadar.Edge.ContractRegistryTransition do
       with {:ok, key} <- IssuerKey.configured(),
            {:ok, outcome} <- ContractRegistry.evaluate_transition(readiness(now), key, now) do
         log_change(state.last_outcome, outcome)
-        %{state | status: %{outcome: outcome, evaluated_at: now}, last_outcome: outcome}
+        publish(outcome, now)
+        %{state | last_outcome: outcome}
       else
         {:error, reason} ->
           Logger.warning("Edge contract registry transition not evaluated: #{inspect(reason)}")
-          %{state | status: %{outcome: {:error, reason}, evaluated_at: now}}
+          publish({:error, reason}, now)
+          state
       end
 
     Process.send_after(self(), :evaluate, state.interval)
@@ -87,8 +87,13 @@ defmodule ServiceRadar.Edge.ContractRegistryTransition do
   rescue
     error ->
       Logger.warning("Edge contract registry transition failed: #{Exception.message(error)}")
+      publish({:error, Exception.message(error)}, DateTime.utc_now())
       Process.send_after(self(), :evaluate, state.interval)
       state
+  end
+
+  defp publish(outcome, evaluated_at) do
+    :ets.insert(__MODULE__, {:status, %{outcome: outcome, evaluated_at: evaluated_at}})
   end
 
   @doc false
