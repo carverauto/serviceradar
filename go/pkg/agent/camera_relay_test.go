@@ -1431,10 +1431,10 @@ func TestNewRTSPCameraRelayClientLeavesRTSPTLSUnset(t *testing.T) {
 func TestParseCameraRelayRTSPTransport(t *testing.T) {
 	t.Parallel()
 
-	if _, err := parseCameraRelayRTSPTransport("tcp"); err != nil {
+	if _, err := parseCameraRelayRTSPTransport(cameraRelayRTSPTransportTCP); err != nil {
 		t.Fatalf("expected tcp transport to parse, got %v", err)
 	}
-	if _, err := parseCameraRelayRTSPTransport("udp"); err != nil {
+	if _, err := parseCameraRelayRTSPTransport(cameraRelayRTSPTransportUDP); err != nil {
 		t.Fatalf("expected udp transport to parse, got %v", err)
 	}
 	if _, err := parseCameraRelayRTSPTransport("bogus"); err == nil {
@@ -1626,12 +1626,18 @@ func TestCameraRelayOpenFailureReceipt(t *testing.T) {
 		name string
 		edit func(*cameraRelaySessionSpec, *proto.CommandRequest)
 	}{
-		{"session", func(s *cameraRelaySessionSpec, _ *proto.CommandRequest) { s.RelaySessionID += "-other" }},
-		{"source", func(s *cameraRelaySessionSpec, _ *proto.CommandRequest) { s.CameraSourceID += "-other" }},
+		{"session", func(s *cameraRelaySessionSpec, _ *proto.CommandRequest) {
+			s.RelaySessionID = "relay-open-receipt-replacement"
+		}},
+		{"source", func(s *cameraRelaySessionSpec, _ *proto.CommandRequest) {
+			s.CameraSourceID = "camera-synthetic-alternate"
+		}},
 		{"profile", func(s *cameraRelaySessionSpec, _ *proto.CommandRequest) { s.StreamProfileID = "sub" }},
-		{"lease", func(s *cameraRelaySessionSpec, _ *proto.CommandRequest) { s.LeaseToken += "-other" }},
+		{"lease", func(s *cameraRelaySessionSpec, _ *proto.CommandRequest) { s.LeaseToken = "lease-synthetic-renewed" }},
 		{"plugin", func(s *cameraRelaySessionSpec, _ *proto.CommandRequest) { s.PluginAssignmentID = "invented-plugin" }},
-		{"transport", func(s *cameraRelaySessionSpec, _ *proto.CommandRequest) { s.RTSPTransport = "udp" }},
+		{"transport", func(s *cameraRelaySessionSpec, _ *proto.CommandRequest) {
+			s.RTSPTransport = cameraRelayRTSPTransportUDP
+		}},
 		{"tls", func(s *cameraRelaySessionSpec, _ *proto.CommandRequest) { s.InsecureSkipVerify = true }},
 		{"deadline", func(_ *cameraRelaySessionSpec, c *proto.CommandRequest) { c.TtlSeconds++ }},
 		{"creation", func(_ *cameraRelaySessionSpec, c *proto.CommandRequest) { c.CreatedAt++ }},
