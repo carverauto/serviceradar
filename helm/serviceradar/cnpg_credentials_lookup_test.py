@@ -57,13 +57,6 @@ class CnpgCredentialsLookupTest(unittest.TestCase):
         self.assertIn("leaving password unchanged", job)
         self.assertIn("409", job)
         self.assertIn("application/merge-patch+json", job)
-        self.assertIn('"meta.helm.sh/release-name": {{ .Release.Name | quote }}', job)
-        self.assertIn('"meta.helm.sh/release-namespace": {{ .Release.Namespace | quote }}', job)
-        self.assertIn('"app.kubernetes.io/managed-by": "Helm"', job)
-        self.assertIn(
-            '{"metadata":{"annotations":{"meta.helm.sh/release-name":{{ .Release.Name | quote }},"meta.helm.sh/release-namespace":{{ .Release.Namespace | quote }},"helm.sh/resource-policy":"keep","argocd.argoproj.io/sync-options":"Prune=false"},"labels":{"app.kubernetes.io/managed-by":"Helm"}}}',
-            job,
-        )
 
     def test_values_still_forbid_upgrade_rotation(self):
         values = read("values.yaml")

@@ -612,7 +612,7 @@ starts against an unmigrated or half-migrated CNPG database during a fresh
       # Unset on a failed probe so a mid-loop outage cannot leave a stale
       # value in the timeout message below.
       RESULT=""
-      RESULT=$(psql -h "${CNPG_HOST}" -U "${CNPG_USERNAME}" -d "${CNPG_DATABASE}" -tAc "${PROBE}" 2>/dev/null) || true
+      RESULT=$(psql -h "${CNPG_HOST}" -p "${CNPG_PORT:-5432}" -U "${CNPG_USERNAME}" -d "${CNPG_DATABASE}" -tAc "${PROBE}" 2>/dev/null) || true
       case "${RESULT}" in
         *"|t")
           echo "Migrations current (applied=${RESULT%%|*}, expected=${EXPECTED:-any})."

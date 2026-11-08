@@ -13,15 +13,10 @@ tests:
           path: metadata.annotations["helm.sh/hook-weight"]
       - notExists:
           path: metadata.annotations["helm.sh/hook-delete-policy"]
-      - equal:
+      - notExists:
           path: metadata.annotations["argocd.argoproj.io/hook"]
-          value: Sync
-      - equal:
+      - notExists:
           path: metadata.annotations["argocd.argoproj.io/sync-wave"]
-          value: "-1"
-      - equal:
-          path: metadata.annotations["argocd.argoproj.io/hook-delete-policy"]
-          value: BeforeHookCreation,HookSucceeded
       - equal:
           path: spec.template.spec.initContainers[0].name
           value: wait-for-cnpg

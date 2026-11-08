@@ -34,10 +34,6 @@ metadata:
     "helm.sh/hook": pre-upgrade
     "helm.sh/hook-weight": "-1"
     "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
-    {{- else }}
-    "argocd.argoproj.io/hook": Sync
-    "argocd.argoproj.io/sync-wave": "-1"
-    "argocd.argoproj.io/hook-delete-policy": BeforeHookCreation,HookSucceeded
     {{- end }}
 spec:
   ttlSecondsAfterFinished: 300
