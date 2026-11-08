@@ -210,6 +210,75 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionControllerTest do
     end
   end
 
+  describe "stop recovery API" do
+    test "submits a query and reads its retained observation through scoped routes", %{conn: conn} do
+      id = Ecto.UUID.generate()
+      query_id = Ecto.UUID.generate()
+      Application.put_env(:serviceradar_web_ng, :camera_relay_session_manager_close_result, {:ok, query_id})
+
+      response = post(conn, ~p"/api/camera-relay-sessions/#{id}/reconcile-close", %{})
+      assert json_response(response, 202) == %{"data" => %{"command_id" => query_id}}
+      assert_receive {:reconcile_close, ^id, opts}
+      assert %Scope{} = opts[:scope]
+
+      result = %{
+        command_id: query_id,
+        query_status: :completed,
+        observation: %{"state" => "unknown"},
+        retirement_proven: false
+      }
+
+      Application.put_env(:serviceradar_web_ng, :camera_relay_session_manager_close_result, {:ok, result})
+      response = get(conn, ~p"/api/camera-relay-sessions/#{id}/close-observations/#{query_id}")
+
+      assert %{
+               "data" => %{
+                 "query_status" => "completed",
+                 "observation" => %{"state" => "unknown"},
+                 "retirement_proven" => false
+               }
+             } = json_response(response, 200)
+
+      assert_receive {:close_observation, ^id, ^query_id, opts}
+      assert %Scope{} = opts[:scope]
+    end
+
+    test "rejects invalid identifiers and reports unavailable recovery evidence", %{conn: conn} do
+      id = Ecto.UUID.generate()
+      query_id = Ecto.UUID.generate()
+
+      assert json_response(post(conn, "/api/camera-relay-sessions/invalid/reconcile-close", %{}), 400)["error"] ==
+               "invalid_request"
+
+      assert json_response(get(conn, "/api/camera-relay-sessions/#{id}/close-observations/invalid"), 400)["error"] ==
+               "invalid_request"
+
+      refute_received {:reconcile_close, _, _}
+      refute_received {:close_observation, _, _, _}
+
+      for {reason, status} <- [{:unknown_stop_identity, 409}, {:invalid_stop_observation, 409}, {:not_found, 404}] do
+        Application.put_env(:serviceradar_web_ng, :camera_relay_session_manager_close_result, {:error, reason})
+        assert get(conn, ~p"/api/camera-relay-sessions/#{id}/close-observations/#{query_id}").status == status
+      end
+    end
+
+    test "requires authentication and camera view permission before recovery dispatch or reads" do
+      id = Ecto.UUID.generate()
+      query_id = Ecto.UUID.generate()
+      user = grant_permissions(AshTestHelpers.user_fixture(), ["devices.view"])
+      {:ok, token, _claims} = Guardian.create_access_token(user)
+
+      for {headers, status} <- [{[], 401}, {[{"authorization", "Bearer " <> token}], 403}] do
+        conn = %{build_conn() | req_headers: headers}
+        assert post(conn, ~p"/api/camera-relay-sessions/#{id}/reconcile-close", %{}).status == status
+        assert get(conn, ~p"/api/camera-relay-sessions/#{id}/close-observations/#{query_id}").status == status
+      end
+
+      refute_received {:reconcile_close, _, _}
+      refute_received {:close_observation, _, _, _}
+    end
+  end
+
   describe "POST /api/camera-relay-sessions/:id/close" do
     test "closes a relay session", %{conn: conn} do
       relay_session_id = Ecto.UUID.generate()

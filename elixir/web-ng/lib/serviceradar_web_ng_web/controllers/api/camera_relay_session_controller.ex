@@ -80,6 +80,46 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionController do
     end
   end
 
+  def reconcile_close(conn, %{"id" => relay_session_id}) do
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, "devices.cameras.view"),
+         {:ok, id} <- normalize_uuid_param(relay_session_id, "id"),
+         {:ok, command_id} <- relay_session_manager().reconcile_close(id, scope: get_scope(conn)) do
+      conn
+      |> put_status(:accepted)
+      |> json(%{data: %{command_id: command_id}})
+    else
+      error -> recovery_error(conn, error)
+    end
+  end
+
+  def close_observation(conn, %{"id" => relay_session_id, "command_id" => query_id}) do
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, "devices.cameras.view"),
+         {:ok, id} <- normalize_uuid_param(relay_session_id, "id"),
+         {:ok, command_id} <- normalize_uuid_param(query_id, "command_id"),
+         {:ok, result} <-
+           relay_session_manager().close_observation(id, command_id, scope: get_scope(conn)) do
+      json(conn, %{data: result})
+    else
+      error -> recovery_error(conn, error)
+    end
+  end
+
+  defp recovery_error(conn, {:error, :invalid_request, message}) do
+    conn |> put_status(:bad_request) |> json(%{error: "invalid_request", message: message})
+  end
+
+  defp recovery_error(conn, {:error, reason}) when reason in [:unknown_stop_identity, :invalid_stop_observation] do
+    conn |> put_status(:conflict) |> json(%{error: reason})
+  end
+
+  defp recovery_error(conn, {:error, {:agent_offline, _agent_id}}) do
+    conn |> put_status(:conflict) |> json(%{error: "agent_offline"})
+  end
+
+  defp recovery_error(_conn, error), do: error
+
   def show(conn, %{"id" => relay_session_id}) do
     with :ok <- require_authenticated(conn),
          :ok <- require_permission(conn, "devices.cameras.view"),

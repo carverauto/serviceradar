@@ -82,6 +82,18 @@ checkpoint does not automatically replay interrupted dispatches, persist an agen
 journal, interpret local completion as qualified physical retirement, or change
 the compatibility lease/reaper. Task 2.5 remains open.
 
+Operator stop-recovery checkpoint for 2.5: authenticated camera API endpoints
+submit the read-only query and read its retained command result by query UUID.
+The reader authorizes the saved session, correlates the command agent/type and
+stop/session/incarnation identities, and validates source/profile identities for
+known observations. Delivery status is separate from the observed stop state;
+missing, failed, expired or malformed replies do not imply completion. Only the
+bounded observation projection is returned. Local completion remains explicitly
+unqualified for retirement and cannot mutate relay ownership or leases. See the
+[recovery API runbook](../../../docs/camera-relay-stop-recovery.md). Automatic
+reconciliation, physical fencing and durable agent journaling remain open, as
+does task 2.5.
+
 ## 3. Storage modes and recovery
 
 - [ ] 3.1 Install qualified exclusive per-recorder filesystem volumes with explicit identities/initialization for Kubernetes and supported customer hosts.
