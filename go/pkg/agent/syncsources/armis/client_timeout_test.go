@@ -261,8 +261,20 @@ func TestErrorStatusBodyStallStaysATimeout(t *testing.T) {
 		_, reqErr := apiClient.search(context.Background(), "synthetic-token", "in:devices", 0, 10)
 		return reqErr
 	})
+	v3TokenErr := returnsWithin(t, func() error {
+		_, reqErr := apiClient.v3AccessToken(
+			context.Background(),
+			models.SourceConfig{Credentials: map[string]string{
+				"v3_client_id":     "synthetic-client",
+				"v3_client_secret": "synthetic-secret",
+				"v3_vendor_id":     "synthetic-vendor",
+			}},
+			assetEnrichmentConfig{endpoint: server.URL},
+		)
+		return reqErr
+	})
 
-	for name, err := range map[string]error{"token": tokenErr, "search": searchErr} {
+	for name, err := range map[string]error{"token": tokenErr, "search": searchErr, "v3 token": v3TokenErr} {
 		var netErr net.Error
 		if !errors.As(err, &netErr) || !netErr.Timeout() {
 			t.Fatalf("%s: expected body read timeout error, got %v", name, err)

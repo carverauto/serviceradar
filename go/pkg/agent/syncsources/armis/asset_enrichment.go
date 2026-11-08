@@ -22,7 +22,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -150,9 +149,12 @@ func (c *client) v3AccessToken(ctx context.Context, source models.SourceConfig, 
 	}()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		if len(body) > 0 {
-			return "", fmt.Errorf("%w: %s: %s", errV3TokenRequestFailed, resp.Status, strings.TrimSpace(string(body)))
+		body, readErr := readErrorBody(resp.Body)
+		if readErr != nil {
+			return "", fmt.Errorf("%w: %s: %w", errV3TokenRequestFailed, resp.Status, readErr)
+		}
+		if body != "" {
+			return "", fmt.Errorf("%w: %s: %s", errV3TokenRequestFailed, resp.Status, body)
 		}
 
 		return "", fmt.Errorf("%w: %s", errV3TokenRequestFailed, resp.Status)
