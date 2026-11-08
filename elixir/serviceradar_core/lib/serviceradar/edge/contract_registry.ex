@@ -40,10 +40,13 @@ defmodule ServiceRadar.Edge.ContractRegistry do
   candidate (`candidate_blockers/2`). One transaction moves the active epoch to `draining` and
   the candidate to `active`; agents receive grants under the new epoch on their next config
   poll. The old epoch drains until nothing signed under it can still be valid
-  (`drain_until/2`), and is then retired, which drops it from the trust document. While a live
-  core node still runs the candidate's catalog its `last_matched_at` is refreshed; a candidate
-  no live core node has matched for a full capability window is retired unactivated, so a
-  rolled-back release leaves the active epoch in place.
+  (`drain_until/2`), and is then retired, which drops it from the trust document. Past
+  `drain_until` it retires only once no scheduled sweep slot that may have been leased under it,
+  one inserted before an hour after it started draining, still has an open collection window: a
+  lease pass racing the activation can sign a slot the activation's horizon did not see. While
+  a live core node still runs the candidate's catalog its `last_matched_at` is refreshed; a
+  candidate no live core node has matched for a full capability window is retired unactivated,
+  so a rolled-back release leaves the active epoch in place.
   """
 
   alias ServiceRadar.Actors.SystemActor
@@ -69,6 +72,10 @@ defmodule ServiceRadar.Edge.ContractRegistry do
   @max_gateway_id_bytes 256
   # A candidate's last_matched_at is rewritten at most this often while a node still matches it.
   @touch_interval_seconds 3_600
+  # A sweep slot inserted up to this long after an epoch started draining may still have been
+  # leased under it: another core's registry view is cached for five seconds, and a lease pass
+  # that read the old epoch before activation can still be inserting its slots.
+  @lease_margin_seconds 3_600
 
   @type readiness :: %{
           core_nodes: [%{node: String.t(), snapshot_sha256: binary()}],
@@ -390,7 +397,8 @@ defmodule ServiceRadar.Edge.ContractRegistry do
   under it has expired (`ServiceRadar.Edge.OutputGrants.max_lifetime_seconds/0`) and every sweep
   slot leased under it has closed its collection window, plus the delivery-grant lifetime, so a
   record spooled under it can still be delivered. `slot_horizon` is the latest collection window
-  end of a leased slot still open at `now`, or nil.
+  end of a leased slot still open at `now`, or nil. This is a lower bound: retirement also waits
+  for any slot leased under the epoch after `now` (see "Transition" in the moduledoc).
   """
   @spec drain_until(DateTime.t(), DateTime.t() | nil) :: DateTime.t()
   def drain_until(now, slot_horizon) do
@@ -408,18 +416,35 @@ defmodule ServiceRadar.Edge.ContractRegistry do
     rows
     |> Enum.filter(&(&1.state == :draining and DateTime.compare(&1.drain_until, now) != :gt))
     |> Enum.reduce_while({:ok, []}, fn row, {:ok, acc} ->
-      case update_row(row, :retire, %{retired_at: now}) do
-        {:ok, notifications} ->
-          Logger.info("Edge contract registry epoch #{row.epoch} retired after draining",
-            registry_epoch: row.epoch
-          )
+      with {:ok, false} <- open_slot_leased_under?(row, now),
+           {:ok, notifications} <- update_row(row, :retire, %{retired_at: now}) do
+        Logger.info("Edge contract registry epoch #{row.epoch} retired after draining",
+          registry_epoch: row.epoch
+        )
 
-          {:cont, {:ok, acc ++ notifications}}
-
-        {:error, reason} ->
-          {:halt, {:error, reason}}
+        {:cont, {:ok, acc ++ notifications}}
+      else
+        {:ok, true} -> {:cont, {:ok, acc}}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
+  end
+
+  defp open_slot_leased_under?(row, now) do
+    sql = """
+    SELECT EXISTS (
+      SELECT 1
+      FROM platform.sweep_execution_slots
+      WHERE state = 'scheduled' AND collection_expires > $1 AND inserted_at <= $2
+    )
+    """
+
+    leased_before = DateTime.shift(row.draining_since, second: @lease_margin_seconds)
+
+    case Repo.query(sql, [now, leased_before]) do
+      {:ok, %{rows: [[open?]]}} -> {:ok, open?}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   defp advance_candidate(rows, readiness, key, now) do

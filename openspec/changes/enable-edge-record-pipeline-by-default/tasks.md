@@ -118,8 +118,11 @@
   atomically. Agent configs are generated per poll, so grants re-sign under the
   new epoch on each agent's next poll with no invalidation step. Until re-lease
   lands, `drain_until` covers the collection window of every leased slot still
-  open at activation, so no slot leased under the old epoch is stranded; the
-  drain horizon is longer than it would be with re-lease.)
+  open at activation, and past `drain_until` the old epoch retires only once
+  no scheduled slot inserted before an hour after it started draining still
+  has an open collection window (covering a lease pass racing the activation),
+  so no slot leased under the old epoch is stranded; the drain horizon is
+  longer than it would be with re-lease.)
 - [ ] 1.7 Compute `drain_until` at activation and retire on schedule. Keep issuing
   delivery grants for draining epochs, and never issue them for retired ones.
   (#6356: `drain_until` and scheduled retirement done; the delivery-grant rule

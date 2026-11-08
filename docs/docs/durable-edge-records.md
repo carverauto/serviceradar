@@ -248,8 +248,8 @@ signing under the active epoch until the candidate activates.
 
 Every 30 seconds the cluster coordinator checks whether the candidate can
 activate. It activates the candidate only when every connected core node runs
-the candidate's catalog, every live gateway reports that it installed the
-candidate, and every connected node answered. Contracts added in the new
+the candidate's catalog, every live gateway has reported within the last two
+minutes that it installed the candidate, and every connected node answered. Contracts added in the new
 release get standing grants from that point, on each agent's next config poll.
 The previous epoch then drains, and stays in the trust snapshot, until no
 standing grant signed under it and no sweep slot leased under it can still be

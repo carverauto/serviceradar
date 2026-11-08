@@ -10,8 +10,8 @@ defmodule ServiceRadar.Edge.ContractRegistryTransition do
       (`ServiceRadar.Edge.ContractBundle.local/0`);
     * the live gateways are those any node's `ServiceRadar.GatewayTracker` lists as active, plus
       any gateway whose installation report arrived within the last two minutes, so a gateway
-      the trackers do not list is still counted while it reports. Each must report holding the
-      candidate.
+      the trackers do not list is still counted while it reports. Each must have reported holding
+      the candidate within those two minutes; an older report counts as no report.
 
   A connected node that cannot be asked blocks activation rather than being skipped: it may be a
   core node or gateway that does not hold the candidate. Activation is never forced on a timeout.
@@ -156,15 +156,14 @@ defmodule ServiceRadar.Edge.ContractRegistryTransition do
           {ids, bad ++ [to_string(node)]}
       end)
 
-    reports = Map.new(ContractRegistry.gateway_reports(), &{&1.gateway_id, &1})
-
-    reporting =
-      for {id, report} <- reports,
+    reports =
+      for report <- ContractRegistry.gateway_reports(),
           DateTime.diff(now, report.received_at, :second) <= @report_window_seconds,
-          do: id
+          into: %{},
+          do: {report.gateway_id, report}
 
     gateways =
-      (tracked ++ reporting)
+      (tracked ++ Map.keys(reports))
       |> Enum.uniq()
       |> Enum.sort()
       |> Enum.map(fn id ->

@@ -16,6 +16,9 @@ defmodule ServiceRadar.Edge.ContractRegistryDbTest do
   alias ServiceRadar.Edge.IssuerKey
   alias ServiceRadar.Edge.OutputGrants
   alias ServiceRadar.Repo
+  alias ServiceRadar.SweepJobs.ExecutionSlots
+  alias ServiceRadar.SweepJobs.ProducerAssignments
+  alias ServiceRadar.SweepJobs.SweepGroup
 
   require Ash.Query
 
@@ -164,6 +167,76 @@ defmodule ServiceRadar.Edge.ContractRegistryDbTest do
 
     assert {:ok, :no_candidate} = evaluate(readiness([{"core-1", :b}], []), minutes_to_drain + 1)
     assert [{1_000_000, :retired, true}, {^candidate, :active, true}] = rows()
+  end
+
+  test "a draining epoch outlives drain_until while a sweep slot leased as it activated is open" do
+    # Slot rows carry the database's insert time, so this test runs on the wall clock.
+    base = DateTime.utc_now()
+    {:ok, _} = ContractRegistry.ensure_epoch(release(:a), @key, base)
+    {:ok, %{epoch: candidate}} = ContractRegistry.ensure_epoch(release(:b), @key, base)
+    core_on_b = readiness([{"core-1", :b}], [])
+
+    assert {:ok, {:activated, ^candidate, 1_000_000}} =
+             ContractRegistry.evaluate_transition(core_on_b, @key, base)
+
+    drain_until =
+      Ash.get!(ContractRegistryEpoch, 1_000_000, actor: SystemActor.system(:registry_test)).drain_until
+
+    # A lease pass that read the old epoch before activation commits its slot just after it,
+    # with a collection window the activation's horizon never saw.
+    collection_expires = DateTime.shift(drain_until, day: 10)
+    lease_slot!(DateTime.shift(collection_expires, minute: -5), collection_expires)
+
+    assert {:ok, :no_candidate} =
+             ContractRegistry.evaluate_transition(
+               core_on_b,
+               @key,
+               DateTime.shift(drain_until, minute: 1)
+             )
+
+    assert [{1_000_000, :draining, true}, {^candidate, :active, true}] = rows()
+
+    assert {:ok, :no_candidate} =
+             ContractRegistry.evaluate_transition(
+               core_on_b,
+               @key,
+               DateTime.shift(collection_expires, minute: 1)
+             )
+
+    assert [{1_000_000, :retired, true}, {^candidate, :active, true}] = rows()
+  end
+
+  defp lease_slot!(slot_start, collection_expires) do
+    suffix = System.unique_integer([:positive, :monotonic])
+    actor = %{id: Ash.UUID.generate(), email: "operator-#{suffix}@example.test", role: :operator}
+
+    # Disabled, so creating it schedules no Oban worker and the test can run async.
+    group =
+      SweepGroup
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Registry drain #{suffix}",
+          partition: "default",
+          interval: "15m",
+          enabled: false,
+          agent_ids: [],
+          static_targets: ["192.0.2.0/24"]
+        },
+        actor: actor
+      )
+      |> Ash.create!()
+
+    {:ok, assignment} = ProducerAssignments.ensure(group.id, "agent-a", Ash.UUID.generate())
+
+    {:ok, slot} =
+      ExecutionSlots.schedule(assignment, slot_start, collection_expires,
+        targets: ["198.51.100.5"],
+        check_set_sha256: :crypto.hash(:sha256, "checks"),
+        lease_id: Ash.UUID.generate()
+      )
+
+    slot
   end
 
   test "a candidate no live core node runs is retired unactivated after a full grant window" do
