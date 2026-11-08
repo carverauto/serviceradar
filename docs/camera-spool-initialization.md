@@ -4,7 +4,7 @@ The production core release includes
 `ServiceRadarCoreElx.CameraRecording.SpoolInitializer.main/0`. Invoke it once
 per intended volume, offline and under exclusive infrastructure ownership. It
 creates only the `recordings` child of that volume and delegates durable marker
-creation to `Storage.initialize/2`. Normal core startup never invokes it.
+creation to `ServiceRadarRecording.Storage.initialize/2`. Normal core startup never invokes it.
 
 This command is the filesystem part of provisioning. Before invocation,
 infrastructure must verify the UUID's association with the intended PVC UID,
