@@ -96,10 +96,11 @@
     acknowledge the bulk delivery (never NAK), count the loss once per record
     (by `Sr-Edge-Delivery-Id`) per contract and bundle as
     `awaiting_roll_forward_overflow`, and raise a managed alert.
-  - [ ] Refresh `last_matched_at` from the coordinator while a live core node
+  - [x] Refresh `last_matched_at` from the coordinator while a live core node
     matches the candidate, retire the candidate unactivated once it is older
     than a full capability-lifetime window, and drop it from the trust
-    document. Superseded nodes never count toward readiness.
+    document. Superseded nodes never count toward readiness. (#6356:
+    `ContractRegistry.evaluate_transition/3`.)
 - [ ] 1.5 Replace `ContractRegistryDocument.parse/1` from the environment with one
   cached epoch reader. `OutputContract.current/1` reads the active epoch, and
   validation and projection read the record's own epoch. Delete the
@@ -111,8 +112,18 @@
   invalidation, grant re-signing, and superseding plus re-leasing of unstarted
   slots. Verify against `LeasePass` and the agent lease merge rules that a
   superseding lease replaces unstarted slots without stranding a started one.
+  (#6356: done except superseding and re-leasing unstarted slots.
+  `ServiceRadar.Edge.ContractRegistryTransition` evaluates readiness on the
+  coordinator and `ContractRegistry.evaluate_transition/3` activates
+  atomically. Agent configs are generated per poll, so grants re-sign under the
+  new epoch on each agent's next poll with no invalidation step. Until re-lease
+  lands, `drain_until` covers the collection window of every leased slot still
+  open at activation, so no slot leased under the old epoch is stranded; the
+  drain horizon is longer than it would be with re-lease.)
 - [ ] 1.7 Compute `drain_until` at activation and retire on schedule. Keep issuing
   delivery grants for draining epochs, and never issue them for retired ones.
+  (#6356: `drain_until` and scheduled retirement done; the delivery-grant rule
+  for draining and retired epochs is not yet verified.)
 - [ ] 1.8 Add pipeline status: the `awaiting_roll_forward` counts (agent spool
   refusals and dead-lettered records) and `awaiting_roll_forward_overflow`, the
   active,

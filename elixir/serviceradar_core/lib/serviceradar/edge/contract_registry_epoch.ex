@@ -52,6 +52,32 @@ defmodule ServiceRadar.Edge.ContractRegistryEpoch do
       change set_attribute(:state, :active)
     end
 
+    update :start_draining do
+      description "Move the active epoch to draining as its successor activates"
+      accept [:draining_since, :drain_until]
+
+      validate attribute_equals(:state, :active)
+      validate present([:draining_since, :drain_until])
+      change set_attribute(:state, :draining)
+    end
+
+    update :retire do
+      description "Retire a draining epoch once nothing signed under it can still be valid"
+      accept [:retired_at]
+
+      validate attribute_equals(:state, :draining)
+      validate present(:retired_at)
+      change set_attribute(:state, :retired)
+    end
+
+    update :touch_matched do
+      description "Record that a live core node still runs the candidate's catalog"
+      accept [:last_matched_at]
+
+      validate attribute_equals(:state, :candidate)
+      validate present(:last_matched_at)
+    end
+
     update :retire_unactivated do
       description "Retire a candidate that never activated; it never signs anything"
       accept [:retired_at]

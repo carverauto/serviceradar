@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.EdgePipeline do
 
   use ServiceRadarWebNGWeb, :html
 
+  alias ServiceRadar.Edge.ContractRegistryTransition
   alias ServiceRadar.Edge.PipelineStats
 
   @rpc_timeout_ms 1_500
@@ -24,8 +25,9 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.EdgePipeline do
   @doc "Every connected node's snapshot, merged."
   @spec load() :: map()
   def load do
-    [Node.self() | Node.list()]
-    |> Enum.uniq()
+    nodes = Enum.uniq([Node.self() | Node.list()])
+
+    nodes
     |> :erpc.multicall(PipelineStats, :snapshot, [], @rpc_timeout_ms)
     |> Enum.flat_map(fn
       {:ok, {:ok, %{contracts: contracts, consumers: consumers} = snapshot}}
@@ -36,11 +38,36 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.EdgePipeline do
         []
     end)
     |> merge(System.system_time(:millisecond))
+    |> Map.put(:registry, registry_status(nodes))
   end
+
+  # The coordinator's last registry transition evaluation; only the coordinator has one.
+  defp registry_status(nodes) do
+    nodes
+    |> :erpc.multicall(ContractRegistryTransition, :status, [], @rpc_timeout_ms)
+    |> Enum.find_value(fn
+      {:ok, %{outcome: _} = status} -> status
+      _none -> nil
+    end)
+  end
+
+  @doc "The registry transition line the panel shows, or nil when there is nothing to report."
+  @spec registry_message(map() | nil) :: {:warning | :error, String.t()} | nil
+  def registry_message(%{outcome: {:waiting, epoch, blockers}}) do
+    {:warning,
+     "Contract registry candidate epoch #{epoch} is not active yet: " <>
+       Enum.map_join(blockers, "; ", &ContractRegistryTransition.describe/1)}
+  end
+
+  def registry_message(%{outcome: {:error, reason}}),
+    do: {:error, "Contract registry transition could not be evaluated: #{inspect(reason)}"}
+
+  def registry_message(_status), do: nil
 
   @doc "The stats when no node reported."
   @spec unavailable() :: map()
-  def unavailable, do: %{available: false, nodes: [], contracts: [], dead_letter_reasons: [], consumers: [], now_ms: 0}
+  def unavailable,
+    do: %{registry: nil, available: false, nodes: [], contracts: [], dead_letter_reasons: [], consumers: [], now_ms: 0}
 
   @doc """
   Sums node snapshots: one row per catalogued contract in catalog order, then any other label a
@@ -145,6 +172,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.EdgePipeline do
       >
         No agent gateway or EventWriter node is reachable to report edge pipeline counts.
       </div>
+
+      <.registry_notice message={registry_message(@stats[:registry])} />
 
       <div :if={@stats.available} class="space-y-4">
         <div id="cluster-edge-pipeline-contracts" class="sr-ui-table-shell">
@@ -280,6 +309,27 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.EdgePipeline do
         </div>
       </div>
     </.ui_panel>
+    """
+  end
+
+  attr(:message, :any, required: true)
+
+  defp registry_notice(%{message: nil} = assigns), do: ~H""
+
+  defp registry_notice(assigns) do
+    ~H"""
+    <div
+      id="cluster-edge-pipeline-registry"
+      class={[
+        "mb-3 rounded border px-3 py-2 text-xs",
+        if(elem(@message, 0) == :error,
+          do: "border-error/40 text-error",
+          else: "border-warning/40 text-warning"
+        )
+      ]}
+    >
+      {elem(@message, 1)}
+    </div>
     """
   end
 

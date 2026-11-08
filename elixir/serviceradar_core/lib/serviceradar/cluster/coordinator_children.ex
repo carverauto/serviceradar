@@ -54,6 +54,7 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
         retired_producer_schedule_cleaner_child(),
         advisory_feed_scheduler_child(),
         sweep_schedule_reconciler_child(),
+        contract_registry_transition_child(),
         ip_enrichment_scheduler_child(),
         geolite_mmdb_scheduler_child(),
         ipinfo_mmdb_scheduler_child(),
@@ -284,6 +285,10 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
     if enabled?("ADVISORY_FEED_SCHEDULER_ENABLED", :advisory_feed_scheduler_enabled, true) do
       ServiceRadar.Inventory.AdvisoryFeeds.FeedScheduler
     end
+  end
+
+  defp contract_registry_transition_child do
+    ServiceRadar.Edge.ContractRegistryTransition
   end
 
   defp sweep_schedule_reconciler_child do

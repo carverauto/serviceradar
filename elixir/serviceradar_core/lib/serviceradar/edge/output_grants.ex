@@ -51,6 +51,13 @@ defmodule ServiceRadar.Edge.OutputGrants do
   @type authority :: %{key: IssuerKey.t(), contracts: [OutputContract.t()]}
 
   @doc """
+  The longest a standing grant can stay valid after it is signed: its eight-day window plus the
+  clock lead. A registry epoch drains at least this long, so no grant outlives its epoch.
+  """
+  @spec max_lifetime_seconds() :: pos_integer()
+  def max_lifetime_seconds, do: @validity_seconds + @clock_lead_seconds
+
+  @doc """
   The issuer key and the standing-grant contracts to sign, or why core issues no grants: the
   issuer key cannot be read. A catalog contract the active registry epoch does not hold, or
   holds under a bundle this node's catalog does not, is left out; with no verified active epoch
