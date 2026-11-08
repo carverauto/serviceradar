@@ -17,20 +17,31 @@ mkdir -p "${tmp_root}"
 tmpdir="$(mktemp -d "${tmp_root}/run.XXXXXXXX")"
 trap 'rm -rf "${tmpdir}"; rmdir "${tmp_root}" 2>/dev/null || true' EXIT
 
-rendered="${tmpdir}/rendered.yaml"
+rendered_install="${tmpdir}/rendered-install.yaml"
+rendered_upgrade="${tmpdir}/rendered-upgrade.yaml"
 
 "${HELM_CMD[@]}" template serviceradar "${CHART_DIR}" \
   --set global.imageTag="v1.0.0" \
-  --debug >"${rendered}"
+  --debug >"${rendered_install}"
 
-python3 - "${rendered}" <<'PY'
+"${HELM_CMD[@]}" template serviceradar "${CHART_DIR}" \
+  --is-upgrade \
+  --set global.imageTag="v1.0.0" \
+  --debug >"${rendered_upgrade}"
+
+python3 - "${rendered_install}" "${rendered_upgrade}" <<'PY'
 import re
 import sys
 
-path = sys.argv[1]
-text = open(path, "r", encoding="utf-8").read()
+install_path, upgrade_path = sys.argv[1], sys.argv[2]
 
-targets = {
+install_targets = {
+    ("Job", "serviceradar-secret-generator"): -5,
+    ("Job", "serviceradar-nats-creds-generator"): -4,
+    ("Job", "serviceradar-core-migrations"): None,
+}
+
+upgrade_targets = {
     ("Job", "serviceradar-secret-generator"): -5,
     ("Job", "serviceradar-nats-creds-generator"): -4,
     ("Job", "serviceradar-core-migrations"): -1,
@@ -76,52 +87,63 @@ def restart_policy(doc):
     return unquote(match.group("policy")) if match else ""
 
 
-found = {}
+def check_manifest(path, targets, mode):
+    text = open(path, "r", encoding="utf-8").read()
+    found = {}
 
-for doc in re.split(r"^---\s*$", text, flags=re.MULTILINE):
-    kind_match = re.search(r"^kind:\s*(?P<kind>\S+)", doc, re.MULTILINE)
-    if kind_match is None:
-        continue
+    for doc in re.split(r"^---\s*$", text, flags=re.MULTILINE):
+        kind_match = re.search(r"^kind:\s*(?P<kind>\S+)", doc, re.MULTILINE)
+        if kind_match is None:
+            continue
 
-    body = metadata_body(doc)
-    name_match = re.search(r"^\s+name:\s*(?P<name>[^\n]+)", body, re.MULTILINE)
-    if name_match is None:
-        continue
+        body = metadata_body(doc)
+        name_match = re.search(r"^\s+name:\s*(?P<name>[^\n]+)", body, re.MULTILINE)
+        if name_match is None:
+            continue
 
-    key = (kind_match.group("kind"), unquote(name_match.group("name")))
-    if key not in targets:
-        continue
+        key = (kind_match.group("kind"), unquote(name_match.group("name")))
+        if key not in targets:
+            continue
 
-    try:
-        found[key] = {
-            "hook_weight": hook_weight(doc),
-            "restart_policy": restart_policy(doc),
-        }
-    except ValueError as error:
-        print(f"{key[0]}/{key[1]}: {error}", file=sys.stderr)
+        try:
+            found[key] = {
+                "hook_weight": hook_weight(doc),
+                "restart_policy": restart_policy(doc),
+            }
+        except ValueError as error:
+            print(f"[{mode}] {key[0]}/{key[1]}: {error}", file=sys.stderr)
+            sys.exit(1)
+
+    missing = sorted(set(targets) - set(found))
+    if missing:
+        for kind, name in missing:
+            print(f"[{mode}] missing rendered job: {kind}/{name}", file=sys.stderr)
         sys.exit(1)
 
-missing = sorted(set(targets) - set(found))
-if missing:
-    for kind, name in missing:
-        print(f"missing rendered hook: {kind}/{name}", file=sys.stderr)
-    sys.exit(1)
+    for key, expected in targets.items():
+        actual = found[key]["hook_weight"]
+        if actual != expected:
+            print(
+                f"[{mode}] {key[0]}/{key[1]} hook weight: expected {expected}, got {actual}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        if found[key]["restart_policy"] != "Never":
+            print(
+                f"[{mode}] {key[0]}/{key[1]} restartPolicy: expected Never, got {found[key]['restart_policy']}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
-for key, expected in targets.items():
-    actual = found[key]["hook_weight"]
-    if actual != expected:
-        print(f"{key[0]}/{key[1]} hook weight: expected {expected}, got {actual}", file=sys.stderr)
-        sys.exit(1)
-    if found[key]["restart_policy"] != "Never":
-        print(
-            f"{key[0]}/{key[1]} restartPolicy: expected Never, got {found[key]['restart_policy']}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    return found
 
-secret_weight = found[("Job", "serviceradar-secret-generator")]["hook_weight"]
-nats_weight = found[("Job", "serviceradar-nats-creds-generator")]["hook_weight"]
-migration_weight = found[("Job", "serviceradar-core-migrations")]["hook_weight"]
+
+check_manifest(install_path, install_targets, "install")
+upgrade_found = check_manifest(upgrade_path, upgrade_targets, "upgrade")
+
+secret_weight = upgrade_found[("Job", "serviceradar-secret-generator")]["hook_weight"]
+nats_weight = upgrade_found[("Job", "serviceradar-nats-creds-generator")]["hook_weight"]
+migration_weight = upgrade_found[("Job", "serviceradar-core-migrations")]["hook_weight"]
 
 if secret_weight >= migration_weight:
     print("serviceradar-secret-generator must run before core migrations", file=sys.stderr)

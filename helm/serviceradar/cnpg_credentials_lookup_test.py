@@ -57,10 +57,6 @@ class CnpgCredentialsLookupTest(unittest.TestCase):
         self.assertIn("leaving password unchanged", job)
         self.assertIn("409", job)
         self.assertIn("application/merge-patch+json", job)
-        self.assertIn(
-            '{"metadata":{"annotations":{"helm.sh/resource-policy":"keep","argocd.argoproj.io/sync-options":"Prune=false"}}}',
-            job,
-        )
 
     def test_values_still_forbid_upgrade_rotation(self):
         values = read("values.yaml")

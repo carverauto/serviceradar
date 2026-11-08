@@ -2,17 +2,46 @@ suite: core migrations hook ordering
 templates:
   - templates/core-migrations-job.yaml
 tests:
-  - it: migrates after CNPG extension preparation and before upgraded pods
+  - it: runs as a non-hook Job gated on CNPG readiness during fresh install
+    asserts:
+      - equal:
+          path: metadata.name
+          value: serviceradar-core-migrations
+      - notExists:
+          path: metadata.annotations["helm.sh/hook"]
+      - notExists:
+          path: metadata.annotations["helm.sh/hook-weight"]
+      - notExists:
+          path: metadata.annotations["helm.sh/hook-delete-policy"]
+      - notExists:
+          path: metadata.annotations["argocd.argoproj.io/hook"]
+      - notExists:
+          path: metadata.annotations["argocd.argoproj.io/sync-wave"]
+      # A release resource that the TTL controller deletes makes `helm install
+      # --wait` report it NotFound and fail if other resources are still
+      # becoming Ready when the TTL expires.
+      - notExists:
+          path: spec.ttlSecondsAfterFinished
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: wait-for-cnpg
+
+  - it: migrates as a pre-upgrade hook after CNPG extension preparation on upgrade
+    release:
+      upgrade: true
     asserts:
       - equal:
           path: metadata.name
           value: serviceradar-core-migrations
       - equal:
           path: metadata.annotations["helm.sh/hook"]
-          value: post-install,pre-upgrade
+          value: pre-upgrade
       - equal:
           path: metadata.annotations["helm.sh/hook-weight"]
           value: "-1"
       - equal:
           path: metadata.annotations["helm.sh/hook-delete-policy"]
           value: before-hook-creation,hook-succeeded
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: wait-for-cnpg

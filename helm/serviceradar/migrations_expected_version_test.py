@@ -94,20 +94,27 @@ class MigrationsExpectedVersionTest(unittest.TestCase):
             tests.mkdir()
             suite = {
                 "suite": "migration guard executable configuration",
-                "templates": ["templates/web.yaml"],
+                "templates": [
+                    "templates/web.yaml",
+                    "templates/core.yaml",
+                    "templates/core-migrations-job.yaml",
+                ],
                 "release": {"name": "schema-test", "namespace": "schema-test"},
                 "tests": [
                     {
                         "it": name,
+                        "template": template,
                         "set": overrides,
-                        "documentSelector": {"path": "kind", "value": "Deployment"},
+                        "documentSelector": {"path": "kind", "value": kind},
                         "asserts": [{"matchSnapshot": {
                             "path": "spec.template.spec.initContainers",
                         }}],
                     }
-                    for name, overrides in (
-                        ("default", {}),
-                        ("empty", {"core.migrations.expectedVersion": ""}),
+                    for name, template, kind, overrides in (
+                        ("default", "templates/web.yaml", "Deployment", {}),
+                        ("empty", "templates/web.yaml", "Deployment", {"core.migrations.expectedVersion": ""}),
+                        ("core_default", "templates/core.yaml", "Deployment", {}),
+                        ("migrations_job", "templates/core-migrations-job.yaml", "Job", {}),
                     )
                 ],
             }
@@ -131,17 +138,24 @@ class MigrationsExpectedVersionTest(unittest.TestCase):
             with snapshot_path.open(encoding="utf-8") as snapshot:
                 manifests = yaml.safe_load(snapshot)
             containers = {}
-            for name in ("default", "empty"):
+            for name, expected_container in (
+                ("default", "wait-migrations"),
+                ("empty", "wait-migrations"),
+                ("core_default", "wait-migrations"),
+                ("migrations_job", "wait-for-cnpg"),
+            ):
                 snapshots = list(manifests[name].values())
                 if len(snapshots) != 1:
                     raise AssertionError(f"expected one emitted snapshot for {name}")
-                emitted = yaml.safe_load(snapshots[0])
+                emitted = yaml.safe_load(snapshots[0]) or []
                 matching = [
                     container for container in emitted
-                    if container["name"] == "wait-migrations"
+                    if container["name"] == expected_container
                 ]
                 if len(matching) != 1:
-                    raise AssertionError(f"expected one wait-migrations container, got {matching}")
+                    raise AssertionError(
+                        f"expected one {expected_container} container in {name}, got {matching}"
+                    )
                 containers[name] = matching[0]
             return containers
 
@@ -151,11 +165,73 @@ class MigrationsExpectedVersionTest(unittest.TestCase):
             newest_migration_version(),
             "core.migrations.expectedVersion must match the newest shipped migration",
         )
-        env = {
-            entry["name"]: entry.get("value")
-            for entry in self.rendered["default"]["env"]
-        }
-        self.assertEqual(env["MIGRATIONS_EXPECTED_VERSION"], self.expected)
+        for key in ("default", "core_default"):
+            env = {
+                entry["name"]: entry.get("value")
+                for entry in self.rendered[key]["env"]
+            }
+            self.assertEqual(env["MIGRATIONS_EXPECTED_VERSION"], self.expected)
+
+    def test_wait_for_cnpg_init_container_gates_on_ca_and_postgres(self):
+        container = self.rendered["migrations_job"]
+        with tempfile.TemporaryDirectory(dir=os.environ.get("TEST_TMPDIR")) as tmp:
+            directory = Path(tmp)
+            ca_file = directory / "ca.crt"
+            ca_file.write_text("synthetic-ca-cert\n", encoding="utf-8")
+            psql = directory / "psql"
+            psql.write_text(
+                f"#!{sys.executable}\n"
+                "import os, sys\n"
+                "if os.environ.get('FAKE_PSQL_FAIL') == '1':\n"
+                "    sys.exit(1)\n"
+                "print('1')\n",
+                encoding="utf-8",
+            )
+            psql.chmod(0o755)
+            sleep = directory / "sleep"
+            sleep.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            sleep.chmod(0o755)
+
+            base_env = os.environ.copy()
+            for entry in container["env"]:
+                if "value" in entry:
+                    base_env[entry["name"]] = entry["value"]
+                else:
+                    base_env[entry["name"]] = "synthetic-test-value"
+            base_env["PATH"] = str(directory) + os.pathsep + os.defpath
+            base_env["CNPG_CA_FILE"] = str(ca_file)
+
+            ok = subprocess.run(
+                container["command"] + container["args"],
+                env=base_env,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            self.assertEqual(ok.returncode, 0, ok.stdout + ok.stderr)
+            self.assertIn("CNPG cluster is ready", ok.stdout)
+
+            fail_env = dict(base_env, FAKE_PSQL_FAIL="1")
+            failed = subprocess.run(
+                container["command"] + container["args"],
+                env=fail_env,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            self.assertEqual(failed.returncode, 1, failed.stdout + failed.stderr)
+            self.assertIn("Timed out waiting for CNPG cluster", failed.stderr)
+
+            missing_ca_env = dict(base_env, CNPG_CA_FILE=str(directory / "missing-ca.crt"))
+            missing_ca = subprocess.run(
+                container["command"] + container["args"],
+                env=missing_ca_env,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            self.assertEqual(missing_ca.returncode, 1, missing_ca.stdout + missing_ca.stderr)
+            self.assertIn("Waiting for CNPG CA certificate", missing_ca.stdout)
 
     def run_guard(self, container, applied):
         with tempfile.TemporaryDirectory(dir=os.environ.get("TEST_TMPDIR")) as tmp:
