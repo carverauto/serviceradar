@@ -55,6 +55,16 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowAccess do
     :flow_source,
     :src_country_iso2,
     :dst_country_iso2,
+    :agent_id,
+    :partition,
+    :pid,
+    :uid,
+    :comm,
+    :cmdline,
+    :container_id,
+    :workload_identity,
+    :public_endpoint,
+    :attribution_status,
     :ocsf_payload,
     :ocsf
   ]
@@ -104,15 +114,15 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowAccess do
         normalized
 
       _ ->
-        ocsf = flow_get(flow, ["ocsf_payload", "ocsf"]) || %{}
-        raw = flow_get_in(ocsf, ["attribution"]) || %{}
-        agent_id = clean_text(flow_get_in(ocsf, ["agent_id"]) || flow_get(flow, ["agent_id"]))
-        pid = clean_text(flow_get_in(raw, ["pid"]))
-        comm = clean_text(flow_get_in(raw, ["comm"]))
-        cmdline = clean_text(flow_get_in(raw, ["redacted_cmdline"]) || flow_get_in(raw, ["cmdline"]))
-        uid = clean_text(flow_get_in(raw, ["uid"]))
-        container_id = clean_text(flow_get_in(raw, ["container_id"]))
-        attributed? = attributed_event?(ocsf) and (present_text?(pid) or present_text?(comm))
+        agent_id = clean_text(flow_get(flow, ["agent_id"]))
+        pid = clean_text(flow_get(flow, ["pid"]))
+        comm = clean_text(flow_get(flow, ["comm"]))
+        cmdline = clean_text(flow_get(flow, ["cmdline"]))
+        uid = clean_text(flow_get(flow, ["uid"]))
+        container_id = clean_text(flow_get(flow, ["container_id"]))
+        attribution_status = clean_text(flow_get(flow, ["attribution_status"]))
+
+        attributed? = attribution_status == "attributed" or present_text?(pid)
 
         %{
           attributed?: attributed?,
@@ -128,12 +138,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowAccess do
   end
 
   def flow_attribution(_flow), do: %{attributed?: false, process_label: "—"}
-
-  def attributed_event?(%{} = ocsf) do
-    flow_get_in(ocsf, ["event_type"]) == "attributed_flow" or is_map(flow_get_in(ocsf, ["attribution"]))
-  end
-
-  def attributed_event?(_), do: false
 
   def process_attribution_label(comm, pid) do
     cond do
@@ -151,6 +155,9 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowAccess do
     |> String.trim()
     |> case do
       "" -> nil
+      "nil" -> nil
+      "null" -> nil
+      "undefined" -> nil
       trimmed -> trimmed
     end
   end
