@@ -115,6 +115,14 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetterNatsTest do
       # The record does not decode, so its contract is not known.
       assert dead_lettered() == 1
 
+      assert {:ok,
+              %{
+                dead_letter_reasons: [
+                  %{contract: "unattributed", reason: "RuntimeError", count: 1}
+                ]
+              }} =
+               PipelineStats.snapshot()
+
       assert {:ok, %{entries: [held]}} = Replay.list()
       assert held.dlq_subject == "telemetry.edge-record-dlq.v1.bulk.p07.unknown.v0"
       assert held.bytes == byte_size(@record)
@@ -133,9 +141,13 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetterNatsTest do
       assert {"sr-edge-delivery-id", "synthetic-delivery-0001"} in stored_headers
       assert {"sr-edge-transport-provenance", "synthetic-provenance"} in stored_headers
 
+      # Replaying another reason leaves this record held and is not counted against the limit.
+      assert {:ok, %{entries: []}} = Replay.replay(reason: "output_grant_not_current", limit: 1)
+      assert {:ok, %{entries: [^held]}} = Replay.list(reason: "RuntimeError")
+
       # Replay republishes the original record to its source and deletes the copy. The record
       # still fails, so it is dead-lettered again from its new source sequence.
-      assert {:ok, %{entries: [%{result: :replayed}]}} = Replay.replay()
+      assert {:ok, %{entries: [%{result: :replayed}]}} = Replay.replay(reason: "RuntimeError")
       assert_receive {:delivered, 2, 1, @record}, 20_000
       assert_receive {:dead_letter, "stored"}, 10_000
       await_settled(conn)

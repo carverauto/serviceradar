@@ -170,6 +170,14 @@ defmodule ServiceRadar.Edge.WireDecode do
   @max_nesting_depth WireValidate.max_message_depth() - 1
 
   @doc """
+  Whether a decode error leaves the input unresolved rather than rejecting it: `:not_ready` and
+  `:systemic` (see `t:outcome/0`). The same bytes can decode once the schema is deployed or the
+  fault is fixed, so a consumer retries them and never resolves them as refused or poison.
+  """
+  @spec transient?(term()) :: boolean()
+  def transient?(reason), do: reason in [:not_ready, :systemic]
+
+  @doc """
   Decodes the raw bytes of an `EdgeRecordClientMessage` -- the gRPC ingress request type on
   `EdgeRecordIngestService.Stream` (a `lane_open` / `delivery_frame` oneof). This MUST be the FIRST
   decode of the untrusted transport bytes (behind a pre-handler raw codec); the generated gRPC codec

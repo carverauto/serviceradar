@@ -18,7 +18,8 @@ defmodule ServiceRadar.Edge.PipelineStats do
       projection (`:projector_refused`), and failed attempts JetStream will redeliver
       (`:failed`);
     * `ServiceRadar.EventWriter.EdgeRecordDeadLetter`: records stored on the dead-letter stream
-      (`:dead_lettered`);
+      (`:dead_lettered`), also counted per failure reason (`record_dead_letter/2`) so the panel
+      shows why records were dead-lettered and which reason to replay once it is fixed;
     * `ServiceRadar.EventWriter.ConsumerLagReporter`: the latest JetStream state of each
       edge-record durable (pending, ack pending, redelivered, and its stream's message count,
       which for the dead-letter stream is the DLQ depth, or nil when that stream's poll failed).
@@ -26,7 +27,9 @@ defmodule ServiceRadar.Edge.PipelineStats do
   The contract label is bounded: a catalogued contract as `<contract_id>/<version>`
   (`ServiceRadar.Edge.ContractCatalog`), any other contract as `uncataloged`, and a record whose
   contract is not known at the point it was counted (a frame refused before it decoded) as
-  `unattributed`. No agent, event or payload identifier becomes a key.
+  `unattributed`. No agent, event or payload identifier becomes a key. A dead-letter reason is
+  the failure's class (`ServiceRadar.EventWriter.Telemetry.failure_class/1`): a refusal or error
+  atom, or an exception's module name, so it is bounded by the code, not by the records.
 
   Counts are cumulative for the life of the owning process. `snapshot/0` reads the table
   without calling any process; callers aggregate the snapshots of every node in the cluster.
@@ -74,6 +77,11 @@ defmodule ServiceRadar.Edge.PipelineStats do
           required(:dead_lettered) => non_neg_integer(),
           required(:last_admitted_at_ms) => integer() | nil,
           required(:last_projected_at_ms) => integer() | nil
+        }
+  @type dead_letter_reason :: %{
+          required(:contract) => String.t(),
+          required(:reason) => String.t(),
+          required(:count) => non_neg_integer()
         }
   @type consumer_state :: %{
           required(:subject_class) => String.t(),
@@ -157,6 +165,20 @@ defmodule ServiceRadar.Edge.PipelineStats do
   end
 
   @doc """
+  Counts one record of `contract` stored on the dead-letter stream for `reason` (its
+  `Sr-Edge-Dlq-Reason` class). A no-op where the table is not running.
+  """
+  @spec record_dead_letter(contract_ref(), String.t()) :: :ok
+  def record_dead_letter(contract, reason) when is_binary(reason) do
+    record(:dead_lettered, contract)
+    key = {:dead_letter_reason, contract_label(contract), reason}
+    :ets.update_counter(@table, key, {2, 1}, {key, 0})
+    :ok
+  rescue
+    ArgumentError -> :ok
+  end
+
+  @doc """
   Keeps the latest JetStream state of an edge-record durable: `consumer_info` and `stream_info`
   are the `Consumer.info/3` and `Stream.info/2` responses. Other subject classes are ignored.
   """
@@ -187,12 +209,18 @@ defmodule ServiceRadar.Edge.PipelineStats do
   def record_consumer(_consumer, _consumer_info, _stream_info), do: :ok
 
   @doc """
-  This node's counters: one entry per contract it has counted, and the edge-record durables its
-  lag reporter has sampled. `{:error, :unavailable}` where the table is not running.
+  This node's counters: one entry per contract it has counted, its dead-lettered records per
+  contract and reason, and the edge-record durables its lag reporter has sampled.
+  `{:error, :unavailable}` where the table is not running.
   """
   @spec snapshot() ::
           {:ok,
-           %{node: String.t(), contracts: [contract_counts()], consumers: [consumer_state()]}}
+           %{
+             node: String.t(),
+             contracts: [contract_counts()],
+             dead_letter_reasons: [dead_letter_reason()],
+             consumers: [consumer_state()]
+           }}
           | {:error, :unavailable}
   def snapshot do
     rows = :ets.tab2list(@table)
@@ -211,9 +239,19 @@ defmodule ServiceRadar.Edge.PipelineStats do
       end)
       |> Enum.map(fn {label, values} -> Map.merge(empty_counts(label), values) end)
 
+    dead_letter_reasons =
+      for {{:dead_letter_reason, label, reason}, count} <- rows,
+          do: %{contract: label, reason: reason, count: count}
+
     consumers = for {{:consumer, _stream, _durable}, state} <- rows, do: state
 
-    {:ok, %{node: to_string(node()), contracts: contracts, consumers: consumers}}
+    {:ok,
+     %{
+       node: to_string(node()),
+       contracts: contracts,
+       dead_letter_reasons: dead_letter_reasons,
+       consumers: consumers
+     }}
   rescue
     ArgumentError -> {:error, :unavailable}
   end
