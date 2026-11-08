@@ -511,11 +511,13 @@ securityContext:
 
 {{/*
 Whether this release may render a Secret it reuses by lookup. The secret generator
-creates the CNPG Secrets on a fresh install, without Helm ownership metadata, and
-Helm refuses to adopt an existing object it does not own: rendering such a Secret
-makes every later `helm upgrade` fail before any hook runs. So render it only when
-it does not exist yet or this release already owns it; a generator-created Secret
-stays the generator's (it carries helm.sh/resource-policy: keep either way).
+stamps Helm ownership metadata (app.kubernetes.io/managed-by=Helm,
+meta.helm.sh/release-name, meta.helm.sh/release-namespace) on the CNPG Secrets it
+creates or patches, so a failed first install can be recovered with `helm upgrade`
+and Helm can adopt the Secret cleanly. If an older or external Secret exists
+without full Helm ownership metadata for this release, Helm would refuse to adopt
+it, so render it only when it does not exist yet or already carries complete Helm
+ownership metadata for this release.
 Returns "true" or "".
 */}}
 {{- define "serviceradar.releaseMayRenderSecret" -}}
@@ -523,11 +525,124 @@ Returns "true" or "".
 {{- if not $existing -}}
 true
 {{- else -}}
+{{- $labels := default (dict) $existing.metadata.labels -}}
 {{- $annotations := default (dict) $existing.metadata.annotations -}}
-{{- if and (eq (default "" (index $annotations "meta.helm.sh/release-name")) .releaseName) (eq (default "" (index $annotations "meta.helm.sh/release-namespace")) .releaseNamespace) -}}
+{{- if and (eq (default "" (index $labels "app.kubernetes.io/managed-by")) "Helm") (eq (default "" (index $annotations "meta.helm.sh/release-name")) .releaseName) (eq (default "" (index $annotations "meta.helm.sh/release-namespace")) .releaseNamespace) -}}
 true
 {{- end -}}
 {{- end -}}
+{{- end -}}
+
+{{/*
+Init container that blocks workload startup until platform.schema_migrations
+reaches core.migrations.expectedVersion. Shared by web-ng and core so neither
+starts against an unmigrated or half-migrated CNPG database during a fresh
+`helm install --wait` or an upgrade.
+*/}}
+{{- define "serviceradar.waitMigrationsInitContainer" -}}
+{{- $cnpg := include "serviceradar.effectiveCNPG" . | fromYaml -}}
+{{- $cnpgClusterName := include "serviceradar.cnpgClusterName" . -}}
+{{- $coreVals := default (dict) .Values.core -}}
+{{- $migrationVals := default (dict) $coreVals.migrations -}}
+- name: wait-migrations
+  image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-tools" "service" "tools") }}
+  imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+  {{- include "serviceradar.containerSecurityContext" . | nindent 2 }}
+  command: ["/bin/sh", "-c"]
+  env:
+  - name: MIGRATIONS_EXPECTED_VERSION
+    value: {{ default "" $migrationVals.expectedVersion | quote }}
+  - name: CNPG_HOST
+    value: {{ include "serviceradar.cnpgDirectHost" . | quote }}
+  - name: CNPG_PORT
+    value: {{ default 5432 $cnpg.port | quote }}
+  - name: CNPG_DATABASE
+    value: {{ default "serviceradar" $cnpg.database | quote }}
+  - name: CNPG_USERNAME
+    valueFrom:
+      secretKeyRef:
+        name: {{ default "serviceradar-db-credentials" $cnpg.credentialsSecret | quote }}
+        key: username
+  - name: CNPG_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: {{ default "serviceradar-db-credentials" $cnpg.credentialsSecret | quote }}
+        key: password
+  - name: CNPG_SSL_MODE
+    value: {{ default "verify-full" $cnpg.sslmode | quote }}
+  - name: CNPG_CA_FILE
+    value: {{ default "/etc/serviceradar/cnpg/ca.crt" $cnpg.caFile | quote }}
+  {{- if $cnpg.requireClientCert }}
+  - name: CNPG_CERT_FILE
+    value: {{ printf "%s/%s" (default "/etc/serviceradar/certs" $cnpg.certDir) (default "cnpg-client.pem" $cnpg.clientCertName) | quote }}
+  - name: CNPG_KEY_FILE
+    value: {{ printf "%s/%s" (default "/etc/serviceradar/certs" $cnpg.certDir) (default "cnpg-client-key.pem" $cnpg.clientKeyName) | quote }}
+  {{- end }}
+  args:
+  - |
+    set -eu
+    export PGPASSWORD="${CNPG_PASSWORD}"
+    export PGSSLMODE="${CNPG_SSL_MODE:-disable}"
+    if [ -n "${CNPG_CA_FILE:-}" ]; then
+      export PGSSLROOTCERT="${CNPG_CA_FILE}"
+    fi
+    if [ -n "${CNPG_CERT_FILE:-}" ] && [ -n "${CNPG_KEY_FILE:-}" ]; then
+      export PGSSLCERT="${CNPG_CERT_FILE}"
+      export PGSSLKEY="${CNPG_KEY_FILE}"
+    fi
+    # An existence check on platform.schema_migrations only proves the
+    # table is there, not that it is CURRENT -- a schema left behind by a
+    # skipped migration hook (helm upgrade --no-hooks) passes it happily
+    # and web-ng then boots against tables its release expects but the
+    # database does not have. Compare the applied high-water mark against
+    # the newest migration this chart revision ships instead.
+    EXPECTED="${MIGRATIONS_EXPECTED_VERSION:-}"
+    if [ -n "${EXPECTED}" ]; then
+      echo "Waiting for platform schema migrations (expecting >= ${EXPECTED})..."
+      # Postgres does the comparison: version is a bigint and these are
+      # 14-digit timestamps, which is not something to hand to `test -ge`
+      # in whatever /bin/sh the tools image ships.
+      PROBE="SELECT COALESCE(MAX(version), 0), (COALESCE(MAX(version), 0) >= ${EXPECTED}) FROM platform.schema_migrations"
+    else
+      echo "Waiting for platform schema migrations (version check disabled)..."
+      PROBE="SELECT COALESCE(MAX(version), 0), TRUE FROM platform.schema_migrations"
+    fi
+    APPLIED=""
+    for i in $(seq 1 120); do
+      # Unset on a failed probe so a mid-loop outage cannot leave a stale
+      # value in the timeout message below.
+      RESULT=""
+      RESULT=$(psql -h "${CNPG_HOST}" -p "${CNPG_PORT:-5432}" -U "${CNPG_USERNAME}" -d "${CNPG_DATABASE}" -tAc "${PROBE}" 2>/dev/null) || true
+      case "${RESULT}" in
+        *"|t")
+          echo "Migrations current (applied=${RESULT%%|*}, expected=${EXPECTED:-any})."
+          exit 0
+          ;;
+        *"|f")
+          APPLIED="${RESULT%%|*}"
+          echo "Schema is behind: applied=${APPLIED}, expected=${EXPECTED} ($i/120)"
+          ;;
+        *)
+          echo "Waiting for migrations... ($i/120)"
+          ;;
+      esac
+      sleep 2
+    done
+    if [ -n "${APPLIED}" ]; then
+      echo "Timed out: schema is stale (applied=${APPLIED}, expected=${EXPECTED}). The" >&2
+      echo "serviceradar-core-migrations Job did not run or did not finish -- a" >&2
+      echo "'helm upgrade --no-hooks' skips it, since it is a pre-upgrade hook." >&2
+    else
+      echo "Timed out waiting for migrations: platform.schema_migrations unreadable." >&2
+    fi
+    exit 1
+  volumeMounts:
+  - name: cert-data
+    mountPath: /etc/serviceradar/certs
+    readOnly: true
+  - name: {{ $cnpgClusterName }}-ca
+    mountPath: /etc/serviceradar/cnpg
+    readOnly: true
 {{- end -}}
 
 {{/*

@@ -132,6 +132,22 @@ spec:
             echo "  (none -- this image has no versioned TimescaleDB module)" >&2
           }
 
+          # Wait for the CNPG primary to accept connections in case an upgrade
+          # is recovering a fresh install while initdb/startup is still finishing.
+          cnpg_ready=false
+          for i in $(seq 1 120); do
+            if $PSQL -d postgres -c "SELECT 1" >/dev/null 2>&1; then
+              cnpg_ready=true
+              break
+            fi
+            echo "Waiting for CNPG at ${PGHOST}:${PGPORT:-5432} ($i/120)..."
+            sleep 2
+          done
+          if [ "$cnpg_ready" != "true" ]; then
+            echo "Timed out waiting for CNPG at ${PGHOST}:${PGPORT:-5432}" >&2
+            exit 1
+          fi
+
           # Every database we could have to open. Ordered for stable logs.
           DBS=$($PSQL -d postgres -c \
             "select datname from pg_database where datistemplate = false and datallowconn order by datname")

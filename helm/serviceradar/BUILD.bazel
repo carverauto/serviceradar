@@ -105,6 +105,22 @@ py_test(
     ],
 )
 
+# Executes the rendered ensure_cnpg_secret against a fake API: HTTP 409 must
+# stamp Helm ownership on an existing CNPG Secret without touching its password,
+# and a rejected ownership patch must fail the hook (#6345).
+py_test(
+    name = "cnpg_secret_adoption_test",
+    srcs = ["cnpg_secret_adoption_test.py"],
+    data = [
+        ":chart_files",
+        ":helm_unittest_binary",
+    ],
+    env = {
+        "SERVICERADAR_HELM_UNITTEST_BINARY": "$(rootpath :helm_unittest_binary)",
+    },
+    deps = ["@pyyaml//:yaml"],
+)
+
 py_test(
     name = "component_gates_test",
     srcs = ["component_gates_test.py"],
