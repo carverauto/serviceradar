@@ -3560,11 +3560,13 @@ func (x *SyncPopulationReportV1) GetConflictingDuplicateExamples() []string {
 	return nil
 }
 
-// SyncControlMarkerV1 maps the control-only finalization record written by
-// `syncRunEmitter.flush` (`go/pkg/agent/sync_runtime.go`).
+// SyncControlMarkerV1 maps the control-only records written by
+// `syncRunEmitter.flush` (run finalization) and `syncRunEmitter.fail` (aborted
+// run) in `go/pkg/agent/sync_runtime.go`.
 type SyncControlMarkerV1 struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Control marker type (`_sync_control`, e.g. `"collection_final"`).
+	// Control marker type (`_sync_control`): `"collection_final"`, or
+	// `"collection_failed[:<detail>]"` / `"collection_timeout[:<detail>]"` for an aborted run.
 	ControlType string `protobuf:"bytes,1,opt,name=control_type,json=controlType,proto3" json:"control_type,omitempty"`
 	// Control marker emission time (`timestamp`). JSON is RFC3339 UTC truncated to one second.
 	TimestampUnixNano int64 `protobuf:"varint,2,opt,name=timestamp_unix_nano,json=timestampUnixNano,proto3" json:"timestamp_unix_nano,omitempty"`
