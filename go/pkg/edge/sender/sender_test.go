@@ -63,9 +63,11 @@ type fakeIngestServer struct {
 
 	mu             sync.Mutex
 	receivedFrames []*edgev1.EdgeDeliveryFrameV1
+	sessions       atomic.Int32
 }
 
 func (f *fakeIngestServer) Stream(stream grpc.BidiStreamingServer[edgev1.EdgeRecordClientMessage, edgev1.EdgeRecordServerMessage]) error {
+	f.sessions.Add(1)
 	first, err := stream.Recv()
 	if err != nil {
 		return err
@@ -225,6 +227,36 @@ func testConfig(t *testing.T) Config {
 // everything sent, the spool's own local reclaim watermark MUST be
 // untouched. Only local durability (owned by a later milestone) may advance
 // it; the remote ack alone must not.
+// completionClient records whether a session read the end of its RPC (io.EOF),
+// which is how a client stream completes with status OK rather than CANCELLED.
+type completionClient struct {
+	StreamClient
+	completed atomic.Bool
+}
+
+func (c *completionClient) Stream(ctx context.Context, opts ...grpc.CallOption) (
+	grpc.BidiStreamingClient[edgev1.EdgeRecordClientMessage, edgev1.EdgeRecordServerMessage], error,
+) {
+	stream, err := c.StreamClient.Stream(ctx, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &completionStream{BidiStreamingClient: stream, completed: &c.completed}, nil
+}
+
+type completionStream struct {
+	grpc.BidiStreamingClient[edgev1.EdgeRecordClientMessage, edgev1.EdgeRecordServerMessage]
+	completed *atomic.Bool
+}
+
+func (s *completionStream) Recv() (*edgev1.EdgeRecordServerMessage, error) {
+	msg, err := s.BidiStreamingClient.Recv()
+	if errors.Is(err, io.EOF) {
+		s.completed.Store(true)
+	}
+	return msg, err
+}
+
 func TestRunOnceSendsUnresolvedRecordsWithoutReclaimingTheSpool(t *testing.T) {
 	sp := newTestSpool(t)
 	e1, e2, e3 := mustEventID(t), mustEventID(t), mustEventID(t)
@@ -239,7 +271,7 @@ func TestRunOnceSendsUnresolvedRecordsWithoutReclaimingTheSpool(t *testing.T) {
 		grantedFrameCredits: 100,
 		dispositionKind:     edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE,
 	}
-	client := dialFakeIngest(t, srv)
+	client := &completionClient{StreamClient: dialFakeIngest(t, srv)}
 
 	s, err := New(sp, client, testConfig(t))
 	if err != nil {
@@ -252,6 +284,11 @@ func TestRunOnceSendsUnresolvedRecordsWithoutReclaimingTheSpool(t *testing.T) {
 	result, err := s.RunOnce(ctx)
 	if err != nil {
 		t.Fatalf("RunOnce: %v", err)
+	}
+
+	// The session ran its RPC to the gateway's end instead of cancelling it.
+	if !client.completed.Load() {
+		t.Fatal("session ended without reading the end of the RPC; gRPC reports it CANCELLED")
 	}
 
 	if want := []uint64{1, 2, 3}; !equalSeqs(result.Sent, want) {
@@ -353,6 +390,9 @@ func TestRunOnceReturnsErrNoUnresolvedRecordsOnEmptySpool(t *testing.T) {
 	}
 	if got := sp.Resolved(); got != 0 {
 		t.Fatalf("spool.Resolved() = %d, want 0", got)
+	}
+	if got := srv.sessions.Load(); got != 0 {
+		t.Fatalf("gateway sessions = %d, want 0: an empty spool opens no stream", got)
 	}
 }
 

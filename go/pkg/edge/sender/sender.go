@@ -62,6 +62,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
@@ -71,6 +72,12 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 )
+
+// streamFinishTimeout bounds how long a session waits, after its last
+// acknowledgement, for the gateway to end the RPC. The gateway ends it as soon
+// as nothing it admitted is still in flight, so this only matters when the
+// gateway stops answering.
+const streamFinishTimeout = 5 * time.Second
 
 // sessionNonceBytes is the size of the fresh random nonce generated for each
 // lane-open handshake; within edgerecord's [MinNonceBytes, MaxNonceBytes].
@@ -186,7 +193,8 @@ func New(sp *spool.Spool, client StreamClient, cfg Config) (*Sender, error) {
 // record up to the gateway-granted credit window, and drains dispositions
 // until every sent sequence is resolved, the stream ends, or ctx is done. It
 // persists the resolving prefix of a validated acknowledgement only when
-// configured to do so.
+// configured to do so. With no unresolved record it opens no session and
+// returns ErrNoUnresolvedRecords.
 func (s *Sender) RunOnce(ctx context.Context) (Result, error) {
 	grantErr := s.renewGrants(ctx)
 	result, err := s.runSession(ctx)
@@ -199,6 +207,15 @@ func (s *Sender) runSession(ctx context.Context) (Result, error) {
 		if err := s.spool.ReclaimResolved(); err != nil {
 			return Result{}, fmt.Errorf("sender: reclaim accepted records: %w", err)
 		}
+	}
+
+	// With nothing to deliver there is no session to open.
+	pending, err := s.hasUnresolved()
+	if err != nil {
+		return Result{}, err
+	}
+	if !pending {
+		return Result{RemoteResolvedThrough: s.spool.Resolved()}, ErrNoUnresolvedRecords
 	}
 
 	streamCtx, cancel := context.WithCancel(ctx)
@@ -259,6 +276,7 @@ func (s *Sender) runSession(ctx context.Context) (Result, error) {
 	}
 
 	if len(sent) == 0 {
+		finishStream(stream, cancel)
 		if hadUnresolved {
 			return Result{RemoteResolvedThrough: sess.ResolvedThrough}, ErrInsufficientCredits
 		}
@@ -279,7 +297,45 @@ func (s *Sender) runSession(ctx context.Context) (Result, error) {
 		return result, err
 	}
 
+	finishStream(stream, cancel)
 	return result, nil
+}
+
+// hasUnresolved reports whether the spool holds a record no session has
+// resolved yet, reading at most one record.
+func (s *Sender) hasUnresolved() (bool, error) {
+	found := false
+	if err := s.spool.ScanFrom(0, func(spool.Record) bool {
+		found = true
+		return false
+	}); err != nil {
+		return false, fmt.Errorf("sender: scan spool: %w", err)
+	}
+	return found, nil
+}
+
+// finishStream half-closes the session and reads until the gateway ends the
+// RPC, so a finished session completes with status OK instead of being torn
+// down by cancelling its context (which gRPC reports, and tracing records, as
+// CANCELLED). Every outcome the session needs has already been read; anything
+// else the gateway sends is discarded. A gateway that does not end the RPC
+// within streamFinishTimeout is cancelled as before.
+func finishStream(
+	stream grpc.BidiStreamingClient[edgev1.EdgeRecordClientMessage, edgev1.EdgeRecordServerMessage],
+	cancel context.CancelFunc,
+) {
+	if err := stream.CloseSend(); err != nil {
+		return
+	}
+
+	timer := time.AfterFunc(streamFinishTimeout, cancel)
+	defer timer.Stop()
+
+	for {
+		if _, err := stream.Recv(); err != nil {
+			return
+		}
+	}
 }
 
 func partialSendResult(sent []uint64, remoteResolvedThrough uint64) Result {
