@@ -100,24 +100,26 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
     end
   end
 
-  setup %{skip_scratch_db: true}, do: :ok
+  setup %{admin_opts: admin_opts} = tags do
+    if tags[:skip_scratch_db] do
+      :ok
+    else
+      # Integration shards and retries use independent BEAM VMs against the same CNPG fixture,
+      # so System.unique_integer/1 alone cannot make the database name globally unique.
+      suffix = Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
+      # The `sr_core_test_` prefix lets a later stale sweep recover residue after infrastructure
+      # failure. The current heavy action still fails unless its own on_exit DROP succeeds.
+      scratch_db = "sr_core_test_bootstrap_#{suffix}"
 
-  setup %{admin_opts: admin_opts} do
-    # Integration shards and retries use independent BEAM VMs against the same CNPG fixture,
-    # so System.unique_integer/1 alone cannot make the database name globally unique.
-    suffix = Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
-    # The `sr_core_test_` prefix lets a later stale sweep recover residue after infrastructure
-    # failure. The current heavy action still fails unless its own on_exit DROP succeeds.
-    scratch_db = "sr_core_test_bootstrap_#{suffix}"
+      create_database!(admin_opts, scratch_db)
+      install_required_extensions!(admin_opts, scratch_db)
 
-    create_database!(admin_opts, scratch_db)
-    install_required_extensions!(admin_opts, scratch_db)
+      on_exit(fn ->
+        drop_database!(admin_opts, scratch_db)
+      end)
 
-    on_exit(fn ->
-      drop_database!(admin_opts, scratch_db)
-    end)
-
-    {:ok, scratch_db: scratch_db}
+      {:ok, scratch_db: scratch_db}
+    end
   end
 
   test "startup applies baseline once and reruns through migration history", %{
