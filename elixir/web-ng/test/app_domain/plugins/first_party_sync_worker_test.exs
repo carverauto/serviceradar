@@ -267,6 +267,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorkerTest do
         release_tag: "v9.9.9",
         discovered: 2,
         import_ready: 2,
+        addon_ids: ["anomaly-addon", "powerdns"],
         imported: 1,
         skipped: 1,
         failed: 0
@@ -313,6 +314,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorkerTest do
         release_tag: "v9.9.9",
         discovered: 2,
         import_ready: 2,
+        addon_ids: ["anomaly-addon", "powerdns"],
         imported: 2,
         skipped: 0,
         failed: 0
@@ -355,6 +357,18 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorkerTest do
                "v9.9.9",
                [],
                Enum.take(packages, 1)
+             )
+
+      # A leftover verified row for another add-on does not stand in for a
+      # deleted package the last sync imported
+      leftover = %{hd(packages) | addon_id: "other-addon", status: :approved}
+
+      refute NativeAddonSyncWorker.release_already_synced?(
+               status,
+               "https://github.com/example/serviceradar",
+               "v9.9.9",
+               [],
+               [hd(packages), leftover]
              )
     end
   end

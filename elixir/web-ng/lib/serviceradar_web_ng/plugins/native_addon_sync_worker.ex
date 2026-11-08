@@ -36,23 +36,13 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
   @spec ensure_scheduled() :: {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:error, term()}
   def ensure_scheduled do
     if ObanSupport.available?() do
-      case enqueue_if_version_changed() do
-        {:ok, %Oban.Job{} = job} ->
-          {:ok, job}
-
-        _ ->
-          ensure_bootstrap_job()
+      if check_existing_job() do
+        {:ok, :already_scheduled}
+      else
+        %{} |> bootstrap_job(schedule_in: 60) |> ObanSupport.safe_insert()
       end
     else
       {:error, :oban_unavailable}
-    end
-  end
-
-  defp ensure_bootstrap_job do
-    if check_existing_job() do
-      {:ok, :already_scheduled}
-    else
-      %{} |> bootstrap_job(schedule_in: 60) |> ObanSupport.safe_insert()
     end
   end
 
@@ -93,8 +83,9 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
 
   @doc """
   True when an unattended sync can skip querying GitHub because `release_tag`
-  has already been cleanly imported and all expected verified packages (and
-  configured auto-approvals) for that release remain present.
+  has already been cleanly imported and every add-on the last sync imported or
+  reused still has a verified package for that release (approved when it is
+  configured for auto-approval).
   """
   @spec release_already_synced?(
           map() | nil,
@@ -105,8 +96,9 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
         ) :: boolean()
   def release_already_synced?(status, repo_url, release_tag, auto_approve_addon_ids, packages)
       when is_map(status) and is_binary(release_tag) and is_list(auto_approve_addon_ids) and is_list(packages) do
-    expected_count = status_count(status, :imported) + status_count(status, :skipped)
+    synced_addon_ids = status_addon_ids(status)
     valid_packages = Enum.filter(packages, &valid_synced_package?(&1, release_tag))
+    present_addon_ids = MapSet.new(valid_packages, &package_field(&1, :addon_id))
 
     release_tag != "" and
       release_tag != FirstPartyReleaseClient.admin_all_releases_sentinel() and
@@ -114,8 +106,8 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
       status_field(status, :repo_url) == repo_url and
       status_field(status, :release_tag) == release_tag and
       status_count(status, :failed) == 0 and
-      expected_count > 0 and
-      length(valid_packages) >= expected_count and
+      synced_addon_ids != [] and
+      Enum.all?(synced_addon_ids, &MapSet.member?(present_addon_ids, &1)) and
       Enum.all?(valid_packages, fn pkg ->
         package_field(pkg, :addon_id) not in auto_approve_addon_ids or
           package_field(pkg, :status) == :approved
@@ -220,6 +212,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
           status: if(failed_count == 0, do: "success", else: "partial"),
           repo_url: repo_url,
           release_tag: synced_release_tag,
+          addon_ids: synced_addon_ids(results),
           discovered: summary.discovered,
           import_ready: summary.import_ready,
           imported: summary.imported,
@@ -289,6 +282,18 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
 
   defp resolved_synced_release_tag(_filter_tag, _candidates, release_tag), do: release_tag
 
+  defp synced_addon_ids(results) do
+    results
+    |> Enum.flat_map(fn
+      {_addon, {outcome, %{addon_id: addon_id}}} when outcome in [:imported, :skipped] and is_binary(addon_id) ->
+        [addon_id]
+
+      _ ->
+        []
+    end)
+    |> Enum.uniq()
+  end
+
   defp touch_synced_status do
     case NativeAddonSync.get_status() do
       status when is_map(status) ->
@@ -306,7 +311,9 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
     if is_map(status) and status_field(status, :status) == "success" and
          status_field(status, :release_tag) == release_tag do
       packages = imported_release_packages(release_tag)
-      release_already_synced?(status, repo_url, release_tag, auto_approve_addon_ids, packages)
+
+      release_already_synced?(status, repo_url, release_tag, auto_approve_addon_ids, packages) and
+        not Enum.any?(packages, &staged_package_auto_approvable?/1)
     else
       false
     end
@@ -332,6 +339,12 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
     _ -> []
   end
 
+  defp staged_package_auto_approvable?(%AddonPackage{status: :staged} = package) do
+    NativeAddonSync.tracking_profile_auto_approves?(package)
+  end
+
+  defp staged_package_auto_approvable?(_package), do: false
+
   defp valid_synced_package?(pkg, release_tag) when is_map(pkg) do
     addon_id = package_field(pkg, :addon_id)
 
@@ -347,6 +360,13 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
 
   defp status_field(status, key) when is_map(status) and is_atom(key) do
     Map.get(status, key) || Map.get(status, Atom.to_string(key))
+  end
+
+  defp status_addon_ids(status) do
+    case status_field(status, :addon_ids) do
+      ids when is_list(ids) -> Enum.filter(ids, &is_binary/1)
+      _ -> []
+    end
   end
 
   defp status_count(status, key) when is_map(status) and is_atom(key) do

@@ -402,7 +402,9 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
 
   # Fails closed: any lookup error means "do not auto-approve". Each profile
   # must independently cover the entire request; never union reviewed scopes.
-  defp tracking_profile_auto_approves?(%AddonPackage{source_type: :first_party, addon_id: addon_id} = package) do
+  @doc false
+  @spec tracking_profile_auto_approves?(AddonPackage.t()) :: boolean()
+  def tracking_profile_auto_approves?(%AddonPackage{source_type: :first_party, addon_id: addon_id} = package) do
     AddonProfile
     |> Ash.Query.for_read(:read)
     |> Ash.Query.filter(
@@ -424,7 +426,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
     end
   end
 
-  defp tracking_profile_auto_approves?(_package), do: false
+  def tracking_profile_auto_approves?(_package), do: false
 
   defp maybe_approve_repaired(%AddonPackage{} = package, opts) do
     case Keyword.get(opts, :existing_review_status) do
