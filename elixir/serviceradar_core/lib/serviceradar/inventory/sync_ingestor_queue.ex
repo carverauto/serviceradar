@@ -538,15 +538,18 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     result = maybe_activate_source_snapshot(result, updates, sync_meta, actor)
     Logger.info("SyncIngestor result: #{inspect(result)}")
 
-    record_sync_status(updates, actor, result, sync_meta, control_failure)
+    status = record_sync_status(updates, actor, result, sync_meta, control_failure)
     log_sync_progress("finished", updates, sync_meta, result)
 
-    result
+    handled_control_failure(result, control_failure, status)
   rescue
     error ->
       Logger.warning("Sync results ingestion failed: #{inspect(error)}")
       {:error, error}
   end
+
+  defp handled_control_failure({:error, failure}, failure, :ok), do: :ok
+  defp handled_control_failure(result, _control_failure, _status), do: result
 
   defp ingest_device_updates([], _actor), do: :ok
 
@@ -640,6 +643,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
   rescue
     error ->
       Logger.warning("Error recording sync status: #{inspect(error)}")
+      {:error, error}
   end
 
   defp record_sync_start(updates, actor, sync_meta) do
@@ -670,6 +674,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
         Logger.debug(
           "Could not find IntegrationSource #{sync_service_id} to record sync: #{inspect(reason)}"
         )
+
+        :ok
     end
   end
 
@@ -682,10 +688,12 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
       {:ok, _} ->
         Logger.debug("Recorded sync #{label} for IntegrationSource #{sync_service_id}")
 
-      {:error, reason} ->
+      {:error, reason} = error ->
         Logger.warning(
           "Failed to record sync #{label} for #{sync_service_id}: #{inspect(reason)}"
         )
+
+        error
     end
   end
 

@@ -108,11 +108,8 @@ func TestDefaultArmisClientHasARequestTimeout(t *testing.T) {
 	apiClient := newClient(models.SourceConfig{Endpoint: "https://armis.example.com"})
 	defer apiClient.close()
 
-	if got := apiClient.httpClient().Timeout; got != requestTimeout {
-		t.Fatalf("request timeout = %s, want %s", got, requestTimeout)
-	}
-	if requestTimeout != 30*time.Second {
-		t.Fatalf("default requestTimeout = %s, want 30s", requestTimeout)
+	if got := apiClient.httpClient().Timeout; got != 30*time.Second {
+		t.Fatalf("request timeout = %s, want 30s", got)
 	}
 
 	transport, ok := apiClient.httpClient().Transport.(*http.Transport)
@@ -122,11 +119,11 @@ func TestDefaultArmisClientHasARequestTimeout(t *testing.T) {
 	if transport.DialContext == nil {
 		t.Fatal("expected bounded DialContext on Armis transport")
 	}
-	if transport.TLSHandshakeTimeout != tlsHandshakeTimeout {
-		t.Fatalf("TLSHandshakeTimeout = %s, want %s", transport.TLSHandshakeTimeout, tlsHandshakeTimeout)
+	if transport.TLSHandshakeTimeout != 10*time.Second {
+		t.Fatalf("TLSHandshakeTimeout = %s, want 10s", transport.TLSHandshakeTimeout)
 	}
-	if transport.ResponseHeaderTimeout != responseHeaderTimeout {
-		t.Fatalf("ResponseHeaderTimeout = %s, want %s", transport.ResponseHeaderTimeout, responseHeaderTimeout)
+	if transport.ResponseHeaderTimeout != 30*time.Second {
+		t.Fatalf("ResponseHeaderTimeout = %s, want 30s", transport.ResponseHeaderTimeout)
 	}
 }
 

@@ -1036,11 +1036,11 @@ func TestSyncPaginatesWhenTotalIsNonNumeric(t *testing.T) {
 
 func TestDefaultDriverBoundsPerSyncAndPerRequestTimeouts(t *testing.T) {
 	driver := &Driver{}
-	if got := driver.effectiveSyncTimeout(); got != defaultSyncTimeout {
-		t.Fatalf("default sync timeout = %s, want %s", got, defaultSyncTimeout)
+	if got := driver.effectiveSyncTimeout(); got != 10*time.Minute {
+		t.Fatalf("default sync timeout = %s, want 10m0s", got)
 	}
-	if got := driver.effectiveRequestTimeout(); got != requestTimeout {
-		t.Fatalf("default request timeout = %s, want %s", got, requestTimeout)
+	if got := driver.effectiveRequestTimeout(); got != 30*time.Second {
+		t.Fatalf("default request timeout = %s, want 30s", got)
 	}
 }
 

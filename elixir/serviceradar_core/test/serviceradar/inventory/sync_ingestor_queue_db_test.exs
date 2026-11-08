@@ -514,9 +514,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueDbTest do
         }
       ])
 
-    assert {:error,
-            {:timeout, "partial armis sync after streaming 1 devices: context deadline exceeded"}} =
-             SyncIngestorQueue.ingest_sync_results(failure_control)
+    assert :ok = SyncIngestorQueue.ingest_sync_results(failure_control)
 
     assert %{rows: [[true, [0], 0]]} =
              Repo.query!(
@@ -557,8 +555,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueDbTest do
         }
       ])
 
-    assert {:error, {:timeout, "context deadline exceeded"}} =
-             SyncIngestorQueue.ingest_sync_results(timeout_marker)
+    assert :ok = SyncIngestorQueue.ingest_sync_results(timeout_marker)
 
     {:ok, failed_source} = IntegrationSource.get_by_id(source.id, actor: actor)
     assert failed_source.sync_status == :failed
@@ -575,8 +572,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueDbTest do
     {:ok, synced_source} = IntegrationSource.get_by_id(source.id, actor: actor)
     assert synced_source.sync_status == :success
 
-    assert {:error, {:timeout, "context deadline exceeded"}} =
-             SyncIngestorQueue.ingest_sync_results(timeout_marker)
+    assert :ok = SyncIngestorQueue.ingest_sync_results(timeout_marker)
 
     {:ok, after_redelivery} = IntegrationSource.get_by_id(source.id, actor: actor)
     assert after_redelivery.sync_status == :success
