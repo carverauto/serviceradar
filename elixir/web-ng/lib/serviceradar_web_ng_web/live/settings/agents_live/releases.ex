@@ -20,6 +20,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
   alias ServiceRadarWebNGWeb.Settings.Shell
 
   require Ash.Query
+  require Logger
 
   @release_command_type "agent.update_release"
   @inflight_statuses [:dispatched, :downloading, :verifying, :staged, :restarting]
@@ -62,6 +63,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
        |> assign(:cohort_options, @cohort_options)
        |> assign(:visible_release_limit, @visible_release_limit)
        |> assign(:release_import_form, release_import_form())
+       # Import and publish download every manifest artifact and mirror it into
+       # datasvc, which takes far longer than the LiveView client's 30 s push
+       # timeout. They run in start_async; this tracks the one in flight.
+       |> assign(:release_publish, nil)
        |> assign(:recent_repo_releases, [])
        |> assign(:recent_repo_release_error, nil)
        |> assign(:release_form, release_form())
@@ -132,43 +137,17 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     scope = socket.assigns.current_scope
     attrs = build_release_attrs(params)
 
-    case AgentReleaseManager.publish_release(attrs, scope: scope) do
-      {:ok, _release} ->
-        {:noreply,
-         socket
-         |> put_flash(:info, "Published agent release #{attrs.version}")
-         |> load_page_data()
-         |> assign(:release_form, release_form())}
-
-      {:error, reason} ->
-        {:noreply,
-         socket
-         |> put_flash(:error, "Publish failed: #{format_error(reason)}")
-         |> assign(:release_form, release_form(params))}
-    end
+    socket
+    |> assign(:release_form, release_form(params))
+    |> start_release_publish(:manual, attrs.version, fn ->
+      with {:ok, _release} <- AgentReleaseManager.publish_release(attrs, scope: scope) do
+        {:ok, "Published agent release #{attrs.version}"}
+      end
+    end)
   end
 
   def handle_event("import_repo_release", %{"release_import" => params}, socket) do
-    scope = socket.assigns.current_scope
-
-    with {:ok, provider} <- selected_import_provider(params),
-         {:ok, attrs} <- ReleaseSourceImporter.import(params),
-         {:ok, _release} <- AgentReleaseManager.publish_release(attrs, scope: scope) do
-      {:noreply,
-       socket
-       |> put_flash(
-         :info,
-         "Imported and published agent release #{attrs.version} from #{release_provider_label(provider)}"
-       )
-       |> load_page_data()
-       |> assign(:release_import_form, release_import_form())}
-    else
-      {:error, reason} ->
-        {:noreply,
-         socket
-         |> put_flash(:error, "Import failed: #{format_error(reason)}")
-         |> assign(:release_import_form, release_import_form(params))}
-    end
+    start_release_import(socket, params, :specific)
   end
 
   def handle_event("import_recent_repo_release", %{"release_tag" => release_tag}, socket) do
@@ -177,7 +156,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
       |> Map.new()
       |> Map.put("release_tag", release_tag)
 
-    handle_event("import_repo_release", %{"release_import" => params}, socket)
+    start_release_import(socket, params, :recent)
   end
 
   def handle_event("rollout_page", %{"page" => page}, socket) do
@@ -335,6 +314,26 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
   end
 
   def handle_info(_msg, socket), do: {:noreply, socket}
+
+  @impl true
+  def handle_async(:release_publish, {:ok, {:ok, message}}, socket) do
+    %{source: source} = socket.assigns.release_publish
+
+    {:noreply,
+     socket
+     |> assign(:release_publish, nil)
+     |> reset_release_publish_form(source)
+     |> put_flash(:info, message)
+     |> load_page_data()}
+  end
+
+  def handle_async(:release_publish, {:ok, {:error, reason}}, socket) do
+    {:noreply, fail_release_publish(socket, format_error(reason))}
+  end
+
+  def handle_async(:release_publish, {:exit, reason}, socket) do
+    {:noreply, fail_release_publish(socket, Exception.format_exit(reason))}
+  end
 
   defp mutate_rollout(socket, rollout_id, action) do
     scope = socket.assigns.current_scope
@@ -799,7 +798,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                                     type="button"
                                     phx-click="import_recent_repo_release"
                                     phx-value-release_tag={release.tag}
-                                    disabled={not release.import_ready?}
+                                    disabled={
+                                      not release.import_ready? or not is_nil(@release_publish)
+                                    }
                                     title={
                                       if release.import_ready?,
                                         do: "Import and publish #{release.tag}",
@@ -809,7 +810,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                                     size="xs"
                                     variant="ghost"
                                   >
-                                    Import
+                                    <%= if release_publish_running?(@release_publish, :recent, release.tag) do %>
+                                      <.ui_spinner size="xs" /> Importing…
+                                    <% else %>
+                                      Import
+                                    <% end %>
                                   </.ui_button>
                                 </td>
                               </tr>
@@ -832,8 +837,17 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                         placeholder="v1.2.3"
                       />
 
-                      <.ui_button type="submit" variant="primary" size="sm">
-                        <.icon name="hero-arrow-down-tray" class="size-4" /> Import Specific Tag
+                      <.ui_button
+                        type="submit"
+                        variant="primary"
+                        size="sm"
+                        disabled={not is_nil(@release_publish)}
+                      >
+                        <%= if release_publish_running?(@release_publish, :specific, :any) do %>
+                          <.ui_spinner size="xs" /> Importing…
+                        <% else %>
+                          <.icon name="hero-arrow-down-tray" class="size-4" /> Import Specific Tag
+                        <% end %>
                       </.ui_button>
                     </div>
                   </.form>
@@ -906,8 +920,17 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                     />
 
                     <div class="flex justify-end">
-                      <.ui_button type="submit" variant="primary" size="sm">
-                        <.icon name="hero-arrow-up-tray" class="size-4" /> Publish Release
+                      <.ui_button
+                        type="submit"
+                        variant="primary"
+                        size="sm"
+                        disabled={not is_nil(@release_publish)}
+                      >
+                        <%= if release_publish_running?(@release_publish, :manual, :any) do %>
+                          <.ui_spinner size="xs" /> Publishing…
+                        <% else %>
+                          <.icon name="hero-arrow-up-tray" class="size-4" /> Publish Release
+                        <% end %>
                       </.ui_button>
                     </div>
                   </.form>
@@ -1639,6 +1662,50 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
       as: :release
     )
   end
+
+  defp start_release_import(socket, params, source) do
+    scope = socket.assigns.current_scope
+
+    socket
+    |> assign(:release_import_form, release_import_form(params))
+    |> start_release_publish(source, Map.get(params, "release_tag"), fn ->
+      with {:ok, provider} <- selected_import_provider(params),
+           {:ok, attrs} <- ReleaseSourceImporter.import(params),
+           {:ok, _release} <- AgentReleaseManager.publish_release(attrs, scope: scope) do
+        {:ok, "Imported and published agent release #{attrs.version} from #{release_provider_label(provider)}"}
+      end
+    end)
+  end
+
+  defp start_release_publish(%{assigns: %{release_publish: %{}}} = socket, _source, _label, _fun) do
+    {:noreply, put_flash(socket, :error, "Another release import or publish is still running")}
+  end
+
+  defp start_release_publish(socket, source, label, fun) do
+    {:noreply,
+     socket
+     |> assign(:release_publish, %{source: source, label: label})
+     |> start_async(:release_publish, fun)}
+  end
+
+  defp fail_release_publish(socket, message) do
+    %{source: source, label: label} = socket.assigns.release_publish
+    action = if source == :manual, do: "Publish", else: "Import"
+
+    Logger.warning("Agent release #{String.downcase(action)} of #{label} failed: #{message}")
+
+    socket
+    |> assign(:release_publish, nil)
+    |> put_flash(:error, "#{action} failed: #{message}")
+  end
+
+  defp reset_release_publish_form(socket, :manual), do: assign(socket, :release_form, release_form())
+  defp reset_release_publish_form(socket, _import), do: assign(socket, :release_import_form, release_import_form())
+
+  defp release_publish_running?(nil, _source, _label), do: false
+  defp release_publish_running?(%{source: source, label: label}, source, label), do: true
+  defp release_publish_running?(%{source: source}, source, :any), do: true
+  defp release_publish_running?(_publish, _source, _label), do: false
 
   defp release_import_form(params \\ %{}) do
     to_form(
