@@ -49,7 +49,13 @@ longer current, a delivery slot or event id bound to other bytes, or a
 projector refusal) is also dead-lettered on its first delivery, because the
 same bytes are refused again on every redelivery. `Sr-Edge-Dlq-Reason` is the
 refusal's class. A failed database write (a constraint race, a deadlock, a lock
-timeout) is not a refusal: it is retried as above.
+timeout, a failed bulk write, a caught exit or throw) is not a refusal: it is
+retried as above. Neither is a transient decode
+(`ServiceRadar.Edge.WireDecode.transient?/1`: `:not_ready`, a schema not
+deployed yet, or `:systemic`, a decoder fault) of the record frame, its body or
+a persisted plan a projector reads: it fails as
+`ServiceRadar.EventWriter.EdgeRecordTransientError` and is retried, because the
+same bytes can decode once the schema is deployed or the fault is fixed.
 
 | Header | Meaning |
 | --- | --- |
@@ -117,14 +123,18 @@ bin/serviceradar_core_elx rpc 'IO.inspect(ServiceRadar.EventWriter.EdgeRecordDea
 ```
 
 `list/1` and `replay/1` take `subject:` (a filter on the dead-letter
-subjects, for one contract as above), `from_sequence:` and `limit:` (default
-100). A run reads only the messages the stream held when it started. Each
+subjects, for one contract as above), `reason:` (only messages whose
+`Sr-Edge-Dlq-Reason` is this class; others are skipped, kept, and not counted
+against the limit), `from_sequence:` and `limit:` (default 100). A run reads only the messages the stream held when it started. Each
 returns `next_sequence`; pass it back as `from_sequence` to page.
 
 ## Replay
 
 Fix the cause first. `Sr-Edge-Dlq-Reason-Detail` and the EventWriter log
-around `Last-Failed-At` usually name it. Then, from a core node:
+around `Last-Failed-At` usually name it. The **Edge Pipeline** panel under
+**Settings -> Cluster Status** counts dead-lettered records per contract and
+reason. Then, from a core node (add `reason: "<class>"` to replay only the
+records of the cause you fixed):
 
 ```
 bin/serviceradar_core_elx rpc 'IO.inspect(ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay.replay(limit: 20), limit: :infinity)'

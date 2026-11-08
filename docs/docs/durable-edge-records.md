@@ -417,7 +417,9 @@ the source stays on the primary stream and keeps retrying. A republish the NATS
 broker denies is dead-lettered on its first failed delivery, because retrying
 cannot succeed until the permission changes. So is a record EventWriter refuses
 (a failed check, a grant or assignment that is no longer current, a conflicting
-delivery slot), because the same bytes are refused again on every delivery.
+delivery slot), because the same bytes are refused again on every delivery. A
+decode that fails because a schema is not deployed yet or the decoder faulted
+is not a refusal: it is retried like a failed write.
 
 Fix the cause first (the `Sr-Edge-Dlq-Reason-Detail` header and the EventWriter
 log name it), then list and replay from a core pod:
@@ -430,8 +432,9 @@ kubectl -n <namespace> exec deploy/serviceradar-core -- /app/bin/serviceradar_co
   'IO.inspect(ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay.replay(limit: 20), limit: :infinity)'
 ```
 
-Both take `subject:`, `from_sequence:` and `limit:` (default 100) and return a
-`next_sequence` for paging. Replay republishes each record to its original
+Both take `subject:`, `reason:` (only records dead-lettered for that
+`Sr-Edge-Dlq-Reason` class, so a fixed cause is replayed alone), `from_sequence:`
+and `limit:` (default 100) and return a `next_sequence` for paging. Replay republishes each record to its original
 subject, restores its message id, and deletes the dead-letter copy only after
 the PubAck. A record the ledger already holds writes nothing when it is
 replayed, and a record that still fails is dead-lettered again. If the source
@@ -505,7 +508,10 @@ contract it shows, summed across every connected gateway and core node:
 | Last projected | how long ago the contract last projected a record |
 
 A record refused or withheld before its bytes decoded is counted as `unattributed`.
-A second table shows the pending, ack-pending and redelivered counts of each
+When any record was dead-lettered, a reason table lists the dead-lettered records
+per contract and `Sr-Edge-Dlq-Reason` class, most first; pass that class to
+`Replay.replay/1` as `reason:` once its cause is fixed. A node running a release
+from before this table reports no reasons. Another table shows the pending, ack-pending and redelivered counts of each
 edge-record durable and its stream's message count; for
 `TELEMETRY_EDGE_RECORD_DLQ_V1_BULK` that count is the dead-letter depth. A
 stream no node could read shows `unknown`, not 0. The counts start at zero when a gateway or core process starts.
@@ -639,7 +645,8 @@ kubectl -n <namespace> exec deploy/serviceradar-tools -- \
    the `Sr-Edge-Dlq-Reason` and `Sr-Edge-Dlq-Reason-Detail` headers appear
    there as `"reason"` and `"reason-detail"` (the EventWriter log names them
    `reason=` and `reason_detail=`).
-3. Fix the cause, then run `Replay.replay/1`. Records that fail again return to
+3. Fix the cause, then run `Replay.replay/1` (with `reason:` to replay only
+   that cause's records). Records that fail again return to
    the dead-letter stream. An entry that reports `:source_duplicate` stayed in
    the dead-letter stream unreplayed; run the replay again after the source
    stream's duplicate window has passed.
