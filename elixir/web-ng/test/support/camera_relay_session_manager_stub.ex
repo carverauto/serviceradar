@@ -34,6 +34,16 @@ defmodule ServiceRadarWebNG.TestSupport.CameraRelaySessionManagerStub do
     )
   end
 
+  def reconcile_close(relay_session_id, opts) do
+    notify({:reconcile_close, relay_session_id, opts})
+    Application.fetch_env!(:serviceradar_web_ng, :camera_relay_session_manager_close_result)
+  end
+
+  def close_observation(relay_session_id, command_id, opts) do
+    notify({:close_observation, relay_session_id, command_id, opts})
+    Application.fetch_env!(:serviceradar_web_ng, :camera_relay_session_manager_close_result)
+  end
+
   def close_session(relay_session_id, opts) do
     request_close(relay_session_id, opts)
   end

@@ -1,12 +1,14 @@
 defmodule ServiceRadar.Camera.RelaySessionManagerTest do
   use ServiceRadar.DataCase, async: false
 
+  alias ServiceRadar.AgentCommands.PersistenceWorker
   alias ServiceRadar.Camera.IngestOwnership
   alias ServiceRadar.Camera.InventoryIngestor
   alias ServiceRadar.Camera.RelaySession
   alias ServiceRadar.Camera.RelaySessionLifecycle
   alias ServiceRadar.Camera.RelaySessionManager
   alias ServiceRadar.Camera.Source
+  alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Edge.AgentCommandCleanupWorker
   alias ServiceRadar.ProcessRegistry
@@ -184,11 +186,171 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
                [command.command_id]
              )
 
+    assert {:ok, %{query_status: :queued, observation: nil, retirement_proven: false}} =
+             RelaySessionManager.close_observation(reserved.id, command.command_id, ctx.opts)
+
     Process.exit(caller, :kill)
     assert_receive {:DOWN, ^monitor, :process, ^caller, :killed}
+
+    worker =
+      start_supervised!({PersistenceWorker, name: __MODULE__.StopResults, result_consumers: []})
+
+    observation =
+      Map.merge(payload, %{
+        "state" => "completed",
+        "camera_source_id" => reserved.camera_source_id,
+        "stream_profile_id" => reserved.stream_profile_id
+      })
+
+    send(
+      worker,
+      {:command_result,
+       %{
+         command_id: command.command_id,
+         agent_id: agent_id,
+         partition_id: "default",
+         command_type: command.command_type,
+         success: true,
+         payload: observation
+       }}
+    )
+
+    :sys.get_state(worker)
+
+    # A different caller reads the persisted reply after the dispatch caller died.
+    viewer = %{id: Ecto.UUID.generate(), permissions: ["devices.view", "devices.cameras.view"]}
+
+    assert {:ok, %{query_status: :completed, observation: ^observation, retirement_proven: false}} =
+             RelaySessionManager.close_observation(reserved.id, command.command_id, actor: viewer)
+
+    refute_received {:relay_command, _}
     assert {:ok, current} = RelaySession.get_by_id(reserved.id, ctx.opts)
     assert current.status == :closing
     assert current.close_command_id == reserved.close_command_id
+  end
+
+  test "retained stop results require the saved target and explicit observation state", ctx do
+    {:ok, opening} = Fixtures.open(ctx)
+
+    {:ok, active} =
+      Fixtures.activate(ctx, opening, Ecto.UUID.generate(), %{
+        source_incarnation_id: Ecto.UUID.generate()
+      })
+
+    {:ok, closing} =
+      RelaySessionManager.request_close(active.id,
+        actor: ctx.actor,
+        force: true,
+        dispatch_close: fn _agent, _payload, opts, _requester -> {:ok, opts[:command_id]} end
+      )
+
+    identity = %{
+      "operation_id" => closing.close_command_id,
+      "relay_session_id" => closing.id,
+      "source_incarnation_id" => closing.source_incarnation_id
+    }
+
+    known =
+      Map.merge(identity, %{
+        "state" => "completed",
+        "camera_source_id" => closing.camera_source_id,
+        "stream_profile_id" => closing.stream_profile_id
+      })
+
+    attrs = %{
+      agent_id: closing.agent_id,
+      command_type: "camera.reconcile_relay_stop",
+      payload: identity
+    }
+
+    for state <- ["pending", "completed", "unresolved", "unknown"] do
+      payload =
+        if state == "unknown",
+          do: Map.put(identity, "state", state),
+          else: Map.put(known, "state", state)
+
+      query = stop_query(ctx, attrs, Map.put(payload, "untrusted_extra", "discard"))
+
+      assert {:ok, %{observation: ^payload, retirement_proven: false}} =
+               RelaySessionManager.close_observation(closing.id, query.id, ctx.opts)
+    end
+
+    invalid_payloads =
+      [nil, %{}, Map.put(known, "state", "retired"), Map.delete(known, "camera_source_id")] ++
+        Enum.map(Map.keys(known) -- ["state"], &Map.put(known, &1, Ecto.UUID.generate())) ++
+        [
+          identity
+          |> Map.put("state", "unknown")
+          |> Map.put("stream_profile_id", Ecto.UUID.generate())
+        ]
+
+    for payload <- invalid_payloads do
+      query = stop_query(ctx, attrs, payload)
+
+      assert {:error, :invalid_stop_observation} =
+               RelaySessionManager.close_observation(closing.id, query.id, ctx.opts)
+    end
+
+    mismatched_queries =
+      [
+        Map.put(attrs, :agent_id, "agent-other-example"),
+        Map.put(attrs, :command_type, "camera.close_relay")
+      ] ++
+        Enum.map(Map.keys(identity), fn key ->
+          Map.put(attrs, :payload, Map.put(identity, key, Ecto.UUID.generate()))
+        end)
+
+    for other <- mismatched_queries do
+      query = stop_query(ctx, other, known)
+
+      assert {:error, :not_found} =
+               RelaySessionManager.close_observation(closing.id, query.id, ctx.opts)
+    end
+
+    query = stop_query(ctx, attrs, known)
+
+    assert {:error, :forbidden} =
+             RelaySessionManager.close_observation(closing.id, query.id,
+               actor: %{id: Ecto.UUID.generate(), permissions: ["devices.view"]}
+             )
+
+    Ash.destroy!(query, ctx.opts)
+
+    assert {:error, :not_found} =
+             RelaySessionManager.close_observation(closing.id, query.id, ctx.opts)
+
+    expired = stop_query(ctx, Map.put(attrs, :expires_at, ~U[2000-01-01 00:00:00Z]), :queued)
+
+    assert {:ok, %{query_status: :expired, observation: nil, retirement_proven: false}} =
+             RelaySessionManager.close_observation(closing.id, expired.id, ctx.opts)
+
+    failed = stop_query(ctx, attrs, :queued)
+    {:ok, _} = AgentCommand.fail(failed, %{result_payload: known}, ctx.opts)
+
+    assert {:ok, %{query_status: :failed, observation: nil}} =
+             RelaySessionManager.close_observation(closing.id, failed.id, ctx.opts)
+
+    assert {:ok, current} = RelaySession.get_by_id(closing.id, ctx.opts)
+    assert current.status == :closing
+    assert current.close_command_id == closing.close_command_id
+  end
+
+  defp stop_query(ctx, attrs, result) do
+    {:ok, query} = AgentCommand.create_command(attrs, ctx.opts)
+
+    on_exit(fn ->
+      Repo.query!("DELETE FROM platform.agent_commands WHERE command_id = $1::text::uuid", [
+        query.id
+      ])
+    end)
+
+    if result == :queued do
+      query
+    else
+      {:ok, sent} = AgentCommand.mark_sent(query, %{}, ctx.opts)
+      {:ok, completed} = AgentCommand.complete(sent, %{result_payload: result}, ctx.opts)
+      completed
+    end
   end
 
   test "committed concurrent opens dispatch one pull and reuse its persisted opening reservation",

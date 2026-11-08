@@ -21,6 +21,7 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
   alias ServiceRadar.Camera.RelaySessionLifecycle
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Camera.StreamProfile
+  alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Identity.RBAC
 
@@ -127,6 +128,100 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
       {:error, _} = error -> error
     end
   end
+
+  @doc """
+  Reads a retained reconciliation query without sending another agent command.
+
+  Session authorization and saved target identities constrain the ledger read.
+  `query_status` describes delivery; `observation` is present only for a completed,
+  correlated query. Even a completed local stop is not qualified retirement proof.
+  Missing or cleaned-up commands return `:not_found`, never inferred completion.
+  """
+  def close_observation(session_or_id, query_id, opts \\ []) do
+    requester = resolve_requester(opts)
+    read_opts = Keyword.put(read_ash_opts(opts, requester), :not_found_error?, false)
+
+    with :ok <- authorize_requester(requester),
+         {:ok, id} <- session_id(session_or_id),
+         {:ok, %RelaySession{} = session} <- RelaySession.get_by_id(id, read_opts),
+         :ok <- require_stop_identity(session),
+         {:ok, %AgentCommand{} = command} <-
+           AgentCommand.get_by_id(query_id,
+             actor: SystemActor.system(:camera_relay_session_manager),
+             not_found_error?: false
+           ),
+         :ok <- correlate_stop_query(command, session),
+         {:ok, observation} <- stop_observation(command, session) do
+      {:ok,
+       %{
+         command_id: command.id,
+         query_status: stop_query_status(command),
+         query_completed_at: command.completed_at,
+         observation: observation,
+         retirement_proven: false
+       }}
+    else
+      {:ok, nil} -> {:error, :not_found}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp correlate_stop_query(command, session) do
+    if command.command_type == "camera.reconcile_relay_stop" and
+         command.agent_id == session.agent_id and stop_identity_matches?(command.payload, session),
+       do: :ok,
+       else: {:error, :not_found}
+  end
+
+  defp stop_identity_matches?(payload, session) when is_map(payload) do
+    payload["operation_id"] == session.close_command_id and
+      payload["relay_session_id"] == session.id and
+      payload["source_incarnation_id"] == session.source_incarnation_id
+  end
+
+  defp stop_identity_matches?(_payload, _session), do: false
+
+  defp stop_observation(%{status: :completed, result_payload: payload}, session)
+       when is_map(payload) do
+    state = payload["state"]
+
+    if state in ["pending", "completed", "unresolved", "unknown"] and
+         stop_identity_matches?(payload, session) and stop_source_matches?(payload, session) do
+      {:ok,
+       Map.take(payload, [
+         "state",
+         "operation_id",
+         "relay_session_id",
+         "source_incarnation_id",
+         "camera_source_id",
+         "stream_profile_id"
+       ])}
+    else
+      {:error, :invalid_stop_observation}
+    end
+  end
+
+  defp stop_observation(%{status: :completed}, _session), do: {:error, :invalid_stop_observation}
+
+  defp stop_observation(_command, _session), do: {:ok, nil}
+
+  defp stop_source_matches?(%{"state" => "unknown"} = payload, session) do
+    Map.get(payload, "camera_source_id", session.camera_source_id) == session.camera_source_id and
+      Map.get(payload, "stream_profile_id", session.stream_profile_id) ==
+        session.stream_profile_id
+  end
+
+  defp stop_source_matches?(payload, session) do
+    payload["camera_source_id"] == session.camera_source_id and
+      payload["stream_profile_id"] == session.stream_profile_id
+  end
+
+  defp stop_query_status(%{status: status, expires_at: expires_at})
+       when status in [:queued, :sent, :acknowledged, :running] do
+    if DateTime.after?(expires_at, DateTime.utc_now()), do: status, else: :expired
+  end
+
+  defp stop_query_status(command), do: command.status
 
   defp require_stop_identity(%{close_command_id: operation, source_incarnation_id: incarnation})
        when is_binary(operation) and operation != "" and is_binary(incarnation) and
