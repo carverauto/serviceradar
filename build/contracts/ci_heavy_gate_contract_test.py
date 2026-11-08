@@ -1402,9 +1402,10 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
 
     def test_cold_bootstrap_scratch_cleanup_is_outcome_bearing(self):
         source = DATABASE_BOOTSTRAP_TEST.read_text(encoding="utf-8")
-        self.assertIn(
-            "on_exit(fn ->\n      drop_database!(admin_opts, scratch_db)\n    end)",
+        # Indentation-insensitive: the drop may sit inside a conditional setup branch.
+        self.assertRegex(
             source,
+            r"on_exit\(fn ->\s*drop_database!\(admin_opts, scratch_db\)\s*end\)",
         )
         self.assertIn("defp drop_database!(admin_opts, database) do", source)
         self.assertIn('raise "failed to drop bootstrap scratch database', source)

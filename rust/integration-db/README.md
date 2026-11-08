@@ -256,7 +256,7 @@ document is meant to prevent.
   in the DSN, and TLS was only enabled by the *path* forms. Remotely those never resolve.
 - `permission denied for schema platform_graph` — graphs owned by the admin; the app role could
   not read them, let alone index them.
-- `connection not available and request was dropped from queue after 4000ms` in
+- `connection not available and request was dropped from queue after <N>ms` in
   `database_bootstrap_integration_test.exs` — that test does not use the Repo. It builds its
   own `Postgrex.start_link` options, and its `sslmode` resolution defaulted to `"disable"` when
   nothing named a mode, so it connected in plaintext to a fixture that refuses it. The real
@@ -268,8 +268,11 @@ document is meant to prevent.
 
   **Always read past the queue timeout.** Postgrex retries a rejected connect in the
   background, so the pool never becomes ready and the *first query* fails on the queue — the
-  connect error is what tells you why. This shape means "TLS misconfigured", not "pool too
-  small"; raising `pool_size` or `queue_target` will not help.
+  connect error is what tells you why. With that connect error, this shape means "TLS
+  misconfigured", not "pool too small"; raising `pool_size` or `queue_target` will not help.
+  Without one, the connect was only slow (a loaded shared fixture): the test's admin
+  connection already sets `queue_target`/`queue_interval` to `@admin_query_timeout` so a slow
+  connect waits as long as a query may, instead of DBConnection's ~4 s default.
 
 ## If you replace the PEM-in-env mechanism
 

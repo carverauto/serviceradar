@@ -100,22 +100,26 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
     end
   end
 
-  setup %{admin_opts: admin_opts} do
-    # Integration shards and retries use independent BEAM VMs against the same CNPG fixture,
-    # so System.unique_integer/1 alone cannot make the database name globally unique.
-    suffix = Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
-    # The `sr_core_test_` prefix lets a later stale sweep recover residue after infrastructure
-    # failure. The current heavy action still fails unless its own on_exit DROP succeeds.
-    scratch_db = "sr_core_test_bootstrap_#{suffix}"
+  setup %{admin_opts: admin_opts} = tags do
+    if tags[:skip_scratch_db] do
+      :ok
+    else
+      # Integration shards and retries use independent BEAM VMs against the same CNPG fixture,
+      # so System.unique_integer/1 alone cannot make the database name globally unique.
+      suffix = Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
+      # The `sr_core_test_` prefix lets a later stale sweep recover residue after infrastructure
+      # failure. The current heavy action still fails unless its own on_exit DROP succeeds.
+      scratch_db = "sr_core_test_bootstrap_#{suffix}"
 
-    create_database!(admin_opts, scratch_db)
-    install_required_extensions!(admin_opts, scratch_db)
+      create_database!(admin_opts, scratch_db)
+      install_required_extensions!(admin_opts, scratch_db)
 
-    on_exit(fn ->
-      drop_database!(admin_opts, scratch_db)
-    end)
+      on_exit(fn ->
+        drop_database!(admin_opts, scratch_db)
+      end)
 
-    {:ok, scratch_db: scratch_db}
+      {:ok, scratch_db: scratch_db}
+    end
   end
 
   test "startup applies baseline once and reruns through migration history", %{
@@ -305,6 +309,19 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
     # Logs-index forward repair recreates the four skipped indexes and is idempotent.
     assert result["logs_index_count_after"] == 4
     assert result["logs_index_count_after_rerun"] == 4
+  end
+
+  @tag :skip_scratch_db
+  test "a connect delayed past 4 s still lets ensure_app_role! succeed", %{
+    admin_opts: admin_opts
+  } do
+    started_at = System.monotonic_time(:millisecond)
+
+    with_delayed_tcp_proxy(admin_opts, 4_500, fn delayed_opts ->
+      assert :ok = ensure_app_role!(delayed_opts)
+    end)
+
+    assert System.monotonic_time(:millisecond) - started_at >= 4_500
   end
 
   defp run_migrator_bootstrap!(admin_url, database, subprocess_ca_file) do
@@ -1215,6 +1232,8 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
             timeout: @admin_query_timeout
           )
 
+          :ok
+
         {:ok, _} ->
           :ok
       end
@@ -1293,12 +1312,98 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
     {:ok, conn} =
       opts
       |> Keyword.put(:timeout, @admin_query_timeout)
+      |> Keyword.put(:queue_target, @admin_query_timeout)
+      |> Keyword.put(:queue_interval, @admin_query_timeout)
       |> Postgrex.start_link()
 
     try do
       fun.(conn)
     after
       GenServer.stop(conn, :normal, @admin_query_timeout)
+    end
+  end
+
+  defp with_delayed_tcp_proxy(admin_opts, delay_ms, fun) do
+    upstream_host = admin_opts |> Keyword.fetch!(:hostname) |> String.to_charlist()
+    upstream_port = Keyword.fetch!(admin_opts, :port)
+
+    {:ok, listen_sock} =
+      :gen_tcp.listen(0, [
+        :binary,
+        packet: :raw,
+        active: false,
+        reuseaddr: true,
+        ip: {127, 0, 0, 1}
+      ])
+
+    {:ok, {_ip, proxy_port}} = :inet.sockname(listen_sock)
+
+    acceptor =
+      spawn_link(fn ->
+        accept_delayed_proxy_loop(listen_sock, upstream_host, upstream_port, delay_ms)
+      end)
+
+    delayed_opts =
+      admin_opts
+      |> Keyword.put(:hostname, "127.0.0.1")
+      |> Keyword.put(:port, proxy_port)
+
+    try do
+      fun.(delayed_opts)
+    after
+      Process.unlink(acceptor)
+      :gen_tcp.close(listen_sock)
+      Process.exit(acceptor, :shutdown)
+    end
+  end
+
+  defp accept_delayed_proxy_loop(listen_sock, upstream_host, upstream_port, delay_ms) do
+    case :gen_tcp.accept(listen_sock) do
+      {:ok, client_sock} ->
+        spawn(fn ->
+          relay_delayed_tcp(client_sock, upstream_host, upstream_port, delay_ms)
+        end)
+
+        accept_delayed_proxy_loop(listen_sock, upstream_host, upstream_port, delay_ms)
+
+      {:error, :closed} ->
+        :ok
+    end
+  end
+
+  defp relay_delayed_tcp(client_sock, upstream_host, upstream_port, delay_ms) do
+    Process.sleep(delay_ms)
+
+    case :gen_tcp.connect(
+           upstream_host,
+           upstream_port,
+           [:binary, packet: :raw, active: false, nodelay: true],
+           @admin_query_timeout
+         ) do
+      {:ok, upstream_sock} ->
+        upstream_to_client =
+          Task.async(fn -> pump_tcp(upstream_sock, client_sock) end)
+
+        pump_tcp(client_sock, upstream_sock)
+        Task.await(upstream_to_client, @admin_query_timeout)
+        :gen_tcp.close(upstream_sock)
+        :gen_tcp.close(client_sock)
+
+      {:error, _reason} ->
+        :gen_tcp.close(client_sock)
+    end
+  end
+
+  defp pump_tcp(from_sock, to_sock) do
+    case :gen_tcp.recv(from_sock, 0) do
+      {:ok, payload} ->
+        case :gen_tcp.send(to_sock, payload) do
+          :ok -> pump_tcp(from_sock, to_sock)
+          {:error, _reason} -> :gen_tcp.shutdown(from_sock, :read_write)
+        end
+
+      {:error, _reason} ->
+        :gen_tcp.shutdown(to_sock, :write)
     end
   end
 
