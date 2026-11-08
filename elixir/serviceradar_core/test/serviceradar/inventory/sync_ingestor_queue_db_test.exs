@@ -582,6 +582,46 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueDbTest do
     assert after_redelivery.total_syncs == synced_source.total_syncs
   end
 
+  test "a redelivered first chunk after a recorded failure leaves the source failed",
+       %{source: source} do
+    actor = SystemActor.system(:sync_queue_regression)
+    run = "redelivered-#{Ecto.UUID.generate()}"
+
+    first_chunk = Jason.encode!([device_update(source.id, run, 104, 0, 0, false, nil)])
+
+    assert :ok = SyncIngestorQueue.ingest_sync_results(first_chunk)
+
+    {:ok, running_source} = IntegrationSource.get_by_id(source.id, actor: actor)
+    assert running_source.sync_status == :running
+
+    failure_marker =
+      Jason.encode!([
+        %{
+          "_sync_control" => "collection_failed:502 Bad Gateway",
+          "timestamp" => "2026-09-01T08:00:00Z",
+          "sync_meta" => %{
+            "sync_service_id" => source.id,
+            "sync_run_id" => run,
+            "chunk_index" => 1,
+            "total_chunks" => 0,
+            "total_devices" => 1,
+            "is_final" => false
+          }
+        }
+      ])
+
+    assert :ok = SyncIngestorQueue.ingest_sync_results(failure_marker)
+
+    {:ok, failed_source} = IntegrationSource.get_by_id(source.id, actor: actor)
+    assert failed_source.sync_status == :failed
+
+    SyncIngestorQueue.ingest_sync_results(first_chunk)
+
+    {:ok, after_redelivery} = IntegrationSource.get_by_id(source.id, actor: actor)
+    assert after_redelivery.sync_status == :failed
+    assert after_redelivery.last_error_message == "502 Bad Gateway"
+  end
+
   def forward_repo_query(_event, _measurements, _metadata, test_pid) do
     send(test_pid, {:repo_query_pid, self()})
   end

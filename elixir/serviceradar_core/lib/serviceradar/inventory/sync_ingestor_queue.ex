@@ -621,20 +621,19 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     sync_service_id = extract_sync_service_id(updates, sync_meta)
 
     if should_record_sync_status?(sync_meta, control_failure) do
+      device_count =
+        case ingest_result do
+          :ok ->
+            sync_source_device_count(sync_service_id, sync_meta, updates)
+
+          {:error, _} ->
+            sync_device_count(strip_sync_control_updates(updates), sync_meta)
+        end
+
+      {action, action_attrs} = build_sync_finish(ingest_result, device_count)
+
       SyncRunLedger.with_newest_run(sync_meta, fn ->
         with_sync_service(sync_service_id, actor, fn source ->
-          device_count =
-            case ingest_result do
-              :ok ->
-                sync_source_device_count(sync_service_id, sync_meta, updates)
-
-              {:error, _} ->
-                sync_device_count(strip_sync_control_updates(updates), sync_meta)
-            end
-
-          {action, action_attrs} =
-            build_sync_finish(ingest_result, device_count)
-
           update_sync_source(source, actor, action, action_attrs, sync_service_id, "status")
         end)
       end)
@@ -651,9 +650,10 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     sync_service_id = extract_sync_service_id(updates, sync_meta)
 
     if should_record_sync_start?(sync_meta) do
-      SyncRunLedger.with_newest_run(sync_meta, fn ->
+      action_attrs = %{device_count: sync_device_count(updates, sync_meta)}
+
+      SyncRunLedger.with_open_newest_run(sync_meta, fn ->
         with_sync_service(sync_service_id, actor, fn source ->
-          action_attrs = %{device_count: sync_device_count(updates, sync_meta)}
           update_sync_source(source, actor, :sync_start, action_attrs, sync_service_id, "start")
         end)
       end)
