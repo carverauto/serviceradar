@@ -1,7 +1,8 @@
 load("//build:elixir_quality.bzl", "elixir_format")
 
-# Every Mix project CI's "Elixir Quality" job lints, in the same order as its matrix
-# (.github/workflows/elixir-quality.yml). Adding a project there means adding it here.
+# First-party Mix projects checked by the remote Bazel quality gate.
+# Library-only projects also run here and in BazelCI through `make test`; they
+# do not need a separate GitHub Actions matrix job.
 _PROJECTS = [
     "//elixir/datasvc",
     "//elixir/palisade",
