@@ -114,7 +114,6 @@ explicitly unqueryable. Retained ledger replies survive a requesting caller.
 Historical outcomes do not change ownership, prove liveness or retirement, or
 authorize a replacement. Durable recovery, fencing and task 2.5 remain open.
 
-
 ## 3. Storage modes and recovery
 
 - [ ] 3.1 Install qualified exclusive per-recorder filesystem volumes with explicit identities/initialization for Kubernetes and supported customer hosts.

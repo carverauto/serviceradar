@@ -28,11 +28,11 @@ its credentials. This deadline bounds admission and duplicate waits; it does
 not replace the existing source lifetime or lease policy with an offline grant.
 
 These records are process-local and disappear on registry restart. They do not
-supply a durable journal or a qualified physical fence. A command identity must never be recycled or given a later
-deadline after retention ends. Core does not automatically replay opens across
-reconnects or restarts: that requires authenticated operation/incarnation
-reconciliation and qualified ownership fencing first. Recorder pools and
-continuous recording remain separate work.
+supply a durable journal or a qualified physical fence. A command identity must
+never be recycled or given a later deadline after retention ends. Core does not
+automatically replay opens across reconnects or restarts: that requires
+authenticated operation/incarnation reconciliation and qualified ownership
+fencing first. Recorder pools and continuous recording remain separate work.
 
 ## Reading a lost open outcome
 
