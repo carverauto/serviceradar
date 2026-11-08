@@ -304,13 +304,8 @@ func (c *client) v3AssetSearch(
 	}()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return nil, &requestError{
-			err:        errV3AssetSearchFailed,
-			statusCode: resp.StatusCode,
-			status:     resp.Status,
-			body:       strings.TrimSpace(string(body)),
-		}
+		body, readErr := readErrorBody(resp.Body)
+		return nil, newRequestError(errV3AssetSearchFailed, resp, body, readErr)
 	}
 
 	var result v3AssetSearchResponse

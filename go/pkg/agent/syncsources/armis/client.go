@@ -82,6 +82,25 @@ func (e *requestError) Unwrap() error {
 	return e.err
 }
 
+func newRequestError(err error, resp *http.Response, body string, readErr error) error {
+	reqErr := &requestError{
+		err:        err,
+		statusCode: resp.StatusCode,
+		status:     resp.Status,
+		body:       body,
+	}
+	if readErr != nil {
+		return fmt.Errorf("%w: %w", reqErr, readErr)
+	}
+
+	return reqErr
+}
+
+func readErrorBody(body io.Reader) (string, error) {
+	data, err := io.ReadAll(io.LimitReader(body, 4096))
+	return strings.TrimSpace(string(data)), err
+}
+
 func isUnauthorized(err error) bool {
 	var reqErr *requestError
 	return errors.As(err, &reqErr) && reqErr.statusCode == http.StatusUnauthorized
@@ -180,9 +199,12 @@ func (c *client) accessToken(ctx context.Context, creds map[string]string) (stri
 	}()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		if len(body) > 0 {
-			return "", fmt.Errorf("%w: %s: %s", errTokenRequestFailed, resp.Status, strings.TrimSpace(string(body)))
+		body, readErr := readErrorBody(resp.Body)
+		if readErr != nil {
+			return "", fmt.Errorf("%w: %s: %w", errTokenRequestFailed, resp.Status, readErr)
+		}
+		if body != "" {
+			return "", fmt.Errorf("%w: %s: %s", errTokenRequestFailed, resp.Status, body)
 		}
 
 		return "", fmt.Errorf("%w: %s", errTokenRequestFailed, resp.Status)
@@ -252,13 +274,8 @@ func (c *client) search(ctx context.Context, token string, query string, from in
 	}()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return nil, &requestError{
-			err:        errSearchFailed,
-			statusCode: resp.StatusCode,
-			status:     resp.Status,
-			body:       strings.TrimSpace(string(body)),
-		}
+		body, readErr := readErrorBody(resp.Body)
+		return nil, newRequestError(errSearchFailed, resp, body, readErr)
 	}
 
 	var result searchResponse

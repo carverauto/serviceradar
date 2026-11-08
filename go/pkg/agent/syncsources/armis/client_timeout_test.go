@@ -231,3 +231,44 @@ func TestInsecureArmisClientReusesOneConnectionAcrossRequests(t *testing.T) {
 		t.Fatalf("opened %d connections for 3 sequential requests, want 1 pooled connection", got)
 	}
 }
+
+func TestErrorStatusBodyStallStaysATimeout(t *testing.T) {
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"message":`))
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	t.Cleanup(func() {
+		close(release)
+		server.Close()
+	})
+
+	apiClient := newClientWithTimeout(models.SourceConfig{Endpoint: server.URL}, 200*time.Millisecond)
+	defer apiClient.close()
+
+	tokenErr := returnsWithin(t, func() error {
+		_, reqErr := apiClient.accessToken(context.Background(), map[string]string{"secret_key": "synthetic"})
+		return reqErr
+	})
+	searchErr := returnsWithin(t, func() error {
+		_, reqErr := apiClient.search(context.Background(), "synthetic-token", "in:devices", 0, 10)
+		return reqErr
+	})
+
+	for name, err := range map[string]error{"token": tokenErr, "search": searchErr} {
+		var netErr net.Error
+		if !errors.As(err, &netErr) || !netErr.Timeout() {
+			t.Fatalf("%s: expected body read timeout error, got %v", name, err)
+		}
+	}
+	if !isUnauthorized(searchErr) {
+		t.Fatalf("search: expected the 401 status to stay visible, got %v", searchErr)
+	}
+}
