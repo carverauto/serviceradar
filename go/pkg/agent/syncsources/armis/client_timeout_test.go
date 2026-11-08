@@ -106,6 +106,100 @@ func TestDefaultArmisClientHasARequestTimeout(t *testing.T) {
 	if got := apiClient.httpClient().Timeout; got != requestTimeout {
 		t.Fatalf("request timeout = %s, want %s", got, requestTimeout)
 	}
+	if requestTimeout != 30*time.Second {
+		t.Fatalf("default requestTimeout = %s, want 30s", requestTimeout)
+	}
+
+	transport, ok := apiClient.httpClient().Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("transport type = %T, want *http.Transport", apiClient.httpClient().Transport)
+	}
+	if transport.DialContext == nil {
+		t.Fatal("expected bounded DialContext on Armis transport")
+	}
+	if transport.TLSHandshakeTimeout != tlsHandshakeTimeout {
+		t.Fatalf("TLSHandshakeTimeout = %s, want %s", transport.TLSHandshakeTimeout, tlsHandshakeTimeout)
+	}
+	if transport.ResponseHeaderTimeout != responseHeaderTimeout {
+		t.Fatalf("ResponseHeaderTimeout = %s, want %s", transport.ResponseHeaderTimeout, responseHeaderTimeout)
+	}
+}
+
+func TestStalledTLSHandshakeFailsAtHandshakeTimeout(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	release := make(chan struct{})
+	t.Cleanup(func() {
+		close(release)
+		_ = listener.Close()
+	})
+
+	go func() {
+		for {
+			conn, acceptErr := listener.Accept()
+			if acceptErr != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer func() { _ = c.Close() }()
+				<-release
+			}(conn)
+		}
+	}()
+
+	apiClient := newClientWithTimeout(
+		models.SourceConfig{
+			Endpoint:           "https://" + listener.Addr().String(),
+			InsecureSkipVerify: true,
+		},
+		200*time.Millisecond,
+	)
+	defer apiClient.close()
+
+	err = returnsWithin(t, 5*time.Second, func() error {
+		_, reqErr := apiClient.accessToken(context.Background(), map[string]string{"secret_key": "synthetic"})
+		return reqErr
+	})
+
+	var netErr net.Error
+	if !errors.As(err, &netErr) || !netErr.Timeout() {
+		t.Fatalf("expected TLS handshake timeout error, got %v", err)
+	}
+}
+
+func TestStreamingBodyStallFailsAtRequestTimeoutAfterHeadersArrive(t *testing.T) {
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"data":{`))
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	t.Cleanup(func() {
+		close(release)
+		server.Close()
+	})
+
+	apiClient := newClientWithTimeout(models.SourceConfig{Endpoint: server.URL}, 200*time.Millisecond)
+	defer apiClient.close()
+
+	err := returnsWithin(t, 5*time.Second, func() error {
+		_, reqErr := apiClient.accessToken(context.Background(), map[string]string{"secret_key": "synthetic"})
+		return reqErr
+	})
+
+	var netErr net.Error
+	if !errors.As(err, &netErr) || !netErr.Timeout() {
+		t.Fatalf("expected body read timeout error, got %v", err)
+	}
 }
 
 func TestInsecureArmisClientReusesOneConnectionAcrossRequests(t *testing.T) {

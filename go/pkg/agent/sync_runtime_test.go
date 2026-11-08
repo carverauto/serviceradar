@@ -244,11 +244,17 @@ func TestExecuteRunEndsAStalledRunAtItsDeadlineSoTheNextRunProceeds(t *testing.T
 		t.Fatal("a stalled sync run never ended; the source would stop syncing")
 	}
 
+	timedOutPages := decodeSyncPages(t, sp)
+	require.Len(t, timedOutPages, 1, "a timed-out run spools a terminal failure control record")
+	require.Empty(t, timedOutPages[0].GetDevices())
+	require.False(t, timedOutPages[0].GetSyncMeta().GetIsFinal())
+	require.Contains(t, timedOutPages[0].GetControlMarker().GetControlType(), syncCollectionTimeout+":")
+
 	// The source is free again: the next scheduled run executes and spools.
 	runner.config.Credentials = map[string]string{"pages": "1"}
 	runtime.executeRun(context.Background(), runner, "poll")
 
-	require.NotEmpty(t, spooledRecords(t, sp), "the run after a timed-out run spooled nothing")
+	require.NotEmpty(t, spooledSyncDevices(t, sp), "the run after a timed-out run spooled no devices")
 }
 
 // countingSyncDriver counts the runs that reached it.
@@ -315,9 +321,40 @@ func TestRunSourceOnceFlushesEmittedPagesWhenDriverFails(t *testing.T) {
 	require.Equal(t, 2, count, "the first page is flushed before the error")
 
 	require.Len(t, spooledSyncDevices(t, sp), 2)
-	for _, page := range decodeSyncPages(t, sp) {
+	pages := decodeSyncPages(t, sp)
+	require.Len(t, pages, 2, "flushed partial data page followed by failure control page")
+	for _, page := range pages {
 		require.False(t, page.GetSyncMeta().GetIsFinal(), "a failed run is never run-final")
 	}
+	failurePage := pages[len(pages)-1]
+	require.Empty(t, failurePage.GetDevices())
+	require.Equal(t, int32(1), failurePage.GetSyncMeta().GetChunkIndex())
+	require.Equal(t, int32(2), failurePage.GetSyncMeta().GetTotalDevices())
+	require.Equal(t, syncCollectionFailed+":"+errFakeSyncDriverFailed.Error(),
+		failurePage.GetControlMarker().GetControlType())
+}
+
+func TestRunSourceOnceSpoolsFailureControlRecordWhenDriverFailsBeforeFirstPage(t *testing.T) {
+	runtime, _, sp := newSyncTestRuntime(t)
+	runner := newFakeSourceRunner(map[string]string{
+		"pages":            "1",
+		"devices_per_page": "2",
+		"fail_after_pages": "0",
+	})
+
+	count, err := runtime.runSourceOnce(context.Background(), runner, "discovery", "run-zero-pages")
+	require.ErrorIs(t, err, errFakeSyncDriverFailed)
+	require.Zero(t, count)
+
+	pages := decodeSyncPages(t, sp)
+	require.Len(t, pages, 1)
+	require.Empty(t, pages[0].GetDevices())
+	require.False(t, pages[0].GetSyncMeta().GetIsFinal())
+	require.Equal(t, "run-zero-pages", pages[0].GetSyncMeta().GetSyncRunId())
+	require.Equal(t, int32(0), pages[0].GetSyncMeta().GetChunkIndex())
+	require.Equal(t, int32(0), pages[0].GetSyncMeta().GetTotalDevices())
+	require.Equal(t, syncCollectionFailed+":"+errFakeSyncDriverFailed.Error(),
+		pages[0].GetControlMarker().GetControlType())
 }
 
 func TestRunSourceOnceNormalizesEmittedUpdatesForEverySource(t *testing.T) {

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,6 +27,10 @@ const (
 	syncMetaKey                = "sync_meta"
 	syncControlKey             = "_sync_control"
 	syncCollectionFinal        = "collection_final"
+	syncCollectionFailed       = "collection_failed"
+	syncCollectionTimeout      = "collection_timeout"
+	syncFailureFlushTimeout    = 10 * time.Second
+	syncControlErrorMaxBytes   = 512
 	syncPopulationExampleLimit = 100
 )
 
@@ -389,13 +394,24 @@ func (r *SyncRuntime) runSourceOnce(
 		ReportPopulation: emitter.reportPopulation,
 	})
 	if err != nil {
+		flushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), syncFailureFlushTimeout)
+		defer cancel()
+
 		// Flush any buffered page so already-fetched devices still reach the
-		// gateway; the run-final marker is withheld on partial runs.
-		if flushErr := emitter.flush(ctx, false); flushErr != nil {
+		// gateway; the run-final marker is withheld on partial runs, and a
+		// terminal failure control marker is spooled so Core rejects the
+		// incomplete run and records the sync failure promptly.
+		if flushErr := emitter.flush(flushCtx, false); flushErr != nil {
 			r.logger.Warn().Err(flushErr).
 				Str("source", runner.key).
 				Str("run_id", runID).
 				Msg("Failed to flush buffered sync updates after run error")
+		}
+		if failErr := emitter.fail(flushCtx, err); failErr != nil {
+			r.logger.Warn().Err(failErr).
+				Str("source", runner.key).
+				Str("run_id", runID).
+				Msg("Failed to spool sync failure control marker after run error")
 		}
 
 		return emitter.sent, err
@@ -544,6 +560,59 @@ func (e *syncRunEmitter) flush(ctx context.Context, runFinal bool) error {
 	e.sent += len(pending)
 
 	return nil
+}
+
+func (e *syncRunEmitter) fail(ctx context.Context, runErr error) error {
+	control := map[string]interface{}{
+		syncControlKey: syncFailureControlValue(runErr),
+		"timestamp":    time.Now().UTC().Truncate(time.Second).Format(time.RFC3339),
+	}
+
+	sentChunks, err := e.runtime.sendSyncUpdates(
+		ctx,
+		e.runner,
+		[]map[string]interface{}{control},
+		e.runID,
+		e.sent,
+		e.chunkIndex,
+		false,
+		nil,
+	)
+	if err != nil {
+		return err
+	}
+
+	e.chunkIndex += sentChunks
+	return nil
+}
+
+func syncFailureControlValue(err error) string {
+	prefix := syncCollectionFailed
+	if isSyncTimeoutError(err) {
+		prefix = syncCollectionTimeout
+	}
+	if err == nil {
+		return prefix
+	}
+
+	msg := strings.TrimSpace(err.Error())
+	if msg == "" {
+		return prefix
+	}
+	if len(msg) > syncControlErrorMaxBytes {
+		msg = msg[:syncControlErrorMaxBytes]
+	}
+
+	return prefix + ":" + msg
+}
+
+func isSyncTimeoutError(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
 }
 
 func (r *SyncRuntime) sendSyncUpdates(

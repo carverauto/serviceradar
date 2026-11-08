@@ -515,17 +515,24 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     actor = SystemActor.system(:sync_ingestor)
     sync_meta = extract_sync_meta(updates)
     device_updates = strip_sync_control_updates(updates)
+    control_failure = extract_sync_control_failure(updates)
     log_sync_progress("started", updates, sync_meta)
     record_sync_start(updates, actor, sync_meta)
     result = ingest_device_updates(device_updates, actor)
     metas = updates |> Enum.map(fn update -> extract_sync_meta([update]) end) |> Enum.uniq()
 
     result =
-      if result == :ok do
-        SyncRunLedger.committed(metas)
-      else
-        Enum.each(metas, &SyncRunLedger.reject/1)
-        result
+      case {result, control_failure} do
+        {:ok, nil} ->
+          SyncRunLedger.committed(metas)
+
+        {:ok, failure} ->
+          Enum.each(metas, &SyncRunLedger.reject/1)
+          {:error, failure}
+
+        {error, _} ->
+          Enum.each(metas, &SyncRunLedger.reject/1)
+          error
       end
 
     result = maybe_activate_source_snapshot(result, updates, sync_meta, actor)
@@ -548,14 +555,76 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
 
   @doc false
   def strip_sync_control_updates(updates) when is_list(updates) do
-    Enum.reject(updates, fn update ->
-      is_map(update) and
-        (Map.get(update, "_sync_control") || Map.get(update, :_sync_control)) ==
-          "collection_final"
-    end)
+    Enum.reject(updates, &sync_control_update?/1)
   end
 
   def strip_sync_control_updates(_updates), do: []
+
+  defp sync_control_update?(update) when is_map(update) do
+    case Map.get(update, "_sync_control") || Map.get(update, :_sync_control) do
+      value when is_binary(value) -> String.trim(value) != ""
+      _ -> false
+    end
+  end
+
+  defp sync_control_update?(_update), do: false
+
+  @doc false
+  def extract_sync_control_failure(updates) when is_list(updates) do
+    Enum.find_value(updates, fn
+      update when is_map(update) ->
+        control = Map.get(update, "_sync_control") || Map.get(update, :_sync_control)
+        explicit_error = get_string(update, ["error", :error, "error_message", :error_message])
+        parse_sync_control_failure(control, explicit_error)
+
+      _ ->
+        nil
+    end)
+  end
+
+  def extract_sync_control_failure(_updates), do: nil
+
+  defp parse_sync_control_failure("collection_timeout:" <> detail, explicit_error) do
+    {:timeout, non_empty_error(detail, explicit_error, "sync timed out")}
+  end
+
+  defp parse_sync_control_failure("collection_timeout", explicit_error) do
+    {:timeout, non_empty_error(explicit_error, nil, "sync timed out")}
+  end
+
+  defp parse_sync_control_failure("timeout:" <> detail, explicit_error) do
+    {:timeout, non_empty_error(detail, explicit_error, "sync timed out")}
+  end
+
+  defp parse_sync_control_failure("timeout", explicit_error) do
+    {:timeout, non_empty_error(explicit_error, nil, "sync timed out")}
+  end
+
+  defp parse_sync_control_failure("collection_failed:" <> detail, explicit_error) do
+    {:failed, non_empty_error(detail, explicit_error, "sync failed")}
+  end
+
+  defp parse_sync_control_failure("collection_failed", explicit_error) do
+    {:failed, non_empty_error(explicit_error, nil, "sync failed")}
+  end
+
+  defp parse_sync_control_failure("failed:" <> detail, explicit_error) do
+    {:failed, non_empty_error(detail, explicit_error, "sync failed")}
+  end
+
+  defp parse_sync_control_failure("failed", explicit_error) do
+    {:failed, non_empty_error(explicit_error, nil, "sync failed")}
+  end
+
+  defp parse_sync_control_failure(_control, _explicit_error), do: nil
+
+  defp non_empty_error(primary, secondary, fallback) do
+    cond do
+      is_binary(primary) and String.trim(primary) != "" -> String.trim(primary)
+      is_binary(secondary) and String.trim(secondary) != "" -> String.trim(secondary)
+      true -> fallback
+    end
+  end
 
   defp do_ingest_results(message) do
     case decode_results(message) do
@@ -571,9 +640,16 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
   defp record_sync_status(updates, actor, ingest_result, sync_meta) do
     sync_service_id = extract_sync_service_id(updates, sync_meta)
 
-    if should_record_sync_status?(sync_meta) do
+    if should_record_sync_status?(sync_meta, ingest_result) do
       with_sync_service(sync_service_id, actor, fn source ->
-        device_count = sync_source_device_count(sync_service_id, sync_meta, updates)
+        device_count =
+          case ingest_result do
+            :ok ->
+              sync_source_device_count(sync_service_id, sync_meta, updates)
+
+            {:error, _} ->
+              sync_device_count(strip_sync_control_updates(updates), sync_meta)
+          end
 
         {action, action_attrs} =
           build_sync_finish(ingest_result, device_count)
@@ -635,7 +711,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     end
   end
 
-  defp build_sync_finish(ingest_result, device_count) do
+  @doc false
+  def build_sync_finish(ingest_result, device_count) do
     case ingest_result do
       :ok ->
         {:sync_success, %{result: :success, device_count: device_count}}
@@ -652,6 +729,9 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     end
   end
 
+  defp failure_result({kind, _message}) when kind in [:timeout, :timed_out], do: :timeout
+  defp failure_result({:failed, _message}), do: :failed
+
   defp failure_result(reason) do
     if reason in [:timeout, :timed_out] do
       :timeout
@@ -660,6 +740,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     end
   end
 
+  defp error_message({_kind, message}) when is_binary(message) and message != "", do: message
+  defp error_message({kind, _message}) when is_atom(kind), do: Atom.to_string(kind)
   defp error_message(reason) when is_binary(reason), do: reason
   defp error_message(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp error_message(reason), do: inspect(reason)
@@ -789,6 +871,11 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
         true
     end
   end
+
+  defp should_record_sync_status?(_sync_meta, {:error, _reason}), do: true
+
+  defp should_record_sync_status?(sync_meta, _ingest_result),
+    do: should_record_sync_status?(sync_meta)
 
   defp should_record_sync_status?(sync_meta) do
     cond do

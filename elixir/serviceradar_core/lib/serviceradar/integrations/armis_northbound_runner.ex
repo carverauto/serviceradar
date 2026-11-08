@@ -2113,13 +2113,30 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
     String.trim(token)
   end
 
-  defp request_options(source) do
-    [base_url: Map.fetch!(source, :endpoint)]
+  @default_connect_timeout_ms 10_000
+  @default_receive_timeout_ms 30_000
+
+  @doc false
+  def request_options(source) do
+    [
+      base_url: Map.fetch!(source, :endpoint),
+      connect_options: [timeout: @default_connect_timeout_ms],
+      receive_timeout: @default_receive_timeout_ms,
+      retry: false
+    ]
   end
 
   defp default_request(path, method, headers, body, opts) do
     request =
-      [method: method, url: path, json: body, headers: Enum.to_list(headers)]
+      [
+        method: method,
+        url: path,
+        json: body,
+        headers: Enum.to_list(headers),
+        connect_options: [timeout: @default_connect_timeout_ms],
+        receive_timeout: @default_receive_timeout_ms,
+        retry: false
+      ]
       |> Req.new()
       |> Req.merge(opts)
 
@@ -2134,7 +2151,15 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
 
   defp default_form_request(path, method, headers, body, opts) do
     request =
-      [method: method, url: path, form: body, headers: Enum.to_list(headers)]
+      [
+        method: method,
+        url: path,
+        form: body,
+        headers: Enum.to_list(headers),
+        connect_options: [timeout: @default_connect_timeout_ms],
+        receive_timeout: @default_receive_timeout_ms,
+        retry: false
+      ]
       |> Req.new()
       |> Req.merge(opts)
 

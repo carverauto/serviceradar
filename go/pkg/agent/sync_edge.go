@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
@@ -82,7 +83,7 @@ func (r *SyncRuntime) spoolSyncUpdates(
 ) (int, error) {
 	deviceUpdateCount := 0
 	for _, update := range updates {
-		if update != nil && update[syncControlKey] != syncCollectionFinal {
+		if _, isControl := syncControlMarkerType(update); update != nil && !isControl {
 			deviceUpdateCount++
 		}
 	}
@@ -136,9 +137,9 @@ func buildSyncPageRecords(
 		if update == nil {
 			continue
 		}
-		if update[syncControlKey] == syncCollectionFinal {
+		if controlType, ok := syncControlMarkerType(update); ok {
 			marker = &edgev1.SyncControlMarkerV1{
-				ControlType:       syncCollectionFinal,
+				ControlType:       controlType,
 				TimestampUnixNano: payloadTimeNano(update, "timestamp"),
 			}
 			continue
@@ -252,4 +253,20 @@ func normalizeSyncUpdate(update map[string]interface{}) map[string]interface{} {
 	// sync_meta is stamped by the page, never carried per device.
 	delete(decoded, syncMetaKey)
 	return decoded
+}
+
+func syncControlMarkerType(update map[string]interface{}) (string, bool) {
+	if update == nil {
+		return "", false
+	}
+	raw, ok := update[syncControlKey].(string)
+	if !ok {
+		return "", false
+	}
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", false
+	}
+
+	return raw, true
 }

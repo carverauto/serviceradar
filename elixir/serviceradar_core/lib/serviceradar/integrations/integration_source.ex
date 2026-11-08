@@ -74,14 +74,14 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     deprecated_states [:pending]
 
     transitions do
-      # sync_start accepts any state, including the deprecated `pending`: a new
-      # run supersedes whatever came before, and a stranded source would
-      # otherwise fail every status recording forever -- ingestion succeeds
-      # but the source can never leave the stuck state, so its last recorded
-      # error never clears.
+      # sync_start, sync_success, and sync_failed accept any state, including
+      # the deprecated `pending`: a new run or terminal outcome supersedes
+      # whatever came before, and a stranded source or a run whose initial chunk
+      # did not transition the source to `:running` would otherwise fail every
+      # status recording with NoMatchingTransition.
       transition :sync_start, from: [:*, :pending], to: :running
-      transition :sync_success, from: :running, to: :success
-      transition :sync_failed, from: :running, to: :failed
+      transition :sync_success, from: [:*, :pending], to: :success
+      transition :sync_failed, from: [:*, :pending], to: :failed
     end
   end
 

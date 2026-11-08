@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -36,10 +37,15 @@ const (
 	accessTokenPath = "/api/v1/access_token/"
 	searchPath      = "/api/v1/search/"
 
+	connectTimeout        = 10 * time.Second
+	tlsHandshakeTimeout   = 10 * time.Second
+	responseHeaderTimeout = 30 * time.Second
+	keepAlivePeriod       = 30 * time.Second
+
 	// requestTimeout bounds one Armis request, response body included. A run
 	// context deadline still applies on top of it; whichever is sooner wins.
 	// Without it a stalled API held the run, and so the source, forever.
-	requestTimeout = 2 * time.Minute
+	requestTimeout = 30 * time.Second
 
 	maxIdleConnsPerHost = 4
 	idleConnTimeout     = 90 * time.Second
@@ -100,6 +106,13 @@ func newClientWithTimeout(source models.SourceConfig, timeout time.Duration) *cl
 
 func newHTTPClient(endpoint string, insecureSkipVerify bool, timeout time.Duration) *http.Client {
 	transport := cloneDefaultTransport()
+	dialer := &net.Dialer{
+		Timeout:   boundedDuration(timeout, connectTimeout),
+		KeepAlive: keepAlivePeriod,
+	}
+	transport.DialContext = dialer.DialContext
+	transport.TLSHandshakeTimeout = boundedDuration(timeout, tlsHandshakeTimeout)
+	transport.ResponseHeaderTimeout = boundedDuration(timeout, responseHeaderTimeout)
 	transport.MaxIdleConnsPerHost = maxIdleConnsPerHost
 	transport.IdleConnTimeout = idleConnTimeout
 	if insecureSkipVerify {
@@ -115,6 +128,14 @@ func newHTTPClient(endpoint string, insecureSkipVerify bool, timeout time.Durati
 	}
 
 	return &http.Client{Transport: transport, Timeout: timeout}
+}
+
+func boundedDuration(limit, fallback time.Duration) time.Duration {
+	if limit > 0 && limit < fallback {
+		return limit
+	}
+
+	return fallback
 }
 
 func cloneDefaultTransport() *http.Transport {

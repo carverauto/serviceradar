@@ -8,7 +8,9 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
 
   use ExUnit.Case, async: false
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Ingestion.WorkerBudget
+  alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Inventory.SyncIngestorQueue
   alias ServiceRadar.Inventory.SyncIngestorQueue.Directory
 
@@ -289,6 +291,87 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
     device = %{"device_id" => "device-a"}
 
     assert SyncIngestorQueue.strip_sync_control_updates([control, device]) == [device]
+  end
+
+  test "strips failure and timeout control markers and extracts structured failure reasons" do
+    failed_control = %{
+      "_sync_control" =>
+        "collection_failed:partial armis sync after streaming 2 devices: 502 Bad Gateway",
+      "timestamp" => "2026-09-01T08:00:00Z",
+      "sync_meta" => %{"is_final" => false, "total_devices" => 2}
+    }
+
+    timeout_control = %{
+      "_sync_control" => "collection_timeout:context deadline exceeded",
+      "timestamp" => "2026-09-01T08:00:00Z",
+      "sync_meta" => %{"is_final" => false, "total_devices" => 0}
+    }
+
+    device = %{"device_id" => "device-a"}
+
+    assert SyncIngestorQueue.strip_sync_control_updates([failed_control, timeout_control, device]) ==
+             [device]
+
+    assert SyncIngestorQueue.extract_sync_control_failure([device, failed_control]) ==
+             {:failed, "partial armis sync after streaming 2 devices: 502 Bad Gateway"}
+
+    assert SyncIngestorQueue.extract_sync_control_failure([timeout_control]) ==
+             {:timeout, "context deadline exceeded"}
+
+    assert SyncIngestorQueue.build_sync_finish(
+             {:error, {:failed, "partial armis sync after streaming 2 devices: 502 Bad Gateway"}},
+             2
+           ) ==
+             {:sync_failed,
+              %{
+                result: :failed,
+                device_count: 2,
+                error_message: "partial armis sync after streaming 2 devices: 502 Bad Gateway"
+              }}
+
+    assert SyncIngestorQueue.build_sync_finish(
+             {:error, {:timeout, "context deadline exceeded"}},
+             0
+           ) ==
+             {:sync_failed,
+              %{
+                result: :timeout,
+                device_count: 0,
+                error_message: "context deadline exceeded"
+              }}
+  end
+
+  test "IntegrationSource state machine accepts sync_failed and sync_success from any prior sync_status" do
+    actor = SystemActor.system(:sync_ingestor_test)
+
+    for prior_status <- [:idle, :running, :success, :failed, :pending] do
+      source = %IntegrationSource{
+        id: "00000000-0000-4000-8000-000000000001",
+        sync_status: prior_status
+      }
+
+      failed_changeset =
+        Ash.Changeset.for_update(
+          source,
+          :sync_failed,
+          %{result: :timeout, device_count: 0, error_message: "context deadline exceeded"},
+          actor: actor
+        )
+
+      assert failed_changeset.valid?,
+             "expected :sync_failed from #{inspect(prior_status)} to be valid, got errors: #{inspect(failed_changeset.errors)}"
+
+      success_changeset =
+        Ash.Changeset.for_update(
+          source,
+          :sync_success,
+          %{result: :success, device_count: 5},
+          actor: actor
+        )
+
+      assert success_changeset.valid?,
+             "expected :sync_success from #{inspect(prior_status)} to be valid, got errors: #{inspect(success_changeset.errors)}"
+    end
   end
 
   # The queue runs on the coordinator only; its producers run on every replica.

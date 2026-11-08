@@ -117,6 +117,44 @@ defmodule ServiceRadar.Integrations.IntegrationSourceSyncStatusTest do
     assert success.consecutive_failures == 0
   end
 
+  test "sync_failed transitions directly from idle, success, failed, or pending", %{actor: actor} do
+    source = create_source!(actor, name: unique_name("sync-failed-direct"))
+    assert source.sync_status == :idle
+
+    assert {:ok, failed_from_idle} =
+             update_with_action(
+               source,
+               :sync_failed,
+               %{
+                 result: :timeout,
+                 device_count: 0,
+                 error_message: "armis token request timed out"
+               },
+               actor
+             )
+
+    assert failed_from_idle.sync_status == :failed
+    assert failed_from_idle.last_sync_result == :timeout
+    assert failed_from_idle.last_error_message == "armis token request timed out"
+    assert failed_from_idle.consecutive_failures == 1
+
+    assert {:ok, failed_again} =
+             update_with_action(
+               failed_from_idle,
+               :sync_failed,
+               %{
+                 result: :failed,
+                 device_count: 0,
+                 error_message: "connection refused"
+               },
+               actor
+             )
+
+    assert failed_again.sync_status == :failed
+    assert failed_again.last_sync_result == :failed
+    assert failed_again.consecutive_failures == 2
+  end
+
   defp create_source!(actor, attrs) do
     endpoint = "https://example.invalid/#{System.unique_integer([:positive])}"
     agent = create_connected_agent!(actor)

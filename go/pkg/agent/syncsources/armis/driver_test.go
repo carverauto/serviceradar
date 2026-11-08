@@ -28,6 +28,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/agent/syncsources"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
@@ -1030,5 +1031,83 @@ func TestSyncPaginatesWhenTotalIsNonNumeric(t *testing.T) {
 	}
 	if recorder.pageCount() != 2 {
 		t.Fatalf("emitted page count = %d, want 2", recorder.pageCount())
+	}
+}
+
+func TestDefaultDriverBoundsPerSyncAndPerRequestTimeouts(t *testing.T) {
+	driver := &Driver{}
+	if got := driver.effectiveSyncTimeout(); got != defaultSyncTimeout {
+		t.Fatalf("default sync timeout = %s, want %s", got, defaultSyncTimeout)
+	}
+	if got := driver.effectiveRequestTimeout(); got != requestTimeout {
+		t.Fatalf("default request timeout = %s, want %s", got, requestTimeout)
+	}
+}
+
+func TestSyncFailsPromptlyAtPerSyncDeadlineWhenEndpointStallsMidRun(t *testing.T) {
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case accessTokenPath:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":{"access_token":"token-123"},"success":true}`))
+		case searchPath:
+			if r.URL.Query().Get("from") == "2" {
+				select {
+				case <-release:
+				case <-r.Context().Done():
+				}
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"data":{
+					"count":2,
+					"next":2,
+					"prev":null,
+					"results":[
+						{"id":101,"ipAddress":"192.0.2.101","name":"device-101.example.com"},
+						{"id":102,"ipAddress":"192.0.2.102","name":"device-102.example.com"}
+					],
+					"total":4
+				},
+				"success":true
+			}`))
+		default:
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+	}))
+	t.Cleanup(func() {
+		close(release)
+		server.Close()
+	})
+
+	recorder := &emitRecorder{}
+	run := testRunContext(models.SourceConfig{
+		Type:        SourceType,
+		Endpoint:    server.URL,
+		Credentials: map[string]string{"secret_key": "secret", "page_size": "2"},
+		Queries:     []models.QueryConfig{{Label: "test", Query: testDeviceQuery}},
+	}, recorder.emit)
+
+	driver := &Driver{
+		syncTimeout:    200 * time.Millisecond,
+		requestTimeout: 5 * time.Second,
+	}
+
+	var count int
+	err := returnsWithin(t, 5*time.Second, func() error {
+		var syncErr error
+		count, syncErr = driver.Sync(context.Background(), run)
+		return syncErr
+	})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected context.DeadlineExceeded, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "partial armis sync after streaming 2 devices") {
+		t.Fatalf("expected partial sync context in error, got %q", err)
+	}
+	if count != 2 {
+		t.Fatalf("count = %d, want 2", count)
 	}
 }
