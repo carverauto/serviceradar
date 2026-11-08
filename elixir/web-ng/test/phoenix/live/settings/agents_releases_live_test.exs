@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
   use ServiceRadarWebNG.AshTestHelpers
 
   import Ash.Expr
+  import ExUnit.CaptureLog
   import Phoenix.LiveViewTest
 
   alias ServiceRadar.AgentTracker
@@ -173,6 +174,20 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     def prepare_publish_attrs(attrs), do: {:ok, attrs}
   end
 
+  # Holds the mirror step open until the test answers, so the in-flight page
+  # state can be observed. The test registers itself under this module's name.
+  defmodule BlockingReleaseArtifactMirror do
+    @moduledoc false
+
+    def prepare_publish_attrs(_attrs) do
+      send(__MODULE__, {:release_mirror_started, self()})
+
+      receive do
+        {:release_mirror_reply, reply} -> reply
+      end
+    end
+  end
+
   setup :register_and_log_in_admin_user
 
   setup_all do
@@ -315,7 +330,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     })
     |> render_submit()
 
-    assert render(lv) =~ "Published agent release #{version}"
+    assert render_async(lv) =~ "Published agent release #{version}"
     assert has_element?(lv, "td", version)
     assert render(lv) =~ "linux/amd64"
 
@@ -348,7 +363,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     })
     |> render_submit()
 
-    assert render(lv) =~ "Imported and published agent release 7.0.0 from GitHub Releases"
+    assert render_async(lv) =~ "Imported and published agent release 7.0.0 from GitHub Releases"
     assert render(lv) =~ "GitHub Releases"
     assert render(lv) =~ "carverauto/serviceradar"
 
@@ -527,7 +542,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     |> element("button[phx-value-release_tag='v7.0.0']")
     |> render_click()
 
-    assert render(lv) =~ "Imported and published agent release 7.0.0 from GitHub Releases"
+    assert render_async(lv) =~ "Imported and published agent release 7.0.0 from GitHub Releases"
 
     release =
       AgentRelease
@@ -535,6 +550,45 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
       |> Ash.read_one!(scope: scope)
 
     assert release.version == "7.0.0"
+  end
+
+  test "an import in flight shows a spinner, blocks other publishes, and logs its failure", %{
+    conn: conn
+  } do
+    Application.put_env(
+      :serviceradar_web_ng,
+      :agent_release_import_http_client,
+      ReleaseImportClient
+    )
+
+    Application.put_env(
+      :serviceradar_core,
+      :agent_release_artifact_mirror_module,
+      BlockingReleaseArtifactMirror
+    )
+
+    Process.register(self(), BlockingReleaseArtifactMirror)
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/agents/releases")
+
+    lv
+    |> element("button[phx-value-release_tag='v7.0.0']")
+    |> render_click()
+
+    assert_receive {:release_mirror_started, mirror_pid}
+    assert has_element?(lv, "button[phx-value-release_tag='v7.0.0'][disabled]", "Importing")
+    assert has_element?(lv, "#import-release-form button[type='submit'][disabled]")
+    assert has_element?(lv, "#publish-release-form button[type='submit'][disabled]")
+
+    log =
+      capture_log(fn ->
+        send(mirror_pid, {:release_mirror_reply, {:error, "datasvc object upload failed"}})
+        assert render_async(lv) =~ "Import failed: datasvc object upload failed"
+      end)
+
+    assert log =~ "Agent release import of v7.0.0 failed: datasvc object upload failed"
+    assert has_element?(lv, "button[phx-value-release_tag='v7.0.0']:not([disabled])", "Import")
+    assert has_element?(lv, "#publish-release-form button[type='submit']:not([disabled])")
   end
 
   test "shows rollout compatibility preview for the connected cohort", %{conn: conn, scope: scope} do

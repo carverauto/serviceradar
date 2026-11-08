@@ -55,6 +55,13 @@ Use the authenticated release-management page:
 - For developer and local validation workflows, keep using `Publish Release Manually` and enter the semantic version, release notes, manifest signature, artifact URL, SHA256 digest, OS, architecture, and artifact format directly.
 - Publish the release.
 
+Import and publish mirror every manifest artifact into the control plane, which
+can take several minutes. The page runs one import or publish at a time: the
+clicked button shows a spinner, the other import and publish buttons stay
+disabled until it finishes, and the result appears as a toast. A failure toast
+carries the reason, and web-ng logs it as a warning. Leaving the page while an
+import or publish is running cancels it.
+
 This page is for base `serviceradar-agent` runtime releases. Native add-on packages
 such as `netprobe` and `workload-identity` are reviewed, approved, and assigned from
 [Native Add-ons](./native-addons.md) in **Settings > Agents > Add-ons**. Keeping the
