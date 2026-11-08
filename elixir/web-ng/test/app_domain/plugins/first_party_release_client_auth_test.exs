@@ -150,6 +150,89 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClientAuthTest do
       [{first_url, _} | _] = collect_requests()
       assert first_url == "https://github.com/acme/sr-plugins/releases/download/v1/bundle.zip"
     end
+
+    test "falls back to the API asset URL with octet-stream when browser_download_url times out", %{repo: repo} do
+      defmodule TimeoutBrowserClient do
+        @moduledoc false
+
+        def get(url, opts) do
+          headers = Keyword.get(opts, :headers, [])
+          send(self(), {:request, url, headers})
+
+          cond do
+            String.contains?(url, "github.com/acme/sr-plugins/releases/download") ->
+              {:error, :timeout}
+
+            String.contains?(url, "api.github.com/repos/acme/sr-plugins/releases/assets/42") ->
+              {:ok,
+               %Req.Response{
+                 status: 302,
+                 body: "",
+                 headers: %{"location" => ["https://release-assets.githubusercontent.com/signed/42"]}
+               }}
+
+            String.contains?(url, "release-assets.githubusercontent.com") ->
+              {:ok, %Req.Response{status: 200, body: "FALLBACK_BUNDLE", headers: %{}}}
+          end
+        end
+      end
+
+      Application.put_env(:serviceradar_web_ng, :first_party_plugin_import_http_client, TimeoutBrowserClient)
+
+      asset = %{
+        "url" => "https://api.github.com/repos/acme/sr-plugins/releases/assets/42",
+        "browser_download_url" => "https://github.com/acme/sr-plugins/releases/download/v1/bundle.zip"
+      }
+
+      assert {:ok, "FALLBACK_BUNDLE"} = Client.fetch_binary_asset(repo, asset)
+
+      [
+        {browser_url, _browser_headers},
+        {api_url, api_headers},
+        {redirect_url, redirect_headers}
+      ] = collect_requests()
+
+      assert browser_url == "https://github.com/acme/sr-plugins/releases/download/v1/bundle.zip"
+      assert api_url == "https://api.github.com/repos/acme/sr-plugins/releases/assets/42"
+      assert Enum.any?(api_headers, &match?({"accept", "application/octet-stream"}, &1))
+      assert redirect_url == "https://release-assets.githubusercontent.com/signed/42"
+      refute Enum.any?(redirect_headers, &match?({"accept", "application/octet-stream"}, &1))
+      assert authorization(redirect_headers) == nil
+    end
+
+    test "falls back to browser_download_url when token-bound API asset URL times out", %{repo: repo} do
+      defmodule TimeoutApiAssetClient do
+        @moduledoc false
+
+        def get(url, opts) do
+          headers = Keyword.get(opts, :headers, [])
+          send(self(), {:request, url, headers})
+
+          cond do
+            String.contains?(url, "api.github.com/repos/acme/sr-plugins/releases/assets/42") ->
+              {:error, %Req.TransportError{reason: :timeout}}
+
+            String.contains?(url, "github.com/acme/sr-plugins/releases/download") ->
+              {:ok, %Req.Response{status: 200, body: "BROWSER_FALLBACK", headers: %{}}}
+          end
+        end
+      end
+
+      Application.put_env(:serviceradar_web_ng, :first_party_plugin_import_http_client, TimeoutApiAssetClient)
+      repo = Client.with_token(repo, "ghp_secret")
+
+      asset = %{
+        "url" => "https://api.github.com/repos/acme/sr-plugins/releases/assets/42",
+        "browser_download_url" => "https://github.com/acme/sr-plugins/releases/download/v1/bundle.zip"
+      }
+
+      assert {:ok, "BROWSER_FALLBACK"} = Client.fetch_binary_asset(repo, asset)
+
+      [{api_url, api_headers}, {browser_url, _browser_headers}] = collect_requests()
+      assert api_url == "https://api.github.com/repos/acme/sr-plugins/releases/assets/42"
+      assert authorization(api_headers) == "Bearer ghp_secret"
+      assert browser_url == "https://github.com/acme/sr-plugins/releases/download/v1/bundle.zip"
+    end
   end
 
   defmodule RefusingRedirectClient do

@@ -258,4 +258,104 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorkerTest do
              )
     end
   end
+
+  describe "NativeAddonSyncWorker.release_already_synced?/5 and release_version_stale?/2" do
+    test "returns true when the target release was cleanly synced and all expected verified packages and auto-approvals remain" do
+      status = %{
+        status: "success",
+        repo_url: "https://github.com/example/serviceradar",
+        release_tag: "v9.9.9",
+        discovered: 2,
+        import_ready: 2,
+        imported: 1,
+        skipped: 1,
+        failed: 0
+      }
+
+      packages = [
+        %{
+          addon_id: "anomaly-addon",
+          version: "0.3.1",
+          source_type: :first_party,
+          source_release_tag: "v9.9.9",
+          verification_status: "verified",
+          verification_error: nil,
+          status: :approved
+        },
+        %{
+          addon_id: "powerdns",
+          version: "0.1.3",
+          source_type: :first_party,
+          source_release_tag: "v9.9.9",
+          verification_status: "verified",
+          verification_error: nil,
+          status: :staged
+        }
+      ]
+
+      assert NativeAddonSyncWorker.release_already_synced?(
+               status,
+               "https://github.com/example/serviceradar",
+               "v9.9.9",
+               ["anomaly-addon"],
+               packages
+             )
+
+      refute NativeAddonSyncWorker.release_version_stale?(status, "v9.9.9")
+      assert NativeAddonSyncWorker.release_version_stale?(status, "v9.9.10")
+      assert NativeAddonSyncWorker.release_version_stale?(nil, "v9.9.9")
+    end
+
+    test "returns false when a package is missing, unverified, or not auto-approved per policy" do
+      status = %{
+        status: "success",
+        repo_url: "https://github.com/example/serviceradar",
+        release_tag: "v9.9.9",
+        discovered: 2,
+        import_ready: 2,
+        imported: 2,
+        skipped: 0,
+        failed: 0
+      }
+
+      packages = [
+        %{
+          addon_id: "anomaly-addon",
+          version: "0.3.1",
+          source_type: :first_party,
+          source_release_tag: "v9.9.9",
+          verification_status: "verified",
+          verification_error: nil,
+          status: :staged
+        },
+        %{
+          addon_id: "powerdns",
+          version: "0.1.3",
+          source_type: :first_party,
+          source_release_tag: "v9.9.9",
+          verification_status: "verified",
+          verification_error: nil,
+          status: :staged
+        }
+      ]
+
+      # anomaly-addon is configured for auto-approval but is still :staged
+      refute NativeAddonSyncWorker.release_already_synced?(
+               status,
+               "https://github.com/example/serviceradar",
+               "v9.9.9",
+               ["anomaly-addon"],
+               packages
+             )
+
+      # Missing one of the two expected packages
+      refute NativeAddonSyncWorker.release_already_synced?(
+               status,
+               "https://github.com/example/serviceradar",
+               "v9.9.9",
+               [],
+               Enum.take(packages, 1)
+             )
+    end
+  end
 end

@@ -150,9 +150,14 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporter do
          {:ok, requested_addon_id} <- optional_string(fetch_value(attrs, [:addon_id, "addon_id"])),
          {:ok, requested_version} <- optional_string(fetch_value(attrs, [:version, "version"])),
          {:ok, public_key} <- release_public_key(),
-         {:ok, release} <- Client.fetch_release(repo, release_tag),
-         {:ok, index} <- fetch_release_index(repo, release, attrs),
-         {:ok, entry} <- find_entry(index, requested_addon_id, requested_version),
+         {:ok, _release, entry} <-
+           resolve_release_and_entry(
+             repo,
+             release_tag,
+             requested_addon_id,
+             requested_version,
+             attrs
+           ),
          :ok <- ensure_not_retired_entry(entry),
          {:ok, fetched} <- fetch_artifact(repo, entry),
          {:ok, manifest, config_schema, contracts} <- extract_manifest(fetched.bundle) do
@@ -263,8 +268,61 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporter do
         oci_digest: entry_string(entry, "oci_digest"),
         bundle_digest: entry_string(entry, "bundle_digest"),
         artifacts: List.wrap(entry_value(entry, "artifacts")),
-        import_ready?: import_ready_entry?(entry)
+        import_ready?: import_ready_entry?(entry),
+        release: release_metadata(release),
+        index_entry: entry
       }
+    end
+  end
+
+  defp release_metadata(release) when is_map(release) do
+    Map.take(release, ["id", "tag_name", "name", "html_url", "published_at"])
+  end
+
+  @doc false
+  def resolve_release_and_entry(repo, release_tag, requested_addon_id, requested_version, attrs) do
+    release = fetch_value(attrs, [:release, "release"])
+    entry = fetch_value(attrs, [:index_entry, "index_entry"])
+
+    if cached_release_and_entry_match?(
+         release,
+         entry,
+         release_tag,
+         requested_addon_id,
+         requested_version,
+         attrs
+       ) do
+      {:ok, release, entry}
+    else
+      with {:ok, release} <- Client.fetch_release(repo, release_tag),
+           {:ok, index} <- fetch_release_index(repo, release, attrs),
+           {:ok, entry} <- find_entry(index, requested_addon_id, requested_version) do
+        {:ok, release, entry}
+      end
+    end
+  end
+
+  defp cached_release_and_entry_match?(release, entry, release_tag, requested_addon_id, requested_version, attrs)
+       when is_map(release) and is_map(entry) do
+    Client.normalize_string(Map.get(release, "tag_name")) == release_tag and
+      entry_matches?(entry, requested_addon_id, requested_version) and
+      optional_attr_matches_entry?(attrs, [:oci_ref, "oci_ref"], entry, "oci_ref") and
+      optional_attr_matches_entry?(attrs, [:oci_digest, "oci_digest"], entry, "oci_digest") and
+      optional_attr_matches_entry?(attrs, [:bundle_digest, "bundle_digest"], entry, "bundle_digest")
+  end
+
+  defp cached_release_and_entry_match?(_release, _entry, _release_tag, _requested_addon_id, _requested_version, _attrs),
+    do: false
+
+  defp entry_matches?(entry, addon_id, version) do
+    (is_nil(addon_id) or entry_string(entry, "addon_id") == addon_id) and
+      (is_nil(version) or entry_string(entry, "version") == version)
+  end
+
+  defp optional_attr_matches_entry?(attrs, keys, entry, entry_key) do
+    case Client.normalize_string(fetch_value(attrs, keys)) do
+      nil -> true
+      value -> value == entry_string(entry, entry_key)
     end
   end
 

@@ -41,6 +41,25 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
           | {:skipped, AddonPackage.t()}
           | {:error, term()}
 
+  @status_key {__MODULE__, :last_sync_status}
+
+  @spec get_status() :: map() | nil
+  def get_status do
+    :persistent_term.get(@status_key, nil)
+  end
+
+  @spec put_status(map()) :: :ok
+  def put_status(status) when is_map(status) do
+    :persistent_term.put(@status_key, status)
+    :ok
+  end
+
+  @spec clear_status() :: :ok
+  def clear_status do
+    :persistent_term.erase(@status_key)
+    :ok
+  end
+
   @spec candidates([map()], keyword()) :: [map()]
   def candidates(addons, opts \\ []) when is_list(addons) do
     release_tag = Keyword.get(opts, :release_tag)
@@ -297,13 +316,42 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
     end
   end
 
-  defp import_attrs(addon) do
-    %{
-      repo_url: addon.repo_url,
-      release_tag: addon.release_tag,
-      addon_id: addon.addon_id,
-      version: addon.version
+  @doc false
+  @spec import_attrs(map()) :: map()
+  def import_attrs(addon) when is_map(addon) do
+    base = %{
+      repo_url: Map.get(addon, :repo_url),
+      release_tag: Map.get(addon, :release_tag),
+      addon_id: Map.get(addon, :addon_id),
+      version: Map.get(addon, :version)
     }
+
+    if cached_release_and_entry_match?(addon) do
+      base
+      |> Map.put(:release, Map.get(addon, :release))
+      |> Map.put(:index_entry, Map.get(addon, :index_entry))
+    else
+      base
+    end
+  end
+
+  defp cached_release_and_entry_match?(addon) do
+    release = Map.get(addon, :release)
+    entry = Map.get(addon, :index_entry)
+
+    is_map(release) and is_map(entry) and
+      normalize_string(map_value(release, :tag_name)) ==
+        normalize_string(Map.get(addon, :release_tag)) and
+      normalize_string(map_value(entry, :addon_id)) ==
+        normalize_string(Map.get(addon, :addon_id)) and
+      normalize_string(map_value(entry, :version)) ==
+        normalize_string(Map.get(addon, :version)) and
+      normalize_source_ref(map_value(entry, :oci_ref)) ==
+        normalize_source_ref(Map.get(addon, :oci_ref)) and
+      normalize_source_digest(map_value(entry, :oci_digest)) ==
+        normalize_source_digest(Map.get(addon, :oci_digest)) and
+      normalize_source_digest(map_value(entry, :bundle_digest)) ==
+        normalize_source_digest(Map.get(addon, :bundle_digest))
   end
 
   defp maybe_approve(%AddonPackage{addon_id: addon_id, status: :staged} = package, opts) do

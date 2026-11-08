@@ -219,22 +219,62 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
   end
 
   def fetch_binary_asset(repo, asset) do
+    api_url = normalize_string(Map.get(asset, "url"))
+    browser_url = normalize_string(Map.get(asset, "browser_download_url"))
+
     if repo_token(repo) do
       # A private repository's `browser_download_url` returns 404 for a PAT:
       # private release assets are only reachable through the API endpoint, which
       # 302s to a short-lived pre-signed URL.
-      with {:ok, url} <- require_value(Map.get(asset, "url"), "Release asset API URL is missing"),
+      with {:ok, url} <- require_value(api_url || browser_url, "Release asset API URL is missing"),
            {:ok, request_url} <- validate_provider_asset_url(repo, url) do
-        fetch_url_binary(repo, request_url, @max_asset_redirects, :api)
+        case fetch_url_binary(repo, request_url, @max_asset_redirects, :api) do
+          {:error, reason} = error ->
+            maybe_fallback_binary_asset(repo, browser_url, request_url, :asset, reason, error)
+
+          result ->
+            result
+        end
       end
     else
-      with {:ok, url} <-
-             require_value(Map.get(asset, "browser_download_url"), "Release asset URL is missing"),
+      {primary_url, primary_mode, fallback_url, fallback_mode} =
+        if is_binary(browser_url) do
+          {browser_url, :asset, api_url, :api}
+        else
+          {api_url, :api, nil, :asset}
+        end
+
+      with {:ok, url} <- require_value(primary_url, "Release asset URL is missing"),
            {:ok, request_url} <- validate_provider_asset_url(repo, url) do
-        fetch_url_binary(repo, request_url)
+        case fetch_url_binary(repo, request_url, @max_asset_redirects, primary_mode) do
+          {:error, reason} = error ->
+            maybe_fallback_binary_asset(repo, fallback_url, request_url, fallback_mode, reason, error)
+
+          result ->
+            result
+        end
       end
     end
   end
+
+  defp maybe_fallback_binary_asset(repo, fallback_url, primary_url, fallback_mode, reason, original_error) do
+    if timeout_error?(reason) and is_binary(fallback_url) and fallback_url != primary_url do
+      case validate_provider_asset_url(repo, fallback_url) do
+        {:ok, validated_fallback_url} ->
+          fetch_url_binary(repo, validated_fallback_url, @max_asset_redirects, fallback_mode)
+
+        {:error, _reason} ->
+          original_error
+      end
+    else
+      original_error
+    end
+  end
+
+  defp timeout_error?(:timeout), do: true
+  defp timeout_error?(:connect_timeout), do: true
+  defp timeout_error?(%Req.TransportError{reason: reason}), do: timeout_error?(reason)
+  defp timeout_error?(_reason), do: false
 
   @doc """
   Collects catalog entries from every release in `releases` that publishes
