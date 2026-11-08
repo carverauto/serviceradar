@@ -517,7 +517,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     device_updates = strip_sync_control_updates(updates)
     control_failure = extract_sync_control_failure(updates)
     log_sync_progress("started", updates, sync_meta)
-    record_sync_start(updates, actor, sync_meta)
+    if is_nil(control_failure), do: record_sync_start(updates, actor, sync_meta)
     result = ingest_device_updates(device_updates, actor)
     metas = updates |> Enum.map(fn update -> extract_sync_meta([update]) end) |> Enum.uniq()
 

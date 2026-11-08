@@ -30,7 +30,6 @@ const (
 	syncCollectionFailed       = "collection_failed"
 	syncCollectionTimeout      = "collection_timeout"
 	syncFailureFlushTimeout    = 10 * time.Second
-	syncControlErrorMaxBytes   = 512
 	syncPopulationExampleLimit = 100
 )
 
@@ -598,9 +597,6 @@ func syncFailureControlValue(err error) string {
 	msg := strings.TrimSpace(strings.ToValidUTF8(err.Error(), ""))
 	if msg == "" {
 		return prefix
-	}
-	if len(msg) > syncControlErrorMaxBytes {
-		msg = strings.ToValidUTF8(msg[:syncControlErrorMaxBytes], "")
 	}
 
 	return prefix + ":" + msg

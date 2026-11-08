@@ -42,10 +42,8 @@ import (
 const fakeSyncSourceType = "synthetic"
 
 var (
-	errFakeSyncDriverFailed = errors.New("fake sync driver failed")
-	// errLongMultibyteUpstream crosses syncControlErrorMaxBytes inside a
-	// multi-byte rune.
-	errLongMultibyteUpstream    = errors.New(strings.Repeat("a", syncControlErrorMaxBytes-1) + strings.Repeat("é", 8))
+	errFakeSyncDriverFailed     = errors.New("fake sync driver failed")
+	errLongMultibyteUpstream    = errors.New(strings.Repeat("a", 511) + strings.Repeat("é", 8))
 	errShortInvalidUTF8Upstream = errors.New("502 Bad Gateway: \xff\xfebody")
 )
 
@@ -547,17 +545,17 @@ func TestClaimInitialSyncRunAllowsChangedConfigHash(t *testing.T) {
 	}
 }
 
-func TestSyncFailureControlValueTruncatesUpstreamErrorToMarshalableUTF8(t *testing.T) {
+func TestSyncFailureControlValuePreservesFullMultibyteUpstreamError(t *testing.T) {
 	value := syncFailureControlValue(errLongMultibyteUpstream)
 
 	require.True(t, utf8.ValidString(value))
-	require.Equal(t, syncCollectionFailed+":"+strings.Repeat("a", syncControlErrorMaxBytes-1), value)
+	require.Equal(t, syncCollectionFailed+":"+errLongMultibyteUpstream.Error(), value)
 
 	_, err := proto.Marshal(&edgev1.SyncControlMarkerV1{ControlType: value})
 	require.NoError(t, err)
 }
 
-func TestSyncFailureControlValueDropsInvalidUTF8FromShortUpstreamError(t *testing.T) {
+func TestSyncFailureControlValueDropsInvalidUTF8FromUpstreamError(t *testing.T) {
 	value := syncFailureControlValue(errShortInvalidUTF8Upstream)
 
 	require.Equal(t, syncCollectionFailed+":502 Bad Gateway: body", value)
