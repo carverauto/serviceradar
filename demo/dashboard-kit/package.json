@@ -10,8 +10,8 @@
   },
   "dependencies": {
     "@carverauto/serviceradar-dashboard-sdk": "0.4.0",
-    "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react": "19.2.9",
+    "react-dom": "19.2.9"
   },
   "devDependencies": {
     "@carverauto/serviceradar-cli": "0.1.10",
