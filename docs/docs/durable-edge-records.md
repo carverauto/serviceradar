@@ -244,7 +244,19 @@ its issuer key. Derived epochs are numbered from 1,000,000, above every
 hand-written registry label of earlier releases. On a fresh install, and on the
 upgrade from the static registry, the first derived epoch activates at once. A
 later release whose catalog differs is recorded as a candidate epoch; nodes keep
-signing under the active epoch.
+signing under the active epoch until the candidate activates.
+
+Every 30 seconds the cluster coordinator checks whether the candidate can
+activate. It activates the candidate only when every connected core node runs
+the candidate's catalog, every live gateway reports that it installed the
+candidate, and every connected node answered. Contracts added in the new
+release get standing grants from that point, on each agent's next config poll.
+The previous epoch then drains, and stays in the trust snapshot, until no
+standing grant signed under it and no sweep slot leased under it can still be
+valid. After that it is retired. A candidate that no live core node has run for
+a full standing-grant window, for example after a rollback, is retired without
+activating. The [cluster status panel](#cluster-status-panel) names whatever
+keeps a candidate waiting.
 
 Core and EventWriter verify each epoch row's signature every time they load it.
 A row that fails verification is left out and reported as
@@ -515,6 +527,12 @@ from before this table reports no reasons. Another table shows the pending, ack-
 edge-record durable and its stream's message count; for
 `TELEMETRY_EDGE_RECORD_DLQ_V1_BULK` that count is the dead-letter depth. A
 stream no node could read shows `unknown`, not 0. The counts start at zero when a gateway or core process starts.
+
+While a candidate registry epoch waits to activate, the panel shows a notice
+with the candidate's epoch and each blocker: a core node running another
+catalog, a gateway that has not reported or has not installed the candidate,
+or a node that did not answer. If the coordinator could not evaluate the
+transition, the notice shows the error instead.
 
 ### Settings
 
