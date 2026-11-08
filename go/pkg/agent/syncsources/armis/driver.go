@@ -27,6 +27,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/agent/syncsources"
 	"github.com/carverauto/serviceradar/go/pkg/models"
@@ -37,6 +38,7 @@ const SourceType = "armis"
 
 const (
 	defaultPageSize            = 100
+	defaultSyncTimeout         = 10 * time.Minute
 	populationExampleLimit     = 100
 	duplicateConflictFlagValue = "true"
 )
@@ -44,17 +46,39 @@ const (
 var errNoQueriesConfigured = errors.New("armis source has no queries configured")
 
 // Driver syncs device inventory from the Armis cloud API.
-type Driver struct{}
+type Driver struct {
+	syncTimeout    time.Duration
+	requestTimeout time.Duration
+}
 
 // NewDriver constructs the Armis sync-source driver.
 func NewDriver() syncsources.SourceDriver {
 	return &Driver{}
 }
 
+func (d *Driver) effectiveSyncTimeout() time.Duration {
+	if d != nil && d.syncTimeout > 0 {
+		return d.syncTimeout
+	}
+
+	return defaultSyncTimeout
+}
+
+func (d *Driver) effectiveRequestTimeout() time.Duration {
+	if d != nil && d.requestTimeout > 0 {
+		return d.requestTimeout
+	}
+
+	return requestTimeout
+}
+
 // Sync runs every configured AQL query, paginating through results and
 // emitting one batch of device updates per fetched page.
 func (d *Driver) Sync(ctx context.Context, run syncsources.RunContext) (int, error) {
-	apiClient := newClient(run.Source)
+	ctx, cancel := context.WithTimeout(ctx, d.effectiveSyncTimeout())
+	defer cancel()
+
+	apiClient := newClientWithTimeout(run.Source, d.effectiveRequestTimeout())
 	defer apiClient.close()
 	queries := configuredQueries(run.Source.Queries)
 	if len(queries) == 0 {

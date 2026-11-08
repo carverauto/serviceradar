@@ -24,6 +24,86 @@ defmodule ServiceRadar.Inventory.SyncRunLedger do
     end
   end
 
+  def with_newest_run(meta, fun), do: with_run_status_lock(meta, fun, false)
+
+  def with_open_newest_run(meta, fun), do: with_run_status_lock(meta, fun, true)
+
+  defp with_run_status_lock(meta, fun, skip_incomplete) do
+    case identity(meta) do
+      {:ok, source, run} ->
+        source
+        |> newest_run_transaction(run, fun, skip_incomplete)
+        |> notify_after_commit()
+
+      {:error, _} ->
+        notify_after_commit(fun.())
+    end
+  end
+
+  defp newest_run_transaction(source, run, fun, skip_incomplete) do
+    fn ->
+      Repo.query!(
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        ["sync-source-status:" <> source]
+      )
+
+      {superseded, incomplete} = run_state(source, run)
+
+      if superseded or (skip_incomplete and incomplete) do
+        {:ok, []}
+      else
+        case fun.() do
+          {:ok, _notifications} = handled -> handled
+          :ok -> {:ok, []}
+          {:error, reason} -> Repo.rollback(reason)
+        end
+      end
+    end
+    |> Repo.transaction(timeout: status_transaction_timeout_ms())
+    |> case do
+      {:ok, handled} -> handled
+      {:error, _} = error -> error
+    end
+  end
+
+  defp notify_after_commit({:ok, notifications}) do
+    Ash.Notifier.notify(notifications)
+    :ok
+  end
+
+  defp notify_after_commit(:ok), do: :ok
+  defp notify_after_commit({:error, _} = error), do: error
+
+  defp status_transaction_timeout_ms,
+    do: Application.get_env(:serviceradar_core, :sync_ingestor_worker_timeout_ms, 120_000)
+
+  defp run_state(source, run) do
+    %{rows: [[superseded, incomplete]]} =
+      Repo.query!(
+        """
+        SELECT
+          EXISTS (
+            SELECT 1
+            FROM platform.sync_ingest_runs AS current_run
+            JOIN platform.sync_ingest_runs AS newer_run
+              ON newer_run.sync_service_id = current_run.sync_service_id
+             AND newer_run.sync_run_id <> current_run.sync_run_id
+             AND newer_run.inserted_at > current_run.inserted_at
+            WHERE current_run.sync_service_id = $1 AND current_run.sync_run_id = $2
+          ),
+          COALESCE(
+            (SELECT incomplete
+             FROM platform.sync_ingest_runs
+             WHERE sync_service_id = $1 AND sync_run_id = $2),
+            false
+          )
+        """,
+        [Ecto.UUID.dump!(source), run]
+      )
+
+    {superseded, incomplete}
+  end
+
   defp record(metas, rejected) do
     Enum.reduce_while(metas, :ok, fn meta, :ok ->
       case identity(meta) do

@@ -1941,4 +1941,13 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
     refute Map.has_key?(metadata, :composite_check_slug)
     refute Map.has_key?(metadata, :composite_value_form)
   end
+
+  test "request_options bounds connect and receive timeouts and disables Req retries" do
+    opts = ArmisNorthboundRunner.request_options(%{endpoint: "https://armis.example.com"})
+
+    assert opts[:base_url] == "https://armis.example.com"
+    assert opts[:connect_options] == [timeout: 10_000]
+    assert opts[:receive_timeout] == 30_000
+    assert opts[:retry] == false
+  end
 end

@@ -291,6 +291,54 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
     assert SyncIngestorQueue.strip_sync_control_updates([control, device]) == [device]
   end
 
+  test "strips failure and timeout control markers and extracts structured failure reasons" do
+    failed_control = %{
+      "_sync_control" =>
+        "collection_failed:partial armis sync after streaming 2 devices: 502 Bad Gateway",
+      "timestamp" => "2026-09-01T08:00:00Z",
+      "sync_meta" => %{"is_final" => false, "total_devices" => 2}
+    }
+
+    timeout_control = %{
+      "_sync_control" => "collection_timeout:context deadline exceeded",
+      "timestamp" => "2026-09-01T08:00:00Z",
+      "sync_meta" => %{"is_final" => false, "total_devices" => 0}
+    }
+
+    device = %{"device_id" => "device-a"}
+
+    assert SyncIngestorQueue.strip_sync_control_updates([failed_control, timeout_control, device]) ==
+             [device]
+
+    assert SyncIngestorQueue.extract_sync_control_failure([device, failed_control]) ==
+             {:failed, "partial armis sync after streaming 2 devices: 502 Bad Gateway"}
+
+    assert SyncIngestorQueue.extract_sync_control_failure([timeout_control]) ==
+             {:timeout, "context deadline exceeded"}
+
+    assert SyncIngestorQueue.build_sync_finish(
+             {:error, {:failed, "partial armis sync after streaming 2 devices: 502 Bad Gateway"}},
+             2
+           ) ==
+             {:sync_failed,
+              %{
+                result: :failed,
+                device_count: 2,
+                error_message: "partial armis sync after streaming 2 devices: 502 Bad Gateway"
+              }}
+
+    assert SyncIngestorQueue.build_sync_finish(
+             {:error, {:timeout, "context deadline exceeded"}},
+             0
+           ) ==
+             {:sync_failed,
+              %{
+                result: :timeout,
+                device_count: 0,
+                error_message: "context deadline exceeded"
+              }}
+  end
+
   # The queue runs on the coordinator only; its producers run on every replica.
   # A queue that is advertised but not registered on this node is exactly what a
   # non-coordinator replica sees.

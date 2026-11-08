@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -36,10 +37,15 @@ const (
 	accessTokenPath = "/api/v1/access_token/"
 	searchPath      = "/api/v1/search/"
 
+	connectTimeout        = 10 * time.Second
+	tlsHandshakeTimeout   = 10 * time.Second
+	responseHeaderTimeout = 30 * time.Second
+	keepAlivePeriod       = 30 * time.Second
+
 	// requestTimeout bounds one Armis request, response body included. A run
 	// context deadline still applies on top of it; whichever is sooner wins.
 	// Without it a stalled API held the run, and so the source, forever.
-	requestTimeout = 2 * time.Minute
+	requestTimeout = 30 * time.Second
 
 	maxIdleConnsPerHost = 4
 	idleConnTimeout     = 90 * time.Second
@@ -76,6 +82,25 @@ func (e *requestError) Unwrap() error {
 	return e.err
 }
 
+func newRequestError(err error, resp *http.Response, body string, readErr error) error {
+	reqErr := &requestError{
+		err:        err,
+		statusCode: resp.StatusCode,
+		status:     resp.Status,
+		body:       body,
+	}
+	if readErr != nil {
+		return fmt.Errorf("%w: %w", reqErr, readErr)
+	}
+
+	return reqErr
+}
+
+func readErrorBody(body io.Reader) (string, error) {
+	data, err := io.ReadAll(io.LimitReader(body, 4096))
+	return strings.TrimSpace(string(data)), err
+}
+
 func isUnauthorized(err error) bool {
 	var reqErr *requestError
 	return errors.As(err, &reqErr) && reqErr.statusCode == http.StatusUnauthorized
@@ -100,6 +125,13 @@ func newClientWithTimeout(source models.SourceConfig, timeout time.Duration) *cl
 
 func newHTTPClient(endpoint string, insecureSkipVerify bool, timeout time.Duration) *http.Client {
 	transport := cloneDefaultTransport()
+	dialer := &net.Dialer{
+		Timeout:   boundedDuration(timeout, connectTimeout),
+		KeepAlive: keepAlivePeriod,
+	}
+	transport.DialContext = dialer.DialContext
+	transport.TLSHandshakeTimeout = boundedDuration(timeout, tlsHandshakeTimeout)
+	transport.ResponseHeaderTimeout = boundedDuration(timeout, responseHeaderTimeout)
 	transport.MaxIdleConnsPerHost = maxIdleConnsPerHost
 	transport.IdleConnTimeout = idleConnTimeout
 	if insecureSkipVerify {
@@ -115,6 +147,14 @@ func newHTTPClient(endpoint string, insecureSkipVerify bool, timeout time.Durati
 	}
 
 	return &http.Client{Transport: transport, Timeout: timeout}
+}
+
+func boundedDuration(limit, fallback time.Duration) time.Duration {
+	if limit > 0 && limit < fallback {
+		return limit
+	}
+
+	return fallback
 }
 
 func cloneDefaultTransport() *http.Transport {
@@ -159,9 +199,12 @@ func (c *client) accessToken(ctx context.Context, creds map[string]string) (stri
 	}()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		if len(body) > 0 {
-			return "", fmt.Errorf("%w: %s: %s", errTokenRequestFailed, resp.Status, strings.TrimSpace(string(body)))
+		body, readErr := readErrorBody(resp.Body)
+		if readErr != nil {
+			return "", fmt.Errorf("%w: %s: %w", errTokenRequestFailed, resp.Status, readErr)
+		}
+		if body != "" {
+			return "", fmt.Errorf("%w: %s: %s", errTokenRequestFailed, resp.Status, body)
 		}
 
 		return "", fmt.Errorf("%w: %s", errTokenRequestFailed, resp.Status)
@@ -231,13 +274,8 @@ func (c *client) search(ctx context.Context, token string, query string, from in
 	}()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return nil, &requestError{
-			err:        errSearchFailed,
-			statusCode: resp.StatusCode,
-			status:     resp.Status,
-			body:       strings.TrimSpace(string(body)),
-		}
+		body, readErr := readErrorBody(resp.Body)
+		return nil, newRequestError(errSearchFailed, resp, body, readErr)
 	}
 
 	var result searchResponse
