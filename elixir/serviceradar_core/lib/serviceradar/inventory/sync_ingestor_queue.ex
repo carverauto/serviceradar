@@ -620,22 +620,23 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
   defp record_sync_status(updates, actor, ingest_result, sync_meta, control_failure) do
     sync_service_id = extract_sync_service_id(updates, sync_meta)
 
-    if should_record_sync_status?(sync_meta, control_failure) and
-         not SyncRunLedger.superseded?(sync_meta) do
-      with_sync_service(sync_service_id, actor, fn source ->
-        device_count =
-          case ingest_result do
-            :ok ->
-              sync_source_device_count(sync_service_id, sync_meta, updates)
+    if should_record_sync_status?(sync_meta, control_failure) do
+      SyncRunLedger.with_newest_run(sync_meta, fn ->
+        with_sync_service(sync_service_id, actor, fn source ->
+          device_count =
+            case ingest_result do
+              :ok ->
+                sync_source_device_count(sync_service_id, sync_meta, updates)
 
-            {:error, _} ->
-              sync_device_count(strip_sync_control_updates(updates), sync_meta)
-          end
+              {:error, _} ->
+                sync_device_count(strip_sync_control_updates(updates), sync_meta)
+            end
 
-        {action, action_attrs} =
-          build_sync_finish(ingest_result, device_count)
+          {action, action_attrs} =
+            build_sync_finish(ingest_result, device_count)
 
-        update_sync_source(source, actor, action, action_attrs, sync_service_id, "status")
+          update_sync_source(source, actor, action, action_attrs, sync_service_id, "status")
+        end)
       end)
     else
       :ok
@@ -649,10 +650,12 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
   defp record_sync_start(updates, actor, sync_meta) do
     sync_service_id = extract_sync_service_id(updates, sync_meta)
 
-    if should_record_sync_start?(sync_meta) and not SyncRunLedger.superseded?(sync_meta) do
-      with_sync_service(sync_service_id, actor, fn source ->
-        action_attrs = %{device_count: sync_device_count(updates, sync_meta)}
-        update_sync_source(source, actor, :sync_start, action_attrs, sync_service_id, "start")
+    if should_record_sync_start?(sync_meta) do
+      SyncRunLedger.with_newest_run(sync_meta, fn ->
+        with_sync_service(sync_service_id, actor, fn source ->
+          action_attrs = %{device_count: sync_device_count(updates, sync_meta)}
+          update_sync_source(source, actor, :sync_start, action_attrs, sync_service_id, "start")
+        end)
       end)
     else
       :ok
@@ -670,23 +673,39 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
       {:ok, source} ->
         fun.(source)
 
-      {:error, reason} ->
-        Logger.debug(
-          "Could not find IntegrationSource #{sync_service_id} to record sync: #{inspect(reason)}"
-        )
+      {:error, reason} = error ->
+        if not_found_error?(reason) do
+          Logger.debug(
+            "Could not find IntegrationSource #{sync_service_id} to record sync: #{inspect(reason)}"
+          )
 
-        :ok
+          :ok
+        else
+          Logger.warning(
+            "Failed to load IntegrationSource #{sync_service_id} to record sync: #{inspect(reason)}"
+          )
+
+          error
+        end
     end
   end
+
+  defp not_found_error?(%Ash.Error.Query.NotFound{}), do: true
+
+  defp not_found_error?(%Ash.Error.Invalid{errors: errors}) when is_list(errors),
+    do: Enum.any?(errors, &not_found_error?/1)
+
+  defp not_found_error?(_error), do: false
 
   defp update_sync_source(source, actor, action, action_attrs, sync_service_id, label) do
     # DB connection's search_path determines the schema
     source
     |> Ash.Changeset.for_update(action, action_attrs)
-    |> Ash.update(actor: actor)
+    |> Ash.update(actor: actor, return_notifications?: true)
     |> case do
-      {:ok, _} ->
+      {:ok, _source, notifications} ->
         Logger.debug("Recorded sync #{label} for IntegrationSource #{sync_service_id}")
+        {:ok, notifications}
 
       {:error, reason} = error ->
         Logger.warning(

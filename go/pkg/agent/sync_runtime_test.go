@@ -45,7 +45,8 @@ var (
 	errFakeSyncDriverFailed = errors.New("fake sync driver failed")
 	// errLongMultibyteUpstream crosses syncControlErrorMaxBytes inside a
 	// multi-byte rune.
-	errLongMultibyteUpstream = errors.New(strings.Repeat("a", syncControlErrorMaxBytes-1) + strings.Repeat("é", 8))
+	errLongMultibyteUpstream    = errors.New(strings.Repeat("a", syncControlErrorMaxBytes-1) + strings.Repeat("é", 8))
+	errShortInvalidUTF8Upstream = errors.New("502 Bad Gateway: \xff\xfebody")
 )
 
 // fakeSyncDrivers is the driver registry of a test runtime: the synthetic driver only.
@@ -551,6 +552,15 @@ func TestSyncFailureControlValueTruncatesUpstreamErrorToMarshalableUTF8(t *testi
 
 	require.True(t, utf8.ValidString(value))
 	require.Equal(t, syncCollectionFailed+":"+strings.Repeat("a", syncControlErrorMaxBytes-1), value)
+
+	_, err := proto.Marshal(&edgev1.SyncControlMarkerV1{ControlType: value})
+	require.NoError(t, err)
+}
+
+func TestSyncFailureControlValueDropsInvalidUTF8FromShortUpstreamError(t *testing.T) {
+	value := syncFailureControlValue(errShortInvalidUTF8Upstream)
+
+	require.Equal(t, syncCollectionFailed+":502 Bad Gateway: body", value)
 
 	_, err := proto.Marshal(&edgev1.SyncControlMarkerV1{ControlType: value})
 	require.NoError(t, err)

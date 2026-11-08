@@ -117,7 +117,7 @@ defmodule ServiceRadar.Integrations.IntegrationSourceSyncStatusTest do
     assert success.consecutive_failures == 0
   end
 
-  test "sync_failed transitions directly from idle, success, failed, or pending", %{actor: actor} do
+  test "sync_failed transitions directly from idle and from failed", %{actor: actor} do
     source = create_source!(actor, name: unique_name("sync-failed-direct"))
     assert source.sync_status == :idle
 
@@ -153,6 +153,86 @@ defmodule ServiceRadar.Integrations.IntegrationSourceSyncStatusTest do
     assert failed_again.sync_status == :failed
     assert failed_again.last_sync_result == :failed
     assert failed_again.consecutive_failures == 2
+  end
+
+  test "sync_failed and sync_success persist from success and pending", %{actor: actor} do
+    source = create_source!(actor, name: unique_name("sync-terminal-any-state"))
+
+    assert {:ok, succeeded} =
+             update_with_action(
+               source,
+               :sync_success,
+               %{result: :success, device_count: 3},
+               actor
+             )
+
+    assert succeeded.sync_status == :success
+
+    assert {:ok, failed_from_success} =
+             update_with_action(
+               succeeded,
+               :sync_failed,
+               %{result: :timeout, device_count: 0, error_message: "context deadline exceeded"},
+               actor
+             )
+
+    assert failed_from_success.sync_status == :failed
+
+    assert {:ok, succeeded_again} =
+             update_with_action(
+               failed_from_success,
+               :sync_success,
+               %{result: :success, device_count: 3},
+               actor
+             )
+
+    assert {:ok, success_from_success} =
+             update_with_action(
+               succeeded_again,
+               :sync_success,
+               %{result: :success, device_count: 4},
+               actor
+             )
+
+    assert success_from_success.sync_status == :success
+
+    pending = mark_pending!(source, actor)
+
+    assert {:ok, failed_from_pending} =
+             update_with_action(
+               pending,
+               :sync_failed,
+               %{result: :failed, device_count: 0, error_message: "connection refused"},
+               actor
+             )
+
+    assert failed_from_pending.sync_status == :failed
+
+    pending = mark_pending!(source, actor)
+
+    assert {:ok, success_from_pending} =
+             update_with_action(
+               pending,
+               :sync_success,
+               %{result: :success, device_count: 2},
+               actor
+             )
+
+    assert success_from_pending.sync_status == :success
+
+    assert {:ok, persisted} = IntegrationSource.get_by_id(source.id, actor: actor)
+    assert persisted.sync_status == :success
+  end
+
+  defp mark_pending!(source, actor) do
+    Repo.query!(
+      "UPDATE platform.integration_sources SET sync_status = 'pending' WHERE id = $1",
+      [Ecto.UUID.dump!(source.id)]
+    )
+
+    {:ok, pending} = IntegrationSource.get_by_id(source.id, actor: actor)
+    assert pending.sync_status == :pending
+    pending
   end
 
   defp create_source!(actor, attrs) do

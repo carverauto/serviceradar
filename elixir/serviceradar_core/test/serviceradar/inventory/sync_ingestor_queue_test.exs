@@ -8,9 +8,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
 
   use ExUnit.Case, async: false
 
-  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Ingestion.WorkerBudget
-  alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Inventory.SyncIngestorQueue
   alias ServiceRadar.Inventory.SyncIngestorQueue.Directory
 
@@ -339,39 +337,6 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
                 device_count: 0,
                 error_message: "context deadline exceeded"
               }}
-  end
-
-  test "IntegrationSource state machine accepts sync_failed and sync_success from any prior sync_status" do
-    actor = SystemActor.system(:sync_ingestor_test)
-
-    for prior_status <- [:idle, :running, :success, :failed, :pending] do
-      source = %IntegrationSource{
-        id: "00000000-0000-4000-8000-000000000001",
-        sync_status: prior_status
-      }
-
-      failed_changeset =
-        Ash.Changeset.for_update(
-          source,
-          :sync_failed,
-          %{result: :timeout, device_count: 0, error_message: "context deadline exceeded"},
-          actor: actor
-        )
-
-      assert failed_changeset.valid?,
-             "expected :sync_failed from #{inspect(prior_status)} to be valid, got errors: #{inspect(failed_changeset.errors)}"
-
-      success_changeset =
-        Ash.Changeset.for_update(
-          source,
-          :sync_success,
-          %{result: :success, device_count: 5},
-          actor: actor
-        )
-
-      assert success_changeset.valid?,
-             "expected :sync_success from #{inspect(prior_status)} to be valid, got errors: #{inspect(success_changeset.errors)}"
-    end
   end
 
   # The queue runs on the coordinator only; its producers run on every replica.

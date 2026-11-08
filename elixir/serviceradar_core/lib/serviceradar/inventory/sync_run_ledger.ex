@@ -24,30 +24,68 @@ defmodule ServiceRadar.Inventory.SyncRunLedger do
     end
   end
 
-  def superseded?(meta) do
+  def with_newest_run(meta, fun) do
     case identity(meta) do
       {:ok, source, run} ->
-        %{rows: [[superseded]]} =
-          Repo.query!(
-            """
-            SELECT EXISTS (
-              SELECT 1
-              FROM platform.sync_ingest_runs AS current_run
-              JOIN platform.sync_ingest_runs AS newer_run
-                ON newer_run.sync_service_id = current_run.sync_service_id
-               AND newer_run.sync_run_id <> current_run.sync_run_id
-               AND newer_run.inserted_at > current_run.inserted_at
-              WHERE current_run.sync_service_id = $1 AND current_run.sync_run_id = $2
-            )
-            """,
-            [Ecto.UUID.dump!(source), run]
-          )
-
-        superseded
+        source
+        |> newest_run_transaction(run, fun)
+        |> notify_after_commit()
 
       {:error, _} ->
-        false
+        notify_after_commit(fun.())
     end
+  end
+
+  defp newest_run_transaction(source, run, fun) do
+    fn ->
+      Repo.query!(
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        ["sync-source-status:" <> source]
+      )
+
+      if superseded?(source, run) do
+        {:ok, []}
+      else
+        case fun.() do
+          {:ok, _notifications} = handled -> handled
+          :ok -> {:ok, []}
+          {:error, reason} -> Repo.rollback(reason)
+        end
+      end
+    end
+    |> Repo.transaction()
+    |> case do
+      {:ok, handled} -> handled
+      {:error, _} = error -> error
+    end
+  end
+
+  defp notify_after_commit({:ok, notifications}) do
+    Ash.Notifier.notify(notifications)
+    :ok
+  end
+
+  defp notify_after_commit(:ok), do: :ok
+  defp notify_after_commit({:error, _} = error), do: error
+
+  defp superseded?(source, run) do
+    %{rows: [[superseded]]} =
+      Repo.query!(
+        """
+        SELECT EXISTS (
+          SELECT 1
+          FROM platform.sync_ingest_runs AS current_run
+          JOIN platform.sync_ingest_runs AS newer_run
+            ON newer_run.sync_service_id = current_run.sync_service_id
+           AND newer_run.sync_run_id <> current_run.sync_run_id
+           AND newer_run.inserted_at > current_run.inserted_at
+          WHERE current_run.sync_service_id = $1 AND current_run.sync_run_id = $2
+        )
+        """,
+        [Ecto.UUID.dump!(source), run]
+      )
+
+    superseded
   end
 
   defp record(metas, rejected) do

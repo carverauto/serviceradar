@@ -595,7 +595,7 @@ func syncFailureControlValue(err error) string {
 		return prefix
 	}
 
-	msg := strings.TrimSpace(err.Error())
+	msg := strings.TrimSpace(strings.ToValidUTF8(err.Error(), ""))
 	if msg == "" {
 		return prefix
 	}
