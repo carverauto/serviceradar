@@ -1,4 +1,4 @@
-# Edge record dead-letter: inspect and replay
+# Edge record dead-letter: inspect, replay and purge
 
 The agent gateway acknowledges an edge record to its agent once JetStream
 stores it, so the agent no longer holds a copy. When EventWriter's projection
@@ -166,6 +166,27 @@ To drop a record you have investigated and will not replay:
 `nats stream rmm TELEMETRY_EDGE_RECORD_DLQ_V1_BULK <dlq_sequence>`. The core
 NATS identity cannot purge or delete the stream itself.
 
+## From the Settings UI
+
+Settings -> Cluster has a "Dead letters" section for users who may manage the
+edge pipeline (`settings.edge.manage`). It runs the functions above on the
+cluster coordinator:
+
+- Inspect reads the stream (`Replay.inventory/1`) and groups what it holds by
+  `Sr-Edge-Dlq-Contract` and `Sr-Edge-Dlq-Reason`, with each group's count,
+  agents, first and last dead-letter time and one sample detail. It reads at
+  most 5,000 messages and says so when the stream holds more.
+- Replay republishes one group (`Replay.replay/1` with `:contract` and
+  `:reason`), once its cause is fixed.
+- Purge deletes one group, or every held dead letter, message by message
+  (`Replay.purge/1`), for records newer deliveries have already superseded. A
+  purge deletes the only copy of each record and cannot be undone.
+
+Each action shows its exact count for confirmation, re-checks the permission
+against the user's current record, runs in the background (at most 5,000
+messages per run; the result says when more remain) and writes an audit event
+(`resource_type: edge_record_dead_letters`) with the scope and outcome.
+
 ## Object references
 
 A dead-lettered record can still be replayed, so any object it references out
@@ -179,6 +200,6 @@ the first one must add that check.
 
 ## Not covered yet
 
-The DLQ catalog, explicit resolved/redriven/waived states, an audited deleter,
-redrive through a synthetic lane, the interactive class and a gateway-side poison
+The DLQ catalog, explicit resolved/redriven/waived states, redrive through a
+synthetic lane, the interactive class and a gateway-side poison
 DLQ belong to `add-edge-record-stream-partitioning`.

@@ -198,6 +198,61 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetterNatsTest do
     end)
   end
 
+  test "the inventory groups held dead letters, and a purge scoped to one reason deletes only those",
+       ctx do
+    ExposureBroker.with_broker(ctx.tmp_dir, fn conn, port ->
+      [_source, dead_letter] = config(port).streams
+      assert :ok = ConsumerReconciler.ensure_stream(conn, config(port), dead_letter)
+
+      superseded = [
+        {"Sr-Edge-Dlq-Contract", "serviceradar.plugin_results.batch/1"},
+        {"Sr-Edge-Dlq-Reason", "missing_synthetic_capability"},
+        {"Sr-Edge-Dlq-Reason-Detail", "synthetic capability refusal"},
+        {"Sr-Edge-Dlq-Agent-Id", "agent-synthetic-01"}
+      ]
+
+      transient = [
+        {"Sr-Edge-Dlq-Contract", "serviceradar.sync.page.batch/1"},
+        {"Sr-Edge-Dlq-Reason", "RuntimeError"},
+        {"Sr-Edge-Dlq-Agent-Id", "agent-synthetic-02"}
+      ]
+
+      first = publish_dlq!(conn, "edge-dlq:superseded-1", superseded)
+      kept = publish_dlq!(conn, "edge-dlq:transient-1", transient)
+      last = publish_dlq!(conn, "edge-dlq:superseded-2", superseded)
+
+      assert {:ok, %{scanned: 3, complete: true, groups: [plugin, sync]}} = Replay.inventory()
+
+      assert %{
+               contract: "serviceradar.plugin_results.batch/1",
+               reason: "missing_synthetic_capability",
+               count: 2,
+               first_sequence: ^first,
+               last_sequence: ^last,
+               agents: ["agent-synthetic-01"],
+               agent_count: 1,
+               reason_detail: "synthetic capability refusal"
+             } = plugin
+
+      assert %{contract: "serviceradar.sync.page.batch/1", reason: "RuntimeError", count: 1} =
+               sync
+
+      # A bounded read says it saw only part of what is held.
+      assert {:ok, %{scanned: 2, complete: false}} = Replay.inventory(limit: 2)
+
+      assert {:ok, %{entries: purged, complete: true}} =
+               Replay.purge(reason: "missing_synthetic_capability")
+
+      assert Enum.map(purged, &{&1.dlq_sequence, &1.result}) == [
+               {first, :purged},
+               {last, :purged}
+             ]
+
+      assert {:ok, %{entries: [%{dlq_sequence: ^kept}]}} = Replay.list()
+      assert %{"state" => %{"messages" => 1}} = api(conn, "STREAM.INFO.#{@dlq_stream}", "")
+    end)
+  end
+
   test "a redelivery of a dead-lettered record whose copy was removed is ACKed, not re-stored",
        ctx do
     ExposureBroker.with_broker(ctx.tmp_dir, fn conn, port ->
@@ -314,15 +369,17 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetterNatsTest do
     assert %{"stream" => "TELEMETRY_EDGE_RECORD_V1_BULK", "seq" => 1} = Jason.decode!(body)
   end
 
-  defp publish_dlq!(conn, msg_id) do
-    headers = [
-      {"Nats-Msg-Id", msg_id},
-      {"Sr-Edge-Dlq-Source-Subject", @source_subject},
-      {"Sr-Edge-Dlq-Source-Stream", "TELEMETRY_EDGE_RECORD_V1_BULK"},
-      {"Sr-Edge-Dlq-Source-Sequence", "1"},
-      {"Sr-Edge-Dlq-Source-Msg-Id", "synthetic-publication-0001"},
-      {"Sr-Edge-Delivery-Id", "synthetic-delivery-0001"}
-    ]
+  defp publish_dlq!(conn, msg_id, failure \\ []) do
+    headers =
+      failure ++
+        [
+          {"Nats-Msg-Id", msg_id},
+          {"Sr-Edge-Dlq-Source-Subject", @source_subject},
+          {"Sr-Edge-Dlq-Source-Stream", "TELEMETRY_EDGE_RECORD_V1_BULK"},
+          {"Sr-Edge-Dlq-Source-Sequence", "1"},
+          {"Sr-Edge-Dlq-Source-Msg-Id", "synthetic-publication-0001"},
+          {"Sr-Edge-Delivery-Id", "synthetic-delivery-0001"}
+        ]
 
     {:ok, %{body: body}} =
       Gnat.request(conn, "telemetry.edge-record-dlq.v1.bulk.p07.unknown.v0", @record,
