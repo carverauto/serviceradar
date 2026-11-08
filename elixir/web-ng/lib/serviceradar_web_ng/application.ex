@@ -212,7 +212,14 @@ defmodule ServiceRadarWebNG.Application do
     config = Application.get_env(:serviceradar_web_ng, :native_addon_import, [])
 
     if Keyword.get(config, :auto_sync_enabled, false) do
-      children ++ [ServiceRadarWebNG.Plugins.NativeAddonSyncScheduler]
+      children ++
+        [
+          ServiceRadarWebNG.Plugins.NativeAddonSyncScheduler,
+          Supervisor.child_spec(
+            {Task, fn -> ServiceRadarWebNG.Plugins.NativeAddonSyncWorker.enqueue_if_version_changed() end},
+            id: :native_addon_version_sync
+          )
+        ]
     else
       children
     end

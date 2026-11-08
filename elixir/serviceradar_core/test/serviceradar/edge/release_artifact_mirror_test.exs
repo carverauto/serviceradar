@@ -388,4 +388,78 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirrorTest do
 
     assert get_in(mirrored_attrs, [:metadata, "storage", "status"]) == "mirrored"
   end
+
+  test "prepare_publish_attrs falls back to source.asset_api_urls when the browser download URL times out" do
+    browser_url =
+      "https://github.com/carverauto/serviceradar/releases/download/v1.4.40/serviceradar-agent_1.4.40_linux_amd64.tar.gz"
+
+    api_url = "https://api.github.com/repos/carverauto/serviceradar/releases/assets/4040"
+    redirect_url = "https://release-assets.githubusercontent.com/signed/agent-4040"
+
+    artifact = %{
+      "url" => browser_url,
+      "sha256" => @artifact_sha256,
+      "os" => "linux",
+      "arch" => "amd64",
+      "format" => "tar.gz",
+      "entrypoint" => "serviceradar-agent"
+    }
+
+    attrs = %{
+      version: "1.4.40",
+      manifest: %{
+        "version" => "1.4.40",
+        "artifacts" => [artifact]
+      },
+      metadata: %{
+        "source" => %{
+          "asset_api_urls" => %{
+            browser_url => api_url
+          }
+        }
+      }
+    }
+
+    http_get = fn
+      ^browser_url, _opts ->
+        {:error, :timeout}
+
+      ^api_url, opts ->
+        headers = Keyword.get(opts, :headers, [])
+        assert {"accept", "application/octet-stream"} in headers
+        assert {"user-agent", "serviceradar"} in headers
+
+        {:ok,
+         %Req.Response{
+           status: 302,
+           body: "",
+           headers: %{"location" => [redirect_url]}
+         }}
+
+      ^redirect_url, opts ->
+        headers = Keyword.get(opts, :headers, [])
+        refute {"accept", "application/octet-stream"} in headers
+        assert {"user-agent", "serviceradar"} in headers
+        {:ok, %Req.Response{status: 200, body: @artifact_body}}
+    end
+
+    upload_object = fn _metadata, data, _opts ->
+      assert data == @artifact_body
+      {:ok, %Proto.UploadObjectResponse{}}
+    end
+
+    assert {:ok, mirrored_attrs} =
+             ReleaseArtifactMirror.prepare_publish_attrs(
+               attrs,
+               validate_url: fn _url -> :ok end,
+               http_get: http_get,
+               upload_object: upload_object
+             )
+
+    release = %{metadata: mirrored_attrs.metadata}
+
+    assert {:ok, mirrored_entry} = ReleaseArtifactMirror.mirrored_artifact(release, artifact)
+    assert mirrored_entry["url"] == browser_url
+    assert mirrored_entry["sha256"] == @artifact_sha256
+  end
 end

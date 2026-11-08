@@ -293,4 +293,130 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporterTest do
     refute Enum.any?(releases, &String.starts_with?(&1.tag, "netprobe-"))
     refute Enum.any?(releases, &(&1.tag == "v8.0.0"))
   end
+
+  defmodule TimeoutFallbackHTTPClient do
+    @moduledoc false
+
+    def get(url, opts) do
+      headers = Keyword.get(opts, :headers, [])
+      send(self(), {:request, url, headers})
+
+      cond do
+        String.ends_with?(url, "/releases/tags/v2.1.0") ->
+          {:ok,
+           %Req.Response{
+             status: 200,
+             body: %{
+               "id" => 99,
+               "tag_name" => "v2.1.0",
+               "name" => "ServiceRadar v2.1.0",
+               "html_url" => "https://github.com/carverauto/serviceradar/releases/tag/v2.1.0",
+               "published_at" => "2026-03-31T20:00:00Z",
+               "assets" => [
+                 %{
+                   "name" => "serviceradar-agent-release-manifest.json",
+                   "url" => "https://api.github.com/repos/carverauto/serviceradar/releases/assets/101",
+                   "browser_download_url" =>
+                     "https://github.com/carverauto/serviceradar/releases/download/v2.1.0/serviceradar-agent-release-manifest.json"
+                 },
+                 %{
+                   "name" => "serviceradar-agent-release-manifest.sig",
+                   "url" => "https://api.github.com/repos/carverauto/serviceradar/releases/assets/102",
+                   "browser_download_url" =>
+                     "https://github.com/carverauto/serviceradar/releases/download/v2.1.0/serviceradar-agent-release-manifest.sig"
+                 },
+                 %{
+                   "name" => "serviceradar-agent_2.1.0_linux_amd64.tar.gz",
+                   "url" => "https://api.github.com/repos/carverauto/serviceradar/releases/assets/103",
+                   "browser_download_url" =>
+                     "https://github.com/carverauto/serviceradar/releases/download/v2.1.0/serviceradar-agent_2.1.0_linux_amd64.tar.gz"
+                 }
+               ]
+             }
+           }}
+
+        String.contains?(url, "github.com/carverauto/serviceradar/releases/download/v2.1.0/") ->
+          {:error, :timeout}
+
+        url == "https://api.github.com/repos/carverauto/serviceradar/releases/assets/101" ->
+          {:ok,
+           %Req.Response{
+             status: 302,
+             body: "",
+             headers: %{
+               "location" => ["https://release-assets.githubusercontent.com/signed/manifest-101"]
+             }
+           }}
+
+        url == "https://release-assets.githubusercontent.com/signed/manifest-101" ->
+          {:ok,
+           %Req.Response{
+             status: 200,
+             body:
+               Jason.encode!(%{
+                 "version" => "2.1.0",
+                 "artifacts" => [
+                   %{
+                     "os" => "linux",
+                     "arch" => "amd64",
+                     "format" => "tar.gz",
+                     "entrypoint" => "serviceradar-agent",
+                     "sha256" => String.duplicate("a", 64),
+                     "url" =>
+                       "https://github.com/carverauto/serviceradar/releases/download/v2.1.0/serviceradar-agent_2.1.0_linux_amd64.tar.gz"
+                   }
+                 ]
+               })
+           }}
+
+        url == "https://api.github.com/repos/carverauto/serviceradar/releases/assets/102" ->
+          {:ok, %Req.Response{status: 200, body: Base.encode16(:crypto.strong_rand_bytes(64), case: :lower)}}
+      end
+    end
+  end
+
+  test "import falls back to the GitHub API asset URL when browser_download_url times out and records asset_api_urls" do
+    Application.put_env(
+      :serviceradar_web_ng,
+      :agent_release_import_http_client,
+      TimeoutFallbackHTTPClient
+    )
+
+    assert {:ok, attrs} =
+             ReleaseSourceImporter.import(%{
+               "repo_url" => "https://github.com/carverauto/serviceradar",
+               "release_tag" => "v2.1.0"
+             })
+
+    assert attrs.version == "2.1.0"
+
+    assert attrs.manifest["artifacts"] == [
+             %{
+               "os" => "linux",
+               "arch" => "amd64",
+               "format" => "tar.gz",
+               "entrypoint" => "serviceradar-agent",
+               "sha256" => String.duplicate("a", 64),
+               "url" =>
+                 "https://github.com/carverauto/serviceradar/releases/download/v2.1.0/serviceradar-agent_2.1.0_linux_amd64.tar.gz"
+             }
+           ]
+
+    assert attrs.metadata["source"]["asset_api_urls"] == %{
+             "https://github.com/carverauto/serviceradar/releases/download/v2.1.0/serviceradar-agent-release-manifest.json" =>
+               "https://api.github.com/repos/carverauto/serviceradar/releases/assets/101",
+             "https://github.com/carverauto/serviceradar/releases/download/v2.1.0/serviceradar-agent-release-manifest.sig" =>
+               "https://api.github.com/repos/carverauto/serviceradar/releases/assets/102",
+             "https://github.com/carverauto/serviceradar/releases/download/v2.1.0/serviceradar-agent_2.1.0_linux_amd64.tar.gz" =>
+               "https://api.github.com/repos/carverauto/serviceradar/releases/assets/103"
+           }
+
+    assert_received {:request, "https://api.github.com/repos/carverauto/serviceradar/releases/assets/101", api_headers}
+
+    assert Enum.any?(api_headers, &match?({"accept", "application/octet-stream"}, &1))
+
+    assert_received {:request, "https://release-assets.githubusercontent.com/signed/manifest-101", redirect_headers}
+
+    refute Enum.any?(redirect_headers, &match?({"accept", "application/octet-stream"}, &1))
+  end
 end

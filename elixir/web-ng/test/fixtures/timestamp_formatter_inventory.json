@@ -427,7 +427,7 @@
     "path": "lib/serviceradar_web_ng/edge/release_source_importer.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 1,
-    "fingerprint": "1a4bbafb95ce2744804fcfb1449639f6512f9d8bbfd847f8bbcc4d30f631190a",
+    "fingerprint": "663ee4ea5918de6fd48c052a3f98f8d6ba44e7cb3e68d4c40c9a690a9f79a6db",
     "classification": "canonical_machine",
     "reason": null
   },

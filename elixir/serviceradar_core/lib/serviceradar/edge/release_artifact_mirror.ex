@@ -35,10 +35,12 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
     version = map_get_any(attrs, [:version, "version"])
     manifest = normalize_manifest(map_get_any(attrs, [:manifest, "manifest"]) || %{})
     metadata = normalize_metadata(map_get_any(attrs, [:metadata, "metadata"]) || %{})
+    asset_api_urls = extract_asset_api_urls(metadata)
 
     with {:ok, version} <- require_present(version, "release version is required"),
          {:ok, artifacts} <- manifest_artifacts(manifest),
-         {:ok, mirrored_artifacts} <- mirror_artifacts(version, artifacts, opts) do
+         {:ok, mirrored_artifacts} <-
+           mirror_artifacts(version, artifacts, asset_api_urls, opts) do
       mirrored_at = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
 
       storage_metadata = %{
@@ -75,31 +77,27 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
 
   def mirrored_artifact(_release, _artifact), do: {:error, :artifact_not_mirrored}
 
-  defp mirror_artifacts(version, artifacts, opts) do
-    timeout = Keyword.get(opts, :timeout, @default_timeout)
-    validate_url = Keyword.get(opts, :validate_url, &ReleaseFetchPolicy.validate/1)
-    http_get = Keyword.get(opts, :http_get, &default_http_get/2)
-    upload_object = Keyword.get(opts, :upload_object, &default_upload_object/3)
+  defp mirror_artifacts(version, artifacts, asset_api_urls, opts) do
+    context = %{
+      version: version,
+      asset_api_urls: asset_api_urls,
+      timeout: Keyword.get(opts, :timeout, @default_timeout),
+      validate_url: Keyword.get(opts, :validate_url, &ReleaseFetchPolicy.validate/1),
+      http_get: Keyword.get(opts, :http_get, &default_http_get/2),
+      upload_object: Keyword.get(opts, :upload_object, &default_upload_object/3)
+    }
 
     artifacts
     |> Enum.with_index()
     |> Enum.reduce_while({:ok, []}, fn {artifact, index}, {:ok, acc} ->
-      case mirror_artifact(
-             version,
-             artifact,
-             index,
-             timeout,
-             validate_url,
-             http_get,
-             upload_object
-           ) do
+      case mirror_artifact(artifact, index, context) do
         {:ok, mirrored} -> {:cont, {:ok, acc ++ [mirrored]}}
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
 
-  defp mirror_artifact(version, artifact, index, timeout, validate_url, http_get, upload_object) do
+  defp mirror_artifact(artifact, index, context) do
     artifact = normalize_map(artifact)
     source_url = map_get_any(artifact, ["url", :url])
     sha256 = map_get_any(artifact, ["sha256", :sha256])
@@ -113,11 +111,10 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
            require_present(source_url, "release artifact #{index + 1} is missing url"),
          {:ok, sha256} <-
            require_present(sha256, "release artifact #{index + 1} is missing sha256"),
-         :ok <- validate_url.(source_url),
-         {:ok, data} <-
-           download_source_artifact(version, source_url, timeout, validate_url, http_get),
+         :ok <- context.validate_url.(source_url),
+         {:ok, data} <- download_source_artifact(source_url, context),
          :ok <- verify_sha256(data, sha256),
-         {:ok, object_key, file_name} <- object_key(version, artifact),
+         {:ok, object_key, file_name} <- object_key(context.version, artifact),
          metadata =
            build_object_metadata(object_key, file_name, data, %{
              source_url: source_url,
@@ -128,7 +125,7 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
              entrypoint: entrypoint,
              artifact_metadata: artifact_metadata
            }),
-         {:ok, _response} <- upload_object.(metadata, data, timeout: timeout) do
+         {:ok, _response} <- context.upload_object.(metadata, data, timeout: context.timeout) do
       {:ok,
        %{
          "url" => source_url,
@@ -157,28 +154,50 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
     end
   end
 
-  defp download_source_artifact(version, source_url, timeout, validate_url, http_get) do
-    version
+  defp download_source_artifact(source_url, context) do
+    context.version
     |> download_url_candidates(source_url)
     |> Enum.reduce_while({:error, "artifact download failed with HTTP 404"}, fn url, acc ->
-      case validate_url.(url) do
-        :ok ->
-          case with_temp_file("release-artifact-mirror", fn tmp_path ->
-                 stream_download(url, timeout, validate_url, http_get, tmp_path, 0)
-               end) do
-            {:ok, data} ->
-              {:halt, {:ok, data}}
+      case download_candidate_url(url, source_url, context) do
+        {:ok, data} ->
+          {:halt, {:ok, data}}
 
-            {:error, "artifact download failed with HTTP 404"} ->
-              {:cont, acc}
-
-            {:error, reason} ->
-              {:halt, {:error, reason}}
-          end
+        {:error, "artifact download failed with HTTP 404"} ->
+          {:cont, acc}
 
         {:error, reason} ->
           {:halt, {:error, reason}}
       end
+    end)
+  end
+
+  defp download_candidate_url(url, source_url, context) do
+    with :ok <- context.validate_url.(url) do
+      case stream_download_to_temp_file(url, default_download_headers(), context) do
+        {:ok, data} ->
+          {:ok, data}
+
+        {:error, reason} ->
+          maybe_retry_with_asset_api_url(url, source_url, reason, context)
+      end
+    end
+  end
+
+  defp maybe_retry_with_asset_api_url(url, source_url, reason, context) do
+    fallback_url = lookup_asset_api_url(context.asset_api_urls, url, source_url)
+
+    with true <- timeout_reason?(reason),
+         true <- is_binary(fallback_url) and fallback_url != url,
+         :ok <- context.validate_url.(fallback_url) do
+      stream_download_to_temp_file(fallback_url, api_download_headers(), context)
+    else
+      _ -> {:error, reason}
+    end
+  end
+
+  defp stream_download_to_temp_file(url, headers, context) do
+    with_temp_file("release-artifact-mirror", fn tmp_path ->
+      stream_download(url, headers, context, tmp_path, 0)
     end)
   end
 
@@ -219,18 +238,19 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
     end
   end
 
-  defp stream_download(url, timeout, validate_url, http_get, tmp_path, redirect_count) do
-    case streamed_http_get(url, timeout, http_get, tmp_path) do
+  defp stream_download(url, headers, context, tmp_path, redirect_count) do
+    case streamed_http_get(url, headers, context.timeout, context.http_get, tmp_path) do
       {:ok, %Req.Response{status: 200} = response} ->
         read_streamed_payload(response, tmp_path)
 
       {:ok, %Req.Response{status: status} = response}
       when status in [301, 302, 303, 307, 308] ->
         with {:ok, next_url} <- redirect_location(url, response),
-             :ok <- validate_url.(next_url),
+             :ok <- context.validate_url.(next_url),
              :ok <- ensure_redirect_count(redirect_count + 1) do
           File.rm(tmp_path)
-          stream_download(next_url, timeout, validate_url, http_get, tmp_path, redirect_count + 1)
+          next_headers = redirect_headers(url, next_url, headers)
+          stream_download(next_url, next_headers, context, tmp_path, redirect_count + 1)
         end
 
       {:ok, %Req.Response{status: status}} ->
@@ -247,14 +267,20 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
     end
   end
 
-  defp streamed_http_get(url, timeout, http_get, tmp_path) do
+  defp streamed_http_get(url, headers, timeout, http_get, tmp_path) do
     File.rm(tmp_path)
 
     {:ok, io_device} = File.open(tmp_path, [:write, :binary, :exclusive])
 
     try do
       callback = streaming_callback(io_device)
-      http_get.(url, decode_body: false, receive_timeout: timeout, into: callback)
+
+      http_get.(url,
+        decode_body: false,
+        receive_timeout: timeout,
+        headers: headers,
+        into: callback
+      )
     after
       File.close(io_device)
     end
@@ -266,6 +292,52 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
         reraise e, __STACKTRACE__
       end
   end
+
+  defp default_download_headers do
+    [{"user-agent", "serviceradar"}]
+  end
+
+  defp api_download_headers do
+    [{"accept", "application/octet-stream"}, {"user-agent", "serviceradar"}]
+  end
+
+  defp redirect_headers(current_url, next_url, headers) do
+    if URI.parse(to_string(current_url)).host == URI.parse(to_string(next_url)).host do
+      headers
+    else
+      Enum.reject(headers, fn {name, _value} ->
+        String.downcase(to_string(name)) in ["authorization", "accept"]
+      end)
+    end
+  end
+
+  defp extract_asset_api_urls(metadata) when is_map(metadata) do
+    metadata
+    |> map_get_any(["source", :source], %{})
+    |> map_get_any(["asset_api_urls", :asset_api_urls], %{})
+    |> case do
+      urls when is_map(urls) ->
+        Enum.reduce(urls, %{}, fn {key, value}, acc ->
+          case {present_string(key), present_string(value)} do
+            {k, v} when is_binary(k) and is_binary(v) -> Map.put(acc, k, v)
+            _ -> acc
+          end
+        end)
+
+      _ ->
+        %{}
+    end
+  end
+
+  defp lookup_asset_api_url(asset_api_urls, candidate_url, source_url)
+       when is_map(asset_api_urls) do
+    Map.get(asset_api_urls, candidate_url) || Map.get(asset_api_urls, source_url)
+  end
+
+  defp timeout_reason?(:timeout), do: true
+  defp timeout_reason?(:connect_timeout), do: true
+  defp timeout_reason?(%Req.TransportError{reason: reason}), do: timeout_reason?(reason)
+  defp timeout_reason?(_reason), do: false
 
   defp streaming_callback(io_device) do
     fn {:data, data}, {req, response} ->

@@ -10,13 +10,17 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
 
   import Ecto.Query, only: [from: 2]
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Credentials.CredentialRedactor
+  alias ServiceRadar.Plugins.AddonPackage
+  alias ServiceRadar.Plugins.RetiredNativeAddons
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
   alias ServiceRadarWebNG.Plugins.FirstPartyReleaseClient
   alias ServiceRadarWebNG.Plugins.NativeAddonImporter
   alias ServiceRadarWebNG.Plugins.NativeAddonSync
 
+  require Ash.Query
   require Logger
 
   @default_release_limit 10
@@ -41,6 +45,76 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
       {:error, :oban_unavailable}
     end
   end
+
+  @doc """
+  Runs the first-party native add-on sync immediately when the deployed version changed.
+  """
+  @spec enqueue_if_version_changed() :: {:ok, Oban.Job.t()} | {:ok, :unchanged} | {:error, term()}
+  def enqueue_if_version_changed do
+    current = normalize_optional_string(System.get_env("SERVICERADAR_RELEASE_VERSION"))
+
+    if is_nil(current) or not ObanSupport.available?() or not auto_sync_enabled?() do
+      {:ok, :unchanged}
+    else
+      target_repo_url = repo_url(%{})
+      auto_approve_ids = configured_auto_approve_addon_ids()
+
+      if release_version_stale?(NativeAddonSync.get_status(), current) or
+           not release_already_synced_for_release?(target_repo_url, current, auto_approve_ids) do
+        Logger.info("First-party native add-on sync version changed to #{current}; syncing now")
+        enqueue_now()
+      else
+        {:ok, :unchanged}
+      end
+    end
+  end
+
+  @doc """
+  True when the last completed native add-on sync targeted a different release
+  tag than `current` (including never having run or not having succeeded).
+  """
+  @spec release_version_stale?(map() | nil, String.t()) :: boolean()
+  def release_version_stale?(status, current) when is_binary(current) do
+    not (is_map(status) and
+           status_field(status, :status) == "success" and
+           status_field(status, :release_tag) == current and
+           status_count(status, :failed) == 0)
+  end
+
+  @doc """
+  True when an unattended sync can skip querying GitHub because `release_tag`
+  has already been cleanly imported and every add-on the last sync imported or
+  reused still has a verified package for that release (approved when it is
+  configured for auto-approval).
+  """
+  @spec release_already_synced?(
+          map() | nil,
+          String.t() | nil,
+          String.t() | nil,
+          [String.t()],
+          [map()]
+        ) :: boolean()
+  def release_already_synced?(status, repo_url, release_tag, auto_approve_addon_ids, packages)
+      when is_map(status) and is_binary(release_tag) and is_list(auto_approve_addon_ids) and is_list(packages) do
+    synced_addon_ids = status_addon_ids(status)
+    valid_packages = Enum.filter(packages, &valid_synced_package?(&1, release_tag))
+    present_addon_ids = MapSet.new(valid_packages, &package_field(&1, :addon_id))
+
+    release_tag != "" and
+      release_tag != FirstPartyReleaseClient.admin_all_releases_sentinel() and
+      status_field(status, :status) == "success" and
+      status_field(status, :repo_url) == repo_url and
+      status_field(status, :release_tag) == release_tag and
+      status_count(status, :failed) == 0 and
+      synced_addon_ids != [] and
+      Enum.all?(synced_addon_ids, &MapSet.member?(present_addon_ids, &1)) and
+      Enum.all?(valid_packages, fn pkg ->
+        package_field(pkg, :addon_id) not in auto_approve_addon_ids or
+          package_field(pkg, :status) == :approved
+      end)
+  end
+
+  def release_already_synced?(_status, _repo_url, _release_tag, _auto_approve_addon_ids, _packages), do: false
 
   @spec enqueue_now(keyword()) :: {:ok, Oban.Job.t()} | {:error, term()}
   def enqueue_now(opts \\ []) do
@@ -85,7 +159,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
 
     result =
       if force? or auto_sync_enabled?() do
-        run_sync(args)
+        run_sync(args, force?)
       else
         Logger.debug("First-party native add-on sync skipped because auto-sync is disabled")
         :ok
@@ -98,20 +172,32 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
     result
   end
 
-  defp run_sync(args) do
+  defp run_sync(args, force?) do
     repo_url = repo_url(args)
     limit = release_limit(args)
     release_tag = release_tag(args)
     addon_ids = requested_addon_ids(args)
     auto_approve_addon_ids = configured_auto_approve_addon_ids()
+
+    if not force? and addon_ids == [] and
+         release_already_synced_for_release?(repo_url, release_tag, auto_approve_addon_ids) do
+      Logger.debug("Skipping first-party native add-on sync: release #{release_tag} already synced")
+      touch_synced_status()
+      :ok
+    else
+      do_run_sync(repo_url, limit, release_tag, addon_ids, auto_approve_addon_ids)
+    end
+  end
+
+  defp do_run_sync(repo_url, limit, release_tag, addon_ids, auto_approve_addon_ids) do
     discovery_attrs = maybe_put(%{}, :repo_url, repo_url)
 
     case discover_addons(discovery_attrs, limit, release_tag) do
       {:ok, addons, filter_tag} ->
+        candidates = NativeAddonSync.candidates(addons, release_tag: filter_tag, addon_ids: addon_ids)
+
         results =
-          addons
-          |> NativeAddonSync.candidates(release_tag: filter_tag, addon_ids: addon_ids)
-          |> Enum.map(fn addon ->
+          Enum.map(candidates, fn addon ->
             {addon,
              NativeAddonSync.import_or_reuse(addon,
                auto_approve_addon_ids: auto_approve_addon_ids
@@ -119,8 +205,21 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
           end)
 
         summary = NativeAddonSync.summary(addons, results)
-
         failed_count = length(summary.failed)
+        synced_release_tag = resolved_synced_release_tag(filter_tag, candidates, release_tag)
+
+        NativeAddonSync.put_status(%{
+          status: if(failed_count == 0, do: "success", else: "partial"),
+          repo_url: repo_url,
+          release_tag: synced_release_tag,
+          addon_ids: synced_addon_ids(results),
+          discovered: summary.discovered,
+          import_ready: summary.import_ready,
+          imported: summary.imported,
+          skipped: summary.skipped,
+          failed: failed_count,
+          completed_at: DateTime.utc_now()
+        })
 
         message =
           "First-party native add-on sync completed: discovered=#{summary.discovered} " <>
@@ -143,6 +242,19 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
         :ok
 
       {:error, reason} ->
+        NativeAddonSync.put_status(%{
+          status: "failed",
+          repo_url: repo_url,
+          release_tag: release_tag,
+          discovered: 0,
+          import_ready: 0,
+          imported: 0,
+          skipped: 0,
+          failed: 0,
+          error: bounded_failure_reason(reason),
+          completed_at: DateTime.utc_now()
+        })
+
         if FirstPartyReleaseClient.permanent_failure?(reason) do
           Logger.error("First-party native add-on sync failed",
             reason: bounded_failure_reason(reason)
@@ -157,6 +269,115 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
           {:error, reason}
         end
     end
+  end
+
+  defp resolved_synced_release_tag(filter_tag, _candidates, _release_tag)
+       when is_binary(filter_tag) and filter_tag != "" do
+    filter_tag
+  end
+
+  defp resolved_synced_release_tag(_filter_tag, [first | _], _release_tag) do
+    Map.get(first, :release_tag)
+  end
+
+  defp resolved_synced_release_tag(_filter_tag, _candidates, release_tag), do: release_tag
+
+  defp synced_addon_ids(results) do
+    results
+    |> Enum.flat_map(fn
+      {_addon, {outcome, %{addon_id: addon_id}}} when outcome in [:imported, :skipped] and is_binary(addon_id) ->
+        [addon_id]
+
+      _ ->
+        []
+    end)
+    |> Enum.uniq()
+  end
+
+  defp touch_synced_status do
+    case NativeAddonSync.get_status() do
+      status when is_map(status) ->
+        NativeAddonSync.put_status(Map.put(status, :completed_at, DateTime.utc_now()))
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp release_already_synced_for_release?(repo_url, release_tag, auto_approve_addon_ids)
+       when is_binary(release_tag) and release_tag != "" do
+    status = NativeAddonSync.get_status()
+
+    if is_map(status) and status_field(status, :status) == "success" and
+         status_field(status, :release_tag) == release_tag do
+      packages = imported_release_packages(release_tag)
+
+      release_already_synced?(status, repo_url, release_tag, auto_approve_addon_ids, packages) and
+        not Enum.any?(packages, &staged_package_auto_approvable?/1)
+    else
+      false
+    end
+  end
+
+  defp release_already_synced_for_release?(_repo_url, _release_tag, _auto_approve_addon_ids), do: false
+
+  defp imported_release_packages(release_tag) when is_binary(release_tag) do
+    actor = SystemActor.system(:native_addon_sync_worker)
+
+    AddonPackage
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(
+      source_type == :first_party and source_release_tag == ^release_tag and
+        verification_status == "verified" and is_nil(verification_error)
+    )
+    |> Ash.read(actor: actor)
+    |> case do
+      {:ok, packages} when is_list(packages) -> packages
+      _ -> []
+    end
+  rescue
+    _ -> []
+  end
+
+  defp staged_package_auto_approvable?(%AddonPackage{status: :staged} = package) do
+    NativeAddonSync.tracking_profile_auto_approves?(package)
+  end
+
+  defp staged_package_auto_approvable?(_package), do: false
+
+  defp valid_synced_package?(pkg, release_tag) when is_map(pkg) do
+    addon_id = package_field(pkg, :addon_id)
+
+    package_field(pkg, :source_type) == :first_party and
+      package_field(pkg, :source_release_tag) == release_tag and
+      package_field(pkg, :verification_status) == "verified" and
+      is_nil(package_field(pkg, :verification_error)) and
+      package_field(pkg, :status) in [:staged, :approved] and
+      is_binary(addon_id) and not RetiredNativeAddons.retired?(addon_id)
+  end
+
+  defp valid_synced_package?(_pkg, _release_tag), do: false
+
+  defp status_field(status, key) when is_map(status) and is_atom(key) do
+    Map.get(status, key) || Map.get(status, Atom.to_string(key))
+  end
+
+  defp status_addon_ids(status) do
+    case status_field(status, :addon_ids) do
+      ids when is_list(ids) -> Enum.filter(ids, &is_binary/1)
+      _ -> []
+    end
+  end
+
+  defp status_count(status, key) when is_map(status) and is_atom(key) do
+    case status_field(status, key) do
+      value when is_integer(value) and value >= 0 -> value
+      _ -> 0
+    end
+  end
+
+  defp package_field(pkg, key) when is_map(pkg) and is_atom(key) do
+    Map.get(pkg, key) || Map.get(pkg, Atom.to_string(key))
   end
 
   defp discover_addons(discovery_attrs, limit, release_tag) do

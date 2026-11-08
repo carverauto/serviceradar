@@ -72,6 +72,11 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
 
       cond do
         is_binary(release_tag) and String.ends_with?(url, "/releases/tags/" <> release_tag) ->
+          Process.put(
+            :native_addon_release_requests,
+            Process.get(:native_addon_release_requests, 0) + 1
+          )
+
           {:ok, %Req.Response{status: 200, body: release}}
 
         String.contains?(url, "api.github.com/repos/carverauto/serviceradar/releases?per_page=") ->
@@ -84,6 +89,11 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
             {:ok, %Req.Response{status: 200, body: Process.get(:native_addon_recent_releases, [])}}
 
         String.ends_with?(url, "/serviceradar-native-addon-index.json") ->
+          Process.put(
+            :native_addon_index_requests,
+            Process.get(:native_addon_index_requests, 0) + 1
+          )
+
           {:ok, %Req.Response{status: 200, body: Process.get(:native_addon_index_body)}}
 
         String.contains?(url, "/manifests/") ->
@@ -161,7 +171,15 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
       {:ok, %{key: metadata.key}}
     end)
 
+    if function_exported?(NativeAddonSync, :clear_status, 0) do
+      NativeAddonSync.clear_status()
+    end
+
     on_exit(fn ->
+      if function_exported?(NativeAddonSync, :clear_status, 0) do
+        NativeAddonSync.clear_status()
+      end
+
       Logger.configure(level: original_logger_level)
       restore_env(:first_party_plugin_import_http_client, original_http_client)
       restore_env(:first_party_plugin_cosign_verifier, original_cosign)
@@ -1162,6 +1180,88 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
       |> Ash.read!(actor: actor)
 
     assert length(packages) == 1
+  end
+
+  test "sync_first_party_addons fetches release metadata and the add-on index only once per run", %{
+    private_key: private_key
+  } do
+    install_fixtures(private_key)
+    Process.put(:native_addon_recent_release_requests, 0)
+    Process.put(:native_addon_release_requests, 0)
+    Process.put(:native_addon_index_requests, 0)
+
+    assert {:ok, summary} =
+             AddonPackages.sync_first_party_addons(
+               repo_url: @repo_url,
+               release_tag: "v1.0.0",
+               limit: 10
+             )
+
+    # Discovery reads release metadata from the recent-releases feed; the import
+    # must reuse it rather than refetching the release by tag or its index.
+    assert summary.imported == 1
+    assert Process.get(:native_addon_recent_release_requests) == 1
+    assert Process.get(:native_addon_release_requests) == 0
+    assert Process.get(:native_addon_index_requests) == 1
+  end
+
+  test "periodic sync worker skips GitHub once the target release is cleanly synced and re-syncs when a package is missing",
+       %{
+         private_key: private_key
+       } do
+    install_fixtures(private_key)
+    configure_sync_worker(auto_sync_enabled: true, release_tag: "v1.0.0")
+
+    Process.put(:native_addon_release_requests, 0)
+    Process.put(:native_addon_index_requests, 0)
+
+    assert :ok = NativeAddonSyncWorker.perform(%Job{args: %{}})
+    assert Process.get(:native_addon_release_requests) == 1
+    assert Process.get(:native_addon_index_requests) == 1
+    assert [%AddonPackage{id: package_id, status: :approved}] = sample_packages()
+
+    # Second periodic run for the same release skips querying GitHub completely.
+    Process.put(:native_addon_release_requests, 0)
+    Process.put(:native_addon_index_requests, 0)
+
+    assert :ok = NativeAddonSyncWorker.perform(%Job{args: %{}})
+    assert Process.get(:native_addon_release_requests) == 0
+    assert Process.get(:native_addon_index_requests) == 0
+
+    # Deleting the package causes the periodic run to query GitHub again and restore it.
+    Repo.delete_all(from(p in AddonPackage, where: p.id == ^package_id))
+    assert sample_packages() == []
+
+    assert :ok = NativeAddonSyncWorker.perform(%Job{args: %{}})
+    assert Process.get(:native_addon_release_requests) == 1
+    assert Process.get(:native_addon_index_requests) == 1
+    assert [%AddonPackage{status: :approved}] = sample_packages()
+  end
+
+  test "enqueue_if_version_changed enqueues a forced sync only when the deployed release is not yet synced",
+       %{
+         private_key: private_key
+       } do
+    install_fixtures(private_key)
+    configure_sync_worker(auto_sync_enabled: true)
+    original_release_version = System.get_env("SERVICERADAR_RELEASE_VERSION")
+    System.put_env("SERVICERADAR_RELEASE_VERSION", "v1.0.0")
+
+    on_exit(fn ->
+      restore_system_env("SERVICERADAR_RELEASE_VERSION", original_release_version)
+    end)
+
+    assert {:ok, %Job{} = job} = NativeAddonSyncWorker.enqueue_if_version_changed()
+    assert job.args["force"] == true
+
+    assert :ok = NativeAddonSyncWorker.perform(job)
+    assert {:ok, :unchanged} = NativeAddonSyncWorker.enqueue_if_version_changed()
+
+    System.put_env("SERVICERADAR_RELEASE_VERSION", "v1.0.1")
+    Repo.delete_all(from(j in Job, where: j.worker == ^inspect(NativeAddonSyncWorker)))
+
+    assert {:ok, %Job{} = next_job} = NativeAddonSyncWorker.enqueue_if_version_changed()
+    assert next_job.args["force"] == true
   end
 
   for {label, source_release_tag} <- [{"nil", nil}, {"older", "v0.9.0"}] do

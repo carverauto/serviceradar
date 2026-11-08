@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
   Imports signed agent release metadata from repository-hosted release assets.
   """
 
+  alias ServiceRadar.HTTP.EgressClient
   alias ServiceRadarWebNG.Edge.ReleaseFetchPolicy
 
   @default_manifest_asset_name "serviceradar-agent-release-manifest.json"
@@ -80,6 +81,22 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
          {:ok, signature} <- fetch_signature(repo, signature_asset),
          {:ok, manifest} <- decode_manifest(manifest_json),
          {:ok, version} <- manifest_version(manifest) do
+      source_metadata =
+        maybe_put_asset_api_urls(
+          %{
+            "type" => "repo_release",
+            "provider" => provider,
+            "repo_url" => repo.repo_url,
+            "release_tag" => tag,
+            "release_name" => normalize_string(Map.get(release, "name")),
+            "release_url" => normalize_string(Map.get(release, "html_url")),
+            "manifest_asset_name" => manifest_asset_name,
+            "signature_asset_name" => signature_asset_name,
+            "imported_at" => DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+          },
+          extract_asset_api_urls(repo, release)
+        )
+
       {:ok,
        %{
          version: version,
@@ -87,17 +104,7 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
          release_notes: normalize_string(Map.get(release, "body")),
          manifest: manifest,
          metadata: %{
-           "source" => %{
-             "type" => "repo_release",
-             "provider" => provider,
-             "repo_url" => repo.repo_url,
-             "release_tag" => tag,
-             "release_name" => normalize_string(Map.get(release, "name")),
-             "release_url" => normalize_string(Map.get(release, "html_url")),
-             "manifest_asset_name" => manifest_asset_name,
-             "signature_asset_name" => signature_asset_name,
-             "imported_at" => DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
-           }
+           "source" => source_metadata
          }
        }}
     end
@@ -242,20 +249,66 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
   end
 
   defp fetch_binary_asset(repo, asset) do
-    url = normalize_string(Map.get(asset, "browser_download_url"))
+    browser_url = normalize_string(Map.get(asset, "browser_download_url"))
+    api_url = normalize_string(Map.get(asset, "url"))
 
-    with {:ok, asset_url} <- require_value(url, "Release asset URL is missing"),
+    {primary_url, primary_mode, fallback_url, fallback_mode} =
+      if is_binary(browser_url) do
+        {browser_url, :asset, api_url, :api}
+      else
+        {api_url, :api, nil, :asset}
+      end
+
+    with {:ok, asset_url} <- require_value(primary_url, "Release asset URL is missing"),
          {:ok, request_url} <- validate_provider_asset_url(repo, asset_url) do
-      fetch_binary_asset(repo, request_url, @max_asset_redirects)
+      case fetch_binary_asset_raw(repo, request_url, @max_asset_redirects, primary_mode) do
+        {:ok, body} ->
+          {:ok, body}
+
+        {:error, reason} ->
+          maybe_fallback_binary_asset(repo, fallback_url, request_url, fallback_mode, reason)
+      end
     end
   end
 
-  defp fetch_binary_asset(_repo, _asset_url, remaining_redirects) when remaining_redirects < 0 do
-    {:error, "Release asset download exceeded redirect limit"}
+  defp maybe_fallback_binary_asset(repo, fallback_url, primary_url, fallback_mode, reason) do
+    with true <- timeout_error?(reason),
+         true <- is_binary(fallback_url) and fallback_url != primary_url,
+         {:ok, validated_fallback_url} <- validate_provider_asset_url(repo, fallback_url),
+         {:ok, body} <-
+           fetch_binary_asset_raw(repo, validated_fallback_url, @max_asset_redirects, fallback_mode) do
+      {:ok, body}
+    else
+      {:error, fallback_reason} ->
+        {:error, format_asset_download_error(fallback_reason)}
+
+      _ ->
+        {:error, format_asset_download_error(reason)}
+    end
   end
 
-  defp fetch_binary_asset(repo, asset_url, remaining_redirects) do
-    headers = asset_headers(repo.provider, asset_url)
+  defp format_asset_download_error(:redirect_limit_exceeded) do
+    "Release asset download exceeded redirect limit"
+  end
+
+  defp format_asset_download_error({:http_status, status}) do
+    "Release asset download failed with HTTP #{status}"
+  end
+
+  defp format_asset_download_error(reason) do
+    "Release asset download failed: #{format_request_error(reason)}"
+  end
+
+  defp fetch_binary_asset_raw(_repo, _asset_url, remaining_redirects, _mode) when remaining_redirects < 0 do
+    {:error, :redirect_limit_exceeded}
+  end
+
+  defp fetch_binary_asset_raw(repo, asset_url, remaining_redirects, mode) do
+    headers =
+      case mode do
+        :api -> asset_api_headers(repo.provider, asset_url)
+        :asset -> asset_headers(repo.provider, asset_url)
+      end
 
     case request(asset_url, headers: headers, decode_body: false) do
       {:ok, %Req.Response{status: 200, body: body}} when is_binary(body) ->
@@ -267,19 +320,50 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
       {:ok, %Req.Response{status: status} = response} when status in [301, 302, 303, 307, 308] ->
         with {:ok, redirect_url} <- redirect_location(asset_url, response),
              {:ok, request_url} <- validate_provider_asset_url(repo, redirect_url) do
-          fetch_binary_asset(repo, request_url, remaining_redirects - 1)
-        else
-          {:error, reason} ->
-            {:error, "Release asset download failed: #{format_request_error(reason)}"}
+          fetch_binary_asset_raw(repo, request_url, remaining_redirects - 1, :asset)
         end
 
       {:ok, %Req.Response{status: status}} ->
-        {:error, "Release asset download failed with HTTP #{status}"}
+        {:error, {:http_status, status}}
 
       {:error, reason} ->
-        {:error, "Release asset download failed: #{format_request_error(reason)}"}
+        {:error, reason}
     end
   end
+
+  defp extract_asset_api_urls(repo, release) when is_map(release) do
+    release
+    |> Map.get("assets")
+    |> List.wrap()
+    |> Enum.reduce(%{}, fn
+      asset, acc when is_map(asset) ->
+        with {:ok, browser_url} <-
+               validate_provider_asset_url(repo, Map.get(asset, "browser_download_url")),
+             {:ok, api_url} <- validate_provider_asset_url(repo, Map.get(asset, "url")),
+             true <- browser_url != api_url do
+          Map.put(acc, browser_url, api_url)
+        else
+          _ -> acc
+        end
+
+      _other, acc ->
+        acc
+    end)
+  end
+
+  defp extract_asset_api_urls(_repo, _release), do: %{}
+
+  defp maybe_put_asset_api_urls(source_metadata, asset_api_urls)
+       when is_map(asset_api_urls) and map_size(asset_api_urls) > 0 do
+    Map.put(source_metadata, "asset_api_urls", asset_api_urls)
+  end
+
+  defp maybe_put_asset_api_urls(source_metadata, _asset_api_urls), do: source_metadata
+
+  defp timeout_error?(:timeout), do: true
+  defp timeout_error?(:connect_timeout), do: true
+  defp timeout_error?(%Req.TransportError{reason: reason}), do: timeout_error?(reason)
+  defp timeout_error?(_reason), do: false
 
   defp fetch_signature(repo, asset) do
     with {:ok, signature_blob} <- fetch_binary_asset(repo, asset) do
@@ -387,6 +471,16 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
     end
   end
 
+  defp asset_api_headers(provider, url) do
+    headers = [{"user-agent", "serviceradar"}, {"accept", "application/octet-stream"}]
+
+    if auth_host?(provider, url) do
+      headers ++ auth_headers(provider)
+    else
+      headers
+    end
+  end
+
   defp auth_headers("github") do
     case Application.get_env(:serviceradar_web_ng, :agent_release_import_github_token) ||
            System.get_env("GITHUB_TOKEN") ||
@@ -397,16 +491,32 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
   end
 
   defp http_client do
-    Application.get_env(:serviceradar_web_ng, :agent_release_import_http_client, Req)
+    Application.get_env(:serviceradar_web_ng, :agent_release_import_http_client, EgressClient)
   end
 
   defp request(url, opts) do
+    decode_body? = Keyword.get(opts, :decode_body, false)
+
     request_opts =
       opts
       |> Keyword.put(:redirect, false)
       |> Keyword.merge(ReleaseFetchPolicy.req_opts())
 
-    http_client().get(url, request_opts)
+    client = http_client()
+
+    cond do
+      decode_body? and function_exported?(client, :fetch_json, 2) ->
+        client.fetch_json(url, Keyword.delete(request_opts, :decode_body))
+
+      not decode_body? and function_exported?(client, :fetch_body, 2) ->
+        client.fetch_body(url, Keyword.delete(request_opts, :decode_body))
+
+      function_exported?(client, :get, 2) ->
+        client.get(url, request_opts)
+
+      true ->
+        EgressClient.fetch_body(url, Keyword.delete(request_opts, :decode_body))
+    end
   end
 
   defp validate_provider_api_url(repo, url) do
@@ -483,6 +593,8 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
   defp format_request_error(:dns_resolution_failed), do: "destination host could not be resolved"
   defp format_request_error(:invalid_url), do: "destination URL is invalid"
   defp format_request_error(:missing_redirect_location), do: "redirect location is missing"
+  defp format_request_error(:redirect_limit_exceeded), do: "Release asset download exceeded redirect limit"
+  defp format_request_error({:http_status, status}), do: "HTTP #{status}"
   defp format_request_error(reason) when is_binary(reason), do: reason
   defp format_request_error(reason), do: inspect(reason)
 end

@@ -711,9 +711,12 @@ token, a repository that moved -- does not stop the others from importing; its
 error is recorded on the repository row and written to the audit log at high
 severity.
 
-Background sync runs hourly. It skips GitHub for the built-in repository when the
-deployed release tag was already imported cleanly and every package from that
-release is still present. A failed background sync retries twice, after 2 and
+Background sync runs hourly, and once at startup when the deployed release tag
+has not been synced yet. Wasm and native add-on background sync both skip GitHub
+for the built-in repository when the deployed release tag was already imported
+cleanly and every package from that release is still present. Native add-on sync
+also re-runs while a package from that release is still awaiting the automatic
+approval it qualifies for. A failed background sync retries twice, after 2 and
 then 10 minutes. If the final attempt also fails, the next hourly sync is still
 scheduled.
 
