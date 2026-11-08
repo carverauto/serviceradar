@@ -1654,6 +1654,52 @@ func TestCameraRelayOpenFailureReceipt(t *testing.T) {
 	}
 }
 
+func TestCameraRelayOpenOutcomeOutlivesDeadline(t *testing.T) {
+	t.Parallel()
+	gateway := newFakeCameraRelayGateway()
+	manager := newCameraRelayManager(gateway, createTestLogger())
+	createdAt := time.Now().Unix()
+	expiresAt := time.Unix(createdAt+2, 0)
+	manager.sourceFactory = func(cameraRelaySessionSpec) (cameraRelayChunkStream, error) {
+		time.Sleep(time.Until(expiresAt) + 50*time.Millisecond)
+		return nil, errRTSPDialFailed
+	}
+	spec := cameraRelaySessionSpec{RelaySessionID: "relay-late-open", AgentID: "agent-synthetic", CameraSourceID: "camera-synthetic", StreamProfileID: "main", LeaseToken: "lease-synthetic"}
+	const attempts = 24
+	errs := make(chan error, attempts)
+	for i := 0; i < attempts; i++ {
+		cmd := &proto.CommandRequest{CommandId: fmt.Sprintf("synthetic-late-open-%d", i), CreatedAt: createdAt, TtlSeconds: 2}
+		lateSpec := spec
+		lateSpec.RelaySessionID = fmt.Sprintf("%s-%d", spec.RelaySessionID, i)
+		lateSpec.CameraSourceID = fmt.Sprintf("%s-%d", spec.CameraSourceID, i)
+		go func() {
+			_, err := manager.StartCommand(t.Context(), cmd, lateSpec)
+			errs <- err
+		}()
+	}
+	for i := 0; i < attempts; i++ {
+		if err := <-errs; !errors.Is(err, errRTSPDialFailed) {
+			t.Fatalf("startup outcome finished after its deadline was replaced by %v", err)
+		}
+	}
+
+	manager.sourceFactory = func(cameraRelaySessionSpec) (cameraRelayChunkStream, error) { return nil, errRTSPDialFailed }
+	cmd := &proto.CommandRequest{CommandId: "synthetic-completed-open", CreatedAt: time.Now().Unix(), TtlSeconds: 60}
+	if _, err := manager.StartCommand(t.Context(), cmd, spec); !errors.Is(err, errRTSPDialFailed) {
+		t.Fatal(err)
+	}
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+	for i := 0; i < attempts; i++ {
+		if _, err := manager.StartCommand(canceled, cmd, spec); !errors.Is(err, errRTSPDialFailed) {
+			t.Fatalf("canceled duplicate of a completed open: %v", err)
+		}
+	}
+	if len(gateway.openRequests) != attempts+1 {
+		t.Fatalf("duplicates repeated startup: opens=%d", len(gateway.openRequests))
+	}
+}
+
 func TestCameraRelayOpenAdmissionBounds(t *testing.T) {
 	for _, mode := range []string{"invalid", "expiry", "capacity"} {
 		t.Run(mode, func(t *testing.T) {

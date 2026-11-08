@@ -12,8 +12,11 @@ creation time, TTL and normalized session specification, including source,
 profile, agent, gateway, lease, plugin, address, transport and codec settings.
 Changing those values while the record is retained is a conflict. Concurrent
 duplicates wait for the first attempt; cancelling a duplicate wait does not
-cancel that attempt. Startup failures are retained too: a duplicate cannot turn
-a failed attempt into a new camera open.
+cancel that attempt. Once the attempt has finished, its outcome is returned
+even if the waiting caller was cancelled or the command deadline passed while
+the open was still running, so a slow open is never reported as a timeout
+after it started a source. Startup failures are retained too: a duplicate
+cannot turn a failed attempt into a new camera open.
 
 Open commands require a nonempty ID, positive creation time and TTL, and an
 unexpired deadline no more than five minutes away. TTLs above five minutes are

@@ -84,19 +84,28 @@ func (m *cameraRelayManager) StartCommand(ctx context.Context, cmd *proto.Comman
 	if first {
 		operation.state, operation.err = m.Start(ctx, spec)
 		close(operation.done)
+		return operation.outcome()
 	}
 	waitCtx, cancel := context.WithDeadline(ctx, operation.expiresAt)
 	defer cancel()
 	select {
 	case <-operation.done:
-		if operation.state == nil {
-			return nil, operation.err
-		}
-		state := *operation.state
-		return &state, operation.err
 	case <-waitCtx.Done():
-		return nil, waitCtx.Err()
+		select {
+		case <-operation.done:
+		default:
+			return nil, waitCtx.Err()
+		}
 	}
+	return operation.outcome()
+}
+
+func (operation *cameraRelayStartOperation) outcome() (*cameraRelaySessionState, error) {
+	if operation.state == nil {
+		return nil, operation.err
+	}
+	state := *operation.state
+	return &state, operation.err
 }
 
 func (m *cameraRelayManager) captureStartOperation(cmd *proto.CommandRequest, digest [sha256.Size]byte) (*cameraRelayStartOperation, bool, error) {

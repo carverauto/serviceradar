@@ -357,10 +357,27 @@ func TestCameraSharedRuntime(t *testing.T) {
 				}
 			}
 			checkConflict("opening")
-			// A duplicate can abandon its wait without cancelling the first open.
+			awaitOwner := func() {
+				t.Helper()
+				select {
+				case result := <-owner:
+					if result != nil {
+						t.Fatal("original open reply was not dropped")
+					}
+				case <-ctx.Done():
+					t.Fatal("original open did not finish")
+				}
+			}
+			// A duplicate can abandon a pending wait without cancelling the first
+			// open, but a completed open is reported despite the cancelled caller.
 			cancelled, cancelDuplicate := context.WithCancel(ctx)
 			cancelDuplicate()
-			if result := runtimeSendCommand(t, cancelled, loop, openRequest, false); result.Success || result.Message != context.Canceled.Error() {
+			if plugin {
+				awaitOwner()
+				if result := runtimeSendCommand(t, cancelled, loop, openRequest, false); !result.Success {
+					t.Fatalf("cancelled duplicate after startup: %v", result)
+				}
+			} else if result := runtimeSendCommand(t, cancelled, loop, openRequest, false); result.Success || result.Message != context.Canceled.Error() {
 				t.Fatalf("cancelled duplicate during startup: %v", result)
 			}
 			recovery := make(chan *proto.CommandResult, 1)
@@ -376,13 +393,8 @@ func TestCameraSharedRuntime(t *testing.T) {
 			case <-ctx.Done():
 				t.Fatal("owner failed to start")
 			}
-			select {
-			case result := <-owner:
-				if result != nil {
-					t.Fatal("original open reply was not dropped")
-				}
-			case <-ctx.Done():
-				t.Fatal("original open did not finish")
+			if !plugin {
+				awaitOwner()
 			}
 			if peer.opens.Load() != 1 || camera.opened.Load() != 1 {
 				t.Fatal("concurrent duplicate opened another ingress or camera")
