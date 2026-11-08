@@ -1186,6 +1186,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     private_key: private_key
   } do
     install_fixtures(private_key)
+    Process.put(:native_addon_recent_release_requests, 0)
     Process.put(:native_addon_release_requests, 0)
     Process.put(:native_addon_index_requests, 0)
 
@@ -1196,8 +1197,11 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
                limit: 10
              )
 
+    # Discovery reads release metadata from the recent-releases feed; the import
+    # must reuse it rather than refetching the release by tag or its index.
     assert summary.imported == 1
-    assert Process.get(:native_addon_release_requests) == 1
+    assert Process.get(:native_addon_recent_release_requests) == 1
+    assert Process.get(:native_addon_release_requests) == 0
     assert Process.get(:native_addon_index_requests) == 1
   end
 
