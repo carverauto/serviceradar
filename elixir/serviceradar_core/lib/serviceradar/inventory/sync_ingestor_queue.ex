@@ -538,7 +538,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     result = maybe_activate_source_snapshot(result, updates, sync_meta, actor)
     Logger.info("SyncIngestor result: #{inspect(result)}")
 
-    record_sync_status(updates, actor, result, sync_meta)
+    record_sync_status(updates, actor, result, sync_meta, control_failure)
     log_sync_progress("finished", updates, sync_meta, result)
 
     result
@@ -573,9 +573,9 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
   def extract_sync_control_failure(updates) when is_list(updates) do
     Enum.find_value(updates, fn
       update when is_map(update) ->
-        control = Map.get(update, "_sync_control") || Map.get(update, :_sync_control)
-        explicit_error = get_string(update, ["error", :error, "error_message", :error_message])
-        parse_sync_control_failure(control, explicit_error)
+        parse_sync_control_failure(
+          Map.get(update, "_sync_control") || Map.get(update, :_sync_control)
+        )
 
       _ ->
         nil
@@ -584,47 +584,24 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
 
   def extract_sync_control_failure(_updates), do: nil
 
-  defp parse_sync_control_failure("collection_timeout:" <> detail, explicit_error) do
-    {:timeout, non_empty_error(detail, explicit_error, "sync timed out")}
-  end
+  defp parse_sync_control_failure("collection_timeout" <> detail),
+    do: sync_control_failure(:timeout, detail, "sync timed out")
 
-  defp parse_sync_control_failure("collection_timeout", explicit_error) do
-    {:timeout, non_empty_error(explicit_error, nil, "sync timed out")}
-  end
+  defp parse_sync_control_failure("collection_failed" <> detail),
+    do: sync_control_failure(:failed, detail, "sync failed")
 
-  defp parse_sync_control_failure("timeout:" <> detail, explicit_error) do
-    {:timeout, non_empty_error(detail, explicit_error, "sync timed out")}
-  end
+  defp parse_sync_control_failure(_control), do: nil
 
-  defp parse_sync_control_failure("timeout", explicit_error) do
-    {:timeout, non_empty_error(explicit_error, nil, "sync timed out")}
-  end
+  defp sync_control_failure(kind, "", fallback), do: {kind, fallback}
 
-  defp parse_sync_control_failure("collection_failed:" <> detail, explicit_error) do
-    {:failed, non_empty_error(detail, explicit_error, "sync failed")}
-  end
-
-  defp parse_sync_control_failure("collection_failed", explicit_error) do
-    {:failed, non_empty_error(explicit_error, nil, "sync failed")}
-  end
-
-  defp parse_sync_control_failure("failed:" <> detail, explicit_error) do
-    {:failed, non_empty_error(detail, explicit_error, "sync failed")}
-  end
-
-  defp parse_sync_control_failure("failed", explicit_error) do
-    {:failed, non_empty_error(explicit_error, nil, "sync failed")}
-  end
-
-  defp parse_sync_control_failure(_control, _explicit_error), do: nil
-
-  defp non_empty_error(primary, secondary, fallback) do
-    cond do
-      is_binary(primary) and String.trim(primary) != "" -> String.trim(primary)
-      is_binary(secondary) and String.trim(secondary) != "" -> String.trim(secondary)
-      true -> fallback
+  defp sync_control_failure(kind, ":" <> detail, fallback) do
+    case String.trim(detail) do
+      "" -> {kind, fallback}
+      message -> {kind, message}
     end
   end
+
+  defp sync_control_failure(_kind, _detail, _fallback), do: nil
 
   defp do_ingest_results(message) do
     case decode_results(message) do
@@ -637,10 +614,11 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     end
   end
 
-  defp record_sync_status(updates, actor, ingest_result, sync_meta) do
+  defp record_sync_status(updates, actor, ingest_result, sync_meta, control_failure) do
     sync_service_id = extract_sync_service_id(updates, sync_meta)
 
-    if should_record_sync_status?(sync_meta, ingest_result) do
+    if should_record_sync_status?(sync_meta, control_failure) and
+         not SyncRunLedger.superseded?(sync_meta) do
       with_sync_service(sync_service_id, actor, fn source ->
         device_count =
           case ingest_result do
@@ -667,7 +645,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
   defp record_sync_start(updates, actor, sync_meta) do
     sync_service_id = extract_sync_service_id(updates, sync_meta)
 
-    if should_record_sync_start?(sync_meta) do
+    if should_record_sync_start?(sync_meta) and not SyncRunLedger.superseded?(sync_meta) do
       with_sync_service(sync_service_id, actor, fn source ->
         action_attrs = %{device_count: sync_device_count(updates, sync_meta)}
         update_sync_source(source, actor, :sync_start, action_attrs, sync_service_id, "start")
@@ -729,7 +707,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     end
   end
 
-  defp failure_result({kind, _message}) when kind in [:timeout, :timed_out], do: :timeout
+  defp failure_result({:timeout, _message}), do: :timeout
   defp failure_result({:failed, _message}), do: :failed
 
   defp failure_result(reason) do
@@ -872,10 +850,10 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     end
   end
 
-  defp should_record_sync_status?(_sync_meta, {:error, _reason}), do: true
+  defp should_record_sync_status?(_sync_meta, {kind, _message}) when kind in [:timeout, :failed],
+    do: true
 
-  defp should_record_sync_status?(sync_meta, _ingest_result),
-    do: should_record_sync_status?(sync_meta)
+  defp should_record_sync_status?(sync_meta, nil), do: should_record_sync_status?(sync_meta)
 
   defp should_record_sync_status?(sync_meta) do
     cond do

@@ -600,7 +600,7 @@ func syncFailureControlValue(err error) string {
 		return prefix
 	}
 	if len(msg) > syncControlErrorMaxBytes {
-		msg = msg[:syncControlErrorMaxBytes]
+		msg = strings.ToValidUTF8(msg[:syncControlErrorMaxBytes], "")
 	}
 
 	return prefix + ":" + msg

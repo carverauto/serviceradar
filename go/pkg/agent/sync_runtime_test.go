@@ -22,14 +22,17 @@ import (
 	"fmt"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/carverauto/serviceradar/go/pkg/agent/syncsources"
 	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	"github.com/carverauto/serviceradar/go/pkg/models"
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 // fakeSyncSourceType is an integration-neutral source type registered only in
@@ -538,4 +541,16 @@ func TestClaimInitialSyncRunAllowsChangedConfigHash(t *testing.T) {
 	if !claimed {
 		t.Fatal("changed config hash should run immediately")
 	}
+}
+
+func TestSyncFailureControlValueTruncatesUpstreamErrorToMarshalableUTF8(t *testing.T) {
+	upstream := errors.New(strings.Repeat("a", syncControlErrorMaxBytes-1) + strings.Repeat("é", 8))
+
+	value := syncFailureControlValue(upstream)
+
+	require.True(t, utf8.ValidString(value))
+	require.Equal(t, syncCollectionFailed+":"+strings.Repeat("a", syncControlErrorMaxBytes-1), value)
+
+	_, err := proto.Marshal(&edgev1.SyncControlMarkerV1{ControlType: value})
+	require.NoError(t, err)
 }

@@ -536,6 +536,56 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueDbTest do
              "partial armis sync after streaming 1 devices: context deadline exceeded"
   end
 
+  test "a redelivered failure marker from an older run does not overwrite a newer run's status",
+       %{source: source} do
+    actor = SystemActor.system(:sync_queue_regression)
+    older_run = "older-#{Ecto.UUID.generate()}"
+
+    timeout_marker =
+      Jason.encode!([
+        %{
+          "_sync_control" => "collection_timeout:context deadline exceeded",
+          "timestamp" => "2026-09-01T08:00:00Z",
+          "sync_meta" => %{
+            "sync_service_id" => source.id,
+            "sync_run_id" => older_run,
+            "chunk_index" => 0,
+            "total_chunks" => 0,
+            "total_devices" => 0,
+            "is_final" => false
+          }
+        }
+      ])
+
+    assert {:error, {:timeout, "context deadline exceeded"}} =
+             SyncIngestorQueue.ingest_sync_results(timeout_marker)
+
+    {:ok, failed_source} = IntegrationSource.get_by_id(source.id, actor: actor)
+    assert failed_source.sync_status == :failed
+
+    newer_run = "newer-#{Ecto.UUID.generate()}"
+
+    assert :ok =
+             SyncIngestorQueue.ingest_sync_results(
+               Jason.encode!([
+                 device_update(source.id, newer_run, 103, 0, 1, true, population(1))
+               ])
+             )
+
+    {:ok, synced_source} = IntegrationSource.get_by_id(source.id, actor: actor)
+    assert synced_source.sync_status == :success
+
+    assert {:error, {:timeout, "context deadline exceeded"}} =
+             SyncIngestorQueue.ingest_sync_results(timeout_marker)
+
+    {:ok, after_redelivery} = IntegrationSource.get_by_id(source.id, actor: actor)
+    assert after_redelivery.sync_status == :success
+    assert after_redelivery.last_sync_result == synced_source.last_sync_result
+    assert after_redelivery.last_error_message == synced_source.last_error_message
+    assert after_redelivery.consecutive_failures == synced_source.consecutive_failures
+    assert after_redelivery.total_syncs == synced_source.total_syncs
+  end
+
   def forward_repo_query(_event, _measurements, _metadata, test_pid) do
     send(test_pid, {:repo_query_pid, self()})
   end

@@ -24,6 +24,32 @@ defmodule ServiceRadar.Inventory.SyncRunLedger do
     end
   end
 
+  def superseded?(meta) do
+    case identity(meta) do
+      {:ok, source, run} ->
+        %{rows: [[superseded]]} =
+          Repo.query!(
+            """
+            SELECT EXISTS (
+              SELECT 1
+              FROM platform.sync_ingest_runs AS current_run
+              JOIN platform.sync_ingest_runs AS newer_run
+                ON newer_run.sync_service_id = current_run.sync_service_id
+               AND newer_run.sync_run_id <> current_run.sync_run_id
+               AND newer_run.inserted_at > current_run.inserted_at
+              WHERE current_run.sync_service_id = $1 AND current_run.sync_run_id = $2
+            )
+            """,
+            [Ecto.UUID.dump!(source), run]
+          )
+
+        superseded
+
+      {:error, _} ->
+        false
+    end
+  end
+
   defp record(metas, rejected) do
     Enum.reduce_while(metas, :ok, fn meta, :ok ->
       case identity(meta) do
