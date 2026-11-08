@@ -184,6 +184,10 @@ spec:
       # instead of being orphaned `executing` (see core.obanShutdownGracePeriodSeconds).
       terminationGracePeriodSeconds: {{ $coreTerminationGrace }}
       {{- include "serviceradar.elixirReleasePodSecurityContext" . | nindent 6 }}
+      {{- if $migrationsEnabled }}
+      initContainers:
+      {{- include "serviceradar.waitMigrationsInitContainer" . | nindent 6 }}
+      {{- end }}
       containers:
       - name: core-elx
         image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-core-elx" "service" "core") }}
