@@ -55,5 +55,6 @@ If the same device matches multiple Armis queries, `metadata.query_label` reflec
 ## Troubleshooting
 
 - Authentication failures usually mean expired client secrets—rotate them in the integration config and confirm the agent is online.
+- An unreachable or unresponsive Armis API no longer holds a sync open. Each API request is bounded at 30 seconds (10 seconds to connect) and a whole sync run at 10 minutes; when either limit is hit the run is aborted and the source reports a last sync result of `timeout` (or `failed` for other errors) with the error message, and the next scheduled run proceeds normally.
 - Large accounts may hit rate limits; tune `page_size` and enable incremental sync by storing the `last_seen` cursor.
 - For ingestion gaps, consult the [Troubleshooting Guide](./troubleshooting-guide.md#armis) and cross-check Faker vs. production statistics.
