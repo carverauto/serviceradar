@@ -12,8 +12,13 @@ defmodule ServiceRadar.Edge.ContractRegistryDbTest do
   alias ServiceRadar.Edge.ContractRegistry
   alias ServiceRadar.Edge.ContractRegistryEpoch
   alias ServiceRadar.Edge.ContractRegistryEpochDocument, as: EpochDocument
+  alias ServiceRadar.Edge.DeliveryGrants
   alias ServiceRadar.Edge.IssuerKey
+  alias ServiceRadar.Edge.OutputGrants
   alias ServiceRadar.Repo
+  alias ServiceRadar.SweepJobs.ExecutionSlots
+  alias ServiceRadar.SweepJobs.ProducerAssignments
+  alias ServiceRadar.SweepJobs.SweepGroup
 
   require Ash.Query
 
@@ -74,6 +79,188 @@ defmodule ServiceRadar.Edge.ContractRegistryDbTest do
     assert {:ok, %{role: :superseded, epoch: nil}} = boot(:b, 3)
     assert {:ok, %{role: :active, epoch: 1_000_000}} = boot(:a, 3)
     assert length(rows()) == 3
+  end
+
+  # What the live components hold: core nodes running `core`'s catalog, and gateways each
+  # holding the listed epochs.
+  defp readiness(core, gateways, unreachable \\ []) do
+    %{
+      core_nodes:
+        Enum.map(core, fn {node, release} ->
+          %{node: node, snapshot_sha256: release(release).snapshot_sha256}
+        end),
+      unreachable_nodes: unreachable,
+      gateways:
+        Enum.map(gateways, fn
+          {id, nil} ->
+            %{gateway_id: id, installed: nil}
+
+          {id, held} ->
+            %{
+              gateway_id: id,
+              installed:
+                Enum.map(held, fn {epoch, release} ->
+                  %{epoch: epoch, snapshot_sha256: release(release).snapshot_sha256}
+                end)
+            }
+        end)
+    }
+  end
+
+  defp evaluate(readiness, minutes),
+    do:
+      ContractRegistry.evaluate_transition(readiness, @key, DateTime.shift(@t0, minute: minutes))
+
+  test "a later candidate activates only once every live core node and gateway holds it" do
+    {:ok, _} = boot(:a)
+    {:ok, %{role: :candidate, epoch: candidate}} = boot(:b, 1)
+    holds_both = [{1_000_000, :a}, {candidate, :b}]
+
+    # Each missing piece keeps epoch 1_000_000 active and names what blocks the candidate.
+    for {not_ready, blocker} <- [
+          {readiness([{"core-1", :b}, {"core-2", :a}], [{"gw-1", holds_both}]),
+           {:core_node, "core-2", :other_catalog}},
+          {readiness([{"core-1", :b}], [{"gw-1", holds_both}, {"gw-2", [{1_000_000, :a}]}]),
+           {:gateway, "gw-2", :candidate_not_installed}},
+          {readiness([{"core-1", :b}], [{"gw-1", nil}]), {:gateway, "gw-1", :no_report}},
+          {readiness([{"core-1", :b}], [], ["gateway@node"]),
+           {:node_unreachable, "gateway@node"}},
+          {readiness([], []), :no_core_node}
+        ] do
+      assert {:ok, {:waiting, ^candidate, blockers}} = evaluate(not_ready, 2)
+      assert blocker in blockers
+      assert [{1_000_000, :active, true}, {^candidate, :candidate, false}] = rows()
+    end
+
+    assert {:ok, {:activated, ^candidate, 1_000_000}} =
+             evaluate(readiness([{"core-1", :b}], [{"gw-1", holds_both}]), 3)
+
+    assert [{1_000_000, :draining, true}, {^candidate, :active, true}] = rows()
+
+    assert {:ok, view} = ContractRegistry.view(@key)
+    assert {:ok, active} = ContractRegistry.active_epoch(view)
+    assert active.snapshot_sha256 == release(:b).snapshot_sha256
+
+    # The old epoch stays in the trust document while it drains, so its backlog is admitted.
+    assert {:ok, %{"epochs" => epochs}} = ContractRegistry.trust_member(@key)
+
+    assert Enum.map(epochs, &{&1["registry_epoch"], &1["state"]}) == [
+             {1_000_000, "draining"},
+             {candidate, "active"}
+           ]
+
+    # With no open sweep slot, it drains for a standing grant's lifetime plus a delivery grant's.
+    drained =
+      Ash.get!(ContractRegistryEpoch, 1_000_000, actor: SystemActor.system(:registry_test))
+
+    activated_at = DateTime.shift(@t0, minute: 3)
+
+    assert drained.drain_until ==
+             DateTime.shift(
+               activated_at,
+               second: OutputGrants.max_lifetime_seconds() + DeliveryGrants.ttl_seconds()
+             )
+
+    minutes_to_drain = div(DateTime.diff(drained.drain_until, @t0, :second), 60)
+    assert {:ok, :no_candidate} = evaluate(readiness([{"core-1", :b}], []), minutes_to_drain - 1)
+    assert [{1_000_000, :draining, true}, {^candidate, :active, true}] = rows()
+
+    assert {:ok, :no_candidate} = evaluate(readiness([{"core-1", :b}], []), minutes_to_drain + 1)
+    assert [{1_000_000, :retired, true}, {^candidate, :active, true}] = rows()
+  end
+
+  test "a draining epoch outlives drain_until while a sweep slot leased as it activated is open" do
+    # Slot rows carry the database's insert time, so this test runs on the wall clock.
+    base = DateTime.utc_now()
+    {:ok, _} = ContractRegistry.ensure_epoch(release(:a), @key, base)
+    {:ok, %{epoch: candidate}} = ContractRegistry.ensure_epoch(release(:b), @key, base)
+    core_on_b = readiness([{"core-1", :b}], [])
+
+    assert {:ok, {:activated, ^candidate, 1_000_000}} =
+             ContractRegistry.evaluate_transition(core_on_b, @key, base)
+
+    drain_until =
+      Ash.get!(ContractRegistryEpoch, 1_000_000, actor: SystemActor.system(:registry_test)).drain_until
+
+    # A lease pass that read the old epoch before activation commits its slot just after it,
+    # with a collection window the activation's horizon never saw.
+    collection_expires = DateTime.shift(drain_until, day: 10)
+    lease_slot!(DateTime.shift(collection_expires, minute: -5), collection_expires)
+
+    assert {:ok, :no_candidate} =
+             ContractRegistry.evaluate_transition(
+               core_on_b,
+               @key,
+               DateTime.shift(drain_until, minute: 1)
+             )
+
+    assert [{1_000_000, :draining, true}, {^candidate, :active, true}] = rows()
+
+    assert {:ok, :no_candidate} =
+             ContractRegistry.evaluate_transition(
+               core_on_b,
+               @key,
+               DateTime.shift(collection_expires, minute: 1)
+             )
+
+    assert [{1_000_000, :retired, true}, {^candidate, :active, true}] = rows()
+  end
+
+  defp lease_slot!(slot_start, collection_expires) do
+    suffix = System.unique_integer([:positive, :monotonic])
+    actor = %{id: Ash.UUID.generate(), email: "operator-#{suffix}@example.test", role: :operator}
+
+    # Disabled, so creating it schedules no Oban worker and the test can run async.
+    group =
+      SweepGroup
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Registry drain #{suffix}",
+          partition: "default",
+          interval: "15m",
+          enabled: false,
+          agent_ids: [],
+          static_targets: ["192.0.2.0/24"]
+        },
+        actor: actor
+      )
+      |> Ash.create!()
+
+    {:ok, assignment} = ProducerAssignments.ensure(group.id, "agent-a", Ash.UUID.generate())
+
+    {:ok, slot} =
+      ExecutionSlots.schedule(assignment, slot_start, collection_expires,
+        targets: ["198.51.100.5"],
+        check_set_sha256: :crypto.hash(:sha256, "checks"),
+        lease_id: Ash.UUID.generate()
+      )
+
+    slot
+  end
+
+  test "a candidate no live core node runs is retired unactivated after a full grant window" do
+    {:ok, _} = boot(:a)
+    {:ok, %{epoch: candidate}} = boot(:b, 1)
+    rolled_back = readiness([{"core-1", :a}], [])
+    window_minutes = div(OutputGrants.max_lifetime_seconds(), 60)
+
+    assert {:ok, {:waiting, ^candidate, _blockers}} = evaluate(rolled_back, window_minutes)
+    assert [{1_000_000, :active, true}, {^candidate, :candidate, false}] = rows()
+
+    assert {:ok, {:abandoned, ^candidate}} = evaluate(rolled_back, window_minutes + 2)
+    assert [{1_000_000, :active, true}, {^candidate, :retired, false}] = rows()
+  end
+
+  test "a candidate a live core node still runs is kept past the grant window" do
+    {:ok, _} = boot(:a)
+    {:ok, %{epoch: candidate}} = boot(:b, 1)
+    window_minutes = div(OutputGrants.max_lifetime_seconds(), 60)
+    mixed = readiness([{"core-1", :a}, {"core-2", :b}], [])
+
+    assert {:ok, {:waiting, ^candidate, _}} = evaluate(mixed, window_minutes)
+    assert {:ok, {:waiting, ^candidate, _}} = evaluate(mixed, 2 * window_minutes)
+    assert [{1_000_000, :active, true}, {^candidate, :candidate, false}] = rows()
   end
 
   test "a catalog whose candidate was abandoned is inserted again when no candidate exists" do

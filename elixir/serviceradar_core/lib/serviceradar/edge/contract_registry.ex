@@ -31,13 +31,31 @@ defmodule ServiceRadar.Edge.ContractRegistry do
   `ServiceRadar.Edge.ContractRegistryNode`. Only a view this node has just loaded and verified
   is written there, and it never leaves the node's memory.
   Elsewhere (and in tests) every read loads and verifies.
+
+  ## Transition
+
+  The coordinator (`ServiceRadar.Edge.ContractRegistryTransition`) moves a later candidate to
+  active through `evaluate_transition/3`, never on a timeout. It activates the candidate only when
+  every live core node runs the candidate's catalog and every live gateway reports holding the
+  candidate (`candidate_blockers/2`). One transaction moves the active epoch to `draining` and
+  the candidate to `active`; agents receive grants under the new epoch on their next config
+  poll. The old epoch drains until nothing signed under it can still be valid
+  (`drain_until/2`), and is then retired, which drops it from the trust document. Past
+  `drain_until` it retires only once no scheduled sweep slot that may have been leased under it,
+  one inserted before an hour after it started draining, still has an open collection window: a
+  lease pass racing the activation can sign a slot the activation's horizon did not see. While
+  a live core node still runs the candidate's catalog its `last_matched_at` is refreshed; a
+  candidate no live core node has matched for a full capability window is retired unactivated,
+  so a rolled-back release leaves the active epoch in place.
   """
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.ContractBundle
   alias ServiceRadar.Edge.ContractRegistryEpoch
   alias ServiceRadar.Edge.ContractRegistryEpochDocument
+  alias ServiceRadar.Edge.DeliveryGrants
   alias ServiceRadar.Edge.IssuerKey
+  alias ServiceRadar.Edge.OutputGrants
   alias ServiceRadar.Repo
 
   require Ash.Query
@@ -52,6 +70,29 @@ defmodule ServiceRadar.Edge.ContractRegistry do
   @max_epoch_rows 1_000
   @max_report_epochs 64
   @max_gateway_id_bytes 256
+  # A candidate's last_matched_at is rewritten at most this often while a node still matches it.
+  @touch_interval_seconds 3_600
+  # A sweep slot inserted up to this long after an epoch started draining may still have been
+  # leased under it: another core's registry view is cached for five seconds, and a lease pass
+  # that read the old epoch before activation can still be inserting its slots.
+  @lease_margin_seconds 3_600
+
+  @type readiness :: %{
+          core_nodes: [%{node: String.t(), snapshot_sha256: binary()}],
+          unreachable_nodes: [String.t()],
+          gateways: [%{gateway_id: String.t(), installed: [map()] | nil}]
+        }
+  @type blocker ::
+          {:core_node, String.t(), :other_catalog}
+          | {:node_unreachable, String.t()}
+          | {:gateway, String.t(), :candidate_not_installed | :no_report}
+          | :no_core_node
+          | {:candidate_signature_invalid, atom()}
+  @type transition ::
+          :no_candidate
+          | {:activated, pos_integer(), pos_integer() | nil}
+          | {:waiting, pos_integer(), [blocker()]}
+          | {:abandoned, pos_integer()}
 
   @type epoch ::
           ContractRegistryEpochDocument.t()
@@ -288,6 +329,216 @@ defmodule ServiceRadar.Edge.ContractRegistry do
 
   defp abandoned?(%{state: :retired, activated_at: nil}), do: true
   defp abandoned?(_row), do: false
+
+  # --- transition -------------------------------------------------------------------------
+
+  @doc """
+  What keeps `candidate` from activating, given what the live components hold; `[]` means it is
+  ready. Every live core node must run the candidate's catalog (and at least one must be live),
+  no connected node may be unreachable, and every live gateway must report holding the candidate.
+  """
+  @spec candidate_blockers(%{epoch: pos_integer(), snapshot_sha256: binary()}, readiness()) ::
+          [blocker()]
+  def candidate_blockers(%{epoch: epoch, snapshot_sha256: snapshot}, readiness) do
+    core =
+      for %{node: node, snapshot_sha256: digest} <- readiness.core_nodes,
+          digest != snapshot,
+          do: {:core_node, node, :other_catalog}
+
+    no_core = if readiness.core_nodes == [], do: [:no_core_node], else: []
+    unreachable = for node <- readiness.unreachable_nodes, do: {:node_unreachable, node}
+
+    gateways =
+      for %{gateway_id: id, installed: installed} <- readiness.gateways,
+          blocker = gateway_blocker(installed, epoch, snapshot),
+          do: {:gateway, id, blocker}
+
+    no_core ++ core ++ unreachable ++ gateways
+  end
+
+  defp gateway_blocker(nil, _epoch, _snapshot), do: :no_report
+
+  defp gateway_blocker(installed, epoch, snapshot) do
+    if Enum.any?(installed, &(&1.epoch == epoch and &1.snapshot_sha256 == snapshot)),
+      do: nil,
+      else: :candidate_not_installed
+  end
+
+  @doc """
+  Advances the registry one step from `readiness` (see the moduledoc): retires every draining
+  epoch past its `drain_until`, then activates the candidate when nothing blocks it, refreshes
+  its `last_matched_at` while a live core node runs it, or retires it unactivated once no live
+  core node has matched it for a full capability window. Runs under the epoch lock, so replicas
+  that race each other apply it once.
+  """
+  @spec evaluate_transition(readiness(), IssuerKey.t(), DateTime.t()) ::
+          {:ok, transition()} | {:error, term()}
+  def evaluate_transition(readiness, %IssuerKey{} = key, now \\ DateTime.utc_now()) do
+    result =
+      Repo.transact(fn ->
+        with {:ok, _} <- Repo.query("SELECT pg_advisory_xact_lock($1)", [@epoch_lock_key]),
+             {:ok, rows} <- read_rows(all_query()),
+             {:ok, retired} <- retire_drained(rows, now),
+             {:ok, outcome, changed} <- advance_candidate(rows, readiness, key, now) do
+          {:ok, {outcome, retired ++ changed}}
+        end
+      end)
+
+    invalidate()
+
+    with {:ok, {outcome, notifications}} <- result do
+      _ = Ash.Notifier.notify(notifications)
+      {:ok, outcome}
+    end
+  end
+
+  @doc """
+  When an epoch that stops being active at `now` can retire: once every standing grant signed
+  under it has expired (`ServiceRadar.Edge.OutputGrants.max_lifetime_seconds/0`) and every sweep
+  slot leased under it has closed its collection window, plus the delivery-grant lifetime, so a
+  record spooled under it can still be delivered. `slot_horizon` is the latest collection window
+  end of a leased slot still open at `now`, or nil. This is a lower bound: retirement also waits
+  for any slot leased under the epoch after `now` (see "Transition" in the moduledoc).
+  """
+  @spec drain_until(DateTime.t(), DateTime.t() | nil) :: DateTime.t()
+  def drain_until(now, slot_horizon) do
+    grants = DateTime.shift(now, second: OutputGrants.max_lifetime_seconds())
+
+    horizon =
+      if slot_horizon && DateTime.after?(slot_horizon, grants),
+        do: slot_horizon,
+        else: grants
+
+    DateTime.shift(horizon, second: DeliveryGrants.ttl_seconds())
+  end
+
+  defp retire_drained(rows, now) do
+    rows
+    |> Enum.filter(&(&1.state == :draining and DateTime.compare(&1.drain_until, now) != :gt))
+    |> Enum.reduce_while({:ok, []}, fn row, {:ok, acc} ->
+      with {:ok, false} <- open_slot_leased_under?(row, now),
+           {:ok, notifications} <- update_row(row, :retire, %{retired_at: now}) do
+        Logger.info("Edge contract registry epoch #{row.epoch} retired after draining",
+          registry_epoch: row.epoch
+        )
+
+        {:cont, {:ok, acc ++ notifications}}
+      else
+        {:ok, true} -> {:cont, {:ok, acc}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp open_slot_leased_under?(row, now) do
+    sql = """
+    SELECT EXISTS (
+      SELECT 1
+      FROM platform.sweep_execution_slots
+      WHERE state = 'scheduled' AND collection_expires > $1 AND inserted_at <= $2
+    )
+    """
+
+    leased_before = DateTime.shift(row.draining_since, second: @lease_margin_seconds)
+
+    case Repo.query(sql, [now, leased_before]) do
+      {:ok, %{rows: [[open?]]}} -> {:ok, open?}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp advance_candidate(rows, readiness, key, now) do
+    case Enum.find(rows, &(&1.state == :candidate)) do
+      nil -> {:ok, :no_candidate, []}
+      candidate -> advance(candidate, rows, readiness, key, now)
+    end
+  end
+
+  defp advance(candidate, rows, readiness, key, now) do
+    blockers = signature_blockers(candidate, key) ++ candidate_blockers(candidate, readiness)
+    matched? = Enum.any?(readiness.core_nodes, &(&1.snapshot_sha256 == candidate.snapshot_sha256))
+
+    cond do
+      blockers == [] ->
+        activate_candidate(candidate, rows, now)
+
+      matched? ->
+        with {:ok, notifications} <- touch_matched(candidate, now),
+             do: {:ok, {:waiting, candidate.epoch, blockers}, notifications}
+
+      abandoned_window_passed?(candidate, now) ->
+        with {:ok, notifications} <- retire_unactivated(candidate, now),
+             do: {:ok, {:abandoned, candidate.epoch}, notifications}
+
+      true ->
+        {:ok, {:waiting, candidate.epoch, blockers}, []}
+    end
+  end
+
+  defp signature_blockers(candidate, key) do
+    case verify_row(candidate, %{key.key_id => key.public_key}) do
+      {:ok, _epoch} -> []
+      {:error, reason} -> [{:candidate_signature_invalid, reason}]
+    end
+  end
+
+  # The old active epoch moves to draining first: at most one row may be active.
+  defp activate_candidate(candidate, rows, now) do
+    previous = Enum.find(rows, &(&1.state == :active))
+
+    with {:ok, horizon} <- leased_slot_horizon(now),
+         drain_until = drain_until(now, horizon),
+         {:ok, drained} <- start_draining(previous, now, drain_until),
+         {:ok, activated} <- update_row(candidate, :activate, %{activated_at: now}) do
+      Logger.info(
+        "Edge contract registry epoch #{candidate.epoch} activated" <>
+          if(previous, do: "; epoch #{previous.epoch} drains until #{drain_until}", else: ""),
+        registry_epoch: candidate.epoch
+      )
+
+      {:ok, {:activated, candidate.epoch, previous && previous.epoch}, drained ++ activated}
+    end
+  end
+
+  defp start_draining(nil, _now, _drain_until), do: {:ok, []}
+
+  defp start_draining(row, now, drain_until),
+    do: update_row(row, :start_draining, %{draining_since: now, drain_until: drain_until})
+
+  # Only a rewrite at most hourly: the window it guards is days long.
+  defp touch_matched(candidate, now) do
+    if DateTime.diff(now, candidate.last_matched_at, :second) >= @touch_interval_seconds,
+      do: update_row(candidate, :touch_matched, %{last_matched_at: now}),
+      else: {:ok, []}
+  end
+
+  defp abandoned_window_passed?(candidate, now),
+    do:
+      DateTime.diff(now, candidate.last_matched_at, :second) > OutputGrants.max_lifetime_seconds()
+
+  # The latest collection window end among scheduled sweep slots still open. Every slot is
+  # leased when it is scheduled, so these were leased under the active epoch and records for
+  # them can still arrive signed under it.
+  defp leased_slot_horizon(now) do
+    sql = """
+    SELECT max(collection_expires)
+    FROM platform.sweep_execution_slots
+    WHERE state = 'scheduled' AND collection_expires > $1
+    """
+
+    case Repo.query(sql, [now]) do
+      {:ok, %{rows: [[horizon]]}} -> {:ok, horizon}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp update_row(row, action, params) do
+    with {:ok, _row, notifications} <-
+           row
+           |> Ash.Changeset.for_update(action, params, actor: actor())
+           |> Ash.update(return_notifications?: true),
+         do: {:ok, notifications}
+  end
 
   # --- gateway installation reports -------------------------------------------------------
 

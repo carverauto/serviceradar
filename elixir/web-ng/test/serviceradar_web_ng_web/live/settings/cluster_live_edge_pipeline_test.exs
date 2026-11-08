@@ -219,6 +219,48 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveEdgePipelineTest do
     end
   end
 
+  test "a waiting registry candidate is shown with every component that blocks it" do
+    start_supervised!(PipelineStats)
+    PipelineStats.record(:projected, {"serviceradar.sweep.observation", 1})
+
+    # No node here runs the transition coordinator, so there is nothing to report and no notice.
+    stats = EdgePipeline.stats_for_mount(true)
+    assert stats.registry == nil
+    refute render_component(&EdgePipeline.panel/1, stats: stats) =~ "cluster-edge-pipeline-registry"
+
+    waiting = %{
+      outcome:
+        {:waiting, 1_000_007,
+         [
+           {:core_node, "core-b@host02.example.com", :other_catalog},
+           {:gateway, "gw-2", :candidate_not_installed},
+           {:gateway, "gw-3", :no_report},
+           {:node_unreachable, "gateway@host03.example.com"}
+         ]},
+      evaluated_at: DateTime.utc_now()
+    }
+
+    html = render_component(&EdgePipeline.panel/1, stats: %{stats | registry: waiting})
+    [notice] = cells(html, "#cluster-edge-pipeline-registry")
+
+    for named <- ["1000007", "core-b@host02.example.com", "gw-2", "gw-3", "gateway@host03.example.com"] do
+      assert notice =~ named
+    end
+
+    failed = %{outcome: {:error, "connection refused"}, evaluated_at: DateTime.utc_now()}
+
+    html = render_component(&EdgePipeline.panel/1, stats: %{stats | registry: failed})
+    [notice] = cells(html, "#cluster-edge-pipeline-registry")
+
+    assert notice =~ "connection refused"
+
+    # An activation, or no candidate at all, is not a condition to warn about.
+    for outcome <- [{:activated, 1_000_007, 1_000_000}, :no_candidate] do
+      html = render_component(&EdgePipeline.panel/1, stats: %{stats | registry: %{outcome: outcome}})
+      refute html =~ "cluster-edge-pipeline-registry"
+    end
+  end
+
   defp cells(html, selector) do
     html
     |> LazyHTML.from_fragment()
