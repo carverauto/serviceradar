@@ -43,6 +43,9 @@ const fakeSyncSourceType = "synthetic"
 
 var (
 	errFakeSyncDriverFailed = errors.New("fake sync driver failed")
+	// errLongMultibyteUpstream crosses syncControlErrorMaxBytes inside a
+	// multi-byte rune.
+	errLongMultibyteUpstream = errors.New(strings.Repeat("a", syncControlErrorMaxBytes-1) + strings.Repeat("é", 8))
 )
 
 // fakeSyncDrivers is the driver registry of a test runtime: the synthetic driver only.
@@ -544,9 +547,7 @@ func TestClaimInitialSyncRunAllowsChangedConfigHash(t *testing.T) {
 }
 
 func TestSyncFailureControlValueTruncatesUpstreamErrorToMarshalableUTF8(t *testing.T) {
-	upstream := errors.New(strings.Repeat("a", syncControlErrorMaxBytes-1) + strings.Repeat("é", 8))
-
-	value := syncFailureControlValue(upstream)
+	value := syncFailureControlValue(errLongMultibyteUpstream)
 
 	require.True(t, utf8.ValidString(value))
 	require.Equal(t, syncCollectionFailed+":"+strings.Repeat("a", syncControlErrorMaxBytes-1), value)

@@ -1096,7 +1096,7 @@ func TestSyncFailsPromptlyAtPerSyncDeadlineWhenEndpointStallsMidRun(t *testing.T
 	}
 
 	var count int
-	err := returnsWithin(t, 5*time.Second, func() error {
+	err := returnsWithin(t, func() error {
 		var syncErr error
 		count, syncErr = driver.Sync(context.Background(), run)
 		return syncErr

@@ -49,8 +49,13 @@ func stalledServer(t *testing.T) *httptest.Server {
 	return server
 }
 
-// returnsWithin fails the test, instead of hanging it, when call outlives limit.
-func returnsWithin(t *testing.T, limit time.Duration, call func() error) error {
+// returnsWithinLimit bounds how long a request under test may block before the
+// test fails instead of hanging.
+const returnsWithinLimit = 5 * time.Second
+
+// returnsWithin fails the test, instead of hanging it, when call outlives
+// returnsWithinLimit.
+func returnsWithin(t *testing.T, call func() error) error {
 	t.Helper()
 
 	done := make(chan error, 1)
@@ -59,8 +64,8 @@ func returnsWithin(t *testing.T, limit time.Duration, call func() error) error {
 	select {
 	case err := <-done:
 		return err
-	case <-time.After(limit):
-		t.Fatalf("Armis request still blocked after %s", limit)
+	case <-time.After(returnsWithinLimit):
+		t.Fatalf("Armis request still blocked after %s", returnsWithinLimit)
 		return nil
 	}
 }
@@ -70,7 +75,7 @@ func TestStalledArmisRequestFailsAtTheClientTimeout(t *testing.T) {
 	apiClient := newClientWithTimeout(models.SourceConfig{Endpoint: server.URL}, 200*time.Millisecond)
 	defer apiClient.close()
 
-	err := returnsWithin(t, 5*time.Second, func() error {
+	err := returnsWithin(t, func() error {
 		_, err := apiClient.accessToken(context.Background(), map[string]string{"secret_key": "synthetic"})
 		return err
 	})
@@ -89,7 +94,7 @@ func TestStalledArmisRequestHonorsAShorterContextDeadline(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 
-	err := returnsWithin(t, 5*time.Second, func() error {
+	err := returnsWithin(t, func() error {
 		_, err := apiClient.search(ctx, "synthetic-token", testDeviceQuery, 0, 10)
 		return err
 	})
@@ -126,7 +131,7 @@ func TestDefaultArmisClientHasARequestTimeout(t *testing.T) {
 }
 
 func TestStalledTLSHandshakeFailsAtHandshakeTimeout(t *testing.T) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
@@ -158,7 +163,7 @@ func TestStalledTLSHandshakeFailsAtHandshakeTimeout(t *testing.T) {
 	)
 	defer apiClient.close()
 
-	err = returnsWithin(t, 5*time.Second, func() error {
+	err = returnsWithin(t, func() error {
 		_, reqErr := apiClient.accessToken(context.Background(), map[string]string{"secret_key": "synthetic"})
 		return reqErr
 	})
@@ -191,7 +196,7 @@ func TestStreamingBodyStallFailsAtRequestTimeoutAfterHeadersArrive(t *testing.T)
 	apiClient := newClientWithTimeout(models.SourceConfig{Endpoint: server.URL}, 200*time.Millisecond)
 	defer apiClient.close()
 
-	err := returnsWithin(t, 5*time.Second, func() error {
+	err := returnsWithin(t, func() error {
 		_, reqErr := apiClient.accessToken(context.Background(), map[string]string{"secret_key": "synthetic"})
 		return reqErr
 	})
