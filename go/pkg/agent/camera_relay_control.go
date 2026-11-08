@@ -11,8 +11,9 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
-// Observations live only until the original command deadline. They are not a
-// durable retirement journal and must never authorize a replacement source.
+// Open receipts and stop observations live only until the original command
+// deadline. They are not a durable retirement journal and must never authorize
+// a replacement source.
 const (
 	maxCameraRelayStartOperations = 4096
 	maxCameraRelayStopOperations  = 4096
