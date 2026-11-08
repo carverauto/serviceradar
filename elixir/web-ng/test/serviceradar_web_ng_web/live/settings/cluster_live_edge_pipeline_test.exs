@@ -23,7 +23,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveEdgePipelineTest do
     PipelineStats.record(:gateway_admitted, {"serviceradar.sweep.observation", 1}, 4)
     PipelineStats.record(:projected, {"serviceradar.sweep.observation", 1}, 3)
     PipelineStats.record(:failed, {"serviceradar.sweep.observation", 1})
-    PipelineStats.record(:dead_lettered, {"serviceradar.sweep.observation", 1})
+    PipelineStats.record_dead_letter({"serviceradar.sweep.observation", 1}, "output_grant_not_current")
     PipelineStats.record(:gateway_refused, nil, 2)
 
     PipelineStats.record_consumer(
@@ -68,6 +68,11 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveEdgePipelineTest do
 
     assert %{gateway_admitted: 4, projected: 3, failed: 1, dead_lettered: 1, gateway_refused: 0} =
              sweep
+
+    assert stats.dead_letter_reasons == [%{contract: @sweep, reason: "output_grant_not_current", count: 1}]
+
+    assert cells(html, "#cluster-edge-pipeline-dead-letter-reasons tbody td") ==
+             [@sweep, "output_grant_not_current", "1"]
 
     assert EdgePipeline.format_age(sweep.last_projected_at_ms, stats.now_ms) =~ "s ago"
     assert %{gateway_admitted: 0, projected: 0} = Enum.find(stats.contracts, &(&1.contract == @metrics))
@@ -116,8 +121,15 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveEdgePipelineTest do
             7
           ),
           node.("gateway-b", %{gateway_admitted: 2, gateway_publish_retry: 3, last_admitted_at_ms: 80_000}, nil, 900, 7),
-          node.("core-a", %{projected: 4, projector_refused: 1}, 50_000, 2_000, 2),
-          node.("core-b", %{projected: 1}, 40_000, 1_500, 9)
+          "core-a"
+          |> node.(%{projected: 4, projector_refused: 1}, 50_000, 2_000, 2)
+          |> Map.put(:dead_letter_reasons, [%{contract: @sweep, reason: "output_grant_not_current", count: 2}]),
+          "core-b"
+          |> node.(%{projected: 1}, 40_000, 1_500, 9)
+          |> Map.put(:dead_letter_reasons, [
+            %{contract: @sweep, reason: "output_grant_not_current", count: 1},
+            %{contract: @sweep, reason: "RuntimeError", count: 4}
+          ])
         ],
         110_000
       )
@@ -133,6 +145,13 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveEdgePipelineTest do
            } = Enum.find(stats.contracts, &(&1.contract == @sweep))
 
     assert [%{pending: 2, sampled_at_ms: 2_000}] = stats.consumers
+
+    # Reasons sum across the cores that dead-lettered, most first; the gateways report none.
+    assert stats.dead_letter_reasons == [
+             %{contract: @sweep, reason: "RuntimeError", count: 4},
+             %{contract: @sweep, reason: "output_grant_not_current", count: 3}
+           ]
+
     assert EdgePipeline.format_age(50_000, stats.now_ms) == "1m ago"
     assert EdgePipeline.format_age(nil, stats.now_ms) == "never"
 

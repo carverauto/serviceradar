@@ -285,23 +285,12 @@ in-memory coordinator state:
   persistence failures.
 - **Cluster Status (`Settings -> Cluster Status`)**: On connected mount and
   refresh (never in disconnected mount), and without touching the database:
-  - The **Edge Pipeline** panel reads `ServiceRadar.Edge.PipelineStats.snapshot/0`
-    on every connected node and sums it. Durable agent data reaches core only
-    as edge records, so this is where sweep, mapper, flow attribution, plugin
-    results, metrics, sync and the other families show up: one row per output
-    contract in `ServiceRadar.Edge.ContractCatalog`, with primary records
-    JetStream stored as new messages (Gateway admitted; audit and
-    security-quarantine deliveries are not counted), records the gateway
-    refused or withheld, duplicate PubAcks and publish attempts that did not
-    store, records EventWriter projected or refused, failed attempts it will
-    redeliver, records stored on the dead-letter stream, and how long ago the
-    contract last admitted and last projected a record. A fresh Last admitted
-    beside an old Last projected means records are stuck between the gateway
-    and EventWriter. A second table shows
-    the latest JetStream state of each edge-record durable from the
-    coordinator's `ConsumerLagReporter`: pending, ack pending, redelivered, and
-    the stream's message count, which for `TELEMETRY_EDGE_RECORD_DLQ_V1_BULK`
-    is the DLQ depth. Counts are cumulative for the life of each process.
+  - The **Edge Pipeline** panel sums `ServiceRadar.Edge.PipelineStats.snapshot/0`
+    across connected nodes. Durable agent data reaches core only as edge
+    records, so sweep, mapper, flow attribution, plugin results, metrics and
+    sync show up there rather than as lanes here. Its columns and tables are
+    described in
+    [Cluster status panel](docs/durable-edge-records.md#cluster-status-panel).
   - The **Ingestion** summary card and the **Core Admission Lanes** table read
     `ServiceRadar.Ingestion.RuntimeMetrics.lane_stats/0`, which lists only the
     lanes that still have producers: `status` (agent status summaries the

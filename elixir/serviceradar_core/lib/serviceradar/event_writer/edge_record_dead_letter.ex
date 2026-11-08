@@ -480,7 +480,7 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter do
 
   # The level is the failure's (`log_level/1`).
   defp report(letter, {:ok, %{stream: stream, seq: seq}}) do
-    PipelineStats.record(:dead_lettered, letter.contract)
+    PipelineStats.record_dead_letter(letter.contract, letter.reason_class)
     emit(letter, "stored")
 
     Logger.log(

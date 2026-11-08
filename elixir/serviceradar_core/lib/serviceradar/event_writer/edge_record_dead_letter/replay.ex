@@ -28,6 +28,10 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay do
     * `:subject` -- a filter on the dead-letter subjects, default every bulk record
       (`telemetry.edge-record-dlq.v1.bulk.>`); one contract is
       `telemetry.edge-record-dlq.v1.bulk.*.serviceradar_metrics_batch.v1`
+    * `:reason` -- only messages dead-lettered for this reason class (their
+      `Sr-Edge-Dlq-Reason` header, as `list/1` and the Edge Pipeline panel show it), so a fixed
+      cause is replayed without the records still failing for another one; other messages are
+      skipped, kept, and not counted against `:limit`
     * `:from_sequence` -- the first dead-letter stream sequence to read (default 1)
     * `:limit` -- at most this many messages (default 100)
     * `:stream` -- the dead-letter stream (default `TELEMETRY_EDGE_RECORD_DLQ_V1_BULK`)
@@ -106,7 +110,7 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay do
     stream = Keyword.get(opts, :stream, @stream)
     limit = Keyword.get(opts, :limit, @default_limit)
     from = Keyword.get(opts, :from_sequence, 1)
-    ctx = %{request: request, stream: stream}
+    ctx = %{request: request, stream: stream, reason: Keyword.get(opts, :reason)}
 
     # Only the messages already held when the walk starts: a record a replay republishes
     # that fails again is dead-lettered after it, and must not be replayed in the same run.
@@ -136,7 +140,11 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay do
         {:ok, %{entries: Enum.reverse(acc), next_sequence: from}}
 
       {:ok, message} ->
-        walk_subject(ctx, filter, message.seq + 1, limit - 1, fun, [fun.(ctx, message) | acc])
+        if reason_matches?(ctx.reason, message) do
+          walk_subject(ctx, filter, message.seq + 1, limit - 1, fun, [fun.(ctx, message) | acc])
+        else
+          walk_subject(ctx, filter, message.seq + 1, limit, fun, acc)
+        end
 
       :none ->
         {:ok, %{entries: Enum.reverse(acc), next_sequence: from}}
@@ -144,6 +152,13 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  defp reason_matches?(nil, _message), do: true
+
+  defp reason_matches?(reason, message) do
+    {_transport, failure} = EdgeRecordDeadLetter.split_headers(message.headers)
+    Map.get(failure, "reason") == reason
   end
 
   defp describe(_ctx, message) do

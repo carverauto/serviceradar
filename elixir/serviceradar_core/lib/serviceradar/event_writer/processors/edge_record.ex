@@ -18,7 +18,11 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   Each record of a batch succeeds or fails on its own (`process_batch/1`). A record that raises
   is the only one redelivered; the records before and after it are acknowledged. A record
   `ingest/4` refuses is failed as `ServiceRadar.EventWriter.EdgeRecordRefusedError`, which the
-  pipeline dead-letters on its first delivery: no failure acknowledges a record unrecorded.
+  pipeline dead-letters on its first delivery: no failure acknowledges a record unrecorded. A
+  decode that is transient (`ServiceRadar.Edge.WireDecode.transient?/1`: a schema not deployed
+  yet, a decoder fault), from the record frame, its body or a persisted plan a projector reads, is
+  not a refusal: it fails as `ServiceRadar.EventWriter.EdgeRecordTransientError` and is
+  redelivered like any other failure.
     * A projector's database writes (`project/4`) run inside the transaction, told whether the
       delivery is primary. A replay makes no domain changes; late-fenced deliveries remain
       ledger-only.
@@ -63,6 +67,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   alias ServiceRadar.Edge.WireDecode
   alias ServiceRadar.EventWriter.EdgeRecordDeadLetter
   alias ServiceRadar.EventWriter.EdgeRecordRefusedError
+  alias ServiceRadar.EventWriter.EdgeRecordTransientError
   alias ServiceRadar.NATS.PublishDeniedError
   alias ServiceRadar.Repo
 
@@ -122,6 +127,10 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
         {:ok, 1}
 
       {:error, reason} ->
+        if WireDecode.transient?(reason) do
+          raise EdgeRecordTransientError, reason: reason
+        end
+
         PipelineStats.record(:projector_refused, contract)
         refused(message, %EdgeRecordRefusedError{reason: reason})
     end
@@ -383,8 +392,11 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   # is an exception or the changeset, query or input an Ash action rolled the transaction back
   # with (a constraint race, a deadlock, a timeout): the same record can succeed on redelivery,
   # so it raises and JetStream redelivers it with backoff, then dead-letters it at its threshold.
+  # A failed bulk write and a caught exit or throw are write failures too, whatever they carry.
   defp write_failure?(reason) when is_exception(reason), do: true
   defp write_failure?(%struct{}) when struct in @ash_inputs, do: true
+  defp write_failure?(%Ash.BulkResult{}), do: true
+  defp write_failure?({kind, _reason}) when kind in [:exit, :throw], do: true
   defp write_failure?(reason) when is_list(reason), do: Enum.any?(reason, &write_failure?/1)
 
   defp write_failure?(reason) when is_tuple(reason),

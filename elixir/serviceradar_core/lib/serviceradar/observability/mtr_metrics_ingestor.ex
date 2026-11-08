@@ -387,8 +387,12 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
         %Ash.BulkResult{status: :success} ->
           {:cont, :ok}
 
-        %Ash.BulkResult{status: :error, errors: errors} = result ->
-          {:halt, {:error, errors || result}}
+        # A failed bulk write with no error list still fails as a write, never as an empty list.
+        %Ash.BulkResult{status: :error, errors: [_ | _] = errors} ->
+          {:halt, {:error, errors}}
+
+        %Ash.BulkResult{status: :error} = result ->
+          {:halt, {:error, result}}
 
         {:ok, _} ->
           {:cont, :ok}

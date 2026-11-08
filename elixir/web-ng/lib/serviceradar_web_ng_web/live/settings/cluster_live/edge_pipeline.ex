@@ -40,12 +40,13 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.EdgePipeline do
 
   @doc "The stats when no node reported."
   @spec unavailable() :: map()
-  def unavailable, do: %{available: false, nodes: [], contracts: [], consumers: [], now_ms: 0}
+  def unavailable, do: %{available: false, nodes: [], contracts: [], dead_letter_reasons: [], consumers: [], now_ms: 0}
 
   @doc """
   Sums node snapshots: one row per catalogued contract in catalog order, then any other label a
-  node counted; the latest sample of each durable, with its stream depth taken from the latest
-  sample that read it. `now_ms` is when the ages are measured from.
+  node counted; dead-lettered records per contract and reason, most first; the latest sample of
+  each durable, with its stream depth taken from the latest sample that read it. `now_ms` is
+  when the ages are measured from.
   """
   @spec merge([map()], integer()) :: map()
   def merge([], _now_ms), do: unavailable()
@@ -66,9 +67,21 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.EdgePipeline do
       available: true,
       nodes: Enum.map(snapshots, & &1.node),
       contracts: Enum.map(labels, &merge_contract(&1, Map.get(by_label, &1, []))),
+      dead_letter_reasons: merge_dead_letter_reasons(snapshots),
       consumers: consumers,
       now_ms: now_ms
     }
+  end
+
+  # A node that predates per-reason counts reports none.
+  defp merge_dead_letter_reasons(snapshots) do
+    snapshots
+    |> Enum.flat_map(&Map.get(&1, :dead_letter_reasons, []))
+    |> Enum.group_by(&{&1.contract, &1.reason}, & &1.count)
+    |> Enum.map(fn {{contract, reason}, counts} ->
+      %{contract: contract, reason: reason, count: Enum.sum(counts)}
+    end)
+    |> Enum.sort_by(&{-&1.count, &1.contract, &1.reason})
   end
 
   defp latest_sample(samples) do
@@ -183,6 +196,34 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.EdgePipeline do
                 <td class="font-mono text-xs text-sr-muted">
                   {format_age(row.last_projected_at_ms, @stats.now_ms)}
                 </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div
+          :if={@stats.dead_letter_reasons != []}
+          id="cluster-edge-pipeline-dead-letter-reasons"
+          class="sr-ui-table-shell"
+        >
+          <table class={ui_table_class(size: "sm")}>
+            <thead>
+              <tr class="text-xs uppercase tracking-wide text-sr-muted">
+                <th>Dead-lettered contract</th>
+                <th title="The Sr-Edge-Dlq-Reason class; replay one reason once its cause is fixed">
+                  Reason
+                </th>
+                <th>Records</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                :for={row <- @stats.dead_letter_reasons}
+                id={"cluster-edge-dlq-reason-#{dom_id(row.contract)}-#{dom_id(row.reason)}"}
+              >
+                <td class="font-mono text-xs font-medium">{row.contract}</td>
+                <td class="font-mono text-xs">{row.reason}</td>
+                <td class="font-mono text-xs text-error font-semibold">{row.count}</td>
               </tr>
             </tbody>
           </table>
