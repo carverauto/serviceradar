@@ -193,7 +193,8 @@ func New(sp *spool.Spool, client StreamClient, cfg Config) (*Sender, error) {
 // record up to the gateway-granted credit window, and drains dispositions
 // until every sent sequence is resolved, the stream ends, or ctx is done. It
 // persists the resolving prefix of a validated acknowledgement only when
-// configured to do so.
+// configured to do so. With no unresolved record it opens no session and
+// returns ErrNoUnresolvedRecords.
 func (s *Sender) RunOnce(ctx context.Context) (Result, error) {
 	grantErr := s.renewGrants(ctx)
 	result, err := s.runSession(ctx)
