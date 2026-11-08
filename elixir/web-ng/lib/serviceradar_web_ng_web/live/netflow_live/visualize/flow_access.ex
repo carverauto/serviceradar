@@ -122,12 +122,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowAccess do
         container_id = clean_text(flow_get(flow, ["container_id"]))
         attribution_status = clean_text(flow_get(flow, ["attribution_status"]))
 
-        attributed? =
-          attribution_status == "attributed" or
-            present_text?(pid) or
-            present_text?(comm) or
-            present_text?(cmdline) or
-            present_text?(container_id)
+        attributed? = attribution_status == "attributed" or present_text?(pid)
 
         %{
           attributed?: attributed?,

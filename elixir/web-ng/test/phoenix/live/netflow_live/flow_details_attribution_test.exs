@@ -33,37 +33,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.FlowDetailsAttributionTest do
     assert html =~ "gateway public-gw"
     assert html =~ "load_balancer"
     assert html =~ "HTTPRoute/https-ingress"
-    assert html =~ "203.0.113.10:8443"
     assert html =~ "/observability/flows/attributed?"
     refute html =~ "No process context is attached to this flow row."
-  end
-
-  test "observability netflows flow details modal decodes JSON string workload and public endpoint columns" do
-    flow =
-      Map.merge(attributed_starrocks_flow_row(), %{
-        "workload_identity" =>
-          Jason.encode!(%{
-            "namespace" => "edge-system",
-            "workload_kind" => "DaemonSet",
-            "workload_name" => "flow-collector",
-            "node_hostname" => "node-alpha.example.com"
-          }),
-        "public_endpoint" =>
-          Jason.encode!(%{
-            "service_name" => "collector-ingest",
-            "namespace" => "edge-system",
-            "exposure_class" => "node_port",
-            "external_ip" => "203.0.113.20",
-            "external_port" => 30_443
-          })
-      })
-
-    html = render_component(&LogLiveIndex.render/1, log_live_netflows_assigns(flow))
-
-    assert html =~ "edge-system/DaemonSet/flow-collector @ node-alpha.example.com"
-    assert html =~ "edge-system/collector-ingest"
-    assert html =~ "node_port"
-    assert html =~ "203.0.113.20:30443"
   end
 
   test "observability netflows flow details modal renders no match for unattributed StarRocks flow rows" do
@@ -163,9 +134,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.FlowDetailsAttributionTest do
         "gateway_name" => "public-gw",
         "exposure_class" => "load_balancer",
         "route_kind" => "HTTPRoute",
-        "route_name" => "https-ingress",
-        "external_ip" => "203.0.113.10",
-        "external_port" => 8443
+        "route_name" => "https-ingress"
       },
       "attribution_status" => "attributed"
     }

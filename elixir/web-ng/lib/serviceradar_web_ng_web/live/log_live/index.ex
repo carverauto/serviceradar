@@ -6916,17 +6916,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     public_endpoint = flow |> flow_get(["public_endpoint"]) |> normalize_json_map()
     attribution_status = flow |> flow_get(["attribution_status"]) |> clean_display_value()
 
-    attributed? =
-      not is_nil(pid) or
-        not is_nil(uid) or
-        not is_nil(comm) or
-        not is_nil(cmdline) or
-        not is_nil(container_id) or
-        map_size(workload_identity) > 0 or
-        map_size(public_endpoint) > 0 or
-        attribution_status == "attributed"
-
-    if attributed? do
+    if attribution_status == "attributed" or not is_nil(pid) do
       %{
         "pid" => pid,
         "uid" => uid,
@@ -6988,25 +6978,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp netflow_attribution_workload_label(%{} = attribution) do
     workload = attribution |> flow_get_in(["workload_identity"]) |> normalize_json_map()
-    ns = workload |> flow_get(["pod_namespace", "namespace"]) |> clean_display_value()
-    pod = workload |> flow_get(["pod_name", "workload_name"]) |> clean_display_value()
-    kind = workload |> flow_get(["workload_kind"]) |> clean_display_value()
+    ns = workload |> flow_get(["pod_namespace"]) |> clean_display_value()
+    pod = workload |> flow_get(["pod_name"]) |> clean_display_value()
     container = workload |> flow_get(["container_name"]) |> clean_display_value()
-    node = workload |> flow_get(["node_hostname"]) |> clean_display_value()
-
-    base =
-      cond do
-        is_binary(ns) and is_binary(kind) and is_binary(pod) -> "#{ns}/#{kind}/#{pod}"
-        is_binary(ns) and is_binary(pod) -> "#{ns}/#{pod}"
-        is_binary(pod) -> pod
-        is_binary(container) -> container
-        true -> nil
-      end
 
     cond do
-      is_binary(base) and is_binary(node) -> "#{base} @ #{node}"
-      is_binary(base) -> base
-      is_binary(node) -> node
+      is_binary(ns) and is_binary(pod) -> "#{ns}/#{pod}"
+      is_binary(pod) -> pod
+      is_binary(container) -> container
       true -> nil
     end
   end
@@ -7021,8 +7000,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     exposure_class = endpoint |> flow_get(["exposure_class"]) |> clean_display_value()
     route_kind = endpoint |> flow_get(["route_kind"]) |> clean_display_value()
     route_name = endpoint |> flow_get(["route_name"]) |> clean_display_value()
-    external_ip = endpoint |> flow_get(["external_ip"]) |> clean_display_value()
-    external_port = endpoint |> flow_get(["external_port"]) |> clean_display_value()
 
     service_label =
       cond do
@@ -7039,20 +7016,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         true -> nil
       end
 
-    external_label =
-      cond do
-        is_binary(external_ip) and is_binary(external_port) -> "#{external_ip}:#{external_port}"
-        is_binary(external_ip) -> external_ip
-        is_binary(external_port) -> ":#{external_port}"
-        true -> nil
-      end
-
     [
       service_label,
       if(is_binary(gateway_name), do: "gateway #{gateway_name}"),
       exposure_class,
-      route_label,
-      external_label
+      route_label
     ]
     |> Enum.reject(&is_nil/1)
     |> case do
