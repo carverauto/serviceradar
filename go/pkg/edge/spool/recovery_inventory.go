@@ -35,6 +35,19 @@ func (i *RecoveryStorageInventory) Completed() bool                 { return i.c
 
 func (i *RecoveryStorageInventory) CompletionError() error { return i.completionErr }
 
+// StoredBytes measures only the operation directory, using the same byte
+// semantics as Restore. Startup may transfer a prior conservative inventory
+// charge after Restore succeeds; failed restores must preserve that charge.
+func (i *RecoveryStorageInventory) StoredBytes() (uint64, error) {
+	n, err := regularFileBytes(i.dir)
+	if errors.Is(err, os.ErrNotExist) {
+		if _, directoryErr := os.Lstat(i.dir); errors.Is(directoryErr, os.ErrNotExist) {
+			return 0, nil
+		}
+	}
+	return n, err
+}
+
 // Restore measures retained artifacts before checking remaining physical backing.
 // Completed operations are charged as ordinary retained evidence and acquire no
 // slot. A refusal leaves their measured directory charge visible to admission.

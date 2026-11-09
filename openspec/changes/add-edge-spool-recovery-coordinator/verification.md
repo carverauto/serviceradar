@@ -191,3 +191,34 @@ Guarded database execution and the final integrated gate are still required.
   share no domain contract, so no artificial helper or suppression was added.
   Harness delta has zero gating findings; its new process-lifecycle test carries
   complexity 17 and guards actual process reaping/log preservation.
+
+## Agent coordinator and composed transport
+
+- `c3222303-ebae-4de1-b022-2510c100195e` passed all 11 affected agent, sender,
+  storage, attribution and protobuf targets without retries. The final focused
+  post-cleanup producer append plus actual sender delivery passed
+  `cc75f916-ada1-4a39-914e-d3e82941dc2a`.
+- The coordinator exercises all-gap discovery without a sender session,
+  authenticated version-zero refusal before reservation, immutable registration,
+  source cancellation/join, restart after control acknowledgement and coverage,
+  fresh trust before stored completion cleanup, exact copy renewal through the
+  recovery RPC after the 15-minute grant window, and new producer delivery after
+  cleanup. Recovery uses the catalog's recovery-route/BULK tuple.
+- Composed control delivery uses the real sender. Obstructing the second durable
+  receipt copy prevents ordinary terminal advancement; restart restores the same
+  retained evidence and its reserve-backed charge, repairs the receipt, and
+  replays the exact control record before coverage. Bypassing its receipt hook
+  failed this test in `5cb03f55-0df1-473f-ae70-9dfcef15e2de`; restored coverage
+  passed `7d5ca6f8-1872-414c-9dff-99cfb26a6e67` and the full run above.
+- Removing source cancellation failed the in-flight stream regression in
+  `39136247-e666-4c44-9306-4c5614203e88`; restored cancellation passed the
+  focused command suite and the full run. Audit-only acceptance never counts
+  toward publication coverage. Authority changes produce new immutable transport
+  bundles over the same semantic pages; a third retained attempt refuses before
+  allocating bytes. Interrupted publication replays exact authorized bytes.
+- Orphan operation files remain untouched and charged, with admission and sender
+  startup blocked by a visible inventory error. Ordinary consumer/cleanup waits
+  preserve live health and availability; actual recovery refusals expose a bounded
+  reason. Local phase work remains bounded and remote failures retry every five
+  seconds. Gateway activation and database-backed consumer execution still require
+  their owning integration gates; these synthetic transport fixtures do not prove them.

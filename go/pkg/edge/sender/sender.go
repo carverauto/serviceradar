@@ -21,10 +21,11 @@
 // Scope, per task 0.12 of openspec/changes/unify-sweep-results-proto: one
 // bounded lane-open/send/drain-acks cycle sufficient to carry a committed
 // spool record through the real composed path end to end. Before a session it
-// obtains delivery grants for records whose production authority has lapsed
-// (grants.go, M2.0g). Credit renewal and recovery/rollover remain outside this
-// sender. Optional local
-// disposition persistence advances the resolved prefix and reclaims a drained
+// obtains delivery grants for records whose production authority has lapsed.
+// Recovery destinations require operation-bound rollover grants even while the
+// original production authority is current. The coordinator owns recovery phases;
+// BeforeResolve persists control publication receipts before terminal evidence.
+// Credit renewal remains outside this sender. Optional local disposition persistence advances the resolved prefix and reclaims a drained
 // segment once every record is accepted or permanently rejected; the spool keeps
 // permanently rejected records in its bounded local quarantine. Unresolved
 // records stay on disk.

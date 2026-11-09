@@ -421,7 +421,7 @@ func TestSenderPreservesGenerationNamespacesAndContinuesPastACoverageGap(t *test
 func TestRecoveryLaneDeliveryProgressesWhileBulkSessionStalls(t *testing.T) {
 	dir := t.TempDir()
 	lanes, identity, bulk := testTransportLanes(t, dir)
-	recovery := spool.LaneKey{RouteProfile: edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_RECOVERY_CONTROL_V1, TrafficClass: edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_INTERACTIVE}
+	recovery := spool.LaneKey{RouteProfile: edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_RECOVERY_CONTROL_V1, TrafficClass: edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_BULK}
 	bulkRecord := spooledEdgeRecord(t, time.Now().Add(time.Hour))
 	controlRecord := spooledEdgeRecord(t, time.Now().Add(time.Hour))
 	for _, item := range []struct {
@@ -773,5 +773,69 @@ func TestSpoolStatusSamplesLiveUsageAndBudget(t *testing.T) {
 	after := sample()
 	if !after.HealthAvailable || after.UnresolvedCount != 1 || after.UnresolvedBytes != uint64(len("synthetic")) || after.BytesUsed != before.BytesUsed || after.BudgetBytes != defaultEdgeSpoolMaxBytes/2 {
 		t.Fatalf("before=%v after=%v", before, after)
+	}
+}
+
+func TestRecoverySuspendsAndJoinsAnInflightSourceSession(t *testing.T) {
+	dir := t.TempDir()
+	lanes, identity, key := testTransportLanes(t, dir)
+	record := spooledEdgeRecord(t, time.Now().Add(time.Hour))
+	if _, err := lanes.Append(key, identity, record.eventID, record.body); err != nil {
+		t.Fatal(err)
+	}
+	if err := lanes.Close(); err != nil {
+		t.Fatal(err)
+	}
+	gateway, address := listenGrantGateway(t, false)
+	gateway.mu.Lock()
+	gateway.blockedBulk = make(chan struct{})
+	opened := gateway.blockedBulk
+	gateway.mu.Unlock()
+	store, _, _, err := openEdgeRecordSpool(&agent.ServerConfig{EdgeRecordSender: &agent.EdgeRecordSenderConfig{SpoolDir: dir}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	workers, closeWorkers, err := newEdgeRecordSenders(ctx, address, &models.SecurityConfig{Mode: models.SecurityModeNone}, store, logger.NewTestLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeWorkers()
+	var worker *edgeLaneSender
+	for _, candidate := range workers {
+		if candidate.lane == key {
+			worker = candidate
+		}
+	}
+	if worker == nil {
+		t.Fatal("bulk worker absent")
+	}
+	done := make(chan struct{})
+	go func() { defer close(done); _, _ = worker.RunOnce(ctx) }()
+	select {
+	case <-opened:
+	case <-ctx.Done():
+		t.Fatal("source stream never became in flight")
+	}
+	generation := store.Lanes().Generations(key)[0]
+	stopCtx, stopCancel := context.WithTimeout(ctx, time.Second)
+	defer stopCancel()
+	resume, err := worker.sessions.suspend(stopCtx, generation)
+	if err != nil {
+		t.Fatal("source did not cancel and join", err)
+	}
+	defer resume()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		t.Fatal("canceled source worker did not finish")
+	}
+	if _, err = worker.runSource(ctx, agent.RecordSpoolSource{Identity: generation.Identity(), Source: generation}); !errors.Is(err, agent.ErrRecoveryPending) {
+		t.Fatal("new source session entered while frozen", err)
+	}
+	if generation.Resolved() != 0 {
+		t.Fatal("canceled stream resolved the frozen source")
 	}
 }

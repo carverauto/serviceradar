@@ -78,8 +78,11 @@ func RecordRecoveryAttribution(raw []byte, expected *edgev1.EdgeOutputContractRe
 	if r.GetOutputContract().GetContractVersion() != 1 {
 		return ValidatedAttribution{}, ErrContractDispatch
 	}
-	if r.GetOutputContract().GetContractId() == "serviceradar.sweep.observation" {
+	switch r.GetOutputContract().GetContractId() {
+	case "serviceradar.sweep.observation":
 		return SweepRecoveryAttribution(raw, expected, policy)
+	case "serviceradar.edge.recovery_control":
+		return ControlRecoveryAttribution(raw, expected, policy)
 	}
 	validate := standingAttributionValidator(r.GetOutputContract().GetContractId())
 	if validate == nil {

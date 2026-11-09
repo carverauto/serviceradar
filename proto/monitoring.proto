@@ -344,11 +344,11 @@ message AgentHelloRequest {
   optional EdgeRecordSpoolStatus edge_record_spool = 16;
 }
 
-// EdgeRecordSpoolStatus carries startup availability and live health on every
+// EdgeRecordSpoolStatus carries storage/recovery availability and live health on every
 // hello/heartbeat, independently of optional Prometheus scraping.
 message EdgeRecordSpoolStatus {
   bool available = 1;
-  string error = 2; // Why the spool could not be opened; empty when available
+  string error = 2; // Bounded storage/recovery detail; normal pending work may remain available
   bool health_available = 3; // False for older agents or a failed health read
   string health_error = 4;
   bool wedged = 5; // Allocated gaps prevent this lane from resolving

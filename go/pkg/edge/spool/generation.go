@@ -360,3 +360,34 @@ func (g *Generation) QuarantineHealth() (QuarantineHealth, error) {
 	err := g.withOpen(func(s *Spool) error { var err error; health, err = s.QuarantineHealth(); return err })
 	return health, err
 }
+
+// RecoveryDestination finds an existing dedicated attempt using its immutable
+// operation index. It never allocates a generation or infers current scope.
+func (ls *LaneSet) RecoveryDestination(key LaneKey, recoveryID []byte, attempt uint32) (*Generation, bool) {
+	l := ls.existingLane(key)
+	if l == nil {
+		return nil, false
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	g, ok := l.recoveryDestinations[recoveryDestinationKey{string(recoveryID), attempt}]
+	return g, ok
+}
+
+// HasRecoveryDestinations reports whether startup must restore durable operation
+// ownership before ordinary producer or sender work can begin.
+func (ls *LaneSet) HasRecoveryDestinations() bool {
+	for _, key := range ls.taxonomy.Lanes() {
+		l := ls.existingLane(key)
+		if l == nil {
+			continue
+		}
+		l.mu.Lock()
+		found := len(l.recoveryDestinations) != 0
+		l.mu.Unlock()
+		if found {
+			return true
+		}
+	}
+	return false
+}

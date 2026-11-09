@@ -302,7 +302,7 @@ func testTransportLanes(t *testing.T, dir string) (*spool.LaneSet, spool.Identit
 	}
 	identity := spool.Identity{NetworkScopeID: id, AgentID: []byte("agent-demo")}
 	key := spool.LaneKey{RouteProfile: edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1, TrafficClass: edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_BULK}
-	control := spool.LaneKey{RouteProfile: edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_RECOVERY_CONTROL_V1, TrafficClass: edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_INTERACTIVE}
+	control := spool.LaneKey{RouteProfile: edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_RECOVERY_CONTROL_V1, TrafficClass: edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_BULK}
 	taxonomy, err := fairsched.NewLaneTaxonomy([]fairsched.LanePolicy{{Key: key, WeightBytes: 1}, {Key: control, WeightBytes: 1}}, control)
 	if err != nil {
 		t.Fatal(err)

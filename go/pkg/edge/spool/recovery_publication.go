@@ -7,7 +7,9 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
 
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
@@ -308,4 +310,54 @@ func (p frozenRecoveryPublication) bind(c edgerecord.LocalBindingCoordinates, ev
 	}
 	digest, err := edgerecord.LocalBindingDigest(edgerecord.LocalBindingVersion, c, a)
 	return a, digest, err
+}
+
+// RecoveryPublicationProgress is a detached view of paired immutable transport
+// attempts and authoritative publication receipts. It is scheduling information,
+// never deletion authority; SealCoverage reopens and validates the proof itself.
+type RecoveryPublicationProgress struct {
+	Bundles         [MaxRecoveryControlAttempts][]*edgev1.EdgeRecordV1
+	Acknowledged    []bool
+	SourceReclaimed bool
+	CoverageSealed  bool
+}
+
+func (o *RecoveryOperation) PublicationProgress() (RecoveryPublicationProgress, error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	state := RecoveryPublicationProgress{Acknowledged: make([]bool, len(o.manifest.Pages)+1)}
+	for attempt := range uint32(MaxRecoveryControlAttempts) {
+		_, bundle, err := o.publicationBundle(attempt)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return state, err
+		}
+		for _, publication := range bundle {
+			record, err := edgerecord.DecodeRecord(publication.Body)
+			if err != nil {
+				return state, err
+			}
+			state.Bundles[attempt] = append(state.Bundles[attempt], record)
+		}
+	}
+	for index := range state.Acknowledged {
+		_, err := o.readPublicationReceipt(index)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return state, err
+		}
+		state.Acknowledged[index] = true
+	}
+	pending, err := o.pendingPhase("coverage")
+	if err != nil {
+		return state, err
+	}
+	state.CoverageSealed = !pending
+	pending, err = o.pendingPhase("reclaimed")
+	state.SourceReclaimed = !pending
+	return state, err
 }

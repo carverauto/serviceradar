@@ -2576,12 +2576,12 @@ func (x *AgentHelloRequest) GetEdgeRecordSpool() *EdgeRecordSpoolStatus {
 	return nil
 }
 
-// EdgeRecordSpoolStatus carries startup availability and live health on every
+// EdgeRecordSpoolStatus carries storage/recovery availability and live health on every
 // hello/heartbeat, independently of optional Prometheus scraping.
 type EdgeRecordSpoolStatus struct {
 	state                      protoimpl.MessageState `protogen:"open.v1"`
 	Available                  bool                   `protobuf:"varint,1,opt,name=available,proto3" json:"available,omitempty"`
-	Error                      string                 `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`                                             // Why the spool could not be opened; empty when available
+	Error                      string                 `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`                                             // Bounded storage/recovery detail; normal pending work may remain available
 	HealthAvailable            bool                   `protobuf:"varint,3,opt,name=health_available,json=healthAvailable,proto3" json:"health_available,omitempty"` // False for older agents or a failed health read
 	HealthError                string                 `protobuf:"bytes,4,opt,name=health_error,json=healthError,proto3" json:"health_error,omitempty"`
 	Wedged                     bool                   `protobuf:"varint,5,opt,name=wedged,proto3" json:"wedged,omitempty"`                                          // Allocated gaps prevent this lane from resolving

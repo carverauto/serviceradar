@@ -188,11 +188,14 @@ func (s *TrustSnapshot) readFence(fence trustDocumentFence) error {
 // key snapshot. An unavailable fence remains retryable through the existing
 // signed validator; no claimed record epoch substitutes for missing authority.
 func (s *TrustSnapshot) PolicyFor(record *edgev1.EdgeRecordV1, nowUnixNano int64) (AuthorizationPolicy, error) {
-	if s == nil || record == nil || !bytes.Equal(record.GetProducerContext().GetOriginPrincipalId(), s.agent) || !s.scopes[string(record.GetNetworkScopeId())] {
+	if record == nil {
 		return AuthorizationPolicy{}, ErrTrustMissing
 	}
 	producer := record.GetProducerContext()
-	policy := AuthorizationPolicy{Trust: s, NowUnixNano: nowUnixNano, ClockToleranceNano: s.tolerance, TrustPolicyEpoch: s.epoch}
+	policy, err := s.NamespacePolicy(record.GetNetworkScopeId(), producer.GetOriginPrincipalId(), nowUnixNano)
+	if err != nil {
+		return AuthorizationPolicy{}, err
+	}
 	if epoch, exists := s.fences[snapshotFenceID{string(record.GetNetworkScopeId()), string(producer.GetProducerAssignmentId()), producer.GetRunShard()}]; exists {
 		policy.ActiveFence = ResolvedFence(epoch)
 	}
@@ -215,4 +218,13 @@ func (s *TrustSnapshot) ResolveKey(issuerID, issuerKeyID []byte, evidence KeyEvi
 	}
 	result.Status, result.Public = key.status, bytes.Clone(key.public)
 	return result
+}
+
+// NamespacePolicy verifies the authenticated scope for historical completion
+// receipts, which deliberately have no current production assignment fence.
+func (s *TrustSnapshot) NamespacePolicy(scope, agent []byte, nowUnixNano int64) (AuthorizationPolicy, error) {
+	if s == nil || !bytes.Equal(agent, s.agent) || !s.scopes[string(scope)] {
+		return AuthorizationPolicy{}, ErrTrustMissing
+	}
+	return AuthorizationPolicy{Trust: s, NowUnixNano: nowUnixNano, ClockToleranceNano: s.tolerance, TrustPolicyEpoch: s.epoch}, nil
 }

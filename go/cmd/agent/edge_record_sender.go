@@ -154,9 +154,11 @@ func newEdgeRecordSenders(
 		_ = securityProvider.Close()
 	}
 
+	sessions := &edgeSourceSessions{}
+	coordinator := agent.NewRecoveryCoordinator(sp, proto.NewAgentGatewayServiceClient(client.GetConnection()), sessions.suspend)
 	var senders []*edgeLaneSender
 	for _, key := range sp.DeliveryLanes() {
-		senders = append(senders, &edgeLaneSender{store: sp, lane: key,
+		senders = append(senders, &edgeLaneSender{store: sp, lane: key, coordinator: coordinator, sessions: sessions,
 			client: edgev1.NewEdgeRecordIngestServiceClient(client.GetConnection()),
 			grants: gatewayGrantRenewer{client: proto.NewAgentGatewayServiceClient(client.GetConnection())}})
 	}
@@ -166,14 +168,19 @@ func newEdgeRecordSenders(
 // edgeLaneSender visits at most 64 generations of its lane per tick. Independent
 // lane workers keep a stalled bulk stream from holding recovery delivery.
 type edgeLaneSender struct {
-	store   *agent.RecordSpool
-	client  edgesender.StreamClient
-	grants  gatewayGrantRenewer
-	lane    spool.LaneKey
-	ordinal uint64
+	coordinator *agent.RecoveryCoordinator
+	sessions    *edgeSourceSessions
+	store       *agent.RecordSpool
+	client      edgesender.StreamClient
+	grants      gatewayGrantRenewer
+	lane        spool.LaneKey
+	ordinal     uint64
 }
 
 func (s *edgeLaneSender) RunOnce(ctx context.Context) (edgesender.Result, error) {
+	if s.coordinator != nil && !s.coordinator.Ready() {
+		return edgesender.Result{}, agent.ErrRecoveryPending
+	}
 	for visited := 0; visited < spool.MaxGenerationPage; visited++ {
 		source, ok := s.store.NextLaneSource(s.lane, &s.ordinal)
 		if !ok {
@@ -194,7 +201,23 @@ func (s *edgeLaneSender) RunOnce(ctx context.Context) (edgesender.Result, error)
 }
 
 func (s *edgeLaneSender) runSource(ctx context.Context, source agent.RecordSpoolSource) (edgesender.Result, error) {
+	if s.sessions != nil {
+		generation, ok := source.Source.(*spool.Generation)
+		if !ok {
+			return edgesender.Result{}, spool.ErrRecoveryPlan
+		}
+		sessionCtx, finish, err := s.sessions.begin(ctx, generation)
+		if err != nil {
+			return edgesender.Result{}, err
+		}
+		defer finish()
+		ctx = sessionCtx
+	}
+
 	if generation, ok := source.Source.(*spool.Generation); ok {
+		if generation.NextSequence() == generation.Resolved()+1 {
+			return edgesender.Result{}, edgesender.ErrNoUnresolvedRecords
+		}
 		held, err := generation.RecoverySourceHeld()
 		if err != nil {
 			return edgesender.Result{}, err
@@ -203,13 +226,27 @@ func (s *edgeLaneSender) runSource(ctx context.Context, source agent.RecordSpool
 			return edgesender.Result{}, edgesender.ErrNoUnresolvedRecords
 		}
 	}
-	sender, err := edgesender.New(source.Source, s.client, edgesender.Config{
+	config := edgesender.Config{
 		SpoolID: source.Identity.SpoolID, RouteProfile: source.Identity.Lane.RouteProfile,
 		TrafficClass:            source.Identity.Lane.TrafficClass,
 		RequestedByteCredits:    edgeRecordSenderRequestedByteCredits,
 		RequestedFrameCredits:   edgeRecordSenderRequestedFrameCreds,
 		PersistAcknowledgements: true, Grants: s.grants,
-	})
+	}
+	if s.coordinator != nil {
+		delivery, err := s.coordinator.Delivery(source.Source.(*spool.Generation))
+		if err != nil {
+			return edgesender.Result{}, err
+		}
+		if delivery != nil {
+			config.BeforeResolve = delivery.BeforeResolve
+			if delivery.RequiresCopyGrant() {
+				config.Grants = delivery
+				config.RequireDeliveryGrant = true
+			}
+		}
+	}
+	sender, err := edgesender.New(source.Source, s.client, config)
 	if err != nil {
 		return edgesender.Result{}, err
 	}
@@ -248,6 +285,11 @@ func (g gatewayGrantRenewer) RenewDeliveryGrants(
 
 func pollEdgeRecordSenders(ctx context.Context, senders []*edgeLaneSender, interval time.Duration, log logger.Logger) {
 	var workers sync.WaitGroup
+	if len(senders) > 0 && senders[0].coordinator != nil {
+		workers.Add(1)
+		go func() { defer workers.Done(); pollEdgeRecovery(ctx, senders[0].coordinator, log) }()
+	}
+
 	for _, sender := range senders {
 		workers.Add(1)
 		go func(s *edgeLaneSender) {
@@ -472,7 +514,8 @@ func logEdgeSpoolRestart(resolution spool.Resolution, identity spool.GenerationI
 func edgeSpoolStatusSampler(sp *agent.RecordSpool, budget *edgeSpoolBudget) func() *proto.EdgeRecordSpoolStatus {
 	return func() *proto.EdgeRecordSpoolStatus {
 		usage := budget.allocator.Usage()
-		status := &proto.EdgeRecordSpoolStatus{Available: true,
+		available, detail := sp.RecoveryStatus()
+		status := &proto.EdgeRecordSpoolStatus{Available: available, Error: detail,
 			BytesUsed: usage.OrdinaryUsed + usage.RecoveryUsed, BudgetBytes: usage.Capacity,
 			AdmissionPaused: budget.gate.BulkPaused(), RetainedLegacyBytes: sp.RetainedLegacyBytes()}
 		health, _, gaps, err := sampleRecordSpool(sp, time.Now())

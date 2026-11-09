@@ -20,11 +20,14 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
 	"github.com/carverauto/serviceradar/go/pkg/edge/fairsched"
@@ -35,13 +38,19 @@ import (
 // RecordSpool owns bounded producer lanes. Existing flat storage is retained
 // untouched and charged to the same allocator, but never opened or delivered.
 type RecordSpool struct {
-	activeMu    sync.Mutex
-	active      bool
-	lanes       *spool.LaneSet
-	taxonomy    *fairsched.LaneTaxonomy
-	allocator   *spool.Allocator
-	legacyBytes uint64
-	trust       func() *edgerecord.TrustSnapshot
+	root                   string
+	recoveryInventoryBytes uint64
+	recoveryReady          atomic.Bool
+	recoveryStatus         atomic.Pointer[recordRecoveryStatus]
+	recoveryGrant          func(time.Time) *edgev1.EdgeSignedCapabilityV1
+	recoveryPeer           func() uint32
+	activeMu               sync.Mutex
+	active                 bool
+	lanes                  *spool.LaneSet
+	taxonomy               *fairsched.LaneTaxonomy
+	allocator              *spool.Allocator
+	legacyBytes            uint64
+	trust                  func() *edgerecord.TrustSnapshot
 }
 
 // OpenRecordSpool inventories retained files without interpreting them, then
@@ -50,7 +59,7 @@ func OpenRecordSpool(root string, allocator *spool.Allocator, options ...spool.O
 	if allocator == nil {
 		return nil, spool.ErrInvalidAllocatorConfig
 	}
-	recovery := spool.LaneKey{RouteProfile: edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_RECOVERY_CONTROL_V1, TrafficClass: edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_INTERACTIVE}
+	recovery := spool.LaneKey{RouteProfile: edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_RECOVERY_CONTROL_V1, TrafficClass: edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_BULK}
 	bulk := spool.LaneKey{RouteProfile: edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1, TrafficClass: edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_BULK}
 	taxonomy, err := fairsched.NewLaneTaxonomy([]fairsched.LanePolicy{{Key: bulk, WeightBytes: 1}, {Key: recovery, WeightBytes: 1}}, recovery)
 	if err != nil {
@@ -62,13 +71,20 @@ func OpenRecordSpool(root string, allocator *spool.Allocator, options ...spool.O
 		return nil, err
 	}
 	allocator.ChargeMeasured(root, retained)
+	recoveryBytes, err := storedTreeBytes(filepath.Join(root, "recoveries"), nil)
+	if err != nil {
+		return nil, err
+	}
+	allocator.ChargeMeasured(filepath.Join(root, "recoveries"), recoveryBytes)
 	lanes, err := spool.OpenRetainedLanes(filepath.Join(root, "lanes"), taxonomy, spool.WithLaneAllocator(allocator), spool.WithGenerationOptions(func(id spool.GenerationIdentity, _ string) ([]spool.Option, error) {
 		return append(append([]spool.Option{}, common...), spool.WithAttribution(id)), nil
 	}))
 	if err != nil {
 		return nil, err
 	}
-	return &RecordSpool{lanes: lanes, taxonomy: taxonomy, allocator: allocator, legacyBytes: retained}, nil
+	store := &RecordSpool{root: root, lanes: lanes, taxonomy: taxonomy, allocator: allocator, legacyBytes: retained, recoveryInventoryBytes: recoveryBytes}
+	store.recoveryReady.Store(recoveryBytes == 0 && !lanes.HasRecoveryDestinations())
+	return store, nil
 }
 
 // Lanes returns the storage owner shared by producers and recovery coordination.
@@ -82,6 +98,10 @@ func (s *RecordSpool) DeliveryLanes() []spool.LaneKey { return s.taxonomy.Lanes(
 func (s *RecordSpool) RetainedLegacyBytes() uint64 { return s.legacyBytes }
 
 func retainedStorageBytes(root string) (uint64, error) {
+	return storedTreeBytes(root, map[string]bool{filepath.Join(root, "lanes"): true, filepath.Join(root, "recoveries"): true})
+}
+
+func storedTreeBytes(root string, excluded map[string]bool) (uint64, error) {
 	var total uint64
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if errors.Is(walkErr, os.ErrNotExist) && path == root {
@@ -93,7 +113,7 @@ func retainedStorageBytes(root string) (uint64, error) {
 		if path == root && !entry.IsDir() {
 			return errors.New("edge storage root must be a directory")
 		}
-		if path == filepath.Join(root, "lanes") {
+		if excluded[path] {
 			return filepath.SkipDir
 		}
 		if entry.IsDir() {
@@ -114,12 +134,17 @@ func retainedStorageBytes(root string) (uint64, error) {
 func (s *RecordSpool) SetTrustProvider(provider func() *edgerecord.TrustSnapshot) { s.trust = provider }
 
 // Ready reports whether new producer work can obtain authenticated policy.
-func (s *RecordSpool) Ready() bool { return s != nil && s.trust != nil && s.trust() != nil }
+func (s *RecordSpool) Ready() bool {
+	return s != nil && s.recoveryReady.Load() && s.trust != nil && s.trust() != nil
+}
 
 // PrepareRecord seals the exact record only after its registered typed validator
 // proves signed authority and the body/identity join. It precedes admission, so
 // an expired or replaced grant never changes already-produced pending bytes.
 func (s *RecordSpool) PrepareRecord(raw []byte) (*spool.AttributedAppend, error) {
+	if !s.recoveryReady.Load() {
+		return nil, spool.ErrAdmissionPaused
+	}
 	if s.trust == nil {
 		return nil, edgerecord.ErrTrustMissing
 	}
@@ -162,6 +187,9 @@ func attributionRefusal(err error) error {
 // AppendPrepared retries rotation once with the same sealed bytes. A second
 // refusal remains retryable and is retained by the producer's bounded queue.
 func (s *RecordSpool) AppendPrepared(flow string, prepared *spool.AttributedAppend) (spool.Receipt, error) {
+	if !s.recoveryReady.Load() {
+		return spool.Receipt{}, spool.ErrAdmissionPaused
+	}
 	if prepared == nil {
 		return spool.Receipt{}, spool.ErrAttributionRequired
 	}
@@ -305,4 +333,55 @@ func prepareMetricParts(app edgeMetricsAppender, parts []edgeMetricsBuilt) error
 		}
 	}
 	return nil
+}
+
+// SetRecoveryGrantProvider is installed alongside authenticated trust before
+// producer/coordinator workers start. Each attempt captures one immutable grant.
+func (s *RecordSpool) SetRecoveryGrantProvider(provider func(time.Time) *edgev1.EdgeSignedCapabilityV1) {
+	s.recoveryGrant = provider
+}
+
+// EdgeRecoveryProductionCapability selects the existing standing recovery grant.
+func (p *PushLoop) EdgeRecoveryProductionCapability(now time.Time) *edgev1.EdgeSignedCapabilityV1 {
+	return p.currentEdgeOutputGrant("serviceradar.edge.recovery_control", now)
+}
+
+type recordRecoveryStatus struct {
+	available bool
+	detail    string
+}
+
+// RecoveryStatus preserves live health while exposing temporary recovery
+// refusal. Normal consumer/cleanup waits are informational and remain available.
+func (s *RecordSpool) RecoveryStatus() (bool, string) {
+	if status := s.recoveryStatus.Load(); status != nil {
+		return status.available, status.detail
+	}
+	if !s.recoveryReady.Load() {
+		return false, "recovery inventory pending"
+	}
+	return true, ""
+}
+
+func (s *RecordSpool) reportRecovery(phase string, err error) {
+	if err == nil {
+		s.recoveryStatus.Store(nil)
+		return
+	}
+	available := phase == "consumer_pending" || errors.Is(err, spool.ErrRecoveryCleanupPending)
+	detail := fmt.Sprintf("recovery %s: %v", phase, err)
+	if len(detail) > 256 {
+		detail = detail[:256]
+		for !utf8.ValidString(detail) {
+			detail = detail[:len(detail)-1]
+		}
+	}
+	s.recoveryStatus.Store(&recordRecoveryStatus{available: available, detail: detail})
+}
+
+// SetRecoveryPeerProvider supplies the authenticated hello negotiation, not
+// inferred endpoint support. Zero or an unknown version retains source evidence.
+func (s *RecordSpool) SetRecoveryPeerProvider(provider func() uint32) { s.recoveryPeer = provider }
+func (s *RecordSpool) recoveryPeerAvailable() bool {
+	return s.recoveryPeer != nil && s.recoveryPeer() == 1
 }

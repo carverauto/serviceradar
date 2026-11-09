@@ -5,6 +5,7 @@ go_library(
     name = "agent_lib",
     srcs = [
         "edge_record_sender.go",
+        "edge_recovery.go",
         "main.go",
         "main_other.go",
         "main_windows.go",
