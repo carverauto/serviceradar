@@ -425,18 +425,24 @@ func edgeSpoolWatermarks(allocator *spool.Allocator) (high, low uint64) {
 // edgeSpoolBudget applies core's spool byte budget at admission: the
 // allocator's hard ceiling and the gate's marks move together. A budget below
 // current usage only refuses new appends until reclaim drains the spool under
-// it; nothing already spooled is dropped.
+// it; nothing already spooled is dropped. A refused configuration keeps producer
+// admission paused until a valid budget is applied; delivery and recovery continue.
 type edgeSpoolBudget struct {
 	allocator *spool.Allocator
 	gate      *admission.Gate
 }
 
 func (b *edgeSpoolBudget) Apply(maxBytes uint64) error {
+	b.gate.SetBudgetBlocked(true)
 	if err := b.allocator.SetCapacity(maxBytes); err != nil {
 		return err
 	}
 	high, low := edgeSpoolWatermarks(b.allocator)
-	return b.gate.SetWatermarks(high, low)
+	if err := b.gate.SetWatermarks(high, low); err != nil {
+		return err
+	}
+	b.gate.SetBudgetBlocked(false)
+	return nil
 }
 
 // Log a bounded sample and an explicit remainder; no coverage slot vanishes

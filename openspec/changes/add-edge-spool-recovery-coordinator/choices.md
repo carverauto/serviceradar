@@ -552,3 +552,23 @@
 - Confidence: high on the storage lifecycle: tested collection-before-final-marker
   crash, missing compact-copy repair, rejected raw retention, and a deliberate
   current-validation bypass that makes the restart regression fail.
+
+## Refused runtime budgets pause producer admission
+
+- When: bounded runtime integration review, 2026-11-09.
+- Choice: a configured budget below the recovery reserve pauses producer
+  admission through the existing shared gate. The allocator retains its prior
+  accounting and existing bytes; delivery and reserved recovery continue. A
+  corrected valid budget must be reapplied even when it equals the last accepted
+  value. Existing status and metrics report the pause, and the config log names
+  the refused value.
+- Gap: increasing the required reserve made a previously accepted small budget
+  invalid. Merely logging that refusal left producers admitting up to the prior
+  1 GiB default; caching the prior valid value also suppressed the correction.
+- Reach: one gate policy bit, with no new byte ledger, protocol field, automatic
+  budget increase or legacy migration. Ordinary watermark hysteresis remains in
+  force after the configuration block clears.
+- Verdict: sound; preserves the operator's limit by refusing new producer work
+  rather than silently using a larger budget.
+- Confidence: high; actual spool admission and config-retry regressions were
+  observed failing before the fix, then the full affected Go targets passed.

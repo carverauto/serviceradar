@@ -128,7 +128,7 @@ func TestOpenEdgeRecordSpoolReportsADirectoryItCannotCreate(t *testing.T) {
 // the spool holds refuses new appends without dropping anything, and raising it
 // admits again.
 func TestEdgeSpoolBudgetFromConfigAppliesAtAdmission(t *testing.T) {
-	sp, _, budget := openTestEdgeSpool(t, 2<<20)
+	sp, gate, budget := openTestEdgeSpool(t, 2<<20)
 	defer func() { _ = sp.Close() }()
 
 	if _, err := sp.Append(make([]byte, 16), make([]byte, 1<<20)); err != nil {
@@ -149,6 +149,26 @@ func TestEdgeSpoolBudgetFromConfigAppliesAtAdmission(t *testing.T) {
 	}
 	if _, err := sp.Append(append(make([]byte, 15), 1), make([]byte, 1<<20)); err != nil {
 		t.Fatalf("append after the budget was raised = %v, want admitted", err)
+	}
+	// A configured budget below recovery's floor must stop new producer work,
+	// rather than keep admitting against the previous larger capacity.
+	if err := budget.Apply(16 << 20); !errors.Is(err, spool.ErrInvalidAllocatorConfig) {
+		t.Fatalf("undersized budget = %v, want configuration refusal", err)
+	}
+	if _, err := sp.Append(append(make([]byte, 15), 2), []byte("synthetic pending record")); !errors.Is(err, spool.ErrAdmissionPaused) {
+		t.Fatalf("append after refused budget = %v, want admission paused", err)
+	}
+	if !gate.BulkPaused() {
+		t.Fatal("refused configured budget was not visible as paused")
+	}
+	if got, err := sp.Unresolved(); err != nil || len(got) != 2 {
+		t.Fatalf("refused budget changed retained records: %d, %v", len(got), err)
+	}
+	if err := budget.Apply(defaultEdgeSpoolMaxBytes); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sp.Append(append(make([]byte, 15), 2), []byte("synthetic pending record")); err != nil {
+		t.Fatalf("append after valid budget restored = %v", err)
 	}
 }
 

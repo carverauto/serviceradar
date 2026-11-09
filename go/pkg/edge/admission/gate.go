@@ -79,10 +79,11 @@ type Gate struct {
 	marks watermarks
 	held  func() uint64
 
-	mu       sync.Mutex
-	observed bool
-	paused   bool
-	flows    map[string]*fairFlow
+	mu            sync.Mutex
+	observed      bool
+	paused        bool
+	budgetBlocked bool
+	flows         map[string]*fairFlow
 	// lead is the most bytes any flow has been admitted.
 	lead uint64
 }
@@ -114,6 +115,15 @@ func (g *Gate) SetWatermarks(highWater, lowWater uint64) error {
 	return nil
 }
 
+// SetBudgetBlocked pauses producer admission while a configured budget cannot
+// be applied. Recovery and interactive traffic retain their reserved capacity.
+// Clearing it preserves the ordinary high/low-water hysteresis.
+func (g *Gate) SetBudgetBlocked(blocked bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.budgetBlocked = blocked
+}
+
 // Admit reports whether class may add bytes now: Defer for bulk while the
 // gate is paused, Reject for an unknown class, and Admit otherwise. It reads
 // held first. The first reading starts paused anywhere above the low water.
@@ -138,7 +148,7 @@ func (g *Gate) BulkPaused() bool {
 	defer g.mu.Unlock()
 
 	g.observeLocked(g.held())
-	return g.paused
+	return g.budgetBlocked || g.paused
 }
 
 func (g *Gate) observeLocked(held uint64) {
@@ -175,7 +185,7 @@ func (g *Gate) AdmitFlow(flow string, cost uint64, now time.Time) Decision {
 	g.observeLocked(held)
 	g.expireFlowsLocked(now)
 	f := g.flowLocked(flow, now)
-	if g.paused || (held > g.marks.low && !g.withinShareLocked(f)) {
+	if g.budgetBlocked || g.paused || (held > g.marks.low && !g.withinShareLocked(f)) {
 		return Defer
 	}
 	f.attained = g.attainedLocked(f) + cost

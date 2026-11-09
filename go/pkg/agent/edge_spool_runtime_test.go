@@ -79,7 +79,8 @@ func TestHellosRefreshSpoolHealth(t *testing.T) {
 }
 
 // The config's budget is applied once per change; zero (a core that predates
-// the setting) and a refused budget leave the running budget in place.
+// the setting) preserves the setting. A refused budget must not suppress a later
+// retry of the previous valid value, which clears the admission pause.
 func TestConfigSpoolBudgetIsAppliedOnChange(t *testing.T) {
 	loop := NewPushLoop(&Server{config: &ServerConfig{}}, nil, 0, logger.NewTestLogger())
 	var applied []uint64
@@ -100,8 +101,8 @@ func TestConfigSpoolBudgetIsAppliedOnChange(t *testing.T) {
 	refuse = false
 	loop.applyEdgeSpoolBudget(&proto.AgentConfigResponse{EdgeSpoolMaxBytes: 1 << 30})
 
-	want := []uint64{256 << 20, 1 << 30}
-	if len(applied) != len(want) || applied[0] != want[0] || applied[1] != want[1] {
+	want := []uint64{256 << 20, 1 << 30, 1 << 30}
+	if len(applied) != len(want) || applied[0] != want[0] || applied[1] != want[1] || applied[2] != want[2] {
 		t.Fatalf("applied budgets = %v, want %v", applied, want)
 	}
 }
