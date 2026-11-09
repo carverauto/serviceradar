@@ -422,9 +422,9 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     refute_push "membership:frame", _frame, 100
 
     ref = push(socket, "membership:ack", %{"sequence" => Integer.to_string(sequence), "view_digest" => digest})
-    assert_reply ref, :ok
+    assert_reply ref, :ok, %{}, 5_000
     ref = push(socket, "membership:unwatch", %{})
-    assert_reply ref, :ok
+    assert_reply ref, :ok, %{}, 5_000
     send(socket.channel_pid, :tile_tick)
     refute_push "membership:frame", _frame, 100
 
@@ -441,7 +441,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
       footer_offset = byte_size(edge_frame) - 6
       assert <<_::binary-size(footer_offset), 1::little-16, ^expected::little-32>> = edge_frame
       ref = push(socket, "membership:unwatch", %{})
-      assert_reply ref, :ok
+      assert_reply ref, :ok, %{}, 5_000
     end
 
     stale = put_in(params, ["tiles"], [%{"z" => 16, "x" => 0, "y" => 0, "revision" => String.duplicate("f", 64)}])
@@ -474,7 +474,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
         "view_digest" => rebuilt_digest
       })
 
-    assert_reply ref, :ok
+    assert_reply ref, :ok, %{}, 5_000
 
     fn ->
       {:ok, identical} = TopologyAtlas.new_ordinals(world, snapshot.dictionary_epoch)
@@ -629,7 +629,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     assert stream_identity(socket).index_revision == built.progress.index_revision
     {sequence, _total, _wire_digest, _revision, _mask, _causal, _availability, _counts} = membership_rows(frame)
     ref = push(socket, "membership:ack", %{"sequence" => Integer.to_string(sequence), "view_digest" => digest})
-    assert_reply ref, :ok
+    assert_reply ref, :ok, %{}, 5_000
     send(socket.channel_pid, :tile_tick)
     refute_push "membership:frame", _skipped, 200
 
@@ -685,9 +685,9 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
         "view_digest" => digest_of(refreshed)
       })
 
-    assert_reply ref, :ok
+    assert_reply ref, :ok, %{}, 5_000
     ref = push(socket, "membership:unwatch", %{})
-    assert_reply ref, :ok
+    assert_reply ref, :ok, %{}, 5_000
 
     expires_at = DateTime.shift(DateTime.utc_now(), second: 8)
 
@@ -716,7 +716,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
 
     assert prefix_mask == <<1>>
     ref = push(socket, "membership:ack", %{"sequence" => Integer.to_string(sequence), "view_digest" => prefix_digest})
-    assert_reply ref, :ok
+    assert_reply ref, :ok, %{}, 5_000
     # The channel's own periodic tick must not rebuild while the entry expires,
     # so its queued ticks run only once the task pool is saturated below.
     suspend_idle(socket)
@@ -851,7 +851,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
         assert_push "membership:frame", {:binary, frame}, 5_000
         {sequence, _total, digest, _revision, _mask, _causal, _availability, _counts} = membership_rows(frame)
         ref = push(socket, "membership:ack", %{"sequence" => Integer.to_string(sequence), "view_digest" => digest})
-        assert_reply ref, :ok
+        assert_reply ref, :ok, %{}, 5_000
         suspend_idle(socket)
     end
   end
@@ -862,7 +862,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     Process.unlink(socket.channel_pid)
     monitor = Process.monitor(socket.channel_pid)
     ref = leave(socket)
-    assert_reply ref, :ok
+    assert_reply ref, :ok, %{}, 5_000
     assert_receive {:DOWN, ^monitor, :process, _pid, {:shutdown, :left}}, 5_000
 
     {:ok, _fence, socket} =
