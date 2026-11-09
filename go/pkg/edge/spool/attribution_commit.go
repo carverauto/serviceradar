@@ -64,17 +64,6 @@ func (ls *LaneSet) AppendAttributed(key LaneKey, presented Identity, a Attribute
 	return ls.appendWithAttribution(key, presented, a.EventID, a.Body, Bindings{ReceiptSHA256: a.ReceiptSHA256}, &pendingAttribution{validated: &a.Validated})
 }
 
-// AppendRelocated commits a verified source under the lane's current generation.
-func (ls *LaneSet) AppendRelocated(source CommittedAttribution, grant *RecoveryGrant) (Receipt, error) {
-	if !source.valid {
-		return Receipt{}, ErrCommittedAttribution
-	}
-	if grant == nil {
-		return Receipt{}, ErrInvalidAllocatorConfig
-	}
-	return ls.appendWithAttribution(source.generation.Lane, source.generation.Identity, source.record.EventID, source.record.Body, Bindings{}, &pendingAttribution{source: &source, grant: grant})
-}
-
 func (s *Spool) prepareAttribution(seq uint64, eventID, body []byte, p *pendingAttribution) error {
 	if s.attributionIdentity == nil {
 		return ErrAttributionRequired

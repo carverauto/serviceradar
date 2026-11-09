@@ -366,7 +366,14 @@ func TestAttributedRelocationReopensMappingAndRetainsSource(t *testing.T) {
 	if _, err = ls.Rotate(lane); err != nil {
 		t.Fatal(err)
 	}
-	destination, _ := ls.OpenGeneration(lane)
+	recoveryID, err := edgerecord.NewUUIDv7()
+	if err != nil {
+		t.Fatal(err)
+	}
+	destination, err := ls.CreateRecoveryDestination(lane, recoveryID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
 	grant, err := allocator.AcquireRecovery(destination.dir)
 	if err != nil {
 		t.Fatal(err)
@@ -379,11 +386,10 @@ func TestAttributedRelocationReopensMappingAndRetainsSource(t *testing.T) {
 	if destination.NextSequence() != 1 {
 		t.Fatal("ordinary refusal allocated destination slot")
 	}
-	copied, err := ls.AppendRelocated(proof, grant)
+	copied, err := destination.CommitRelocated(proof, grant)
 	if err != nil {
 		t.Fatal(err)
 	}
-	destination, _ = ls.OpenGeneration(lane)
 	dir := destination.dir
 	if _, err = os.Stat(filepath.Join(source.dir, segmentFile)); err != nil {
 		t.Fatal("relocation deleted source", err)
@@ -392,7 +398,10 @@ func TestAttributedRelocationReopensMappingAndRetainsSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	reopened := openAttributedLanes(t, root, identity, allocator, nil)
-	destination, _ = reopened.OpenGeneration(lane)
+	destination, err = reopened.CreateRecoveryDestination(lane, recoveryID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got := allocator.Usage(); got.OrdinaryUsed != usage.OrdinaryCeiling || got.RecoveryUsed == 0 {
 		t.Fatalf("reopen lost reserve ownership or charged it twice: %+v", got)
 	}
@@ -504,7 +513,14 @@ func TestRelocationBarrierRetainsSourceAndWithholdsWitness(t *testing.T) {
 			if _, err = ls.Rotate(lane); err != nil {
 				t.Fatal(err)
 			}
-			destination, _ := ls.OpenGeneration(lane)
+			recoveryID, err := edgerecord.NewUUIDv7()
+			if err != nil {
+				t.Fatal(err)
+			}
+			destination, err := ls.CreateRecoveryDestination(lane, recoveryID, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
 			destination.spool.beforeBarrier = func(at barrier) error {
 				if at == stop {
 					return syscall.EIO
@@ -515,7 +531,7 @@ func TestRelocationBarrierRetainsSourceAndWithholdsWitness(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			receipt, err := ls.AppendRelocated(proof, grant)
+			receipt, err := destination.CommitRelocated(proof, grant)
 			if !errors.Is(err, syscall.EIO) || receipt.Sequence != 0 || !errors.Is(allocator.Err(), syscall.EIO) {
 				t.Fatalf("failed relocation produced receipt or stayed writable: %+v %v allocator=%v", receipt, err, allocator.Err())
 			}
@@ -523,7 +539,10 @@ func TestRelocationBarrierRetainsSourceAndWithholdsWitness(t *testing.T) {
 				t.Fatal(err)
 			}
 			ls = openAttributedLanes(t, root, identity, nil, nil)
-			destination, _ = ls.OpenGeneration(lane)
+			destination, err = ls.CreateRecoveryDestination(lane, recoveryID, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
 			if destination.NextSequence() != 2 {
 				t.Fatal("restart reused interrupted destination sequence")
 			}
@@ -692,7 +711,14 @@ func TestAttributedGenerationFitsFullRelocationReserve(t *testing.T) {
 			if _, err = lanes.Rotate(lane); err != nil {
 				t.Fatal(err)
 			}
-			destination, _ := lanes.OpenGeneration(lane)
+			recoveryID, err := edgerecord.NewUUIDv7()
+			if err != nil {
+				t.Fatal(err)
+			}
+			destination, err := lanes.CreateRecoveryDestination(lane, recoveryID, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
 			grant, err := allocator.AcquireRecovery(destination.dir)
 			if err != nil {
 				t.Fatal(err)
@@ -703,7 +729,7 @@ func TestAttributedGenerationFitsFullRelocationReserve(t *testing.T) {
 				t.Fatalf("ordinary reserve bypass: %v", err)
 			}
 			for _, proof := range proofs {
-				if _, err = lanes.AppendRelocated(proof, grant); err != nil {
+				if _, err = destination.CommitRelocated(proof, grant); err != nil {
 					t.Fatal(err)
 				}
 			}

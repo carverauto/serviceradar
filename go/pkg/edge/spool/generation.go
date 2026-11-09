@@ -24,7 +24,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
@@ -40,8 +39,8 @@ const recoveryDestinationSuffix = ".recovery"
 const recoveryDestinationFile = "recovery-destination"
 const recoveryDestinationMagic = "SRDEST01"
 
-// Directory identifies immutable storage for retained-generation inventory.
-// Returning it does not authorize a commit or deletion.
+// Directory is the generation's immutable storage directory, used to acquire its
+// recovery reservation. Returning it does not authorize a commit or deletion.
 func (g *Generation) Directory() string { return g.dir }
 
 // RecoveryID identifies a dedicated relocation destination, or is nil for an
@@ -50,6 +49,41 @@ func (g *Generation) RecoveryID() []byte { return bytes.Clone(g.recoveryID) }
 
 // RecoveryAttempt distinguishes a control-publication retry within one operation.
 func (g *Generation) RecoveryAttempt() uint32 { return g.recoveryAttempt }
+
+// CreateRecoveryDestination creates or resumes this operation's dedicated
+// destination. Ordinary producer selection never returns it. Its marker and
+// identity are durable together before the generation can receive records.
+func (ls *LaneSet) CreateRecoveryDestination(key LaneKey, recoveryID []byte, attempt uint32) (*Generation, error) {
+	if !key.Valid() {
+		return nil, fmt.Errorf("%w: %s", ErrLaneInvalid, key)
+	}
+	if err := edgerecord.ValidateUUIDv7(recoveryID); err != nil {
+		return nil, errors.Join(ErrPermanent, err)
+	}
+	l, err := ls.lane(key)
+	if err != nil {
+		return nil, err
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.shut {
+		return nil, ErrLaneSetClosed
+	}
+	for _, g := range l.retained {
+		if bytes.Equal(g.recoveryID, recoveryID) && g.recoveryAttempt == attempt {
+			if !g.id.Identity.equal(ls.session) {
+				return nil, ErrScopeUnauthorized
+			}
+			return g, nil
+		}
+	}
+	g, err := ls.createGeneration(l, recoveryID, attempt)
+	if err != nil {
+		return nil, err
+	}
+	l.retained = append(l.retained, g)
+	return g, nil
+}
 
 // CommitRelocated appends only to an operation's dedicated, still-open
 // destination. The storage commit independently checks the source witness and
@@ -91,15 +125,11 @@ func (g *Generation) SealRecoveryDestination() error {
 	return g.spool.Close()
 }
 
-func encodeRecoveryDestination(id GenerationIdentity, recoveryID []byte, attempt uint32) []byte {
+func writeRecoveryDestination(dir string, id GenerationIdentity, recoveryID []byte, attempt uint32) error {
 	b := append([]byte(recoveryDestinationMagic), recoveryID...)
 	b = binary.BigEndian.AppendUint32(b, attempt)
 	digest := sha256.Sum256(append(encodeIdentity(id), b...))
-	return append(b, digest[:]...)
-}
-
-func writeRecoveryDestination(dir string, id GenerationIdentity, recoveryID []byte, attempt uint32) error {
-	b := encodeRecoveryDestination(id, recoveryID, attempt)
+	b = append(b, digest[:]...)
 	path := filepath.Join(dir, recoveryDestinationFile)
 	if err := os.WriteFile(path, b, filePerm); err != nil {
 		return err
@@ -180,56 +210,3 @@ func (g *Generation) CoverageGap(sequence uint64) (SlotResolution, bool) {
 }
 
 func (g *Generation) RestartResolution() Resolution { return g.spool.RestartResolution() }
-
-// MaxGenerationPage bounds handle snapshots used by sender and coordinator loops.
-const MaxGenerationPage = 64
-
-// GenerationsPage returns at most limit handles after the lane-local ordinal.
-// It includes closed, open and dedicated recovery generations, in ordinal order.
-// Callers retain an ordinal cursor, not a slice of every generation. Inventory
-// may change between pages; a later generation will appear after the cursor.
-func (ls *LaneSet) GenerationsPage(key LaneKey, after uint64, limit int) []*Generation {
-	if limit <= 0 {
-		return nil
-	}
-	limit = min(limit, MaxGenerationPage)
-	l := ls.existingLane(key)
-	if l == nil {
-		return nil
-	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	out := make([]*Generation, 0, limit)
-	include := func(g *Generation) {
-		if g == nil || g.id.Ordinal <= after {
-			return
-		}
-		i := 0
-		for i < len(out) && out[i].id.Ordinal < g.id.Ordinal {
-			i++
-		}
-		if i == limit {
-			return
-		}
-		if len(out) < limit {
-			out = append(out, nil)
-		}
-		copy(out[i+1:], out[i:len(out)-1])
-		out[i] = g
-	}
-	start := sort.Search(len(l.retained), func(i int) bool { return l.retained[i].id.Ordinal > after })
-	for _, g := range l.retained[start:min(start+limit, len(l.retained))] {
-		include(g)
-	}
-	include(l.open)
-	return out
-}
-
-// retain keeps the ordinal index ordered at generation creation/closure, so a
-// sender page never scans every retained generation while holding the lane lock.
-func (l *lane) retain(g *Generation) {
-	i := sort.Search(len(l.retained), func(i int) bool { return l.retained[i].id.Ordinal >= g.id.Ordinal })
-	l.retained = append(l.retained, nil)
-	copy(l.retained[i+1:], l.retained[i:len(l.retained)-1])
-	l.retained[i] = g
-}
