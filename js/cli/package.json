@@ -27,12 +27,13 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "test": "npm run build && node --test tests/*.test.mjs",
+    "build:managed-host": "esbuild src/edge/managed.ts --bundle --platform=node --format=esm --target=node20 --outfile=managed-host.mjs",
+    "test": "npm run build && npm run build:managed-host && node --test tests/*.test.mjs",
     "typecheck": "tsc --noEmit",
     "pack:check": "npm pack --dry-run .",
     "prepare": "npm run build",
     "prepublishOnly": "npm run build",
-    "ci": "npm run typecheck && npm run build && node --test tests/*.test.mjs && npm run pack:check"
+    "ci": "npm run typecheck && npm run build && npm run build:managed-host && node --test tests/*.test.mjs && npm run pack:check"
   },
   "engines": {
     "node": ">=20"
@@ -50,6 +51,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "esbuild": "^0.25.4",
     "typescript": "^5.4.0"
   }
 }
