@@ -4,6 +4,7 @@ defmodule ServiceRadarRecording.Sink do
 
   alias Membrane.MP4.Container
   alias ServiceRadarRecording.Boundary
+  alias ServiceRadarRecording.Initialization
 
   def_input_pad(:input, flow_control: :auto, accepted_format: Membrane.CMAF.Track)
   def_options(max_fragment_bytes: [spec: pos_integer()])
@@ -15,11 +16,9 @@ defmodule ServiceRadarRecording.Sink do
 
   @impl true
   def handle_stream_format(:input, format, _ctx, state) do
-    with {:ok, boxes, <<>>} <- Container.parse(format.header),
-         %{fields: %{timescale: timescale}} when timescale > 0 <-
-           Container.get_box(boxes, [:moov, :trak, :mdia, :mdhd]) do
-      sha256 = digest(format.header)
-      init = %{payload: format.header, sha256: sha256, timescale: timescale, codecs: format.codecs}
+    with {:ok, %{sha256: sha256, timescale: timescale} = init_format} <- Initialization.parse(format.header),
+         true <- init_format.codecs == format.codecs do
+      init = Map.put(init_format, :payload, format.header)
       {[], %{state | events: [{:init, init} | state.events], init_sha256: sha256, timescale: timescale}}
     else
       _ -> {[notify_parent: {:error, :invalid_initialization}], state}
