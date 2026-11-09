@@ -409,8 +409,9 @@ in their own transaction through `resolve_devices/2`, which follows steps
 3-5 and never touches the log. Generic evidence writes go only through
 `record_evidence/2`, so they are never left unresolved and append nothing to
 the log. Ledger-trigger rows appended by an inline-resolving writer stay for
-the worker, whose later pass is a write-on-change no-op. The only lock ordering that remains is the existing
-one on device rows (uid order). Exact lock behavior, including merge
+the worker, whose later pass is a write-on-change no-op. The only lock ordering that remains is the global
+one for writers that lock both tables: `device_agent_availability` rows in
+`(device_uid, agent_id)` order, then device rows in uid order (#6450). Exact lock behavior, including merge
 reassignment against the worker, is verified by implementation-phase
 concurrency tests (tasks 5.6a and 5.6b).
 
