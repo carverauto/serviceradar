@@ -128,13 +128,29 @@ func (s *RecordSpool) PrepareRecord(raw []byte) (*spool.AttributedAppend, error)
 	}
 	validated, err := edgerecord.RecordRecoveryAttribution(raw, record.GetOutputContract(), policy)
 	if err != nil {
-		return nil, err
+		return nil, attributionRefusal(err)
 	}
 	identity := spool.Identity{NetworkScopeID: record.GetNetworkScopeId(), AgentID: record.GetProducerContext().GetOriginPrincipalId()}
 	if err = s.activate(identity, true); err != nil {
 		return nil, err
 	}
 	return &spool.AttributedAppend{EventID: bytes.Clone(record.GetEventId()), Body: bytes.Clone(raw), Validated: validated}, nil
+}
+
+// Authority can change independently of immutable record semantics. Keep those
+// refusals pending; a typed body or envelope mismatch cannot heal on retry.
+func attributionRefusal(err error) error {
+	for _, pending := range []error{
+		edgerecord.ErrTrustMissing, edgerecord.ErrTrustEpochUnset,
+		edgerecord.ErrKeyUnavailable, edgerecord.ErrCapabilityKeyUnresolved,
+		edgerecord.ErrKeyHistoricallyRevoked, edgerecord.ErrFenceNotReady,
+		edgerecord.ErrFenceStale, edgerecord.ErrAuthorityExpired, edgerecord.ErrAuthorityNotYetValid,
+	} {
+		if errors.Is(err, pending) {
+			return err
+		}
+	}
+	return errors.Join(spool.ErrPermanent, err)
 }
 
 // AppendPrepared retries rotation once with the same sealed bytes. A second
