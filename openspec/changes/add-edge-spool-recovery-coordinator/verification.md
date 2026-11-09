@@ -99,3 +99,13 @@ Guarded database execution and the final integrated gate are still required.
   new policy setter, plus an out-of-scope caller warning. The production budget
   owner calls the setter; these are separate contracts, so no artificial helper
   or suppression was added. OpenSpec strict validation passed.
+
+- Exact-copy repair integrated as `3648c2b956` passed the spool target in
+  `0aa270b2-7deb-4100-a088-ee272bda649d`. Review then found replay of a healthy
+  closed final slot wrongly entered repair. The peer observed that regression
+  fail in `787c9056`; correction `f3559eb0a7` passed the integrated spool suite
+  in `75f8a41d-92ec-4fcc-b165-d3a57a20b491`.
+- Immutable authority attempts integrated as `bc4820aa75` passed all 14 Go
+  edge/agent targets in `bd39e3a8-ae01-44a6-b3aa-b73a8490002d`. The peer's
+  mixed-attempt receipt negative control `2153afe2` failed reopened coverage
+  when every receipt was incorrectly assigned to attempt zero.

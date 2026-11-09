@@ -289,47 +289,58 @@ not establish that the complete coordinator footprint is configured.
 
 ### Aggregate defaults and recovery-control attempts
 
-The default footprint is 42 MiB per active recovery: 8 MiB destination,
-2 MiB attribution/relocation sidecars, 4 MiB for EACH journal copy, 2 MiB control
+The default footprint is 47 MiB per active recovery: 8 MiB destination,
+2 MiB attribution/relocation sidecars, 6 MiB for EACH journal copy, 3 MiB control
 publication storage, 21 MiB terminal archive and coverage/mapping evidence, and 1 MiB filesystem
 metadata. Together with the existing 1 MiB unborrowable free-space floor, one
-active recovery reserves 43 MiB of the default 1 GiB spool. The existing allocator
+active recovery reserves 48 MiB of the default 1 GiB spool. The existing allocator
 capacity validation rejects a total below its aggregate floor; there is no new
 Helm-only setting. `Footprint.ValidateCoordinator` additionally rejects component
 budgets below the complete coordinator minima.
 
 The destination equation includes 1024 fixed bytes for the generation identity,
 format marker, dedicated recovery marker, closed marker and fixed hold. A journal
-copy reserves twice `(1 MiB freeze + 1 MiB aggregate phase records)`, covering the
+copy reserves twice `(1 MiB freeze + 2 MiB aggregate phase records)`, covering the
 initial records and an exact repair of every retained record. Complete encoded
 publication records are bounded to 512 KiB aggregate before enqueue. For at most
 `ceil(1024 / MaxSpansPerPage) + 1` records including the tombstone, one control
 attempt requires that aggregate plus each spool wrapper, four 212-byte evidence
 entries, one 1024-byte attribution sidecar and 256-byte terminal allowance, plus
 1024 fixed generation bytes. The minimum control footprint covers two complete
-attempts plus one retained superseded-attempt archive; the default rounds up to 2 MiB.
+attempts plus both retained attempt archives and 64 KiB of archive framing;
+the default rounds up to 3 MiB.
 
 Recovery controls use the SAME grant as data relocation. They consume the
 `ManifestPages` artifact budget, including their wrappers/evidence/sidecars, and
 have independently tracked retained file ownership. Source release transfers the
-copy destination only. Final artifact release transfers still-retained control
-attempts and their terminal allowances to ordinary storage for normal sender
-cleanup. Restart measures every attempted control generation before testing
+copy destination only. Final cleanup archives retained control
+attempts and reclaims terminal copy data and archived control generations under
+the original grant. Remaining archives and compact proofs become ordinary
+storage after cleanup. Restart measures every attempted control generation before testing
 remaining physical backing, without acquiring another concurrency slot.
 
 A failed control append may create an ambiguous slot. Its generation and all
-its evidence remain charged; reconstruction uses the exact frozen publication
-bytes in a new dedicated control attempt. Ordinary delivery renewal can authorize
-the unchanged record under its new spool/sequence while the output grant remains
-active. Repeated failed attempts require enough remaining aggregate capacity;
-exhaustion is a visible capacity refusal retaining evidence, not unbounded retry
-progress. Safe cleanup of superseded attempts remains part of the proof lifecycle.
+its evidence remain charged; reconstruction can replay the exact frozen bundle
+into the next dedicated control attempt. An authority refresh instead journals a
+new immutable transport bundle with current production/source authority and new
+record identities, while retaining the exact registered semantic page/tombstone
+bodies and manifest root. Every authoritative receipt names its exact attempt;
+receipts from different attempts may cover the same frozen manifest. Audit-only
+receipts never provide coverage. There are at most two retained attempts total,
+including torn-append retries and authority refreshes; a third refuses before
+allocation. Exhaustion is a visible capacity refusal retaining evidence.
+
+The serialized phase budget includes both complete bundles, their typed sidecars,
+five page/tombstone receipts, operation metadata and a full 1,024-copy coverage
+certificate. The maximum encoded test bundle is 705,295 bytes, and the complete
+phase bound is 1,765,456 bytes, below the enforced 2 MiB limit per journal copy.
+Both journal copies retain enough reserve for an exact repair of their contents.
 
 
 ### Paired storage proof checkpoint
 
 Every mutable phase is an immutable two-copy record bound to the complete frozen
-journal digest and its step name. There are at most 64 steps and 1 MiB aggregate
+journal digest and its step name. There are at most 64 steps and 2 MiB aggregate
 phase bytes per copy. A single intact copy permits exact repair but never proves
 progress until both barriers exist. Divergent intact copies fail closed.
 

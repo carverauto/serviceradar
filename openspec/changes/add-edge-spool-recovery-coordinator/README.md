@@ -19,8 +19,9 @@ coordinator and its negotiated runtime path are complete.
 
 Remaining work, in dependency order:
 
-1. Complete interrupted-copy repair under the original reserve. Source-bound
-   creation intent and independent finite lane senders are integrated.
+1. Complete reserve-backed active-source closure and ordinary generation metadata
+   admission. Exact interrupted-copy repair, source-bound intent and independent
+   finite lane senders are integrated.
 2. Wire bounded coordinator discovery, per-authority publication attempts,
    current-trust completion validation and restart cleanup.
 3. Complete gateway coverage freshness through publisher handoff and remove

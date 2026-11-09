@@ -572,3 +572,22 @@
   rather than silently using a larger budget.
 - Confidence: high; actual spool admission and config-retry regressions were
   observed failing before the fix, then the full affected Go targets passed.
+
+## Preserve authority attempts as separate immutable transport records
+
+- When: recovery publication integration, 2026-11-09.
+- Choice: retain each complete signed transport bundle under its own attempt,
+  while keeping the registered semantic pages and root unchanged. Authoritative
+  receipts identify the exact attempt that published them; audit-only receipts
+  cannot establish coverage. The same bounded two-attempt limit covers torn
+  appends and authority refreshes.
+- Gap: replaying an old fenced transport record forever cannot apply recovery,
+  and rewriting it would destroy the evidence behind its earlier receipts.
+- Reach: exact encoded phase bounds require 6 MiB per journal copy and 3 MiB
+  for controls and their archives. The complete default reserve is 47 MiB, with
+  the existing 1 MiB physical floor and unchanged 1 GiB total default. A third
+  attempt remains a visible refusal before allocation.
+- Verdict: sound; keeps immutable evidence without an unbounded attempt history
+  or permission to overwrite older transport records.
+- Confidence: high; maximum encoded bundles and receipts are bounded, and mixed
+  attempt coverage has an observed failing control.
