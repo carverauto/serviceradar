@@ -222,3 +222,46 @@ Guarded database execution and the final integrated gate are still required.
   reason. Local phase work remains bounded and remote failures retry every five
   seconds. Gateway activation and database-backed consumer execution still require
   their owning integration gates; these synthetic transport fixtures do not prove them.
+
+## Integrated validation and final structural review
+
+- Integrated edge, agent, gateway-client, cmd-agent and process-harness selfchecks
+  passed all 16 targets in `fbba1a14-246b-46ec-ac6f-331ed627e672` without retries.
+  Standalone Go vet passed again after coordinator integration.
+- Runtime refusal readiness passed core edge unit and quality checks in
+  `5326507b-a4af-48a6-a2ea-823c1ef8c15f`; removing health retention failed
+  `581e8c19-1d1d-41f0-8480-344c87be3769`. The merged test retains the separate
+  unsupported-storage case alongside that new refusal case.
+- Whole-branch Go structural analysis against `916ccd9908` reported 202 gating
+  rows: 194 normalized clone/helper rows, three complexity, four verbosity and
+  one reachability warning. This is not a clean structural-tool verdict. The
+  reachability warning targets `CoverageGap`, which production calls through an
+  interface. Cross-domain constructors, lock guards, nil guards and test decoding
+  explain the generic clone rows; no suppression or acknowledgement ledger was added.
+- Independent storage review retained the meaningful complex owners deliberately:
+  `commitLocked` displays the required durable barrier order; generation recovery
+  validates directory role, frozen identity and source intent before opening.
+  `ReleaseSource` and `ReleaseArtifacts` are live, distinct ordinary-reclaim
+  stages sharing `releaseStageLocked`. Recovery's measured source checkpoint is
+  replay-idempotent and must permit subsequent journal writes under the same grant.
+  Atomic batch append charging cannot be replaced by repeated scalar charges.
+  No unsafe drift or justified late abstraction was found in those owners.
+
+## Final gateway activation
+
+- The actual Hello response advertises recovery version one in `ae46bcbec0`.
+  Core deploys first; its temporary unavailability is a retryable operation RPC
+  failure, not a reason to latch a zero feature version on the managed connection.
+- Returning version zero instead failed the actual enrollment assertions in
+  `fbec6ea9-05cc-483a-890b-4367e3c56eb4` (387 tests, two intended failures).
+  Restored gateway unit and quality targets passed both targets in
+  `467ad6d7-ccdb-44ec-a6db-e12a1b0a0686`.
+- The integrated tree before that two-file activation passed `make test` in
+  `d25ccaec-6118-4c3e-ac23-fb24a2754f3e`: 523 passed, two skipped, with
+  79 targets executed out of 525. The skips are `build/arrow_swift:ios_compile_test`
+  and `build/arrow_swift:swift_regression_test`. No failed or flaky result appeared
+  in this run.
+- The final activated tree passed `make test` in
+  `aa612f04-80d6-4a48-8479-9806bdd7ac3f`: 523 passed, the same two Swift
+  skips, six targets executed out of 525, and no failed or flaky result.
+  Strict OpenSpec validation and `git diff --check` also passed.

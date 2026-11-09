@@ -6,16 +6,19 @@ The historical "Remaining as of the move" notes below describe the starting
 point. The current branch integrates bounded attributed production lanes, the
 single allocator, durable tagged mappings and issuance evidence, independent
 bindings, paired journal/coverage proofs, registered copy authority, consumer
-repair, and gateway coverage handling. The driver is completing real-sender
-receipt-barrier/restart validation and negotiated activation. Flat legacy storage
-is explicitly unsupported and retained, per the owner's later scope decision.
+repair, and gateway coverage handling. Real-sender receipt-barrier/restart
+validation, retained-byte accounting and post-cleanup producer delivery passed.
+Gateway version-one advertisement and its actual Hello regression are integrated.
+Flat legacy storage is explicitly unsupported and retained, per the owner's later
+scope decision.
 
 Independent review found the specified storage vectors in the owning suites:
 all four journal-derived coarsening cases, allocated 9 / markerless 10, wrong-body
 coverage, uncommitted destination, missing ACK, copy crash barriers and physical
 reserve progress. The near-full proof is a storage test; it is not a claim of
-near-full process-level recovery. The actual driver, guarded database assertions,
-full suite and landing gate must finish before checking complete tasks below.
+near-full process-level recovery. The driver and whole unit suite have passed.
+Guarded database assertions and the final integrated landing gate must finish
+before checking complete tasks below.
 
 ## 1. Moved from `unify-sweep-results-proto`
 

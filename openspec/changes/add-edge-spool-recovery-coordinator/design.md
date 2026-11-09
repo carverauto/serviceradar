@@ -11,14 +11,16 @@ budget and reported as unsupported retained storage. See
 
 ## Context and verified prerequisites
 
-The agent opens one `spool.Spool` in `go/cmd/agent/edge_record_sender.go`.
-`ResolveSlot` classifies an allocated slot without committed bytes as ambiguous;
+At the starting revision, the agent opened one `spool.Spool` in
+`go/cmd/agent/edge_record_sender.go`. `ResolveSlot` classifies an allocated slot without committed bytes as ambiguous;
 `ScanFrom` skips it. `sender.drainAcks` validates a contiguous disposition prefix.
 Consequently a later committed record cannot resolve across the gap. None of the
 visibility fields or logs is permission to advance a watermark or delete bytes.
 
-The moved task notes, not the checked boxes in `unify-sweep-results-proto`, remain
-the completion authority. Inspection against the staging base found:
+The moved task notes, not the checked boxes in `unify-sweep-results-proto`,
+define the starting gaps. The following table records the prerequisite audit
+against the staging base, before this implementation; current evidence is in
+[verification.md](verification.md):
 
 | Dependency | Evidence | Remaining implementation |
 | --- | --- | --- |

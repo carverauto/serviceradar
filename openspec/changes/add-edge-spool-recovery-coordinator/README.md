@@ -6,34 +6,34 @@ contracts, not the existence of a helper or an old moved-task checkmark.
 
 ## Current pickup
 
-Implement the prerequisite contracts, then the coordinator and end-to-end
-recovery path. Visibility PR #6447 merged as `d54cbc508a76ba99b673015d3006ce928393877f`
+The implementation is complete and entering its final validation gate.
+Visibility PR #6447 merged as `d54cbc508a76ba99b673015d3006ce928393877f`
 with all 20 CI checks passing. Its gate records the user-approved remote-test
 exception; live-product validation was not performed.
 
-The current pickup is the production recovery coordinator. Bounded producer
-lanes, typed append seals, immutable registration, historical mapping, exact-copy
-grants, gateway control validation, consumer effects, paired storage coverage and
-same-reservation cleanup are integrated. The protocol remains disabled until the
-coordinator and its negotiated runtime path are complete.
+The bounded production coordinator is integrated. It inventories retained recovery
+storage before admission and delivery, cancels and joins each source session
+before freeze, journals immutable transport attempts, requires exact copy grants,
+and validates signed consumer completion before cleanup. Actual sender tests
+cover interrupted receipt writes, restart accounting and delivery of a new record
+after recovery. The integrated Go and process-harness selfchecks passed all 16
+targets; standalone Go vet also passed. The final activated tree passed all 523
+runnable unit targets, with two Swift platform skips.
 
 Remaining work, in dependency order:
 
-1. Wire bounded coordinator discovery, startup inventory, per-authority
-   publication attempts, current-trust completion validation and restart cleanup.
-   Reserve-backed active-source closure and ordinary generation metadata admission
-   are integrated, as are immutable exact-copy repair and finite lane workers.
-2. Prove the production crash/restart path through the coordinator. The sender
-   recovery-receipt barrier, required rollover grants, authenticated Hello version
-   snapshot and typed process-harness storage are integrated.
-3. Reconcile every task and design decision, run whole-repo tests and standalone
-   Go vet, consolidate the choices ledger, then land through no-mistakes/Grok.
-   Require actual `BazelCI Core Integration` execution for the boxed DB contracts.
+1. Reconcile task completion with the remaining database-backed CI evidence. Core must deploy before
+   gateway/agent; downstream availability remains a retryable RPC condition,
+   not a feature-version toggle.
+   Require `BazelCI Core Integration` to execute the boxed database contracts and
+   the process vertical slice; unit loading is not database execution.
+2. Land through no-mistakes with reviewer Grok, verify exact-head CI, and record
+   the PR and merge commit. No gate owns this branch yet.
 
-Gateway coverage freshness through publisher handoff and non-expiring bounded
-recovery queue retention are integrated. The storage near-full proof covers
-2,049 synthetic records across nine damaged generations; production driver
-integration remains required before claiming end-to-end recovery.
+The storage near-full proof covers 2,049 synthetic records across nine damaged
+generations. It is separate from the composed driver tests; no near-full live
+product deployment validation is claimed. Decisions are consolidated in
+[choices.md](choices.md), and run evidence is in [verification.md](verification.md).
 
 The owner excluded legacy compatibility on 2026-11-09. Preserve and account old
 flat files as unsupported retained storage; do not implement migration, legacy
@@ -63,14 +63,16 @@ oracle. The live gateway prefix owner is Elixir `ServiceRadar.Edge.ResolvedPrefi
   from the frozen contract instead of repeating the search.
 - Production lanes and reserve checks use the shared allocator. Integrated cleanup
   preserves rejection/control archives and releases capacity only after its durable
-  completion proof; the coordinator and full-floor proof remain on the critical path.
+  completion proof. Composed driver and storage full-floor tests passed; guarded
+  consumer database execution remains required.
 - Assignment/grant current-state rows are not historical recovery mappings;
   scheduler deletion and mutable epochs must not remove their authority evidence.
 - All four coarsening vectors start from journaled per-sequence evidence. Coverage
   must include markerless allocated slots and compare complete classification bodies.
 - Source deletion and journal garbage collection have different durability gates.
-- All fixtures are synthetic. Tests run with Bazel `--config=remote`; no local builds,
-  weakened checks, direct staging pushes, or Helm-only configuration.
+- All fixtures are synthetic. Bazel tests run with `--config=remote`; standalone
+  Go vet is also required. No weakened checks, direct staging pushes, or Helm-only
+  configuration.
 
 Update this pickup and the choices ledger after each verified commit checkpoint.
 
