@@ -122,11 +122,12 @@ node:
 bin/serviceradar_core_elx rpc 'IO.inspect(ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay.list(limit: 20), limit: :infinity)'
 ```
 
-`list/1` and `replay/1` take `subject:` (a filter on the dead-letter
-subjects, for one contract as above), `reason:` (only messages whose
-`Sr-Edge-Dlq-Reason` is this class; others are skipped, kept, and not counted
-against the limit), `from_sequence:` and `limit:` (default 100). A run reads only the messages the stream held when it started. Each
-returns `next_sequence`; pass it back as `from_sequence` to page.
+`list/1`, `replay/1` and `purge/1` take `subject:`, `reason:`, `contract:`,
+`from_sequence:`, `through_sequence:` and `limit:` (default 100); the
+`ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay` moduledoc owns their
+meaning. A run reads only the messages the stream held when it started. Each
+returns `next_sequence` (pass it back as `from_sequence` to page) and
+`complete`, false when it stopped before reading everything it could.
 
 ## Replay
 
@@ -163,12 +164,13 @@ Entry results:
 - `{:error, reason}`: not republished, and kept.
 
 To drop a record you have investigated and will not replay:
-`nats stream rmm TELEMETRY_EDGE_RECORD_DLQ_V1_BULK <dlq_sequence>`. The core
-NATS identity cannot purge or delete the stream itself.
+`nats stream rmm TELEMETRY_EDGE_RECORD_DLQ_V1_BULK <dlq_sequence>`, or
+`Replay.purge/1` from a core node, which deletes the matching messages one at
+a time. The core NATS identity cannot purge or delete the stream itself.
 
 ## From the Settings UI
 
-Settings -> Cluster has a "Dead letters" section for users who may manage the
+Settings -> Cluster Status has a "Dead letters" section for users who may manage the
 edge pipeline (`settings.edge.manage`). It runs the functions above on the
 cluster coordinator:
 
