@@ -181,9 +181,20 @@ type Result struct {
 	GrantRenewal error
 }
 
+// Source is one immutable generation's delivery surface. Both a legacy flat
+// spool and a retained LaneSet generation implement it. Terminal resolution stays
+// behind the storage owner's durability and recovery-hold checks.
+type Source interface {
+	ScanFrom(uint64, func(spool.Record) bool) error
+	Resolved() uint64
+	ReclaimResolved() error
+	CoverageGap(uint64) (spool.SlotResolution, bool)
+	ResolveWithEvidence(uint64, []byte) error
+}
+
 // Sender drains one agent spool over one lane session.
 type Sender struct {
-	spool  *spool.Spool
+	spool  Source
 	client StreamClient
 	cfg    Config
 	// grants holds the delivery grants obtained for unresolved records, by
@@ -192,7 +203,7 @@ type Sender struct {
 }
 
 // New builds a Sender for the given spool, client, and lane configuration.
-func New(sp *spool.Spool, client StreamClient, cfg Config) (*Sender, error) {
+func New(sp Source, client StreamClient, cfg Config) (*Sender, error) {
 	if sp == nil {
 		return nil, errSpoolRequired
 	}

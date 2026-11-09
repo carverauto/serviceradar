@@ -61,7 +61,13 @@ func (s *Spool) CommitRelocated(source CommittedAttribution, grant *RecoveryGran
 
 // AppendAttributed checks the sealed record before creating any lane generation.
 func (ls *LaneSet) AppendAttributed(key LaneKey, presented Identity, a AttributedAppend) (Receipt, error) {
-	return ls.appendWithAttribution(key, presented, a.EventID, a.Body, Bindings{ReceiptSHA256: a.ReceiptSHA256}, &pendingAttribution{validated: &a.Validated})
+	return ls.AppendAttributedFlow("", key, presented, a)
+}
+
+// AppendAttributedFlow preserves producer fairness while retaining the sealed
+// attribution and the exact bytes across admission and rotation retries.
+func (ls *LaneSet) AppendAttributedFlow(flow string, key LaneKey, presented Identity, a AttributedAppend) (Receipt, error) {
+	return ls.appendWithAttribution(flow, key, presented, a.EventID, a.Body, Bindings{ReceiptSHA256: a.ReceiptSHA256}, &pendingAttribution{validated: &a.Validated})
 }
 
 func (s *Spool) prepareAttribution(seq uint64, eventID, body []byte, p *pendingAttribution) error {
