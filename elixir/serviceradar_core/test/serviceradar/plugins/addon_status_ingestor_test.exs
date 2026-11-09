@@ -108,7 +108,8 @@ defmodule ServiceRadar.Plugins.AddonStatusIngestorTest do
     agent_uid: agent_uid
   } do
     observed_nanos = DateTime.to_unix(~U[2026-11-08 18:00:00Z], :nanosecond)
-    oversized_error = String.duplicate("x", 20_000)
+    large_error = String.duplicate("y", 20_000)
+    oversized_error = String.duplicate("x", 70_000)
 
     :ok =
       AddonStatusIngestor.ingest(
@@ -122,6 +123,11 @@ defmodule ServiceRadar.Plugins.AddonStatusIngestorTest do
               "locate agent updater for systemd install: release updater does not support required flag: --addon-version",
             "apply_disposition" => "permanent_failure",
             "apply_observed_at" => observed_nanos
+          },
+          %{
+            "name" => "addon:large",
+            "state" => "unhealthy",
+            "last_error" => large_error
           },
           %{
             "name" => "addon:overflow",
@@ -143,7 +149,8 @@ defmodule ServiceRadar.Plugins.AddonStatusIngestorTest do
 
     assert by_id["netprobe"].apply_observed_at == ~U[2026-11-08 18:00:00.000000Z]
 
-    assert by_id["overflow"].degradation_reason == "[overflow:20000_bytes]"
+    assert by_id["large"].degradation_reason == large_error
+    assert by_id["overflow"].degradation_reason == "[overflow:70000_bytes]"
     assert by_id["overflow"].apply_disposition == "[unknown]"
   end
 end

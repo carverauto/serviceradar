@@ -199,7 +199,7 @@ type PushLoop struct {
 
 	hostNetworkVisibilitySupported func() bool
 	systemdUpdaterSupportedFunc    func() (bool, bool)
-	systemdUpdaterProbeOnce        sync.Once
+	systemdUpdaterProbeMu          sync.Mutex
 	systemdUpdaterSupported        bool
 	systemdUpdaterProbed           bool
 	uninstallSystemdAddonUnits     func(context.Context, []string) error

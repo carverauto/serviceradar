@@ -1148,6 +1148,50 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
     assert target.error =~ "release updater does not support required flag: --addon-version"
   end
 
+  test "an addons section failure naming a different add-on whose id contains the candidate id does not fail the canary" do
+    actor = SystemActor.system(:addon_rollout_other_addon_section_test)
+    fixture = rollout_fixture(actor)
+
+    report_status(fixture, fixture.current.version, "running", true, fixture.started_at, actor)
+
+    assert {:ok, rollout} =
+             AddonRolloutCoordinator.start(fixture.assignment, fixture.candidate,
+               actor: actor,
+               now: fixture.started_at,
+               trigger: :manual
+             )
+
+    failed_at = DateTime.shift(fixture.started_at, second: 5)
+
+    reason =
+      "one or more add-on assignments failed permanently: scanner-#{fixture.addon_id}: " <>
+        "stage addon artifact: sha256 mismatch"
+
+    assert :ok =
+             ServiceRadar.Edge.AgentGatewaySync.record_config_section_statuses(
+               fixture.agent_uid,
+               %{
+                 section_statuses: [
+                   %{
+                     "section" => "addons",
+                     "disposition" => "permanent_failure",
+                     "error" => reason,
+                     "since" => DateTime.to_iso8601(failed_at)
+                   }
+                 ]
+               }
+             )
+
+    assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: actor, now: failed_at)
+
+    current = get_rollout(rollout.id, actor)
+    target = get_rollout_target(rollout.id, actor)
+
+    refute current.blocked_reason == "candidate_install_failed"
+    refute target.reason_code == "candidate_install_failed"
+    refute (target.error || "") =~ "sha256 mismatch"
+  end
+
   test "an apply failure reported on AddonStatus while the previous version keeps running fails the canary immediately" do
     actor = SystemActor.system(:addon_rollout_status_apply_failed_test)
     fixture = rollout_fixture(actor)

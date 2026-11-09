@@ -891,11 +891,17 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
       since = parse_datetime(value(entry, :since)) || fallback_at
 
       if section == "addons" and disposition in ["permanent_failure", "transient_failure"] and
-           present?(error) and addon_id != "" and String.contains?(error, addon_id) and
+           present?(error) and section_names_addon?(error, addon_id) and
            fresh_timestamp?(since, applied_at) do
         String.trim(error)
       end
     end)
+  end
+
+  defp section_names_addon?(_error, ""), do: false
+
+  defp section_names_addon?(error, addon_id) do
+    Regex.match?(~r/(?:^|\s)#{Regex.escape(addon_id)}(?=$|[,;:])/, error)
   end
 
   defp status_unhealthy_failure(nil, _candidate, _applied_at), do: nil

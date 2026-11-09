@@ -16,7 +16,7 @@ defmodule ServiceRadar.Plugins.AddonStatusIngestor do
 
   @addon_prefix "addon:"
   @max_identifier_bytes 256
-  @max_error_bytes 16_384
+  @max_error_bytes 65_536
   @valid_dispositions ["permanent_failure", "transient_failure"]
 
   @doc """

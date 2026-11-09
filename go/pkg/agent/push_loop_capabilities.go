@@ -142,7 +142,7 @@ type agentCapabilityStatusPayload struct {
 
 const (
 	maxSidecarIdentifierBytes = 256
-	maxSidecarErrorBytes      = 16_384
+	maxSidecarErrorBytes      = 65_536
 )
 
 func (p *PushLoop) buildAgentCapabilityGatewayStatus(
@@ -349,18 +349,21 @@ func (p *PushLoop) probeSystemdAddonUpdater() (bool, bool) {
 		return false, false
 	}
 
-	p.systemdUpdaterProbeOnce.Do(func() {
-		_, err := ValidatedPrivilegedAgentUpdaterPath(updaterflags.AddonVersion, updaterflags.AddonBinary)
-		if err == nil {
-			p.systemdUpdaterProbed = true
-			p.systemdUpdaterSupported = true
-			return
-		}
-		if errors.Is(err, errReleaseUpdaterFlagUnsupported) {
-			p.systemdUpdaterProbed = true
-			p.systemdUpdaterSupported = false
-		}
-	})
+	p.systemdUpdaterProbeMu.Lock()
+	defer p.systemdUpdaterProbeMu.Unlock()
+	if p.systemdUpdaterProbed {
+		return true, p.systemdUpdaterSupported
+	}
+
+	_, err := ValidatedPrivilegedAgentUpdaterPath(updaterflags.AddonVersion, updaterflags.AddonBinary)
+	switch {
+	case err == nil:
+		p.systemdUpdaterProbed = true
+		p.systemdUpdaterSupported = true
+	case errors.Is(err, errReleaseUpdaterFlagUnsupported):
+		p.systemdUpdaterProbed = true
+		p.systemdUpdaterSupported = false
+	}
 
 	return p.systemdUpdaterProbed, p.systemdUpdaterSupported
 }
