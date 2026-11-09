@@ -60,9 +60,8 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
   # permission expansion remains blocked for review.
   @impl true
   def restore_managed_sources(packages, actor) do
-    _ = clear_orphaned_terminal_overrides(actor)
-
-    with {:ok, assignments} <- recoverable_assignments(actor),
+    with :ok <- clear_orphaned_terminal_overrides(actor),
+         {:ok, assignments} <- recoverable_assignments(actor),
          {:ok, profiles} <- recoverable_profiles(actor) do
       assignments
       |> Enum.concat(profiles)
@@ -938,23 +937,32 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
     |> Ash.read(actor: actor)
     |> case do
       {:ok, assignments} ->
-        Enum.each(assignments, fn assignment ->
-          if terminal_rollout?(assignment.rollout) do
-            _ =
-              assignment
-              |> Ash.Changeset.for_update(:clear_rollout_override, %{
-                rollout_package_id: nil,
-                rollout_id: nil,
-                rollout_started_at: nil
-              })
-              |> Ash.update(actor: actor, authorize?: true)
+        assignments
+        |> Enum.filter(&terminal_rollout?(&1.rollout))
+        |> Enum.reduce_while(:ok, fn assignment, :ok ->
+          case clear_terminal_override(assignment, actor) do
+            :ok -> {:cont, :ok}
+            {:error, reason} -> {:halt, {:error, reason}}
           end
         end)
 
-        :ok
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
 
-      {:error, _} ->
-        :ok
+  defp clear_terminal_override(%AddonAssignment{rollout_id: owner} = assignment, actor) do
+    assignment
+    |> Ash.Changeset.for_update(:clear_rollout_override, %{
+      rollout_package_id: nil,
+      rollout_id: nil,
+      rollout_started_at: nil
+    })
+    |> Ash.Changeset.filter(Ash.Expr.expr(rollout_id == ^owner))
+    |> Ash.update(actor: actor, authorize?: true)
+    |> case do
+      {:ok, _assignment} -> :ok
+      {:error, error} -> if RolloutArtifact.stale_write?(error), do: :ok, else: {:error, error}
     end
   end
 

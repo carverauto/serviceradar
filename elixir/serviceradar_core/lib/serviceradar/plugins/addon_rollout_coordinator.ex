@@ -699,7 +699,8 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
 
     prior_rotations =
       Enum.count(targets, fn target ->
-        target.state == :excluded and target.reason_code in @rotatable_canary_reasons
+        target.state == :excluded and
+          target.reason_code in ["rollback_recovery_unverified" | @rotatable_canary_reasons]
       end)
 
     if rollout.state == :paused and not in_flight and rolled_back != [] and pending != [] and
@@ -1081,7 +1082,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     artifact = RolloutArtifact.implementation(rollout)
 
     cond do
-      failure = candidate_failure(artifact, evidence, candidate, target.override_applied_at) ->
+      failure = artifact.candidate_failure(evidence, candidate, target.override_applied_at) ->
         fail_and_rollback_target(rollout, target, failure, actor, now)
 
       artifact.candidate_ready?(evidence, candidate, target.override_applied_at) ->
@@ -1105,19 +1106,6 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
 
       true ->
         {:ok, target}
-    end
-  end
-
-  defp candidate_failure(artifact, evidence, candidate, applied_at) do
-    cond do
-      function_exported?(artifact, :candidate_failure, 3) ->
-        artifact.candidate_failure(evidence, candidate, applied_at)
-
-      artifact.candidate_failed?(evidence, candidate, applied_at) ->
-        {"candidate_reported_unhealthy", nil}
-
-      true ->
-        nil
     end
   end
 
