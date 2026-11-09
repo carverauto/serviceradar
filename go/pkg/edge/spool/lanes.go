@@ -258,6 +258,7 @@ type lane struct {
 // authenticated session identity. It is safe for concurrent use.
 type LaneSet struct {
 	root              string
+	sessionMu         sync.RWMutex // namespace replacement vs append/rotation
 	session           Identity
 	taxonomy          *fairsched.LaneTaxonomy
 	generationOptions func(GenerationIdentity, string) ([]Option, error)
@@ -307,6 +308,35 @@ func OpenLanes(root string, session Identity, taxonomy *fairsched.LaneTaxonomy, 
 	if err := session.validate(); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrSessionIdentity, err)
 	}
+	return openLanesInventory(root, session, taxonomy, options...)
+}
+
+// OpenRetainedLanes opens the same storage inventory before authenticated
+// configuration arrives. Existing generations can drain under their frozen
+// identities, but append and rotation remain unavailable until ActivateSession.
+func OpenRetainedLanes(root string, taxonomy *fairsched.LaneTaxonomy, options ...LaneOption) (*LaneSet, error) {
+	return openLanesInventory(root, Identity{}, taxonomy, options...)
+}
+
+// ActivateSession installs the authenticated namespace without reopening storage
+// or charging another allocator. Existing generation identities never change;
+// an append under a new namespace requires ordinary lane rotation first.
+func (ls *LaneSet) ActivateSession(session Identity) error {
+	if err := session.validate(); err != nil {
+		return fmt.Errorf("%w: %w", ErrSessionIdentity, err)
+	}
+	ls.sessionMu.Lock()
+	defer ls.sessionMu.Unlock()
+	ls.mu.Lock()
+	defer ls.mu.Unlock()
+	if ls.closed {
+		return ErrLaneSetClosed
+	}
+	ls.session = session.clone()
+	return nil
+}
+
+func openLanesInventory(root string, session Identity, taxonomy *fairsched.LaneTaxonomy, options ...LaneOption) (*LaneSet, error) {
 	if taxonomy == nil || taxonomy.Len() == 0 {
 		return nil, fmt.Errorf("%w: taxonomy is required", fairsched.ErrTaxonomyInvalid)
 	}
@@ -368,10 +398,12 @@ func (ls *LaneSet) Append(key LaneKey, presented Identity, eventID, body []byte)
 // An empty Bindings declares no binding; such appends each open their own
 // rotation run.
 func (ls *LaneSet) AppendWithBindings(key LaneKey, presented Identity, eventID, body []byte, b Bindings) (Receipt, error) {
-	return ls.appendWithAttribution(key, presented, eventID, body, b, nil)
+	return ls.appendWithAttribution("", key, presented, eventID, body, b, nil)
 }
 
-func (ls *LaneSet) appendWithAttribution(key LaneKey, presented Identity, eventID, body []byte, b Bindings, attribution *pendingAttribution) (Receipt, error) {
+func (ls *LaneSet) appendWithAttribution(flow string, key LaneKey, presented Identity, eventID, body []byte, b Bindings, attribution *pendingAttribution) (Receipt, error) {
+	ls.sessionMu.RLock()
+	defer ls.sessionMu.RUnlock()
 	if !key.Valid() {
 		return Receipt{}, fmt.Errorf("%w: %s", ErrLaneInvalid, key)
 	}
@@ -415,7 +447,7 @@ func (ls *LaneSet) appendWithAttribution(key LaneKey, presented Identity, eventI
 		return Receipt{}, fmt.Errorf("%w: lane %s open generation is frozen under another identity", ErrRotationRequired, key)
 	}
 
-	r, err := l.open.spool.commit("", eventID, body, b, attribution)
+	r, err := l.open.spool.commit(flow, eventID, body, b, attribution)
 	if err != nil {
 		return Receipt{}, err
 	}
@@ -452,6 +484,11 @@ func (ls *LaneSet) RequireRotation(key LaneKey) error {
 // The close marker is durable before the successor exists, so a crash between
 // the two leaves the lane with no open generation and the next append opens one.
 func (ls *LaneSet) Rotate(key LaneKey) (GenerationIdentity, error) {
+	ls.sessionMu.RLock()
+	defer ls.sessionMu.RUnlock()
+	if len(ls.session.NetworkScopeID) == 0 {
+		return GenerationIdentity{}, ErrLaneNotReady
+	}
 	if !key.Valid() {
 		return GenerationIdentity{}, fmt.Errorf("%w: %s", ErrLaneInvalid, key)
 	}
@@ -470,7 +507,7 @@ func (ls *LaneSet) Rotate(key LaneKey) (GenerationIdentity, error) {
 			return GenerationIdentity{}, err
 		}
 		g := l.open
-		l.retained = append(l.retained, g)
+		l.retain(g)
 		l.open = nil
 		l.rotationPending = false
 		if err := g.markClosed(); err != nil {
@@ -575,6 +612,9 @@ func (ls *LaneSet) closeAll() error {
 
 // authorize enforces the single-scope authenticated-agent invariant.
 func (ls *LaneSet) authorize(presented Identity) error {
+	if len(ls.session.NetworkScopeID) == 0 {
+		return ErrLaneNotReady
+	}
 	if !bytes.Equal(presented.NetworkScopeID, ls.session.NetworkScopeID) {
 		return ErrScopeUnauthorized
 	}
@@ -772,7 +812,7 @@ func (ls *LaneSet) recoverLane(key LaneKey) (*lane, error) {
 				return nil, fmt.Errorf("%w: duplicate recovery destination", ErrCorruptGeneration)
 			}
 			seenRecovery[key] = true
-			l.retained = append(l.retained, g)
+			l.retain(g)
 			continue
 		}
 		if !g.Closed() {
@@ -789,7 +829,7 @@ func (ls *LaneSet) recoverLane(key LaneKey) (*lane, error) {
 			closeGens()
 			return nil, fmt.Errorf("%w: lane %s has a closed generation after its open one", ErrCorruptGeneration, key)
 		}
-		l.retained = append(l.retained, g)
+		l.retain(g)
 	}
 
 	return l, nil

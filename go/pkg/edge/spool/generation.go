@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
@@ -54,6 +55,11 @@ func (g *Generation) RecoveryAttempt() uint32 { return g.recoveryAttempt }
 // destination. Ordinary producer selection never returns it. Its marker and
 // identity are durable together before the generation can receive records.
 func (ls *LaneSet) CreateRecoveryDestination(key LaneKey, recoveryID []byte, attempt uint32) (*Generation, error) {
+	ls.sessionMu.RLock()
+	defer ls.sessionMu.RUnlock()
+	if len(ls.session.NetworkScopeID) == 0 {
+		return nil, ErrLaneNotReady
+	}
 	if !key.Valid() {
 		return nil, fmt.Errorf("%w: %s", ErrLaneInvalid, key)
 	}
@@ -81,7 +87,7 @@ func (ls *LaneSet) CreateRecoveryDestination(key LaneKey, recoveryID []byte, att
 	if err != nil {
 		return nil, err
 	}
-	l.retained = append(l.retained, g)
+	l.retain(g)
 	return g, nil
 }
 
@@ -210,3 +216,56 @@ func (g *Generation) CoverageGap(sequence uint64) (SlotResolution, bool) {
 }
 
 func (g *Generation) RestartResolution() Resolution { return g.spool.RestartResolution() }
+
+// MaxGenerationPage bounds handle snapshots used by sender and coordinator loops.
+const MaxGenerationPage = 64
+
+// GenerationsPage returns at most limit handles after the lane-local ordinal.
+// It includes closed, open and dedicated recovery generations, in ordinal order.
+// Callers retain an ordinal cursor, not a slice of every generation. Inventory
+// may change between pages; a later generation will appear after the cursor.
+func (ls *LaneSet) GenerationsPage(key LaneKey, after uint64, limit int) []*Generation {
+	if limit <= 0 {
+		return nil
+	}
+	limit = min(limit, MaxGenerationPage)
+	l := ls.existingLane(key)
+	if l == nil {
+		return nil
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	out := make([]*Generation, 0, limit)
+	include := func(g *Generation) {
+		if g == nil || g.id.Ordinal <= after {
+			return
+		}
+		i := 0
+		for i < len(out) && out[i].id.Ordinal < g.id.Ordinal {
+			i++
+		}
+		if i == limit {
+			return
+		}
+		if len(out) < limit {
+			out = append(out, nil)
+		}
+		copy(out[i+1:], out[i:len(out)-1])
+		out[i] = g
+	}
+	start := sort.Search(len(l.retained), func(i int) bool { return l.retained[i].id.Ordinal > after })
+	for _, g := range l.retained[start:min(start+limit, len(l.retained))] {
+		include(g)
+	}
+	include(l.open)
+	return out
+}
+
+// retain keeps the ordinal index ordered at generation creation/closure, so a
+// sender page never scans every retained generation while holding the lane lock.
+func (l *lane) retain(g *Generation) {
+	i := sort.Search(len(l.retained), func(i int) bool { return l.retained[i].id.Ordinal >= g.id.Ordinal })
+	l.retained = append(l.retained, nil)
+	copy(l.retained[i+1:], l.retained[i:len(l.retained)-1])
+	l.retained[i] = g
+}

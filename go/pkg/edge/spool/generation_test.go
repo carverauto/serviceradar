@@ -196,3 +196,58 @@ func TestPublishedRecoveryDestinationFailureRequiresInventory(t *testing.T) {
 		t.Fatalf("explicit retry not fresh: %v", err)
 	}
 }
+
+func TestRetainedInventoryDrainsBeforeAuthenticatedActivation(t *testing.T) {
+	root := t.TempDir()
+	ls := openLanes(t, root, sessionA)
+	first := mustLaneAppend(t, ls, bulkLane, sessionA, 11, "synthetic retained record")
+	if _, err := ls.Rotate(bulkLane); err != nil {
+		t.Fatal(err)
+	}
+	second := mustLaneAppend(t, ls, bulkLane, sessionA, 12, "synthetic open record")
+	if err := ls.Close(); err != nil {
+		t.Fatal(err)
+	}
+	ls, err := OpenRetainedLanes(root, deploymentTaxonomy(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ls.Close() })
+	page := ls.GenerationsPage(bulkLane, 0, 1)
+	if len(page) != 1 || !bytes.Equal(page[0].Identity().SpoolID, first.Generation.SpoolID) {
+		t.Fatal("retained generation identity changed")
+	}
+	records, err := page[0].Unresolved()
+	if err != nil || len(records) != 1 || string(records[0].Body) != "synthetic retained record" {
+		t.Fatalf("startup drain: %v %v", records, err)
+	}
+	page = ls.GenerationsPage(bulkLane, page[0].Identity().Ordinal, 1)
+	if len(page) != 1 || !bytes.Equal(page[0].Identity().SpoolID, second.Generation.SpoolID) {
+		t.Fatal("open generation missing from bounded inventory")
+	}
+	if _, err = ls.Append(bulkLane, sessionA, evid(13), []byte("synthetic refused")); !errors.Is(err, ErrLaneNotReady) {
+		t.Fatalf("unauthenticated append: %v", err)
+	}
+	if _, err = ls.Rotate(bulkLane); !errors.Is(err, ErrLaneNotReady) {
+		t.Fatalf("unauthenticated rotation: %v", err)
+	}
+	if err = ls.ActivateSession(sessionB); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = ls.Append(bulkLane, sessionA, evid(13), []byte("synthetic refused")); !errors.Is(err, ErrAgentUnauthorized) {
+		t.Fatalf("old namespace accepted: %v", err)
+	}
+	if _, err = ls.Append(bulkLane, sessionB, evid(13), []byte("synthetic new namespace")); !errors.Is(err, ErrRotationRequired) {
+		t.Fatalf("old generation identity replaced: %v", err)
+	}
+	if _, err = ls.Rotate(bulkLane); err != nil {
+		t.Fatal(err)
+	}
+	next := mustLaneAppend(t, ls, bulkLane, sessionB, 13, "synthetic new namespace")
+	if next.Sequence != 1 || bytes.Equal(next.Generation.SpoolID, second.Generation.SpoolID) {
+		t.Fatal("activation reused sequence namespace")
+	}
+	if records, err = page[0].Unresolved(); err != nil || len(records) != 1 || string(records[0].Body) != "synthetic open record" {
+		t.Fatalf("rotation lost retained original: %v %v", records, err)
+	}
+}
