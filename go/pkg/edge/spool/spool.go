@@ -837,9 +837,9 @@ func (s *Spool) persistResolution(through uint64, evidence []byte) error {
 // resolved watermark and after, in sequence order, invoking visit for each until
 // visit returns false (e.g. the sender's credit window is exhausted) or the
 // allocated sequences end. Ambiguous, lost, and in-flight slots are never visited, so
-// the visited sequences can have gaps. The sender's lane cannot cross such a gap yet:
-// it wedges there until the wire-level rollover/coverage handling of task 2.27 lands
-// (see package sender). Reaching the end adopts slots another handle on the same
+// the visited sequences can have gaps. Ordinary acknowledgements cannot cross
+// those gaps; the agent recovery coordinator must establish rollover coverage.
+// Reaching the end adopts slots another handle on the same
 // directory has allocated since, so a sender sees a producer that appends through its
 // own handle. Record bodies are read one at a time, but they are located through an
 // index that holds an entry for every allocated sequence (see Open). A closed spool
