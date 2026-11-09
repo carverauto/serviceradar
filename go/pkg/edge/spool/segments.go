@@ -21,7 +21,7 @@ package spool
 //
 // A segment is bounded on THREE axes and rotates on whichever binds first:
 //
-//  1. KEYS: at most MaxSegmentKeys distinct attribution binding digests. This
+//  1. KEYS: at most MaxSegmentKeys distinct complete attribution bodies. This
 //     bounds the per-segment key index, not the recovery: alternating between
 //     two keys stays within any distinct-key bound while still growing the
 //     manifest, so a key bound alone cannot bound recovery (design.md, "Why
@@ -36,10 +36,11 @@ package spool
 //     before the run bound, while a cheap (unattributed) segment trips the run
 //     bound first.
 //
-// The KEY is the commit's declared attribution binding digest
-// (Bindings.AttributionSHA256): equal digests name the same bound attribution
-// and their records may merge into one manifest span, so a run of equal keys
-// may project to one span. A nil digest declares no binding and NEVER continues
+// With owned attribution, the KEY hashes the complete classification body with
+// its interval normalized; physical local_binding.v1 digests differ per slot
+// and cannot count distinct bodies. Legacy unconfigured spools use the declared
+// Bindings.AttributionSHA256. Equal keys may project to one span. A nil key
+// declares no verified binding and NEVER continues
 // a run, not even another nil: whether two unattributed records may share one
 // UNATTRIBUTABLE span depends on their corruption reasons, which are unknowable
 // at append time, so each unattributed append conservatively opens its own run.
@@ -62,8 +63,8 @@ package spool
 // generation (LaneSet.Rotate) and retries it unchanged. The refusal writes
 // nothing and allocates no sequence.
 //
-// Bounds state is rebuilt from the commit evidence on every open (see
-// absorbEvidence): a restart never resets the bounds, so a segment cannot slip
+// Bounds state is rebuilt from verified sidecars and commit evidence on every
+// open: a restart never resets the bounds, so a segment cannot slip
 // past them by crashing. Slots whose evidence does not agree on one payload --
 // disagreeing copies, unreadable copies, and markerless allocated gaps --
 // count as runs of unknown key at attributed cost: their spans may be
@@ -86,7 +87,7 @@ import (
 // ceiling proof in segments_test.go ties them to the recovery grammar, so a
 // change that breaks that proof fails the build's tests, not just review.
 const (
-	// MaxSegmentKeys bounds the distinct attribution binding digests one
+	// MaxSegmentKeys bounds the distinct complete attribution bodies one
 	// segment may carry. It caps the per-segment key index, not the manifest.
 	MaxSegmentKeys = 256
 	// MaxSegmentRuns bounds the maximal same-key runs one segment may carry.

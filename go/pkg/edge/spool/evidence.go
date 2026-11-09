@@ -28,28 +28,39 @@ import (
 // names its slot and transition, and no position has to be inferred from its
 // neighbours.
 //
-// Entry layout, little-endian, evidenceEntryLen bytes:
+// Version 1 layout, little-endian, evidenceEntryLen bytes:
 //
 //	magic(4) version(1) copy(1) state(1) flags(1) sequence(8) generation(8)
 //	record_offset(8) record_len(4) event_id(16) record_sha256(32)
 //	receipt_binding_sha256(32) attribution_binding_sha256(32)
 //	digest(32) = SHA-256(evidenceDomain || all preceding bytes)
 //
+// Version 2 appends relocation_binding_sha256(32) before the final digest and
+// uses evidenceDomain2. A durable generation marker fixes the entry width;
+// existing v1 generations never change widths in place. An ordinary v2 slot
+// clears flagRelocationBinding and stores a zero mapping digest. Receipt and
+// frozen local_binding.v1 digests keep their separate meanings.
+//
 // An all-zero entry is ABSENT: it is either a hole below a later write or a
 // zero-filled torn write, and in both cases the transition never landed on that copy.
 const (
-	evidenceFile     = "lane.seg.evidence"
-	evidenceMagic    = 0x53524556 // "SREV"
-	evidenceVersion  = 1
-	evidenceBodyLen  = 148
-	evidenceEntryLen = evidenceBodyLen + sha256.Size
-	evidenceDomain   = "serviceradar.edge.spool.commit_evidence.v1"
+	evidenceFile      = "lane.seg.evidence"
+	evidenceMagic     = 0x53524556 // "SREV"
+	evidenceVersion   = 1
+	evidenceBodyLen   = 148
+	evidenceEntryLen  = evidenceBodyLen + sha256.Size
+	evidenceVersion2  = 2
+	evidenceBodyLen2  = evidenceBodyLen + sha256.Size
+	evidenceEntryLen2 = evidenceBodyLen2 + sha256.Size
+	evidenceDomain2   = "serviceradar.edge.spool.commit_evidence.v2"
+	evidenceDomain    = "serviceradar.edge.spool.commit_evidence.v1"
 
 	statePrepared  byte = 1
 	stateCommitted byte = 2
 
 	flagReceiptBinding     byte = 1 << 0
 	flagAttributionBinding byte = 1 << 1
+	flagRelocationBinding  byte = 1 << 2
 
 	copyA          = 0
 	copyB          = 1
@@ -66,6 +77,8 @@ func evidencePosition(seq uint64, state byte) int64 {
 }
 
 type evidenceEntry struct {
+	version           byte
+	relocationSHA256  [32]byte
 	copyTag           byte
 	state             byte
 	flags             byte
@@ -80,9 +93,14 @@ type evidenceEntry struct {
 }
 
 func (e *evidenceEntry) encode() []byte {
-	buf := make([]byte, evidenceEntryLen)
+	version := e.version
+	if version == 0 {
+		version = evidenceVersion
+	}
+	bodyLen := evidenceBodySize(version)
+	buf := make([]byte, bodyLen+sha256.Size)
 	binary.LittleEndian.PutUint32(buf[0:], evidenceMagic)
-	buf[4] = evidenceVersion
+	buf[4] = version
 	buf[5] = e.copyTag
 	buf[6] = e.state
 	buf[7] = e.flags
@@ -94,14 +112,32 @@ func (e *evidenceEntry) encode() []byte {
 	copy(buf[52:84], e.recordSHA256[:])
 	copy(buf[84:116], e.receiptSHA256[:])
 	copy(buf[116:148], e.attributionSHA256[:])
-	digest := evidenceDigest(buf[:evidenceBodyLen])
-	copy(buf[evidenceBodyLen:], digest[:])
+	if version == evidenceVersion2 {
+		copy(buf[148:180], e.relocationSHA256[:])
+	}
+	digest := evidenceDigestVersion(buf[:bodyLen], version)
+	copy(buf[bodyLen:], digest[:])
 	return buf
 }
 
-func evidenceDigest(body []byte) [sha256.Size]byte {
+func evidenceBodySize(version byte) int {
+	if version == evidenceVersion2 {
+		return evidenceBodyLen2
+	}
+	return evidenceBodyLen
+}
+
+func (s *Spool) evidenceEntrySize() int64 {
+	return int64(evidenceBodySize(s.evidenceVersion) + sha256.Size)
+}
+
+func evidenceDigestVersion(body []byte, version byte) [sha256.Size]byte {
 	h := sha256.New()
-	h.Write([]byte(evidenceDomain))
+	domain := evidenceDomain
+	if version == evidenceVersion2 {
+		domain = evidenceDomain2
+	}
+	h.Write([]byte(domain))
 	h.Write(body)
 	var out [sha256.Size]byte
 	h.Sum(out[:0])
@@ -120,17 +156,24 @@ const (
 // An entry whose own digest verifies but that names a different copy, slot, or
 // transition was written somewhere else and is treated as corrupt, not trusted.
 func decodeEvidence(buf []byte, c int, seq uint64, state byte) (evidenceEntry, entryStatus) {
-	if len(buf) < evidenceEntryLen || allZero(buf) {
+	return decodeEvidenceVersion(buf, c, seq, state, evidenceVersion)
+}
+
+func decodeEvidenceVersion(buf []byte, c int, seq uint64, state, version byte) (evidenceEntry, entryStatus) {
+	bodyLen := evidenceBodySize(version)
+	entryLen := bodyLen + sha256.Size
+	if len(buf) < entryLen || allZero(buf) {
 		return evidenceEntry{}, entryAbsent
 	}
-	if binary.LittleEndian.Uint32(buf[0:]) != evidenceMagic || buf[4] != evidenceVersion {
+	if binary.LittleEndian.Uint32(buf[0:]) != evidenceMagic || buf[4] != version {
 		return evidenceEntry{}, entryCorrupt
 	}
-	digest := evidenceDigest(buf[:evidenceBodyLen])
-	if !bytes.Equal(digest[:], buf[evidenceBodyLen:evidenceEntryLen]) {
+	digest := evidenceDigestVersion(buf[:bodyLen], version)
+	if !bytes.Equal(digest[:], buf[bodyLen:entryLen]) {
 		return evidenceEntry{}, entryCorrupt
 	}
 	e := evidenceEntry{
+		version:      version,
 		copyTag:      buf[5],
 		state:        buf[6],
 		flags:        buf[7],
@@ -143,6 +186,14 @@ func decodeEvidence(buf []byte, c int, seq uint64, state byte) (evidenceEntry, e
 	copy(e.recordSHA256[:], buf[52:84])
 	copy(e.receiptSHA256[:], buf[84:116])
 	copy(e.attributionSHA256[:], buf[116:148])
+	if version == evidenceVersion2 {
+		copy(e.relocationSHA256[:], buf[148:180])
+	}
+	if (e.flags & ^byte(flagReceiptBinding|flagAttributionBinding|flagRelocationBinding)) != 0 ||
+		(version == evidenceVersion && e.flags&flagRelocationBinding != 0) ||
+		(e.flags&flagRelocationBinding == 0 && e.relocationSHA256 != [32]byte{}) {
+		return evidenceEntry{}, entryCorrupt
+	}
 	if e.copyTag != copyTag(c) || e.sequence != seq || e.state != state {
 		return evidenceEntry{}, entryCorrupt
 	}
@@ -161,7 +212,7 @@ func allZero(b []byte) bool {
 // samePayload compares what a slot's commit binds: everything except the copy tag,
 // the transition, and the generation.
 func samePayload(a, b *evidenceEntry) bool {
-	return a.flags == b.flags &&
+	return a.flags == b.flags && a.relocationSHA256 == b.relocationSHA256 &&
 		a.sequence == b.sequence &&
 		a.recordOffset == b.recordOffset &&
 		a.recordLen == b.recordLen &&

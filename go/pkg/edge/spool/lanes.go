@@ -356,6 +356,10 @@ func (ls *LaneSet) Append(key LaneKey, presented Identity, eventID, body []byte)
 // An empty Bindings declares no binding; such appends each open their own
 // rotation run.
 func (ls *LaneSet) AppendWithBindings(key LaneKey, presented Identity, eventID, body []byte, b Bindings) (Receipt, error) {
+	return ls.appendWithAttribution(key, presented, eventID, body, b, nil)
+}
+
+func (ls *LaneSet) appendWithAttribution(key LaneKey, presented Identity, eventID, body []byte, b Bindings, attribution *pendingAttribution) (Receipt, error) {
 	if !key.Valid() {
 		return Receipt{}, fmt.Errorf("%w: %s", ErrLaneInvalid, key)
 	}
@@ -366,6 +370,15 @@ func (ls *LaneSet) AppendWithBindings(key LaneKey, presented Identity, eventID, 
 		return Receipt{}, fmt.Errorf("%w: %w: got %d", ErrPermanent, ErrEventIDLength, len(eventID))
 	}
 
+	if attribution != nil {
+		if attribution.validated != nil {
+			if err := attribution.validated.CheckRecord(appendCoordinates(key, presented, eventID, body)); err != nil {
+				return Receipt{}, errors.Join(ErrPermanent, err)
+			}
+		} else if attribution.source == nil || !attribution.source.valid || attribution.source.generation.Lane != key || !attribution.source.generation.Identity.equal(presented) {
+			return Receipt{}, ErrAttributionRequired
+		}
+	}
 	l, err := ls.lane(key)
 	if err != nil {
 		return Receipt{}, err
@@ -390,7 +403,7 @@ func (ls *LaneSet) AppendWithBindings(key LaneKey, presented Identity, eventID, 
 		return Receipt{}, fmt.Errorf("%w: lane %s open generation is frozen under another identity", ErrRotationRequired, key)
 	}
 
-	r, err := l.open.spool.Commit(eventID, body, b)
+	r, err := l.open.spool.commit("", eventID, body, b, attribution)
 	if err != nil {
 		return Receipt{}, err
 	}

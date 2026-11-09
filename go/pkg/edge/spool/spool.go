@@ -168,6 +168,10 @@ const (
 	// barrierQuarantined is crossed once every permanently rejected record a
 	// reclaim drops is durable in local quarantine, before the reclaim checkpoint.
 	barrierQuarantined
+	barrierAttribution
+	barrierAttributionDir
+	barrierRelocation
+	barrierRelocationDir
 )
 
 func dirBarrier(c int) barrier     { return barrierEvidenceDirA + barrier(c) }
@@ -194,12 +198,14 @@ type segmentHandle interface {
 
 // Spool is a single-lane append-only spool. It is safe for concurrent use.
 type Spool struct {
-	dir      string
-	dataDir  string
-	baseSeq  uint64
-	bindings BindingInspector
-	alloc    *Allocator
-	admitNew func(flow string, cost uint64) bool
+	dir                 string
+	dataDir             string
+	baseSeq             uint64
+	bindings            BindingInspector
+	attributionIdentity *GenerationIdentity
+	evidenceVersion     byte
+	alloc               *Allocator
+	admitNew            func(flow string, cost uint64) bool
 
 	mu      sync.Mutex
 	seg     segmentHandle
@@ -295,6 +301,9 @@ func Open(dir string, opts ...Option) (*Spool, error) {
 		}
 	}
 	if err := s.loadLayout(); err != nil {
+		return nil, err
+	}
+	if err := s.initAttribution(); err != nil {
 		return nil, err
 	}
 	flags := os.O_RDWR
@@ -413,7 +422,7 @@ func (s *Spool) Append(eventID, body []byte) (uint64, error) {
 // appended in order, each retried until it is admitted, for that order to hold
 // in the spool.
 func (s *Spool) AppendFlow(flow string, eventID, body []byte) (uint64, error) {
-	r, err := s.commit(flow, eventID, body, Bindings{})
+	r, err := s.commit(flow, eventID, body, Bindings{}, nil)
 	if err != nil {
 		return 0, err
 	}
@@ -426,7 +435,8 @@ func (s *Spool) AppendFlow(flow string, eventID, body []byte) (uint64, error) {
 //  1. each evidence copy's file and directory entry are durable (first commit only);
 //  2. a PREPARED entry is durable in each copy -- the sequence is now allocated;
 //  3. the record is durable in the segment;
-//  4. a COMMITTED entry is durable in each copy.
+//  4. configured attribution and relocation sidecars are file/directory durable;
+//  5. a COMMITTED entry is durable in each copy.
 //
 // If any barrier fails, no receipt is returned and the spool fail-stops; restart
 // resolution decides what the interrupted slot is. The failure is a *FailStopError,
@@ -440,15 +450,15 @@ func (s *Spool) AppendFlow(flow string, eventID, body []byte) (uint64, error) {
 // allocated. Terminal evidence and reclaim are not gated.
 //
 // With an allocator, a commit is then admitted for every byte it adds on disk
-// (its record and the growth of both evidence copies) plus one
+// (its record, sidecars, and the growth of both evidence copies) plus one
 // terminalEvidenceAllowance for the acknowledgement that will resolve it. A
 // refused admission returns an error matching ErrAdmissionRefused, writes
 // nothing, and allocates no sequence.
 func (s *Spool) Commit(eventID, body []byte, b Bindings) (CommitReceipt, error) {
-	return s.commit("", eventID, body, b)
+	return s.commit("", eventID, body, b, nil)
 }
 
-func (s *Spool) commit(flow string, eventID, body []byte, b Bindings) (CommitReceipt, error) {
+func (s *Spool) commit(flow string, eventID, body []byte, b Bindings, attribution *pendingAttribution) (CommitReceipt, error) {
 	if len(eventID) != 16 {
 		return CommitReceipt{}, fmt.Errorf("%w: got %d", ErrEventIDLength, len(eventID))
 	}
@@ -472,32 +482,66 @@ func (s *Spool) commit(flow string, eventID, body []byte, b Bindings) (CommitRec
 	if err := s.requireCurrentLayout(); err != nil {
 		return CommitReceipt{}, err
 	}
+	if s.attributionIdentity != nil && attribution == nil {
+		return CommitReceipt{}, ErrAttributionRequired
+	}
+	if attribution != nil {
+		if err := s.prepareAttribution(s.nextSeq, eventID, body, attribution); err != nil {
+			return CommitReceipt{}, err
+		}
+		b.AttributionSHA256 = attribution.entry.digest
+	}
+	sidecarCost, err := s.attributionCost(attribution)
+	if err != nil {
+		return CommitReceipt{}, err
+	}
 	// Segment rotation bounds (task 2.24) refuse before anything is written
 	// or charged: a refused append allocates no sequence, so the producer can
 	// rotate the lane's generation and retry it unchanged.
-	if bound := s.segBounds.refusalFor(b.AttributionSHA256); bound != "" {
+	accountingKey := b.AttributionSHA256
+	if attribution != nil {
+		accountingKey = attributionAccountingKey(attribution.entry.attribution)
+	}
+	if bound := s.segBounds.refusalFor(accountingKey); bound != "" {
 		return CommitReceipt{}, rotationRefusal(bound, s.segBounds.stats())
 	}
-	cost := uint64(minRecordLen + len(body))
+	cost := uint64(minRecordLen+len(body)) + sidecarCost
 	if s.alloc != nil {
 		n, err := s.commitBytes(len(body))
 		if err != nil {
 			return CommitReceipt{}, err
 		}
-		cost = n + terminalEvidenceAllowance
+		cost = n + sidecarCost + terminalEvidenceAllowance
 	}
-	if s.admitNew != nil && !s.admitNew(flow, cost) {
+	recovery := attribution != nil && attribution.grant != nil
+	if !recovery && s.admitNew != nil && !s.admitNew(flow, cost) {
 		return CommitReceipt{}, ErrAdmissionPaused
 	}
 	var charged uint64
-	if s.alloc != nil {
+	var recoveryCharge *recoveryAppendCharge
+	if recovery {
+		costs, err := s.recoveryAppendCosts(len(body), attribution)
+		if err != nil {
+			return CommitReceipt{}, err
+		}
+		recoveryCharge, err = attribution.grant.chargeAppend(s, costs, terminalEvidenceAllowance)
+		if err != nil {
+			return CommitReceipt{}, err
+		}
+	} else if s.alloc != nil {
 		if err := s.alloc.admit(s.dir, cost); err != nil {
 			return CommitReceipt{}, err
 		}
 		charged = cost
 	}
-	r, err := s.commitLocked(eventID, body, b)
-	if s.alloc != nil {
+	r, err := s.commitLocked(eventID, body, b, attribution)
+	if recoveryCharge != nil {
+		if err != nil {
+			err = recoveryCharge.fail("relocation commit", err)
+		} else {
+			err = recoveryCharge.land()
+		}
+	} else if s.alloc != nil {
 		// Admitted bytes stay charged even if the commit fails: a failed write may
 		// still have put some of them on disk.
 		s.alloc.settle(charged, err)
@@ -514,7 +558,7 @@ func (s *Spool) commit(flow string, eventID, body []byte, b Bindings) (CommitRec
 // slot's fixed-position entries.
 func (s *Spool) commitBytes(bodyLen int) (uint64, error) {
 	n := uint64(minRecordLen + bodyLen)
-	end := s.evidencePosition(s.nextSeq, stateCommitted) + evidenceEntryLen
+	end := s.evidencePosition(s.nextSeq, stateCommitted) + s.evidenceEntrySize()
 	for c := range evidenceCopies {
 		var size int64
 		info, err := os.Stat(s.evidencePath(c))
@@ -531,7 +575,7 @@ func (s *Spool) commitBytes(bodyLen int) (uint64, error) {
 	return n, nil
 }
 
-func (s *Spool) commitLocked(eventID, body []byte, b Bindings) (CommitReceipt, error) {
+func (s *Spool) commitLocked(eventID, body []byte, b Bindings, attribution *pendingAttribution) (CommitReceipt, error) {
 	if err := s.ensureEvidence(); err != nil {
 		return CommitReceipt{}, err
 	}
@@ -540,6 +584,7 @@ func (s *Spool) commitLocked(eventID, body []byte, b Bindings) (CommitReceipt, e
 	rec := encodeRecord(seq, eventID, body)
 	offset := s.segSize
 	entry := evidenceEntry{
+		version:      s.evidenceVersion,
 		state:        statePrepared,
 		sequence:     seq,
 		generation:   s.nextGen,
@@ -557,6 +602,10 @@ func (s *Spool) commitLocked(eventID, body []byte, b Bindings) (CommitReceipt, e
 		copy(entry.attributionSHA256[:], b.AttributionSHA256)
 	}
 
+	if attribution != nil && attribution.relocationDigest != nil {
+		entry.flags |= flagRelocationBinding
+		copy(entry.relocationSHA256[:], attribution.relocationDigest)
+	}
 	// Consume the sequence before any durable write. Once one PREPARED copy lands the
 	// sequence is allocated and must never be reused, and a failure below fail-stops
 	// the spool with the slot still uncommitted.
@@ -582,6 +631,9 @@ func (s *Spool) commitLocked(eventID, body []byte, b Bindings) (CommitReceipt, e
 		return CommitReceipt{}, &FailStopError{Op: "fsync", Path: segPath, Err: err}
 	}
 
+	if err := s.persistAttribution(seq, attribution); err != nil {
+		return CommitReceipt{}, err
+	}
 	entry.state = stateCommitted
 	entry.generation = s.nextGen
 	s.nextGen++
@@ -592,7 +644,11 @@ func (s *Spool) commitLocked(eventID, body []byte, b Bindings) (CommitReceipt, e
 	}
 
 	s.slots[seq-s.baseSeq-1].committed = true
-	s.segBounds.observe(b.AttributionSHA256)
+	accountingKey := b.AttributionSHA256
+	if attribution != nil {
+		accountingKey = attributionAccountingKey(attribution.entry.attribution)
+	}
+	s.segBounds.observe(accountingKey)
 	return CommitReceipt{
 		Sequence:           seq,
 		EventID:            append([]byte(nil), eventID...),

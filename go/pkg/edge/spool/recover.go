@@ -78,13 +78,17 @@ func (s *Spool) recover() error {
 		tailClaimed  bool
 		cursor       int
 	)
-	buf := make([]byte, evidenceEntryLen)
-	top := max(s.baseSeq, evidenceSlots, chain.maxHeaderSeq)
+	buf := make([]byte, s.evidenceEntrySize())
+	sidecarHigh, err := s.sidecarHighWater()
+	if err != nil {
+		return err
+	}
+	top := max(s.baseSeq, evidenceSlots, chain.maxHeaderSeq, sidecarHigh)
 	s.slots = make([]slotLoc, 0, top-s.baseSeq)
 	extents := make([]slotExtent, 0, top-s.baseSeq)
 
 	for seq := s.baseSeq + 1; seq <= top; seq++ {
-		views, present, gen, err := readSlotEvidence(readers, seq, buf)
+		views, present, gen, err := readSlotEvidence(readers, seq, buf, s.evidenceVersion)
 		if err != nil {
 			return err
 		}
@@ -128,13 +132,17 @@ func (s *Spool) recover() error {
 		// restart never resets them. Slots past the high-water are all-absent
 		// evidence sizing slack and fold as unknown runs; that errs toward
 		// earlier rotation, which is the safe direction.
-		s.segBounds.absorbEvidence(views)
+		if s.attributionIdentity != nil {
+			s.segBounds.observe(obs.Attribution.accountingKey)
+		} else {
+			s.segBounds.absorbEvidence(views)
+		}
 	}
 
 	// Every sequence up to the highest one any evidence or record names is allocated:
 	// sequences are assigned contiguously, so a gap below it is a slot whose evidence
 	// was lost, not a slot that never existed.
-	highWater := max(s.baseSeq, lastEvidence, chain.maxHeaderSeq)
+	highWater := max(s.baseSeq, lastEvidence, chain.maxHeaderSeq, sidecarHigh)
 	s.slots = s.slots[:highWater-s.baseSeq]
 
 	// The torn tail is the crash boundary: a slot whose own record never fully landed.
@@ -215,9 +223,9 @@ func (s *Spool) refreshLocked() error {
 	}
 	s.segSize = max(s.segSize, info.Size())
 	s.crossStat(segmentFile)
-	buf := make([]byte, evidenceEntryLen)
+	buf := make([]byte, s.evidenceEntrySize())
 	for seq := s.nextSeq; seq <= slots; seq++ {
-		views, _, gen, err := readSlotEvidence(readers, seq, buf)
+		views, _, gen, err := readSlotEvidence(readers, seq, buf, s.evidenceVersion)
 		if err != nil {
 			return err
 		}
@@ -231,7 +239,11 @@ func (s *Spool) refreshLocked() error {
 		}
 		loc.committed = committed
 		s.slots = append(s.slots, loc)
-		s.segBounds.absorbEvidence(views)
+		if s.attributionIdentity != nil {
+			s.segBounds.observe(obs.Attribution.accountingKey)
+		} else {
+			s.segBounds.absorbEvidence(views)
+		}
 		s.nextSeq = seq + 1
 		s.nextGen = max(s.nextGen, gen+1)
 	}
@@ -274,6 +286,22 @@ func (s *Spool) observeSlot(
 	if s.bindings != nil {
 		attribution = s.bindings.InspectAttribution(ev)
 		receipt = s.bindings.InspectReceipt(ev)
+	}
+	if s.attributionIdentity != nil {
+		entry, verdict, err := s.inspectAttribution(ev)
+		if err != nil {
+			return obs, loc, false, err
+		}
+		attribution = verdict
+		// Relocation cannot be sender-visible unless its independent mapping is part
+		// of the committed evidence. Attribution itself remains available for loss.
+		if entry.coordinates.Sequence == 0 {
+			entry.coordinates.Sequence = seq
+		}
+		_, _, obs.RelocationInconsistent, err = s.inspectRelocation(entry, valid)
+		if err != nil {
+			return obs, loc, false, err
+		}
 	}
 	obs.Attribution, obs.AttributionRequired = reconcileAttribution(attribution, valid)
 	obs.Receipt, obs.ReceiptRequired = reconcileReceipt(receipt, valid)
@@ -367,13 +395,13 @@ func (s *Spool) evidenceReaders(from uint64) ([evidenceCopies]*bufio.Reader, uin
 			readers[c] = bufio.NewReaderSize(section, resyncWindow)
 		}
 	}
-	return readers, s.baseSeq + uint64((size/evidenceEntryLen+1)/2), nil
+	return readers, s.baseSeq + uint64((size/s.evidenceEntrySize()+1)/2), nil
 }
 
 // readSlotEvidence reads one slot's PREPARED and COMMITTED entries from each copy.
 // present reports whether any copy holds any entry, readable or not, for the slot.
 func readSlotEvidence(
-	readers [evidenceCopies]*bufio.Reader, seq uint64, buf []byte,
+	readers [evidenceCopies]*bufio.Reader, seq uint64, buf []byte, version byte,
 ) (views [evidenceCopies]copyView, present bool, maxGen uint64, err error) {
 	for c, r := range readers {
 		if r == nil {
@@ -386,7 +414,7 @@ func readSlotEvidence(
 			if rerr != nil && !errors.Is(rerr, io.EOF) && !errors.Is(rerr, io.ErrUnexpectedEOF) {
 				return views, false, 0, fmt.Errorf("spool: read evidence copy %c: %w", copyTag(c), rerr)
 			}
-			entries[i], status[i] = decodeEvidence(buf[:n], c, seq, state)
+			entries[i], status[i] = decodeEvidenceVersion(buf[:n], c, seq, state, version)
 			if status[i] != entryAbsent {
 				present = true
 			}

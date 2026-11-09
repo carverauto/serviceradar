@@ -51,7 +51,7 @@ func dataBase(name string) (uint64, bool) {
 
 func (s *Spool) segmentPath() string { return filepath.Join(s.dataDir, segmentFile) }
 func (s *Spool) evidencePosition(seq uint64, state byte) int64 {
-	return evidencePosition(seq-s.baseSeq, state)
+	return int64(2*(seq-s.baseSeq-1)+uint64(state-1)) * s.evidenceEntrySize()
 }
 
 // lane.seg is either the legacy regular file or a symlink to a data directory.
@@ -428,7 +428,7 @@ func (s *Spool) cleanupReclaimed() error {
 		cpBase, cp := dataBase(strings.TrimSuffix(e.Name(), checkpointSuffix))
 		seq, terminal := terminalSequence(e.Name())
 		remove := (data && base < s.baseSeq) || (cp && strings.HasSuffix(e.Name(), checkpointSuffix) && cpBase < s.baseSeq) ||
-			(terminal && seq <= s.baseSeq) || e.Name() == evidenceDirName(copyA) || e.Name() == evidenceDirName(copyB)
+			(terminal && seq <= s.baseSeq) || e.Name() == evidenceDirName(copyA) || e.Name() == evidenceDirName(copyB) || e.Name() == attributionFile || e.Name() == relocationFile
 		if remove {
 			if err := os.RemoveAll(filepath.Join(s.dir, e.Name())); err != nil {
 				return err
