@@ -17,12 +17,13 @@ import (
 // resumeCopy verifies a retained committed mapping or repairs only the final
 // allocation. No earlier gap may be rewritten beneath later allocated slots.
 func (o *RecoveryOperation) resumeCopy(slot RecoverySlot) (Receipt, error) {
-	if o.destination.NextSequence() == slot.Copy.NewSequence+1 {
-		if err := o.resumeCopyTail(slot); err != nil {
+	proof, err := o.destination.CommittedAttribution(slot.Copy.NewSequence)
+	if errors.Is(err, ErrCommittedAttribution) && o.destination.NextSequence() == slot.Copy.NewSequence+1 {
+		if err = o.resumeCopyTail(slot); err != nil {
 			return Receipt{}, err
 		}
+		proof, err = o.destination.CommittedAttribution(slot.Copy.NewSequence)
 	}
-	proof, err := o.destination.CommittedAttribution(slot.Copy.NewSequence)
 	if err != nil {
 		return Receipt{}, err
 	}

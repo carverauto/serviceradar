@@ -249,3 +249,22 @@ func TestRecoveryCopyResumesAfterPartialRepairWrite(t *testing.T) {
 		})
 	}
 }
+
+func TestRecoveryCopyReplaysSealedCommittedDestination(t *testing.T) {
+	f := newRecoveryFixture(t, 2)
+	for seq := uint64(1); seq <= 2; seq++ {
+		if _, err := f.operation.Copy(seq); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := f.destination.SealRecoveryDestination(); err != nil {
+		t.Fatal(err)
+	}
+	restartRecoveryCopy(t, f)
+	for seq := uint64(1); seq <= 2; seq++ {
+		receipt, err := f.operation.Copy(seq)
+		if err != nil || receipt.Sequence != seq {
+			t.Fatal("healthy sealed copy replay attempted repair", seq, err)
+		}
+	}
+}
