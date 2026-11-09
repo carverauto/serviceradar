@@ -16,6 +16,7 @@ load(":run_id.bzl", "run_id_file")
 
 package(default_visibility = ["//visibility:public"])
 
+exports_files(["recovery_assignment_schema.exs"])
 exports_files(["recovery_operation_schema.exs"])
 
 ex_unit_test(

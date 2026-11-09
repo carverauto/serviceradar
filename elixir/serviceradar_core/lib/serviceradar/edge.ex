@@ -62,6 +62,10 @@ defmodule ServiceRadar.Edge do
   end
 
   resources do
+    resource ServiceRadar.Edge.RecoveryAssignmentKey
+    resource ServiceRadar.Edge.RecoveryAssignmentIssuance
+    resource ServiceRadar.Edge.RecoveryAssignmentCandidate
+    resource ServiceRadar.Edge.RecoveryAssignmentResolution
     resource ServiceRadar.Edge.ManagedCertificateOperation
     resource ServiceRadar.Edge.ManagedCertificatePolicyKey
     resource ServiceRadar.Edge.EdgeIssuerKeyRecord
