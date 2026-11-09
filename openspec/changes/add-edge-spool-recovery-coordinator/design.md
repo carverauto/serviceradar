@@ -3,12 +3,6 @@
 Status: Decisions 1-5 approved by the product owner on 2026-11-09.
 Issue #6424 visibility ships first; coordinator implementation is authorized.
 
-Legacy scope was separately resolved on 2026-11-09: automatic recovery applies
-only to new bounded attributed generations. Do not implement legacy migration or
-drain compatibility. Existing flat files stay untouched, measured against the
-budget and reported as unsupported retained storage. See
-[legacy-recovery-decision.md](legacy-recovery-decision.md).
-
 ## Context and verified prerequisites
 
 The agent opens one `spool.Spool` in `go/cmd/agent/edge_record_sender.go`.
@@ -25,7 +19,7 @@ the completion authority. Inspection against the staging base found:
 | Companion ABI 1.6a | `proto/edge/v1/record.proto`: `EdgeClassificationSpanV1`, page tag 11; retired page/tombstone fields reserved | No ABI restoration needed. Keep Go/Elixir parity and received-byte bounds. |
 | Canonical hashes | `go/pkg/edge/edgerecord/recovery.go`: `ManifestPageDigest`, `ManifestRoot`, chain/tombstone validators | Invoke these; never implement a second hash grammar. |
 | Restart classification | `spool/resolve.go`, `recover.go`, redundant evidence in `evidence.go` | Journal each frozen per-sequence classification before constructing pages. |
-| Lane generations (1.5) | `spool/lanes.go`: `LaneSet`, frozen identity, retryable rotation | Wire bounded lanes; retain/account/report unsupported old flat storage without migration or deletion. |
+| Lane generations (1.5) | `spool/lanes.go`: `LaneSet`, frozen identity, retryable rotation | Agent runtime still uses `spool.Open`; wire lanes and migrate the existing spool without losing identity or data. |
 | Capacity and ordinary reclaim (1.1) | `spool/reserve.go`, agent allocator, `spool/reclaim.go`, permanent-rejection quarantine | Allocator is now wired, contrary to the older moved note. Recovery reserve consumption and recovery coverage are still absent. |
 | Admission (1.2) | `admission/controller.go`: opaque `ReclaimAuthorization`, no exported constructor | Coverage owner must mint it only after durable proof. Ordinary gate wiring does not complete this contract. |
 | Assignment values/storage (1.3-1.4) | Existing assignment validators describe sweep records; no recovery mapping owner was found in edge packages | Tagged positive/explicit-negative mapping, conflict records, lookup outcomes and retention remain prerequisites. |
@@ -62,16 +56,6 @@ preserved destination or loss with its complete oneof classification. Never infe
 that a missing lookup is an explicit negative mapping. Mapping outcomes have the
 transitions required by task 1.4: temporary failures wait, missing fences, and
 corrupt/conflicting quarantines; none authorizes `RecoveryResolvedV1`.
-
-Mapping resolution runtime contract: the first accepted selection for a candidate
-generation is immutable. Same-selection replay is a no-op; selecting another
-retained candidate is recorded as `selection_conflict`, including when the caller
-has acquired a newer resolver epoch. A newer epoch fences older resolvers, but
-does not authorize rewriting a mapping that a consumer may already have applied.
-A genuinely new candidate advances the candidate generation and invalidates its
-selected projection, requiring a new explicit resolution while retaining all
-earlier evidence. Contradictory accepted resolution records for one candidate
-generation produce `CONFLICTING`; the reader never chooses the latest row.
 
 Merge adjacent lost intervals only when every intervening sequence is journaled
 lost and the complete oneof bodies are equal. Compare every identity, scope,
@@ -119,46 +103,6 @@ produce the same result. Mixed-version peers fail closed and retain source bytes
 roll out capable gateway/core first, then enable the coordinator via runtime
 settings and code defaults after capability negotiation.
 
-### Recovery control API
-
-`RegisterEdgeRecovery` binds one recovery ID to an immutable bounded operation:
-the authenticated channel owns the agent identity, while the request names its
-authorized network scope, frozen lane, prior/new spool IDs, source allocation
-high-water and reclaim watermark, and selected allocation interval. The request
-contains the exact manifest-page and tombstone bytes plus the intended copy
-coordinates, event IDs, record hashes and destination binding hashes. Copies and
-loss spans must partition the selected allocation interval exactly. These bounds
-describe allocation, not an alternative loss interval in the tombstone.
-
-One operation selects at most 1024 allocated slots and at most four pages, matching
-the coordinator's 256-span page packing. Exact received manifest pages
-retain the existing 256 KiB aggregate ceiling, and registration is bounded to
-512 KiB after its component bounds. A larger recovery is partitioned before its
-IDs are frozen. Copy declarations are intent, never evidence of a local commit.
-
-`AuthorizeEdgeRecovery` issues a source capability only for an exact registered
-page or tombstone under the recovery production grant. `RenewEdgeRecoveryCopies`
-verifies retained record bytes and issues rollover delivery capabilities for the
-registered old/new coordinates. `GetEdgeRecovery` returns pending/blocked state
-or the original consumer-committed result and signed capability. An agent cannot
-submit a resolved body to the authorization endpoint. Hello advertises protocol
-version zero until the complete gateway/core path is available; zero retains
-the agent's source evidence and does not start recovery.
-
-Copy grant issuance first validates the exact retained record's signatures,
-authenticated principal and scope, held registry epoch and typed payload. Its
-original attribution is independent of production expiry and mutable assignment
-rows, but still requires currently valid retained issuer keys. Core joins that
-typed attribution to the registered event, raw hash, destination binding and
-old/new coordinates, then requires the original mapping to be FOUND or explicit
-NOT_SCHEDULED. Missing, unavailable, corrupt or conflicting evidence refuses;
-registration intent alone cannot grant delivery. The resulting capability has
-only DELIVERY claims with the existing rollover transition and a finite window.
-
-Registration persists control metadata only. Recovery record publication still
-goes through JetStream, and registered pages alone cannot commit consumer repair,
-advance a gateway prefix, or authorize source or journal deletion.
-
 ## Decision 4: two distinct durability gates
 
 Source deletion requires durable coverage of EVERY allocated unreclaimed sequence:
@@ -197,17 +141,6 @@ reconciliation. Do not acknowledge consumer completion before these writes commi
 All transport enters JetStream first; the control-plane audit transaction runs in
 EventWriter, never in the agent or a bypassing gateway ingest path.
 
-An incomplete manifest returns `received` only after its exact page or tombstone
-has committed to durable receipt storage. The consumer may ACK that individual
-receipt so a finite broker delivery window can deliver the remaining records,
-including when many operations interleave. This is not completion, does not
-advance the source prefix and does not authorize journal collection. The record
-that completes assembly invokes the full effects transaction; unavailable or
-blocked mapping outcomes remain deferred with no terminal ACK. Replay of any
-page in a complete manifest re-enters that transaction until repair succeeds.
-Raising a finite `max_ack_pending` alone cannot prevent incomplete interleaved
-operations from exhausting it.
-
 Replay choice: a completed immutable recovery has ONE final
 `applied_through_sequence`; a later different value is a conflict, not incremental
 progress. `resolved_at_unix_nano` is the original persisted completion timestamp:
@@ -215,37 +148,10 @@ return the same signed result on replay. Timestamp differences alone on an inbou
 completion response do not prove different applied state, but the issuer must
 serve its stored timestamp and signature. Compare recovery ID, root and applied
 sequence; verify the authenticated signature/capability before accepting locally.
-Completion uses the existing recovery source-scope digest with the authenticated
-agent and network scope. Its finite fifteen-minute signing window records issuance
-for key-history checks; it does not expire the completed fact. The agent verifies
-current retained key policy, including compromise revocation, without applying a
-new-production window or assignment fence to this historical receipt.
 The applied scalar is the highest contiguous allocated prefix whose sequences
 are either durably applied or absent from the validated COMPLETE loss union, using
 `edgerecord.AppliedThroughSequence`; it is neither the largest span end nor simply
 the allocation high-water. For loss at 1 and 100 with only 1 applied, it is 99. Partial progress remains internal pending state and emits no final result.
-
-### Split operations over one source generation
-
-A bounded operation's loss union is complete only for its registered selected
-interval, not for the entire abandoned generation. Core freezes the source's
-lane, allocation high-water and initial local reclaim watermark under
-`(network_scope_id, agent_id, prior_spool_id)`. It admits only disjoint selected
-intervals and compares later claims against that frozen identity. A rejected
-interval cannot hide an admitted interval from subsequent overlap checks.
-
-Consumer repair marks an interval applied only after its complete manifest and
-all required effects commit. Source progress advances through adjacent applied
-intervals from the frozen reclaim watermark, in bounded batches. An unregistered
-interval is unknown, never inferred to be not lost. Final completion waits until
-that contiguous prefix covers the operation's selected end and stores the first
-signed result unchanged. Source progress uses exact PostgreSQL numeric values so
-valid protobuf uint64 coordinates do not overflow signed bigint.
-
-The operation row is locked before the generation row. Progress reads sibling
-operations without taking their row locks, and no path takes those locks in the
-opposite order. This serializes interval admission and prefix advancement without
-loading an outage-sized tail.
 
 ## Rollout and approval
 
@@ -259,171 +165,3 @@ The product owner approved Decisions 1-5 on 2026-11-09, including consumer-commi
 gateway prefix application, source deletion versus journal-GC gates, immutable
 completion replay, and gateway/core-first capability rollout. The implementation
 checklist remains open until each complete contract is demonstrated.
-
-
-### Physical generation bound
-
-New attributed generations use the existing generation rotation as the physical
-recovery segment boundary. Before PREPARED or sequence allocation, an append
-must fit the full-copy destination budgets of the shared allocator. With `n`
-retained slots including the proposed append and `S` encoded spool record bytes
-including it, the required destination budget is `1024 + S + n * (4 * 212 + 256)`:
-two evidence files, each holding PREPARED and COMMITTED v2 entries, plus prepaid
-terminal evidence. The attribution-sidecar budget must cover `n * (1024 + 1024)`
-for the complete attribution and relocation mapping sidecars. `n <= 1024` also
-applies; existing manifest/key/run bounds may rotate sooner.
-
-A nonempty generation that would exceed either bound refuses retryably with
-`ErrRotationRequired`, without allocating a sequence. An empty generation whose
-single record cannot fit returns a distinct retryable configuration/capacity
-refusal; correcting settings permits the exact same event and body to retry.
-Attributed appends without the shared allocator fail closed. Legacy flat storage
-is unsupported and retained; reserve headroom does not make its identity or
-copy-only intervals valid under this recovery protocol.
-
-These destination limits are one part of the aggregate reserve. Coordinator
-activation also requires separately validated fixed budgets for both frozen
-journals, phase records, repairs, control publication wrappers/evidence/sidecars,
-coverage certificates and filesystem metadata. The generation limit alone does
-not establish that the complete coordinator footprint is configured.
-
-### Aggregate defaults and recovery-control attempts
-
-The default footprint is 42 MiB per active recovery: 8 MiB destination,
-2 MiB attribution/relocation sidecars, 4 MiB for EACH journal copy, 2 MiB control
-publication storage, 21 MiB terminal archive and coverage/mapping evidence, and 1 MiB filesystem
-metadata. Together with the existing 1 MiB unborrowable free-space floor, one
-active recovery reserves 43 MiB of the default 1 GiB spool. The existing allocator
-capacity validation rejects a total below its aggregate floor; there is no new
-Helm-only setting. `Footprint.ValidateCoordinator` additionally rejects component
-budgets below the complete coordinator minima.
-
-The destination equation includes 1024 fixed bytes for the generation identity,
-format marker, dedicated recovery marker, closed marker and fixed hold. A journal
-copy reserves twice `(1 MiB freeze + 1 MiB aggregate phase records)`, covering the
-initial records and an exact repair of every retained record. Complete encoded
-publication records are bounded to 512 KiB aggregate before enqueue. For at most
-`ceil(1024 / MaxSpansPerPage) + 1` records including the tombstone, one control
-attempt requires that aggregate plus each spool wrapper, four 212-byte evidence
-entries, one 1024-byte attribution sidecar and 256-byte terminal allowance, plus
-1024 fixed generation bytes. The minimum control footprint covers two complete
-attempts plus one retained superseded-attempt archive; the default rounds up to 2 MiB.
-
-Recovery controls use the SAME grant as data relocation. They consume the
-`ManifestPages` artifact budget, including their wrappers/evidence/sidecars, and
-have independently tracked retained file ownership. Source release transfers the
-copy destination only. Final artifact release transfers still-retained control
-attempts and their terminal allowances to ordinary storage for normal sender
-cleanup. Restart measures every attempted control generation before testing
-remaining physical backing, without acquiring another concurrency slot.
-
-A failed control append may create an ambiguous slot. Its generation and all
-its evidence remain charged; reconstruction uses the exact frozen publication
-bytes in a new dedicated control attempt. Ordinary delivery renewal can authorize
-the unchanged record under its new spool/sequence while the output grant remains
-active. Repeated failed attempts require enough remaining aggregate capacity;
-exhaustion is a visible capacity refusal retaining evidence, not unbounded retry
-progress. Safe cleanup of superseded attempts remains part of the proof lifecycle.
-
-
-### Paired storage proof checkpoint
-
-Every mutable phase is an immutable two-copy record bound to the complete frozen
-journal digest and its step name. There are at most 64 steps and 1 MiB aggregate
-phase bytes per copy. A single intact copy permits exact repair but never proves
-progress until both barriers exist. Divergent intact copies fail closed.
-
-Opening an operation durably holds the source against resolution/reclaim and its
-empty dedicated destination against resolution. The sender supervisor must close
-or skip the source session while `Generation.RecoverySourceHeld` is true; a
-read error also blocks that session. The destination remains sender-visible.
-Every selected allocated slot is rechecked as either a committed destination with
-exact local binding, old-to-new mapping and high-water evidence, or a complete
-frozen loss classification with authoritative acknowledgements for every page and
-tombstone. Those acknowledgements come only from the strict authenticated sender
-validator. Their exact publication generation, attempt, sequence, event, raw hash
-and binding are saved before ordinary control-lane resolution.
-
-After both coverage certificate copies are durable, the destination hold can be
-removed. Restart can use that certificate even if destination ACKs have since
-advanced. Source terminal acceptance is not a third coverage branch: every
-allocated slot above the physical reclaim base still needs a copy or loss proof,
-including an already accepted or permanently rejected prefix. A private retained
-source witness permits reading that prefix; the public destination witness still
-requires an unresolved sender-visible commit.
-
-The mapping/archive minimum is `2 * (DestinationSegment + AttributionSidecar) + 1 MiB`:
-the original and destination retained record/evidence/sidecar bytes plus
-certificate, terminal and archive framing headroom. Defaults reserve 21 MiB here.
-The following reclamation slice must preflight actual archive bytes and preserve
-all terminal evidence without invoking the legacy quarantine eviction policy.
-The proof checkpoint does not yet delete source bytes, release the source charge,
-or collect journals; those actions still require the deletion-intent/archive and
-verified consumer-resolution lifecycle.
-
-
-### Bounded source archive and physical reclamation checkpoint
-
-For one operation covering the entire physical source interval, storage reopens
-its paired coverage certificate and archives original terminal files, complete
-original commit/binding sidecars, and rejected raw record extents. Unparseable
-terminal evidence or an unlocatable rejected extent preserves the complete raw
-segment instead. Archive production and verification stream bounded buffers.
-A partial archive is compared byte-for-byte against the immutable held source
-before appending only its missing suffix; it is never truncated or overwritten
-to gain reserve space. The exact archive bytes must fit the remaining mapping
-budget before the first write. The existing evicting quarantine is not invoked.
-
-A paired deletion intent binds the coverage and archive digests, original
-physical base/high-water, and commit generation counter. Only then does storage
-advance its local checkpoint and publish the existing reclaimed-layout pointer.
-This does not synthesize a sender disposition or advance a consumer prefix.
-Reopening a published pointer requires the paired intent and its prerequisites;
-cleanup/release can then retry. Source release transfers committed destinations
-into ordinary ownership while allowing the same grant's remaining completion
-writes. A signed historical consumer receipt must match the frozen namespace,
-recovery ID, manifest root and at least the selected end before the final same-grant cleanup may proceed.
-
-This checkpoint retains the active grant through signed completion. Full-floor
-forward progress additionally requires same-grant reclamation of acknowledged
-destinations/controls and receipt-gated collection of transient journals, while
-compact completion/archive evidence remains ordinarily accounted. Releasing the
-grant before that cleanup can require a new acquisition at an already consumed
-physical floor. Those remaining steps are not claimed by source deletion alone.
-Existing oversized or flat-v1 generations are unsupported: retain, account and
-report them without deletion. No legacy migration, copy-only compatibility
-protocol or source aggregation is in scope for this bounded implementation.
-
-### Reserved dedicated generation publication
-
-`BeginRecoveryDestination` chooses the immutable destination path, acquires the
-operation grant, and charges identity, recovery marker, evidence-format marker
-and directory metadata before the first filesystem mutation. The existing
-publication/factory path then lands those bytes before reopening measures them;
-they cannot be charged again as ordinary storage. Control destinations use
-`CreateRecoveryControlDestination` with that same grant, never a second grant.
-The configured generation must retain the same allocator and owned attribution.
-
-A backing refusal writes no metadata and spends no sequence. A failure after
-reservation retains its active slot and fails the allocator closed until restart
-inventory. A retained operation cannot acquire a replacement grant merely by
-calling creation again: its complete artifacts and terminal obligations must be
-restored first. No compatibility alias retains the unreserved creation API.
-### Gateway historical rollover and transport bounds
-
-A missing current producer fence never grants primary authority. If lifecycle
-cleanup removed the assignment, an exact currently valid operation-specific
-ROLLOVER capability may drain the retained record to audit only. Core issues it
-only after joining the immutable registered copy and binding with durable original
-FOUND or NOT_SCHEDULED mapping evidence. Ordinary delivery and renewal without a
-fence remain withheld, as does a producer epoch ahead of a known fence. Retained
-valid signing keys, authenticated scope, typed body validation and admission by a
-currently held registry epoch remain required; retired or unknown schemas do not
-receive a bypass.
-
-Before publication, recovery controls must satisfy the shared typed body and scope
-validator. Exact record bytes may exceed the decoded control payload by at most
-16 KiB. The NATS subject and actual serialized headers, including framing, may
-consume at most another 16 KiB per control. The latter check precedes credit
-reservation. These bounds complement the coordinator's aggregate exact-record
-budget and four-page-plus-tombstone limit when sizing reserved recovery capacity.
