@@ -106,6 +106,10 @@ message SidecarStatus {
   string last_error = 6;
   string version = 7; // Add-on version (empty if unknown).
   string arch = 8;    // Host architecture the add-on runs on (GOARCH), empty if unknown.
+  string desired_version = 9;    // Desired add-on version when an apply attempt is pending or failed.
+  string apply_error = 10;       // Error from the latest failed apply/install/delivery attempt.
+  string apply_disposition = 11; // Disposition of the latest failed apply attempt (permanent_failure | transient_failure).
+  int64 apply_observed_at = 12;  // Unix nanoseconds, UTC when the apply failure was observed.
 }
 
 message ResultsResponse {

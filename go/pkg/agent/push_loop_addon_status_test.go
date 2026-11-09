@@ -303,6 +303,88 @@ func TestParseSystemdUnitStatusOutputIncludesExecFailure(t *testing.T) {
 	}
 }
 
+func TestParseSystemdUnitStatusOutputReportsAutoRestartCrashLoopAsUnhealthy(t *testing.T) {
+	got := parseSystemdUnitStatusOutputForUnit(
+		"serviceradar-workload-identity.service",
+		"ActiveState=activating\nSubState=auto-restart\nResult=exit-code\nExecMainStatus=1\nNRestarts=4\n",
+	)
+	if got.state != agentaddon.StateUnhealthy {
+		t.Fatalf("state = %q, want %q for auto-restart crash loop", got.state, agentaddon.StateUnhealthy)
+	}
+	if !strings.Contains(got.lastError, "result=exit-code") || !strings.Contains(got.lastError, "status=1") {
+		t.Fatalf("lastError = %q, want crash exit details", got.lastError)
+	}
+}
+
+func TestAgentUpdaterOutputDoesNotTruncateAt4KiB(t *testing.T) {
+	payload := strings.Repeat("a", 5000)
+	got := truncateAgentUpdaterOutput(payload)
+	if got != payload {
+		t.Fatalf("len(truncateAgentUpdaterOutput) = %d, want %d without 4 KiB truncation", len(got), len(payload))
+	}
+
+	overflow := strings.Repeat("b", maxAgentUpdaterOutputBytes+10)
+	marked := truncateAgentUpdaterOutput(overflow)
+	if !strings.Contains(marked, "updater output overflowed") {
+		t.Fatalf("truncateAgentUpdaterOutput(overflow) = %q, want overflow marker", marked)
+	}
+}
+
+func TestCapabilityStatusBoundsAndCountsOverflowAndUnknownValues(t *testing.T) {
+	sidecars := []*proto.SidecarStatus{
+		{
+			Name:             "addon:sample",
+			State:            "bogus_state",
+			Version:          "0.2.0",
+			LastError:        strings.Repeat("x", maxSidecarErrorBytes+5),
+			ApplyDisposition: "bogus_disposition",
+		},
+	}
+
+	sanitized, overflowCount, unknownCount := sanitizeSidecarStatusesForCapabilityReport(sidecars)
+	if len(sanitized) != 1 {
+		t.Fatalf("len(sanitized) = %d, want 1", len(sanitized))
+	}
+	if overflowCount != 1 {
+		t.Fatalf("overflowCount = %d, want 1", overflowCount)
+	}
+	if unknownCount != 2 {
+		t.Fatalf("unknownCount = %d, want 2", unknownCount)
+	}
+	if sanitized[0].GetState() != cameraRelayStopStateUnknown {
+		t.Fatalf("State = %q, want unknown", sanitized[0].GetState())
+	}
+	if sanitized[0].GetApplyDisposition() != cameraRelayStopStateUnknown {
+		t.Fatalf("ApplyDisposition = %q, want unknown", sanitized[0].GetApplyDisposition())
+	}
+	if !strings.HasPrefix(sanitized[0].GetLastError(), "[overflow:") {
+		t.Fatalf("LastError = %q, want overflow marker", sanitized[0].GetLastError())
+	}
+}
+
+func TestSystemdAddonUpdaterCapabilityAdvertisement(t *testing.T) {
+	pl := NewPushLoop(
+		&Server{config: &ServerConfig{AgentID: "agent-updater-cap"}},
+		nil,
+		30*time.Second,
+		logger.NewTestLogger(),
+	)
+	pl.systemdUpdaterSupportedFunc = func() (bool, bool) {
+		return true, false
+	}
+
+	caps := pl.getAgentCapabilities(pl.server.config)
+	foundUnavailable := false
+	for _, c := range caps {
+		if c == capabilityAddonSystemdUpdaterUnavailable {
+			foundUnavailable = true
+		}
+	}
+	if !foundUnavailable {
+		t.Fatalf("expected %q in capabilities %v", capabilityAddonSystemdUpdaterUnavailable, caps)
+	}
+}
+
 func TestParseSystemdTimerStatusRequiresFiniteNextTrigger(t *testing.T) {
 	running := parseSystemdUnitStatusOutputForUnit(
 		"serviceradar-scalibr-endpoint-inventory.timer",

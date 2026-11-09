@@ -19,6 +19,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -32,6 +33,7 @@ import (
 	agentnetprobe "github.com/carverauto/serviceradar/go/pkg/agent/netprobe"
 	"github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess"
 	"github.com/carverauto/serviceradar/go/pkg/agent/sidecar"
+	"github.com/carverauto/serviceradar/go/pkg/agent/updaterflags"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/mtr"
 	"github.com/carverauto/serviceradar/go/pkg/scan"
@@ -47,6 +49,8 @@ const (
 	capabilityHostNetworkVisibilitySnapshotUnavailable    = "host-network-visibility.process_snapshot.unavailable"
 	capabilityAddonNativeHost                             = "addon.native.host"
 	capabilityAddonNativeHostUnavailable                  = "addon.native.host.unavailable"
+	capabilityAddonSystemdUpdater                         = "addon.systemd.updater"
+	capabilityAddonSystemdUpdaterUnavailable              = "addon.systemd.updater.unavailable"
 	capabilitySweepBannerGrab                             = "sweep.banner_grab"
 	capabilitySweepBannerGrabAvailable                    = "sweep.banner_grab.available"
 	capabilitySweepBannerGrabUnavailable                  = "sweep.banner_grab.unavailable"
@@ -99,6 +103,8 @@ const (
 
 	// systemdUnitFailed is systemd's ActiveState=failed and Result=failed value.
 	systemdUnitFailed = "failed"
+	addonStateWaiting = "waiting"
+	addonStateHealthy = "healthy"
 )
 
 type capabilityStatusPayload struct {
@@ -130,7 +136,14 @@ type agentCapabilityStatusPayload struct {
 	Sweep                 sweepCapabilityStatus                 `json:"sweep"`
 	RemoteCapture         remoteCaptureStatus                   `json:"remote_capture"`
 	Sidecars              []*proto.SidecarStatus                `json:"sidecars,omitempty"`
+	OverflowedValueCount  int                                   `json:"overflowed_value_count,omitempty"`
+	UnknownValueCount     int                                   `json:"unknown_value_count,omitempty"`
 }
+
+const (
+	maxSidecarIdentifierBytes = 256
+	maxSidecarErrorBytes      = 65_536
+)
 
 func (p *PushLoop) buildAgentCapabilityGatewayStatus(
 	cfg *ServerConfig,
@@ -165,6 +178,13 @@ func (p *PushLoop) buildAgentCapabilityGatewayStatus(
 		p.remoteAccessRDPAdapterPath(),
 		p.socketProbe(),
 	)
+	if probed, supported := p.probeSystemdAddonUpdater(); probed {
+		if supported {
+			capabilities = append(capabilities, capabilityAddonSystemdUpdater)
+		} else {
+			capabilities = append(capabilities, capabilityAddonSystemdUpdaterUnavailable)
+		}
+	}
 	capabilities = append(capabilities, addonCapabilities(addonStatuses)...)
 
 	resp := buildAgentCapabilityStatusResponse(
@@ -191,6 +211,8 @@ func buildAgentCapabilityStatusResponse(
 		corpusRevisionPayload = nil
 	}
 
+	sanitizedSidecars, overflowCount, unknownCount := sanitizeSidecarStatusesForCapabilityReport(sidecars)
+
 	payload, err := json.Marshal(agentCapabilityStatusPayload{
 		Capabilities: append([]string(nil), capabilities...),
 		HostNetworkVisibility: hostNetworkVisibilityCapabilityStatus{
@@ -208,7 +230,9 @@ func buildAgentCapabilityStatusResponse(
 			Active:       activeCaptureCount > 0,
 			SessionCount: activeCaptureCount,
 		},
-		Sidecars: sidecars,
+		Sidecars:             sanitizedSidecars,
+		OverflowedValueCount: overflowCount,
+		UnknownValueCount:    unknownCount,
 	})
 	if err != nil {
 		payload = []byte(`{"error":"agent capability status marshal failed"}`)
@@ -220,6 +244,128 @@ func buildAgentCapabilityStatusResponse(
 		ServiceName: agentCapabilityServiceName,
 		ServiceType: agentCapabilityServiceType,
 	}
+}
+
+func sanitizeSidecarStatusesForCapabilityReport(
+	sidecars []*proto.SidecarStatus,
+) ([]*proto.SidecarStatus, int, int) {
+	if len(sidecars) == 0 {
+		return nil, 0, 0
+	}
+
+	overflowCount := 0
+	unknownCount := 0
+	out := make([]*proto.SidecarStatus, 0, len(sidecars))
+
+	boundIdentifier := func(val string) string {
+		if len(val) <= maxSidecarIdentifierBytes {
+			return val
+		}
+		overflowCount++
+		return fmt.Sprintf("[overflow:%d_bytes]", len(val))
+	}
+	boundError := func(val string) string {
+		if len(val) <= maxSidecarErrorBytes {
+			return val
+		}
+		overflowCount++
+		return fmt.Sprintf("[overflow:%d_bytes]", len(val))
+	}
+
+	for _, s := range sidecars {
+		if s == nil {
+			continue
+		}
+		clone := &proto.SidecarStatus{
+			Name:            boundIdentifier(s.GetName()),
+			Pid:             s.GetPid(),
+			RestartCount:    s.GetRestartCount(),
+			LastHealthAt:    s.GetLastHealthAt(),
+			LastError:       boundError(s.GetLastError()),
+			Version:         boundIdentifier(s.GetVersion()),
+			Arch:            boundIdentifier(s.GetArch()),
+			DesiredVersion:  boundIdentifier(s.GetDesiredVersion()),
+			ApplyError:      boundError(s.GetApplyError()),
+			ApplyObservedAt: s.GetApplyObservedAt(),
+		}
+
+		state := strings.TrimSpace(s.GetState())
+		if !knownSidecarState(state) {
+			unknownCount++
+			clone.State = cameraRelayStopStateUnknown
+		} else {
+			clone.State = state
+		}
+
+		disp := strings.TrimSpace(s.GetApplyDisposition())
+		if disp != "" && disp != configSectionDispositionPermanent && disp != configSectionDispositionTransient {
+			unknownCount++
+			clone.ApplyDisposition = cameraRelayStopStateUnknown
+		} else {
+			clone.ApplyDisposition = disp
+		}
+
+		out = append(out, clone)
+	}
+
+	return out, overflowCount, unknownCount
+}
+
+func knownSidecarState(state string) bool {
+	switch strings.ToLower(strings.TrimSpace(state)) {
+	case string(agentaddon.StateStopped),
+		string(agentaddon.StateStarting),
+		string(agentaddon.StateRunning),
+		string(agentaddon.StateDegraded),
+		string(agentaddon.StateUnhealthy),
+		string(agentaddon.StateRestarting),
+		string(agentaddon.StateCircuitOpen),
+		"ready",
+		addonStateWaiting,
+		"staged",
+		sweepLeaseStateActive,
+		addonStateHealthy,
+		systemdUnitFailed,
+		"verification_failed":
+		return true
+	default:
+		return false
+	}
+}
+
+func (p *PushLoop) probeSystemdAddonUpdater() (bool, bool) {
+	if p == nil {
+		return false, false
+	}
+	if p.systemdUpdaterSupportedFunc != nil {
+		return p.systemdUpdaterSupportedFunc()
+	}
+	for _, failure := range p.addonDeliveryFailureSnapshot() {
+		if strings.Contains(failure.reason, errReleaseUpdaterFlagUnsupported.Error()) {
+			return true, false
+		}
+	}
+	if !runtimeSupportsNativeAddonHosting() {
+		return false, false
+	}
+
+	p.systemdUpdaterProbeMu.Lock()
+	defer p.systemdUpdaterProbeMu.Unlock()
+	if p.systemdUpdaterProbed {
+		return true, p.systemdUpdaterSupported
+	}
+
+	_, err := ValidatedPrivilegedAgentUpdaterPath(updaterflags.AddonVersion, updaterflags.AddonBinary)
+	switch {
+	case err == nil:
+		p.systemdUpdaterProbed = true
+		p.systemdUpdaterSupported = true
+	case errors.Is(err, errReleaseUpdaterFlagUnsupported):
+		p.systemdUpdaterProbed = true
+		p.systemdUpdaterSupported = false
+	}
+
+	return p.systemdUpdaterProbed, p.systemdUpdaterSupported
 }
 
 func sidecarStatusesForStatus(provider sidecarStatusProvider) []*proto.SidecarStatus {
@@ -254,7 +400,16 @@ func (p *PushLoop) getAgentCapabilities(cfg *ServerConfig) []string {
 	sidecarStatus := p.server.sidecarStatus
 	p.server.mu.RUnlock()
 
-	return getAgentCapabilitiesForSidecars(cfg, sidecarStatusesForStatus(sidecarStatus), false, p.socketProbe())
+	capabilities := getAgentCapabilitiesForSidecars(cfg, sidecarStatusesForStatus(sidecarStatus), false, p.socketProbe())
+	if probed, supported := p.probeSystemdAddonUpdater(); probed {
+		if supported {
+			capabilities = append(capabilities, capabilityAddonSystemdUpdater)
+		} else {
+			capabilities = append(capabilities, capabilityAddonSystemdUpdaterUnavailable)
+		}
+	}
+
+	return capabilities
 }
 
 // socketProbe is the socket probe the Server took when it was built, plus the
@@ -557,9 +712,10 @@ func hostNetworkVisibilityFingerprintStatus(capabilities []string) string {
 }
 
 type systemdUnitStatus struct {
-	state     agentaddon.State
-	pid       int
-	lastError string
+	state        agentaddon.State
+	pid          int
+	restartCount int
+	lastError    string
 }
 
 // systemdAddonStatuses synthesizes `addon:<id>` entries so systemd-managed native
@@ -653,9 +809,13 @@ func (p *PushLoop) systemdAddonStatus(root, id string, units []string, sidecars 
 	if !foldedSidecar {
 		st.State = status.state
 		st.LastError = status.lastError
+		st.RestartCount = status.restartCount
 	}
 	if st.PID <= 0 {
 		st.PID = status.pid
+	}
+	if st.RestartCount <= 0 {
+		st.RestartCount = status.restartCount
 	}
 	if st.LastError == "" {
 		st.LastError = status.lastError
@@ -817,6 +977,7 @@ func readSystemdUnitStatusDefault(unit string) systemdUnitStatus {
 		"--property=ExecMainStatus",
 		"--property=NextElapseUSecRealtime",
 		"--property=NextElapseUSecMonotonic",
+		"--property=NRestarts",
 		unit,
 	)
 	out, err := cmd.Output()
@@ -842,6 +1003,7 @@ func parseSystemdUnitStatusOutputForUnit(unit string, out string) systemdUnitSta
 	result := ""
 	execMainStatus := ""
 	pid := 0
+	restartCount := 0
 
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 		key, value, ok := strings.Cut(line, "=")
@@ -862,6 +1024,10 @@ func parseSystemdUnitStatusOutputForUnit(unit string, out string) systemdUnitSta
 			if parsed, parseErr := strconv.Atoi(strings.TrimSpace(value)); parseErr == nil && parsed > 0 {
 				pid = parsed
 			}
+		case "NRestarts":
+			if parsed, parseErr := strconv.Atoi(strings.TrimSpace(value)); parseErr == nil && parsed > 0 {
+				restartCount = parsed
+			}
 		case "NextElapseUSecRealtime":
 			nextRealtime = strings.TrimSpace(value)
 		case "NextElapseUSecMonotonic":
@@ -875,35 +1041,46 @@ func parseSystemdUnitStatusOutputForUnit(unit string, out string) systemdUnitSta
 				reportedSubState = "unknown"
 			}
 			return systemdUnitStatus{
-				state:     agentaddon.StateUnhealthy,
-				pid:       pid,
-				lastError: fmt.Sprintf("systemd timer is %s with no scheduled trigger", reportedSubState),
+				state:        agentaddon.StateUnhealthy,
+				pid:          pid,
+				restartCount: restartCount,
+				lastError:    fmt.Sprintf("systemd timer is %s with no scheduled trigger", reportedSubState),
 			}
 		}
 		if subState == "waiting" && !finiteSystemdTimerNext(nextRealtime) && !finiteSystemdTimerNext(nextMonotonic) {
 			return systemdUnitStatus{
-				state:     agentaddon.StateUnhealthy,
-				pid:       pid,
-				lastError: "systemd timer has no finite next trigger",
+				state:        agentaddon.StateUnhealthy,
+				pid:          pid,
+				restartCount: restartCount,
+				lastError:    "systemd timer has no finite next trigger",
 			}
 		}
 	}
 
 	switch activeState {
 	case "active":
-		return systemdUnitStatus{state: agentaddon.StateRunning, pid: pid}
+		return systemdUnitStatus{state: agentaddon.StateRunning, pid: pid, restartCount: restartCount}
 	case "activating":
-		return systemdUnitStatus{state: agentaddon.StateStarting, pid: pid}
+		if strings.EqualFold(subState, "auto-restart") {
+			return systemdUnitStatus{
+				state:        agentaddon.StateUnhealthy,
+				pid:          pid,
+				restartCount: restartCount,
+				lastError:    systemdFailedUnitError(result, execMainStatus),
+			}
+		}
+		return systemdUnitStatus{state: agentaddon.StateStarting, pid: pid, restartCount: restartCount}
 	case "deactivating", "reloading":
-		return systemdUnitStatus{state: agentaddon.StateRestarting, pid: pid}
+		return systemdUnitStatus{state: agentaddon.StateRestarting, pid: pid, restartCount: restartCount}
 	case systemdUnitFailed:
 		return systemdUnitStatus{
-			state:     agentaddon.StateUnhealthy,
-			pid:       pid,
-			lastError: systemdFailedUnitError(result, execMainStatus),
+			state:        agentaddon.StateUnhealthy,
+			pid:          pid,
+			restartCount: restartCount,
+			lastError:    systemdFailedUnitError(result, execMainStatus),
 		}
 	default:
-		return systemdUnitStatus{state: agentaddon.StateStopped, pid: pid}
+		return systemdUnitStatus{state: agentaddon.StateStopped, pid: pid, restartCount: restartCount}
 	}
 }
 

@@ -135,6 +135,7 @@ type PushLoop struct {
 
 	addonDeliveryMu       sync.Mutex
 	addonDeliveryFailures map[string]addonDeliveryFailure // permanent add-on artifact delivery failure, by addon id (drives backoff + status)
+	addonApplyFailures    map[string]addonApplyFailure    // latest per-add-on apply/install/delivery failure, by addon id (drives candidate failure status)
 
 	configSectionMu       sync.Mutex
 	configSectionFailures map[string]configSectionFailure // persistent config-section apply failure, by section name (drives skip + escalate-once + per-section ack)
@@ -197,6 +198,10 @@ type PushLoop struct {
 	managedLocalNATSRunning atomic.Bool
 
 	hostNetworkVisibilitySupported func() bool
+	systemdUpdaterSupportedFunc    func() (bool, bool)
+	systemdUpdaterProbeMu          sync.Mutex
+	systemdUpdaterSupported        bool
+	systemdUpdaterProbed           bool
 	uninstallSystemdAddonUnits     func(context.Context, []string) error
 	hostInventory                  func() []hostInterface
 	hostTLSFingerprints            func() []*proto.HostTlsFingerprint

@@ -29,6 +29,10 @@ defmodule ServiceRadar.Plugins.AddonStatus do
     :last_health_at,
     :version,
     :arch,
+    :desired_version,
+    :apply_error,
+    :apply_disposition,
+    :apply_observed_at,
     :reported_at
   ]
 
@@ -118,6 +122,27 @@ defmodule ServiceRadar.Plugins.AddonStatus do
     attribute :arch, :string do
       public? true
       description "Architecture (nullable; populated once the agent reports it, task 7.1)."
+    end
+
+    attribute :desired_version, :string do
+      public? true
+      description "Desired add-on version when an apply/install attempt failed."
+    end
+
+    attribute :apply_error, :string do
+      public? true
+      description "Last apply/install error reported for the desired version."
+    end
+
+    attribute :apply_disposition, :string do
+      public? true
+
+      description "Disposition of the last apply/install failure (permanent_failure / transient_failure)."
+    end
+
+    attribute :apply_observed_at, :utc_datetime_usec do
+      public? true
+      description "When the agent observed the apply/install failure."
     end
 
     attribute :reported_at, :utc_datetime_usec do

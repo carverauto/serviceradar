@@ -144,6 +144,10 @@ type Status struct {
 	LastHealthAt      time.Time `json:"last_health_at,omitempty"`
 	LastStartedAt     time.Time `json:"last_started_at,omitempty"`
 	LastExitedAt      time.Time `json:"last_exited_at,omitempty"`
+	DesiredVersion    string    `json:"desired_version,omitempty"`
+	ApplyError        string    `json:"apply_error,omitempty"`
+	ApplyDisposition  string    `json:"apply_disposition,omitempty"`
+	ApplyObservedAt   time.Time `json:"apply_observed_at,omitempty"`
 }
 
 // CommandInvocation identifies one native add-on action invocation delivered

@@ -58,6 +58,8 @@ defmodule ServiceRadarWebNG.Plugins.AddonRolloutView do
     "desired_package_not_approved" => "desired package is not approved",
     "desired_state_not_converged" => "desired state did not converge",
     "candidate_health_timeout" => "candidate never reported healthy in time",
+    "candidate_never_applied" => "agent never applied the candidate",
+    "candidate_install_failed" => "candidate failed to install",
     "candidate_reported_unhealthy" => "candidate reported unhealthy",
     "rollback_recovery_unverified" => "rollback recovery is unverified",
     "waiting_for_fresh_candidate_health" => "waiting for a fresh healthy report",
@@ -182,6 +184,13 @@ defmodule ServiceRadarWebNG.Plugins.AddonRolloutView do
           action(
             "Update blocked",
             "A canary for #{attempted} did not pass health in time. This agent is running #{current}. Cancel or resume the paused rollout.",
+            :review_rollout
+          )
+
+        {:action_required, "candidate_install_failed"} ->
+          action(
+            "Update blocked",
+            "A canary for #{attempted} failed to install on this agent (running #{current}). Cancel or resume the paused rollout.",
             :review_rollout
           )
 
@@ -391,6 +400,12 @@ defmodule ServiceRadarWebNG.Plugins.AddonRolloutView do
       ctx.blocked_reason == "candidate_reported_unhealthy" ->
         "#{agent} reported #{candidate} as unhealthy. We rolled that agent back to #{previous} and paused so #{rest_of_fleet(fleet?)}."
 
+      ctx.blocked_reason == "candidate_install_failed" and ctx.state in [:failed, :rolled_back] ->
+        "#{agent} failed to install #{candidate}#{error_suffix(ctx.error)}. That attempt stopped; agents on this rollout were left on #{previous}."
+
+      ctx.blocked_reason == "candidate_install_failed" ->
+        "#{agent} failed to install #{candidate}#{error_suffix(ctx.error)}. We rolled that agent back to #{previous} and paused so #{rest_of_fleet(fleet?)}."
+
       ctx.blocked_reason == "rollback_recovery_unverified" ->
         "We tried to roll #{agent} back to #{previous} after the candidate failed, but could not confirm it recovered."
 
@@ -487,6 +502,9 @@ defmodule ServiceRadarWebNG.Plugins.AddonRolloutView do
 
   defp rest_of_fleet(true), do: "the rest of the profile stays on the last good version"
   defp rest_of_fleet(false), do: "this agent stays on the last good version"
+
+  defp error_suffix(error) when is_binary(error) and error != "", do: " (#{error})"
+  defp error_suffix(_), do: ""
 
   defp classification_label(value) do
     atom = normalize_atom(value)
