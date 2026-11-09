@@ -29,6 +29,8 @@ defmodule ServiceRadarRecording.MixProject do
       {:numbers, "~> 5.2.5", override: true},
       # membrane_opus_format requires Credo in every Mix environment.
       {:credo, "~> 1.7", runtime: false},
+      {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:ex_dna, "~> 1.3", only: [:dev, :test], runtime: false},
       {:ex_slop, "~> 0.2.0", only: [:dev, :test], runtime: false},
       {:styler, "~> 1.11", only: [:dev, :test], runtime: false},

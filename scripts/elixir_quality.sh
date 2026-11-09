@@ -3,13 +3,14 @@
 set -euo pipefail
 
 # First-party Mix projects under elixir/. Keep in step with Makefile
-# ELIXIR_PROJECTS and .github/workflows/elixir-quality.yml.
+# ELIXIR_PROJECTS.
 workspace_projects=(
   elixir/datasvc
   elixir/palisade
   elixir/serviceradar_agent_gateway
   elixir/serviceradar_core
   elixir/serviceradar_core_elx
+  elixir/serviceradar_recording
   elixir/serviceradar_srql
   elixir/web-ng
 )
