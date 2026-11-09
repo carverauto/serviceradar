@@ -624,3 +624,37 @@
   finite delay is explicit; the agent coordinator also closes the original
   source session as soon as it freezes a recovery.
 - Confidence: high.
+
+## Keep one byte-accounting owner
+
+- When: production integration review, 2026-11-09.
+- Choice: admission reads the filesystem allocator's retained-byte count. Remove
+  the unused Controller and its test-only reclaim authorization rather than make
+  producers charge a second ledger. A gateway acknowledgement cannot free the
+  allocator's bytes; physical reclaim still requires durable terminal or coverage
+  evidence, and recovery archives remain charged after completion.
+- Gap: the moved task prescribed minting a private authorization for a controller
+  that production never used. Wiring it would duplicate the allocator's ownership
+  and require two accounting systems to agree after every crash.
+- Reach: Gate retains its existing pressure and fairness policy. The storage
+  owner alone grants and releases capacity; task 1.2 now names that contract.
+- Verdict: sound; removes unshipped scaffolding while preserving the no-early-release
+  obligation. Confidence: high.
+
+## Delivery obeys the coordinator's durable boundaries
+
+- When: sender integration, 2026-11-09.
+- Choice: a validated acknowledgement reaches the recovery receipt writer before
+  the sender persists its terminal prefix. If that write fails, restart still
+  replays the record. The sender does not classify loss or manufacture coverage.
+  Relocated records always need their registered copy grant, even while their
+  original production grant remains current. If a later grant is missing, the
+  sender resolves the already-sent prefix and leaves the remaining suffix queued.
+- Gap: the existing sender had no pre-resolution durability hook and requested
+  delivery grants only after production authority approached expiry. Both paths
+  could bypass the coordinator's evidence or authority obligations.
+- Reach: reuse immutable validated ACK evidence and the existing bounded grant
+  renewal interface. Ordinary generations retain their existing delivery policy;
+  no second transport, durable grant cache or loss classifier is introduced.
+- Verdict: sound; one explicit hook and one required-grant policy keep the
+  coordinator and transport responsibilities separate. Confidence: high.

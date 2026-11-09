@@ -19,17 +19,20 @@ coordinator and its negotiated runtime path are complete.
 
 Remaining work, in dependency order:
 
-1. Complete reserve-backed active-source closure and ordinary generation metadata
-   admission. Exact interrupted-copy repair, source-bound intent and independent
-   finite lane senders are integrated.
-2. Wire bounded coordinator discovery, per-authority publication attempts,
-   current-trust completion validation and restart cleanup.
-3. Complete gateway coverage freshness through publisher handoff and remove
-   age expiry from the bounded recovery work queue.
-4. Prove the crash matrix and near-full progress with more than 2,048 synthetic
-   records across bounded generations; run guarded database persistence tests.
-5. Reconcile every task and design decision, run whole-repo tests and standalone
+1. Wire bounded coordinator discovery, startup inventory, per-authority
+   publication attempts, current-trust completion validation and restart cleanup.
+   Reserve-backed active-source closure and ordinary generation metadata admission
+   are integrated, as are immutable exact-copy repair and finite lane workers.
+2. Complete the sender's recovery-receipt barrier and required rollover-grant
+   policy, then prove the production crash/restart path through the coordinator.
+3. Reconcile every task and design decision, run whole-repo tests and standalone
    Go vet, consolidate the choices ledger, then land through no-mistakes/Grok.
+   Require actual `BazelCI Core Integration` execution for the boxed DB contracts.
+
+Gateway coverage freshness through publisher handoff and non-expiring bounded
+recovery queue retention are integrated. The storage near-full proof covers
+2,049 synthetic records across nine damaged generations; production driver
+integration remains required before claiming end-to-end recovery.
 
 The owner excluded legacy compatibility on 2026-11-09. Preserve and account old
 flat files as unsupported retained storage; do not implement migration, legacy

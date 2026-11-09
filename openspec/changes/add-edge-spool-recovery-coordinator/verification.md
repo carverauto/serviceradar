@@ -109,3 +109,56 @@ Guarded database execution and the final integrated gate are still required.
   edge/agent targets in `bd39e3a8-ae01-44a6-b3aa-b73a8490002d`. The peer's
   mixed-attempt receipt negative control `2153afe2` failed reopened coverage
   when every receipt was incorrectly assigned to attempt zero.
+
+## Reserved source lifecycle and gateway coverage integration
+
+- Gateway coverage, provisional publisher deadline and MaxAge-zero recovery queue:
+  peer `c604f69c-51a7-4ee5-b065-ff04ac32f1ba` passed eight targets; negative
+  `c553e58d` caught late queued publication and the old expiring queue.
+- Reserved active-source closure and storage-owned freeze builder: peer
+  `503d3fe6` passed the full spool target. Negative `1250afe0` reproduced the old
+  closed-source requirement; `63355a2a` caught resolved-prefix substitution for
+  the physical reclaim base. The full-floor fixture uses 2,049 synthetic 32 KiB
+  records across nine generations with actual injected append failure/corruption.
+  Bounded rejected copies remain archived. A separate all-rejected case retains
+  all evidence, completes, releases concurrency and capacity-refuses subsequent
+  work; it does not claim perpetual progress with growing archives.
+- Ordinary generation metadata admission: peer `4cdfc170` passed spool and both
+  agent targets. Removing precharge failed `6b2b2535` because a new directory
+  appeared at the reserved physical floor.
+- Independent protocol review found no further copy-grant/principal/scope defect.
+  It identified active source cancellation/join as a driver activation prerequisite.
+  DB routing audit confirms real execution belongs to `BazelCI Core Integration`,
+  async lane and the current serial-six lane, not unit compile/load results.
+
+## Sender receipt and copy-authority barriers
+
+- Integrated gateway coverage, reserved source freeze and ordinary metadata
+  admission: `dc00ad00-e583-49a0-bee4-ee04681a3a35` passed all 22 affected Go/Elixir
+  targets. Standalone Go vet passed for edge, agent package and agent command.
+- Receipt barrier fail-before `00b6f314-a4c8-4514-abd1-dc3bd6a71f59` advanced the
+  watermark without invoking the journal hook and ignored synthetic journal EIO.
+  Fixed transport tests reopen the spool and require the original replay bytes on
+  hook refusal; invalid acknowledgements never reach the hook.
+- Required copy-grant fail-before `b7ec2815-e9da-402e-8260-43734e72733c` sent
+  current-authority records without copy grants. Fixed cases cover current,
+  unavailable, wrong-binding, expired, missing-tail and absent-issuer responses;
+  a missing tail grant preserves accepted-prefix progress and later exact replay.
+- `631ba264-ef7f-4e64-9f6c-856082218f2d` passed sender and both agent targets after
+  both barriers; affected standalone Go vet passed. Quality review moved the
+  receipt callback into the existing acknowledgement persistence owner, removing
+  the added drain-loop complexity; final delta has no major existing-code finding.
+  An independent storage review found only two stale grant comments, corrected.
+- These sender tests establish transport ordering and replay, not actual recovery
+  journal durability or allocator transfer. Production coordinator tests remain
+  required for those contracts.
+
+## Admission ownership cleanup
+
+- Retired the unused Controller, sealed reclaim carrier and their test-only
+  constructors; the live Gate consumes the filesystem allocator's usage. Removed
+  861 net production lines and 1,042 test lines; existing Gate behavior is unchanged.
+- Peer focused admission/spool/agent green `a0833e7d-ed4f-47e8-9d9b-872a90b00a27`.
+  Retained Gate test negative `c844b4e6-e5fa-43b2-bf13-586d2bb21f15` admitted work
+  at the high-water limit after deliberately disabling the pause rule. Exact
+  restoration passed `db384846-fa61-4979-8e12-a1301c5eff3c`.

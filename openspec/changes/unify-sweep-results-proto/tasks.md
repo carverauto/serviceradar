@@ -566,8 +566,9 @@ in `choices.md` and the chart README.
   the agent spool is bulk, so leased sweeps wait, and metrics and unleased
   sweep results keep their records queued, until reclaim brings the spool to
   the low water. The agent exports `agent_edge_spool_admission_paused`.
-  `admission.Controller` stays unwired: it frees charged bytes only through a
-  reclaim authorization nothing can mint before task 2.28. This item stays
+  Admission's byte count comes from the spool allocator. The coordinator change
+  retires the unused `admission.Controller` and its separate authorization ledger;
+  its task 1.2 owns the durable reclaim proof. This item stays
   unchecked until the farm01 verification; the rest of task 2.7 stays open.
   Execution completion is decided in core. The agent appends every results
   record, including the final one (`is_final`, carrying the execution's total
@@ -1460,9 +1461,13 @@ change together with the requirements they implement.
   coverage computation (task 2.28); modelling any of them here means inventing
   semantics for an owner that does not exist yet and then keeping two
   definitions in agreement by hand.
-  MOVED to `add-edge-spool-recovery-coordinator` (2026-11-02); remaining: the admission side is merged. M3.2 imports
-  `admission.Gate` from `go/cmd/agent`. `Controller` still has no caller, and
-  the end-to-end reclaim authorization remains task 2.28.
+  MOVED to `add-edge-spool-recovery-coordinator` (2026-11-02).
+  SUPERSEDED implementation contract (2026-11-09): that change's task 1.2
+  retires the unwired Controller and its second byte ledger. `admission.Gate`
+  consumes the single spool allocator's usage; durable terminal/coverage reclaim
+  owns release. The earlier scaffold description above is move-time evidence,
+  not an instruction to reintroduce it. Production crash-order proof remains
+  required in the coordinator change.
 - [x] 2.18 **Correct `projection`: use the v2 idempotency and cost model.** It
   applies the wrong idempotency key and cost model for v2 records. Align both with
   the record identities and the versioned cost contract, and test replay
