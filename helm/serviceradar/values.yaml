@@ -962,7 +962,7 @@ core:
     #
     # Set to "" to fall back to the old existence-only check (for operators
     # running the chart against a deliberately pinned schema).
-    expectedVersion: "20261107031000"
+    expectedVersion: "20261108190000"
   # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
   reaper:
     # How often to run the reaper job
@@ -3303,3 +3303,28 @@ analytics:
       fePasswordSecretName: ""
       fePasswordSecretKey: password
 
+
+# NVR runtime packaging checkpoint. Pool enrollment, ingress routing and local
+# archive publication are not enabled by this workload.
+nvr:
+  enabled: false
+  replicas: 2
+  maxSessions: 1
+  maxDurationMs: 30000
+  storage:
+    # Select a qualified replicated CSI class, e.g. Longhorn or Ceph RBD.
+    # A PVC name or RWO access mode alone does not establish node-loss survival.
+    storageClassName: ""
+    size: 100Gi
+    # Provision one immutable UUID per ordinal before starting recordings.
+    # Keys are StatefulSet pod names, e.g. serviceradar-nvr-0.
+    storageIds: {}
+  resources:
+    requests:
+      cpu: "500m"
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 1Gi
+  nodeSelector: {}
+  tolerations: []
