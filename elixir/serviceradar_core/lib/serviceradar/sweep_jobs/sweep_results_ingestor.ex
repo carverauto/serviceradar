@@ -136,6 +136,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   - `:scanner_metrics` - Scanner performance metrics from the agent
   - `:banner_grab_summary` - Phase-level banner-grab counters from the agent
   - `:request_id` - Optional upstream request/correlation ID for audit rows
+  - `:repo` - Repo for the execution/group lookups and execution insert (defaults to
+    `ServiceRadar.Repo`); a caller inside a transaction passes its transaction repo
 
   Returns {:ok, stats} with processed counts or {:error, reason}.
   """
