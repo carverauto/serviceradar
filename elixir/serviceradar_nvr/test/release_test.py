@@ -1,4 +1,5 @@
 """Execute the shipped release with synthetic media and no control-plane services."""
+import hashlib
 import json
 import os
 import signal
@@ -156,6 +157,29 @@ class NVRReleaseTest(unittest.TestCase):
         self.env["NVR_TEST_RECOVERY_ERROR"] = "block_identity_mismatch"
         self.run_probe("discover_unresolved")
         self.assertEqual({p.name: p.read_bytes() for p in renamed.iterdir()}, originals)
+
+    def test_discovery_refuses_invalid_format_even_with_valid_journal_hashes(self):
+        self.make_media()
+        self.run_probe("record")
+        block = next(p for p in self.spool.iterdir() if p.is_dir())
+        journal = (block / "journal").read_bytes()
+        header_size = int.from_bytes(journal[:4], "big")
+        header = json.loads(journal[4:4 + header_size])
+        init = (block / "init.mp4").read_bytes()
+        self.assertEqual(init.count(b"avcC\x01\x42"), 1)
+        unsupported = init.replace(b"avcC\x01\x42", b"avcC\x01\x64")
+        for content in [init[:-1], unsupported, b"synthetic non-MP4 initialization"]:
+            with self.subTest(initialization_bytes=len(content)):
+                # Integrity-valid persisted records must still have a supported format.
+                header["init"] = {"length": len(content), "sha256": hashlib.sha256(content).hexdigest()}
+                encoded = json.dumps(header, separators=(",", ":")).encode()
+                (block / "init.mp4").write_bytes(content)
+                (block / "journal").write_bytes(len(encoded).to_bytes(4, "big") + encoded +
+                                              hashlib.sha256(encoded).digest() + journal[4 + header_size + 32:])
+                before = {p.name: p.read_bytes() for p in block.iterdir()}
+                self.env["NVR_TEST_RECOVERY_ERROR"] = "invalid_initialization"
+                self.run_probe("discover_unresolved")
+                self.assertEqual({p.name: p.read_bytes() for p in block.iterdir()}, before)
 
     def test_interrupted_recording_recovers_only_committed_frames(self):
         source = self.make_media()

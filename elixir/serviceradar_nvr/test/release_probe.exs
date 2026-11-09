@@ -215,6 +215,12 @@ case System.fetch_env!("NVR_TEST_MODE") do
     blocks =
       Enum.map(block_ids, fn block_id ->
         {:ok, snapshot} = ServiceRadarNVR.sealed_block(block_id)
+
+        # The pinned muxer's 30,720 Hz track clock is distinct from the 90 kHz input clock.
+        %{timescale: 30_720, codecs: %{avc1: %{profile: 66, compatibility: 192, level: 10}}, sha256: sha} =
+          snapshot.init_format
+
+        ^sha = snapshot.init["sha256"]
         snapshot
       end)
 

@@ -147,6 +147,17 @@ must establish prior writer retirement and exclusive attachment; this operation
 does not supply distributed fencing, automatic reconciliation, durable gap state
 or publication authority. Tasks 3.2 and 3.3 remain open.
 
+Recovered initialization checkpoint for 3.2/3.3: standalone NVR inspection and
+explicit recovery attach the initialization digest, timescale and baseline AVC
+codec declaration derived from retained, verified init bytes. Live packaging uses
+the same parser; no new persisted sidecar or Core dependency is needed. Synthetic
+release restart tests assert format metadata and independently decoded frames;
+malformed/unsupported initialization with valid journal hashes is refused without
+inspection changing files. Format decoding follows explicit repair/seal, so a
+format error does not imply that recovery made no progress. This is local media
+evidence, not a publication receipt or playback authorization. Tasks 3.2 and 3.3
+remain open.
+
 Read-only discovery checkpoint for 3.2/3.3: a restarted standalone NVR can list
 bounded retained block IDs and verify one sealed snapshot without an earlier
 notification or expected-identity receipt. The shared journal reader validates
