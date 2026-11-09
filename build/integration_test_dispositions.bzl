@@ -40,6 +40,7 @@ ASYNC_INTEGRATION_SRCS = [
     "test/serviceradar/edge/issuer_key_db_test.exs",
     "test/serviceradar/edge/output_grants_db_test.exs",
     "test/serviceradar/edge/pipeline_settings_db_test.exs",
+    "test/serviceradar/edge/recovery_operations_db_test.exs",
     "test/serviceradar/edge/remote_access_file_transfers_test.exs",
     "test/serviceradar/edge/remote_access_host_keys_test.exs",
     "test/serviceradar/edge/remote_access_session_policy_test.exs",

@@ -20,6 +20,29 @@ load("//build:world_snapshots.bzl", ash_schema = "world_snapshots")
 package(default_visibility = ["//visibility:public"])
 
 ash_schema(
+    name = "recovery_operation_schema",
+    outs = [
+        "generated_recovery_operation/registration.json",
+        "generated_recovery_operation/page.json",
+        "generated_recovery_operation/migration.exs",
+    ],
+    app = ":erlang_app",
+    generator = "//build:recovery_operation_schema.exs",
+    tags = ["manual"],
+)
+
+write_source_files(
+    name = "update_recovery_operation_schema",
+    diff_test = False,
+    files = {
+        "priv/resource_snapshots/repo/platform.edge_recovery_registrations/20261109170000.json": ":generated_recovery_operation/registration.json",
+        "priv/resource_snapshots/repo/platform.edge_recovery_received_pages/20261109170000.json": ":generated_recovery_operation/page.json",
+        "priv/repo/migrations/20261109170000_add_edge_recovery_operations.exs": ":generated_recovery_operation/migration.exs",
+    },
+    tags = ["manual"],
+)
+
+ash_schema(
     name = "managed_component_permissions_schema",
     outs = [
         "generated_managed_component_permissions/component.json",

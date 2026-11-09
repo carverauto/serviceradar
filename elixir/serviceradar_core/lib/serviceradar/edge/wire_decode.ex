@@ -506,6 +506,10 @@ defmodule ServiceRadar.Edge.WireDecode do
   def decode_recovery_control(bytes),
     do: run(Serviceradar.Edge.V1.EdgeRecoveryControlPayloadV1, @max_manifest_bytes, bytes)
 
+  @doc "Decode stored bounded recovery registration without trusting database bytes."
+  def decode_recovery_registration(bytes),
+    do: run(Monitoring.EdgeRecoveryRegistration, 512 * 1024, bytes)
+
   # Internal decode engine shared by the stage decoders. PRIVATE so there is no generic decode-any-
   # module bypass: only the CURATED message modules can be decoded, and only their own struct is
   # accepted (is_struct/2). The moduledoc holds the ONE canonical list of those stages; this

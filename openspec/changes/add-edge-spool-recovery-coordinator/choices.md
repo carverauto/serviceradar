@@ -114,3 +114,36 @@
   orchestrates these storage-owned proofs without acquiring deletion authority
   from a generic callback.
 - Confidence: high.
+
+## Validated attribution and independent binding grammar
+
+- When: attribution foundation integration, 2026-11-09.
+- Choice: typed constructors derive authority from existing signed-body validators.
+  The binding digest can validate stored tuple bytes independently, but only a
+  validated result can authorize a new append. Relocation changes physical
+  generation/sequence, preserving namespace, lane, event, exact record hash and
+  full attribution. Go clones the captured values; Elixir terms are immutable.
+- Gap: the design freezes the transcript but leaves the validated-result API open.
+- Reach: sweep, metrics and recovery-control constructors cover their actual
+  operands. No generic adapter invents a range for unsupported contracts. Other
+  production adapters remain required before runtime activation. Shared synthetic
+  vectors use independently computed expected hashes, not the production helper.
+- Verdict: sound. The distinction preserves evidence readable after record loss
+  without claiming that a checksum can validate an unavailable original record.
+- Confidence: medium until all runtime producer adapters are integrated.
+
+## Durable intent is separate from received recovery evidence
+
+- When: operation storage pass, 2026-11-09.
+- Choice: registration stores immutable bounded intent; a separate page table
+  records delivery through the recovery consumer. Registration replay cannot
+  manufacture broker receipt. Keys contain namespace, agent and recovery ID,
+  plus page index for pages; digests and destination spools remain compared values.
+  Conflicts retain original bytes and durably block the operation.
+- Gap: the design fixes the idempotency contract but leaves the relational layout open.
+- Reach: Ash resources have no lifecycle cascade or destructive action. A locked
+  registration serializes page/tombstone receipt. Unsigned intent never authorizes
+  source deletion or completion; later consumer repair owns those transitions.
+- Verdict: sound. Received evidence and immutable intent remain distinguishable
+  across restart, and a conflicting digest cannot evade its original key.
+- Confidence: medium until guarded database integration tests pass.

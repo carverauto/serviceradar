@@ -13,8 +13,9 @@ exception; live-product validation was not performed.
 
 Lane generation options and the production filesystem probe are integrated.
 The recovery registration protocol and allocation partition validator are verified.
-Durable operation storage, gateway handlers and runtime negotiation are next; declaring the protocol does not enable the coordinator. Assignment
-mapping, attribution and frozen journal passes are proceeding independently.
+Durable operation storage, gateway handlers and runtime negotiation are next; declaring the protocol does not enable the coordinator. Typed mapping values, attribution constructors and redundant frozen journals are
+integrated. Durable mapping issuance and attribution sidecars are proceeding
+independently; operation storage is compiled, with database tests still pending.
 
 ## Dependency order
 
@@ -62,3 +63,15 @@ Update this pickup and the choices ledger after each verified commit checkpoint.
   made both markerless-slot omission and copy/loss-overlap tests fail in
   `3944d010-0c04-4e1f-8b0f-b30f8fce06bc`; the guard was restored afterward. The restored Elixir edge shard and all proto
   targets passed seven tests in `51652717-faaf-428d-98ef-2d17e6bcf9f7`.
+
+- Binding constructors/grammar passed Go, Elixir edge and core quality in
+  `85826a99-d281-4615-be10-c8b7b52bc42a`; 1,116 Elixir tests passed. Journal
+  adjacency and complete-body mutations failed in `ac0a60bc` and `6d1794a6`;
+  restored journal tests passed `0f260fae-8f12-4e7c-b013-d0194c62176e`. The clean
+  journal ownership move passed spool in `d28e4687-c8b5-4a69-8bdc-04a94a236629`.
+- Operation storage schema generated remotely through its committed writeback
+  target. Database replay/conflict tests are pending guarded integration execution;
+  unit-shard loading is not database evidence.
+- Integrated Go edge/agent, Elixir edge and core quality passed all 15 targets in
+  `9782af13-4dd7-475d-9364-b832fbcf3690`. Operation storage database tests were
+  loaded but excluded by that unit shard; their persistence assertions remain pending.
