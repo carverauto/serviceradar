@@ -17,6 +17,7 @@
 package sender
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"errors"
@@ -39,6 +40,7 @@ type fakeGrantRenewer struct {
 	mu               sync.Mutex
 	requested        [][]uint64
 	fail             bool
+	omitSequence     uint64
 	wrongSHA         bool
 	blockUntilCancel bool
 	now              time.Time
@@ -53,7 +55,7 @@ func (f *fakeGrantRenewer) RenewDeliveryGrants(
 		seqs = append(seqs, rec.Sequence)
 	}
 	f.requested = append(f.requested, seqs)
-	fail, wrong, block, now := f.fail, f.wrongSHA, f.blockUntilCancel, f.now
+	fail, wrong, block, now, omit := f.fail, f.wrongSHA, f.blockUntilCancel, f.now, f.omitSequence
 	f.mu.Unlock()
 
 	if block {
@@ -66,6 +68,9 @@ func (f *fakeGrantRenewer) RenewDeliveryGrants(
 
 	granted := make(map[uint64]*edgev1.EdgeSignedCapabilityV1, len(records))
 	for _, rec := range records {
+		if rec.Sequence == omit {
+			continue
+		}
 		sum := sha256.Sum256(rec.Body)
 		if wrong {
 			sum[0] ^= 0xFF
@@ -327,5 +332,75 @@ func TestRunOnceStopsGrantRenewalAfterTheFirstRPCError(t *testing.T) {
 	}
 	if len(srv.framesReceived()) != maxGrantRecordsPerRequest+1 {
 		t.Fatalf("sent %d frames, want every record in the window", len(srv.framesReceived()))
+	}
+}
+
+func TestRequiredCopyGrantNeverFallsBackToProductionAuthority(t *testing.T) {
+	now := time.Now()
+	for _, tc := range []struct {
+		name     string
+		renewer  *fakeGrantRenewer
+		resolved uint64
+	}{
+		{"current production authority still needs copy grant", &fakeGrantRenewer{now: now}, 2},
+		{"unavailable issuer", &fakeGrantRenewer{now: now, fail: true}, 0},
+		{"wrong record binding", &fakeGrantRenewer{now: now, wrongSHA: true}, 0},
+		{"expired grant", &fakeGrantRenewer{now: now.Add(-time.Hour)}, 0},
+		{"missing second grant preserves accepted prefix", &fakeGrantRenewer{now: now, omitSequence: 2}, 1},
+		{"no issuer configured", nil, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sp := newTestSpool(t)
+			appendRecord(t, sp, now.Add(2*time.Hour))
+			appendRecord(t, sp, now.Add(2*time.Hour))
+			original, err := sp.Unresolved()
+			if err != nil {
+				t.Fatal(err)
+			}
+			srv := acceptingServer()
+			client := dialFakeIngest(t, srv)
+			cfg := testConfig(t)
+			cfg.PersistAcknowledgements = true
+			cfg.RequireDeliveryGrant = true
+			if tc.renewer != nil {
+				cfg.Grants = tc.renewer
+			}
+			sender, err := New(sp, client, cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			result, err := sender.RunOnce(ctx)
+			if tc.resolved == 2 {
+				if err != nil {
+					t.Fatal(err)
+				}
+			} else if !errors.Is(err, ErrDeliveryGrantRequired) {
+				t.Fatalf("missing copy grant error=%v", err)
+			}
+			if sp.Resolved() != tc.resolved || result.RemoteResolvedThrough != tc.resolved || len(srv.framesReceived()) != int(tc.resolved) {
+				t.Fatalf("sent without copy authority or lost accepted prefix: local=%d remote=%d frames=%d want=%d", sp.Resolved(), result.RemoteResolvedThrough, len(srv.framesReceived()), tc.resolved)
+			}
+			if tc.resolved < 2 {
+				cfg.Grants = &fakeGrantRenewer{now: now}
+				restarted, err := New(sp, client, cfg)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := restarted.RunOnce(ctx); err != nil {
+					t.Fatal(err)
+				}
+			}
+			frames := srv.framesReceived()
+			if sp.Resolved() != 2 || len(frames) != 2 {
+				t.Fatalf("grant retry did not drain exact records: resolved=%d frames=%d", sp.Resolved(), len(frames))
+			}
+			for i, frame := range frames {
+				if frame.Sequence != original[i].Sequence || !bytes.Equal(frame.RecordBytes, original[i].Body) || frame.GetDeliveryCapability().GetDelivery().GetSequence() != frame.Sequence {
+					t.Fatalf("copy delivery changed bytes, order or authority: %v", frame)
+				}
+			}
+		})
 	}
 }

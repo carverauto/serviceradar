@@ -28,7 +28,7 @@ import (
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 )
 
-// Delivery after reconnect (unify-sweep-results-proto M2.0g).
+// Delivery after reconnect and recovery relocation.
 //
 // A spooled record carries the production grant it was produced under, and its
 // bytes are immutable. An agent disconnected past that grant's window holds a
@@ -40,6 +40,10 @@ import (
 // that record's frame. A grant only lets the exact bytes drain on their exact
 // coordinate: the gateway still checks the record's event time against its
 // original collection window and applies the current fence.
+//
+// Relocated records always require their registered copy grant, including while
+// original production authority is current. A missing grant caps that session's
+// send window; accepted records before it can still become durably resolved.
 //
 // Grants live in memory only. A restarted sender asks again, which costs one
 // request per window rather than a durable grant store.
@@ -62,8 +66,13 @@ const (
 )
 
 // errGrantMismatch is returned for a grant that does not bind the record it was
-// asked for. The sender drops it and delivers that record without a grant.
+// asked for. Required-grant delivery stays unresolved; ordinary delivery may
+// still send the original record without it.
 var errGrantMismatch = errors.New("sender: delivery grant does not bind its record")
+
+// ErrDeliveryGrantRequired leaves a relocated record unresolved when its
+// registered delivery authority is unavailable, expired or mismatched.
+var ErrDeliveryGrantRequired = errors.New("sender: current delivery grant required")
 
 // GrantRenewer obtains delivery grants for spooled records of one spool lane.
 // It returns the grants it was given, keyed by sequence; a record core or the
@@ -78,9 +87,9 @@ type heldGrant struct {
 }
 
 // renewGrants requests grants for the records the next session will send whose
-// production authority has lapsed and that hold no current grant. A renewal
-// failure is returned for the caller to report; the session still sends, so
-// records under current authority are never held back by it.
+// production authority has lapsed, or that require a copy grant, and that hold
+// no current grant. Failures are reported separately from delivery; ordinary
+// records under current authority can still send without renewed authority.
 func (s *Sender) renewGrants(ctx context.Context) error {
 	if s.cfg.Grants == nil {
 		return nil
@@ -99,7 +108,7 @@ func (s *Sender) renewGrants(ctx context.Context) error {
 		}
 		frames++
 		bytesInWin += uint64(len(rec.Body))
-		if s.holdsCurrentGrant(rec, now) || !authorityLapsing(rec.Body, now) {
+		if s.holdsCurrentGrant(rec, now) || (!s.cfg.RequireDeliveryGrant && !authorityLapsing(rec.Body, now)) {
 			return true
 		}
 		need = append(need, rec)

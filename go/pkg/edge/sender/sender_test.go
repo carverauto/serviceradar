@@ -865,3 +865,83 @@ func TestRunOnceReportsCoverageGap(t *testing.T) {
 		}
 	}
 }
+
+// Recovery receipts must survive before the sender can suppress their replay.
+func TestRecoveryReceiptBarrierPrecedesTerminalPersistence(t *testing.T) {
+	journalErr := errors.New("synthetic recovery journal EIO")
+	for _, tc := range []struct {
+		name         string
+		kind         edgev1.EdgeRecordDispositionKind
+		hookErr      error
+		wantErr      error
+		wantCalls    int
+		wantResolved uint64
+	}{
+		{"durable receipt", edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE, nil, nil, 1, 1},
+		{"journal refusal", edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE, journalErr, journalErr, 1, 0},
+		{"invalid acknowledgement", edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_UNSPECIFIED, nil, edgerecord.ErrDisposition, 0, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			sp, err := spool.Open(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = sp.Close() })
+			id := mustEventID(t)
+			if _, err := sp.Append(id, id); err != nil {
+				t.Fatal(err)
+			}
+			cfg := testConfig(t)
+			cfg.PersistAcknowledgements = true
+			calls := 0
+			cfg.BeforeResolve = func(receipt *edgerecord.ValidatedAck) error {
+				calls++
+				ack, session, err := receipt.Snapshot()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if sp.Resolved() != 0 || session.ResolvedThrough != 0 || ack.ResolvedThroughSequence != 1 || !bytes.Equal(session.SpoolID, cfg.SpoolID) || !bytes.Equal(session.SentEvents[1], id) {
+					t.Fatalf("receipt lost its sent-window binding or followed persistence: local=%d session=%+v ack=%v", sp.Resolved(), session, ack)
+				}
+				return tc.hookErr
+			}
+			srv := &fakeIngestServer{grantedByteCredits: 1 << 20, grantedFrameCredits: 100, dispositionKind: tc.kind}
+			sender, err := New(sp, dialFakeIngest(t, srv), cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			result, err := sender.RunOnce(ctx)
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("RunOnce error=%v, want %v", err, tc.wantErr)
+			}
+			if calls != tc.wantCalls || result.RemoteResolvedThrough != tc.wantResolved {
+				t.Fatalf("receipt calls=%d remote watermark=%d, want %d/%d", calls, result.RemoteResolvedThrough, tc.wantCalls, tc.wantResolved)
+			}
+			if err := sp.Close(); err != nil {
+				t.Fatal(err)
+			}
+			reopened, err := spool.Open(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = reopened.Close() }()
+			if reopened.Resolved() != tc.wantResolved {
+				t.Fatalf("durable watermark=%d, want %d", reopened.Resolved(), tc.wantResolved)
+			}
+			records, err := reopened.Unresolved()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.wantResolved == 0 {
+				if len(records) != 1 || records[0].Sequence != 1 || !bytes.Equal(records[0].Body, id) || !bytes.Equal(records[0].EventID, id) {
+					t.Fatalf("unresolved receipt lost replay bytes: %v", records)
+				}
+			} else if len(records) != 0 {
+				t.Fatalf("persisted receipt replayed: %v", records)
+			}
+		})
+	}
+}

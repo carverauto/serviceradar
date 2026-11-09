@@ -150,9 +150,16 @@ type Config struct {
 	// drained segment, quarantining its permanently rejected records first.
 	// Unresolved records stay on disk.
 	PersistAcknowledgements bool
-	// Grants, when set, obtains delivery grants for records whose production
-	// authority has lapsed before each session sends them (see grants.go).
+	// BeforeResolve durably records recovery publication evidence after strict
+	// session validation and before terminal persistence or watermark advancement.
+	// An error ends the session with that acknowledgement still replayable.
+	BeforeResolve func(*edgerecord.ValidatedAck) error
+	// Grants obtains delivery authority for lapsing production grants and for
+	// every relocated record when RequireDeliveryGrant is set (see grants.go).
 	Grants GrantRenewer
+	// RequireDeliveryGrant keeps relocated records behind their registered
+	// copy authority even while the original production grant remains current.
+	RequireDeliveryGrant bool
 }
 
 func (c Config) validate() error {
@@ -176,8 +183,8 @@ type Result struct {
 	Dispositions          []*edgev1.EdgeRecordDisposition
 	RemoteResolvedThrough uint64
 	// GrantRenewal is why delivery grants could not be obtained for this run,
-	// if they could not. The run still sends; records that needed a grant are
-	// refused by the gateway and stay unresolved for the next run.
+	// if they could not. Ordinary delivery can still send original records;
+	// RequireDeliveryGrant stops at the first record without current authority.
 	GrantRenewal error
 }
 
@@ -297,9 +304,11 @@ func (s *Sender) runSession(ctx context.Context) (Result, error) {
 		SentEvents:      make(map[uint64][]byte),
 	}
 
-	sent, hadUnresolved, err := s.sendUnresolved(stream, &sess, openAck)
-	if err != nil {
-		return partialSendResult(sent, sess.ResolvedThrough), err
+	sent, hadUnresolved, sendErr := s.sendUnresolved(stream, &sess, openAck)
+	// A missing copy grant stops this window without skipping its sequence.
+	// Drain any earlier sent prefix so its receipts can become durable.
+	if sendErr != nil && (len(sent) == 0 || !errors.Is(sendErr, ErrDeliveryGrantRequired)) {
+		return partialSendResult(sent, sess.ResolvedThrough), sendErr
 	}
 
 	if len(sent) == 0 {
@@ -325,7 +334,7 @@ func (s *Sender) runSession(ctx context.Context) (Result, error) {
 	}
 
 	finishStream(stream, cancel)
-	return result, nil
+	return result, sendErr
 }
 
 // hasUnresolved reports whether the spool holds a record no session has
@@ -416,6 +425,10 @@ func (s *Sender) sendUnresolved(
 			return false
 		}
 
+		if s.cfg.RequireDeliveryGrant && !s.holdsCurrentGrant(rec, time.Now()) {
+			sendErr = fmt.Errorf("%w: seq=%d", ErrDeliveryGrantRequired, rec.Sequence)
+			return false
+		}
 		frame := buildFrame(s.cfg.SpoolID, rec)
 		frame.DeliveryCapability = s.grantFor(rec)
 		if err := edgerecord.ValidateDeliveryFrame(frame, false); err != nil {
@@ -483,11 +496,11 @@ func (s *Sender) drainAcks(
 		if ack == nil {
 			return dispositions, fmt.Errorf("%w: expected ack, got %T", ErrUnexpectedPayload, msg.GetPayload())
 		}
-		if err := edgerecord.ValidateAck(ack, *sess, 0, 0); err != nil {
+		validated, err := edgerecord.ValidateAckEvidence(ack, *sess, 0, 0)
+		if err != nil {
 			return dispositions, s.ackError(ack, sess, err)
 		}
-
-		if err := s.persistAcknowledgement(ack, sess.ResolvedThrough); err != nil {
+		if err := s.persistAcknowledgement(validated); err != nil {
 			return dispositions, err
 		}
 
@@ -516,8 +529,17 @@ func (s *Sender) ackError(ack *edgev1.EdgeDeliveryAckV1, sess *edgerecord.Sessio
 	return fmt.Errorf("sender: ack: %w", err)
 }
 
-func (s *Sender) persistAcknowledgement(ack *edgev1.EdgeDeliveryAckV1, previous uint64) error {
-	if !s.cfg.PersistAcknowledgements || ack.GetResolvedThroughSequence() <= previous {
+func (s *Sender) persistAcknowledgement(validated *edgerecord.ValidatedAck) error {
+	ack, session, err := validated.Snapshot()
+	if err != nil {
+		return err
+	}
+	if s.cfg.BeforeResolve != nil {
+		if err := s.cfg.BeforeResolve(validated); err != nil {
+			return fmt.Errorf("sender: persist recovery receipt: %w", err)
+		}
+	}
+	if !s.cfg.PersistAcknowledgements || ack.GetResolvedThroughSequence() <= session.ResolvedThrough {
 		return nil
 	}
 	evidence, err := proto.MarshalOptions{Deterministic: true}.Marshal(resolvingPrefix(ack))
