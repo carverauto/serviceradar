@@ -188,7 +188,7 @@ rejected, and the agent moves it to a local spool quarantine.
 | `TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK` | `telemetry.edge-record-audit.v1.bulk.pNN` | valid records delivered after their producer's fence moved (`LATE_FENCED_DELIVERY`) | EventWriter `EDGE_RECORD_AUDIT`: ledger row only |
 | `TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK` | `telemetry.edge-record-security-quarantine.v1.bulk.pNN` | records signed by a compromise-revoked key | logged and counted, nothing written |
 | `TELEMETRY_EDGE_RECORD_DLQ_V1_BULK` | `telemetry.edge-record-dlq.v1.bulk.pNN.<contract>.v<version>` | records whose projection kept failing | replay only |
-| `TELEMETRY_EDGE_RECORD_RECOVERY_V1` | `telemetry.edge-record-recovery.v1.*` | frozen recovery pages and tombstones | EventWriter recovery consumer: durable receipt and repair effects |
+| `TELEMETRY_EDGE_RECORD_RECOVERY_V1` | `telemetry.edge-record-recovery.v1` | frozen recovery pages and tombstones | EventWriter recovery consumer: durable receipt and repair effects |
 
 Recovery uses a work queue with a fixed byte limit, no age expiry and `DiscardNew`. A full
 queue refuses publication, leaving the agent responsible for the record.
