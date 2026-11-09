@@ -3,6 +3,8 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "spool",
     srcs = [
+        "attribution.go",
+        "attribution_commit.go",
         "barrier.go",
         "evidence.go",
         "health.go",
@@ -33,6 +35,7 @@ go_library(
 go_test(
     name = "spool_test",
     srcs = [
+        "attribution_test.go",
         "health_test.go",
         "lanes_test.go",
         "quarantine_test.go",
@@ -43,11 +46,13 @@ go_test(
         "segments_test.go",
         "spool_test.go",
     ],
+    data = ["//proto/edge/v1:edge_testdata"],
     embed = [":spool"],
     deps = [
         "//go/pkg/edge/edgerecord",
         "//go/pkg/edge/fairsched",
         "//proto/edge/v1:edgev1",
+        "//proto/metric/v1:metricpb",
         "@org_golang_google_protobuf//proto",
     ],
 )

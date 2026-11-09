@@ -40,15 +40,26 @@ func (v ValidatedAttribution) Attribution() RecoveryAttribution { return v.attri
 // hashing a destination slot. Generation and sequence may change during relocation;
 // namespace, lane, event, exact record bytes and attribution may not.
 func (v ValidatedAttribution) Bind(c LocalBindingCoordinates, a RecoveryAttribution) ([]byte, error) {
-	if !v.valid || a.Active != v.attribution.Active ||
-		!proto.Equal(a.Identity, v.attribution.Identity) || !bytes.Equal(a.RangeSHA256, v.attribution.RangeSHA256) ||
-		!bytes.Equal(c.NetworkScopeID, v.record.NetworkScopeID) ||
-		!bytes.Equal(c.AuthenticatedAgentID, v.record.AuthenticatedAgentID) ||
-		c.LaneRouteProfile != v.record.LaneRouteProfile || c.LaneTrafficClass != v.record.LaneTrafficClass ||
-		!bytes.Equal(c.EventID, v.record.EventID) || !bytes.Equal(c.RecordSHA256, v.record.RecordSHA256) {
+	if err := v.CheckRecord(c); err != nil {
+		return nil, err
+	}
+	if a.Active != v.attribution.Active || !proto.Equal(a.Identity, v.attribution.Identity) || !bytes.Equal(a.RangeSHA256, v.attribution.RangeSHA256) {
 		return nil, ErrAttributionJoin
 	}
 	return LocalBindingDigest(LocalBindingVersion, c, a)
+}
+
+// CheckRecord verifies the exact record and authenticated lane before a spool
+// creates a generation or allocates its sequence. Generation and sequence are
+// intentionally checked later by Bind, once their actual values are known.
+func (v ValidatedAttribution) CheckRecord(c LocalBindingCoordinates) error {
+	if !v.valid || !bytes.Equal(c.NetworkScopeID, v.record.NetworkScopeID) ||
+		!bytes.Equal(c.AuthenticatedAgentID, v.record.AuthenticatedAgentID) ||
+		c.LaneRouteProfile != v.record.LaneRouteProfile || c.LaneTrafficClass != v.record.LaneTrafficClass ||
+		!bytes.Equal(c.EventID, v.record.EventID) || !bytes.Equal(c.RecordSHA256, v.record.RecordSHA256) {
+		return ErrAttributionJoin
+	}
+	return nil
 }
 
 // SweepRecoveryAttribution validates the signed sweep record and derives its range

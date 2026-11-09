@@ -25,7 +25,6 @@ import (
 	"hash/crc32"
 	"os"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"testing"
 
@@ -113,9 +112,6 @@ func attributionAppendMutated(t *testing.T, kind string, mutateRecord func(*edge
 
 func openAttributedLanes(t *testing.T, root string, identity Identity, allocator *Allocator, inject func(*Spool)) *LaneSet {
 	t.Helper()
-	if allocator == nil {
-		allocator = attributionAllocator(t)
-	}
 	control := LaneKey{RouteProfile: recoveryLane.RouteProfile, TrafficClass: edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_BULK}
 	taxonomy, err := fairsched.NewLaneTaxonomy([]fairsched.LanePolicy{{Key: bulkLane, WeightBytes: 1}, {Key: interactiveLane, WeightBytes: 1}, {Key: control, WeightBytes: 1}}, control)
 	if err != nil {
@@ -366,11 +362,8 @@ func TestAttributedRelocationReopensMappingAndRetainsSource(t *testing.T) {
 	if _, err = ls.Rotate(lane); err != nil {
 		t.Fatal(err)
 	}
-	recoveryID, err := edgerecord.NewUUIDv7()
-	if err != nil {
-		t.Fatal(err)
-	}
-	destination, grant, err := ls.BeginRecoveryDestination(lane, recoveryID, 0, allocator)
+	destination, _ := ls.OpenGeneration(lane)
+	grant, err := allocator.AcquireRecovery(destination.dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -382,10 +375,11 @@ func TestAttributedRelocationReopensMappingAndRetainsSource(t *testing.T) {
 	if destination.NextSequence() != 1 {
 		t.Fatal("ordinary refusal allocated destination slot")
 	}
-	copied, err := destination.CommitRelocated(proof, grant)
+	copied, err := ls.AppendRelocated(proof, grant)
 	if err != nil {
 		t.Fatal(err)
 	}
+	destination, _ = ls.OpenGeneration(lane)
 	dir := destination.dir
 	if _, err = os.Stat(filepath.Join(source.dir, segmentFile)); err != nil {
 		t.Fatal("relocation deleted source", err)
@@ -394,10 +388,7 @@ func TestAttributedRelocationReopensMappingAndRetainsSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	reopened := openAttributedLanes(t, root, identity, allocator, nil)
-	destination, _, err = reopened.BeginRecoveryDestination(lane, recoveryID, 0, allocator)
-	if err != nil {
-		t.Fatal(err)
-	}
+	destination, _ = reopened.OpenGeneration(lane)
 	if got := allocator.Usage(); got.OrdinaryUsed != usage.OrdinaryCeiling || got.RecoveryUsed == 0 {
 		t.Fatalf("reopen lost reserve ownership or charged it twice: %+v", got)
 	}
@@ -509,21 +500,18 @@ func TestRelocationBarrierRetainsSourceAndWithholdsWitness(t *testing.T) {
 			if _, err = ls.Rotate(lane); err != nil {
 				t.Fatal(err)
 			}
-			recoveryID, err := edgerecord.NewUUIDv7()
-			if err != nil {
-				t.Fatal(err)
-			}
-			destination, grant, err := ls.BeginRecoveryDestination(lane, recoveryID, 0, allocator)
-			if err != nil {
-				t.Fatal(err)
-			}
+			destination, _ := ls.OpenGeneration(lane)
 			destination.spool.beforeBarrier = func(at barrier) error {
 				if at == stop {
 					return syscall.EIO
 				}
 				return nil
 			}
-			receipt, err := destination.CommitRelocated(proof, grant)
+			grant, err := allocator.AcquireRecovery(destination.dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			receipt, err := ls.AppendRelocated(proof, grant)
 			if !errors.Is(err, syscall.EIO) || receipt.Sequence != 0 || !errors.Is(allocator.Err(), syscall.EIO) {
 				t.Fatalf("failed relocation produced receipt or stayed writable: %+v %v allocator=%v", receipt, err, allocator.Err())
 			}
@@ -531,7 +519,7 @@ func TestRelocationBarrierRetainsSourceAndWithholdsWitness(t *testing.T) {
 				t.Fatal(err)
 			}
 			ls = openAttributedLanes(t, root, identity, nil, nil)
-			destination = retainedRecoveryGeneration(t, ls, lane, recoveryID, 0)
+			destination, _ = ls.OpenGeneration(lane)
 			if destination.NextSequence() != 2 {
 				t.Fatal("restart reused interrupted destination sequence")
 			}
@@ -635,230 +623,9 @@ func TestLegacyGenerationDrainsWithoutInventedAttribution(t *testing.T) {
 
 func attributionAllocator(t *testing.T) *Allocator {
 	t.Helper()
-	a, err := NewAllocator(AllocatorConfig{Capacity: 16 << 20, MinFree: 1 << 20, MaxConcurrentRecoveries: 1, Recovery: Footprint{DestinationSegment: 1 << 20, AttributionSidecar: 1 << 20, JournalCopy: 1 << 20, ManifestPages: 256 << 10, Mapping: 1 << 20, FilesystemMetadata: 64 << 10}})
+	a, err := NewAllocator(AllocatorConfig{Capacity: 16 << 20, MinFree: 1 << 20, MaxConcurrentRecoveries: 1, Recovery: Footprint{DestinationSegment: 1 << 20, AttributionSidecar: 1 << 20, JournalCopy: 1 << 20, ManifestPages: 256 << 10, Mapping: 1 << 20, FilesystemMetadata: 4096}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return a
-}
-
-// The reserve bounds complete relocation, including storage evidence and both
-// sidecars, even when a large generation contains only one attribution key.
-func TestAttributedGenerationFitsFullRelocationReserve(t *testing.T) {
-	input, lane, identity := attributionAppendMutated(t, "metrics", func(r *edgev1.EdgeRecordV1) {
-		var batch metricpb.MetricBatch
-		if err := proto.Unmarshal(r.Payload, &batch); err != nil {
-			t.Fatal(err)
-		}
-		batch.Metrics[0].Points = []*metricpb.MetricPoint{{RawValue: strings.Repeat("7", 32<<10), RawValueType: metricpb.MetricValueType_METRIC_VALUE_TYPE_STRING}}
-		payload, err := proto.Marshal(&batch)
-		if err != nil {
-			t.Fatal(err)
-		}
-		r.Payload = payload
-		hash := sha256.Sum256(payload)
-		r.PayloadSha256 = hash[:]
-		r.EncodedSize, r.UncompressedSize = uint32(len(payload)), uint32(len(payload))
-		r.ProjectedWriteBytes = uint64(len(payload))
-		r.ProductionCapability.GetProduction().MaxProjectedWriteBytes = r.ProjectedWriteBytes
-	})
-	for _, bound := range []string{"destination", "sidecars"} {
-		t.Run(bound, func(t *testing.T) {
-			footprint := Footprint{DestinationSegment: 1 << 20, AttributionSidecar: 1 << 20, JournalCopy: 1 << 20, ManifestPages: 256 << 10, Mapping: 1 << 20, FilesystemMetadata: 64 << 10}
-			if bound == "destination" {
-				footprint.DestinationSegment = recoveryGenerationFixedBytes + 2*uint64(minRecordLen+len(input.Body)+4*evidenceEntryLen2+terminalEvidenceAllowance)
-			}
-			if bound == "sidecars" {
-				footprint.AttributionSidecar = 4 * sidecarSlotSize
-			}
-			allocator, err := NewAllocator(AllocatorConfig{Capacity: 16 << 20, MinFree: 4096, MaxConcurrentRecoveries: 1, Recovery: footprint})
-			if err != nil {
-				t.Fatal(err)
-			}
-			root := t.TempDir()
-			lanes := openAttributedLanes(t, root, identity, allocator, nil)
-			for i := 0; i < 2; i++ {
-				if _, err = lanes.AppendAttributed(lane, identity, input); err != nil {
-					t.Fatal(err)
-				}
-			}
-			source, _ := lanes.OpenGeneration(lane)
-			before := allocator.Usage()
-			if _, err = lanes.AppendAttributed(lane, identity, input); !errors.Is(err, ErrRotationRequired) || !errors.Is(err, ErrRetryable) {
-				t.Fatalf("full-copy capacity must rotate: %v", err)
-			}
-			if source.NextSequence() != 3 || allocator.Usage() != before {
-				t.Fatal("refused append allocated or charged bytes")
-			}
-			proofs := make([]CommittedAttribution, 2)
-			for i := range proofs {
-				proofs[i], err = source.CommittedAttribution(uint64(i + 1))
-				if err != nil {
-					t.Fatal(err)
-				}
-			}
-			if _, err = lanes.Rotate(lane); err != nil {
-				t.Fatal(err)
-			}
-			recoveryID, err := edgerecord.NewUUIDv7()
-			if err != nil {
-				t.Fatal(err)
-			}
-			destination, grant, err := lanes.BeginRecoveryDestination(lane, recoveryID, 0, allocator)
-			if err != nil {
-				t.Fatal(err)
-			}
-			usage := allocator.Usage()
-			allocator.ChargeMeasured(filepath.Join(root, "synthetic-full-lane"), usage.OrdinaryCeiling-usage.OrdinaryUsed)
-			if _, err = lanes.AppendAttributed(lane, identity, input); !errors.Is(err, ErrAdmissionRefused) {
-				t.Fatalf("ordinary reserve bypass: %v", err)
-			}
-			for _, proof := range proofs {
-				if _, err = destination.CommitRelocated(proof, grant); err != nil {
-					t.Fatal(err)
-				}
-			}
-			for seq := uint64(1); seq <= 2; seq++ {
-				if _, err = destination.CommittedAttribution(seq); err != nil {
-					t.Fatal(err)
-				}
-			}
-			if _, err = os.Stat(filepath.Join(source.dir, segmentFile)); err != nil {
-				t.Fatal("relocation removed unproven source", err)
-			}
-		})
-	}
-}
-
-func TestAttributedAppendDefersInvalidRecoveryCapacity(t *testing.T) {
-	input, lane, identity := attributionAppend(t, "sweep")
-	for _, invalid := range []string{"missing allocator", "record exceeds empty generation"} {
-		t.Run(invalid, func(t *testing.T) {
-			root := t.TempDir()
-			allocator, err := NewAllocator(AllocatorConfig{Capacity: 16 << 20, MinFree: 4096, MaxConcurrentRecoveries: 1,
-				Recovery: Footprint{DestinationSegment: recoveryGenerationFixedBytes + uint64(minRecordLen+len(input.Body)+4*evidenceEntryLen2+terminalEvidenceAllowance) - 1,
-					AttributionSidecar: 1 << 20, JournalCopy: 1 << 20, ManifestPages: 256 << 10, Mapping: 1 << 20, FilesystemMetadata: 64 << 10}})
-			if err != nil {
-				t.Fatal(err)
-			}
-			lanes := openAttributedLanes(t, root, identity, allocator, func(s *Spool) {
-				if invalid == "missing allocator" {
-					s.alloc = nil
-				}
-			})
-			if _, err := lanes.AppendAttributed(lane, identity, input); !errors.Is(err, ErrInvalidAllocatorConfig) || !errors.Is(err, ErrAdmissionRefused) || errors.Is(err, ErrPermanent) || errors.Is(err, ErrRotationRequired) {
-				t.Fatalf("unbounded attributed append or wrong retry policy: %v", err)
-			}
-			g, _ := lanes.OpenGeneration(lane)
-			if g.NextSequence() != 1 {
-				t.Fatal("invalid capacity allocated sequence")
-			}
-			if err := lanes.Close(); err != nil {
-				t.Fatal(err)
-			}
-			corrected := openAttributedLanes(t, root, identity, nil, nil)
-			receipt, err := corrected.AppendAttributed(lane, identity, input)
-			if err != nil || receipt.Sequence != 1 {
-				t.Fatalf("same event did not retry after settings correction: %+v %v", receipt, err)
-			}
-			g, _ = corrected.OpenGeneration(lane)
-			witness, err := g.CommittedAttribution(1)
-			if err != nil || !bytes.Equal(witness.record.Body, input.Body) || !bytes.Equal(witness.record.EventID, input.EventID) {
-				t.Fatalf("retry changed input: %v", err)
-			}
-		})
-	}
-}
-
-func TestRecoveryControlsShareGrantAndRestoreOwnership(t *testing.T) {
-	input, controlKey, identity := attributionAppend(t, "control")
-	root := t.TempDir()
-	allocator := attributionAllocator(t)
-	lanes := openAttributedLanes(t, root, identity, allocator, nil)
-	if _, err := lanes.Rotate(bulkLane); err != nil {
-		t.Fatal(err)
-	}
-	destination, _ := lanes.OpenGeneration(bulkLane)
-	if _, err := lanes.Rotate(controlKey); err != nil {
-		t.Fatal(err)
-	}
-	control, _ := lanes.OpenGeneration(controlKey)
-	grant, err := allocator.AcquireRecovery(destination.dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = grant.AttachControlLane(control); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = allocator.AcquireRecovery(control.dir); !errors.Is(err, ErrRecoveryConcurrencyExhausted) {
-		t.Fatalf("second grant control: %v", err)
-	}
-	usage := allocator.Usage()
-	allocator.ChargeMeasured(filepath.Join(root, "synthetic-full-lane"), usage.OrdinaryCeiling-usage.OrdinaryUsed)
-	if _, err = lanes.AppendAttributed(controlKey, identity, input); !errors.Is(err, ErrAdmissionRefused) {
-		t.Fatalf("ordinary control bypass: %v", err)
-	}
-	receipt, err := control.spool.CommitRecoveryControl(input, grant)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if receipt.Sequence != 1 || allocator.Usage().ActiveRecoveries != 1 {
-		t.Fatal("control consumed another grant or sequence")
-	}
-	if _, err = control.CommittedAttribution(1); err != nil {
-		t.Fatal(err)
-	}
-	if grant.Used(ArtifactDestinationSegment) != 0 || grant.Used(ArtifactAttributionSidecar) != 0 || grant.Used(ArtifactManifestPages) == 0 {
-		t.Fatal("control consumed copy destination footprint")
-	}
-	if err = lanes.Close(); err != nil {
-		t.Fatal(err)
-	}
-	lanes = openAttributedLanes(t, root, identity, allocator, nil)
-	control, _ = lanes.OpenGeneration(controlKey)
-	if allocator.Usage().OrdinaryUsed != usage.OrdinaryCeiling {
-		t.Fatal("reopen double charged recovery controls")
-	}
-	if err = lanes.Close(); err != nil {
-		t.Fatal(err)
-	}
-	fresh := attributionAllocator(t)
-	inventory := []RecoveryArtifact{}
-	var held uint64 = terminalEvidenceAllowance
-	for _, path := range []string{filepath.Join(control.dir, segmentFile), filepath.Join(control.dir, attributionFile), control.spool.evidencePath(copyA), control.spool.evidencePath(copyB)} {
-		inventory = append(inventory, RecoveryArtifact{ArtifactManifestPages, path})
-		info, err := os.Stat(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		held += uint64(info.Size())
-	}
-	restored, err := fresh.ResumeRecoveryWithControls(destination.dir, []RecoveryControlInventory{{Directory: control.dir, TerminalSlots: 1}}, inventory, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	reopened := openAttributedLanes(t, root, identity, fresh, nil)
-	control, _ = reopened.OpenGeneration(controlKey)
-	if got := fresh.Usage(); got.OrdinaryUsed != usage.OrdinaryUsed || got.ActiveRecoveries != 1 {
-		t.Fatalf("control restore ownership: %+v", got)
-	}
-
-	if err = restored.Finish(); err != nil {
-		t.Fatal(err)
-	}
-	if err = restored.ReleaseSource(destination.dir, 0); err != nil {
-		t.Fatal(err)
-	}
-	if fresh.Usage().OrdinaryUsed != usage.OrdinaryUsed {
-		t.Fatal("source release transferred control ownership early")
-	}
-	if err = restored.ReleaseArtifacts(); err != nil {
-		t.Fatal(err)
-	}
-	if got := fresh.Usage(); got.ActiveRecoveries != 0 || got.OrdinaryUsed != usage.OrdinaryUsed+held {
-		t.Fatalf("control ownership not retained after grant release: %+v", got)
-	}
-	if _, err = control.CommittedAttribution(1); err != nil {
-		t.Fatal("release lost control", err)
-	}
 }

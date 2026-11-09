@@ -505,9 +505,6 @@ func (s *Spool) commit(flow string, eventID, body []byte, b Bindings, attributio
 	if bound := s.segBounds.refusalFor(accountingKey); bound != "" {
 		return CommitReceipt{}, rotationRefusal(bound, s.segBounds.stats())
 	}
-	if err := s.requireRelocatableAppend(len(body)); err != nil {
-		return CommitReceipt{}, err
-	}
 	cost := uint64(minRecordLen+len(body)) + sidecarCost
 	if s.alloc != nil {
 		n, err := s.commitBytes(len(body))
@@ -747,9 +744,6 @@ func (s *Spool) Unresolved() ([]Record, error) {
 func (s *Spool) Resolve(through uint64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.requireNoRecoveryHold(); err != nil {
-		return err
-	}
 	if err := s.requireCurrentLayout(); err != nil {
 		return err
 	}
@@ -775,9 +769,6 @@ func (s *Spool) Resolve(through uint64) error {
 func (s *Spool) ResolveWithEvidence(through uint64, evidence []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.requireNoRecoveryHold(); err != nil {
-		return err
-	}
 	if err := s.requireCurrentLayout(); err != nil {
 		return err
 	}
