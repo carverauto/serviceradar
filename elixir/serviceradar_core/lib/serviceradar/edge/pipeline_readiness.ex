@@ -28,6 +28,10 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
 
     * `:spool_unavailable` - the agent reported that its edge-record spool could not be
       opened, so it has nowhere to put edge records. Detail: `error`.
+    * `:spool_wedged` - allocated coverage gaps block durable delivery. Detail includes
+      the bounded gap sequence sample, total gaps, unresolved count/age and byte budget.
+    * `:spool_backpressure` - the runtime admission gate paused bulk producers.
+    * `:spool_health_unavailable` - the spool opened but its live health read failed.
     * `:agent_upgrade_pending` - the agent runs a build from before the edge-record cutover:
       its last check-in carried no spool status, or it still sends durable data on the retired
       status RPCs, which the gateway refuses and counts in its agent tracker. Detail: `version`,
@@ -40,9 +44,9 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
       refused summaries; `summaries`, each refusing service's largest summary as
       `%{service => %{bytes: bytes, limit: limit}}`; and `last_refused_at`.
 
-  The last three come from the agent's last check-in (`metadata.edge_record_spool`, which the
-  gateway records from the hello) and the live tracker entry, so they are reported for
-  connected agents only.
+  Spool health, pending upgrades and oversized summaries come from the agent's last
+  check-in (`metadata.edge_record_spool`, which the gateway records from the hello)
+  and the live tracker entry, so they are reported for connected agents only.
 
   Superseded agent identities are left out: they have been replaced and produce nothing.
   """
@@ -70,6 +74,9 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
           | :agent_disconnected
           | :agent_upgrade_blocked
           | :spool_unavailable
+          | :spool_wedged
+          | :spool_backpressure
+          | :spool_health_unavailable
           | :agent_upgrade_pending
           | :oversized_summary
   @type condition :: %{reason: reason(), detail: map()}
@@ -180,7 +187,7 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
     refused = refused_detail(runtime)
 
     upgrade =
-      case recorded_spool(agent) do
+      case runtime[:edge_record_spool] || recorded_spool(agent) do
         nil -> [upgrade_pending(agent, refused)]
         spool -> spool_status_conditions(spool) ++ refused_conditions(agent, refused)
       end
@@ -236,12 +243,30 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
 
   defp spool_status_conditions(spool) do
     if (Map.get(spool, "available") || Map.get(spool, :available)) == true do
-      []
+      spool_health_conditions(spool)
     else
       error = Map.get(spool, "error") || Map.get(spool, :error)
       [%{reason: :spool_unavailable, detail: %{error: present(error)}}]
     end
   end
+
+  defp spool_health_conditions(spool) do
+    cond do
+      spool_field(spool, :wedged) == true ->
+        [%{reason: :spool_wedged, detail: spool}]
+
+      present(spool_field(spool, :health_error)) ->
+        [%{reason: :spool_health_unavailable, detail: spool}]
+
+      spool_field(spool, :admission_paused) == true ->
+        [%{reason: :spool_backpressure, detail: spool}]
+
+      true ->
+        []
+    end
+  end
+
+  defp spool_field(spool, key), do: Map.get(spool, Atom.to_string(key), Map.get(spool, key))
 
   defp upgrade_conditions(agent, runtime, facts) do
     cond do

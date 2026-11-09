@@ -50,8 +50,8 @@
 // first sequence past the gap is not the session's resolved watermark plus one, so
 // edgerecord.ValidateAck rejects the ack; every later run replays from the same
 // watermark and fails the same way. The lane stays wedged on the gap until the
-// wire-level rollover/coverage handling of task 2.27 carries ambiguous sequences to
-// the gateway. This is a known limitation of this opt-in, unreleased sender.
+// recovery coordinator carries coverage to the gateway. CoverageGapError reports
+// this condition explicitly; it never authorizes skipping or reclaiming a slot.
 package sender
 
 import (
@@ -111,6 +111,22 @@ var (
 	errSpoolRequired  = errors.New("sender: spool is required")
 	errClientRequired = errors.New("sender: client is required")
 )
+
+// CoverageGapError identifies a rejected acknowledgement crossing a slot whose
+// restart evidence requires recovery coverage. The original validation error is
+// retained, and no remote or local watermark advances on this error.
+type CoverageGapError struct {
+	Slot            spool.SlotResolution
+	ResolvedThrough uint64
+	Err             error
+}
+
+func (e *CoverageGapError) Error() string {
+	return fmt.Sprintf("sender: lane wedged at coverage gap sequence=%d outcome=%s resolved_through=%d: %v",
+		e.Slot.Sequence, e.Slot.Outcome, e.ResolvedThrough, e.Err)
+}
+
+func (e *CoverageGapError) Unwrap() error { return e.Err }
 
 // StreamClient is the subset of edgev1.EdgeRecordIngestServiceClient the
 // sender needs, so tests can inject a fake without a real gRPC connection.
@@ -457,7 +473,7 @@ func (s *Sender) drainAcks(
 			return dispositions, fmt.Errorf("%w: expected ack, got %T", ErrUnexpectedPayload, msg.GetPayload())
 		}
 		if err := edgerecord.ValidateAck(ack, *sess, 0, 0); err != nil {
-			return dispositions, fmt.Errorf("sender: ack: %w", err)
+			return dispositions, s.ackError(ack, sess, err)
 		}
 
 		if err := s.persistAcknowledgement(ack, sess.ResolvedThrough); err != nil {
@@ -470,6 +486,23 @@ func (s *Sender) drainAcks(
 	}
 
 	return dispositions, nil
+}
+
+// Only a noncontiguous disposition at a known coverage slot diagnoses a wedge.
+// Other malformed acknowledgements retain their ordinary validation error.
+func (s *Sender) ackError(ack *edgev1.EdgeDeliveryAckV1, sess *edgerecord.Session, err error) error {
+	if errors.Is(err, edgerecord.ErrDisposition) {
+		for i, disposition := range ack.GetDispositions() {
+			expected := sess.ResolvedThrough + 1 + uint64(i)
+			if disposition.GetSequence() != expected {
+				if slot, ok := s.spool.CoverageGap(expected); ok && disposition.GetSequence() > expected {
+					return &CoverageGapError{Slot: slot, ResolvedThrough: sess.ResolvedThrough, Err: err}
+				}
+				break
+			}
+		}
+	}
+	return fmt.Errorf("sender: ack: %w", err)
 }
 
 func (s *Sender) persistAcknowledgement(ack *edgev1.EdgeDeliveryAckV1, previous uint64) error {

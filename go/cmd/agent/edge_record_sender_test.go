@@ -503,3 +503,101 @@ func TestFailedSenderRunLogsThePermanentPrefix(t *testing.T) {
 		t.Fatalf("failed run was not logged\n%s", logText)
 	}
 }
+
+func TestSenderStartupReportsAmbiguousSlot(t *testing.T) {
+	dir := t.TempDir()
+	sp, err := spool.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sp.Append(make([]byte, 16), []byte("synthetic")); err != nil {
+		t.Fatal(err)
+	}
+	if err := sp.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(filepath.Join(dir, "lane.seg"), 0); err != nil {
+		t.Fatal(err)
+	}
+	sp, _, budget, err := openEdgeRecordSpool(&agent.ServerConfig{EdgeRecordSender: &agent.EdgeRecordSenderConfig{SpoolDir: dir}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = sp.Close() }()
+	var output bytes.Buffer
+	log := &senderGuardLogger{Logger: logger.NewTestLogger(), output: zerolog.New(&output)}
+	runEdgeRecordSender(context.Background(), &agent.ServerConfig{}, sp, log)
+	var found bool
+	dec := json.NewDecoder(&output)
+	for dec.More() {
+		var event map[string]any
+		if err := dec.Decode(&event); err != nil {
+			t.Fatal(err)
+		}
+		if event["sequence"] == float64(1) && event["outcome"] == "AMBIGUOUS_ALLOCATED_SLOT" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("startup did not report the ambiguous allocated slot")
+	}
+	// The same reopened spool reports the wedge through the runtime status path.
+	status := edgeSpoolStatusSampler(sp, budget)()
+	if !status.GetWedged() || status.GetGapCount() != 1 || status.GetUnresolvedCount() != 1 ||
+		len(status.GetGapSequences()) != 1 || status.GetGapSequences()[0] != 1 || status.GetOldestUnresolvedAgeKnown() {
+		t.Fatalf("reopened spool status = %v", status)
+	}
+}
+
+func TestSpoolRestartLogsBoundedSampleAndRemainder(t *testing.T) {
+	resolution := spool.Resolution{}
+	for seq := uint64(1); seq <= 35; seq++ {
+		resolution.Slots = append(resolution.Slots, spool.SlotResolution{Sequence: seq, Outcome: spool.OutcomeAmbiguousAllocated})
+	}
+	var output bytes.Buffer
+	log := &senderGuardLogger{Logger: logger.NewTestLogger(), output: zerolog.New(&output)}
+	logEdgeSpoolRestart(resolution, log)
+	dec := json.NewDecoder(&output)
+	slots, total, extra := 0, 0, 0
+	for dec.More() {
+		var event map[string]any
+		if err := dec.Decode(&event); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := event["sequence"]; ok {
+			slots++
+		}
+		if v, ok := event["coverage_slots"].(float64); ok {
+			total = int(v)
+		}
+		if v, ok := event["additional_slots"].(float64); ok {
+			extra = int(v)
+		}
+	}
+	if slots != 32 || total != 35 || extra != 3 {
+		t.Fatalf("slots=%d total=%d extra=%d", slots, total, extra)
+	}
+}
+
+func TestSpoolStatusSamplesLiveUsageAndBudget(t *testing.T) {
+	sp, _, budget := openTestEdgeSpool(t, 4<<20)
+	defer func() { _ = sp.Close() }()
+	sample := edgeSpoolStatusSampler(sp, budget)
+	before := sample()
+	if _, err := sp.Append(make([]byte, 16), []byte("synthetic")); err != nil {
+		t.Fatal(err)
+	}
+	if err := budget.Apply(8 << 20); err != nil {
+		t.Fatal(err)
+	}
+	after := sample()
+	if !after.GetHealthAvailable() || after.GetUnresolvedCount() != 1 || after.GetBytesUsed() <= before.GetBytesUsed() || after.GetBudgetBytes() != 8<<20 {
+		t.Fatalf("before=%v after=%v", before, after)
+	}
+	if err := sp.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if status := sample(); status.GetHealthAvailable() || status.GetHealthError() == "" {
+		t.Fatalf("closed health = %v", status)
+	}
+}

@@ -23,11 +23,12 @@ import (
 )
 
 // edgeSpoolRuntime is what the push loop reports and applies about the agent's
-// one edge-record spool: whether it opened, which every hello carries, and the
-// byte budget core delivers in the agent config.
+// one edge-record spool: startup availability and live health carried in every
+// hello, and the byte budget core delivers in the agent config.
 type edgeSpoolRuntime struct {
 	mu            sync.Mutex
 	status        *proto.EdgeRecordSpoolStatus
+	sample        func() *proto.EdgeRecordSpoolStatus
 	applyBudget   func(maxBytes uint64) error
 	appliedBudget uint64
 }
@@ -57,8 +58,12 @@ func (p *PushLoop) SetEdgeSpoolBudget(apply func(maxBytes uint64) error) {
 // edgeSpoolStatus is the status the hellos report, nil until it is recorded.
 func (p *PushLoop) edgeSpoolStatus() *proto.EdgeRecordSpoolStatus {
 	p.edgeSpool.mu.Lock()
-	defer p.edgeSpool.mu.Unlock()
-	return p.edgeSpool.status
+	sample, status := p.edgeSpool.sample, p.edgeSpool.status
+	p.edgeSpool.mu.Unlock()
+	if sample != nil {
+		return sample()
+	}
+	return status
 }
 
 // applyEdgeSpoolBudget applies the config's spool budget when it changed. Zero
@@ -78,4 +83,12 @@ func (p *PushLoop) applyEdgeSpoolBudget(configResp *proto.AgentConfigResponse) {
 	}
 	p.edgeSpool.appliedBudget = budget
 	p.logger.Info().Uint64("spool_max_bytes", budget).Msg("Applied edge spool budget from config")
+}
+
+// SetEdgeSpoolStatusSampler supplies a fresh read-only health sample for every
+// hello, including the periodic control-stream heartbeat.
+func (p *PushLoop) SetEdgeSpoolStatusSampler(sample func() *proto.EdgeRecordSpoolStatus) {
+	p.edgeSpool.mu.Lock()
+	defer p.edgeSpool.mu.Unlock()
+	p.edgeSpool.sample = sample
 }
