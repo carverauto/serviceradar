@@ -649,7 +649,7 @@ Alerts in the chart's Prometheus rules:
 | `ServiceRadarAgentEdgeSpoolUnresolvedAge` | an agent spool holds an unresolved record older than 15 minutes |
 | `ServiceRadarAgentEdgeSpoolBytes` | an agent spool holds more than 1 GiB of unresolved records |
 | `ServiceRadarAgentGatewayPubAckErrors` | the gateway's edge publisher received PubAck errors |
-| `ServiceRadarEdgeRecordConsumerLag` | the `EDGE_RECORD` or audit consumer has pending messages for 10 minutes |
+| `ServiceRadarEdgeRecordConsumerLag` | the `EDGE_RECORD`, audit or recovery consumer has pending messages for 10 minutes |
 | `ServiceRadarEventWriterMessagesExpiredBeforeDelivery` | a stream discarded messages its EventWriter consumer never received |
 | `ServiceRadarEdgeRecordDeadLettered` | records were dead-lettered in the last 15 minutes |
 | `ServiceRadarEdgeRecordDeadLetterPublishFailed` | a dead-letter copy could not be stored |
