@@ -49,6 +49,8 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.IssuerKey
+  alias ServiceRadar.Edge.RecoveryAssignmentEvidence
+  alias ServiceRadar.Edge.RecoveryAssignments
   alias ServiceRadar.Edge.SweepContract
   alias ServiceRadar.Edge.SweepPlan
   alias Serviceradar.Edge.V1.ScheduledPlanHeaderV1
@@ -409,7 +411,8 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
 
   defp send_push(assignment, lease_id, push, %{key: key, contract: contract}, now, sender) do
     with {:ok, capability} <- push_capability(assignment, push, contract, key),
-         {:ok, slots} <- lease_slots(assignment, push.slots, key) do
+         {:ok, slots} <- lease_slots(assignment, push.slots, key),
+         :ok <- record_mappings(capability, slots, key) do
       payload =
         SweepLeaseV1.encode(%SweepLeaseV1{
           lease_version: if(slots == [], do: 1, else: 2),
@@ -431,6 +434,31 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
         end
       end
     end
+  end
+
+  defp record_mappings(nil, [], _key), do: :ok
+
+  defp record_mappings(capability, slots, key) do
+    Enum.reduce_while(slots, :ok, fn slot, :ok ->
+      with {:ok, entries} <- RecoveryAssignmentEvidence.sweep(capability, slot, key.public_key),
+           :ok <- commit_mapping_batches(entries) do
+        {:cont, :ok}
+      else
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp commit_mapping_batches(entries) do
+    entries
+    |> Enum.chunk_every(4096)
+    |> Enum.reduce_while(:ok, fn batch, :ok ->
+      case RecoveryAssignments.commit_issuance(batch) do
+        {:ok, :committed} -> {:cont, :ok}
+        {:ok, :conflicting} -> {:halt, {:error, :recovery_assignment_conflict}}
+        error -> {:halt, error}
+      end
+    end)
   end
 
   defp push_capability(_assignment, %{slots: []}, _contract, _key), do: {:ok, nil}

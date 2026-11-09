@@ -33,6 +33,8 @@ defmodule ServiceRadar.Edge.OutputGrants do
   alias ServiceRadar.Edge.IssuerKey
   alias ServiceRadar.Edge.OutputContract
   alias ServiceRadar.Edge.OutputGrant
+  alias ServiceRadar.Edge.RecoveryAssignmentEvidence
+  alias ServiceRadar.Edge.RecoveryAssignments
   alias Serviceradar.Edge.V1.EdgeProductionClaimsV1
   alias Serviceradar.Edge.V1.EdgeSignedCapabilityV1
   alias ServiceRadar.SweepJobs.ProducerAssignments
@@ -111,25 +113,25 @@ defmodule ServiceRadar.Edge.OutputGrants do
   end
 
   defp contract_grant(contract, agent_id, scope, key, now) do
-    case reconcile(agent_id, contract.contract_id, scope) do
-      {:ok, %OutputGrant{} = grant} ->
-        capability = production_capability(grant, contract, key, now)
-
-        [
-          %Monitoring.EdgeOutputGrant{
-            contract_id: contract.contract_id,
-            contract_version: contract.contract_version,
-            production_capability: EdgeSignedCapabilityV1.encode(capability)
-          }
-        ]
-
-      {:error, reason} ->
+    with {:ok, %OutputGrant{} = grant} <- reconcile(agent_id, contract.contract_id, scope),
+         capability = production_capability(grant, contract, key, now),
+         {:ok, entry} <- RecoveryAssignmentEvidence.standing(capability, key.public_key),
+         {:ok, :committed} <- RecoveryAssignments.commit_issuance([entry]) do
+      [
+        %Monitoring.EdgeOutputGrant{
+          contract_id: contract.contract_id,
+          contract_version: contract.contract_version,
+          production_capability: EdgeSignedCapabilityV1.encode(capability)
+        }
+      ]
+    else
+      failure ->
         Logger.warning(
           "Edge output grant for #{contract.contract_id} not issued to agent #{agent_id}: " <>
-            inspect(reason),
+            inspect(failure),
           agent_id: agent_id,
           contract_id: contract.contract_id,
-          reason: inspect(reason)
+          reason: inspect(failure)
         )
 
         []

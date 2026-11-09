@@ -4,6 +4,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
   alias ServiceRadar.Edge.CapabilitySigning
   alias ServiceRadar.Edge.IssuerKey
   alias ServiceRadar.Edge.PipelineSetting
+  alias ServiceRadar.Edge.RecoveryAssignmentEvidence
   alias Serviceradar.Edge.V1.ScheduledPlanPageV1
   alias Serviceradar.Edge.V1.SweepLeaseV1
   alias ServiceRadar.Infrastructure.Agent
@@ -176,6 +177,54 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
 
     assert tail.window_end_unix_nano ==
              List.last(tail.slots).slot_start_unix_nano + 1_000
+  end
+
+  test "lease sender sees original mapping evidence, and a damaged original blocks redelivery",
+       ctx do
+    horizon!(ctx, 3_600)
+    group = leased_group!(ctx)
+    now = DateTime.utc_now()
+    test_pid = self()
+
+    sender = fn _agent, _group, payload ->
+      lease = SweepLeaseV1.decode(payload)
+
+      for slot <- lease.slots do
+        {:ok, entries} =
+          RecoveryAssignmentEvidence.sweep(lease.production_capability, slot, @key.public_key)
+
+        for entry <- entries do
+          assert %{rows: [[1]]} =
+                   ServiceRadar.Repo.query!(
+                     "SELECT count(*) FROM platform.edge_recovery_assignment_candidates c JOIN platform.edge_recovery_assignment_issuances i ON i.id = c.issuance_id WHERE i.mapping_key = $1::jsonb AND i.mapping_value = $2::jsonb",
+                     [entry.key, entry.value]
+                   )
+        end
+      end
+
+      send(test_pid, {:mapped_lease, lease})
+      :ok
+    end
+
+    delivery = %{ctx.delivery | sender: sender}
+    assert %{pushed: 1} = LeasePass.reconcile_group(group, now, delivery)
+    assert_receive {:mapped_lease, lease}
+
+    {:ok, [entry | _]} =
+      RecoveryAssignmentEvidence.sweep(
+        lease.production_capability,
+        hd(lease.slots),
+        @key.public_key
+      )
+
+    assert %{num_rows: 1} =
+             ServiceRadar.Repo.query!(
+               "UPDATE platform.edge_recovery_assignment_issuances SET evidence = '{}' WHERE mapping_key = $1::jsonb",
+               [entry.key]
+             )
+
+    assert %{pushed: 0} = LeasePass.reconcile_group(group, now, delivery)
+    refute_receive {:mapped_lease, _}
   end
 
   test "a refused shrink is retried out to the window the agent already holds", ctx do
