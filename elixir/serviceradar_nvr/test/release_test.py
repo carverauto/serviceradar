@@ -72,6 +72,8 @@ class NVRReleaseTest(unittest.TestCase):
                         "-x264-params", "aud=1:repeat-headers=1", "-f", "h264", source],
                        check=True, capture_output=True, timeout=30)
         self.run_probe("record")
+        receipt = json.loads(Path(self.env["NVR_TEST_RECEIPT"]).read_text())
+        self.env["SERVICERADAR_NVR_MAX_SPOOL_BYTES"] = str(receipt["block_bytes"])
         self.run_probe("recover")
         def decode(path):
             return subprocess.run([self.ffmpeg, "-nostdin", "-v", "error", "-xerror", "-threads", "1",
@@ -86,6 +88,40 @@ class NVRReleaseTest(unittest.TestCase):
         self.env["SERVICERADAR_NVR_MAX_DURATION_MS"] = "500"
         self.run_probe("lifecycle")
         self.assertEqual(sorted(p.name for p in self.spool.iterdir()), [".storage-id"])
+
+    def test_concurrent_reservations_and_accounting_restart(self):
+        self.env["SERVICERADAR_NVR_MAX_SESSIONS"] = "3"
+        self.env["SERVICERADAR_NVR_MAX_SPOOL_BYTES"] = "20000000"
+        self.run_probe("capacity")
+        self.assertEqual(sorted(p.name for p in self.spool.iterdir()), [".storage-id"])
+
+    def test_physical_free_reserve_refuses_without_creating_media(self):
+        disk = os.statvfs(self.spool)
+        self.env["SERVICERADAR_NVR_RESERVE_BYTES"] = str(disk.f_bavail * disk.f_frsize + 1024**3)
+        self.run_probe("pressure")
+        self.assertEqual(sorted(p.name for p in self.spool.iterdir()), [".storage-id"])
+
+    def test_unrecognized_inventory_is_preserved_and_refused(self):
+        marker = self.spool / ".storage-id"
+        marker.write_text(self.env["NVR_TEST_EXPECTED_STORAGE_ID"] + "\n")
+        marker.chmod(0o600)
+        block = self.spool / ("a" * 64)
+        block.mkdir(mode=0o700)
+        target = self.root / "retained-evidence"
+        target.write_bytes(b"invented retained media")
+        (block / "media.m4s").symlink_to(target)
+        self.run_probe("inventory")
+        self.assertTrue((block / "media.m4s").is_symlink())
+        self.assertEqual(target.read_bytes(), b"invented retained media")
+
+    def test_inventory_limit_refuses_even_empty_retained_blocks(self):
+        marker = self.spool / ".storage-id"
+        marker.write_text(self.env["NVR_TEST_EXPECTED_STORAGE_ID"] + "\n")
+        marker.chmod(0o600)
+        for index in range(4096):
+            (self.spool / f"{index:064x}").mkdir(mode=0o700)
+        self.run_probe("inventory_limit")
+        self.assertEqual(len(list(self.spool.iterdir())), 4097)
 
     def test_foreground_release_probes_refuse_uninitialized_storage(self):
         proc = subprocess.Popen([self.binary, "start"], env=self.env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
@@ -125,12 +161,14 @@ class NVRReleaseTest(unittest.TestCase):
         self.assertEqual(list(self.spool.iterdir()), [])
 
     def test_invalid_limits_fail_boot(self):
-        self.env["SERVICERADAR_NVR_MAX_SESSIONS"] = "0"
-        result = subprocess.run([self.binary, "eval", "{:ok, _} = Application.ensure_all_started(:serviceradar_nvr)"],
-                                env=self.env, capture_output=True, timeout=20)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn(b"invalid_nvr_limit", result.stdout + result.stderr)
-        self.assertEqual(list(self.spool.iterdir()), [])
+        for setting in ["MAX_SESSIONS", "MAX_SPOOL_BYTES", "RESERVE_BYTES"]:
+            with self.subTest(setting=setting):
+                env = self.env | {"SERVICERADAR_NVR_" + setting: "0"}
+                result = subprocess.run([self.binary, "eval", "{:ok, _} = Application.ensure_all_started(:serviceradar_nvr)"],
+                                        env=env, capture_output=True, timeout=20)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(b"invalid_nvr_limit", result.stdout + result.stderr)
+                self.assertEqual(list(self.spool.iterdir()), [])
 
 
 if __name__ == "__main__":

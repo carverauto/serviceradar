@@ -55,7 +55,11 @@ case System.fetch_env!("NVR_TEST_MODE") do
 
         File.write!(
           System.fetch_env!("NVR_TEST_RECEIPT"),
-          Jason.encode!(%{directory: snapshot.directory, identity: snapshot.identity})
+          Jason.encode!(%{
+            directory: snapshot.directory,
+            identity: snapshot.identity,
+            block_bytes: ServiceRadarNVR.capacity() |> elem(1) |> Map.fetch!(:block_bytes)
+          })
         )
     after
       10_000 -> raise "missing sealed local receipt"
@@ -73,6 +77,11 @@ case System.fetch_env!("NVR_TEST_MODE") do
     %{"directory" => directory, "identity" => retained_identity} =
       Jason.decode!(File.read!(System.fetch_env!("NVR_TEST_RECEIPT")))
 
+    # The new process must count retained media before reserving another block.
+    # Python configured exactly one full-block budget: it would fit if empty.
+    {:error, :nvr_spool_budget_exhausted} =
+      ServiceRadarNVR.start_recording(%{identity | block_sequence: 1}, clock)
+
     {:ok, storage} = Storage.open(root, id)
     {:ok, spool} = Spool.recover(storage, directory, retained_identity)
     snapshot = Spool.snapshot(spool)
@@ -86,6 +95,105 @@ case System.fetch_env!("NVR_TEST_MODE") do
       end)
 
     File.write!(System.fetch_env!("NVR_TEST_MP4"), [init | media])
+
+  "capacity" ->
+    {:ok, _} = Storage.initialize(root, id)
+    parent = self()
+
+    producers =
+      for index <- 1..3 do
+        spawn(fn ->
+          receive do
+            :start -> :ok
+          end
+
+          result = ServiceRadarNVR.start_recording(%{identity | source_id: "synthetic-camera-#{index}"}, clock)
+          send(parent, {:admitted, self(), result})
+
+          receive do
+            :stop ->
+              case result do
+                {:ok, worker, _} -> ServiceRadarNVR.stop(worker)
+                _ -> :ok
+              end
+          end
+        end)
+      end
+
+    Enum.each(producers, &send(&1, :start))
+
+    results =
+      for _ <- producers do
+        receive do
+          {:admitted, producer, result} -> {producer, result}
+        after
+          10_000 -> raise "concurrent admission did not return"
+        end
+      end
+
+    [{_producer, {:ok, worker, inbox}}] = Enum.filter(results, &match?({_, {:ok, _, _}}, &1))
+    2 = Enum.count(results, &match?({_, {:error, :nvr_spool_budget_exhausted}}, &1))
+    {:ok, %{used_bytes: 0, reserved_bytes: reserved}} = ServiceRadarNVR.capacity()
+    true = reserved > 0
+    monitor = Process.monitor(worker)
+
+    # Lost accounting must retire its dependents before accepting new work.
+    Process.exit(Process.whereis(ServiceRadarNVR.Capacity), :kill)
+
+    receive do
+      {:DOWN, ^monitor, :process, ^worker, _} -> :ok
+    after
+      5_000 -> raise "capacity restart left an admitted writer alive"
+    end
+
+    {:error, _} = Inbox.usable(inbox)
+    Enum.each(producers, &send(&1, :stop))
+
+    wait = fn wait, remaining ->
+      if remaining == 0, do: raise("replacement reservation manager did not become available")
+
+      result =
+        try do
+          ServiceRadarNVR.start_recording(identity, clock)
+        catch
+          :exit, _ -> {:error, :restarting}
+        end
+
+      case result do
+        {:ok, replacement, _} ->
+          replacement
+
+        {:error, _} ->
+          Process.sleep(10)
+          wait.(wait, remaining - 1)
+      end
+    end
+
+    replacement = wait.(wait, 100)
+    monitor = Process.monitor(replacement)
+    Process.exit(replacement, :kill)
+
+    receive do
+      {:DOWN, ^monitor, :process, ^replacement, :killed} -> :ok
+    after
+      5_000 -> raise "writer kill did not finish"
+    end
+
+    replacement = wait.(wait, 100)
+    :ok = ServiceRadarNVR.stop(replacement)
+
+  "pressure" ->
+    {:ok, _} = Storage.initialize(root, id)
+    {:error, :nvr_storage_pressure} = ServiceRadarNVR.start_recording(identity, clock)
+    {:ok, %{used_bytes: 0, reserved_bytes: 0}} = ServiceRadarNVR.capacity()
+
+  "inventory" ->
+    {:error, :nvr_inventory_unavailable} = ServiceRadarNVR.start_recording(identity, clock)
+    {:error, :nvr_inventory_unavailable} = ServiceRadarNVR.capacity()
+
+  "inventory_limit" ->
+    {:error, :nvr_inventory_limit} = ServiceRadarNVR.start_recording(identity, clock)
+    {:ok, %{blocks: 4096, used_bytes: 0, reserved_bytes: 0}} = ServiceRadarNVR.capacity()
 
   "lifecycle" ->
     {:ok, _} = Storage.initialize(root, id)

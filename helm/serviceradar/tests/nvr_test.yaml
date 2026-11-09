@@ -25,6 +25,8 @@ tests:
     set:
       nvr.enabled: true
       nvr.storage.storageClassName: example-replicated
+      nvr.maxSpoolBytes: 536870912
+      nvr.reserveBytes: 134217728
       nvr.storage.storageIds:
         serviceradar-nvr-0: 00000000-0000-4000-8000-000000000011
         serviceradar-nvr-1: 00000000-0000-4000-8000-000000000012
@@ -50,3 +52,9 @@ tests:
       - notExists: {path: "spec.template.spec.initContainers"}
       - equal: {path: "spec.template.spec.containers[0].readinessProbe.httpGet.path", value: /readyz}
       - equal: {path: "spec.template.spec.containers[0].resources.limits.memory", value: 1Gi}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_NVR_MAX_SPOOL_BYTES, value: "536870912"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_NVR_RESERVE_BYTES, value: "134217728"}
