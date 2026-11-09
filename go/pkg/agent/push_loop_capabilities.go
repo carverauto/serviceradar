@@ -136,6 +136,7 @@ type agentCapabilityStatusPayload struct {
 	Sweep                 sweepCapabilityStatus                 `json:"sweep"`
 	RemoteCapture         remoteCaptureStatus                   `json:"remote_capture"`
 	Sidecars              []*proto.SidecarStatus                `json:"sidecars,omitempty"`
+	ConfigSectionStatuses []*proto.ConfigSectionStatus          `json:"config_section_statuses,omitempty"`
 	OverflowedValueCount  int                                   `json:"overflowed_value_count,omitempty"`
 	UnknownValueCount     int                                   `json:"unknown_value_count,omitempty"`
 }
@@ -187,9 +188,10 @@ func (p *PushLoop) buildAgentCapabilityGatewayStatus(
 	}
 	capabilities = append(capabilities, addonCapabilities(addonStatuses)...)
 
-	resp := buildAgentCapabilityStatusResponse(
+	resp := buildAgentCapabilityStatusResponseWithConfigSections(
 		capabilities,
 		sidecars,
+		p.helloConfigSectionStatuses(),
 		p.netprobeRunningAsRoot(),
 		corpusRevisions,
 		sweepBannerGrab,
@@ -201,6 +203,26 @@ func (p *PushLoop) buildAgentCapabilityGatewayStatus(
 func buildAgentCapabilityStatusResponse(
 	capabilities []string,
 	sidecars []*proto.SidecarStatus,
+	runningAsRoot bool,
+	corpusRevisions agentnetprobe.CorpusRevisions,
+	sweepBannerGrab capabilityStatusPayload,
+	activeCaptureCount int,
+) *proto.StatusResponse {
+	return buildAgentCapabilityStatusResponseWithConfigSections(
+		capabilities,
+		sidecars,
+		nil,
+		runningAsRoot,
+		corpusRevisions,
+		sweepBannerGrab,
+		activeCaptureCount,
+	)
+}
+
+func buildAgentCapabilityStatusResponseWithConfigSections(
+	capabilities []string,
+	sidecars []*proto.SidecarStatus,
+	configSections []*proto.ConfigSectionStatus,
 	runningAsRoot bool,
 	corpusRevisions agentnetprobe.CorpusRevisions,
 	sweepBannerGrab capabilityStatusPayload,
@@ -230,9 +252,10 @@ func buildAgentCapabilityStatusResponse(
 			Active:       activeCaptureCount > 0,
 			SessionCount: activeCaptureCount,
 		},
-		Sidecars:             sanitizedSidecars,
-		OverflowedValueCount: overflowCount,
-		UnknownValueCount:    unknownCount,
+		Sidecars:              sanitizedSidecars,
+		ConfigSectionStatuses: configSections,
+		OverflowedValueCount:  overflowCount,
+		UnknownValueCount:     unknownCount,
 	})
 	if err != nil {
 		payload = []byte(`{"error":"agent capability status marshal failed"}`)

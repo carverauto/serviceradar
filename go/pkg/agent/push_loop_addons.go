@@ -510,6 +510,7 @@ func (p *PushLoop) finishEffectiveAddonAssignments(
 		}
 		return addonDeliveryTransientFailure, &addonAssignmentsDeferredError{
 			addonIDs: addonIDs,
+			reasons:  p.deferredAddonFailureReasons(deferredAddons),
 			err:      fmt.Errorf("apply add-on assignments via supervisor: %w", err),
 		}
 	}
@@ -532,12 +533,14 @@ func (p *PushLoop) finishEffectiveAddonAssignments(
 		}
 		return contribution, &addonAssignmentsDeferredError{
 			addonIDs: deferredAddons,
+			reasons:  p.deferredAddonFailureReasons(deferredAddons),
 			err:      heldErr,
 		}
 	}
 	if len(deferredAddons) > 0 {
 		return addonDeliveryTransientFailure, &addonAssignmentsDeferredError{
 			addonIDs: deferredAddons,
+			reasons:  p.deferredAddonFailureReasons(deferredAddons),
 			err:      errAddonAssignmentsDeferred,
 		}
 	}
@@ -549,6 +552,27 @@ func (p *PushLoop) finishEffectiveAddonAssignments(
 	}
 
 	return addonDeliverySucceeded, nil
+}
+
+func (p *PushLoop) deferredAddonFailureReasons(addonIDs []string) map[string]string {
+	if len(addonIDs) == 0 {
+		return nil
+	}
+	failures := p.addonApplyFailureSnapshot()
+	if len(failures) == 0 {
+		return nil
+	}
+	reasons := make(map[string]string, len(addonIDs))
+	for _, id := range addonIDs {
+		if failure, ok := failures[strings.TrimSpace(id)]; ok && failure.reason != "" {
+			reasons[id] = failure.reason
+		}
+	}
+	if len(reasons) == 0 {
+		return nil
+	}
+
+	return reasons
 }
 
 // activationHeldOnly reports whether every deferred add-on was skipped by an activation
