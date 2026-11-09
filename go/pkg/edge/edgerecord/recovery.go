@@ -32,6 +32,8 @@ const RecoveryDigestVersion = 1
 
 // Hard bounds so a manifest can never enumerate an outage-sized tail.
 const (
+	// MaxRecoverySlots bounds one coordinator recovery's allocated interval.
+	MaxRecoverySlots = 1024
 	MaxManifestPages = 1024
 	// MaxRangesPerPage bounds a PLAN page's target ranges. Unrelated to recovery
 	// spans despite the shared history; plan.go is its only consumer.
@@ -342,6 +344,19 @@ func ValidateManifestChain(pages []*edgev1.EdgeLossManifestPageV1, expectedRoot 
 		return ErrManifestRoot
 	}
 	return nil
+}
+
+// ValidateClassificationSpan checks one complete loss classification before a
+// coordinator hashes or persists it. Whole-chain ordering remains the manifest
+// validator's responsibility.
+func ValidateClassificationSpan(sp *edgev1.EdgeClassificationSpanV1) error {
+	if hasUnknownFields(sp) {
+		return ErrUnknownFields
+	}
+	if sp.GetFromSequence() == 0 || sp.GetThroughSequence() < sp.GetFromSequence() {
+		return ErrManifestSpan
+	}
+	return validateClassificationSpanBody(sp)
 }
 
 // validateClassificationSpanBody enforces what the oneof cannot. The oneof guarantees

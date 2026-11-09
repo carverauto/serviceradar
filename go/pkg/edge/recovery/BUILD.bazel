@@ -1,0 +1,30 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "recovery",
+    srcs = [
+        "journal.go",
+        "pages.go",
+        "plan.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/edge/recovery",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//go/pkg/edge/edgerecord",
+        "//go/pkg/edge/spool",
+        "//proto/edge/v1:edgev1",
+        "@org_golang_google_protobuf//proto",
+    ],
+)
+
+go_test(
+    name = "recovery_test",
+    srcs = ["journal_test.go"],
+    embed = [":recovery"],
+    deps = [
+        "//go/pkg/edge/edgerecord",
+        "//go/pkg/edge/spool",
+        "//proto/edge/v1:edgev1",
+        "@org_golang_google_protobuf//proto",
+    ],
+)
