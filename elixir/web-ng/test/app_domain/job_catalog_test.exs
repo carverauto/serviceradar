@@ -193,8 +193,7 @@ defmodule ServiceRadarWebNG.JobCatalogTest do
   @tag :db_free
   test "ServiceRadarWebNG.Jobs does not expose an uncalled ng_job_schedules catalog or scheduler" do
     assert {:module, ServiceRadarWebNG.Jobs} = Code.ensure_loaded(ServiceRadarWebNG.Jobs)
-    refute function_exported?(ServiceRadarWebNG.Jobs, :enqueue_due_schedules, 0)
-    refute function_exported?(ServiceRadarWebNG.Jobs, :enqueue_due_schedules, 1)
-    refute function_exported?(ServiceRadarWebNG.Jobs, :catalog, 0)
+    assert ServiceRadarWebNG.Jobs.__info__(:functions) == []
+    assert {:error, :nofile} = Code.ensure_loaded(ServiceRadarWebNG.Jobs.Schedule)
   end
 end
