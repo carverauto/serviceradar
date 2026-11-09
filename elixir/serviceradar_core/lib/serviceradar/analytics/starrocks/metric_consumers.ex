@@ -15,7 +15,7 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumers do
   # Interface counters are written by the SNMP collector alone, as metric_type
   # `snmp` (the SRQL interface entities scope on the same predicate). Naming it
   # is what lets these reads use the table's sort key, which leads with
-  # metric_type (priv/starrocks/0036): without it a recent-window read scans
+  # metric_type (priv/starrocks/0002): without it a recent-window read scans
   # the whole day partition of every metric.
   @interface_metric_scope "metric_type = 'snmp'"
 
