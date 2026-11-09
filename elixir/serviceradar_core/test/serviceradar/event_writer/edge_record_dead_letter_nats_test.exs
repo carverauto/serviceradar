@@ -431,12 +431,6 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetterNatsTest do
     :ok
   end
 
-  defp header_value(headers, name) do
-    Enum.find_value(headers, fn {key, value} ->
-      if String.downcase(key) == name, do: value
-    end)
-  end
-
   defp publish!(conn) do
     {:ok, %{body: body}} =
       Gnat.request(conn, @source_subject, @record, headers: @headers, receive_timeout: 5_000)

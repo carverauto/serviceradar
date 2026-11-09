@@ -55,6 +55,11 @@ defmodule ServiceRadar.EventWriter.PipelineBatchSpanTest do
 
       {:ok, _} = Application.ensure_all_started(:opentelemetry)
 
+      # A tracer cached while the pid-exporter SDK ran still names its simple
+      # processor, which no longer exists; a later span in another test would
+      # exit on it. Drop the cache so tracers are re-fetched from the restored SDK.
+      drop_cached_tracers()
+
       :opentelemetry.set_text_map_injector(old_injector)
       :opentelemetry.set_text_map_extractor(old_extractor)
     end)
@@ -66,6 +71,12 @@ defmodule ServiceRadar.EventWriter.PipelineBatchSpanTest do
     do: Application.put_env(:opentelemetry, key, value)
 
   defp restore_application_env(key, :error), do: Application.delete_env(:opentelemetry, key)
+
+  defp drop_cached_tracers do
+    for {{:opentelemetry, _provider, :tracer, _name} = key, _tracer} <- :persistent_term.get() do
+      :persistent_term.erase(key)
+    end
+  end
 
   defp message(headers) do
     %{metadata: %{subject: "events.poller.status", headers: headers}}
