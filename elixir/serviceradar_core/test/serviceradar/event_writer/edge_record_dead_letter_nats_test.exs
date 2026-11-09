@@ -224,7 +224,8 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetterNatsTest do
       unattributed = publish_dlq!(conn, "edge-dlq:undecoded-1", undecoded)
       last = publish_dlq!(conn, "edge-dlq:superseded-2", superseded)
 
-      assert {:ok, %{scanned: 4, complete: true, groups: groups}} = Replay.inventory()
+      assert {:ok, %{scanned: 4, complete: true, through_sequence: ^last, groups: groups}} =
+               Replay.inventory()
 
       assert [plugin, sync] =
                Enum.filter(groups, &is_binary(&1.contract))
@@ -247,8 +248,13 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetterNatsTest do
       assert %{contract: "serviceradar.sync.page.batch/1", reason: "RuntimeError", count: 1} =
                sync
 
-      # A bounded read says it saw only part of what is held.
-      assert {:ok, %{scanned: 2, complete: false}} = Replay.inventory(limit: 2)
+      # A bounded read says it saw only part of what is held, and where it stopped.
+      assert {:ok, %{scanned: 2, complete: false, through_sequence: ^kept}} =
+               Replay.inventory(limit: 2)
+
+      # An action bounded to that read leaves a matching record past it held.
+      assert {:ok, %{entries: [%{dlq_sequence: ^first, result: :purged}], complete: true}} =
+               Replay.purge(reason: "missing_synthetic_capability", through_sequence: kept)
 
       assert {:ok, %{entries: [%{dlq_sequence: ^unattributed, result: :purged}], complete: true}} =
                Replay.purge(contract: :missing, reason: "missing_synthetic_capability")
@@ -256,10 +262,7 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetterNatsTest do
       assert {:ok, %{entries: purged, complete: true}} =
                Replay.purge(reason: "missing_synthetic_capability")
 
-      assert Enum.map(purged, &{&1.dlq_sequence, &1.result}) == [
-               {first, :purged},
-               {last, :purged}
-             ]
+      assert Enum.map(purged, &{&1.dlq_sequence, &1.result}) == [{last, :purged}]
 
       assert {:ok, %{entries: [%{dlq_sequence: ^kept}]}} = Replay.list()
       assert %{"state" => %{"messages" => 1}} = api(conn, "STREAM.INFO.#{@dlq_stream}", "")

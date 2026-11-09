@@ -28,7 +28,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.DeadLetters do
   def update(assigns, socket), do: {:ok, assign(socket, :current_scope, assigns.current_scope)}
 
   @impl true
-  def handle_event("load", _params, socket), do: {:noreply, load(socket)}
+  def handle_event("load", _params, socket), do: {:noreply, socket |> assign(:denied, false) |> load()}
 
   def handle_event("confirm", %{"action" => action} = params, socket) when action in ["replay", "purge"] do
     {:noreply, assign(socket, confirm: confirmation(socket, action, params["group"]), denied: false)}
@@ -80,17 +80,17 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.DeadLetters do
     |> start_async(:inventory, fn -> DeadLetters.inventory() end)
   end
 
-  # The group index refers to the inventory the operator is looking at; "all" is every held
-  # dead letter. The count shown is what that inventory read.
+  # The group index refers to the inventory the operator is looking at; "all" is every dead
+  # letter it read. Each action is bounded to that inventory's last sequence, so the count shown
+  # is the most it can act on.
   defp confirmation(socket, action, "all") do
     case socket.assigns.inventory do
       {:ok, %{groups: groups} = inventory} ->
         %{
           action: String.to_existing_atom(action),
-          group: %{},
-          label: "every held dead letter",
-          count: Enum.sum(Enum.map(groups, & &1.count)),
-          complete: inventory.complete
+          group: %{through_sequence: inventory.through_sequence},
+          label: if(inventory.complete, do: "every held dead letter", else: "every dead letter inspected"),
+          count: Enum.sum(Enum.map(groups, & &1.count))
         }
 
       _ ->
@@ -104,10 +104,9 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.DeadLetters do
          %{} = group <- Enum.at(groups, i) do
       %{
         action: String.to_existing_atom(action),
-        group: Map.take(group, [:contract, :reason]),
+        group: group |> Map.take([:contract, :reason]) |> Map.put(:through_sequence, inventory.through_sequence),
         label: "#{contract_label(group)} dead-lettered for #{reason_label(group)}",
-        count: group.count,
-        complete: inventory.complete
+        count: group.count
       }
     else
       _ -> nil
@@ -192,8 +191,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.DeadLetters do
       >
         <:title>{confirm_title(@confirm)}</:title>
         <p>
-          {action_verb(@confirm.action)} <strong>{@confirm.count}</strong>
-          {if @confirm.complete, do: "", else: "or more"} records: {@confirm.label}.
+          {action_verb(@confirm.action)} <strong>{@confirm.count}</strong> records: {@confirm.label}.
         </p>
         <p :if={@confirm.action == :purge} class="text-sm text-sr-muted">
           This deletes them from the dead-letter stream, where each is the only copy of its record.
@@ -243,7 +241,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.DeadLetters do
     <div :if={@inventory.groups != []} class="space-y-2">
       <p :if={not @inventory.complete} id="dead-letters-partial" class="text-xs text-warning">
         Showing the first {@inventory.scanned} dead letters; the stream holds more. Counts and
-        actions cover only what was read.
+        actions cover only these {@inventory.scanned}; reload after acting to inspect the rest.
       </p>
 
       <div id="dead-letters-groups" class="sr-ui-table-shell">

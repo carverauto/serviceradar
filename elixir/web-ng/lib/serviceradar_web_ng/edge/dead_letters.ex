@@ -25,7 +25,11 @@ defmodule ServiceRadarWebNG.Edge.DeadLetters do
   @inventory_timeout_ms 60_000
   @action_timeout_ms 300_000
 
-  @type group :: %{optional(:contract) => String.t() | nil, optional(:reason) => String.t() | nil}
+  @type group :: %{
+          optional(:contract) => String.t() | nil,
+          optional(:reason) => String.t() | nil,
+          optional(:through_sequence) => pos_integer() | nil
+        }
   @type actor :: %{id: term(), email: term()} | nil
   @type summary :: %{
           action: :replay | :purge,
@@ -43,15 +47,15 @@ defmodule ServiceRadarWebNG.Edge.DeadLetters do
 
   @doc """
   Replays the dead letters of `group` (a contract and/or reason as `inventory/0` reports them,
-  `nil` for a missing header; an empty map is every held dead letter) and records an audit event
-  for `actor`.
+  `nil` for a missing header; an empty map is every held dead letter), up to the inventory's
+  `through_sequence` when the group carries one, and records an audit event for `actor`.
   """
   @spec replay(group(), actor()) :: {:ok, summary()} | {:error, term()}
   def replay(group, actor), do: act(:replay, group, actor)
 
   @doc """
-  Deletes the dead letters of `group` (an empty map is every held dead letter) and records an
-  audit event for `actor`.
+  Deletes the dead letters of `group` (an empty map is every held dead letter), bounded like
+  `replay/2`, and records an audit event for `actor`.
   """
   @spec purge(group(), actor()) :: {:ok, summary()} | {:error, term()}
   def purge(group, actor), do: act(:purge, group, actor)
@@ -103,12 +107,16 @@ defmodule ServiceRadarWebNG.Edge.DeadLetters do
   @doc """
   The `Replay` filters selecting exactly `group`: a key the group carries as `nil` selects the
   messages lacking that header (`:missing`), and a key it does not carry is not filtered, so `%{}`
-  selects every held dead letter.
+  selects every held dead letter. A `through_sequence` stops the walk after that dead-letter
+  sequence.
   """
   @spec filters(group()) :: keyword()
   def filters(group) do
-    for key <- [:contract, :reason], Map.has_key?(group, key) do
-      {key, Map.get(group, key) || :missing}
+    headers = for key <- [:contract, :reason], Map.has_key?(group, key), do: {key, Map.get(group, key) || :missing}
+
+    case Map.get(group, :through_sequence) do
+      nil -> headers
+      through -> headers ++ [through_sequence: through]
     end
   end
 

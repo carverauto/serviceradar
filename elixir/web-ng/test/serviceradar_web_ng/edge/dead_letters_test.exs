@@ -27,7 +27,7 @@ defmodule ServiceRadarWebNG.Edge.DeadLettersTest do
              DeadLetters.summarize(:purge, [%{result: :purged}, %{result: :purged}], true)
   end
 
-  test "a group's filters select exactly its messages, and an empty group selects every one" do
+  test "a group's filters select exactly its messages, bounded to the inspected sequence" do
     assert DeadLetters.filters(%{contract: nil, reason: "missing_synthetic_capability"}) == [
              contract: :missing,
              reason: "missing_synthetic_capability"
@@ -39,5 +39,12 @@ defmodule ServiceRadarWebNG.Edge.DeadLettersTest do
            ]
 
     assert DeadLetters.filters(%{}) == []
+
+    assert DeadLetters.filters(%{contract: nil, through_sequence: 5_000}) == [
+             contract: :missing,
+             through_sequence: 5_000
+           ]
+
+    assert DeadLetters.filters(%{through_sequence: nil}) == []
   end
 end

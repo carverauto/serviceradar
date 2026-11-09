@@ -185,9 +185,12 @@ cluster coordinator:
   (`Replay.purge/1`), for records newer deliveries have already superseded. A
   purge deletes the only copy of each record and cannot be undone.
 
-Each action shows its exact count for confirmation, re-checks the permission
-against the user's current record, runs in the background (at most 5,000
-messages per run; the result says when more remain) and writes an audit event
+Each action covers only the dead letters Inspect read: it passes the highest
+sequence that inventory read as `:through_sequence`, so a record dead-lettered
+later, or beyond a partial read, is left for the next Inspect. Each action
+shows its exact count for confirmation, re-checks the permission against the
+user's current record, runs in the background (at most 5,000 messages per run)
+and writes an audit event
 (`resource_type: edge_record_dead_letters`) with the scope and outcome.
 If a run fails part way, the result and the audit event report what it had
 already replayed or purged together with the failure. If the call to the

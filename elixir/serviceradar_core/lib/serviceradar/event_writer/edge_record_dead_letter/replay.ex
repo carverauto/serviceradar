@@ -37,13 +37,15 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay do
     * `:reason` or `:contract` set to `:missing` selects the messages that lack that header (or
       carry it blank), which `inventory/1` groups under a `nil` contract or reason
     * `:from_sequence` -- the first dead-letter stream sequence to read (default 1)
+    * `:through_sequence` -- the last dead-letter stream sequence to read, such as the
+      `through_sequence` an `inventory/1` returned, so an action covers only what was inspected
     * `:limit` -- at most this many messages (default 100)
     * `:stream` -- the dead-letter stream (default `TELEMETRY_EDGE_RECORD_DLQ_V1_BULK`)
     * `:request` -- `(subject, body, opts -> {:ok, %{body: binary}} | {:error, term})`, a NATS
       request on a connection the caller owns; default `ServiceRadar.NATS.Connection`
 
   The walk reads only the messages the stream held when it started (`last_seq` at the start,
-  then `:subject`, `:from_sequence` and `:limit`), so a record this replay republishes that is
+  then `:subject`, `:from_sequence`, `:through_sequence` and `:limit`), so a record this replay republishes that is
   dead-lettered again is left for the next run. `replay/1` deletes each dead-letter message
   only after the source PubAck. A failed delete leaves it in place (`:replayed_kept`).
 
@@ -108,9 +110,17 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay do
   `:limit` messages (default #{@inventory_limit}); `complete` is false when more were held, so a caller
   never presents a partial count as the whole. A group's `contract` or `reason` is `nil` when its
   messages lack that header; pass `:missing` for it to `replay/1` or `purge/1`.
+  `through_sequence` is the highest dead-letter sequence read (`nil` when none was); pass it to
+  `replay/1` or `purge/1` so they act on no message the inventory did not count.
   """
   @spec inventory(keyword()) ::
-          {:ok, %{groups: [map()], scanned: non_neg_integer(), complete: boolean()}}
+          {:ok,
+           %{
+             groups: [map()],
+             scanned: non_neg_integer(),
+             complete: boolean(),
+             through_sequence: pos_integer() | nil
+           }}
           | {:error, term()}
   def inventory(opts \\ []) do
     opts = Keyword.put_new(opts, :limit, @inventory_limit)
@@ -120,7 +130,13 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay do
         {:error, reason}
 
       {:ok, %{entries: entries, complete: complete}} ->
-        {:ok, %{groups: group(entries), scanned: length(entries), complete: complete}}
+        {:ok,
+         %{
+           groups: group(entries),
+           scanned: length(entries),
+           complete: complete,
+           through_sequence: entries |> List.last(%{}) |> Map.get(:dlq_sequence)
+         }}
 
       {:error, reason} ->
         {:error, reason}
@@ -205,6 +221,7 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay do
     # Only the messages already held when the walk starts: a record a replay republishes
     # that fails again is dead-lettered after it, and must not be replayed in the same run.
     with {:ok, last} <- last_sequence(ctx) do
+      last = min(last, Keyword.get(opts, :through_sequence) || last)
       filter = Keyword.get(opts, :subject, @subject)
       walk_subject(Map.put(ctx, :last, last), filter, from, limit, fun, [])
     end
