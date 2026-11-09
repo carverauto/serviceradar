@@ -119,6 +119,104 @@ case System.fetch_env!("NVR_TEST_MODE") do
 
     File.write!(System.fetch_env!("NVR_TEST_MP4"), [init | media])
 
+  mode when mode in ["rotation", "rotation_budget"] ->
+    {:ok, _} = Storage.initialize(root, id)
+    {:ok, %{block_bytes: block_bytes}} = ServiceRadarNVR.capacity()
+    {:ok, worker, inbox} = ServiceRadarNVR.start_recording(identity, clock)
+    monitor = Process.monitor(worker)
+    aud = <<0, 0, 0, 1, 9>>
+    [<<>> | units] = :binary.split(File.read!(System.fetch_env!("NVR_TEST_H264")), aud, [:global])
+    510 = length(units)
+
+    pushed =
+      Enum.reduce_while(Enum.with_index(units), :ok, fn {payload, index}, :ok ->
+        sequence = index + 1
+
+        try do
+          :ok =
+            Inbox.offer(inbox, %{
+              payload: aud <> payload,
+              pts: 90_000 + index * 6_000,
+              dts: 90_000 + index * 6_000,
+              sequence: sequence,
+              codec: "h264",
+              payload_format: "annexb",
+              media_ingest_id: inbox.media_ingest_id
+            })
+
+          %{last_sequence: ^sequence} = ServiceRadarNVR.status(worker)
+          {:cont, :ok}
+        catch
+          :exit, _ -> {:halt, :stopped}
+        end
+      end)
+
+    if mode == "rotation" do
+      :ok = pushed
+      :ok = Inbox.finish(inbox)
+    end
+
+    collect = fn collect, blocks ->
+      receive do
+        {:nvr_block_sealed, ^worker, %{snapshot: snapshot}} ->
+          true = snapshot.sealed?
+          collect.(collect, [snapshot | blocks])
+
+        {:nvr_recording, ^worker, {:ok, %{snapshot: snapshot}}} when mode == "rotation" ->
+          Enum.reverse([snapshot | blocks])
+
+        {:nvr_recording, ^worker, {:error, :nvr_spool_budget_exhausted}} when mode == "rotation_budget" ->
+          Enum.reverse(blocks)
+      after
+        10_000 -> raise "missing rotation result"
+      end
+    end
+
+    blocks = collect.(collect, [])
+    expected_sequences = if mode == "rotation", do: [0, 1, 2], else: [0]
+    ^expected_sequences = Enum.map(blocks, & &1.identity["block_sequence"])
+    expected_fragments = if mode == "rotation", do: [8, 8, 1], else: [8]
+    ^expected_fragments = Enum.map(blocks, &length(&1.entries))
+    true = Enum.all?(blocks, & &1.sealed?)
+    expected_clock = Jason.decode!(Jason.encode!(clock))
+    true = Enum.all?(blocks, &(&1.identity["clock"] == expected_clock))
+
+    for [previous, next] <- blocks |> Enum.flat_map(& &1.entries) |> Enum.chunk_every(2, 1, :discard) do
+      true = previous["start_ns"] + previous["duration_ns"] == next["start_ns"]
+    end
+
+    receive do
+      {:DOWN, ^monitor, :process, ^worker, :normal} -> :ok
+    after
+      5_000 -> raise "rotating worker did not retire"
+    end
+
+    {:error, :recording_closed} = Inbox.usable(inbox)
+
+    File.write!(
+      System.fetch_env!("NVR_TEST_RECEIPT"),
+      Jason.encode!(%{block_bytes: block_bytes, blocks: Enum.map(blocks, &Map.take(&1, [:directory, :identity]))})
+    )
+
+  "recover_rotation" ->
+    %{"blocks" => blocks} = Jason.decode!(File.read!(System.fetch_env!("NVR_TEST_RECEIPT")))
+    {:ok, storage} = Storage.open(root, id)
+
+    for {%{"directory" => directory, "identity" => identity}, index} <- Enum.with_index(blocks) do
+      {:ok, spool} = Spool.recover(storage, directory, identity)
+      snapshot = Spool.snapshot(spool)
+      true = snapshot.sealed?
+      {:ok, init} = Spool.read_init(snapshot)
+
+      media =
+        Enum.map(snapshot.entries, fn entry ->
+          {:ok, bytes} = Spool.read_fragment(snapshot, entry["sequence"])
+          bytes
+        end)
+
+      File.write!(System.fetch_env!("NVR_TEST_MP4") <> ".#{index}", [init | media])
+    end
+
   "capacity" ->
     {:ok, _} = Storage.initialize(root, id)
     parent = self()

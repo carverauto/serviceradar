@@ -65,24 +65,54 @@ class NVRReleaseTest(unittest.TestCase):
             "synthetic-nvr-0": "00000000-0000-4000-8000-000000000012",
             "synthetic-nvr-1": identity,
         })
-        source = self.env["NVR_TEST_H264"]
-        subprocess.run([self.ffmpeg, "-nostdin", "-v", "error", "-f", "lavfi", "-i",
-                        "testsrc2=size=64x64:rate=15", "-frames:v", "75", "-c:v", "libx264",
-                        "-profile:v", "baseline", "-bf", "0", "-g", "30", "-sc_threshold", "0",
-                        "-x264-params", "aud=1:repeat-headers=1", "-f", "h264", source],
-                       check=True, capture_output=True, timeout=30)
+        source = self.make_media()
         self.run_probe("record")
         receipt = json.loads(Path(self.env["NVR_TEST_RECEIPT"]).read_text())
         self.env["SERVICERADAR_NVR_MAX_SPOOL_BYTES"] = str(receipt["block_bytes"])
         self.run_probe("recover")
-        def decode(path):
-            return subprocess.run([self.ffmpeg, "-nostdin", "-v", "error", "-xerror", "-threads", "1",
+        expected = self.decode(source)
+        self.assertEqual(len(expected), 75 * 64 * 64 * 3 // 2)
+        self.assertEqual(self.decode(self.env["NVR_TEST_MP4"]), expected)
+
+    def make_media(self, frames=75):
+        source = self.env["NVR_TEST_H264"]
+        subprocess.run([self.ffmpeg, "-nostdin", "-v", "error", "-f", "lavfi", "-i",
+                        "testsrc2=size=64x64:rate=15", "-frames:v", str(frames), "-c:v", "libx264",
+                        "-profile:v", "baseline", "-bf", "0", "-g", "30", "-sc_threshold", "0",
+                        "-x264-params", "aud=1:repeat-headers=1", "-f", "h264", source],
+                       check=True, capture_output=True, timeout=30)
+        return source
+
+    def decode(self, path):
+        return subprocess.run([self.ffmpeg, "-nostdin", "-v", "error", "-xerror", "-threads", "1",
                                    "-i", path, "-map", "0:v:0", "-fps_mode", "passthrough", "-f",
                                    "rawvideo", "-pix_fmt", "yuv420p", "pipe:1"],
-                                  check=True, capture_output=True, timeout=30).stdout
-        expected = decode(source)
-        self.assertEqual(len(expected), 75 * 64 * 64 * 3 // 2)
-        self.assertEqual(decode(self.env["NVR_TEST_MP4"]), expected)
+                              check=True, capture_output=True, timeout=30).stdout
+
+    def test_rotation_preserves_frames_and_stops_before_unreserved_block(self):
+        # The first boundary rotates during push; the second during final flush.
+        source = self.make_media(510)
+        expected = self.decode(source)
+        self.assertEqual(len(expected), 510 * 64 * 64 * 3 // 2)
+        # Enough for one reservation and these retained bytes, not two reservations.
+        self.env["SERVICERADAR_NVR_MAX_SPOOL_BYTES"] = "20000000"
+        self.run_probe("rotation")
+        receipt = json.loads(Path(self.env["NVR_TEST_RECEIPT"]).read_text())
+        self.assertEqual(len(list(self.spool.iterdir())), 4)
+        self.run_probe("recover_rotation")
+        decoded = [self.decode(self.env["NVR_TEST_MP4"] + f".{i}") for i in range(3)]
+        self.assertEqual([len(x) for x in decoded], [n * 64 * 64 * 3 // 2 for n in [240, 240, 30]])
+        self.assertEqual(b"".join(decoded), expected)
+
+        # A fresh one-block budget admits capture but cannot fund its successor.
+        self.spool = self.root / "limited-spool"
+        self.spool.mkdir(mode=0o700)
+        self.env["SERVICERADAR_NVR_SPOOL_ROOT"] = str(self.spool)
+        self.env["SERVICERADAR_NVR_MAX_SPOOL_BYTES"] = str(receipt["block_bytes"])
+        self.run_probe("rotation_budget")
+        self.assertEqual(len(list(self.spool.iterdir())), 2)
+        self.run_probe("recover_rotation")
+        self.assertEqual(self.decode(self.env["NVR_TEST_MP4"] + ".0"), expected[:240 * 64 * 64 * 3 // 2])
 
     def test_deadline_and_producer_loss_release_admission(self):
         self.env["SERVICERADAR_NVR_MAX_DURATION_MS"] = "500"

@@ -5,7 +5,7 @@ application is `serviceradar_nvr`; media packaging and journaled block writing
 come from `serviceradar_recording`. Core uses the same writer and retains its
 existing authorization, database leases and publication path.
 
-This checkpoint processes finite local blocks through a trusted, same-VM API.
+This checkpoint processes finite recording sessions through a trusted, same-VM API.
 It has no camera source connector, assignment protocol, upload worker or playback
 catalog. Starting the service does not start recording. It does not join an
 Erlang distribution cluster or start core, a Repo, NATS or libcluster.
@@ -19,6 +19,21 @@ and call `Inbox.finish/1` to drain in order. `ServiceRadarNVR.status/1` reports
 progress; `stop/1` cancels without advertising a sealed recording. The producer
 receives `{:nvr_recording, pid, result}`. A successful result contains an internal
 sealed local snapshot, not authorization, an archive proof or a catalog receipt.
+
+When a complete fragment would exceed the current block's byte or fragment
+limit, the writer seals that block and sends
+`{:nvr_block_sealed, pid, %{snapshot: snapshot, init_format: init_format}}`.
+It then rechecks aggregate capacity before creating the next block with an
+incremented block sequence and the same verified initialization data. The
+packager continues, preserving frame and clock continuity. Terminal success
+contains the final block; callers consume earlier block notifications separately.
+No list of completed snapshots accumulates in the worker.
+
+Rotation neither renews the session deadline nor restarts acquisition. If the
+next reservation fails, capture stops and the sealed block remains on disk;
+the fragment awaiting a new block is not advertised as recorded. Notifications
+are process-local hints, not durable publication or an outbox. A crash can leave
+sealed or provisional journaled bytes without a delivered notification.
 
 The shared writer preserves clock provenance and checks admission around every
 spool mutation. Workers are temporary: a crash, deadline, discontinuity or lost
@@ -36,7 +51,7 @@ assignment must establish physical writer exclusivity before calling this API.
 | `SERVICERADAR_NVR_MAX_SPOOL_BYTES` | 1073741824 | 1 TiB; retained bytes plus full active reservations |
 | `SERVICERADAR_NVR_RESERVE_BYTES` | 67108864 | 1 PiB; physical free-space floor; admission also needs all reservations free |
 | Inbox | 8 samples / 8 MiB per worker | charged before mailbox admission |
-| Local block | 16 MiB / 8 fragments | no rotation, eviction or deletion |
+| Local block | 16 MiB / 8 fragments | rotate at a complete fragment boundary; no eviction or deletion |
 | Fragment | 4 MiB | oversized output fails the worker |
 | VM | 2 schedulers / 32768 processes / 4096 ports | release VM arguments |
 | Kubernetes | 2 CPU / 1 GiB memory per replica | configurable container limits |
@@ -51,6 +66,9 @@ Before starting a worker, the serialized capacity owner charges one maximum bloc
 (init, media and journal) against both the spool budget and available disk space.
 It counts existing sealed, partial and abandoned files without recovering or
 deleting them. Worker exit releases its reservation, not its retained bytes.
+At rotation the capacity owner atomically replaces that worker's reservation
+after inventorying the sealed block. There is no release/reacquire gap, and
+other active reservations remain charged.
 `ServiceRadarNVR.capacity/0` returns a read-only observation of usage, full active
 reservations and available space; it is not a promise to a future caller.
 
@@ -93,7 +111,8 @@ bazel test --config=remote //elixir/serviceradar_nvr:release_test
 The release test starts the shipped VM without control-plane services, exercises
 bounded worker admission and retirement, spool budget, free-space floor and
 inventory refusal, records synthetic H264, restarts the release, recovers the
-journal and compares decoded frames. Core's existing
+journals and compares decoded frames, including across multiple blocks and after
+refusing a successor block. Core's existing
 recording integration suite owns the CNPG authorization/publication contract.
 Physical node-loss durability and deployed camera behavior are not established
 by these synthetic tests.

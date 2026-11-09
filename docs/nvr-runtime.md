@@ -36,7 +36,7 @@ reconciliation remain pending. Do not enable recording policies through this
 runtime yet. Workload updates use `OnDelete` until coordinated drain/fencing is
 implemented.
 
-The finite-block runtime now enforces a per-replica spool budget and a physical
+The finite-session runtime enforces a per-replica spool budget and a physical
 free-space floor. `nvr.maxSpoolBytes` defaults to 1 GiB and `nvr.reserveBytes` to
 64 MiB. These integer byte settings configure admission, not PVC size: choose
 budgets below the actual qualified filesystem capacity with room for metadata,
@@ -44,6 +44,10 @@ control and recovery. A complete block reservation includes media, init and
 journal. Concurrent workers cannot independently spend the same remaining
 budget. Existing files, including failed-session tails, remain charged after
 worker or service restart. Admission never deletes files to make space.
+Full blocks are sealed and their successors are admitted against fresh inventory,
+without renewing the session deadline. See the
+[runtime boundary](../elixir/serviceradar_nvr/README.md#runtime-boundary) for local
+block notifications and their publication/recovery limits.
 
 The inventory is intentionally limited to 4096 block directories and known spool
 file names. Unrecognized or unreadable entries stop admission for operator

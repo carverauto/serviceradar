@@ -11,6 +11,7 @@ defmodule ServiceRadarNVR.Capacity do
 
   def start_link(config), do: GenServer.start_link(__MODULE__, config, name: __MODULE__)
   def reserve, do: GenServer.call(__MODULE__, :reserve)
+  def next_block(token), do: GenServer.call(__MODULE__, {:next_block, token})
   def check(token), do: GenServer.call(__MODULE__, {:check, token})
   def status, do: GenServer.call(__MODULE__, :status)
 
@@ -40,6 +41,23 @@ defmodule ServiceRadarNVR.Capacity do
     else
       {:reply, {:error, :nvr_reservation_lost}, state}
     end
+  end
+
+  def handle_call({:next_block, token}, {owner, _}, state) do
+    result =
+      with true <- Map.get(state.reservations, token) == owner || {:error, :nvr_reservation_lost},
+           {:ok, storage} <- storage(state),
+           {:ok, usage} <- measure(storage, state) do
+        # Replace this worker's reservation atomically; the sealed block remains
+        # in the fresh inventory. No unreserved writer can slip between blocks.
+        admission(%{
+          usage
+          | reservations: usage.reservations - 1,
+            reserved_bytes: usage.reserved_bytes - state.block_bytes
+        })
+      end
+
+    {:reply, result, %{state | probe: nil}}
   end
 
   def handle_call(:status, _from, state) do
