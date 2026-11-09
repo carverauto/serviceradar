@@ -63,6 +63,9 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
   # A partitioned table and the sort key information_schema reports for it.
   defp sorted(columns, held, sort_key), do: Map.put(new(columns, held), :sort_key, sort_key)
 
+  # A rollup and the refresh type information_schema reports for it.
+  defp view(refresh), do: Map.put(new([], []), :refresh, refresh)
+
   defp hours(held), do: Enum.map(held, &if(byte_size(&1) == 10, do: "#{&1} 00:00:00", else: &1))
 
   defp run(agent, overrides \\ %{}) do
@@ -85,6 +88,22 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
 
   defp ok(rows \\ []), do: {:ok, %{columns: [], rows: rows}}
 
+  # The warehouse's clock: every fixture hour lies within a few days before it.
+  @today ~D[2025-01-10]
+
+  # The day an hour listing reads, in days from today: the midnight its lower
+  # bound names, as `date_trunc('day', UTC_TIMESTAMP())` moved by an interval.
+  defp day_offset(sql) do
+    bound =
+      ~r/WHERE `\w+` >= (?:DATE_(ADD|SUB)\()?date_trunc\('day', UTC_TIMESTAMP\(\)\)(?:, INTERVAL (\d+) DAY\))?/
+
+    case Regex.run(bound, sql) do
+      [_] -> 0
+      [_, "ADD", days] -> String.to_integer(days)
+      [_, "SUB", days] -> -String.to_integer(days)
+    end
+  end
+
   defp answer(state, "SELECT TABLE_NAME, PARTITION_KEY, SORT_KEY" <> _) do
     rows =
       Enum.map(state.tables, fn {name, table} ->
@@ -99,12 +118,27 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
     {ok(Enum.map(state.tables[table].columns, &[&1])), state}
   end
 
+  defp answer(state, "SELECT TABLE_NAME, REFRESH_TYPE" <> _) do
+    rows =
+      for {name, %{refresh: refresh}} <- state.tables, do: [name, refresh]
+
+    {ok(rows), state}
+  end
+
   defp answer(
          state,
          "SELECT /*+ SET_VAR(query_timeout = 14400) */ DISTINCT date_trunc('hour'" <> _ = sql
        ) do
     [_, table] = Regex.run(~r/FROM warehouse\.(\w+) /, sql)
-    hours = state.tables[table].hours |> Enum.uniq() |> Enum.sort(:desc) |> Enum.map(&[&1])
+    day = @today |> Date.add(day_offset(sql)) |> Date.to_iso8601()
+
+    hours =
+      state.tables[table].hours
+      |> Enum.filter(&String.starts_with?(&1, day))
+      |> Enum.uniq()
+      |> Enum.sort(:desc)
+      |> Enum.map(&[&1])
+
     {ok(hours), state}
   end
 
@@ -147,8 +181,13 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
         %{state | tables: Map.merge(state.tables, swapped)}
 
       match = Regex.run(~r/^CREATE MATERIALIZED VIEW IF NOT EXISTS warehouse\.(\w+)\s/, sql) ->
-        [_, view] = match
-        put_in(state.tables, Map.put_new(state.tables, view, new([], [])))
+        [_, name] = match
+        refresh = if sql =~ ~r/REFRESH\s+DEFERRED\s+MANUAL/, do: "MANUAL", else: "ASYNC"
+        put_in(state.tables, Map.put_new(state.tables, name, view(refresh)))
+
+      match = Regex.run(~r/^ALTER MATERIALIZED VIEW warehouse\.(\w+) REFRESH ASYNC/, sql) ->
+        [_, name] = match
+        put_in(state.tables[name].refresh, "ASYNC")
 
       match = Regex.run(~r/^DROP MATERIALIZED VIEW IF EXISTS warehouse\.(\w+)$/, sql) ->
         [_, view] = match
@@ -378,7 +417,7 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
       start_warehouse(%{
         "flows" => old(["id", "time"], ["2025-01-02"]),
         "metrics" => old(["timestamp", "series", "value"], ["2025-01-02"]),
-        "metrics_hourly" => new([], [])
+        "metrics_hourly" => view("ASYNC")
       })
 
     retention = %{retention_days: [{"flows", 90}, {"metrics", 90}]}
@@ -517,6 +556,41 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
     assert run(agent, %{query: query}) == :ok
     assert_received {:days, sql}
     assert String.starts_with?(sql, "SELECT /*+ SET_VAR(query_timeout = 14400) */ DISTINCT ")
+  end
+
+  test "a table's hours are listed one day a statement, newest day first, across the whole window" do
+    agent = start_warehouse(%{"flows" => old(["id", "time"], ["2025-01-02"])})
+    parent = self()
+
+    query = fn sql ->
+      if sql =~ "DISTINCT date_trunc", do: send(parent, {:days, sql})
+      Agent.get_and_update(agent, &answer(&1, sql))
+    end
+
+    assert run(agent, %{query: query, retention_days: [{"flows", 3}]}) == :ok
+
+    listing =
+      fn ->
+        receive do
+          {:days, sql} -> sql
+        after
+          0 -> nil
+        end
+      end
+      |> Stream.repeatedly()
+      |> Enum.take_while(& &1)
+      |> Enum.take(5)
+
+    # Each statement reads one day, [midnight, the next midnight), and the
+    # first listing walks from tomorrow (the future slack) back to the day the
+    # three-day window starts in.
+    upper = fn sql ->
+      [_, bound] = Regex.run(~r/ AND `time` < (.+?) AND `time` >= DATE_SUB\(UTC_TIMESTAMP/, sql)
+      day_offset("WHERE `time` >= " <> bound)
+    end
+
+    assert Enum.map(listing, &day_offset/1) == [1, 0, -1, -2, -3]
+    assert Enum.map(listing, upper) == [2, 1, 0, -1, -2]
   end
 
   test "a table another runner swapped during the copy is finished, never swapped back" do
@@ -711,7 +785,7 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
             ["2025-01-02 00:00:00", "2025-01-02 01:00:00"],
             "`timestamp`, `series`"
           ),
-        "metrics_hourly" => new([], [])
+        "metrics_hourly" => view("ASYNC")
       })
 
     retention = %{migrations: @sorted_migrations, retention_days: [{"metrics", 90}]}
@@ -740,6 +814,126 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
     clear(agent)
     assert run(agent, retention) == :ok
     assert sent(agent) == []
+  end
+
+  test "a run that stopped after dropping the old table, before the rollup came back, restores it next time" do
+    agent =
+      start_warehouse(%{
+        "metrics" =>
+          sorted(["timestamp", "series", "value"], ["2025-01-02"], "`timestamp`, `series`"),
+        "metrics_hourly" => view("ASYNC")
+      })
+
+    retention = %{migrations: @sorted_migrations, retention_days: [{"metrics", 90}]}
+    dropped = "DROP TABLE IF EXISTS warehouse.metrics__rebuild FORCE"
+
+    still_locked = fn ->
+      if dropped in sent(agent), do: raise("lock lost"), else: :ok
+    end
+
+    assert_raise RuntimeError, "lock lost", fn ->
+      run(agent, Map.put(retention, :still_locked, still_locked))
+    end
+
+    assert List.last(sent(agent)) == dropped
+    assert kinds(agent) == %{"metrics" => :partitioned}
+
+    # Nothing is left to rebuild, but the rollup is still missing.
+    clear(agent)
+    assert run(agent, retention) == :ok
+
+    assert sent(agent) == [
+             "CREATE MATERIALIZED VIEW IF NOT EXISTS warehouse.metrics_hourly",
+             "ALTER MATERIALIZED VIEW warehouse.metrics_hourly REFRESH ASYNC EVERY(INTERVAL 5 MINUTE)"
+           ]
+
+    assert tables(agent)["metrics_hourly"].refresh == "ASYNC"
+  end
+
+  test "a rollup created but never given its schedule gets only its ALTER next time" do
+    agent =
+      start_warehouse(%{
+        "metrics" =>
+          sorted(["timestamp", "series", "value"], ["2025-01-02"], "`series`, `timestamp`"),
+        "metrics_hourly" => view("MANUAL")
+      })
+
+    retention = %{migrations: @sorted_migrations, retention_days: [{"metrics", 90}]}
+    assert run(agent, retention) == :ok
+
+    assert sent(agent) == [
+             "ALTER MATERIALIZED VIEW warehouse.metrics_hourly REFRESH ASYNC EVERY(INTERVAL 5 MINUTE)"
+           ]
+
+    clear(agent)
+    assert run(agent, retention) == :ok
+    assert sent(agent) == []
+  end
+
+  test "a warehouse whose rollups exist on their shipped schedule is sent nothing" do
+    agent =
+      start_warehouse(%{
+        "metrics" =>
+          sorted(["timestamp", "series", "value"], ["2025-01-02"], "`series`, `timestamp`"),
+        "metrics_hourly" => view("ASYNC")
+      })
+
+    assert run(agent, %{migrations: @sorted_migrations, retention_days: [{"metrics", 90}]}) == :ok
+    assert sent(agent) == []
+
+    # 0003 ships its rollup REFRESH ASYNC with no ALTER after it, so a view
+    # reporting MANUAL there is not this module's to reschedule.
+    manual =
+      start_warehouse(%{
+        "metrics" => new(["timestamp", "series", "value"], ["2025-01-02"]),
+        "metrics_hourly" => view("MANUAL")
+      })
+
+    assert run(manual, %{retention_days: [{"metrics", 90}]}) == :ok
+    assert sent(manual) == []
+  end
+
+  test "a copy an older release began on another sort key is dropped and the table rebuilt" do
+    agent =
+      start_warehouse(%{
+        "metrics" => old(["timestamp", "series", "value"], ["2025-01-02"]),
+        "metrics__rebuild" =>
+          sorted(["timestamp", "series", "value"], ["2025-01-02"], "`timestamp`, `series`")
+      })
+
+    assert run(agent, %{migrations: @sorted_migrations, retention_days: [{"metrics", 90}]}) ==
+             :ok
+
+    assert [
+             "DROP TABLE IF EXISTS warehouse.metrics__rebuild FORCE",
+             "CREATE TABLE IF NOT EXISTS warehouse.metrics__rebuild (" | _
+           ] = sent(agent)
+
+    assert Enum.count(sent(agent), &(&1 =~ "SWAP WITH")) == 1
+    assert Map.keys(tables(agent)) == ["metrics", "metrics_hourly"]
+    assert tables(agent)["metrics"].sort_key == "`series`, `timestamp`"
+    assert Enum.uniq(tables(agent)["metrics"].hours) == ["2025-01-02 00:00:00"]
+  end
+
+  test "a swap an older release left unfinished is finished, and the next run moves it onto the sort key" do
+    agent =
+      start_warehouse(%{
+        "metrics" =>
+          sorted(["timestamp", "series", "value"], ["2025-01-02"], "`timestamp`, `series`"),
+        "metrics__rebuild" => old(["timestamp", "series", "value"], ["2025-01-02"])
+      })
+
+    retention = %{migrations: @sorted_migrations, retention_days: [{"metrics", 90}]}
+    assert run(agent, retention) == :ok
+    refute Enum.any?(sent(agent), &(&1 =~ ~r/SWAP|CREATE/))
+    assert List.last(sent(agent)) == "DROP TABLE IF EXISTS warehouse.metrics__rebuild FORCE"
+    assert Map.keys(tables(agent)) == ["metrics"]
+
+    clear(agent)
+    assert run(agent, retention) == :ok
+    assert Enum.count(sent(agent), &(&1 =~ "SWAP WITH")) == 1
+    assert tables(agent)["metrics"].sort_key == "`series`, `timestamp`"
+    assert tables(agent)["metrics_hourly"].refresh == "ASYNC"
   end
 
   test "every table this release retains can be rebuilt from the schema it ships" do

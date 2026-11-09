@@ -20,13 +20,17 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
        inactive), `ALTER TABLE <table> SWAP WITH <table>__rebuild`, copy across
        whatever the old table has that the new one lacks, drop the old table.
 
-  The rollups are gone only for step 2. A table this run cuts over gets its
-  rollup back as soon as every cut-over is done, from the newest definition
-  this release ships and the ALTERs that follow it (its refresh schedule). On
-  a warehouse that predates partitioning 0017 is still pending and replaces
-  that rollup again, which costs a backfill and nothing else. Step 2 runs two
-  hour-bounded anti-join passes per held hour, so on a long retention it is
-  minutes, not seconds.
+  The rollups are gone only for step 2. Once every cut-over is done, each
+  retained table that has its shipped layout and no old table left beside it
+  gets back a missing rollup, from the newest definition this release ships
+  and the ALTERs that follow it (its refresh schedule); a rollup that exists
+  but was left without that schedule gets the ALTERs alone. This is read from
+  the warehouse on every run, so a run that stopped between the swap and the
+  restore, or between a rollup's CREATE and its ALTER, is finished by the next
+  one. On a warehouse that predates partitioning 0017 is still pending and
+  replaces that rollup again, which costs a backfill and nothing else. Step 2
+  runs two hour-bounded anti-join passes per held hour, so on a long retention
+  it is minutes, not seconds.
 
   The unit of work is an hour, not the day a partition holds. A day of a
   large metrics table is more than a modest compute node can hold in memory,
@@ -40,13 +44,9 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
   copies on every retry until it has some.
 
   A table whose copy fails is left alone, rollup included, and does not keep
-  the others unpartitioned. It does keep 0017 pending, though, so a run that
-  ends with any failure gives every table that is partitioned, finished with
-  its old table, and without an hourly rollup that rollup back, from the newest
-  definition this release ships. That is read from the warehouse like the rest,
-  so it covers a table an earlier run cut over and is tried again by every run
-  until it holds. A day-partitioned rollup is valid over a partitioned base
-  table whatever state the other tables are in.
+  the others unpartitioned. The rollups of the others are restored all the
+  same: a day-partitioned rollup is valid over a partitioned base table
+  whatever state the other tables are in.
 
   Nothing here is recorded in the ledger. Every run reads what the warehouse
   holds and continues from there. An hour is one atomic INSERT, and what is
@@ -108,8 +108,9 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
   @refresh_days 2
   # How often a long copy or catch-up says how much is left, in hours done.
   @progress_every 24
-  # Listing a table's hours scans the time column of an unpartitioned table
-  # whose key does not prune it. A SELECT is bounded by the server's
+  # Listing a table's hours is one statement a day, so a partitioned table
+  # prunes each to one partition; an unpartitioned table whose key does not
+  # prune it is scanned for its time column. A SELECT is bounded by the server's
   # query_timeout (300s by default), not insert_timeout, so without a ceiling
   # of its own a large table fails the same way on every retry. Four hours
   # matches what the copy statements are allowed.
@@ -133,17 +134,11 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
     with {:ok, layout} <- layout(state),
          {:ok, plans} <- plan(state, retention, layout) do
       {copied, copy_failures} = attempt(plans, &copy(state, &1))
-      {cut_over, cut_over_failures} = attempt(copied, &cut_over(state, &1))
+      {_cut_over, cut_over_failures} = attempt(copied, &cut_over(state, &1))
 
-      case copy_failures ++ cut_over_failures do
-        [] ->
-          case restore_rollups(state, Enum.map(cut_over, &{&1.spec.table, &1.days})) do
-            [] -> :ok
-            failures -> {:error, {:partition_rebuild, failures}}
-          end
-
-        failures ->
-          {:error, {:partition_rebuild, failures ++ restore_rollups(state, retention)}}
+      case copy_failures ++ cut_over_failures ++ restore_rollups(state, retention) do
+        [] -> :ok
+        failures -> {:error, {:partition_rebuild, failures}}
       end
     end
   end
@@ -187,15 +182,29 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
   # No such table is a fresh warehouse, which the shipped CREATE lays out.
   defp step(nil, _copy), do: :nothing
   defp step(:current, nil), do: :nothing
-  defp step(:outdated, nil), do: :rebuild
-  # A copy some earlier run began. Its finished days are kept.
-  defp step(:outdated, :current), do: :rebuild
+  defp step(:current, :current), do: {:error, :unexpected_layout}
   # Swapped, but the run that swapped it did not live to finish.
-  defp step(:current, :outdated), do: :finish
+  defp step(:current, _old), do: :finish
+  # Swapped by a release that shipped an older sort key, and not finished
+  # either. Finished first; the next run moves it onto the shipped sort key.
+  defp step(:unsorted, :unpartitioned), do: :finish
+  defp step(_outdated, nil), do: :rebuild
+  # A copy some earlier run began. Its finished days are kept.
+  defp step(_outdated, :current), do: :rebuild
+  # A copy an earlier release began from an older CREATE. The table it was
+  # copying was never partitioned, so it was never swapped in and holds
+  # nothing the table lacks.
+  defp step(:unpartitioned, :unsorted), do: :discard_copy
   # Neither arrangement is one this module produces, so it does not guess.
   defp step(_table, _copy), do: {:error, :unexpected_layout}
 
   defp copy(_state, %{step: :finish}), do: :ok
+
+  defp copy(state, %{step: :discard_copy, spec: spec} = plan) do
+    with :ok <- exec(state, "DROP TABLE IF EXISTS #{qualified(state, spec.copy)} FORCE") do
+      copy(state, %{plan | step: :rebuild})
+    end
+  end
 
   defp copy(state, %{spec: spec, days: days}) do
     Logger.info(
@@ -242,7 +251,8 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
     end)
   end
 
-  defp cut_over(state, %{step: :rebuild, spec: spec, days: days} = plan) do
+  defp cut_over(state, %{step: step, spec: spec, days: days} = plan)
+       when step in [:rebuild, :discard_copy] do
     with {:ok, columns} <- shared_columns(state, spec.table, spec.copy),
          {:ok, held} <- hours_in(state, spec.table, spec.time_column, days),
          recent = newest_days(held, @refresh_days),
@@ -252,8 +262,8 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
       # that lost the migration lock while another finished the job, it would
       # put the unpartitioned table back. What the warehouse says NOW decides.
       case {Map.get(layout, spec.table), Map.get(layout, spec.copy)} do
-        {:outdated, :current} -> swap(state, plan, columns, recent)
-        {:current, :outdated} -> cut_over(state, %{plan | step: :finish})
+        {old, :current} when old != :current -> swap(state, plan, columns, recent)
+        {:current, old} when old != :current -> cut_over(state, %{plan | step: :finish})
         _other -> {:error, :unexpected_layout}
       end
     end
@@ -281,36 +291,67 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
     end
   end
 
-  # Gives each listed table that has finished with its old table, and has no
-  # hourly rollup, that rollup back. After a failure that is every retained
-  # table, read from the warehouse; after a clean run, the tables it cut over.
-  # The layout lists materialized views too, so it says which rollups are
-  # missing. A table without one (logs, MTR) has nothing to restore, and is
-  # skipped rather than sent an empty statement.
-  defp restore_rollups(state, tables) do
-    tables
-    |> Enum.map(fn {table, _days} -> {table, rollup_statements(state, table)} end)
-    |> Enum.reject(fn {_table, statements} -> statements == [] end)
+  # Every retained table that has its shipped layout and has finished with its
+  # old table gets what its rollup still lacks: the whole of it when it is
+  # missing, its ALTERs when it exists but never got the refresh schedule they
+  # give it. A table without a shipped rollup (logs, MTR) has nothing to
+  # restore, and is skipped rather than sent an empty statement.
+  defp restore_rollups(state, retention) do
+    retention
+    |> Enum.flat_map(fn {table, _days} ->
+      case rollup_statements(state, table) do
+        nil -> []
+        statements -> [{table, statements}]
+      end
+    end)
     |> restore_missing_rollups(state)
   end
 
   defp restore_missing_rollups([], _state), do: []
 
   defp restore_missing_rollups(rollups, state) do
-    case layout(state) do
-      {:ok, layout} ->
-        for {table, statements} <- rollups,
-            Map.get(layout, table) == :current,
-            not Map.has_key?(layout, table <> @suffix),
-            not Map.has_key?(layout, table <> "_hourly"),
-            {:error, reason} <- [exec_all(state, statements)] do
-          Logger.error("StarRocks rollup of #{table} could not be restored: #{inspect(reason)}")
-          {table, {:rollup, reason}}
-        end
-
+    with {:ok, layout} <- layout(state),
+         {:ok, views} <- refresh_types(state) do
+      for {table, statements} <- rollups,
+          Map.get(layout, table) == :current,
+          not Map.has_key?(layout, table <> @suffix),
+          pending = pending_rollup(statements, Map.get(views, table <> "_hourly", :missing)),
+          pending != [],
+          {:error, reason} <- [exec_all(state, pending)] do
+        Logger.error("StarRocks rollup of #{table} could not be restored: #{inspect(reason)}")
+        {table, {:rollup, reason}}
+      end
+    else
       {:error, reason} ->
         Logger.error("StarRocks rollups could not be restored: #{inspect(reason)}")
         [{:rollups, reason}]
+    end
+  end
+
+  # A view is never created again over itself. One created REFRESH DEFERRED
+  # MANUAL whose ALTER never ran reports MANUAL, and gets that ALTER.
+  defp pending_rollup({create, alters}, :missing), do: [create | alters]
+
+  defp pending_rollup({_create, alters}, "MANUAL") do
+    if Enum.any?(alters, &(&1 =~ ~r/\bREFRESH\s+ASYNC\b/i)), do: alters, else: []
+  end
+
+  defp pending_rollup(_statements, _refresh_type), do: []
+
+  defp refresh_types(state) do
+    sql =
+      "SELECT TABLE_NAME, REFRESH_TYPE FROM information_schema.materialized_views " <>
+        "WHERE TABLE_SCHEMA = '#{state.database}'"
+
+    case query(state, sql) do
+      {:ok, %{rows: rows}} ->
+        {:ok,
+         Map.new(rows, fn [view, refresh_type | _] ->
+           {to_string(view), refresh_type |> to_string() |> String.trim() |> String.upcase()}
+         end)}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -325,15 +366,13 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
 
     case statements |> Enum.with_index() |> Enum.filter(fn {sql, _} -> sql =~ create end) do
       [] ->
-        []
+        nil
 
       creates ->
         {created, index} = List.last(creates)
-
-        Enum.map(
-          [created | statements |> Enum.drop(index + 1) |> Enum.filter(&(&1 =~ alter))],
-          &Schema.retarget(&1, state.database, state.replication_num)
-        )
+        retarget = &Schema.retarget(&1, state.database, state.replication_num)
+        alters = statements |> Enum.drop(index + 1) |> Enum.filter(&(&1 =~ alter))
+        {retarget.(created), Enum.map(alters, retarget)}
     end
   end
 
@@ -393,23 +432,42 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
   defp day_of(hour), do: String.slice(hour, 0, 10)
 
   # The hours, newest first and as `YYYY-MM-DD HH:00:00`, in which a table
-  # holds rows inside retention.
+  # holds rows inside retention. One statement a day, newest day first: a
+  # single statement over the whole window would read every partition of it.
   defp hours_in(state, table, time_column, days) do
     column = "`#{time_column}`"
 
-    sql =
-      "SELECT /*+ SET_VAR(query_timeout = #{@scan_timeout_s}) */ DISTINCT " <>
-        "date_trunc('hour', #{column}) FROM #{qualified(state, table)} " <>
-        "WHERE #{window(column, days)} ORDER BY 1 DESC"
+    @future_slack_days..-days//-1
+    |> Enum.reduce_while({:ok, []}, fn day, {:ok, found} ->
+      sql =
+        "SELECT /*+ SET_VAR(query_timeout = #{@scan_timeout_s}) */ DISTINCT " <>
+          "date_trunc('hour', #{column}) FROM #{qualified(state, table)} " <>
+          "WHERE #{column} >= #{day_start(day)} AND #{column} < #{day_start(day + 1)} " <>
+          "AND #{window(column, days)} ORDER BY 1 DESC"
 
-    case query(state, sql) do
-      {:ok, %{rows: rows}} ->
-        {:ok, Enum.map(rows, fn [hour | _] -> hour |> to_string() |> String.slice(0, 19) end)}
+      case query(state, sql) do
+        {:ok, %{rows: rows}} ->
+          hours = Enum.map(rows, fn [hour | _] -> hour |> to_string() |> String.slice(0, 19) end)
+          {:cont, {:ok, [hours | found]}}
 
-      {:error, reason} ->
-        {:error, reason}
+        {:error, reason} ->
+          {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, found} -> {:ok, found |> Enum.reverse() |> Enum.concat()}
+      error -> error
     end
   end
+
+  # Midnight UTC `offset` days from today, by the warehouse's clock.
+  defp day_start(0), do: "date_trunc('day', UTC_TIMESTAMP())"
+
+  defp day_start(offset) when offset > 0,
+    do: "DATE_ADD(date_trunc('day', UTC_TIMESTAMP()), INTERVAL #{offset} DAY)"
+
+  defp day_start(offset),
+    do: "DATE_SUB(date_trunc('day', UTC_TIMESTAMP()), INTERVAL #{-offset} DAY)"
 
   defp window(column, days) do
     "#{column} >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL #{days} DAY) " <>
@@ -480,7 +538,8 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
     |> List.last()
   end
 
-  # Every table and view -> :current or :outdated. A `__rebuild` copy is held
+  # Every table and view -> :current, :unsorted (partitioned, but not on the
+  # sort key its shipped CREATE names) or :unpartitioned. A `__rebuild` copy is held
   # to its base table's shipped CREATE, the one it was made from. A sort key is
   # compared only where that CREATE names one; otherwise StarRocks derives it
   # from the key, and any key it derived is the shipped one.
@@ -496,11 +555,14 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
            table = to_string(table)
            shipped = shipped_sort_key(state, String.replace_suffix(table, @suffix, ""))
 
-           current? =
-             not blank?(partition_key) and
-               (shipped == nil or sort_key_columns(sort_key) == shipped)
+           kind =
+             cond do
+               blank?(partition_key) -> :unpartitioned
+               shipped == nil or sort_key_columns(sort_key) == shipped -> :current
+               true -> :unsorted
+             end
 
-           {table, if(current?, do: :current, else: :outdated)}
+           {table, kind}
          end)}
 
       {:error, reason} ->
