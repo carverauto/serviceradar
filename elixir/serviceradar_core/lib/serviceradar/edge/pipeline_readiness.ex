@@ -28,6 +28,11 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
 
     * `:spool_unavailable` - the agent reported that its edge-record spool could not be
       opened, so it has nowhere to put edge records. Detail: `error`.
+    * `:no_live_gateway_on_active_epoch` - the agent is connected through a live
+      gateway, an epoch is active, but no installation report within the
+      freshness window shows that gateway holding the active epoch, so the
+      agent's records cannot be admitted under it. Detail: `epoch`, the active
+      epoch number, and `gateway_id`, the agent's live gateway.
     * `:spool_wedged` - allocated coverage gaps block durable delivery. Detail includes
       the bounded gap sequence sample, total gaps, unresolved count/age and byte budget.
     * `:spool_backpressure` - the runtime admission gate paused bulk producers.
@@ -56,6 +61,7 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
   alias ServiceRadar.Edge.AgentRelease
   alias ServiceRadar.Edge.AgentReleaseManager
   alias ServiceRadar.Edge.AgentReleaseTarget
+  alias ServiceRadar.Edge.ContractRegistry
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Infrastructure.Partition
 
@@ -74,6 +80,7 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
           | :agent_disconnected
           | :agent_upgrade_blocked
           | :spool_unavailable
+          | :no_live_gateway_on_active_epoch
           | :spool_wedged
           | :spool_backpressure
           | :spool_health_unavailable
@@ -87,10 +94,12 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
           conditions: [condition(), ...]
         }
   @type facts :: %{
-          partitions: MapSet.t(String.t()),
-          runtime: %{String.t() => map()},
-          release: AgentRelease.t() | nil,
-          paused_agent_ids: MapSet.t(String.t())
+          required(:partitions) => MapSet.t(String.t()),
+          required(:runtime) => %{String.t() => map()},
+          required(:release) => AgentRelease.t() | nil,
+          required(:paused_agent_ids) => MapSet.t(String.t()),
+          optional(:active_epoch) => {:ok, map()} | {:error, term()},
+          optional(:gateway_epochs) => %{String.t() => MapSet.t(integer())}
         }
 
   @doc """
@@ -126,9 +135,24 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
          partitions: MapSet.new(partitions, & &1.slug),
          runtime: runtime,
          release: release,
-         paused_agent_ids: paused
+         paused_agent_ids: paused,
+         active_epoch: ContractRegistry.active_epoch(),
+         gateway_epochs: fresh_gateway_epochs(DateTime.utc_now())
        }}
     end
+  end
+
+  # What each gateway holds right now: the epochs of its installation report,
+  # when the report arrived within the freshness window the transition counts
+  # reports for. Reports arrive on every core node over PubSub, so the local
+  # table is enough.
+  @report_window_seconds 120
+  @spec fresh_gateway_epochs(DateTime.t()) :: %{String.t() => MapSet.t(integer())}
+  def fresh_gateway_epochs(now) do
+    for report <- ContractRegistry.gateway_reports(),
+        DateTime.diff(now, report.received_at, :second) <= @report_window_seconds,
+        into: %{},
+        do: {report.gateway_id, MapSet.new(report.installed, & &1.epoch)}
   end
 
   @doc """
@@ -176,11 +200,40 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
 
   defp connection_conditions(agent, runtime, facts) do
     spool_conditions(agent, runtime) ++
+      gateway_conditions(runtime, facts) ++
       if present(runtime[:deployment_type]) in @image_deployment_types do
         []
       else
         upgrade_conditions(agent, runtime, facts)
       end
+  end
+
+  # The agent's live gateway holds the active epoch, or its records cannot be
+  # admitted under it. Only reported when an epoch is active and the gateway
+  # is known; anything else is not attributable to this gateway.
+  defp gateway_conditions(runtime, facts) do
+    with %{epoch: epoch} <- active_epoch(facts),
+         gateway_id when is_binary(gateway_id) <- present(runtime[:gateway_id]),
+         false <- holds_epoch?(facts, gateway_id, epoch) do
+      [
+        %{
+          reason: :no_live_gateway_on_active_epoch,
+          detail: %{epoch: epoch, gateway_id: gateway_id}
+        }
+      ]
+    else
+      _attributed -> []
+    end
+  end
+
+  defp active_epoch(%{active_epoch: {:ok, %{epoch: epoch}}}), do: %{epoch: epoch}
+  defp active_epoch(_facts), do: nil
+
+  defp holds_epoch?(facts, gateway_id, epoch) do
+    facts
+    |> Map.get(:gateway_epochs, %{})
+    |> Map.get(gateway_id, MapSet.new())
+    |> MapSet.member?(epoch)
   end
 
   defp spool_conditions(agent, runtime) do

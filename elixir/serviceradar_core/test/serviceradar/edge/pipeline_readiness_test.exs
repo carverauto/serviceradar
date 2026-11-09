@@ -104,6 +104,66 @@ defmodule ServiceRadar.Edge.PipelineReadinessTest do
              []
   end
 
+  test "an agent whose live gateway does not hold the active epoch is not admittable under it" do
+    epoch = 1_000_007
+
+    holding =
+      facts(%{
+        active_epoch: {:ok, %{epoch: epoch}},
+        gateway_epochs: %{"gw-1" => MapSet.new([epoch])},
+        runtime: %{"agent-1" => runtime(%{gateway_id: "gw-1"})}
+      })
+
+    assert PipelineReadiness.conditions(agent(), holding) == []
+
+    # A stale report is no report: the gateway is live but not on the epoch.
+    stale =
+      facts(%{
+        active_epoch: {:ok, %{epoch: epoch}},
+        gateway_epochs: %{"gw-1" => MapSet.new([epoch - 1])},
+        runtime: %{"agent-1" => runtime(%{gateway_id: "gw-1"})}
+      })
+
+    assert [
+             %{
+               reason: :no_live_gateway_on_active_epoch,
+               detail: %{epoch: ^epoch, gateway_id: "gw-1"}
+             }
+           ] = PipelineReadiness.conditions(agent(), stale)
+
+    # A gateway that never reported does not hold the epoch either.
+    missing =
+      facts(%{
+        active_epoch: {:ok, %{epoch: epoch}},
+        gateway_epochs: %{},
+        runtime: %{"agent-1" => runtime(%{gateway_id: "gw-1"})}
+      })
+
+    assert [
+             %{
+               reason: :no_live_gateway_on_active_epoch,
+               detail: %{epoch: ^epoch, gateway_id: "gw-1"}
+             }
+           ] = PipelineReadiness.conditions(agent(), missing)
+
+    # With no active epoch there is nothing to hold, and a runtime that names
+    # no gateway cannot attribute the miss to one.
+    assert PipelineReadiness.conditions(
+             agent(),
+             facts(%{active_epoch: {:error, :no_active_epoch}})
+           ) ==
+             []
+
+    assert PipelineReadiness.conditions(agent(), facts(%{active_epoch: {:ok, %{epoch: epoch}}})) ==
+             []
+
+    # Disconnected and superseded agents never carry it.
+    assert reasons(agent(), facts(%{runtime: %{}})) == [:agent_disconnected]
+
+    assert PipelineReadiness.conditions(agent(%{status: :superseded}), facts(%{runtime: %{}})) ==
+             []
+  end
+
   test "an agent whose spool did not open is spool_unavailable, with the error it reported" do
     spool = %{"edge_record_spool" => %{"available" => false, "error" => "spool: mkdir: denied"}}
 

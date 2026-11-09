@@ -25,17 +25,28 @@ defmodule ServiceRadar.ClusterHealth do
     `status` is `:warning` when a reserve is below
     `NodeMemory.reserve_warning_bytes/0` or a setting could not be applied.
     That does not degrade the cluster status: the warehouse still answers.
+  - Edge pipeline status (registry epochs, transition blockers, issuer key,
+    awaiting-roll-forward counts)
   - Last check timestamp
   """
 
   use GenServer
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Analytics.StarRocks.NodeMemory
+  alias ServiceRadar.Edge.ContractRegistryEpoch
+  alias ServiceRadar.Edge.ContractRegistryTransition
+  alias ServiceRadar.Edge.IssuerKey
+  alias ServiceRadar.Edge.PipelineStats
 
+  require Ash.Query
   require Logger
 
   @health_check_interval to_timeout(second: 30)
   @event_writer_rpc_timeout to_timeout(second: 2)
+  # The dead-letter reason EventWriter files unprojectable bulk-stream records
+  # under while they await roll-forward (Decision 5); 1.4 produces it.
+  @awaiting_roll_forward_reason "awaiting_roll_forward"
 
   defstruct [
     :last_check,
@@ -45,6 +56,7 @@ defmodule ServiceRadar.ClusterHealth do
     :agent_count,
     :event_writer,
     :starrocks_memory,
+    :edge_pipeline,
     :status
   ]
 
@@ -107,6 +119,8 @@ defmodule ServiceRadar.ClusterHealth do
       {:node_down, node}
     )
 
+    # Public API
+
     new_state = perform_health_check()
     {:noreply, new_state}
   end
@@ -121,8 +135,6 @@ defmodule ServiceRadar.ClusterHealth do
     state = perform_health_check()
     {:reply, state, state}
   end
-
-  # Public API
 
   @doc """
   Get current cluster health status.
@@ -169,7 +181,8 @@ defmodule ServiceRadar.ClusterHealth do
         gateway_count: health.gateway_count,
         agent_count: health.agent_count,
         last_check: health.last_check
-      }
+      },
+      edge_pipeline: health.edge_pipeline
     }
 
     base_response
@@ -191,6 +204,7 @@ defmodule ServiceRadar.ClusterHealth do
     gateway_count = safe_count(ServiceRadar.GatewayRegistry)
     agent_count = safe_count(ServiceRadar.AgentRegistry)
     event_writer = get_event_writer_status()
+    edge_pipeline = get_edge_pipeline_status()
 
     status = determine_status(connected_nodes, event_writer)
 
@@ -202,6 +216,7 @@ defmodule ServiceRadar.ClusterHealth do
       agent_count: agent_count,
       event_writer: event_writer,
       starrocks_memory: NodeMemory.health(),
+      edge_pipeline: edge_pipeline,
       status: status
     }
   end
@@ -254,6 +269,123 @@ defmodule ServiceRadar.ClusterHealth do
         }
     end
   end
+
+  # The durable edge-record pipeline's status for the health response: the
+  # registry epochs this node sees, the transition's blockers cluster-wide,
+  # whether the issuer key is present, and this node's awaiting-roll-forward
+  # counts. Never raises; a failed read leaves an explicit error, the way the
+  # EventWriter section degrades instead of crashing the check.
+  defp get_edge_pipeline_status do
+    edge_pipeline_status(
+      PipelineStats.snapshot(),
+      ContractRegistryTransition.status(),
+      read_pipeline_epochs(),
+      IssuerKey.configured()
+    )
+  rescue
+    reason -> %{error: "edge_pipeline_status_failed: #{inspect(reason)}"}
+  end
+
+  @doc """
+  Maps one node's pipeline inputs to the health response's `edge_pipeline`
+  section. `snapshot` is this node's `PipelineStats.snapshot/0`,
+  `transition` its `ContractRegistryTransition.status/0`, `epochs` the
+  non-retired epoch rows, and `key` the `IssuerKey.configured/0` result.
+  """
+  @spec edge_pipeline_status(
+          {:ok, map()} | {:error, term()},
+          map() | nil,
+          {:ok, [map()]} | {:error, term()},
+          {:ok, map()} | {:error, term()}
+        ) :: map()
+  def edge_pipeline_status(snapshot_result, transition_status, epochs_result, key_result) do
+    %{
+      node: to_string(node()),
+      issuer_key_present: match?({:ok, _}, key_result),
+      epochs: pipeline_epochs(epochs_result),
+      transition: transition_summary(transition_status),
+      awaiting_roll_forward: roll_forward_counts(snapshot_result)
+    }
+  end
+
+  defp read_pipeline_epochs do
+    ContractRegistryEpoch
+    |> Ash.Query.filter(state != :retired)
+    |> Ash.Query.sort(epoch: :asc)
+    |> Ash.read(actor: SystemActor.system(:cluster_health))
+  end
+
+  defp pipeline_epochs({:ok, rows}) do
+    by_state = Enum.group_by(rows, & &1.state)
+
+    %{
+      active: epoch_number(by_state, :active),
+      candidate: epoch_number(by_state, :candidate),
+      draining: by_state |> Map.get(:draining, []) |> Enum.map(& &1.epoch),
+      error: nil
+    }
+  end
+
+  defp pipeline_epochs({:error, reason}),
+    do: %{active: nil, candidate: nil, draining: [], error: inspect(reason)}
+
+  defp epoch_number(by_state, state) do
+    case Map.get(by_state, state, []) do
+      [%{epoch: epoch} | _] -> epoch
+      [] -> nil
+    end
+  end
+
+  defp transition_summary(%{outcome: :no_candidate, evaluated_at: evaluated_at}),
+    do: %{outcome: "no_candidate", evaluated_at: evaluated_at, epoch: nil, waiting_on: []}
+
+  defp transition_summary(%{outcome: {:activated, epoch, _previous}, evaluated_at: evaluated_at}),
+    do: %{outcome: "activated", evaluated_at: evaluated_at, epoch: epoch, waiting_on: []}
+
+  defp transition_summary(%{outcome: {:waiting, epoch, blockers}, evaluated_at: evaluated_at}),
+    do: %{
+      outcome: "waiting",
+      evaluated_at: evaluated_at,
+      epoch: epoch,
+      waiting_on: Enum.map(blockers, &ContractRegistryTransition.describe/1)
+    }
+
+  defp transition_summary(%{outcome: {:abandoned, epoch}, evaluated_at: evaluated_at}),
+    do: %{outcome: "abandoned", evaluated_at: evaluated_at, epoch: epoch, waiting_on: []}
+
+  defp transition_summary(%{outcome: {:error, reason}, evaluated_at: evaluated_at}),
+    do: %{
+      outcome: "error",
+      evaluated_at: evaluated_at,
+      epoch: nil,
+      waiting_on: [],
+      detail: inspect(reason)
+    }
+
+  defp transition_summary(_status),
+    do: %{outcome: "unknown", evaluated_at: nil, epoch: nil, waiting_on: []}
+
+  defp roll_forward_counts({:ok, snapshot}) do
+    %{
+      withheld_by_contract:
+        for(
+          %{contract: contract, gateway_withheld: count} <- snapshot.contracts,
+          count > 0,
+          do: %{contract: contract, count: count}
+        ),
+      dead_lettered_by_contract:
+        Enum.filter(
+          snapshot.dead_letter_reasons,
+          &(&1.reason == @awaiting_roll_forward_reason)
+        ),
+      # Counted by 1.4's dead-letter move, which also files the records above;
+      # no counter exists yet, so the key ships at zero for 1.4 to fill.
+      overflow: 0
+    }
+  end
+
+  defp roll_forward_counts({:error, _reason}),
+    do: %{withheld_by_contract: [], dead_lettered_by_contract: [], overflow: 0}
 
   defp event_writer_reason(%{reason: :ok}, %{healthy: false, nodes: nodes}) do
     nodes

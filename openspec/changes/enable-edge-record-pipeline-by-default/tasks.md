@@ -127,11 +127,18 @@
   delivery grants for draining epochs, and never issue them for retired ones.
   (#6356: `drain_until` and scheduled retirement done; the delivery-grant rule
   for draining and retired epochs is not yet verified.)
-- [ ] 1.8 Add pipeline status: the `awaiting_roll_forward` counts (agent spool
+- [x] 1.8 Add pipeline status: the `awaiting_roll_forward` counts (agent spool
   refusals and dead-lettered records) and `awaiting_roll_forward_overflow`, the
   active,
   candidate and draining epochs, the components not holding a candidate, and the issuer key presence. Expose it
   through core's health API.
+  - `ServiceRadar.ClusterHealth` carries `edge_pipeline` in its state and
+    `health_check_response/0`: per-node withheld/dead-lettered
+    awaiting-roll-forward counts from `PipelineStats.snapshot/0`, the
+    non-retired epochs grouped by state, the transition's blockers described
+    cluster-wide, and the issuer-key presence. `overflow` ships at zero:
+    1.4's dead-letter move (off limits) counts it. Pinned by
+    `cluster_health_edge_pipeline_test.exs` (pure mapping unit tests).
 
 ## 2. Core: issuer key, switch removal, settings, conditions
 
@@ -164,7 +171,7 @@
   to 1 GiB.
   - `AgentConfigResponse.edge_spool_max_bytes`; the budget is part of the config
     version.
-- [ ] 2.5 Record the per-agent edge pipeline condition (`partition_not_found`,
+- [x] 2.5 Record the per-agent edge pipeline condition (`partition_not_found`,
   `no_live_gateway_on_active_epoch`, `spool_unavailable`). Expose it in the agent
   API representation and in web-ng's agent detail.
   - [x] The `edge_pipeline_conditions` calculation on the agent (JSON:API and
@@ -172,8 +179,13 @@
     and the readiness reasons of 7.1.
   - [x] `spool_unavailable`, from the spool status the agent reports in its hello
     (4.3), for connected agents.
-  - [ ] `no_live_gateway_on_active_epoch` (needs the epochs of 1.3 and the gateway
-    installed-digest report of 2.6 and 3.4).
+  - [x] `no_live_gateway_on_active_epoch`: `PipelineReadiness` reports it for a
+    connected agent whose live gateway has no fresh installation report holding
+    the active epoch (1.3 epochs, 2.6/3.4 reports). It flows through the
+    existing `edge_pipeline_conditions` calculation onto the agent API
+    representation, and web-ng's agent detail explains it via a new clause
+    next to the others. Pinned by new cases in `pipeline_readiness_test.exs`
+    and `edge_pipeline_components_test.exs` (both fail-first).
 - [x] 2.6 Extend `RecordTrust.snapshot/0` with the `contract_registry` member
   (format 2, every non-retired epoch), and accept the gateway's
   installed-digest report on the refresh call.
