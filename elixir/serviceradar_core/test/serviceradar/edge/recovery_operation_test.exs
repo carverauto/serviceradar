@@ -60,6 +60,46 @@ defmodule ServiceRadar.Edge.RecoveryOperationTest do
              RecoveryOperation.validate(%{valid | manifest_pages: [oversized]})
   end
 
+  test "operation page count fits the reserved publication footprint" do
+    for {count, expected} <- [{4, :ok}, {5, :registration_bounds}] do
+      operation = operation([loss(1, count)], [], 1, count)
+      [template] = operation.manifest_pages
+      template = EdgeLossManifestPageV1.decode(template)
+
+      {pages, _} =
+        Enum.map_reduce(0..(count - 1), "", fn index, previous ->
+          page = %{
+            template
+            | page_index: index,
+              page_count: count,
+              terminal: index == count - 1,
+              prev_page_sha256: previous,
+              classification_spans: [loss(index + 1, index + 1)]
+          }
+
+          page = %{page | page_sha256: HashGrammar.manifest_page_digest(page)}
+          {page, page.page_sha256}
+        end)
+
+      tombstone = %{
+        SpoolLossTombstoneV1.decode(operation.tombstone)
+        | manifest_page_count: count,
+          manifest_root_sha256: HashGrammar.manifest_root(pages)
+      }
+
+      operation = %{
+        operation
+        | manifest_pages: Enum.map(pages, &EdgeLossManifestPageV1.encode/1),
+          tombstone: SpoolLossTombstoneV1.encode(tombstone)
+      }
+
+      case expected do
+        :ok -> assert {:ok, _} = RecoveryOperation.validate(operation)
+        reason -> assert {:error, ^reason} = RecoveryOperation.validate(operation)
+      end
+    end
+  end
+
   defp operation(spans, copies, first, last) do
     page = %EdgeLossManifestPageV1{
       recovery_id: uuid(1),

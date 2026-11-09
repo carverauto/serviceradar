@@ -124,7 +124,8 @@ coordinates, event IDs, record hashes and destination binding hashes. Copies and
 loss spans must partition the selected allocation interval exactly. These bounds
 describe allocation, not an alternative loss interval in the tombstone.
 
-One operation selects at most 1024 allocated slots. Exact received manifest pages
+One operation selects at most 1024 allocated slots and at most four pages, matching
+the coordinator's 256-span page packing. Exact received manifest pages
 retain the existing 256 KiB aggregate ceiling, and registration is bounded to
 512 KiB after its component bounds. A larger recovery is partitioned before its
 IDs are frozen. Copy declarations are intent, never evidence of a local commit.
@@ -198,6 +199,11 @@ return the same signed result on replay. Timestamp differences alone on an inbou
 completion response do not prove different applied state, but the issuer must
 serve its stored timestamp and signature. Compare recovery ID, root and applied
 sequence; verify the authenticated signature/capability before accepting locally.
+Completion uses the existing recovery source-scope digest with the authenticated
+agent and network scope. Its finite fifteen-minute signing window records issuance
+for key-history checks; it does not expire the completed fact. The agent verifies
+current retained key policy, including compromise revocation, without applying a
+new-production window or assignment fence to this historical receipt.
 The applied scalar is the highest contiguous allocated prefix whose sequences
 are either durably applied or absent from the validated COMPLETE loss union, using
 `edgerecord.AppliedThroughSequence`; it is neither the largest span end nor simply

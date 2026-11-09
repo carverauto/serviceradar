@@ -306,3 +306,35 @@
   footprint, and bounded reconstruction with explicit capacity refusal.
 - Confidence: high for the allocator boundary; journal-backed reconstruction and
   cleanup authority are not claimed by the storage append tests alone.
+
+## Persist completion once and authorize only registered controls
+
+- When: completion and issuance pass, 2026-11-09.
+- Choice: store the complete signed status under the existing operation lock.
+  Later prefix advancement returns the original timestamp, prefix and signature.
+  Source authorization compares the registered typed page or tombstone, verifies
+  the current recovery output grant and commits explicit-negative historical
+  mapping evidence before returning the signed capability.
+- Gap: reconstructing a completion on every query changes its evidence; returning
+  source authority before mapping commit creates another unrecoverable crash gap.
+- Reach: uses existing issuer, registration transaction and mapping owner. No new
+  signing grammar, mutable-assignment history or production freshness exemption
+  is introduced. The finite completion capability window records issuance time;
+  the agent verifies completion as historical evidence under retained key policy.
+- Verdict: sound. One owner holds durable completion; the source issuer remains
+  separate because its current-grant contract differs from historical completion.
+- Confidence: high in the boundaries; guarded database assertions remain pending.
+
+## Bound operation pages to the reserved publication footprint
+
+- When: completion and issuance pass, 2026-11-09.
+- Choice: registration admits at most four pages for its 1024 selected slots,
+  matching 256-span coordinator packing. The frozen page ABI remains unchanged.
+- Gap: accepting the wire grammar's larger page count admits publication work
+  beyond the operation's fixed reserved control footprint.
+- Reach: exact received aggregate limits still apply. Oversized legacy sources
+  need a separate compatibility decision; this bound does not authorize dropping
+  a copy-only interval or fabricating a loss span.
+- Verdict: sound for bounded operations. Legacy partitioning remains explicitly
+  unresolved until its representability and identity evidence are established.
+- Confidence: high for the local admission invariant.

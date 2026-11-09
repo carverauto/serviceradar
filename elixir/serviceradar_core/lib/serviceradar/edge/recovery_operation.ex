@@ -17,6 +17,7 @@ defmodule ServiceRadar.Edge.RecoveryOperation do
 
   @protocol_version 1
   @max_slots 1024
+  @max_operation_pages 4
   @max_registration_bytes 512 * 1024
   @max_manifest_bytes 256 * 1024
 
@@ -49,7 +50,7 @@ defmodule ServiceRadar.Edge.RecoveryOperation do
   def validate(_registration), do: {:error, :registration_shape}
 
   defp bounds(r) do
-    with true <- BoundedList.within?(r.manifest_pages, 1024),
+    with true <- BoundedList.within?(r.manifest_pages, @max_operation_pages),
          true <- BoundedList.within?(r.copies, @max_slots),
          true <- is_binary(r.tombstone) and byte_size(r.tombstone) <= @max_manifest_bytes,
          true <-

@@ -45,6 +45,10 @@ defmodule ServiceRadar.Edge.RecoveryRegistration do
       accept [:effects_state]
     end
 
+    update :complete do
+      accept [:completion_status]
+    end
+
     update :block do
       accept [:blocked_reason]
     end
@@ -78,6 +82,7 @@ defmodule ServiceRadar.Edge.RecoveryRegistration do
       constraints: [one_of: [:pending, :blocked, :applied]]
 
     attribute :blocked_reason, :string, constraints: [max_length: 128]
+    attribute :completion_status, :binary
     attribute :tombstone_received, :boolean, allow_nil?: false, default: false
     timestamps()
   end

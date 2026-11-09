@@ -6,6 +6,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecoveryControl do
   recovery authority can be returned.
   """
 
+  alias Monitoring.EdgeRecoveryAuthorizationRequest
   alias Monitoring.EdgeRecoveryQuery
   alias Monitoring.EdgeRecoveryRegistration
   alias ServiceRadar.Edge.RecoveryControl
@@ -26,6 +27,19 @@ defmodule ServiceRadarAgentGateway.EdgeRecoveryControl do
       core(:get, agent_id, request)
     end
   end
+
+  def authorize(%EdgeRecoveryAuthorizationRequest{recovery: %EdgeRecoveryQuery{} = recovery} = request, identity) do
+    with true <- request.__unknown_fields__ == [] and byte_size(request.control_payload) <= 256 * 1024,
+         :ok <- query(recovery),
+         {:ok, agent_id} <- authenticated_namespace(recovery.network_scope_id, identity) do
+      core(:authorize, agent_id, request)
+    else
+      false -> {:error, :invalid_argument, "invalid recovery authorization"}
+      error -> error
+    end
+  end
+
+  def authorize(_, _), do: {:error, :invalid_argument, "invalid recovery authorization"}
 
   defp registration(request) do
     case RecoveryOperation.validate(request) do
@@ -58,9 +72,17 @@ defmodule ServiceRadarAgentGateway.EdgeRecoveryControl do
     node = CoreNodeForwarder.select_core_node("edge recovery")
 
     case :rpc.call(node, RecoveryControl, function, [agent_id, request], 10_000) do
-      {:ok, result} -> {:ok, result}
-      {:error, :registration_missing} -> {:error, :not_found, "recovery is not registered"}
-      _ -> {:error, :unavailable, "edge recovery control is unavailable"}
+      {:ok, result} ->
+        {:ok, result}
+
+      {:error, :registration_missing} ->
+        {:error, :not_found, "recovery is not registered"}
+
+      {:error, reason} when reason in [:recovery_authority_refused, :production_authority_refused] ->
+        {:error, :permission_denied, "recovery authority refused"}
+
+      _ ->
+        {:error, :unavailable, "edge recovery control is unavailable"}
     end
   rescue
     ArgumentError -> {:error, :unavailable, "edge recovery control is unavailable"}

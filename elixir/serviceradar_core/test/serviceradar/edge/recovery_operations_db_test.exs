@@ -3,7 +3,10 @@ defmodule ServiceRadar.Edge.RecoveryOperationsDbTest do
 
   alias Monitoring.EdgeRecoveryRegistration
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Edge.CapabilitySigning
   alias ServiceRadar.Edge.HashGrammar
+  alias ServiceRadar.Edge.IssuerKey
+  alias ServiceRadar.Edge.RecoveryControl
   alias ServiceRadar.Edge.RecoveryGeneration
   alias ServiceRadar.Edge.RecoveryOperations
   alias ServiceRadar.Edge.RecoveryReceivedPage
@@ -133,6 +136,7 @@ defmodule ServiceRadar.Edge.RecoveryOperationsDbTest do
     assert {:ok, :received} = consume(ctx, later, :manifest_page)
     assert {:ok, :applied} = consume(ctx, later, :tombstone)
     assert generation_prefix(ctx) == 0
+    assert {:ok, %{state: :EDGE_RECOVERY_STATE_PENDING, resolved: nil}} = status(ctx, later)
 
     assert {:ok, _} = RecoveryOperations.register(ctx.agent, first)
     assert {:ok, :received} = consume(ctx, first, :tombstone)
@@ -141,6 +145,37 @@ defmodule ServiceRadar.Edge.RecoveryOperationsDbTest do
     assert generation_prefix(ctx) == 4
     assert {:ok, :applied} = consume(ctx, later, :manifest_page)
     assert generation_prefix(ctx) == 4
+  end
+
+  test "completion retains its original signed prefix after a later interval applies", ctx do
+    first = interval(%{ctx.plan | source_high_water: 4}, 1, 2)
+    later = interval(%{ctx.plan | source_high_water: 4}, 3, 4)
+    assert {:ok, _} = RecoveryOperations.register(ctx.agent, first)
+    assert {:ok, :received} = consume(ctx, first, :tombstone)
+    assert {:ok, %{state: :EDGE_RECOVERY_STATE_PENDING, resolved: nil}} = status(ctx, first)
+    assert {:ok, :applied} = consume(ctx, first, :manifest_page)
+    assert {:ok, completed} = status(ctx, first)
+    assert completed.state == :EDGE_RECOVERY_STATE_RESOLVED
+    assert completed.resolved.applied_through_sequence == 2
+    assert completed.resolved.recovery_id == first.recovery_id
+
+    assert completed.resolved.manifest_root_sha256 ==
+             SpoolLossTombstoneV1.decode(first.tombstone).manifest_root_sha256
+
+    assert completed.resolved.resolved_at_unix_nano > 0
+    assert {:ok, issuer} = IssuerKey.configured()
+    assert CapabilitySigning.verify(completed.resolution_capability, :source, issuer.public_key)
+    {:source, claims} = completed.resolution_capability.claims
+    assert claims.network_scope_id == first.network_scope_id
+    assert claims.origin_principal_id == ctx.agent
+    assert claims.scope_sha256 == HashGrammar.resolved_scope_digest(completed.resolved)
+
+    assert {:ok, _} = RecoveryOperations.register(ctx.agent, later)
+    assert {:ok, :received} = consume(ctx, later, :manifest_page)
+    assert {:ok, :applied} = consume(ctx, later, :tombstone)
+    assert {:ok, %{resolved: %{applied_through_sequence: 4}}} = status(ctx, later)
+    assert {:ok, ^completed} = status(ctx, first)
+    assert {:ok, ^completed} = RecoveryControl.register(ctx.agent, first)
   end
 
   test "underdeclared manifest work cannot commit a receipt or repair effects", ctx do
@@ -166,6 +201,13 @@ defmodule ServiceRadar.Edge.RecoveryOperationsDbTest do
         payload(plan, kind),
         cost()
       )
+
+  defp status(ctx, plan),
+    do:
+      RecoveryControl.get(ctx.agent, %Monitoring.EdgeRecoveryQuery{
+        network_scope_id: plan.network_scope_id,
+        recovery_id: plan.recovery_id
+      })
 
   defp generation_prefix(ctx) do
     scope = Ecto.UUID.cast!(ctx.plan.network_scope_id)

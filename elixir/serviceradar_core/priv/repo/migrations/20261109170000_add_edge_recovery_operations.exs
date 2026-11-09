@@ -79,6 +79,7 @@ defmodule ServiceRadar.Repo.Migrations.AddEdgeRecoveryOperations do
       add(:through_sequence, :decimal, null: false)
       add(:effects_state, :text, null: false, default: "pending")
       add(:blocked_reason, :text)
+      add(:completion_status, :binary)
       add(:tombstone_received, :boolean, null: false, default: false)
 
       add(:inserted_at, :utc_datetime_usec,

@@ -9,7 +9,10 @@ defmodule ServiceRadar.Edge.RecoveryOperations do
   """
 
   alias Monitoring.EdgeRecoveryRegistration
+  alias Monitoring.EdgeRecoveryStatus
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Edge.HashGrammar
+  alias ServiceRadar.Edge.IssuerKey
   alias ServiceRadar.Edge.RecoveryEffects
   alias ServiceRadar.Edge.RecoveryGeneration, as: Generation
   alias ServiceRadar.Edge.RecoveryOperation
@@ -19,6 +22,9 @@ defmodule ServiceRadar.Edge.RecoveryOperations do
   alias ServiceRadar.Edge.RecoveryTransaction
   alias ServiceRadar.Edge.RecoveryValidate
   alias Serviceradar.Edge.V1.EdgeRecoveryControlPayloadV1
+  alias Serviceradar.Edge.V1.EdgeSignedCapabilityV1
+  alias Serviceradar.Edge.V1.EdgeSourceClaimsV1
+  alias Serviceradar.Edge.V1.RecoveryResolvedV1
   alias ServiceRadar.Edge.WireDecode
 
   require Ash.Query
@@ -128,6 +134,90 @@ defmodule ServiceRadar.Edge.RecoveryOperations do
   def fetch(scope, agent_id, recovery_id) do
     with {:ok, key} <- key(scope, agent_id, recovery_id) do
       key |> query() |> Ash.read_one(actor: actor())
+    end
+  end
+
+  @doc "Return the original completion, issuing it only after contiguous consumer progress."
+  def status(scope, agent_id, recovery_id) do
+    with {:ok, key} <- key(scope, agent_id, recovery_id) do
+      transaction(fn ->
+        case locked(key) do
+          {:ok, nil} -> {:error, :registration_missing}
+          {:ok, current} -> completion_status(current)
+          error -> error
+        end
+      end)
+    end
+  end
+
+  defp completion_status(%{blocked_reason: reason}) when not is_nil(reason),
+    do: {:ok, %EdgeRecoveryStatus{state: :EDGE_RECOVERY_STATE_BLOCKED, reason: reason}}
+
+  defp completion_status(%{completion_status: raw}) when is_binary(raw) do
+    {:ok, EdgeRecoveryStatus.decode(raw)}
+  rescue
+    _ -> {:error, :completion_corrupt}
+  end
+
+  defp completion_status(%{effects_state: :applied} = current) do
+    with {:ok, generation} <- locked_generation(current),
+         {:ok, generation} <- advance_prefix(generation) do
+      if Decimal.compare(generation.applied_through, current.through_sequence) in [:eq, :gt],
+        do: persist_completion(current, generation),
+        else: pending_status(:pending, "coverage_pending")
+    end
+  end
+
+  defp completion_status(current), do: pending_status(current.effects_state, "consumer_pending")
+
+  defp pending_status(:blocked, reason),
+    do: {:ok, %EdgeRecoveryStatus{state: :EDGE_RECOVERY_STATE_BLOCKED, reason: reason}}
+
+  defp pending_status(_, reason),
+    do: {:ok, %EdgeRecoveryStatus{state: :EDGE_RECOVERY_STATE_PENDING, reason: reason}}
+
+  defp persist_completion(current, generation) do
+    with {:ok, expected} <- decode_registration(current),
+         {:ok, issuer} <- IssuerKey.configured() do
+      now = System.system_time(:nanosecond)
+
+      resolved = %RecoveryResolvedV1{
+        recovery_id: Ecto.UUID.dump!(current.recovery_id),
+        manifest_root_sha256: expected.tombstone.manifest_root_sha256,
+        applied_through_sequence: Decimal.to_integer(generation.applied_through),
+        resolved_at_unix_nano: now
+      }
+
+      # This finite window describes issuance for historical key validation. It
+      # is not a production deadline: agents verify it as a completion receipt.
+      capability =
+        IssuerKey.sign(
+          %EdgeSignedCapabilityV1{
+            not_before_unix_nano: now,
+            expires_at_unix_nano: now + 15 * 60 * 1_000_000_000,
+            claims:
+              {:source,
+               %EdgeSourceClaimsV1{
+                 kind: :EDGE_SOURCE_AUTHORIZATION_KIND_RECOVERY_CONTROL,
+                 network_scope_id: Ecto.UUID.dump!(current.network_scope_id),
+                 origin_principal_id: current.agent_id,
+                 context_id: resolved.recovery_id,
+                 scope_id: resolved.recovery_id,
+                 scope_sha256: HashGrammar.resolved_scope_digest(resolved)
+               }}
+          },
+          issuer
+        )
+
+      status = %EdgeRecoveryStatus{
+        state: :EDGE_RECOVERY_STATE_RESOLVED,
+        resolved: resolved,
+        resolution_capability: capability
+      }
+
+      with {:ok, _} <-
+             update(current, :complete, %{completion_status: EdgeRecoveryStatus.encode(status)}),
+           do: {:ok, status}
     end
   end
 

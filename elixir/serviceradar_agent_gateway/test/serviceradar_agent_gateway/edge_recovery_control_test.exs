@@ -1,6 +1,7 @@
 defmodule ServiceRadarAgentGateway.EdgeRecoveryControlTest do
   use ExUnit.Case, async: false
 
+  alias Monitoring.EdgeRecoveryAuthorizationRequest
   alias Monitoring.EdgeRecoveryQuery
   alias ServiceRadarAgentGateway.EdgeRecordTrust
   alias ServiceRadarAgentGateway.EdgeRecoveryControl
@@ -26,6 +27,9 @@ defmodule ServiceRadarAgentGateway.EdgeRecoveryControlTest do
     }
 
     assert {:error, :permission_denied, _} = EdgeRecoveryControl.get(query, identity)
+
+    assert {:error, :permission_denied, _} =
+             EdgeRecoveryControl.authorize(%EdgeRecoveryAuthorizationRequest{recovery: query}, identity)
   end
 
   test "recovery requires an agent principal bound in the installed trust snapshot" do
@@ -46,5 +50,13 @@ defmodule ServiceRadarAgentGateway.EdgeRecoveryControlTest do
 
     assert {:error, :unavailable, _} =
              EdgeRecoveryControl.get(query, %{component_type: :agent, component_id: "agent-1"})
+  end
+
+  test "authorization rejects absent identity and oversized control before forwarding" do
+    identity = %{component_type: :agent, component_id: "agent-1"}
+    query = %EdgeRecoveryQuery{network_scope_id: Factory.network_scope_id(), recovery_id: @recovery_id}
+    assert {:error, :invalid_argument, _} = EdgeRecoveryControl.authorize(%EdgeRecoveryAuthorizationRequest{}, identity)
+    request = %EdgeRecoveryAuthorizationRequest{recovery: query, control_payload: :binary.copy(<<0>>, 256 * 1024 + 1)}
+    assert {:error, :invalid_argument, _} = EdgeRecoveryControl.authorize(request, identity)
   end
 end

@@ -11,8 +11,10 @@ recovery path. Visibility PR #6447 merged as `d54cbc508a76ba99b673015d3006ce9283
 with all 20 CI checks passing. Its gate records the user-approved remote-test
 exception; live-product validation was not performed.
 
-The current pickup is persisted signed completion, recovery source authorization
-and historical copy grants. Consumer receipt/effects now share one transaction,
+The current pickup is historical copy grants and integration of storage coverage,
+consumer publication and agent runtime. Signed completion is persisted once;
+source authorization commits original mapping evidence before returning authority.
+Consumer receipt/effects now share one transaction,
 with bounded contiguous progress over split source-generation intervals. Partial
 durable receipt is distinct from consumer completion. Immutable registration/page
 storage, historical mapping, frozen journals, acknowledgement and completion
@@ -98,3 +100,10 @@ Update this pickup and the choices ledger after each verified commit checkpoint.
   prefix and root cases in `f2bfdeb2-814a-4b65-97be-8dfee471f06e`; the original
   source was restored byte-for-byte. Receipt/effects/prefix DB assertions remain
   pending guarded integration execution.
+- Completion/source authorization, Go edge/agent and gateway/core unit and quality
+  checks passed all 19 targets in `44194e5d-d3d8-4d7d-aefe-69aa594baeee`.
+  Removing the four-page admission bound made the five-page rejection fail in
+  `2414bed6-535a-4541-b355-8d3e1f555e33`; exact restoration passed from cache in
+  `a6c82d52-3e32-4f3a-8d65-b62971dc7b02`. Inventory passed 66 checks with one skip.
+  Completion immutability and issuance-order DB assertions remain pending guarded
+  integration execution; unit compilation is not persistence evidence.

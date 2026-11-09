@@ -133,6 +133,18 @@
       "type": "text"
     },
     {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "completion_status",
+      "type": "binary"
+    },
+    {
       "allow_nil?": false,
       "default": "false",
       "generated?": false,
