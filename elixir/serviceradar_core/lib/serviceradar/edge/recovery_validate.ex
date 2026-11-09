@@ -735,9 +735,11 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
     end
   end
 
-  defp contract_dispatch(_record, nil), do: {:error, :contract_dispatch}
+  @doc "Checks a structurally validated record against its caller-selected contract."
+  @spec contract_dispatch(struct(), map() | nil) :: :ok | {:error, :contract_dispatch}
+  def contract_dispatch(_record, nil), do: {:error, :contract_dispatch}
 
-  defp contract_dispatch(record, expected) do
+  def contract_dispatch(record, expected) do
     c = record.output_contract
 
     check(
