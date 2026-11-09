@@ -50,7 +50,9 @@ file names. Unrecognized or unreadable entries stop admission for operator
 reconciliation. This is not journal reconciliation, archival, retention or a
 long-running recording capacity qualification. The free-space floor uses GNU
 coreutils probes, refreshed at admission and at most once per second by write
-guards. It does not preallocate reserved blocks or fence unrelated volume users.
+guards. Admission needs the floor plus all full reservations free; an admitted
+worker then writes into its reservation and stops only below the floor itself.
+It does not preallocate reserved blocks or fence unrelated volume users.
 See the [runtime envelope](../elixir/serviceradar_nvr/README.md#resource-envelope)
 for conservative accounting and process-restart behavior.
 

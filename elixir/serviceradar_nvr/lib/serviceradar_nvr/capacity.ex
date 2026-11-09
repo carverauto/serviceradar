@@ -24,7 +24,7 @@ defmodule ServiceRadarNVR.Capacity do
   def handle_call(:reserve, {owner, _}, state) do
     with {:ok, storage} <- storage(state),
          {:ok, usage} <- measure(storage, state),
-         :ok <- admission(usage, state) do
+         :ok <- admission(usage) do
       token = Process.monitor(owner)
       reservations = Map.put(state.reservations, token, owner)
       {:reply, {:ok, token, storage, @limits}, %{state | storage: storage, reservations: reservations, probe: nil}}
@@ -70,6 +70,7 @@ defmodule ServiceRadarNVR.Capacity do
          used_bytes: inventory.used_bytes,
          blocks: inventory.blocks,
          max_blocks: inventory.max_blocks,
+         reservations: map_size(state.reservations),
          reserved_bytes: map_size(state.reservations) * state.block_bytes,
          available_bytes: free,
          max_spool_bytes: state.config.max_spool_bytes,
@@ -79,15 +80,21 @@ defmodule ServiceRadarNVR.Capacity do
     end
   end
 
-  defp admission(usage, state) do
+  @doc """
+  Admission charges retained bytes, every full active reservation and the new
+  block against the logical budget, and requires the physical floor plus all of
+  those reservations to be free. Full reservations stay charged even as they are
+  written, deliberately under-admitting instead of measuring each active tail.
+  """
+  def admission(usage) do
     cond do
-      usage.blocks + map_size(state.reservations) + 1 > usage.max_blocks ->
+      usage.blocks + usage.reservations + 1 > usage.max_blocks ->
         {:error, :nvr_inventory_limit}
 
-      usage.used_bytes + usage.reserved_bytes + state.block_bytes > usage.max_spool_bytes ->
+      usage.used_bytes + usage.reserved_bytes + usage.block_bytes > usage.max_spool_bytes ->
         {:error, :nvr_spool_budget_exhausted}
 
-      usage.available_bytes < usage.reserve_bytes + usage.reserved_bytes + state.block_bytes ->
+      usage.available_bytes < usage.reserve_bytes + usage.reserved_bytes + usage.block_bytes ->
         {:error, :nvr_storage_pressure}
 
       true ->
@@ -95,8 +102,10 @@ defmodule ServiceRadarNVR.Capacity do
     end
   end
 
-  # Full reservations remain charged even as they are written. This deliberately
-  # under-admits instead of relying on a racy measurement of each active tail.
+  @doc "Admitted workers may consume their reserved space and stop only at the physical floor."
+  def writable(available_bytes, reserve_bytes) when available_bytes >= reserve_bytes, do: :ok
+  def writable(_available_bytes, _reserve_bytes), do: {:error, :nvr_storage_pressure}
+
   defp pressure(state) do
     now = System.monotonic_time(:millisecond)
 
@@ -108,12 +117,7 @@ defmodule ServiceRadarNVR.Capacity do
         result =
           with :ok <- Storage.verify(state.storage),
                {:ok, free} <- Disk.available_bytes(state.storage.root),
-               true <- free >= state.config.reserve_bytes + map_size(state.reservations) * state.block_bytes do
-            :ok
-          else
-            false -> {:error, :nvr_storage_pressure}
-            {:error, _} = error -> error
-          end
+               do: writable(free, state.config.reserve_bytes)
 
         {result, %{state | probe: {now, result}}}
     end

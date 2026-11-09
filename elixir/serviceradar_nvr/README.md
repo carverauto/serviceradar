@@ -34,7 +34,7 @@ assignment must establish physical writer exclusivity before calling this API.
 | `SERVICERADAR_NVR_MAX_SESSIONS` | 1 | 16; excess admission is refused |
 | `SERVICERADAR_NVR_MAX_DURATION_MS` | 30000 | 300000; no implicit renewal |
 | `SERVICERADAR_NVR_MAX_SPOOL_BYTES` | 1073741824 | 1 TiB; retained bytes plus full active reservations |
-| `SERVICERADAR_NVR_RESERVE_BYTES` | 67108864 | physical free-space floor, plus active reservations |
+| `SERVICERADAR_NVR_RESERVE_BYTES` | 67108864 | physical free-space floor; admission also needs all reservations free |
 | Inbox | 8 samples / 8 MiB per worker | charged before mailbox admission |
 | Local block | 16 MiB / 8 fragments | no rotation, eviction or deletion |
 | Fragment | 4 MiB | oversized output fails the worker |
@@ -65,8 +65,11 @@ Linux hosts need GNU coreutils `/usr/bin/stat` and `/usr/bin/timeout`, supplied 
 the Ubuntu image. Available space uses non-root available blocks and fundamental
 block size, with a two-second probe deadline and one-second kill grace. Every
 admission probes afresh; write guards reuse a pressure observation for at most one
-second. A failed probe or low space terminates the affected worker on its next
-write guard and retains provisional media. Idle workers still have their finite
+second. Admission requires the floor plus every full reservation, including the
+new block, to be available. After admission a worker may consume its reserved
+space; write guards stop it only when available space falls below the floor
+itself. A failed probe or a breached floor terminates the affected worker on its
+next write guard and retains provisional media. Idle workers still have their finite
 deadline. This floor is an admission/stop policy, not a preallocated filesystem
 partition or protection against other applications consuming the volume. Reserve
 filesystem metadata, recovery and control headroom when sizing the dedicated PVC.

@@ -1,3 +1,4 @@
+alias ServiceRadarNVR.Capacity
 alias ServiceRadarRecording.Inbox
 alias ServiceRadarRecording.Spool
 alias ServiceRadarRecording.Storage
@@ -72,6 +73,28 @@ case System.fetch_env!("NVR_TEST_MODE") do
     end
 
     {:error, :recording_closed} = Inbox.usable(inbox)
+
+    # Same VM: the released block's retained bytes, not its reservation, are charged.
+    {:ok, %{used_bytes: retained, reservations: 0, reserved_bytes: 0, block_bytes: block} = usage} =
+      ServiceRadarNVR.capacity()
+
+    true = retained > 0
+    roomy = %{usage | available_bytes: usage.reserve_bytes + block}
+    :ok = Capacity.admission(%{roomy | max_spool_bytes: retained + block})
+    {:error, :nvr_spool_budget_exhausted} = Capacity.admission(%{roomy | max_spool_bytes: retained + block - 1})
+    {:error, :nvr_spool_budget_exhausted} = Capacity.admission(%{roomy | max_spool_bytes: block})
+
+    # Admitted exactly at the physical boundary, the worker may write its whole
+    # block and stops only once the configured floor itself is breached.
+    floor = usage.reserve_bytes
+    {:error, :nvr_storage_pressure} = Capacity.admission(%{roomy | available_bytes: floor + block - 1})
+
+    for written <- [0, 1, div(block, 2), block] do
+      :ok = Capacity.writable(floor + block - written, floor)
+    end
+
+    {:error, :nvr_storage_pressure} = Capacity.writable(floor - 1, floor)
+    {:error, :nvr_storage_pressure} = Capacity.writable(0, floor)
 
   "recover" ->
     %{"directory" => directory, "identity" => retained_identity} =
