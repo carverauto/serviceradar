@@ -147,3 +147,23 @@
 - Verdict: sound. Received evidence and immutable intent remain distinguishable
   across restart, and a conflicting digest cannot evade its original key.
 - Confidence: medium until guarded database integration tests pass.
+
+## Recovery reserve ownership across append and restart
+
+- When: coverage foundation pass, 2026-11-09.
+- Choice: resume by measuring retained regular files before testing remaining
+  physical backing; refused restores leave the allocator ledger unchanged.
+  Reserve a relocated append's record, evidence copies, sidecars and terminal
+  allowance atomically before PREPARED. Count cumulative writes separately from
+  retained file growth, including sparse growth and prepared-slot overwrites.
+- Gap: a fresh grant double-reserves already retained bytes after a crash, and
+  independent per-artifact charges can fail halfway through append admission.
+- Reach: this extends the existing allocator and grant. Destination terminal
+  evidence remains prepaid when source release transfers destination ownership
+  to ordinary storage. Only the generation's known data/evidence paths qualify.
+  The coordinator still owns the complete retained-file inventory and must size
+  the footprint for retained bytes plus every remaining write and repair.
+- Verdict: sound. Root approved evolution of the existing ledger, and the
+  binding owner consumes the private append-charge token across its barriers.
+  Source release before final resolution remains a separate lifecycle step.
+- Confidence: high.
