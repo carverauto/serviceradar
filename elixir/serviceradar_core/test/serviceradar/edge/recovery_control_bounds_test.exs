@@ -240,6 +240,17 @@ defmodule ServiceRadar.Edge.RecoveryControlBoundsTest do
     {:manifest_page, %{page | page_sha256: HashGrammar.manifest_page_digest(page)}}
   end
 
+  test "unknown control wrapper fields cannot enter direct authorization or signed projection" do
+    raw = base_record("version_tombstone_scope_ok.bin").payload
+    assert {:ok, _} = RecoveryValidate.control_body(EdgeRecoveryControlPayloadV1.decode(raw))
+    unknown = raw <> <<0xA0, 0x06, 1>>
+
+    assert {:error, :unknown_fields} =
+             RecoveryValidate.control_body(EdgeRecoveryControlPayloadV1.decode(unknown))
+
+    assert {:error, :unknown_fields} = admit_framed(payload: unknown)
+  end
+
   describe "the tombstone reason is bounded 1..#{@max_reason_bytes}" do
     test "length 0 is REFUSED" do
       assert {:error, :tombstone_mismatch} =

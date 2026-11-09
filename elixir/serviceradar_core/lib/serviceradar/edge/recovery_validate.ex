@@ -472,11 +472,27 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
   @spec recovery_control(term(), term(), policy()) :: :ok | {:error, atom()}
   def recovery_control(record, expected_contract, policy) do
     with :ok <- record_signed(record, policy),
+         {:ok, _} <- recovery_control_body(record, expected_contract),
+         do: :ok
+  end
+
+  @doc """
+  Validates the recovery contract, lane, actual decoded body and source-scope join.
+
+  Returns the exact decompressed payload bytes for immutable receipt comparison.
+  This does not verify signatures or current trust: authenticated EventWriter
+  transport uses it after gateway authorization; `recovery_control/3` composes it
+  after the signed boundary. Both paths use the same body and scope rules.
+  """
+  def recovery_control_body(record, expected_contract) do
+    with :ok <- SemanticValidate.validate_record(record),
          :ok <- contract_dispatch(record, expected_contract),
          :ok <- recovery_lane(record),
-         {:ok, payload} <- inner_control_payload(record),
-         {:ok, {rid, scope}} <- control_body(payload) do
-      signed_scope_fixes_operation(record, rid, scope)
+         {:ok, bytes} <- inner_bytes(record),
+         {:ok, payload} <- decode_control_payload(bytes),
+         {:ok, {rid, scope}} <- control_body(payload),
+         :ok <- signed_scope_fixes_operation(record, rid, scope) do
+      {:ok, %{payload: payload, bytes: bytes}}
     end
   end
 
@@ -526,6 +542,10 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
   """
   @spec control_body(term()) :: {:ok, {binary(), binary()}} | {:error, error()}
   def control_body(payload)
+
+  def control_body(%EdgeRecoveryControlPayloadV1{__unknown_fields__: fields})
+      when fields not in [nil, []],
+      do: {:error, :unknown_fields}
 
   def control_body(%EdgeRecoveryControlPayloadV1{body: {:tombstone, t}}) do
     with :ok <- check(no_unknown_fields?(t), :unknown_fields),
@@ -771,14 +791,10 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
     end
   end
 
-  defp inner_control_payload(record) do
-    with {:ok, bytes} <- inner_bytes(record) do
-      try do
-        {:ok, EdgeRecoveryControlPayloadV1.decode(bytes)}
-      rescue
-        _ -> {:error, :payload_decode}
-      end
-    end
+  defp decode_control_payload(bytes) do
+    {:ok, EdgeRecoveryControlPayloadV1.decode(bytes)}
+  rescue
+    _ -> {:error, :payload_decode}
   end
 
   # Go's `innerPayload`: the carried bytes for an uncompressed record, the validated
