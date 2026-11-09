@@ -162,15 +162,58 @@ defmodule ServiceRadarRecording.Spool do
   def recover(%Storage{} = storage, directory, expected_identity, limits \\ %{}) do
     directory = Path.expand(directory)
 
+    with {:ok, spool} <- read_block(storage, directory, {:expected, expected_identity}, limits),
+         :ok <- truncate_tail(Path.join(directory, "media.m4s"), spool.high_water),
+         :ok <- Storage.verify(storage),
+         :ok <- truncate_tail(Path.join(directory, "journal"), spool.journal_size),
+         :ok <- Storage.verify(storage) do
+      {:ok, spool}
+    end
+  end
+
+  @doc """
+  Discover a sealed snapshot from its block ID without mutating retained files.
+
+  Replays the bounded journal and verifies init, every fragment, the seal digest,
+  the identity-derived directory name and exact file lengths. Open blocks and
+  uncommitted tails are refused, never repaired. This is local evidence only;
+  publication still requires independent provenance and authority checks.
+  """
+  def inspect_sealed(storage, block_id, limits \\ %{})
+
+  def inspect_sealed(%Storage{} = storage, block_id, limits) when is_binary(block_id) do
+    with true <- Regex.match?(~r/\A[0-9a-f]{64}\z/, block_id) || {:error, :invalid_block_id},
+         {:ok, spool} <- read_block(storage, Path.join(storage.root, block_id), :discover, limits),
+         true <- block_id(spool.identity) == block_id || {:error, :block_identity_mismatch},
+         true <- spool.sealed? || {:error, :unsealed_block},
+         :ok <- exact_size(Path.join(spool.directory, "init.mp4"), spool.init["length"]),
+         :ok <- exact_size(Path.join(spool.directory, "media.m4s"), spool.high_water),
+         :ok <- exact_size(Path.join(spool.directory, "journal"), spool.journal_size),
+         :ok <- Storage.verify(storage) do
+      {:ok, snapshot(spool)}
+    end
+  end
+
+  def inspect_sealed(%Storage{}, _block_id, _limits), do: {:error, :invalid_block_id}
+
+  defp exact_size(path, expected) do
+    case File.lstat(path) do
+      {:ok, %File.Stat{type: :regular, links: 1, size: ^expected}} -> :ok
+      {:ok, _} -> {:error, :uncommitted_block_bytes}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp read_block(storage, directory, expected_identity, limits) do
     with :ok <- Storage.verify(storage),
          true <- Path.dirname(directory) == storage.root || {:error, :storage_directory_mismatch},
          {:ok, %File.Stat{type: :directory}} <- File.lstat(directory),
          :ok <- recovery_files(directory),
          {:ok, limits} <- limits(limits),
-         {:ok, expected_identity} <- identity(expected_identity),
          {:ok, journal} <-
            read_bounded(Path.join(directory, "journal"), (limits.max_fragments + 2) * (@record_bytes + 36)),
          {:ok, header, rest, header_size} <- read_record(journal),
+         {:ok, expected_identity} <- expected_identity(header, expected_identity),
          {:ok, init} <- check_header(header, expected_identity, limits),
          {:ok, _} <- read_verified(Path.join(directory, "init.mp4"), 0, init["length"], init["sha256"]),
          {:ok, spool} <-
@@ -183,10 +226,6 @@ defmodule ServiceRadarRecording.Spool do
              journal_size: header_size,
              hash: :crypto.hash_init(:sha256)
            }),
-         :ok <- Storage.verify(storage),
-         :ok <- truncate_tail(Path.join(directory, "media.m4s"), spool.high_water),
-         :ok <- Storage.verify(storage),
-         :ok <- truncate_tail(Path.join(directory, "journal"), spool.journal_size),
          :ok <- Storage.verify(storage) do
       {:ok, spool}
     else
@@ -195,6 +234,9 @@ defmodule ServiceRadarRecording.Spool do
       {:error, _} = error -> error
     end
   end
+
+  defp expected_identity(header, :discover), do: identity(header["identity"])
+  defp expected_identity(_header, {:expected, expected}), do: identity(expected)
 
   defp recovery_files(directory) do
     Enum.reduce_while(~w(init.mp4 media.m4s journal), :ok, fn name, :ok ->
@@ -473,8 +515,7 @@ defmodule ServiceRadarRecording.Spool do
 
   defp create_block(storage, identity, init, limits) do
     root = storage.root
-    block_id = digest(Jason.encode!(Enum.map(@identity_keys, &identity[Atom.to_string(&1)])))
-    directory = Path.join(root, block_id)
+    directory = Path.join(root, block_id(identity))
     init_meta = %{"length" => byte_size(init), "sha256" => digest(init)}
     header = %{"type" => "header", "version" => 1, "identity" => identity, "init" => init_meta}
     journal = encode_record(header)
@@ -484,6 +525,8 @@ defmodule ServiceRadarRecording.Spool do
       {:error, _} = error -> error
     end
   end
+
+  defp block_id(identity), do: digest(Jason.encode!(Enum.map(@identity_keys, &identity[Atom.to_string(&1)])))
 
   defp finish_created_block(directory, storage, init, journal, identity, init_meta, limits) do
     case write_created_block(directory, storage.root, init, journal) do

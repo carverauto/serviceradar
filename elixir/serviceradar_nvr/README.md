@@ -42,6 +42,30 @@ for explicit recovery. Only one local worker can own a source/profile, even with
 a different epoch. This registry is not a cross-replica fence; future authenticated
 assignment must establish physical writer exclusivity before calling this API.
 
+## Read-only restart discovery
+
+Trusted same-VM callers can use `ServiceRadarNVR.list_blocks/0` after restart to
+list retained block IDs, without saved notifications or receipts. It uses the
+same verified storage identity and bounded inventory as admission: at most 4096
+block directories, with aliases and unknown file names refused. The list can
+include incomplete or corrupt blocks and is not an atomic coverage catalog;
+recording may add blocks after enumeration.
+
+`ServiceRadarNVR.sealed_block/1` verifies one listed block and returns an internal
+sealed snapshot. It checks the journal, initialization and fragment digests,
+whole-block seal, identity-derived directory name and exact file lengths under
+the runtime's block limits. Inspection runs in the caller, outside serialized
+capacity admission. It never truncates, seals, repairs or deletes anything.
+Unsealed blocks, uncommitted tails and corrupt evidence return errors and remain
+on disk for separate reconciliation. Existing explicit `Spool.recover/4` still
+requires expected identity and exclusive ownership before repairing tails.
+
+These observations do not establish current assignment authority, physical
+storage durability, publication receipts or playback authorization. They do not
+acknowledge delivery or drain a durable outbox. No automatic scan or capture
+restart runs at boot; publication, assignment reconciliation and unresolved/gap
+state remain follow-up work.
+
 ## Resource envelope
 
 | Setting | Default | Ceiling / behavior |

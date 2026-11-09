@@ -30,4 +30,19 @@ defmodule ServiceRadarNVR do
 
   @doc "Read-only local capacity observation, not a reservation or pool capability."
   def capacity, do: ServiceRadarNVR.Capacity.status()
+
+  @doc "List at most 4,096 retained block IDs, including incomplete blocks; not a coverage catalog."
+  def list_blocks do
+    with {:ok, storage, _limits} <- ServiceRadarNVR.Capacity.recovery_storage(),
+         {:ok, inventory} <- ServiceRadarNVR.Disk.inventory(storage) do
+      {:ok, Enum.sort(inventory.block_ids)}
+    end
+  end
+
+  @doc "Verify one sealed block from disk without changing it or requiring a saved notification."
+  def sealed_block(block_id) do
+    with {:ok, storage, limits} <- ServiceRadarNVR.Capacity.recovery_storage() do
+      ServiceRadarRecording.Spool.inspect_sealed(storage, block_id, limits)
+    end
+  end
 end

@@ -17,6 +17,7 @@ case System.fetch_env!("NVR_TEST_MODE") do
   "record" ->
     # Admission must not initialize an unprovisioned volume.
     {:error, :storage_identity_missing} = ServiceRadarNVR.start_recording(identity, clock)
+    {:error, :storage_identity_missing} = ServiceRadarNVR.list_blocks()
     false = File.exists?(Path.join(root, ".storage-id"))
     {:ok, _} = Storage.initialize(root, id)
     {:ok, worker, inbox} = ServiceRadarNVR.start_recording(identity, clock)
@@ -198,13 +199,19 @@ case System.fetch_env!("NVR_TEST_MODE") do
       Jason.encode!(%{block_bytes: block_bytes, blocks: Enum.map(blocks, &Map.take(&1, [:directory, :identity]))})
     )
 
-  "recover_rotation" ->
-    %{"blocks" => blocks} = Jason.decode!(File.read!(System.fetch_env!("NVR_TEST_RECEIPT")))
-    {:ok, storage} = Storage.open(root, id)
+  "discover_rotation" ->
+    # Restarted discovery has no notification, receipt file or expected identity.
+    {:ok, block_ids} = ServiceRadarNVR.list_blocks()
+    false = block_ids == []
+    {:error, :invalid_block_id} = ServiceRadarNVR.sealed_block("../outside")
 
-    for {%{"directory" => directory, "identity" => identity}, index} <- Enum.with_index(blocks) do
-      {:ok, spool} = Spool.recover(storage, directory, identity)
-      snapshot = Spool.snapshot(spool)
+    blocks =
+      Enum.map(block_ids, fn block_id ->
+        {:ok, snapshot} = ServiceRadarNVR.sealed_block(block_id)
+        snapshot
+      end)
+
+    for {snapshot, index} <- blocks |> Enum.sort_by(& &1.identity["block_sequence"]) |> Enum.with_index() do
       true = snapshot.sealed?
       {:ok, init} = Spool.read_init(snapshot)
 
@@ -216,6 +223,12 @@ case System.fetch_env!("NVR_TEST_MODE") do
 
       File.write!(System.fetch_env!("NVR_TEST_MP4") <> ".#{index}", [init | media])
     end
+
+  "discover_unresolved" ->
+    {:ok, [block_id]} = ServiceRadarNVR.list_blocks()
+    {:error, reason} = ServiceRadarNVR.sealed_block(block_id)
+    expected = System.fetch_env!("NVR_TEST_RECOVERY_ERROR")
+    ^expected = Atom.to_string(reason)
 
   "capacity" ->
     {:ok, _} = Storage.initialize(root, id)
@@ -311,10 +324,16 @@ case System.fetch_env!("NVR_TEST_MODE") do
   "inventory" ->
     {:error, :nvr_inventory_unavailable} = ServiceRadarNVR.start_recording(identity, clock)
     {:error, :nvr_inventory_unavailable} = ServiceRadarNVR.capacity()
+    {:error, :nvr_inventory_unavailable} = ServiceRadarNVR.list_blocks()
 
   "inventory_limit" ->
     {:error, :nvr_inventory_limit} = ServiceRadarNVR.start_recording(identity, clock)
     {:ok, %{blocks: 4096, used_bytes: 0, reserved_bytes: 0}} = ServiceRadarNVR.capacity()
+    {:ok, blocks} = ServiceRadarNVR.list_blocks()
+    4096 = length(blocks)
+
+  "discovery_limit" ->
+    {:error, :nvr_inventory_limit} = ServiceRadarNVR.list_blocks()
 
   "lifecycle" ->
     {:ok, _} = Storage.initialize(root, id)

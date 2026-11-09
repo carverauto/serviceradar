@@ -49,6 +49,12 @@ without renewing the session deadline. See the
 [runtime boundary](../elixir/serviceradar_nvr/README.md#runtime-boundary) for local
 block notifications and their publication/recovery limits.
 
+Read-only [restart discovery](../elixir/serviceradar_nvr/README.md#read-only-restart-discovery)
+can enumerate retained block IDs and verify sealed snapshots without saved
+notifications. It preserves incomplete or corrupt evidence and grants no
+publication, playback or replacement-writer authority. Automatic reconciliation
+and durable delivery acknowledgement remain pending.
+
 The inventory is intentionally limited to 4096 block directories and known spool
 file names. Unrecognized or unreadable entries stop admission for operator
 reconciliation. This is not journal reconciliation, archival, retention or a
