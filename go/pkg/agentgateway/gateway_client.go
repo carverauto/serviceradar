@@ -91,6 +91,8 @@ type GatewayClient struct {
 	connected                  bool
 	reconnectDelay             time.Duration
 	gatewayID                  string
+	recoveryHelloConn          *grpc.ClientConn
+	recoveryProtocolVersion    uint32
 	logger                     logger.Logger
 	remoteCaptureClientFactory func(grpc.ClientConnInterface) proto.RemotePacketCaptureServiceClient
 }
@@ -451,10 +453,12 @@ func (g *GatewayClient) GetReconnectDelay() time.Duration {
 // Hello sends an enrollment request to the gateway.
 // This should be called on agent startup to announce the agent and register with the gateway.
 func (g *GatewayClient) Hello(ctx context.Context, req *proto.AgentHelloRequest) (*proto.AgentHelloResponse, error) {
-	g.mu.RLock()
+	g.mu.Lock()
 	client := g.client
+	conn := g.conn
 	connected := g.connected
-	g.mu.RUnlock()
+	g.recoveryHelloConn = nil
+	g.mu.Unlock()
 
 	if !connected || client == nil {
 		return nil, ErrGatewayNotConnected
@@ -483,9 +487,29 @@ func (g *GatewayClient) Hello(ctx context.Context, req *proto.AgentHelloRequest)
 
 	g.mu.Lock()
 	g.gatewayID = resp.GatewayId
+	if g.conn == conn {
+		g.recoveryHelloConn = conn
+		g.recoveryProtocolVersion = resp.GetEdgeRecoveryProtocolVersion()
+	}
 	g.mu.Unlock()
 
 	return resp, nil
+}
+
+// EdgeRecoveryProtocolVersion returns the accepted Hello negotiation for the
+// current managed gRPC connection. A replacement connection or failed Hello
+// requires a new negotiation; gRPC transport retries retain this feature snapshot.
+func (g *GatewayClient) EdgeRecoveryProtocolVersion() uint32 {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	if !g.connected || g.conn == nil || g.recoveryHelloConn != g.conn {
+		return 0
+	}
+	state := g.conn.GetState()
+	if state != connectivity.Ready && state != connectivity.Idle {
+		return 0
+	}
+	return g.recoveryProtocolVersion
 }
 
 // GetGatewayID returns the gateway ID assigned during enrollment.

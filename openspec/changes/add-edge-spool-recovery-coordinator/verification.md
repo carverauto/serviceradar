@@ -162,3 +162,21 @@ Guarded database execution and the final integrated gate are still required.
   Retained Gate test negative `c844b4e6-e5fa-43b2-bf13-586d2bb21f15` admitted work
   at the high-water limit after deliberately disabling the pause rule. Exact
   restoration passed `db384846-fa61-4979-8e12-a1301c5eff3c`.
+
+## Runtime negotiation and final integration preparation
+
+- The first full `make test` run, `fa098211-c7a0-4972-9927-58fd8c35f490`,
+  finished with 522 passing targets, one failure and two skips. The migration
+  guard correctly exposed the stale chart expectation: an older schema was
+  incorrectly accepted. Updating the expected version passed the guard; the
+  integrated Go edge/agent and guard run passed all 14 targets in
+  `3ee6c3c1-7668-46ba-8552-6fbecb300691`. A device-task timing test failed once
+  and passed on retry in the full run; that is recorded as a flake, not a clean
+  first-attempt pass.
+- Authenticated Hello negotiation passed agent and gateway-client suites in
+  `76a1791c-da44-4da5-a2a8-144ea8f7a79d`. Removing consumption of the advertised
+  version failed the actual mTLS enrollment regression in
+  `480ff2ad-ff28-4703-9ebc-744e5d49e3bc`. The fixture also exercises a zero
+  advertisement, a future version, replacement connection and rejected Hello.
+  This is feature negotiation for the managed gRPC client connection, not a
+  transport freshness or recovery authorization cache.

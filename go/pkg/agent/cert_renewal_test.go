@@ -71,6 +71,7 @@ type syntheticRenewalGatewayServer struct {
 	lastHelloSerial    int64
 	lastPushSerial     int64
 	renewCalls         int
+	recoveryVersion    uint32
 }
 
 func newSyntheticRenewalGatewayServer(caCert *x509.Certificate, caKey *ecdsa.PrivateKey, caPEM []byte) *syntheticRenewalGatewayServer {
@@ -201,10 +202,11 @@ func (s *syntheticRenewalGatewayServer) Hello(ctx context.Context, req *proto.Ag
 	}
 
 	return &proto.AgentHelloResponse{
-		Accepted:             true,
-		AgentId:              req.GetAgentId(),
-		GatewayId:            "gw-synth-1",
-		HeartbeatIntervalSec: 30,
+		Accepted:                    true,
+		AgentId:                     req.GetAgentId(),
+		GatewayId:                   "gw-synth-1",
+		EdgeRecoveryProtocolVersion: s.recoveryVersion,
+		HeartbeatIntervalSec:        30,
 	}, nil
 }
 

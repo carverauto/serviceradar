@@ -30,6 +30,15 @@ func (p *PushLoop) EdgeRecordTrustSnapshot() *edgerecord.TrustSnapshot {
 	return p.edgeRecordTrust.Load()
 }
 
+// EdgeRecoveryProtocolVersion is the recovery version negotiated by the current
+// authenticated gateway client connection. Zero leaves recovery pending.
+func (p *PushLoop) EdgeRecoveryProtocolVersion() uint32 {
+	if p.gateway == nil {
+		return 0
+	}
+	return p.gateway.EdgeRecoveryProtocolVersion()
+}
+
 // Full configuration replaces the entire policy. NotModified is handled before
 // this boundary and retains its installed snapshot; the server's version hash
 // covers all key statuses and authority fences, not just output grant bytes.
