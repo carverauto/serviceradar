@@ -272,6 +272,15 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     end
   end
 
+  def renew_edge_recovery_copies(request, stream) do
+    identity = extract_edge_identity!(stream)
+
+    case ServiceRadarAgentGateway.EdgeRecoveryCopyGrants.renew(request, identity) do
+      {:ok, response} -> response
+      {:error, status, message} -> raise GRPC.RPCError, status: status, message: message
+    end
+  end
+
   defp extract_edge_identity!(stream) do
     resolver = edge_identity_resolver()
 

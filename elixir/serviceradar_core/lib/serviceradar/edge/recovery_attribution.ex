@@ -28,7 +28,20 @@ defmodule ServiceRadar.Edge.RecoveryAttribution do
   @spec registered(binary(), struct(), map()) :: {:ok, t()} | {:error, term()}
   def registered(raw, expected_contract, policy) do
     with {:ok, record} <- signed_record(raw, expected_contract, policy),
-         {:ok, entry} <-
+         do: registered_body(raw, record)
+  end
+
+  @doc "Derive original typed attribution for rollover, independently of production expiry."
+  @spec historical(binary(), struct(), map()) :: {:ok, t()} | {:error, term()}
+  def historical(raw, expected_contract, policy) do
+    with {:ok, record} <- RecordValidate.validate_bytes(raw),
+         :ok <- RecoveryValidate.contract_dispatch(record, expected_contract),
+         :ok <- RecoveryValidate.record_historical(record, policy),
+         do: registered_body(raw, record)
+  end
+
+  defp registered_body(raw, record) do
+    with {:ok, entry} <-
            ContractCatalog.fetch(
              {record.output_contract.contract_id, record.output_contract.contract_version}
            ),

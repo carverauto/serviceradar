@@ -457,3 +457,29 @@
   compatibility implementation in this scope.
 - Confidence: high on the ownership constraint; the near-full end-to-end proof
   remains required before this lifecycle is complete.
+
+## Grant historical copies without recreating production authority
+
+- When: rollover issuance pass, 2026-11-09.
+- Choice: factor the existing signature boundary into a historical verifier and
+  compose it with the same typed catalog constructors. The gateway pins one
+  installed trust snapshot and verifies held registry admission. Core then joins
+  the derived attribution to every registered physical coordinate and binding,
+  and requires durable original positive or explicit-negative mapping evidence.
+- Gap: requiring a current assignment would strand copies after its lifecycle
+  deletes that row. Treating absence as a negative would instead invent history.
+- Reach: the new capability permits only exact-byte rollover delivery for fifteen
+  minutes; it grants no collection, source or production authority. Current key
+  compromise, missing trust and unavailable registry history remain refusals.
+  Existing ordinary renewal behavior is unchanged.
+- Verdict: sound. One historical validation owner preserves the existing semantic
+  and signature checks; one core owner joins durable intent to issuance evidence.
+- Confidence: boundary and typed-body unit tests pass; database issuance assertions
+  remain pending guarded integration execution.
+
+- Review: kept rollover issuance separate from ordinary renewal because their
+  authorization contracts differ; both use the existing capability signer.
+  Historical and fresh constructors share typed body derivation, while retaining
+  explicit freshness policy at their entry points. Ripwire's normalized generic
+  pipeline matches and RPC-only caller gaps did not identify a missing owner.
+  No lint suppression or caller-selected authorization mode was introduced.

@@ -11,8 +11,10 @@ recovery path. Visibility PR #6447 merged as `d54cbc508a76ba99b673015d3006ce9283
 with all 20 CI checks passing. Its gate records the user-approved remote-test
 exception; live-product validation was not performed.
 
-The current pickup is historical copy grants and integration of storage coverage,
-consumer publication and agent runtime. Signed completion is persisted once;
+The current pickup is integration of bounded agent runtime and gateway coverage,
+followed by the coordinator and same-reservation cleanup. Historical copy grants
+now join authenticated typed records to registered coordinates and retained original
+mapping evidence. Signed completion is persisted once;
 source authorization commits original mapping evidence before returning authority.
 Consumer receipt/effects now share one transaction,
 with bounded contiguous progress over split source-generation intervals. Partial
@@ -22,9 +24,13 @@ verifiers, and restart-safe reserve accounting are integrated. The recovery
 protocol remains disabled until publication, repair and prefix handling are wired.
 
 Independent work continues on bound attribution/relocation sidecars, physical
-coverage and reclaim certificates, agent lane migration, and durable consumer
+coverage and reclaim certificates, bounded agent lane activation, and durable consumer
 repair effects. Database persistence tests still require guarded integration
 execution. No source deletion or journal cleanup is enabled by these foundations.
+
+The owner excluded legacy compatibility on 2026-11-09. Preserve and account old
+flat files as unsupported retained storage; do not implement migration, legacy
+draining or a copy-only recovery protocol. See [legacy-recovery-decision.md](legacy-recovery-decision.md).
 
 ## Dependency order
 
@@ -48,9 +54,9 @@ oracle. The live gateway prefix owner is Elixir `ServiceRadar.Edge.ResolvedPrefi
 - Companion classification-spans ABI and canonical recovery hashes are present.
 - The rescue commit was absent from 135 local repository object stores; rebuild
   from the frozen contract instead of repeating the search.
-- LaneSet now accepts generation-specific existing spool options, and production
-  reserve checks probe the actual spool filesystem. Agent runtime lane migration
-  and binding persistence remain open.
+- LaneSet accepts generation-specific options and production reserve checks probe
+  the actual filesystem. Runtime activation and the full reserved cleanup cycle
+  remain on the critical path.
 - Assignment/grant current-state rows are not historical recovery mappings;
   scheduler deletion and mutable epochs must not remove their authority evidence.
 - All four coarsening vectors start from journaled per-sequence evidence. Coverage
@@ -121,3 +127,12 @@ Update this pickup and the choices ledger after each verified commit checkpoint.
   found formatting and its automatic retry was stopped. Formatting was corrected
   and quality passed in `edd7040c-3394-4428-9219-d9706dafbaa3`. The lifecycle DB
   assertions were excluded from the unit shard and remain pending guarded execution.
+
+- Historical copy grants passed gateway/core unit and quality checks (five targets)
+  in `37fd3c63-d895-408f-8cc8-3e85d10d2e94`. The preceding integrated run
+  `635332eb-f54d-47ea-a203-dc21f32b12f1` passed 18 of 19 targets; its gateway
+  complexity finding was fixed by separating envelope and item bounds. Allowing a
+  compromised historical signing key made the typed-attribution regression fail
+  in `8665c5a5-7cf7-4c6b-b50b-0225769bc932`; the verifier was restored exactly
+  before the green run. Inventory passed 66 checks with one skip. Copy issuance
+  database assertions remain pending guarded integration execution.

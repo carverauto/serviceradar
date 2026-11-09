@@ -509,20 +509,32 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
   def record_signed(record, policy) do
     tolerance = Map.get(policy, :clock_tolerance_nano, 0)
 
-    with :ok <- check(is_function(Map.get(policy, :trust), 3), :trust_missing),
-         :ok <- check(Map.get(policy, :trust_policy_epoch, 0) != 0, :trust_epoch_unset),
-         :ok <-
+    with :ok <-
            check(
              is_integer(tolerance) and tolerance >= 0 and tolerance <= @max_clock_tolerance_nano,
              :clock_tolerance
            ),
+         :ok <- record_historical(record, policy),
+         :ok <- production_current(record.production_capability, policy, tolerance) do
+      fence_relation(record, policy)
+    end
+  end
+
+  @doc """
+  Verifies retained record authority without granting fresh production rights.
+  Current retained key policy still applies to both signatures; a compromise
+  revocation or unavailable key refuses. Delivery freshness and fences are checked
+  separately when a rollover delivery capability is used.
+  """
+  @spec record_historical(term(), policy()) :: :ok | {:error, atom()}
+  def record_historical(record, policy) do
+    with :ok <- check(is_function(Map.get(policy, :trust), 3), :trust_missing),
+         :ok <- check(Map.get(policy, :trust_policy_epoch, 0) != 0, :trust_epoch_unset),
          :ok <- SemanticValidate.validate_record(record),
          {:ok, production_status} <-
            verify_capability(record.production_capability, :production, policy),
-         {:ok, worst} <- verify_source_authority(record, policy, production_status),
-         :ok <- check(worst != :historically_revoked, :key_historically_revoked),
-         :ok <- production_current(record.production_capability, policy, tolerance) do
-      fence_relation(record, policy)
+         {:ok, worst} <- verify_source_authority(record, policy, production_status) do
+      check(worst == :valid, :key_historically_revoked)
     end
   end
 

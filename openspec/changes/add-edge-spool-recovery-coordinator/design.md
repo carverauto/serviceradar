@@ -145,6 +145,16 @@ submit a resolved body to the authorization endpoint. Hello advertises protocol
 version zero until the complete gateway/core path is available; zero retains
 the agent's source evidence and does not start recovery.
 
+Copy grant issuance first validates the exact retained record's signatures,
+authenticated principal and scope, held registry epoch and typed payload. Its
+original attribution is independent of production expiry and mutable assignment
+rows, but still requires currently valid retained issuer keys. Core joins that
+typed attribution to the registered event, raw hash, destination binding and
+old/new coordinates, then requires the original mapping to be FOUND or explicit
+NOT_SCHEDULED. Missing, unavailable, corrupt or conflicting evidence refuses;
+registration intent alone cannot grant delivery. The resulting capability has
+only DELIVERY claims with the existing rollover transition and a finite window.
+
 Registration persists control metadata only. Recovery record publication still
 goes through JetStream, and registered pages alone cannot commit consumer repair,
 advance a gateway prefix, or authorize source or journal deletion.
