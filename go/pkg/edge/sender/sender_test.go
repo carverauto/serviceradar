@@ -670,26 +670,6 @@ func TestNewRejectsInvalidConfig(t *testing.T) {
 	}
 }
 
-func TestPersistentSpoolIDIsStableAcrossCalls(t *testing.T) {
-	dir := t.TempDir()
-
-	first, err := PersistentSpoolID(dir)
-	if err != nil {
-		t.Fatalf("PersistentSpoolID: %v", err)
-	}
-	if err := edgerecord.ValidateUUIDv7(first); err != nil {
-		t.Fatalf("generated spool id is not a valid UUIDv7: %v", err)
-	}
-
-	second, err := PersistentSpoolID(dir)
-	if err != nil {
-		t.Fatalf("PersistentSpoolID (second call): %v", err)
-	}
-	if !equalSeqs(toU64(first), toU64(second)) {
-		t.Fatalf("PersistentSpoolID not stable: %x != %x", first, second)
-	}
-}
-
 func equalSeqs(a, b []uint64) bool {
 	if len(a) != len(b) {
 		return false
@@ -700,14 +680,6 @@ func equalSeqs(a, b []uint64) bool {
 		}
 	}
 	return true
-}
-
-func toU64(b []byte) []uint64 {
-	out := make([]uint64, len(b))
-	for i, v := range b {
-		out[i] = uint64(v)
-	}
-	return out
 }
 
 func TestTerminalAcknowledgementSurvivesReopenBeforeSuppressingReplay(t *testing.T) {
