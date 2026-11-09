@@ -241,6 +241,21 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorkerDbTest do
     unrelated_expired =
       insert_record_bundle!(inserted_at: DateTime.shift(draining_at, day: -1))
 
+    closed_slot_inserted_at = DateTime.shift(draining_at, day: -2)
+
+    closed_execution_id =
+      lease_slot!(
+        closed_slot_inserted_at,
+        DateTime.shift(closed_slot_inserted_at, hour: 1),
+        closed_slot_inserted_at
+      )
+
+    closed_slot_expired =
+      insert_record_bundle!(
+        execution_id: closed_execution_id,
+        inserted_at: closed_slot_inserted_at
+      )
+
     # Confirm epoch 1_000_000 is still draining because of the open sweep slot (#6356).
     assert {:ok, :no_candidate} = ContractRegistry.evaluate_transition(core_on_b, @key, now)
 
@@ -260,6 +275,13 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorkerDbTest do
            }
 
     assert bundle_exists?(unrelated_expired) == %{
+             event_ledger: false,
+             edge_delivery_slots: false,
+             edge_sweep_batch_slots: false,
+             edge_sweep_projected_rows: false
+           }
+
+    assert bundle_exists?(closed_slot_expired) == %{
              event_ledger: false,
              edge_delivery_slots: false,
              edge_sweep_batch_slots: false,

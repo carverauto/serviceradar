@@ -29,8 +29,8 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorker do
   `platform.sweep_execution_slots` inserted up to `draining_since + 3600s` still
   has an open collection window (`collection_expires > now`). Retention never
   deletes a slot or ledger row inserted during a draining epoch's window (up to
-  `draining_since + 3600s`) or associated with an open/draining sweep execution
-  slot until that epoch retires.
+  `draining_since + 3600s`) or associated with a scheduled sweep execution slot
+  whose collection window is still open.
   """
 
   use Oban.Worker,
@@ -70,16 +70,7 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorker do
         FROM platform.sweep_execution_slots AS slot
         WHERE slot.id = candidate.execution_id
           AND slot.state = 'scheduled'
-          AND (
-            slot.collection_expires > $2
-            OR EXISTS (
-              SELECT 1
-              FROM platform.edge_contract_registry_epochs AS epoch
-              WHERE epoch.state = 'draining'
-                AND epoch.draining_since IS NOT NULL
-                AND slot.inserted_at <= epoch.draining_since + ($3 * INTERVAL '1 second')
-            )
-          )
+          AND slot.collection_expires > $2
       )
     LIMIT $4
   )
@@ -240,11 +231,11 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorker do
       resolve_positive_integer(args, "max_batches", config, :max_batches, @default_max_batches)
 
     now = DateTime.utc_now()
-    horizon_seconds = effective_horizon_seconds()
-    cutoff = DateTime.shift(now, second: -horizon_seconds)
     margin = @draining_epoch_lease_margin_seconds
 
-    with {:ok, deleted_batch_slots} <-
+    with {:ok, horizon_seconds} <- effective_horizon_seconds(),
+         cutoff = DateTime.shift(now, second: -horizon_seconds),
+         {:ok, deleted_batch_slots} <-
            delete_in_batches(
              @delete_sweep_batch_slots_sql,
              fn limit -> [cutoff, now, margin, limit] end,
@@ -294,19 +285,22 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorker do
   defp effective_horizon_seconds do
     default_ceiling = PipelineSettings.default_max_horizon_seconds()
 
-    configured_ceiling =
-      case Repo.query(
-             """
-             SELECT max(GREATEST(COALESCE(max_horizon_seconds, 0), COALESCE(horizon_seconds, 0)))
-             FROM platform.edge_pipeline_settings
-             """,
-             []
-           ) do
-        {:ok, %{rows: [[value]]}} when is_integer(value) and value > 0 -> value
-        _ -> default_ceiling
-      end
+    case Repo.query(
+           """
+           SELECT max(GREATEST(COALESCE(max_horizon_seconds, 0), COALESCE(horizon_seconds, 0)))
+           FROM platform.edge_pipeline_settings
+           """,
+           []
+         ) do
+      {:ok, %{rows: [[value]]}} when is_integer(value) ->
+        {:ok, retention_horizon_seconds(max(default_ceiling, value))}
 
-    retention_horizon_seconds(max(default_ceiling, configured_ceiling))
+      {:ok, %{rows: [[nil]]}} ->
+        {:ok, retention_horizon_seconds(default_ceiling)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   defp resolve_positive_integer(args, arg_key, config, config_key, default) do
