@@ -1,6 +1,7 @@
 defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay do
   @moduledoc """
-  Lists dead-lettered edge records and replays them after the fault is fixed.
+  Lists dead-lettered edge records, replays them after the fault is fixed, and purges the ones
+  an operator decides not to replay.
 
   Replay republishes each record's original bytes and transport headers, with a PubAck, to the
   subject it was first delivered on (`Sr-Edge-Dlq-Source-Subject`), and deletes the dead-letter
