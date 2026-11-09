@@ -3,6 +3,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
 
   alias Ash.Error.Invalid
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Edge.AgentGatewaySync
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadar.Plugins.AddonPackage
@@ -1121,7 +1122,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
         "locate agent updater for systemd install: release updater does not support required flag: --addon-version"
 
     assert :ok =
-             ServiceRadar.Edge.AgentGatewaySync.record_config_section_statuses(
+             AgentGatewaySync.record_config_section_statuses(
                fixture.agent_uid,
                %{
                  section_statuses: [
@@ -1168,7 +1169,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
         "stage addon artifact: sha256 mismatch"
 
     assert :ok =
-             ServiceRadar.Edge.AgentGatewaySync.record_config_section_statuses(
+             AgentGatewaySync.record_config_section_statuses(
                fixture.agent_uid,
                %{
                  section_statuses: [
