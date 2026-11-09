@@ -24,8 +24,12 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   not a refusal: it fails as `ServiceRadar.EventWriter.EdgeRecordTransientError` and is
   redelivered like any other failure.
     * A projector's database writes (`project/4`) run inside the transaction, told whether the
-      delivery is primary. A replay makes no domain changes; late-fenced deliveries remain
-      ledger-only.
+      delivery is primary. Completed projection replays make no domain changes; a deferred
+      recovery projection revisits its durable state. Late-fenced deliveries remain ledger-only.
+      A deferred projection commits its receipt and audit before requesting redelivery.
+
+  Recovery control deliveries have no dead-letter route. Refusals and committed deferrals
+  retain their broker delivery, even beyond the ordinary delivery-count threshold.
 
   The same processor consumes the audit route (`telemetry.edge-record-audit.v1.*`), where the
   gateway publishes only `LATE_FENCED_DELIVERY` records: they claim their slot and ledger row
@@ -66,6 +70,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   alias Serviceradar.Edge.V1.EdgeRecordV1
   alias ServiceRadar.Edge.WireDecode
   alias ServiceRadar.EventWriter.EdgeRecordDeadLetter
+  alias ServiceRadar.EventWriter.EdgeRecordDeferredError
   alias ServiceRadar.EventWriter.EdgeRecordRefusedError
   alias ServiceRadar.EventWriter.EdgeRecordTransientError
   alias ServiceRadar.NATS.PublishDeniedError
@@ -114,6 +119,9 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
     opts = [test_hook: test_hook(), publication: publication_of(metadata)]
 
     case ingest_decoded(data, decoded, headers, Repo, opts) do
+      {:ok, {:deferred, state}} ->
+        {:failed, %EdgeRecordDeferredError{state: state}}
+
       {:ok, outcome} ->
         if outcome == :inserted and opts[:publication] == :primary,
           do: PipelineStats.record(:projected, contract)
@@ -158,18 +166,30 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
       %{reason: inspect(reason)}
     )
 
-    if EdgeRecordDeadLetter.applies?(message) do
-      Logger.debug("Edge record rejected; dead-lettering it: #{Exception.message(refusal)}")
-      {:failed, refusal}
-    else
-      Logger.warning(
-        "Edge record rejected on a subject without a dead-letter route; acknowledging it: " <>
-          Exception.message(refusal)
-      )
+    cond do
+      recovery_message?(message) ->
+        Logger.warning(
+          "Recovery control refused; retaining delivery: #{Exception.message(refusal)}"
+        )
 
-      {:ok, 0}
+        {:failed, refusal}
+
+      EdgeRecordDeadLetter.applies?(message) ->
+        Logger.debug("Edge record rejected; dead-lettering it: #{Exception.message(refusal)}")
+        {:failed, refusal}
+
+      true ->
+        Logger.warning(
+          "Edge record rejected on a subject without a dead-letter route; acknowledging it: " <>
+            Exception.message(refusal)
+        )
+
+        {:ok, 0}
     end
   end
+
+  defp recovery_message?(%{metadata: %{subject: "telemetry.edge-record-recovery.v1"}}), do: true
+  defp recovery_message?(_), do: false
 
   defp contract_of({:ok, record}), do: PipelineStats.contract_ref(record)
   defp contract_of({:error, _reason}), do: nil
@@ -188,7 +208,8 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   boundary independently validates the sweep body and its source correlation,
   then binds domain writes to the persisted assignment and scheduled slot.
 
-  Returns `{:ok, :inserted | :replay}` or `{:error, reason}`. `reason` is
+  Returns `{:ok, :inserted | :replay}`, `{:ok, {:deferred, :pending | :blocked}}`
+  after committed retryable work, or `{:error, reason}`. `reason` is
   `{:delivery_slot_conflict, existing}`, `{:event_id_conflict, existing}`,
   `{:sweep_batch_slot_conflict, existing}`, `:output_grant_not_current`,
   `{:refused, :gateway_unknown}`, a header/slot decode reason, or a wire-decode
@@ -208,7 +229,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   before anything is written; it defaults to `:primary`.
   """
   @spec ingest(binary(), map() | list(), module(), keyword()) ::
-          {:ok, :inserted | :replay} | {:error, term()}
+          {:ok, :inserted | :replay | {:deferred, :pending | :blocked}} | {:error, term()}
   def ingest(record_bytes, headers, repo \\ Repo, opts \\ []) when is_binary(record_bytes) do
     ingest_decoded(record_bytes, WireDecode.decode_record(record_bytes), headers, repo, opts)
   end
@@ -351,10 +372,13 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
                  ),
                {:ok, ledger_outcome} <-
                  upsert_ledger(repo, network_scope_id, event_id, semantic_digest, record_sha256),
-               :ok <-
-                 project(repo, provenance, record, projector, body, ledger_outcome, gateway_id) do
-            run_test_hook(test_hook, :before_commit, event_id, {:ok, ledger_outcome})
-            ledger_outcome
+               {:ok, outcome} <-
+                 projection_outcome(
+                   project(repo, provenance, record, projector, body, ledger_outcome, gateway_id),
+                   ledger_outcome
+                 ) do
+            run_test_hook(test_hook, :before_commit, event_id, {:ok, outcome})
+            outcome
           else
             {:error, reason} -> repo.rollback(reason)
           end
@@ -369,6 +393,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
           projector.committed(record, body, %{
             ledger: ledger_outcome,
             primary?: true,
+            late_fenced?: false,
             gateway_id: gateway_id
           })
         end
@@ -415,12 +440,20 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
       projector.project(repo, record, body, %{
         ledger: ledger_outcome,
         primary?: primary?(provenance, ledger_outcome),
+        late_fenced?: provenance.delivery_mode == PublicationIdentity.mode_late_fenced(),
         gateway_id: gateway_id
       })
     else
       :ok
     end
   end
+
+  defp projection_outcome(:ok, ledger_outcome), do: {:ok, ledger_outcome}
+
+  defp projection_outcome({:defer, state}, _ledger_outcome) when state in [:pending, :blocked],
+    do: {:ok, {:deferred, state}}
+
+  defp projection_outcome({:error, _} = error, _ledger_outcome), do: error
 
   # A fresh, non-late-fenced delivery is the one that writes domain state.
   defp primary?(provenance, ledger_outcome) do

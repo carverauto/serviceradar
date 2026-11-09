@@ -77,6 +77,7 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter do
   alias ServiceRadar.Edge.StreamRoute
   alias ServiceRadar.Edge.WireDecode
   alias ServiceRadar.EventWriter.EdgeRecordDeadLetter.FailureLog
+  alias ServiceRadar.EventWriter.EdgeRecordDeferredError
   alias ServiceRadar.EventWriter.EdgeRecordRefusedError
   alias ServiceRadar.EventWriter.Telemetry, as: EventWriterTelemetry
   alias ServiceRadar.NATS.JetStreamPublish
@@ -122,6 +123,8 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter do
   its failure is terminal (`terminal?/1`) on a stream that has a threshold.
   """
   @spec due?(map()) :: boolean()
+  def due?(%{status: {:failed, %EdgeRecordDeferredError{}}}), do: false
+
   def due?(%{metadata: metadata} = message) when is_map(metadata) do
     case threshold(metadata[:dead_letter_after], metadata[:max_deliver]) do
       nil -> false

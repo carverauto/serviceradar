@@ -5,6 +5,7 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
   alias ServiceRadar.Analytics.StarRocks.LoadSupervisor
   alias ServiceRadar.Analytics.StarRocks.StreamLoad
   alias ServiceRadar.EventWriter.Config
+  alias ServiceRadar.EventWriter.EdgeRecordDeferredError
   alias ServiceRadar.EventWriter.EdgeRecordRefusedError
   alias ServiceRadar.EventWriter.Pipeline
   alias ServiceRadar.EventWriter.Processors.AdhocScan
@@ -69,6 +70,45 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
                     %{action: :nack, result: :ok, subject_class: "events"}}
 
     assert is_integer(duration) and duration >= 0
+  end
+
+  test "a committed recovery defer remains retryable beyond terminal and dead-letter thresholds" do
+    parent = self()
+
+    for state <- [:pending, :blocked] do
+      message =
+        Message.failed(
+          %Message{
+            data: "synthetic recovery control",
+            metadata: %{
+              subject: "telemetry.edge-record-recovery.v1",
+              jetstream_ack: %{
+                stream: "TELEMETRY_EDGE_RECORD_RECOVERY_V1",
+                consumer: "synthetic",
+                delivery_count: 50
+              },
+              max_deliver: 5,
+              dead_letter_after: 20,
+              received_monotonic: System.monotonic_time()
+            },
+            acknowledger:
+              {Pipeline, :ack_ref,
+               %{
+                 ack_fun: fn action ->
+                   send(parent, {:recovery_action, action})
+                   :ok
+                 end
+               }}
+          },
+          %EdgeRecordDeferredError{state: state}
+        )
+
+      assert :ok = Pipeline.ack(:ack_ref, [], [message])
+      assert_receive {:recovery_action, {:nack, 80_000}}
+      refute_receive {:recovery_action, :ack}, 10
+      refute_receive {:recovery_action, :term}, 10
+      refute ServiceRadar.EventWriter.EdgeRecordDeadLetter.due?(message)
+    end
   end
 
   test "ack/3 terminally acknowledges final failed JetStream delivery" do
