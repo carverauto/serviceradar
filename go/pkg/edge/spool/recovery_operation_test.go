@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -52,6 +53,11 @@ func newRecoveryFixtureWithTerminal(t *testing.T, copies int, terminal func(*Gen
 	root := t.TempDir()
 	a := recoveryOperationAllocator(t)
 	lanes := openAttributedLanes(t, root, identity, a, nil)
+	if copies == 0 {
+		if _, err := lanes.Rotate(key); err != nil {
+			t.Fatal(err)
+		}
+	}
 	for i := 0; i < copies; i++ {
 		if _, err := lanes.AppendAttributed(key, identity, input); err != nil {
 			t.Fatal(err)
@@ -125,6 +131,10 @@ func newRecoveryFixtureWithTerminal(t *testing.T, copies int, terminal func(*Gen
 }
 
 func recoveryControlInputs(t *testing.T, f *recoveryFixture) []AttributedAppend {
+	return recoveryControlInputsAtEpoch(t, f, 0)
+}
+
+func recoveryControlInputsAtEpoch(t *testing.T, f *recoveryFixture, epochDelta uint64) []AttributedAppend {
 	t.Helper()
 	manifest, err := constructRecoveryManifest(f.plan)
 	if err != nil {
@@ -176,6 +186,13 @@ func recoveryControlInputs(t *testing.T, f *recoveryFixture) []AttributedAppend 
 			claims.ScopeSha256 = bytes.Clone(scope)
 			claims.NetworkScopeId = bytes.Clone(f.identity.NetworkScopeID)
 			claims.OriginPrincipalId = bytes.Clone(f.identity.AgentID)
+			if epochDelta != 0 {
+				epoch := r.ProducerContext.GetAuthorityEpoch() + epochDelta
+				r.ProducerContext.AuthorityEpoch = proto.Uint64(epoch)
+				production.AuthorityEpoch = epoch
+				claims.AuthorityEpoch = epoch
+				r.EventId[14] += byte(epochDelta)
+			}
 		})
 	}
 	return result
@@ -208,7 +225,7 @@ func recoveryAuthoritativeAck(t *testing.T, g *Generation, records []AttributedA
 func prepareRecoveryPublications(t *testing.T, f *recoveryFixture) []AttributedAppend {
 	t.Helper()
 	records := recoveryControlInputs(t, f)
-	if err := f.operation.FreezePublications(records); err != nil {
+	if err := f.operation.FreezePublications(0, records); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.operation.BeginControlAttempt(f.control); err != nil {
@@ -559,7 +576,7 @@ func TestRecoveryCopiesRetainedTerminalPrefixBeforeAmbiguousGap(t *testing.T) {
 func TestRecoveryControlRestartReplaysFrozenPublicationAfterTornAppend(t *testing.T) {
 	f := newRecoveryFixture(t, 1)
 	expected := recoveryControlInputs(t, f)
-	if err := f.operation.FreezePublications(expected); err != nil {
+	if err := f.operation.FreezePublications(0, expected); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.operation.BeginControlAttempt(f.control); err != nil {
@@ -586,6 +603,9 @@ func TestRecoveryControlRestartReplaysFrozenPublicationAfterTornAppend(t *testin
 	}
 	replacement, err := f.lanes.CreateRecoveryControlDestination(f.control.id.Lane, f.plan.RecoveryID, 1, f.grant)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err = f.operation.ReplayPublications(0, 1); err != nil {
 		t.Fatal(err)
 	}
 	if err = f.operation.BeginControlAttempt(replacement); err != nil {
@@ -867,4 +887,124 @@ func TestRecoveryReclaimResumesAroundPhysicalPublication(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRecoveryAuthorityAttemptsKeepIndependentReceiptsAndFrozenBodies(t *testing.T) {
+	f := newRecoveryFixture(t, 0)
+	original := prepareRecoveryPublications(t, f)
+	before, err := os.ReadFile(recoveryPhasePath(f.dir, recoveryPublicationsKey(0), 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldAck, _ := recoveryAuthoritativeAck(t, f.control, original, edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE)
+	if err := f.operation.CapturePublicationAck(f.control, 0, oldAck); err != nil {
+		t.Fatal(err)
+	}
+	refreshed := recoveryControlInputsAtEpoch(t, f, 1)
+	if err := f.operation.FreezePublications(0, refreshed); !errors.Is(err, ErrRecoveryJournalConflict) {
+		t.Fatalf("rewrote frozen authority attempt: %v", err)
+	}
+	if err := f.operation.FreezePublications(1, refreshed); err != nil {
+		t.Fatal(err)
+	}
+	second, err := f.lanes.CreateRecoveryControlDestination(f.control.id.Lane, f.plan.RecoveryID, 1, f.grant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.operation.BeginControlAttempt(second); err != nil {
+		t.Fatal(err)
+	}
+	for i := range refreshed {
+		if _, err := f.operation.Publish(second, i); err != nil {
+			t.Fatal(err)
+		}
+		proof, err := second.CommittedAttribution(uint64(i + 1))
+		if err != nil || !bytes.Equal(proof.record.Body, refreshed[i].Body) || bytes.Equal(proof.record.Body, original[i].Body) {
+			t.Fatalf("authority attempt did not retain its own exact bytes: %v", err)
+		}
+	}
+	audit, _ := recoveryAuthoritativeAck(t, second, refreshed, edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUDIT_ONLY)
+	if err := f.operation.CapturePublicationAck(second, 1, audit); !errors.Is(err, ErrRecoveryCoverage) {
+		t.Fatalf("audit-only counted as applied publication: %v", err)
+	}
+	if _, err := f.operation.SealCoverage(); err == nil {
+		t.Fatal("coverage sealed without authoritative tombstone")
+	}
+	current, _ := recoveryAuthoritativeAck(t, second, refreshed, edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE)
+	if err := f.operation.CapturePublicationAck(second, 1, current); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := OpenRecoveryOperation(f.dir, f.source, f.destination, f.grant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reopened.SealCoverage(); err != nil {
+		t.Fatalf("reopened mixed-attempt receipts lost: %v", err)
+	}
+	after, err := os.ReadFile(recoveryPhasePath(f.dir, recoveryPublicationsKey(0), 0))
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatal("new attempt changed original bundle", err)
+	}
+	beforeUsage := f.allocator.Usage()
+	if _, err := f.lanes.CreateRecoveryControlDestination(f.control.id.Lane, f.plan.RecoveryID, MaxRecoveryControlAttempts, f.grant); !errors.Is(err, ErrRecoverySplitRequired) {
+		t.Fatalf("unbounded retained attempts: %v", err)
+	}
+	if f.allocator.Usage() != beforeUsage {
+		t.Fatal("refused attempt consumed reserve")
+	}
+}
+
+// This is a serialization bound, not a semantic control fixture. It measures the
+// largest permitted byte arrays through the actual persisted JSON and framing.
+func TestRecoveryTwoAuthorityAttemptSerializationFitsReservedBudget(t *testing.T) {
+	records := make([]frozenRecoveryPublication, maxRecoveryPublications)
+	remaining := MaxRecoveryPublicationBytes
+	for i := range records {
+		// One-byte remainder maximizes base64 padding for all but the last body.
+		size := 1
+		if i == len(records)-1 {
+			size = remaining
+		}
+		records[i] = frozenRecoveryPublication{EventID: bytes.Repeat([]byte{1}, 16), Body: bytes.Repeat([]byte{2}, size), Attribution: bytes.Repeat([]byte{3}, maxFrozenRecoveryAttributionBytes)}
+		remaining -= size
+	}
+	raw, err := json.Marshal(records)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(raw) > maxRecoveryPublicationBundleBytes {
+		t.Fatalf("serialized bundle %d exceeds bound %d", len(raw), maxRecoveryPublicationBundleBytes)
+	}
+	framed, err := encodeRecoveryPhase([32]byte{}, recoveryPublicationsKey(1), raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	total := MaxRecoveryControlAttempts * len(framed)
+	// Every metadata phase gets its complete enforced payload allowance.
+	for _, key := range []string{"attempt-000", "attempt-001", "ack-000", "ack-001", "ack-002", "ack-003", "ack-004", "archive", "delete", "reclaimed", "resolved"} {
+		phase, err := encodeRecoveryPhase([32]byte{}, key, make([]byte, maxRecoveryMetadataPhaseBytes))
+		if err != nil {
+			t.Fatal(err)
+		}
+		total += len(phase)
+	}
+	coverage, err := encodeRecoveryPhase([32]byte{}, "coverage", make([]byte, maxRecoveryCoverageBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	total += len(coverage)
+	if total > recoveryPhaseWorstCaseBytes || recoveryPhaseWorstCaseBytes > MaxRecoveryPhaseBytes {
+		t.Fatalf("serialized phase budget: actual=%d bound=%d limit=%d", total, recoveryPhaseWorstCaseBytes, MaxRecoveryPhaseBytes)
+	}
+	if _, err := encodeRecoveryPhase([32]byte{}, "resolved", make([]byte, maxRecoveryMetadataPhaseBytes+1)); !errors.Is(err, ErrRecoverySplitRequired) {
+		t.Fatalf("metadata consumed another phase's reserve: %v", err)
+	}
+	footprint := DefaultRecoveryFootprint()
+	if err := footprint.ValidateCoordinator(); err != nil {
+		t.Fatal(err)
+	}
+	if footprint.JournalCopy < uint64(2*(MaxRecoveryJournalBytes+total)) || footprint.ManifestPages < uint64(2*MaxRecoveryControlAttempts*recoveryControlAttemptBytes+(64<<10)) {
+		t.Fatal("default omits paired repairs or complete control archives")
+	}
+	t.Logf("maximum serialized bundle=%d, complete phase bound=%d, phase cap=%d", len(raw), recoveryPhaseWorstCaseBytes, MaxRecoveryPhaseBytes)
 }

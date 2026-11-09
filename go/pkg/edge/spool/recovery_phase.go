@@ -24,7 +24,20 @@ const maxRecoveryPhases = 64
 // journal and a typed step name. A later record never replaces or proves an
 // earlier barrier. Only the operation owner writes the private step names.
 func encodeRecoveryPhase(frozen [32]byte, key string, payload []byte) ([]byte, error) {
-	if len(payload) > MaxRecoveryPhaseBytes-recoveryPhaseOverhead {
+	if !validRecoveryPhaseKey(key) && key != "completion" && key != "completed" {
+		return nil, ErrRecoveryPlan
+	}
+	limit := maxRecoveryMetadataPhaseBytes
+	if key == "completion" || key == "completed" {
+		limit = maxRecoveryCompletionBytes
+	}
+	if strings.HasPrefix(key, "publications-") {
+		limit = maxRecoveryPublicationBundleBytes
+	}
+	if key == "coverage" {
+		limit = maxRecoveryCoverageBytes
+	}
+	if len(payload) > limit {
 		return nil, ErrRecoverySplitRequired
 	}
 	raw := append([]byte(recoveryPhaseMagic), frozen[:]...)
@@ -241,22 +254,29 @@ func RepairRecoveryPhases(dir string, grant *RecoveryGrant) error {
 
 func validRecoveryPhaseKey(key string) bool {
 	switch key {
-	case "publications", "coverage", "delete", "reclaimed", "resolved":
+	case "coverage", "archive", "delete", "reclaimed", "resolved":
 		return true
 	}
 	offset := 4
-	if strings.HasPrefix(key, "attempt-") {
+	if strings.HasPrefix(key, "publications-") {
+		offset = 13
+	} else if strings.HasPrefix(key, "attempt-") {
 		offset = 8
 	}
 	if len(key) != offset+3 || (offset == 4 && !strings.HasPrefix(key, "ack-")) {
 		return false
 	}
+	n := uint32(0)
 	for _, b := range []byte(key[offset:]) {
 		if b < '0' || b > '9' {
 			return false
 		}
+		n = n*10 + uint32(b-'0')
 	}
-	return true
+	if offset != 4 {
+		return n < MaxRecoveryControlAttempts
+	}
+	return n < maxRecoveryPublications
 }
 
 func repairRecoveryPhase(dir, key string, frozen [32]byte, grant *RecoveryGrant) error {

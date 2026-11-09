@@ -15,8 +15,9 @@ import (
 )
 
 type recoveryControlAttempt struct {
-	Generation GenerationIdentity
-	Count      uint32
+	Generation   GenerationIdentity
+	Count        uint32
+	BundleSHA256 []byte
 }
 
 func recoveryAttemptKey(attempt uint32) string { return fmt.Sprintf("attempt-%03d", attempt) }
@@ -27,10 +28,10 @@ func recoveryAttemptKey(attempt uint32) string { return fmt.Sprintf("attempt-%03
 func (o *RecoveryOperation) BeginControlAttempt(control *Generation) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if control == nil || !bytes.Equal(control.RecoveryID(), o.plan.RecoveryID) || control.RecoveryAttempt() >= maxRecoveryPhases-uint32(maxRecoveryPublications)-5 {
+	if control == nil || !bytes.Equal(control.RecoveryID(), o.plan.RecoveryID) || control.RecoveryAttempt() >= MaxRecoveryControlAttempts {
 		return ErrRecoveryPlan
 	}
-	records, err := o.publications()
+	bundle, records, err := o.publicationBundle(control.RecoveryAttempt())
 	if err != nil {
 		return err
 	}
@@ -57,29 +58,49 @@ func (o *RecoveryOperation) BeginControlAttempt(control *Generation) error {
 	if err = o.grant.AttachControlLane(control); err != nil {
 		return err
 	}
-	payload, err := json.Marshal(recoveryControlAttempt{Generation: control.Identity(), Count: uint32(len(records))})
+	digest := sha256.Sum256(bundle)
+	payload, err := json.Marshal(recoveryControlAttempt{Generation: control.Identity(), Count: uint32(len(records)), BundleSHA256: digest[:]})
 	if err != nil {
 		return err
 	}
 	return writeRecoveryPhase(o.dir, key, o.frozen, payload, o.grant)
 }
 
-func (o *RecoveryOperation) checkControlAttempt(control *Generation) error {
+func (o *RecoveryOperation) controlAttemptPublications(control *Generation) ([]frozenRecoveryPublication, error) {
 	if control == nil || !bytes.Equal(control.RecoveryID(), o.plan.RecoveryID) {
-		return ErrRecoveryPlan
+		return nil, ErrRecoveryPlan
 	}
-	raw, err := readRecoveryPhase(o.dir, recoveryAttemptKey(control.RecoveryAttempt()), o.frozen)
+	attempt, records, err := o.readControlAttempt(control.RecoveryAttempt())
 	if err != nil {
-		return err
+		return nil, err
 	}
+	if !bytes.Equal(encodeIdentity(attempt.Generation), encodeIdentity(control.id)) {
+		return nil, ErrRecoveryPlan
+	}
+	return records, nil
+}
+
+func (o *RecoveryOperation) readControlAttempt(ordinal uint32) (recoveryControlAttempt, []frozenRecoveryPublication, error) {
 	var attempt recoveryControlAttempt
+	if ordinal >= MaxRecoveryControlAttempts {
+		return attempt, nil, ErrRecoverySplitRequired
+	}
+	raw, err := readRecoveryPhase(o.dir, recoveryAttemptKey(ordinal), o.frozen)
+	if err != nil {
+		return attempt, nil, err
+	}
 	if err = decodeRecoveryJSON(raw, &attempt); err != nil {
-		return err
+		return attempt, nil, err
 	}
-	if !bytes.Equal(encodeIdentity(attempt.Generation), encodeIdentity(control.id)) || attempt.Count != uint32(len(o.manifest.Pages)+1) {
-		return ErrRecoveryPlan
+	bundle, records, err := o.publicationBundle(ordinal)
+	if err != nil {
+		return attempt, nil, err
 	}
-	return nil
+	digest := sha256.Sum256(bundle)
+	if attempt.Count != uint32(len(records)) || !bytes.Equal(attempt.BundleSHA256, digest[:]) {
+		return attempt, nil, ErrRecoveryPlan
+	}
+	return attempt, records, nil
 }
 
 // Publish appends an originally authorized, paired frozen publication. Replay
@@ -88,10 +109,7 @@ func (o *RecoveryOperation) checkControlAttempt(control *Generation) error {
 func (o *RecoveryOperation) Publish(control *Generation, index int) (Receipt, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if err := o.checkControlAttempt(control); err != nil {
-		return Receipt{}, err
-	}
-	records, err := o.publications()
+	records, err := o.controlAttemptPublications(control)
 	if err != nil {
 		return Receipt{}, err
 	}
@@ -163,10 +181,7 @@ type recoveryPublicationReceipt struct {
 func (o *RecoveryOperation) CapturePublicationAck(control *Generation, index int, validated *edgerecord.ValidatedAck) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if err := o.checkControlAttempt(control); err != nil {
-		return err
-	}
-	records, err := o.publications()
+	records, err := o.controlAttemptPublications(control)
 	if err != nil {
 		return err
 	}
@@ -178,7 +193,7 @@ func (o *RecoveryOperation) CapturePublicationAck(control *Generation, index int
 		return err
 	}
 	if !pending {
-		_, err = o.readPublicationReceipt(index, records[index])
+		_, err = o.readPublicationReceipt(index)
 		return err
 	}
 	ack, session, err := validated.Snapshot()
@@ -227,7 +242,7 @@ func (o *RecoveryOperation) CapturePublicationAck(control *Generation, index int
 	return writeRecoveryPhase(o.dir, recoveryAckKey(index), o.frozen, payload, o.grant)
 }
 
-func (o *RecoveryOperation) readPublicationReceipt(index int, publication frozenRecoveryPublication) ([]byte, error) {
+func (o *RecoveryOperation) readPublicationReceipt(index int) ([]byte, error) {
 	raw, err := readRecoveryPhase(o.dir, recoveryAckKey(index), o.frozen)
 	if err != nil {
 		return nil, err
@@ -236,20 +251,20 @@ func (o *RecoveryOperation) readPublicationReceipt(index int, publication frozen
 	if err = decodeRecoveryJSON(raw, &receipt); err != nil {
 		return nil, err
 	}
+	attempt, records, err := o.readControlAttempt(receipt.Attempt)
+	if err != nil {
+		return nil, err
+	}
+	if index < 0 || index >= len(records) {
+		return nil, ErrRecoveryPlan
+	}
+	publication := records[index]
 	hash := sha256.Sum256(publication.Body)
 	if receipt.Sequence != uint64(index+1) || receipt.PriorResolved >= receipt.Sequence || receipt.AcknowledgedThrough < receipt.Sequence ||
 		!receipt.Control.Identity.equal(o.plan.Source.Identity) || receipt.Control.Lane.RouteProfile != edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_RECOVERY_CONTROL_V1 ||
 		!bytes.Equal(receipt.EventID, publication.EventID) || !bytes.Equal(receipt.RecordSHA256, hash[:]) || len(receipt.BindingSHA256) != 32 || len(receipt.ResponseSHA256) != 32 ||
 		len(receipt.SessionNonce) < edgerecord.MinNonceBytes || len(receipt.SessionNonce) > edgerecord.MaxNonceBytes {
 		return nil, ErrRecoveryCoverage
-	}
-	attemptRaw, err := readRecoveryPhase(o.dir, recoveryAttemptKey(receipt.Attempt), o.frozen)
-	if err != nil {
-		return nil, err
-	}
-	var attempt recoveryControlAttempt
-	if err = decodeRecoveryJSON(attemptRaw, &attempt); err != nil {
-		return nil, err
 	}
 	if !bytes.Equal(encodeIdentity(attempt.Generation), encodeIdentity(receipt.Control)) || attempt.Count != uint32(len(o.manifest.Pages)+1) {
 		return nil, ErrRecoveryCoverage

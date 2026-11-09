@@ -147,11 +147,15 @@ func (o *RecoveryOperation) checkCopy(slot RecoverySlot, proof CommittedAttribut
 
 type frozenRecoveryPublication struct{ EventID, Body, Attribution []byte }
 
-// FreezePublications saves exact authorized control bytes before enqueue. Replays
-// never regenerate event IDs, timestamps, scope hashes, or body encodings.
-func (o *RecoveryOperation) FreezePublications(records []AttributedAppend) error {
+// FreezePublications saves one authority attempt before enqueue. A later attempt
+// may have new event IDs and capabilities, but every semantic page and tombstone
+// must still match the original registered manifest. Existing attempts never change.
+func (o *RecoveryOperation) FreezePublications(attempt uint32, records []AttributedAppend) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+	if attempt >= MaxRecoveryControlAttempts {
+		return ErrRecoverySplitRequired
+	}
 	if len(records) != len(o.manifest.Pages)+1 {
 		return ErrRecoveryPlan
 	}
@@ -181,13 +185,16 @@ func (o *RecoveryOperation) FreezePublications(records []AttributedAppend) error
 		if err != nil {
 			return err
 		}
+		if len(span) > maxFrozenRecoveryAttributionBytes {
+			return ErrRecoverySplitRequired
+		}
 		publications[i] = frozenRecoveryPublication{EventID: bytes.Clone(a.EventID), Body: bytes.Clone(a.Body), Attribution: span}
 	}
 	payload, err := json.Marshal(publications)
 	if err != nil {
 		return err
 	}
-	return writeRecoveryPhase(o.dir, "publications", o.frozen, payload, o.grant)
+	return writeRecoveryPhase(o.dir, recoveryPublicationsKey(attempt), o.frozen, payload, o.grant)
 }
 
 func (o *RecoveryOperation) checkPublicationBody(index int, r *edgev1.EdgeRecordV1) error {
@@ -222,19 +229,49 @@ func (o *RecoveryOperation) checkPublicationBody(index int, r *edgev1.EdgeRecord
 	return nil
 }
 
-func (o *RecoveryOperation) publications() ([]frozenRecoveryPublication, error) {
-	raw, err := readRecoveryPhase(o.dir, "publications", o.frozen)
+func recoveryPublicationsKey(attempt uint32) string { return fmt.Sprintf("publications-%03d", attempt) }
+
+// ReplayPublications freezes another transport attempt with the exact original
+// signed bytes after an interrupted control append. It cannot mint new authority.
+func (o *RecoveryOperation) ReplayPublications(from, to uint32) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if to >= MaxRecoveryControlAttempts || from >= to {
+		return ErrRecoverySplitRequired
+	}
+	raw, _, err := o.publicationBundle(from)
 	if err != nil {
-		return nil, err
+		return err
+	}
+	return writeRecoveryPhase(o.dir, recoveryPublicationsKey(to), o.frozen, raw, o.grant)
+}
+
+func (o *RecoveryOperation) publicationBundle(attempt uint32) ([]byte, []frozenRecoveryPublication, error) {
+	if attempt >= MaxRecoveryControlAttempts {
+		return nil, nil, ErrRecoverySplitRequired
+	}
+	raw, err := readRecoveryPhase(o.dir, recoveryPublicationsKey(attempt), o.frozen)
+	if err != nil {
+		return nil, nil, err
 	}
 	var records []frozenRecoveryPublication
 	if err = decodeRecoveryJSON(raw, &records); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if len(records) != len(o.manifest.Pages)+1 {
-		return nil, ErrRecoveryJournalCorrupt
+		return nil, nil, ErrRecoveryJournalCorrupt
 	}
-	return records, nil
+	total := 0
+	for i, record := range records {
+		total += len(record.Body)
+		if total > MaxRecoveryPublicationBytes || len(record.Attribution) > maxFrozenRecoveryAttributionBytes {
+			return nil, nil, ErrRecoveryJournalCorrupt
+		}
+		if err := o.validateFrozenPublication(i, record); err != nil {
+			return nil, nil, err
+		}
+	}
+	return raw, records, nil
 }
 
 // pendingPhase distinguishes a wholly absent future step from a torn pair.

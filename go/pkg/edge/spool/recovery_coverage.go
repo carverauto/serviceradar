@@ -141,17 +141,10 @@ func appendRecoveryCopyCertificate(raw []byte, c *RecoveryCopyIntent, mapping []
 
 func (o *RecoveryOperation) publicationReceiptDigest() ([32]byte, error) {
 	var out [32]byte
-	publications, err := o.publications()
-	if err != nil {
-		return out, err
-	}
 	h := sha256.New()
 	_, _ = h.Write([]byte("serviceradar.recovery.publication_receipts.v1"))
-	for i, p := range publications {
-		if err = o.validateFrozenPublication(i, p); err != nil {
-			return out, err
-		}
-		raw, err := o.readPublicationReceipt(i, p)
+	for i := 0; i <= len(o.manifest.Pages); i++ {
+		raw, err := o.readPublicationReceipt(i)
 		if err != nil {
 			return out, err
 		}

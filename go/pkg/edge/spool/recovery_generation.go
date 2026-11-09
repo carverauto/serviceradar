@@ -35,6 +35,9 @@ func (ls *LaneSet) BeginRecoveryDestination(source *Generation, recoveryID []byt
 // including before its identity and marker are published. It never acquires a
 // second recovery slot. The caller freezes its publication plan before appending.
 func (ls *LaneSet) CreateRecoveryControlDestination(key LaneKey, recoveryID []byte, attempt uint32, grant *RecoveryGrant) (*Generation, error) {
+	if attempt >= MaxRecoveryControlAttempts {
+		return nil, ErrRecoverySplitRequired
+	}
 	if grant == nil || key.RouteProfile != edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_RECOVERY_CONTROL_V1 {
 		return nil, ErrOutsideLane
 	}
