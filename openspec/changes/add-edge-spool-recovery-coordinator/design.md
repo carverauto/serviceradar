@@ -57,6 +57,16 @@ that a missing lookup is an explicit negative mapping. Mapping outcomes have the
 transitions required by task 1.4: temporary failures wait, missing fences, and
 corrupt/conflicting quarantines; none authorizes `RecoveryResolvedV1`.
 
+Mapping resolution runtime contract: the first accepted selection for a candidate
+generation is immutable. Same-selection replay is a no-op; selecting another
+retained candidate is recorded as `selection_conflict`, including when the caller
+has acquired a newer resolver epoch. A newer epoch fences older resolvers, but
+does not authorize rewriting a mapping that a consumer may already have applied.
+A genuinely new candidate advances the candidate generation and invalidates its
+selected projection, requiring a new explicit resolution while retaining all
+earlier evidence. Contradictory accepted resolution records for one candidate
+generation produce `CONFLICTING`; the reader never chooses the latest row.
+
 Merge adjacent lost intervals only when every intervening sequence is journaled
 lost and the complete oneof bodies are equal. Compare every identity, scope,
 epoch, discriminator and range digest for attributed bodies and the exact reason

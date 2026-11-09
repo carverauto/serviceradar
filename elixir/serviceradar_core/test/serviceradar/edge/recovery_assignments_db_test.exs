@@ -78,6 +78,9 @@ defmodule ServiceRadar.Edge.RecoveryAssignmentsDbTest do
              )
 
     assert {:ok, :selection_conflict} = select(ctx, current, first.id)
+    {:ok, later} = Assignments.acquire_resolver(ctx.entry.key)
+    assert later.resolver_epoch > current.resolver_epoch
+    assert {:ok, :selection_conflict} = select(ctx, later, first.id)
     assert {:found, selected} = lookup(ctx)
     assert selected["plan"]["id"] == second_entry.value["plan"]["id"]
     assert length(originals(ctx.entry.key)) == 2
