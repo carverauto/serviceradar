@@ -1,7 +1,7 @@
 # Agent spool recovery and gateway coverage
 
-Status: proposed for product-owner approval. Issue #6424 visibility work may ship
-independently; this design does not authorize coordinator implementation.
+Status: Decisions 1-5 approved by the product owner on 2026-11-09.
+Issue #6424 visibility ships first; coordinator implementation is authorized.
 
 ## Context and verified prerequisites
 
@@ -141,7 +141,7 @@ reconciliation. Do not acknowledge consumer completion before these writes commi
 All transport enters JetStream first; the control-plane audit transaction runs in
 EventWriter, never in the agent or a bypassing gateway ingest path.
 
-Proposed replay choice: a completed immutable recovery has ONE final
+Replay choice: a completed immutable recovery has ONE final
 `applied_through_sequence`; a later different value is a conflict, not incremental
 progress. `resolved_at_unix_nano` is the original persisted completion timestamp:
 return the same signed result on replay. Timestamp differences alone on an inbound
@@ -161,7 +161,7 @@ Then complete prerequisites in dependency order, followed by coordinator, covera
 reclaim and consumer/gateway integration. Keep all moved tasks unchecked until
 behavioral and crash evidence proves their complete contract.
 
-Approval requested for Decisions 1-5, especially consumer-committed gateway prefix
-application, source deletion versus journal-GC gates, immutable completion replay,
-and gateway/core-first capability rollout. Implementation remains blocked on the
-product owner's explicit design sign-off, as requested in the handoff.
+The product owner approved Decisions 1-5 on 2026-11-09, including consumer-committed
+gateway prefix application, source deletion versus journal-GC gates, immutable
+completion replay, and gateway/core-first capability rollout. The implementation
+checklist remains open until each complete contract is demonstrated.
