@@ -141,9 +141,13 @@ page or tombstone under the recovery production grant. `RenewEdgeRecoveryCopies`
 verifies retained record bytes and issues rollover delivery capabilities for the
 registered old/new coordinates. `GetEdgeRecovery` returns pending/blocked state
 or the original consumer-committed result and signed capability. An agent cannot
-submit a resolved body to the authorization endpoint. Hello advertises protocol
-version zero until the complete gateway/core path is available; zero retains
-the agent's source evidence and does not start recovery.
+submit a resolved body to the authorization endpoint. The completed gateway build
+advertises protocol version one. This is feature support, not a health check on
+core: a transient core outage must not permanently negotiate zero for an otherwise
+accepted enrollment. An absent/zero advertisement retains source evidence and
+does not start recovery; unavailable or unsupported downstream RPCs retain the
+registered/local operation and retry. Deploy capable core before gateway/agent,
+as required by the rollout order above.
 
 Copy grant issuance first validates the exact retained record's signatures,
 authenticated principal and scope, held registry epoch and typed payload. Its

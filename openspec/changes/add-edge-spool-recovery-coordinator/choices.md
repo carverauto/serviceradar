@@ -85,7 +85,9 @@ not authorize new authoritative projection.
 Hello's version is a feature snapshot for the managed gRPC connection. A new
 accepted Hello replaces it, failed Hello invalidates it, and replacing the managed
 connection requires negotiation again. Ordinary gRPC transport retries retain the
-feature snapshot. Every recovery RPC, grant and completion still verifies its own
+feature snapshot. A complete gateway build advertises one; temporary core
+unavailability is a retryable RPC failure rather than a permanent zero-version
+enrollment. Deploy core first. Every recovery RPC, grant and completion still verifies its own
 authority; this version is not an authorization or freshness cache.
 
 ## The storage owner proves coverage
