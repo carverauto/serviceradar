@@ -618,10 +618,21 @@ unaffected flags, so affected agents can self-update; the installed updater need
 no change. On restart, the fixed agent re-applies configuration and retries add-on
 installation because its per-add-on failure state is held in memory.
 
-Agent recovery does not resume add-on rollouts paused after
-`candidate_health_timeout`, including those whose candidate was rolled back.
-Retry or resume those rollouts explicitly, or publish a newer add-on package version
-that supersedes the paused rollout.
+An add-on install or delivery failure, and a systemd unit stuck in
+`auto-restart`, fail the canary immediately with `candidate_install_failed` or
+`candidate_reported_unhealthy` and record the error on the rollout target,
+instead of waiting for `candidate_health_timeout`. An agent that advertises
+`addon.systemd.updater.unavailable` is marked incompatible
+(`agent_updater_outdated`) for systemd add-ons until its agent release is updated.
+
+A paused profile rollout whose canary failed rotates past it automatically: the
+failed agent is excluded and stays on its previous version, and the rollout
+resumes on another pending agent. Rotation stops after three failed canaries,
+and the rollout stays paused. Other paused rollouts, including assignment
+rollouts paused after `candidate_health_timeout`, are not resumed by agent
+recovery. Retry or resume them explicitly, or publish a newer add-on package
+version that supersedes the paused rollout. When a rollout fails, its
+per-target candidate overrides are cleared on every target.
 
 The ServiceRadar UI classifies each effective row into exactly one operator state:
 
