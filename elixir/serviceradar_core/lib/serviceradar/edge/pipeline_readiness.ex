@@ -26,8 +26,9 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
       here. A disconnected agent's platform is not known, so it is reported only as
       `:agent_disconnected`.
 
-    * `:spool_unavailable` - the agent reported that its edge-record spool could not be
-      opened, so it has nowhere to put edge records. Detail: `error`.
+    * `:spool_unavailable` - spool opening failed or recovery is waiting on required
+      authority or capacity. Detail: `error`, plus `health` when the open spool was sampled
+      successfully. Unavailability alone does not imply a coverage gap.
     * `:spool_wedged` - allocated coverage gaps block durable delivery. Detail includes
       the bounded gap sequence sample, total gaps, unresolved count/age and byte budget.
     * `:spool_backpressure` - the runtime admission gate paused bulk producers.
@@ -252,7 +253,14 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
       retained ++ spool_health_conditions(spool)
     else
       error = Map.get(spool, "error") || Map.get(spool, :error)
-      [%{reason: :spool_unavailable, detail: %{error: present(error)}}]
+      detail = %{error: present(error)}
+
+      detail =
+        if spool_field(spool, :health_available) == true,
+          do: Map.put(detail, :health, spool),
+          else: detail
+
+      [%{reason: :spool_unavailable, detail: detail}]
     end
   end
 

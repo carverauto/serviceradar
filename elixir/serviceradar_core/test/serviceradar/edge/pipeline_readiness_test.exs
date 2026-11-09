@@ -148,6 +148,32 @@ defmodule ServiceRadar.Edge.PipelineReadinessTest do
     assert [%{reason: :unsupported_legacy_storage}] = PipelineReadiness.conditions(agent(), live)
   end
 
+  test "recovery refusal retains measured health without inventing a coverage gap" do
+    health = %{
+      available: false,
+      error: "recovery negotiation: peer does not advertise recovery version 1",
+      health_available: true,
+      wedged: false,
+      gap_count: 0,
+      unresolved_count: 3,
+      bytes_used: 4096,
+      budget_bytes: 8192
+    }
+
+    persisted = Map.new(health, fn {key, value} -> {Atom.to_string(key), value} end)
+
+    for {subject, state, reported} <- [
+          {agent(), facts(%{runtime: %{"agent-1" => runtime(%{edge_record_spool: health})}}),
+           health},
+          {agent(%{metadata: %{"edge_record_spool" => persisted}}), facts(), persisted}
+        ] do
+      assert [%{reason: :spool_unavailable, detail: %{error: error, health: ^reported}}] =
+               PipelineReadiness.conditions(subject, state)
+
+      assert error == health.error
+    end
+  end
+
   test "a connected agent that reports no spool status runs a build from before the cutover" do
     old = agent(%{metadata: %{}, version: "1.4.0"})
 
