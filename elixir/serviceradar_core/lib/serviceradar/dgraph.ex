@@ -23,7 +23,7 @@ defmodule ServiceRadar.Dgraph do
   Idempotent upserts, including canonical rebuild chunks, are retried on a
   timeout or transient failure, up to `:max_attempts` (default 3) with
   jittered exponential backoff (`:retry_base_ms`, `:retry_max_ms`). Pruning,
-  hosted-edge replacement and retirement, and reads are not retried: their
+  hosted- and contained-edge replacement and retirement, and reads are not retried: their
   result or their guard depends on state a repeat could observe differently.
   All of these are read from `config :serviceradar_core, ServiceRadar.Dgraph, ...`.
   """
