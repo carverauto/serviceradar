@@ -108,6 +108,20 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     "sweep_banner_grab_timeout_total" => :non_neg_integer,
     "sweep_banner_grab_errors_total" => :non_neg_integer
   }
+  @decline_reasons [
+    :missing_sweep_group_id,
+    :unresolved_sweep_group,
+    :unresolved_execution_identity,
+    :conflicting_execution_reporter,
+    :conflicting_execution_group
+  ]
+
+  @doc """
+  Whether an `ingest_results/3` error reason is a deliberate decline (skip or quarantine)
+  rather than an execution/group lookup or persistence failure.
+  """
+  @spec declined_reason?(term()) :: boolean()
+  def declined_reason?(reason), do: reason in @decline_reasons
 
   @doc """
   Ingest a batch of sweep results for an execution.
@@ -122,6 +136,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   - `:scanner_metrics` - Scanner performance metrics from the agent
   - `:banner_grab_summary` - Phase-level banner-grab counters from the agent
   - `:request_id` - Optional upstream request/correlation ID for audit rows
+  - `:repo` - Repo for the execution/group lookups and execution insert (defaults to
+    `ServiceRadar.Repo`); a caller inside a transaction passes its transaction repo
 
   Returns {:ok, stats} with processed counts or {:error, reason}.
   """
@@ -146,6 +162,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     cancel_marker = Keyword.get(opts, :cancel_marker, false)
     marker_chunk_indexes = Keyword.get(opts, :marker_chunk_indexes)
     mapper_promotion_opts = Keyword.get(opts, :mapper_promotion_opts, [])
+    repo = Keyword.get(opts, :repo, Repo)
 
     reporter_context =
       resolve_reporter_context(
@@ -153,7 +170,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         sweep_group_id,
         reported_agent_id,
         authenticated_agent_id,
-        authenticated_partition_id
+        authenticated_partition_id,
+        repo
       )
 
     log_reporter_context(reporter_context, execution_id)
@@ -171,7 +189,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
            reporter_context,
            config_version,
            expected_total_hosts,
-           actor
+           actor,
+           repo
          ) do
       {:skip, reason} ->
         {:error, reason}
@@ -179,6 +198,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       {:quarantine, reason} ->
         reporter_context = quarantine_reporter_context(reporter_context, reason)
         persist_quarantined_agent_availability(results, reporter_context, actor)
+        {:error, reason}
+
+      {:error, reason} ->
         {:error, reason}
 
       :ok ->
@@ -224,16 +246,22 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
          supplied_group_id,
          reported_agent_id,
          authenticated_agent_id,
-         authenticated_partition_id
+         authenticated_partition_id,
+         repo
        ) do
-    execution_result = load_execution_identity(execution_id)
+    execution_result = load_execution_identity(execution_id, repo)
     execution = execution_from_result(execution_result)
     supplied_group_uuid = valid_uuid_or_nil(supplied_group_id)
 
     {resolved_group_id, group_identity_consistent?} =
       resolve_group_identity(execution, supplied_group_id, supplied_group_uuid)
 
-    group_result = load_sweep_group(resolved_group_id)
+    group_result =
+      case execution_result do
+        {:ok, _execution} -> load_sweep_group(resolved_group_id, repo)
+        {:error, _reason} -> {:ok, nil}
+      end
+
     group = group_from_result(group_result)
     authenticated_agent_id = valid_reporter_uid(authenticated_agent_id)
     authenticated_partition_id = valid_partition_id(authenticated_partition_id)
@@ -255,23 +283,25 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       authenticated_agent_id: authenticated_agent_id,
       authenticated_partition_id: authenticated_partition_id,
       execution: execution,
+      execution_result: execution_result,
       expectation: expectation,
       expectation_reason: expectation_reason,
       group: group,
+      group_result: group_result,
       reported_agent_id: reported_agent_id,
       reporter_agent_id: reporter_agent_id,
       resolved_group_id: resolved_group_id
     }
   end
 
-  defp load_execution_identity(execution_id) do
+  defp load_execution_identity(execution_id, repo) do
     case valid_uuid_or_nil(execution_id) do
       nil ->
         {:error, :invalid_execution_id}
 
       execution_id ->
         {:ok,
-         Repo.one(
+         repo.one(
            from(e in SweepGroupExecution,
              where: e.id == ^execution_id,
              select: %{
@@ -299,10 +329,10 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
   defp resolve_group_identity(nil, _supplied, supplied_uuid), do: {supplied_uuid, true}
 
-  defp load_sweep_group(nil), do: {:ok, nil}
+  defp load_sweep_group(nil, _repo), do: {:ok, nil}
 
-  defp load_sweep_group(group_id) do
-    {:ok, Repo.get(SweepGroup, group_id)}
+  defp load_sweep_group(group_id, repo) do
+    {:ok, repo.get(SweepGroup, group_id)}
   rescue
     error -> {:error, {:group_lookup_failed, error}}
   end
@@ -388,18 +418,24 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   defp log_reporter_context(context, execution_id) do
     maybe_log_reporter_mismatch(context, execution_id)
 
-    case context.expectation do
-      :expected ->
+    cond do
+      match?({:error, _reason}, context.execution_result) ->
         :ok
 
-      :unexpected ->
+      match?({:error, _reason}, context.group_result) ->
+        :ok
+
+      context.expectation == :expected ->
+        :ok
+
+      context.expectation == :unexpected ->
         Logger.warning(
           "SweepResultsIngestor: ANOMALOUS SWEEP ASSIGNMENT for group " <>
             "#{inspect(context.resolved_group_id)}: authenticated reporter " <>
             "#{inspect(context.authenticated_agent_id)} is outside the persisted assignment"
         )
 
-      :unknown ->
+      context.expectation == :unknown ->
         Logger.warning(
           "SweepResultsIngestor: SWEEP REPORTER EXPECTATION UNKNOWN for execution " <>
             "#{inspect(execution_id)}, group #{inspect(context.resolved_group_id)}, " <>
@@ -427,14 +463,16 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
          reporter_context,
          config_version,
          expected_total_hosts,
-         actor
+         actor,
+         repo
        ) do
     case ensure_execution_exists(
            execution_id,
            reporter_context,
            config_version,
            expected_total_hosts,
-           actor
+           actor,
+           repo
          ) do
       :ok ->
         :ok
@@ -464,16 +502,12 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       {:error, :unresolved_execution_identity} ->
         {:skip, :unresolved_execution_identity}
 
-      {:error, {:execution_lookup_failed, _reason}} = error ->
-        {:skip, elem(error, 1)}
-
       {:error, reason} ->
         Logger.error(
           "SweepResultsIngestor: Failed to ensure execution exists: #{inspect(reason)}"
         )
 
-        # Continue anyway - we'll just update what we can
-        :ok
+        {:error, reason}
     end
   end
 
@@ -3122,9 +3156,16 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
          reporter_context,
          config_version,
          expected_total_hosts,
-         actor
+         actor,
+         repo
        ) do
     cond do
+      match?({:error, _reason}, reporter_context.execution_result) ->
+        reporter_context.execution_result
+
+      match?({:error, _reason}, reporter_context.group_result) ->
+        reporter_context.group_result
+
       not is_nil(reporter_context.execution) ->
         with :ok <- validate_execution_owner(reporter_context.execution, reporter_context) do
           Logger.debug("SweepResultsIngestor: Execution #{execution_id} already exists")
@@ -3150,7 +3191,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           reporter_context,
           config_version,
           expected_total_hosts,
-          actor
+          actor,
+          repo
         )
     end
   end
@@ -3160,7 +3202,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
          reporter_context,
          config_version,
          expected_total_hosts,
-         actor
+         actor,
+         repo
        ) do
     now = DateTime.utc_now()
     started_at = DateTime.truncate(now, :second)
@@ -3185,14 +3228,14 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     }
 
     {inserted_count, _} =
-      Repo.insert_all(
+      repo.insert_all(
         SweepGroupExecution,
         [record],
         on_conflict: :nothing,
         returning: false
       )
 
-    with {:ok, winning_execution} <- load_execution_identity(execution_id),
+    with {:ok, winning_execution} <- load_execution_identity(execution_id, repo),
          :ok <-
            validate_inserted_or_winning_execution_owner(
              inserted_count,
