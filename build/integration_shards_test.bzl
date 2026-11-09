@@ -28,6 +28,7 @@ load(
 )
 
 _FIXED_EXTERNAL_RESOURCE_SRCS = [
+    "test/serviceradar/network_discovery/contained_dgraph_projection_test.exs",
     "test/serviceradar/network_discovery/mapper_dgraph_projection_test.exs",
     "test/serviceradar/observability/mtr_graph_integration_test.exs",
     "test/serviceradar/scans/adhoc_scan_nats_e2e_test.exs",
@@ -48,7 +49,7 @@ def _missing_fixed_source_failure_test_impl(ctx):
     env = analysistest.begin(ctx)
     asserts.expect_failure(
         env,
-        "audited integration source is absent from ALL_TEST_SRCS: test/serviceradar/network_discovery/mapper_dgraph_projection_test.exs",
+        "audited integration source is absent from ALL_TEST_SRCS: test/serviceradar/network_discovery/contained_dgraph_projection_test.exs",
     )
     return analysistest.end(env)
 

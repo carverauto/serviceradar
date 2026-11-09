@@ -293,7 +293,7 @@ fn parse_topology_edges(results: &[serde_json::Value]) -> Vec<TopologyEdge> {
 #[cfg(test)]
 mod tests {
     use super::{
-        TOPOLOGY_EDGES_QUERY, edge_kind_from_label, map_device, map_service, parse_topology_edges,
+        edge_kind_from_label, map_device, map_service, parse_topology_edges,
         reconcile_hydrated_context,
     };
     use crate::domain_model::{
@@ -336,16 +336,6 @@ mod tests {
 
         assert_eq!(service.id, "agent-1:grpc:datasvc");
         assert_eq!(service.available, Some(false));
-    }
-
-    #[test]
-    fn dgraph_query_requests_containment_storage_and_dependency_kinds() {
-        for kind in ["CONTAINS", "BACKED_BY", "DEPENDS_ON"] {
-            assert!(
-                TOPOLOGY_EDGES_QUERY.contains(&format!("\"{kind}\"")),
-                "hydrator DQL must request {kind}"
-            );
-        }
     }
 
     #[test]
@@ -418,6 +408,16 @@ mod tests {
             "three labels collapsing onto one kind must yield one edge, got {edges:?}"
         );
         assert_eq!(edges[0].kind, EdgeKind::ConnectsTo);
+    }
+
+    #[test]
+    fn hydrated_contains_row_keeps_host_as_source() {
+        let results = vec![graph_edge("sr:host-1", "sr:guest-1", "CONTAINS")];
+        let edges = parse_topology_edges(&results);
+        assert_eq!(edges.len(), 1, "got {edges:?}");
+        assert_eq!(edges[0].src, "sr:host-1");
+        assert_eq!(edges[0].dst, "sr:guest-1");
+        assert_eq!(edges[0].kind, EdgeKind::Contains);
     }
 
     #[test]

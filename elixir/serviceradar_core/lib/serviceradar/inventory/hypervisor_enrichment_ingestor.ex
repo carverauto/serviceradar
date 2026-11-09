@@ -572,8 +572,8 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
       else
         # `source`/`target` are the guest/host of the inspected HOSTED_ON
         # projection; the CONTAINS twin runs host-to-guest.
-        with :ok <- DgraphPersist.retire_hosted_link(source, target, observed_at),
-             :ok <- DgraphPersist.retire_contained_link(target, source, observed_at) do
+        with :ok <- DgraphPersist.retire_contained_link(target, source, observed_at),
+             :ok <- DgraphPersist.retire_hosted_link(source, target, observed_at) do
           {:cont, :ok}
         else
           {:error, _reason} = error -> {:halt, error}

@@ -13,6 +13,7 @@ defmodule ServiceRadar.NetworkDiscovery.ContainedDgraphProjectionTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Dgraph
+  alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.HypervisorEnrichmentIngestor
   alias ServiceRadar.Inventory.VirtualizationGuest
   alias ServiceRadar.Inventory.VirtualizationHost
@@ -116,6 +117,7 @@ defmodule ServiceRadar.NetworkDiscovery.ContainedDgraphProjectionTest do
     guest_uid = "sr:it-6297-#{suffix}-guest"
     host_uid = host_uid(suffix)
     host = create_host!(actor, suffix, host_uid)
+    create_device!(actor, guest_uid, "synthetic-6297-guest-#{suffix}")
 
     VirtualizationGuest
     |> Ash.Changeset.for_create(
@@ -144,6 +146,8 @@ defmodule ServiceRadar.NetworkDiscovery.ContainedDgraphProjectionTest do
   defp host_uid(suffix), do: "sr:it-6297-#{suffix}-host"
 
   defp create_host!(actor, suffix, uid) do
+    create_device!(actor, uid, "synthetic-6297-host-#{suffix}")
+
     host =
       VirtualizationHost
       |> Ash.Changeset.for_create(
@@ -162,6 +166,24 @@ defmodule ServiceRadar.NetworkDiscovery.ContainedDgraphProjectionTest do
     on_exit(fn -> destroy_host(uid) end)
 
     host
+  end
+
+  defp create_device!(actor, uid, name) do
+    Device
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        uid: uid,
+        type: "Server",
+        type_id: 1,
+        name: name,
+        hostname: name,
+        discovery_sources: ["mapper"],
+        is_managed: false
+      },
+      actor: actor
+    )
+    |> Ash.create!(actor: actor)
   end
 
   defp get_guest!(uid, actor) do
