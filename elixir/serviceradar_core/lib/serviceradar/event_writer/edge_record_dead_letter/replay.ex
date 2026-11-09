@@ -1,6 +1,7 @@
 defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay do
   @moduledoc """
-  Lists dead-lettered edge records and replays them after the fault is fixed.
+  Lists dead-lettered edge records, replays them after the fault is fixed, and purges the ones
+  an operator decides not to replay.
 
   Replay republishes each record's original bytes and transport headers, with a PubAck, to the
   subject it was first delivered on (`Sr-Edge-Dlq-Source-Subject`), and deletes the dead-letter
@@ -23,7 +24,7 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay do
       bin/serviceradar_core_elx rpc 'IO.inspect(ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay.list(limit: 20))'
       bin/serviceradar_core_elx rpc 'IO.inspect(ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay.replay(limit: 20))'
 
-  Options, for both:
+  Options, for every function here:
 
     * `:subject` -- a filter on the dead-letter subjects, default every bulk record
       (`telemetry.edge-record-dlq.v1.bulk.>`); one contract is
@@ -32,24 +33,37 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay do
       `Sr-Edge-Dlq-Reason` header, as `list/1` and the Edge Pipeline panel show it), so a fixed
       cause is replayed without the records still failing for another one; other messages are
       skipped, kept, and not counted against `:limit`
+    * `:contract` -- only messages of this output contract (their `Sr-Edge-Dlq-Contract` header,
+      `<contract_id>/<version>`), skipped and counted the same way
+    * `:reason` or `:contract` set to `:missing` selects the messages that lack that header (or
+      carry it blank), which `inventory/1` groups under a `nil` contract or reason
     * `:from_sequence` -- the first dead-letter stream sequence to read (default 1)
+    * `:through_sequence` -- the last dead-letter stream sequence to read, such as the
+      `through_sequence` an `inventory/1` returned, so an action covers only what was inspected
     * `:limit` -- at most this many messages (default 100)
     * `:stream` -- the dead-letter stream (default `TELEMETRY_EDGE_RECORD_DLQ_V1_BULK`)
     * `:request` -- `(subject, body, opts -> {:ok, %{body: binary}} | {:error, term})`, a NATS
       request on a connection the caller owns; default `ServiceRadar.NATS.Connection`
 
   The walk reads only the messages the stream held when it started (`last_seq` at the start,
-  then `:subject`, `:from_sequence` and `:limit`), so a record this replay republishes that is
+  then `:subject`, `:from_sequence`, `:through_sequence` and `:limit`), so a record this replay republishes that is
   dead-lettered again is left for the next run. `replay/1` deletes each dead-letter message
   only after the source PubAck. A failed delete leaves it in place (`:replayed_kept`).
 
-  Both return `{:ok, %{entries: [...], next_sequence: n}}`, where each entry names its
-  dead-letter sequence, source and failure headers, and, for `replay/1`, its `:result`:
-  `:replayed`, `:replayed_kept` (the delete failed: see `:delete_error`), or
+  `list/1`, `replay/1` and `purge/1` return
+  `{:ok, %{entries: [...], next_sequence: n, complete: boolean}}`. `complete` is false when the
+  walk stopped at `:limit` with messages it has not read. When a NATS request fails after the
+  walk has handled some messages, it returns those entries with `complete: false` and the
+  failure as `:error`, so a replay or purge that stopped part way still reports what it did;
+  a failure before any message was handled is `{:error, reason}`. Each entry names its dead-letter
+  sequence, source and failure headers, and, for `replay/1` and `purge/1`, its `:result`:
+  `:replayed`, `:replayed_kept` (the delete failed: see `:delete_error`), `:purged`, or
   `{:error, reason}` (the message is kept). Pass `next_sequence` as `:from_sequence` to continue.
+  `inventory/1` groups what `list/1` reads; see its doc.
   """
 
   alias ServiceRadar.Edge.StreamRoute
+  alias ServiceRadar.Events.AuditWriter
   alias ServiceRadar.EventWriter.EdgeRecordDeadLetter
   alias ServiceRadar.NATS.Connection
   alias ServiceRadar.NATS.JetStreamPublish
@@ -59,17 +73,196 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay do
   @stream "TELEMETRY_EDGE_RECORD_DLQ_V1_BULK"
   @subject "telemetry.edge-record-dlq.v1.bulk.>"
   @default_limit 100
+  @inventory_limit 5_000
+  @inventory_agents 10
   @timeout_ms 5_000
 
+  @type walk :: %{
+          required(:entries) => [map()],
+          required(:next_sequence) => pos_integer(),
+          required(:complete) => boolean(),
+          optional(:error) => term()
+        }
+
   @doc "Lists dead-lettered records without changing anything. See the moduledoc."
-  @spec list(keyword()) ::
-          {:ok, %{entries: [map()], next_sequence: pos_integer()}} | {:error, term()}
+  @spec list(keyword()) :: {:ok, walk()} | {:error, term()}
   def list(opts \\ []), do: walk(opts, &describe/2)
 
   @doc "Republishes dead-lettered records to their source subjects. See the moduledoc."
-  @spec replay(keyword()) ::
-          {:ok, %{entries: [map()], next_sequence: pos_integer()}} | {:error, term()}
+  @spec replay(keyword()) :: {:ok, walk()} | {:error, term()}
   def replay(opts \\ []), do: walk(opts, &replay_one/2)
+
+  @doc """
+  Deletes held dead-letter messages, one at a time, and reports each as `:purged` or
+  `{:error, reason}` (kept). Scope it with `:reason`, `:contract` or `:subject`.
+
+  A dead-letter message is the only copy of its record, so this is for records an operator has
+  decided are not worth replaying, such as snapshots newer deliveries have already superseded.
+  It deletes message by message because the core NATS identity is denied purging or deleting
+  the stream itself (`helm/serviceradar/templates/_nats_static_users.tpl`); deleting one
+  message is what replay already does after a republish.
+  """
+  @spec purge(keyword()) :: {:ok, walk()} | {:error, term()}
+  def purge(opts \\ []), do: walk(opts, &purge_one/2)
+
+  @doc """
+  Runs `replay/1` or `purge/1` for an operator and audits it from this process: an event when
+  it starts (operation, scope, actor) and one with its outcome (`summarize/1`'s counts,
+  `complete`, and the error of a run that stopped part way or did not run). Writing both here,
+  on the node that walks the stream, keeps the record even when the caller that asked for the
+  action goes away before it finishes. Returns what `replay/1` or `purge/1` returned.
+  """
+  @spec operator_action(:replay | :purge, keyword(), map() | nil) ::
+          {:ok, walk()} | {:error, term()}
+  def operator_action(action, opts, actor) when action in [:replay, :purge] do
+    scope = audit_scope(opts)
+    audit(:"#{action}_started", action, scope, actor, %{})
+
+    result = if action == :purge, do: purge(opts), else: replay(opts)
+
+    audit(if(action == :purge, do: :delete, else: :update), action, scope, actor, outcome(result))
+    result
+  end
+
+  @doc """
+  Counts one replay or purge's entries: `done` were replayed or purged, `kept` were replayed but
+  their dead-letter copy could not be deleted, and `failed` are still held, with their distinct
+  reasons in `errors`.
+  """
+  @spec summarize([map()]) :: %{
+          done: non_neg_integer(),
+          kept: non_neg_integer(),
+          failed: non_neg_integer(),
+          errors: [String.t()]
+        }
+  def summarize(entries) do
+    {done, kept, errors} =
+      Enum.reduce(entries, {0, 0, []}, fn
+        %{result: result}, {done, kept, errors} when result in [:replayed, :purged] ->
+          {done + 1, kept, errors}
+
+        %{result: :replayed_kept}, {done, kept, errors} ->
+          {done, kept + 1, errors}
+
+        %{result: {:error, reason}}, {done, kept, errors} ->
+          {done, kept, [inspect(reason) | errors]}
+      end)
+
+    %{
+      done: done,
+      kept: kept,
+      failed: length(errors),
+      errors: errors |> Enum.reverse() |> Enum.uniq()
+    }
+  end
+
+  defp audit_scope(opts) do
+    for key <- [:contract, :reason, :through_sequence], Keyword.has_key?(opts, key), into: %{} do
+      value = Keyword.get(opts, key)
+      {to_string(key), if(value == :missing, do: "(missing)", else: value)}
+    end
+  end
+
+  defp audit(audit_action, action, scope, actor, outcome) do
+    id = Enum.map_join(["contract", "reason"], " ", &Map.get(scope, &1, "*"))
+
+    case AuditWriter.write(
+           action: audit_action,
+           resource_type: "edge_record_dead_letters",
+           resource_id: id,
+           resource_name: id,
+           actor: actor,
+           details: Map.merge(%{"operation" => to_string(action), "scope" => scope}, outcome)
+         ) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Dead-letter #{action} audit event not written: #{inspect(reason)}")
+    end
+  end
+
+  defp outcome({:ok, %{entries: entries, complete: complete} = walk}) do
+    entries
+    |> summarize()
+    |> Map.merge(%{
+      complete: complete,
+      error: walk |> Map.get(:error) |> then(&(&1 && inspect(&1)))
+    })
+    |> Map.new(fn {key, value} -> {to_string(key), value} end)
+  end
+
+  defp outcome({:error, reason}), do: %{"error" => inspect(reason)}
+
+  @doc """
+  The held dead letters grouped by contract and reason, most first: per group its count, the
+  first and last dead-letter sequences and times, the agents it came from (at most
+  #{@inventory_agents} named, with `agent_count` the total), and one sample `reason_detail`. It reads up to
+  `:limit` messages (default #{@inventory_limit}); `complete` is false when more were held, so a caller
+  never presents a partial count as the whole. A group's `contract` or `reason` is `nil` when its
+  messages lack that header; pass `:missing` for it to `replay/1` or `purge/1`.
+  `through_sequence` is the highest dead-letter sequence read (`nil` when none was); pass it to
+  `replay/1` or `purge/1` so they act on no message the inventory did not count.
+  """
+  @spec inventory(keyword()) ::
+          {:ok,
+           %{
+             groups: [map()],
+             scanned: non_neg_integer(),
+             complete: boolean(),
+             through_sequence: pos_integer() | nil
+           }}
+          | {:error, term()}
+  def inventory(opts \\ []) do
+    opts = Keyword.put_new(opts, :limit, @inventory_limit)
+
+    case walk(opts, &describe/2) do
+      {:ok, %{error: reason}} ->
+        {:error, reason}
+
+      {:ok, %{entries: entries, complete: complete}} ->
+        {:ok,
+         %{
+           groups: group(entries),
+           scanned: length(entries),
+           complete: complete,
+           through_sequence: entries |> List.last(%{}) |> Map.get(:dlq_sequence)
+         }}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp group(entries) do
+    entries
+    |> Enum.group_by(&{header_value(&1.failure, "contract"), header_value(&1.failure, "reason")})
+    |> Enum.map(fn {{contract, reason}, [first | _] = held} ->
+      last = List.last(held)
+      agents = held |> Enum.map(& &1.failure["agent-id"]) |> Enum.reject(&is_nil/1) |> Enum.uniq()
+
+      %{
+        contract: contract,
+        reason: reason,
+        count: length(held),
+        first_sequence: first.dlq_sequence,
+        last_sequence: last.dlq_sequence,
+        first_stored_at: first.stored_at,
+        last_stored_at: last.stored_at,
+        agents: Enum.take(agents, @inventory_agents),
+        agent_count: length(agents),
+        reason_detail: first.failure["reason-detail"]
+      }
+    end)
+    |> Enum.sort_by(&{-&1.count, &1.contract, &1.reason})
+  end
+
+  defp header_value(failure, header) do
+    case Map.get(failure, header) do
+      value when is_binary(value) and value != "" -> value
+      _missing -> nil
+    end
+  end
 
   @doc """
   What replaying a stored dead-letter message publishes: its source subject, the record's
@@ -110,14 +303,26 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay do
     stream = Keyword.get(opts, :stream, @stream)
     limit = Keyword.get(opts, :limit, @default_limit)
     from = Keyword.get(opts, :from_sequence, 1)
-    ctx = %{request: request, stream: stream, reason: Keyword.get(opts, :reason)}
+
+    ctx = %{
+      request: request,
+      stream: stream,
+      filters: filters(opts)
+    }
 
     # Only the messages already held when the walk starts: a record a replay republishes
     # that fails again is dead-lettered after it, and must not be replayed in the same run.
     with {:ok, last} <- last_sequence(ctx) do
+      last = min(last, Keyword.get(opts, :through_sequence) || last)
       filter = Keyword.get(opts, :subject, @subject)
       walk_subject(Map.put(ctx, :last, last), filter, from, limit, fun, [])
     end
+  end
+
+  defp filters(opts) do
+    for {header, key} <- [{"reason", :reason}, {"contract", :contract}],
+        value = Keyword.get(opts, key),
+        do: {header, if(value == :missing, do: nil, else: value)}
   end
 
   defp last_sequence(ctx) do
@@ -128,37 +333,57 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay do
     end
   end
 
-  defp walk_subject(_ctx, _filter, from, 0, _fun, acc),
-    do: {:ok, %{entries: Enum.reverse(acc), next_sequence: from}}
-
   defp walk_subject(%{last: last}, _filter, from, _limit, _fun, acc) when from > last,
-    do: {:ok, %{entries: Enum.reverse(acc), next_sequence: from}}
+    do: done(acc, from, true)
+
+  defp walk_subject(ctx, filter, from, 0, _fun, acc) do
+    case get_message(ctx, %{"seq" => from, "next_by_subj" => filter}) do
+      {:ok, %{seq: seq}} when seq <= ctx.last -> done(acc, from, false)
+      {:error, _reason} -> done(acc, from, false)
+      _none_left -> done(acc, from, true)
+    end
+  end
 
   defp walk_subject(ctx, filter, from, limit, fun, acc) do
     case get_message(ctx, %{"seq" => from, "next_by_subj" => filter}) do
       {:ok, %{seq: seq}} when seq > ctx.last ->
-        {:ok, %{entries: Enum.reverse(acc), next_sequence: from}}
+        done(acc, from, true)
 
       {:ok, message} ->
-        if reason_matches?(ctx.reason, message) do
+        if matches?(ctx.filters, message) do
           walk_subject(ctx, filter, message.seq + 1, limit - 1, fun, [fun.(ctx, message) | acc])
         else
           walk_subject(ctx, filter, message.seq + 1, limit, fun, acc)
         end
 
       :none ->
-        {:ok, %{entries: Enum.reverse(acc), next_sequence: from}}
+        done(acc, from, true)
+
+      {:error, reason} when acc == [] ->
+        {:error, reason}
 
       {:error, reason} ->
-        {:error, reason}
+        {:ok, %{entries: Enum.reverse(acc), next_sequence: from, complete: false, error: reason}}
     end
   end
 
-  defp reason_matches?(nil, _message), do: true
+  defp done(acc, next, complete),
+    do: {:ok, %{entries: Enum.reverse(acc), next_sequence: next, complete: complete}}
 
-  defp reason_matches?(reason, message) do
+  defp matches?([], _message), do: true
+
+  defp matches?(filters, message) do
     {_transport, failure} = EdgeRecordDeadLetter.split_headers(message.headers)
-    Map.get(failure, "reason") == reason
+    Enum.all?(filters, fn {header, value} -> header_value(failure, header) == value end)
+  end
+
+  defp purge_one(ctx, message) do
+    entry = describe(ctx, message)
+
+    case delete_message(ctx, message.seq) do
+      :ok -> Map.put(entry, :result, :purged)
+      {:error, reason} -> Map.put(entry, :result, {:error, reason})
+    end
   end
 
   defp describe(_ctx, message) do

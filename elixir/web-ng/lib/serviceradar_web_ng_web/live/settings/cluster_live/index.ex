@@ -7,7 +7,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
   - Horde-managed gateways (standalone Elixir releases)
   - Horde-managed agents (standalone Elixir releases)
   - Cluster health metrics
-  - The edge-record pipeline per output contract (`ClusterLive.EdgePipeline`) and the core
+  - The edge-record pipeline per output contract (`ClusterLive.EdgePipeline`), its dead letters
+    for users who may manage the edge pipeline (`ClusterLive.DeadLetters`), and the core
     admission lanes that still carry agent status and sync ingestion
   - Oban job queue status
   """
@@ -19,6 +20,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
   alias ServiceRadarWebNG.Dashboards.SystemReports
   alias ServiceRadarWebNG.Jobs.JobCatalog
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.Settings.ClusterLive.DeadLetters
   alias ServiceRadarWebNGWeb.Settings.ClusterLive.EdgePipeline
   alias ServiceRadarWebNGWeb.Settings.Shell
 
@@ -67,6 +69,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
         |> stream_configure(:agents, dom_id: &agent_dom_id/1)
         |> assign_agents(agents_cache)
         |> assign(:is_admin, is_admin)
+        |> assign(:can_manage_dead_letters, RBAC.can?(scope, "settings.edge.manage"))
         |> assign(:job_counts, if(connected?, do: load_job_counts(scope), else: %{total: 0}))
         |> assign(
           :oban_stats,
@@ -434,6 +437,14 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
 
         <!-- Edge Pipeline -->
         <EdgePipeline.panel stats={@edge_pipeline_stats} />
+
+        <!-- Edge-record dead letters: inspect, replay and purge -->
+        <.live_component
+          :if={@can_manage_dead_letters}
+          module={DeadLetters}
+          id="cluster-dead-letters"
+          current_scope={@current_scope}
+        />
 
         <!-- Core Admission Lanes -->
         <.ingestion_lanes_panel ingestion_stats={@ingestion_stats} />

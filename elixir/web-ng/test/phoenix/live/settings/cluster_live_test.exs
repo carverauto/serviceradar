@@ -14,6 +14,23 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveTest do
     %{conn: log_in_user(conn, user)}
   end
 
+  test "an edge-pipeline manager sees the dead-letters section with its Inspect action", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/settings/cluster")
+
+    assert has_element?(view, "#cluster-dead-letters #dead-letters-load")
+  end
+
+  test "a user who may view settings but not manage the edge pipeline gets no dead-letters section" do
+    operator = AccountsFixtures.user_fixture(%{role: :operator})
+    conn = log_in_user(build_conn(), operator)
+
+    {:ok, view, html} = live(conn, ~p"/settings/cluster")
+
+    assert html =~ "Connected Agents"
+    refute has_element?(view, "#cluster-dead-letters")
+    refute has_element?(view, "#dead-letters-load")
+  end
+
   test "renders connected agent runtime metadata", %{conn: conn} do
     agent_id = "agent-runtime-#{System.unique_integer([:positive])}"
 

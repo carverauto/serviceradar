@@ -445,16 +445,18 @@ kubectl -n <namespace> exec deploy/serviceradar-core -- /app/bin/serviceradar_co
   'IO.inspect(ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay.replay(limit: 20), limit: :infinity)'
 ```
 
-Both take `subject:`, `reason:` (only records dead-lettered for that
-`Sr-Edge-Dlq-Reason` class, so a fixed cause is replayed alone), `from_sequence:`
-and `limit:` (default 100) and return a `next_sequence` for paging. Replay republishes each record to its original
+Both can be scoped to one `Sr-Edge-Dlq-Reason` class or one contract, so a fixed
+cause is replayed alone, and return a `next_sequence` for paging. Users with
+`settings.edge.manage` can also inspect the held dead letters grouped by contract
+and reason, and replay or purge a group, from the **Dead letters** section of
+**Settings -> Cluster Status**. Replay republishes each record to its original
 subject, restores its message id, and deletes the dead-letter copy only after
 the PubAck. A record the ledger already holds writes nothing when it is
 replayed, and a record that still fails is dead-lettered again. If the source
 stream still holds a message with the restored id inside its duplicate window,
 JetStream reports a duplicate, nothing is redriven, and the entry's result is
 `{:error, :source_duplicate}`; the dead-letter copy is kept, so replay it
-again once the window has passed. The full procedure, headers and result codes are in the
+again once the window has passed. The full procedure, options, headers and result codes are in the
 [dead-letter runbook](https://github.com/carverauto/serviceradar/blob/staging/docs/edge-record-dead-letter-runbook.md).
 
 ### Security quarantine

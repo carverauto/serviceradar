@@ -197,6 +197,14 @@ when it moved.
   fires on any held record, and `docs/edge-record-quarantine-runbook.md` gives
   the `nats stream get` path. The catalog, stable DLQ IDs, states, deleter and
   redrive above remain open.
+  OPERATOR ACTIONS LANDED (#6421): Settings -> Cluster "Dead letters" groups the
+  held dead letters by contract and reason from the stream itself and replays or
+  purges a group, for `settings.edge.manage` and audited on the coordinator when
+  it starts and when it ends (`Replay.operator_action/3`, resource
+  `edge_record_dead_letters`). A purge is an operator's waive decision: until the
+  catalog exists the audit event is its only record, and it deletes message by
+  message because the core identity is denied purging the stream. The catalog,
+  stable DLQ IDs, states and synthetic-lane redrive remain open.
   MINIMAL GENERIC DEAD-LETTER LANDED (2026-11-02, epic #6271) for EventWriter
   projection failures of every contract: at the edge-record stream's
   `dead_letter_after_deliveries` threshold (lowered to `max_deliver - 1`) the

@@ -1,4 +1,4 @@
-# Edge record dead-letter: inspect and replay
+# Edge record dead-letter: inspect, replay and purge
 
 The agent gateway acknowledges an edge record to its agent once JetStream
 stores it, so the agent no longer holds a copy. When EventWriter's projection
@@ -122,11 +122,12 @@ node:
 bin/serviceradar_core_elx rpc 'IO.inspect(ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay.list(limit: 20), limit: :infinity)'
 ```
 
-`list/1` and `replay/1` take `subject:` (a filter on the dead-letter
-subjects, for one contract as above), `reason:` (only messages whose
-`Sr-Edge-Dlq-Reason` is this class; others are skipped, kept, and not counted
-against the limit), `from_sequence:` and `limit:` (default 100). A run reads only the messages the stream held when it started. Each
-returns `next_sequence`; pass it back as `from_sequence` to page.
+`list/1`, `replay/1` and `purge/1` take `subject:`, `reason:`, `contract:`,
+`from_sequence:`, `through_sequence:` and `limit:` (default 100); the
+`ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay` moduledoc owns their
+meaning. A run reads only the messages the stream held when it started. Each
+returns `next_sequence` (pass it back as `from_sequence` to page) and
+`complete`, false when it stopped before reading everything it could.
 
 ## Replay
 
@@ -163,8 +164,42 @@ Entry results:
 - `{:error, reason}`: not republished, and kept.
 
 To drop a record you have investigated and will not replay:
-`nats stream rmm TELEMETRY_EDGE_RECORD_DLQ_V1_BULK <dlq_sequence>`. The core
-NATS identity cannot purge or delete the stream itself.
+`nats stream rmm TELEMETRY_EDGE_RECORD_DLQ_V1_BULK <dlq_sequence>`, or
+`Replay.purge/1` from a core node, which deletes the matching messages one at
+a time. The core NATS identity cannot purge or delete the stream itself.
+
+## From the Settings UI
+
+Settings -> Cluster Status has a "Dead letters" section for users who may manage the
+edge pipeline (`settings.edge.manage`). It runs the functions above on the
+cluster coordinator:
+
+- Inspect reads the stream (`Replay.inventory/1`) and groups what it holds by
+  `Sr-Edge-Dlq-Contract` and `Sr-Edge-Dlq-Reason`, with each group's count,
+  agents, first and last dead-letter time and one sample detail. It reads at
+  most 5,000 messages and says so when the stream holds more.
+  Messages without one of those headers form their own group, shown as
+  `unattributed` or `no reason`; its actions select exactly the messages
+  lacking that header (`contract: :missing` / `reason: :missing`).
+- Replay republishes one group (`Replay.replay/1` with `:contract` and
+  `:reason`), once its cause is fixed.
+- Purge deletes one group, or every held dead letter, message by message
+  (`Replay.purge/1`), for records newer deliveries have already superseded. A
+  purge deletes the only copy of each record and cannot be undone.
+
+Each action covers only the dead letters Inspect read: it passes the highest
+sequence that inventory read as `:through_sequence`, so a record dead-lettered
+later, or beyond a partial read, is left for the next Inspect. Each action
+shows its exact count for confirmation, re-checks the permission against the
+user's current record and runs in the background (at most 5,000 messages per
+run). The coordinator audits it (`Replay.operator_action/3`,
+`resource_type: edge_record_dead_letters`): one event with the scope and actor
+when it starts and one with the outcome when it ends, so leaving the page
+mid-action does not lose the record.
+If a run fails part way, the result and the outcome event report what it had
+already replayed or purged together with the failure. If the call to the
+coordinator times out, work it had started may still be running; reload before
+acting again.
 
 ## Object references
 
@@ -179,6 +214,6 @@ the first one must add that check.
 
 ## Not covered yet
 
-The DLQ catalog, explicit resolved/redriven/waived states, an audited deleter,
-redrive through a synthetic lane, the interactive class and a gateway-side poison
+The DLQ catalog, explicit resolved/redriven/waived states, redrive through a
+synthetic lane, the interactive class and a gateway-side poison
 DLQ belong to `add-edge-record-stream-partitioning`.
