@@ -3311,6 +3311,10 @@ nvr:
   replicas: 2
   maxSessions: 1
   maxDurationMs: 30000
+  # Per-replica logical spool budget and physical free-space floor. Size these
+  # below the qualified PVC capacity, leaving filesystem/recovery headroom.
+  maxSpoolBytes: 1073741824
+  reserveBytes: 67108864
   storage:
     # Select a qualified replicated CSI class, e.g. Longhorn or Ceph RBD.
     # A PVC name or RWO access mode alone does not establish node-loss survival.

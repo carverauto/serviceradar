@@ -17,6 +17,12 @@ tests:
           path: metadata.annotations["argocd.argoproj.io/hook"]
       - notExists:
           path: metadata.annotations["argocd.argoproj.io/sync-wave"]
+      # Argo CD always renders the install branch. Without Force+Replace the
+      # second sync patches the completed Job's immutable pod template and fails,
+      # so the migrations for the new image never run.
+      - equal:
+          path: metadata.annotations["argocd.argoproj.io/sync-options"]
+          value: Force=true,Replace=true
       # A release resource that the TTL controller deletes makes `helm install
       # --wait` report it NotFound and fail if other resources are still
       # becoming Ready when the TTL expires.
