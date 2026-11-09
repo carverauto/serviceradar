@@ -14,6 +14,9 @@
  * limitations under the License.
  */
 
+// Package admission applies bulk pressure and fair sharing to the spool
+// allocator's measured usage. The allocator owns capacity and durable release;
+// this package owns no byte reservations or reclamation authority.
 package admission
 
 import (
@@ -26,9 +29,26 @@ import (
 // or no byte reading is supplied.
 var ErrInvalidGate = errors.New("admission: invalid gate")
 
-// watermarks is the bulk hysteresis rule Controller and Gate share: bulk
-// pauses once held bytes reach the high water and resumes only once they fall
-// to the low water.
+// Class identifies the traffic whose admission is being considered.
+type Class uint8
+
+const (
+	ClassBulk Class = iota
+	ClassInteractive
+	ClassRecovery
+)
+
+// Decision describes gate admission; the allocator still enforces capacity.
+type Decision uint8
+
+const (
+	Admit Decision = iota
+	Defer
+	Reject
+)
+
+// watermarks pauses bulk once held bytes reach the high water and resumes only
+// once they fall to the low water.
 type watermarks struct {
 	high uint64
 	low  uint64
@@ -43,7 +63,7 @@ func (w watermarks) next(paused bool, held uint64) bool {
 
 // initial is the pause state at startup. Bytes between the marks may belong
 // to a pause the process never saw relieved, so only the low water starts
-// unpaused (see Controller.restoreHysteresisLocked).
+// unpaused.
 func (w watermarks) initial(held uint64) bool { return held > w.low }
 
 // Fair-share bounds for Gate.AdmitFlow.
@@ -65,13 +85,9 @@ const (
 // component owns and releases, such as the spool allocator's ordinary usage,
 // and shares the room between the marks byte-fairly across producer flows.
 //
-// Controller charges bytes itself and frees them only through a
-// ReclaimAuthorization, which nothing can mint until the coverage owner of task
-// 2.28 exists, so a producer that committed through it would stay paused for
-// good. The spool allocator already charges a record until its bytes are
-// physically deleted, so its reading is the held count; Gate holds no
-// accounting of its own, only the pause state and the bytes each flow was
-// admitted.
+// The spool allocator charges retained record bytes until physical reclamation,
+// so its reading is the held count. Gate holds no accounting of its own, only
+// the pause state and the bytes each flow was admitted.
 //
 // Gate pauses only ClassBulk. The hard ceiling for every class stays with the
 // owner of the bytes, which refuses what does not fit.

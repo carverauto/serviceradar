@@ -48,30 +48,23 @@ when it moved.
   before the agent can prove the outcome survived its own restart. Release MUST
   follow the durable terminal record and the coverage proof. Test that a crash
   after PubAck but before the terminal record leaves the bytes present.
-  STATUS -- DELIBERATELY UNCHECKED. The ADMISSION-SIDE boundary MERGED
-  into `usp-01-proposal`: bytes are charged to an immutable `SlotKey{Spool, Seq}`,
-  nothing releases them except a SEALED `ReclaimAuthorization` (an opaque carrier
-  with no exported fields and deliberately NO producer, so no caller can mint one
-  today), applied monotonically per generation. `NoteGatewayResolved` was REMOVED
-  outright, so admission holds no remote-resolution state at all. Do NOT redo that
-  work. This box stays unchecked because the END-TO-END demonstration -- producing
-  the authorization and proving it across a crash -- is task 2.28, and 2.17 is not
-  a completed freeze prerequisite until then.
-  SCOPE: this task covers the ADMISSION side of that boundary only -- charging
-  bytes to an immutable slot identity, refusing to release on gateway resolution,
-  and consuming an opaque monotonic reclaim authorization it cannot construct.
-  PRODUCING that authorization, and proving it holds across a crash end to end,
-  is task 2.28. Admission MUST NOT own, store, or infer gateway resolution --
-  that lifecycle is `gwprefix`'s (task 2.16), and holding an unread copy of it
-  here is duplicate state that can only drift. It MUST NOT own spool generation
-  lifecycle (task 2.21), redundant commit evidence or restart classification
-  (task 2.23), the reserve/allocation capacity primitives (task 2.26), or
-  coverage computation (task 2.28); modelling any of them here means inventing
-  semantics for an owner that does not exist yet and then keeping two
-  definitions in agreement by hand.
-  Remaining as of the move (2026-11-02): unchanged: the admission side is merged, but
-  `go/pkg/edge/admission` has no importers and the end-to-end authorization is
-  task 2.28.
+  SUPERSEDING IMPLEMENTATION CONTRACT (2026-11-09): the unused
+  `admission.Controller` and its test-only `ReclaimAuthorization` were retired.
+  Production uses `admission.Gate` over the shared `spool.Allocator` ordinary
+  usage; it must not add a second reservation ledger or authorization producer.
+  The allocator retains generation charges until the spool's durable terminal
+  evidence and physical reclaim proof permit release. Recovery transfers source
+  charges only after complete paired coverage, retained rejection evidence, and
+  the durable reclaimed layout; destination and retained archive bytes remain
+  charged. A gateway acknowledgement alone never releases those charges.
+  Gate owns pressure and fairness only. It MUST NOT own gateway resolution,
+  generation lifecycle, restart classification, reserve capacity, or coverage.
+  STATUS -- DELIBERATELY UNCHECKED until the actual sender/coordinator path proves
+  that a crash after PubAck but before local terminal persistence retains both
+  bytes and their allocator charge across restart, and that replay releases or
+  transfers the charge only through the durable storage proof owner. Library
+  controller tests and caller-constructed authorizations do not satisfy this
+  end-to-end obligation (task 1.9, formerly task 2.28).
 - [ ] 1.3 (was `unify-sweep-results-proto` 2.20a) **OWN the assignment mapping's tagged VALUE shape.** The ABI change froze
   the KEY only; it explicitly does NOT freeze the value, because no message there
   represents a POSITIVE / EXPLICIT_NEGATIVE body or a durable negative reason. Define
