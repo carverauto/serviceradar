@@ -185,6 +185,33 @@ Normal policy-authorized local retention remains possible after hold/export
 checks; disk pressure itself is not deletion authority. Size metadata/outbox
 reserves so a full media area can still record stop/gap and recovery state.
 
+### Clustered NVR storage decision
+
+The standalone service is named `serviceradar-nvr` (`serviceradar_nvr` in Elixir).
+Kubernetes uses a horizontally scalable StatefulSet with one retained PVC and
+storage-lifetime identity per ordinal. NVR replicas do not replicate media to
+each other. A qualified storage provider owns replication and disk recovery;
+Longhorn and Ceph RBD are examples, not automatic qualification claims.
+
+Local-only recording remains supported without S3. Its persistent storage must
+survive loss of one worker node, including the loss of that node's local disk.
+The same requirement protects the journal and unarchived upload backlog when S3
+is selected. Single-copy local PVs, hostPath and ephemeral media storage cannot
+satisfy this contract. Qualify actual replica placement, healthy replica count,
+write durability, attachment fencing and recovery; a StorageClass name or RWO
+access mode alone proves none of those properties. Durable writes already
+acknowledged by the storage layer must survive the tested failure. In-flight
+uncommitted media and capture downtime remain explicit gaps, not saved footage.
+
+S3 is optional archival/retention storage, not a requirement imposed by NVR
+replication. It does not by itself protect footage still waiting in a local
+upload buffer. The application does not implement a second replication protocol.
+A replacement pod reattaches the retained volume and verifies its original
+identity. It must reconcile the journal and assignment before admitting a new
+writer; storage recovery and assignment fencing are independent gates. Scaling
+down or deleting the StatefulSet retains PVCs and unresolved media. Operators
+must use a retaining PV lifecycle and must not delete PVCs as routine cleanup.
+
 ## 6. Upload and recovery
 
 Keep immutable identities, checksums, initialization dependencies, recoverable

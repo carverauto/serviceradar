@@ -53,8 +53,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
   alias ServiceRadarCoreElx.CameraRelay.PipelineManager
   alias ServiceRadarRecording.Inbox
   alias ServiceRadarRecording.Packaging
-  alias ServiceRadarRecording.Spool
   alias ServiceRadarRecording.Storage
+  alias ServiceRadarRecording.Writer
 
   @lease_ms 30_000
 
@@ -87,7 +87,6 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
         claim_token: Ecto.UUID.generate(),
         block: nil,
         capture: capture,
-        init_format: nil,
         pipeline: pipeline,
         monitor: Process.monitor(pipeline),
         storage: storage,
@@ -97,8 +96,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
         actor: SystemActor.system(:camera_recording),
         claim: nil,
         inbox: nil,
-        packager: nil,
-        spool: nil,
+        writer: nil,
         timer: nil,
         drain_reason: nil,
         last_sequence: nil,
@@ -145,10 +143,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
   def handle_info({:recording_media, id, unit}, %{inbox: %{id: id}} = state) do
     with :ok <- Inbox.usable(state.inbox),
          :ok <- continuous(state.last_sequence, unit.sequence),
-         {:ok, events} <- Packaging.push(state.packager, unit),
-         {:ok, next} <- persist(events, state),
+         {:ok, writer} <- Writer.push(state.writer, unit, fn -> Inbox.usable(state.inbox) end),
          :ok <- Inbox.release(state.inbox, byte_size(unit.payload)) do
-      {:noreply, %{next | last_sequence: unit.sequence}}
+      {:noreply, %{state | writer: writer, last_sequence: unit.sequence}}
     else
       {:error, reason} -> stop(state, reason)
     end
@@ -156,9 +153,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
 
   def handle_info({:recording_end, id}, %{inbox: %{id: id}} = state) do
     with :ok <- Inbox.usable(state.inbox),
-         {:ok, events} <- Packaging.finish(state.packager),
-         {:ok, state} <- persist(events, state),
-         {:ok, state} <- seal(state) do
+         {:ok, writer} <- Writer.flush(state.writer, fn -> Inbox.usable(state.inbox) end),
+         {:ok, state} <- seal(%{state | writer: writer}) do
       stop(state, state.drain_reason || :completed)
     else
       {:error, reason} -> stop(state, reason)
@@ -166,7 +162,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
   end
 
   def handle_info({:recording_rejected, id, reason}, %{inbox: %{id: id}} = state), do: stop(state, reason)
-  def handle_info({Packaging, pid, {:error, reason}}, %{packager: pid} = state), do: stop(state, reason)
+  def handle_info({Packaging, pid, {:error, reason}}, %{writer: %{packager: pid}} = state), do: stop(state, reason)
 
   def handle_info({:DOWN, ref, :process, _pid, _reason}, %{capture: %{monitor: ref}} = state),
     do: stop(state, :capture_cancelled)
@@ -196,7 +192,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
   def terminate(_reason, state) do
     if state.inbox, do: Inbox.cancel(state.inbox)
     if state.timer, do: Process.cancel_timer(state.timer)
-    if state.packager, do: Packaging.stop(state.packager)
+    if state.writer, do: Writer.close(state.writer)
     if state.capture, do: Process.cancel_timer(state.capture.timer)
     release_consumer(state)
     :ok
@@ -224,8 +220,11 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
         with :ok <- Inbox.usable(inbox),
              :ok <- Storage.verify(state.storage),
              {:ok, block} <- RecorderOwnership.reserve_block(state.owner, state.claim, retained_clock, actor: state.actor),
-             {:ok, packager} <- Packaging.start(clock: clock, wait_for_keyframe?: true) do
-          attach(%{state | packager: packager, block: block})
+             {:ok, writer} <-
+               Writer.open(state.storage, RecordingBlock.identity(block), clock, state.spool_limits,
+                 wait_for_keyframe?: true
+               ) do
+          attach(%{state | writer: writer, block: block})
         else
           {:error, reason} -> stop(state, reason)
         end
@@ -262,42 +261,14 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
     :exit, _reason -> stop(state, :recording_drain_failed)
   end
 
-  defp persist(events, state) do
-    Enum.reduce_while(events, {:ok, state}, fn event, {:ok, state} ->
-      with :ok <- Inbox.usable(state.inbox),
-           {:ok, next} <- store(event, state),
-           :ok <- Inbox.usable(state.inbox) do
-        {:cont, {:ok, next}}
-      else
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-  end
-
-  defp store({:init, init}, state) do
-    identity = state.block |> RecordingBlock.identity() |> Map.put("clock", init.clock)
-
-    with {:ok, spool} <- Spool.create(state.storage, identity, init.payload, state.spool_limits) do
-      {:ok, %{state | spool: spool, init_format: Map.take(init, [:sha256, :timescale, :codecs])}}
-    end
-  end
-
-  defp store({:fragment, fragment}, state) do
-    case Spool.append(state.spool, fragment.payload, fragment) do
-      {:ok, spool, _entry} -> {:ok, %{state | spool: spool}}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp seal(%{spool: nil}), do: {:error, :no_recorded_media}
+  defp seal(%{writer: nil}), do: {:error, :no_recorded_media}
 
   defp seal(state) do
     with :ok <- usable(state),
-         {:ok, spool} <- Spool.seal(state.spool),
-         :ok <- usable(state),
-         {:ok, descriptor} <- RecordingDescriptor.from_snapshot(Spool.snapshot(spool), state.init_format),
+         {:ok, writer} <- Writer.seal(state.writer, fn -> usable(state) end),
+         {:ok, descriptor} <- RecordingDescriptor.from_snapshot(Writer.snapshot(writer), writer.init_format),
          {:ok, block} <- RecordingBlocks.freeze(state.owner, state.claim, state.block, descriptor, actor: state.actor) do
-      {:ok, %{state | spool: spool, block: block, frozen_receipt: true}}
+      {:ok, %{state | writer: writer, block: block, frozen_receipt: true}}
     end
   end
 
@@ -320,7 +291,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
     {:stop, :normal, %{state | terminal: reason}}
   end
 
-  defp seal_committed_tail(%{spool: %{high_water: bytes}} = state, reason)
+  defp seal_committed_tail(%{writer: %{spool: %{high_water: bytes}}} = state, reason)
        when bytes > 0 and reason in [:block_full, :insufficient_tail_samples] do
     case seal(state) do
       {:ok, sealed} -> sealed
@@ -384,8 +355,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
     end
   end
 
-  defp snapshot(%{spool: nil}), do: nil
-  defp snapshot(state), do: Spool.snapshot(state.spool)
+  defp snapshot(%{writer: nil}), do: nil
+  defp snapshot(state), do: Writer.snapshot(state.writer)
   defp notify(%{notify: pid}, event) when is_pid(pid), do: send(pid, {:camera_recording, self(), event})
   defp notify(_state, _event), do: :ok
   defp continuous(nil, _sequence), do: :ok

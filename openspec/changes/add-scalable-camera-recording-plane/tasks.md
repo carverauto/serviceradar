@@ -22,6 +22,16 @@ not a shipped camera-count guarantee.
 - [ ] 2.4 Maintain recording without viewers and enforce Membrane fan-out from one source and one edge-to-cloud live uplink per camera/profile across concurrent viewers and relay replicas; preserve current viewer-only behavior.
 - [ ] 2.5 Implement drained handoff, fencing, volume preservation, restart recovery and explicit unresolved/gap states.
 
+Standalone NVR runtime checkpoint for 2.1: `serviceradar-nvr` packages temporary,
+bounded local recording workers around the shared writer. Core retains its lease,
+authorization and publication adapters. A disabled-by-default StatefulSet gives
+each replica a retained PVC, a distinct configured storage UUID and CPU/memory
+limits. Storage replication belongs to a qualified CSI provider; local-only
+retention does not require S3. Remote release/media and Helm tests cover this
+packaging boundary. Pool enrollment, authenticated transport, aggregate disk
+admission, archive publication, automated journal recovery and physical node-loss
+qualification remain pending; task 2.1 is not yet complete.
+
 Shared-library extraction checkpoint for 2.1: `serviceradar_recording` owns the
 existing bounded inbox, H264/CMAF packaging, storage identity and journaled spool.
 Core consumes this library instead of owning duplicate implementations. Remote

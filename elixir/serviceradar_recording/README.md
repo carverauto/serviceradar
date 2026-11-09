@@ -1,8 +1,10 @@
 # Shared recording primitives
 
 `serviceradar_recording` owns the bounded recording inbox, H264 access-unit to
-CMAF packaging, storage-lifetime identity and append-only local spool. Core's
-existing recording worker consumes these modules through `ServiceRadarRecording`.
+CMAF packaging, storage-lifetime identity, append-only local spool and the
+`ServiceRadarRecording.Writer` that packages media into a journaled block. Core's
+existing recording worker and the standalone `serviceradar_nvr` runtime (see its
+`README.md`) both consume these modules.
 
 This library has no core, database adapter, credential, cluster or relay-manager
 dependency. Ecto supplies UUID casting only; it starts no repository.
@@ -11,8 +13,9 @@ listener or spool and starts no recording worker. Ownership, authorization and
 publication remain the consuming service's responsibility. Existing spool bytes,
 journal records and storage markers are unchanged by the extraction.
 
-The separate recorder service, enrollment, transport, process resource limits and
-continuous policy reconciliation are still pending. Core's compatibility path
+Enrollment, transport and continuous policy reconciliation are still pending; the
+standalone NVR runtime's own limits and pending work are described in
+`elixir/serviceradar_nvr/README.md`. Core's compatibility path
 still requires explicit enablement through its existing configuration. This library does
 not grant offline recording authority or prove physical source retirement.
 

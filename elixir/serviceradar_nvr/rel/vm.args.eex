@@ -1,0 +1,9 @@
+## Finite VM resources; the host also enforces CPU, memory and descriptor limits.
++S 2:2
++SDcpu 1
++SDio 2
++A 4
++P 32768
++Q 4096
++sbwt none
++fnu

@@ -35,6 +35,25 @@ The system SHALL support cloud recording with S3, customer-operated recording wi
 - **AND** long-term retention SHALL be allocated to the qualified object destination rather than automatically reserved on hot disks
 - **AND** availability SHALL distinguish provisional local, verified archived, indexed and missing intervals
 
+### Requirement: Storage-managed worker-node loss tolerance
+Clustered NVR installations SHALL use storage qualified to retain acknowledged recording data, initialization dependencies and journals after losing any one worker node and its local disk. NVR SHALL delegate data replication to the storage provider rather than implement recorder-to-recorder media replication. S3 SHALL remain optional when the local archive meets this contract.
+
+#### Scenario: Local-only worker node fails
+- **WHEN** a node hosting an NVR replica and a storage replica is lost
+- **THEN** the qualified storage provider SHALL retain acknowledged media and journals on surviving failure domains
+- **AND** the replacement SHALL verify the retained storage identity and reconcile journals and ownership before recording resumes
+- **AND** capture downtime and uncommitted media SHALL remain explicit gaps
+
+#### Scenario: Node fails before S3 upload
+- **WHEN** an S3-backed recorder loses its worker node with acknowledged media pending upload
+- **THEN** the protected spool and journal SHALL survive and remain associated with their original storage lifetime
+- **AND** S3 configuration alone SHALL NOT qualify an ephemeral or single-copy upload buffer
+
+#### Scenario: Recorder replicas are scaled down
+- **WHEN** an operator reduces the NVR StatefulSet replica count or removes the workload
+- **THEN** its persistent claims and unresolved media SHALL be retained
+- **AND** remaining replicas SHALL NOT assume ownership of those volumes or recordings from replica count alone
+
 ### Requirement: Fenced recording assignment handoff
 The system SHALL bind capture to an authenticated source owner, recorder, storage lifetime and monotonic assignment epoch. Handoff SHALL reserve replacement capacity and prove retirement or effective fencing of the previous capture authority before activating a conflicting owner.
 

@@ -1,0 +1,96 @@
+load("@rules_elixir//:mix_app.bzl", "mix_app")
+load("@rules_python//python:py_test.bzl", "py_test")
+load("//build:elixir_quality.bzl", "elixir_quality")
+load("//build:elixir_release.bzl", "SHIPPED_ERTS_OTP_ROOT", "SHIPPED_ERTS_ROOT_MARKER", "elixir_release")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "srcs",
+    srcs = glob([
+        "lib/**",
+        "config/**",
+    ]) + [
+        "mix.exs",
+        "mix.lock",
+    ],
+)
+
+filegroup(
+    name = "deps_srcs",
+    srcs = [
+        "mix.exs",
+        "mix.lock",
+    ] + glob(["config/**"]),
+)
+
+filegroup(
+    name = "release_recipe",
+    srcs = [
+        "mix.exs",
+        "mix.lock",
+    ] + glob([
+        "config/**",
+        "rel/**",
+    ]),
+)
+
+NVR_DEPS = [
+    "@hexpm//:bandit",
+    "@hexpm//:plug",
+    "@hexpm//:ecto",
+    "@hexpm//:jason",
+    "@rules_elixir//elixir",
+]
+
+mix_app(
+    name = "erlang_app_prod",
+    srcs = [":srcs"],
+    app_name = "serviceradar_nvr",
+    mix_env = "prod",
+    deps = ["//elixir/serviceradar_recording:erlang_app_prod"] + NVR_DEPS,
+)
+
+elixir_release(
+    name = "release_tar",
+    srcs = [
+        ":release_recipe",
+        "//elixir/serviceradar_recording:mix.exs",
+    ],
+    out = "serviceradar-nvr-release.tar.gz",
+    app = ":erlang_app_prod",
+    erts_otp_root = SHIPPED_ERTS_OTP_ROOT,
+    erts_root_marker = SHIPPED_ERTS_ROOT_MARKER,
+    release_name = "serviceradar_nvr",
+)
+
+py_test(
+    name = "release_test",
+    size = "medium",
+    srcs = ["test/release_test.py"],
+    data = [
+        "test/release_probe.exs",
+        ":release_tar",
+        "//third_party/membrane:media_test_tools",
+    ],
+    env = {
+        "NVR_RELEASE": "$(rootpath :release_tar)",
+        "NVR_PROBE": "$(rootpath test/release_probe.exs)",
+    },
+    exec_properties = {"test.network": "off"},
+    target_compatible_with = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+    ],
+)
+
+elixir_quality(
+    source_deps = ["@hexpm//:ex_dna"],
+    tool_deps = NVR_DEPS + [
+        "@hexpm//:credo",
+        "@hexpm//:ex_dna",
+        "@hexpm//:ex_slop",
+        "@hexpm//:jump_credo_checks",
+        "@hexpm//:styler",
+    ],
+)
