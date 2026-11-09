@@ -9,17 +9,16 @@ defmodule ServiceRadarWebNG.Edge.DeadLetters do
 
   A purge deletes the selected dead letters one message at a time. The core identity is denied
   purging the stream itself, and a dead letter is the only copy of its record, so a purge is
-  always scoped to what an operator selected and is always audited.
+  always scoped to what an operator selected. Every replay and purge is audited on the
+  coordinator (`Replay.operator_action/3`), when it starts and when it ends, so the record does
+  not depend on the page that asked for it staying open.
 
   Each action handles at most 5,000 messages per call. When more matched, the summary says
   so (`complete: false`) and the operator runs it again.
   """
 
   alias ServiceRadar.Cluster.ClusterStatus
-  alias ServiceRadar.Events.AuditWriter
   alias ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay
-
-  require Logger
 
   @action_limit 5_000
   @inventory_timeout_ms 60_000
@@ -48,60 +47,37 @@ defmodule ServiceRadarWebNG.Edge.DeadLetters do
   @doc """
   Replays the dead letters of `group` (a contract and/or reason as `inventory/0` reports them,
   `nil` for a missing header; an empty map is every held dead letter), up to the inventory's
-  `through_sequence` when the group carries one, and records an audit event for `actor`.
+  `through_sequence` when the group carries one, audited on the coordinator for `actor`.
   """
   @spec replay(group(), actor()) :: {:ok, summary()} | {:error, term()}
   def replay(group, actor), do: act(:replay, group, actor)
 
   @doc """
   Deletes the dead letters of `group` (an empty map is every held dead letter), bounded like
-  `replay/2`, and records an audit event for `actor`.
+  `replay/2`, audited on the coordinator for `actor`.
   """
   @spec purge(group(), actor()) :: {:ok, summary()} | {:error, term()}
   def purge(group, actor), do: act(:purge, group, actor)
 
   @doc """
-  What one replay or purge did, from `Replay`'s per-message entries: `done` messages were
-  replayed or purged, `kept` were replayed but their dead-letter copy could not be deleted, and
-  `failed` are still held with the distinct reasons in `errors`. `error` is set by the caller when
-  the run stopped part way.
+  What one replay or purge did, for display: `Replay.summarize/1`'s counts of its per-message
+  entries, with the action and whether the run covered everything it selected. `error` is set by
+  the caller when the run stopped part way.
   """
   @spec summarize(:replay | :purge, [map()], boolean()) :: summary()
   def summarize(action, entries, complete) do
-    {done, kept, errors} =
-      Enum.reduce(entries, {0, 0, []}, fn
-        %{result: result}, {done, kept, errors} when result in [:replayed, :purged] ->
-          {done + 1, kept, errors}
-
-        %{result: :replayed_kept}, {done, kept, errors} ->
-          {done, kept + 1, errors}
-
-        %{result: {:error, reason}}, {done, kept, errors} ->
-          {done, kept, [inspect(reason) | errors]}
-      end)
-
-    %{
-      action: action,
-      done: done,
-      kept: kept,
-      failed: length(errors),
-      errors: errors |> Enum.reverse() |> Enum.uniq(),
-      complete: complete,
-      error: nil
-    }
+    entries
+    |> Replay.summarize()
+    |> Map.merge(%{action: action, complete: complete, error: nil})
   end
 
   defp act(action, group, actor) do
     opts = filters(group) ++ [limit: @action_limit]
 
-    result =
-      with {:ok, %{entries: entries, complete: complete} = walk} <-
-             call(action, [opts], @action_timeout_ms) do
-        {:ok, %{summarize(action, entries, complete) | error: Map.get(walk, :error)}}
-      end
-
-    audit(action, group, actor, result)
-    result
+    with {:ok, %{entries: entries, complete: complete} = walk} <-
+           call(:operator_action, [action, opts, actor], @action_timeout_ms) do
+      {:ok, %{summarize(action, entries, complete) | error: Map.get(walk, :error)}}
+    end
   end
 
   @doc """
@@ -134,33 +110,4 @@ defmodule ServiceRadarWebNG.Edge.DeadLetters do
         end
     end
   end
-
-  defp audit(action, group, actor, result) do
-    scope = group |> filters() |> Map.new(fn {k, v} -> {to_string(k), scope_value(v)} end)
-    id = Enum.map_join([:contract, :reason], " ", &Map.get(scope, to_string(&1), "*"))
-
-    :ok =
-      AuditWriter.write_async(
-        action: if(action == :purge, do: :delete, else: :update),
-        resource_type: "edge_record_dead_letters",
-        resource_id: id,
-        resource_name: id,
-        actor: actor,
-        details: Map.merge(%{"operation" => to_string(action), "scope" => scope}, outcome(result))
-      )
-  rescue
-    error -> Logger.warning("Failed to write dead-letter audit event: #{inspect(error)}")
-  end
-
-  defp scope_value(:missing), do: "(missing)"
-  defp scope_value(value), do: value
-
-  defp outcome({:ok, summary}) do
-    summary
-    |> Map.delete(:action)
-    |> Map.update!(:error, &(&1 && inspect(&1)))
-    |> Map.new(fn {k, v} -> {to_string(k), v} end)
-  end
-
-  defp outcome({:error, reason}), do: %{"error" => inspect(reason)}
 end

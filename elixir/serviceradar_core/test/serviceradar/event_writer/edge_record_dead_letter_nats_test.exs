@@ -266,6 +266,65 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetterNatsTest do
 
       assert {:ok, %{entries: [%{dlq_sequence: ^kept}]}} = Replay.list()
       assert %{"state" => %{"messages" => 1}} = api(conn, "STREAM.INFO.#{@dlq_stream}", "")
+
+      # Only deleted sequences remain above the one held record, so a read of exactly one
+      # message has seen everything held.
+      assert {:ok, %{scanned: 1, complete: true}} = Replay.inventory(limit: 1)
+    end)
+  end
+
+  test "an operator purge is audited from the walking process when it starts and when it ends",
+       ctx do
+    ExposureBroker.with_broker(ctx.tmp_dir, fn conn, port ->
+      [_source, dead_letter] = config(port).streams
+      assert :ok = ConsumerReconciler.ensure_stream(conn, config(port), dead_letter)
+
+      superseded = [
+        {"Sr-Edge-Dlq-Contract", "serviceradar.plugin_results.batch/1"},
+        {"Sr-Edge-Dlq-Reason", "missing_synthetic_capability"}
+      ]
+
+      seq = publish_dlq!(conn, "edge-dlq:operator-1", superseded)
+
+      # Without a repo the audit publish cannot complete, so each attempted event is reported on
+      # the AuditWriter's publish-failure telemetry, in the order it was written.
+      previous = Application.get_env(:serviceradar_core, :repo_enabled)
+      Application.put_env(:serviceradar_core, :repo_enabled, false)
+      test_pid = self()
+      handler_id = "dead-letter-operator-audit-#{System.unique_integer([:positive])}"
+
+      :telemetry.attach(
+        handler_id,
+        [:serviceradar, :audit, :publish_failed],
+        fn _event, _measurements, metadata, _config -> send(test_pid, {:audit, metadata}) end,
+        nil
+      )
+
+      on_exit(fn ->
+        :telemetry.detach(handler_id)
+        Application.put_env(:serviceradar_core, :repo_enabled, previous)
+      end)
+
+      actor = %{id: "00000000-0000-0000-0000-000000000001", email: "operator@example.com"}
+
+      assert {:ok, %{entries: [%{dlq_sequence: ^seq, result: :purged}], complete: true}} =
+               Replay.operator_action(
+                 :purge,
+                 [
+                   reason: "missing_synthetic_capability",
+                   contract: "serviceradar.plugin_results.batch/1"
+                 ],
+                 actor
+               )
+
+      audited =
+        for _event <- 1..2 do
+          assert_received {:audit, %{resource_type: "edge_record_dead_letters", action: action}}
+          action
+        end
+
+      assert audited == [:purge_started, :delete]
+      assert %{"state" => %{"messages" => 0}} = api(conn, "STREAM.INFO.#{@dlq_stream}", "")
     end)
   end
 

@@ -62,6 +62,7 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay do
   """
 
   alias ServiceRadar.Edge.StreamRoute
+  alias ServiceRadar.Events.AuditWriter
   alias ServiceRadar.EventWriter.EdgeRecordDeadLetter
   alias ServiceRadar.NATS.Connection
   alias ServiceRadar.NATS.JetStreamPublish
@@ -102,6 +103,95 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay do
   """
   @spec purge(keyword()) :: {:ok, walk()} | {:error, term()}
   def purge(opts \\ []), do: walk(opts, &purge_one/2)
+
+  @doc """
+  Runs `replay/1` or `purge/1` for an operator and audits it from this process: an event when
+  it starts (operation, scope, actor) and one with its outcome (`summarize/1`'s counts,
+  `complete`, and the error of a run that stopped part way or did not run). Writing both here,
+  on the node that walks the stream, keeps the record even when the caller that asked for the
+  action goes away before it finishes. Returns what `replay/1` or `purge/1` returned.
+  """
+  @spec operator_action(:replay | :purge, keyword(), map() | nil) ::
+          {:ok, walk()} | {:error, term()}
+  def operator_action(action, opts, actor) when action in [:replay, :purge] do
+    scope = audit_scope(opts)
+    audit(:"#{action}_started", action, scope, actor, %{})
+
+    result = if action == :purge, do: purge(opts), else: replay(opts)
+
+    audit(if(action == :purge, do: :delete, else: :update), action, scope, actor, outcome(result))
+    result
+  end
+
+  @doc """
+  Counts one replay or purge's entries: `done` were replayed or purged, `kept` were replayed but
+  their dead-letter copy could not be deleted, and `failed` are still held, with their distinct
+  reasons in `errors`.
+  """
+  @spec summarize([map()]) :: %{
+          done: non_neg_integer(),
+          kept: non_neg_integer(),
+          failed: non_neg_integer(),
+          errors: [String.t()]
+        }
+  def summarize(entries) do
+    {done, kept, errors} =
+      Enum.reduce(entries, {0, 0, []}, fn
+        %{result: result}, {done, kept, errors} when result in [:replayed, :purged] ->
+          {done + 1, kept, errors}
+
+        %{result: :replayed_kept}, {done, kept, errors} ->
+          {done, kept + 1, errors}
+
+        %{result: {:error, reason}}, {done, kept, errors} ->
+          {done, kept, [inspect(reason) | errors]}
+      end)
+
+    %{
+      done: done,
+      kept: kept,
+      failed: length(errors),
+      errors: errors |> Enum.reverse() |> Enum.uniq()
+    }
+  end
+
+  defp audit_scope(opts) do
+    for key <- [:contract, :reason, :through_sequence], Keyword.has_key?(opts, key), into: %{} do
+      value = Keyword.get(opts, key)
+      {to_string(key), if(value == :missing, do: "(missing)", else: value)}
+    end
+  end
+
+  defp audit(audit_action, action, scope, actor, outcome) do
+    id = Enum.map_join(["contract", "reason"], " ", &Map.get(scope, &1, "*"))
+
+    case AuditWriter.write(
+           action: audit_action,
+           resource_type: "edge_record_dead_letters",
+           resource_id: id,
+           resource_name: id,
+           actor: actor,
+           details: Map.merge(%{"operation" => to_string(action), "scope" => scope}, outcome)
+         ) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Dead-letter #{action} audit event not written: #{inspect(reason)}")
+    end
+  end
+
+  defp outcome({:ok, %{entries: entries, complete: complete} = walk}) do
+    entries
+    |> summarize()
+    |> Map.merge(%{
+      complete: complete,
+      error: walk |> Map.get(:error) |> then(&(&1 && inspect(&1)))
+    })
+    |> Map.new(fn {key, value} -> {to_string(key), value} end)
+  end
+
+  defp outcome({:error, reason}), do: %{"error" => inspect(reason)}
 
   @doc """
   The held dead letters grouped by contract and reason, most first: per group its count, the
@@ -245,7 +335,13 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay do
   defp walk_subject(%{last: last}, _filter, from, _limit, _fun, acc) when from > last,
     do: done(acc, from, true)
 
-  defp walk_subject(_ctx, _filter, from, 0, _fun, acc), do: done(acc, from, false)
+  defp walk_subject(ctx, filter, from, 0, _fun, acc) do
+    case get_message(ctx, %{"seq" => from, "next_by_subj" => filter}) do
+      {:ok, %{seq: seq}} when seq <= ctx.last -> done(acc, from, false)
+      {:error, _reason} -> done(acc, from, false)
+      _none_left -> done(acc, from, true)
+    end
+  end
 
   defp walk_subject(ctx, filter, from, limit, fun, acc) do
     case get_message(ctx, %{"seq" => from, "next_by_subj" => filter}) do

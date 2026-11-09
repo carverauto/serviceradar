@@ -191,10 +191,12 @@ Each action covers only the dead letters Inspect read: it passes the highest
 sequence that inventory read as `:through_sequence`, so a record dead-lettered
 later, or beyond a partial read, is left for the next Inspect. Each action
 shows its exact count for confirmation, re-checks the permission against the
-user's current record, runs in the background (at most 5,000 messages per run)
-and writes an audit event
-(`resource_type: edge_record_dead_letters`) with the scope and outcome.
-If a run fails part way, the result and the audit event report what it had
+user's current record and runs in the background (at most 5,000 messages per
+run). The coordinator audits it (`Replay.operator_action/3`,
+`resource_type: edge_record_dead_letters`): one event with the scope and actor
+when it starts and one with the outcome when it ends, so leaving the page
+mid-action does not lose the record.
+If a run fails part way, the result and the outcome event report what it had
 already replayed or purged together with the failure. If the call to the
 coordinator times out, work it had started may still be running; reload before
 acting again.
