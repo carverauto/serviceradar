@@ -365,13 +365,22 @@ func TestSenderPreservesGenerationNamespacesAndContinuesPastACoverageGap(t *test
 		t.Fatalf("qualified gap = %v", gap)
 	}
 	gateway, address := listenGrantGateway(t, false)
-	runner, closeSender, err := newEdgeRecordSender(context.Background(), address, &models.SecurityConfig{Mode: models.SecurityModeNone}, store, logger.NewTestLogger())
+	runners, closeSender, err := newEdgeRecordSenders(context.Background(), address, &models.SecurityConfig{Mode: models.SecurityModeNone}, store, logger.NewTestLogger())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer closeSender()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	var runner *edgeLaneSender
+	for _, candidate := range runners {
+		if candidate.lane == key {
+			runner = candidate
+		}
+	}
+	if runner == nil {
+		t.Fatal("missing bulk lane worker")
+	}
 	for i := 0; i < 2; i++ {
 		if _, err := runner.RunOnce(ctx); err != nil {
 			t.Fatal(err)
@@ -386,6 +395,60 @@ func TestSenderPreservesGenerationNamespacesAndContinuesPastACoverageGap(t *test
 	}
 	if !bytes.Equal(frames[0].RecordBytes, firstRecord.body) || !bytes.Equal(frames[1].RecordBytes, lastRecord.body) {
 		t.Fatal("delivery rewrote retained bytes")
+	}
+}
+
+func TestRecoveryLaneDeliveryProgressesWhileBulkSessionStalls(t *testing.T) {
+	dir := t.TempDir()
+	lanes, identity, bulk := testTransportLanes(t, dir)
+	recovery := spool.LaneKey{RouteProfile: edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_RECOVERY_CONTROL_V1, TrafficClass: edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_INTERACTIVE}
+	bulkRecord := spooledEdgeRecord(t, time.Now().Add(time.Hour))
+	controlRecord := spooledEdgeRecord(t, time.Now().Add(time.Hour))
+	for _, item := range []struct {
+		lane   spool.LaneKey
+		record spooledRecord
+	}{{bulk, bulkRecord}, {recovery, controlRecord}} {
+		if _, err := lanes.Append(item.lane, identity, item.record.eventID, item.record.body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := lanes.Close(); err != nil {
+		t.Fatal(err)
+	}
+	gateway, address := listenGrantGateway(t, false)
+	gateway.mu.Lock()
+	gateway.blockedBulk = make(chan struct{})
+	blocked := gateway.blockedBulk
+	gateway.mu.Unlock()
+	cfg := &agent.ServerConfig{EdgeRecordSender: &agent.EdgeRecordSenderConfig{SpoolDir: dir, GatewayAddr: address, Security: &models.SecurityConfig{Mode: models.SecurityModeNone}, PollInterval: agent.Duration(10 * time.Millisecond)}}
+	store, _, _, err := openEdgeRecordSpool(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	done := make(chan struct{})
+	go func() { defer close(done); runEdgeRecordSender(ctx, cfg, store, logger.NewTestLogger()) }()
+	defer func() { cancel(); <-done }()
+	select {
+	case <-blocked:
+	case <-ctx.Done():
+		t.Fatal("bulk session never opened")
+	}
+	control := store.Lanes().Generations(recovery)[0]
+	for control.Resolved() != 1 {
+		select {
+		case <-ctx.Done():
+			t.Fatal("stalled bulk prevented recovery lane resolution")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	_, frames := gateway.snapshot()
+	if len(frames) != 1 || !bytes.Equal(frames[0].RecordBytes, controlRecord.body) {
+		t.Fatalf("delivered frames = %v, want only exact recovery bytes", frames)
+	}
+	if store.Lanes().Generations(bulk)[0].Resolved() != 0 {
+		t.Fatal("stalled bulk unexpectedly resolved")
 	}
 }
 
@@ -419,13 +482,15 @@ func TestUnsupportedLegacyStorageIsRetainedAccountedAndNeverDelivered(t *testing
 		t.Fatalf("retained status = %v", status)
 	}
 	gateway, address := listenGrantGateway(t, false)
-	runner, closeSender, err := newEdgeRecordSender(context.Background(), address, &models.SecurityConfig{Mode: models.SecurityModeNone}, store, logger.NewTestLogger())
+	runners, closeSender, err := newEdgeRecordSenders(context.Background(), address, &models.SecurityConfig{Mode: models.SecurityModeNone}, store, logger.NewTestLogger())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer closeSender()
-	if _, err := runner.RunOnce(context.Background()); !errors.Is(err, sender.ErrNoUnresolvedRecords) {
-		t.Fatalf("legacy delivery: %v", err)
+	for _, runner := range runners {
+		if _, err := runner.RunOnce(context.Background()); !errors.Is(err, sender.ErrNoUnresolvedRecords) {
+			t.Fatalf("legacy delivery: %v", err)
+		}
 	}
 	requests, frames := gateway.snapshot()
 	if len(requests) != 0 || len(frames) != 0 {

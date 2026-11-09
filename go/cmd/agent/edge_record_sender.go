@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/agent"
@@ -34,7 +35,7 @@ import (
 	"github.com/shirou/gopsutil/v3/disk"
 )
 
-// One bounded generation delivery session is attempted per poll interval.
+// One bounded generation delivery session per lane is attempted each poll.
 const (
 	defaultEdgeRecordSenderPollInterval  = 30 * time.Second
 	edgeRecordSenderRequestedByteCredits = 8 << 20 // 8 MiB
@@ -56,8 +57,8 @@ const (
 const defaultEdgeSpoolMaxBytes = 1 << 30
 
 // runEdgeRecordSender drains the agent spool over a dedicated
-// EdgeRecordIngestService.Stream mTLS connection: one bounded lane session per
-// poll tick, for as long as ctx stays alive. It always runs while the spool is
+// EdgeRecordIngestService.Stream mTLS connection: one concurrent worker per
+// configured lane, for as long as ctx stays alive. It runs while the spool is
 // open; a spool that did not open leaves nothing to send.
 //
 // The sender persists validated terminal dispositions before advancing its
@@ -106,12 +107,12 @@ func runEdgeRecordSender(ctx context.Context, cfg *agent.ServerConfig, sp *agent
 
 	delay := min(edgeRecordSenderSetupInitialBackoff, interval)
 	for {
-		s, closeSender, err := newEdgeRecordSender(ctx, addr, security, sp, log)
+		senders, closeSender, err := newEdgeRecordSenders(ctx, addr, security, sp, log)
 		if err == nil {
 			defer closeSender()
 			log.Info().Str("addr", addr).Str("spool_dir", spoolDir).Dur("interval", interval).
 				Msg("Edge record sender starting")
-			pollEdgeRecordSender(ctx, s, interval, log)
+			pollEdgeRecordSenders(ctx, senders, interval, log)
 			return
 		}
 		log.Warn().Err(err).Str("addr", addr).Dur("retry_in", delay).Msg("Edge record sender setup failed")
@@ -124,15 +125,15 @@ func runEdgeRecordSender(ctx context.Context, cfg *agent.ServerConfig, sp *agent
 	}
 }
 
-// newEdgeRecordSender builds a generation supervisor over the shared spool. The returned
+// newEdgeRecordSenders builds finite lane workers over one shared connection. The returned
 // close function releases the client and security provider.
-func newEdgeRecordSender(
+func newEdgeRecordSenders(
 	ctx context.Context,
 	addr string,
 	security *models.SecurityConfig,
 	sp *agent.RecordSpool,
 	log logger.Logger,
-) (*edgeLaneSender, func(), error) {
+) ([]*edgeLaneSender, func(), error) {
 
 	securityProvider, err := srgrpc.NewSecurityProvider(ctx, security, log)
 	if err != nil {
@@ -153,24 +154,30 @@ func newEdgeRecordSender(
 		_ = securityProvider.Close()
 	}
 
-	return &edgeLaneSender{store: sp, client: edgev1.NewEdgeRecordIngestServiceClient(client.GetConnection()),
-		grants: gatewayGrantRenewer{client: proto.NewAgentGatewayServiceClient(client.GetConnection())}}, closeAll, nil
+	var senders []*edgeLaneSender
+	for _, key := range sp.DeliveryLanes() {
+		senders = append(senders, &edgeLaneSender{store: sp, lane: key,
+			client: edgev1.NewEdgeRecordIngestServiceClient(client.GetConnection()),
+			grants: gatewayGrantRenewer{client: proto.NewAgentGatewayServiceClient(client.GetConnection())}})
+	}
+	return senders, closeAll, nil
 }
 
-// edgeLaneSender keeps bounded cursor state and shares one connection. Each run
-// visits at most 64 namespaces and attempts one nonempty lane session.
+// edgeLaneSender visits at most 64 generations of its lane per tick. Independent
+// lane workers keep a stalled bulk stream from holding recovery delivery.
 type edgeLaneSender struct {
-	store  *agent.RecordSpool
-	client edgesender.StreamClient
-	grants gatewayGrantRenewer
-	cursor agent.RecordSpoolCursor
+	store   *agent.RecordSpool
+	client  edgesender.StreamClient
+	grants  gatewayGrantRenewer
+	lane    spool.LaneKey
+	ordinal uint64
 }
 
 func (s *edgeLaneSender) RunOnce(ctx context.Context) (edgesender.Result, error) {
 	for visited := 0; visited < spool.MaxGenerationPage; visited++ {
-		source, ok := s.store.NextSource(&s.cursor)
+		source, ok := s.store.NextLaneSource(s.lane, &s.ordinal)
 		if !ok {
-			s.cursor = agent.RecordSpoolCursor{}
+			s.ordinal = 0
 			return edgesender.Result{}, edgesender.ErrNoUnresolvedRecords
 		}
 		result, err := s.runSource(ctx, source)
@@ -237,6 +244,18 @@ func (g gatewayGrantRenewer) RenewDeliveryGrants(
 		}
 	}
 	return granted, nil
+}
+
+func pollEdgeRecordSenders(ctx context.Context, senders []*edgeLaneSender, interval time.Duration, log logger.Logger) {
+	var workers sync.WaitGroup
+	for _, sender := range senders {
+		workers.Add(1)
+		go func(s *edgeLaneSender) {
+			defer workers.Done()
+			pollEdgeRecordSender(ctx, s, interval, log)
+		}(sender)
+	}
+	workers.Wait()
 }
 
 func pollEdgeRecordSender(ctx context.Context, s edgeRecordRunner, interval time.Duration, log logger.Logger) {

@@ -38,6 +38,7 @@ type RecordSpool struct {
 	activeMu    sync.Mutex
 	active      bool
 	lanes       *spool.LaneSet
+	taxonomy    *fairsched.LaneTaxonomy
 	legacyBytes uint64
 	trust       func() *edgerecord.TrustSnapshot
 }
@@ -66,11 +67,15 @@ func OpenRecordSpool(root string, allocator *spool.Allocator, options ...spool.O
 	if err != nil {
 		return nil, err
 	}
-	return &RecordSpool{lanes: lanes, legacyBytes: retained}, nil
+	return &RecordSpool{lanes: lanes, taxonomy: taxonomy, legacyBytes: retained}, nil
 }
 
 // Lanes returns the storage owner shared by producers and recovery coordination.
 func (s *RecordSpool) Lanes() *spool.LaneSet { return s.lanes }
+
+// DeliveryLanes is the finite configured taxonomy, including lanes with no
+// generation yet. Sender workers therefore exist before their first append.
+func (s *RecordSpool) DeliveryLanes() []spool.LaneKey { return s.taxonomy.Lanes() }
 
 // RetainedLegacyBytes are unsupported flat-storage bytes, never sender input.
 func (s *RecordSpool) RetainedLegacyBytes() uint64 { return s.legacyBytes }
@@ -226,18 +231,27 @@ type RecordSpoolCursor struct {
 }
 
 func (s *RecordSpool) NextSource(cursor *RecordSpoolCursor) (RecordSpoolSource, bool) {
-	keys := s.lanes.Lanes()
+	keys := s.DeliveryLanes()
 	for cursor.lane < len(keys) {
-		page := s.lanes.GenerationsPage(keys[cursor.lane], cursor.ordinal, 1)
-		if len(page) > 0 {
-			g := page[0]
-			cursor.ordinal = g.Identity().Ordinal
-			return RecordSpoolSource{Identity: g.Identity(), Source: g}, true
+		if source, ok := s.NextLaneSource(keys[cursor.lane], &cursor.ordinal); ok {
+			return source, true
 		}
 		cursor.lane++
 		cursor.ordinal = 0
 	}
 	return RecordSpoolSource{}, false
+}
+
+// NextLaneSource advances one lane's independent bounded generation cursor.
+func (s *RecordSpool) NextLaneSource(key spool.LaneKey, ordinal *uint64) (RecordSpoolSource, bool) {
+	page := s.lanes.GenerationsPage(key, *ordinal, 1)
+	if len(page) == 0 {
+		return RecordSpoolSource{}, false
+	}
+	g := page[0]
+	identity := g.Identity()
+	*ordinal = identity.Ordinal
+	return RecordSpoolSource{Identity: identity, Source: g}, true
 }
 
 // edgePreparedRecord lives inside an existing bounded producer queue entry.

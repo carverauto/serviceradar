@@ -47,7 +47,9 @@ type grantLiveGateway struct {
 	*startupProbeGateway
 	edgev1.UnimplementedEdgeRecordIngestServiceServer
 
-	failRenew bool
+	failRenew   bool
+	blockedBulk chan struct{}
+	bulkOnce    sync.Once
 
 	mu       sync.Mutex
 	requests []grantAsk
@@ -124,6 +126,21 @@ func (g *grantLiveGateway) Stream(stream grpc.BidiStreamingServer[edgev1.EdgeRec
 	open := first.GetLaneOpen()
 	if open == nil {
 		return status.Error(codes.InvalidArgument, "expected lane_open")
+	}
+	g.mu.Lock()
+	blocked := g.blockedBulk
+	g.mu.Unlock()
+	if blocked != nil {
+		if open.RouteProfile == edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1 {
+			g.bulkOnce.Do(func() { close(blocked) })
+			<-stream.Context().Done()
+			return stream.Context().Err()
+		}
+		select {
+		case <-blocked:
+		case <-stream.Context().Done():
+			return stream.Context().Err()
+		}
 	}
 	ack := &edgev1.EdgeRecordLaneOpenAck{
 		SpoolId:             open.GetSpoolId(),
