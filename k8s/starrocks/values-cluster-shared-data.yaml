@@ -146,7 +146,17 @@ starrocksCnSpec:
             labelSelector:
               matchLabels:
                 app.starrocks.io/component: cn
-  # mem_limit is 60% of the 10Gi limit, matching the live carverauto CNs.
+  # Process memory budget for the carverauto CNs (10Gi pod limit; the CN
+  # computes mem_limit against the ~9 GiB it detects).
+  # mem_limit 70% (~6.3 GiB): at 60% only ~1 GB was left for queries and
+  # loads once caches were resident, so a device page burst or a table
+  # rebuild pushed Stream Loads into "Memory of process exceed limit".
+  # Memory the tracker does not see was ~1.4 GB, so 70% still leaves
+  # ~2.5 GiB under the pod limit before a kernel OOM kill.
+  # datacache_mem_size 10%: the memory tier sat at its full 20% cap while
+  # reads are served by the disk datacache; halving it returns ~0.55 GB.
+  # update_memory_limit_percent 30: primary-key index memory peaked at
+  # ~0.77 GB, and the 60% default let it grow into query headroom.
   # lake_metadata_cache_limit: the "unattributed" CN memory was the lake
   # metadata cache, an LRU that only evicts under pressure and is not
   # reported by mem_tracker. At its 2 GiB default it held each CN at ~75% of
@@ -160,6 +170,8 @@ starrocksCnSpec:
     webserver_port = 8040
     heartbeat_service_port = 9050
     brpc_port = 8060
-    mem_limit = 60%
+    mem_limit = 70%
     lake_metadata_cache_limit = 536870912
+    datacache_mem_size = 10%
+    update_memory_limit_percent = 30
     storage_root_path = /opt/starrocks/cn/storage
