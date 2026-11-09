@@ -25,7 +25,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.DeadLetters do
   end
 
   @impl true
-  def update(assigns, socket), do: {:ok, assign(socket, :current_scope, assigns.current_scope)}
+  def update(assigns, socket), do: {:ok, assign(socket, Map.take(assigns, [:id, :current_scope]))}
 
   @impl true
   def handle_event("load", _params, socket), do: {:noreply, socket |> assign(:denied, false) |> load()}
@@ -179,6 +179,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.DeadLetters do
           inventory={elem(@inventory, 1)}
           busy={not is_nil(@running)}
           target={@myself}
+          timezone={@current_scope.user.timezone || "Etc/UTC"}
         />
       </.ui_panel>
 
@@ -230,6 +231,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.DeadLetters do
   attr(:inventory, :map, required: true)
   attr(:busy, :boolean, default: false)
   attr(:target, :any, default: nil)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   @doc "The held dead letters, one row per contract and reason, with each row's actions."
   def groups_table(assigns) do
@@ -269,7 +271,20 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.DeadLetters do
                 {agents_label(group)}
               </td>
               <td class="font-mono text-xs text-sr-muted">
-                {format_time(group.first_stored_at)} – {format_time(group.last_stored_at)}
+                <.user_time
+                  id={"dead-letters-group-#{index}-first-stored-at"}
+                  value={group.first_stored_at}
+                  timezone={@timezone}
+                  style={:compact}
+                  fallback={group.first_stored_at || "unknown"}
+                /> –
+                <.user_time
+                  id={"dead-letters-group-#{index}-last-stored-at"}
+                  value={group.last_stored_at}
+                  timezone={@timezone}
+                  style={:compact}
+                  fallback={group.last_stored_at || "unknown"}
+                />
               </td>
               <td class="max-w-sm text-xs break-words">{group.reason_detail}</td>
               <td class="whitespace-nowrap text-right">
@@ -393,13 +408,4 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.DeadLetters do
   defp agents_label(%{agents: [], agent_count: 0}), do: "unknown"
   defp agents_label(%{agents: [one], agent_count: 1}), do: one
   defp agents_label(%{agents: [first | _], agent_count: count}), do: "#{first} +#{count - 1}"
-
-  defp format_time(value) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, at, _offset} -> Calendar.strftime(at, "%Y-%m-%d %H:%M UTC")
-      _other -> value
-    end
-  end
-
-  defp format_time(_value), do: "unknown"
 end

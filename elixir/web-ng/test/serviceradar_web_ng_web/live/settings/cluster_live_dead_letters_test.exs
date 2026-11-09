@@ -23,7 +23,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveDeadLettersTest do
   test "each held group is a row with its count, agents and actions, and purge all covers them" do
     html =
       render_component(&DeadLetters.groups_table/1,
-        inventory: %{groups: [@plugin_group], scanned: 261, complete: true}
+        inventory: %{groups: [@plugin_group], scanned: 261, complete: true},
+        timezone: "America/Chicago"
       )
 
     assert html |> cells("#dead-letters-group-0 td") |> Enum.take(4) == [
@@ -33,7 +34,11 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveDeadLettersTest do
              "agent-synthetic-01 +1"
            ]
 
-    assert html =~ "2026-11-06 20:48 UTC"
+    assert times(html, "#dead-letters-group-0 time") == [
+             {"2026-11-06T20:48:51.731669434Z", "America/Chicago"},
+             {"2026-11-07T00:33:53.100000Z", "America/Chicago"}
+           ]
+
     assert html =~ ~s(phx-value-action="replay")
     assert html =~ ~s(phx-value-action="purge")
     assert html =~ ~s(id="dead-letters-purge-all")
@@ -72,6 +77,29 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveDeadLettersTest do
              "unattributed",
              "no reason"
            ]
+  end
+
+  test "a stored time that does not parse is shown as stored rather than hidden" do
+    html =
+      render_component(&DeadLetters.groups_table/1,
+        inventory: %{
+          groups: [%{@plugin_group | first_stored_at: "not-a-time", last_stored_at: nil}],
+          scanned: 261,
+          complete: true
+        }
+      )
+
+    assert times(html, "#dead-letters-group-0 time") == []
+    assert Enum.at(cells(html, "#dead-letters-group-0 td"), 4) =~ ~r/not-a-time\s+–\s+unknown/
+  end
+
+  defp times(html, selector) do
+    html
+    |> LazyHTML.from_fragment()
+    |> LazyHTML.query(selector)
+    |> Enum.map(fn node ->
+      {node |> LazyHTML.attribute("datetime") |> hd(), node |> LazyHTML.attribute("data-user-time-zone") |> hd()}
+    end)
   end
 
   defp cells(html, selector) do
