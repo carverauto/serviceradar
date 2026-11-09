@@ -132,6 +132,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
     AgentCertificateRevocation.confirm_successor_hello(identity)
 
+    # Feature support assumes the core-first rollout; each recovery RPC still
+    # requires current authority and retries when core is unavailable.
     %Monitoring.AgentHelloResponse{
       accepted: true,
       agent_id: agent_id,
@@ -139,7 +141,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       gateway_id: gateway_id(),
       server_time: System.os_time(:second),
       heartbeat_interval_sec: @default_heartbeat_interval_sec,
-      config_outdated: config_outdated
+      config_outdated: config_outdated,
+      edge_recovery_protocol_version: 1
     }
   end
 

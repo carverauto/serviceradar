@@ -906,7 +906,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
   end
 
   defp assert_enrolled(:unary, request, stream) do
-    assert %Monitoring.AgentHelloResponse{accepted: true} =
+    assert %Monitoring.AgentHelloResponse{accepted: true, edge_recovery_protocol_version: 1} =
              AgentGatewayServer.hello(request, stream)
   end
 
