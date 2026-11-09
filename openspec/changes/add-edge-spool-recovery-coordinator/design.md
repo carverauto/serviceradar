@@ -89,9 +89,13 @@ Construct four vectors from the journal, before constructing the final page:
 4. Adjacent unattributable losses with different reasons remain separate.
 
 Apply canonical hashes using `edgerecord`. Enforce page, manifest and record bounds
-against exact serialized/received bytes. Partition an oversized manifest into
-bounded recoveries before freezing their identities; never erase attribution to
-fit a budget. Retry recoverable work by semantic identity instead of enumerating
+against exact serialized/received bytes; never erase attribution to fit a
+budget. Per the owner's bounded-first, no-legacy approval, the agent bounds every
+new generation before allocation so that one operation covers its whole physical
+source: `BeginRecoveryOperation` takes the full generation and `ReclaimSource`
+refuses a partial interval. The agent does not partition an existing oversized
+generation; that source remains unsupported, retained and reported. Core
+separately accepts disjoint registered intervals over one generation. Retry recoverable work by semantic identity instead of enumerating
 an outage-sized target tail. The aggregate allocator reserves both journals,
 destination bytes, bindings, mappings, pages and filesystem overhead before work.
 
@@ -111,12 +115,15 @@ produce the durable recovery publication acknowledgement. The gateway does not
 acknowledge an ordinary delivery across an unexplained gap and does not treat a
 status field, journal existence or destination fsync as coverage.
 
-Ordinary gateway prefix handling must recognize consumer-committed loss coverage
-for the abandoned generation, while preserved records are delivered under their
-new, fully committed destination coordinates with replacement capabilities and
-stable semantic identity. This is a new protocol integration, not permission to
-weaken `ValidateAck`. Persist the coverage application and its immutable recovery
-identity before exposing any advanced old-generation prefix. Restart/replay must
+The gateway does not advance an ordinary prefix from recovery coverage. Before
+an ordinary source session proceeds, it reads consumer-committed coverage for the
+generation; if that generation is fenced, or committed coverage exceeds the
+session's `acked_through`, it withholds the session as unavailable so the agent
+must resolve through the signed recovery query. Ordinary ACK validation stays
+strict, and `ValidateAck` is not weakened. Preserved records are delivered under
+their new, fully committed destination coordinates with replacement capabilities
+and stable semantic identity. Coverage and its immutable recovery identity are
+persisted before any query exposes them. Restart/replay must
 produce the same result. Mixed-version peers fail closed and retain source bytes;
 roll out capable gateway/core first, then enable the coordinator via runtime
 settings and code defaults after capability negotiation.
@@ -135,8 +142,9 @@ describe allocation, not an alternative loss interval in the tombstone.
 One operation selects at most 1024 allocated slots and at most four pages, matching
 the coordinator's 256-span page packing. Exact received manifest pages
 retain the existing 256 KiB aggregate ceiling, and registration is bounded to
-512 KiB after its component bounds. A larger recovery is partitioned before its
-IDs are frozen. Copy declarations are intent, never evidence of a local commit.
+512 KiB after its component bounds. New agent generations are bounded so one
+operation fits these limits; a larger existing generation is not split by the
+agent and stays retained as unsupported. Copy declarations are intent, never evidence of a local commit.
 
 `AuthorizeEdgeRecovery` issues a source capability only for an exact registered
 page or tombstone under the recovery production grant. `RenewEdgeRecoveryCopies`
@@ -226,10 +234,12 @@ agent and network scope. Its finite fifteen-minute signing window records issuan
 for key-history checks; it does not expire the completed fact. The agent verifies
 current retained key policy, including compromise revocation, without applying a
 new-production window or assignment fence to this historical receipt.
-The applied scalar is the highest contiguous allocated prefix whose sequences
-are either durably applied or absent from the validated COMPLETE loss union, using
-`edgerecord.AppliedThroughSequence`; it is neither the largest span end nor simply
-the allocation high-water. For loss at 1 and 100 with only 1 applied, it is 99. Partial progress remains internal pending state and emits no final result.
+Core advances the applied prefix only by whole adjacent registered intervals,
+and only after each interval's effects commit without a block
+(`RecoveryOperations.advance_prefix`); it is neither the largest span end nor
+simply the allocation high-water, and an unknown earlier interval stops progress.
+Final completion remains immutable and covers the whole operation. Partial
+progress remains internal pending state and emits no final result.
 
 ### Split operations over one source generation
 
@@ -372,11 +382,11 @@ requires an unresolved sender-visible commit.
 The mapping/archive minimum is `2 * (DestinationSegment + AttributionSidecar) + 1 MiB`:
 the original and destination retained record/evidence/sidecar bytes plus
 certificate, terminal and archive framing headroom. Defaults reserve 21 MiB here.
-The following reclamation slice must preflight actual archive bytes and preserve
-all terminal evidence without invoking the legacy quarantine eviction policy.
-The proof checkpoint does not yet delete source bytes, release the source charge,
-or collect journals; those actions still require the deletion-intent/archive and
-verified consumer-resolution lifecycle.
+`SealCoverage` produces the paired coverage certificate only. It does not delete
+source bytes, release the source charge or collect journals; `ReclaimSource`
+does that after preflighting actual archive bytes, preserving all terminal
+evidence without the legacy quarantine eviction policy, and verifying the
+consumer's signed resolution, as described below.
 
 
 ### Bounded source archive and physical reclamation checkpoint

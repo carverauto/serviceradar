@@ -47,7 +47,10 @@ mandatory archives and metadata. Its default footprint is 47 MiB, plus the exist
 1 MiB physical floor within the 1 GiB total default. Journal copies each reserve
 6 MiB; controls reserve 3 MiB. Retained rejection and control archives remain
 charged after cleanup. Exhausting an operation's archive reserve leaves that
-recovery pending with its source and evidence retained. Accumulated mandatory
+recovery pending with its remaining records and required evidence retained; the
+original source is retained only when exhaustion occurs before `ReclaimSource`
+succeeds, since later destination or control archive writes can refuse after the
+source is reclaimed. Accumulated mandatory
 archives can separately pause producer admission at the shared pressure or capacity
 limit. Neither condition deletes evidence or permits unlimited recovery attempts.
 A workload whose records are all permanently rejected can fill required archives;
@@ -218,7 +221,8 @@ separate. An incomplete exact page receipt may ACK after durable storage; the
 record completing assembly remains deferred while repair is unavailable or blocked.
 
 One transaction applies active range loss/retry, passive delivery audit, or
-unattributable loss audit plus generation fencing and scheduler reconciliation.
+unattributable loss audit plus generation fencing and scheduler reconciliation
+intent; the actual scheduling follows later from that committed intent.
 Only adjacent applied intervals advance the source prefix. One persisted signed
 completion retains its original root, applied prefix, timestamp and signature.
 Later queries return that same evidence rather than reconstructing it.
