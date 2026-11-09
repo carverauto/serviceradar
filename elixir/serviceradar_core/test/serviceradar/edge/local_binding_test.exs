@@ -49,10 +49,8 @@ defmodule ServiceRadar.Edge.LocalBindingTest do
       assert {:ok, validated} =
                apply(RecoveryAttribution, unquote(contract), [raw, record.output_contract, policy])
 
-      if unquote(contract) == :sweep do
-        assert {:ok, ^validated} =
-                 RecoveryAttribution.registered(raw, record.output_contract, policy)
-      end
+      assert {:ok, ^validated} =
+               RecoveryAttribution.registered(raw, record.output_contract, policy)
 
       a = RecoveryAttribution.attribution(validated)
       assert a.active == unquote(active)
@@ -119,6 +117,40 @@ defmodule ServiceRadar.Edge.LocalBindingTest do
 
     assert {:error, {:correlation, :range_id}} =
              RecoveryAttribution.sweep(raw, record.output_contract, policy)
+  end
+
+  test "historical attribution retains typed evidence after expiry but refuses compromised authority" do
+    {record, raw, policy} = signed_fixture("sweep_join_positive_scheduled_sweep.bin")
+    expired = %{policy | now_unix_nano: record.production_capability.expires_at_unix_nano + 1}
+
+    assert {:error, :authority_expired} =
+             RecoveryAttribution.registered(raw, record.output_contract, expired)
+
+    assert {:ok, original} = RecoveryAttribution.registered(raw, record.output_contract, policy)
+    assert {:ok, ^original} = RecoveryAttribution.historical(raw, record.output_contract, expired)
+
+    for purpose <- [:production, :source] do
+      revoked = %{
+        expired
+        | trust: fn issuer, key, role ->
+            case policy.trust.(issuer, key, role) do
+              {:ok, public, status} ->
+                {:ok, public, if(role == purpose, do: :historically_revoked, else: status)}
+
+              error ->
+                error
+            end
+          end
+      }
+
+      assert {:error, :key_historically_revoked} =
+               RecoveryAttribution.historical(raw, record.output_contract, revoked)
+    end
+
+    {wrong, changed, changed_policy} = signed_fixture("sweep_join_range_id.bin")
+
+    assert {:error, {:correlation, :range_id}} =
+             RecoveryAttribution.historical(changed, wrong.output_contract, changed_policy)
   end
 
   test "standing metrics derive passive attribution without a source identity" do
@@ -263,7 +295,29 @@ defmodule ServiceRadar.Edge.LocalBindingTest do
     }
 
   defp signed_fixture(name) do
-    signed_record(EdgeRecordV1.decode(load(name)))
+    record = EdgeRecordV1.decode(load(name))
+
+    record =
+      if record.payload_family == :EDGE_RECORD_PAYLOAD_FAMILY_RECOVERY_CONTROL_V1 do
+        {:production, claims} = record.production_capability.claims
+
+        %{
+          record
+          | output_contract: %{
+              record.output_contract
+              | contract_id: "serviceradar.edge.recovery_control"
+            },
+            production_capability: %{
+              record.production_capability
+              | claims:
+                  {:production, %{claims | contract_id: "serviceradar.edge.recovery_control"}}
+            }
+        }
+      else
+        record
+      end
+
+    signed_record(record)
   end
 
   defp signed_record(record) do

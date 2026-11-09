@@ -16,6 +16,7 @@ defmodule ServiceRadar.Edge.RecoveryAttribution do
   alias Serviceradar.Edge.V1.EdgeAttributedPassiveV1
   alias Serviceradar.Edge.V1.EdgeAttributedSpanIdentityV1
   alias Serviceradar.Edge.V1.EdgeClassificationSpanV1
+  alias Serviceradar.Edge.V1.EdgeRecoveryControlPayloadV1
   alias Serviceradar.Edge.V1.EdgeSourceSpanIdentityV1
 
   @enforce_keys [:attribution, :record_identity]
@@ -27,7 +28,20 @@ defmodule ServiceRadar.Edge.RecoveryAttribution do
   @spec registered(binary(), struct(), map()) :: {:ok, t()} | {:error, term()}
   def registered(raw, expected_contract, policy) do
     with {:ok, record} <- signed_record(raw, expected_contract, policy),
-         {:ok, entry} <-
+         do: registered_body(raw, record)
+  end
+
+  @doc "Derive original typed attribution for rollover, independently of production expiry."
+  @spec historical(binary(), struct(), map()) :: {:ok, t()} | {:error, term()}
+  def historical(raw, expected_contract, policy) do
+    with {:ok, record} <- RecordValidate.validate_bytes(raw),
+         :ok <- RecoveryValidate.contract_dispatch(record, expected_contract),
+         :ok <- RecoveryValidate.record_historical(record, policy),
+         do: registered_body(raw, record)
+  end
+
+  defp registered_body(raw, record) do
+    with {:ok, entry} <-
            ContractCatalog.fetch(
              {record.output_contract.contract_id, record.output_contract.contract_version}
            ),
@@ -41,6 +55,20 @@ defmodule ServiceRadar.Edge.RecoveryAttribution do
 
   defp derive_registered(raw, record, :sweep_lease, %{target_range_sha256: range}),
     do: derive(raw, record, true, range)
+
+  defp derive_registered(
+         raw,
+         %{
+           output_contract: %{
+             contract_id: "serviceradar.edge.recovery_control",
+             contract_version: 1
+           },
+           source_authorization: %{kind: :EDGE_SOURCE_AUTHORIZATION_KIND_RECOVERY_CONTROL}
+         } = record,
+         :standing_grant,
+         %{payload: %EdgeRecoveryControlPayloadV1{}}
+       ),
+       do: derive(raw, record, false, "")
 
   defp derive_registered(raw, %{source_authorization: nil} = record, :standing_grant, _body),
     do: derive(raw, record, false, "")

@@ -54,18 +54,11 @@ func validateRecoveryControlLane(destination, control string) error {
 	if filepath.Clean(destination) == filepath.Clean(control) {
 		return ErrOutsideLane
 	}
-	read := func(dir string) (GenerationIdentity, error) {
-		raw, err := os.ReadFile(filepath.Join(dir, identityFile))
-		if err != nil {
-			return GenerationIdentity{}, err
-		}
-		return decodeIdentity(raw)
-	}
-	dest, err := read(destination)
+	dest, err := readGenerationIdentity(destination)
 	if err != nil {
 		return err
 	}
-	ctl, err := read(control)
+	ctl, err := readGenerationIdentity(control)
 	if err != nil {
 		return err
 	}
@@ -73,6 +66,14 @@ func validateRecoveryControlLane(destination, control string) error {
 		return fmt.Errorf("%w: recovery control namespace or route", ErrOutsideLane)
 	}
 	return nil
+}
+
+func readGenerationIdentity(dir string) (GenerationIdentity, error) {
+	raw, err := os.ReadFile(filepath.Join(dir, identityFile))
+	if err != nil {
+		return GenerationIdentity{}, err
+	}
+	return decodeIdentity(raw)
 }
 
 // CommitRecoveryControl commits a typed, authorized control using the same
