@@ -22,8 +22,8 @@
     "@mdx-js/react": "^3.1.1",
     "clsx": "^2.0.0",
     "prism-react-renderer": "^2.3.0",
-    "react": "19.2.8",
-    "react-dom": "19.2.8",
+    "react": "19.2.9",
+    "react-dom": "19.2.9",
     "redocusaurus": "^2.5.0"
   },
   "devDependencies": {
@@ -68,7 +68,7 @@
     "tinypool": "^2.1.2",
     "update-notifier": "^7.3.1",
     "uuid": "^14.0.0",
-    "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react": "19.2.9",
+    "react-dom": "19.2.9"
   }
 }

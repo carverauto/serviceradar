@@ -5,8 +5,8 @@
   "type": "module",
   "dependencies": {
     "@gorules/jdm-editor": "^1.50.4",
-    "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react": "19.2.9",
+    "react-dom": "19.2.9"
   },
   "devDependencies": {
     "@types/react": "^19.2.0",
@@ -14,8 +14,8 @@
     "typescript": "^5.7.0"
   },
   "overrides": {
-    "react": "19.2.8",
-    "react-dom": "19.2.8",
+    "react": "19.2.9",
+    "react-dom": "19.2.9",
     "react-is": "19.2.8",
     "hoist-non-react-statics>react-is": "19.2.8"
   }
