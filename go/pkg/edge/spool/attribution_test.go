@@ -370,11 +370,7 @@ func TestAttributedRelocationReopensMappingAndRetainsSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	destination, err := ls.CreateRecoveryDestination(lane, recoveryID, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	grant, err := allocator.AcquireRecovery(destination.dir)
+	destination, grant, err := ls.BeginRecoveryDestination(source, recoveryID, 0, allocator)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -398,7 +394,8 @@ func TestAttributedRelocationReopensMappingAndRetainsSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	reopened := openAttributedLanes(t, root, identity, allocator, nil)
-	destination, err = reopened.CreateRecoveryDestination(lane, recoveryID, 0)
+	source = reopened.Generations(lane)[0]
+	destination, _, err = reopened.BeginRecoveryDestination(source, recoveryID, 0, allocator)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -517,7 +514,7 @@ func TestRelocationBarrierRetainsSourceAndWithholdsWitness(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			destination, err := ls.CreateRecoveryDestination(lane, recoveryID, 0)
+			destination, grant, err := ls.BeginRecoveryDestination(source, recoveryID, 0, allocator)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -527,10 +524,6 @@ func TestRelocationBarrierRetainsSourceAndWithholdsWitness(t *testing.T) {
 				}
 				return nil
 			}
-			grant, err := allocator.AcquireRecovery(destination.dir)
-			if err != nil {
-				t.Fatal(err)
-			}
 			receipt, err := destination.CommitRelocated(proof, grant)
 			if !errors.Is(err, syscall.EIO) || receipt.Sequence != 0 || !errors.Is(allocator.Err(), syscall.EIO) {
 				t.Fatalf("failed relocation produced receipt or stayed writable: %+v %v allocator=%v", receipt, err, allocator.Err())
@@ -539,10 +532,7 @@ func TestRelocationBarrierRetainsSourceAndWithholdsWitness(t *testing.T) {
 				t.Fatal(err)
 			}
 			ls = openAttributedLanes(t, root, identity, nil, nil)
-			destination, err = ls.CreateRecoveryDestination(lane, recoveryID, 0)
-			if err != nil {
-				t.Fatal(err)
-			}
+			destination = retainedRecoveryGeneration(t, ls, lane, recoveryID, 0)
 			if destination.NextSequence() != 2 {
 				t.Fatal("restart reused interrupted destination sequence")
 			}
@@ -646,7 +636,7 @@ func TestLegacyGenerationDrainsWithoutInventedAttribution(t *testing.T) {
 
 func attributionAllocator(t *testing.T) *Allocator {
 	t.Helper()
-	a, err := NewAllocator(AllocatorConfig{Capacity: 16 << 20, MinFree: 1 << 20, MaxConcurrentRecoveries: 1, Recovery: Footprint{DestinationSegment: 1 << 20, AttributionSidecar: 1 << 20, JournalCopy: 1 << 20, ManifestPages: 256 << 10, Mapping: 1 << 20, FilesystemMetadata: 4096}})
+	a, err := NewAllocator(AllocatorConfig{Capacity: 16 << 20, MinFree: 1 << 20, MaxConcurrentRecoveries: 1, Recovery: Footprint{DestinationSegment: 1 << 20, AttributionSidecar: 1 << 20, JournalCopy: 1 << 20, ManifestPages: 256 << 10, Mapping: 1 << 20, FilesystemMetadata: 64 << 10}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -675,7 +665,7 @@ func TestAttributedGenerationFitsFullRelocationReserve(t *testing.T) {
 	})
 	for _, bound := range []string{"destination", "sidecars"} {
 		t.Run(bound, func(t *testing.T) {
-			footprint := Footprint{DestinationSegment: 1 << 20, AttributionSidecar: 1 << 20, JournalCopy: 1 << 20, ManifestPages: 256 << 10, Mapping: 1 << 20, FilesystemMetadata: 4096}
+			footprint := Footprint{DestinationSegment: 1 << 20, AttributionSidecar: 1 << 20, JournalCopy: 1 << 20, ManifestPages: 256 << 10, Mapping: 1 << 20, FilesystemMetadata: 64 << 10}
 			if bound == "destination" {
 				footprint.DestinationSegment = recoveryGenerationFixedBytes + 2*uint64(minRecordLen+len(input.Body)+4*evidenceEntryLen2+terminalEvidenceAllowance)
 			}
@@ -715,11 +705,7 @@ func TestAttributedGenerationFitsFullRelocationReserve(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			destination, err := lanes.CreateRecoveryDestination(lane, recoveryID, 0)
-			if err != nil {
-				t.Fatal(err)
-			}
-			grant, err := allocator.AcquireRecovery(destination.dir)
+			destination, grant, err := lanes.BeginRecoveryDestination(source, recoveryID, 0, allocator)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -752,7 +738,7 @@ func TestAttributedAppendDefersInvalidRecoveryCapacity(t *testing.T) {
 			root := t.TempDir()
 			allocator, err := NewAllocator(AllocatorConfig{Capacity: 16 << 20, MinFree: 4096, MaxConcurrentRecoveries: 1,
 				Recovery: Footprint{DestinationSegment: recoveryGenerationFixedBytes + uint64(minRecordLen+len(input.Body)+4*evidenceEntryLen2+terminalEvidenceAllowance) - 1,
-					AttributionSidecar: 1 << 20, JournalCopy: 1 << 20, ManifestPages: 256 << 10, Mapping: 1 << 20, FilesystemMetadata: 4096}})
+					AttributionSidecar: 1 << 20, JournalCopy: 1 << 20, ManifestPages: 256 << 10, Mapping: 1 << 20, FilesystemMetadata: 64 << 10}})
 			if err != nil {
 				t.Fatal(err)
 			}

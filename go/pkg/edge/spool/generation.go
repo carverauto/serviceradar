@@ -22,6 +22,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -39,6 +40,84 @@ const recoveryDestinationSuffix = ".recovery"
 
 const recoveryDestinationFile = "recovery-destination"
 const recoveryDestinationMagic = "SRDEST01"
+const recoverySourceFile = "recovery-source"
+const recoverySourceMagic = "SRSRC001"
+
+// Two maximum-sized identities, their lengths, operation UUID and checksum.
+const maxRecoverySourceBytes = 8 + 16 + 4 + 2*(identityFixedLen+edgerecord.MaxPrincipalBytes+bodyCRCLen) + sha256.Size
+
+// RecoverySourceIdentity reopens the durable pre-freeze association. It conveys
+// identity only; neither a source hold nor permission to reclaim bytes.
+func (g *Generation) RecoverySourceIdentity() (GenerationIdentity, error) {
+	disk, err := readGenerationIdentity(g.dir)
+	if err != nil {
+		return GenerationIdentity{}, err
+	}
+	if !bytes.Equal(encodeIdentity(disk), encodeIdentity(g.id)) {
+		return GenerationIdentity{}, ErrCorruptGeneration
+	}
+	id, attempt, err := readRecoveryDestination(g.dir, disk)
+	if err != nil {
+		return GenerationIdentity{}, err
+	}
+	if !bytes.Equal(id, g.recoveryID) || len(id) != uuidLen || attempt != g.recoveryAttempt {
+		return GenerationIdentity{}, ErrCorruptGeneration
+	}
+	return readRecoverySource(g.dir, disk, id)
+}
+
+func encodeRecoverySource(source, destination GenerationIdentity, recoveryID []byte) []byte {
+	b := append([]byte(recoverySourceMagic), recoveryID...)
+	for _, id := range []GenerationIdentity{source, destination} {
+		raw := encodeIdentity(id)
+		b = binary.BigEndian.AppendUint16(b, uint16(len(raw)))
+		b = append(b, raw...)
+	}
+	digest := sha256.Sum256(b)
+	return append(b, digest[:]...)
+}
+
+func readRecoverySource(dir string, destination GenerationIdentity, recoveryID []byte) (GenerationIdentity, error) {
+	f, err := os.Open(filepath.Join(dir, recoverySourceFile))
+	if err != nil {
+		return GenerationIdentity{}, err
+	}
+	b, err := io.ReadAll(io.LimitReader(f, maxRecoverySourceBytes+1))
+	closeErr := f.Close()
+	if err != nil || closeErr != nil {
+		return GenerationIdentity{}, errors.Join(err, closeErr)
+	}
+	if len(b) < 8+16+4+sha256.Size || len(b) > maxRecoverySourceBytes || string(b[:8]) != recoverySourceMagic || !bytes.Equal(b[8:24], recoveryID) {
+		return GenerationIdentity{}, ErrCorruptGeneration
+	}
+	end := len(b) - sha256.Size
+	digest := sha256.Sum256(b[:end])
+	if !bytes.Equal(digest[:], b[end:]) {
+		return GenerationIdentity{}, ErrCorruptGeneration
+	}
+	raw := b[24:end]
+	var ids [2]GenerationIdentity
+	for i := range ids {
+		if len(raw) < 2 {
+			return GenerationIdentity{}, ErrCorruptGeneration
+		}
+		n := int(binary.BigEndian.Uint16(raw))
+		raw = raw[2:]
+		if n > len(raw) {
+			return GenerationIdentity{}, ErrCorruptGeneration
+		}
+		ids[i], err = decodeIdentity(raw[:n])
+		if err != nil || ids[i].Ordinal == 0 {
+			return GenerationIdentity{}, ErrCorruptGeneration
+		}
+		raw = raw[n:]
+	}
+	source := ids[0]
+	if len(raw) != 0 || !bytes.Equal(encodeIdentity(ids[1]), encodeIdentity(destination)) || !source.Identity.equal(destination.Identity) || bytes.Equal(source.SpoolID, destination.SpoolID) {
+		return GenerationIdentity{}, ErrCorruptGeneration
+	}
+	return source, nil
+}
 
 // Directory is the generation's immutable storage directory, used to acquire its
 // recovery reservation. Returning it does not authorize a commit or deletion.
@@ -268,6 +347,12 @@ func (l *lane) retain(g *Generation) {
 	l.retained = append(l.retained, nil)
 	copy(l.retained[i+1:], l.retained[i:len(l.retained)-1])
 	l.retained[i] = g
+	if len(g.recoveryID) != 0 {
+		if l.recoveryDestinations == nil {
+			l.recoveryDestinations = make(map[recoveryDestinationKey]*Generation)
+		}
+		l.recoveryDestinations[recoveryDestinationKey{string(g.recoveryID), g.recoveryAttempt}] = g
+	}
 }
 
 func (g *Generation) QuarantineHealth() (QuarantineHealth, error) {

@@ -246,12 +246,13 @@ type lane struct {
 	key LaneKey
 	dir string
 
-	mu              sync.Mutex
-	open            *Generation
-	retained        []*Generation // closed sources and dedicated recovery destinations
-	nextOrdinal     uint64
-	rotationPending bool
-	shut            bool
+	mu                   sync.Mutex
+	open                 *Generation
+	retained             []*Generation // closed sources and dedicated recovery destinations
+	recoveryDestinations map[recoveryDestinationKey]*Generation
+	nextOrdinal          uint64
+	rotationPending      bool
+	shut                 bool
 }
 
 // LaneSet is the agent's spool: one open generation per lane under one
@@ -653,7 +654,7 @@ func (ls *LaneSet) existingLane(key LaneKey) *lane {
 // openGeneration creates the lane's next generation under the session identity
 // and makes it the open one. The caller holds l.mu.
 func (ls *LaneSet) openGeneration(l *lane) error {
-	g, err := ls.createGeneration(l, nil, 0)
+	g, err := ls.createGeneration(l, nil, 0, nil)
 	if err != nil {
 		return err
 	}
@@ -661,7 +662,7 @@ func (ls *LaneSet) openGeneration(l *lane) error {
 	return nil
 }
 
-func (ls *LaneSet) createGeneration(l *lane, recoveryID []byte, attempt uint32) (*Generation, error) {
+func (ls *LaneSet) createGeneration(l *lane, recoveryID []byte, attempt uint32, reservation *generationReservation) (generation *Generation, err error) {
 	spoolID, err := edgerecord.NewUUIDv7()
 	if err != nil {
 		return nil, fmt.Errorf("spool: generate spool id: %w", err)
@@ -673,6 +674,26 @@ func (ls *LaneSet) createGeneration(l *lane, recoveryID []byte, attempt uint32) 
 		Identity: ls.session.clone(),
 	}
 
+	if reservation != nil {
+		id.Identity = reservation.source.Identity.clone()
+	}
+	name := generationDirName(id.Ordinal, id.SpoolID)
+	if len(recoveryID) != 0 {
+		name += recoveryDestinationSuffix
+	}
+	tmp := filepath.Join(l.dir, tmpPrefix+name)
+	final := filepath.Join(l.dir, name)
+	if reservation != nil {
+		if err = reservation.prepare(final, id, recoveryID, attempt); err != nil {
+			return nil, err
+		}
+		defer func() {
+			if err != nil {
+				l.shut = true
+				err = reservation.fail(err)
+			}
+		}()
+	}
 	if err := durablefs.MkdirAll(l.dir, dirPerm); err != nil {
 		return nil, fmt.Errorf("spool: mkdir lane: %w", err)
 	}
@@ -680,12 +701,6 @@ func (ls *LaneSet) createGeneration(l *lane, recoveryID []byte, attempt uint32) 
 		return nil, err
 	}
 
-	name := generationDirName(id.Ordinal, id.SpoolID)
-	if len(recoveryID) != 0 {
-		name += recoveryDestinationSuffix
-	}
-	tmp := filepath.Join(l.dir, tmpPrefix+name)
-	final := filepath.Join(l.dir, name)
 	if err := os.Mkdir(tmp, dirPerm); err != nil {
 		return nil, fmt.Errorf("spool: mkdir generation: %w", err)
 	}
@@ -701,6 +716,14 @@ func (ls *LaneSet) createGeneration(l *lane, recoveryID []byte, attempt uint32) 
 			return nil, err
 		}
 	}
+	if reservation != nil {
+		if err = durablefs.WriteFile(filepath.Join(tmp, evidenceFormatFile), []byte(evidenceFormatV2), filePerm); err != nil {
+			return nil, err
+		}
+		if err = durablefs.WriteFile(filepath.Join(tmp, recoverySourceFile), reservation.sourceBytes, filePerm); err != nil {
+			return nil, err
+		}
+	}
 	if err := fsyncDir(tmp); err != nil {
 		return nil, err
 	}
@@ -710,6 +733,14 @@ func (ls *LaneSet) createGeneration(l *lane, recoveryID []byte, attempt uint32) 
 	// Published: the ordinal is spent whether or not the generation opens, so a
 	// retry can never publish a second generation under the same ordinal.
 	l.nextOrdinal++
+	if reservation != nil {
+		if err = fsyncDir(l.dir); err != nil {
+			return nil, err
+		}
+		if err = reservation.land(); err != nil {
+			return nil, err
+		}
+	}
 	sp, err := ls.openPublished(l.dir, final, id)
 	if err != nil {
 		// It holds no record. Close it so a retry's successor is the lane's only
@@ -722,6 +753,10 @@ func (ls *LaneSet) createGeneration(l *lane, recoveryID []byte, attempt uint32) 
 			l.shut = true
 		}
 		return nil, err
+	}
+	if reservation != nil && (sp.alloc != reservation.grant.alloc || sp.attributionIdentity == nil) {
+		_ = sp.Close()
+		return nil, ErrAttributionRequired
 	}
 	return &Generation{id: id, dir: final, spool: sp, recoveryID: bytes.Clone(recoveryID), recoveryAttempt: attempt}, nil
 }
@@ -866,6 +901,11 @@ func (ls *LaneSet) recoverGeneration(l *lane, e os.DirEntry) (*Generation, error
 	}
 	if err != nil {
 		return nil, err
+	}
+	if recoveryDestination {
+		if _, err := readRecoverySource(dir, id, recoveryID); err != nil {
+			return nil, fmt.Errorf("%w: recovery source intent: %w", ErrCorruptGeneration, err)
+		}
 	}
 	sp, err := ls.openSpool(dir, id)
 	if err != nil {

@@ -61,6 +61,13 @@ func OpenRecoveryOperation(dir string, source, destination *Generation, grant *R
 		destination.id.Lane != plan.Source.Lane || !destination.id.Identity.equal(plan.Source.Identity) || !bytes.Equal(destination.RecoveryID(), plan.RecoveryID) {
 		return nil, ErrRecoveryPlan
 	}
+	boundSource, err := destination.RecoverySourceIdentity()
+	if err != nil {
+		return nil, err
+	}
+	if !bytes.Equal(encodeIdentity(boundSource), encodeIdentity(plan.Source)) {
+		return nil, ErrRecoveryPlan
+	}
 	manifest, err := journal.BuildManifest()
 	if err != nil {
 		return nil, err

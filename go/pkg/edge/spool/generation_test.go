@@ -19,40 +19,65 @@ package spool
 import (
 	"bytes"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 	"google.golang.org/protobuf/proto"
 )
 
+func retainedRecoveryGeneration(t *testing.T, ls *LaneSet, key LaneKey, id []byte, attempt uint32) *Generation {
+	t.Helper()
+	var ordinal uint64
+	for {
+		page := ls.GenerationsPage(key, ordinal, MaxGenerationPage)
+		if len(page) == 0 {
+			t.Fatal("retained recovery generation missing")
+		}
+		for _, g := range page {
+			if bytes.Equal(g.RecoveryID(), id) && g.RecoveryAttempt() == attempt {
+				return g
+			}
+		}
+		ordinal = page[len(page)-1].Identity().Ordinal
+	}
+}
+
+func closedRecoverySource(t *testing.T, ls *LaneSet, key LaneKey, identity Identity, input AttributedAppend) *Generation {
+	t.Helper()
+	if _, err := ls.AppendAttributed(key, identity, input); err != nil {
+		t.Fatal(err)
+	}
+	source, _ := ls.OpenGeneration(key)
+	if _, err := ls.Rotate(key); err != nil {
+		t.Fatal(err)
+	}
+	return source
+}
+
 func TestRecoveryDestinationRemainsSeparateAcrossRestart(t *testing.T) {
 	root := t.TempDir()
-	ls := openLanes(t, root, sessionA)
-	recoveryID, err := edgerecord.NewUUIDv7()
+	input, key, identity := attributionAppend(t, "metrics")
+	allocator := recoveryOperationAllocator(t)
+	ls := openAttributedLanes(t, root, identity, allocator, nil)
+	source := closedRecoverySource(t, ls, key, identity, input)
+	recoveryID := recoveryUUID(74)
+	destination, grant, err := ls.BeginRecoveryDestination(source, recoveryID, 0, allocator)
 	if err != nil {
 		t.Fatal(err)
 	}
-	destination, err := ls.CreateRecoveryDestination(bulkLane, recoveryID, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := ls.OpenGeneration(bulkLane); ok {
+	if producer, ok := ls.OpenGeneration(key); ok && producer == destination {
 		t.Fatal("recovery destination became producer generation")
 	}
-	first, err := ls.Append(bulkLane, sessionA, evid(41), []byte("synthetic production record"))
-	if err != nil {
-		t.Fatal(err)
+	first, err := ls.AppendAttributed(key, identity, input)
+	if err != nil || bytes.Equal(first.Generation.SpoolID, destination.Identity().SpoolID) {
+		t.Fatalf("production appended into recovery destination: %v", err)
 	}
-	if bytes.Equal(first.Generation.SpoolID, destination.Identity().SpoolID) {
-		t.Fatal("production appended into recovery destination")
-	}
-	// A second destination after the producer is open must also survive inventory.
-	otherID := bytes.Clone(recoveryID)
-	other, err := ls.CreateRecoveryDestination(bulkLane, otherID, 1)
+	controlKey := LaneKey{RouteProfile: edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_RECOVERY_CONTROL_V1, TrafficClass: edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_BULK}
+	other, err := ls.CreateRecoveryControlDestination(controlKey, recoveryID, 1, grant)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,17 +90,19 @@ func TestRecoveryDestinationRemainsSeparateAcrossRestart(t *testing.T) {
 	if err = ls.Close(); err != nil {
 		t.Fatal(err)
 	}
-	ls = openLanes(t, root, sessionA)
-	destination, err = ls.CreateRecoveryDestination(bulkLane, recoveryID, 0)
-	if err != nil || !bytes.Equal(destination.Identity().SpoolID, original.SpoolID) {
-		t.Fatalf("destination not resumed: %v", err)
+	allocator = recoveryOperationAllocator(t)
+	ls = openAttributedLanes(t, root, identity, allocator, nil)
+	source = ls.Generations(key)[0]
+	destination, _, err = ls.BeginRecoveryDestination(source, recoveryID, 0, allocator)
+	if !errors.Is(err, ErrRecoveryResumeRequired) || !bytes.Equal(destination.Identity().SpoolID, original.SpoolID) {
+		t.Fatalf("retained destination acquired a fresh grant: %v", err)
 	}
-	resumedAttempt, err := ls.CreateRecoveryDestination(bulkLane, recoveryID, 1)
-	if err != nil || resumedAttempt.RecoveryAttempt() != 1 || !bytes.Equal(resumedAttempt.Identity().SpoolID, other.Identity().SpoolID) {
-		t.Fatalf("control attempt not resumed: %v", err)
+	resumedAttempt := retainedRecoveryGeneration(t, ls, controlKey, recoveryID, 1)
+	if !bytes.Equal(resumedAttempt.Identity().SpoolID, other.Identity().SpoolID) {
+		t.Fatal("control attempt identity changed")
 	}
-	if len(ls.Generations(bulkLane)) != 3 {
-		t.Fatal("resume created another generation")
+	if len(ls.Generations(key)) != 3 || len(ls.Generations(controlKey)) != 1 {
+		t.Fatal("inventory created another generation")
 	}
 	if err = destination.SealRecoveryDestination(); err != nil {
 		t.Fatal(err)
@@ -83,23 +110,23 @@ func TestRecoveryDestinationRemainsSeparateAcrossRestart(t *testing.T) {
 	if _, err = destination.CommitRelocated(CommittedAttribution{}, nil); !errors.Is(err, ErrRotationRequired) {
 		t.Fatalf("sealed destination writable: %v", err)
 	}
-	producer, _ := ls.OpenGeneration(bulkLane)
+	producer, _ := ls.OpenGeneration(key)
 	if _, err = producer.CommitRelocated(CommittedAttribution{}, nil); !errors.Is(err, ErrRotationRequired) {
 		t.Fatalf("producer accepted relocation: %v", err)
 	}
-	second, err := ls.Append(bulkLane, sessionA, evid(42), []byte("synthetic next production record"))
+	second, err := ls.AppendAttributed(key, identity, input)
 	if err != nil || second.Sequence != 2 || !bytes.Equal(second.Generation.SpoolID, first.Generation.SpoolID) {
 		t.Fatalf("destination affected producer: %+v %v", second, err)
 	}
 	if err = ls.Close(); err != nil {
 		t.Fatal(err)
 	}
-	// The directory role independently detects a missing marker; it cannot
-	// silently reopen a recovery destination for ordinary producer writes.
 	if err = os.Remove(filepath.Join(other.Directory(), recoveryDestinationFile)); err != nil {
 		t.Fatal(err)
 	}
-	if reopened, err := OpenLanes(root, sessionA, deploymentTaxonomy(t)); !errors.Is(err, ErrCorruptGeneration) {
+	if reopened, err := OpenLanes(root, identity, deploymentTaxonomy(t), WithGenerationOptions(func(id GenerationIdentity, _ string) ([]Option, error) {
+		return []Option{WithAttribution(id), WithAllocator(allocator)}, nil
+	})); !errors.Is(err, ErrCorruptGeneration) {
 		if reopened != nil {
 			_ = reopened.Close()
 		}
@@ -168,32 +195,40 @@ func TestClosedGenerationDrainsWithTerminalEvidence(t *testing.T) {
 
 func TestPublishedRecoveryDestinationFailureRequiresInventory(t *testing.T) {
 	root := t.TempDir()
+	input, key, identity := attributionAppend(t, "metrics")
+	allocator := recoveryOperationAllocator(t)
 	failed := errors.New("synthetic destination configuration failure")
-	ls, err := OpenLanes(root, sessionA, deploymentTaxonomy(t), WithGenerationOptions(func(GenerationIdentity, string) ([]Option, error) { return nil, failed }))
+	failDestination := false
+	ls, err := OpenLanes(root, identity, deploymentTaxonomy(t), WithGenerationOptions(func(id GenerationIdentity, _ string) ([]Option, error) {
+		if failDestination {
+			return nil, failed
+		}
+		return []Option{WithAttribution(id), WithAllocator(allocator)}, nil
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	recoveryID, err := edgerecord.NewUUIDv7()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = ls.CreateRecoveryDestination(bulkLane, recoveryID, 0); !errors.Is(err, failed) {
+	source := closedRecoverySource(t, ls, key, identity, input)
+	failDestination = true
+	recoveryID := recoveryUUID(75)
+	if _, _, err = ls.BeginRecoveryDestination(source, recoveryID, 0, allocator); !errors.Is(err, failed) {
 		t.Fatalf("configuration failure lost: %v", err)
 	}
-	if _, err = ls.CreateRecoveryDestination(bulkLane, recoveryID, 0); !errors.Is(err, ErrLaneSetClosed) {
+	if _, _, err = ls.BeginRecoveryDestination(source, recoveryID, 0, allocator); !errors.Is(err, ErrLaneSetClosed) {
 		t.Fatalf("published uncertain operation retried before inventory: %v", err)
+	}
+	if allocator.Usage().ActiveRecoveries != 1 || !errors.Is(allocator.Err(), failed) {
+		t.Fatal("failed published generation lost its reservation")
 	}
 	if err = ls.Close(); err != nil {
 		t.Fatal(err)
 	}
-	ls = openLanes(t, root, sessionA)
-	failedAttempt, err := ls.CreateRecoveryDestination(bulkLane, recoveryID, 0)
-	if err != nil || !failedAttempt.Closed() {
-		t.Fatalf("published failure not retained closed: %v", err)
-	}
-	nextAttempt, err := ls.CreateRecoveryDestination(bulkLane, recoveryID, 1)
-	if err != nil || nextAttempt.Closed() || bytes.Equal(nextAttempt.Identity().SpoolID, failedAttempt.Identity().SpoolID) {
-		t.Fatalf("explicit retry not fresh: %v", err)
+	allocator = recoveryOperationAllocator(t)
+	ls = openAttributedLanes(t, root, identity, allocator, nil)
+	source = ls.Generations(key)[0]
+	failedAttempt, _, err := ls.BeginRecoveryDestination(source, recoveryID, 0, allocator)
+	if !errors.Is(err, ErrRecoveryResumeRequired) || !failedAttempt.Closed() {
+		t.Fatalf("published failure not retained closed for inventory: %v", err)
 	}
 }
 
@@ -249,5 +284,156 @@ func TestRetainedInventoryDrainsBeforeAuthenticatedActivation(t *testing.T) {
 	}
 	if records, err = page[0].Unresolved(); err != nil || len(records) != 1 || string(records[0].Body) != "synthetic open record" {
 		t.Fatalf("rotation lost retained original: %v %v", records, err)
+	}
+}
+
+func TestRecoveryGenerationReservesBeforePhysicalMetadata(t *testing.T) {
+	root := t.TempDir()
+	input, key, identity := attributionAppend(t, "metrics")
+	measure := func() (uint64, error) {
+		var total uint64
+		err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			info, err := entry.Info()
+			if err != nil {
+				return err
+			}
+			if entry.IsDir() {
+				total += 4096
+			} else {
+				total += uint64(info.Size())
+			}
+			return nil
+		})
+		return total, err
+	}
+	physicalLimit := uint64(1 << 30)
+	allocator, err := NewAllocator(AllocatorConfig{Capacity: 128 << 20, MinFree: 1 << 20, MaxConcurrentRecoveries: 1, Recovery: DefaultRecoveryFootprint(), FreeBytes: func() (uint64, error) {
+		used, err := measure()
+		if err != nil {
+			return 0, err
+		}
+		if used > physicalLimit {
+			return 0, nil
+		}
+		return physicalLimit - used, nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ls := openAttributedLanes(t, root, identity, allocator, nil)
+	source := closedRecoverySource(t, ls, key, identity, input)
+	ordinaryBefore := allocator.Usage().OrdinaryUsed
+	before, err := measure()
+	if err != nil {
+		t.Fatal(err)
+	}
+	physicalLimit = before + allocator.Usage().Floor - 1
+	id := recoveryUUID(76)
+	if _, _, err = ls.BeginRecoveryDestination(source, id, 0, allocator); !errors.Is(err, ErrReserveUnbacked) {
+		t.Fatalf("unbacked creation: %v", err)
+	}
+	after, err := measure()
+	if err != nil || after != before || allocator.Usage().ActiveRecoveries != 0 {
+		t.Fatalf("unbacked creation wrote metadata: before=%d after=%d error=%v", before, after, err)
+	}
+	physicalLimit++
+	destination, grant, err := ls.BeginRecoveryDestination(source, id, 0, allocator)
+	if err != nil {
+		t.Fatalf("metadata consumed recovery backing before acquisition: %v", err)
+	}
+	controlKey := LaneKey{RouteProfile: edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_RECOVERY_CONTROL_V1, TrafficClass: edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_BULK}
+	control, err := ls.CreateRecoveryControlDestination(controlKey, id, 0, grant)
+	if err != nil {
+		t.Fatal("control required another backed grant", err)
+	}
+	if allocator.Usage().ActiveRecoveries != 1 || allocator.Usage().OrdinaryUsed != ordinaryBefore {
+		t.Fatalf("metadata escaped shared grant: %+v", allocator.Usage())
+	}
+	for _, g := range []*Generation{destination, control} {
+		if _, err := os.Stat(filepath.Join(g.Directory(), recoveryDestinationFile)); err != nil {
+			t.Fatal(err)
+		}
+		if g.NextSequence() != 1 {
+			t.Fatal("creation allocated record sequence")
+		}
+	}
+	repeated, sameGrant, err := ls.BeginRecoveryDestination(source, id, 0, allocator)
+	if err != nil || repeated != destination || sameGrant != grant {
+		t.Fatal("creation retry acquired or published again", err)
+	}
+}
+
+func TestRecoveryDestinationPreservesSourceBeforeFreezeWithoutCurrentSession(t *testing.T) {
+	root := t.TempDir()
+	input, key, identity := attributionAppend(t, "metrics")
+	allocator := recoveryOperationAllocator(t)
+	ls := openAttributedLanes(t, root, identity, allocator, nil)
+	source := closedRecoverySource(t, ls, key, identity, input)
+	original := source.Identity()
+	before, err := os.ReadFile(filepath.Join(source.Directory(), segmentFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ls.Close(); err != nil {
+		t.Fatal(err)
+	}
+	allocator = recoveryOperationAllocator(t)
+	ls, err = OpenRetainedLanes(root, deploymentTaxonomy(t), WithGenerationOptions(func(id GenerationIdentity, _ string) ([]Option, error) {
+		return []Option{WithAttribution(id), WithAllocator(allocator)}, nil
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	source = ls.Generations(key)[0]
+	recoveryID := recoveryUUID(77)
+	destination, _, err := ls.BeginRecoveryDestination(source, recoveryID, 0, allocator)
+	if err != nil {
+		t.Fatalf("original durable namespace required current session: %v", err)
+	}
+	if !destination.Identity().Identity.equal(identity) {
+		t.Fatal("destination rebound original namespace")
+	}
+	if held, err := source.RecoverySourceHeld(); err != nil || held {
+		t.Fatalf("pre-freeze intent held source: %v %v", held, err)
+	}
+	if err := ls.Close(); err != nil {
+		t.Fatal(err)
+	}
+	allocator = recoveryOperationAllocator(t)
+	changed := identity.clone()
+	changed.NetworkScopeID = recoveryUUID(78)
+	ls = openAttributedLanes(t, root, changed, allocator, nil)
+	source = ls.Generations(key)[0]
+	destination, _, err = ls.BeginRecoveryDestination(source, recoveryID, 0, allocator)
+	if !errors.Is(err, ErrRecoveryResumeRequired) {
+		t.Fatalf("pre-freeze restart lost reserved operation: %v", err)
+	}
+	got, err := destination.RecoverySourceIdentity()
+	if err != nil || !bytes.Equal(encodeIdentity(got), encodeIdentity(original)) {
+		t.Fatalf("original source association lost: %+v %v", got, err)
+	}
+	got.SpoolID[0] ^= 1
+	again, err := destination.RecoverySourceIdentity()
+	if err != nil || !bytes.Equal(again.SpoolID, original.SpoolID) {
+		t.Fatal("caller mutated durable source association", err)
+	}
+	after, err := os.ReadFile(filepath.Join(source.Directory(), segmentFile))
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatal("pre-freeze restart changed source bytes", err)
+	}
+	intentPath := filepath.Join(destination.Directory(), recoverySourceFile)
+	raw, err := os.ReadFile(intentPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw[len(raw)-1] ^= 1
+	if err := os.WriteFile(intentPath, raw, filePerm); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := destination.RecoverySourceIdentity(); !errors.Is(err, ErrCorruptGeneration) {
+		t.Fatalf("damaged intent remained usable: %v", err)
 	}
 }

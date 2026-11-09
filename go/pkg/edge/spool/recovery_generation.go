@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"errors"
 	"path/filepath"
+	"sort"
 
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
@@ -19,12 +20,14 @@ var ErrRecoveryResumeRequired = errors.New("spool: retained recovery requires in
 // BeginRecoveryDestination reserves the complete operation before any generation
 // metadata is written. Repeating it within the same active allocator returns the
 // original handle and grant; retained files after restart require ResumeRecovery.
-func (ls *LaneSet) BeginRecoveryDestination(key LaneKey, recoveryID []byte, attempt uint32, allocator *Allocator) (*Generation, *RecoveryGrant, error) {
-	if allocator == nil || key.RouteProfile == edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_RECOVERY_CONTROL_V1 {
+// The closed source must belong to this LaneSet. Its durable namespace, not the
+// current session, owns the new destination and its pre-freeze source intent.
+func (ls *LaneSet) BeginRecoveryDestination(source *Generation, recoveryID []byte, attempt uint32, allocator *Allocator) (*Generation, *RecoveryGrant, error) {
+	if source == nil || allocator == nil || source.id.Lane.RouteProfile == edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_RECOVERY_CONTROL_V1 {
 		return nil, nil, ErrOutsideLane
 	}
-	r := &generationReservation{allocator: allocator}
-	g, err := ls.recoveryDestination(key, recoveryID, attempt, r)
+	r := &generationReservation{allocator: allocator, source: source.id.clone(), sourceHandle: source}
+	g, err := ls.recoveryDestination(source.id.Lane, recoveryID, attempt, r)
 	return g, r.grant, err
 }
 
@@ -46,7 +49,11 @@ func (ls *LaneSet) CreateRecoveryControlDestination(key LaneKey, recoveryID []by
 	if !bytes.Equal(storedID, recoveryID) {
 		return nil, ErrOutsideLane
 	}
-	r := &generationReservation{allocator: grant.alloc, grant: grant, control: true}
+	source, err := readRecoverySource(grant.lane, destination, recoveryID)
+	if err != nil {
+		return nil, err
+	}
+	r := &generationReservation{allocator: grant.alloc, grant: grant, control: true, source: source}
 	g, err := ls.recoveryDestination(key, recoveryID, attempt, r)
 	if err != nil {
 		return nil, err
@@ -57,9 +64,6 @@ func (ls *LaneSet) CreateRecoveryControlDestination(key LaneKey, recoveryID []by
 func (ls *LaneSet) recoveryDestination(key LaneKey, recoveryID []byte, attempt uint32, r *generationReservation) (*Generation, error) {
 	ls.sessionMu.RLock()
 	defer ls.sessionMu.RUnlock()
-	if len(ls.session.NetworkScopeID) == 0 {
-		return nil, ErrLaneNotReady
-	}
 	if err := edgerecord.ValidateUUIDv7(recoveryID); err != nil {
 		return nil, errors.Join(ErrPermanent, err)
 	}
@@ -72,27 +76,45 @@ func (ls *LaneSet) recoveryDestination(key LaneKey, recoveryID []byte, attempt u
 	if l.shut {
 		return nil, ErrLaneSetClosed
 	}
-	for _, g := range l.retained {
-		if bytes.Equal(g.recoveryID, recoveryID) && g.recoveryAttempt == attempt {
-			if !g.id.Identity.equal(ls.session) || g.spool.alloc != r.allocator {
-				return nil, ErrScopeUnauthorized
-			}
-			if !r.control {
-				r.allocator.mu.Lock()
-				r.grant = r.allocator.recoveryOwnerLocked(g.dir)
-				if r.grant != nil {
-					err = r.grant.healthyLocked()
-				}
-				r.allocator.mu.Unlock()
-				if err != nil {
-					return nil, err
-				}
-				if r.grant == nil {
-					return g, ErrRecoveryResumeRequired
-				}
-			}
-			return g, nil
+	if !r.control {
+		i := sort.Search(len(l.retained), func(i int) bool { return l.retained[i].id.Ordinal >= r.source.Ordinal })
+		if i == len(l.retained) || l.retained[i] != r.sourceHandle || !r.sourceHandle.Closed() || r.sourceHandle.spool.alloc != r.allocator {
+			return nil, ErrOutsideLane
 		}
+		disk, err := readGenerationIdentity(r.sourceHandle.dir)
+		if err != nil {
+			return nil, err
+		}
+		if !bytes.Equal(encodeIdentity(disk), encodeIdentity(r.source)) {
+			return nil, ErrCorruptGeneration
+		}
+	}
+	if g := l.recoveryDestinations[recoveryDestinationKey{string(recoveryID), attempt}]; g != nil {
+		if !g.id.Identity.equal(r.source.Identity) || g.spool.alloc != r.allocator {
+			return nil, ErrScopeUnauthorized
+		}
+		bound, err := g.RecoverySourceIdentity()
+		if err != nil {
+			return nil, err
+		}
+		if !bytes.Equal(encodeIdentity(bound), encodeIdentity(r.source)) {
+			return nil, ErrScopeUnauthorized
+		}
+		if !r.control {
+			r.allocator.mu.Lock()
+			r.grant = r.allocator.recoveryOwnerLocked(g.dir)
+			if r.grant != nil {
+				err = r.grant.healthyLocked()
+			}
+			r.allocator.mu.Unlock()
+			if err != nil {
+				return nil, err
+			}
+			if r.grant == nil {
+				return g, ErrRecoveryResumeRequired
+			}
+		}
+		return g, nil
 	}
 	g, err := ls.createGeneration(l, recoveryID, attempt, r)
 	if err != nil {
@@ -106,13 +128,29 @@ func (ls *LaneSet) recoveryDestination(key LaneKey, recoveryID []byte, attempt u
 // directory publication. Landing before Open prevents metadata being measured a
 // second time as ordinary bytes by the generation's configured factory.
 type generationReservation struct {
-	allocator *Allocator
-	grant     *RecoveryGrant
-	control   bool
-	charge    *recoveryAppendCharge
+	allocator    *Allocator
+	grant        *RecoveryGrant
+	control      bool
+	charge       *recoveryAppendCharge
+	source       GenerationIdentity
+	sourceHandle *Generation
+	sourceBytes  []byte
 }
 
 func (r *generationReservation) prepare(path string, id GenerationIdentity, recoveryID []byte, attempt uint32) error {
+	r.sourceBytes = encodeRecoverySource(r.source, id, recoveryID)
+	files := map[string][]byte{
+		identityFile: encodeIdentity(id), recoveryDestinationFile: encodeRecoveryDestination(id, recoveryID, attempt), evidenceFormatFile: []byte(evidenceFormatV2), recoverySourceFile: r.sourceBytes,
+	}
+	// Keep the complete immutable generation metadata and future hold within
+	// the headroom removed from every producer generation's copy budget.
+	metadata := recoveryHoldBytes
+	for _, raw := range files {
+		metadata += len(raw)
+	}
+	if metadata > recoveryGenerationFixedBytes {
+		return ErrInvalidAllocatorConfig
+	}
 	if r.grant == nil {
 		var err error
 		r.grant, err = r.allocator.AcquireRecovery(path)
@@ -143,9 +181,6 @@ func (r *generationReservation) prepare(path string, id GenerationIdentity, reco
 	// Lane, temporary generation and final publication directory barriers.
 	if err := g.Charge(ArtifactFilesystemMetadata, 3*4096); err != nil {
 		return err
-	}
-	files := map[string][]byte{
-		identityFile: encodeIdentity(id), recoveryDestinationFile: encodeRecoveryDestination(id, recoveryID, attempt), evidenceFormatFile: []byte(evidenceFormatV2),
 	}
 	costs := make([]recoveryAppendCost, 0, len(files))
 	for name, raw := range files {
