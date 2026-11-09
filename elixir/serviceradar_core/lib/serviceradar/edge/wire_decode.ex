@@ -498,6 +498,14 @@ defmodule ServiceRadar.Edge.WireDecode do
   @spec decode_manifest_page(binary()) :: outcome()
   def decode_manifest_page(bytes), do: run(EdgeLossManifestPageV1, @max_manifest_bytes, bytes)
 
+  @doc "Decode the exact tombstone bytes in a bounded recovery registration."
+  def decode_spool_loss_tombstone(bytes),
+    do: run(Serviceradar.Edge.V1.SpoolLossTombstoneV1, @max_manifest_bytes, bytes)
+
+  @doc "Decode a recovery-control payload before issuing its operation-specific capability."
+  def decode_recovery_control(bytes),
+    do: run(Serviceradar.Edge.V1.EdgeRecoveryControlPayloadV1, @max_manifest_bytes, bytes)
+
   # Internal decode engine shared by the stage decoders. PRIVATE so there is no generic decode-any-
   # module bypass: only the CURATED message modules can be decoded, and only their own struct is
   # accepted (is_struct/2). The moduledoc holds the ONE canonical list of those stages; this

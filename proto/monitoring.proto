@@ -61,6 +61,12 @@ service AgentGatewayService {
   // for each spooled edge record whose production authority has lapsed, so a
   // reconnecting agent can drain its backlog.
   rpc RenewEdgeDeliveryGrants(EdgeDeliveryGrantRequest) returns (EdgeDeliveryGrantResponse) {}
+  // Recovery control is authenticated independently of the blocked delivery lane.
+  // Registration is not publication or permission to reclaim source bytes.
+  rpc RegisterEdgeRecovery(EdgeRecoveryRegistration) returns (EdgeRecoveryStatus) {}
+  rpc AuthorizeEdgeRecovery(EdgeRecoveryAuthorizationRequest) returns (EdgeRecoveryAuthorizationResponse) {}
+  rpc RenewEdgeRecoveryCopies(EdgeRecoveryCopyGrantRequest) returns (EdgeDeliveryGrantResponse) {}
+  rpc GetEdgeRecovery(EdgeRecoveryQuery) returns (EdgeRecoveryStatus) {}
 }
 
 message DeviceStatusRequest {
@@ -411,6 +417,84 @@ message AgentHelloResponse {
   int32 heartbeat_interval_sec = 6; // Recommended status push interval in seconds
   bool config_outdated = 7;         // True if agent should fetch new config
   reserved 8, 9;                    // Removed: deployment identifiers (single-deployment)
+  // Zero means recovery is unavailable; agents retain all source evidence.
+  uint32 edge_recovery_protocol_version = 10;
+}
+
+// A bounded operation within a frozen generation. Bounds describe ALLOCATION,
+// not loss: only the exact manifest pages describe lost sequences. Every selected
+// sequence must occur exactly once in the loss union or the copy manifest.
+// The authenticated agent comes from mTLS, never a caller-provided principal.
+message EdgeRecoveryRegistration {
+  uint32 protocol_version = 1;
+  bytes network_scope_id = 2;
+  bytes recovery_id = 3;
+  bytes prior_spool_id = 4;
+  bytes new_spool_id = 5;
+  serviceradar.edge.v1.EdgeRecordRouteProfile route_profile = 6;
+  serviceradar.edge.v1.EdgeRecordTrafficClass traffic_class = 7;
+  uint64 source_reclaim_watermark = 8;
+  uint64 source_high_water = 9;
+  uint64 from_sequence = 10;
+  uint64 through_sequence = 11;
+  // Exact received wire bytes; aggregate/page ceilings apply before decoding.
+  repeated bytes manifest_pages = 12;
+  bytes tombstone = 13;
+  repeated EdgeRecoveryCopy copies = 14;
+}
+
+message EdgeRecoveryCopy {
+  uint64 prior_sequence = 1;
+  uint64 new_sequence = 2;
+  bytes event_id = 3;
+  bytes record_sha256 = 4;
+  bytes attribution_binding_sha256 = 5;
+}
+
+message EdgeRecoveryQuery {
+  bytes network_scope_id = 1;
+  bytes recovery_id = 2;
+}
+
+message EdgeRecoveryAuthorizationRequest {
+  EdgeRecoveryQuery recovery = 1;
+  // Exactly one registered page or tombstone, wrapped in the existing payload.
+  // A resolved payload is never accepted from an agent.
+  bytes control_payload = 2;
+  serviceradar.edge.v1.EdgeSignedCapabilityV1 production_capability = 3;
+}
+
+message EdgeRecoveryAuthorizationResponse {
+  serviceradar.edge.v1.EdgeSourceAuthorizationV1 source_authorization = 1;
+}
+
+message EdgeRecoveryCopyGrantRequest {
+  EdgeRecoveryQuery recovery = 1;
+  repeated EdgeRecoveryCopyGrantItem records = 2;
+}
+
+message EdgeRecoveryCopyGrantItem {
+  uint64 prior_sequence = 1;
+  uint64 new_sequence = 2;
+  bytes record_bytes = 3;
+}
+
+enum EdgeRecoveryState {
+  EDGE_RECOVERY_STATE_UNSPECIFIED = 0;
+  EDGE_RECOVERY_STATE_PENDING = 1;
+  EDGE_RECOVERY_STATE_BLOCKED = 2;
+  EDGE_RECOVERY_STATE_RESOLVED = 3;
+}
+
+message EdgeRecoveryStatus {
+  EdgeRecoveryState state = 1;
+  // A bounded stable reason code; no records or credentials in status text.
+  string reason = 2;
+  // Present only after consumer repair and coverage application commit.
+  serviceradar.edge.v1.RecoveryResolvedV1 resolved = 3;
+  // Existing recovery scope grammar binds recovery id, root and applied scalar.
+  // Issuer persists and returns the original result and capability on replay.
+  serviceradar.edge.v1.EdgeSignedCapabilityV1 resolution_capability = 4;
 }
 
 // CertificateRenewalRequest is sent by an authenticated agent to renew its mTLS leaf certificate.

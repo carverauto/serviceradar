@@ -103,6 +103,35 @@ produce the same result. Mixed-version peers fail closed and retain source bytes
 roll out capable gateway/core first, then enable the coordinator via runtime
 settings and code defaults after capability negotiation.
 
+### Recovery control API
+
+`RegisterEdgeRecovery` binds one recovery ID to an immutable bounded operation:
+the authenticated channel owns the agent identity, while the request names its
+authorized network scope, frozen lane, prior/new spool IDs, source allocation
+high-water and reclaim watermark, and selected allocation interval. The request
+contains the exact manifest-page and tombstone bytes plus the intended copy
+coordinates, event IDs, record hashes and destination binding hashes. Copies and
+loss spans must partition the selected allocation interval exactly. These bounds
+describe allocation, not an alternative loss interval in the tombstone.
+
+One operation selects at most 1024 allocated slots. Exact received manifest pages
+retain the existing 256 KiB aggregate ceiling, and registration is bounded to
+512 KiB after its component bounds. A larger recovery is partitioned before its
+IDs are frozen. Copy declarations are intent, never evidence of a local commit.
+
+`AuthorizeEdgeRecovery` issues a source capability only for an exact registered
+page or tombstone under the recovery production grant. `RenewEdgeRecoveryCopies`
+verifies retained record bytes and issues rollover delivery capabilities for the
+registered old/new coordinates. `GetEdgeRecovery` returns pending/blocked state
+or the original consumer-committed result and signed capability. An agent cannot
+submit a resolved body to the authorization endpoint. Hello advertises protocol
+version zero until the complete gateway/core path is available; zero retains
+the agent's source evidence and does not start recovery.
+
+Registration persists control metadata only. Recovery record publication still
+goes through JetStream, and registered pages alone cannot commit consumer repair,
+advance a gateway prefix, or authorize source or journal deletion.
+
 ## Decision 4: two distinct durability gates
 
 Source deletion requires durable coverage of EVERY allocated unreclaimed sequence:

@@ -33,6 +33,21 @@ defmodule Monitoring.MacProvenance do
   field :MAC_PROVENANCE_ASSIGNED, 4
 end
 
+defmodule Monitoring.EdgeRecoveryState do
+  @moduledoc false
+
+  use Protobuf,
+    enum: true,
+    full_name: "monitoring.EdgeRecoveryState",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :EDGE_RECOVERY_STATE_UNSPECIFIED, 0
+  field :EDGE_RECOVERY_STATE_PENDING, 1
+  field :EDGE_RECOVERY_STATE_BLOCKED, 2
+  field :EDGE_RECOVERY_STATE_RESOLVED, 3
+end
+
 defmodule Monitoring.SweepLeaseSlotRefusalReason do
   @moduledoc false
 
@@ -616,6 +631,141 @@ defmodule Monitoring.AgentHelloResponse do
   field :server_time, 5, type: :int64, json_name: "serverTime"
   field :heartbeat_interval_sec, 6, type: :int32, json_name: "heartbeatIntervalSec"
   field :config_outdated, 7, type: :bool, json_name: "configOutdated"
+
+  field :edge_recovery_protocol_version, 10,
+    type: :uint32,
+    json_name: "edgeRecoveryProtocolVersion"
+end
+
+defmodule Monitoring.EdgeRecoveryRegistration do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.EdgeRecoveryRegistration",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :protocol_version, 1, type: :uint32, json_name: "protocolVersion"
+  field :network_scope_id, 2, type: :bytes, json_name: "networkScopeId"
+  field :recovery_id, 3, type: :bytes, json_name: "recoveryId"
+  field :prior_spool_id, 4, type: :bytes, json_name: "priorSpoolId"
+  field :new_spool_id, 5, type: :bytes, json_name: "newSpoolId"
+
+  field :route_profile, 6,
+    type: Serviceradar.Edge.V1.EdgeRecordRouteProfile,
+    json_name: "routeProfile",
+    enum: true
+
+  field :traffic_class, 7,
+    type: Serviceradar.Edge.V1.EdgeRecordTrafficClass,
+    json_name: "trafficClass",
+    enum: true
+
+  field :source_reclaim_watermark, 8, type: :uint64, json_name: "sourceReclaimWatermark"
+  field :source_high_water, 9, type: :uint64, json_name: "sourceHighWater"
+  field :from_sequence, 10, type: :uint64, json_name: "fromSequence"
+  field :through_sequence, 11, type: :uint64, json_name: "throughSequence"
+  field :manifest_pages, 12, repeated: true, type: :bytes, json_name: "manifestPages"
+  field :tombstone, 13, type: :bytes
+  field :copies, 14, repeated: true, type: Monitoring.EdgeRecoveryCopy
+end
+
+defmodule Monitoring.EdgeRecoveryCopy do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.EdgeRecoveryCopy",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :prior_sequence, 1, type: :uint64, json_name: "priorSequence"
+  field :new_sequence, 2, type: :uint64, json_name: "newSequence"
+  field :event_id, 3, type: :bytes, json_name: "eventId"
+  field :record_sha256, 4, type: :bytes, json_name: "recordSha256"
+  field :attribution_binding_sha256, 5, type: :bytes, json_name: "attributionBindingSha256"
+end
+
+defmodule Monitoring.EdgeRecoveryQuery do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.EdgeRecoveryQuery",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :network_scope_id, 1, type: :bytes, json_name: "networkScopeId"
+  field :recovery_id, 2, type: :bytes, json_name: "recoveryId"
+end
+
+defmodule Monitoring.EdgeRecoveryAuthorizationRequest do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.EdgeRecoveryAuthorizationRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :recovery, 1, type: Monitoring.EdgeRecoveryQuery
+  field :control_payload, 2, type: :bytes, json_name: "controlPayload"
+
+  field :production_capability, 3,
+    type: Serviceradar.Edge.V1.EdgeSignedCapabilityV1,
+    json_name: "productionCapability"
+end
+
+defmodule Monitoring.EdgeRecoveryAuthorizationResponse do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.EdgeRecoveryAuthorizationResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :source_authorization, 1,
+    type: Serviceradar.Edge.V1.EdgeSourceAuthorizationV1,
+    json_name: "sourceAuthorization"
+end
+
+defmodule Monitoring.EdgeRecoveryCopyGrantRequest do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.EdgeRecoveryCopyGrantRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :recovery, 1, type: Monitoring.EdgeRecoveryQuery
+  field :records, 2, repeated: true, type: Monitoring.EdgeRecoveryCopyGrantItem
+end
+
+defmodule Monitoring.EdgeRecoveryCopyGrantItem do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.EdgeRecoveryCopyGrantItem",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :prior_sequence, 1, type: :uint64, json_name: "priorSequence"
+  field :new_sequence, 2, type: :uint64, json_name: "newSequence"
+  field :record_bytes, 3, type: :bytes, json_name: "recordBytes"
+end
+
+defmodule Monitoring.EdgeRecoveryStatus do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.EdgeRecoveryStatus",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :state, 1, type: Monitoring.EdgeRecoveryState, enum: true
+  field :reason, 2, type: :string
+  field :resolved, 3, type: Serviceradar.Edge.V1.RecoveryResolvedV1
+
+  field :resolution_capability, 4,
+    type: Serviceradar.Edge.V1.EdgeSignedCapabilityV1,
+    json_name: "resolutionCapability"
 end
 
 defmodule Monitoring.CertificateRenewalRequest do
@@ -2106,6 +2256,22 @@ defmodule Monitoring.AgentGatewayService.Service do
     Monitoring.EdgeDeliveryGrantRequest,
     Monitoring.EdgeDeliveryGrantResponse
   )
+
+  rpc(:RegisterEdgeRecovery, Monitoring.EdgeRecoveryRegistration, Monitoring.EdgeRecoveryStatus)
+
+  rpc(
+    :AuthorizeEdgeRecovery,
+    Monitoring.EdgeRecoveryAuthorizationRequest,
+    Monitoring.EdgeRecoveryAuthorizationResponse
+  )
+
+  rpc(
+    :RenewEdgeRecoveryCopies,
+    Monitoring.EdgeRecoveryCopyGrantRequest,
+    Monitoring.EdgeDeliveryGrantResponse
+  )
+
+  rpc(:GetEdgeRecovery, Monitoring.EdgeRecoveryQuery, Monitoring.EdgeRecoveryStatus)
 end
 
 defmodule Monitoring.AgentGatewayService.Stub do

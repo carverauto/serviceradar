@@ -241,6 +241,26 @@ func (m *MockAgentGatewayServiceClient) EXPECT() *MockAgentGatewayServiceClientM
 	return m.recorder
 }
 
+// AuthorizeEdgeRecovery mocks base method.
+func (m *MockAgentGatewayServiceClient) AuthorizeEdgeRecovery(ctx context.Context, in *EdgeRecoveryAuthorizationRequest, opts ...grpc.CallOption) (*EdgeRecoveryAuthorizationResponse, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, in}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "AuthorizeEdgeRecovery", varargs...)
+	ret0, _ := ret[0].(*EdgeRecoveryAuthorizationResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AuthorizeEdgeRecovery indicates an expected call of AuthorizeEdgeRecovery.
+func (mr *MockAgentGatewayServiceClientMockRecorder) AuthorizeEdgeRecovery(ctx, in any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, in}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AuthorizeEdgeRecovery", reflect.TypeOf((*MockAgentGatewayServiceClient)(nil).AuthorizeEdgeRecovery), varargs...)
+}
+
 // ControlStream mocks base method.
 func (m *MockAgentGatewayServiceClient) ControlStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ControlStreamRequest, ControlStreamResponse], error) {
 	m.ctrl.T.Helper()
@@ -301,6 +321,26 @@ func (mr *MockAgentGatewayServiceClientMockRecorder) GetConfig(ctx, in any, opts
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetConfig", reflect.TypeOf((*MockAgentGatewayServiceClient)(nil).GetConfig), varargs...)
 }
 
+// GetEdgeRecovery mocks base method.
+func (m *MockAgentGatewayServiceClient) GetEdgeRecovery(ctx context.Context, in *EdgeRecoveryQuery, opts ...grpc.CallOption) (*EdgeRecoveryStatus, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, in}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "GetEdgeRecovery", varargs...)
+	ret0, _ := ret[0].(*EdgeRecoveryStatus)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetEdgeRecovery indicates an expected call of GetEdgeRecovery.
+func (mr *MockAgentGatewayServiceClientMockRecorder) GetEdgeRecovery(ctx, in any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, in}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEdgeRecovery", reflect.TypeOf((*MockAgentGatewayServiceClient)(nil).GetEdgeRecovery), varargs...)
+}
+
 // Hello mocks base method.
 func (m *MockAgentGatewayServiceClient) Hello(ctx context.Context, in *AgentHelloRequest, opts ...grpc.CallOption) (*AgentHelloResponse, error) {
 	m.ctrl.T.Helper()
@@ -341,6 +381,26 @@ func (mr *MockAgentGatewayServiceClientMockRecorder) PushStatus(ctx, in any, opt
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PushStatus", reflect.TypeOf((*MockAgentGatewayServiceClient)(nil).PushStatus), varargs...)
 }
 
+// RegisterEdgeRecovery mocks base method.
+func (m *MockAgentGatewayServiceClient) RegisterEdgeRecovery(ctx context.Context, in *EdgeRecoveryRegistration, opts ...grpc.CallOption) (*EdgeRecoveryStatus, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, in}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "RegisterEdgeRecovery", varargs...)
+	ret0, _ := ret[0].(*EdgeRecoveryStatus)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RegisterEdgeRecovery indicates an expected call of RegisterEdgeRecovery.
+func (mr *MockAgentGatewayServiceClientMockRecorder) RegisterEdgeRecovery(ctx, in any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, in}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterEdgeRecovery", reflect.TypeOf((*MockAgentGatewayServiceClient)(nil).RegisterEdgeRecovery), varargs...)
+}
+
 // RenewCertificate mocks base method.
 func (m *MockAgentGatewayServiceClient) RenewCertificate(ctx context.Context, in *CertificateRenewalRequest, opts ...grpc.CallOption) (*CertificateRenewalResponse, error) {
 	m.ctrl.T.Helper()
@@ -379,6 +439,26 @@ func (mr *MockAgentGatewayServiceClientMockRecorder) RenewEdgeDeliveryGrants(ctx
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{ctx, in}, opts...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RenewEdgeDeliveryGrants", reflect.TypeOf((*MockAgentGatewayServiceClient)(nil).RenewEdgeDeliveryGrants), varargs...)
+}
+
+// RenewEdgeRecoveryCopies mocks base method.
+func (m *MockAgentGatewayServiceClient) RenewEdgeRecoveryCopies(ctx context.Context, in *EdgeRecoveryCopyGrantRequest, opts ...grpc.CallOption) (*EdgeDeliveryGrantResponse, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, in}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "RenewEdgeRecoveryCopies", varargs...)
+	ret0, _ := ret[0].(*EdgeDeliveryGrantResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RenewEdgeRecoveryCopies indicates an expected call of RenewEdgeRecoveryCopies.
+func (mr *MockAgentGatewayServiceClientMockRecorder) RenewEdgeRecoveryCopies(ctx, in any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, in}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RenewEdgeRecoveryCopies", reflect.TypeOf((*MockAgentGatewayServiceClient)(nil).RenewEdgeRecoveryCopies), varargs...)
 }
 
 // ResolveAutomationLaunchEnvelope mocks base method.
@@ -485,6 +565,21 @@ func (m *MockAgentGatewayServiceServer) EXPECT() *MockAgentGatewayServiceServerM
 	return m.recorder
 }
 
+// AuthorizeEdgeRecovery mocks base method.
+func (m *MockAgentGatewayServiceServer) AuthorizeEdgeRecovery(arg0 context.Context, arg1 *EdgeRecoveryAuthorizationRequest) (*EdgeRecoveryAuthorizationResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AuthorizeEdgeRecovery", arg0, arg1)
+	ret0, _ := ret[0].(*EdgeRecoveryAuthorizationResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AuthorizeEdgeRecovery indicates an expected call of AuthorizeEdgeRecovery.
+func (mr *MockAgentGatewayServiceServerMockRecorder) AuthorizeEdgeRecovery(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AuthorizeEdgeRecovery", reflect.TypeOf((*MockAgentGatewayServiceServer)(nil).AuthorizeEdgeRecovery), arg0, arg1)
+}
+
 // ControlStream mocks base method.
 func (m *MockAgentGatewayServiceServer) ControlStream(arg0 grpc.BidiStreamingServer[ControlStreamRequest, ControlStreamResponse]) error {
 	m.ctrl.T.Helper()
@@ -529,6 +624,21 @@ func (mr *MockAgentGatewayServiceServerMockRecorder) GetConfig(arg0, arg1 any) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetConfig", reflect.TypeOf((*MockAgentGatewayServiceServer)(nil).GetConfig), arg0, arg1)
 }
 
+// GetEdgeRecovery mocks base method.
+func (m *MockAgentGatewayServiceServer) GetEdgeRecovery(arg0 context.Context, arg1 *EdgeRecoveryQuery) (*EdgeRecoveryStatus, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetEdgeRecovery", arg0, arg1)
+	ret0, _ := ret[0].(*EdgeRecoveryStatus)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetEdgeRecovery indicates an expected call of GetEdgeRecovery.
+func (mr *MockAgentGatewayServiceServerMockRecorder) GetEdgeRecovery(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEdgeRecovery", reflect.TypeOf((*MockAgentGatewayServiceServer)(nil).GetEdgeRecovery), arg0, arg1)
+}
+
 // Hello mocks base method.
 func (m *MockAgentGatewayServiceServer) Hello(arg0 context.Context, arg1 *AgentHelloRequest) (*AgentHelloResponse, error) {
 	m.ctrl.T.Helper()
@@ -559,6 +669,21 @@ func (mr *MockAgentGatewayServiceServerMockRecorder) PushStatus(arg0, arg1 any) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PushStatus", reflect.TypeOf((*MockAgentGatewayServiceServer)(nil).PushStatus), arg0, arg1)
 }
 
+// RegisterEdgeRecovery mocks base method.
+func (m *MockAgentGatewayServiceServer) RegisterEdgeRecovery(arg0 context.Context, arg1 *EdgeRecoveryRegistration) (*EdgeRecoveryStatus, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RegisterEdgeRecovery", arg0, arg1)
+	ret0, _ := ret[0].(*EdgeRecoveryStatus)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RegisterEdgeRecovery indicates an expected call of RegisterEdgeRecovery.
+func (mr *MockAgentGatewayServiceServerMockRecorder) RegisterEdgeRecovery(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterEdgeRecovery", reflect.TypeOf((*MockAgentGatewayServiceServer)(nil).RegisterEdgeRecovery), arg0, arg1)
+}
+
 // RenewCertificate mocks base method.
 func (m *MockAgentGatewayServiceServer) RenewCertificate(arg0 context.Context, arg1 *CertificateRenewalRequest) (*CertificateRenewalResponse, error) {
 	m.ctrl.T.Helper()
@@ -587,6 +712,21 @@ func (m *MockAgentGatewayServiceServer) RenewEdgeDeliveryGrants(arg0 context.Con
 func (mr *MockAgentGatewayServiceServerMockRecorder) RenewEdgeDeliveryGrants(arg0, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RenewEdgeDeliveryGrants", reflect.TypeOf((*MockAgentGatewayServiceServer)(nil).RenewEdgeDeliveryGrants), arg0, arg1)
+}
+
+// RenewEdgeRecoveryCopies mocks base method.
+func (m *MockAgentGatewayServiceServer) RenewEdgeRecoveryCopies(arg0 context.Context, arg1 *EdgeRecoveryCopyGrantRequest) (*EdgeDeliveryGrantResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RenewEdgeRecoveryCopies", arg0, arg1)
+	ret0, _ := ret[0].(*EdgeDeliveryGrantResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RenewEdgeRecoveryCopies indicates an expected call of RenewEdgeRecoveryCopies.
+func (mr *MockAgentGatewayServiceServerMockRecorder) RenewEdgeRecoveryCopies(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RenewEdgeRecoveryCopies", reflect.TypeOf((*MockAgentGatewayServiceServer)(nil).RenewEdgeRecoveryCopies), arg0, arg1)
 }
 
 // ResolveAutomationLaunchEnvelope mocks base method.

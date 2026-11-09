@@ -322,6 +322,7 @@ test/serviceradar/edge/raw_bounds_corpus_test.exs	-	not_selected	load_only	not_s
 test/serviceradar/edge/record_validate_test.exs	-	not_selected	load_only	not_selected	Unit-only ExUnit.Case with no :integration or :requires_app tags; shared synthetic ABI fixtures and pure validators, no application or database required.
 test/serviceradar/edge/recovery_control_bounds_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/edge/recovery_validate_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
+test/serviceradar/edge/recovery_operation_test.exs	-	not_selected	load_only	not_selected	Pure recovery registration and allocation partition contract; no database required.
 test/serviceradar/edge/redact_desktop_target_policy_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/edge/refusal_classification_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/edge/release_artifact_mirror_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
