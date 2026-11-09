@@ -22,6 +22,15 @@ not a shipped camera-count guarantee.
 - [ ] 2.4 Maintain recording without viewers and enforce Membrane fan-out from one source and one edge-to-cloud live uplink per camera/profile across concurrent viewers and relay replicas; preserve current viewer-only behavior.
 - [ ] 2.5 Implement drained handoff, fencing, volume preservation, restart recovery and explicit unresolved/gap states.
 
+Shared-library extraction checkpoint for 2.1: `serviceradar_recording` owns the
+existing bounded inbox, H264/CMAF packaging, storage identity and journaled spool.
+Core consumes this library instead of owning duplicate implementations. Remote
+Bazel production/test artifacts use media and data-type libraries; spool recovery
+runs without core, CNPG or cluster startup. Existing media and playback fixtures
+exercise the core-to-library integration. This does not package a runnable
+recorder service, establish process resource limits, enroll a pool or enable
+continuous recording. Task 2.1 remains open.
+
 Agent-local shared-ingest checkpoint for 2.4/2.5: relay admission reserves the
 normalized source/profile before opening upstream, and holds that reservation
 through source teardown even when a Stop caller times out. Plugin Close waits

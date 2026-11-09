@@ -1,4 +1,4 @@
-defmodule ServiceRadarCoreElx.CameraRecording.Packaging do
+defmodule ServiceRadarRecording.Packaging do
   @moduledoc """
   Bounded H264 access-unit to CMAF packaging, isolated from the live relay.
 
@@ -41,9 +41,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.Packaging do
 
   alias Membrane.Buffer
   alias Membrane.Pad
-  alias ServiceRadarCoreElx.CameraRecording.Admission
-  alias ServiceRadarCoreElx.CameraRecording.Sink
-  alias ServiceRadarCoreElx.CameraRecording.Source
+  alias ServiceRadarRecording.Admission
+  alias ServiceRadarRecording.Sink
+  alias ServiceRadarRecording.Source
 
   @defaults [
     max_access_unit_bytes: 1_048_576,

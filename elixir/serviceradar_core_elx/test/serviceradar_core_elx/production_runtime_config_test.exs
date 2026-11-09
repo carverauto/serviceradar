@@ -17,7 +17,7 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
   alias ServiceRadar.Observability.CapacityForecasting.Worker
   alias ServiceRadar.Observability.StatefulAlertEngine.RecoveryWorker
   alias ServiceRadar.Security.AuditVersionRetentionWorker
-  alias ServiceRadarCoreElx.CameraRecording.Storage
+  alias ServiceRadarRecording.Storage
 
   @base_config Path.expand("../../config/config.exs", __DIR__)
   @prod_config Path.expand("../../config/prod.exs", __DIR__)

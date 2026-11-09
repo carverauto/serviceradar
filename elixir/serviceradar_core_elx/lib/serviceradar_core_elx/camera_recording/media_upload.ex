@@ -22,7 +22,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.MediaUpload do
   alias ServiceRadar.Camera.RecordingBlock
   alias ServiceRadar.Camera.RecordingBlocks
   alias ServiceRadar.JSONDocument
-  alias ServiceRadarCoreElx.CameraRecording.Storage
+  alias ServiceRadarRecording.Storage
 
   @operation_ms 30_000
 

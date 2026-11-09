@@ -58,9 +58,9 @@ BAZEL_UNIT_TEST_FLAGS ?= $(BAZEL_CI_FLAGS)
 BAZEL_UNIT_TEST_FILTERS ?= --test_tag_filters=-integration_test,-acceptance_test
 
 # Every Mix project under elixir/, in the order CI walks them. Keep this in step with
-# scripts/elixir_quality.sh workspace_projects and .github/workflows/elixir-quality.yml.
-# PRs gate format + Credo (--lint-only); the rest of the Mix contract runs daily from
-# //buildbuddy.yaml.
+# scripts/elixir_quality.sh workspace_projects. PRs gate format + Credo (--lint-only) through
+# the .github/workflows/elixir-quality.yml matrix, which need not list every project here;
+# the rest of the Mix contract runs daily from //buildbuddy.yaml.
 #
 # This list used to be copied into lint-elixir, lint-elixir-dialyzer and format-elixir
 # separately, and all three drifted: they still named `connection` and `elixir_uuid`, deleted
@@ -68,7 +68,7 @@ BAZEL_UNIT_TEST_FILTERS ?= --test_tag_filters=-integration_test,-acceptance_test
 # `palisade`, which CI does lint. Because the loop runs under `set -eu` and
 # elixir_quality.sh exits non-zero on a missing directory, `make lint-elixir` -- and therefore
 # `make lint` -- died on the FIRST entry and never analyzed a single project.
-ELIXIR_PROJECTS ?= datasvc palisade serviceradar_agent_gateway serviceradar_core serviceradar_core_elx serviceradar_srql web-ng
+ELIXIR_PROJECTS ?= datasvc palisade serviceradar_agent_gateway serviceradar_core serviceradar_core_elx serviceradar_recording serviceradar_srql web-ng
 
 # Rust configuration
 CARGO ?= cargo

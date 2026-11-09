@@ -9,7 +9,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.SpoolInitializer do
   """
 
   alias ServiceRadar.Camera.RecordingStorageIdentity
-  alias ServiceRadarCoreElx.CameraRecording.Storage
+  alias ServiceRadarRecording.Storage
 
   def main do
     Logger.configure(level: :none)

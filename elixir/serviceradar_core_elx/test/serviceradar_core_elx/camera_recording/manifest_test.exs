@@ -3,8 +3,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.ManifestTest do
 
   alias ServiceRadar.Camera.RecordingDescriptor
   alias ServiceRadar.Camera.RecordingManifest, as: Manifest
-  alias ServiceRadarCoreElx.CameraRecording.Spool
-  alias ServiceRadarCoreElx.CameraRecording.Storage
+  alias ServiceRadarRecording.Spool
+  alias ServiceRadarRecording.Storage
 
   @identity %{
     source_id: "00000000-0000-4000-8000-000000000037",

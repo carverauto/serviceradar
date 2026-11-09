@@ -1,0 +1,71 @@
+load("@rules_elixir//:elixir_tests.bzl", "ex_unit_tests")
+load("@rules_elixir//:mix_app.bzl", "mix_app")
+load("//build:elixir_quality.bzl", "elixir_quality")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "srcs",
+    srcs = glob(["lib/**"]) + [
+        "mix.exs",
+        "mix.lock",
+    ],
+)
+
+filegroup(
+    name = "deps_srcs",
+    srcs = [
+        "mix.exs",
+        "mix.lock",
+    ],
+)
+
+RECORDING_DEPS = [
+    "@hexpm//:bundlex",
+    "@hexpm//:decimal",
+    "@hexpm//:ecto",
+    "@hexpm//:jason",
+    "@hexpm//:membrane_core",
+    "@hexpm//:membrane_cmaf_format",
+    "@hexpm//:membrane_h264_format",
+    "@hexpm//:membrane_h26x_plugin",
+    "@hexpm//:membrane_mp4_plugin",
+    "@hexpm//:numbers",
+    "@rules_elixir//elixir",
+]
+
+mix_app(
+    name = "erlang_app",
+    srcs = [":srcs"],
+    app_name = "serviceradar_recording",
+    mix_env = "test",
+    deps = RECORDING_DEPS,
+)
+
+mix_app(
+    name = "erlang_app_prod",
+    srcs = [":srcs"],
+    app_name = "serviceradar_recording",
+    mix_env = "prod",
+    deps = RECORDING_DEPS,
+)
+
+# Recovery executes with only the recording library and its dependency closure.
+ex_unit_tests(
+    name = "unit_tests",
+    srcs = ["test/spool_test.exs"],
+    load_config = False,
+    test_helper = "test/test_helper.exs",
+    deps = [":erlang_app"],
+)
+
+elixir_quality(
+    source_deps = ["@hexpm//:ex_dna"],
+    tool_deps = RECORDING_DEPS + [
+        "@hexpm//:credo",
+        "@hexpm//:ex_dna",
+        "@hexpm//:ex_slop",
+        "@hexpm//:jump_credo_checks",
+        "@hexpm//:styler",
+    ],
+)

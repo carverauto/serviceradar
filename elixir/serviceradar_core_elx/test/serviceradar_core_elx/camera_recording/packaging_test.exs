@@ -2,10 +2,10 @@ defmodule ServiceRadarCoreElx.CameraRecording.PackagingTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Camera.RecordingDescriptor
-  alias ServiceRadarCoreElx.CameraRecording.Packaging
-  alias ServiceRadarCoreElx.CameraRecording.Spool
-  alias ServiceRadarCoreElx.CameraRecording.Storage
   alias ServiceRadarCoreElx.TestSupport.SyntheticCameraMedia
+  alias ServiceRadarRecording.Packaging
+  alias ServiceRadarRecording.Spool
+  alias ServiceRadarRecording.Storage
 
   @clock %{clock_epoch: "synthetic-clock-1", timebase: 90_000, dts_source: :pts_no_reordering, utc_mapping: :unknown}
   @frame_bytes trunc(64 * 64 * 3 / 2)

@@ -1,10 +1,10 @@
 defmodule ServiceRadarCoreElx.CameraRecording.RTSPRecordingTest do
   use ExUnit.Case, async: true
 
-  alias ServiceRadarCoreElx.CameraRecording.Packaging
-  alias ServiceRadarCoreElx.CameraRecording.Spool
-  alias ServiceRadarCoreElx.CameraRecording.Storage
   alias ServiceRadarCoreElx.TestSupport.SyntheticCameraMedia
+  alias ServiceRadarRecording.Packaging
+  alias ServiceRadarRecording.Spool
+  alias ServiceRadarRecording.Storage
 
   @moduletag timeout: 20_000
   @moduletag capture_log: true

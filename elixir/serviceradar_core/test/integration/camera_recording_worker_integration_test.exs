@@ -13,13 +13,13 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Camera.StreamProfile
   alias ServiceRadarCoreElx.CameraRecording.Capture
-  alias ServiceRadarCoreElx.CameraRecording.Spool
-  alias ServiceRadarCoreElx.CameraRecording.Storage
   alias ServiceRadarCoreElx.CameraRecording.Supervisor, as: RecordingSupervisor
   alias ServiceRadarCoreElx.CameraRecording.Worker
   alias ServiceRadarCoreElx.CameraRelay.PipelineManager
   alias ServiceRadarCoreElx.CameraRelay.ViewerRegistry
   alias ServiceRadarCoreElx.TestSupport.SyntheticCameraMedia
+  alias ServiceRadarRecording.Spool
+  alias ServiceRadarRecording.Storage
 
   require Ash.Query
 

@@ -1,8 +1,8 @@
-defmodule ServiceRadarCoreElx.CameraRecording.SpoolTest do
+defmodule ServiceRadarRecording.SpoolTest do
   use ExUnit.Case, async: true
 
-  alias ServiceRadarCoreElx.CameraRecording.Spool
-  alias ServiceRadarCoreElx.CameraRecording.Storage
+  alias ServiceRadarRecording.Spool
+  alias ServiceRadarRecording.Storage
 
   @identity %{
     source_id: "00000000-0000-4000-8000-000000000021",

@@ -13,13 +13,13 @@ defmodule ServiceRadarCoreElx.CameraRelay.Pipeline do
   use Membrane.Pipeline
 
   alias Membrane.Pad
-  alias ServiceRadarCoreElx.CameraRecording.Inbox
   alias ServiceRadarCoreElx.CameraRelay.AnalysisSink
   alias ServiceRadarCoreElx.CameraRelay.AnnexBToNALU
   alias ServiceRadarCoreElx.CameraRelay.BoomboxOutputBin
   alias ServiceRadarCoreElx.CameraRelay.ChunkSource
   alias ServiceRadarCoreElx.CameraRelay.PubSubSink
   alias ServiceRadarCoreElx.CameraRelay.WebRTCViewerBin
+  alias ServiceRadarRecording.Inbox
 
   require Logger
 
@@ -87,12 +87,12 @@ defmodule ServiceRadarCoreElx.CameraRelay.Pipeline do
     end
   end
 
+  # Only this producer can place the end marker after every admitted unit.
   def handle_call(
         {:drain_recorder, id},
         %{from: {worker, _}},
         %{recorder: %{inbox: %Inbox{id: id, worker: worker} = inbox, monitor: monitor}} = state
       ) do
-    # Only this producer can place the end marker after every admitted unit.
     Inbox.finish(inbox)
     Process.demonitor(monitor, [:flush])
     {[reply: :ok], %{state | recorder: nil}}
