@@ -62,6 +62,79 @@ func (v ValidatedAttribution) CheckRecord(c LocalBindingCoordinates) error {
 	return nil
 }
 
+// RecordRecoveryAttribution dispatches registered production contracts through
+// their existing typed validators. Only the leased sweep contract asserts a
+// produced range; standing-grant contracts remain passive regardless of payload
+// kind or incidental execution identifiers. Recovery control uses its separate
+// ControlRecoveryAttribution constructor.
+func RecordRecoveryAttribution(raw []byte, expected *edgev1.EdgeOutputContractRef, policy AuthorizationPolicy) (ValidatedAttribution, error) {
+	r, err := DecodeRecord(raw)
+	if err != nil {
+		return ValidatedAttribution{}, err
+	}
+	if err = dispatchContract(r, expected); err != nil {
+		return ValidatedAttribution{}, err
+	}
+	if r.GetOutputContract().GetContractVersion() != 1 {
+		return ValidatedAttribution{}, ErrContractDispatch
+	}
+	if r.GetOutputContract().GetContractId() == "serviceradar.sweep.observation" {
+		return SweepRecoveryAttribution(raw, expected, policy)
+	}
+	validate := standingAttributionValidator(r.GetOutputContract().GetContractId())
+	if validate == nil {
+		return ValidatedAttribution{}, ErrContractDispatch
+	}
+	if err = validate(r); err != nil {
+		return ValidatedAttribution{}, err
+	}
+	if err = ValidateRecordSigned(r, policy); err != nil {
+		return ValidatedAttribution{}, err
+	}
+	return validatedRecoveryAttribution(raw, r, false, nil)
+}
+
+// These are the Go body validators for ContractCatalog's standing-grant entries.
+// No caller-selected validator or active/passive flag can mint an attribution.
+func standingAttributionValidator(contract string) func(*edgev1.EdgeRecordV1) error {
+	switch contract {
+	case MetricsBatchContractID:
+		return ValidateMetricBatchRecord
+	case UnleasedSweepResultsContractID:
+		return ValidateUnleasedSweepResultsRecord
+	case TelemetryBatchContractID:
+		return ValidateTelemetryBatchRecord
+	case ScheduledMtrTraceContractID:
+		return ValidateScheduledMtrTraceRecord
+	case FlowAttributionContractID:
+		return ValidateFlowAttributionRecord
+	case OtlpRelayContractID:
+		return ValidateOtlpRelayRecord
+	case PluginResultsContractID:
+		return ValidatePluginResultRecord
+	case MapperDevicesContractID:
+		return ValidateMapperDeviceRecord
+	case MapperInterfacesContractID:
+		return ValidateMapperInterfaceRecord
+	case MapperTopologyContractID:
+		return ValidateMapperTopologyRecord
+	case NetprobeDiscoveryContractID:
+		return ValidateNetprobeDiscoveryRecord
+	case SyncPageContractID:
+		return ValidateSyncPageRecord
+	case WorkloadIdentityContractID:
+		return ValidateWorkloadIdentityRecord
+	case K8sPublicEndpointsContractID:
+		return ValidateK8sPublicEndpointsRecord
+	case EndpointInventoryContractID:
+		return ValidateEndpointInventoryRecord
+	case BumblebeeScanContractID:
+		return ValidateBumblebeeScanRecord
+	default:
+		return nil
+	}
+}
+
 // SweepRecoveryAttribution validates the signed sweep record and derives its range
 // from the validated body. Existing correlation rules select the source operand;
 // producer run_id is never interpreted as a scheduler execution id.
