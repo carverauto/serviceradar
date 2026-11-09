@@ -27,7 +27,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "build:managed-host": "esbuild src/edge/managed.ts --bundle --platform=node --format=esm --target=node20 --outfile=managed-host.mjs",
+    "build:managed-host": "esbuild src/edge/managed.ts --bundle --platform=node --format=esm --target=node20 --external:vite --external:@vitejs/plugin-react '--external:ajv/*' '--banner:js=import {createRequire as createBundleRequire} from \"node:module\";\nconst require = createBundleRequire(import.meta.url);' --outfile=managed-host.mjs",
     "test": "npm run build && npm run build:managed-host && node --test tests/*.test.mjs",
     "typecheck": "tsc --noEmit",
     "pack:check": "npm pack --dry-run .",
@@ -51,7 +51,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "esbuild": "^0.25.4",
+    "esbuild": "0.25.4",
     "typescript": "^5.4.0"
   }
 }
