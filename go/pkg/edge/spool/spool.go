@@ -505,6 +505,9 @@ func (s *Spool) commit(flow string, eventID, body []byte, b Bindings, attributio
 	if bound := s.segBounds.refusalFor(accountingKey); bound != "" {
 		return CommitReceipt{}, rotationRefusal(bound, s.segBounds.stats())
 	}
+	if err := s.requireRelocatableAppend(len(body)); err != nil {
+		return CommitReceipt{}, err
+	}
 	cost := uint64(minRecordLen+len(body)) + sidecarCost
 	if s.alloc != nil {
 		n, err := s.commitBytes(len(body))

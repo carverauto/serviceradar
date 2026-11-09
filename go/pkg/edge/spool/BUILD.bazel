@@ -13,6 +13,7 @@ go_library(
         "reclaim.go",
         "recover.go",
         "recovery_journal.go",
+        "recovery_limits.go",
         "recovery_pages.go",
         "recovery_plan.go",
         "reserve.go",

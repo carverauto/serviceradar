@@ -25,6 +25,7 @@ import (
 	"hash/crc32"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 
@@ -112,6 +113,9 @@ func attributionAppendMutated(t *testing.T, kind string, mutateRecord func(*edge
 
 func openAttributedLanes(t *testing.T, root string, identity Identity, allocator *Allocator, inject func(*Spool)) *LaneSet {
 	t.Helper()
+	if allocator == nil {
+		allocator = attributionAllocator(t)
+	}
 	control := LaneKey{RouteProfile: recoveryLane.RouteProfile, TrafficClass: edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_BULK}
 	taxonomy, err := fairsched.NewLaneTaxonomy([]fairsched.LanePolicy{{Key: bulkLane, WeightBytes: 1}, {Key: interactiveLane, WeightBytes: 1}, {Key: control, WeightBytes: 1}}, control)
 	if err != nil {
@@ -628,4 +632,129 @@ func attributionAllocator(t *testing.T) *Allocator {
 		t.Fatal(err)
 	}
 	return a
+}
+
+// The reserve bounds complete relocation, including storage evidence and both
+// sidecars, even when a large generation contains only one attribution key.
+func TestAttributedGenerationFitsFullRelocationReserve(t *testing.T) {
+	input, lane, identity := attributionAppendMutated(t, "metrics", func(r *edgev1.EdgeRecordV1) {
+		var batch metricpb.MetricBatch
+		if err := proto.Unmarshal(r.Payload, &batch); err != nil {
+			t.Fatal(err)
+		}
+		batch.Metrics[0].Points = []*metricpb.MetricPoint{{RawValue: strings.Repeat("7", 32<<10), RawValueType: metricpb.MetricValueType_METRIC_VALUE_TYPE_STRING}}
+		payload, err := proto.Marshal(&batch)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.Payload = payload
+		hash := sha256.Sum256(payload)
+		r.PayloadSha256 = hash[:]
+		r.EncodedSize, r.UncompressedSize = uint32(len(payload)), uint32(len(payload))
+		r.ProjectedWriteBytes = uint64(len(payload))
+		r.ProductionCapability.GetProduction().MaxProjectedWriteBytes = r.ProjectedWriteBytes
+	})
+	for _, bound := range []string{"destination", "sidecars"} {
+		t.Run(bound, func(t *testing.T) {
+			footprint := Footprint{DestinationSegment: 1 << 20, AttributionSidecar: 1 << 20, JournalCopy: 1 << 20, ManifestPages: 256 << 10, Mapping: 1 << 20, FilesystemMetadata: 4096}
+			if bound == "destination" {
+				footprint.DestinationSegment = 2 * uint64(minRecordLen+len(input.Body)+4*evidenceEntryLen2+terminalEvidenceAllowance)
+			}
+			if bound == "sidecars" {
+				footprint.AttributionSidecar = 4 * sidecarSlotSize
+			}
+			allocator, err := NewAllocator(AllocatorConfig{Capacity: 16 << 20, MinFree: 4096, MaxConcurrentRecoveries: 1, Recovery: footprint})
+			if err != nil {
+				t.Fatal(err)
+			}
+			root := t.TempDir()
+			lanes := openAttributedLanes(t, root, identity, allocator, nil)
+			for i := 0; i < 2; i++ {
+				if _, err = lanes.AppendAttributed(lane, identity, input); err != nil {
+					t.Fatal(err)
+				}
+			}
+			source, _ := lanes.OpenGeneration(lane)
+			before := allocator.Usage()
+			if _, err = lanes.AppendAttributed(lane, identity, input); !errors.Is(err, ErrRotationRequired) || !errors.Is(err, ErrRetryable) {
+				t.Fatalf("full-copy capacity must rotate: %v", err)
+			}
+			if source.NextSequence() != 3 || allocator.Usage() != before {
+				t.Fatal("refused append allocated or charged bytes")
+			}
+			proofs := make([]CommittedAttribution, 2)
+			for i := range proofs {
+				proofs[i], err = source.CommittedAttribution(uint64(i + 1))
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err = lanes.Rotate(lane); err != nil {
+				t.Fatal(err)
+			}
+			destination, _ := lanes.OpenGeneration(lane)
+			grant, err := allocator.AcquireRecovery(destination.dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			usage := allocator.Usage()
+			allocator.ChargeMeasured(filepath.Join(root, "synthetic-full-lane"), usage.OrdinaryCeiling-usage.OrdinaryUsed)
+			if _, err = lanes.AppendAttributed(lane, identity, input); !errors.Is(err, ErrAdmissionRefused) {
+				t.Fatalf("ordinary reserve bypass: %v", err)
+			}
+			for _, proof := range proofs {
+				if _, err = lanes.AppendRelocated(proof, grant); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for seq := uint64(1); seq <= 2; seq++ {
+				if _, err = destination.CommittedAttribution(seq); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err = os.Stat(filepath.Join(source.dir, segmentFile)); err != nil {
+				t.Fatal("relocation removed unproven source", err)
+			}
+		})
+	}
+}
+
+func TestAttributedAppendDefersInvalidRecoveryCapacity(t *testing.T) {
+	input, lane, identity := attributionAppend(t, "sweep")
+	for _, invalid := range []string{"missing allocator", "record exceeds empty generation"} {
+		t.Run(invalid, func(t *testing.T) {
+			root := t.TempDir()
+			allocator, err := NewAllocator(AllocatorConfig{Capacity: 16 << 20, MinFree: 4096, MaxConcurrentRecoveries: 1,
+				Recovery: Footprint{DestinationSegment: uint64(minRecordLen+len(input.Body)+4*evidenceEntryLen2+terminalEvidenceAllowance) - 1,
+					AttributionSidecar: 1 << 20, JournalCopy: 1 << 20, ManifestPages: 256 << 10, Mapping: 1 << 20, FilesystemMetadata: 4096}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			lanes := openAttributedLanes(t, root, identity, allocator, func(s *Spool) {
+				if invalid == "missing allocator" {
+					s.alloc = nil
+				}
+			})
+			if _, err := lanes.AppendAttributed(lane, identity, input); !errors.Is(err, ErrInvalidAllocatorConfig) || !errors.Is(err, ErrAdmissionRefused) || errors.Is(err, ErrPermanent) || errors.Is(err, ErrRotationRequired) {
+				t.Fatalf("unbounded attributed append or wrong retry policy: %v", err)
+			}
+			g, _ := lanes.OpenGeneration(lane)
+			if g.NextSequence() != 1 {
+				t.Fatal("invalid capacity allocated sequence")
+			}
+			if err := lanes.Close(); err != nil {
+				t.Fatal(err)
+			}
+			corrected := openAttributedLanes(t, root, identity, nil, nil)
+			receipt, err := corrected.AppendAttributed(lane, identity, input)
+			if err != nil || receipt.Sequence != 1 {
+				t.Fatalf("same event did not retry after settings correction: %+v %v", receipt, err)
+			}
+			g, _ = corrected.OpenGeneration(lane)
+			witness, err := g.CommittedAttribution(1)
+			if err != nil || !bytes.Equal(witness.record.Body, input.Body) || !bytes.Equal(witness.record.EventID, input.EventID) {
+				t.Fatalf("retry changed input: %v", err)
+			}
+		})
+	}
 }
