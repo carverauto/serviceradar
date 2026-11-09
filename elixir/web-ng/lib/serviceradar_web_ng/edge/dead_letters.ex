@@ -25,7 +25,7 @@ defmodule ServiceRadarWebNG.Edge.DeadLetters do
   @inventory_timeout_ms 60_000
   @action_timeout_ms 300_000
 
-  @type group :: %{optional(:contract) => String.t(), optional(:reason) => String.t()}
+  @type group :: %{optional(:contract) => String.t() | nil, optional(:reason) => String.t() | nil}
   @type actor :: %{id: term(), email: term()} | nil
   @type summary :: %{
           action: :replay | :purge,
@@ -33,7 +33,8 @@ defmodule ServiceRadarWebNG.Edge.DeadLetters do
           kept: non_neg_integer(),
           failed: non_neg_integer(),
           errors: [String.t()],
-          complete: boolean()
+          complete: boolean(),
+          error: term()
         }
 
   @doc "The held dead letters grouped by contract and reason (`Replay.inventory/1`)."
@@ -41,8 +42,9 @@ defmodule ServiceRadarWebNG.Edge.DeadLetters do
   def inventory, do: call(:inventory, [[]], @inventory_timeout_ms)
 
   @doc """
-  Replays the dead letters of `group` (a contract and/or reason; an empty map is every held
-  dead letter) and records an audit event for `actor`.
+  Replays the dead letters of `group` (a contract and/or reason as `inventory/0` reports them,
+  `nil` for a missing header; an empty map is every held dead letter) and records an audit event
+  for `actor`.
   """
   @spec replay(group(), actor()) :: {:ok, summary()} | {:error, term()}
   def replay(group, actor), do: act(:replay, group, actor)
@@ -57,7 +59,8 @@ defmodule ServiceRadarWebNG.Edge.DeadLetters do
   @doc """
   What one replay or purge did, from `Replay`'s per-message entries: `done` messages were
   replayed or purged, `kept` were replayed but their dead-letter copy could not be deleted, and
-  `failed` are still held with the distinct reasons in `errors`.
+  `failed` are still held with the distinct reasons in `errors`. `error` is set by the caller when
+  the run stopped part way.
   """
   @spec summarize(:replay | :purge, [map()], boolean()) :: summary()
   def summarize(action, entries, complete) do
@@ -79,7 +82,8 @@ defmodule ServiceRadarWebNG.Edge.DeadLetters do
       kept: kept,
       failed: length(errors),
       errors: errors |> Enum.reverse() |> Enum.uniq(),
-      complete: complete
+      complete: complete,
+      error: nil
     }
   end
 
@@ -87,17 +91,25 @@ defmodule ServiceRadarWebNG.Edge.DeadLetters do
     opts = filters(group) ++ [limit: @action_limit]
 
     result =
-      with {:ok, %{entries: entries, complete: complete}} <-
+      with {:ok, %{entries: entries, complete: complete} = walk} <-
              call(action, [opts], @action_timeout_ms) do
-        {:ok, summarize(action, entries, complete)}
+        {:ok, %{summarize(action, entries, complete) | error: Map.get(walk, :error)}}
       end
 
     audit(action, group, actor, result)
     result
   end
 
-  defp filters(group) do
-    for key <- [:contract, :reason], value = Map.get(group, key), is_binary(value), do: {key, value}
+  @doc """
+  The `Replay` filters selecting exactly `group`: a key the group carries as `nil` selects the
+  messages lacking that header (`:missing`), and a key it does not carry is not filtered, so `%{}`
+  selects every held dead letter.
+  """
+  @spec filters(group()) :: keyword()
+  def filters(group) do
+    for key <- [:contract, :reason], Map.has_key?(group, key) do
+      {key, Map.get(group, key) || :missing}
+    end
   end
 
   defp call(fun, args, timeout) do
@@ -116,8 +128,8 @@ defmodule ServiceRadarWebNG.Edge.DeadLetters do
   end
 
   defp audit(action, group, actor, result) do
-    scope = group |> Map.take([:contract, :reason]) |> Map.new(fn {k, v} -> {to_string(k), v} end)
-    id = Enum.map_join([:contract, :reason], " ", &Map.get(group, &1, "*"))
+    scope = group |> filters() |> Map.new(fn {k, v} -> {to_string(k), scope_value(v)} end)
+    id = Enum.map_join([:contract, :reason], " ", &Map.get(scope, to_string(&1), "*"))
 
     :ok =
       AuditWriter.write_async(
@@ -132,7 +144,15 @@ defmodule ServiceRadarWebNG.Edge.DeadLetters do
     error -> Logger.warning("Failed to write dead-letter audit event: #{inspect(error)}")
   end
 
-  defp outcome({:ok, summary}), do: summary |> Map.delete(:action) |> Map.new(fn {k, v} -> {to_string(k), v} end)
+  defp scope_value(:missing), do: "(missing)"
+  defp scope_value(value), do: value
+
+  defp outcome({:ok, summary}) do
+    summary
+    |> Map.delete(:action)
+    |> Map.update!(:error, &(&1 && inspect(&1)))
+    |> Map.new(fn {k, v} -> {to_string(k), v} end)
+  end
 
   defp outcome({:error, reason}), do: %{"error" => inspect(reason)}
 end

@@ -176,6 +176,9 @@ cluster coordinator:
   `Sr-Edge-Dlq-Contract` and `Sr-Edge-Dlq-Reason`, with each group's count,
   agents, first and last dead-letter time and one sample detail. It reads at
   most 5,000 messages and says so when the stream holds more.
+  Messages without one of those headers form their own group, shown as
+  `unattributed` or `no reason`; its actions select exactly the messages
+  lacking that header (`contract: :missing` / `reason: :missing`).
 - Replay republishes one group (`Replay.replay/1` with `:contract` and
   `:reason`), once its cause is fixed.
 - Purge deletes one group, or every held dead letter, message by message
@@ -186,6 +189,10 @@ Each action shows its exact count for confirmation, re-checks the permission
 against the user's current record, runs in the background (at most 5,000
 messages per run; the result says when more remain) and writes an audit event
 (`resource_type: edge_record_dead_letters`) with the scope and outcome.
+If a run fails part way, the result and the audit event report what it had
+already replayed or purged together with the failure. If the call to the
+coordinator times out, work it had started may still be running; reload before
+acting again.
 
 ## Object references
 

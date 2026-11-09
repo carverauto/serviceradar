@@ -58,6 +58,22 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveDeadLettersTest do
     refute empty =~ "dead-letters-purge-all"
   end
 
+  test "a group whose dead letters lack the contract and reason headers is labelled as such" do
+    html =
+      render_component(&DeadLetters.groups_table/1,
+        inventory: %{
+          groups: [%{@plugin_group | contract: nil, reason: nil}],
+          scanned: 261,
+          complete: true
+        }
+      )
+
+    assert html |> cells("#dead-letters-group-0 td") |> Enum.take(2) == [
+             "unattributed",
+             "no reason"
+           ]
+  end
+
   defp cells(html, selector) do
     html
     |> LazyHTML.from_fragment()

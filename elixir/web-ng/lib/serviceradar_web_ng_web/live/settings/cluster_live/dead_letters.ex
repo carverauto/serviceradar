@@ -21,7 +21,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.DeadLetters do
 
   @impl true
   def mount(socket) do
-    {:ok, assign(socket, inventory: nil, loading: false, confirm: nil, running: nil, result: nil)}
+    {:ok, assign(socket, inventory: nil, loading: false, confirm: nil, running: nil, result: nil, denied: false)}
   end
 
   @impl true
@@ -31,7 +31,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.DeadLetters do
   def handle_event("load", _params, socket), do: {:noreply, load(socket)}
 
   def handle_event("confirm", %{"action" => action} = params, socket) when action in ["replay", "purge"] do
-    {:noreply, assign(socket, :confirm, confirmation(socket, action, params["group"]))}
+    {:noreply, assign(socket, confirm: confirmation(socket, action, params["group"]), denied: false)}
   end
 
   def handle_event("cancel", _params, socket), do: {:noreply, assign(socket, :confirm, nil)}
@@ -54,10 +54,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.DeadLetters do
          |> start_async(:action, task)}
 
       {:error, _reason} ->
-        {:noreply,
-         socket
-         |> assign(:confirm, nil)
-         |> put_flash(:error, "You no longer have permission to manage edge dead letters.")}
+        {:noreply, assign(socket, confirm: nil, denied: true)}
     end
   end
 
@@ -108,7 +105,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.DeadLetters do
       %{
         action: String.to_existing_atom(action),
         group: Map.take(group, [:contract, :reason]),
-        label: "#{group.contract} dead-lettered for #{group.reason}",
+        label: "#{contract_label(group)} dead-lettered for #{reason_label(group)}",
         count: group.count,
         complete: inventory.complete
       }
@@ -150,6 +147,14 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.DeadLetters do
             </.ui_button>
           </div>
         </:header>
+
+        <div
+          :if={@denied}
+          id="dead-letters-denied"
+          class="mb-3 rounded border border-error/40 px-3 py-2 text-xs text-error"
+        >
+          You no longer have permission to manage edge dead letters; nothing was replayed or purged.
+        </div>
 
         <.action_result :if={@result} result={@result} />
 
@@ -259,8 +264,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.DeadLetters do
               :for={{group, index} <- Enum.with_index(@inventory.groups)}
               id={"dead-letters-group-#{index}"}
             >
-              <td class="font-mono text-xs font-medium">{group.contract}</td>
-              <td class="font-mono text-xs">{group.reason}</td>
+              <td class="font-mono text-xs font-medium">{contract_label(group)}</td>
+              <td class="font-mono text-xs">{reason_label(group)}</td>
               <td class="font-mono text-xs text-error font-semibold">{group.count}</td>
               <td class="text-xs" title={Enum.join(group.agents, ", ")}>
                 {agents_label(group)}
@@ -333,23 +338,47 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.DeadLetters do
       <span :if={@summary.failed > 0} class="text-error">
         {@summary.failed} failed and are still held: {Enum.join(@summary.errors, "; ")}.
       </span>
-      <span :if={not @summary.complete}>More matched than one run handles; run it again.</span>
+      <span :if={@summary.error} class="text-error">
+        It stopped early after a failure: {inspect(@summary.error)}. Reload to see what remains held.
+      </span>
+      <span :if={not @summary.complete and is_nil(@summary.error)}>
+        More matched than one run handles; run it again.
+      </span>
     </div>
     """
   end
 
   defp action_result(%{result: {_running, {:error, reason}}} = assigns) do
-    assigns = assign(assigns, :reason, inspect(reason))
+    assigns = assign(assigns, :message, action_error(reason))
 
     ~H"""
     <div
       id="dead-letters-result"
       class="mb-3 rounded border border-error/40 px-3 py-2 text-xs text-error"
     >
-      The action did not run: {@reason}
+      {@message}
     </div>
     """
   end
+
+  defp action_error({:badrpc, :timeout}),
+    do:
+      "The call to the cluster coordinator timed out. Work it had already started may still be " <>
+        "running; reload to see what remains held."
+
+  defp action_error({:badrpc, reason}),
+    do:
+      "The call to the cluster coordinator failed (#{inspect(reason)}). Some records may already " <>
+        "have been handled; reload to see what remains held."
+
+  defp action_error(:no_coordinator), do: "The action did not run: no cluster coordinator is reachable."
+  defp action_error(reason), do: "The action did not run: #{inspect(reason)}"
+
+  defp contract_label(%{contract: nil}), do: "unattributed"
+  defp contract_label(%{contract: contract}), do: contract
+
+  defp reason_label(%{reason: nil}), do: "no reason"
+  defp reason_label(%{reason: reason}), do: reason
 
   defp action_verb(:replay), do: "Replaying"
   defp action_verb(:purge), do: "Purging"

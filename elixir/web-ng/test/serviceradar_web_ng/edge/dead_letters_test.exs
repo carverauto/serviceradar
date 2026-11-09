@@ -26,4 +26,18 @@ defmodule ServiceRadarWebNG.Edge.DeadLettersTest do
     assert %{done: 2, failed: 0, complete: true} =
              DeadLetters.summarize(:purge, [%{result: :purged}, %{result: :purged}], true)
   end
+
+  test "a group's filters select exactly its messages, and an empty group selects every one" do
+    assert DeadLetters.filters(%{contract: nil, reason: "missing_synthetic_capability"}) == [
+             contract: :missing,
+             reason: "missing_synthetic_capability"
+           ]
+
+    assert DeadLetters.filters(%{contract: "serviceradar.sync.page.batch/1", reason: nil}) == [
+             contract: "serviceradar.sync.page.batch/1",
+             reason: :missing
+           ]
+
+    assert DeadLetters.filters(%{}) == []
+  end
 end

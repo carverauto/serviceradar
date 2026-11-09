@@ -199,7 +199,7 @@ when it moved.
   redrive above remain open.
   OPERATOR ACTIONS LANDED (#6421): Settings -> Cluster "Dead letters" groups the
   held dead letters by contract and reason from the stream itself and replays or
-  purges a group, admin-only and audited (`AuditWriter`, resource
+  purges a group, for `settings.edge.manage` and audited (`AuditWriter`, resource
   `edge_record_dead_letters`). A purge is an operator's waive decision: until the
   catalog exists the audit event is its only record, and it deletes message by
   message because the core identity is denied purging the stream. The catalog,

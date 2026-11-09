@@ -198,7 +198,7 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetterNatsTest do
     end)
   end
 
-  test "the inventory groups held dead letters, and a purge scoped to one reason deletes only those",
+  test "the inventory groups held dead letters, and a purge scoped to one group deletes only it",
        ctx do
     ExposureBroker.with_broker(ctx.tmp_dir, fn conn, port ->
       [_source, dead_letter] = config(port).streams
@@ -217,11 +217,21 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetterNatsTest do
         {"Sr-Edge-Dlq-Agent-Id", "agent-synthetic-02"}
       ]
 
+      undecoded = [{"Sr-Edge-Dlq-Reason", "missing_synthetic_capability"}]
+
       first = publish_dlq!(conn, "edge-dlq:superseded-1", superseded)
       kept = publish_dlq!(conn, "edge-dlq:transient-1", transient)
+      unattributed = publish_dlq!(conn, "edge-dlq:undecoded-1", undecoded)
       last = publish_dlq!(conn, "edge-dlq:superseded-2", superseded)
 
-      assert {:ok, %{scanned: 3, complete: true, groups: [plugin, sync]}} = Replay.inventory()
+      assert {:ok, %{scanned: 4, complete: true, groups: groups}} = Replay.inventory()
+
+      assert [plugin, sync] =
+               Enum.filter(groups, &is_binary(&1.contract))
+
+      # A dead letter without a contract header is its own group, not part of its reason's.
+      assert [%{contract: nil, reason: "missing_synthetic_capability", count: 1}] =
+               Enum.filter(groups, &is_nil(&1.contract))
 
       assert %{
                contract: "serviceradar.plugin_results.batch/1",
@@ -239,6 +249,9 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetterNatsTest do
 
       # A bounded read says it saw only part of what is held.
       assert {:ok, %{scanned: 2, complete: false}} = Replay.inventory(limit: 2)
+
+      assert {:ok, %{entries: [%{dlq_sequence: ^unattributed, result: :purged}], complete: true}} =
+               Replay.purge(contract: :missing, reason: "missing_synthetic_capability")
 
       assert {:ok, %{entries: purged, complete: true}} =
                Replay.purge(reason: "missing_synthetic_capability")
