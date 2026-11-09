@@ -469,3 +469,36 @@ original and newly rejected copy can retain more bytes than the original source.
 That operation can complete safely and release concurrency while subsequent
 ordinary admission or recovery remains visibly capacity-blocked. No archive is
 dropped or deduplicated to claim otherwise.
+### Scoped gateway coverage freshness
+
+The gateway binds scope from the first authenticated signed record, then queries
+one exact `(scope, authenticated agent, prior spool, route, traffic class)` before
+publication. Core reads the existing recovery generation's consumer-applied prefix
+and exact generation fence. A missing generation is an explicit empty result;
+backend errors and lane conflicts cannot be converted into an empty result.
+Each session caches only that result, for at most five seconds measured from the
+request start. A delayed response beyond that deadline, or an unavailable refresh,
+closes the stream retryably with a counted and logged withholding reason.
+
+A generation fence or consumer-applied prefix beyond the session's acknowledged
+watermark closes the old source session without fabricating ordinary dispositions
+or advancing its `ResolvedPrefix`. The agent must apply signed recovery completion
+proof before resuming. This keeps the durable consumer prefix authoritative while
+preserving the distinction between JetStream publication acknowledgement and
+recovery completion. The coordinator closes its original source session promptly
+when freezing recovery, bounding the exposure before the next gateway refresh.
+
+The session carries that same monotonic deadline into the publication queue.
+After any queue or publisher-pool wait, the publisher checks it at provisional
+reservation handoff immediately before publication. An expired handoff cancels
+the provisional attempt and leaves the frame retryable. Cancellation releases a
+new, known-unpublished charge but retains any prior uncertain publication charge
+when this was a retry. This is a handoff-time check, not an atomic clock-to-network
+guarantee; it requires no per-frame core RPC or additional generation cache.
+
+The dedicated recovery WorkQueue uses MaxAge zero, unlimited consumer redelivery,
+a finite byte ceiling and DiscardNew. Complete controls waiting on mapping repair
+cannot age out before their effects commit. At capacity the stream refuses new
+publications; the existing backlog and byte-utilization reporting expose that
+pressure. Exact incomplete receipts still release broker space after their CNPG
+receipt commits, under the receipt-versus-completion distinction above.

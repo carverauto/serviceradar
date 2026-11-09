@@ -7,6 +7,7 @@ defmodule ServiceRadar.Edge.RecoveryOperationsDbTest do
   alias ServiceRadar.Edge.HashGrammar
   alias ServiceRadar.Edge.IssuerKey
   alias ServiceRadar.Edge.RecoveryControl
+  alias ServiceRadar.Edge.RecoveryCoverage
   alias ServiceRadar.Edge.RecoveryGeneration
   alias ServiceRadar.Edge.RecoveryOperations
   alias ServiceRadar.Edge.RecoveryReceivedPage
@@ -31,6 +32,16 @@ defmodule ServiceRadar.Edge.RecoveryOperationsDbTest do
     assert replay.registration == first.registration
     refute replay.tombstone_received
     assert pages(ctx) == []
+    assert {:ok, %{applied_through: 0, reclaim_watermark: 0, fenced: false}} = coverage(ctx)
+    assert {:ok, :none} = coverage(%{ctx | agent: ctx.agent <> "-other"})
+    assert {:ok, :none} = coverage(%{ctx | plan: %{ctx.plan | network_scope_id: uuid()}})
+    assert {:ok, :none} = coverage(%{ctx | plan: %{ctx.plan | prior_spool_id: uuid()}})
+
+    assert {:error, :recovery_lane_conflict} =
+             coverage(%{
+               ctx
+               | plan: %{ctx.plan | traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_INTERACTIVE}
+             })
 
     assert {:ok, nil} =
              RecoveryOperations.fetch(
@@ -136,6 +147,7 @@ defmodule ServiceRadar.Edge.RecoveryOperationsDbTest do
     assert {:ok, :received} = consume(ctx, later, :manifest_page)
     assert {:ok, :applied} = consume(ctx, later, :tombstone)
     assert generation_prefix(ctx) == 0
+    assert {:ok, %{applied_through: 0, source_high_water: 4, fenced: true}} = coverage(ctx)
     assert {:ok, %{state: :EDGE_RECOVERY_STATE_PENDING, resolved: nil}} = status(ctx, later)
 
     assert {:ok, _} = RecoveryOperations.register(ctx.agent, first)
@@ -143,6 +155,7 @@ defmodule ServiceRadar.Edge.RecoveryOperationsDbTest do
     assert generation_prefix(ctx) == 0
     assert {:ok, :applied} = consume(ctx, first, :manifest_page)
     assert generation_prefix(ctx) == 4
+    assert {:ok, %{applied_through: 4, source_high_water: 4, fenced: true}} = coverage(ctx)
     assert {:ok, :applied} = consume(ctx, later, :manifest_page)
     assert generation_prefix(ctx) == 4
   end
@@ -192,6 +205,16 @@ defmodule ServiceRadar.Edge.RecoveryOperationsDbTest do
     assert pages(ctx) == []
     assert generation_prefix(ctx) == 0
   end
+
+  defp coverage(ctx),
+    do:
+      RecoveryCoverage.lookup(
+        ctx.plan.network_scope_id,
+        ctx.agent,
+        ctx.plan.prior_spool_id,
+        ctx.plan.route_profile,
+        ctx.plan.traffic_class
+      )
 
   defp consume(ctx, plan, kind),
     do:

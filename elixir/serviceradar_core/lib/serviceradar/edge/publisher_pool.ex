@@ -135,6 +135,11 @@ defmodule ServiceRadar.Edge.PublisherPool do
   `ack_timeout_ms` is a TIMEOUT, not a deadline: this pool stamps the deadline when it admits, so
   time a caller spent queued here is not deducted from the PubAck interval it measures.
 
+  `publication_deadline` optionally bounds when the caller may take ownership,
+  independently of the PubAck timeout. It is checked after the provisional reply
+  and before confirmation. Expiry cancels that provisional admission: a new charge
+  is released, while a retry preserves the earlier uncertain publication charge.
+
   A refusal is final for THIS call: it never borrows from another class, and the pool's state is
   untouched.
 
@@ -150,7 +155,7 @@ defmodule ServiceRadar.Edge.PublisherPool do
   owner, and only the admitter can report the outcome. `JetStreamPublisher` does all three inline,
   which is why this holds today.
   """
-  def admit(pool, key, bytes, ack_timeout_ms) do
+  def admit(pool, key, bytes, ack_timeout_ms, publication_deadline \\ :infinity) do
     # An admission the CALLER never receives must not stay charged. GenServer.call/3 gives up
     # after its own timeout, but OTP does not cancel the queued message: the pool goes on to
     # admit, and the frame is charged for a request that was never made.
@@ -166,12 +171,7 @@ defmodule ServiceRadar.Edge.PublisherPool do
     try do
       case GenServer.call(pool, {:admit, key, bytes, ack_timeout_ms, attempt_ref}, call_timeout()) do
         {:ok, reservation} ->
-          # HANDOFF CONFIRMED. Until this arrives the pool holds the admission provisionally and
-          # will revoke it if this process dies -- because nothing can have been published before
-          # admit/4 returned. After it, death is conservatively charged: by then a request may be
-          # on the socket.
-          GenServer.cast(pool, {:confirm_admission, attempt_ref})
-          {:ok, reservation}
+          handoff(pool, attempt_ref, reservation, publication_deadline)
 
         {:error, _reason} = error ->
           error
@@ -183,6 +183,20 @@ defmodule ServiceRadar.Edge.PublisherPool do
 
       :exit, _reason ->
         {:error, :pool_gone}
+    end
+  end
+
+  defp handoff(pool, attempt_ref, reservation, publication_deadline) do
+    if publication_deadline == :infinity or
+         (is_integer(publication_deadline) and
+            System.monotonic_time(:millisecond) < publication_deadline) do
+      # No blocking operation remains between this ownership handoff and the
+      # caller's publication. Before confirmation, cancellation is still safe.
+      GenServer.cast(pool, {:confirm_admission, attempt_ref})
+      {:ok, reservation}
+    else
+      GenServer.cast(pool, {:cancel_admission, attempt_ref})
+      {:error, :admission_expired}
     end
   end
 

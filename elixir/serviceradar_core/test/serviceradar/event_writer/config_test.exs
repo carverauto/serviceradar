@@ -68,7 +68,7 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
     assert recovery.stream_retention == "workqueue"
     assert recovery.stream_discard == "new"
     assert recovery.consumer_max_deliver == -1
-    assert recovery.stream_max_age > 0
+    assert recovery.stream_max_age == 0
     assert recovery.stream_max_bytes == 4_194_304
 
     for changes <- [
@@ -76,7 +76,7 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
           %{stream_discard: "old"},
           %{consumer_max_deliver: 5},
           %{dead_letter_after_deliveries: 20},
-          %{stream_max_age: 0},
+          %{stream_max_age: 86_400_000_000_000},
           %{allow_stream_fallback: true}
         ] do
       configure.([Map.merge(stream, changes)], 4_194_304)

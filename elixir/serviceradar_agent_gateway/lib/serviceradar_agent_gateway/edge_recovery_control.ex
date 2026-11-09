@@ -10,6 +10,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecoveryControl do
   alias Monitoring.EdgeRecoveryQuery
   alias Monitoring.EdgeRecoveryRegistration
   alias ServiceRadar.Edge.RecoveryControl
+  alias ServiceRadar.Edge.RecoveryCoverage
   alias ServiceRadar.Edge.RecoveryOperation
   alias ServiceRadarAgentGateway.EdgeRecordTrust
   alias ServiceRadarAgentGateway.EdgeRecoveryRPC
@@ -40,6 +41,13 @@ defmodule ServiceRadarAgentGateway.EdgeRecoveryControl do
   end
 
   def authorize(_, _), do: {:error, :invalid_argument, "invalid recovery authorization"}
+
+  @doc "Read one authenticated source generation before publication; no delivery disposition is issued."
+  def coverage(scope, prior_spool, route, traffic, identity) do
+    with {:ok, agent_id} <- authenticated_namespace(scope, identity) do
+      EdgeRecoveryRPC.call(RecoveryCoverage, :lookup, [scope, agent_id, prior_spool, route, traffic], 5_000)
+    end
+  end
 
   defp registration(request) do
     case RecoveryOperation.validate(request) do

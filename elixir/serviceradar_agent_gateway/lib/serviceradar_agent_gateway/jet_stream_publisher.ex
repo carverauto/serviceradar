@@ -56,7 +56,7 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
   require Logger
 
   @type pub_ack :: %{stream: String.t(), seq: non_neg_integer(), duplicate: boolean()}
-  @type error_class :: :capacity | :timeout | :systemic | :misrouted | :poison
+  @type error_class :: :capacity | :timeout | :systemic | :misrouted | :poison | :recovery_coverage_expired
 
   @default_timeout 5_000
 
@@ -110,7 +110,7 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
          # publish, and usually a :noproc exit in the caller. A captured pid is dead after a
          # restart, so the publish simply fails instead.
          {:ok, conn_pid} <- connection_for(lane, opts),
-         {:ok, reservation} <- admit(pool, key, bytes, opts) do
+         {:ok, reservation} <- admit(pool, key, bytes, opts, Map.get(publication, :recovery_coverage_deadline, :infinity)) do
       route
       |> request(conn_pid, bytes, headers, opts)
       |> settle(pool, reservation, settling_outcome(contract.publication))
@@ -188,10 +188,10 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
   # outstanding on purpose -- a retry republishes the same bytes on the same slot, so
   # re-admitting would hand the same budget out twice and let the in-flight total exceed the
   # grant. Republishing under the credits already held is the designed path.
-  defp admit(pool, key, bytes, opts) do
+  defp admit(pool, key, bytes, opts, publication_deadline) do
     # The TIMEOUT, not a deadline: the pool stamps the deadline when it actually admits, so time
     # spent queued for the pool is not deducted from the PubAck interval.
-    case pool_call(fn -> PublisherPool.admit(pool, key, byte_size(bytes), timeout_of(opts)) end) do
+    case pool_call(fn -> PublisherPool.admit(pool, key, byte_size(bytes), timeout_of(opts), publication_deadline) end) do
       # Covers BOTH a new reservation and a republish of the same publication. The window
       # recognises the retry by key, charges nothing further, AND RE-ARMS THE DEADLINE -- a retry
       # that kept the expired one would be reported expired forever. The reservation carries the
@@ -231,6 +231,10 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
       # decision about progress to the caller.
       {:error, :pool_timeout} ->
         {:error, :systemic}
+
+      {:error, :admission_expired} ->
+        Logger.warning("edge publication withheld: recovery coverage expired before ownership handoff")
+        {:error, :recovery_coverage_expired}
 
       {:error, reason} ->
         {:error, {:derivation, reason}}

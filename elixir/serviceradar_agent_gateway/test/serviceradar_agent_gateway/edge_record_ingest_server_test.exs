@@ -4,6 +4,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
   alias ServiceRadar.Edge.PipelineStats
   alias ServiceRadar.Edge.PublicationIdentity
   alias ServiceRadar.Edge.PublishPipeline
+  alias ServiceRadar.Edge.RecoveryCoverage
   alias Serviceradar.Edge.V1.EdgeDeliveryAckV1
   alias Serviceradar.Edge.V1.EdgeRecordClientMessage
   alias Serviceradar.Edge.V1.EdgeRecordDisposition
@@ -35,12 +36,14 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
       resolver: Application.get_env(:serviceradar_agent_gateway, :edge_record_ingest_identity_resolver),
       capability: Application.get_env(:serviceradar_agent_gateway, :edge_record_ingest_capability),
       supervisor: Application.get_env(:serviceradar_agent_gateway, :edge_record_ingest_task_supervisor),
+      recovery_rpc: Application.get_env(:serviceradar_agent_gateway, :edge_recovery_control_rpc),
       drain: Application.get_env(:serviceradar_agent_gateway, :edge_record_ingest_drain_timeout_ms)
     }
 
     _supervisor = start_supervised!({Task.Supervisor, name: __MODULE__.TaskSupervisor})
 
     put_resolver(EdgeRecordIdentityResolverStub)
+    Application.put_env(:serviceradar_agent_gateway, :edge_recovery_control_rpc, fn _, _, _, _ -> {:ok, :none} end)
 
     Application.put_env(:serviceradar_agent_gateway, :edge_record_ingest_capability, EdgeRecordCapabilityStub)
 
@@ -63,9 +66,117 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
       restore_env(:edge_record_ingest_capability, previous.capability)
       restore_env(:edge_record_ingest_task_supervisor, previous.supervisor)
       restore_env(:edge_record_ingest_drain_timeout_ms, previous.drain)
+      restore_env(:edge_recovery_control_rpc, previous.recovery_rpc)
     end)
 
     %{pipeline: EdgeRecordPublisherStub.start_pipeline!(EdgeRecordPublisherStub.publisher(self()))}
+  end
+
+  test "committed recovery coverage and unavailable reads stop the source session without ordinary ACKs", %{
+    pipeline: pipeline
+  } do
+    record = record()
+    scope = record.network_scope_id
+    parent = self()
+
+    for response <- [
+          {:ok, %{applied_through: 1, fenced: false}},
+          {:ok, %{applied_through: 0, fenced: true}},
+          {:error, :core_unavailable}
+        ] do
+      Application.put_env(:serviceradar_agent_gateway, :edge_recovery_control_rpc, fn
+        RecoveryCoverage,
+        :lookup,
+        [^scope, "agent-1", @spool_id, :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1, :EDGE_RECORD_TRAFFIC_CLASS_BULK],
+        5_000 ->
+          send(parent, :coverage_read)
+          response
+      end)
+
+      error =
+        assert_raise GRPC.RPCError, fn ->
+          EdgeRecordIngestServer.stream(open_and_records([record]), stream())
+        end
+
+      assert error.status == GRPC.Status.unavailable()
+      assert_received :coverage_read
+      refute_received {:edge_record_published, _}
+      refute_received {:edge_record_stream_reply, %EdgeRecordServerMessage{payload: {:ack, _}}}
+      assert %{lanes: 0, inflight: 0, queued: 0} = PublishPipeline.stats(pipeline)
+    end
+  end
+
+  test "coverage is cached only within the session freshness window and refreshed before publication" do
+    parent = self()
+
+    rpc = fn RecoveryCoverage, :lookup, _, 5_000 ->
+      attempt = Process.get(:coverage_read_count, 0) + 1
+      Process.put(:coverage_read_count, attempt)
+      send(parent, {:coverage_read, attempt})
+      if attempt == 1, do: {:ok, :none}, else: {:ok, %{applied_through: 3, fenced: false}}
+    end
+
+    Application.put_env(:serviceradar_agent_gateway, :edge_recovery_control_rpc, rpc)
+
+    messages =
+      Stream.resource(
+        fn -> send(parent, {:coverage_reader, self()}) end,
+        fn state ->
+          receive do
+            {:next, message} -> {[message], state}
+            :done -> {:halt, state}
+          end
+        end,
+        fn _ -> :ok end
+      )
+
+    transport = stream()
+
+    task =
+      Task.async(fn ->
+        try do
+          EdgeRecordIngestServer.stream(messages, transport)
+        rescue
+          error in GRPC.RPCError -> error
+        end
+      end)
+
+    assert_receive {:coverage_reader, reader}
+    Enum.each(open_and_frames([1, 2]), &send(reader, {:next, &1}))
+    assert_receive {:coverage_read, 1}
+    assert_receive {:edge_record_published, %{slot: %{sequence: 1}}}
+    assert_receive {:edge_record_published, %{slot: %{sequence: 2}}}
+    # Start the wait after the first read has completed, not when the reader task
+    # was scheduled. The cache deadline has necessarily started by this point.
+    Process.sleep(5_050)
+    send(reader, {:next, client({:delivery_frame, frame(3, record())})})
+    send(reader, :done)
+    assert %GRPC.RPCError{} = error = Task.await(task, 10_000)
+    assert error.status == GRPC.Status.unavailable()
+    assert_received {:coverage_read, 2}
+    refute_received {:coverage_read, 3}
+    refute_received {:edge_record_published, %{slot: %{sequence: 3}}}
+
+    refute_received {:edge_record_stream_reply,
+                     %EdgeRecordServerMessage{payload: {:ack, %{resolved_through_sequence: 3}}}}
+  end
+
+  test "coverage freshness starts before the RPC rather than when a delayed response arrives" do
+    rpc = fn RecoveryCoverage, :lookup, _, 5_000 ->
+      Process.sleep(5_050)
+      {:ok, :none}
+    end
+
+    Application.put_env(:serviceradar_agent_gateway, :edge_recovery_control_rpc, rpc)
+
+    error =
+      assert_raise GRPC.RPCError, fn ->
+        EdgeRecordIngestServer.stream(open_and_frames([1]), stream())
+      end
+
+    assert error.status == GRPC.Status.unavailable()
+    refute_received {:edge_record_published, _}
+    refute_received {:edge_record_stream_reply, %EdgeRecordServerMessage{payload: {:ack, _}}}
   end
 
   test "opens a lane, publishes a locally authorized frame through the pipeline, and acks it durable", %{

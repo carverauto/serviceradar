@@ -31,7 +31,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
     * it is authorized locally by `ServiceRadarAgentGateway.EdgeRecordAuthorization` (task 3.2):
       exact record digest, structural record admission, the signed production grant and any source
       authorization and delivery capability, identity, network scope, route/class, range, expiry
-      and fence -- with no core or database lookup per frame. The lane's identity carries the
+      and fence -- from the local trust snapshot. The lane's identity carries the
       network scopes the trust snapshot binds to its certificate principal, read from the same
       snapshot as the rest of that frame's decision;
     * the authorized record is admitted by `ServiceRadarAgentGateway.EdgeContractRegistry.admit/3`
@@ -42,6 +42,14 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
       REJECTED_PERMANENT; a withhold (an epoch this gateway has not learned yet, no verified
       registry, a bundle no live core node can project) is never offered and records nothing, so
       the sequence stays unresolved.
+
+  After authenticated scope binding and registry admission, a source-generation
+  coverage read checks consumer-committed recovery progress and fences. Each
+  session caches that one scoped result for at most five seconds from the RPC's
+  start. An unavailable or expired read withholds publication by closing the
+  session retryably. A generation fence or coverage beyond this session's ACK
+  watermark also closes it: the agent must apply signed recovery completion proof
+  before resuming. No recovery prefix is converted into ordinary dispositions.
 
   Each admission, permanent refusal and withhold is counted under the record's output contract
   in `ServiceRadar.Edge.PipelineStats` (a refusal made before the record's contract is known as
@@ -173,6 +181,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
   alias ServiceRadarAgentGateway.EdgeRecordAuthorization
   alias ServiceRadarAgentGateway.EdgeRecordCapability
   alias ServiceRadarAgentGateway.EdgeRecordTrust
+  alias ServiceRadarAgentGateway.EdgeRecoveryControl
   alias ServiceRadarAgentGateway.MediaIdentity
 
   require Logger
@@ -183,6 +192,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
   @default_credit_bytes 64 * 1024 * 1024
   @default_credit_frames 64
   @default_drain_timeout_ms 10_000
+  @recovery_coverage_freshness_ms 5_000
   @max_uint32 4_294_967_295
   @max_uint64 0xFFFFFFFFFFFFFFFF
   # The agent refuses an ack carrying more dispositions than `edgerecord.DefaultMaxDispositions`, so
@@ -310,6 +320,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
       pipeline_monitor: pipeline_monitor,
       # {network_scope_id, agent, spool} once the first authorized record binds it.
       lane: nil,
+      recovery_coverage: nil,
       # The watermark this session has acked. The agent validates every ack against it.
       acked_through: first_unresolved - 1,
       # Granted at lane_open. A frame above acked_through plus these is refused.
@@ -456,7 +467,9 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
 
     case EdgeContractRegistry.admit(record, session, decision.registry) do
       {:ok, route} ->
-        offer_frame(state, stream, sequence, frame, decision, route, contract)
+        state
+        |> require_recovery_coverage!(contract)
+        |> offer_frame(stream, sequence, frame, decision, route, contract)
 
       {:reject, reason} ->
         # Proven invalid for this session and registry: it resolves in the prefix exactly like an
@@ -475,9 +488,68 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
     end
   end
 
+  defp require_recovery_coverage!(state, contract) do
+    {coverage, state} = current_recovery_coverage(state, contract)
+
+    case coverage do
+      :none ->
+        state
+
+      %{fenced: true} ->
+        recovery_hold!(contract, :generation_fenced)
+
+      %{applied_through: prefix} when prefix > state.acked_through ->
+        recovery_hold!(contract, :signed_recovery_query_required)
+
+      _ ->
+        state
+    end
+  end
+
+  defp current_recovery_coverage(state, contract) do
+    started = System.monotonic_time(:millisecond)
+
+    case state.recovery_coverage do
+      {deadline, coverage} when started < deadline ->
+        {coverage, state}
+
+      _ ->
+        {scope, _agent, spool} = state.lane
+        result = EdgeRecoveryControl.coverage(scope, spool, state.route_profile, state.traffic_class, state.identity)
+        deadline = started + @recovery_coverage_freshness_ms
+
+        if System.monotonic_time(:millisecond) >= deadline,
+          do: recovery_hold!(contract, :recovery_coverage_expired)
+
+        coverage = coverage_result!(result, contract)
+        {coverage, %{state | recovery_coverage: {deadline, coverage}}}
+    end
+  end
+
+  defp coverage_result!({:ok, :none}, _contract), do: :none
+
+  defp coverage_result!({:ok, %{applied_through: prefix, fenced: fenced} = coverage}, _contract)
+       when is_integer(prefix) and prefix >= 0 and is_boolean(fenced), do: coverage
+
+  defp coverage_result!(_result, contract), do: recovery_hold!(contract, :recovery_coverage_unavailable)
+
+  defp recovery_hold!(contract, reason) do
+    Logger.warning("edge record source session withheld by recovery coverage: #{reason}")
+    PipelineStats.record(:gateway_withheld, contract)
+    raise GRPC.RPCError, status: :unavailable, message: "edge recovery coverage: #{reason}"
+  end
+
   # The decision's publication selects the route family and the kind its PubAck resolves to, so an
   # audit or security-quarantine record cannot reach the primary stream.
-  defp offer_frame(state, stream, sequence, frame, %{record: record} = decision, route, contract) do
+  defp offer_frame(
+         %{recovery_coverage: {deadline, _}} = state,
+         stream,
+         sequence,
+         frame,
+         %{record: record} = decision,
+         route,
+         contract
+       ) do
     log_non_authoritative(decision)
 
     publication =
@@ -497,6 +569,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
           record_bytes: frame.record_bytes,
           record_sha256: frame.record_sha256,
           semantic_envelope_sha256: record.semantic_envelope_sha256,
+          recovery_coverage_deadline: deadline,
           contract: contract
         },
         decision

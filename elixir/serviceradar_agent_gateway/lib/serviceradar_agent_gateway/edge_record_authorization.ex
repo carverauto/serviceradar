@@ -44,8 +44,10 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorization do
        principal with no binding, and a signed scope its binding lacks, are withheld: the binding
        may predate the assignment.
     9. AUTHORITY -- the producer fence and the production window decide publication. A producer
-       with no fence entry, or one ahead of its entry, is withheld: this gateway does not know its
-       authority is current. Current authority under a current fence publishes PRIMARY (a valid
+       ahead of its fence entry is withheld: this gateway does not know its authority is current.
+       A missing fence also withholds ordinary and renewal delivery; only a current exact
+       operation-bound rollover grant may drain that historical record to AUDIT, with no primary
+       projection. Current authority under a current fence publishes PRIMARY (a valid
        attached delivery grant only
        changes the delivery mode to renewal/rollover). Otherwise only a current delivery grant can
        authorize delivery: an expired grant under a current fence is an ordinary late drain

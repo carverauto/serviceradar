@@ -55,6 +55,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerMtlsIdentityTest do
       pipelines: Application.get_env(:serviceradar_agent_gateway, :edge_record_ingest_pipelines),
       capability: Application.get_env(:serviceradar_agent_gateway, :edge_record_ingest_capability),
       supervisor: Application.get_env(:serviceradar_agent_gateway, :edge_record_ingest_task_supervisor),
+      recovery_rpc: Application.get_env(:serviceradar_agent_gateway, :edge_recovery_control_rpc),
       ca_file: Application.get_env(:serviceradar_agent_gateway, :edge_deployment_ca_file)
     }
 
@@ -62,6 +63,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerMtlsIdentityTest do
 
     EdgeRecordPublisherStub.start_pipeline!(EdgeRecordPublisherStub.publisher(self()))
     Application.put_env(:serviceradar_agent_gateway, :edge_record_ingest_capability, EdgeRecordCapabilityStub)
+    Application.put_env(:serviceradar_agent_gateway, :edge_recovery_control_rpc, fn _, _, _, _ -> {:ok, :none} end)
 
     Application.put_env(
       :serviceradar_agent_gateway,
@@ -103,6 +105,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerMtlsIdentityTest do
       restore_env(:edge_record_ingest_capability, previous.capability)
       restore_env(:edge_record_ingest_task_supervisor, previous.supervisor)
       restore_env(:edge_deployment_ca_file, previous.ca_file)
+      restore_env(:edge_recovery_control_rpc, previous.recovery_rpc)
     end)
 
     %{

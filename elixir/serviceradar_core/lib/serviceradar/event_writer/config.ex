@@ -229,7 +229,7 @@ defmodule ServiceRadar.EventWriter.Config do
           optional(:stream_discard) => String.t() | nil,
           optional(:stream_replicas) => pos_integer() | nil,
           optional(:stream_max_bytes) => pos_integer() | nil,
-          optional(:stream_max_age) => pos_integer() | nil,
+          optional(:stream_max_age) => non_neg_integer() | nil,
           optional(:stream_duplicate_window) => pos_integer() | nil,
           optional(:consumer_max_deliver) => integer() | nil,
           optional(:dead_letter_after_deliveries) => pos_integer() | nil,
@@ -316,7 +316,7 @@ defmodule ServiceRadar.EventWriter.Config do
           do:
             raise(
               ArgumentError,
-              "unsafe EDGE_RECORD_RECOVERY stream: require reserved WorkQueue delivery, finite retention and at least 4 MiB"
+              "unsafe EDGE_RECORD_RECOVERY stream: require WorkQueue, no age expiry, and at least 4 MiB"
             )
 
       _ ->
@@ -340,7 +340,7 @@ defmodule ServiceRadar.EventWriter.Config do
 
     Map.take(stream, fixed) == Map.take(edge_record_recovery_stream(), fixed) and
       is_integer(stream[:stream_max_bytes]) and stream.stream_max_bytes >= 4_194_304 and
-      is_integer(stream[:stream_max_age]) and stream.stream_max_age > 0 and
+      stream[:stream_max_age] === 0 and
       is_nil(stream[:dead_letter_after_deliveries]) and
       stream[:ensure_stream] != false and stream[:reconcile_stream_shape] != false and
       stream[:consumer_deliver_policy] in [nil, :all]
@@ -935,9 +935,11 @@ defmodule ServiceRadar.EventWriter.Config do
   A page ACK follows its exact durable receipt, so WorkQueue retention releases that
   broker space even while the full manifest is incomplete. A complete manifest whose
   mapping is pending or blocked remains unacknowledged with unlimited redelivery.
-  DiscardNew preserves held work at capacity; the finite age is reported by the same
-  retention-risk diagnostics as other edge streams. No overlapping recovery consumer
-  or dead-letter threshold may turn an incomplete recovery into terminal success.
+  DiscardNew and a finite byte ceiling preserve held work at capacity. MaxAge is
+  zero: pending repair evidence cannot expire before its consumer commits. The same
+  retention-risk diagnostics report actual backlog and byte utilization. No
+  overlapping recovery consumer or dead-letter threshold may turn an incomplete
+  recovery into terminal success.
   """
   @spec edge_record_recovery_stream() :: stream_config()
   def edge_record_recovery_stream do
@@ -954,7 +956,7 @@ defmodule ServiceRadar.EventWriter.Config do
       stream_discard: "new",
       stream_replicas: 3,
       stream_max_bytes: 67_108_864,
-      stream_max_age: 86_400_000_000_000,
+      stream_max_age: 0,
       consumer_max_deliver: -1
     }
   end

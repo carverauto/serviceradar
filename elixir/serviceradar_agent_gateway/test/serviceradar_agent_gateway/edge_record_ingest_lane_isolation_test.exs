@@ -6,7 +6,8 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
 
   Each property is observed rather than inferred from the source. The lane runs in its own
   process and offers to a REAL `PublishPipeline`, whose workers publish through the REAL
-  `JetStreamPublisher` and `PublisherPool`; only the NATS connection is a double, so every broker
+  `JetStreamPublisher` and `PublisherPool`; the NATS connection and scoped core coverage read
+  are external doubles, so every broker
   answer below goes through the production PubAck parsing and fencing. The buffer, ack and call
   detectors each have a control showing they fire when the property is broken.
   """
@@ -28,6 +29,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
   alias ServiceRadarAgentGateway.Config
   alias ServiceRadarAgentGateway.EdgeRecordIngestServer
   alias ServiceRadarAgentGateway.EdgeRecordTrust
+  alias ServiceRadarAgentGateway.EdgeRecoveryRPC
   alias ServiceRadarAgentGateway.JetStreamPublisher
   alias ServiceRadarAgentGateway.StatusBuffer
   alias ServiceRadarAgentGateway.StatusProcessor
@@ -43,7 +45,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
   ]
 
   # Everything a lane could use to hand a record to Core instead of to a JetStream stream.
-  @handoff_modules [:rpc, :erpc, Gnat, Connection, StatusProcessor, StatusBuffer]
+  @handoff_modules [:rpc, :erpc, Gnat, Connection, StatusProcessor, StatusBuffer, EdgeRecoveryRPC]
 
   # Answers a real broker, or a non-authoritative hop in front of one, gives a publish request.
   # None of them is a PubAck from the stream the request named.
@@ -72,9 +74,14 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
 
       case Process.get(:isolation_reply, :pub_ack) do
         :pub_ack ->
-          seq = Process.get(:isolation_seq, 0) + 1
-          Process.put(:isolation_seq, seq)
-          {:ok, %{body: Jason.encode!(%{stream: expected_stream(headers), seq: seq})}}
+          pub_ack(headers)
+
+        {:hold, ref} ->
+          receive do
+            {:release, ^ref} -> pub_ack(headers)
+          after
+            Keyword.fetch!(opts, :receive_timeout) -> {:error, :timeout}
+          end
 
         :expected_stream_zero_seq ->
           {:ok, %{body: Jason.encode!(%{stream: expected_stream(headers), seq: 0})}}
@@ -82,6 +89,12 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
         reply ->
           reply
       end
+    end
+
+    defp pub_ack(headers) do
+      seq = Process.get(:isolation_seq, 0) + 1
+      Process.put(:isolation_seq, seq)
+      {:ok, %{body: Jason.encode!(%{stream: expected_stream(headers), seq: seq})}}
     end
 
     defp expected_stream(headers), do: Enum.find_value(headers, fn {k, v} -> if k == "Nats-Expected-Stream", do: v end)
@@ -92,6 +105,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
       :edge_record_ingest_pipelines,
       :edge_record_ingest_identity_resolver,
       :edge_record_ingest_capability,
+      :edge_recovery_control_rpc,
       :edge_record_ingest_task_supervisor
     ]
 
@@ -102,6 +116,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
     put_env(:edge_record_ingest_identity_resolver, EdgeRecordIdentityResolverStub)
     put_env(:edge_record_ingest_capability, EdgeRecordCapabilityStub)
     put_env(:edge_record_ingest_task_supervisor, __MODULE__.TaskSupervisor)
+    put_env(:edge_recovery_control_rpc, fn _, _, _, _ -> {:ok, :none} end)
 
     # Every frame is authorized locally before it is offered, so the lane needs a trust snapshot
     # that verifies the records `delivery/1` signs, fences their producer and binds their agent to
@@ -161,6 +176,31 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
     assert {:ok, _} = JetStreamPublisher.publish_record(publication, pools: pools, connection: FakeConn)
     assert_receive {:jetstream_request, _, subject, ^raw, headers}
     assert byte_size(subject) + 12 + IO.iodata_length(Gnat.Headers.encode(headers)) <= 16_384
+  end
+
+  test "a queued record whose coverage expires never publishes or consumes a new credit" do
+    pools = start_pools()
+    pool = Map.fetch!(pools, :bulk)
+    initial_capacity = PublisherPool.capacity(pool)
+    pipeline = start_pipeline(pools, 10_000)
+    ref = make_ref()
+    lane = start_lane([lane_open(), delivery(1), delivery(2)], pipeline: pipeline, reply: {:hold, ref})
+    go(lane)
+    assert_receive {:jetstream_request, worker, _, _, _}, 1_000
+    Agent.update(pipeline.reply, fn _ -> :pub_ack end)
+    assert_eventually(fn -> PublishPipeline.stats(pipeline.pid).queued == 1 end, "second frame was not queued")
+    Process.sleep(5_050)
+    send(worker, {:release, ref})
+    assert {:ok, :ok} = await_lane(lane)
+
+    assert_received {:edge_record_stream_reply,
+                     %EdgeRecordServerMessage{payload: {:ack, %{resolved_through_sequence: 1}}}}
+
+    refute_received {:edge_record_stream_reply,
+                     %EdgeRecordServerMessage{payload: {:ack, %{resolved_through_sequence: 2}}}}
+
+    refute_received {:jetstream_request, _, _, _, _}
+    assert PublisherPool.capacity(pool) == initial_capacity
   end
 
   describe "never enters StatusBuffer" do
@@ -242,7 +282,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
       assert [%EdgeRecordDisposition{sequence: 50, kind: @accepted}] = ack.dispositions
     end
 
-    test "neither the lane nor its publish workers make an ERTS RPC, Core NATS publish or StatusProcessor call",
+    test "publication uses JetStream after the scoped coverage read, without a Core NATS or status handoff",
          %{pipeline: pipeline} do
       calls =
         trace_handoff_calls(pipeline, fn ->
@@ -250,7 +290,9 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
           {lane, fn -> await_lane(lane) end}
         end)
 
-      {publishes, handoffs} = Enum.split_with(calls, &match?({JetStreamPublisher, _, _}, &1))
+      {coverage, publication_calls} = Enum.split_with(calls, &match?({EdgeRecoveryRPC, _, _}, &1))
+      assert coverage == [{EdgeRecoveryRPC, :call, :called}]
+      {publishes, handoffs} = Enum.split_with(publication_calls, &match?({JetStreamPublisher, _, _}, &1))
       assert handoffs == []
 
       # Control: the trace reached the processes that actually publish, which are the pipeline's
@@ -337,7 +379,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
   # workers are not the lane process, so each takes the test pid and the broker's current answer
   # from here. One worker at a time, so a session's requests and acks arrive in sequence order and
   # compare exactly; concurrency is `ServiceRadar.Edge.PublishPipelineTest`'s subject.
-  defp start_pipeline(pools) do
+  defp start_pipeline(pools, receive_timeout \\ 1_000) do
     test_pid = self()
     reply = start_supervised!({Agent, fn -> :pub_ack end}, id: make_ref())
     tasks = start_supervised!({Task.Supervisor, []}, id: make_ref())
@@ -345,7 +387,8 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
     publisher = fn publication, opts ->
       Process.put(:isolation_test_pid, test_pid)
       Process.put(:isolation_reply, Agent.get(reply, & &1))
-      JetStreamPublisher.publish_record(publication, Keyword.merge(opts, connection: FakeConn, receive_timeout: 1_000))
+      opts = Keyword.merge(opts, connection: FakeConn, receive_timeout: receive_timeout)
+      JetStreamPublisher.publish_record(publication, opts)
     end
 
     pid =

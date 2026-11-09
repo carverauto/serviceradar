@@ -287,6 +287,52 @@
 - Verdict: sound. Reuses existing signature and trust verification without a new
   signature ABI or a caller-created deletion permission.
 - Confidence: high; integration with journal release remains the next storage pass.
+
+## Recovery uses its own acknowledged work queue
+
+- When: consumer/catalog integration, 2026-11-09.
+- Choice: recovery controls use the existing EdgeRecord provenance and ledger
+  transaction, a dedicated WorkQueue stream and one shared durable consumer.
+  Exact incomplete receipts can ACK after commit; complete-manifest mapping
+  pending/blocked commits its evidence and NAKs without a delivery-count terminal
+  path. Ledger replay revisits the durable operation; late-fenced audit delivery
+  never applies authoritative repair.
+- Gap: a limits-retained stream can remain full after every receipt is durable,
+  preventing its recovery producer from progressing. WorkQueue removes ACKed
+  receipts, while CNPG retains their exact replay evidence. Its single overlapping
+  consumer rule is intentional; adding another recovery subscription is refused.
+- Reach: startup rejects unsafe retention/discard/delivery overrides and budgets
+  below 4 MiB. Defaults reserve 64 MiB; the tenant profile reserves 4 MiB. Small
+  and tenant move capacity from primary bulk to preserve their total disk budget.
+  Existing retention-risk reporting includes actual recovery backlog. MaxAge is
+  zero: a pending or blocked mapping keeps its delivery until committed repair.
+  Review corrected the initial 24-hour implementation choice, which could expire
+  that evidence despite withholding ACK. The finite byte ceiling and DiscardNew
+  preserve bounded storage through capacity refusal rather than age eviction.
+- Verdict: sound. Production grants now use the catalog's exact recovery lane;
+  source authorization remains a separate registered-body issuance gate. The
+  catalog's cost ceiling accounts for the complete manifest, not just one page.
+- Confidence: pure/runtime/chart boundaries passed with three intentional
+  negative controls. Receipt rollback, deferred replay and post-repair convergence
+  are covered by boxed DB tests, pending guarded integration execution.
+
+## Keep issuance proof outside assignment lifecycle
+
+- When: retention audit, 2026-11-09.
+- Choice: the mapping ledger has no TTL, destroy action, or foreign-key cascade
+  from sweep assignments, groups or execution slots. Its original signed evidence
+  and positive/negative projection remain unreclaimed until a complete safety
+  witness covers recovery, redrive and lifecycle consumers.
+- Gap: sweep-group destruction really cascades into assignments and execution
+  slots; deriving historical mapping from those rows would erase recovery proof.
+- Reach: extend that existing lifecycle test at the actual lease delivery owner.
+  It records the historical execution/plan/range lookup, destroys the group,
+  verifies assignment and slot deletion, then requires the identical lookup both
+  before and after the revocation acknowledgment removes delivery state.
+- Verdict: conservative and sound. This is retained evidence, not an implemented
+  safe mapping-deletion API or a claim that elapsed time proves retention safety.
+- Confidence: unit shard compilation and quality checks passed. The new lifecycle
+  assertions still require guarded database execution before task 1.4 is complete.
 ## One grant owns data and recovery-control attempts
 
 - When: reserve lifecycle pass, 2026-11-09.
@@ -376,49 +422,6 @@
   derived archive reserve. Actual archive enforcement remains the next slice.
 - Confidence: high on the interval; medium on the framing headroom until the
   archive implementation and near-full generation proof establish its exact bound.
-
-## Recovery uses its own acknowledged work queue
-
-- When: consumer/catalog integration, 2026-11-09.
-- Choice: recovery controls use the existing EdgeRecord provenance and ledger
-  transaction, a dedicated WorkQueue stream and one shared durable consumer.
-  Exact incomplete receipts can ACK after commit; complete-manifest mapping
-  pending/blocked commits its evidence and NAKs without a delivery-count terminal
-  path. Ledger replay revisits the durable operation; late-fenced audit delivery
-  never applies authoritative repair.
-- Gap: a limits-retained stream can remain full after every receipt is durable,
-  preventing its recovery producer from progressing. WorkQueue removes ACKed
-  receipts, while CNPG retains their exact replay evidence. Its single overlapping
-  consumer rule is intentional; adding another recovery subscription is refused.
-- Reach: startup rejects unsafe retention/discard/delivery overrides and budgets
-  below 4 MiB. Defaults reserve 64 MiB; the tenant profile reserves 4 MiB. Small
-  and tenant move capacity from primary bulk to preserve their total disk budget.
-  Existing retention-risk reporting includes actual recovery backlog. MaxAge is
-  finite, so journal replay remains required after broker expiry.
-- Verdict: sound. Production grants now use the catalog's exact recovery lane;
-  source authorization remains a separate registered-body issuance gate. The
-  catalog's cost ceiling accounts for the complete manifest, not just one page.
-- Confidence: pure/runtime/chart boundaries passed with three intentional
-  negative controls. Receipt rollback, deferred replay and post-repair convergence
-  are covered by boxed DB tests, pending guarded integration execution.
-
-## Keep issuance proof outside assignment lifecycle
-
-- When: retention audit, 2026-11-09.
-- Choice: the mapping ledger has no TTL, destroy action, or foreign-key cascade
-  from sweep assignments, groups or execution slots. Its original signed evidence
-  and positive/negative projection remain unreclaimed until a complete safety
-  witness covers recovery, redrive and lifecycle consumers.
-- Gap: sweep-group destruction really cascades into assignments and execution
-  slots; deriving historical mapping from those rows would erase recovery proof.
-- Reach: extend that existing lifecycle test at the actual lease delivery owner.
-  It records the historical execution/plan/range lookup, destroys the group,
-  verifies assignment and slot deletion, then requires the identical lookup both
-  before and after the revocation acknowledgment removes delivery state.
-- Verdict: conservative and sound. This is retained evidence, not an implemented
-  safe mapping-deletion API or a claim that elapsed time proves retention safety.
-- Confidence: unit shard compilation and quality checks passed. The new lifecycle
-  assertions still require guarded database execution before task 1.4 is complete.
 
 ## No-drop archive and bounded-source reclamation
 
@@ -591,3 +594,33 @@
   or permission to overwrite older transport records.
 - Confidence: high; maximum encoded bundles and receipts are bounded, and mixed
   attempt coverage has an observed failing control.
+## Source-session coverage reads have a five-second lifetime
+
+- When: gateway consumer-coverage integration, 2026-11-09.
+- Choice: the gateway learns the deployment scope only from an authenticated
+  signed frame. After that binding and registry admission, it reads coverage for
+  exactly that agent, source spool and lane. The session reuses the answer for at
+  most five seconds measured from the request's start. A slow response cannot
+  give an old answer a new lifetime; unavailable or expired reads close the
+  session retryably and retain the agent's records.
+- Gap: the design requires ordinary delivery to respect committed recovery
+  coverage, but the existing trust snapshot carries producer epochs rather than
+  source-generation progress.
+- Reach: core reads the existing recovery generation and generation fence. No
+  duplicate progress table, global generation cache, ordinary disposition or
+  delivery-prefix mutation is introduced. If committed coverage passes the
+  session's acknowledged watermark, or its source generation is fenced, the
+  session closes so the agent can obtain signed recovery proof. New generations
+  and the recovery control lane keep their independent scoped lookups.
+- Queue handoff: the same deadline follows the frame through the bounded queue
+  and publisher pool. Expiry before provisional ownership confirmation cancels
+  the attempt: new credit is released, while a rearmed uncertain charge remains
+  retryable. Checking only ingress admission let an ordinary queued frame publish
+  after freshness expired; calling `attempt_failed` on a newly confirmed charge
+  would leave known-unpublished credit stranded when the next session is fenced.
+  The existing provisional cancellation contract handles both cases without
+  adding a general retirement mechanism or claiming atomic clock-to-network I/O.
+- Verdict: sound. Root approved the bounded refresh and retryable closure. The
+  finite delay is explicit; the agent coordinator also closes the original
+  source session as soon as it freezes a recovery.
+- Confidence: high.
