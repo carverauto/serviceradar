@@ -650,7 +650,8 @@ func configSectionDispositionString(d addonDeliveryDisposition) string {
 	return configSectionDispositionSuccess
 }
 
-// configApplyFailureStatuses surfaces permanently-failing add-on config sections in the
+// configApplyFailureStatuses surfaces permanently-failing add-on config sections, plus
+// any recorded visibility (netprobe) failure including a transient one, in the
 // AddonStatus read model (parity with addonDeliveryFailureStatuses for artifact
 // failures). Unlike delivery failures — where a still-running last-known-good process is
 // the richer truth — a config-apply failure means the add-on is RUNNING WITH THE WRONG
