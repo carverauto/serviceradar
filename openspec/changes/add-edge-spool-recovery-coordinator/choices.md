@@ -401,3 +401,21 @@
 - Confidence: pure/runtime/chart boundaries passed with three intentional
   negative controls. Receipt rollback, deferred replay and post-repair convergence
   are covered by boxed DB tests, pending guarded integration execution.
+
+## Keep issuance proof outside assignment lifecycle
+
+- When: retention audit, 2026-11-09.
+- Choice: the mapping ledger has no TTL, destroy action, or foreign-key cascade
+  from sweep assignments, groups or execution slots. Its original signed evidence
+  and positive/negative projection remain unreclaimed until a complete safety
+  witness covers recovery, redrive and lifecycle consumers.
+- Gap: sweep-group destruction really cascades into assignments and execution
+  slots; deriving historical mapping from those rows would erase recovery proof.
+- Reach: extend that existing lifecycle test at the actual lease delivery owner.
+  It records the historical execution/plan/range lookup, destroys the group,
+  verifies assignment and slot deletion, then requires the identical lookup both
+  before and after the revocation acknowledgment removes delivery state.
+- Verdict: conservative and sound. This is retained evidence, not an implemented
+  safe mapping-deletion API or a claim that elapsed time proves retention safety.
+- Confidence: unit shard compilation and quality checks passed. The new lifecycle
+  assertions still require guarded database execution before task 1.4 is complete.

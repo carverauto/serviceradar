@@ -5,6 +5,11 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
   alias ServiceRadar.Edge.IssuerKey
   alias ServiceRadar.Edge.PipelineSetting
   alias ServiceRadar.Edge.RecoveryAssignmentEvidence
+  alias ServiceRadar.Edge.RecoveryAssignments
+  alias Serviceradar.Edge.V1.EdgeAttributedActiveV1
+  alias Serviceradar.Edge.V1.EdgeAttributedSpanIdentityV1
+  alias Serviceradar.Edge.V1.EdgeClassificationSpanV1
+  alias Serviceradar.Edge.V1.EdgeSourceSpanIdentityV1
   alias Serviceradar.Edge.V1.ScheduledPlanPageV1
   alias Serviceradar.Edge.V1.SweepLeaseV1
   alias ServiceRadar.Infrastructure.Agent
@@ -746,7 +751,31 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
     assert_receive {:pushed, _, _, first, _}
     assert {:ok, [_row]} = LeaseDelivery.list_for_group(group.id)
 
+    [slot | _] = first.slots
+    [source | _] = slot.source_authorizations
+    {:production, production} = first.production_capability.claims
+    span = historical_span(production, source)
+
+    assert {:found, original} =
+             RecoveryAssignments.lookup(production.network_scope_id, ctx.agent, span)
+
+    assert original["execution_id"] == Base.encode16(slot.execution_id, case: :lower)
+
+    assert original["plan"]["id"] ==
+             Base.encode16(slot.plan_header.execution_plan_id, case: :lower)
+
+    assert original["range"]["sha256"] == Base.encode16(source.scope_sha256, case: :lower)
     assert :ok = Ash.destroy(group, actor: ctx.admin)
+    assert {:ok, []} = ProducerAssignments.list_for_group(group.id)
+
+    assert %{rows: [[0]]} =
+             ServiceRadar.Repo.query!(
+               "SELECT count(*) FROM platform.sweep_execution_slots WHERE id = $1",
+               [slot.execution_id]
+             )
+
+    assert {:found, ^original} =
+             RecoveryAssignments.lookup(production.network_scope_id, ctx.agent, span)
 
     group_id = group.id
     assert {:ok, %{withdrawn: withdrawn}} = LeasePass.run(now, ctx.delivery)
@@ -770,6 +799,9 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
              })
 
     assert {:ok, []} = LeaseDelivery.list_for_group(group.id)
+
+    assert {:found, ^original} =
+             RecoveryAssignments.lookup(production.network_scope_id, ctx.agent, span)
   end
 
   test "an agent the group stops leasing to gets a revocation and loses its delivery", ctx do
@@ -1050,6 +1082,35 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
 
   # The group row is created disabled, so it schedules no Oban worker and the test can run
   # async; the pass is handed the enabled struct, which is what it evaluates.
+  # Construct the historical lookup from the authority actually delivered before
+  # deletion, independently of the current assignment/slot tables.
+  defp historical_span(production, source) do
+    %EdgeClassificationSpanV1{
+      from_sequence: 1,
+      through_sequence: 1,
+      classification:
+        {:attributed_active,
+         %EdgeAttributedActiveV1{
+           range_sha256: source.scope_sha256,
+           identity: %EdgeAttributedSpanIdentityV1{
+             producer_assignment_id: production.producer_assignment_id,
+             run_id: production.run_id,
+             run_shard: production.run_shard,
+             authority_epoch: production.authority_epoch,
+             production_scope_id: production.scope_id,
+             scope_sha256: production.scope_sha256,
+             contract_bundle_sha256: production.contract_bundle_sha256,
+             source: %EdgeSourceSpanIdentityV1{
+               kind: source.kind,
+               context_id: source.context_id,
+               source_scope_id: source.scope_id,
+               source_scope_sha256: source.scope_sha256
+             }
+           }
+         }}
+    }
+  end
+
   defp leased_group!(ctx, overrides \\ []) do
     unique = System.unique_integer([:positive, :monotonic])
 

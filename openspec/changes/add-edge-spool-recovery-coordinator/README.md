@@ -115,3 +115,9 @@ Update this pickup and the choices ledger after each verified commit checkpoint.
   byte-for-byte. Inventory checks passed (66 checks, one skip). New boxed
   EventWriter receipt/rollback/deferred replay tests compiled but were excluded
   by the unit shard; guarded DB execution remains required.
+- The actual sweep lease destruction/revocation test now checks historical mapping
+  survival after assignment and execution-slot cascade deletion. The sweep shard
+  passed in `3683aa5e-34d4-4ae2-8ac3-eda7eaf54738`; that run's quality attempt
+  found formatting and its automatic retry was stopped. Formatting was corrected
+  and quality passed in `edd7040c-3394-4428-9219-d9706dafbaa3`. The lifecycle DB
+  assertions were excluded from the unit shard and remain pending guarded execution.
