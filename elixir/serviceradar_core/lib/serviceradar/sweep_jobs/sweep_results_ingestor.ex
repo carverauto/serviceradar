@@ -2112,10 +2112,10 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   end
 
   defp availability_on_conflict_query do
-    # The batches of one execution (an agent's chunks, and this module's own batches) are
-    # one observation per device, as within a batch (dedupe_availability_records/1): once
-    # any address answered, the device is up for that execution, so a failure of another
-    # address in a later batch of the same execution never replaces it, and an answer
+    # The chunks an agent sends for one execution, each its own ingest, are one observation
+    # per device, as within an ingest (dedupe_availability_records/1): once any address
+    # answered, the device is up for that execution, so a failure of another address in a
+    # later chunk of the same execution never replaces it, and an answer
     # replaces a failure whatever their times. Across executions the newer result wins.
     from(a in DeviceAgentAvailability,
       where:
