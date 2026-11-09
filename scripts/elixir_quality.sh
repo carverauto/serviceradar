@@ -10,6 +10,7 @@ workspace_projects=(
   elixir/serviceradar_agent_gateway
   elixir/serviceradar_core
   elixir/serviceradar_core_elx
+  elixir/serviceradar_nvr
   elixir/serviceradar_recording
   elixir/serviceradar_srql
   elixir/web-ng

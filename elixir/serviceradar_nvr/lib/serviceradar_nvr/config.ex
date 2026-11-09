@@ -1,0 +1,66 @@
+defmodule ServiceRadarNVR.Config do
+  @moduledoc "Boot-time resource envelope. Storage is opened read-only on each admission."
+
+  defstruct [:root, :storage_id, :max_sessions, :max_duration_ms, :health_port]
+
+  def load(env) do
+    with {:ok, port} <- integer(env, "SERVICERADAR_NVR_HEALTH_PORT", 8095, 65_535),
+         {:ok, sessions} <- integer(env, "SERVICERADAR_NVR_MAX_SESSIONS", 1, 16),
+         {:ok, duration} <- integer(env, "SERVICERADAR_NVR_MAX_DURATION_MS", 30_000, 300_000),
+         {:ok, root, id} <- storage(env) do
+      config = %__MODULE__{
+        root: root,
+        storage_id: id,
+        max_sessions: sessions,
+        max_duration_ms: duration,
+        health_port: port
+      }
+
+      {:ok, config}
+    end
+  end
+
+  defp integer(env, key, default, ceiling) do
+    case Integer.parse(Map.get(env, key, Integer.to_string(default))) do
+      {n, ""} when n >= 1 and n <= ceiling -> {:ok, n}
+      _ -> {:error, {:invalid_nvr_limit, key}}
+    end
+  end
+
+  defp storage(env) do
+    with {:ok, id} <- storage_id(env) do
+      storage_root(Map.get(env, "SERVICERADAR_NVR_SPOOL_ROOT"), id)
+    end
+  end
+
+  defp storage_id(%{"SERVICERADAR_NVR_STORAGE_IDS" => ids} = env) do
+    with false <- Map.has_key?(env, "SERVICERADAR_NVR_STORAGE_ID"),
+         {:ok, members} when is_map(members) <- Jason.decode(ids),
+         {:ok, id} when is_binary(id) <- Map.fetch(members, Map.get(env, "SERVICERADAR_NVR_MEMBER_NAME")) do
+      {:ok, id}
+    else
+      _ -> {:error, :invalid_nvr_storage_member}
+    end
+  end
+
+  defp storage_id(env), do: {:ok, Map.get(env, "SERVICERADAR_NVR_STORAGE_ID")}
+
+  defp storage_root(root, id) do
+    case {root, id} do
+      {nil, nil} ->
+        {:ok, nil, nil}
+
+      {root, id} when is_binary(root) and is_binary(id) ->
+        with true <- Path.type(root) == :absolute and root != "/",
+             {:ok, canonical} <- Ecto.UUID.cast(id),
+             true <- canonical == id do
+          {:ok, root, id}
+        else
+          _ -> {:error, :invalid_nvr_storage}
+        end
+
+      _ ->
+        {:error, :invalid_nvr_storage}
+    end
+  end
+end

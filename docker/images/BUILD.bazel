@@ -236,6 +236,25 @@ declare_multiarch_image_index(
     image = ":core_elx_image_amd64",
 )
 
+# Independently deployable recording runtime; no core application is in this release.
+declare_elixir_release_container_with_debs_amd64(
+    name = "nvr_image_amd64",
+    base = select({
+        "//build/platforms:target_linux_arm64": "@ubuntu_noble_linux_arm64_v8//:ubuntu_noble_linux_arm64_v8",
+        "//conditions:default": "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
+    }),
+    cmd = ["start"],
+    deb_packages = [":agent_gateway_openssl_deb", ":agent_gateway_libssl3_deb"],
+    entrypoint = ["/app/bin/serviceradar_nvr"],
+    env = {"HOME": "/app", "PATH": "/app/bin:/usr/local/bin:/usr/bin:/bin", "MIX_ENV": "prod"},
+    image_title = "serviceradar-nvr",
+    local_repo_tag = "registry.carverauto.dev/serviceradar/serviceradar-nvr:local",
+    release_tar = "//elixir/serviceradar_nvr:release_tar",
+    workdir = "/app",
+)
+
+declare_multiarch_image_index(name = "nvr_image_multiarch", image = ":nvr_image_amd64")
+
 # elixir agent-gateway -------------------------------------------------------
 
 # The two OpenSSL debs the gateway overlays, selected per target architecture.
@@ -877,6 +896,7 @@ _MULTIARCH_INDEXES = [
     "flow_collector_image_multiarch",
     "k8s_inventory_image_multiarch",
     "log_collector_image_multiarch",
+    "nvr_image_multiarch",
     "rperf_client_image_multiarch",
     "tools_image_multiarch",
     "trapd_image_multiarch",

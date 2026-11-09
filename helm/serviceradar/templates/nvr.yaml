@@ -1,0 +1,130 @@
+{{- $nvr := default (dict) .Values.nvr -}}
+{{- if $nvr.enabled -}}
+{{- $name := printf "%s-nvr" (include "serviceradar.fullname" .) -}}
+{{- $storage := $nvr.storage -}}
+{{- $class := required "nvr.storage.storageClassName must name a qualified node-loss-tolerant CSI class" $storage.storageClassName -}}
+{{- $replicas := int $nvr.replicas -}}
+{{- if lt $replicas 1 -}}{{- fail "nvr.replicas must be positive" -}}{{- end -}}
+{{- $seen := dict -}}
+{{- range $ordinal := until $replicas -}}
+{{- $member := printf "%s-%d" $name $ordinal -}}
+{{- $id := required (printf "nvr.storage.storageIds must provision %s" $member) (index $storage.storageIds $member) -}}
+{{- if not (regexMatch "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" $id) -}}{{- fail "NVR storage identities must be canonical UUIDs" -}}{{- end -}}
+{{- if hasKey $seen $id -}}{{- fail "NVR replicas must have distinct storage identities" -}}{{- end -}}
+{{- $_ := set $seen $id true -}}
+{{- end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+spec:
+  clusterIP: None
+  selector:
+    app: serviceradar-nvr
+  ports:
+    - name: health
+      port: 8095
+      targetPort: health
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+spec:
+  serviceName: {{ $name }}
+  replicas: {{ $replicas }}
+  podManagementPolicy: Parallel
+  # Operator-coordinated updates until assignment drain/fencing is implemented.
+  updateStrategy:
+    type: OnDelete
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+  selector:
+    matchLabels:
+      app: serviceradar-nvr
+  template:
+    metadata:
+      labels:
+        app: serviceradar-nvr
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app: serviceradar-nvr
+      {{- with $nvr.nodeSelector }}
+      nodeSelector: {{ toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $nvr.tolerations }}
+      tolerations: {{ toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: nvr
+          image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "service" "nvr" "name" "serviceradar-nvr") | quote }}
+          imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+          args: [start]
+          ports:
+            - name: health
+              containerPort: 8095
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          env:
+            - name: RELEASE_TMP
+              value: /tmp
+            - name: SERVICERADAR_NVR_MEMBER_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: SERVICERADAR_NVR_STORAGE_IDS
+              value: {{ toJson $storage.storageIds | quote }}
+            - name: SERVICERADAR_NVR_SPOOL_ROOT
+              value: /var/lib/serviceradar-nvr/spool
+            - name: SERVICERADAR_NVR_MAX_SESSIONS
+              value: {{ $nvr.maxSessions | quote }}
+            - name: SERVICERADAR_NVR_MAX_DURATION_MS
+              value: {{ $nvr.maxDurationMs | quote }}
+          resources: {{ toYaml $nvr.resources | nindent 12 }}
+          startupProbe:
+            httpGet: {path: /healthz, port: health}
+            failureThreshold: 30
+            periodSeconds: 2
+          livenessProbe:
+            httpGet: {path: /healthz, port: health}
+          readinessProbe:
+            httpGet: {path: /readyz, port: health}
+          volumeMounts:
+            - name: recording
+              mountPath: /var/lib/serviceradar-nvr
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+  volumeClaimTemplates:
+    - metadata:
+        name: recording
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: {{ $class | quote }}
+        resources:
+          requests:
+            storage: {{ $storage.size | quote }}
+{{- end }}

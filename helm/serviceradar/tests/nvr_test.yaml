@@ -1,0 +1,49 @@
+suite: independently replicated NVR runtime and retained storage
+templates:
+  - templates/nvr.yaml
+tests:
+  - it: creates no NVR resources by default
+    asserts:
+      - hasDocuments: {count: 0}
+  - it: requires explicit durable storage selection
+    set:
+      nvr.enabled: true
+    asserts:
+      - failedTemplate:
+          errorMessage: nvr.storage.storageClassName must name a qualified node-loss-tolerant CSI class
+  - it: requires a distinct identity for every replica
+    set:
+      nvr.enabled: true
+      nvr.storage.storageClassName: example-replicated
+      nvr.storage.storageIds:
+        serviceradar-nvr-0: 00000000-0000-4000-8000-000000000011
+        serviceradar-nvr-1: 00000000-0000-4000-8000-000000000011
+    asserts:
+      - failedTemplate:
+          errorMessage: NVR replicas must have distinct storage identities
+  - it: retains per-replica volumes through scale-down and workload deletion
+    set:
+      nvr.enabled: true
+      nvr.storage.storageClassName: example-replicated
+      nvr.storage.storageIds:
+        serviceradar-nvr-0: 00000000-0000-4000-8000-000000000011
+        serviceradar-nvr-1: 00000000-0000-4000-8000-000000000012
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - equal: {path: "spec.replicas", value: 2}
+      - equal:
+          path: spec.persistentVolumeClaimRetentionPolicy
+          value: {whenDeleted: Retain, whenScaled: Retain}
+      - equal: {path: "spec.updateStrategy.type", value: OnDelete}
+      - equal: {path: "spec.volumeClaimTemplates[0].spec.storageClassName", value: example-replicated}
+      - equal: {path: "spec.volumeClaimTemplates[0].spec.accessModes", value: [ReadWriteOnce]}
+      - equal: {path: "spec.template.spec.automountServiceAccountToken", value: false}
+      - equal: {path: "spec.template.spec.containers[0].args", value: [start]}
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: "/serviceradar-nvr:"
+      - notExists: {path: "spec.template.spec.initContainers"}
+      - equal: {path: "spec.template.spec.containers[0].readinessProbe.httpGet.path", value: /readyz}
+      - equal: {path: "spec.template.spec.containers[0].resources.limits.memory", value: 1Gi}

@@ -1,6 +1,7 @@
 """Shared inventory for publishable OCI images."""
 
 PUBLISHABLE_IMAGES = [
+    {"image": "nvr_image_amd64", "push_image": "nvr_image_multiarch", "repository": "registry.carverauto.dev/serviceradar/serviceradar-nvr"},
     {"image": "core_elx_image_amd64", "repository": "registry.carverauto.dev/serviceradar/serviceradar-core-elx"},
     {"image": "agent_image_amd64", "push_image": "agent_image_multiarch", "repository": "registry.carverauto.dev/serviceradar/serviceradar-agent"},
     {"image": "trivy_sidecar_image_amd64", "push_image": "trivy_sidecar_image_multiarch", "repository": "registry.carverauto.dev/serviceradar/serviceradar-trivy-sidecar"},
