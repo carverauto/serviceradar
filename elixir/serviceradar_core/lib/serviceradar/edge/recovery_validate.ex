@@ -327,6 +327,18 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
   # map without that key raises KeyError inside a function contracted to return
   # `{:error, reason}`. Matching the struct makes an unrecognised body the same typed
   # refusal as an unset oneof, which is what it is: a classification no consumer can act on.
+  @doc "Validates an attributed span for a recovery assignment lookup, independently of its interval."
+  @spec attributed_span(term()) :: :ok | {:error, error()}
+  def attributed_span(%EdgeClassificationSpanV1{classification: {kind, _}} = span)
+      when kind in [:attributed_active, :attributed_passive] do
+    with :ok <- check(WireShape.wire_shaped?(span), :manifest_span_body),
+         :ok <- check(no_unknown_fields?(span), :unknown_fields) do
+      span_body(span)
+    end
+  end
+
+  def attributed_span(_), do: {:error, :manifest_span_body}
+
   defp span_body(%{classification: {:attributed_active, %EdgeAttributedActiveV1{} = b}}) do
     with :ok <- identity(b.identity) do
       # range_sha256 is REQUIRED on ACTIVE and absent on PASSIVE.
