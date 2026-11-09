@@ -28,6 +28,7 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
 
   @required_production_workers [
     ServiceRadar.CompositeChecks.TickWorker,
+    ServiceRadar.Edge.EdgeLedgerRetentionWorker,
     ServiceRadar.Edge.RemoteAccessRecordingReaperWorker,
     ServiceRadar.Edge.RemoteAccessVersionRetentionWorker,
     ServiceRadar.Identity.SAMLAssertionCleanupWorker,

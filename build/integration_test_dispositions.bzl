@@ -37,6 +37,7 @@ ASYNC_INTEGRATION_SRCS = [
     "test/serviceradar/edge/agent_control_session_push_isolation_test.exs",
     "test/serviceradar/edge/agent_gateway_sync_config_ack_test.exs",
     "test/serviceradar/edge/contract_registry_db_test.exs",
+    "test/serviceradar/edge/edge_ledger_retention_worker_db_test.exs",
     "test/serviceradar/edge/issuer_key_db_test.exs",
     "test/serviceradar/edge/output_grants_db_test.exs",
     "test/serviceradar/edge/pipeline_settings_db_test.exs",
