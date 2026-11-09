@@ -135,6 +135,18 @@ authorize a replacement. Durable recovery, fencing and task 2.5 remain open.
 
 ## 3. Storage modes and recovery
 
+Block rotation checkpoint for 3.2: the finite standalone session seals a full
+block before admitting its successor, keeps its original deadline and media
+packager, and reuses verified initialization data with an incremented block
+sequence. Capacity replacement is serialized and retains the old block's bytes
+in inventory. A refused successor stops capture without deleting completed
+blocks. Local notifications expose sealed snapshots but are not a durable
+outbox or catalog. Synthetic release tests recover and independently decode
+multiple blocks after restart and verify preserved coverage when the next
+reservation is refused. Continuous authority, durable gap/outbox state, reserved
+on-disk control allocation and automated recovery remain open; task 3.2 is not
+complete.
+
 Aggregate admission checkpoint for 2.1/3.2: the standalone finite-block runtime
 serializes full-block reservations against a configurable per-replica logical
 spool budget and available filesystem space. Read-only inventory counts retained

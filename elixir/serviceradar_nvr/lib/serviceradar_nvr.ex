@@ -1,6 +1,6 @@
 defmodule ServiceRadarNVR do
   @moduledoc """
-  Local service boundary for one finite, provisional recording block.
+  Local service boundary for a finite recording session with bounded local blocks.
 
   Only trusted code in this VM may call this API. It is not an enrollment,
   assignment or offline-authority protocol. Only health probes are exposed over HTTP; no media or control listener exists.
@@ -8,6 +8,10 @@ defmodule ServiceRadarNVR do
   enters through Inbox.offer/2 and ends through Inbox.finish/1. Terminal results
   arrive as `{:nvr_recording, pid, result}`. A sealed local snapshot is not a
   catalog, archive or playback receipt.
+
+  Full blocks produce `{:nvr_block_sealed, pid, receipt}` before admission of
+  their successor. The terminal success contains the final block. These local
+  notifications are not a durable outbox; retained journals are recovery evidence.
   """
 
   alias ServiceRadarNVR.Session

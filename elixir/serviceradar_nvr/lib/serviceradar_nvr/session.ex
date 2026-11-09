@@ -48,7 +48,13 @@ defmodule ServiceRadarNVR.Session do
   def handle_call(:inbox, _from, state), do: {:reply, state.inbox, state}
 
   def handle_call(:status, _from, state),
-    do: {:reply, %{last_sequence: state.last_sequence, remaining_ms: Inbox.remaining_ms(state.inbox)}, state}
+    do:
+      {:reply,
+       %{
+         last_sequence: state.last_sequence,
+         block_sequence: state.writer.identity.block_sequence,
+         remaining_ms: Inbox.remaining_ms(state.inbox)
+       }, state}
 
   def handle_call(:stop, _from, state) do
     notify(state, {:error, :cancelled})
@@ -58,7 +64,7 @@ defmodule ServiceRadarNVR.Session do
   @impl true
   def handle_info({:recording_media, id, unit}, %{inbox: %{id: id}} = state) do
     with :ok <- continuous(state.last_sequence, unit.sequence),
-         {:ok, writer} <- Writer.push(state.writer, unit, fn -> admitted(state) end),
+         {:ok, writer} <- Writer.push(state.writer, unit, fn -> admitted(state) end, next_block(state)),
          :ok <- Inbox.release(state.inbox, byte_size(unit.payload)) do
       {:noreply, %{state | writer: writer, last_sequence: unit.sequence}}
     else
@@ -67,7 +73,7 @@ defmodule ServiceRadarNVR.Session do
   end
 
   def handle_info({:recording_end, id}, %{inbox: %{id: id}} = state) do
-    with {:ok, writer} <- Writer.flush(state.writer, fn -> admitted(state) end),
+    with {:ok, writer} <- Writer.flush(state.writer, fn -> admitted(state) end, next_block(state)),
          {:ok, writer} <- Writer.seal(writer, fn -> admitted(state) end) do
       notify(state, {:ok, %{snapshot: Writer.snapshot(writer), init_format: writer.init_format}})
       {:stop, :normal, %{state | writer: writer}}
@@ -101,6 +107,17 @@ defmodule ServiceRadarNVR.Session do
   end
 
   defp notify(state, result), do: send(state.inbox.producer, {:nvr_recording, self(), result})
+
+  defp next_block(state) do
+    fn snapshot, init_format ->
+      send(state.inbox.producer, {:nvr_block_sealed, self(), %{snapshot: snapshot, init_format: init_format}})
+
+      with :ok <- Capacity.next_block(state.reservation),
+           :ok <- Inbox.usable(state.inbox) do
+        {:ok, %{state.writer.identity | block_sequence: snapshot.identity["block_sequence"] + 1}}
+      end
+    end
+  end
 
   defp admitted(state) do
     with :ok <- Inbox.usable(state.inbox),
