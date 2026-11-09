@@ -179,7 +179,10 @@ func (s *Spool) reclaimLocked() error {
 	}
 	if s.alloc != nil {
 		s.alloc.mu.Lock()
-		held := s.alloc.heldInLaneLocked(s.dir) > 0
+		// An operation retains cleanup ownership even after source release
+		// transfers destination bytes to ordinary accounting. Otherwise another
+		// free recovery slot could invoke the evicting quarantine before archive.
+		held := s.alloc.recoveryOwnerLocked(s.dir) != nil || s.alloc.heldInLaneLocked(s.dir) > 0
 		s.alloc.mu.Unlock()
 		if held {
 			return nil

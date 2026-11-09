@@ -60,7 +60,7 @@ func (o *RecoveryOperation) ArchiveTerminalEvidence() error {
 		return err
 	}
 	descriptor := recoveryArchiveDescriptor{RetainedThrough: o.source.Resolved()}
-	header := o.archiveHeader(descriptor.RetainedThrough, len(entries))
+	header := recoveryArchiveHeader(o.frozen, o.plan.ReclaimThrough, o.plan.HighWater, descriptor.RetainedThrough, len(entries))
 	descriptor.Size = uint64(len(header))
 	for _, entry := range entries {
 		descriptor.Size += uint64(len(archiveEntryHeader(entry))) + entry.size
@@ -91,7 +91,8 @@ func (o *RecoveryOperation) ArchiveTerminalEvidence() error {
 		return err
 	}
 	descriptor.SHA256 = hash.Sum(nil)
-	if err = o.writeArchive(descriptor, produce); err != nil {
+	writer := recoveryArchiveWriter{o.dir, recoveryArchiveFile, ArtifactMapping, o.frozen, o.grant}
+	if err = writer.write(descriptor, produce); err != nil {
 		return err
 	}
 	raw, err := json.Marshal(descriptor)
@@ -105,9 +106,9 @@ func (o *RecoveryOperation) ArchiveTerminalEvidence() error {
 	return err
 }
 
-func (o *RecoveryOperation) archiveHeader(resolved uint64, count int) []byte {
-	raw := append([]byte(recoveryArchiveMagic), o.frozen[:]...)
-	for _, n := range []uint64{o.plan.ReclaimThrough, o.plan.HighWater, resolved} {
+func recoveryArchiveHeader(frozen [32]byte, base, high, resolved uint64, count int) []byte {
+	raw := append([]byte(recoveryArchiveMagic), frozen[:]...)
+	for _, n := range []uint64{base, high, resolved} {
 		raw = binary.BigEndian.AppendUint64(raw, n)
 	}
 	return binary.BigEndian.AppendUint32(raw, uint32(count))
@@ -151,7 +152,14 @@ func (o *RecoveryOperation) archiveEntries() ([]recoveryArchiveEntry, error) {
 	if s.baseSeq != o.plan.ReclaimThrough || s.nextSeq-1 != o.plan.HighWater || o.plan.First != s.baseSeq+1 || o.plan.Last != o.plan.HighWater {
 		return nil, ErrRecoverySplitRequired
 	}
-	if o.plan.HighWater-o.plan.ReclaimThrough > edgerecord.MaxRecoverySlots {
+	return collectRecoveryArchive(s, o.grant.alloc.budgets[ArtifactMapping], false)
+}
+
+// collectRecoveryArchive requires s.mu and a sealed or recovery-held generation.
+// forceAll preserves ambiguous superseded controls without manufacturing terminal
+// dispositions; all their original allocation, record and binding bytes survive.
+func collectRecoveryArchive(s *Spool, maxBytes uint64, forceAll bool) ([]recoveryArchiveEntry, error) {
+	if s.nextSeq-1-s.baseSeq > edgerecord.MaxRecoverySlots {
 		return nil, ErrRecoverySplitRequired
 	}
 	directory, err := os.Open(s.dir)
@@ -172,7 +180,7 @@ func (o *RecoveryOperation) archiveEntries() ([]recoveryArchiveEntry, error) {
 	sort.Slice(files, func(i, j int) bool { return files[i].Name() < files[j].Name() })
 	var entries []recoveryArchiveEntry
 	rejected := map[uint64]bool{}
-	fullSegment := false
+	fullSegment := forceAll
 	var terminalBytes uint64
 	for _, file := range files {
 		if _, ok := terminalSequence(file.Name()); !ok {
@@ -186,7 +194,7 @@ func (o *RecoveryOperation) archiveEntries() ([]recoveryArchiveEntry, error) {
 			return nil, ErrRecoveryJournalCorrupt
 		}
 		terminalBytes += uint64(info.Size())
-		if terminalBytes > o.grant.alloc.budgets[ArtifactMapping] {
+		if terminalBytes > maxBytes {
 			return nil, ErrReserveExhausted
 		}
 		path := filepath.Join(s.dir, file.Name())
@@ -217,7 +225,7 @@ func (o *RecoveryOperation) archiveEntries() ([]recoveryArchiveEntry, error) {
 			}
 		}
 	}
-	if len(entries) == 0 {
+	if len(entries) == 0 && !forceAll {
 		return entries, nil
 	}
 	// Complete original commit/binding evidence accompanies the terminal bytes,
@@ -312,10 +320,17 @@ func (w *archiveResumeWriter) Write(raw []byte) (int, error) {
 	return total, nil
 }
 
-func (o *RecoveryOperation) writeArchive(descriptor recoveryArchiveDescriptor, produce func(io.Writer) error) error {
-	path := filepath.Join(o.dir, recoveryArchiveFile)
+type recoveryArchiveWriter struct {
+	dir, name string
+	artifact  Artifact
+	frozen    [32]byte
+	grant     *RecoveryGrant
+}
+
+func (w recoveryArchiveWriter) write(descriptor recoveryArchiveDescriptor, produce func(io.Writer) error) error {
+	path := filepath.Join(w.dir, w.name)
 	if _, err := os.Lstat(path); err == nil {
-		return verifyRecoveryArchive(path, descriptor, o.frozen)
+		return verifyRecoveryArchive(path, descriptor, w.frozen)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
@@ -338,11 +353,11 @@ func (o *RecoveryOperation) writeArchive(descriptor recoveryArchiveDescriptor, p
 	if size < 0 || uint64(size) > descriptor.Size {
 		return ErrRecoveryJournalCorrupt
 	}
-	g := o.grant
+	g := w.grant
 	g.step.Lock()
 	defer g.step.Unlock()
 	missing := descriptor.Size - uint64(size)
-	if err = g.charge(ArtifactMapping, missing); err != nil {
+	if err = g.charge(w.artifact, missing); err != nil {
 		return err
 	}
 	output, err := g.alloc.fs.OpenFile(temp, os.O_CREATE|os.O_WRONLY|os.O_APPEND, filePerm)
@@ -365,15 +380,15 @@ func (o *RecoveryOperation) writeArchive(descriptor recoveryArchiveDescriptor, p
 		err = g.alloc.fs.Rename(temp, path)
 	}
 	if err == nil {
-		err = g.alloc.fs.SyncDir(o.dir)
+		err = g.alloc.fs.SyncDir(w.dir)
 	}
 	g.alloc.mu.Lock()
-	g.landLocked(ArtifactMapping, missing)
+	g.landLocked(w.artifact, missing)
 	g.alloc.mu.Unlock()
 	if err != nil {
 		return g.FailStop("preserve recovery terminal archive", err)
 	}
-	return verifyRecoveryArchive(path, descriptor, o.frozen)
+	return verifyRecoveryArchive(path, descriptor, w.frozen)
 }
 
 func verifyRecoveryArchive(path string, d recoveryArchiveDescriptor, frozen [32]byte) error {

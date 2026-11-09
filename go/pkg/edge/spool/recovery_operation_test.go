@@ -190,7 +190,11 @@ func recoveryAuthoritativeAck(t *testing.T, g *Generation, records []AttributedA
 	for i, r := range records {
 		seq := uint64(i + 1)
 		session.SentEvents[seq] = r.EventID
-		ack.Dispositions = append(ack.Dispositions, &edgev1.EdgeRecordDisposition{Sequence: seq, EventId: r.EventID, Kind: kind})
+		disposition := &edgev1.EdgeRecordDisposition{Sequence: seq, EventId: r.EventID, Kind: kind}
+		if kind == edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_REJECTED_PERMANENT {
+			disposition.RejectionCode = "SYNTHETIC_REJECTION"
+		}
+		ack.Dispositions = append(ack.Dispositions, disposition)
 	}
 	validated, err := edgerecord.ValidateAckEvidence(ack, session, 0, 0)
 	if err != nil {
