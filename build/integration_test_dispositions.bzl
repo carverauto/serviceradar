@@ -327,6 +327,7 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/serviceradar/inventory/identity/fence_enforcement_test.exs": 1,
     "test/serviceradar/inventory/identity/fence_test.exs": 1,
     "test/serviceradar/inventory/identity/identity_revision_test.exs": 1,
+    "test/serviceradar/inventory/identity/merge_ingest_lock_order_db_test.exs": 1,
     "test/serviceradar/inventory/identity/reconciliation_run_test.exs": 1,
     "test/serviceradar/inventory/identity/source_reactivation_test.exs": 1,
     "test/serviceradar/inventory/identity/source_retirement_test.exs": 1,
