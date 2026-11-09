@@ -61,6 +61,54 @@
       "type": "binary"
     },
     {
+      "allow_nil?": false,
+      "default": "false",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "interval_registered",
+      "type": "boolean"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "prior_spool_id",
+      "type": "uuid"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "from_sequence",
+      "type": "decimal"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "through_sequence",
+      "type": "decimal"
+    },
+    {
       "allow_nil?": true,
       "default": "nil",
       "generated?": false,
@@ -112,10 +160,54 @@
   "base_filter": null,
   "check_constraints": [],
   "create_table_options": null,
-  "custom_indexes": [],
+  "custom_indexes": [
+    {
+      "all_tenants?": false,
+      "concurrently": false,
+      "error_fields": [
+        "network_scope_id",
+        "agent_id",
+        "prior_spool_id",
+        "interval_registered",
+        "from_sequence"
+      ],
+      "fields": [
+        {
+          "type": "atom",
+          "value": "network_scope_id"
+        },
+        {
+          "type": "atom",
+          "value": "agent_id"
+        },
+        {
+          "type": "atom",
+          "value": "prior_spool_id"
+        },
+        {
+          "type": "atom",
+          "value": "interval_registered"
+        },
+        {
+          "type": "atom",
+          "value": "from_sequence"
+        }
+      ],
+      "include": null,
+      "include_base_filter?": true,
+      "message": null,
+      "name": null,
+      "nulls_distinct": true,
+      "prefix": null,
+      "table": null,
+      "unique": false,
+      "using": null,
+      "where": null
+    }
+  ],
   "custom_statements": [],
   "has_create_action": true,
-  "hash": "814971E585756A3F3B8D06084ED39890C57E6B6D33EC5F0A3A59A4D004E8882E",
+  "hash": "C6E96812726F8404DAB3BDFBBEE99985EA68E8653B7DF7B2B9D565E0AFE34408",
   "identities": [
     {
       "all_tenants?": false,

@@ -10,6 +10,37 @@ defmodule ServiceRadar.Repo.Migrations.AddEdgeRecoveryOperations do
   def up do
     execute("CREATE SCHEMA IF NOT EXISTS platform")
 
+    create table(:edge_recovery_generations, primary_key: false, prefix: "platform") do
+      add(:id, :uuid, null: false, default: fragment("gen_random_uuid()"), primary_key: true)
+      add(:network_scope_id, :uuid, null: false)
+      add(:agent_id, :text, null: false)
+      add(:prior_spool_id, :uuid, null: false)
+      add(:route_profile, :bigint, null: false)
+      add(:traffic_class, :bigint, null: false)
+      add(:source_high_water, :decimal, null: false)
+      add(:reclaim_watermark, :decimal, null: false)
+      add(:applied_through, :decimal, null: false)
+
+      add(:inserted_at, :utc_datetime_usec,
+        null: false,
+        default: fragment("(now() AT TIME ZONE 'utc')")
+      )
+
+      add(:updated_at, :utc_datetime_usec,
+        null: false,
+        default: fragment("(now() AT TIME ZONE 'utc')")
+      )
+    end
+
+    create(
+      unique_index(:edge_recovery_generations, [:network_scope_id, :agent_id, :prior_spool_id],
+        name: "edge_recovery_generations_generation_identity_index",
+        prefix: "platform"
+      )
+    )
+
+    execute("CREATE SCHEMA IF NOT EXISTS platform")
+
     create table(:edge_recovery_received_pages, primary_key: false, prefix: "platform") do
       add(:id, :uuid, null: false, default: fragment("gen_random_uuid()"), primary_key: true)
       add(:network_scope_id, :uuid, null: false)
@@ -42,6 +73,10 @@ defmodule ServiceRadar.Repo.Migrations.AddEdgeRecoveryOperations do
       add(:agent_id, :text, null: false)
       add(:recovery_id, :uuid, null: false)
       add(:registration, :binary, null: false)
+      add(:interval_registered, :boolean, null: false, default: false)
+      add(:prior_spool_id, :uuid, null: false)
+      add(:from_sequence, :decimal, null: false)
+      add(:through_sequence, :decimal, null: false)
       add(:blocked_reason, :text)
       add(:tombstone_received, :boolean, null: false, default: false)
 
@@ -62,9 +97,25 @@ defmodule ServiceRadar.Repo.Migrations.AddEdgeRecoveryOperations do
         prefix: "platform"
       )
     )
+
+    create(
+      index(
+        :edge_recovery_registrations,
+        [:network_scope_id, :agent_id, :prior_spool_id, :interval_registered, :from_sequence],
+        prefix: "platform"
+      )
+    )
   end
 
   def down do
+    drop_if_exists(
+      index(
+        :edge_recovery_registrations,
+        [:network_scope_id, :agent_id, :prior_spool_id, :interval_registered, :from_sequence],
+        prefix: "platform"
+      )
+    )
+
     drop_if_exists(
       unique_index(:edge_recovery_registrations, [:network_scope_id, :agent_id, :recovery_id],
         name: "edge_recovery_registrations_recovery_identity_index",
@@ -84,5 +135,14 @@ defmodule ServiceRadar.Repo.Migrations.AddEdgeRecoveryOperations do
     )
 
     drop(table(:edge_recovery_received_pages, prefix: "platform"))
+
+    drop_if_exists(
+      unique_index(:edge_recovery_generations, [:network_scope_id, :agent_id, :prior_spool_id],
+        name: "edge_recovery_generations_generation_identity_index",
+        prefix: "platform"
+      )
+    )
+
+    drop(table(:edge_recovery_generations, prefix: "platform"))
   end
 end

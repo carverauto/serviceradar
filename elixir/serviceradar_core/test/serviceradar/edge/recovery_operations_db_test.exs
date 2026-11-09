@@ -81,6 +81,66 @@ defmodule ServiceRadar.Edge.RecoveryOperationsDbTest do
              receive(ctx, payload(change_destination(ctx.plan), :tombstone))
   end
 
+  test "split intervals cannot overlap or replace the source's frozen allocation bounds", ctx do
+    whole = %{ctx.plan | source_high_water: 20}
+    first = interval(whole, 1, 10)
+    assert {:ok, %{interval_registered: true}} = RecoveryOperations.register(ctx.agent, first)
+
+    # A rejected short interval must not hide an earlier, wider admitted one
+    # from the next overlap query.
+    for {from, through} <- [{3, 4}, {5, 6}] do
+      assert {:ok, %{blocked_reason: "source_interval_overlap", interval_registered: false}} =
+               RecoveryOperations.register(ctx.agent, interval(whole, from, through))
+    end
+
+    assert {:ok, %{interval_registered: true}} =
+             RecoveryOperations.register(ctx.agent, interval(whole, 11, 20))
+
+    changed = interval(%{whole | source_high_water: 21}, 21, 21)
+
+    assert {:ok, %{blocked_reason: "source_generation_conflict", interval_registered: false}} =
+             RecoveryOperations.register(ctx.agent, changed)
+  end
+
+  test "allocation coordinates retain the full unsigned 64-bit range", ctx do
+    high = 18_446_744_073_709_551_615
+
+    plan =
+      interval(
+        %{ctx.plan | source_reclaim_watermark: high - 2, source_high_water: high},
+        high - 1,
+        high
+      )
+
+    assert {:ok, stored} = RecoveryOperations.register(ctx.agent, plan)
+    assert Decimal.to_integer(stored.from_sequence) == high - 1
+    assert Decimal.to_integer(stored.through_sequence) == high
+    assert {:ok, replay} = RecoveryOperations.register(ctx.agent, plan)
+    assert replay.id == stored.id
+    assert replay.registration == stored.registration
+  end
+
+  defp interval(plan, first, last) do
+    recovery_id = uuid()
+    [raw] = plan.manifest_pages
+    page = EdgeLossManifestPageV1.decode(raw)
+    [span] = page.classification_spans
+
+    page = %{
+      page
+      | recovery_id: recovery_id,
+        classification_spans: [%{span | from_sequence: first, through_sequence: last}]
+    }
+
+    tombstone = %{SpoolLossTombstoneV1.decode(plan.tombstone) | recovery_id: recovery_id}
+
+    with_manifest(
+      %{plan | recovery_id: recovery_id, from_sequence: first, through_sequence: last},
+      page,
+      tombstone
+    )
+  end
+
   defp receive(ctx, raw),
     do: RecoveryOperations.receive_control(ctx.plan.network_scope_id, ctx.agent, raw)
 

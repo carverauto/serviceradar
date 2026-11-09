@@ -86,3 +86,8 @@ Update this pickup and the choices ledger after each verified commit checkpoint.
   made the foreign-scope query regression fail in both attempts of
   `f5a8af03-0097-4a96-8476-03a9804ee680`; exact restoration passed from the existing
   cache in `ba629dfb-7d94-480d-b690-be3f3ecce5dd`.
+- Integrated sidecar/relocation storage, Go edge/agent, source interval schema,
+  Elixir edge and core quality passed all 15 targets in
+  `c1b5daae-5446-4460-881c-158d258bf0d7`. Guarded DB assertions for overlapping
+  intervals and full uint64 coordinates remain pending. OpenSpec strict validation
+  and inventory checks passed (66 checks, one skip).

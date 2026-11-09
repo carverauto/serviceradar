@@ -96,6 +96,7 @@ defmodule ServiceRadar.Edge do
     resource ServiceRadar.Edge.OutputGrant
     resource ServiceRadar.Edge.PipelineSetting
     resource ServiceRadar.Edge.RecoveryRegistration
+    resource ServiceRadar.Edge.RecoveryGeneration
     resource ServiceRadar.Edge.RecoveryReceivedPage
     resource ServiceRadar.Edge.ContractRegistryEpoch
   end

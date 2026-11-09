@@ -192,6 +192,28 @@ are either durably applied or absent from the validated COMPLETE loss union, usi
 `edgerecord.AppliedThroughSequence`; it is neither the largest span end nor simply
 the allocation high-water. For loss at 1 and 100 with only 1 applied, it is 99. Partial progress remains internal pending state and emits no final result.
 
+### Split operations over one source generation
+
+A bounded operation's loss union is complete only for its registered selected
+interval, not for the entire abandoned generation. Core freezes the source's
+lane, allocation high-water and initial local reclaim watermark under
+`(network_scope_id, agent_id, prior_spool_id)`. It admits only disjoint selected
+intervals and compares later claims against that frozen identity. A rejected
+interval cannot hide an admitted interval from subsequent overlap checks.
+
+Consumer repair marks an interval applied only after its complete manifest and
+all required effects commit. Source progress advances through adjacent applied
+intervals from the frozen reclaim watermark, in bounded batches. An unregistered
+interval is unknown, never inferred to be not lost. Final completion waits until
+that contiguous prefix covers the operation's selected end and stores the first
+signed result unchanged. Source progress uses exact PostgreSQL numeric values so
+valid protobuf uint64 coordinates do not overflow signed bigint.
+
+The operation row is locked before the generation row. Progress reads sibling
+operations without taking their row locks, and no path takes those locks in the
+opposite order. This serializes interval admission and prefix advancement without
+loading an outage-sized tail.
+
 ## Rollout and approval
 
 Ship #6424 visibility first, with #6428 depending on its status transport. Visibility

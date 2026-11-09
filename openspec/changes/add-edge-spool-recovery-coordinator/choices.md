@@ -184,3 +184,55 @@
 - Verdict: sound. The trusted namespace has one owner, and a database outage
   cannot look like successful registration or consumer completion.
 - Confidence: high for authentication; persistence still needs guarded DB tests.
+
+## Recovery chunks share one contiguous source prefix
+
+- When: source interval pass, 2026-11-09.
+- Choice: a generation row freezes the source allocation bounds and serializes
+  disjoint recovery intervals. If sequences 1-10 are unknown and recovery for
+  11-20 finishes first, its completion waits; the absence of 1-10 from that
+  manifest says nothing about whether they survived. Rejected intervals remain
+  visible as conflicts but cannot hide an earlier admitted interval in queries.
+- Gap: bounded manifests require splitting, while the completion scalar describes
+  contiguous progress over the source generation. The wire validator alone
+  cannot maintain progress across those separate operations.
+- Reach: one indexed generation key and exact numeric coordinates support bounded
+  overlap and prefix queries, including the full uint64 range. Operation-before-
+  generation lock ordering is shared by registration and consumer processing.
+- Verdict: sound. It preserves the meaning of a complete loss union instead of
+  treating a partial manifest as authority over omitted source slots.
+- Confidence: high in the contract; database behavior awaits integration evidence.
+
+## Attribution survives record damage and relocation
+
+- When: sidecar integration, 2026-11-09.
+- Choice: each sequence has a fixed independently checksummed attribution slot;
+  relocation adds a separate mapping slot. New evidence entries explicitly name
+  the mapping digest, while existing v1 generations keep their original offsets
+  and remain readable. A torn adjacent sidecar slot cannot rename a readable one.
+- Gap: the design freezes the authority binding, but not the physical sidecar and
+  commit-evidence framing. Reusing an unrelated digest field would silently change
+  the meaning of existing durable bytes.
+- Reach: one validated append value derives the classification; producers cannot
+  supply a second authority tuple. Record, sidecar and mapping durability precede
+  the committed receipt. A reopened witness observes those facts but grants no
+  deletion permission. Real read errors retain data and retry; malformed readable
+  binding bytes alone become unattributable loss evidence.
+- Verdict: sound. Explicit format selection preserves existing spools and keeps
+  attribution independently readable after record damage.
+- Confidence: high. Destination terminal-resolution races are handled by the
+  separate durable recovery hold and coverage-certificate lifecycle.
+
+## Account classification runs separately from physical bindings
+
+- When: sidecar integration, 2026-11-09.
+- Choice: segment capacity counts equal complete classification bodies together,
+  normalizing only their physical interval. Two successive records for the same
+  authority still have different per-sequence binding hashes, but do not consume
+  two distinct authority dictionary entries merely for that reason.
+- Gap: the old segment accounting used the physical binding digest as a body key.
+- Reach: deterministic protobuf is used only for internal capacity accounting;
+  the frozen cross-language binding transcript remains the durable authority.
+- Verdict: sound. Capacity reflects real classification changes without weakening
+  the independently checked physical record bindings.
+- Confidence: high.

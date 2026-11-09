@@ -6,12 +6,13 @@ defmodule ServiceRadar.RecoveryOperationSchema do
   use Ash.Domain, validate_config_inclusion?: false
 
   resources do
+    resource ServiceRadar.Edge.RecoveryGeneration
     resource ServiceRadar.Edge.RecoveryRegistration
     resource ServiceRadar.Edge.RecoveryReceivedPage
   end
 end
 
-[registration_output, page_output, migration_output] = System.argv()
+[registration_output, page_output, generation_output, migration_output] = System.argv()
 scratch = Path.join(Path.dirname(migration_output), "recovery_operation_schema_scratch")
 File.mkdir_p!(scratch)
 
@@ -28,6 +29,7 @@ try do
 
   for {table, output} <- [
         {"edge_recovery_registrations", registration_output},
+        {"edge_recovery_generations", generation_output},
         {"edge_recovery_received_pages", page_output}
       ] do
     [snapshot] = Path.wildcard(Path.join(scratch, "repo/platform.#{table}/*.json"))
