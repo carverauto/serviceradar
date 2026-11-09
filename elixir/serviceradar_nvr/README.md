@@ -34,7 +34,7 @@ assignment must establish physical writer exclusivity before calling this API.
 | `SERVICERADAR_NVR_MAX_SESSIONS` | 1 | 16; excess admission is refused |
 | `SERVICERADAR_NVR_MAX_DURATION_MS` | 30000 | 300000; no implicit renewal |
 | `SERVICERADAR_NVR_MAX_SPOOL_BYTES` | 1073741824 | 1 TiB; retained bytes plus full active reservations |
-| `SERVICERADAR_NVR_RESERVE_BYTES` | 67108864 | physical free-space floor; admission also needs all reservations free |
+| `SERVICERADAR_NVR_RESERVE_BYTES` | 67108864 | 1 PiB; physical free-space floor; admission also needs all reservations free |
 | Inbox | 8 samples / 8 MiB per worker | charged before mailbox admission |
 | Local block | 16 MiB / 8 fragments | no rotation, eviction or deletion |
 | Fragment | 4 MiB | oversized output fails the worker |
