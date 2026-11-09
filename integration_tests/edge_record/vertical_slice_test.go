@@ -82,6 +82,7 @@ import (
 
 	"github.com/bazelbuild/rules_go/go/runfiles"
 
+	"github.com/carverauto/serviceradar/go/pkg/agent"
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
 	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
@@ -262,26 +263,15 @@ type harness struct {
 	gatewayAddr       string
 	gatewayServerName string
 
-	// spoolID is the agent's own persistent lane spool id, read back from
-	// disk after the agent process has started and written it (see
-	// sender.PersistentSpoolID) -- Group C's conflict probe and Group F's
-	// fencing probe both need to reuse this EXACT id on a second,
-	// independent raw gRPC stream to land in the same delivery slot / lane.
+	// spoolID is Group A's frozen generation identity. Raw conflict and
+	// fencing probes reuse it to address that exact delivery lane.
 	spoolID []byte
 
-	// groupAFixture/groupASequence are Group A's accepted fixture and the
-	// real spool sequence it landed at (expected 1) -- every later group
-	// depends on this exact state.
-	groupAFixture  *FixtureRecord
-	groupASequence uint64
-
-	// withheldFixture/withheldSequence are the entry Group D's
-	// NATSCutAfterSpoolCommit appended to the agent's spool, set only once
-	// that subtest saw the entry stay unreclaimed while the gateway withheld
-	// its ack. PositiveAckResolvesAndReclaimsSpool uses it as the negative
-	// control for reclaim-after-terminal-disposition.
-	withheldFixture  *FixtureRecord
-	withheldSequence uint64
+	groupAFixture *FixtureRecord
+	groupAReceipt spool.Receipt
+	// Set only after the outage proves this exact generation/slot remains readable.
+	withheldFixture *FixtureRecord
+	withheldReceipt spool.Receipt
 }
 
 // preservedLogName is the flattened, h.dir-relative name a process log file
@@ -468,12 +458,6 @@ func newHarness(t *testing.T) *harness {
 	t.Cleanup(agentProc.Stop)
 	h.agent = agentProc
 
-	spoolID, err := waitForSpoolID(agentProc.SpoolDir, pollTimeout)
-	if err != nil {
-		t.Fatalf("read agent's persistent spool id: %v", err)
-	}
-	h.spoolID = spoolID
-
 	return h
 }
 
@@ -546,27 +530,6 @@ func resolveCNPG(t *testing.T, dir string) (*ShardCNPGConfig, string) {
 		t.Fatalf("write CNPG CA pem: %v", err)
 	}
 	return cfg, caPath
-}
-
-// waitForSpoolID polls, read-only, for the spool_id file the real agent
-// process writes the first time its edge-record sender loop runs
-// (go/pkg/edge/sender.PersistentSpoolID), rather than assuming a fixed
-// timing. It never creates the file, so the id it returns is the agent's.
-func waitForSpoolID(spoolDir string, timeout time.Duration) ([]byte, error) {
-	deadline := time.Now().Add(timeout)
-	var lastErr error
-	for time.Now().Before(deadline) {
-		id, err := os.ReadFile(filepath.Join(spoolDir, "spool_id"))
-		if err == nil {
-			err = edgerecord.ValidateUUIDv7(id)
-		}
-		if err == nil {
-			return id, nil
-		}
-		lastErr = err
-		time.Sleep(100 * time.Millisecond)
-	}
-	return nil, fmt.Errorf("spool id file did not appear within %s: %w", timeout, lastErr)
 }
 
 func TestVerticalSlice(t *testing.T) {
@@ -681,14 +644,13 @@ func (h *harness) testGroupA(t *testing.T) {
 		t.Fatalf("event_ledger row already present before send (count=%d) -- fixture ids not fresh", n)
 	}
 
-	seq, err := h.appendAgentSpool(fx.EventID, fx.RecordBytes)
-	if err != nil {
-		t.Fatalf("append fixture to real spool: %v", err)
-	}
+	receipt := h.appendAgentSpool(t, fx)
+	seq := receipt.Sequence
+	h.groupAReceipt = receipt
+	h.spoolID = bytes.Clone(receipt.Generation.SpoolID)
 	if seq != 1 {
 		t.Fatalf("expected first spool append to get sequence 1, got %d", seq)
 	}
-	h.groupASequence = seq
 
 	// Poll for the real path (agent sender -> gRPC -> gateway -> JetStream
 	// -> EventWriter -> CNPG) to land the row -- gated on actual DB state,
@@ -876,7 +838,7 @@ func (h *harness) testMismatchedIdentityControl(t *testing.T, fx *FixtureRecord)
 // ---------------------------------------------------------------------------
 // Group B: exact bytes.
 //
-// Proves: the exact bytes Group A handed to spool.Append equal the exact
+// Proves: the exact bytes Group A handed to RecordSpool.AppendPrepared equal the exact
 // bytes fetched independently through the JetStream consumer for the SAME
 // committed record. The agent's sender read the record back through the
 // spool's public read path to send it, and the sender reclaims a record
@@ -1026,24 +988,24 @@ func (h *harness) testGroupC(t *testing.T) {
 		h.prepareFixture(t, conflictFx)
 
 		agentID := []byte(h.certSet.AgentComponentID)
-		beforeSlot := h.rpcQueryRow(t, deliverySlotSQL(fx.NetworkScopeID, agentID, h.spoolID, h.groupASequence))
+		beforeSlot := h.rpcQueryRow(t, deliverySlotSQL(fx.NetworkScopeID, agentID, h.spoolID, h.groupAReceipt.Sequence))
 		if beforeSlot == "NONE" {
 			t.Fatalf("Group A's delivery-slot binding is missing before the conflict probe")
 		}
 
 		ack, err := h.sendOneRawFrame(
-			context.Background(), t, tlsCfg, h.spoolID, h.groupASequence, conflictFx.RecordBytes, conflictFx.RecordSHA256, 20*time.Second,
+			context.Background(), t, tlsCfg, h.spoolID, h.groupAReceipt.Sequence, conflictFx.RecordBytes, conflictFx.RecordSHA256, 20*time.Second,
 		)
 		for deadline := time.Now().Add(inFlightTimeout); status.Code(err) == codes.AlreadyExists && time.Now().Before(deadline); {
 			time.Sleep(pollInterval)
 			ack, err = h.sendOneRawFrame(
-				context.Background(), t, tlsCfg, h.spoolID, h.groupASequence, conflictFx.RecordBytes, conflictFx.RecordSHA256, 20*time.Second,
+				context.Background(), t, tlsCfg, h.spoolID, h.groupAReceipt.Sequence, conflictFx.RecordBytes, conflictFx.RecordSHA256, 20*time.Second,
 			)
 		}
 		if err != nil {
 			t.Fatalf("conflicting frame was refused before JetStream publication: %v", err)
 		}
-		requireAcceptedAck(t, ack, h.spoolID, h.groupASequence)
+		requireAcceptedAck(t, ack, h.spoolID, h.groupAReceipt.Sequence)
 
 		outcome := h.waitIngestObservation(t, conflictFx.EventID, probeTransactionResult, 1)
 		if want := "error:delivery_slot_conflict:" + hex.EncodeToString(fx.RecordSHA256); outcome.Tag != want {
@@ -1070,7 +1032,7 @@ func (h *harness) testGroupC(t *testing.T) {
 			t.Errorf("conflicting fixture leaked sweep domain state: %+v", conflictRows)
 		}
 
-		afterSlot := h.rpcQueryRow(t, deliverySlotSQL(fx.NetworkScopeID, agentID, h.spoolID, h.groupASequence))
+		afterSlot := h.rpcQueryRow(t, deliverySlotSQL(fx.NetworkScopeID, agentID, h.spoolID, h.groupAReceipt.Sequence))
 		if afterSlot != beforeSlot {
 			t.Errorf("edge_delivery_slots binding changed after conflicting frame: before=%s after=%s (first binding must stay immutable)", beforeSlot, afterSlot)
 		}
@@ -1497,10 +1459,8 @@ func (h *harness) testGroupD(t *testing.T) {
 			t.Fatalf("build fixture: %v", err)
 		}
 		h.prepareFixture(t, fx2)
-		seq, err := h.appendAgentSpool(fx2.EventID, fx2.RecordBytes)
-		if err != nil {
-			t.Fatalf("append: %v", err)
-		}
+		receipt := h.appendAgentSpool(t, fx2)
+		seq := receipt.Sequence
 
 		h.waitAgentSenderRuns(t, cutAt, natsCutTimeout,
 			fmt.Sprintf("a failed sender run that sent sequence %d during the JetStream outage", seq),
@@ -1521,13 +1481,13 @@ func (h *harness) testGroupD(t *testing.T) {
 					run.RemoteResolvedThrough, seq, run)
 			}
 		}
-		h.requireSpoolEntryUnreclaimed(t, seq)
+		h.requireSpoolEntryUnreclaimed(t, receipt, fx2)
 		if n := h.rpcQueryCount(t, eventLedgerExistsSQL(fx2.NetworkScopeID, fx2.EventID)); n != 0 {
 			t.Errorf("event_ledger row appeared for an entry that should have been withheld by a JetStream outage")
 		}
 		if !t.Failed() {
 			h.withheldFixture = fx2
-			h.withheldSequence = seq
+			h.withheldReceipt = receipt
 		}
 
 		if err := h.nats.EnableJetStream(); err != nil {
@@ -1709,7 +1669,7 @@ func (h *harness) testGroupD(t *testing.T) {
 		// The agent's runs that carried these entries ended in the earlier
 		// groups, and a drained spool logs no further runs, so read the whole
 		// log.
-		highest := h.agentSpoolHighWater(t)
+		highest := max(h.groupAReceipt.Sequence, h.withheldReceipt.Sequence)
 
 		// Negative control: NATSCutAfterSpoolCommit must have seen its entry
 		// stay on the read path while its ack was withheld. Without that, a
@@ -1723,18 +1683,15 @@ func (h *harness) testGroupD(t *testing.T) {
 		// committed delivery slot binds (spool, sequence) to exactly the bytes
 		// appended at that sequence. Only Group A and NATSCutAfterSpoolCommit
 		// append to the agent's spool.
-		accepted := map[uint64]*FixtureRecord{
-			h.groupASequence:   h.groupAFixture,
-			h.withheldSequence: h.withheldFixture,
+		accepted := []acceptedFixture{
+			{receipt: h.groupAReceipt, fixture: h.groupAFixture},
+			{receipt: h.withheldReceipt, fixture: h.withheldFixture},
 		}
-		for seq := uint64(1); seq <= highest; seq++ {
-			fxN, ok := accepted[seq]
-			if !ok {
-				t.Fatalf("agent spool sequence %d was appended by no known fixture; the harness lost track of what it spooled", seq)
-			}
-			slotRow := h.rpcQueryRow(t, deliverySlotSQL(fxN.NetworkScopeID, []byte(h.certSet.AgentComponentID), h.spoolID, seq))
+		for _, accepted := range accepted {
+			fxN, receipt := accepted.fixture, accepted.receipt
+			slotRow := h.rpcQueryRow(t, deliverySlotSQL(fxN.NetworkScopeID, []byte(h.certSet.AgentComponentID), receipt.Generation.SpoolID, receipt.Sequence))
 			if !strings.Contains(slotRow, hexInspect(fxN.RecordSHA256)) {
-				t.Errorf("agent spool sequence %d has no committed delivery slot for its record (row=%s, want digest=%x); it may not be reclaimed without a terminal accepted disposition", seq, slotRow, fxN.RecordSHA256)
+				t.Errorf("agent spool %x sequence %d has no committed delivery slot for its record (row=%s, want digest=%x)", receipt.Generation.SpoolID, receipt.Sequence, slotRow, fxN.RecordSHA256)
 			}
 		}
 
@@ -1752,22 +1709,9 @@ func (h *harness) testGroupD(t *testing.T) {
 		// The positive ack is persisted as terminal evidence before the run
 		// ends, so a fresh handle sees every accepted entry resolved and off
 		// the public read path.
-		freshSp, err := spool.Open(h.agent.SpoolDir)
-		if err != nil {
-			t.Fatalf("reopen spool: %v", err)
-		}
-		defer func() { _ = freshSp.Close() }()
-		if resolved := freshSp.Resolved(); resolved < highest {
-			t.Errorf("spool local watermark is %d after the agent reported remote_resolved_through >= %d; the positive ack was not persisted as terminal evidence", resolved, highest)
-		}
-		if err := freshSp.ScanFrom(0, func(rec spool.Record) bool {
-			if rec.Sequence <= highest {
-				t.Errorf("accepted sequence %d is still on the spool's public read path", rec.Sequence)
-			}
-			return true
-		}); err != nil {
-			t.Fatalf("scan spool: %v", err)
-		}
+		h.withAgentStorage(t, func(storage *agent.RecordSpool) {
+			requireAcceptedGenerations(t, storage, accepted)
+		})
 
 		if n := h.rpcQueryCount(t, eventLedgerExistsSQL(h.groupAFixture.NetworkScopeID, h.groupAFixture.EventID)); n != 1 {
 			t.Errorf("expected Group A's fixture to still be committed (remote progress), got count=%d", n)
@@ -2105,60 +2049,6 @@ func (h *harness) requireJetStream(t *testing.T) {
 	t.Helper()
 	if !h.nats.Server.JetStreamEnabled() {
 		t.Fatalf("JetStream is unavailable when %s runs -- NATSCutAfterSpoolCommit must re-enable it via NATSHarness.EnableJetStream; a missing JetStream must fail loudly, never skip", t.Name())
-	}
-}
-
-// appendAgentSpool appends one record to the running agent's spool through a
-// handle opened for this append alone. The agent's sender reclaims drained
-// segments under any long-lived handle, and the spool refuses writes through a
-// handle whose segment was reclaimed by another one.
-func (h *harness) appendAgentSpool(eventID, body []byte) (uint64, error) {
-	sp, err := spool.Open(h.agent.SpoolDir)
-	if err != nil {
-		return 0, fmt.Errorf("open agent spool: %w", err)
-	}
-	seq, appendErr := sp.Append(eventID, body)
-	if err := sp.Close(); err != nil && appendErr == nil {
-		return seq, fmt.Errorf("close agent spool: %w", err)
-	}
-	return seq, appendErr
-}
-
-// agentSpoolHighWater reopens the agent's spool and returns the highest
-// sequence ever appended to it, including reclaimed ones.
-func (h *harness) agentSpoolHighWater(t *testing.T) uint64 {
-	t.Helper()
-	sp, err := spool.Open(h.agent.SpoolDir)
-	if err != nil {
-		t.Fatalf("reopen spool: %v", err)
-	}
-	defer func() { _ = sp.Close() }()
-	return sp.NextSequence() - 1
-}
-
-// requireSpoolEntryUnreclaimed reopens the agent's spool and fails t unless
-// sequence is still above the local reclaim watermark and readable through
-// the spool's public read path.
-func (h *harness) requireSpoolEntryUnreclaimed(t *testing.T, sequence uint64) {
-	t.Helper()
-	sp, err := spool.Open(h.agent.SpoolDir)
-	if err != nil {
-		t.Fatalf("reopen spool: %v", err)
-	}
-	defer func() { _ = sp.Close() }()
-
-	if resolved := sp.Resolved(); resolved >= sequence {
-		t.Errorf("local reclaim watermark %d covers sequence %d; the entry was reclaimed", resolved, sequence)
-	}
-	found := false
-	if err := sp.ScanFrom(0, func(rec spool.Record) bool {
-		found = rec.Sequence == sequence
-		return !found
-	}); err != nil {
-		t.Fatalf("scan spool: %v", err)
-	}
-	if !found {
-		t.Errorf("sequence %d is no longer on the spool's public read path", sequence)
 	}
 }
 

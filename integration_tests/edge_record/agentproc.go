@@ -71,6 +71,8 @@ type AgentProcess struct {
 	ConfigPath string
 
 	cmd        *exec.Cmd
+	binaryPath string
+	workDir    string
 	stdoutPath string
 	stderrPath string
 }
@@ -85,12 +87,9 @@ type AgentProcess struct {
 // sends in its Hello; the gateway refuses a Hello whose agent_id differs from
 // the certificate's component id, so pass CertSet.AgentComponentID.
 //
-// The caller is responsible for separately opening the SAME spool directory
-// with go/pkg/edge/spool.Open and Append-ing fixture records -- independent
-// of this process's lifecycle, since the real sender (go/pkg/edge/sender,
-// wired in from go/cmd/agent/edge_record_sender.go) polls the spool
-// directory on its own PollInterval cadence rather than being told about new
-// entries directly.
+// Fixture writes stop and reap this process, append through agent.RecordSpool,
+// then restart it. The sender inventories the durable generations at startup;
+// a second writer must never race its in-memory generation/allocator owners.
 func StartAgent(
 	agentBinaryPath, workDir, gatewayGRPCAddr, gatewayServerName string,
 	agentID, caCertPath, agentCertPath, agentKeyPath string,
@@ -141,35 +140,43 @@ func StartAgent(
 
 	stdoutPath := filepath.Join(workDir, "agent.stdout.log")
 	stderrPath := filepath.Join(workDir, "agent.stderr.log")
-	stdoutFile, err := os.Create(stdoutPath)
-	if err != nil {
-		return nil, fmt.Errorf("verticalslice: create agent stdout log: %w", err)
+	p := &AgentProcess{SpoolDir: spoolDir, ConfigPath: configPath, binaryPath: agentBinaryPath,
+		workDir: workDir, stdoutPath: stdoutPath, stderrPath: stderrPath}
+	if err := p.Restart(); err != nil {
+		return nil, err
 	}
-	stderrFile, err := os.Create(stderrPath)
+	return p, nil
+}
+
+// Restart reuses the original config and appends to the same logs, preserving
+// the outage probes' byte offsets across offline fixture writes and readbacks.
+func (p *AgentProcess) Restart() error {
+	if p.cmd != nil {
+		return fmt.Errorf("verticalslice: agent must be stopped before restart")
+	}
+	stdoutFile, err := os.OpenFile(p.stdoutPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
+	if err != nil {
+		return fmt.Errorf("verticalslice: open agent stdout log: %w", err)
+	}
+	stderrFile, err := os.OpenFile(p.stderrPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
 	if err != nil {
 		_ = stdoutFile.Close()
-		return nil, fmt.Errorf("verticalslice: create agent stderr log: %w", err)
+		return fmt.Errorf("verticalslice: open agent stderr log: %w", err)
 	}
 
-	cmd := exec.Command(agentBinaryPath, "--config", configPath)
+	cmd := exec.Command(p.binaryPath, "--config", p.ConfigPath)
 	cmd.Stdout = stdoutFile
 	cmd.Stderr = stderrFile
-	cmd.Dir = workDir
+	cmd.Dir = p.workDir
 
 	startErr := cmd.Start()
 	_ = stdoutFile.Close()
 	_ = stderrFile.Close()
 	if startErr != nil {
-		return nil, fmt.Errorf("verticalslice: start agent: %w", startErr)
+		return fmt.Errorf("verticalslice: start agent: %w", startErr)
 	}
-
-	return &AgentProcess{
-		SpoolDir:   spoolDir,
-		ConfigPath: configPath,
-		cmd:        cmd,
-		stdoutPath: stdoutPath,
-		stderrPath: stderrPath,
-	}, nil
+	p.cmd = cmd
+	return nil
 }
 
 // Stop kills the agent process. go/cmd/agent's push-mode loop has no
@@ -193,5 +200,7 @@ func (p *AgentProcess) Stop() {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		_ = p.cmd.Process.Kill()
+		<-done
 	}
+	p.cmd = nil
 }
