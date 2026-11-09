@@ -11,7 +11,11 @@ never reach the stream an authoritative projector reads.
 | security quarantine | `telemetry.edge-record-security-quarantine.v1.bulk.pNN` | `TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK` | `ACCEPTED_QUARANTINE` | EventWriter `EDGE_RECORD_SECURITY_QUARANTINE`: a log line and a counter, nothing written |
 
 - **Audit** is a valid historical record delivered under its delivery grant
-  after its producer assignment's epoch moved on (a stale fence). The gateway
+  after its producer assignment's epoch moved on (a stale fence). An exact
+  registered rollover may also drain to audit when the original assignment
+  has been deleted and no current fence remains. Ordinary renewal cannot grant
+  that exception; original mapping evidence and retained valid signing keys are
+  still required. The gateway
   stamps it `LATE_FENCED_DELIVERY`; EventWriter records its ledger row and
   delivery slot and writes no domain rows. EventWriter refuses a record on the
   audit subject that is not stamped late-fenced.

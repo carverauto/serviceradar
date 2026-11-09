@@ -23,8 +23,9 @@ Remaining work, in dependency order:
    publication attempts, current-trust completion validation and restart cleanup.
    Reserve-backed active-source closure and ordinary generation metadata admission
    are integrated, as are immutable exact-copy repair and finite lane workers.
-2. Complete the sender's recovery-receipt barrier and required rollover-grant
-   policy, then prove the production crash/restart path through the coordinator.
+2. Prove the production crash/restart path through the coordinator. The sender
+   recovery-receipt barrier, required rollover grants, authenticated Hello version
+   snapshot and typed process-harness storage are integrated.
 3. Reconcile every task and design decision, run whole-repo tests and standalone
    Go vet, consolidate the choices ledger, then land through no-mistakes/Grok.
    Require actual `BazelCI Core Integration` execution for the boxed DB contracts.

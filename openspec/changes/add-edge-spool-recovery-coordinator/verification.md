@@ -180,3 +180,14 @@ Guarded database execution and the final integrated gate are still required.
   advertisement, a future version, replacement connection and rejected Hello.
   This is feature negotiation for the managed gRPC client connection, not a
   transport freshness or recovery authorization cache.
+
+- Typed process-harness migration passed remote selfchecks in `6459e423`.
+  Deliberately truncating restart logs failed `195b558c`; the original file was
+  restored exactly. A-H broker/database assertions remain, but actual process
+  execution is still pending `BazelCI Core Integration`.
+- Standalone Go vet passed for edge, agent, gateway client and cmd agent after
+  negotiation integration. Ripwire's focused negotiation delta reports a generic
+  21-token nil-guard duplication with unrelated `resultTCPPort`; these functions
+  share no domain contract, so no artificial helper or suppression was added.
+  Harness delta has zero gating findings; its new process-lifecycle test carries
+  complexity 17 and guards actual process reaping/log preservation.
