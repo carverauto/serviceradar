@@ -244,16 +244,26 @@ declare_elixir_release_container_with_debs_amd64(
         "//conditions:default": "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
     }),
     cmd = ["start"],
-    deb_packages = [":agent_gateway_openssl_deb", ":agent_gateway_libssl3_deb"],
+    deb_packages = [
+        ":agent_gateway_openssl_deb",
+        ":agent_gateway_libssl3_deb",
+    ],
     entrypoint = ["/app/bin/serviceradar_nvr"],
-    env = {"HOME": "/app", "PATH": "/app/bin:/usr/local/bin:/usr/bin:/bin", "MIX_ENV": "prod"},
+    env = {
+        "HOME": "/app",
+        "PATH": "/app/bin:/usr/local/bin:/usr/bin:/bin",
+        "MIX_ENV": "prod",
+    },
     image_title = "serviceradar-nvr",
     local_repo_tag = "registry.carverauto.dev/serviceradar/serviceradar-nvr:local",
     release_tar = "//elixir/serviceradar_nvr:release_tar",
     workdir = "/app",
 )
 
-declare_multiarch_image_index(name = "nvr_image_multiarch", image = ":nvr_image_amd64")
+declare_multiarch_image_index(
+    name = "nvr_image_multiarch",
+    image = ":nvr_image_amd64",
+)
 
 # elixir agent-gateway -------------------------------------------------------
 

@@ -187,6 +187,7 @@ For detailed edge agent deployment, see the [Edge Agent Guide](../docs/docs/edge
 | `agent.checkersStorage.enabled` | Persist agent checker config under `/var/lib/serviceradar/checkers` | `true` |
 | `agent.cacheStorage.enabled` | Persist agent runtime cache under `/var/lib/serviceradar/cache` | `true` |
 | `agent.runtimeStorage.enabled` | Persist managed agent release runtime under `/var/lib/serviceradar/agent` | `true` |
+| `nvr.enabled` | Render the `serviceradar-nvr` StatefulSet (runtime and health probes only; recording pools are not enrolled). Requires `nvr.storage.storageClassName` and one distinct `nvr.storage.storageIds` UUID per ordinal. See [NVR runtime and replicated storage](../../docs/nvr-runtime.md) | `false` |
 | `webNg.gatewayAddress` | External gateway address for edge agents (`host:port`). Set this explicitly when the agent gateway is exposed on a different host than the web endpoint. Otherwise the chart derives port `50052` from `webNg.host`, `ingress.host`, or `gatewayApi.host` (in that order), then falls back to the in-cluster service name. | `""` |
 
 ### Storage Encryption
