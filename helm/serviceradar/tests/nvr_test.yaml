@@ -40,6 +40,9 @@ tests:
       - equal: {path: "spec.volumeClaimTemplates[0].spec.storageClassName", value: example-replicated}
       - equal: {path: "spec.volumeClaimTemplates[0].spec.accessModes", value: [ReadWriteOnce]}
       - equal: {path: "spec.template.spec.automountServiceAccountToken", value: false}
+      - equal: {path: "spec.template.spec.securityContext.seccompProfile.type", value: RuntimeDefault}
+      - equal: {path: "spec.template.spec.securityContext.runAsNonRoot", value: true}
+      - equal: {path: "spec.template.spec.securityContext.fsGroup", value: 10001}
       - equal: {path: "spec.template.spec.containers[0].args", value: [start]}
       - matchRegex:
           path: spec.template.spec.containers[0].image
