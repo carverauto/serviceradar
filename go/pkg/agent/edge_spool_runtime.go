@@ -55,7 +55,8 @@ func (p *PushLoop) SetEdgeSpoolBudget(apply func(maxBytes uint64) error) {
 	p.edgeSpool.applyBudget = apply
 }
 
-// edgeSpoolStatus is the status the hellos report, nil until it is recorded.
+// edgeSpoolStatus is the status the hellos report: a fresh sample once a
+// sampler is set, otherwise the recorded startup status (nil until recorded).
 func (p *PushLoop) edgeSpoolStatus() *proto.EdgeRecordSpoolStatus {
 	p.edgeSpool.mu.Lock()
 	sample, status := p.edgeSpool.sample, p.edgeSpool.status

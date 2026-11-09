@@ -401,7 +401,11 @@ alone does not withhold the acknowledgement.
 ### Restarts
 
 - **Agent.** The spool and its persistent spool id survive a restart. Unresolved
-  records are sent again in the next session.
+  records are sent again in the next session. An append interrupted by a crash,
+  power loss or disk error can leave an allocated slot that never committed. The
+  sender cannot deliver past such a slot, so the agent's lane stays wedged and
+  is reported as `spool_wedged` until recovery coverage carries the slot to the
+  gateway.
 - **Gateway.** A record whose PubAck the agent never saw stays unresolved and is
   sent again. The JetStream message id is derived from the record's spool slot,
   and the EventWriter ledger treats a record it already holds as a replay.
@@ -495,11 +499,20 @@ condition.
 | `agent_disconnected` | No core node has seen the agent recently. | Check the agent and its connection to the gateway. |
 | `agent_upgrade_blocked` | The release rollout cannot deliver a new agent build. Detail `cause`: `rollout_paused`, `no_published_release` or `no_release_artifact` (with `release` and `platform`). | Resume the rollout or publish a release with an artifact for the platform. |
 | `spool_unavailable` | The agent reported that its spool could not be opened. Detail: `error`. | Fix the spool directory (permissions, disk). |
+| `spool_wedged` | The spool holds allocated slots that never committed (an append interrupted by a crash, power loss or disk error), so the sender cannot resolve past them and every durable family on the agent is blocked. Detail: the agent's spool sample: `gap_count` (exact total), `gap_sequences` (the first 32), `unresolved_count`, `oldest_unresolved_age_seconds` with `oldest_unresolved_age_known`, `unresolved_bytes`, `bytes_used` and `budget_bytes`. | Recovery coverage is required; there is no automatic recovery yet. Do not delete spool files to clear it: that discards the records behind the gap. |
+| `spool_health_unavailable` | The spool opened but the agent could not read its health. Detail: `health_error` and the rest of the sample. | Check the agent log and the spool directory. |
+| `spool_backpressure` | Producer admission is paused at the spool's high-water mark. Detail: the spool sample. | See [The agent spool keeps growing](#the-agent-spool-keeps-growing). |
 | `agent_upgrade_pending` | The agent runs a build from before the edge-record cutover: its check-in carried no spool status, or the gateway refused durable data from it. Detail: `version`, and `refused_statuses` (count per retired source family) and `last_refused_at` when durable data was refused. | Upgrade the agent. Its refused data is not stored. |
 | `oversized_summary` | The gateway refused status summaries from the agent over its 4 KiB summary limit. The agent's edge records are not affected. Detail: `count`, `summaries` (each service's largest refused summary, with `bytes` and `limit`) and `last_refused_at`. | Report the service and size: a summary that large is an agent defect. Its summaries are not stored. |
 
-`spool_unavailable`, `agent_upgrade_pending` and `oversized_summary` come from
-the agent's last check-in and its live tracker entry, so they are reported for connected agents only. Agents that run from a
+The spool conditions, `agent_upgrade_pending` and `oversized_summary` come from
+the agent's last check-in and its live tracker entry, so they are reported for connected agents only. The agent
+samples spool health on every hello and control-stream heartbeat (about every 60
+seconds), so these conditions do not depend on Prometheus scraping the agent. A
+live sample takes precedence over the one persisted with the agent record, and the
+next healthy sample clears the condition. An agent reports at most one spool
+condition, in the order `spool_wedged`, `spool_health_unavailable`,
+`spool_backpressure`. Agents that run from a
 container image are upgraded with the image and are never reported as
 `agent_upgrade_blocked`.
 
@@ -528,6 +541,16 @@ from before this table reports no reasons. Another table shows the pending, ack-
 edge-record durable and its stream's message count; for
 `TELEMETRY_EDGE_RECORD_DLQ_V1_BULK` that count is the dead-letter depth. A
 stream no node could read shows `unknown`, not 0. The counts start at zero when a gateway or core process starts.
+
+An **Agent spool health** table above the contract rows lists each agent the
+tracker knows, with its lane state (`Wedged - recovery required`,
+`Admission paused`, `Health read failed`, `Unavailable`, `Ready`,
+`Health not reported` for an agent build that sends no health sample, or
+`Disconnected (last sample)`), its gaps (total and first sequences), unresolved
+slots (including gaps), oldest unresolved age, and bytes charged against the
+spool budget. An age that cannot be determined, for example because a gap lost
+its timestamp, shows `unknown`, never 0. Wedged and paused agents are listed
+first; the table shows 100 agents and states how many more there are.
 
 While a candidate registry epoch waits to activate, the panel shows a notice
 with the candidate's epoch and each blocker: a core node running another
@@ -649,6 +672,12 @@ kubectl -n <namespace> exec deploy/serviceradar-tools -- \
 - `agent_edge_spool_admission_paused` at 1 means producers are being held at
   the high-water mark. The spool resumes at 50% of its budget once records are
   acknowledged.
+- `Edge spool lane wedged; recovery coverage required; all durable families are blocked`
+  in the agent log, or `spool_wedged` in the readiness report, means an
+  interrupted append left an allocated slot the lane cannot resolve past. At
+  startup the agent also logs `Edge spool restart slot requires recovery coverage`
+  for each such slot (the first 32, then a total). Records keep accumulating
+  behind the gap until recovery coverage exists; see [Restarts](#restarts).
 - A lane stuck at one sequence is capped by the first record the gateway
   withholds. The log line `Edge record sender could not obtain delivery grants`
   means records under a lapsed grant are waiting for a delivery grant.
