@@ -677,7 +677,7 @@ func TestAttributedGenerationFitsFullRelocationReserve(t *testing.T) {
 		t.Run(bound, func(t *testing.T) {
 			footprint := Footprint{DestinationSegment: 1 << 20, AttributionSidecar: 1 << 20, JournalCopy: 1 << 20, ManifestPages: 256 << 10, Mapping: 1 << 20, FilesystemMetadata: 4096}
 			if bound == "destination" {
-				footprint.DestinationSegment = 2 * uint64(minRecordLen+len(input.Body)+4*evidenceEntryLen2+terminalEvidenceAllowance)
+				footprint.DestinationSegment = recoveryGenerationFixedBytes + 2*uint64(minRecordLen+len(input.Body)+4*evidenceEntryLen2+terminalEvidenceAllowance)
 			}
 			if bound == "sidecars" {
 				footprint.AttributionSidecar = 4 * sidecarSlotSize
@@ -751,7 +751,7 @@ func TestAttributedAppendDefersInvalidRecoveryCapacity(t *testing.T) {
 		t.Run(invalid, func(t *testing.T) {
 			root := t.TempDir()
 			allocator, err := NewAllocator(AllocatorConfig{Capacity: 16 << 20, MinFree: 4096, MaxConcurrentRecoveries: 1,
-				Recovery: Footprint{DestinationSegment: uint64(minRecordLen+len(input.Body)+4*evidenceEntryLen2+terminalEvidenceAllowance) - 1,
+				Recovery: Footprint{DestinationSegment: recoveryGenerationFixedBytes + uint64(minRecordLen+len(input.Body)+4*evidenceEntryLen2+terminalEvidenceAllowance) - 1,
 					AttributionSidecar: 1 << 20, JournalCopy: 1 << 20, ManifestPages: 256 << 10, Mapping: 1 << 20, FilesystemMetadata: 4096}})
 			if err != nil {
 				t.Fatal(err)
@@ -782,5 +782,98 @@ func TestAttributedAppendDefersInvalidRecoveryCapacity(t *testing.T) {
 				t.Fatalf("retry changed input: %v", err)
 			}
 		})
+	}
+}
+
+func TestRecoveryControlsShareGrantAndRestoreOwnership(t *testing.T) {
+	input, controlKey, identity := attributionAppend(t, "control")
+	root := t.TempDir()
+	allocator := attributionAllocator(t)
+	lanes := openAttributedLanes(t, root, identity, allocator, nil)
+	if _, err := lanes.Rotate(bulkLane); err != nil {
+		t.Fatal(err)
+	}
+	destination, _ := lanes.OpenGeneration(bulkLane)
+	if _, err := lanes.Rotate(controlKey); err != nil {
+		t.Fatal(err)
+	}
+	control, _ := lanes.OpenGeneration(controlKey)
+	grant, err := allocator.AcquireRecovery(destination.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = grant.AttachControlLane(control); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = allocator.AcquireRecovery(control.dir); !errors.Is(err, ErrRecoveryConcurrencyExhausted) {
+		t.Fatalf("second grant control: %v", err)
+	}
+	usage := allocator.Usage()
+	allocator.ChargeMeasured(filepath.Join(root, "synthetic-full-lane"), usage.OrdinaryCeiling-usage.OrdinaryUsed)
+	if _, err = lanes.AppendAttributed(controlKey, identity, input); !errors.Is(err, ErrAdmissionRefused) {
+		t.Fatalf("ordinary control bypass: %v", err)
+	}
+	receipt, err := control.spool.CommitRecoveryControl(input, grant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.Sequence != 1 || allocator.Usage().ActiveRecoveries != 1 {
+		t.Fatal("control consumed another grant or sequence")
+	}
+	if _, err = control.CommittedAttribution(1); err != nil {
+		t.Fatal(err)
+	}
+	if grant.Used(ArtifactDestinationSegment) != 0 || grant.Used(ArtifactAttributionSidecar) != 0 || grant.Used(ArtifactManifestPages) == 0 {
+		t.Fatal("control consumed copy destination footprint")
+	}
+	if err = lanes.Close(); err != nil {
+		t.Fatal(err)
+	}
+	lanes = openAttributedLanes(t, root, identity, allocator, nil)
+	control, _ = lanes.OpenGeneration(controlKey)
+	if allocator.Usage().OrdinaryUsed != usage.OrdinaryCeiling {
+		t.Fatal("reopen double charged recovery controls")
+	}
+	if err = lanes.Close(); err != nil {
+		t.Fatal(err)
+	}
+	fresh := attributionAllocator(t)
+	inventory := []RecoveryArtifact{}
+	var held uint64 = terminalEvidenceAllowance
+	for _, path := range []string{filepath.Join(control.dir, segmentFile), filepath.Join(control.dir, attributionFile), control.spool.evidencePath(copyA), control.spool.evidencePath(copyB)} {
+		inventory = append(inventory, RecoveryArtifact{ArtifactManifestPages, path})
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		held += uint64(info.Size())
+	}
+	restored, err := fresh.ResumeRecoveryWithControls(destination.dir, []RecoveryControlInventory{{Directory: control.dir, TerminalSlots: 1}}, inventory, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reopened := openAttributedLanes(t, root, identity, fresh, nil)
+	control, _ = reopened.OpenGeneration(controlKey)
+	if got := fresh.Usage(); got.OrdinaryUsed != usage.OrdinaryUsed || got.ActiveRecoveries != 1 {
+		t.Fatalf("control restore ownership: %+v", got)
+	}
+
+	if err = restored.Finish(); err != nil {
+		t.Fatal(err)
+	}
+	if err = restored.ReleaseSource(destination.dir, 0); err != nil {
+		t.Fatal(err)
+	}
+	if fresh.Usage().OrdinaryUsed != usage.OrdinaryUsed {
+		t.Fatal("source release transferred control ownership early")
+	}
+	if err = restored.ReleaseArtifacts(); err != nil {
+		t.Fatal(err)
+	}
+	if got := fresh.Usage(); got.ActiveRecoveries != 0 || got.OrdinaryUsed != usage.OrdinaryUsed+held {
+		t.Fatalf("control ownership not retained after grant release: %+v", got)
+	}
+	if _, err = control.CommittedAttribution(1); err != nil {
+		t.Fatal("release lost control", err)
 	}
 }

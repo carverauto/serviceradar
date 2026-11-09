@@ -420,11 +420,16 @@ func (a *Allocator) AcquireRecovery(lane string) (*RecoveryGrant, error) {
 	if len(a.active) >= a.maxActive {
 		return nil, fmt.Errorf("%w: %d active", ErrRecoveryConcurrencyExhausted, len(a.active))
 	}
+	lane = filepath.Clean(lane)
+	for g := range a.active {
+		if _, held := g.controlAllowances[lane]; held {
+			return nil, ErrOutsideLane
+		}
+	}
 	if err := a.requireBackedLocked(ErrReserveUnbacked, 0); err != nil {
 		return nil, err
 	}
-
-	g := &RecoveryGrant{alloc: a, lane: filepath.Clean(lane), laneFiles: make(map[string]uint64)}
+	g := &RecoveryGrant{alloc: a, lane: lane, laneFiles: make(map[string]uint64)}
 	a.active[g] = struct{}{}
 	return g, nil
 }
@@ -556,7 +561,10 @@ func (e *ReserveExhaustedError) Is(target error) bool { return target == ErrRese
 type RecoveryGrant struct {
 	alloc *Allocator
 	// lane is the cleaned directory holding the destination segment and sidecar.
-	lane string
+	lane              string
+	controlLane       string
+	controlFiles      map[string]uint64
+	controlAllowances map[string]uint64
 
 	// step serializes the grant's charges, writes, destructive steps, Finish, and
 	// releases, so a destructive step can never interleave with a failing barrier
@@ -751,13 +759,7 @@ func (g *RecoveryGrant) ReleaseSource(source string, sourceBytes uint64) error {
 	if err := a.releaseOrdinaryLocked(source, sourceBytes); err != nil {
 		return err
 	}
-	if moved := g.laneHeldLocked(); moved > 0 {
-		sum, carry := bits.Add64(a.ordinary[g.lane], moved, 0)
-		if carry != 0 {
-			sum = ^uint64(0)
-		}
-		a.ordinary[g.lane] = sum
-	}
+	a.addOrdinaryLocked(g.lane, g.laneHeldLocked())
 	g.sourceReleased = true
 	g.releaseStageLocked()
 	return nil
@@ -779,6 +781,12 @@ func (g *RecoveryGrant) ReleaseArtifacts() error {
 	defer a.mu.Unlock()
 	if err := g.releasableLocked(g.artifactsReleased); err != nil {
 		return err
+	}
+	// The recovery-control generation may still await ordinary sender cleanup.
+	// Transfer its retained bytes and prepaid terminal obligation before releasing
+	// the transient journals. Source release transfers only the copy destination.
+	for owner := range g.controlAllowances {
+		a.addOrdinaryLocked(owner, g.controlHeldLocked(owner))
 	}
 	g.artifactsReleased = true
 	g.releaseStageLocked()
@@ -962,10 +970,24 @@ func (a *Allocator) heldInLaneLocked(key string) uint64 {
 		if g.lane == key {
 			held += g.laneHeldLocked()
 		}
+		if _, ok := g.controlAllowances[key]; ok {
+			held += g.controlHeldLocked(key)
+		}
 	}
 	return held
 }
 
 func (g *RecoveryGrant) doneLocked() bool {
 	return g.sourceReleased && g.artifactsReleased
+}
+
+func (a *Allocator) addOrdinaryLocked(owner string, n uint64) {
+	if n == 0 {
+		return
+	}
+	sum, carry := bits.Add64(a.ordinary[owner], n, 0)
+	if carry != 0 {
+		sum = ^uint64(0)
+	}
+	a.ordinary[owner] = sum
 }
