@@ -5,8 +5,10 @@ package spool
 
 import (
 	"bytes"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -337,7 +339,7 @@ func resumeRecoveryFixture(t *testing.T, f *recoveryFixture) {
 		if strings.HasSuffix(name, "-b") || strings.HasSuffix(name, "-b.tmp") {
 			art = ArtifactJournalB
 		}
-		if strings.HasPrefix(name, "phase-coverage-") {
+		if strings.HasPrefix(name, "phase-coverage-") || strings.HasPrefix(name, recoveryArchiveFile) {
 			art = ArtifactMapping
 		}
 		return art, true
@@ -542,6 +544,16 @@ func TestRecoveryCopiesRetainedTerminalPrefixBeforeAmbiguousGap(t *testing.T) {
 	if !found {
 		t.Fatal("original accepted/rejected terminal evidence disappeared")
 	}
+	if err = f.operation.ArchiveTerminalEvidence(); err != nil {
+		t.Fatal(err)
+	}
+	archive, err := os.ReadFile(filepath.Join(f.dir, recoveryArchiveFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(archive, originalTerminal) || !bytes.Contains(archive, f.input.Body) {
+		t.Fatal("archive omitted original rejection/raw record")
+	}
 }
 
 func TestRecoveryControlRestartReplaysFrozenPublicationAfterTornAppend(t *testing.T) {
@@ -601,5 +613,258 @@ func TestRecoveryControlRestartReplaysFrozenPublicationAfterTornAppend(t *testin
 	}
 	if usage := f.allocator.Usage(); usage.ActiveRecoveries != 1 {
 		t.Fatal("control retry acquired another grant", usage)
+	}
+}
+
+type archiveCrashFile struct {
+	durableFile
+	remaining int
+}
+
+func (f *archiveCrashFile) Write(raw []byte) (int, error) {
+	if f.remaining == 0 {
+		return 0, syscall.EIO
+	}
+	n, err := f.durableFile.Write(raw[:min(len(raw), f.remaining)])
+	f.remaining -= n
+	if err == nil && n < len(raw) {
+		err = syscall.EIO
+	}
+	return n, err
+}
+
+type archiveCrashFS struct{ fileSystem }
+
+func (f archiveCrashFS) OpenFile(path string, flag int, mode os.FileMode) (durableFile, error) {
+	file, err := f.fileSystem.OpenFile(path, flag, mode)
+	if err == nil && strings.HasSuffix(path, recoveryArchiveFile+".tmp") {
+		return &archiveCrashFile{file, 117}, nil
+	}
+	return file, err
+}
+
+func TestRecoveryTerminalArchiveResumesWithoutDroppingEvidence(t *testing.T) {
+	for _, mode := range []string{"partial", "corrupt_prefix", "capacity"} {
+		t.Run(mode, func(t *testing.T) {
+			f := newRecoveryFixtureWithTerminal(t, 1, func(source *Generation, input AttributedAppend) {
+				ack := &edgev1.EdgeDeliveryAckV1{SpoolId: source.id.SpoolID, SessionNonce: bytes.Repeat([]byte{0x62}, 32), ResolvedThroughSequence: 1, Dispositions: []*edgev1.EdgeRecordDisposition{{Sequence: 1, EventId: input.EventID, Kind: edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_REJECTED_PERMANENT, RejectionCode: "SYNTHETIC_ARCHIVE"}}}
+				raw, err := proto.Marshal(ack)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err = source.ResolveWithEvidence(1, raw); err != nil {
+					t.Fatal(err)
+				}
+			})
+			records := prepareRecoveryPublications(t, f)
+			if _, err := f.operation.Copy(1); err != nil {
+				t.Fatal(err)
+			}
+			acknowledgeRecoveryPublications(t, f, records)
+			if _, err := f.operation.SealCoverage(); err != nil {
+				t.Fatal(err)
+			}
+			if mode == "capacity" {
+				if err := f.grant.Charge(ArtifactMapping, f.grant.Remaining(ArtifactMapping)-1); err != nil {
+					t.Fatal(err)
+				}
+				if err := f.operation.ArchiveTerminalEvidence(); !errors.Is(err, ErrReserveExhausted) {
+					t.Fatal("archive ignored exact capacity", err)
+				}
+				if _, err := os.Stat(filepath.Join(f.dir, recoveryArchiveFile+".tmp")); !errors.Is(err, os.ErrNotExist) {
+					t.Fatal("capacity refusal wrote archive", err)
+				}
+				if _, err := os.Stat(f.source.spool.segmentPath()); err != nil {
+					t.Fatal("capacity refusal deleted source", err)
+				}
+				return
+			}
+			f.allocator.fs = archiveCrashFS{osFS{}}
+			if err := f.operation.ArchiveTerminalEvidence(); !errors.Is(err, syscall.EIO) {
+				t.Fatal("archive crash not reached", err)
+			}
+			path := filepath.Join(f.dir, recoveryArchiveFile+".tmp")
+			prefix, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(prefix) != 117 {
+				t.Fatalf("wrong crash prefix size: %d", len(prefix))
+			}
+			if mode == "corrupt_prefix" {
+				prefix[len(prefix)-1] ^= 1
+				if err = os.WriteFile(path, prefix, filePerm); err != nil {
+					t.Fatal(err)
+				}
+			}
+			resumeRecoveryFixture(t, f)
+			f.operation, err = OpenRecoveryOperation(f.dir, f.source, f.destination, f.grant)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = f.operation.ArchiveTerminalEvidence()
+			if mode == "corrupt_prefix" {
+				if !errors.Is(err, ErrRecoveryJournalConflict) {
+					t.Fatal("corrupt prefix overwritten", err)
+				}
+				retained, err := os.ReadFile(path)
+				if err != nil || !bytes.Equal(retained, prefix) {
+					t.Fatal("corrupt evidence dropped", err)
+				}
+				if _, err = os.Stat(f.source.spool.segmentPath()); err != nil {
+					t.Fatal("corrupt archive deleted source", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			complete, err := os.ReadFile(filepath.Join(f.dir, recoveryArchiveFile))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.HasPrefix(complete, prefix) || !bytes.Contains(complete, f.input.Body) {
+				t.Fatal("resumed archive changed prefix or lost rejected record")
+			}
+			if err = f.operation.ArchiveTerminalEvidence(); err != nil {
+				t.Fatal("archive replay was not idempotent", err)
+			}
+		})
+	}
+}
+
+func recoveryResolutionEvidence(t *testing.T, f *recoveryFixture, alter func(*edgev1.RecoveryResolvedV1, *edgev1.EdgeSourceClaimsV1)) *edgerecord.ValidatedRecoveryResolution {
+	t.Helper()
+	tomb := new(edgev1.SpoolLossTombstoneV1)
+	if err := proto.Unmarshal(f.operation.manifest.Tombstone, tomb); err != nil {
+		t.Fatal(err)
+	}
+	body := &edgev1.RecoveryResolvedV1{RecoveryId: bytes.Clone(f.plan.RecoveryID), ManifestRootSha256: bytes.Clone(tomb.ManifestRootSha256), AppliedThroughSequence: f.plan.Last, ResolvedAtUnixNano: 1500}
+	claims := &edgev1.EdgeSourceClaimsV1{Kind: edgev1.EdgeSourceAuthorizationKind_EDGE_SOURCE_AUTHORIZATION_KIND_RECOVERY_CONTROL, NetworkScopeId: bytes.Clone(f.identity.NetworkScopeID), OriginPrincipalId: bytes.Clone(f.identity.AgentID), ContextId: bytes.Clone(f.plan.RecoveryID), ScopeId: bytes.Clone(f.plan.RecoveryID)}
+	if alter != nil {
+		alter(body, claims)
+	}
+	claims.ScopeSha256 = edgerecord.ResolvedScopeDigest(body)
+	private := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x71}, ed25519.SeedSize))
+	cap := &edgev1.EdgeSignedCapabilityV1{CapabilityVersion: 1, IssuerId: []byte("synthetic-core"), IssuerKeyId: []byte("synthetic-completion-key"), Algorithm: "ed25519", NotBeforeUnixNano: 1000, ExpiresAtUnixNano: 2000, Claims: &edgev1.EdgeSignedCapabilityV1_Source{Source: claims}}
+	edgerecord.SignCapability(cap, private)
+	policy := edgerecord.AuthorizationPolicy{Trust: attributionTrust(private.Public().(ed25519.PublicKey)), NowUnixNano: 3000, TrustPolicyEpoch: 1}
+	proof, err := edgerecord.ValidateRecoveryResolution(body, cap, claims.NetworkScopeId, claims.OriginPrincipalId, policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return proof
+}
+
+func TestRecoveryReclaimRequiresCompleteProofAndRetainsSignedCompletion(t *testing.T) {
+	f := newRecoveryFixture(t, 2)
+	if err := f.operation.ReclaimSource(); err == nil {
+		t.Fatal("unproved source deleted")
+	}
+	records := prepareRecoveryPublications(t, f)
+	for seq := uint64(1); seq <= 2; seq++ {
+		if _, err := f.operation.Copy(seq); err != nil {
+			t.Fatal(err)
+		}
+	}
+	acknowledgeRecoveryPublications(t, f, records)
+	if _, err := f.operation.SealCoverage(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.operation.ReclaimSource(); err == nil {
+		t.Fatal("source reclaimed without terminal archive checkpoint")
+	}
+	if err := f.operation.ArchiveTerminalEvidence(); err != nil {
+		t.Fatal(err)
+	}
+	before, err := f.source.spool.laneBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = f.operation.ReclaimSource(); err != nil {
+		t.Fatal(err)
+	}
+	if f.source.spool.baseSeq != 3 || f.source.Resolved() != 3 {
+		t.Fatal("covered high-water not reclaimed")
+	}
+	after, err := f.source.spool.laneBytes()
+	if err != nil || after >= before {
+		t.Fatalf("source physical bytes not released: %d -> %d: %v", before, after, err)
+	}
+	if held, err := f.source.RecoverySourceHeld(); err != nil || held {
+		t.Fatal("reclaimed old sender remains suspended", held, err)
+	}
+	if f.allocator.Usage().ActiveRecoveries != 1 {
+		t.Fatal("released journals before signed completion")
+	}
+	for _, alter := range []func(*edgev1.RecoveryResolvedV1, *edgev1.EdgeSourceClaimsV1){
+		func(r *edgev1.RecoveryResolvedV1, _ *edgev1.EdgeSourceClaimsV1) { r.AppliedThroughSequence = 2 },
+		func(r *edgev1.RecoveryResolvedV1, _ *edgev1.EdgeSourceClaimsV1) { r.ManifestRootSha256[0] ^= 1 },
+		func(_ *edgev1.RecoveryResolvedV1, c *edgev1.EdgeSourceClaimsV1) {
+			c.OriginPrincipalId = []byte("another-synthetic-agent")
+		},
+	} {
+		if err = f.operation.RecordResolution(recoveryResolutionEvidence(t, f, alter)); !errors.Is(err, edgerecord.ErrRecoveryResolution) {
+			t.Fatal("signed mismatched receipt released journals", err)
+		}
+	}
+	if err = f.operation.RecordResolution(recoveryResolutionEvidence(t, f, nil)); err != nil {
+		t.Fatal(err)
+	}
+	if f.allocator.Usage().ActiveRecoveries != 1 {
+		t.Fatal("completion released grant before same-owner cleanup")
+	}
+	original, cap, err := f.operation.ReadSignedResolution()
+	if err != nil || original.AppliedThroughSequence != 3 || len(cap.Signature) != ed25519.SignatureSize {
+		t.Fatal("original signed completion not durable", err)
+	}
+	if _, err = os.Stat(filepath.Join(f.dir, recoveryArchiveFile)); err != nil {
+		t.Fatal("terminal archive dropped on completion", err)
+	}
+	if _, err = OpenRecoveryJournal(f.dir); err != nil {
+		t.Fatal("retained completed journal missing", err)
+	}
+}
+
+func TestRecoveryReclaimResumesAroundPhysicalPublication(t *testing.T) {
+	for _, boundary := range []barrier{barrierReclaimPrepared, barrierReclaimPublished} {
+		t.Run(fmt.Sprintf("barrier_%d", boundary), func(t *testing.T) {
+			f := newRecoveryFixture(t, 1)
+			records := prepareRecoveryPublications(t, f)
+			if _, err := f.operation.Copy(1); err != nil {
+				t.Fatal(err)
+			}
+			acknowledgeRecoveryPublications(t, f, records)
+			if _, err := f.operation.SealCoverage(); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.operation.ArchiveTerminalEvidence(); err != nil {
+				t.Fatal(err)
+			}
+			f.source.spool.beforeBarrier = func(at barrier) error {
+				if at == boundary {
+					return syscall.EIO
+				}
+				return nil
+			}
+			if err := f.operation.ReclaimSource(); !errors.Is(err, syscall.EIO) {
+				t.Fatal("reclaim crash not reached", err)
+			}
+			resumeRecoveryFixture(t, f)
+			var err error
+			f.operation, err = OpenRecoveryOperation(f.dir, f.source, f.destination, f.grant)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = f.operation.ReclaimSource(); err != nil {
+				t.Fatal("reclaim did not resume", err)
+			}
+			if f.source.spool.baseSeq != 2 {
+				t.Fatal("source not reclaimed")
+			}
+			if err = f.operation.RecordResolution(recoveryResolutionEvidence(t, f, nil)); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }

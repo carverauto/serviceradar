@@ -70,12 +70,9 @@ package spool
 // count as runs of unknown key at attributed cost: their spans may be
 // maximally sized, and an unknown key provably continues no run.
 //
-// What this does NOT bound: the segment's own on-disk byte count. The
-// manifest bound now caps a segment at roughly 817 attributed records (one
-// worst-case span each), but each record's segment bytes can dwarf its span
-// bytes (a body can be far larger than maxAttributedSpanBytes), so a segment
-// file can still grow without bound in bytes. Capping segment bytes is the
-// multi-segment rotation work of task 2.4, not this one.
+// The manifest projection does not bound raw record bytes. Attributed
+// generations also pass requireRelocatableAppend, which independently bounds
+// their complete physical destination by the shared recovery footprint.
 
 import (
 	"fmt"

@@ -241,7 +241,7 @@ func RepairRecoveryPhases(dir string, grant *RecoveryGrant) error {
 
 func validRecoveryPhaseKey(key string) bool {
 	switch key {
-	case "publications", "coverage", "delete", "reclaimed", "resolved":
+	case "publications", "coverage", "archive", "delete", "reclaimed", "resolved":
 		return true
 	}
 	offset := 4

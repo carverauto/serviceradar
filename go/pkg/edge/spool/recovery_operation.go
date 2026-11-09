@@ -70,15 +70,7 @@ func OpenRecoveryOperation(dir string, source, destination *Generation, grant *R
 	hold = binary.BigEndian.AppendUint64(hold, plan.ReclaimThrough)
 	hold = binary.BigEndian.AppendUint64(hold, plan.HighWater)
 	op.sourceHold = sha256.Sum256(hold)
-	err = source.withOpen(func(s *Spool) error {
-		s.mu.Lock()
-		bounds := s.baseSeq == plan.ReclaimThrough && s.nextSeq-1 == plan.HighWater
-		s.mu.Unlock()
-		if !bounds {
-			return ErrRecoveryPlan
-		}
-		return s.beginRecoverySourceHold(op.sourceHold, grant)
-	})
+	err = op.resumeSource()
 	if err != nil {
 		return nil, err
 	}

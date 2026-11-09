@@ -296,7 +296,7 @@ func TestCoordinatorFootprintBoundsConfiguration(t *testing.T) {
 		t.Fatal(err)
 	}
 	total, err := f.PerRecovery()
-	if err != nil || total != 32<<20 {
+	if err != nil || total != 42<<20 {
 		t.Fatalf("default footprint changed: %d %v", total, err)
 	}
 	for _, art := range []Artifact{ArtifactDestinationSegment, ArtifactAttributionSidecar, ArtifactJournalA, ArtifactManifestPages, ArtifactMapping, ArtifactFilesystemMetadata} {

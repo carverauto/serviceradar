@@ -279,11 +279,11 @@ not establish that the complete coordinator footprint is configured.
 
 ### Aggregate defaults and recovery-control attempts
 
-The default footprint is 32 MiB per active recovery: 8 MiB destination,
+The default footprint is 42 MiB per active recovery: 8 MiB destination,
 2 MiB attribution/relocation sidecars, 4 MiB for EACH journal copy, 2 MiB control
-publication storage, 11 MiB terminal archive and coverage/mapping evidence, and 1 MiB filesystem
+publication storage, 21 MiB terminal archive and coverage/mapping evidence, and 1 MiB filesystem
 metadata. Together with the existing 1 MiB unborrowable free-space floor, one
-active recovery reserves 33 MiB of the default 1 GiB spool. The existing allocator
+active recovery reserves 43 MiB of the default 1 GiB spool. The existing allocator
 capacity validation rejects a total below its aggregate floor; there is no new
 Helm-only setting. `Footprint.ValidateCoordinator` additionally rejects component
 budgets below the complete coordinator minima.
@@ -297,7 +297,7 @@ publication records are bounded to 512 KiB aggregate before enqueue. For at most
 attempt requires that aggregate plus each spool wrapper, four 212-byte evidence
 entries, one 1024-byte attribution sidecar and 256-byte terminal allowance, plus
 1024 fixed generation bytes. The minimum control footprint covers two complete
-attempts; the default rounds up to 2 MiB.
+attempts plus one retained superseded-attempt archive; the default rounds up to 2 MiB.
 
 Recovery controls use the SAME grant as data relocation. They consume the
 `ManifestPages` artifact budget, including their wrappers/evidence/sidecars, and
@@ -342,11 +342,44 @@ including an already accepted or permanently rejected prefix. A private retained
 source witness permits reading that prefix; the public destination witness still
 requires an unresolved sender-visible commit.
 
-The mapping/archive minimum is `DestinationSegment + AttributionSidecar + 1 MiB`:
-the bounded source's retained record/evidence/sidecar bytes plus certificate,
-terminal and archive framing headroom. Defaults therefore reserve 11 MiB here.
+The mapping/archive minimum is `2 * (DestinationSegment + AttributionSidecar) + 1 MiB`:
+the original and destination retained record/evidence/sidecar bytes plus
+certificate, terminal and archive framing headroom. Defaults reserve 21 MiB here.
 The following reclamation slice must preflight actual archive bytes and preserve
 all terminal evidence without invoking the legacy quarantine eviction policy.
 The proof checkpoint does not yet delete source bytes, release the source charge,
 or collect journals; those actions still require the deletion-intent/archive and
 verified consumer-resolution lifecycle.
+
+
+### Bounded source archive and physical reclamation checkpoint
+
+For one operation covering the entire physical source interval, storage reopens
+its paired coverage certificate and archives original terminal files, complete
+original commit/binding sidecars, and rejected raw record extents. Unparseable
+terminal evidence or an unlocatable rejected extent preserves the complete raw
+segment instead. Archive production and verification stream bounded buffers.
+A partial archive is compared byte-for-byte against the immutable held source
+before appending only its missing suffix; it is never truncated or overwritten
+to gain reserve space. The exact archive bytes must fit the remaining mapping
+budget before the first write. The existing evicting quarantine is not invoked.
+
+A paired deletion intent binds the coverage and archive digests, original
+physical base/high-water, and commit generation counter. Only then does storage
+advance its local checkpoint and publish the existing reclaimed-layout pointer.
+This does not synthesize a sender disposition or advance a consumer prefix.
+Reopening a published pointer requires the paired intent and its prerequisites;
+cleanup/release can then retry. Source release transfers committed destinations
+into ordinary ownership while allowing the same grant's remaining completion
+writes. A signed historical consumer receipt must match the frozen namespace,
+recovery ID, manifest root and at least the selected end before the final same-grant cleanup may proceed.
+
+This checkpoint retains the active grant through signed completion. Full-floor
+forward progress additionally requires same-grant reclamation of acknowledged
+destinations/controls and receipt-gated collection of transient journals, while
+compact completion/archive evidence remains ordinarily accounted. Releasing the
+grant before that cleanup can require a new acquisition at an already consumed
+physical floor. Those remaining steps are not claimed by source deletion alone.
+Existing oversized or flat-v1 generations are unsupported: retain, account and
+report them without deletion. No legacy migration, copy-only compatibility
+protocol or source aggregation is in scope for this bounded implementation.

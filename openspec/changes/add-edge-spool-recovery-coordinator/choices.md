@@ -419,3 +419,41 @@
   safe mapping-deletion API or a claim that elapsed time proves retention safety.
 - Confidence: unit shard compilation and quality checks passed. The new lifecycle
   assertions still require guarded database execution before task 1.4 is complete.
+
+## No-drop archive and bounded-source reclamation
+
+- When: bounded-source archive/reclaim pass, 2026-11-09.
+- Choice: preserve terminal acknowledgements, original commit/binding evidence,
+  and rejected raw extents in a streamed archive before deletion. If corruption
+  prevents identifying the rejected extent, preserve the full raw segment. A
+  crash partway through the archive compares the already written prefix against
+  the held original and appends the rest; a mismatching prefix stays untouched.
+- Gap: the old quarantine deletes older entries or drops a new one at its cap,
+  which cannot satisfy this recovery's preservation contract. Rewriting a full
+  partial archive could also require a second full source-sized reservation.
+- Reach: exact archive preflight can visibly refuse capacity, but never trades
+  away evidence. The following delete intent joins the archive and coverage
+  digests before publishing the existing physical reclaim layout.
+- Verdict: sound; preserves evidence at every storage failure without inventing
+  a separate destructive authority or a second accounting system.
+- Confidence: high; interrupted prefixes and complete/insufficient budget cases are
+  exercised at the real file and operation boundaries.
+
+- When: bounded-source archive/reclaim pass, 2026-11-09.
+- Choice: retain the active grant after recording signed completion, until the
+  same storage owner has reclaimed fully acknowledged destinations and collected
+  transient proof files. At a full disk, releasing it earlier can force cleanup
+  to acquire a second fully backed reserve that the retained output has already
+  consumed. The source-delete checkpoint therefore does not claim full-floor
+  progress on its own.
+- Gap: completion can arrive while copied records still await acknowledgement;
+  moving every retained artifact to ordinary ownership would deadlock the next
+  cleanup acquisition at the physical floor.
+- Reach: the bounded lifecycle must finish under the original grant. Root approved
+  a 42 MiB default reserve, including 21 MiB for both original and newly rejected
+  destination archives, instead of adding a lossless deduplication format.
+- Verdict: sound; keeps preserved evidence and the capacity to finish cleanup
+  together. Oversized/flat legacy files remain retained and reported, with no
+  compatibility implementation in this scope.
+- Confidence: high on the ownership constraint; the near-full end-to-end proof
+  remains required before this lifecycle is complete.

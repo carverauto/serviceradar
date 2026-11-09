@@ -856,7 +856,7 @@ func (g *RecoveryGrant) charge(art Artifact, n uint64) error {
 	if err := g.healthyLocked(); err != nil {
 		return err
 	}
-	if g.finished {
+	if g.finished || (g.sourceReleased && laneArtifact(art)) {
 		return ErrRecoveryFinished
 	}
 	if art >= artifactCount {
