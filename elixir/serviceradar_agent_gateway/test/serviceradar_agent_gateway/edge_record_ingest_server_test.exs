@@ -12,6 +12,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
   alias Serviceradar.Edge.V1.EdgeRecordServerMessage
   alias ServiceRadarAgentGateway.EdgeRecordIngestServer
   alias ServiceRadarAgentGateway.EdgeRecordTrust
+  alias ServiceRadarAgentGateway.JetStreamPublisher
   alias ServiceRadarAgentGateway.TestSupport.CameraMediaAdapterStub
   alias ServiceRadarAgentGateway.TestSupport.EdgeRecordCapabilityStub
   alias ServiceRadarAgentGateway.TestSupport.EdgeRecordFactory, as: Factory
@@ -575,6 +576,44 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
       assert :ok = run_one_frame(resent)
       assert :ok = run_one_frame(resent)
       assert Enum.map(acks_through(1), &{&1.sequence, &1.kind}) == [{1, @accepted}]
+
+      assert delta(before, contract_counts(), "uncataloged", [
+               :gateway_admitted,
+               :gateway_duplicate,
+               :gateway_publish_retry
+             ]) ==
+               %{gateway_admitted: 1, gateway_duplicate: 0, gateway_publish_retry: 1}
+    end
+
+    test "a DiscardNew store refusal (:capacity) withholds the ack so the agent spool retains the record and retries once space frees up" do
+      if !Process.whereis(PipelineStats), do: start_supervised!(PipelineStats)
+      attempts = :counters.new(1, [])
+      test = self()
+
+      EdgeRecordPublisherStub.start_pipeline!(fn publication, _opts ->
+        send(test, {:edge_record_published, publication})
+        :counters.add(attempts, 1, 1)
+
+        if :counters.get(attempts, 1) == 1 do
+          JetStreamPublisher.parse_ack(~s({"error":{"code":400,"err_code":10077,"description":"maximum bytes exceeded"}}))
+        else
+          durable()
+        end
+      end)
+
+      before = contract_counts()
+      record_frame = record()
+
+      # First delivery: stream is full under DiscardNew, so gateway withholds EdgeDeliveryAckV1.
+      assert :ok = run_one_frame(record_frame)
+      assert_receive {:edge_record_published, %{slot: %{sequence: 1}}}
+      refute_received {:edge_record_stream_reply, %EdgeRecordServerMessage{payload: {:ack, _}}}
+
+      # Second delivery after space frees up: the agent redelivers the retained frame and receives its ack.
+      assert :ok = run_one_frame(record_frame)
+
+      assert Enum.map(acks_through(1), &{&1.sequence, &1.event_id, &1.kind}) ==
+               [{1, record_frame.event_id, @accepted}]
 
       assert delta(before, contract_counts(), "uncataloged", [
                :gateway_admitted,

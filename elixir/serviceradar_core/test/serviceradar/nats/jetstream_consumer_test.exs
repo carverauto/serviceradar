@@ -4,6 +4,7 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
   import ExUnit.CaptureLog
 
   alias ServiceRadar.EventWriter.Config
+  alias ServiceRadar.EventWriter.ConsumerReconciler
   alias ServiceRadar.EventWriter.ConsumerSetup
   alias ServiceRadar.NATS.JetstreamConsumer
 
@@ -69,11 +70,11 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
           {error(10_065, "subjects overlap with an existing stream"), streams}
 
         true ->
-          stream = %{
-            "subjects" => config["subjects"],
-            "num_replicas" => Map.get(config, "num_replicas", 1),
-            "messages" => 0
-          }
+          stream =
+            config
+            |> Map.delete("name")
+            |> Map.put_new("num_replicas", 1)
+            |> Map.put("messages", 0)
 
           {info(name, stream), Map.put(streams, name, stream)}
       end
@@ -85,10 +86,13 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
       if overlaps?(streams, name, config["subjects"]) do
         {error(10_065, "subjects overlap with an existing stream"), streams}
       else
-        streams =
+        updated =
           streams
-          |> put_in([name, "subjects"], config["subjects"])
-          |> put_in([name, "num_replicas"], Map.get(config, "num_replicas", 1))
+          |> Map.get(name, %{})
+          |> Map.merge(Map.delete(config, "name"))
+          |> Map.put_new("num_replicas", 1)
+
+        streams = Map.put(streams, name, updated)
 
         {info(name, streams[name]), streams}
       end
@@ -118,13 +122,15 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
       end)
     end
 
-    defp info(name, %{"subjects" => subjects, "messages" => messages} = stream) do
+    defp info(name, %{"messages" => messages} = stream) do
+      config =
+        stream
+        |> Map.delete("messages")
+        |> Map.put("name", name)
+        |> Map.put_new("num_replicas", 1)
+
       %{
-        "config" => %{
-          "name" => name,
-          "subjects" => subjects,
-          "num_replicas" => Map.get(stream, "num_replicas", 1)
-        },
+        "config" => config,
         "state" => %{"messages" => messages, "bytes" => 0}
       }
     end
@@ -444,6 +450,34 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
     streams = FakeJetStream.streams(conn)
     assert streams["TELEMETRY_EDGE_RECORD_V1_BULK"]["num_replicas"] == 3
     assert streams["TELEMETRY_EDGE_RECORD_V1_BULK"]["messages"] == 52
+  end
+
+  test "edge record upgrades an existing stream from discard old and 24h max_age to discard new and 72h max_age" do
+    conn =
+      start_supervised!(
+        {FakeJetStream,
+         %{
+           "TELEMETRY_EDGE_RECORD_V1_BULK" => %{
+             "subjects" => ["telemetry.edge-record.v1.bulk.>"],
+             "retention" => "limits",
+             "storage" => "file",
+             "discard" => "old",
+             "num_replicas" => 3,
+             "max_bytes" => 1_073_741_824,
+             "max_age" => 86_400_000_000_000,
+             "duplicate_window" => 86_400_000_000_000,
+             "messages" => 14
+           }
+         }}
+      )
+
+    assert {:ok, %{stream_name: "TELEMETRY_EDGE_RECORD_V1_BULK"}} =
+             ensure_edge_record_consumer(conn)
+
+    streams = FakeJetStream.streams(conn)
+    assert streams["TELEMETRY_EDGE_RECORD_V1_BULK"]["discard"] == "new"
+    assert streams["TELEMETRY_EDGE_RECORD_V1_BULK"]["max_age"] == 259_200_000_000_000
+    assert streams["TELEMETRY_EDGE_RECORD_V1_BULK"]["messages"] == 14
   end
 
   test "a discovered case-variant owner is not adopted in place of the configured stream" do
@@ -802,12 +836,9 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
   defp ensure_edge_record_consumer(conn) do
     stream = Config.edge_record_stream()
 
-    JetstreamConsumer.ensure_durable(conn,
-      stream_name: Config.jetstream_stream_name(stream),
-      filter_subject: stream.subject,
-      consumer_name: "edge-record-bulk-test",
-      stream_replicas: stream.stream_replicas,
-      allow_stream_fallback: ConsumerSetup.allow_stream_fallback?(stream)
+    JetstreamConsumer.ensure_durable(
+      conn,
+      ConsumerReconciler.ensure_opts(Config.load(), stream)
     )
   end
 
