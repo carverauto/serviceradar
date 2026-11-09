@@ -7,6 +7,7 @@ go_library(
         "attribution_commit.go",
         "barrier.go",
         "evidence.go",
+        "generation.go",
         "health.go",
         "lanes.go",
         "quarantine.go",
@@ -37,6 +38,7 @@ go_test(
     name = "spool_test",
     srcs = [
         "attribution_test.go",
+        "generation_test.go",
         "health_test.go",
         "lanes_test.go",
         "quarantine_test.go",
