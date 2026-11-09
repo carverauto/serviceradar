@@ -49,6 +49,11 @@ defmodule ServiceRadar.Edge.LocalBindingTest do
       assert {:ok, validated} =
                apply(RecoveryAttribution, unquote(contract), [raw, record.output_contract, policy])
 
+      if unquote(contract) == :sweep do
+        assert {:ok, ^validated} =
+                 RecoveryAttribution.registered(raw, record.output_contract, policy)
+      end
+
       a = RecoveryAttribution.attribution(validated)
       assert a.active == unquote(active)
       assert %EdgeSourceSpanIdentityV1{} = a.identity.source
@@ -154,6 +159,38 @@ defmodule ServiceRadar.Edge.LocalBindingTest do
 
     {record, raw, policy} = signed_record(record)
     assert {:ok, validated} = RecoveryAttribution.metrics(raw, policy)
+    assert {:ok, ^validated} = RecoveryAttribution.registered(raw, record.output_contract, policy)
+
+    assert %{classification: {:attributed_passive, %{identity: %{source: nil}}}} =
+             RecoveryAttribution.classification(validated)
+
+    {wrong_cost, wrong_bytes, wrong_policy} = signed_record(%{record | projected_row_count: 2})
+
+    assert {:error, _reason} =
+             RecoveryAttribution.registered(wrong_bytes, wrong_cost.output_contract, wrong_policy)
+
+    assert {:error, :contract_dispatch} =
+             RecoveryAttribution.registered(
+               raw,
+               %{record.output_contract | contract_bundle_sha256: digest(49)},
+               policy
+             )
+
+    for {id, version} <- [{"synthetic.unknown.contract", 1}, {"serviceradar.metrics.batch", 2}] do
+      {:production, claims} = record.production_capability.claims
+      claims = %{claims | contract_id: id, contract_version: version}
+
+      changed = %{
+        record
+        | output_contract: %{record.output_contract | contract_id: id, contract_version: version},
+          production_capability: %{record.production_capability | claims: {:production, claims}}
+      }
+
+      {changed, bytes, changed_policy} = signed_record(changed)
+
+      assert {:error, :contract_dispatch} =
+               RecoveryAttribution.registered(bytes, changed.output_contract, changed_policy)
+    end
 
     assert %{active: false, range_sha256: "", identity: %{source: nil}} =
              a = RecoveryAttribution.attribution(validated)
