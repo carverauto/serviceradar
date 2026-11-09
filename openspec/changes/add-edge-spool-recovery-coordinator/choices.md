@@ -49,8 +49,8 @@
   them; replay never invents a new timestamp or edits a publication body.
 - Gap: the design defines crash evidence and reconciliation but does not prescribe
   a storage encoding or divide immutable evidence from mutable progress.
-- Reach: `recovery.Freeze` writes through the existing reserved durable barriers.
-  `Open` requires identical valid copies. `Repair` only recreates exact intact
+- Reach: `spool.FreezeRecovery` writes through the existing reserved durable barriers.
+  `OpenRecoveryJournal` requires identical valid copies. `RepairRecoveryJournal` only recreates exact intact
   bytes when the other copy is absent or corrupt; conflicting valid copies,
   unsupported versions and read failures remain untouched. A freeze journal
   proves no copy completion, acknowledgement, source deletion or evidence-GC
@@ -68,11 +68,28 @@
   Copies-only compaction returns a separate error instead of fabricating loss.
 - Gap: the approved bounded-work requirement needed a concrete interval and
   local-evidence ceiling alongside the existing wire ceiling.
-- Reach: `JournalBytes` reports exact bytes for one copy. The caller must reserve
+- Reach: `RecoveryJournalBytes` reports exact bytes for one copy. The caller must reserve
   cumulative writes to both copies, every permitted repair, and independent
   phase/copy/page/mapping/metadata artifacts before acquiring a recovery grant.
   Coarsening compares the complete body and requires sequence adjacency; reopened
   singleton evidence remains the source for page construction and validation.
 - Verdict: sound. The root registration protocol uses the same selected-slot
   ceiling. Frozen snapshots remain independent of later caller mutations.
+- Confidence: high.
+
+
+## Storage ownership for recovery proof
+
+- When: coverage foundation pass, 2026-11-09.
+- Choice: move frozen journal storage into `spool` before adding opaque coverage
+  proofs. The storage owner must validate committed slots, durable bindings,
+  allocated high-water and the frozen journal before authorizing reclamation.
+- Gap: keeping the journal above `spool` would create an import cycle or require
+  a caller-supplied proof assertion at the destructive boundary.
+- Reach: the unshipped API now uses explicit `RecoveryJournal`, `RecoveryPlan`,
+  `FreezeRecovery`, `OpenRecoveryJournal`, and `RepairRecoveryJournal` names.
+  The local format and all validation remain unchanged. No aliases remain.
+- Verdict: sound. Root approved the clean ownership move. A later coordinator
+  orchestrates these storage-owned proofs without acquiring deletion authority
+  from a generic callback.
 - Confidence: high.

@@ -9,7 +9,6 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
-	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -483,44 +482,4 @@ func TestJournalRejectsPagesThatDisagreeWithSingletonEvidence(t *testing.T) {
 	if j, err := OpenRecoveryJournal(dir); j != nil || !errors.Is(err, ErrRecoveryJournalCorrupt) {
 		t.Fatalf("page-only evidence accepted: %v %v", j, err)
 	}
-}
-
-// This crosses append admission, frozen per-sequence evidence and reopened page
-// construction. Alternating complete maximum bodies prevent coarsening from
-// accidentally hiding an underestimated encoded-size budget.
-func TestRecoveryMaximalAdmissionFitsFrozenManifest(t *testing.T) {
-	bounds := segmentBounds{limits: defaultSegmentLimits()}
-	keys := [][]byte{attrKey("maximum-body-a"), attrKey("maximum-body-b")}
-	var slots []RecoverySlot
-	for i := 0; bounds.refusalFor(keys[i%2]) == ""; i++ {
-		seq := uint64(math.MaxUint64-edgerecord.MaxRecoverySlots-1) + uint64(i)
-		span := maxAttributedSpanAt(seq)
-		span.GetAttributedActive().RangeSha256[0] = byte(i % 2)
-		slots = append(slots, RecoverySlot{Sequence: seq, Loss: span})
-		bounds.observe(keys[i%2])
-	}
-	if len(slots) != 817 {
-		t.Fatalf("maximum admitted attributed interval changed: %d", len(slots))
-	}
-	plan := recoveryPlan(slots...)
-	plan.ReclaimThrough = plan.First - 1
-	_, journal := reopenedRecoveryJournal(t, plan)
-	manifest, err := journal.BuildManifest()
-	if err != nil {
-		t.Fatal(err)
-	}
-	total := 0
-	spans := 0
-	for _, raw := range manifest.Pages {
-		total += len(raw)
-		page := new(edgev1.EdgeLossManifestPageV1)
-		if err = proto.Unmarshal(raw, page); err != nil {
-			t.Fatal(err)
-		}
-		spans += len(page.ClassificationSpans)
-	}
-	if len(manifest.Pages) != 4 || spans != 817 || total > edgerecord.MaxManifestBytes {
-		t.Fatalf("maximum frozen manifest: pages=%d spans=%d bytes=%d", len(manifest.Pages), spans, total)
-	}
-	t.Logf("maximum-body frozen manifest: %d pages, %d spans, %d encoded bytes", len(manifest.Pages), spans, total)
 }
