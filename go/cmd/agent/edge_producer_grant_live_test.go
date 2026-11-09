@@ -12,7 +12,9 @@ import (
 	"crypto/ed25519"
 	"crypto/sha256"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -111,18 +113,36 @@ func metricsFrames(t *testing.T, frames []*edgev1.EdgeDeliveryFrameV1) []*edgev1
 	return out
 }
 
-func waitForMetricsFrames(t *testing.T, gw *grantLiveGateway, logs *agentOutput, url string, timeout time.Duration) []*edgev1.EdgeDeliveryFrameV1 {
+// framesUnderGrant returns the delivered metrics frames whose record was
+// produced under grant's production capability, so a frame left in a shared
+// spool by an earlier run, under another grant, never counts.
+func framesUnderGrant(t *testing.T, frames []*edgev1.EdgeDeliveryFrameV1, grant *proto.EdgeOutputGrant) []*edgev1.EdgeDeliveryFrameV1 {
+	t.Helper()
+	want := &edgev1.EdgeSignedCapabilityV1{}
+	require.NoError(t, gproto.Unmarshal(grant.GetProductionCapability(), want))
+	var out []*edgev1.EdgeDeliveryFrameV1
+	for _, frame := range metricsFrames(t, frames) {
+		record, err := edgerecord.DecodeRecord(frame.GetRecordBytes())
+		require.NoError(t, err)
+		if gproto.Equal(record.GetProductionCapability(), want) {
+			out = append(out, frame)
+		}
+	}
+	return out
+}
+
+func waitForMetricsFrames(t *testing.T, gw *grantLiveGateway, logs *agentOutput, url string, grant *proto.EdgeOutputGrant, timeout time.Duration) []*edgev1.EdgeDeliveryFrameV1 {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		_, frames := gw.snapshot()
-		if got := metricsFrames(t, frames); len(got) > 0 {
+		if got := framesUnderGrant(t, frames, grant); len(got) > 0 {
 			return got
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
 	diagnoseNoDelivery(t, gw, logs, url)
-	t.Fatalf("no metrics batch frames delivered within %s", timeout)
+	t.Fatalf("no metrics batch frames under this run's grant delivered within %s", timeout)
 	return nil
 }
 
@@ -231,41 +251,82 @@ func TestRunningAgentDeliversProducerRecordsWithAGrant(t *testing.T) {
 	grants := &productionGrantSwitch{}
 	gw, addr := listenSpoolHelloGateway(t, true, 0)
 	gw.productionGrants = grants
-	grants.set([]*proto.EdgeOutputGrant{mintMetricsProductionGrant(t, agentID)})
+	grant := mintMetricsProductionGrant(t, agentID)
+	grants.set([]*proto.EdgeOutputGrant{grant})
 
 	logs, url := runSpoolAgentFull(t, addr, agentID,
 		fmt.Sprintf(`{"spool_dir": %q, "poll_interval": "1s"}`, filepath.Join(t.TempDir(), "spool")),
 		"3s", scopedSysmonJSON)
 
-	delivered := waitForMetricsFrames(t, gw.grantLiveGateway, logs, url, 30*time.Second)
+	delivered := waitForMetricsFrames(t, gw.grantLiveGateway, logs, url, grant, 30*time.Second)
 	require.NotEmpty(t, delivered, "granted producer must deliver metrics frames\nlog:\n%s",
 		logs.snapshot())
 }
 
-// A package-installed agent with no edge_record_sender block runs its sender
-// against the default spool: with a metrics grant from the first config, the
-// sysmon producer's batches are delivered. Seeded pre-existing spool content
-// is covered with an explicit block by the grant drain tests (push_interval
-// 1h, so before the first push); the default-dir hello is covered by
-// TestRunningAgentWithoutASenderBlockUsesTheDefaultSpoolDir. Together they
-// are the 6.3 no-block claim. Skips where the default directory cannot be
-// created, like its hello twin.
+// The first start of a package-installed agent whose config has no
+// edge_record_sender block (6.3, 7.3). The package provides the runtime
+// directory /var/lib/serviceradar/agent and nothing under it; the agent must
+// create its spool at <state dir>/agent/edge-records (task 4.1), apply the
+// spool budget core sends in its first config, take the metrics production
+// grant from that same config, and deliver the sysmon producer's batches made
+// under that grant on the default sender cadence. The test stands in for the
+// package: it skips only when this user cannot provide that runtime directory,
+// and once the agent runs, an unavailable spool fails.
 func TestRunningAgentWithoutASenderBlockDeliversFromTheDefaultSpool(t *testing.T) {
-	const agentID = "edge-spool-default-on"
+	const (
+		agentID    = "edge-spool-default-on"
+		runtimeDir = "/var/lib/serviceradar/agent"
+		spoolDir   = runtimeDir + "/edge-records"
+		budget     = 256 << 20
+	)
+	if err := provideFreshRuntimeDir(runtimeDir, spoolDir); err != nil {
+		t.Skipf("cannot provide the package runtime directory %s as this user: %v", runtimeDir, err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(spoolDir) })
+
 	grants := &productionGrantSwitch{}
-	gw, addr := listenSpoolHelloGateway(t, true, 0)
+	gw, addr := listenSpoolHelloGateway(t, true, budget)
 	gw.productionGrants = grants
-	grants.set([]*proto.EdgeOutputGrant{mintMetricsProductionGrant(t, agentID)})
+	grant := mintMetricsProductionGrant(t, agentID)
+	grants.set([]*proto.EdgeOutputGrant{grant})
 
 	logs, url := runSpoolAgentFull(t, addr, agentID, "null", "3s", scopedSysmonJSON)
 
 	hello := waitForHello(t, gw, logs)
-	if spoolStatus := hello.GetEdgeRecordSpool(); spoolStatus == nil || !spoolStatus.GetAvailable() {
-		t.Skipf("default spool unavailable here, nothing to deliver: %+v", spoolStatus)
-	}
+	spoolStatus := hello.GetEdgeRecordSpool()
+	require.True(t, spoolStatus.GetAvailable(), "hello edge_record_spool = %v, want available\nlog:\n%s",
+		spoolStatus, logs.snapshot())
+	info, err := os.Stat(spoolDir)
+	require.NoError(t, err, "agent did not create the default spool directory")
+	require.True(t, info.IsDir(), "%s is not a directory", spoolDir)
 
 	// No sender block means the default sender cadence (30s), so the wait
 	// must cover a full default drain interval plus margin.
-	delivered := waitForMetricsFrames(t, gw.grantLiveGateway, logs, url, 75*time.Second)
+	delivered := waitForMetricsFrames(t, gw.grantLiveGateway, logs, url, grant, 75*time.Second)
 	require.NotEmpty(t, delivered, "no-block sender must deliver from the default spool")
+
+	var appliedLine string
+	for _, line := range strings.Split(string(logs.snapshot()), "\n") {
+		if strings.Contains(line, "Applied edge spool budget from config") && strings.Contains(line, strconv.Itoa(budget)) {
+			appliedLine = line
+		}
+	}
+	require.NotEmpty(t, appliedLine, "agent did not apply the %d-byte spool budget from its config\nlog:\n%s",
+		budget, logs.snapshot())
+}
+
+// provideFreshRuntimeDir does what the package postinstall does for the agent
+// runtime directory and leaves no spool under it, as on a fresh install. It
+// fails when this user could not create the spool leaf there.
+func provideFreshRuntimeDir(runtimeDir, spoolDir string) error {
+	if err := os.MkdirAll(runtimeDir, 0o755); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(spoolDir); err != nil {
+		return err
+	}
+	if err := os.Mkdir(spoolDir, 0o755); err != nil {
+		return err
+	}
+	return os.Remove(spoolDir)
 }

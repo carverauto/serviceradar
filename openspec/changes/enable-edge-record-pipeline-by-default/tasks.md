@@ -320,10 +320,16 @@ Load the `test-audit` skill before writing these.
 - [x] 6.3 Agent tests: no `edge_record_sender` block opens the default spool and
   runs the sender, a producer emits only while holding its grant, and the budget
   is applied from config.
-  - `go/cmd/agent/edge_producer_grant_live_test.go`: hold/deliver pair plus
-    no-block default-spool delivery, all green on RBE
-    (`//go/cmd/agent:agent_test`); budget-from-config pinned by the spool
-    budget cases in `edge_spool_default_on_live_test.go`.
+  - `go/cmd/agent/edge_producer_grant_live_test.go`: the hold/deliver pair
+    (a producer emits only under its grant), and
+    `TestRunningAgentWithoutASenderBlockDeliversFromTheDefaultSpool`: one
+    agent with no sender block, started on a runtime directory with no spool,
+    creates `/var/lib/serviceradar/agent/edge-records`, applies the budget
+    from its first config, and delivers metrics records made under the grant
+    from that config on the default 30s drain. It skips only when the test
+    user cannot provide the runtime directory. Producer records are built on
+    push cycles, so a status push precedes their delivery; drain of an
+    existing backlog without waiting for a push is the grant drain tests.
 - [ ] 6.4 Integration: move `integration_tests/edge_record` off
   `SERVICERADAR_EDGE_ISSUER_KEY_FILE` and the registry env vars, and add an epoch
   change across a core restart with spooled backlog that drains.
@@ -358,8 +364,10 @@ Load the `test-audit` skill before writing these.
     under the postinstall tree, and that postinstall leaves the leaf to
     the agent.
   - macOS `scripts/postinstall` creates `/var/lib/serviceradar/agent` 755
-    for the root launch daemon (the plist sets no `UserName`);
-    `//build/packaging/agent/macos:package_test` green on RBE.
+    for the root launch daemon (the plist sets no `UserName`). Reviewed in
+    source only: no automated test runs this script, since it drives
+    `launchctl`; `//build/packaging/agent/macos:package_test` only shows the
+    script ships in the package.
   - Windows MSI creates `CommonAppDataFolder/ServiceRadar/data/agent`
     (Permanent, LocalSystem service) and must not create `edge-records`
     (`TestWXSCreatesPermanentAgentRuntimeDirectory`, green on RBE);
@@ -367,7 +375,8 @@ Load the `test-audit` skill before writing these.
     resolution.
   - `serviceradar-ansible` PR #4 (merged 2026-11-04) ensures the runtime
     directory in both install playbooks before the service starts; both
-    playbooks re-checked with `ansible-playbook --syntax-check`.
+    playbooks re-checked with `ansible-playbook --syntax-check` (syntax
+    only, not an install run).
   - Shipped `agent.json`/`agent-windows.json` carry no
     `edge_record_sender` block, so a fresh install is the no-block case,
     which `TestRunningAgentWithoutASenderBlockDeliversFromTheDefaultSpool`
