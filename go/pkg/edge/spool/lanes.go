@@ -263,6 +263,7 @@ type LaneSet struct {
 	session           Identity
 	taxonomy          *fairsched.LaneTaxonomy
 	generationOptions func(GenerationIdentity, string) ([]Option, error)
+	allocator         *Allocator
 
 	mu     sync.Mutex // guards lanes and closed; never held across I/O on a lane
 	lanes  map[LaneKey]*lane
@@ -277,6 +278,12 @@ type LaneSet struct {
 
 // LaneOption configures all generations opened by a LaneSet.
 type LaneOption func(*LaneSet)
+
+// WithLaneAllocator gives generation publication the same owner used by every
+// configured spool, so ordinary metadata is admitted before it touches disk.
+func WithLaneAllocator(allocator *Allocator) LaneOption {
+	return func(ls *LaneSet) { ls.allocator = allocator }
+}
 
 // WithGenerationOptions configures each new or recovered generation before its
 // spool reads commit evidence. configure receives a copy of the frozen identity
@@ -683,6 +690,18 @@ func (ls *LaneSet) createGeneration(l *lane, recoveryID []byte, attempt uint32, 
 	}
 	tmp := filepath.Join(l.dir, tmpPrefix+name)
 	final := filepath.Join(l.dir, name)
+	if reservation == nil && ls.allocator != nil {
+		// Two directory allocations and the bounded identity/format files may each
+		// consume a filesystem block. Keep their barrier headroom in flight until
+		// the published spool has measured its actual file bytes.
+		const metadataAdmission = 4*4096 + recoveryGenerationFixedBytes
+		if err = ls.allocator.admit(final, metadataAdmission); err != nil {
+			return nil, err
+		}
+		defer func() {
+			err = ls.allocator.settleGenerationMetadata(final, tmp, metadataAdmission, err)
+		}()
+	}
 	if reservation != nil {
 		if err = reservation.prepare(final, id, recoveryID, attempt); err != nil {
 			return nil, err
@@ -761,6 +780,25 @@ func (ls *LaneSet) createGeneration(l *lane, recoveryID []byte, attempt uint32, 
 	return &Generation{id: id, dir: final, spool: sp, recoveryID: bytes.Clone(recoveryID), recoveryAttempt: attempt}, nil
 }
 
+// settleGenerationMetadata replaces publication headroom with the bytes that
+// actually landed, including a failed temporary generation. A measurement error
+// retains the conservative charge and stops admission.
+func (a *Allocator) settleGenerationMetadata(final, tmp string, admitted uint64, outcome error) error {
+	measured, err := regularFileBytes(final)
+	if errors.Is(err, os.ErrNotExist) {
+		measured, err = regularFileBytes(tmp)
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		err = nil
+	}
+	if err == nil {
+		a.ChargeMeasured(final, measured)
+	}
+	outcome = errors.Join(outcome, err)
+	a.settle(admitted, outcome)
+	return outcome
+}
+
 // openPublished makes a just-published generation's directory entry durable and
 // opens its segment.
 func (ls *LaneSet) openPublished(laneDir, dir string, id GenerationIdentity) (*Spool, error) {
@@ -784,6 +822,10 @@ func (ls *LaneSet) openSpool(dir string, id GenerationIdentity) (*Spool, error) 
 	sp, err := Open(dir, options...)
 	if err != nil {
 		return nil, err
+	}
+	if ls.allocator != nil && sp.alloc != ls.allocator {
+		_ = sp.Close()
+		return nil, fmt.Errorf("%w: generation factory changed shared allocator", ErrInvalidAllocatorConfig)
 	}
 	if ls.testSegBounds != nil {
 		sp.segBounds.limits = *ls.testSegBounds

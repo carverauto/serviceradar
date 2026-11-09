@@ -39,6 +39,7 @@ type RecordSpool struct {
 	active      bool
 	lanes       *spool.LaneSet
 	taxonomy    *fairsched.LaneTaxonomy
+	allocator   *spool.Allocator
 	legacyBytes uint64
 	trust       func() *edgerecord.TrustSnapshot
 }
@@ -61,13 +62,13 @@ func OpenRecordSpool(root string, allocator *spool.Allocator, options ...spool.O
 		return nil, err
 	}
 	allocator.ChargeMeasured(root, retained)
-	lanes, err := spool.OpenRetainedLanes(filepath.Join(root, "lanes"), taxonomy, spool.WithGenerationOptions(func(id spool.GenerationIdentity, _ string) ([]spool.Option, error) {
+	lanes, err := spool.OpenRetainedLanes(filepath.Join(root, "lanes"), taxonomy, spool.WithLaneAllocator(allocator), spool.WithGenerationOptions(func(id spool.GenerationIdentity, _ string) ([]spool.Option, error) {
 		return append(append([]spool.Option{}, common...), spool.WithAttribution(id)), nil
 	}))
 	if err != nil {
 		return nil, err
 	}
-	return &RecordSpool{lanes: lanes, taxonomy: taxonomy, legacyBytes: retained}, nil
+	return &RecordSpool{lanes: lanes, taxonomy: taxonomy, allocator: allocator, legacyBytes: retained}, nil
 }
 
 // Lanes returns the storage owner shared by producers and recovery coordination.

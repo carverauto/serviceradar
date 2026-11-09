@@ -437,3 +437,73 @@ func TestRecoveryDestinationPreservesSourceBeforeFreezeWithoutCurrentSession(t *
 		t.Fatalf("damaged intent remained usable: %v", err)
 	}
 }
+
+func TestOrdinaryGenerationMetadataCannotConsumePhysicalRecoveryFloor(t *testing.T) {
+	root := t.TempDir()
+	input, key, identity := attributionAppend(t, "metrics")
+	var free uint64
+	allocator, err := NewAllocator(AllocatorConfig{Capacity: 128 << 20, MinFree: 1 << 20, MaxConcurrentRecoveries: 1, Recovery: DefaultRecoveryFootprint(), FreeBytes: func() (uint64, error) { return free, nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lanes, err := OpenLanes(root, identity, deploymentTaxonomy(t), WithLaneAllocator(allocator), WithGenerationOptions(func(id GenerationIdentity, _ string) ([]Option, error) {
+		return []Option{WithAttribution(id), WithAllocator(allocator)}, nil
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lanes.Close()
+	free = allocator.Usage().Floor
+	before := allocator.Usage()
+	if _, err := lanes.AppendAttributed(key, identity, input); !errors.Is(err, ErrAdmissionRefused) {
+		t.Fatalf("ordinary metadata crossed physical floor: %v", err)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil || len(entries) != 0 || allocator.Usage() != before {
+		t.Fatalf("refused generation changed disk/accounting: entries=%v error=%v", entries, err)
+	}
+	free += 64 << 10
+	receipt, err := lanes.AppendAttributed(key, identity, input)
+	if err != nil || receipt.Sequence != 1 {
+		t.Fatalf("valid headroom could not publish and append: %+v %v", receipt, err)
+	}
+	g, _ := lanes.OpenGeneration(key)
+	var measured uint64
+	err = filepath.WalkDir(g.Directory(), func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.Type().IsRegular() {
+			info, err := entry.Info()
+			if err != nil {
+				return err
+			}
+			measured += uint64(info.Size())
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := allocator.Usage().OrdinaryUsed; got != measured+terminalEvidenceAllowance {
+		t.Fatalf("generation precharge not settled once: actual=%d expected=%d", got, measured+terminalEvidenceAllowance)
+	}
+}
+
+func TestLaneAllocatorRejectsFactoryOwnerSubstitution(t *testing.T) {
+	input, key, identity := attributionAppend(t, "metrics")
+	owner, substitute := recoveryOperationAllocator(t), recoveryOperationAllocator(t)
+	lanes, err := OpenLanes(t.TempDir(), identity, deploymentTaxonomy(t), WithLaneAllocator(owner), WithGenerationOptions(func(id GenerationIdentity, _ string) ([]Option, error) {
+		return []Option{WithAttribution(id), WithAllocator(substitute)}, nil
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lanes.Close()
+	if _, err := lanes.AppendAttributed(key, identity, input); !errors.Is(err, ErrInvalidAllocatorConfig) {
+		t.Fatalf("factory replaced byte owner: %v", err)
+	}
+	if _, ok := lanes.OpenGeneration(key); ok {
+		t.Fatal("mismatched owner became production generation")
+	}
+}
