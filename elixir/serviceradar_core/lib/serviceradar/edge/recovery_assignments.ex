@@ -69,7 +69,7 @@ defmodule ServiceRadar.Edge.RecoveryAssignments do
   def repair(issuance_id) do
     transaction(fn ->
       with {:ok, issuance} when not is_nil(issuance) <-
-             Ash.get(Issuance, issuance_id, actor: actor()),
+             Issuance |> Ash.Query.filter(id == ^issuance_id) |> Ash.read_one(actor: actor()),
            :ok <- verify_issuance(issuance),
            {:ok, anchor} <- ensure_key(issuance.mapping_key) do
         restore_candidates(anchor)

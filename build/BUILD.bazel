@@ -18,6 +18,7 @@ package(default_visibility = ["//visibility:public"])
 
 exports_files(["recovery_assignment_schema.exs"])
 exports_files(["recovery_operation_schema.exs"])
+exports_files(["recovery_effect_schema.exs"])
 
 ex_unit_test(
     name = "web_ng_db_config_test",

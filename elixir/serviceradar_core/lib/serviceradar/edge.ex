@@ -62,6 +62,11 @@ defmodule ServiceRadar.Edge do
   end
 
   resources do
+    resource ServiceRadar.Edge.RecoveryLossSpan
+    resource ServiceRadar.Edge.RecoveryLossTransition
+    resource ServiceRadar.Edge.RecoveryRangeLoss
+    resource ServiceRadar.Edge.RecoveryGenerationFence
+    resource ServiceRadar.Edge.RecoveryRetryIntent
     resource ServiceRadar.Edge.RecoveryAssignmentKey
     resource ServiceRadar.Edge.RecoveryAssignmentIssuance
     resource ServiceRadar.Edge.RecoveryAssignmentCandidate
