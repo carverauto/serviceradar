@@ -216,9 +216,10 @@ leaves the sequence unresolved and the agent keeps the bytes.
 EventWriter's compiled defaults are 1 GiB for the primary stream and 64 MiB
 for each of the other three ordinary streams and the recovery stream. On a Helm install the chart's JetStream profile
 (`nats.jetstream.profile`) sets the sizes, and they differ by profile: the
-`small` profile gives the dead-letter stream 32 MiB, and `tenant-2g` gives the
-primary stream 32 MiB, the audit and security-quarantine streams 8 MiB each and
-the dead-letter stream 4 MiB. `core.eventWriter.streams.<stream>.maxBytes`
+`small` profile gives the primary stream 960 MiB, the dead-letter stream 32 MiB
+and the recovery stream 64 MiB, and `tenant-2g` gives the primary stream 28 MiB,
+the audit and security-quarantine streams 8 MiB each, the dead-letter stream
+4 MiB and the recovery stream 4 MiB, its minimum. `core.eventWriter.streams.<stream>.maxBytes`
 overrides any one of them (see [Helm Configuration](./helm-configuration.md)).
 
 ### 4. EventWriter projects the record

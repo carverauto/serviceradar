@@ -382,11 +382,15 @@ requires an unresolved sender-visible commit.
 The mapping/archive minimum is `2 * (DestinationSegment + AttributionSidecar) + 1 MiB`:
 the original and destination retained record/evidence/sidecar bytes plus
 certificate, terminal and archive framing headroom. Defaults reserve 21 MiB here.
-`SealCoverage` produces the paired coverage certificate only. It does not delete
-source bytes, release the source charge or collect journals; `ReclaimSource`
-does that after preflighting actual archive bytes, preserving all terminal
-evidence without the legacy quarantine eviction policy, and verifying the
-consumer's signed resolution, as described below.
+`SealCoverage` persists the paired coverage certificate and releases the
+destination hold. It does not delete source bytes, release the source charge or
+collect journals. `ArchiveTerminalEvidence` preflights and preserves the required
+source archive; `ReclaimSource` verifies paired coverage, archive and deletion
+intent before reclaiming the source and releasing its charge. `FinishCleanup`
+separately requires validated signed consumer completion and terminal copied data
+before reclaiming outputs and collecting transient journals. Required archives and
+compact completion evidence remain retained and accounted. Source reclaim precedes
+signed consumer completion.
 
 
 ### Bounded source archive and physical reclamation checkpoint
