@@ -17,6 +17,7 @@ go_library(
         "recovery_archive.go",
         "recovery_coverage.go",
         "recovery_hold.go",
+        "recovery_generation.go",
         "recovery_journal.go",
         "recovery_limits.go",
         "recovery_operation.go",

@@ -393,3 +393,19 @@ physical floor. Those remaining steps are not claimed by source deletion alone.
 Existing oversized or flat-v1 generations are unsupported: retain, account and
 report them without deletion. No legacy migration, copy-only compatibility
 protocol or source aggregation is in scope for this bounded implementation.
+
+### Reserved dedicated generation publication
+
+`BeginRecoveryDestination` chooses the immutable destination path, acquires the
+operation grant, and charges identity, recovery marker, evidence-format marker
+and directory metadata before the first filesystem mutation. The existing
+publication/factory path then lands those bytes before reopening measures them;
+they cannot be charged again as ordinary storage. Control destinations use
+`CreateRecoveryControlDestination` with that same grant, never a second grant.
+The configured generation must retain the same allocator and owned attribution.
+
+A backing refusal writes no metadata and spends no sequence. A failure after
+reservation retains its active slot and fails the allocator closed until restart
+inventory. A retained operation cannot acquire a replacement grant merely by
+calling creation again: its complete artifacts and terminal obligations must be
+restored first. No compatibility alias retains the unreserved creation API.

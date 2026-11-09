@@ -40,8 +40,8 @@ const recoveryDestinationSuffix = ".recovery"
 const recoveryDestinationFile = "recovery-destination"
 const recoveryDestinationMagic = "SRDEST01"
 
-// Directory is the generation's immutable storage directory, used to acquire its
-// recovery reservation. Returning it does not authorize a commit or deletion.
+// Directory identifies immutable storage for retained-generation inventory.
+// Returning it does not authorize a commit or deletion.
 func (g *Generation) Directory() string { return g.dir }
 
 // RecoveryID identifies a dedicated relocation destination, or is nil for an
@@ -50,46 +50,6 @@ func (g *Generation) RecoveryID() []byte { return bytes.Clone(g.recoveryID) }
 
 // RecoveryAttempt distinguishes a control-publication retry within one operation.
 func (g *Generation) RecoveryAttempt() uint32 { return g.recoveryAttempt }
-
-// CreateRecoveryDestination creates or resumes this operation's dedicated
-// destination. Ordinary producer selection never returns it. Its marker and
-// identity are durable together before the generation can receive records.
-func (ls *LaneSet) CreateRecoveryDestination(key LaneKey, recoveryID []byte, attempt uint32) (*Generation, error) {
-	ls.sessionMu.RLock()
-	defer ls.sessionMu.RUnlock()
-	if len(ls.session.NetworkScopeID) == 0 {
-		return nil, ErrLaneNotReady
-	}
-	if !key.Valid() {
-		return nil, fmt.Errorf("%w: %s", ErrLaneInvalid, key)
-	}
-	if err := edgerecord.ValidateUUIDv7(recoveryID); err != nil {
-		return nil, errors.Join(ErrPermanent, err)
-	}
-	l, err := ls.lane(key)
-	if err != nil {
-		return nil, err
-	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.shut {
-		return nil, ErrLaneSetClosed
-	}
-	for _, g := range l.retained {
-		if bytes.Equal(g.recoveryID, recoveryID) && g.recoveryAttempt == attempt {
-			if !g.id.Identity.equal(ls.session) {
-				return nil, ErrScopeUnauthorized
-			}
-			return g, nil
-		}
-	}
-	g, err := ls.createGeneration(l, recoveryID, attempt)
-	if err != nil {
-		return nil, err
-	}
-	l.retain(g)
-	return g, nil
-}
 
 // CommitRelocated appends only to an operation's dedicated, still-open
 // destination. The storage commit independently checks the source witness and
@@ -131,11 +91,15 @@ func (g *Generation) SealRecoveryDestination() error {
 	return g.spool.Close()
 }
 
-func writeRecoveryDestination(dir string, id GenerationIdentity, recoveryID []byte, attempt uint32) error {
+func encodeRecoveryDestination(id GenerationIdentity, recoveryID []byte, attempt uint32) []byte {
 	b := append([]byte(recoveryDestinationMagic), recoveryID...)
 	b = binary.BigEndian.AppendUint32(b, attempt)
 	digest := sha256.Sum256(append(encodeIdentity(id), b...))
-	b = append(b, digest[:]...)
+	return append(b, digest[:]...)
+}
+
+func writeRecoveryDestination(dir string, id GenerationIdentity, recoveryID []byte, attempt uint32) error {
+	b := encodeRecoveryDestination(id, recoveryID, attempt)
 	path := filepath.Join(dir, recoveryDestinationFile)
 	if err := os.WriteFile(path, b, filePerm); err != nil {
 		return err

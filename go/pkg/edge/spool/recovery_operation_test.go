@@ -80,16 +80,12 @@ func newRecoveryFixtureWithTerminal(t *testing.T, copies int, terminal func(*Gen
 		terminal(source, input)
 	}
 	id := recoveryUUID(83)
-	destination, err := lanes.CreateRecoveryDestination(key, id, 0)
+	destination, grant, err := lanes.BeginRecoveryDestination(key, id, 0, a)
 	if err != nil {
 		t.Fatal(err)
 	}
 	controlKey := LaneKey{RouteProfile: edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_RECOVERY_CONTROL_V1, TrafficClass: edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_BULK}
-	control, err := lanes.CreateRecoveryDestination(controlKey, id, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	grant, err := a.AcquireRecovery(destination.dir)
+	control, err := lanes.CreateRecoveryControlDestination(controlKey, id, 0, grant)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -358,10 +354,10 @@ func resumeRecoveryFixture(t *testing.T, f *recoveryFixture) {
 			if e.IsDir() || strings.HasPrefix(relative, recoveryDirectory+string(filepath.Separator)) {
 				return 0, false
 			}
-			// Generation identity/marker are already ordinary metadata. Appended files
-			// and interrupted temporaries belong to the resumed grant.
+			// Dedicated generation metadata and interrupted temporaries belong to
+			// the original grant along with committed append files.
 			name := strings.TrimSuffix(e.Name(), ".tmp")
-			if name == identityFile || name == closedFile || name == recoveryDestinationFile || name == evidenceFormatFile {
+			if name == closedFile {
 				return 0, false
 			}
 			art := ArtifactDestinationSegment
@@ -584,7 +580,7 @@ func TestRecoveryControlRestartReplaysFrozenPublicationAfterTornAppend(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	replacement, err := f.lanes.CreateRecoveryDestination(f.control.id.Lane, f.plan.RecoveryID, 1)
+	replacement, err := f.lanes.CreateRecoveryControlDestination(f.control.id.Lane, f.plan.RecoveryID, 1, f.grant)
 	if err != nil {
 		t.Fatal(err)
 	}

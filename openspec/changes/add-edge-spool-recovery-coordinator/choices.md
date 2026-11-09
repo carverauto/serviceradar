@@ -483,3 +483,18 @@
   explicit freshness policy at their entry points. Ripwire's normalized generic
   pipeline matches and RPC-only caller gaps did not identify a missing owner.
   No lint suppression or caller-selected authorization mode was introduced.
+## Reserve before dedicated generation metadata
+
+- When: bounded generation publication pass, 2026-11-09.
+- Choice: acquire and precharge through the shared generation publication owner,
+  landing identity/marker/format bytes before the factory measures ordinary usage.
+  Control generations attach to the original grant before their first write.
+- Gap: writing even a small identity before acquisition consumes physical free
+  bytes at the exact reserve floor and can prevent recovery from ever starting.
+- Reach: creation refusal leaves the filesystem unchanged; a later publication
+  failure keeps the slot and requires retained inventory on restart. Dedicated
+  generations stay outside ordinary producer selection.
+- Verdict: sound; no second ledger, no unreserved creation compatibility wrapper.
+- Confidence: high; the physical-byte probe test passes at the exact floor and a
+  deliberate acquisition-after-metadata mutation fails because bytes were written
+  by an unbacked attempt.
