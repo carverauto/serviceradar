@@ -133,11 +133,12 @@
   candidate and draining epochs, the components not holding a candidate, and the issuer key presence. Expose it
   through core's health API.
   - `ServiceRadar.ClusterHealth` carries `edge_pipeline` in its state and
-    `health_check_response/0`: per-node withheld/dead-lettered
-    awaiting-roll-forward counts from `PipelineStats.snapshot/0`, the
+    `health_check_response/0`: withheld/dead-lettered awaiting-roll-forward
+    counts summed over every connected node's `PipelineStats.snapshot/0`
+    (with an explicit `error` naming nodes that did not answer), the
     non-retired epochs grouped by state, the transition's blockers described
-    cluster-wide, and the issuer-key presence. `overflow` ships at zero:
-    1.4's dead-letter move (off limits) counts it. Pinned by
+    cluster-wide, and the issuer-key presence. `overflow` is nil (unknown),
+    not zero, until 1.4's dead-letter move (off limits) adds its counter. Pinned by
     `cluster_health_edge_pipeline_test.exs` (pure mapping unit tests).
 
 ## 2. Core: issuer key, switch removal, settings, conditions

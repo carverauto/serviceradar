@@ -62,6 +62,8 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
   alias ServiceRadar.Edge.AgentReleaseManager
   alias ServiceRadar.Edge.AgentReleaseTarget
   alias ServiceRadar.Edge.ContractRegistry
+  alias ServiceRadar.Edge.ContractRegistryNode
+  alias ServiceRadar.Edge.ContractRegistryTransition
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Infrastructure.Partition
 
@@ -74,6 +76,7 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
   @finished_target_statuses [:healthy, :failed, :rolled_back, :canceled]
   # The gateway's refusal family for a summary over its size limit.
   @oversized_family "oversized_summary"
+  @rpc_timeout_ms 5_000
 
   @type reason ::
           :partition_not_found
@@ -120,39 +123,70 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
 
   @doc """
   The installation state the conditions are evaluated against: partition slugs, the live
-  agent tracker entries of every connected core node, the newest published agent release and
-  the agents waiting in a paused rollout. An unreadable node tracker is
-  `{:error, :agent_tracker_unavailable}`, not an agent reported as disconnected.
+  agent tracker entries of every connected core node, the newest published agent release, the
+  agents waiting in a paused rollout, the active epoch and, while one is active, the epochs each
+  gateway's fresh installation report holds. An unreadable node tracker is
+  `{:error, :agent_tracker_unavailable}`, not an agent reported as disconnected, and unreadable
+  gateway reports are `{:error, :gateway_reports_unavailable}`, not gateways reported as not
+  holding the epoch.
   """
   @spec facts() :: {:ok, facts()} | {:error, term()}
   def facts do
+    active_epoch = ContractRegistry.active_epoch()
+
     with {:ok, partitions} <- Ash.read(Partition, actor: actor()),
          {:ok, release} <- newest_release(),
          {:ok, paused} <- paused_agent_ids(),
-         {:ok, runtime} <- AgentRuntimeMetadata.runtime_agents() do
+         {:ok, runtime} <- AgentRuntimeMetadata.runtime_agents(),
+         {:ok, gateway_epochs} <- gateway_epochs(active_epoch, DateTime.utc_now()) do
       {:ok,
        %{
          partitions: MapSet.new(partitions, & &1.slug),
          runtime: runtime,
          release: release,
          paused_agent_ids: paused,
-         active_epoch: ContractRegistry.active_epoch(),
-         gateway_epochs: fresh_gateway_epochs(DateTime.utc_now())
+         active_epoch: active_epoch,
+         gateway_epochs: gateway_epochs
        }}
     end
   end
 
-  # What each gateway holds right now: the epochs of its installation report,
-  # when the report arrived within the freshness window the transition counts
-  # reports for. Reports arrive on every core node over PubSub, so the local
-  # table is enough.
-  @report_window_seconds 120
-  @spec fresh_gateway_epochs(DateTime.t()) :: %{String.t() => MapSet.t(integer())}
-  def fresh_gateway_epochs(now) do
-    for report <- ContractRegistry.gateway_reports(),
-        DateTime.diff(now, report.received_at, :second) <= @report_window_seconds,
-        into: %{},
-        do: {report.gateway_id, MapSet.new(report.installed, & &1.epoch)}
+  # What each gateway holds right now: the epochs of its installation report, when the report
+  # is fresh by the transition's window. Only a node that runs a core node's registry process
+  # stores the reports, so another node (web-ng) reads them from a connected one.
+  defp gateway_epochs({:ok, _active}, now) do
+    with {:ok, reports} <- registry_gateway_reports() do
+      {:ok,
+       reports
+       |> ContractRegistryTransition.fresh_reports(now)
+       |> Map.new(fn {id, report} -> {id, MapSet.new(report.installed, & &1.epoch)} end)}
+    end
+  end
+
+  defp gateway_epochs(_no_active_epoch, _now), do: {:ok, %{}}
+
+  defp registry_gateway_reports do
+    if Process.whereis(ContractRegistryNode) do
+      {:ok, ContractRegistry.gateway_reports()}
+    else
+      remote_gateway_reports(Node.list())
+    end
+  end
+
+  defp remote_gateway_reports(nodes) do
+    nodes
+    |> Enum.zip(:erpc.multicall(nodes, :erlang, :whereis, [ContractRegistryNode], @rpc_timeout_ms))
+    |> Enum.find_value({:error, :gateway_reports_unavailable}, fn
+      {node, {:ok, pid}} when is_pid(pid) -> remote_reports(node)
+      _not_a_registry_node -> nil
+    end)
+  end
+
+  defp remote_reports(node) do
+    case :erpc.multicall([node], ContractRegistry, :gateway_reports, [], @rpc_timeout_ms) do
+      [{:ok, reports}] when is_list(reports) -> {:ok, reports}
+      _unreachable -> nil
+    end
   end
 
   @doc """

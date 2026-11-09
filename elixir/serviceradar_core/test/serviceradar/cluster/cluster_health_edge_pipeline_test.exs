@@ -5,23 +5,24 @@ defmodule ServiceRadar.ClusterHealthEdgePipelineTest do
 
   @evaluated_at ~U[2026-11-09 12:00:00Z]
 
-  defp snapshot(overrides \\ %{}) do
-    {:ok,
-     Map.merge(
-       %{
-         node: "core@a",
-         contracts: [
-           %{contract: "serviceradar.metrics.batch/1", gateway_withheld: 3, gateway_admitted: 10},
-           %{contract: "serviceradar.sysmon/1", gateway_withheld: 0, gateway_admitted: 5}
-         ],
-         dead_letter_reasons: [
-           %{contract: "serviceradar.metrics.batch/1", reason: "awaiting_roll_forward", count: 7},
-           %{contract: "serviceradar.metrics.batch/1", reason: "poison_record", count: 1}
-         ],
-         consumers: []
-       },
-       overrides
-     )}
+  defp snapshot(overrides \\ %{}), do: [{:core@a, {:ok, {:ok, stats(overrides)}}}]
+
+  defp stats(overrides) do
+    Map.merge(
+      %{
+        node: "core@a",
+        contracts: [
+          %{contract: "serviceradar.metrics.batch/1", gateway_withheld: 3, gateway_admitted: 10},
+          %{contract: "serviceradar.sysmon/1", gateway_withheld: 0, gateway_admitted: 5}
+        ],
+        dead_letter_reasons: [
+          %{contract: "serviceradar.metrics.batch/1", reason: "awaiting_roll_forward", count: 7},
+          %{contract: "serviceradar.metrics.batch/1", reason: "poison_record", count: 1}
+        ],
+        consumers: []
+      },
+      overrides
+    )
   end
 
   defp epochs do
@@ -73,7 +74,60 @@ defmodule ServiceRadar.ClusterHealthEdgePipelineTest do
              }
            ]
 
-    assert roll_forward.overflow == 0
+    assert roll_forward.overflow == nil
+    assert roll_forward.nodes == ["core@a"]
+    assert roll_forward.error == nil
+  end
+
+  test "awaiting-roll-forward counts sum every node: gateways withhold, cores dead-letter" do
+    gateway =
+      stats(%{
+        node: "gateway@a",
+        contracts: [%{contract: "serviceradar.metrics.batch/1", gateway_withheld: 4}],
+        dead_letter_reasons: []
+      })
+
+    core_a = stats(%{node: "core@a", contracts: []})
+
+    core_b =
+      stats(%{
+        node: "core@b",
+        contracts: [],
+        dead_letter_reasons: [
+          %{contract: "serviceradar.metrics.batch/1", reason: "awaiting_roll_forward", count: 2}
+        ]
+      })
+
+    results = [
+      {:core@a, {:ok, {:ok, core_a}}},
+      {:core@b, {:ok, {:ok, core_b}}},
+      {:gateway@a, {:ok, {:ok, gateway}}},
+      {:web@a, {:ok, {:error, :unavailable}}}
+    ]
+
+    roll_forward =
+      ClusterHealth.edge_pipeline_status(results, nil, epochs(), {:ok, %{}}).awaiting_roll_forward
+
+    assert roll_forward.withheld_by_contract == [
+             %{contract: "serviceradar.metrics.batch/1", count: 4}
+           ]
+
+    assert roll_forward.dead_lettered_by_contract == [
+             %{contract: "serviceradar.metrics.batch/1", reason: "awaiting_roll_forward", count: 9}
+           ]
+
+    assert roll_forward.nodes == ["core@a", "core@b", "gateway@a"]
+    assert roll_forward.error == nil
+  end
+
+  test "a node that does not answer leaves an explicit error, not a silent zero" do
+    results = snapshot() ++ [{:gateway@a, {:error, {:erpc, :noconnection}}}]
+
+    roll_forward =
+      ClusterHealth.edge_pipeline_status(results, nil, epochs(), {:ok, %{}}).awaiting_roll_forward
+
+    assert roll_forward.error =~ "gateway@a"
+    assert roll_forward.overflow == nil
   end
 
   test "no candidate, no key and no snapshot degrade to explicit unknowns" do
@@ -81,7 +135,7 @@ defmodule ServiceRadar.ClusterHealthEdgePipelineTest do
 
     section =
       ClusterHealth.edge_pipeline_status(
-        {:error, :unavailable},
+        [{:core@a, {:ok, {:error, :unavailable}}}],
         transition,
         {:ok, []},
         {:error, :no_key}
@@ -100,7 +154,9 @@ defmodule ServiceRadar.ClusterHealthEdgePipelineTest do
     assert section.awaiting_roll_forward == %{
              withheld_by_contract: [],
              dead_lettered_by_contract: [],
-             overflow: 0
+             overflow: nil,
+             nodes: [],
+             error: "no node reported pipeline stats"
            }
   end
 

@@ -272,12 +272,12 @@ defmodule ServiceRadar.ClusterHealth do
 
   # The durable edge-record pipeline's status for the health response: the
   # registry epochs this node sees, the transition's blockers cluster-wide,
-  # whether the issuer key is present, and this node's awaiting-roll-forward
-  # counts. Never raises; a failed read leaves an explicit error, the way the
+  # whether the issuer key is present, and the awaiting-roll-forward counts
+  # summed over every connected node. Never raises; a failed read leaves an explicit error, the way the
   # EventWriter section degrades instead of crashing the check.
   defp get_edge_pipeline_status do
     edge_pipeline_status(
-      PipelineStats.snapshot(),
+      pipeline_snapshots(),
       ContractRegistryTransition.status(),
       read_pipeline_epochs(),
       IssuerKey.configured()
@@ -287,25 +287,35 @@ defmodule ServiceRadar.ClusterHealth do
   end
 
   @doc """
-  Maps one node's pipeline inputs to the health response's `edge_pipeline`
-  section. `snapshot` is this node's `PipelineStats.snapshot/0`,
-  `transition` its `ContractRegistryTransition.status/0`, `epochs` the
-  non-retired epoch rows, and `key` the `IssuerKey.configured/0` result.
+  Maps the pipeline inputs to the health response's `edge_pipeline` section.
+  `snapshots` pairs each connected node with its `:erpc` answer to
+  `PipelineStats.snapshot/0` (gateways count spool refusals, EventWriter
+  cores count dead letters), `transition` is this node's
+  `ContractRegistryTransition.status/0`, `epochs` the non-retired epoch rows,
+  and `key` the `IssuerKey.configured/0` result.
+
+  `awaiting_roll_forward.overflow` is nil, unknown: no overflow counter
+  exists yet, and an unknown loss must not read as zero.
   """
   @spec edge_pipeline_status(
-          {:ok, map()} | {:error, term()},
+          [{node(), term()}],
           map() | nil,
           {:ok, [map()]} | {:error, term()},
           {:ok, map()} | {:error, term()}
         ) :: map()
-  def edge_pipeline_status(snapshot_result, transition_status, epochs_result, key_result) do
+  def edge_pipeline_status(snapshots, transition_status, epochs_result, key_result) do
     %{
       node: to_string(node()),
       issuer_key_present: match?({:ok, _}, key_result),
       epochs: pipeline_epochs(epochs_result),
       transition: transition_summary(transition_status),
-      awaiting_roll_forward: roll_forward_counts(snapshot_result)
+      awaiting_roll_forward: roll_forward_counts(snapshots)
     }
+  end
+
+  defp pipeline_snapshots do
+    nodes = [node() | Node.list()]
+    Enum.zip(nodes, :erpc.multicall(nodes, PipelineStats, :snapshot, [], @event_writer_rpc_timeout))
   end
 
   defp read_pipeline_epochs do
@@ -365,27 +375,51 @@ defmodule ServiceRadar.ClusterHealth do
   defp transition_summary(_status),
     do: %{outcome: "unknown", evaluated_at: nil, epoch: nil, waiting_on: []}
 
-  defp roll_forward_counts({:ok, snapshot}) do
+  # A node that runs no stats table (or predates it) counts nothing; a node
+  # that did not answer leaves the sums incomplete, which `error` says.
+  defp roll_forward_counts(results) do
+    {snapshots, unreachable} =
+      Enum.reduce(results, {[], []}, fn
+        {_node, {:ok, {:ok, snapshot}}}, {ok, bad} -> {[snapshot | ok], bad}
+        {_node, {:ok, {:error, :unavailable}}}, acc -> acc
+        {_node, {:error, {:exception, :undef, [{PipelineStats, _, _, _} | _]}}}, acc -> acc
+        {node, _error}, {ok, bad} -> {ok, [to_string(node) | bad]}
+      end)
+
     %{
-      withheld_by_contract:
-        for(
-          %{contract: contract, gateway_withheld: count} <- snapshot.contracts,
-          count > 0,
-          do: %{contract: contract, count: count}
-        ),
-      dead_lettered_by_contract:
-        Enum.filter(
-          snapshot.dead_letter_reasons,
-          &(&1.reason == @awaiting_roll_forward_reason)
-        ),
-      # Counted by 1.4's dead-letter move, which also files the records above;
-      # no counter exists yet, so the key ships at zero for 1.4 to fill.
-      overflow: 0
+      withheld_by_contract: withheld_by_contract(snapshots),
+      dead_lettered_by_contract: dead_lettered_by_contract(snapshots),
+      overflow: nil,
+      nodes: snapshots |> Enum.map(& &1.node) |> Enum.sort(),
+      error: snapshot_error(snapshots, Enum.sort(unreachable))
     }
   end
 
-  defp roll_forward_counts({:error, _reason}),
-    do: %{withheld_by_contract: [], dead_lettered_by_contract: [], overflow: 0}
+  defp withheld_by_contract(snapshots) do
+    snapshots
+    |> Enum.flat_map(& &1.contracts)
+    |> Enum.group_by(& &1.contract, &Map.get(&1, :gateway_withheld, 0))
+    |> Enum.map(fn {contract, counts} -> %{contract: contract, count: Enum.sum(counts)} end)
+    |> Enum.filter(&(&1.count > 0))
+    |> Enum.sort_by(& &1.contract)
+  end
+
+  defp dead_lettered_by_contract(snapshots) do
+    snapshots
+    |> Enum.flat_map(&Map.get(&1, :dead_letter_reasons, []))
+    |> Enum.filter(&(&1.reason == @awaiting_roll_forward_reason))
+    |> Enum.group_by(& &1.contract, & &1.count)
+    |> Enum.map(fn {contract, counts} ->
+      %{contract: contract, reason: @awaiting_roll_forward_reason, count: Enum.sum(counts)}
+    end)
+    |> Enum.sort_by(& &1.contract)
+  end
+
+  defp snapshot_error([], []), do: "no node reported pipeline stats"
+  defp snapshot_error(_snapshots, []), do: nil
+
+  defp snapshot_error(_snapshots, unreachable),
+    do: "pipeline stats unavailable from: #{Enum.join(unreachable, ", ")}"
 
   defp event_writer_reason(%{reason: :ok}, %{healthy: false, nodes: nodes}) do
     nodes
