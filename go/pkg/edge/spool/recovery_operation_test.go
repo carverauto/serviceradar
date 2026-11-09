@@ -49,6 +49,20 @@ func newRecoveryFixture(t *testing.T, copies int) *recoveryFixture {
 
 func newRecoveryFixtureWithTerminal(t *testing.T, copies int, terminal func(*Generation, AttributedAppend)) *recoveryFixture {
 	t.Helper()
+	f := newRecoveryFixtureBeforeFreeze(t, copies, terminal)
+	if _, err := FreezeRecovery(f.dir, f.grant, f.plan); err != nil {
+		t.Fatal(err)
+	}
+	var err error
+	f.operation, err = OpenRecoveryOperation(f.dir, f.source, f.destination, f.grant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return f
+}
+
+func newRecoveryFixtureBeforeFreeze(t *testing.T, copies int, terminal func(*Generation, AttributedAppend)) *recoveryFixture {
+	t.Helper()
 	input, key, identity := attributionAppend(t, "metrics")
 	root := t.TempDir()
 	a := recoveryOperationAllocator(t)
@@ -79,9 +93,6 @@ func newRecoveryFixtureWithTerminal(t *testing.T, copies int, terminal func(*Gen
 	a = recoveryOperationAllocator(t)
 	lanes = openAttributedLanes(t, root, identity, a, nil)
 	source, _ = lanes.OpenGeneration(key)
-	if _, err := lanes.Rotate(key); err != nil {
-		t.Fatal(err)
-	}
 	if terminal != nil {
 		terminal(source, input)
 	}
@@ -114,14 +125,8 @@ func newRecoveryFixtureWithTerminal(t *testing.T, copies int, terminal func(*Gen
 	}
 	plan.Slots = append(plan.Slots, RecoverySlot{Sequence: uint64(copies + 1), Loss: loss})
 	dir := t.TempDir()
-	if _, err = FreezeRecovery(dir, grant, plan); err != nil {
-		t.Fatal(err)
-	}
-	operation, err := OpenRecoveryOperation(dir, source, destination, grant)
-	if err != nil {
-		t.Fatal(err)
-	}
-	f := &recoveryFixture{root: root, dir: dir, lanes: lanes, source: source, destination: destination, control: control, allocator: a, grant: grant, operation: operation, plan: plan, input: input, identity: identity}
+
+	f := &recoveryFixture{root: root, dir: dir, lanes: lanes, source: source, destination: destination, control: control, allocator: a, grant: grant, plan: plan, input: input, identity: identity}
 	t.Cleanup(func() {
 		if err := f.lanes.Close(); err != nil {
 			t.Error(err)

@@ -44,8 +44,7 @@ func OpenRecoveryOperation(dir string, source, destination *Generation, grant *R
 	if err := usableRecoveryGrant(grant); err != nil {
 		return nil, err
 	}
-	footprint := Footprint{DestinationSegment: grant.alloc.budgets[ArtifactDestinationSegment], AttributionSidecar: grant.alloc.budgets[ArtifactAttributionSidecar], JournalCopy: grant.alloc.budgets[ArtifactJournalA], ManifestPages: grant.alloc.budgets[ArtifactManifestPages], Mapping: grant.alloc.budgets[ArtifactMapping], FilesystemMetadata: grant.alloc.budgets[ArtifactFilesystemMetadata]}
-	if err := footprint.ValidateCoordinator(); err != nil {
+	if err := validateRecoveryCoordinator(grant); err != nil {
 		return nil, err
 	}
 	journal, err := OpenRecoveryJournal(dir)
@@ -73,19 +72,8 @@ func OpenRecoveryOperation(dir string, source, destination *Generation, grant *R
 		return nil, err
 	}
 	op := &RecoveryOperation{dir: dir, source: source, destination: destination, grant: grant, frozen: sha256.Sum256(journal.raw), plan: plan, manifest: manifest}
-	hold := append([]byte("serviceradar.recovery.source_hold.v1"), encodeIdentity(plan.Source)...)
-	hold = binary.BigEndian.AppendUint64(hold, plan.ReclaimThrough)
-	hold = binary.BigEndian.AppendUint64(hold, plan.HighWater)
-	op.sourceHold = sha256.Sum256(hold)
-	err = source.withOpen(func(s *Spool) error {
-		s.mu.Lock()
-		bounds := s.baseSeq == plan.ReclaimThrough && s.nextSeq-1 == plan.HighWater
-		s.mu.Unlock()
-		if !bounds {
-			return ErrRecoveryPlan
-		}
-		return s.beginRecoverySourceHold(op.sourceHold, grant)
-	})
+	op.sourceHold = recoverySourceOwner(plan)
+	err = op.resumeSource()
 	if err != nil {
 		return nil, err
 	}
@@ -93,6 +81,13 @@ func OpenRecoveryOperation(dir string, source, destination *Generation, grant *R
 		return nil, err
 	}
 	return op, nil
+}
+
+func recoverySourceOwner(plan RecoveryPlan) [32]byte {
+	hold := append([]byte("serviceradar.recovery.source_hold.v1"), encodeIdentity(plan.Source)...)
+	hold = binary.BigEndian.AppendUint64(hold, plan.ReclaimThrough)
+	hold = binary.BigEndian.AppendUint64(hold, plan.HighWater)
+	return sha256.Sum256(hold)
 }
 
 // Copy commits the frozen copy intent, or verifies its already committed exact

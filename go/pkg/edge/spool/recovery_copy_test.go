@@ -17,6 +17,16 @@ import (
 // outstanding terminal allowance, rather than supplying claimed artifact sizes.
 func restartRecoveryCopy(t *testing.T, f *recoveryFixture) {
 	t.Helper()
+	restartRecoveryStorage(t, f)
+	var err error
+	f.operation, err = OpenRecoveryOperation(f.dir, f.source, f.destination, f.grant)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func restartRecoveryStorage(t *testing.T, f *recoveryFixture) {
+	t.Helper()
 	sourceDir, destinationDir, controlDir := f.source.dir, f.destination.dir, f.control.dir
 	if err := f.lanes.Close(); err != nil {
 		t.Fatal(err)
@@ -40,10 +50,6 @@ func restartRecoveryCopy(t *testing.T, f *recoveryFixture) {
 		t.Fatal(err)
 	}
 	f.grant, err = inventory.Restore(f.allocator)
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.operation, err = OpenRecoveryOperation(f.dir, f.source, f.destination, f.grant)
 	if err != nil {
 		t.Fatal(err)
 	}

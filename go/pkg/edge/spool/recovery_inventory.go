@@ -27,6 +27,7 @@ type RecoveryStorageInventory struct {
 	completion       *RecoveryCompletion
 	completed        bool
 	completionErr    error
+	absentDirectory  bool
 }
 
 func (i *RecoveryStorageInventory) Completion() *RecoveryCompletion { return i.completion }
@@ -42,6 +43,12 @@ func (i *RecoveryStorageInventory) Restore(allocator *Allocator) (*RecoveryGrant
 		return nil, ErrRecoveryGrantRequired
 	}
 	measured, err := regularFileBytes(i.dir)
+	if i.absentDirectory {
+		if !errors.Is(err, os.ErrNotExist) {
+			return nil, errors.Join(ErrRecoveryJournalConflict, err)
+		}
+		measured, err = 0, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -64,6 +71,13 @@ func (i *RecoveryStorageInventory) Restore(allocator *Allocator) (*RecoveryGrant
 // it never reconstructs namespaces from current configuration or parses filenames.
 func InventoryRecoveryStorage(dir string, handles RecoveryCompletionGenerations) (*RecoveryStorageInventory, error) {
 	if handles.Source == nil || handles.Destination == nil || len(handles.Controls) > 2 {
+		return nil, ErrRecoveryPlan
+	}
+	bound, err := handles.Destination.RecoverySourceIdentity()
+	if err != nil {
+		return nil, err
+	}
+	if !bytes.Equal(encodeIdentity(bound), encodeIdentity(handles.Source.id)) {
 		return nil, ErrRecoveryPlan
 	}
 	controls := append([]*Generation(nil), handles.Controls...)
@@ -92,10 +106,13 @@ func InventoryRecoveryStorage(dir string, handles RecoveryCompletionGenerations)
 		inventory.completionErr = err
 	}
 	entries, err := recoveryPhaseEntries(dir)
-	if err != nil {
+	if errors.Is(err, os.ErrNotExist) {
+		inventory.absentDirectory = true
+	} else if err != nil {
 		return nil, err
+	} else {
+		inventory.artifacts = append(inventory.artifacts, RecoveryArtifact{ArtifactFilesystemMetadata, dir})
 	}
-	inventory.artifacts = append(inventory.artifacts, RecoveryArtifact{ArtifactFilesystemMetadata, dir})
 	for _, entry := range entries {
 		if inventory.completion == nil && (strings.HasPrefix(entry.Name(), "completion-a") || strings.HasPrefix(entry.Name(), "completion-b")) {
 			inventory.completionErr = errors.Join(ErrRecoveryJournalIncomplete, completionReadErr)

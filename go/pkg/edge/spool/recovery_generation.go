@@ -20,7 +20,7 @@ var ErrRecoveryResumeRequired = errors.New("spool: retained recovery requires in
 // BeginRecoveryDestination reserves the complete operation before any generation
 // metadata is written. Repeating it within the same active allocator returns the
 // original handle and grant; retained files after restart require ResumeRecovery.
-// The closed source must belong to this LaneSet. Its durable namespace, not the
+// The source must belong to this LaneSet. Its durable namespace, not the
 // current session, owns the new destination and its pre-freeze source intent.
 func (ls *LaneSet) BeginRecoveryDestination(source *Generation, recoveryID []byte, attempt uint32, allocator *Allocator) (*Generation, *RecoveryGrant, error) {
 	if source == nil || allocator == nil || source.id.Lane.RouteProfile == edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_RECOVERY_CONTROL_V1 {
@@ -79,18 +79,8 @@ func (ls *LaneSet) recoveryDestination(key LaneKey, recoveryID []byte, attempt u
 	if l.shut {
 		return nil, ErrLaneSetClosed
 	}
-	if !r.control {
-		i := sort.Search(len(l.retained), func(i int) bool { return l.retained[i].id.Ordinal >= r.source.Ordinal })
-		if i == len(l.retained) || l.retained[i] != r.sourceHandle || !r.sourceHandle.Closed() || r.sourceHandle.spool.alloc != r.allocator {
-			return nil, ErrOutsideLane
-		}
-		disk, err := readGenerationIdentity(r.sourceHandle.dir)
-		if err != nil {
-			return nil, err
-		}
-		if !bytes.Equal(encodeIdentity(disk), encodeIdentity(r.source)) {
-			return nil, ErrCorruptGeneration
-		}
+	if err := validateReservedRecoverySource(l, r); err != nil {
+		return nil, err
 	}
 	if g := l.recoveryDestinations[recoveryDestinationKey{string(recoveryID), attempt}]; g != nil {
 		if !g.id.Identity.equal(r.source.Identity) || g.spool.alloc != r.allocator {
@@ -117,6 +107,9 @@ func (ls *LaneSet) recoveryDestination(key LaneKey, recoveryID []byte, attempt u
 				return g, ErrRecoveryResumeRequired
 			}
 		}
+		if err := closeReservedRecoverySource(l, r); err != nil {
+			return nil, err
+		}
 		return g, nil
 	}
 	g, err := ls.createGeneration(l, recoveryID, attempt, r)
@@ -124,7 +117,66 @@ func (ls *LaneSet) recoveryDestination(key LaneKey, recoveryID []byte, attempt u
 		return nil, err
 	}
 	l.retain(g)
+	if err := closeReservedRecoverySource(l, r); err != nil {
+		return nil, err
+	}
 	return g, nil
+}
+
+func validateReservedRecoverySource(l *lane, r *generationReservation) error {
+	if r.control {
+		return nil
+	}
+	i := sort.Search(len(l.retained), func(i int) bool { return l.retained[i].id.Ordinal >= r.source.Ordinal })
+	retained := i < len(l.retained) && l.retained[i] == r.sourceHandle && r.sourceHandle.Closed()
+	if (l.open != r.sourceHandle && !retained) || r.sourceHandle.spool.alloc != r.allocator {
+		return ErrOutsideLane
+	}
+	disk, err := readGenerationIdentity(r.sourceHandle.dir)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(encodeIdentity(disk), encodeIdentity(r.source)) {
+		return ErrCorruptGeneration
+	}
+	return nil
+}
+
+// The lane lock excludes producer appends. Reserve acquisition and destination
+// publication precede this marker; no ordinary successor consumes the floor.
+func closeReservedRecoverySource(l *lane, r *generationReservation) error {
+	if r.control {
+		return nil
+	}
+	source := r.sourceHandle
+	if source.Closed() {
+		return nil
+	}
+	if l.open != source {
+		return ErrRecoveryPlan
+	}
+	source.lifecycle.Lock()
+	defer source.lifecycle.Unlock()
+	if err := r.grant.Charge(ArtifactFilesystemMetadata, 4096); err != nil {
+		return err
+	}
+	if err := r.grant.WriteBarrier(ArtifactFilesystemMetadata, filepath.Join(source.dir, closedFile), nil); err != nil {
+		l.shut = true
+		return err
+	}
+	if err := r.grant.Landed(ArtifactFilesystemMetadata, source.dir, 4096); err != nil {
+		l.shut = true
+		return err
+	}
+	source.closed.Store(true)
+	if err := source.spool.Close(); err != nil {
+		l.shut = true
+		return r.grant.FailStop("close recovery source", err)
+	}
+	l.open = nil
+	l.rotationPending = false
+	l.retain(source)
+	return nil
 }
 
 // generationReservation holds the same append accounting token across durable
