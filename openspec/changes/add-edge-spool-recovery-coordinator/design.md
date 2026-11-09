@@ -226,3 +226,30 @@ The product owner approved Decisions 1-5 on 2026-11-09, including consumer-commi
 gateway prefix application, source deletion versus journal-GC gates, immutable
 completion replay, and gateway/core-first capability rollout. The implementation
 checklist remains open until each complete contract is demonstrated.
+
+
+### Physical generation bound
+
+New attributed generations use the existing generation rotation as the physical
+recovery segment boundary. Before PREPARED or sequence allocation, an append
+must fit the full-copy destination budgets of the shared allocator. With `n`
+retained slots including the proposed append and `S` encoded spool record bytes
+including it, the required destination budget is `S + n * (4 * 212 + 256)`:
+two evidence files, each holding PREPARED and COMMITTED v2 entries, plus prepaid
+terminal evidence. The attribution-sidecar budget must cover `n * (1024 + 1024)`
+for the complete attribution and relocation mapping sidecars. `n <= 1024` also
+applies; existing manifest/key/run bounds may rotate sooner.
+
+A nonempty generation that would exceed either bound refuses retryably with
+`ErrRotationRequired`, without allocating a sequence. An empty generation whose
+single record cannot fit returns a distinct retryable configuration/capacity
+refusal; correcting settings permits the exact same event and body to retry.
+Attributed appends without the shared allocator fail closed. Legacy generations
+remain readable and drain under their original identities; relocating an
+oversized damaged legacy generation requires explicit reserve headroom.
+
+These destination limits are one part of the aggregate reserve. Coordinator
+activation also requires separately validated fixed budgets for both frozen
+journals, phase records, repairs, control publication wrappers/evidence/sidecars,
+coverage certificates and filesystem metadata. The generation limit alone does
+not establish that the complete coordinator footprint is configured.

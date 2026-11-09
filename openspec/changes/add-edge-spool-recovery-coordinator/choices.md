@@ -236,3 +236,22 @@
 - Verdict: sound. Capacity reflects real classification changes without weakening
   the independently checked physical record bindings.
 - Confidence: high.
+
+## Bound physical generations by full relocation bytes
+
+- When: capacity foundation pass, 2026-11-09.
+- Choice: use existing generation rotation, deriving a byte ceiling from the
+  destination and sidecar reserve rather than introducing a new truncation ABI
+  or a second size setting. Count every v2 evidence entry, attribution, mapping
+  and terminal allowance before the append allocates a sequence.
+- Gap: key/run limits do not bound large records with identical attribution;
+  partial operations cannot make physical progress inside one append-only file.
+- Reach: new attributed generations require the shared allocator. Existing raw
+  and legacy generations retain their read/drain behavior. A single oversized
+  valid record defers for configuration correction, never permanent loss.
+  Fixed phase/control artifact minima and source reclamation remain later slices.
+- Verdict: sound. Root approved this segmentation approach and corrected the
+  empty-generation refusal to preserve the producer's event for retry.
+- Confidence: high; independent destination/sidecar overflow regressions failed
+  on baseline and complete reserved relocation succeeds with ordinary admission
+  exhausted, using synthetic records with 32 KiB metric values.
