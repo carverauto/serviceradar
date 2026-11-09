@@ -1586,27 +1586,11 @@ if config_env() == :prod do
   object_store_retention_dry_run =
     System.get_env("OBJECT_STORE_RETENTION_DRY_RUN", "false") in ~w(true 1 yes)
 
-  object_store_retention_cron =
-    System.get_env("OBJECT_STORE_RETENTION_CRON", "0 3 * * *")
-
-  object_store_retention_crontab =
-    if object_store_retention_enabled do
-      [
-        {object_store_retention_cron, ServiceRadar.ObjectStore.RetentionWorker,
-         args: %{"enabled" => true}, queue: :maintenance}
-      ]
-    else
-      []
-    end
-
   capacity_forecasting_enabled =
     "SERVICERADAR_CAPACITY_FORECASTING_ENABLED"
     |> System.get_env("true")
     |> String.downcase()
     |> Kernel.in(["1", "true", "yes", "on"])
-
-  capacity_forecasting_cron =
-    System.get_env("SERVICERADAR_CAPACITY_FORECASTING_CRON", "41 * * * *")
 
   capacity_forecasting_horizon_seconds =
     String.to_integer(
@@ -1624,16 +1608,6 @@ if config_env() == :prod do
     |> System.get_env("true")
     |> String.downcase()
     |> Kernel.in(["1", "true", "yes", "on"])
-
-  capacity_forecasting_crontab =
-    if capacity_forecasting_enabled do
-      [
-        {capacity_forecasting_cron, CapacityForecastingWorker,
-         args: %{"trigger" => "cron"}, queue: :maintenance}
-      ]
-    else
-      []
-    end
 
   oban_lifeline_rescue_after_ms =
     "OBAN_LIFELINE_RESCUE_AFTER_MS"
@@ -1734,82 +1708,7 @@ if config_env() == :prod do
     plugins: [
       Oban.Plugins.Pruner,
       {Oban.Plugins.Lifeline, rescue_after: oban_lifeline_rescue_after_ms},
-      {Oban.Plugins.Cron,
-       crontab:
-         [
-           {System.get_env("TRACE_SUMMARIES_REFRESH_CRON") || "*/2 * * * *",
-            RefreshTraceSummariesWorker, queue: :maintenance},
-           {"*/5 * * * *", RootSpanRatioWorker, queue: :maintenance},
-           {"*/15 * * * *", ServiceRadar.Jobs.ReapStalePeriodicJobsWorker, queue: :maintenance},
-           {"17 * * * *", ServiceRadar.Jobs.PruneStaleAgentsWorker, queue: :maintenance},
-           {"* * * * *", ServiceRadar.Inventory.ExposureDeviceRefreshWorker, queue: :maintenance},
-           {"* * * * *", ServiceRadar.EventWriter.ExposureSnapshotMaintenanceWorker,
-            queue: :maintenance},
-           {"17 5 * * *", ServiceRadar.EventWriter.ExposureTerminalCompactionWorker,
-            queue: :maintenance},
-           {"17 * * * *", ServiceRadar.Inventory.ExposurePublicationPrepareWorker,
-            queue: :maintenance},
-           {"7 4 * * *", ServiceRadar.Inventory.ExposureDimensionRefreshWorker,
-            queue: :maintenance},
-           {"17 3 * * *", DataRetentionWorker, queue: :maintenance},
-           # Cold-tier chunk exporter: hourly so the frontier stays ~export_lag
-           # behind now; self-guards on cold-tier config (no-op when absent).
-           # Correctness does NOT depend on running before DataRetentionWorker —
-           # the fence's drop gate alone enforces export-before-drop.
-           {"47 * * * *", ServiceRadar.ColdTier.Exporter, queue: :maintenance},
-           # Cold-window pruning + manifest/bucket reconciliation (no-op when
-           # cold-tier config is absent).
-           {"23 4 * * *", ServiceRadar.ColdTier.Pruner, queue: :maintenance},
-           {"* * * * *", ServiceRadar.Observability.StatefulAlertEngine.RecoveryWorker,
-            queue: :alert_recovery},
-           {"37 3 * * *", ServiceRadar.Observability.StatefulEvaluationLedgerPruneWorker,
-            queue: :maintenance},
-           {"*/10 * * * *", ServiceRadar.Edge.RemoteAccessRecordingReaperWorker,
-            queue: :maintenance},
-           # Kept in step with serviceradar_core_elx's runtime.exs, as below.
-           {"*/2 * * * *", ServiceRadar.Camera.RelaySessionReaperWorker, queue: :maintenance},
-           # Kept in step with serviceradar_core_elx's runtime.exs, as above.
-           {"*/5 * * * *", ServiceRadar.SweepJobs.ExecutionReaperWorker, queue: :maintenance},
-           # Kept in step with serviceradar_core_elx's runtime.exs and config.exs.
-           {"*/5 * * * *", ServiceRadar.Observability.PluginServiceStateReconcileWorker,
-            queue: :maintenance},
-           {"31 3 * * *", ServiceRadar.Edge.RemoteAccessVersionRetentionWorker,
-            queue: :maintenance},
-           # Kept in step with the same entry in serviceradar_core_elx's
-           # runtime.exs -- that one is what the release actually loads.
-           {System.get_env("SERVICERADAR_CREDENTIAL_BROKER_RETENTION_CRON") || "43 3 * * *",
-            ServiceRadar.Credentials.BrokerRetentionWorker, queue: :maintenance},
-           # Audit-history retention. 03:23 / 03:51 / 03:53 sit clear of the
-           # 03:17 observability sweep, the 03:37 ledger prune, and the 03:43
-           # credential-broker delete. Kept in step with serviceradar_core_elx's
-           # runtime.exs, which the release loads.
-           {"23 3 * * *", SecurityEventsRetentionWorker, queue: :maintenance},
-           {"51 3 * * *", ApiEventsRetentionWorker, queue: :maintenance},
-           {"53 3 * * *", AuditVersionRetentionWorker, queue: :maintenance},
-           # Kept in step with serviceradar_core_elx's runtime.exs, as above.
-           {"29 * * * *", ServiceRadar.Identity.SAMLAssertionCleanupWorker, queue: :maintenance},
-           # Merged device availability: drains the invalidation log, re-resolves
-           # devices whose evidence aged out, and detects a silenced deciding
-           # agent within one sweep interval. Kept in step with
-           # serviceradar_core_elx's runtime.exs and config.exs.
-           {"* * * * *", ServiceRadar.Inventory.Availability.ResolverWorker, queue: :maintenance},
-           {"* * * * *", ServiceRadar.Inventory.Availability.ExpiryWorker, queue: :maintenance},
-           {"* * * * *", ServiceRadar.Inventory.Availability.PinSilenceWorker,
-            queue: :maintenance},
-           {"* * * * *", ServiceRadar.Edge.ManagedCertificateReconcileWorker,
-            queue: :maintenance},
-           # Composite checks' only scheduler: one evaluation job per enabled
-           # check per minute (full or incremental pass). Kept in step with
-           # serviceradar_core_elx's runtime.exs, which the release loads.
-           {"* * * * *", ServiceRadar.CompositeChecks.TickWorker, queue: :monitoring},
-           # Kept in step with serviceradar_core_elx's runtime.exs, as above. Inert
-           # until an operator enables sweep leasing.
-           {"*/5 * * * *", ServiceRadar.SweepJobs.LeasePassWorker, queue: :maintenance}
-         ] ++
-           object_store_retention_crontab ++
-           capacity_forecasting_crontab ++
-           ProductionSchedule.cron_entries() ++
-           DispatchSchedule.cron_entries()}
+      {Oban.Plugins.Cron, crontab: ServiceRadar.Jobs.CoreCrontab.cron_entries()}
     ],
     peer: Oban.Peers.Database
 

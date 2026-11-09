@@ -552,6 +552,12 @@ mtr_stage_enabled = fn env_name ->
   end
 end
 
+root_span_ratio_threshold =
+  case Float.parse(System.get_env("SERVICERADAR_ROOT_SPAN_RATIO_THRESHOLD") || "") do
+    {value, ""} when value > 0.0 and value <= 1.0 -> value
+    _ -> 0.85
+  end
+
 config :serviceradar_core, ExposureDimensionRelay,
   max_bytes:
     StateBucketSizing.bytes_from_env!(
@@ -560,15 +566,8 @@ config :serviceradar_core, ExposureDimensionRelay,
     )
 
 # Exposure transition stream size (EXPOSURE_TRANSITIONS, reconciled when the
-# relay starts). Unset or blank means 1 GiB; an invalid value fails boot.
-config :serviceradar_core, ExposureTransitionRelay,
-  max_bytes:
-    StateBucketSizing.bytes_from_env!(
-      "SERVICERADAR_JS_EXPOSURE_TRANSITIONS_MAX_BYTES",
-      ExposureTransitionRelay.default_max_bytes()
-    )
-
 # ---------------------------------------------------------------------------
+# relay starts). Unset or blank means 1 GiB; an invalid value fails boot.
 # Config blocks owned by the serviceradar_core APPLICATION.
 #
 # serviceradar_core is a path dependency of this release (mix.exs) and its
@@ -577,8 +576,18 @@ config :serviceradar_core, ExposureTransitionRelay,
 # elixir/serviceradar_core/config/runtime.exs is NEVER applied in this release.
 # Every such block has to be mirrored below, or its env vars are silently inert
 # in production: Application.get_env/3 falls through to the compiled default and
+config :serviceradar_core, ExposureTransitionRelay,
+  max_bytes:
+    StateBucketSizing.bytes_from_env!(
+      "SERVICERADAR_JS_EXPOSURE_TRANSITIONS_MAX_BYTES",
+      ExposureTransitionRelay.default_max_bytes()
+    )
+
+# EventWriter shadow/cutover destination. Helm injects SERVICERADAR_STARROCKS_*
 # nothing logs.
+# on this release; without this block those env vars are inert and Destination
 #
+# reads enabled: false.
 # Verified 2026-08-27 by RPC against the deployed demo node:
 #
 #   Application.get_env(:serviceradar_core, ServiceRadar.NetworkDiscovery.TopologyGraph)
@@ -586,20 +595,6 @@ config :serviceradar_core, ExposureTransitionRelay,
 #   Application.get_env(:serviceradar_core, :mapper_topology_edge_stale_minutes)
 #   #=> 10080
 #
-# i.e. the key defined immediately above applied correctly while the
-# module-scoped block did not exist at all.
-#
-# Only blocks whose modules actually execute in this release are mirrored.
-# Deliberately NOT mirrored, because nothing in this release reaches them:
-# RemoteAccessSSHCACommandSigner, ServiceRadar.Edge.RemoteAccessSSHCertificates
-# and RootSpanRatioWorker.
-#
-# Keep in sync with elixir/serviceradar_core/config/runtime.exs.
-# ---------------------------------------------------------------------------
-
-# EventWriter shadow/cutover destination. Helm injects SERVICERADAR_STARROCKS_*
-# on this release; without this block those env vars are inert and Destination
-# reads enabled: false.
 config :serviceradar_core,
        ServiceRadar.Analytics.StarRocks,
        ServiceRadar.Analytics.StarRocks.Env.config()
@@ -607,15 +602,28 @@ config :serviceradar_core,
 config :serviceradar_core, ServiceRadar.ColdTier, ServiceRadar.ColdTier.Config.from_env()
 
 # Terminal agent_command pruning (platform.agent_commands has a documented
+# i.e. the key defined immediately above applied correctly while the
 # bloat history, so these are incident-response levers).
-config :serviceradar_core, ServiceRadar.Edge.AgentCommandCleanupWorker,
-  retention_days: "AGENT_COMMAND_RETENTION_DAYS" |> parse_int_env.(2) |> max(1),
-  reschedule_seconds: "AGENT_COMMAND_CLEANUP_INTERVAL_SECONDS" |> parse_int_env.(3_600) |> max(60)
-
+# module-scoped block did not exist at all.
+#
+# Only blocks whose modules actually execute in this release are mirrored.
+# Deliberately NOT mirrored, because nothing in this release reaches them:
+# RemoteAccessSSHCACommandSigner and ServiceRadar.Edge.RemoteAccessSSHCertificates.
+#
+# Keep in sync with elixir/serviceradar_core/config/runtime.exs.
+# ---------------------------------------------------------------------------
 # Canonical-topology rebuild + its mass-deletion guardrail. The guard refuses a
 # stale-prune pass deleting more than canonical_prune_max_fraction of the
 # canonical edges; canonical_prune_guard_override forces a legitimate large
 # prune after a deliberate estate cutover, then should be unset.
+config :serviceradar_core, ServiceRadar.Edge.AgentCommandCleanupWorker,
+  retention_days: "AGENT_COMMAND_RETENTION_DAYS" |> parse_int_env.(2) |> max(1),
+  reschedule_seconds: "AGENT_COMMAND_CLEANUP_INTERVAL_SECONDS" |> parse_int_env.(3_600) |> max(60)
+
+config :serviceradar_core, ServiceRadar.Jobs.RootSpanRatioWorker,
+  threshold: root_span_ratio_threshold,
+  min_spans: "SERVICERADAR_ROOT_SPAN_RATIO_MIN_SPANS" |> parse_int_env.(1000) |> max(1)
+
 config :serviceradar_core, ServiceRadar.NetworkDiscovery.TopologyGraph,
   canonical_rebuild_heartbeat_ms: parse_int_env.("SERVICERADAR_TOPOLOGY_CANONICAL_REBUILD_HEARTBEAT_MS", 3_600_000),
   canonical_rebuild_min_upsert_floor:
@@ -1147,9 +1155,6 @@ if config_env() == :prod do
     |> String.downcase()
     |> Kernel.in(["1", "true", "yes", "on"])
 
-  capacity_forecasting_cron =
-    System.get_env("SERVICERADAR_CAPACITY_FORECASTING_CRON", "41 * * * *")
-
   capacity_forecasting_horizon_seconds =
     "SERVICERADAR_CAPACITY_FORECASTING_HORIZON_SECONDS"
     |> System.get_env("7776000")
@@ -1165,15 +1170,6 @@ if config_env() == :prod do
     |> System.get_env("true")
     |> String.downcase()
     |> Kernel.in(["1", "true", "yes", "on"])
-
-  capacity_forecasting_crontab =
-    if capacity_forecasting_enabled do
-      [
-        {capacity_forecasting_cron, CapacityForecastingWorker, args: %{"trigger" => "cron"}, queue: :maintenance}
-      ]
-    else
-      []
-    end
 
   # Mirrors serviceradar_core's runtime.exs. A job is only rescued once it has
   # been executing longer than any legitimate run, so this is deliberately far
@@ -1276,89 +1272,7 @@ if config_env() == :prod do
   object_store_retention_dry_run =
     System.get_env("OBJECT_STORE_RETENTION_DRY_RUN", "false") in ~w(true 1 yes)
 
-  object_store_retention_cron =
-    System.get_env("OBJECT_STORE_RETENTION_CRON", "0 3 * * *")
-
-  object_store_retention_crontab =
-    if object_store_retention_enabled do
-      [
-        {object_store_retention_cron, ServiceRadar.ObjectStore.RetentionWorker, args: %{"enabled" => true},
-         queue: :maintenance}
-      ]
-    else
-      []
-    end
-
-  extra_cron_entries =
-    [
-      {"*/2 * * * *", ServiceRadar.Jobs.ReapStalePeriodicJobsWorker, queue: :maintenance},
-      {System.get_env("TRACE_SUMMARIES_REFRESH_CRON") || "*/2 * * * *", RefreshTraceSummariesWorker, queue: :maintenance},
-      {"*/2 * * * *", ServiceRadar.Jobs.RefreshLogsSeverityStatsWorker, queue: :maintenance},
-      {System.get_env("SERVICERADAR_OBSERVABILITY_RETENTION_CRON") || "17 3 * * *", DataRetentionWorker,
-       queue: :maintenance},
-      {"47 * * * *", ServiceRadar.ColdTier.Exporter, queue: :maintenance},
-      {"23 4 * * *", ServiceRadar.ColdTier.Pruner, queue: :maintenance},
-      {System.get_env("ALERT_RETENTION_CRON") || "15 * * * *", AlertsRetentionWorker, queue: :maintenance},
-      # Alert-evaluation recovery scan. It runs on its own queue: on :maintenance it
-      # shares slots with the priority-3 AshOban schedulers (device identity
-      # reconciliation among them), and any backlog of it starves them. Kept in
-      # step with serviceradar_core's config.exs and runtime.exs.
-      {"* * * * *", ServiceRadar.Observability.StatefulAlertEngine.RecoveryWorker, queue: :alert_recovery},
-      # Drops evaluated-event ids past the redelivery window. Offset from the
-      # 03:17 observability sweep.
-      {"37 3 * * *", ServiceRadar.Observability.StatefulEvaluationLedgerPruneWorker, queue: :maintenance},
-      # Credential broker grants and secret resolution audits had no retention at
-      # all: nothing destroys a grant and nothing calls its :expire transition, so
-      # they and their paper_trail versions grew unbounded (~1.9 GB / 460k rows
-      # per table on demo). Offset from the 03:17 observability sweep so the two
-      # large deletes do not overlap.
-      {System.get_env("SERVICERADAR_CREDENTIAL_BROKER_RETENTION_CRON") || "43 3 * * *",
-       ServiceRadar.Credentials.BrokerRetentionWorker, queue: :maintenance},
-      # Audit-history retention. 03:23 / 03:51 / 03:53 sit clear of the 03:17
-      # observability sweep, the 03:37 ledger prune, and the 03:43
-      # credential-broker delete. Kept in step with serviceradar_core's
-      # runtime.exs and config.exs.
-      {"* * * * *", ServiceRadar.Inventory.ExposureDeviceRefreshWorker, queue: :maintenance},
-      {"* * * * *", ServiceRadar.EventWriter.ExposureSnapshotMaintenanceWorker, queue: :maintenance},
-      {"17 5 * * *", ServiceRadar.EventWriter.ExposureTerminalCompactionWorker, queue: :maintenance},
-      {"17 * * * *", ServiceRadar.Inventory.ExposurePublicationPrepareWorker, queue: :maintenance},
-      {"7 4 * * *", ServiceRadar.Inventory.ExposureDimensionRefreshWorker, queue: :maintenance},
-      {"23 3 * * *", SecurityEventsRetentionWorker, queue: :maintenance},
-      {"51 3 * * *", ApiEventsRetentionWorker, queue: :maintenance},
-      {"53 3 * * *", AuditVersionRetentionWorker, queue: :maintenance},
-      # Expired rows of the SAML assertion replay ledger. Rows are only needed
-      # until the assertion's NotOnOrAfter (minutes), so an hourly sweep keeps
-      # the table small.
-      {"29 * * * *", ServiceRadar.Identity.SAMLAssertionCleanupWorker, queue: :maintenance},
-      # Camera relay sessions whose edge pull stopped without reporting a close
-      # (tracker restart, lost close) otherwise stay requested/opening/active/
-      # closing forever. Their leases stop renewing, which is what the reaper keys on.
-      {"*/2 * * * *", ServiceRadar.Camera.RelaySessionReaperWorker, queue: :maintenance},
-      # Sweep executions whose agent stopped reporting (group disabled mid-scan,
-      # agent gone) otherwise stay running forever. Kept in step with
-      # serviceradar_core's runtime.exs.
-      {"*/5 * * * *", ServiceRadar.SweepJobs.ExecutionReaperWorker, queue: :maintenance},
-      # Converges plugin service state with plugin assignments changed outside the
-      # web-ng assignment actions. Kept in step with serviceradar_core's runtime.exs.
-      {"*/5 * * * *", ServiceRadar.Observability.PluginServiceStateReconcileWorker, queue: :maintenance},
-      # Merged device availability: drains the invalidation log and re-resolves
-      # devices whose evidence aged out, and detects a silenced deciding agent
-      # within one sweep interval. Kept in step with serviceradar_core's
-      # runtime.exs and config.exs.
-      {"* * * * *", ServiceRadar.Inventory.Availability.ResolverWorker, queue: :maintenance},
-      {"* * * * *", ServiceRadar.Inventory.Availability.ExpiryWorker, queue: :maintenance},
-      {"* * * * *", ServiceRadar.Inventory.Availability.PinSilenceWorker, queue: :maintenance},
-      {"* * * * *", ServiceRadar.Edge.ManagedCertificateReconcileWorker, queue: :maintenance},
-      # Composite checks' only scheduler: one evaluation job per enabled check per
-      # minute; each job runs the full pass when it is due and the incremental
-      # pass otherwise. Kept in step with serviceradar_core's runtime.exs.
-      {"* * * * *", ServiceRadar.CompositeChecks.TickWorker, queue: :monitoring},
-      # Keeps sweep schedule leases full and in step with their groups and agents.
-      {"*/5 * * * *", ServiceRadar.SweepJobs.LeasePassWorker, queue: :maintenance}
-    ] ++
-      object_store_retention_crontab ++
-      capacity_forecasting_crontab ++
-      ProductionSchedule.cron_entries() ++ DispatchSchedule.cron_entries()
+  extra_cron_entries = ServiceRadar.Jobs.CoreCrontab.cron_entries()
 
   add_cron_entries = fn config, entries ->
     plugins =

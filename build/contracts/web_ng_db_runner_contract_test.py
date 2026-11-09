@@ -40,7 +40,6 @@ SHARED_FIXTURE_SOURCES = {
     "test/app_domain/inventory_test.exs",
     "test/app_domain/jobs/reap_stale_periodic_jobs_worker_test.exs",
     "test/app_domain/jobs/refresh_trace_summaries_worker_test.exs",
-    "test/app_domain/jobs_test.exs",
     "test/app_domain/otel_services_access_db_test.exs",
     "test/app_domain/outbound_mail_settings_test.exs",
     "test/app_domain/plugins/addon_assignments_test.exs",
