@@ -317,9 +317,13 @@ Load the `test-audit` skill before writing these.
 - [x] 6.2 Gateway tests: draining-epoch admission with a changed bundle, retired
   and static-era permanent rejection (including with an unknown key id), and an
   expired or unparseable registry withholding.
-- [ ] 6.3 Agent tests: no `edge_record_sender` block opens the default spool and
+- [x] 6.3 Agent tests: no `edge_record_sender` block opens the default spool and
   runs the sender, a producer emits only while holding its grant, and the budget
   is applied from config.
+  - `go/cmd/agent/edge_producer_grant_live_test.go`: hold/deliver pair plus
+    no-block default-spool delivery, all green on RBE
+    (`//go/cmd/agent:agent_test`); budget-from-config pinned by the spool
+    budget cases in `edge_spool_default_on_live_test.go`.
 - [ ] 6.4 Integration: move `integration_tests/edge_record` off
   `SERVICERADAR_EDGE_ISSUER_KEY_FILE` and the registry env vars, and add an epoch
   change across a core restart with spooled backlog that drains.
@@ -343,10 +347,31 @@ Load the `test-audit` skill before writing these.
   every legacy agent emission and the gateway publishers that serve them, except
   RTSP and live media) in the same release as this change. Confirm its family
   soaks (tasks 2 to 7) passed before the release is cut.
-- [ ] 7.3 Make the packages for every published agent platform, and the
+- [x] 7.3 Make the packages for every published agent platform, and the
   `serviceradar-ansible` agent role, create the agent runtime directory writable
   by the agent user. Verify that a package-installed agent with no
   `edge_record_sender` block opens its spool on first start.
+  - Linux RPM/DEB share `scripts/postinstall.sh`, which owns
+    `/var/lib/serviceradar/agent` as serviceradar:serviceradar 0755;
+    `postinstall_shared_state_ownership_test.sh` (green on RBE Linux) now
+    proves the service owner can create and write the `edge-records` leaf
+    under the postinstall tree, and that postinstall leaves the leaf to
+    the agent.
+  - macOS `scripts/postinstall` creates `/var/lib/serviceradar/agent` 755
+    for the root launch daemon (the plist sets no `UserName`);
+    `//build/packaging/agent/macos:package_test` green on RBE.
+  - Windows MSI creates `CommonAppDataFolder/ServiceRadar/data/agent`
+    (Permanent, LocalSystem service) and must not create `edge-records`
+    (`TestWXSCreatesPermanentAgentRuntimeDirectory`, green on RBE);
+    `platform_paths_test.go` pins the `C:\ProgramData\ServiceRadar\data`
+    resolution.
+  - `serviceradar-ansible` PR #4 (merged 2026-11-04) ensures the runtime
+    directory in both install playbooks before the service starts; both
+    playbooks re-checked with `ansible-playbook --syntax-check`.
+  - Shipped `agent.json`/`agent-windows.json` carry no
+    `edge_record_sender` block, so a fresh install is the no-block case,
+    which `TestRunningAgentWithoutASenderBlockDeliversFromTheDefaultSpool`
+    delivers from on RBE Linux against the real default path.
 - [ ] 7.4 Add `agent_upgrade_pending` to the per-agent conditions, for agents still
   on a pre-cutover build after core upgrades. Make the release rollout target
   every agent at core upgrade.

@@ -48,6 +48,7 @@ go_test(
     size = "medium",
     srcs = [
         "edge_delivery_grant_live_test.go",
+        "edge_producer_grant_live_test.go",
         "edge_record_sender_test.go",
         "edge_spool_default_on_live_test.go",
         "edge_spool_metrics_live_test.go",
@@ -72,7 +73,9 @@ go_test(
         "//go/pkg/models",
         "//proto:proto",
         "//proto/edge/v1:edgev1",
+        "@com_github_google_uuid//:uuid",
         "@com_github_rs_zerolog//:zerolog",
+        "@com_github_stretchr_testify//require",
         "@org_golang_google_grpc//:grpc",
         "@org_golang_google_grpc//codes",
         "@org_golang_google_grpc//credentials/insecure",
