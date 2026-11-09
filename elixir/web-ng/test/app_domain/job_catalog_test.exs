@@ -189,4 +189,11 @@ defmodule ServiceRadarWebNG.JobCatalogTest do
     assert is_binary(label.description) and label.description != ""
     refute label.description == "No description available"
   end
+
+  @tag :db_free
+  test "ServiceRadarWebNG.Jobs does not expose an uncalled ng_job_schedules catalog or scheduler" do
+    assert {:module, ServiceRadarWebNG.Jobs} = Code.ensure_loaded(ServiceRadarWebNG.Jobs)
+    assert ServiceRadarWebNG.Jobs.__info__(:functions) == []
+    assert {:error, :nofile} = Code.ensure_loaded(ServiceRadarWebNG.Jobs.Schedule)
+  end
 end

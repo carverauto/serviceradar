@@ -11,6 +11,7 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
   alias ServiceRadar.Automation.Ansible.FileCallbackResponsePolicyProvider
   alias ServiceRadar.Edge.AgentCommandCleanupWorker
   alias ServiceRadar.EventWriter.Config, as: EventWriterConfig
+  alias ServiceRadar.Jobs.RootSpanRatioWorker
   alias ServiceRadar.Jobs.SecurityEventsRetentionWorker
   alias ServiceRadar.NetworkDiscovery.TopologyGraph
   alias ServiceRadar.Observability.ApiEventsRetentionWorker
@@ -22,11 +23,18 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
   @base_config Path.expand("../../config/config.exs", __DIR__)
   @prod_config Path.expand("../../config/prod.exs", __DIR__)
   @runtime_config Path.expand("../../config/runtime.exs", __DIR__)
+  @core_base_config Path.expand("../../../serviceradar_core/config/config.exs", __DIR__)
+  @core_runtime_config Path.expand("../../../serviceradar_core/config/runtime.exs", __DIR__)
 
   @required_production_workers [
     ServiceRadar.CompositeChecks.TickWorker,
+    ServiceRadar.Edge.RemoteAccessRecordingReaperWorker,
+    ServiceRadar.Edge.RemoteAccessVersionRetentionWorker,
     ServiceRadar.Identity.SAMLAssertionCleanupWorker,
+    ServiceRadar.Inventory.ExposureReconciliationWorker,
     ServiceRadar.Jobs.AlertsRetentionWorker,
+    ServiceRadar.Jobs.PruneStaleAgentsWorker,
+    RootSpanRatioWorker,
     SecurityEventsRetentionWorker,
     ApiEventsRetentionWorker,
     AuditVersionRetentionWorker,
@@ -87,6 +95,29 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     for worker <- @required_production_workers do
       assert worker in scheduled, "missing production cron entry for #{inspect(worker)}"
     end
+  end
+
+  test "every worker with a cron entry in either config appears in the effective crontab of the core_elx release" do
+    core_base_workers =
+      @core_base_config
+      |> Config.Reader.read!(env: :prod)
+      |> oban_crontab()
+      |> Enum.map(&elem(&1, 1))
+
+    core_runtime_workers =
+      @core_runtime_config
+      |> Config.Reader.read!(env: :prod)
+      |> oban_crontab()
+      |> Enum.map(&elem(&1, 1))
+
+    core_elx_crontab = oban_crontab(read_prod_config())
+    core_elx_workers = Enum.map(core_elx_crontab, &elem(&1, 1))
+
+    expected_workers = Enum.uniq(core_base_workers ++ core_runtime_workers ++ core_elx_workers)
+    missing = expected_workers -- core_elx_workers
+
+    assert missing == [],
+           "workers scheduled in serviceradar_core config are missing from serviceradar_core_elx crontab: #{inspect(missing)}"
   end
 
   test "alert recovery is scheduled on its own queue, off maintenance" do
@@ -471,10 +502,10 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
   # deployed demo node, where the TopologyGraph block read back nil.
   #
   # Blocks deliberately absent because nothing in this release reaches them:
-  # RemoteAccessSSHCACommandSigner, ServiceRadar.Edge.RemoteAccessSSHCertificates
-  # and RootSpanRatioWorker.
+  # RemoteAccessSSHCACommandSigner and ServiceRadar.Edge.RemoteAccessSSHCertificates.
   @mirrored_core_config_blocks [
     AgentCommandCleanupWorker,
+    RootSpanRatioWorker,
     SecurityEventsRetentionWorker,
     ApiEventsRetentionWorker,
     AuditVersionRetentionWorker,

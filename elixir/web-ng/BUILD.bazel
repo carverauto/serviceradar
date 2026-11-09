@@ -517,7 +517,6 @@ NETWORKS_LIVE_DB_SHARD_SRCS = [
         "test/app_domain/field_survey_dashboard_playlist_test.exs",
         "test/app_domain/field_survey_review_preferences_test.exs",
         "test/app_domain/infrastructure_test.exs",
-        "test/app_domain/jobs_test.exs",
         "test/app_domain/plugins/addon_profiles_test.exs",
         "test/app_domain/plugins/native_addon_importer_test.exs",
         "test/app_domain/rbac_test.exs",
