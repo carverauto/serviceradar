@@ -14,10 +14,11 @@ clock = %{clock_epoch: "synthetic-clock", timebase: 90_000, dts_source: :pts_no_
 identity = %{source_id: "synthetic-camera", profile: "recording", recorder_epoch: 1, block_sequence: 0}
 
 case System.fetch_env!("NVR_TEST_MODE") do
-  "record" ->
+  mode when mode in ["record", "interrupted"] ->
     # Admission must not initialize an unprovisioned volume.
     {:error, :storage_identity_missing} = ServiceRadarNVR.start_recording(identity, clock)
     {:error, :storage_identity_missing} = ServiceRadarNVR.list_blocks()
+    {:error, :storage_identity_missing} = ServiceRadarNVR.recover_block("missing", identity)
     false = File.exists?(Path.join(root, ".storage-id"))
     {:ok, _} = Storage.initialize(root, id)
     {:ok, worker, inbox} = ServiceRadarNVR.start_recording(identity, clock)
@@ -45,6 +46,12 @@ case System.fetch_env!("NVR_TEST_MODE") do
         })
 
       %{last_sequence: ^sequence} = ServiceRadarNVR.status(worker)
+    end
+
+    if mode == "interrupted" do
+      # Exit the VM without finishing the inbox or running worker termination.
+      IO.puts("NVR_RELEASE_PROBE_OK")
+      System.halt(0)
     end
 
     monitor = Process.monitor(worker)
@@ -224,9 +231,46 @@ case System.fetch_env!("NVR_TEST_MODE") do
       File.write!(System.fetch_env!("NVR_TEST_MP4") <> ".#{index}", [init | media])
     end
 
-  "discover_unresolved" ->
+  "recover_interrupted" ->
     {:ok, [block_id]} = ServiceRadarNVR.list_blocks()
-    {:error, reason} = ServiceRadarNVR.sealed_block(block_id)
+    expected = Map.put(identity, :clock, clock)
+    directory = Path.join(root, block_id)
+    read_files = fn -> Map.new(File.ls!(directory), &{&1, File.read!(Path.join(directory, &1))}) end
+    before = read_files.()
+
+    {:ok, worker, _} = ServiceRadarNVR.start_recording(%{identity | source_id: "synthetic-other"}, clock)
+    {:error, :nvr_recordings_active} = ServiceRadarNVR.recover_block(block_id, expected)
+    ^before = read_files.()
+    monitor = Process.monitor(worker)
+    :ok = ServiceRadarNVR.stop(worker)
+
+    receive do
+      {:DOWN, ^monitor, :process, ^worker, :normal} -> :ok
+    after
+      5_000 -> raise "writer did not retire before recovery"
+    end
+
+    {:ok, %{reservations: 0}} = ServiceRadarNVR.capacity()
+    {:error, :identity_or_header_mismatch} = ServiceRadarNVR.recover_block(block_id, %{expected | recorder_epoch: 2})
+    {:error, :invalid_block_id} = ServiceRadarNVR.recover_block("../outside", expected)
+    ^before = read_files.()
+    {:ok, snapshot} = ServiceRadarNVR.recover_block(block_id, expected)
+    true = snapshot.sealed?
+    [_, _] = snapshot.entries
+    sealed_files = read_files.()
+    {:ok, ^snapshot} = ServiceRadarNVR.recover_block(block_id, expected)
+    ^sealed_files = read_files.()
+    {:ok, ^snapshot} = ServiceRadarNVR.sealed_block(block_id)
+
+  mode when mode in ["discover_unresolved", "recover_unresolved"] ->
+    {:ok, [block_id]} = ServiceRadarNVR.list_blocks()
+
+    result =
+      if mode == "recover_unresolved",
+        do: ServiceRadarNVR.recover_block(block_id, Map.put(identity, :clock, clock)),
+        else: ServiceRadarNVR.sealed_block(block_id)
+
+    {:error, reason} = result
     expected = System.fetch_env!("NVR_TEST_RECOVERY_ERROR")
     ^expected = Atom.to_string(reason)
 

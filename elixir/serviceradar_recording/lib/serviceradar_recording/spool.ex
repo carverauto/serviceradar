@@ -163,11 +163,45 @@ defmodule ServiceRadarRecording.Spool do
     directory = Path.expand(directory)
 
     with {:ok, spool} <- read_block(storage, directory, {:expected, expected_identity}, limits),
+         :ok <- repair_tails(spool) do
+      {:ok, spool}
+    end
+  end
+
+  @doc """
+  Recover and seal a nonempty block after exclusive writer retirement.
+
+  The caller supplies the expected identity, including clock provenance. Complete
+  corrupt records, empty blocks, misplaced blocks and changed initialization files
+  are refused before mutation. Only uncommitted media and an incomplete journal
+  tail are truncated. The returned snapshot is local evidence, not publication
+  authority. An interrupted call can be retried with the same identity.
+  """
+  def recover_sealed(storage, block_id, expected_identity, limits \\ %{})
+
+  def recover_sealed(%Storage{} = storage, block_id, expected_identity, limits) when is_binary(block_id) do
+    with true <- Regex.match?(~r/\A[0-9a-f]{64}\z/, block_id) || {:error, :invalid_block_id},
+         {:ok, spool} <- read_block(storage, Path.join(storage.root, block_id), {:expected, expected_identity}, limits),
+         true <- block_id(spool.identity) == block_id || {:error, :block_identity_mismatch},
+         true <- spool.high_water > 0 || {:error, :empty_block},
+         :ok <- exact_size(Path.join(spool.directory, "init.mp4"), spool.init["length"]),
+         :ok <- repair_tails(spool),
+         {:ok, sealed} <- seal(spool) do
+      {:ok, snapshot(sealed)}
+    end
+  end
+
+  def recover_sealed(%Storage{}, _block_id, _expected_identity, _limits), do: {:error, :invalid_block_id}
+
+  defp repair_tails(spool) do
+    storage = spool.storage
+    directory = spool.directory
+
+    with :ok <- Storage.verify(storage),
          :ok <- truncate_tail(Path.join(directory, "media.m4s"), spool.high_water),
          :ok <- Storage.verify(storage),
-         :ok <- truncate_tail(Path.join(directory, "journal"), spool.journal_size),
-         :ok <- Storage.verify(storage) do
-      {:ok, spool}
+         :ok <- truncate_tail(Path.join(directory, "journal"), spool.journal_size) do
+      Storage.verify(storage)
     end
   end
 
