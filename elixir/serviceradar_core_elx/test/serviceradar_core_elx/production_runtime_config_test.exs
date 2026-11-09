@@ -389,6 +389,13 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     # EventWriter copies a record whose projection kept failing here before it ACKs the source.
     assert dead_letter == EventWriterConfig.edge_record_dead_letter_stream()
     assert dead_letter.subject == "telemetry.edge-record-dlq.v1.bulk.>"
+
+    recovery = Enum.find(streams, &(&1.name == "EDGE_RECORD_RECOVERY"))
+    assert recovery.stream_name == "TELEMETRY_EDGE_RECORD_RECOVERY_V1"
+    assert recovery.subject == "telemetry.edge-record-recovery.v1"
+    assert recovery.stream_retention == "workqueue"
+    assert recovery.stream_discard == "new"
+    assert recovery.consumer_max_deliver == -1
   end
 
   test "prod EventWriter Falco consumer targets the provisioned events stream" do

@@ -218,6 +218,9 @@ defmodule ServiceRadar.EventWriter.Telemetry do
   @spec subject_class(term()) :: String.t()
   def subject_class(subject) when is_binary(subject) do
     cond do
+      subject == "telemetry.edge-record-recovery.v1" ->
+        "edge_record_recovery"
+
       String.starts_with?(subject, "metrics.") ->
         "metrics"
 

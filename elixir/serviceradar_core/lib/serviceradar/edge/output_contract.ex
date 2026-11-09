@@ -7,8 +7,7 @@ defmodule ServiceRadar.Edge.OutputContract do
   (`ServiceRadar.Edge.ContractRegistry.active_epoch/0`), the epoch every gateway admits records
   under, so the two cannot disagree. Core signs it only when:
 
-    * the entry pins the durable bulk lane, because the gateway would withhold any other record
-      signed against it; and
+    * the entry pins this contract's catalog lane, including the reserved recovery route; and
     * this node's own catalog holds the entry's exact bundle digest. A node never authorizes
       production of records under a bundle it does not hold, so a node on a newer or older
       release signs only the entries its release shares with the active epoch.
@@ -48,7 +47,7 @@ defmodule ServiceRadar.Edge.OutputContract do
           {:ok, t()} | {:error, term()}
   def from_epoch(epoch, ref, local \\ ContractBundle.local()) do
     with {:ok, %{max_projected_rows: rows, write_bytes_per_row: per_row} = cat} <- catalog(ref),
-         {:ok, entry} <- entry(epoch, ref),
+         {:ok, entry} <- entry(epoch, ref, cat),
          :ok <- held(entry, local) do
       {:ok,
        %{
@@ -72,20 +71,11 @@ defmodule ServiceRadar.Edge.OutputContract do
     end
   end
 
-  defp entry(%{contracts: contracts}, ref) do
+  defp entry(%{contracts: contracts}, ref, %{route_profile: route, traffic_class: traffic}) do
     case Map.fetch(contracts, ref) do
-      {:ok,
-       %{
-         route_profile: :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
-         traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_BULK
-       } = entry} ->
-        {:ok, entry}
-
-      {:ok, _entry} ->
-        {:error, :contract_lane}
-
-      :error ->
-        {:error, :contract_not_registered}
+      {:ok, %{route_profile: ^route, traffic_class: ^traffic} = entry} -> {:ok, entry}
+      {:ok, _entry} -> {:error, :contract_lane}
+      :error -> {:error, :contract_not_registered}
     end
   end
 

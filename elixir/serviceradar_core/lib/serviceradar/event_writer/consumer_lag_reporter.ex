@@ -163,6 +163,7 @@ defmodule ServiceRadar.EventWriter.ConsumerLagReporter do
     "flows",
     "edge_record",
     "edge_record_audit",
+    "edge_record_recovery",
     "edge_record_quarantine",
     "edge_record_dlq"
   ]

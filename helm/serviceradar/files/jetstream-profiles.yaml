@@ -31,10 +31,10 @@
 #   profile   servers  need (GiB)                          limit (GiB)
 #   small     3        19.71875 + 6/3 + 2 = 23.72          28.50
 #   small     1        25.46875                            28.50
-#   medium    3        57.75 + 28/3 + 12 = 79.08           79.16
-#   medium    1        77.75                               79.16
-#   large     3        279.25 + 128/3 + 64 = 385.92        395.81
-#   large     1        375.25                              395.81
+#   medium    3        57.8125 + 28/3 + 12 = 79.15           79.16
+#   medium    1        77.8125                             79.16
+#   large     3        279.3125 + 128/3 + 64 = 385.98        395.81
+#   large     1        375.3125                            395.81
 #   tenant-2g 3        1.14453125 + 0.1875 + 0.25 = 1.58   1.58
 #
 # The edge-record audit and security-quarantine streams are reserved at R3 in
@@ -42,6 +42,10 @@
 # TELEMETRY_EDGE_RECORD_V1_BULK stream, and so is EventWriter's edge-record
 # dead-letter stream TELEMETRY_EDGE_RECORD_DLQ_V1_BULK (64 MiB; 32 MiB in
 # small, which keeps small inside a 30G max_file_store; 4 MiB in tenant-2g).
+# Recovery has independent R3 capacity: 64 MiB, or 4 MiB in tenant-2g taken
+# from primary bulk so the tenant profile keeps the same total reservation.
+# Small also moves 64 MiB from its primary bulk reservation (1 GiB -> 960 MiB)
+# to retain support for the existing 30G max_file_store override.
 profiles:
   small:
     maxFileStore: 36G
@@ -54,10 +58,11 @@ profiles:
       plugins: 2Gi
       arancini: 2Gi
       metrics: 1Gi
-      telemetry_edge_record_v1_bulk: 1Gi
+      telemetry_edge_record_v1_bulk: 960Mi
       telemetry_edge_record_audit_v1_bulk: 64Mi
       telemetry_edge_record_security_quarantine_v1_bulk: 64Mi
       telemetry_edge_record_dlq_v1_bulk: 32Mi
+      telemetry_edge_record_recovery_v1: 64Mi
       k8s_inventory: 512Mi
       analytics_predictions: 512Mi
       mtr_results: 512Mi
@@ -78,10 +83,11 @@ profiles:
       plugins: 2Gi
       arancini: 2Gi
       metrics: 1Gi
-      telemetry_edge_record_v1_bulk: 1Gi
+      telemetry_edge_record_v1_bulk: 960Mi
       telemetry_edge_record_audit_v1_bulk: 64Mi
       telemetry_edge_record_security_quarantine_v1_bulk: 64Mi
       telemetry_edge_record_dlq_v1_bulk: 32Mi
+      telemetry_edge_record_recovery_v1: 64Mi
       k8s_inventory: 1Gi
       analytics_predictions: 1Gi
       mtr_results: 1Gi
@@ -109,6 +115,7 @@ profiles:
       telemetry_edge_record_audit_v1_bulk: 64Mi
       telemetry_edge_record_security_quarantine_v1_bulk: 64Mi
       telemetry_edge_record_dlq_v1_bulk: 64Mi
+      telemetry_edge_record_recovery_v1: 64Mi
       k8s_inventory: 2Gi
       analytics_predictions: 2Gi
       mtr_results: 2Gi
@@ -133,6 +140,7 @@ profiles:
       telemetry_edge_record_audit_v1_bulk: 64Mi
       telemetry_edge_record_security_quarantine_v1_bulk: 64Mi
       telemetry_edge_record_dlq_v1_bulk: 64Mi
+      telemetry_edge_record_recovery_v1: 64Mi
       k8s_inventory: 2Gi
       analytics_predictions: 2Gi
       mtr_results: 2Gi
@@ -160,6 +168,7 @@ profiles:
       telemetry_edge_record_audit_v1_bulk: 64Mi
       telemetry_edge_record_security_quarantine_v1_bulk: 64Mi
       telemetry_edge_record_dlq_v1_bulk: 64Mi
+      telemetry_edge_record_recovery_v1: 64Mi
       k8s_inventory: 8Gi
       analytics_predictions: 8Gi
       mtr_results: 8Gi
@@ -184,6 +193,7 @@ profiles:
       telemetry_edge_record_audit_v1_bulk: 64Mi
       telemetry_edge_record_security_quarantine_v1_bulk: 64Mi
       telemetry_edge_record_dlq_v1_bulk: 64Mi
+      telemetry_edge_record_recovery_v1: 64Mi
       k8s_inventory: 8Gi
       analytics_predictions: 8Gi
       mtr_results: 8Gi
@@ -207,7 +217,7 @@ profiles:
   #   full   = 32 + 384 + 256 + 128 + 128 + 64 + 32 + 32 + 32 + 8 + 8 + 4
   #            + 64 MiB = 1172 MiB (KV, objects, events, plugins,
   #            ARANCINI_CAUSAL, metrics, scan_results, NOTIFICATIONS,
-  #            TELEMETRY_EDGE_RECORD_V1_BULK 32 MiB, its audit and
+  #            TELEMETRY_EDGE_RECORD_V1_BULK 28 MiB plus recovery 4 MiB, its audit and
   #            security-quarantine streams 8 MiB each, its dead-letter stream
   #            4 MiB, and the fixed 64 MiB EXPOSURE_RECOVERY reservation)
   #   spread = 256 + 32 + 32 + 32 + 32 + 32 + 32 + 64 + 64 MiB = 576 MiB,
@@ -227,10 +237,11 @@ profiles:
       plugins: 128Mi
       arancini: 128Mi
       metrics: 64Mi
-      telemetry_edge_record_v1_bulk: 32Mi
+      telemetry_edge_record_v1_bulk: 28Mi
       telemetry_edge_record_audit_v1_bulk: 8Mi
       telemetry_edge_record_security_quarantine_v1_bulk: 8Mi
       telemetry_edge_record_dlq_v1_bulk: 4Mi
+      telemetry_edge_record_recovery_v1: 4Mi
       k8s_inventory: 32Mi
       analytics_predictions: 32Mi
       mtr_results: 32Mi
@@ -258,6 +269,7 @@ replicas:
   telemetry_edge_record_audit_v1_bulk: 3
   telemetry_edge_record_security_quarantine_v1_bulk: 3
   telemetry_edge_record_dlq_v1_bulk: 3
+  telemetry_edge_record_recovery_v1: 3
   k8s_inventory: 1
   analytics_predictions: 1
   mtr_results: 1

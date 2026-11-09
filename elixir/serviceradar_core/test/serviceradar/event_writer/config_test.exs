@@ -44,6 +44,51 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
     end
   end
 
+  test "recovery startup preserves dedicated capacity and rejects unsafe stream overrides" do
+    original = Application.get_env(:serviceradar_core, ServiceRadar.EventWriter)
+
+    on_exit(fn ->
+      if original,
+        do: Application.put_env(:serviceradar_core, ServiceRadar.EventWriter, original),
+        else: Application.delete_env(:serviceradar_core, ServiceRadar.EventWriter)
+    end)
+
+    stream = Config.edge_record_recovery_stream()
+
+    configure = fn streams, bytes ->
+      Application.put_env(:serviceradar_core, ServiceRadar.EventWriter,
+        streams: streams,
+        jetstream_sizes: %{max_bytes: %{stream.stream_name => bytes}, fallbacks: %{}}
+      )
+    end
+
+    configure.([stream], 4_194_304)
+    assert [recovery] = Config.load().streams
+    assert recovery.subject == "telemetry.edge-record-recovery.v1"
+    assert recovery.stream_retention == "workqueue"
+    assert recovery.stream_discard == "new"
+    assert recovery.consumer_max_deliver == -1
+    assert recovery.stream_max_age > 0
+    assert recovery.stream_max_bytes == 4_194_304
+
+    for changes <- [
+          %{stream_retention: "limits"},
+          %{stream_discard: "old"},
+          %{consumer_max_deliver: 5},
+          %{dead_letter_after_deliveries: 20},
+          %{stream_max_age: 0},
+          %{allow_stream_fallback: true}
+        ] do
+      configure.([Map.merge(stream, changes)], 4_194_304)
+      assert_raise ArgumentError, ~r/unsafe EDGE_RECORD_RECOVERY/, fn -> Config.load() end
+    end
+
+    configure.([stream], 4_194_303)
+    assert_raise ArgumentError, ~r/at least 4 MiB/, fn -> Config.load() end
+    configure.([stream, %{stream | name: "RECOVERY_OVERLAP"}], 4_194_304)
+    assert_raise ArgumentError, ~r/one shared durable/, fn -> Config.load() end
+  end
+
   describe "default_streams/0" do
     test "returns list of default stream configurations" do
       streams = Config.default_streams()
@@ -1069,7 +1114,8 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
                  "TELEMETRY_EDGE_RECORD_V1_BULK" => @gib,
                  "TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK" => 67_108_864,
                  "TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK" => 67_108_864,
-                 "TELEMETRY_EDGE_RECORD_DLQ_V1_BULK" => 67_108_864
+                 "TELEMETRY_EDGE_RECORD_DLQ_V1_BULK" => 67_108_864,
+                 "TELEMETRY_EDGE_RECORD_RECOVERY_V1" => 67_108_864
                },
                replicas: %{
                  "metrics" => 3,
@@ -1081,7 +1127,8 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
                  "TELEMETRY_EDGE_RECORD_V1_BULK" => 3,
                  "TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK" => 3,
                  "TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK" => 3,
-                 "TELEMETRY_EDGE_RECORD_DLQ_V1_BULK" => 3
+                 "TELEMETRY_EDGE_RECORD_DLQ_V1_BULK" => 3,
+                 "TELEMETRY_EDGE_RECORD_RECOVERY_V1" => 3
                },
                fallbacks: %{
                  "events" => %{max_bytes: 2 * @gib, replicas: 1},
@@ -1103,6 +1150,7 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
         "SERVICERADAR_JS_TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK_MAX_BYTES" => "17",
         "SERVICERADAR_JS_TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK_MAX_BYTES" => "18",
         "SERVICERADAR_JS_TELEMETRY_EDGE_RECORD_DLQ_V1_BULK_MAX_BYTES" => "19",
+        "SERVICERADAR_JS_TELEMETRY_EDGE_RECORD_RECOVERY_V1_MAX_BYTES" => "4194304",
         "SERVICERADAR_JS_METRICS_REPLICAS" => "1",
         "SERVICERADAR_JS_K8S_INVENTORY_REPLICAS" => "3",
         "SERVICERADAR_JS_ANALYTICS_PREDICTIONS_REPLICAS" => "3",
@@ -1113,6 +1161,7 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
         "SERVICERADAR_JS_TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK_REPLICAS" => "1",
         "SERVICERADAR_JS_TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK_REPLICAS" => "1",
         "SERVICERADAR_JS_TELEMETRY_EDGE_RECORD_DLQ_V1_BULK_REPLICAS" => "1",
+        "SERVICERADAR_JS_TELEMETRY_EDGE_RECORD_RECOVERY_V1_REPLICAS" => "1",
         "SERVICERADAR_JS_EVENTS_FALLBACK_MAX_BYTES" => "21",
         "SERVICERADAR_JS_EVENTS_FALLBACK_REPLICAS" => "3",
         "SERVICERADAR_JS_FLOWS_FALLBACK_MAX_BYTES" => "22",
@@ -1132,7 +1181,8 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
                  "TELEMETRY_EDGE_RECORD_V1_BULK" => 33_554_432,
                  "TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK" => 17,
                  "TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK" => 18,
-                 "TELEMETRY_EDGE_RECORD_DLQ_V1_BULK" => 19
+                 "TELEMETRY_EDGE_RECORD_DLQ_V1_BULK" => 19,
+                 "TELEMETRY_EDGE_RECORD_RECOVERY_V1" => 4_194_304
                },
                replicas: %{
                  "metrics" => 1,
@@ -1144,7 +1194,8 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
                  "TELEMETRY_EDGE_RECORD_V1_BULK" => 1,
                  "TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK" => 1,
                  "TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK" => 1,
-                 "TELEMETRY_EDGE_RECORD_DLQ_V1_BULK" => 1
+                 "TELEMETRY_EDGE_RECORD_DLQ_V1_BULK" => 1,
+                 "TELEMETRY_EDGE_RECORD_RECOVERY_V1" => 1
                },
                fallbacks: %{
                  "events" => %{max_bytes: 21, replicas: 3},

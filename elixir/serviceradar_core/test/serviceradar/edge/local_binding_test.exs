@@ -49,10 +49,8 @@ defmodule ServiceRadar.Edge.LocalBindingTest do
       assert {:ok, validated} =
                apply(RecoveryAttribution, unquote(contract), [raw, record.output_contract, policy])
 
-      if unquote(contract) == :sweep do
-        assert {:ok, ^validated} =
-                 RecoveryAttribution.registered(raw, record.output_contract, policy)
-      end
+      assert {:ok, ^validated} =
+               RecoveryAttribution.registered(raw, record.output_contract, policy)
 
       a = RecoveryAttribution.attribution(validated)
       assert a.active == unquote(active)
@@ -263,7 +261,29 @@ defmodule ServiceRadar.Edge.LocalBindingTest do
     }
 
   defp signed_fixture(name) do
-    signed_record(EdgeRecordV1.decode(load(name)))
+    record = EdgeRecordV1.decode(load(name))
+
+    record =
+      if record.payload_family == :EDGE_RECORD_PAYLOAD_FAMILY_RECOVERY_CONTROL_V1 do
+        {:production, claims} = record.production_capability.claims
+
+        %{
+          record
+          | output_contract: %{
+              record.output_contract
+              | contract_id: "serviceradar.edge.recovery_control"
+            },
+            production_capability: %{
+              record.production_capability
+              | claims:
+                  {:production, %{claims | contract_id: "serviceradar.edge.recovery_control"}}
+            }
+        }
+      else
+        record
+      end
+
+    signed_record(record)
   end
 
   defp signed_record(record) do

@@ -54,6 +54,7 @@ defmodule ServiceRadar.EventWriter.Config do
   """
 
   alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
+  alias ServiceRadar.EventWriter.Processors.EdgeRecord
   alias ServiceRadar.EventWriter.Processors.Events
   alias ServiceRadar.EventWriter.Processors.Flows
   alias ServiceRadar.EventWriter.Processors.PowerDNS
@@ -96,7 +97,8 @@ defmodule ServiceRadar.EventWriter.Config do
     "TELEMETRY_EDGE_RECORD_V1_BULK" => @gib,
     "TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK" => 67_108_864,
     "TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK" => 67_108_864,
-    "TELEMETRY_EDGE_RECORD_DLQ_V1_BULK" => 67_108_864
+    "TELEMETRY_EDGE_RECORD_DLQ_V1_BULK" => 67_108_864,
+    "TELEMETRY_EDGE_RECORD_RECOVERY_V1" => 67_108_864
   }
 
   # Compiled default `num_replicas` for streams only EventWriter creates.
@@ -112,7 +114,8 @@ defmodule ServiceRadar.EventWriter.Config do
     "TELEMETRY_EDGE_RECORD_V1_BULK" => 3,
     "TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK" => 3,
     "TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK" => 3,
-    "TELEMETRY_EDGE_RECORD_DLQ_V1_BULK" => 3
+    "TELEMETRY_EDGE_RECORD_DLQ_V1_BULK" => 3,
+    "TELEMETRY_EDGE_RECORD_RECOVERY_V1" => 3
   }
 
   # EventWriter's fallback shape for the streams a collector may own (design D3,
@@ -269,6 +272,7 @@ defmodule ServiceRadar.EventWriter.Config do
     # Non-flow streams must also fail closed on durable/inbox collisions after
     # canonicalization (long EVENT_WRITER_CONSUMER_NAME prefixes included).
     assert_no_canonical_consumer_collisions!(streams, consumer_name)
+    assert_recovery_stream!(streams)
 
     %__MODULE__{
       enabled: enabled?(),
@@ -291,6 +295,55 @@ defmodule ServiceRadar.EventWriter.Config do
       workers: worker_count(),
       retired_consumers: @retired_consumers
     }
+  end
+
+  # WorkQueue permits only one durable whose filter covers a subject. Every worker
+  # binds this same durable; a second configured recovery consumer is a startup error.
+  # Four MiB covers both bounded five-record attempts, including transport overhead.
+  defp assert_recovery_stream!(streams) do
+    recovery =
+      Enum.filter(streams, fn stream ->
+        stream.name == "EDGE_RECORD_RECOVERY" or
+          jetstream_stream_name(stream) == "TELEMETRY_EDGE_RECORD_RECOVERY_V1"
+      end)
+
+    case recovery do
+      [] ->
+        :ok
+
+      [stream] ->
+        if !recovery_stream_safe?(stream),
+          do:
+            raise(
+              ArgumentError,
+              "unsafe EDGE_RECORD_RECOVERY stream: require reserved WorkQueue delivery, finite retention and at least 4 MiB"
+            )
+
+      _ ->
+        raise ArgumentError, "EDGE_RECORD_RECOVERY requires one shared durable consumer"
+    end
+  end
+
+  defp recovery_stream_safe?(stream) do
+    fixed = [
+      :name,
+      :stream_name,
+      :subject,
+      :processor,
+      :allow_stream_fallback,
+      :batch_size,
+      :stream_retention,
+      :stream_storage,
+      :stream_discard,
+      :consumer_max_deliver
+    ]
+
+    Map.take(stream, fixed) == Map.take(edge_record_recovery_stream(), fixed) and
+      is_integer(stream[:stream_max_bytes]) and stream.stream_max_bytes >= 4_194_304 and
+      is_integer(stream[:stream_max_age]) and stream.stream_max_age > 0 and
+      is_nil(stream[:dead_letter_after_deliveries]) and
+      stream[:ensure_stream] != false and stream[:reconcile_stream_shape] != false and
+      stream[:consumer_deliver_policy] in [nil, :all]
   end
 
   @doc """
@@ -862,7 +915,7 @@ defmodule ServiceRadar.EventWriter.Config do
       stream_name: "TELEMETRY_EDGE_RECORD_V1_BULK",
       subject: "telemetry.edge-record.v1.bulk.>",
       allow_stream_fallback: false,
-      processor: ServiceRadar.EventWriter.Processors.EdgeRecord,
+      processor: EdgeRecord,
       batch_size: 1,
       batch_timeout: 1_000,
       stream_retention: "limits",
@@ -873,6 +926,36 @@ defmodule ServiceRadar.EventWriter.Config do
       stream_max_age: 86_400_000_000_000,
       consumer_max_deliver: -1,
       dead_letter_after_deliveries: 20
+    }
+  end
+
+  @doc """
+  Reserved recovery control capacity, consumed by one shared durable across workers.
+
+  A page ACK follows its exact durable receipt, so WorkQueue retention releases that
+  broker space even while the full manifest is incomplete. A complete manifest whose
+  mapping is pending or blocked remains unacknowledged with unlimited redelivery.
+  DiscardNew preserves held work at capacity; the finite age is reported by the same
+  retention-risk diagnostics as other edge streams. No overlapping recovery consumer
+  or dead-letter threshold may turn an incomplete recovery into terminal success.
+  """
+  @spec edge_record_recovery_stream() :: stream_config()
+  def edge_record_recovery_stream do
+    %{
+      name: "EDGE_RECORD_RECOVERY",
+      stream_name: "TELEMETRY_EDGE_RECORD_RECOVERY_V1",
+      subject: "telemetry.edge-record-recovery.v1",
+      allow_stream_fallback: false,
+      processor: EdgeRecord,
+      batch_size: 1,
+      batch_timeout: 1_000,
+      stream_retention: "workqueue",
+      stream_storage: "file",
+      stream_discard: "new",
+      stream_replicas: 3,
+      stream_max_bytes: 67_108_864,
+      stream_max_age: 86_400_000_000_000,
+      consumer_max_deliver: -1
     }
   end
 
@@ -1203,7 +1286,8 @@ defmodule ServiceRadar.EventWriter.Config do
       edge_record_stream(),
       edge_record_audit_stream(),
       edge_record_security_quarantine_stream(),
-      edge_record_dead_letter_stream()
+      edge_record_dead_letter_stream(),
+      edge_record_recovery_stream()
       # Raw flows live in default_flow_streams/0 (dedicated Broadway demand domain).
     ]
   end
@@ -1396,6 +1480,8 @@ defmodule ServiceRadar.EventWriter.Config do
           durable_name(consumer_base, key)
         end)
 
+      # Private functions
+
       if length(durables) != length(Enum.uniq(durables)) do
         raise ArgumentError,
               "colliding JetStream durable names on stream #{inspect(js_stream)} after canonicalization: #{inspect(durables)}"
@@ -1508,8 +1594,6 @@ defmodule ServiceRadar.EventWriter.Config do
         end
     end
   end
-
-  # Private functions
 
   @doc false
   @spec build_nats_config(keyword() | map(), keyword()) :: nats_config()

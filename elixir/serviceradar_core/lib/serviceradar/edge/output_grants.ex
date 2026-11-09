@@ -286,7 +286,7 @@ defmodule ServiceRadar.Edge.OutputGrants do
     scope_sha256 = scope_sha256(grant)
     id = Ecto.UUID.dump!(grant.id)
 
-    {:ok, %{package_id: package_id}} =
+    {:ok, %{package_id: package_id, route_profile: route, traffic_class: traffic}} =
       ContractCatalog.fetch({contract.contract_id, contract.contract_version})
 
     claims = %EdgeProductionClaimsV1{
@@ -296,8 +296,8 @@ defmodule ServiceRadar.Edge.OutputGrants do
       registry_epoch: contract.registry_epoch,
       network_scope_id: Ecto.UUID.dump!(grant.network_scope_id),
       producer_assignment_id: id,
-      traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_BULK,
-      route_profile: :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
+      traffic_class: traffic,
+      route_profile: route,
       origin_kind: :EDGE_ORIGIN_KIND_AGENT,
       origin_principal_id: grant.agent_id,
       producer_instance_id: grant.agent_id,

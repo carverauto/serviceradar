@@ -69,7 +69,7 @@ spec:
             summary: "ServiceRadar agent-gateway JetStream PubAck errors"
             description: "The agent-gateway durable edge publisher received PubAck errors in namespace {{ .Release.Namespace }}."
         - alert: ServiceRadarEdgeRecordConsumerLag
-          expr: max(serviceradar_event_writer_consumer_lag_messages_value{namespace="{{ .Release.Namespace }}", subject_class=~"edge_record|edge_record_audit"}) > 0
+          expr: max(serviceradar_event_writer_consumer_lag_messages_value{namespace="{{ .Release.Namespace }}", subject_class=~"edge_record|edge_record_audit|edge_record_recovery"}) > 0
           for: 10m
           labels:
             severity: warning

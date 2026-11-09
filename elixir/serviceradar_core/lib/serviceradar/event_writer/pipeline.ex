@@ -766,6 +766,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
       {:events, &String.starts_with?(&1, "events.")},
       # MUST precede the generic :telemetry rule below -- both match a
       # "telemetry." prefix, and find_value/2 takes the first match.
+      {:edge_record_recovery, &(&1 == "telemetry.edge-record-recovery.v1")},
       {:edge_record, &String.starts_with?(&1, "telemetry.edge-record.")},
       {:edge_record_audit, &String.starts_with?(&1, "telemetry.edge-record-audit.")},
       {:edge_record_security_quarantine,
@@ -870,6 +871,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   defp get_processor(:logs), do: ServiceRadar.EventWriter.Processors.Logs
   defp get_processor(:metrics), do: Metrics
   defp get_processor(:telemetry), do: Telemetry
+  defp get_processor(:edge_record_recovery), do: EdgeRecord
   defp get_processor(:edge_record), do: EdgeRecord
   defp get_processor(:edge_record_audit), do: EdgeRecord
 

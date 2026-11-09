@@ -112,7 +112,8 @@ defmodule ServiceRadar.EventWriter.ConsumerLagReporterTest do
         Config.edge_record_stream(),
         Config.edge_record_audit_stream(),
         Config.edge_record_security_quarantine_stream(),
-        Config.edge_record_dead_letter_stream()
+        Config.edge_record_dead_letter_stream(),
+        Config.edge_record_recovery_stream()
       ]
     }
 
@@ -122,14 +123,16 @@ defmodule ServiceRadar.EventWriter.ConsumerLagReporterTest do
              "edge_record",
              "edge_record_audit",
              "edge_record_quarantine",
-             "edge_record_dlq"
+             "edge_record_dlq",
+             "edge_record_recovery"
            ]
 
     assert ConsumerLagReporter.polled_stream_names(consumers) == [
              "TELEMETRY_EDGE_RECORD_V1_BULK",
              "TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK",
              "TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK",
-             "TELEMETRY_EDGE_RECORD_DLQ_V1_BULK"
+             "TELEMETRY_EDGE_RECORD_DLQ_V1_BULK",
+             "TELEMETRY_EDGE_RECORD_RECOVERY_V1"
            ]
   end
 
@@ -186,7 +189,8 @@ defmodule ServiceRadar.EventWriter.ConsumerLagReporterTest do
     for {class, info, risk, available, expired} <- [
           {"metrics", info, 0, 0, 0},
           {"metrics", trailing, 0, 0, 30},
-          {"flows", info, 2, 1, 0}
+          {"flows", info, 2, 1, 0},
+          {"edge_record_recovery", info, 2, 1, 0}
         ] do
       durable = "durable-#{System.unique_integer([:positive])}"
       consumer = %{stream: "metrics", durable: durable, subject_class: class}

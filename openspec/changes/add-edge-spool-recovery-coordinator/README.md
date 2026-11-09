@@ -107,3 +107,11 @@ Update this pickup and the choices ledger after each verified commit checkpoint.
   `a6c82d52-3e32-4f3a-8d65-b62971dc7b02`. Inventory passed 66 checks with one skip.
   Completion immutability and issuance-order DB assertions remain pending guarded
   integration execution; unit compilation is not persistence evidence.
+- Recovery catalog, production lane selection, EventWriter routing, runtime
+  safety guards and Helm capacity passed all five targets in
+  `c6044931-5810-4ce2-a6f4-ac74be9a432f`. Removing the registered control branch,
+  catalog route selection and stream startup guard failed their intended
+  regressions in `bd794461-46dc-4952-8b63-9b09bb0c1293`; originals were restored
+  byte-for-byte. Inventory checks passed (66 checks, one skip). New boxed
+  EventWriter receipt/rollback/deferred replay tests compiled but were excluded
+  by the unit shard; guarded DB execution remains required.

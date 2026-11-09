@@ -376,3 +376,28 @@
   derived archive reserve. Actual archive enforcement remains the next slice.
 - Confidence: high on the interval; medium on the framing headroom until the
   archive implementation and near-full generation proof establish its exact bound.
+
+## Recovery uses its own acknowledged work queue
+
+- When: consumer/catalog integration, 2026-11-09.
+- Choice: recovery controls use the existing EdgeRecord provenance and ledger
+  transaction, a dedicated WorkQueue stream and one shared durable consumer.
+  Exact incomplete receipts can ACK after commit; complete-manifest mapping
+  pending/blocked commits its evidence and NAKs without a delivery-count terminal
+  path. Ledger replay revisits the durable operation; late-fenced audit delivery
+  never applies authoritative repair.
+- Gap: a limits-retained stream can remain full after every receipt is durable,
+  preventing its recovery producer from progressing. WorkQueue removes ACKed
+  receipts, while CNPG retains their exact replay evidence. Its single overlapping
+  consumer rule is intentional; adding another recovery subscription is refused.
+- Reach: startup rejects unsafe retention/discard/delivery overrides and budgets
+  below 4 MiB. Defaults reserve 64 MiB; the tenant profile reserves 4 MiB. Small
+  and tenant move capacity from primary bulk to preserve their total disk budget.
+  Existing retention-risk reporting includes actual recovery backlog. MaxAge is
+  finite, so journal replay remains required after broker expiry.
+- Verdict: sound. Production grants now use the catalog's exact recovery lane;
+  source authorization remains a separate registered-body issuance gate. The
+  catalog's cost ceiling accounts for the complete manifest, not just one page.
+- Confidence: pure/runtime/chart boundaries passed with three intentional
+  negative controls. Receipt rollback, deferred replay and post-repair convergence
+  are covered by boxed DB tests, pending guarded integration execution.
