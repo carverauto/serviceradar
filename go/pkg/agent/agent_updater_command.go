@@ -23,7 +23,7 @@ import (
 	"strings"
 )
 
-const maxAgentUpdaterOutputBytes = 4096
+const maxAgentUpdaterOutputBytes = 65_536
 
 // agentUpdaterArgs is an agent-updater command line together with the names of
 // the flags it passes, so the flags probed on the installed updater are exactly
@@ -64,5 +64,5 @@ func truncateAgentUpdaterOutput(output string) string {
 		return output
 	}
 
-	return output[:maxAgentUpdaterOutputBytes] + "...(truncated)"
+	return fmt.Sprintf("updater output overflowed (%d bytes > %d limit)", len(output), maxAgentUpdaterOutputBytes)
 }

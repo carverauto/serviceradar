@@ -597,6 +597,12 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
   def candidate_failed?(evidence, candidate, applied_at),
     do: verdict(evidence, candidate, applied_at) == :failed
 
+  @impl true
+  def candidate_failure(evidence, candidate, applied_at) do
+    if candidate_failed?(evidence, candidate, applied_at),
+      do: {"candidate_reported_unhealthy", nil}
+  end
+
   # Recovery needs stamped evidence too: without it the target stays pending
   # until its deadline and is recorded as rollback_recovery_unverified.
   @impl true

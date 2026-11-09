@@ -233,6 +233,13 @@ defmodule ServiceRadar.Plugins.RolloutArtifact do
   @callback candidate_failed?(evidence() | nil, package(), applied_at :: DateTime.t() | nil) ::
               boolean()
 
+  @doc """
+  Fresh evidence, reported since `applied_at`, that the candidate failed to install
+  or reported unhealthy, returning `{reason_code, error_detail}` or `nil`.
+  """
+  @callback candidate_failure(evidence() | nil, package(), applied_at :: DateTime.t() | nil) ::
+              {String.t(), String.t() | nil} | nil
+
   @doc "Fresh evidence, reported since `since`, that the previous package is running again."
   @callback recovered?(evidence() | nil, previous :: package(), since :: DateTime.t() | nil) ::
               boolean()

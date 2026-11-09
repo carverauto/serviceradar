@@ -230,6 +230,10 @@ defmodule Monitoring.SidecarStatus do
   field :last_error, 6, type: :string, json_name: "lastError"
   field :version, 7, type: :string
   field :arch, 8, type: :string
+  field :desired_version, 9, type: :string, json_name: "desiredVersion"
+  field :apply_error, 10, type: :string, json_name: "applyError"
+  field :apply_disposition, 11, type: :string, json_name: "applyDisposition"
+  field :apply_observed_at, 12, type: :int64, json_name: "applyObservedAt"
 end
 
 defmodule Monitoring.ResultsResponse do

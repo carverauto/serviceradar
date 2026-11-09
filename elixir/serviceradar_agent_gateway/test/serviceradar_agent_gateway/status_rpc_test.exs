@@ -205,7 +205,7 @@ defmodule ServiceRadarAgentGateway.StatusRpcTest do
     agent_id = "oversized-only-#{System.unique_integer([:positive])}"
     _handler = start_recording_status_handler(self())
     stream = cert_stream(issue_cert_der!(agent_id, context))
-    oversized = %{summary("agent") | message: :binary.copy("x", 4_097)}
+    oversized = %{summary("agent") | message: :binary.copy("x", 65_537)}
 
     capture_log(fn ->
       assert %Monitoring.GatewayStatusResponse{received: false} =
@@ -218,6 +218,20 @@ defmodule ServiceRadarAgentGateway.StatusRpcTest do
     assert_receive {:refused, "oversized_summary", 1}
     assert_receive {:refused, "oversized_summary", 1}
     refute_receive {:forwarded, _service_name}, 200
+  end
+
+  test "an agent capability status summary above 4 KiB and within the 64 KiB source limit is forwarded",
+       context do
+    agent_id = "agent-cap-8k-#{System.unique_integer([:positive])}"
+    _handler = start_recording_status_handler(self(), :message)
+    stream = cert_stream(issue_cert_der!(agent_id, context))
+    capability_status = %{summary("agent") | message: :binary.copy("a", 8_192)}
+
+    assert %Monitoring.GatewayStatusResponse{received: true} =
+             AgentGatewayServer.push_status(push_request(agent_id, [capability_status]), stream)
+
+    assert_receive {:forwarded, message}, 1_000
+    assert byte_size(message) == 8_192
   end
 
   test "the capability-status push carries the endpoint inventory directive core reports", context do

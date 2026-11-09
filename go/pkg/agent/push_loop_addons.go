@@ -770,6 +770,7 @@ func (p *PushLoop) applySystemdAddonAtRoot(
 		if rbErr := rollbackAddonCurrent(root, a.GetAddonId(), priorTarget); rbErr != nil {
 			p.logger.Error().Err(rbErr).Str("addon", a.GetAddonId()).Msg("Rollback failed after systemd add-on state snapshot failure")
 		}
+		p.recordTransientAddonApplyFailure(a, snapErr, now)
 		p.logSidecarDeliveryFailure(a, snapErr, addonDeliveryTransientFailure,
 			"Systemd add-on state snapshot failed; rolled current back")
 		return addonDeliveryTransientFailure
@@ -778,6 +779,7 @@ func (p *PushLoop) applySystemdAddonAtRoot(
 		if rbErr := rollbackAddonCurrent(root, a.GetAddonId(), priorTarget); rbErr != nil {
 			p.logger.Error().Err(rbErr).Str("addon", a.GetAddonId()).Msg("Rollback failed after systemd add-on state snapshot failure")
 		}
+		p.recordTransientAddonApplyFailure(a, persistErr, now)
 		p.logSidecarDeliveryFailure(a, persistErr, addonDeliveryTransientFailure,
 			"Systemd add-on state snapshot failed; rolled current back")
 		return addonDeliveryTransientFailure
@@ -792,6 +794,8 @@ func (p *PushLoop) applySystemdAddonAtRoot(
 		disposition := classifyAddonDeliveryError(err)
 		if disposition == addonDeliveryPermanentFailure {
 			p.recordAddonDeliveryFailure(a, err, now)
+		} else {
+			p.recordTransientAddonApplyFailure(a, err, now)
 		}
 		p.logSidecarDeliveryFailure(a, err, disposition,
 			"Systemd add-on config write failed; leaving current state unchanged")
@@ -808,6 +812,8 @@ func (p *PushLoop) applySystemdAddonAtRoot(
 			p.recordAddonDeliveryFailure(a, err, now)
 			return addonDeliveryPermanentFailure
 		}
+
+		p.recordTransientAddonApplyFailure(a, err, now)
 
 		// Install failure restores state inside the updater before it re-enables the
 		// previous unit. A metadata-write failure leaves the new unit enabled, so this

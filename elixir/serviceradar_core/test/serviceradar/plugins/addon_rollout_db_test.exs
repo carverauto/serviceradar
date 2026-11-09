@@ -1101,6 +1101,209 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
              )
   end
 
+  test "an install failure reported on the agent addons config section fails the canary immediately and records target.error" do
+    actor = SystemActor.system(:addon_rollout_install_failed_test)
+    fixture = rollout_fixture(actor)
+
+    report_status(fixture, fixture.current.version, "running", true, fixture.started_at, actor)
+
+    assert {:ok, rollout} =
+             AddonRolloutCoordinator.start(fixture.assignment, fixture.candidate,
+               actor: actor,
+               now: fixture.started_at,
+               trigger: :manual
+             )
+
+    failed_at = DateTime.shift(fixture.started_at, second: 5)
+
+    reason =
+      "one or more add-on assignments failed permanently: #{fixture.addon_id}: " <>
+        "locate agent updater for systemd install: release updater does not support required flag: --addon-version"
+
+    assert :ok =
+             ServiceRadar.Edge.AgentGatewaySync.record_config_section_statuses(
+               fixture.agent_uid,
+               %{
+                 section_statuses: [
+                   %{
+                     "section" => "addons",
+                     "disposition" => "permanent_failure",
+                     "error" => reason,
+                     "since" => DateTime.to_iso8601(failed_at)
+                   }
+                 ]
+               }
+             )
+
+    assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: actor, now: failed_at)
+
+    paused = get_rollout(rollout.id, actor)
+    target = get_rollout_target(rollout.id, actor)
+
+    assert paused.state == :paused
+    assert paused.blocked_reason == "candidate_install_failed"
+    assert paused.error =~ "release updater does not support required flag: --addon-version"
+    assert target.state == :rollback_pending
+    assert target.reason_code == "candidate_install_failed"
+    assert target.error =~ "release updater does not support required flag: --addon-version"
+  end
+
+  test "an apply failure reported on AddonStatus while the previous version keeps running fails the canary immediately" do
+    actor = SystemActor.system(:addon_rollout_status_apply_failed_test)
+    fixture = rollout_fixture(actor)
+
+    assert {:ok, rollout} =
+             AddonRolloutCoordinator.start(fixture.assignment, fixture.candidate,
+               actor: actor,
+               now: fixture.started_at,
+               trigger: :manual
+             )
+
+    failed_at = DateTime.shift(fixture.started_at, second: 5)
+
+    {:ok, _} =
+      AddonStatus
+      |> Ash.Changeset.for_create(
+        :report,
+        %{
+          agent_uid: fixture.agent_uid,
+          addon_id: fixture.addon_id,
+          state: "running",
+          active: true,
+          version: fixture.current.version,
+          desired_version: fixture.candidate.version,
+          apply_error: "stage addon artifact: sha256 mismatch",
+          apply_disposition: "permanent_failure",
+          apply_observed_at: failed_at,
+          reported_at: failed_at
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: actor, now: failed_at)
+
+    paused = get_rollout(rollout.id, actor)
+    target = get_rollout_target(rollout.id, actor)
+
+    assert paused.state == :paused
+    assert paused.blocked_reason == "candidate_install_failed"
+    assert paused.error == "stage addon artifact: sha256 mismatch"
+    assert target.state == :rollback_pending
+    assert target.reason_code == "candidate_install_failed"
+    assert target.error == "stage addon artifact: sha256 mismatch"
+  end
+
+  test "a paused profile rollout rotates past a failed canary to another eligible agent on reconcile" do
+    actor = SystemActor.system(:addon_rollout_canary_rotation_test)
+    fixture = overlay_profile_fixture(actor)
+    rollout = start_overlay_rollout(fixture, actor)
+
+    failed_at = DateTime.shift(fixture.started_at, second: 1)
+
+    report_status(
+      %{addon_id: fixture.addon_id, agent_uid: fixture.canary_uid},
+      fixture.candidate.version,
+      "unhealthy",
+      false,
+      failed_at,
+      actor
+    )
+
+    assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: actor, now: failed_at)
+    assert get_rollout(rollout.id, actor).state == :paused
+
+    recovered_at = DateTime.shift(fixture.started_at, second: 2)
+
+    report_status(
+      %{addon_id: fixture.addon_id, agent_uid: fixture.canary_uid},
+      fixture.current.version,
+      "running",
+      true,
+      recovered_at,
+      actor
+    )
+
+    assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: actor, now: recovered_at)
+
+    rotate_at = DateTime.shift(fixture.started_at, minute: 2)
+    assert {:ok, _stats} = AddonRolloutCoordinator.reconcile(actor: actor, now: rotate_at)
+
+    resumed = get_rollout(rollout.id, actor)
+    assert resumed.state == :running
+
+    targets = Map.new(list_rollout_targets(rollout.id, actor), &{&1.agent_uid, &1})
+    assert targets[fixture.canary_uid].state == :excluded
+    assert targets[fixture.peer_uid].state == :waiting_health
+  end
+
+  test "a failed rollout clears rollout_package_id overrides on targets that had already succeeded" do
+    actor = SystemActor.system(:addon_rollout_failed_clears_succeeded_override_test)
+    fixture = profile_rollout_fixture(actor)
+
+    {:ok, profile} =
+      fixture.profile
+      |> Ash.Changeset.for_update(
+        :update,
+        %{
+          rollout_policy: %{
+            "canary_size" => 2,
+            "batch_size" => 2,
+            "max_parallel" => 2,
+            "soak_seconds" => 0,
+            "health_timeout_seconds" => 60,
+            "tolerated_failures" => 0
+          }
+        }
+      )
+      |> Ash.update(actor: actor)
+
+    assert {:ok, rollout} =
+             AddonRolloutCoordinator.start(profile, fixture.candidate,
+               actor: actor,
+               now: fixture.started_at,
+               trigger: :manual
+             )
+
+    step1 = DateTime.shift(fixture.started_at, second: 1)
+    report_status_for(fixture.addon_id, fixture.live_uid, fixture.candidate.version, step1, actor)
+
+    report_status(
+      %{addon_id: fixture.addon_id, agent_uid: fixture.dead_uid},
+      fixture.candidate.version,
+      "unhealthy",
+      false,
+      step1,
+      actor
+    )
+
+    assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: actor, now: step1)
+    assert get_rollout(rollout.id, actor).state == :paused
+
+    step2 = DateTime.shift(fixture.started_at, second: 2)
+
+    report_status(
+      %{addon_id: fixture.addon_id, agent_uid: fixture.dead_uid},
+      fixture.current.version,
+      "running",
+      true,
+      step2,
+      actor
+    )
+
+    assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: actor, now: step2)
+    assert :ok = AddonRolloutCoordinator.resume(rollout.id, actor: actor, now: step2)
+    assert get_rollout(rollout.id, actor).state == :failed
+
+    for assignment <- profile_assignments(fixture.profile.id, actor) do
+      assert is_nil(assignment.rollout_package_id),
+             "assignment #{assignment.agent_uid} retained rollout_package_id after rollout failed"
+
+      assert is_nil(assignment.rollout_id),
+             "assignment #{assignment.agent_uid} retained rollout_id after rollout failed"
+    end
+  end
+
   defp profile_rollout_fixture(actor) do
     unique = System.unique_integer([:positive])
     addon_id = "rollout-profile-#{unique}"

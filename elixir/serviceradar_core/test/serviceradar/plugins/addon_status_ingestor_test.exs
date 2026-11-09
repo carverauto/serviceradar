@@ -103,4 +103,47 @@ defmodule ServiceRadar.Plugins.AddonStatusIngestorTest do
     assert DateTime.after?(row.reported_at, initial_reported_at)
     assert DateTime.after?(row.updated_at, initial_updated_at)
   end
+
+  test "persists apply failure fields and marks overflowed values instead of slicing", %{
+    agent_uid: agent_uid
+  } do
+    observed_nanos = DateTime.to_unix(~U[2026-11-08 18:00:00Z], :nanosecond)
+    oversized_error = String.duplicate("x", 20_000)
+
+    :ok =
+      AddonStatusIngestor.ingest(
+        agent_status(agent_uid, [
+          %{
+            "name" => "addon:netprobe",
+            "state" => "running",
+            "version" => "0.1.7",
+            "desired_version" => "0.1.9",
+            "apply_error" =>
+              "locate agent updater for systemd install: release updater does not support required flag: --addon-version",
+            "apply_disposition" => "permanent_failure",
+            "apply_observed_at" => observed_nanos
+          },
+          %{
+            "name" => "addon:overflow",
+            "state" => "unhealthy",
+            "last_error" => oversized_error,
+            "apply_disposition" => "bogus_disposition"
+          }
+        ])
+      )
+
+    by_id = Map.new(statuses_for(agent_uid), &{&1.addon_id, &1})
+
+    assert by_id["netprobe"].version == "0.1.7"
+    assert by_id["netprobe"].desired_version == "0.1.9"
+    assert by_id["netprobe"].apply_disposition == "permanent_failure"
+
+    assert by_id["netprobe"].apply_error =~
+             "release updater does not support required flag: --addon-version"
+
+    assert by_id["netprobe"].apply_observed_at == ~U[2026-11-08 18:00:00.000000Z]
+
+    assert by_id["overflow"].degradation_reason == "[overflow:20000_bytes]"
+    assert by_id["overflow"].apply_disposition == "[unknown]"
+  end
 end

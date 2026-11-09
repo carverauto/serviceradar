@@ -15,6 +15,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
 
   @behaviour ServiceRadar.Plugins.RolloutArtifact
 
+  alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadar.Plugins.AddonProfile
@@ -35,6 +36,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
   # guess below.
   @native_addon_host_capability "addon.native.host"
   @native_addon_host_unavailable_capability "addon.native.host.unavailable"
+  @systemd_addon_updater_unavailable_capability "addon.systemd.updater.unavailable"
 
   @containerized_deployment_types ~w(kubernetes docker lxc container)
 
@@ -58,6 +60,8 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
   # permission expansion remains blocked for review.
   @impl true
   def restore_managed_sources(packages, actor) do
+    _ = clear_orphaned_terminal_overrides(actor)
+
     with {:ok, assignments} <- recoverable_assignments(actor),
          {:ok, profiles} <- recoverable_profiles(actor) do
       assignments
@@ -179,6 +183,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
       not agent_version_allowed?(package, agent) -> "incompatible_base_agent_version"
       missing_required_capabilities(package, agent) != [] -> "missing_required_agent_capability"
       not hostable_addon?(package.supervision, agent) -> "agent_cannot_host_native_addons"
+      systemd_updater_unavailable?(package.supervision, agent) -> "agent_updater_outdated"
       true -> nil
     end
   end
@@ -408,14 +413,34 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
     addon_id = rollout.addon_id
     uids = targets |> Enum.map(& &1.agent_uid) |> Enum.uniq()
 
-    AddonStatus
-    |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(addon_id == ^addon_id and agent_uid in ^uids)
-    |> Ash.read(actor: actor)
-    |> case do
-      {:ok, statuses} -> Map.new(statuses, &{&1.agent_uid, &1})
-      {:error, _} -> %{}
-    end
+    statuses =
+      AddonStatus
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(addon_id == ^addon_id and agent_uid in ^uids)
+      |> Ash.read(actor: actor)
+      |> case do
+        {:ok, rows} -> Map.new(rows, &{&1.agent_uid, &1})
+        {:error, _} -> %{}
+      end
+
+    agents =
+      Agent
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(uid in ^uids)
+      |> Ash.read(actor: actor)
+      |> case do
+        {:ok, rows} -> Map.new(rows, &{&1.uid, &1})
+        {:error, _} -> %{}
+      end
+
+    uids
+    |> Enum.map(fn uid ->
+      {uid, %{status: Map.get(statuses, uid), agent: Map.get(agents, uid)}}
+    end)
+    |> Enum.reject(fn {_uid, %{status: status, agent: agent}} ->
+      is_nil(status) and is_nil(agent)
+    end)
+    |> Map.new()
   end
 
   @impl true
@@ -423,6 +448,8 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
 
   @impl true
   def observed_at(%AddonStatus{reported_at: reported_at}), do: reported_at
+  def observed_at(%{status: %AddonStatus{reported_at: reported_at}}), do: reported_at
+  def observed_at(_), do: nil
 
   # Add-on readiness is always status for the candidate version, so a ready
   # target keeps the reason code it has.
@@ -435,36 +462,57 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
   # and fails as `candidate_health_timeout`, which is how a host-level cgroup
   # misconfiguration held anomaly three versions behind for a week.
   @impl true
-  def candidate_ready?(status, candidate, applied_at) do
+  def candidate_ready?(evidence, candidate, applied_at) do
+    status = status_from_evidence(evidence)
+
     fresh_status?(status, applied_at) and status.version == candidate.version and
       supervision_state_ready?(candidate, status)
   end
 
-  # A candidate fails on its reported STATE. It does not fail merely because the
-  # add-on also reported a degradation reason: that reason is advisory, describes
-  # the deployment around the add-on as often as the add-on itself, and is
-  # identical before and after an upgrade -- so gating on it could only ever wedge
-  # the rollout, never protect it. The reason is still recorded and surfaced; see
+  # A candidate fails on its reported STATE or on a fresh install/apply failure
+  # for the candidate. It does not fail merely because the add-on also reported
+  # a degradation reason: that reason is advisory, describes the deployment
+  # around the add-on as often as the add-on itself, and is identical before and
+  # after an upgrade -- so gating on it could only ever wedge the rollout, never
+  # protect it. The reason is still recorded and surfaced; see
   # advisory_degradation/1 and the fleet row.
   #
   # And it fails only on a report ABOUT the candidate. The agent reports the add-on
   # it is running; until it has applied the override that is still the previous
   # version, so a fresh "unhealthy" from it says nothing about the candidate. On demo
   # a wedged 0.3.10 failed the 0.3.11 target for its host 31 s after the override,
-  # before the agent had even polled for the new assignment. An agent that never
-  # applies the candidate still fails, as candidate_health_timeout.
+  # before the agent had even polled for the new assignment.
   @impl true
-  def candidate_failed?(nil, _candidate, _applied_at), do: false
-
-  def candidate_failed?(status, candidate, applied_at) do
-    state = status.state |> to_string() |> String.downcase()
-
-    fresh_status?(status, applied_at) and status.version == candidate.version and
-      state in ["circuit_open", "failed", "unhealthy", "verification_failed"]
+  def candidate_failed?(evidence, candidate, applied_at) do
+    not is_nil(candidate_failure(evidence, candidate, applied_at))
   end
 
   @impl true
-  def recovered?(status, previous, since) do
+  def candidate_failure(nil, _candidate, _applied_at), do: nil
+
+  def candidate_failure(evidence, candidate, applied_at) do
+    status = status_from_evidence(evidence)
+    agent = agent_from_evidence(evidence)
+
+    cond do
+      install_error = status_apply_failure(status, candidate, applied_at) ->
+        {"candidate_install_failed", install_error}
+
+      section_error = agent_section_failure(agent, candidate, applied_at) ->
+        {"candidate_install_failed", section_error}
+
+      unhealthy_error = status_unhealthy_failure(status, candidate, applied_at) ->
+        {"candidate_reported_unhealthy", unhealthy_error}
+
+      true ->
+        nil
+    end
+  end
+
+  @impl true
+  def recovered?(evidence, previous, since) do
+    status = status_from_evidence(evidence)
+
     fresh_status?(status, since) and status.version == previous.version and
       supervision_ready?(previous, status)
   end
@@ -472,8 +520,12 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
   @impl true
   def converged?(nil, _candidate), do: false
 
-  def converged?(status, candidate),
-    do: Eligibility.version_at_least?(status.version, candidate.version)
+  def converged?(evidence, candidate) do
+    case status_from_evidence(evidence) do
+      nil -> false
+      status -> Eligibility.version_at_least?(status.version, candidate.version)
+    end
+  end
 
   # Audit and telemetry.
 
@@ -582,6 +634,19 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
       true ->
         true
     end
+  end
+
+  @doc """
+  Whether `agent` advertises that its `serviceradar-agent-updater` is unavailable
+  or too old (`addon.systemd.updater.unavailable`) to install systemd-supervised
+  add-ons.
+  """
+  @spec systemd_updater_unavailable?(atom() | String.t() | nil, map()) :: boolean()
+  def systemd_updater_unavailable?(supervision, agent) do
+    capabilities = agent |> value(:capabilities, []) |> normalize_strings() |> MapSet.new()
+
+    systemd_supervised?(supervision) and
+      MapSet.member?(capabilities, @systemd_addon_updater_unavailable_capability)
   end
 
   defp managed_assignments(actor) do
@@ -776,7 +841,127 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
   defp fresh_status?(%AddonStatus{reported_at: %DateTime{} = reported_at}, %DateTime{} = since),
     do: DateTime.compare(reported_at, since) in [:gt, :eq]
 
+  defp fresh_status?(%{reported_at: %DateTime{} = reported_at}, %DateTime{} = since),
+    do: DateTime.compare(reported_at, since) in [:gt, :eq]
+
   defp fresh_status?(_, _), do: false
+
+  defp fresh_timestamp?(%DateTime{} = observed_at, %DateTime{} = since),
+    do: DateTime.compare(observed_at, since) in [:gt, :eq]
+
+  defp fresh_timestamp?(_, _), do: false
+
+  defp status_from_evidence(%{status: status}), do: status
+  defp status_from_evidence(%AddonStatus{} = status), do: status
+
+  defp status_from_evidence(%{} = status)
+       when is_map_key(status, :state) or is_map_key(status, "state") or
+              is_map_key(status, :version) or
+              is_map_key(status, "version"),
+       do: status
+
+  defp status_from_evidence(_), do: nil
+
+  defp agent_from_evidence(%{agent: agent}), do: agent
+  defp agent_from_evidence(_), do: nil
+
+  defp status_apply_failure(nil, _candidate, _applied_at), do: nil
+
+  defp status_apply_failure(status, candidate, applied_at) do
+    desired = value(status, :desired_version)
+    apply_error = value(status, :apply_error)
+    observed_at = value(status, :apply_observed_at) || value(status, :reported_at)
+
+    if desired == candidate.version and present?(apply_error) and
+         fresh_timestamp?(observed_at, applied_at) do
+      String.trim(apply_error)
+    end
+  end
+
+  defp agent_section_failure(nil, _candidate, _applied_at), do: nil
+
+  defp agent_section_failure(agent, candidate, applied_at) do
+    sections = agent |> value(:config_section_statuses, []) |> List.wrap()
+    fallback_at = value(agent, :config_status_reported_at)
+    addon_id = to_string(value(candidate, :addon_id, ""))
+
+    Enum.find_value(sections, fn entry ->
+      section = value(entry, :section)
+      disposition = value(entry, :disposition)
+      error = value(entry, :error)
+      since = parse_datetime(value(entry, :since)) || fallback_at
+
+      if section == "addons" and disposition in ["permanent_failure", "transient_failure"] and
+           present?(error) and addon_id != "" and String.contains?(error, addon_id) and
+           fresh_timestamp?(since, applied_at) do
+        String.trim(error)
+      end
+    end)
+  end
+
+  defp status_unhealthy_failure(nil, _candidate, _applied_at), do: nil
+
+  defp status_unhealthy_failure(status, candidate, applied_at) do
+    state = status |> value(:state, "") |> to_string() |> String.downcase()
+
+    if fresh_status?(status, applied_at) and value(status, :version) == candidate.version and
+         state in ["circuit_open", "failed", "unhealthy", "verification_failed"] do
+      case value(status, :degradation_reason) do
+        reason when is_binary(reason) ->
+          case String.trim(reason) do
+            "" -> "candidate reported state #{state}"
+            trimmed -> trimmed
+          end
+
+        _ ->
+          "candidate reported state #{state}"
+      end
+    end
+  end
+
+  defp parse_datetime(%DateTime{} = dt), do: dt
+
+  defp parse_datetime(value) when is_binary(value) do
+    case DateTime.from_iso8601(String.trim(value)) do
+      {:ok, dt, _offset} -> dt
+      _ -> nil
+    end
+  end
+
+  defp parse_datetime(_), do: nil
+
+  defp clear_orphaned_terminal_overrides(actor) do
+    AddonAssignment
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(not is_nil(rollout_id))
+    |> Ash.Query.load(:rollout)
+    |> Ash.read(actor: actor)
+    |> case do
+      {:ok, assignments} ->
+        Enum.each(assignments, fn assignment ->
+          if terminal_rollout?(assignment.rollout) do
+            _ =
+              assignment
+              |> Ash.Changeset.for_update(:clear_rollout_override, %{
+                rollout_package_id: nil,
+                rollout_id: nil,
+                rollout_started_at: nil
+              })
+              |> Ash.update(actor: actor, authorize?: true)
+          end
+        end)
+
+        :ok
+
+      {:error, _} ->
+        :ok
+    end
+  end
+
+  defp terminal_rollout?(%AddonRollout{state: state})
+       when state in [:completed, :failed, :canceled, :rolled_back, :superseded], do: true
+
+  defp terminal_rollout?(_), do: false
 
   defp get_assignment(id, actor), do: get_by_id(AddonAssignment, id, actor)
   defp get_profile(id, actor), do: get_by_id(AddonProfile, id, actor)

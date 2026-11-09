@@ -175,6 +175,26 @@ defmodule ServiceRadar.Plugins.AddonRolloutEligibilityTest do
              Eligibility.classify_target(package(supervision: :systemd_service), agent(now), now)
   end
 
+  test "a systemd add-on is incompatible when the agent advertises an outdated updater" do
+    now = ~U[2026-07-18 17:00:00Z]
+
+    for supervision <- [:systemd_service, :systemd_timer] do
+      assert {:incompatible, "agent_updater_outdated"} =
+               Eligibility.classify_target(
+                 package(supervision: supervision),
+                 agent(now, capabilities: ["addon.systemd.updater.unavailable"]),
+                 now
+               )
+    end
+
+    assert {:eligible, nil} =
+             Eligibility.classify_target(
+               package(supervision: :agent_sidecar),
+               agent(now, capabilities: ["addon.systemd.updater.unavailable"]),
+               now
+             )
+  end
+
   test "uses supervision-specific readiness instead of requiring every add-on to be active" do
     timer = package(supervision: :systemd_timer)
     helper = package(supervision: :ephemeral_helper)

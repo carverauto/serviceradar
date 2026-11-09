@@ -158,6 +158,8 @@ func (p *PushLoop) deliverAddonArtifact(
 	disposition := classifyAddonDeliveryError(err)
 	if disposition == addonDeliveryPermanentFailure {
 		p.recordAddonDeliveryFailure(a, err, now)
+	} else {
+		p.recordTransientAddonApplyFailure(a, err, now)
 	}
 
 	return "", disposition, err
@@ -198,6 +200,17 @@ type addonDeliveryFailure struct {
 	version string    // assigned version at failure time (for status reporting)
 }
 
+// addonApplyFailure records the latest failed apply/install/delivery attempt for an
+// add-on (either permanent or transient) so the status entry for a still-running
+// previous version can report the failed candidate version and reason without hiding
+// the running state.
+type addonApplyFailure struct {
+	at          time.Time
+	reason      string
+	version     string
+	disposition string
+}
+
 // recordAddonDeliveryFailure stores/refreshes the permanent-failure state for an add-on.
 func (p *PushLoop) recordAddonDeliveryFailure(a *proto.AddonAssignmentConfig, err error, now time.Time) {
 	p.addonDeliveryMu.Lock()
@@ -206,12 +219,56 @@ func (p *PushLoop) recordAddonDeliveryFailure(a *proto.AddonAssignmentConfig, er
 	if p.addonDeliveryFailures == nil {
 		p.addonDeliveryFailures = make(map[string]addonDeliveryFailure)
 	}
+	if p.addonApplyFailures == nil {
+		p.addonApplyFailures = make(map[string]addonApplyFailure)
+	}
 
-	p.addonDeliveryFailures[strings.TrimSpace(a.GetAddonId())] = addonDeliveryFailure{
+	id := strings.TrimSpace(a.GetAddonId())
+	version := strings.TrimSpace(a.GetVersion())
+	reason := err.Error()
+
+	p.addonDeliveryFailures[id] = addonDeliveryFailure{
 		key:     addonDeliveryAttemptKey(a),
 		at:      now,
-		reason:  err.Error(),
-		version: strings.TrimSpace(a.GetVersion()),
+		reason:  reason,
+		version: version,
+	}
+	p.addonApplyFailures[id] = addonApplyFailure{
+		at:          now,
+		reason:      reason,
+		version:     version,
+		disposition: configSectionDispositionPermanent,
+	}
+}
+
+// recordTransientAddonApplyFailure stores/refreshes the latest transient apply failure for
+// an add-on without entering permanent-delivery backoff.
+func (p *PushLoop) recordTransientAddonApplyFailure(
+	a *proto.AddonAssignmentConfig,
+	err error,
+	now time.Time,
+) {
+	if a == nil || err == nil {
+		return
+	}
+
+	p.addonDeliveryMu.Lock()
+	defer p.addonDeliveryMu.Unlock()
+
+	if p.addonApplyFailures == nil {
+		p.addonApplyFailures = make(map[string]addonApplyFailure)
+	}
+
+	id := strings.TrimSpace(a.GetAddonId())
+	if id == "" {
+		return
+	}
+
+	p.addonApplyFailures[id] = addonApplyFailure{
+		at:          now,
+		reason:      err.Error(),
+		version:     strings.TrimSpace(a.GetVersion()),
+		disposition: configSectionDispositionTransient,
 	}
 }
 
@@ -235,13 +292,16 @@ func (p *PushLoop) addonDeliveryInBackoff(a *proto.AddonAssignmentConfig, now ti
 	return now.Sub(failure.at) < addonDeliveryFailureBackoff
 }
 
-// clearAddonDeliveryFailure drops any recorded delivery failure for an add-on (called
-// once delivery succeeds, so a later failure is reported fresh and not suppressed).
+// clearAddonDeliveryFailure drops any recorded delivery/apply failure for an add-on
+// (called once delivery and apply succeed, so a later failure is reported fresh and not
+// suppressed).
 func (p *PushLoop) clearAddonDeliveryFailure(id string) {
 	p.addonDeliveryMu.Lock()
 	defer p.addonDeliveryMu.Unlock()
 
-	delete(p.addonDeliveryFailures, strings.TrimSpace(id))
+	trimmed := strings.TrimSpace(id)
+	delete(p.addonDeliveryFailures, trimmed)
+	delete(p.addonApplyFailures, trimmed)
 }
 
 // pruneAddonDeliveryFailures drops failure records for add-ons that are no longer
@@ -253,6 +313,11 @@ func (p *PushLoop) pruneAddonDeliveryFailures(keep map[string]bool) {
 	for id := range p.addonDeliveryFailures {
 		if !keep[id] {
 			delete(p.addonDeliveryFailures, id)
+		}
+	}
+	for id := range p.addonApplyFailures {
+		if !keep[id] {
+			delete(p.addonApplyFailures, id)
 		}
 	}
 }
@@ -276,22 +341,46 @@ func (p *PushLoop) addonDeliveryFailureSnapshot() map[string]addonDeliveryFailur
 	return out
 }
 
+func (p *PushLoop) addonApplyFailureSnapshot() map[string]addonApplyFailure {
+	p.addonDeliveryMu.Lock()
+	defer p.addonDeliveryMu.Unlock()
+
+	if len(p.addonApplyFailures) == 0 && len(p.addonDeliveryFailures) == 0 {
+		return nil
+	}
+
+	out := make(map[string]addonApplyFailure, len(p.addonApplyFailures)+len(p.addonDeliveryFailures))
+	for id, failure := range p.addonDeliveryFailures {
+		out[id] = addonApplyFailure{
+			at:          failure.at,
+			reason:      failure.reason,
+			version:     failure.version,
+			disposition: configSectionDispositionPermanent,
+		}
+	}
+	for id, failure := range p.addonApplyFailures {
+		out[id] = failure
+	}
+
+	return out
+}
+
 // addonDeliveryFailureStatuses synthesizes `addon:<id>` status entries (state=unhealthy,
-// last_error=<reason>) for add-ons whose pushed-artifact delivery failed permanently, so
-// a 404/sha/signature failure is visible in the control-plane AddonStatus read model
-// rather than the add-on silently disappearing. Add-ons that already have a status entry
-// in `existing` (e.g. a still-running last-known-good process, or a systemd add-on whose
-// units are tracked) are skipped so their richer real state wins.
+// last_error=<reason>) for add-ons whose apply/delivery failed when no status entry is
+// present in `existing`, and annotates any existing status entry (such as a still-running
+// previous version) with the failed candidate's desired_version, apply_error,
+// apply_disposition, and apply_observed_at so rollout health gates see candidate install
+// failures without losing the running version's state.
 func (p *PushLoop) addonDeliveryFailureStatuses(existing []*proto.SidecarStatus) []*proto.SidecarStatus {
-	failures := p.addonDeliveryFailureSnapshot()
+	failures := p.addonApplyFailureSnapshot()
 	if len(failures) == 0 {
 		return nil
 	}
 
-	have := make(map[string]bool, len(existing))
+	existingByName := make(map[string]*proto.SidecarStatus, len(existing))
 	for _, s := range existing {
 		if s != nil {
-			have[strings.ToLower(s.GetName())] = true
+			existingByName[strings.ToLower(s.GetName())] = s
 		}
 	}
 
@@ -303,15 +392,27 @@ func (p *PushLoop) addonDeliveryFailureStatuses(existing []*proto.SidecarStatus)
 
 	statuses := make([]agentaddon.Status, 0, len(ids))
 	for _, id := range ids {
-		if have[strings.ToLower("addon:"+id)] {
+		failure := failures[id]
+		if current, ok := existingByName[strings.ToLower("addon:"+id)]; ok {
+			if current.GetVersion() != failure.version || !strings.EqualFold(current.GetState(), string(agentaddon.StateRunning)) {
+				current.DesiredVersion = failure.version
+				current.ApplyError = failure.reason
+				current.ApplyDisposition = failure.disposition
+				if !failure.at.IsZero() {
+					current.ApplyObservedAt = failure.at.UTC().UnixNano()
+				}
+			}
 			continue
 		}
-		failure := failures[id]
 		statuses = append(statuses, agentaddon.Status{
-			ID:        id,
-			State:     agentaddon.StateUnhealthy,
-			Version:   failure.version,
-			LastError: failure.reason,
+			ID:               id,
+			State:            agentaddon.StateUnhealthy,
+			Version:          failure.version,
+			LastError:        failure.reason,
+			DesiredVersion:   failure.version,
+			ApplyError:       failure.reason,
+			ApplyDisposition: failure.disposition,
+			ApplyObservedAt:  failure.at,
 		})
 	}
 

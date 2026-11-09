@@ -163,10 +163,17 @@ func TestAddonDeliveryFailureStatusesEmitsUnhealthy(t *testing.T) {
 		t.Fatal("expected the failure reason in last_error")
 	}
 
-	// An add-on with a real status entry already present is not duplicated as a failure.
-	existing := []*proto.SidecarStatus{{Name: "addon:rdp", State: string(agentaddon.StateRunning)}}
+	// An add-on with a real status entry already present is not duplicated as a failure,
+	// and the running entry is annotated with the failed candidate's desired_version and apply_error.
+	existing := []*proto.SidecarStatus{{Name: "addon:rdp", State: string(agentaddon.StateRunning), Version: "0.9.0"}}
 	if got := pl.addonDeliveryFailureStatuses(existing); len(got) != 0 {
-		t.Fatalf("expected no failure status when a real status exists, got %v", got)
+		t.Fatalf("expected no duplicate failure status when a real status exists, got %v", got)
+	}
+	if existing[0].GetVersion() != "0.9.0" || existing[0].GetState() != string(agentaddon.StateRunning) {
+		t.Fatalf("existing running entry was overwritten: %+v", existing[0])
+	}
+	if existing[0].GetDesiredVersion() != "1.0.0" || existing[0].GetApplyError() == "" || existing[0].GetApplyDisposition() != configSectionDispositionPermanent || existing[0].GetApplyObservedAt() == 0 {
+		t.Fatalf("existing entry was not annotated with candidate failure details: %+v", existing[0])
 	}
 }
 

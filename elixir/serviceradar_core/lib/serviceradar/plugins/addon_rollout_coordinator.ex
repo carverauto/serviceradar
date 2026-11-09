@@ -647,6 +647,9 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
 
       start_next_candidate(refreshed_source, current, packages, rollouts, actor, now, stats)
     else
+      :none ->
+        rotate_paused_canary(paused, actor, now, stats)
+
       {:error, reason} ->
         Logger.warning("Failed to replace paused fleet rollout",
           rollout_id: to_string(paused.id),
@@ -658,6 +661,74 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
       _ ->
         increment(stats, :skipped)
     end
+  end
+
+  @rotatable_canary_reasons [
+    "candidate_health_timeout",
+    "candidate_never_applied",
+    "candidate_install_failed",
+    "candidate_reported_unhealthy"
+  ]
+  @max_canary_rotations 3
+
+  defp rotate_paused_canary(paused, actor, now, stats) do
+    if RolloutArtifact.implementation(paused).tolerates_failures?(paused) and
+         paused.blocked_reason in @rotatable_canary_reasons do
+      paused.id
+      |> in_locked_rollout(actor, &rotate_paused_canary_locked(&1, &2, actor, now))
+      |> case do
+        {:ok, :rotated, notifications} ->
+          send_notifications(notifications)
+          audit(:resume, paused, %{reason: "canary_rotated"})
+          increment(stats, :repaired)
+
+        _ ->
+          increment(stats, :skipped)
+      end
+    else
+      increment(stats, :skipped)
+    end
+  end
+
+  defp rotate_paused_canary_locked(rollout, targets, actor, now) do
+    rolled_back = Enum.filter(targets, &(&1.state == :rolled_back))
+    pending = Enum.filter(targets, &(&1.state == :pending))
+
+    in_flight =
+      Enum.any?(targets, &(&1.state in [:waiting_health, :healthy_soak, :rollback_pending]))
+
+    prior_rotations =
+      Enum.count(targets, fn target ->
+        target.state == :excluded and target.reason_code in @rotatable_canary_reasons
+      end)
+
+    if rollout.state == :paused and not in_flight and rolled_back != [] and pending != [] and
+         prior_rotations + length(rolled_back) <= @max_canary_rotations do
+      with :ok <- exclude_failed_canaries(rolled_back, actor, now),
+           {:ok, _resumed} <-
+             update_rollout(
+               rollout,
+               %{state: :running, paused_at: nil, blocked_reason: nil, error: nil},
+               actor
+             ) do
+        {:ok, :rotated, []}
+      end
+    else
+      {:refuse, :not_rotatable}
+    end
+  end
+
+  defp exclude_failed_canaries(targets, actor, now) do
+    Enum.reduce_while(targets, :ok, fn target, :ok ->
+      case transition_target(
+             target,
+             %{state: :excluded, completed_at: target.completed_at || now},
+             actor
+           ) do
+        {:ok, _} -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
   end
 
   defp supersede_failed_candidate(paused, candidate, actor, now) do
@@ -1010,8 +1081,8 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     artifact = RolloutArtifact.implementation(rollout)
 
     cond do
-      artifact.candidate_failed?(evidence, candidate, target.override_applied_at) ->
-        fail_and_rollback_target(rollout, target, "candidate_reported_unhealthy", actor, now)
+      failure = candidate_failure(artifact, evidence, candidate, target.override_applied_at) ->
+        fail_and_rollback_target(rollout, target, failure, actor, now)
 
       artifact.candidate_ready?(evidence, candidate, target.override_applied_at) ->
         evaluate_soak(
@@ -1024,10 +1095,29 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
         )
 
       deadline_elapsed?(target.deadline_at, now) ->
-        fail_and_rollback_target(rollout, target, "candidate_health_timeout", actor, now)
+        fail_and_rollback_target(
+          rollout,
+          target,
+          {"candidate_health_timeout", "candidate never reported healthy before deadline"},
+          actor,
+          now
+        )
 
       true ->
         {:ok, target}
+    end
+  end
+
+  defp candidate_failure(artifact, evidence, candidate, applied_at) do
+    cond do
+      function_exported?(artifact, :candidate_failure, 3) ->
+        artifact.candidate_failure(evidence, candidate, applied_at)
+
+      artifact.candidate_failed?(evidence, candidate, applied_at) ->
+        {"candidate_reported_unhealthy", nil}
+
+      true ->
+        nil
     end
   end
 
@@ -1068,16 +1158,17 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   defp with_reason(attrs, nil), do: attrs
   defp with_reason(attrs, reason), do: Map.put(attrs, :reason_code, reason)
 
-  defp fail_and_rollback_target(rollout, target, reason, actor, now) do
+  defp fail_and_rollback_target(rollout, target, {reason, error_detail}, actor, now) do
     artifact = RolloutArtifact.implementation(rollout)
+    rollout_error = if reason == "candidate_install_failed", do: error_detail, else: rollout.error
 
     # An implementation that rolls back on failure moves the whole rollout to
     # :rolling_back; finish_rolling_back/4 sends its other targets back on the
     # next pass. Otherwise the rollout pauses for an operator decision.
     rollout_attrs =
       if artifact.rolls_back_on_failure?(rollout),
-        do: %{state: :rolling_back, blocked_reason: reason},
-        else: %{state: :paused, paused_at: now, blocked_reason: reason}
+        do: %{state: :rolling_back, blocked_reason: reason, error: rollout_error},
+        else: %{state: :paused, paused_at: now, blocked_reason: reason, error: rollout_error}
 
     with {:ok, notifications} <- artifact.clear_override(target, actor),
          {:ok, target} <-
@@ -1086,6 +1177,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
              %{
                state: :rollback_pending,
                reason_code: reason,
+               error: error_detail,
                rollback_started_at: now,
                deadline_at:
                  DateTime.shift(now, second: rollout.policy["health_timeout_seconds"] || 900)
@@ -1135,7 +1227,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
         {:ok, :advanced, []}
 
       {:finish, terminal} ->
-        with {:ok, notifications} <- finish_failed_rollout(rollout, terminal, actor, now),
+        with {:ok, notifications} <- finish_failed_rollout(rollout, targets, terminal, actor, now),
              do: {:ok, :advanced, notifications}
 
       :cancel_unproven ->
@@ -1361,22 +1453,22 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     end
   end
 
-  defp finish_failed_rollout(rollout, terminal, actor, now) do
-    case update_rollout(
-           rollout,
-           %{state: terminal, completed_at: now, error: rollout.blocked_reason},
-           actor
-         ) do
-      {:ok, _} ->
-        audit(terminal, rollout, %{reason: rollout.blocked_reason})
-        emit(terminal, rollout, %{reason: rollout.blocked_reason})
-        # Vacate the unique (agent, add-on) slots so a later retry — or another
-        # source — can insert fresh targets. A 1/2 canary otherwise keeps the
-        # succeeded agent in the partial unique index forever.
-        with :ok <- vacate_target_slots(rollout, actor), do: {:ok, []}
-
-      {:error, reason} ->
-        {:error, reason}
+  defp finish_failed_rollout(rollout, targets, terminal, actor, now) do
+    with {:ok, notifications} <- clear_all_overrides(rollout, targets, actor),
+         {:ok, updated} <-
+           update_rollout(
+             rollout,
+             %{
+               state: terminal,
+               completed_at: now,
+               error: rollout.error || rollout.blocked_reason
+             },
+             actor
+           ),
+         :ok <- vacate_target_slots(rollout, actor) do
+      audit(terminal, updated, %{reason: updated.blocked_reason})
+      emit(terminal, updated, %{reason: updated.blocked_reason})
+      {:ok, notifications}
     end
   end
 
@@ -1817,7 +1909,8 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   defp increment(map, key), do: Map.update!(map, key, &(&1 + 1))
 
   defp vacate_target_slots(rollout, actor) do
-    with {:ok, targets} <- rollout_targets(rollout, actor) do
+    with {:ok, targets} <- rollout_targets(rollout, actor),
+         {:ok, _notifications} <- clear_all_overrides(rollout, targets, actor) do
       Enum.reduce_while(targets, :ok, fn target, :ok ->
         case vacate_target_slot(target, actor) do
           :ok -> {:cont, :ok}

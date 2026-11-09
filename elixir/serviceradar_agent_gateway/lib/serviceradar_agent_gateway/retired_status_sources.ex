@@ -55,17 +55,19 @@ defmodule ServiceRadarAgentGateway.RetiredStatusSources do
   ]
 
   @max_summary_bytes 4_096
+  @max_agent_capability_status_bytes 65_536
 
   @doc """
   The bounded family a status is refused under, or `nil` for an ephemeral summary the gateway
-  still forwards: `oversized_summary` for a summary over #{@max_summary_bytes} bytes, a known
+  still forwards: `oversized_summary` for a summary over its source limit (#{@max_agent_capability_status_bytes}
+  bytes for the `agent` capability status, #{@max_summary_bytes} bytes for other summaries), a known
   retired source by name, `addon` or `plugin` for package telemetry, and `other` for anything
   unrecognized, so an agent-chosen string never becomes a metric label.
   """
   @spec refusal_family(Monitoring.GatewayServiceStatus.t()) :: String.t() | nil
-  def refusal_family(%Monitoring.GatewayServiceStatus{source: source, message: message}) do
+  def refusal_family(%Monitoring.GatewayServiceStatus{source: source} = status) do
     case normalize(source) do
-      source when source in @ephemeral_sources -> size_refusal(message)
+      source when source in @ephemeral_sources -> size_refusal(status)
       source when source in @retired_sources -> source
       "addon:" <> _addon_id -> "addon"
       "plugin:" <> _plugin_id -> "plugin"
@@ -81,9 +83,19 @@ defmodule ServiceRadarAgentGateway.RetiredStatusSources do
   @spec durable?(Monitoring.GatewayServiceStatus.t()) :: boolean()
   def durable?(%Monitoring.GatewayServiceStatus{} = status), do: refusal_family(status) not in [nil, "oversized_summary"]
 
-  defp size_refusal(message) when is_binary(message) and byte_size(message) > @max_summary_bytes, do: "oversized_summary"
+  defp size_refusal(%Monitoring.GatewayServiceStatus{message: message} = status) when is_binary(message) do
+    if byte_size(message) > max_status_bytes(status), do: "oversized_summary"
+  end
 
-  defp size_refusal(_message), do: nil
+  defp size_refusal(_status), do: nil
+
+  defp max_status_bytes(%Monitoring.GatewayServiceStatus{source: source, service_name: service_name}) do
+    if normalize(source) == "status" and service_label(service_name) == "agent" do
+      @max_agent_capability_status_bytes
+    else
+      @max_summary_bytes
+    end
+  end
 
   @doc """
   Count the statuses the gateway refused from an agent, without publishing or forwarding them.
@@ -128,10 +140,12 @@ defmodule ServiceRadarAgentGateway.RetiredStatusSources do
         refusal_family(status) == "oversized_summary",
         reduce: %{} do
       acc ->
+        limit = max_status_bytes(status)
+
         Map.update(
           acc,
           service_label(status.service_name),
-          %{bytes: byte_size(message), limit: @max_summary_bytes},
+          %{bytes: byte_size(message), limit: limit},
           &%{&1 | bytes: max(&1.bytes, byte_size(message))}
         )
     end

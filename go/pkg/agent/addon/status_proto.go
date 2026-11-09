@@ -38,6 +38,10 @@ func ToProtoStatuses(statuses []Status) []*proto.SidecarStatus {
 		if !status.LastHealthAt.IsZero() {
 			lastHealthAt = status.LastHealthAt.UTC().UnixNano()
 		}
+		applyObservedAt := int64(0)
+		if !status.ApplyObservedAt.IsZero() {
+			applyObservedAt = status.ApplyObservedAt.UTC().UnixNano()
+		}
 
 		lastError := status.LastError
 		if lastError == "" {
@@ -48,14 +52,18 @@ func ToProtoStatuses(statuses []Status) []*proto.SidecarStatus {
 		}
 
 		out = append(out, &proto.SidecarStatus{
-			Name:         "addon:" + status.ID,
-			State:        string(status.State),
-			Pid:          int32(status.PID),
-			LastHealthAt: lastHealthAt,
-			RestartCount: cappedUint32(status.RestartCount),
-			LastError:    lastError,
-			Version:      status.Version,
-			Arch:         status.Arch,
+			Name:             "addon:" + status.ID,
+			State:            string(status.State),
+			Pid:              int32(status.PID),
+			LastHealthAt:     lastHealthAt,
+			RestartCount:     cappedUint32(status.RestartCount),
+			LastError:        lastError,
+			Version:          status.Version,
+			Arch:             status.Arch,
+			DesiredVersion:   status.DesiredVersion,
+			ApplyError:       status.ApplyError,
+			ApplyDisposition: status.ApplyDisposition,
+			ApplyObservedAt:  applyObservedAt,
 		})
 	}
 
