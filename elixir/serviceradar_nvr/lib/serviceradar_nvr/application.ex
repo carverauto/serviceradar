@@ -9,6 +9,7 @@ defmodule ServiceRadarNVR.Application do
     with {:ok, config} <- Config.load(System.get_env()) do
       children = [
         {Registry, keys: :unique, name: ServiceRadarNVR.Registry},
+        {ServiceRadarNVR.Capacity, config},
         {DynamicSupervisor,
          name: ServiceRadarNVR.Sessions,
          strategy: :one_for_one,
@@ -17,7 +18,8 @@ defmodule ServiceRadarNVR.Application do
         {Bandit, plug: {ServiceRadarNVR.Health, config}, port: config.health_port}
       ]
 
-      # Losing the local identity registry also retires its admitted workers.
+      # Losing identity or reservation accounting retires every dependent writer
+      # before replacement accounting can admit work against the retained files.
       Supervisor.start_link(children, strategy: :rest_for_one, name: ServiceRadarNVR.Supervisor)
     end
   end

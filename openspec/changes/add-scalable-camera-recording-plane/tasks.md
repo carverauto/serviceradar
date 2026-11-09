@@ -135,6 +135,19 @@ authorize a replacement. Durable recovery, fencing and task 2.5 remain open.
 
 ## 3. Storage modes and recovery
 
+Aggregate admission checkpoint for 2.1/3.2: the standalone finite-block runtime
+serializes full-block reservations against a configurable per-replica logical
+spool budget and available filesystem space. Read-only inventory counts retained
+and incomplete files before admission, including after restart. Worker exit does
+not reclaim those files. Capacity-owner loss retires dependent workers before
+new admission. Unknown inventory and low space refuse work without deletion;
+write guards refresh pressure observations at most once per second. Release tests
+exercise competing admissions, worker/accounting restarts, retained media after
+release restart, a physical free-space floor and refused aliased inventory.
+This is not continuous sealing, durable gap/outbox publication, reserved on-disk
+control allocation, journal reconciliation, retention or physical node-loss
+qualification. Tasks 2.1 and 3.2 remain open.
+
 - [ ] 3.1 Install qualified exclusive per-recorder filesystem volumes with explicit identities/initialization for Kubernetes and supported customer hosts.
 - [ ] 3.2 Implement continuous bounded sealing, durable journal/outbox and capacity/pressure admission with reserved control space.
 - [ ] 3.3 Implement local-only durable catalog/manifest publication, owner-aware authorized playback, retention/holds and restore without S3 or SaaS calls.

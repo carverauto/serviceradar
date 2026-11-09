@@ -1,0 +1,125 @@
+defmodule ServiceRadarNVR.Capacity do
+  @moduledoc "Serializes volume reservations; retained bytes remain charged after worker exit."
+  use GenServer
+
+  alias ServiceRadarNVR.Disk
+  alias ServiceRadarRecording.Spool
+  alias ServiceRadarRecording.Storage
+
+  @limits %{max_block_bytes: 16_777_216, max_fragments: 8, max_fragment_bytes: 4_194_304}
+  @probe_interval_ms 1000
+
+  def start_link(config), do: GenServer.start_link(__MODULE__, config, name: __MODULE__)
+  def reserve, do: GenServer.call(__MODULE__, :reserve)
+  def check(token), do: GenServer.call(__MODULE__, {:check, token})
+  def status, do: GenServer.call(__MODULE__, :status)
+
+  @impl true
+  def init(config) do
+    {:ok, bytes} = Spool.reservation_bytes(@limits)
+    {:ok, %{config: config, storage: nil, reservations: %{}, block_bytes: bytes, probe: nil}}
+  end
+
+  @impl true
+  def handle_call(:reserve, {owner, _}, state) do
+    with {:ok, storage} <- storage(state),
+         {:ok, usage} <- measure(storage, state),
+         :ok <- admission(usage) do
+      token = Process.monitor(owner)
+      reservations = Map.put(state.reservations, token, owner)
+      {:reply, {:ok, token, storage, @limits}, %{state | storage: storage, reservations: reservations, probe: nil}}
+    else
+      {:error, _} = error -> {:reply, error, state}
+    end
+  end
+
+  def handle_call({:check, token}, {owner, _}, state) do
+    if Map.get(state.reservations, token) == owner do
+      {result, state} = pressure(state)
+      {:reply, result, state}
+    else
+      {:reply, {:error, :nvr_reservation_lost}, state}
+    end
+  end
+
+  def handle_call(:status, _from, state) do
+    result = with {:ok, storage} <- storage(state), do: measure(storage, state)
+    {:reply, result, state}
+  end
+
+  @impl true
+  def handle_info({:DOWN, token, :process, owner, _}, state) do
+    reservations =
+      if Map.get(state.reservations, token) == owner,
+        do: Map.delete(state.reservations, token),
+        else: state.reservations
+
+    {:noreply, %{state | reservations: reservations, probe: nil}}
+  end
+
+  defp storage(%{config: %{root: nil}}), do: {:error, :nvr_storage_not_configured}
+  defp storage(%{storage: nil, config: config}), do: Storage.open(config.root, config.storage_id)
+  defp storage(%{storage: storage}), do: with(:ok <- Storage.verify(storage), do: {:ok, storage})
+
+  defp measure(storage, state) do
+    with {:ok, inventory} <- Disk.inventory(storage),
+         {:ok, free} <- Disk.available_bytes(storage.root),
+         :ok <- Storage.verify(storage) do
+      {:ok,
+       %{
+         used_bytes: inventory.used_bytes,
+         blocks: inventory.blocks,
+         max_blocks: inventory.max_blocks,
+         reservations: map_size(state.reservations),
+         reserved_bytes: map_size(state.reservations) * state.block_bytes,
+         available_bytes: free,
+         max_spool_bytes: state.config.max_spool_bytes,
+         reserve_bytes: state.config.reserve_bytes,
+         block_bytes: state.block_bytes
+       }}
+    end
+  end
+
+  @doc """
+  Admission charges retained bytes, every full active reservation and the new
+  block against the logical budget, and requires the physical floor plus all of
+  those reservations to be free. Full reservations stay charged even as they are
+  written, deliberately under-admitting instead of measuring each active tail.
+  """
+  def admission(usage) do
+    cond do
+      usage.blocks + usage.reservations + 1 > usage.max_blocks ->
+        {:error, :nvr_inventory_limit}
+
+      usage.used_bytes + usage.reserved_bytes + usage.block_bytes > usage.max_spool_bytes ->
+        {:error, :nvr_spool_budget_exhausted}
+
+      usage.available_bytes < usage.reserve_bytes + usage.reserved_bytes + usage.block_bytes ->
+        {:error, :nvr_storage_pressure}
+
+      true ->
+        :ok
+    end
+  end
+
+  @doc "Admitted workers may consume their reserved space and stop only at the physical floor."
+  def writable(available_bytes, reserve_bytes) when available_bytes >= reserve_bytes, do: :ok
+  def writable(_available_bytes, _reserve_bytes), do: {:error, :nvr_storage_pressure}
+
+  defp pressure(state) do
+    now = System.monotonic_time(:millisecond)
+
+    case state.probe do
+      {at, result} when now - at < @probe_interval_ms ->
+        {result, state}
+
+      _ ->
+        result =
+          with :ok <- Storage.verify(state.storage),
+               {:ok, free} <- Disk.available_bytes(state.storage.root),
+               do: writable(free, state.config.reserve_bytes)
+
+        {result, %{state | probe: {now, result}}}
+    end
+  end
+end

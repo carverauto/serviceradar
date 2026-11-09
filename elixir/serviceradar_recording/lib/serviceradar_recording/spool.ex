@@ -64,6 +64,13 @@ defmodule ServiceRadarRecording.Spool do
     sealed?: false
   ]
 
+  @doc "Maximum logical bytes in one block, including init and bounded journal records."
+  def reservation_bytes(overrides) do
+    with {:ok, limits} <- limits(overrides) do
+      {:ok, limits.max_init_bytes + limits.max_block_bytes + (limits.max_fragments + 2) * (@record_bytes + 36)}
+    end
+  end
+
   @doc "Create a new block under a verified provisioned spool root."
   def create(%Storage{} = storage, identity, init, limits \\ %{}) do
     with :ok <- Storage.verify(storage),

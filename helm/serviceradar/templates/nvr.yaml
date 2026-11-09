@@ -95,6 +95,10 @@ spec:
               value: {{ $nvr.maxSessions | quote }}
             - name: SERVICERADAR_NVR_MAX_DURATION_MS
               value: {{ $nvr.maxDurationMs | quote }}
+            - name: SERVICERADAR_NVR_MAX_SPOOL_BYTES
+              value: {{ printf "%d" (int64 $nvr.maxSpoolBytes) | quote }}
+            - name: SERVICERADAR_NVR_RESERVE_BYTES
+              value: {{ printf "%d" (int64 $nvr.reserveBytes) | quote }}
           resources: {{ toYaml $nvr.resources | nindent 12 }}
           startupProbe:
             httpGet: {path: /healthz, port: health}

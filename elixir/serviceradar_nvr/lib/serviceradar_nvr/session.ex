@@ -2,12 +2,10 @@ defmodule ServiceRadarNVR.Session do
   @moduledoc false
   use GenServer, restart: :temporary
 
+  alias ServiceRadarNVR.Capacity
   alias ServiceRadarRecording.Inbox
   alias ServiceRadarRecording.Packaging
-  alias ServiceRadarRecording.Storage
   alias ServiceRadarRecording.Writer
-
-  @spool_limits %{max_block_bytes: 16_777_216, max_fragments: 8, max_fragment_bytes: 4_194_304}
 
   def start_link(config, {producer, identity, clock}) do
     with {:ok, key} <- source_key(identity) do
@@ -24,11 +22,20 @@ defmodule ServiceRadarNVR.Session do
     Process.flag(:trap_exit, true)
     deadline = System.monotonic_time(:millisecond) + config.max_duration_ms
 
-    with {:ok, storage} <- Storage.open(config.root, config.storage_id),
+    with {:ok, reservation, storage, limits} <- Capacity.reserve(),
          {:ok, inbox} <- Inbox.new(producer, identity.source_id, identity, deadline),
-         {:ok, writer} <- Writer.open(storage, identity, clock, @spool_limits, wait_for_keyframe?: true) do
+         {:ok, writer} <- Writer.open(storage, identity, clock, limits, wait_for_keyframe?: true) do
       timer = Process.send_after(self(), :deadline, max(0, deadline - System.monotonic_time(:millisecond)))
-      {:ok, %{inbox: inbox, writer: writer, monitor: Process.monitor(producer), timer: timer, last_sequence: nil}}
+
+      {:ok,
+       %{
+         inbox: inbox,
+         writer: writer,
+         reservation: reservation,
+         monitor: Process.monitor(producer),
+         timer: timer,
+         last_sequence: nil
+       }}
     else
       {:error, reason} -> {:stop, reason}
     end
@@ -51,7 +58,7 @@ defmodule ServiceRadarNVR.Session do
   @impl true
   def handle_info({:recording_media, id, unit}, %{inbox: %{id: id}} = state) do
     with :ok <- continuous(state.last_sequence, unit.sequence),
-         {:ok, writer} <- Writer.push(state.writer, unit, fn -> Inbox.usable(state.inbox) end),
+         {:ok, writer} <- Writer.push(state.writer, unit, fn -> admitted(state) end),
          :ok <- Inbox.release(state.inbox, byte_size(unit.payload)) do
       {:noreply, %{state | writer: writer, last_sequence: unit.sequence}}
     else
@@ -60,8 +67,8 @@ defmodule ServiceRadarNVR.Session do
   end
 
   def handle_info({:recording_end, id}, %{inbox: %{id: id}} = state) do
-    with {:ok, writer} <- Writer.flush(state.writer, fn -> Inbox.usable(state.inbox) end),
-         {:ok, writer} <- Writer.seal(writer, fn -> Inbox.usable(state.inbox) end) do
+    with {:ok, writer} <- Writer.flush(state.writer, fn -> admitted(state) end),
+         {:ok, writer} <- Writer.seal(writer, fn -> admitted(state) end) do
       notify(state, {:ok, %{snapshot: Writer.snapshot(writer), init_format: writer.init_format}})
       {:stop, :normal, %{state | writer: writer}}
     else
@@ -94,6 +101,13 @@ defmodule ServiceRadarNVR.Session do
   end
 
   defp notify(state, result), do: send(state.inbox.producer, {:nvr_recording, self(), result})
+
+  defp admitted(state) do
+    with :ok <- Inbox.usable(state.inbox),
+         :ok <- Capacity.check(state.reservation),
+         do: Inbox.usable(state.inbox)
+  end
+
   defp continuous(nil, _sequence), do: :ok
   defp continuous(previous, sequence) when sequence == previous + 1, do: :ok
   defp continuous(_, _), do: {:error, :media_sequence_discontinuity}
