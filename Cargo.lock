@@ -1426,7 +1426,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "ultragraph",
+ "ultragraph 0.9.5",
 ]
 
 [[package]]
@@ -1725,9 +1725,9 @@ dependencies = [
 
 [[package]]
 name = "deep_causality"
-version = "0.19.0"
+version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e092254495ae02c08d5f3c72a4b8e8827f395b0606f3131ad2f172e750fcdb6"
+checksum = "e8f4b282ec96a8c4f4861de32038d6a325323dbcad6d6a79f93d9872097f3cc3"
 dependencies = [
  "deep_causality_algebra",
  "deep_causality_ast",
@@ -1736,7 +1736,7 @@ dependencies = [
  "deep_causality_data_structures",
  "deep_causality_haft",
  "deep_causality_uncertain",
- "ultragraph",
+ "ultragraph 0.10.0",
 ]
 
 [[package]]
@@ -1756,9 +1756,9 @@ checksum = "00b818582fe174c99ba89505052271c4b0f988fa3446c49f9ba3ee1bebd4f2fa"
 
 [[package]]
 name = "deep_causality_context"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22c5138dce50f983d5366191a29900c224c0ab8bb9c9b274c267f006838fe209"
+checksum = "18f60da8a61e3903ca2364f7319bca569fe9c5228017d21d03b188a03809c1c0"
 dependencies = [
  "deep_causality_algebra",
  "deep_causality_context_store",
@@ -1767,7 +1767,7 @@ dependencies = [
  "deep_causality_metric",
  "deep_causality_num",
  "deep_causality_uncertain",
- "ultragraph",
+ "ultragraph 0.10.0",
 ]
 
 [[package]]
@@ -2829,7 +2829,7 @@ dependencies = [
  "roaring",
  "rustler",
  "serde_json",
- "ultragraph",
+ "ultragraph 0.9.5",
 ]
 
 [[package]]
@@ -8478,6 +8478,21 @@ name = "ultragraph"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "65cb4e3e0bd8a54b400543e2a3d7f5715b42d86ebc240e54e1fc12be57cad9ce"
+
+[[package]]
+name = "ultragraph"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2bf1bfa4ef34d14a71fd74935d05dd63267dd94eaaa5a98595598095400c5624"
+dependencies = [
+ "ultragraph_traits",
+]
+
+[[package]]
+name = "ultragraph_traits"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0359fbc554dca687f8f04b29d10197cfa9941aeda86fbd90f0c4e73b0e278c0f"
 
 [[package]]
 name = "unarray"
