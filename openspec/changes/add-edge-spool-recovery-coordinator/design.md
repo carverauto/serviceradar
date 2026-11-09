@@ -389,8 +389,10 @@ source archive; `ReclaimSource` verifies paired coverage, archive and deletion
 intent before reclaiming the source and releasing its charge. `FinishCleanup`
 separately requires validated signed consumer completion and terminal copied data
 before reclaiming outputs and collecting transient journals. Required archives and
-compact completion evidence remain retained and accounted. Source reclaim precedes
-signed consumer completion.
+compact completion evidence remain retained and accounted. Source reclamation does
+not wait for signed consumer completion. Core may already have completed
+asynchronously; the guarantee is that the agent does not wait for its signed
+result before covered source reclaim.
 
 
 ### Bounded source archive and physical reclamation checkpoint

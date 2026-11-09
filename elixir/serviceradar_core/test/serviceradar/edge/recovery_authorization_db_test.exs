@@ -13,13 +13,18 @@ defmodule ServiceRadar.Edge.RecoveryAuthorizationDbTest do
   alias ServiceRadar.Edge.IssuerKey
   alias ServiceRadar.Edge.OutputContract
   alias ServiceRadar.Edge.OutputGrants
+  alias ServiceRadar.Edge.RecordValidate
   alias ServiceRadar.Edge.RecoveryAssignments
   alias ServiceRadar.Edge.RecoveryControl
   alias ServiceRadar.Edge.RecoveryOperations
+  alias ServiceRadar.Edge.SemanticDigest
   alias Serviceradar.Edge.V1.EdgeAttributedPassiveV1
   alias Serviceradar.Edge.V1.EdgeAttributedSpanIdentityV1
   alias Serviceradar.Edge.V1.EdgeClassificationSpanV1
   alias Serviceradar.Edge.V1.EdgeLossManifestPageV1
+  alias Serviceradar.Edge.V1.EdgeOutputContractRef
+  alias Serviceradar.Edge.V1.EdgeProducerContext
+  alias Serviceradar.Edge.V1.EdgeRecordV1
   alias Serviceradar.Edge.V1.EdgeRecoveryControlPayloadV1
   alias Serviceradar.Edge.V1.EdgeSourceSpanIdentityV1
   alias Serviceradar.Edge.V1.EdgeUnattributableV1
@@ -112,6 +117,12 @@ defmodule ServiceRadar.Edge.RecoveryAuthorizationDbTest do
 
     assert {:ok, ^response} = RecoveryControl.authorize(ctx.agent, ctx.request)
 
+    assert {:ok, _} =
+             ctx.request
+             |> control_record(source, DateTime.utc_now())
+             |> EdgeRecordV1.encode()
+             |> RecordValidate.validate_bytes()
+
     assert {:ok, 1} = OutputGrants.revoke_agent(ctx.agent)
 
     assert {:error, :production_authority_refused} =
@@ -145,6 +156,60 @@ defmodule ServiceRadar.Edge.RecoveryAuthorizationDbTest do
                ctx.request
                | production_capability: capability
              })
+  end
+
+  defp control_record(request, source, now) do
+    {:production, p} = request.production_capability.claims
+    payload = request.control_payload
+
+    record = %EdgeRecordV1{
+      event_id: Ecto.UUID.dump!(ServiceRadar.SweepJobs.ExecutionSlots.mint_id(now)),
+      network_scope_id: p.network_scope_id,
+      production_capability: request.production_capability,
+      source_authorization: source,
+      output_contract:
+        struct!(
+          EdgeOutputContractRef,
+          Map.take(p, [
+            :contract_id,
+            :contract_version,
+            :contract_bundle_sha256,
+            :registry_epoch,
+            :registry_snapshot_sha256,
+            :effective_grant_sha256
+          ])
+        ),
+      producer_context:
+        struct!(
+          EdgeProducerContext,
+          Map.take(p, [
+            :origin_kind,
+            :origin_principal_id,
+            :producer_instance_id,
+            :producer_assignment_id,
+            :run_id,
+            :run_shard,
+            :authority_epoch,
+            :scope_id,
+            :scope_sha256,
+            :package_id,
+            :package_sha256
+          ])
+        ),
+      route_profile: p.route_profile,
+      traffic_class: p.traffic_class,
+      payload_family: :EDGE_RECORD_PAYLOAD_FAMILY_RECOVERY_CONTROL_V1,
+      compression: :EDGE_RECORD_COMPRESSION_NONE,
+      payload: payload,
+      encoded_size: byte_size(payload),
+      uncompressed_size: byte_size(payload),
+      payload_sha256: :crypto.hash(:sha256, payload),
+      projected_row_count: 1,
+      projected_write_bytes: byte_size(payload),
+      cost_model_version: p.cost_model_version
+    }
+
+    %{record | semantic_envelope_sha256: SemanticDigest.compute(record)}
   end
 
   defp plan(scope) do

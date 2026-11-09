@@ -103,7 +103,9 @@ defmodule ServiceRadar.Edge.RecoveryAuthorization do
           kind: :EDGE_SOURCE_AUTHORIZATION_KIND_RECOVERY_CONTROL,
           context_id: recovery_id,
           scope_id: recovery_id,
-          scope_sha256: digest
+          scope_sha256: digest,
+          collection_not_before_unix_nano: capability.not_before_unix_nano,
+          collection_expires_unix_nano: capability.expires_at_unix_nano
         })
       )
 
