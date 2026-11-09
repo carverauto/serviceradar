@@ -202,7 +202,8 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay do
   end
 
   # Fence the republish to the stream the record came from, as the gateway fenced the original.
-  defp expected_stream(stream) when is_binary(stream) and stream != "", do: [{"Nats-Expected-Stream", stream}]
+  defp expected_stream(stream) when is_binary(stream) and stream != "",
+    do: [{"Nats-Expected-Stream", stream}]
 
   defp expected_stream(_stream), do: []
 
@@ -241,7 +242,8 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay do
     end
   end
 
-  defp walk_subject(%{last: last}, _filter, from, _limit, _fun, acc) when from > last, do: done(acc, from, true)
+  defp walk_subject(%{last: last}, _filter, from, _limit, _fun, acc) when from > last,
+    do: done(acc, from, true)
 
   defp walk_subject(_ctx, _filter, from, 0, _fun, acc), do: done(acc, from, false)
 
@@ -268,7 +270,8 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay do
     end
   end
 
-  defp done(acc, next, complete), do: {:ok, %{entries: Enum.reverse(acc), next_sequence: next, complete: complete}}
+  defp done(acc, next, complete),
+    do: {:ok, %{entries: Enum.reverse(acc), next_sequence: next, complete: complete}}
 
   defp matches?([], _message), do: true
 
