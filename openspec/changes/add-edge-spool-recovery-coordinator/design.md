@@ -3,6 +3,12 @@
 Status: Decisions 1-5 approved by the product owner on 2026-11-09.
 Issue #6424 visibility ships first; coordinator implementation is authorized.
 
+Legacy scope was separately resolved on 2026-11-09: automatic recovery applies
+only to new bounded attributed generations. Do not implement legacy migration or
+drain compatibility. Existing flat files stay untouched, measured against the
+budget and reported as unsupported retained storage. See
+[legacy-recovery-decision.md](legacy-recovery-decision.md).
+
 ## Context and verified prerequisites
 
 The agent opens one `spool.Spool` in `go/cmd/agent/edge_record_sender.go`.
@@ -19,7 +25,7 @@ the completion authority. Inspection against the staging base found:
 | Companion ABI 1.6a | `proto/edge/v1/record.proto`: `EdgeClassificationSpanV1`, page tag 11; retired page/tombstone fields reserved | No ABI restoration needed. Keep Go/Elixir parity and received-byte bounds. |
 | Canonical hashes | `go/pkg/edge/edgerecord/recovery.go`: `ManifestPageDigest`, `ManifestRoot`, chain/tombstone validators | Invoke these; never implement a second hash grammar. |
 | Restart classification | `spool/resolve.go`, `recover.go`, redundant evidence in `evidence.go` | Journal each frozen per-sequence classification before constructing pages. |
-| Lane generations (1.5) | `spool/lanes.go`: `LaneSet`, frozen identity, retryable rotation | Agent runtime still uses `spool.Open`; wire lanes and migrate the existing spool without losing identity or data. |
+| Lane generations (1.5) | `spool/lanes.go`: `LaneSet`, frozen identity, retryable rotation | Wire bounded lanes; retain/account/report unsupported old flat storage without migration or deletion. |
 | Capacity and ordinary reclaim (1.1) | `spool/reserve.go`, agent allocator, `spool/reclaim.go`, permanent-rejection quarantine | Allocator is now wired, contrary to the older moved note. Recovery reserve consumption and recovery coverage are still absent. |
 | Admission (1.2) | `admission/controller.go`: opaque `ReclaimAuthorization`, no exported constructor | Coverage owner must mint it only after durable proof. Ordinary gate wiring does not complete this contract. |
 | Assignment values/storage (1.3-1.4) | Existing assignment validators describe sweep records; no recovery mapping owner was found in edge packages | Tagged positive/explicit-negative mapping, conflict records, lookup outcomes and retention remain prerequisites. |
@@ -261,9 +267,9 @@ A nonempty generation that would exceed either bound refuses retryably with
 `ErrRotationRequired`, without allocating a sequence. An empty generation whose
 single record cannot fit returns a distinct retryable configuration/capacity
 refusal; correcting settings permits the exact same event and body to retry.
-Attributed appends without the shared allocator fail closed. Legacy generations
-remain readable and drain under their original identities; relocating an
-oversized damaged legacy generation requires explicit reserve headroom.
+Attributed appends without the shared allocator fail closed. Legacy flat storage
+is unsupported and retained; reserve headroom does not make its identity or
+copy-only intervals valid under this recovery protocol.
 
 These destination limits are one part of the aggregate reserve. Coordinator
 activation also requires separately validated fixed budgets for both frozen
