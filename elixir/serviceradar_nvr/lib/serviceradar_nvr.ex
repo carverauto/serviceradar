@@ -45,4 +45,13 @@ defmodule ServiceRadarNVR do
       ServiceRadarRecording.Spool.inspect_sealed(storage, block_id, limits)
     end
   end
+
+  @doc """
+  Recover and seal one retained block using its expected identity (including clock).
+
+  Refuses while any local recording has a reservation. The provisioned volume
+  must already have exclusive attachment and the previous writer must be retired;
+  this local guard does not fence another replica. No capture or publication starts.
+  """
+  def recover_block(block_id, expected_identity), do: ServiceRadarNVR.Capacity.recover_block(block_id, expected_identity)
 end
