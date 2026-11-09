@@ -38,3 +38,41 @@
 - Verdict: sound. This reuses the repository's existing platform support while
   activating its existing fail-closed capacity contract.
 - Confidence: high.
+
+## Immutable two-copy freeze before phase logging
+
+- When: journal foundation pass, 2026-11-09.
+- Choice: keep the frozen plan and exact manifest bodies in a versioned,
+  checksummed record. Every selected allocated slot retains either its complete
+  singleton classification or its intended destination coordinates and hashes.
+  Detection time and reason are frozen inputs because signed controls require
+  them; replay never invents a new timestamp or edits a publication body.
+- Gap: the design defines crash evidence and reconciliation but does not prescribe
+  a storage encoding or divide immutable evidence from mutable progress.
+- Reach: `recovery.Freeze` writes through the existing reserved durable barriers.
+  `Open` requires identical valid copies. `Repair` only recreates exact intact
+  bytes when the other copy is absent or corrupt; conflicting valid copies,
+  unsupported versions and read failures remain untouched. A freeze journal
+  proves no copy completion, acknowledgement, source deletion or evidence-GC
+  authority. Mutable phase intents remain a separate implementation slice.
+- Verdict: sound. The root implementer approved this bounded freeze-only scope
+  and strict reconciliation before implementation.
+- Confidence: high.
+
+## Bounded evidence with explicit partitioning
+
+- When: journal foundation pass, 2026-11-09.
+- Choice: at most 1024 selected allocated slots, at most 1 MiB per journal copy,
+  and the existing 256 KiB aggregate exact manifest bound. Oversized plans return
+  a split-required error rather than dropping evidence or weakening attribution.
+  Copies-only compaction returns a separate error instead of fabricating loss.
+- Gap: the approved bounded-work requirement needed a concrete interval and
+  local-evidence ceiling alongside the existing wire ceiling.
+- Reach: `JournalBytes` reports exact bytes for one copy. The caller must reserve
+  cumulative writes to both copies, every permitted repair, and independent
+  phase/copy/page/mapping/metadata artifacts before acquiring a recovery grant.
+  Coarsening compares the complete body and requires sequence adjacency; reopened
+  singleton evidence remains the source for page construction and validation.
+- Verdict: sound. The root registration protocol uses the same selected-slot
+  ceiling. Frozen snapshots remain independent of later caller mutations.
+- Confidence: high.
