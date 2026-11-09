@@ -108,14 +108,7 @@ func (o *RecoveryOperation) Copy(sequence uint64) (Receipt, error) {
 		return Receipt{}, ErrRecoveryPlan
 	}
 	if o.destination.NextSequence() > slot.Copy.NewSequence {
-		proof, err := o.destination.CommittedAttribution(slot.Copy.NewSequence)
-		if err != nil {
-			return Receipt{}, err
-		}
-		if err = o.checkCopy(slot, proof); err != nil {
-			return Receipt{}, err
-		}
-		return Receipt{Generation: o.destination.Identity(), Sequence: slot.Copy.NewSequence}, nil
+		return o.resumeCopy(slot)
 	}
 	if o.destination.NextSequence() != slot.Copy.NewSequence {
 		return Receipt{}, ErrRecoveryCoverage
