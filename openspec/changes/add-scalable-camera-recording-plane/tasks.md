@@ -147,6 +147,16 @@ must establish prior writer retirement and exclusive attachment; this operation
 does not supply distributed fencing, automatic reconciliation, durable gap state
 or publication authority. Tasks 3.2 and 3.3 remain open.
 
+Portable metadata checkpoint for 2.1/3.3: `serviceradar_recording_metadata`
+owns the unchanged canonical v1 descriptor and archive-manifest contract shared
+by Core and NVR, without Core, database or media-pipeline dependencies. The
+trusted same-VM NVR `block_descriptor/1` API verifies a sealed retained block and
+returns portable descriptor JSON after restart. Pure metadata tests preserve the
+pinned v1 wire digest; the shipped-release test independently verifies descriptor
+bytes and fragment digests alongside decoded synthetic frames. This adds no
+publication, assignment protocol, catalog, receipt or playback authority. Tasks
+2.1, 3.2 and 3.3 remain open.
+
 Recovered initialization checkpoint for 3.2/3.3: standalone NVR inspection and
 explicit recovery attach the initialization digest, timescale and baseline AVC
 codec declaration derived from retained, verified init bytes. Live packaging uses

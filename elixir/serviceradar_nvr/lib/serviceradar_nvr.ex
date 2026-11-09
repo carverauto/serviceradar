@@ -17,6 +17,7 @@ defmodule ServiceRadarNVR do
   alias ServiceRadarNVR.Session
   alias ServiceRadarRecording.Initialization
   alias ServiceRadarRecording.Spool
+  alias ServiceRadarRecordingMetadata.Descriptor
 
   def start_recording(identity, clock) do
     case DynamicSupervisor.start_child(ServiceRadarNVR.Sessions, {Session, {self(), identity, clock}}) do
@@ -51,6 +52,20 @@ defmodule ServiceRadarNVR do
     with {:ok, storage, limits} <- ServiceRadarNVR.Capacity.recovery_storage(),
          {:ok, snapshot} <- Spool.inspect_sealed(storage, block_id, limits) do
       with_format(snapshot)
+    end
+  end
+
+  @doc """
+  Return canonical v1 descriptor JSON for a verified sealed local block.
+
+  This trusted same-VM API verifies media through `sealed_block/1` first. The
+  portable bytes contain no local paths or storage receipts and grant neither
+  publication authority nor playback access. Inspection does not mutate disk.
+  """
+  def block_descriptor(block_id) do
+    with {:ok, snapshot} <- sealed_block(block_id),
+         {:ok, descriptor} <- Descriptor.from_snapshot(snapshot, snapshot.init_format) do
+      Descriptor.encode(descriptor)
     end
   end
 

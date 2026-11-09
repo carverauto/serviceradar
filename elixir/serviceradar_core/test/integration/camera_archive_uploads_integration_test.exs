@@ -17,9 +17,9 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
   alias ServiceRadar.Camera.RecordingBlocks
   alias ServiceRadar.Camera.RecordingControl
   alias ServiceRadar.Camera.RecordingControlState
-  alias ServiceRadar.Camera.RecordingManifest
   alias ServiceRadar.Repo
   alias ServiceRadar.Test.CameraRelayFixtures, as: Fixtures
+  alias ServiceRadarRecordingMetadata.Manifest
 
   require Ash.Query
 
@@ -1890,7 +1890,7 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
     assert intent.media_verification_sha256 == media.dispatch.media_verification_sha256
     assert intent.object_key == "recordings/v1/#{ctx.block.block_key}/manifest.json"
     assert intent.byte_length == byte_size(bytes) and intent.object_sha256 == digest(bytes)
-    assert {:ok, decoded} = RecordingManifest.decode(bytes, ctx.block.descriptor["identity"])
+    assert {:ok, decoded} = Manifest.decode(bytes, ctx.block.descriptor["identity"])
     assert decoded["init"]["etag"] == ~s("synthetic-init-etag")
     assert decoded["media"]["etag"] == ~s("synthetic-media-etag")
     assert decoded["fragments"] == ctx.block.descriptor["fragments"]

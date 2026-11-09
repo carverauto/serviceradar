@@ -107,7 +107,7 @@ are owned by `//elixir/serviceradar_core:integration_tests`. Earlier workflows
 and
 [36f56b1b](https://carverauto.buildbuddy.io/invocation/36f56b1b-1d45-4eb2-8d17-2c4ee9807a6c)
 stopped on the README merge conflict before any test body. Descriptor encoding is
-`elixir/serviceradar_core_elx/test/serviceradar_core_elx/camera_recording/manifest_test.exs`
+`elixir/serviceradar_recording_metadata/test/manifest_test.exs`
 on `//elixir/serviceradar_core_elx:unit_tests`. The synthetic provider target is
 `//elixir/serviceradar_core_elx:provider_probe_test`, and the chart floor target
 is `//helm/serviceradar:migrations_expected_version_test`. Non-database `make test`

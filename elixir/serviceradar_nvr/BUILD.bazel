@@ -36,6 +36,7 @@ filegroup(
 )
 
 NVR_DEPS = [
+    "//elixir/serviceradar_recording_metadata:erlang_app",
     "@hexpm//:bandit",
     "@hexpm//:plug",
     "@hexpm//:ecto",
@@ -56,6 +57,7 @@ elixir_release(
     srcs = [
         ":release_recipe",
         "//elixir/serviceradar_recording:mix.exs",
+        "//elixir/serviceradar_recording_metadata:mix.exs",
     ],
     out = "serviceradar-nvr-release.tar.gz",
     app = ":erlang_app_prod",
