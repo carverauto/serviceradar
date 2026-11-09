@@ -566,8 +566,15 @@ config :serviceradar_core, ExposureDimensionRelay,
     )
 
 # Exposure transition stream size (EXPOSURE_TRANSITIONS, reconciled when the
-# ---------------------------------------------------------------------------
 # relay starts). Unset or blank means 1 GiB; an invalid value fails boot.
+config :serviceradar_core, ExposureTransitionRelay,
+  max_bytes:
+    StateBucketSizing.bytes_from_env!(
+      "SERVICERADAR_JS_EXPOSURE_TRANSITIONS_MAX_BYTES",
+      ExposureTransitionRelay.default_max_bytes()
+    )
+
+# ---------------------------------------------------------------------------
 # Config blocks owned by the serviceradar_core APPLICATION.
 #
 # serviceradar_core is a path dependency of this release (mix.exs) and its
@@ -576,18 +583,8 @@ config :serviceradar_core, ExposureDimensionRelay,
 # elixir/serviceradar_core/config/runtime.exs is NEVER applied in this release.
 # Every such block has to be mirrored below, or its env vars are silently inert
 # in production: Application.get_env/3 falls through to the compiled default and
-config :serviceradar_core, ExposureTransitionRelay,
-  max_bytes:
-    StateBucketSizing.bytes_from_env!(
-      "SERVICERADAR_JS_EXPOSURE_TRANSITIONS_MAX_BYTES",
-      ExposureTransitionRelay.default_max_bytes()
-    )
-
-# EventWriter shadow/cutover destination. Helm injects SERVICERADAR_STARROCKS_*
 # nothing logs.
-# on this release; without this block those env vars are inert and Destination
 #
-# reads enabled: false.
 # Verified 2026-08-27 by RPC against the deployed demo node:
 #
 #   Application.get_env(:serviceradar_core, ServiceRadar.NetworkDiscovery.TopologyGraph)
@@ -595,15 +592,7 @@ config :serviceradar_core, ExposureTransitionRelay,
 #   Application.get_env(:serviceradar_core, :mapper_topology_edge_stale_minutes)
 #   #=> 10080
 #
-config :serviceradar_core,
-       ServiceRadar.Analytics.StarRocks,
-       ServiceRadar.Analytics.StarRocks.Env.config()
-
-config :serviceradar_core, ServiceRadar.ColdTier, ServiceRadar.ColdTier.Config.from_env()
-
-# Terminal agent_command pruning (platform.agent_commands has a documented
 # i.e. the key defined immediately above applied correctly while the
-# bloat history, so these are incident-response levers).
 # module-scoped block did not exist at all.
 #
 # Only blocks whose modules actually execute in this release are mirrored.
@@ -612,10 +601,18 @@ config :serviceradar_core, ServiceRadar.ColdTier, ServiceRadar.ColdTier.Config.f
 #
 # Keep in sync with elixir/serviceradar_core/config/runtime.exs.
 # ---------------------------------------------------------------------------
-# Canonical-topology rebuild + its mass-deletion guardrail. The guard refuses a
-# stale-prune pass deleting more than canonical_prune_max_fraction of the
-# canonical edges; canonical_prune_guard_override forces a legitimate large
-# prune after a deliberate estate cutover, then should be unset.
+
+# EventWriter shadow/cutover destination. Helm injects SERVICERADAR_STARROCKS_*
+# on this release; without this block those env vars are inert and Destination
+# reads enabled: false.
+config :serviceradar_core,
+       ServiceRadar.Analytics.StarRocks,
+       ServiceRadar.Analytics.StarRocks.Env.config()
+
+config :serviceradar_core, ServiceRadar.ColdTier, ServiceRadar.ColdTier.Config.from_env()
+
+# Terminal agent_command pruning (platform.agent_commands has a documented
+# bloat history, so these are incident-response levers).
 config :serviceradar_core, ServiceRadar.Edge.AgentCommandCleanupWorker,
   retention_days: "AGENT_COMMAND_RETENTION_DAYS" |> parse_int_env.(2) |> max(1),
   reschedule_seconds: "AGENT_COMMAND_CLEANUP_INTERVAL_SECONDS" |> parse_int_env.(3_600) |> max(60)
@@ -624,6 +621,10 @@ config :serviceradar_core, ServiceRadar.Jobs.RootSpanRatioWorker,
   threshold: root_span_ratio_threshold,
   min_spans: "SERVICERADAR_ROOT_SPAN_RATIO_MIN_SPANS" |> parse_int_env.(1000) |> max(1)
 
+# Canonical-topology rebuild + its mass-deletion guardrail. The guard refuses a
+# stale-prune pass deleting more than canonical_prune_max_fraction of the
+# canonical edges; canonical_prune_guard_override forces a legitimate large
+# prune after a deliberate estate cutover, then should be unset.
 config :serviceradar_core, ServiceRadar.NetworkDiscovery.TopologyGraph,
   canonical_rebuild_heartbeat_ms: parse_int_env.("SERVICERADAR_TOPOLOGY_CANONICAL_REBUILD_HEARTBEAT_MS", 3_600_000),
   canonical_rebuild_min_upsert_floor:
