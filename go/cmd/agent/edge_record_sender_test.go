@@ -167,6 +167,26 @@ func openTestEdgeSpool(t *testing.T, maxBytes uint64) (*spool.Spool, *admission.
 	return sp, gate, budget
 }
 
+// Recovery admission must inspect the spool's actual filesystem on each call.
+// A missing directory is a deterministic probe failure without filling a disk.
+func TestEdgeSpoolRecoveryFailsClosedWhenFilesystemCannotBeProbed(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &agent.ServerConfig{EdgeRecordSender: &agent.EdgeRecordSenderConfig{SpoolDir: dir}}
+	sp, _, budget, err := openEdgeRecordSpool(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sp.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := budget.allocator.AcquireRecovery(dir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("recovery on missing filesystem path = %v, want probe failure", err)
+	}
+}
+
 // Producer admission pauses at the spool's high water, before the allocator's
 // hard ceiling refuses anything. A record refused while paused is not written,
 // however often it is retried, so its producer keeps it and retries it unchanged.

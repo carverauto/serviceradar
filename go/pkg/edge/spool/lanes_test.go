@@ -101,6 +101,160 @@ func openLanes(t *testing.T, root string, session Identity) *LaneSet {
 	return openLanesWith(t, root, session, deploymentTaxonomy(t))
 }
 
+// The same factory must govern first append, rotation, and restart, including
+// retained generations belonging to an earlier authenticated session.
+func TestLaneGenerationOptionsSurviveRotationAndRestart(t *testing.T) {
+	root := t.TempDir()
+	allocator := newTestAllocator(t, 1<<20, 1)
+	paused := true
+	digest := digestOf(0x37)
+	configured := make(map[string]GenerationIdentity)
+	option := WithGenerationOptions(func(id GenerationIdentity, dir string) ([]Option, error) {
+		configured[dir] = id.clone()
+		if !id.Identity.equal(sessionA) {
+			t.Fatalf("factory received current session instead of frozen identity: %+v", id)
+		}
+		// A factory must not be able to change the lane's frozen namespace.
+		id.Identity.AgentID[0] ^= 0xff
+		return []Option{
+			WithAllocator(allocator),
+			WithAdmissionGate(func(_ string, _ uint64) bool { return !paused }),
+			WithBindings(attributionAt(1, AttributionVerdict{
+				State: AttributionVerifies, Representable: true, Digest: digest,
+			})),
+		}, nil
+	})
+	open := func(session Identity) *LaneSet {
+		t.Helper()
+		ls, err := OpenLanes(root, session, deploymentTaxonomy(t), option)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = ls.Close() })
+		return ls
+	}
+	ls := open(sessionA)
+	if _, err := ls.Append(bulkLane, sessionA, evid(1), []byte(syntheticBody)); !errors.Is(err, ErrAdmissionPaused) {
+		t.Fatalf("first generation bypassed admission gate: %v", err)
+	}
+	paused = false
+	appendBound := func(lane LaneKey, ev byte) Receipt {
+		t.Helper()
+		r, err := ls.AppendWithBindings(lane, sessionA, evid(ev), []byte(syntheticBody), Bindings{AttributionSHA256: digest})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	first := appendBound(bulkLane, 1)
+	if _, err := ls.Rotate(bulkLane); err != nil {
+		t.Fatal(err)
+	}
+	second := appendBound(bulkLane, 2)
+	appendBound(interactiveLane, 3)
+	if first.Sequence != 1 || second.Sequence != 1 || bytes.Equal(first.Generation.SpoolID, second.Generation.SpoolID) {
+		t.Fatal("rotation did not preserve independent generation coordinates")
+	}
+	used := allocator.Usage().OrdinaryUsed
+	if used == 0 || len(configured) != 3 {
+		t.Fatalf("generations not configured/accounted: count=%d bytes=%d", len(configured), used)
+	}
+	if err := ls.Close(); err != nil {
+		t.Fatal(err)
+	}
+	clear(configured)
+	ls = open(sessionB)
+	if len(configured) != 3 || allocator.Usage().OrdinaryUsed != used {
+		t.Fatalf("restart dropped generations or double charged: count=%d bytes=%d want=%d", len(configured), allocator.Usage().OrdinaryUsed, used)
+	}
+	for _, key := range []LaneKey{bulkLane, interactiveLane} {
+		for _, generation := range ls.Generations(key) {
+			records, err := generation.Unresolved()
+			if err != nil || len(records) != 1 {
+				t.Fatalf("bound generation lost sender visibility on restart: records=%d error=%v", len(records), err)
+			}
+		}
+	}
+}
+
+func TestLaneGenerationAllocatorProtectsPhysicalReserve(t *testing.T) {
+	free := uint64(testPerRecovery + testMinFree)
+	allocator, err := NewAllocator(AllocatorConfig{
+		Capacity: 1 << 20, Recovery: testFootprint(), MaxConcurrentRecoveries: 1,
+		MinFree: testMinFree, FreeBytes: func() (uint64, error) { return free, nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ls, err := OpenLanes(t.TempDir(), sessionA, deploymentTaxonomy(t), WithGenerationOptions(
+		func(GenerationIdentity, string) ([]Option, error) { return []Option{WithAllocator(allocator)}, nil },
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ls.Close() })
+	for _, key := range []LaneKey{bulkLane, interactiveLane} {
+		if _, err := ls.Append(key, sessionA, evid(1), []byte(syntheticBody)); !errors.Is(err, ErrAdmissionRefused) {
+			t.Fatalf("lane %s consumed physical recovery floor: %v", key, err)
+		}
+	}
+	free = 1 << 20
+	for _, key := range []LaneKey{bulkLane, interactiveLane} {
+		r := mustLaneAppend(t, ls, key, sessionA, 1, syntheticBody)
+		if r.Sequence != 1 {
+			t.Fatalf("physical refusal allocated a sequence: %d", r.Sequence)
+		}
+	}
+}
+
+func TestLaneGenerationConfigurationFailureRetainsRecords(t *testing.T) {
+	root := t.TempDir()
+	ls := openLanes(t, root, sessionA)
+	mustLaneAppend(t, ls, bulkLane, sessionA, 1, syntheticBody)
+	if err := ls.Close(); err != nil {
+		t.Fatal(err)
+	}
+	failure := errors.New("synthetic unavailable binding store")
+	option := WithGenerationOptions(func(GenerationIdentity, string) ([]Option, error) { return nil, failure })
+	if _, err := OpenLanes(root, sessionA, deploymentTaxonomy(t), option); !errors.Is(err, failure) {
+		t.Fatalf("restart ignored generation configuration failure: %v", err)
+	}
+	ls = openLanes(t, root, sessionA)
+	g, ok := ls.OpenGeneration(bulkLane)
+	if !ok {
+		t.Fatal("failed restart lost generation")
+	}
+	records, err := g.Unresolved()
+	if err != nil || len(records) != 1 {
+		t.Fatalf("failed restart changed stored records: count=%d error=%v", len(records), err)
+	}
+	if !bytes.Equal(records[0].EventID, evid(1)) || string(records[0].Body) != syntheticBody {
+		t.Fatalf("failed restart replaced stored record: %+v", records[0])
+	}
+	// The same failure on a new generation must not accept a record. Retrying
+	// after the binding store returns must produce exactly the original append.
+	fail := true
+	option = WithGenerationOptions(func(GenerationIdentity, string) ([]Option, error) {
+		if fail {
+			return nil, failure
+		}
+		return nil, nil
+	})
+	fresh, err := OpenLanes(t.TempDir(), sessionA, deploymentTaxonomy(t), option)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = fresh.Close() })
+	if _, err := fresh.Append(bulkLane, sessionA, evid(2), []byte(syntheticBody)); !errors.Is(err, failure) {
+		t.Fatalf("new generation ignored configuration failure: %v", err)
+	}
+	fail = false
+	r := mustLaneAppend(t, fresh, bulkLane, sessionA, 2, syntheticBody)
+	if r.Sequence != 1 {
+		t.Fatalf("failed configuration consumed a sequence: %d", r.Sequence)
+	}
+}
+
 // openFDs counts the process's open file descriptors.
 func openFDs(t *testing.T) int {
 	t.Helper()

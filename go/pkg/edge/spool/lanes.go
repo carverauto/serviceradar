@@ -245,9 +245,10 @@ type lane struct {
 // LaneSet is the agent's spool: one open generation per lane under one
 // authenticated session identity. It is safe for concurrent use.
 type LaneSet struct {
-	root     string
-	session  Identity
-	taxonomy *fairsched.LaneTaxonomy
+	root              string
+	session           Identity
+	taxonomy          *fairsched.LaneTaxonomy
+	generationOptions func(GenerationIdentity, string) ([]Option, error)
 
 	mu     sync.Mutex // guards lanes and closed; never held across I/O on a lane
 	lanes  map[LaneKey]*lane
@@ -258,6 +259,21 @@ type LaneSet struct {
 	// of fsynced commits. It carries limits only: bounds STATE is always
 	// rebuilt from the commit evidence on open. Nil in production.
 	testSegBounds *segmentLimits
+}
+
+// LaneOption configures all generations opened by a LaneSet.
+type LaneOption func(*LaneSet)
+
+// WithGenerationOptions configures each new or recovered generation before its
+// spool reads commit evidence. configure receives a copy of the frozen identity
+// and its published directory, including for closed generations and generations
+// enrolled under an older session identity. Return existing spool options to
+// share one allocator and admission policy while binding inspection to that
+// generation. An error refuses the open; it never falls back to an unconfigured
+// spool. configure may run concurrently for different lanes and must not call
+// back into the LaneSet or acquire resources needing separate cleanup.
+func WithGenerationOptions(configure func(GenerationIdentity, string) ([]Option, error)) LaneOption {
+	return func(ls *LaneSet) { ls.generationOptions = configure }
 }
 
 // OpenLanes opens (creating if needed) the lane set rooted at root for the given
@@ -275,7 +291,7 @@ type LaneSet struct {
 //
 // Recovery fails the whole set closed when any generation on any lane cannot be
 // trusted, including a corrupt retained segment; per-lane quarantine is task 2.27.
-func OpenLanes(root string, session Identity, taxonomy *fairsched.LaneTaxonomy) (*LaneSet, error) {
+func OpenLanes(root string, session Identity, taxonomy *fairsched.LaneTaxonomy, options ...LaneOption) (*LaneSet, error) {
 	if err := session.validate(); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrSessionIdentity, err)
 	}
@@ -294,6 +310,9 @@ func OpenLanes(root string, session Identity, taxonomy *fairsched.LaneTaxonomy) 
 		session:  session.clone(),
 		taxonomy: taxonomy,
 		lanes:    make(map[LaneKey]*lane),
+	}
+	for _, option := range options {
+		option(ls)
 	}
 
 	entries, err := os.ReadDir(root)
@@ -597,7 +616,7 @@ func (ls *LaneSet) openGeneration(l *lane) error {
 	// Published: the ordinal is spent whether or not the generation opens, so a
 	// retry can never publish a second generation under the same ordinal.
 	l.nextOrdinal++
-	sp, err := ls.openPublished(l.dir, final)
+	sp, err := ls.openPublished(l.dir, final, id)
 	if err != nil {
 		// It holds no record. Close it so a retry's successor is the lane's only
 		// open generation; if even that fails, recovery fails stop on two open
@@ -611,18 +630,25 @@ func (ls *LaneSet) openGeneration(l *lane) error {
 
 // openPublished makes a just-published generation's directory entry durable and
 // opens its segment.
-func (ls *LaneSet) openPublished(laneDir, dir string) (*Spool, error) {
+func (ls *LaneSet) openPublished(laneDir, dir string, id GenerationIdentity) (*Spool, error) {
 	if err := fsyncDir(laneDir); err != nil {
 		return nil, err
 	}
-	return ls.openSpool(dir)
+	return ls.openSpool(dir, id)
 }
 
-// openSpool opens the spool at dir, applying the test rotation limits when a
-// test set them. Limits only: the bounds state always comes from the commit
-// evidence the open rebuilds.
-func (ls *LaneSet) openSpool(dir string) (*Spool, error) {
-	sp, err := Open(dir)
+// openSpool configures the generation before restart classification reads its
+// bindings. Rotation bounds are rebuilt from evidence, even with test limits.
+func (ls *LaneSet) openSpool(dir string, id GenerationIdentity) (*Spool, error) {
+	var options []Option
+	if ls.generationOptions != nil {
+		var err error
+		options, err = ls.generationOptions(id.clone(), dir)
+		if err != nil {
+			return nil, fmt.Errorf("spool: configure generation %q: %w", dir, err)
+		}
+	}
+	sp, err := Open(dir, options...)
 	if err != nil {
 		return nil, err
 	}
@@ -724,7 +750,7 @@ func (ls *LaneSet) recoverGeneration(l *lane, e os.DirEntry) (*Generation, error
 	if err != nil {
 		return nil, err
 	}
-	sp, err := ls.openSpool(dir)
+	sp, err := ls.openSpool(dir, id)
 	if err != nil {
 		return nil, err
 	}

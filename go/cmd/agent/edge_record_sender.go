@@ -31,6 +31,7 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
+	"github.com/shirou/gopsutil/v3/disk"
 )
 
 // One bounded durable-bulk delivery session is attempted per poll interval.
@@ -320,9 +321,17 @@ func attachEdgeSpoolMetrics(server *agent.Server, sp *spool.Spool, gate *admissi
 // The spool lives in cfg.EdgeRecordSpoolDir() and starts on the default byte
 // budget; the returned budget applies the one core delivers.
 func openEdgeRecordSpool(cfg *agent.ServerConfig) (*spool.Spool, *admission.Gate, *edgeSpoolBudget, error) {
+	dir := cfg.EdgeRecordSpoolDir()
 	allocator, err := spool.NewAllocator(spool.AllocatorConfig{
 		Capacity: defaultEdgeSpoolMaxBytes, MinFree: 1 << 20, MaxConcurrentRecoveries: 1,
 		Recovery: spool.Footprint{DestinationSegment: 1 << 20, AttributionSidecar: 64 << 10, JournalCopy: 64 << 10, ManifestPages: 256 << 10, Mapping: 64 << 10, FilesystemMetadata: 64 << 10},
+		FreeBytes: func() (uint64, error) {
+			usage, err := disk.Usage(dir)
+			if err != nil {
+				return 0, err
+			}
+			return usage.Free, nil
+		},
 	})
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("edge spool capacity: %w", err)
@@ -332,7 +341,7 @@ func openEdgeRecordSpool(cfg *agent.ServerConfig) (*spool.Spool, *admission.Gate
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("edge spool admission gate: %w", err)
 	}
-	sp, err := spool.Open(cfg.EdgeRecordSpoolDir(), spool.WithAllocator(allocator),
+	sp, err := spool.Open(dir, spool.WithAllocator(allocator),
 		spool.WithAdmissionGate(func(flow string, cost uint64) bool {
 			return gate.AdmitFlow(flow, cost, time.Now()) == admission.Admit
 		}))
