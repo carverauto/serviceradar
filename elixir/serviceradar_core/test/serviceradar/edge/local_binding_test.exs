@@ -49,9 +49,6 @@ defmodule ServiceRadar.Edge.LocalBindingTest do
       assert {:ok, validated} =
                apply(RecoveryAttribution, unquote(contract), [raw, record.output_contract, policy])
 
-      assert {:ok, ^validated} =
-               RecoveryAttribution.registered(raw, record.output_contract, policy)
-
       a = RecoveryAttribution.attribution(validated)
       assert a.active == unquote(active)
       assert %EdgeSourceSpanIdentityV1{} = a.identity.source
@@ -119,40 +116,6 @@ defmodule ServiceRadar.Edge.LocalBindingTest do
              RecoveryAttribution.sweep(raw, record.output_contract, policy)
   end
 
-  test "historical attribution retains typed evidence after expiry but refuses compromised authority" do
-    {record, raw, policy} = signed_fixture("sweep_join_positive_scheduled_sweep.bin")
-    expired = %{policy | now_unix_nano: record.production_capability.expires_at_unix_nano + 1}
-
-    assert {:error, :authority_expired} =
-             RecoveryAttribution.registered(raw, record.output_contract, expired)
-
-    assert {:ok, original} = RecoveryAttribution.registered(raw, record.output_contract, policy)
-    assert {:ok, ^original} = RecoveryAttribution.historical(raw, record.output_contract, expired)
-
-    for purpose <- [:production, :source] do
-      revoked = %{
-        expired
-        | trust: fn issuer, key, role ->
-            case policy.trust.(issuer, key, role) do
-              {:ok, public, status} ->
-                {:ok, public, if(role == purpose, do: :historically_revoked, else: status)}
-
-              error ->
-                error
-            end
-          end
-      }
-
-      assert {:error, :key_historically_revoked} =
-               RecoveryAttribution.historical(raw, record.output_contract, revoked)
-    end
-
-    {wrong, changed, changed_policy} = signed_fixture("sweep_join_range_id.bin")
-
-    assert {:error, {:correlation, :range_id}} =
-             RecoveryAttribution.historical(changed, wrong.output_contract, changed_policy)
-  end
-
   test "standing metrics derive passive attribution without a source identity" do
     record = EdgeRecordV1.decode(load("record_no_source.bin"))
 
@@ -191,38 +154,6 @@ defmodule ServiceRadar.Edge.LocalBindingTest do
 
     {record, raw, policy} = signed_record(record)
     assert {:ok, validated} = RecoveryAttribution.metrics(raw, policy)
-    assert {:ok, ^validated} = RecoveryAttribution.registered(raw, record.output_contract, policy)
-
-    assert %{classification: {:attributed_passive, %{identity: %{source: nil}}}} =
-             RecoveryAttribution.classification(validated)
-
-    {wrong_cost, wrong_bytes, wrong_policy} = signed_record(%{record | projected_row_count: 2})
-
-    assert {:error, _reason} =
-             RecoveryAttribution.registered(wrong_bytes, wrong_cost.output_contract, wrong_policy)
-
-    assert {:error, :contract_dispatch} =
-             RecoveryAttribution.registered(
-               raw,
-               %{record.output_contract | contract_bundle_sha256: digest(49)},
-               policy
-             )
-
-    for {id, version} <- [{"synthetic.unknown.contract", 1}, {"serviceradar.metrics.batch", 2}] do
-      {:production, claims} = record.production_capability.claims
-      claims = %{claims | contract_id: id, contract_version: version}
-
-      changed = %{
-        record
-        | output_contract: %{record.output_contract | contract_id: id, contract_version: version},
-          production_capability: %{record.production_capability | claims: {:production, claims}}
-      }
-
-      {changed, bytes, changed_policy} = signed_record(changed)
-
-      assert {:error, :contract_dispatch} =
-               RecoveryAttribution.registered(bytes, changed.output_contract, changed_policy)
-    end
 
     assert %{active: false, range_sha256: "", identity: %{source: nil}} =
              a = RecoveryAttribution.attribution(validated)
@@ -295,29 +226,7 @@ defmodule ServiceRadar.Edge.LocalBindingTest do
     }
 
   defp signed_fixture(name) do
-    record = EdgeRecordV1.decode(load(name))
-
-    record =
-      if record.payload_family == :EDGE_RECORD_PAYLOAD_FAMILY_RECOVERY_CONTROL_V1 do
-        {:production, claims} = record.production_capability.claims
-
-        %{
-          record
-          | output_contract: %{
-              record.output_contract
-              | contract_id: "serviceradar.edge.recovery_control"
-            },
-            production_capability: %{
-              record.production_capability
-              | claims:
-                  {:production, %{claims | contract_id: "serviceradar.edge.recovery_control"}}
-            }
-        }
-      else
-        record
-      end
-
-    signed_record(record)
+    signed_record(EdgeRecordV1.decode(load(name)))
   end
 
   defp signed_record(record) do

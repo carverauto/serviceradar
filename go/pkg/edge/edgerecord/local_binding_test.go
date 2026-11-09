@@ -28,7 +28,6 @@ import (
 	"testing"
 
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
-	"google.golang.org/protobuf/proto"
 )
 
 func bindingFixture(t *testing.T, name string) []byte {
@@ -256,57 +255,5 @@ func TestAttributionConstructorChecksBodyCorrelation(t *testing.T) {
 	raw, policy := signBindingRecord(t, r)
 	if _, err := SweepRecoveryAttribution(raw, r.OutputContract, policy); !errors.Is(err, ErrSweepJoin) {
 		t.Fatalf("body scope substitution: %v", err)
-	}
-}
-
-func TestRegisteredAttributionUsesContractAuthorityAndBodyValidator(t *testing.T) {
-	sweep, err := DecodeRecord(bindingFixture(t, "sweep_join_positive_scheduled_sweep.bin"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, r := range []*edgev1.EdgeRecordV1{sweep, metricBatchRecord(t, 1, 1), scheduledMtrRecord(t, scheduledMtrBatch(t), 1)} {
-		t.Run(r.OutputContract.ContractId, func(t *testing.T) {
-			raw, policy := signBindingRecord(t, r)
-			validated, err := RecordRecoveryAttribution(raw, r.OutputContract, policy)
-			if err != nil {
-				t.Fatal(err)
-			}
-			a := validated.Attribution()
-			active := r.OutputContract.ContractId == "serviceradar.sweep.observation"
-			if a.Active != active || (!active && (a.Identity.Source != nil || len(a.RangeSHA256) != 0)) {
-				t.Fatalf("contract authority changed: %+v", a)
-			}
-			if _, err = validated.Bind(bindingCoordinates(r, raw), a); err != nil {
-				t.Fatal(err)
-			}
-			wrong := proto.Clone(r.OutputContract).(*edgev1.EdgeOutputContractRef)
-			wrong.ContractBundleSha256 = d32(0x76)
-			if _, err = RecordRecoveryAttribution(raw, wrong, policy); !errors.Is(err, ErrContractDispatch) {
-				t.Fatalf("wrong registered bundle accepted: %v", err)
-			}
-			broken := proto.Clone(r).(*edgev1.EdgeRecordV1)
-			broken.Payload = []byte{0xff}
-			hash := sha256.Sum256(broken.Payload)
-			broken.PayloadSha256 = hash[:]
-			broken.Compression = edgev1.EdgeRecordCompression_EDGE_RECORD_COMPRESSION_NONE
-			broken.EncodedSize, broken.UncompressedSize = 1, 1
-			badRaw, badPolicy := signBindingRecord(t, broken)
-			if _, err = RecordRecoveryAttribution(badRaw, broken.OutputContract, badPolicy); err == nil {
-				t.Fatal("signed malformed typed body minted attribution")
-			}
-		})
-	}
-	for _, version := range []uint32{1, 2} {
-		r := metricBatchRecord(t, 1, 1)
-		if version == 1 {
-			r.OutputContract.ContractId = "synthetic.unknown.contract"
-		}
-		r.OutputContract.ContractVersion = version
-		r.ProductionCapability.GetProduction().ContractId = r.OutputContract.ContractId
-		r.ProductionCapability.GetProduction().ContractVersion = version
-		raw, policy := signBindingRecord(t, r)
-		if _, err := RecordRecoveryAttribution(raw, r.OutputContract, policy); !errors.Is(err, ErrContractDispatch) {
-			t.Fatalf("unknown contract/version accepted: %v", err)
-		}
 	}
 }

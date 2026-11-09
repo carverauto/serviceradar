@@ -40,99 +40,15 @@ func (v ValidatedAttribution) Attribution() RecoveryAttribution { return v.attri
 // hashing a destination slot. Generation and sequence may change during relocation;
 // namespace, lane, event, exact record bytes and attribution may not.
 func (v ValidatedAttribution) Bind(c LocalBindingCoordinates, a RecoveryAttribution) ([]byte, error) {
-	if err := v.CheckRecord(c); err != nil {
-		return nil, err
-	}
-	if a.Active != v.attribution.Active || !proto.Equal(a.Identity, v.attribution.Identity) || !bytes.Equal(a.RangeSHA256, v.attribution.RangeSHA256) {
-		return nil, ErrAttributionJoin
-	}
-	return LocalBindingDigest(LocalBindingVersion, c, a)
-}
-
-// CheckRecord verifies the exact record and authenticated lane before a spool
-// creates a generation or allocates its sequence. Generation and sequence are
-// intentionally checked later by Bind, once their actual values are known.
-func (v ValidatedAttribution) CheckRecord(c LocalBindingCoordinates) error {
-	if !v.valid || !bytes.Equal(c.NetworkScopeID, v.record.NetworkScopeID) ||
+	if !v.valid || a.Active != v.attribution.Active ||
+		!proto.Equal(a.Identity, v.attribution.Identity) || !bytes.Equal(a.RangeSHA256, v.attribution.RangeSHA256) ||
+		!bytes.Equal(c.NetworkScopeID, v.record.NetworkScopeID) ||
 		!bytes.Equal(c.AuthenticatedAgentID, v.record.AuthenticatedAgentID) ||
 		c.LaneRouteProfile != v.record.LaneRouteProfile || c.LaneTrafficClass != v.record.LaneTrafficClass ||
 		!bytes.Equal(c.EventID, v.record.EventID) || !bytes.Equal(c.RecordSHA256, v.record.RecordSHA256) {
-		return ErrAttributionJoin
+		return nil, ErrAttributionJoin
 	}
-	return nil
-}
-
-// RecordRecoveryAttribution dispatches registered production contracts through
-// their existing typed validators. Only the leased sweep contract asserts a
-// produced range; standing-grant contracts remain passive regardless of payload
-// kind or incidental execution identifiers. Recovery control uses its separate
-// ControlRecoveryAttribution constructor.
-func RecordRecoveryAttribution(raw []byte, expected *edgev1.EdgeOutputContractRef, policy AuthorizationPolicy) (ValidatedAttribution, error) {
-	r, err := DecodeRecord(raw)
-	if err != nil {
-		return ValidatedAttribution{}, err
-	}
-	if err = dispatchContract(r, expected); err != nil {
-		return ValidatedAttribution{}, err
-	}
-	if r.GetOutputContract().GetContractVersion() != 1 {
-		return ValidatedAttribution{}, ErrContractDispatch
-	}
-	if r.GetOutputContract().GetContractId() == "serviceradar.sweep.observation" {
-		return SweepRecoveryAttribution(raw, expected, policy)
-	}
-	validate := standingAttributionValidator(r.GetOutputContract().GetContractId())
-	if validate == nil {
-		return ValidatedAttribution{}, ErrContractDispatch
-	}
-	if err = validate(r); err != nil {
-		return ValidatedAttribution{}, err
-	}
-	if err = ValidateRecordSigned(r, policy); err != nil {
-		return ValidatedAttribution{}, err
-	}
-	return validatedRecoveryAttribution(raw, r, false, nil)
-}
-
-// These are the Go body validators for ContractCatalog's standing-grant entries.
-// No caller-selected validator or active/passive flag can mint an attribution.
-func standingAttributionValidator(contract string) func(*edgev1.EdgeRecordV1) error {
-	switch contract {
-	case MetricsBatchContractID:
-		return ValidateMetricBatchRecord
-	case UnleasedSweepResultsContractID:
-		return ValidateUnleasedSweepResultsRecord
-	case TelemetryBatchContractID:
-		return ValidateTelemetryBatchRecord
-	case ScheduledMtrTraceContractID:
-		return ValidateScheduledMtrTraceRecord
-	case FlowAttributionContractID:
-		return ValidateFlowAttributionRecord
-	case OtlpRelayContractID:
-		return ValidateOtlpRelayRecord
-	case PluginResultsContractID:
-		return ValidatePluginResultRecord
-	case MapperDevicesContractID:
-		return ValidateMapperDeviceRecord
-	case MapperInterfacesContractID:
-		return ValidateMapperInterfaceRecord
-	case MapperTopologyContractID:
-		return ValidateMapperTopologyRecord
-	case NetprobeDiscoveryContractID:
-		return ValidateNetprobeDiscoveryRecord
-	case SyncPageContractID:
-		return ValidateSyncPageRecord
-	case WorkloadIdentityContractID:
-		return ValidateWorkloadIdentityRecord
-	case K8sPublicEndpointsContractID:
-		return ValidateK8sPublicEndpointsRecord
-	case EndpointInventoryContractID:
-		return ValidateEndpointInventoryRecord
-	case BumblebeeScanContractID:
-		return ValidateBumblebeeScanRecord
-	default:
-		return nil
-	}
+	return LocalBindingDigest(LocalBindingVersion, c, a)
 }
 
 // SweepRecoveryAttribution validates the signed sweep record and derives its range
