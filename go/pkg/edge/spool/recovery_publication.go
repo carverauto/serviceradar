@@ -27,7 +27,7 @@ func recoveryAttemptKey(attempt uint32) string { return fmt.Sprintf("attempt-%03
 func (o *RecoveryOperation) BeginControlAttempt(control *Generation) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if control == nil || !bytes.Equal(control.RecoveryID(), o.plan.RecoveryID) || control.RecoveryAttempt() >= maxRecoveryPhases-uint32(maxRecoveryPublications)-6 {
+	if control == nil || !bytes.Equal(control.RecoveryID(), o.plan.RecoveryID) || control.RecoveryAttempt() >= maxRecoveryPhases-uint32(maxRecoveryPublications)-5 {
 		return ErrRecoveryPlan
 	}
 	records, err := o.publications()

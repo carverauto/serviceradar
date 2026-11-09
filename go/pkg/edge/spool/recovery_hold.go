@@ -135,15 +135,9 @@ func (s *Spool) beginHold(path string, owner [32]byte, grant *RecoveryGrant, emp
 // releaseRecoveryHold is private to the paired coverage owner. It checks the
 // exact owner again while holding the same mutex used by resolving senders.
 func (s *Spool) releaseRecoveryHold(owner [32]byte, grant *RecoveryGrant) error {
-	return s.releaseHold(s.recoveryHoldPath(), owner, grant)
-}
-func (s *Spool) releaseRecoverySourceHold(owner [32]byte, grant *RecoveryGrant) error {
-	return s.releaseHold(s.recoverySourceHoldPath(), owner, grant)
-}
-func (s *Spool) releaseHold(path string, owner [32]byte, grant *RecoveryGrant) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	got, err := readRecoveryHold(path)
+	got, err := readRecoveryHold(s.recoveryHoldPath())
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
@@ -154,9 +148,9 @@ func (s *Spool) releaseHold(path string, owner [32]byte, grant *RecoveryGrant) e
 		return ErrRecoveryJournalConflict
 	}
 	return grant.RunDestructive("release recovery hold", func() error {
-		if err := grant.alloc.fs.Remove(path); err != nil {
+		if err := grant.alloc.fs.Remove(s.recoveryHoldPath()); err != nil {
 			return err
 		}
-		return grant.alloc.fs.SyncDir(filepath.Dir(path))
+		return grant.alloc.fs.SyncDir(filepath.Dir(s.recoveryHoldPath()))
 	})
 }

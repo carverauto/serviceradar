@@ -32,7 +32,8 @@ import (
 type pendingAttribution struct {
 	grant            *RecoveryGrant
 	validated        *edgerecord.ValidatedAttribution
-	source           *CommittedAttribution
+	source           *committedAttributionData
+	frozen           *frozenRecoveryPublication
 	entry            attributionEntry
 	raw              []byte
 	relocationRaw    []byte
@@ -56,7 +57,7 @@ func (s *Spool) CommitRelocated(source CommittedAttribution, grant *RecoveryGran
 	if grant == nil {
 		return CommitReceipt{}, ErrInvalidAllocatorConfig
 	}
-	return s.commit("", source.record.EventID, source.record.Body, Bindings{}, &pendingAttribution{source: &source, grant: grant})
+	return s.commit("", source.record.EventID, source.record.Body, Bindings{}, &pendingAttribution{source: &source.committedAttributionData, grant: grant})
 }
 
 // AppendAttributed checks the sealed record before creating any lane generation.
@@ -85,6 +86,8 @@ func (s *Spool) prepareAttribution(seq uint64, eventID, body []byte, p *pendingA
 	if p.validated != nil {
 		a = p.validated.Attribution()
 		digest, err = p.validated.Bind(c, a)
+	} else if p.frozen != nil {
+		a, digest, err = p.frozen.bind(c, eventID, body)
 	} else if p.source != nil && p.source.valid {
 		source := p.source
 		if !source.generation.Identity.equal(s.attributionIdentity.Identity) || source.generation.Lane != s.attributionIdentity.Lane ||
@@ -249,7 +252,11 @@ func (s *Spool) inspectRelocation(entry attributionEntry, valid []evidenceEntry)
 // Its detached record, sidecar and mapping are immutable to callers. It is evidence
 // of this observation, not permission to delete anything: coverage must reopen it
 // again at its destructive boundary.
-type CommittedAttribution struct {
+type CommittedAttribution struct{ committedAttributionData }
+
+// Private data can also prove an intact retained SOURCE below resolved. Only
+// the public carrier's constructor adds the sender-visible destination check.
+type committedAttributionData struct {
 	valid         bool
 	generation    GenerationIdentity
 	record        Record
@@ -262,7 +269,7 @@ type CommittedAttribution struct {
 func (c CommittedAttribution) Coordinates() edgerecord.LocalBindingCoordinates {
 	return bindingCoordinates(c.generation.clone(), c.record.Sequence, bytes.Clone(c.record.EventID), bytes.Clone(c.entry.coordinates.RecordSHA256))
 }
-func (c CommittedAttribution) Attribution() edgerecord.RecoveryAttribution {
+func (c committedAttributionData) Attribution() edgerecord.RecoveryAttribution {
 	span := proto.Clone(attributionSpan(c.record.Sequence, c.entry.attribution)).(*edgev1.EdgeClassificationSpanV1)
 	a, _ := spanAttribution(span)
 	return a
@@ -290,10 +297,11 @@ func (s *Spool) CommittedAttribution(seq uint64) (CommittedAttribution, error) {
 	if err != nil {
 		return CommittedAttribution{}, err
 	}
-	if observed.resolved >= seq || ResolveSlot(observed.observation).Outcome != OutcomeCommitted || observed.entry.digest == nil {
+	if observed.resolved >= seq {
 		return CommittedAttribution{}, ErrCommittedAttribution
 	}
-	return CommittedAttribution{valid: true, generation: observed.generation, record: observed.record, entry: observed.entry, mapping: observed.mapping, mappingDigest: observed.mappingDigest, highWater: observed.highWater}, nil
+	data, err := sealCommittedData(observed)
+	return CommittedAttribution{committedAttributionData: data}, err
 }
 
 // RecoveryClassification returns the complete singleton loss classification from
@@ -308,7 +316,7 @@ func (s *Spool) RecoveryClassification(seq uint64) (*edgev1.EdgeClassificationSp
 		return nil, err
 	}
 	resolution := ResolveSlot(observed.observation)
-	if observed.resolved >= seq || !resolution.EntersCoverage() {
+	if !resolution.EntersCoverage() {
 		return nil, ErrCommittedAttribution
 	}
 	if resolution.Coverage.Attributed {
@@ -482,4 +490,21 @@ func fileSizeOrAbsent(path string) (int64, error) {
 		return 0, err
 	}
 	return info.Size(), nil
+}
+
+func sealCommittedData(observed attributionObservation) (committedAttributionData, error) {
+	if ResolveSlot(observed.observation).Outcome != OutcomeCommitted || observed.entry.digest == nil {
+		return committedAttributionData{}, ErrCommittedAttribution
+	}
+	return committedAttributionData{valid: true, generation: observed.generation, record: observed.record, entry: observed.entry, mapping: observed.mapping, mappingDigest: observed.mappingDigest, highWater: observed.highWater}, nil
+}
+
+// retainedCopySource does not relax the destination witness. A fresh reopened
+// physical commit above baseSeq is readable as a source even after terminal ACK.
+func (s *Spool) retainedCopySource(seq uint64) (committedAttributionData, error) {
+	observed, err := s.observeAttribution(seq)
+	if err != nil {
+		return committedAttributionData{}, err
+	}
+	return sealCommittedData(observed)
 }
