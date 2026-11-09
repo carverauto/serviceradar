@@ -1,0 +1,71 @@
+defmodule ServiceRadarAgentGateway.EdgeRecoveryControl do
+  @moduledoc """
+  Authenticates recovery control outside the blocked delivery lane. The principal
+  comes from the client certificate and scope membership from installed trust;
+  neither is inferred from the registered plan. Core persists intent before any
+  recovery authority can be returned.
+  """
+
+  alias Monitoring.EdgeRecoveryQuery
+  alias Monitoring.EdgeRecoveryRegistration
+  alias ServiceRadar.Edge.RecoveryControl
+  alias ServiceRadar.Edge.RecoveryOperation
+  alias ServiceRadarAgentGateway.CoreNodeForwarder
+  alias ServiceRadarAgentGateway.EdgeRecordTrust
+
+  def register(%EdgeRecoveryRegistration{} = request, identity) do
+    with :ok <- registration(request),
+         {:ok, agent_id} <- authenticated_namespace(request.network_scope_id, identity) do
+      core(:register, agent_id, request)
+    end
+  end
+
+  def get(%EdgeRecoveryQuery{} = request, identity) do
+    with :ok <- query(request),
+         {:ok, agent_id} <- authenticated_namespace(request.network_scope_id, identity) do
+      core(:get, agent_id, request)
+    end
+  end
+
+  defp registration(request) do
+    case RecoveryOperation.validate(request) do
+      {:ok, _} -> :ok
+      _ -> {:error, :invalid_argument, "invalid recovery registration"}
+    end
+  end
+
+  defp query(request) do
+    if request.__unknown_fields__ == [] and uuidv7?(request.recovery_id),
+      do: :ok,
+      else: {:error, :invalid_argument, "invalid recovery query"}
+  end
+
+  defp authenticated_namespace(scope, %{component_type: :agent, component_id: agent_id} = identity)
+       when is_binary(agent_id) and byte_size(agent_id) in 1..256 do
+    with {:ok, snapshot} <- EdgeRecordTrust.snapshot(),
+         %{network_scope_ids: %MapSet{} = scopes} <- EdgeRecordTrust.with_network_scopes(snapshot, identity),
+         true <- MapSet.member?(scopes, scope) do
+      {:ok, agent_id}
+    else
+      {:error, _} -> {:error, :unavailable, "edge record trust is unavailable"}
+      _ -> {:error, :permission_denied, "recovery scope is not bound to the authenticated agent"}
+    end
+  end
+
+  defp authenticated_namespace(_, _), do: {:error, :permission_denied, "recovery requires an authenticated agent"}
+
+  defp core(function, agent_id, request) do
+    node = CoreNodeForwarder.select_core_node("edge recovery")
+
+    case :rpc.call(node, RecoveryControl, function, [agent_id, request], 10_000) do
+      {:ok, result} -> {:ok, result}
+      {:error, :registration_missing} -> {:error, :not_found, "recovery is not registered"}
+      _ -> {:error, :unavailable, "edge recovery control is unavailable"}
+    end
+  rescue
+    ArgumentError -> {:error, :unavailable, "edge recovery control is unavailable"}
+  end
+
+  defp uuidv7?(<<_::48, 7::4, _::12, 2::2, _::62>>), do: true
+  defp uuidv7?(_), do: false
+end

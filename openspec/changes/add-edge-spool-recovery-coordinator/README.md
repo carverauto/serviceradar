@@ -11,11 +11,17 @@ recovery path. Visibility PR #6447 merged as `d54cbc508a76ba99b673015d3006ce9283
 with all 20 CI checks passing. Its gate records the user-approved remote-test
 exception; live-product validation was not performed.
 
-Lane generation options and the production filesystem probe are integrated.
-The recovery registration protocol and allocation partition validator are verified.
-Durable operation storage, gateway handlers and runtime negotiation are next; declaring the protocol does not enable the coordinator. Typed mapping values, attribution constructors and redundant frozen journals are
-integrated. Durable mapping issuance and attribution sidecars are proceeding
-independently; operation storage is compiled, with database tests still pending.
+The current pickup is the consumer transaction and contiguous progress over split
+source-generation intervals. Immutable registration/page storage, historical
+mapping storage and issuance gates, frozen journals, validated acknowledgement
+carriers and restart-safe reserve accounting are integrated. Gateway registration
+and status queries authenticate against installed trust; the recovery protocol
+remains disabled until publication, consumer repair and prefix handling are wired.
+
+Independent work continues on bound attribution/relocation sidecars, physical
+coverage and reclaim certificates, agent lane migration, and durable consumer
+repair effects. Database persistence tests still require guarded integration
+execution. No source deletion or journal cleanup is enabled by these foundations.
 
 ## Dependency order
 
@@ -75,3 +81,8 @@ Update this pickup and the choices ledger after each verified commit checkpoint.
 - Integrated Go edge/agent, Elixir edge and core quality passed all 15 targets in
   `9782af13-4dd7-475d-9364-b832fbcf3690`. Operation storage database tests were
   loaded but excluded by that unit shard; their persistence assertions remain pending.
+- Gateway/core auth control and shared transaction checks passed all six targets
+  in `211e2f6c-3044-4e1d-9b55-7a16c9773e52`. Removing installed scope membership
+  made the foreign-scope query regression fail in both attempts of
+  `f5a8af03-0097-4a96-8476-03a9804ee680`; exact restoration passed from the existing
+  cache in `ba629dfb-7d94-480d-b690-be3f3ecce5dd`.

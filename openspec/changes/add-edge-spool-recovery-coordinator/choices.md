@@ -167,3 +167,20 @@
   binding owner consumes the private append-charge token across its barriers.
   Source release before final resolution remains a separate lifecycle step.
 - Confidence: high.
+
+## Authenticated recovery control and shared transaction errors
+
+- When: gateway control pass, 2026-11-09.
+- Choice: registration and status queries use the existing agent certificate
+  resolver and installed trust snapshot. A request naming another scope cannot
+  grant itself membership, even if an internal caller supplies a membership map.
+  Core receives the authenticated agent identity separately from the plan.
+- Gap: the design requires an independent control path but leaves its transport
+  authentication composition and error behavior to implementation.
+- Reach: these RPCs share normal gateway/core routing and return unavailable when
+  trust or core is unavailable. They do not announce protocol readiness. Both
+  mapping and operation stores use one recovery transaction adapter to preserve
+  their bounded refusal reasons through Ash's structured transaction errors.
+- Verdict: sound. The trusted namespace has one owner, and a database outage
+  cannot look like successful registration or consumer completion.
+- Confidence: high for authentication; persistence still needs guarded DB tests.

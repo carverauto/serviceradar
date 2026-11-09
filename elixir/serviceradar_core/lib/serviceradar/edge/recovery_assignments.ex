@@ -12,13 +12,13 @@ defmodule ServiceRadar.Edge.RecoveryAssignments do
   a safety proof covering recovery, redrive and lifecycle retention has an owner.
   """
 
-  alias Ash.Error.Query.InvalidArgument
   alias ServiceRadar.Edge.RecoveryAssignment
   alias ServiceRadar.Edge.RecoveryAssignmentCandidate, as: Candidate
   alias ServiceRadar.Edge.RecoveryAssignmentEvidence
   alias ServiceRadar.Edge.RecoveryAssignmentIssuance, as: Issuance
   alias ServiceRadar.Edge.RecoveryAssignmentKey, as: Key
   alias ServiceRadar.Edge.RecoveryAssignmentResolution, as: Resolution
+  alias ServiceRadar.Edge.RecoveryTransaction
 
   require Ash.Query
 
@@ -382,35 +382,5 @@ defmodule ServiceRadar.Edge.RecoveryAssignments do
 
   defp actor, do: ServiceRadar.Actors.SystemActor.system(:recovery_assignments)
 
-  defp transaction(fun) do
-    @resources
-    |> Ash.transact(fn ->
-      case fun.() do
-        {:error, reason} when is_atom(reason) ->
-          {:error,
-           InvalidArgument.exception(
-             field: :recovery_assignment,
-             value: reason,
-             message: "historical recovery mapping refused"
-           )}
-
-        result ->
-          result
-      end
-    end)
-    |> case do
-      {:ok, result} ->
-        result
-
-      {:error, %InvalidArgument{field: :recovery_assignment, value: reason}} ->
-        {:error, reason}
-
-      {:error,
-       %Ash.Error.Invalid{errors: [%InvalidArgument{field: :recovery_assignment, value: reason}]}} ->
-        {:error, reason}
-
-      error ->
-        error
-    end
-  end
+  defp transaction(fun), do: RecoveryTransaction.run(@resources, fun)
 end

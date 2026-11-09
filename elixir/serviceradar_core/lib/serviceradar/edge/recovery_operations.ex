@@ -8,12 +8,12 @@ defmodule ServiceRadar.Edge.RecoveryOperations do
   These records alone do not prove consumer repair or authorize journal deletion.
   """
 
-  alias Ash.Error.Query.InvalidArgument
   alias Monitoring.EdgeRecoveryRegistration
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.RecoveryOperation
   alias ServiceRadar.Edge.RecoveryReceivedPage, as: Page
   alias ServiceRadar.Edge.RecoveryRegistration, as: Registration
+  alias ServiceRadar.Edge.RecoveryTransaction
   alias ServiceRadar.Edge.RecoveryValidate
   alias Serviceradar.Edge.V1.EdgeRecoveryControlPayloadV1
   alias ServiceRadar.Edge.WireDecode
@@ -160,30 +160,5 @@ defmodule ServiceRadar.Edge.RecoveryOperations do
 
   defp actor, do: SystemActor.system(:edge_recovery)
 
-  defp transaction(fun) do
-    [Registration, Page]
-    |> Ash.transact(fn ->
-      case fun.() do
-        {:error, reason} when is_atom(reason) ->
-          {:error,
-           InvalidArgument.exception(field: :recovery, value: reason, message: "recovery refused")}
-
-        result ->
-          result
-      end
-    end)
-    |> case do
-      {:ok, result} ->
-        result
-
-      {:error, %InvalidArgument{field: :recovery, value: reason}} ->
-        {:error, reason}
-
-      {:error, %Ash.Error.Invalid{errors: [%InvalidArgument{field: :recovery, value: reason}]}} ->
-        {:error, reason}
-
-      error ->
-        error
-    end
-  end
+  defp transaction(fun), do: RecoveryTransaction.run([Registration, Page], fun)
 end

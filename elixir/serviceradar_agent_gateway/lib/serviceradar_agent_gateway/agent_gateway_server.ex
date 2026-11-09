@@ -245,6 +245,24 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     end
   end
 
+  def register_edge_recovery(request, stream) do
+    identity = extract_edge_identity!(stream)
+
+    case ServiceRadarAgentGateway.EdgeRecoveryControl.register(request, identity) do
+      {:ok, response} -> response
+      {:error, status, message} -> raise GRPC.RPCError, status: status, message: message
+    end
+  end
+
+  def get_edge_recovery(request, stream) do
+    identity = extract_edge_identity!(stream)
+
+    case ServiceRadarAgentGateway.EdgeRecoveryControl.get(request, identity) do
+      {:ok, response} -> response
+      {:error, status, message} -> raise GRPC.RPCError, status: status, message: message
+    end
+  end
+
   defp extract_edge_identity!(stream) do
     resolver = edge_identity_resolver()
 
