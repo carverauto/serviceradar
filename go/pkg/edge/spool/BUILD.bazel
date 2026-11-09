@@ -13,6 +13,7 @@ go_library(
         "quarantine.go",
         "reclaim.go",
         "recover.go",
+        "recovery_control_reserve.go",
         "recovery_journal.go",
         "recovery_limits.go",
         "recovery_pages.go",

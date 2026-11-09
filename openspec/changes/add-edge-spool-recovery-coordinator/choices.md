@@ -134,3 +134,23 @@
 - Confidence: high; independent destination/sidecar overflow regressions failed
   on baseline and complete reserved relocation succeeds with ordinary admission
   exhausted, using synthetic records with 32 KiB metric values.
+
+## One grant owns data and recovery-control attempts
+
+- When: reserve lifecycle pass, 2026-11-09.
+- Choice: attach dedicated recovery-control generations to the existing grant;
+  account complete control storage under ManifestPages, separately from retained
+  destination files. Resume measures all control attempts before checking backing.
+- Gap: acquiring a second grant for publication deadlocks at maxActive=1. A torn
+  append can also strand the control lane; replacement attempts must retain and
+  charge the old evidence while replaying the exact publication.
+- Reach: strict sender and attributed commit semantics remain unchanged. Source
+  release transfers only data; final artifact release transfers control files and
+  terminal allowances. Defaults reserve 22 MiB per recovery and validation covers
+  the maximum supported record plus fixed generation metadata, both journal
+  copies/repairs, two control attempts and coverage/metadata. Actual phase byte
+  enforcement and proof-owned reclamation still belong to the following pass.
+- Verdict: sound. Root approved shared grant ownership, the complete default
+  footprint, and bounded reconstruction with explicit capacity refusal.
+- Confidence: high for the allocator boundary; journal-backed reconstruction and
+  cleanup authority are not claimed by the storage append tests alone.

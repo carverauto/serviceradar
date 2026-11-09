@@ -173,7 +173,7 @@ New attributed generations use the existing generation rotation as the physical
 recovery segment boundary. Before PREPARED or sequence allocation, an append
 must fit the full-copy destination budgets of the shared allocator. With `n`
 retained slots including the proposed append and `S` encoded spool record bytes
-including it, the required destination budget is `S + n * (4 * 212 + 256)`:
+including it, the required destination budget is `1024 + S + n * (4 * 212 + 256)`:
 two evidence files, each holding PREPARED and COMMITTED v2 entries, plus prepaid
 terminal evidence. The attribution-sidecar budget must cover `n * (1024 + 1024)`
 for the complete attribution and relocation mapping sidecars. `n <= 1024` also
@@ -192,3 +192,41 @@ activation also requires separately validated fixed budgets for both frozen
 journals, phase records, repairs, control publication wrappers/evidence/sidecars,
 coverage certificates and filesystem metadata. The generation limit alone does
 not establish that the complete coordinator footprint is configured.
+
+### Aggregate defaults and recovery-control attempts
+
+The default footprint is 22 MiB per active recovery: 8 MiB destination,
+2 MiB attribution/relocation sidecars, 4 MiB for EACH journal copy, 2 MiB control
+publication storage, 1 MiB coverage/mapping evidence, and 1 MiB filesystem
+metadata. Together with the existing 1 MiB unborrowable free-space floor, one
+active recovery reserves 23 MiB of the default 1 GiB spool. The existing allocator
+capacity validation rejects a total below its aggregate floor; there is no new
+Helm-only setting. `Footprint.ValidateCoordinator` additionally rejects component
+budgets below the complete coordinator minima.
+
+The destination equation includes 1024 fixed bytes for the generation identity,
+format marker, dedicated recovery marker, closed marker and fixed hold. A journal
+copy reserves twice `(1 MiB freeze + 1 MiB aggregate phase records)`, covering the
+initial records and an exact repair of every retained record. Complete encoded
+publication records are bounded to 512 KiB aggregate before enqueue. For at most
+`ceil(1024 / MaxSpansPerPage) + 1` records including the tombstone, one control
+attempt requires that aggregate plus each spool wrapper, four 212-byte evidence
+entries, one 1024-byte attribution sidecar and 256-byte terminal allowance, plus
+1024 fixed generation bytes. The minimum control footprint covers two complete
+attempts; the default rounds up to 2 MiB.
+
+Recovery controls use the SAME grant as data relocation. They consume the
+`ManifestPages` artifact budget, including their wrappers/evidence/sidecars, and
+have independently tracked retained file ownership. Source release transfers the
+copy destination only. Final artifact release transfers still-retained control
+attempts and their terminal allowances to ordinary storage for normal sender
+cleanup. Restart measures every attempted control generation before testing
+remaining physical backing, without acquiring another concurrency slot.
+
+A failed control append may create an ambiguous slot. Its generation and all
+its evidence remain charged; reconstruction uses the exact frozen publication
+bytes in a new dedicated control attempt. Ordinary delivery renewal can authorize
+the unchanged record under its new spool/sequence while the output grant remains
+active. Repeated failed attempts require enough remaining aggregate capacity;
+exhaustion is a visible capacity refusal retaining evidence, not unbounded retry
+progress. Safe cleanup of superseded attempts remains part of the proof lifecycle.

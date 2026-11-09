@@ -6,6 +6,7 @@ package spool
 import (
 	"bytes"
 	"errors"
+	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
 	"os"
 	"path/filepath"
 	"testing"
@@ -197,5 +198,130 @@ func TestRecoveryAppendRejectsForeignOwnerAndPaths(t *testing.T) {
 				t.Fatal("foreign append consumed reserve")
 			}
 		})
+	}
+}
+
+func TestInterruptedControlAppendReconstructsUnderSameReserve(t *testing.T) {
+	input, key, id := attributionAppend(t, "control")
+	root := t.TempDir()
+	firstAllocator := attributionAllocator(t)
+	lanes := openAttributedLanes(t, root, id, firstAllocator, func(s *Spool) {
+		if s.attributionIdentity.Lane == key {
+			s.beforeBarrier = func(at barrier) error {
+				if at == barrierCommitA {
+					return os.ErrPermission
+				}
+				return nil
+			}
+		}
+	})
+	if _, err := lanes.Rotate(bulkLane); err != nil {
+		t.Fatal(err)
+	}
+	destination, _ := lanes.OpenGeneration(bulkLane)
+	if _, err := lanes.Rotate(key); err != nil {
+		t.Fatal(err)
+	}
+	interrupted, _ := lanes.OpenGeneration(key)
+	grant, err := firstAllocator.AcquireRecovery(destination.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = grant.AttachControlLane(interrupted); err != nil {
+		t.Fatal(err)
+	}
+	if receipt, err := interrupted.spool.CommitRecoveryControl(input, grant); !errors.Is(err, os.ErrPermission) || receipt.Sequence != 0 {
+		t.Fatalf("partial control issued receipt: %+v %v", receipt, err)
+	}
+	if err = lanes.Close(); err != nil {
+		t.Fatal(err)
+	}
+	fresh := attributionAllocator(t)
+	lanes = openAttributedLanes(t, root, id, fresh, nil)
+	interrupted, _ = lanes.OpenGeneration(key)
+	if _, err = interrupted.CommittedAttribution(1); err == nil {
+		t.Fatal("incomplete control became sender-visible")
+	}
+	var inventory []RecoveryArtifact
+	retained := map[string][]byte{}
+	for _, path := range []string{filepath.Join(interrupted.dir, segmentFile), filepath.Join(interrupted.dir, attributionFile), interrupted.spool.evidencePath(copyA), interrupted.spool.evidencePath(copyB)} {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		retained[path] = raw
+		inventory = append(inventory, RecoveryArtifact{ArtifactManifestPages, path})
+	}
+	if _, err = lanes.Rotate(key); err != nil {
+		t.Fatal(err)
+	}
+	replacement, _ := lanes.OpenGeneration(key)
+	attempts := []RecoveryControlInventory{{Directory: interrupted.dir, TerminalSlots: 1}, {Directory: replacement.dir}}
+	restored, err := fresh.ResumeRecoveryWithControls(destination.dir, attempts, inventory, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	usage := fresh.Usage()
+	fresh.ChargeMeasured(filepath.Join(root, "synthetic-full-lane"), usage.OrdinaryCeiling-usage.OrdinaryUsed)
+	receipt, err := replacement.spool.CommitRecoveryControl(input, restored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	witness, err := replacement.CommittedAttribution(receipt.Sequence)
+	if err != nil || !bytes.Equal(witness.record.Body, input.Body) || !bytes.Equal(witness.record.EventID, input.EventID) {
+		t.Fatalf("reconstruction changed publication: %v", err)
+	}
+	if fresh.Usage().ActiveRecoveries != 1 {
+		t.Fatal("reconstruction acquired second grant")
+	}
+	for path, want := range retained {
+		got, err := os.ReadFile(path)
+		if err != nil || !bytes.Equal(got, want) {
+			t.Fatalf("reconstruction changed interrupted evidence: %s %v", path, err)
+		}
+	}
+	// Another capacity refusal cannot release or forget the failed attempt.
+	before := fresh.Usage()
+	if _, err = fresh.AcquireRecovery(replacement.dir); !errors.Is(err, ErrRecoveryConcurrencyExhausted) {
+		t.Fatalf("concurrency guard: %v", err)
+	}
+	if fresh.Usage() != before {
+		t.Fatal("refused recovery changed retained accounting")
+	}
+}
+
+func TestCoordinatorFootprintBoundsConfiguration(t *testing.T) {
+	f := DefaultRecoveryFootprint()
+	if err := f.ValidateCoordinator(); err != nil {
+		t.Fatal(err)
+	}
+	total, err := f.PerRecovery()
+	if err != nil || total != 22<<20 {
+		t.Fatalf("default footprint changed: %d %v", total, err)
+	}
+	for _, art := range []Artifact{ArtifactDestinationSegment, ArtifactAttributionSidecar, ArtifactJournalA, ArtifactManifestPages, ArtifactMapping, ArtifactFilesystemMetadata} {
+		t.Run(art.String(), func(t *testing.T) {
+			small := f
+			switch art {
+			case ArtifactDestinationSegment:
+				small.DestinationSegment = edgerecord.MaxRecordBytes
+			case ArtifactAttributionSidecar:
+				small.AttributionSidecar = sidecarSlotSize
+			case ArtifactJournalA:
+				small.JournalCopy = MaxRecoveryJournalBytes
+			case ArtifactManifestPages:
+				small.ManifestPages = MaxRecoveryPublicationBytes
+			case ArtifactMapping:
+				small.Mapping = 1
+			case ArtifactFilesystemMetadata:
+				small.FilesystemMetadata = 1
+			}
+			if err := small.ValidateCoordinator(); !errors.Is(err, ErrInvalidAllocatorConfig) {
+				t.Fatalf("incomplete footprint accepted: %v", err)
+			}
+		})
+	}
+	if _, err = NewAllocator(AllocatorConfig{Capacity: total + 4095, MinFree: 4096, Recovery: f, MaxConcurrentRecoveries: 1}); !errors.Is(err, ErrInvalidAllocatorConfig) {
+		t.Fatalf("impossible total capacity accepted: %v", err)
 	}
 }
