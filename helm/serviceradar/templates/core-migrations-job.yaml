@@ -30,6 +30,16 @@ metadata:
     #
     # On an upgrade (.Release.IsUpgrade), pre-upgrade remains right: the CNPG
     # Cluster already exists and the schema is migrated before new pods roll out.
+    #
+    # Argo CD renders with `helm template`, so IsUpgrade is always false there and
+    # every sync applies this Job as a regular resource. A Job's pod template is
+    # immutable: patching the completed Job with a new image fails the sync, the
+    # migrations never run, and core/web-ng wait in `wait-migrations` forever.
+    # Force+Replace makes Argo delete and recreate the Job instead, which reruns
+    # the migrations each sync, matching Helm's per-upgrade hook. It is not a sync
+    # hook, so it stays in the CNPG Cluster's wave and a fresh sync still creates
+    # the Cluster it waits for. Helm ignores this annotation.
+    argocd.argoproj.io/sync-options: Force=true,Replace=true
     {{- if .Release.IsUpgrade }}
     "helm.sh/hook": pre-upgrade
     "helm.sh/hook-weight": "-1"
