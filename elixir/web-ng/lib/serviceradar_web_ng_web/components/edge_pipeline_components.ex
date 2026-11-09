@@ -46,6 +46,18 @@ defmodule ServiceRadarWebNGWeb.EdgePipelineComponents do
         "The agent's edge-record spool could not be opened" <>
           if(field(detail, :error), do: ": #{field(detail, :error)}", else: ".")
 
+      "spool_wedged" ->
+        sequences = Enum.join(field(detail, :gap_sequences) || [], ", ")
+
+        "Durable delivery is blocked by #{field(detail, :gap_count)} coverage gaps " <>
+          "(first sequences: #{sequences}). Recovery coverage is required. " <> spool_health(detail)
+
+      "spool_backpressure" ->
+        "Spool admission is paused. " <> spool_health(detail)
+
+      "spool_health_unavailable" ->
+        "Spool health could not be read: #{field(detail, :health_error)}"
+
       "agent_upgrade_pending" ->
         "The agent runs a build from before the edge-record cutover" <>
           if(field(detail, :version), do: " (#{field(detail, :version)}).", else: ".") <>
@@ -57,6 +69,16 @@ defmodule ServiceRadarWebNGWeb.EdgePipelineComponents do
       other ->
         other
     end
+  end
+
+  defp spool_health(detail) do
+    age =
+      if field(detail, :oldest_unresolved_age_known) == true,
+        do: "#{field(detail, :oldest_unresolved_age_seconds)}s",
+        else: "unknown"
+
+    "#{field(detail, :unresolved_count)} unresolved slots; oldest age #{age}; " <>
+      "#{field(detail, :bytes_used)} / #{field(detail, :budget_bytes)} bytes charged."
   end
 
   defp refused_statuses(counts) when is_map(counts) and map_size(counts) > 0 do
@@ -113,6 +135,6 @@ defmodule ServiceRadarWebNGWeb.EdgePipelineComponents do
     end
   end
 
-  defp field(map, key) when is_map(map), do: Map.get(map, key)
+  defp field(map, key) when is_map(map), do: Map.get(map, key, Map.get(map, Atom.to_string(key)))
   defp field(_map, _key), do: nil
 end

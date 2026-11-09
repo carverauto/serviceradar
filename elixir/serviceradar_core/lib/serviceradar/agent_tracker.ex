@@ -274,7 +274,8 @@ defmodule ServiceRadar.AgentTracker do
       hostname: metadata_value(metadata, :hostname),
       os: metadata_value(metadata, :os),
       arch: metadata_value(metadata, :arch),
-      deployment_type: metadata_value(metadata, :deployment_type)
+      deployment_type: metadata_value(metadata, :deployment_type),
+      edge_record_spool: metadata_value(metadata, :edge_record_spool)
     })
   end
 

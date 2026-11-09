@@ -24,33 +24,55 @@ import (
 	"time"
 )
 
+// MaxHealthGapSequences bounds diagnostic samples, never the total gap count.
+const MaxHealthGapSequences = 32
+
+// Health includes allocated gaps, which ScanFrom cannot deliver. Counts and byte
+// totals are live samples; concurrent appends/resolution may interleave. An age
+// is unknown when any gap has lost its timestamp. No record bodies are loaded.
+type Health struct {
+	UnresolvedCount     uint64
+	UnresolvedBytes     uint64
+	OldestUnresolvedAge time.Duration
+	ReportAge           bool
+	GapCount            uint64
+	GapSequences        []uint64
+}
+
 // UnresolvedHealth summarizes the records the sender has not yet resolved.
 // Bytes is the sum of their bodies. The oldest age comes from UUIDv7 event ids:
 // the first 48 bits are a Unix millisecond timestamp and the high nibble of
 // byte 6 is version 7. reportAge is true when nothing is unresolved, and when at
 // least one unresolved id is a version-7 timestamp. It is false when unresolved
-// records exist and none of those ids carry that timestamp, so a caller does not
+// records exist and none of those ids carry that timestamp, or a coverage gap
+// has no trustworthy timestamp, so a caller does not
 // publish a fresh age for an unknown clock.
 //
 // It reads only each record's header, never its body, so a metrics scrape of a
 // large backlog costs one small read per record and constant memory. Like
 // ScanFrom it takes the spool lock per record, so producer appends interleave.
 func (s *Spool) UnresolvedHealth(now time.Time) (bytes uint64, oldest time.Duration, reportAge bool, err error) {
+	h, err := s.Health(now)
+	return h.UnresolvedBytes, h.OldestUnresolvedAge, h.ReportAge, err
+}
+
+// Health samples unresolved slots, including allocated slots requiring coverage.
+func (s *Spool) Health(now time.Time) (Health, error) {
+	var health Health
 	s.mu.Lock()
 	if s.seg == nil {
 		s.mu.Unlock()
-		return 0, 0, false, fmt.Errorf("spool: health: %w", os.ErrClosed)
+		return Health{}, fmt.Errorf("spool: health: %w", os.ErrClosed)
 	}
 	// Like ScanFrom, adopt a layout another handle reclaimed into, and below
 	// discover records another handle appended, before trusting the index.
 	if err := s.refreshLayout(); err != nil {
 		s.mu.Unlock()
-		return 0, 0, false, err
+		return Health{}, err
 	}
 	seq := s.resolved
 	s.mu.Unlock()
 
-	var unresolved int
 	var oldestMs int64
 	var found bool
 	header := make([]byte, headerLen+headerCRC)
@@ -60,13 +82,13 @@ func (s *Spool) UnresolvedHealth(now time.Time) (bytes uint64, oldest time.Durat
 		s.mu.Lock()
 		if s.seg == nil {
 			s.mu.Unlock()
-			return 0, 0, false, fmt.Errorf("spool: health: %w", os.ErrClosed)
+			return Health{}, fmt.Errorf("spool: health: %w", os.ErrClosed)
 		}
 		if seq >= s.nextSeq && !refreshed {
 			refreshed = true
 			if err := s.refreshLocked(); err != nil {
 				s.mu.Unlock()
-				return 0, 0, false, err
+				return Health{}, err
 			}
 		}
 		seq = max(seq, s.resolved+1, s.baseSeq+1)
@@ -75,7 +97,12 @@ func (s *Spool) UnresolvedHealth(now time.Time) (bytes uint64, oldest time.Durat
 			break
 		}
 		loc := s.slots[seq-s.baseSeq-1]
+		health.UnresolvedCount++
 		if !loc.committed {
+			health.GapCount++
+			if len(health.GapSequences) < MaxHealthGapSequences {
+				health.GapSequences = append(health.GapSequences, seq)
+			}
 			s.mu.Unlock()
 			continue
 		}
@@ -85,32 +112,38 @@ func (s *Spool) UnresolvedHealth(now time.Time) (bytes uint64, oldest time.Durat
 			if errors.Is(readErr, io.EOF) {
 				readErr = io.ErrUnexpectedEOF
 			}
-			return 0, 0, false, fmt.Errorf("spool: health: read header: %w", readErr)
+			return Health{}, fmt.Errorf("spool: health: read header: %w", readErr)
 		}
 		h, ok := parseHeader(header)
 		if !ok || h.seq != seq {
-			return 0, 0, false, fmt.Errorf("%w: slot %d", ErrCorruptHeader, seq)
+			return Health{}, fmt.Errorf("%w: slot %d", ErrCorruptHeader, seq)
 		}
 
-		unresolved++
-		bytes += uint64(h.bodyLen)
+		health.UnresolvedBytes += uint64(h.bodyLen)
 		if ms, ok := uuidV7UnixMilli(h.eventID[:]); ok && (!found || ms < oldestMs) {
 			oldestMs = ms
 			found = true
 		}
 	}
 
-	if unresolved == 0 {
-		return 0, 0, true, nil
+	if health.UnresolvedCount == 0 {
+		health.ReportAge = true
+		return health, nil
 	}
-	if !found {
-		return bytes, 0, false, nil
+	health.ReportAge = found && health.GapCount == 0
+	if found {
+		health.OldestUnresolvedAge = max(now.Sub(time.UnixMilli(oldestMs)), 0)
 	}
-	age := now.Sub(time.UnixMilli(oldestMs))
-	if age < 0 {
-		age = 0
-	}
-	return bytes, age, true, nil
+	return health, nil
+}
+
+// CoverageGap returns restart evidence for a sequence without copying the full
+// resolution. The sender uses this only after acknowledgement validation fails.
+func (s *Spool) CoverageGap(sequence uint64) (SlotResolution, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, ok := s.restart.Slot(sequence)
+	return r, ok && sequence > s.resolved && r.EntersCoverage()
 }
 
 func uuidV7UnixMilli(id []byte) (int64, bool) {

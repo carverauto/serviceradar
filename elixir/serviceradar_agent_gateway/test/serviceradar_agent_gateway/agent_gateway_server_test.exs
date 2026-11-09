@@ -273,8 +273,17 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
         assert DateTime.diff(agent_attrs.cert_expires_at, agent_attrs.cert_not_before, :second) == 90 * 86_400
         assert byte_size(agent_attrs.cert_serial) > 0
         assert byte_size(agent_attrs.cert_fingerprint_sha256) == 64
-        # Core shows a spool that did not open as spool_unavailable.
-        assert agent_attrs.metadata.edge_record_spool == %{available: false, error: "spool: mkdir: denied"}
+        # Core receives the complete live spool health through either hello transport.
+        assert %{
+                 available: true,
+                 error: "",
+                 wedged: true,
+                 gap_count: 2,
+                 gap_sequences: [4, 8],
+                 unresolved_count: 9,
+                 bytes_used: 4096,
+                 budget_bytes: 8192
+               } = agent_attrs.metadata.edge_record_spool
 
         assert_receive {:core_rpc, :ensure_device_for_agent, [^agent_id, attrs]}, 1_000
         assert attrs.source_ip == "192.0.2.37"
@@ -866,7 +875,17 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
       hostname: "host01.example.com",
       os: "linux",
       arch: "amd64",
-      edge_record_spool: %Monitoring.EdgeRecordSpoolStatus{available: false, error: "spool: mkdir: denied"}
+      edge_record_spool: %Monitoring.EdgeRecordSpoolStatus{
+        available: true,
+        error: "",
+        health_available: true,
+        wedged: true,
+        gap_count: 2,
+        gap_sequences: [4, 8],
+        unresolved_count: 9,
+        bytes_used: 4096,
+        budget_bytes: 8192
+      }
     ]
 
     case transport do

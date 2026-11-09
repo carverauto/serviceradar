@@ -60,6 +60,24 @@ func TestHellosReportTheEdgeSpoolStatus(t *testing.T) {
 	}
 }
 
+// Heartbeats use the hello builder too: every call must sample current health.
+func TestHellosRefreshSpoolHealth(t *testing.T) {
+	loop := NewPushLoop(&Server{config: &ServerConfig{}}, nil, 0, logger.NewTestLogger())
+	loop.hostInventory = func() []hostInterface { return nil }
+	loop.hostTLSFingerprints = func() []*proto.HostTlsFingerprint { return nil }
+	var count uint64
+	loop.SetEdgeSpoolStatusSampler(func() *proto.EdgeRecordSpoolStatus {
+		count++
+		return &proto.EdgeRecordSpoolStatus{Available: true, HealthAvailable: true, UnresolvedCount: count}
+	})
+	first := loop.buildControlHelloRequest().GetHello().GetEdgeRecordSpool()
+	second := loop.buildControlHelloRequest().GetHello().GetEdgeRecordSpool()
+	third := loop.buildEnrollmentHelloRequest().GetEdgeRecordSpool()
+	if first.GetUnresolvedCount() != 1 || second.GetUnresolvedCount() != 2 || third.GetUnresolvedCount() != 3 {
+		t.Fatalf("hello samples were stale: %v %v %v", first, second, third)
+	}
+}
+
 // The config's budget is applied once per change; zero (a core that predates
 // the setting) and a refused budget leave the running budget in place.
 func TestConfigSpoolBudgetIsAppliedOnChange(t *testing.T) {

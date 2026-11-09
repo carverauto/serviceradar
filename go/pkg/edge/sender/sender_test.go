@@ -23,6 +23,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -816,4 +817,51 @@ func TestRetryableTailDoesNotBlockReclaimOfTheAcceptedPrefix(t *testing.T) {
 		}
 	}
 	t.Fatal("the fully accepted lane was not reclaimed")
+}
+
+func TestRunOnceReportsCoverageGap(t *testing.T) {
+	dir := t.TempDir()
+	sp, err := spool.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := mustEventID(t)
+	if _, err := sp.Append(id, id); err != nil {
+		t.Fatal(err)
+	}
+	if err := sp.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate durable allocation/evidence with lost record bytes.
+	if err := os.Truncate(filepath.Join(dir, "lane.seg"), 0); err != nil {
+		t.Fatal(err)
+	}
+	sp, err = spool.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = sp.Close() }()
+	id = mustEventID(t)
+	if _, err := sp.Append(id, id); err != nil {
+		t.Fatal(err)
+	}
+	srv := &fakeIngestServer{grantedByteCredits: 1 << 20, grantedFrameCredits: 100,
+		dispositionKind: edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE}
+	cfg := testConfig(t)
+	cfg.PersistAcknowledgements = true
+	s, err := New(sp, dialFakeIngest(t, srv), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	for range 2 {
+		result, err := s.RunOnce(ctx)
+		if err == nil || !strings.Contains(err.Error(), "coverage gap sequence=1") {
+			t.Fatalf("run = %+v, %v; want explicit coverage gap sequence=1", result, err)
+		}
+		if sp.Resolved() != 0 || len(result.Sent) != 1 || result.Sent[0] != 2 {
+			t.Fatalf("gap was skipped or records lost: resolved=%d result=%+v", sp.Resolved(), result)
+		}
+	}
 }

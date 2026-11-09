@@ -11,6 +11,7 @@ defmodule ServiceRadar.AgentRuntimeMetadata do
   @runtime_metadata_fields [
     :arch,
     :deployment_type,
+    :edge_record_spool,
     :gateway_id,
     :hostname,
     :os,
@@ -129,6 +130,7 @@ defmodule ServiceRadar.AgentRuntimeMetadata do
       os: runtime_field(agent, :os),
       arch: runtime_field(agent, :arch),
       deployment_type: runtime_field(agent, :deployment_type),
+      edge_record_spool: runtime_field(agent, :edge_record_spool),
       refused_statuses: runtime_field(agent, :refused_statuses),
       oversized_summaries: runtime_field(agent, :oversized_summaries),
       last_refused_at: runtime_field(agent, :last_refused_at)

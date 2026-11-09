@@ -2576,15 +2576,26 @@ func (x *AgentHelloRequest) GetEdgeRecordSpool() *EdgeRecordSpoolStatus {
 	return nil
 }
 
-// EdgeRecordSpoolStatus is whether the agent's durable edge-record spool opened
-// at startup. A spool that did not open leaves the agent off the edge pipeline,
-// so core shows the agent as spool_unavailable.
+// EdgeRecordSpoolStatus carries startup availability and live health on every
+// hello/heartbeat, independently of optional Prometheus scraping.
 type EdgeRecordSpoolStatus struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Available     bool                   `protobuf:"varint,1,opt,name=available,proto3" json:"available,omitempty"`
-	Error         string                 `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"` // Why the spool could not be opened; empty when available
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state                      protoimpl.MessageState `protogen:"open.v1"`
+	Available                  bool                   `protobuf:"varint,1,opt,name=available,proto3" json:"available,omitempty"`
+	Error                      string                 `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`                                             // Why the spool could not be opened; empty when available
+	HealthAvailable            bool                   `protobuf:"varint,3,opt,name=health_available,json=healthAvailable,proto3" json:"health_available,omitempty"` // False for older agents or a failed health read
+	HealthError                string                 `protobuf:"bytes,4,opt,name=health_error,json=healthError,proto3" json:"health_error,omitempty"`
+	Wedged                     bool                   `protobuf:"varint,5,opt,name=wedged,proto3" json:"wedged,omitempty"`                                          // Allocated gaps prevent this lane from resolving
+	GapSequences               []uint64               `protobuf:"varint,6,rep,packed,name=gap_sequences,json=gapSequences,proto3" json:"gap_sequences,omitempty"`   // First 32 in ascending order; see gap_count
+	GapCount                   uint64                 `protobuf:"varint,7,opt,name=gap_count,json=gapCount,proto3" json:"gap_count,omitempty"`                      // Total; never silently truncate diagnostics
+	UnresolvedCount            uint64                 `protobuf:"varint,8,opt,name=unresolved_count,json=unresolvedCount,proto3" json:"unresolved_count,omitempty"` // Includes allocated gaps, not only readable records
+	OldestUnresolvedAgeSeconds uint64                 `protobuf:"varint,9,opt,name=oldest_unresolved_age_seconds,json=oldestUnresolvedAgeSeconds,proto3" json:"oldest_unresolved_age_seconds,omitempty"`
+	OldestUnresolvedAgeKnown   bool                   `protobuf:"varint,10,opt,name=oldest_unresolved_age_known,json=oldestUnresolvedAgeKnown,proto3" json:"oldest_unresolved_age_known,omitempty"` // False when gap timestamps are unavailable
+	UnresolvedBytes            uint64                 `protobuf:"varint,11,opt,name=unresolved_bytes,json=unresolvedBytes,proto3" json:"unresolved_bytes,omitempty"`                                // Readable unresolved record body bytes
+	BytesUsed                  uint64                 `protobuf:"varint,12,opt,name=bytes_used,json=bytesUsed,proto3" json:"bytes_used,omitempty"`                                                  // Allocator charge including metadata and terminal evidence
+	BudgetBytes                uint64                 `protobuf:"varint,13,opt,name=budget_bytes,json=budgetBytes,proto3" json:"budget_bytes,omitempty"`                                            // Current runtime budget, including reserved headroom
+	AdmissionPaused            bool                   `protobuf:"varint,14,opt,name=admission_paused,json=admissionPaused,proto3" json:"admission_paused,omitempty"`
+	unknownFields              protoimpl.UnknownFields
+	sizeCache                  protoimpl.SizeCache
 }
 
 func (x *EdgeRecordSpoolStatus) Reset() {
@@ -2629,6 +2640,90 @@ func (x *EdgeRecordSpoolStatus) GetError() string {
 		return x.Error
 	}
 	return ""
+}
+
+func (x *EdgeRecordSpoolStatus) GetHealthAvailable() bool {
+	if x != nil {
+		return x.HealthAvailable
+	}
+	return false
+}
+
+func (x *EdgeRecordSpoolStatus) GetHealthError() string {
+	if x != nil {
+		return x.HealthError
+	}
+	return ""
+}
+
+func (x *EdgeRecordSpoolStatus) GetWedged() bool {
+	if x != nil {
+		return x.Wedged
+	}
+	return false
+}
+
+func (x *EdgeRecordSpoolStatus) GetGapSequences() []uint64 {
+	if x != nil {
+		return x.GapSequences
+	}
+	return nil
+}
+
+func (x *EdgeRecordSpoolStatus) GetGapCount() uint64 {
+	if x != nil {
+		return x.GapCount
+	}
+	return 0
+}
+
+func (x *EdgeRecordSpoolStatus) GetUnresolvedCount() uint64 {
+	if x != nil {
+		return x.UnresolvedCount
+	}
+	return 0
+}
+
+func (x *EdgeRecordSpoolStatus) GetOldestUnresolvedAgeSeconds() uint64 {
+	if x != nil {
+		return x.OldestUnresolvedAgeSeconds
+	}
+	return 0
+}
+
+func (x *EdgeRecordSpoolStatus) GetOldestUnresolvedAgeKnown() bool {
+	if x != nil {
+		return x.OldestUnresolvedAgeKnown
+	}
+	return false
+}
+
+func (x *EdgeRecordSpoolStatus) GetUnresolvedBytes() uint64 {
+	if x != nil {
+		return x.UnresolvedBytes
+	}
+	return 0
+}
+
+func (x *EdgeRecordSpoolStatus) GetBytesUsed() uint64 {
+	if x != nil {
+		return x.BytesUsed
+	}
+	return 0
+}
+
+func (x *EdgeRecordSpoolStatus) GetBudgetBytes() uint64 {
+	if x != nil {
+		return x.BudgetBytes
+	}
+	return 0
+}
+
+func (x *EdgeRecordSpoolStatus) GetAdmissionPaused() bool {
+	if x != nil {
+		return x.AdmissionPaused
+	}
+	return false
 }
 
 // HostInterface is one interface of the agent host's own inventory. The agent classifies;
@@ -9654,10 +9749,24 @@ const file_monitoring_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x1b\n" +
 	"\x19_edge_record_capabilitiesB\x14\n" +
-	"\x12_edge_record_spool\"K\n" +
+	"\x12_edge_record_spool\"\xb8\x04\n" +
 	"\x15EdgeRecordSpoolStatus\x12\x1c\n" +
 	"\tavailable\x18\x01 \x01(\bR\tavailable\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\"\x98\x02\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\x12)\n" +
+	"\x10health_available\x18\x03 \x01(\bR\x0fhealthAvailable\x12!\n" +
+	"\fhealth_error\x18\x04 \x01(\tR\vhealthError\x12\x16\n" +
+	"\x06wedged\x18\x05 \x01(\bR\x06wedged\x12#\n" +
+	"\rgap_sequences\x18\x06 \x03(\x04R\fgapSequences\x12\x1b\n" +
+	"\tgap_count\x18\a \x01(\x04R\bgapCount\x12)\n" +
+	"\x10unresolved_count\x18\b \x01(\x04R\x0funresolvedCount\x12A\n" +
+	"\x1doldest_unresolved_age_seconds\x18\t \x01(\x04R\x1aoldestUnresolvedAgeSeconds\x12=\n" +
+	"\x1boldest_unresolved_age_known\x18\n" +
+	" \x01(\bR\x18oldestUnresolvedAgeKnown\x12)\n" +
+	"\x10unresolved_bytes\x18\v \x01(\x04R\x0funresolvedBytes\x12\x1d\n" +
+	"\n" +
+	"bytes_used\x18\f \x01(\x04R\tbytesUsed\x12!\n" +
+	"\fbudget_bytes\x18\r \x01(\x04R\vbudgetBytes\x12)\n" +
+	"\x10admission_paused\x18\x0e \x01(\bR\x0fadmissionPaused\"\x98\x02\n" +
 	"\rHostInterface\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n" +
 	"\x03mac\x18\x02 \x01(\tR\x03mac\x12#\n" +

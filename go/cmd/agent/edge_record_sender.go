@@ -72,6 +72,7 @@ func runEdgeRecordSender(ctx context.Context, cfg *agent.ServerConfig, sp *spool
 	if sp == nil {
 		return
 	}
+	logEdgeSpoolRestart(sp.RestartResolution(), log)
 	esCfg := cfg.EdgeRecordSender
 	if esCfg == nil {
 		esCfg = &agent.EdgeRecordSenderConfig{}
@@ -218,6 +219,12 @@ func runEdgeRecordSenderOnce(ctx context.Context, s *edgesender.Sender, log logg
 		if errors.Is(err, edgesender.ErrNoUnresolvedRecords) {
 			return
 		}
+		var gap *edgesender.CoverageGapError
+		if errors.As(err, &gap) {
+			log.Error().Err(err).Uint64("gap_sequence", gap.Slot.Sequence).
+				Uint64("resolved_through", gap.ResolvedThrough).
+				Msg("Edge spool lane wedged; recovery coverage required; all durable families are blocked")
+		}
 		// A failed run still reports the highest sequence it sent and how far
 		// the gateway acknowledged: a run that never received a durability
 		// ack must show a remote prefix below the entries it attempted.
@@ -357,4 +364,49 @@ func (b *edgeSpoolBudget) Apply(maxBytes uint64) error {
 	}
 	high, low := edgeSpoolWatermarks(b.allocator)
 	return b.gate.SetWatermarks(high, low)
+}
+
+// Log a bounded sample and an explicit remainder; no coverage slot vanishes
+// silently from diagnostics when an outage creates many gaps.
+func logEdgeSpoolRestart(resolution spool.Resolution, log logger.Logger) {
+	count := 0
+	for _, slot := range resolution.Slots {
+		if !slot.EntersCoverage() {
+			continue
+		}
+		count++
+		if count <= spool.MaxHealthGapSequences {
+			log.Error().Uint64("sequence", slot.Sequence).Str("outcome", slot.Outcome.String()).
+				Bool("attributed", slot.Coverage.Attributed).Str("coverage_reason", slot.Coverage.Reason.String()).
+				Msg("Edge spool restart slot requires recovery coverage")
+		}
+	}
+	if count > 0 {
+		log.Error().Int("coverage_slots", count).Int("reported_slots", min(count, spool.MaxHealthGapSequences)).
+			Int("additional_slots", max(count-spool.MaxHealthGapSequences, 0)).
+			Msg("Edge spool restart found coverage gaps; lane delivery cannot resolve past them")
+	}
+}
+
+func edgeSpoolStatusSampler(sp *spool.Spool, budget *edgeSpoolBudget) func() *proto.EdgeRecordSpoolStatus {
+	return func() *proto.EdgeRecordSpoolStatus {
+		usage := budget.allocator.Usage()
+		status := &proto.EdgeRecordSpoolStatus{Available: true,
+			BytesUsed: usage.OrdinaryUsed + usage.RecoveryUsed, BudgetBytes: usage.Capacity,
+			AdmissionPaused: budget.gate.BulkPaused()}
+		health, err := sp.Health(time.Now())
+		if err != nil {
+			status.HealthError = err.Error()
+			return status
+		}
+		status.HealthAvailable = true
+		status.UnresolvedCount = health.UnresolvedCount
+		status.UnresolvedBytes = health.UnresolvedBytes
+		status.OldestUnresolvedAgeSeconds = uint64(health.OldestUnresolvedAge / time.Second)
+		status.OldestUnresolvedAgeKnown = health.ReportAge
+		status.GapCount = health.GapCount
+		status.GapSequences = health.GapSequences
+		status.Wedged = health.GapCount > 0
+		return status
+	}
 }

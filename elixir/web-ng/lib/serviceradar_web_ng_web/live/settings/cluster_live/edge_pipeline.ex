@@ -2,7 +2,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.EdgePipeline do
   @moduledoc """
   The Settings -> Cluster "Edge Pipeline" panel: every durable agent data family, per output
   contract, from gateway admission through EventWriter projection, plus the JetStream state of
-  the edge-record durables.
+  the edge-record durables. Agent spool samples come from the existing AgentTracker
+  hello/heartbeat path and do not depend on Prometheus scraping.
 
   The numbers are `ServiceRadar.Edge.PipelineStats` snapshots of every connected node (gateways
   and EventWriter cores), read from ETS and summed here, so the panel costs one remote call per
@@ -11,6 +12,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.EdgePipeline do
 
   use ServiceRadarWebNGWeb, :html
 
+  alias ServiceRadar.AgentRuntimeMetadata
   alias ServiceRadar.Edge.ContractRegistryTransition
   alias ServiceRadar.Edge.PipelineStats
 
@@ -39,6 +41,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.EdgePipeline do
     end)
     |> merge(System.system_time(:millisecond))
     |> Map.put(:registry, registry_status(nodes))
+    |> Map.put(:spools, AgentRuntimeMetadata.runtime_agents())
   end
 
   # The coordinator's last registry transition evaluation; only the coordinator has one.
@@ -153,6 +156,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.EdgePipeline do
   attr(:stats, :map, required: true)
 
   def panel(assigns) do
+    assigns = assign(assigns, :spool_rows, spool_rows(assigns.stats[:spools]))
+
     ~H"""
     <.ui_panel>
       <:header>
@@ -174,6 +179,39 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.EdgePipeline do
       </div>
 
       <.registry_notice message={registry_message(@stats[:registry])} />
+
+      <section id="cluster-edge-spools" class="mb-4 space-y-2">
+        <h3 class="text-sm font-semibold">Agent spool health</h3>
+        <p :if={@spool_rows == :unavailable} class="text-xs text-sr-muted">
+          Agent spool health is unavailable. A missing sample does not mean an empty spool.
+        </p>
+        <div :if={@spool_rows != :unavailable} class="sr-ui-table-shell">
+          <table class={ui_table_class(size: "sm")}>
+            <thead>
+              <tr>
+                <th>Agent</th><th>Lane</th><th>Gaps</th><th>Unresolved</th><th>Oldest age</th><th>
+                  Bytes / budget
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :for={row <- @spool_rows.rows}>
+                <td class="font-mono text-xs">{row.agent_id}</td>
+                <td class="text-xs">{spool_state(row)}</td>
+                <td class="text-xs">{gap_summary(row.spool)}</td>
+                <td>{unresolved_count(row.spool)}</td>
+                <td>{spool_age(row.spool)}</td>
+                <td class="font-mono text-xs">
+                  {spool_bytes(row.spool)}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <p :if={@spool_rows.more > 0} class="text-xs text-sr-muted">
+            {@spool_rows.more} additional agents; showing the first 100 by health priority and agent ID.
+          </p>
+        </div>
+      </section>
 
       <div :if={@stats.available} class="space-y-4">
         <div id="cluster-edge-pipeline-contracts" class="sr-ui-table-shell">
@@ -311,6 +349,44 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.EdgePipeline do
     </.ui_panel>
     """
   end
+
+  defp spool_rows({:ok, agents}) do
+    rows =
+      agents
+      |> Enum.map(fn {id, runtime} ->
+        %{agent_id: id, active: runtime.active, spool: runtime[:edge_record_spool] || %{}}
+      end)
+      |> Enum.sort_by(fn row ->
+        {row.spool[:wedged] != true, row.spool[:admission_paused] != true, row.agent_id}
+      end)
+
+    %{rows: Enum.take(rows, 100), more: max(length(rows) - 100, 0)}
+  end
+
+  defp spool_rows(_unavailable), do: :unavailable
+
+  defp spool_state(%{active: false}), do: "Disconnected (last sample)"
+  defp spool_state(%{spool: %{available: false}}), do: "Unavailable"
+  defp spool_state(%{spool: %{wedged: true}}), do: "Wedged - recovery required"
+  defp spool_state(%{spool: %{health_error: error}}) when error != "", do: "Health read failed: #{error}"
+  defp spool_state(%{spool: %{health_available: true, admission_paused: true}}), do: "Admission paused"
+  defp spool_state(%{spool: %{health_available: true}}), do: "Ready"
+  defp spool_state(_row), do: "Health not reported"
+
+  defp spool_bytes(%{bytes_used: used, budget_bytes: budget}) when budget > 0, do: "#{used} / #{budget}"
+  defp spool_bytes(_spool), do: "unknown"
+
+  defp unresolved_count(%{health_available: true, unresolved_count: count}), do: count
+  defp unresolved_count(_spool), do: "unknown"
+
+  defp gap_summary(%{health_available: true, gap_count: count, gap_sequences: sequences}) do
+    if count == 0, do: "0", else: "#{count} (first: #{Enum.join(sequences, ", ")})"
+  end
+
+  defp gap_summary(_spool), do: "unknown"
+
+  defp spool_age(%{oldest_unresolved_age_known: true, oldest_unresolved_age_seconds: age}), do: "#{age}s"
+  defp spool_age(_spool), do: "unknown"
 
   attr(:message, :any, required: true)
 

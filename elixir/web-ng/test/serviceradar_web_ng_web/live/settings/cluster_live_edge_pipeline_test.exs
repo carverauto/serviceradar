@@ -79,6 +79,42 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveEdgePipelineTest do
     assert [%{stream_messages: 5}] = stats.consumers
   end
 
+  test "live tracker spool samples reach the cluster panel and a later sample clears the wedge" do
+    {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
+    start_supervised!({Phoenix.PubSub, name: ServiceRadar.PubSub})
+    start_supervised!(ServiceRadar.AgentTracker)
+    agent_id = "synthetic-spool-agent"
+    on_exit(fn -> ServiceRadar.AgentTracker.remove_agent(agent_id) end)
+
+    health = %{
+      available: true,
+      health_available: true,
+      wedged: true,
+      gap_count: 2,
+      gap_sequences: [4, 8],
+      unresolved_count: 9,
+      oldest_unresolved_age_known: false,
+      bytes_used: 4096,
+      budget_bytes: 8192,
+      admission_paused: false
+    }
+
+    :ok = ServiceRadar.AgentTracker.track_agent(agent_id, %{edge_record_spool: health})
+    stats = EdgePipeline.stats_for_mount(true)
+    html = render_component(&EdgePipeline.panel/1, stats: stats)
+
+    assert cells(html, "#cluster-edge-spools tbody td") ==
+             [agent_id, "Wedged - recovery required", "2 (first: 4, 8)", "9", "unknown", "4096 / 8192"]
+
+    :ok =
+      ServiceRadar.AgentTracker.track_agent(agent_id, %{
+        edge_record_spool: %{health | wedged: false, gap_count: 0, gap_sequences: []}
+      })
+
+    html = render_component(&EdgePipeline.panel/1, stats: EdgePipeline.stats_for_mount(true))
+    assert Enum.at(cells(html, "#cluster-edge-spools tbody td"), 1) == "Ready"
+  end
+
   test "node snapshots are summed per contract and each durable keeps its latest sample" do
     node = fn name, counts, last_projected, sampled_at, pending ->
       %{

@@ -557,6 +557,18 @@ defmodule Monitoring.EdgeRecordSpoolStatus do
 
   field :available, 1, type: :bool
   field :error, 2, type: :string
+  field :health_available, 3, type: :bool, json_name: "healthAvailable"
+  field :health_error, 4, type: :string, json_name: "healthError"
+  field :wedged, 5, type: :bool
+  field :gap_sequences, 6, repeated: true, type: :uint64, json_name: "gapSequences"
+  field :gap_count, 7, type: :uint64, json_name: "gapCount"
+  field :unresolved_count, 8, type: :uint64, json_name: "unresolvedCount"
+  field :oldest_unresolved_age_seconds, 9, type: :uint64, json_name: "oldestUnresolvedAgeSeconds"
+  field :oldest_unresolved_age_known, 10, type: :bool, json_name: "oldestUnresolvedAgeKnown"
+  field :unresolved_bytes, 11, type: :uint64, json_name: "unresolvedBytes"
+  field :bytes_used, 12, type: :uint64, json_name: "bytesUsed"
+  field :budget_bytes, 13, type: :uint64, json_name: "budgetBytes"
+  field :admission_paused, 14, type: :bool, json_name: "admissionPaused"
 end
 
 defmodule Monitoring.HostInterface do

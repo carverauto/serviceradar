@@ -206,6 +206,7 @@ func runPushMode(
 		defer func() { _ = edgeSpool.Close() }()
 		attachEdgeSpoolMetrics(server, edgeSpool, edgeAdmission)
 		pushLoop.SetEdgeSpoolBudget(edgeBudget.Apply)
+		pushLoop.SetEdgeSpoolStatusSampler(edgeSpoolStatusSampler(edgeSpool, edgeBudget))
 		pushLoop.SetEdgeSweepSpool(edgeSpool)
 		pushLoop.SetEdgeMetricsSpool(edgeSpool)
 		pushLoop.SetEdgeTelemetrySpool(edgeSpool)

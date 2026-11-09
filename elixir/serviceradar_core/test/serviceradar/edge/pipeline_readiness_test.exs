@@ -111,6 +111,29 @@ defmodule ServiceRadar.Edge.PipelineReadinessTest do
              PipelineReadiness.conditions(agent(%{metadata: spool}), facts())
   end
 
+  test "live spool health overrides persisted availability and clears on the next sample" do
+    health = %{
+      available: true,
+      health_available: true,
+      wedged: true,
+      gap_count: 1,
+      gap_sequences: [4],
+      unresolved_count: 8,
+      oldest_unresolved_age_known: false,
+      bytes_used: 4096,
+      budget_bytes: 8192
+    }
+
+    live = facts(%{runtime: %{"agent-1" => runtime(%{edge_record_spool: health})}})
+
+    assert [%{reason: :spool_wedged, detail: ^health}] =
+             PipelineReadiness.conditions(agent(), live)
+
+    healthy = Map.put(health, :wedged, false)
+    live = facts(%{runtime: %{"agent-1" => runtime(%{edge_record_spool: healthy})}})
+    assert PipelineReadiness.conditions(agent(), live) == []
+  end
+
   test "a connected agent that reports no spool status runs a build from before the cutover" do
     old = agent(%{metadata: %{}, version: "1.4.0"})
 

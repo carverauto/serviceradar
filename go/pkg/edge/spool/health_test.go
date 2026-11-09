@@ -18,6 +18,8 @@ package spool
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -163,5 +165,44 @@ func TestUnresolvedHealthSeesRecordsAppendedThroughAnotherHandle(t *testing.T) {
 	bytes, age, reportAge, err := reader.UnresolvedHealth(now)
 	if err != nil || bytes != 3 || !reportAge || age != time.Minute {
 		t.Fatalf("health through another handle = (%d, %s, %v, %v), want (3, 1m0s, true, nil)", bytes, age, reportAge, err)
+	}
+}
+
+// An allocated slot without bytes is unresolved even when ScanFrom has nothing to send.
+func TestUnresolvedHealthDoesNotReportEmptyAfterCrash(t *testing.T) {
+	dir := t.TempDir()
+	s := openWith(t, dir, nil)
+	s.beforeBarrier = crashBefore(barrierRecord)
+	if _, err := s.Append(uuidV7At(1_700_000_000_000), []byte("synthetic")); err == nil {
+		t.Fatal("crash injection did not fire")
+	}
+	_ = s.Close()
+	reopened := openWith(t, dir, nil)
+	if slot := slotOf(t, reopened, 1); !slot.EntersCoverage() {
+		t.Fatalf("slot does not need coverage: %+v", slot)
+	}
+	_, _, known, err := reopened.UnresolvedHealth(time.UnixMilli(1_700_000_090_000))
+	if err != nil || known {
+		t.Fatalf("ambiguous slot reported a known age: known=%v err=%v", known, err)
+	}
+}
+
+func TestHealthCountsAllGapsWithBoundedSample(t *testing.T) {
+	dir := t.TempDir()
+	s := openWith(t, dir, nil)
+	for range 35 {
+		if _, err := s.Append(uuidV7At(1_700_000_000_000), []byte("synthetic")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = s.Close()
+	// Keep the durable allocations but lose every record body.
+	if err := os.Truncate(filepath.Join(dir, segmentFile), 0); err != nil {
+		t.Fatal(err)
+	}
+	reopened := openWith(t, dir, nil)
+	h, err := reopened.Health(time.UnixMilli(1_700_000_090_000))
+	if err != nil || h.UnresolvedCount != 35 || h.GapCount != 35 || len(h.GapSequences) != 32 || h.GapSequences[31] != 32 || h.ReportAge {
+		t.Fatalf("health = %+v, err=%v", h, err)
 	}
 }

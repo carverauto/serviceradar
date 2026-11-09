@@ -338,12 +338,23 @@ message AgentHelloRequest {
   optional EdgeRecordSpoolStatus edge_record_spool = 16;
 }
 
-// EdgeRecordSpoolStatus is whether the agent's durable edge-record spool opened
-// at startup. A spool that did not open leaves the agent off the edge pipeline,
-// so core shows the agent as spool_unavailable.
+// EdgeRecordSpoolStatus carries startup availability and live health on every
+// hello/heartbeat, independently of optional Prometheus scraping.
 message EdgeRecordSpoolStatus {
   bool available = 1;
   string error = 2; // Why the spool could not be opened; empty when available
+  bool health_available = 3; // False for older agents or a failed health read
+  string health_error = 4;
+  bool wedged = 5; // Allocated gaps prevent this lane from resolving
+  repeated uint64 gap_sequences = 6; // First 32 in ascending order; see gap_count
+  uint64 gap_count = 7; // Total; never silently truncate diagnostics
+  uint64 unresolved_count = 8; // Includes allocated gaps, not only readable records
+  uint64 oldest_unresolved_age_seconds = 9;
+  bool oldest_unresolved_age_known = 10; // False when gap timestamps are unavailable
+  uint64 unresolved_bytes = 11; // Readable unresolved record body bytes
+  uint64 bytes_used = 12; // Allocator charge including metadata and terminal evidence
+  uint64 budget_bytes = 13; // Current runtime budget, including reserved headroom
+  bool admission_paused = 14;
 }
 
 // The kind of a local interface, as the agent's operating system describes it.
