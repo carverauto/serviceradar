@@ -33,10 +33,11 @@ import (
 // retries.
 
 type workloadIdentityBuiltItem struct {
-	sig     workloadIdentityFileSignature
-	records []*edgev1.EdgeRecordV1
-	bodies  [][]byte
-	next    int
+	prepared []edgePreparedRecord
+	sig      workloadIdentityFileSignature
+	records  []*edgev1.EdgeRecordV1
+	bodies   [][]byte
+	next     int
 }
 
 type workloadIdentityEdgeQueue struct {
@@ -47,7 +48,7 @@ func (p *PushLoop) edgeWorkloadIdentityCapability(now time.Time) *edgev1.EdgeSig
 	if p == nil || p.edgeDiscoverySpool == nil {
 		return nil
 	}
-	return p.edgeOutputGrants.current(edgerecord.WorkloadIdentityContractID, now)
+	return p.currentEdgeOutputGrant(edgerecord.WorkloadIdentityContractID, now)
 }
 
 // spoolWorkloadIdentity reads a changed snapshot, builds it under capability,
@@ -86,9 +87,13 @@ func (p *PushLoop) appendWorkloadIdentityBuilt(built *workloadIdentityBuiltItem)
 	if p == nil || p.edgeDiscoverySpool == nil {
 		return false
 	}
+	if err := prepareRecordParts(p.edgeDiscoverySpool, built.records, built.bodies, &built.prepared); err != nil {
+		p.logger.Warn().Err(err).Msg("Record attribution unavailable; retaining pending records")
+		return false
+	}
 	for built.next < len(built.records) {
 		record := built.records[built.next]
-		if _, err := p.edgeDiscoverySpool.AppendFlow(edgeAdmissionFlow(record), record.GetEventId(), built.bodies[built.next]); err != nil {
+		if err := built.prepared[built.next].append(p.edgeDiscoverySpool, record, built.bodies[built.next]); err != nil {
 			p.logger.Warn().Err(err).Str("contract", edgerecord.WorkloadIdentityContractID).
 				Msg("Failed to spool workload identity record; will retry")
 			return false

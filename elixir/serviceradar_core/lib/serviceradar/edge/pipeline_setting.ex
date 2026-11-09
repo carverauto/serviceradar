@@ -77,9 +77,9 @@ defmodule ServiceRadar.Edge.PipelineSetting do
 
     attribute :spool_max_bytes, :integer do
       public? true
-      constraints min: 16 * 1024 * 1024
+      constraints min: 64 * 1024 * 1024
 
-      description "The agent edge-record spool byte budget; nil inherits, and the default is 1 GiB"
+      description "The agent edge-record spool byte budget (minimum 64 MiB); nil inherits, and the default is 1 GiB"
     end
 
     create_timestamp :inserted_at

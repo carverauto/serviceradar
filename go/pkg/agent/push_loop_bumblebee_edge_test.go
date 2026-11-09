@@ -186,7 +186,7 @@ func TestPushLoopBumblebeeEdgeSpoolsValidatedRecordAndNoStatus(t *testing.T) {
 	}
 	pl := NewPushLoop(server, nil, time.Second, logger.NewTestLogger())
 	pl.SetEdgeDiscoverySpool(sp)
-	pl.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{bumblebeeGrant(t, 64)}, time.Now())
+	installTestEdgeGrants(t, pl, sysmonEdgeAgentID, []*proto.EdgeOutputGrant{bumblebeeGrant(t, 64)}, time.Now())
 
 	statuses := pl.collectAllStatuses(context.Background())
 	for _, st := range statuses {
@@ -243,7 +243,7 @@ func TestPushLoopBumblebeeEdgeSpoolsNotScannedPostureWhenSpoolFileIsMissing(t *t
 	}
 	pl := NewPushLoop(server, nil, time.Second, logger.NewTestLogger())
 	pl.SetEdgeDiscoverySpool(sp)
-	pl.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{bumblebeeGrant(t, 64)}, time.Now())
+	installTestEdgeGrants(t, pl, sysmonEdgeAgentID, []*proto.EdgeOutputGrant{bumblebeeGrant(t, 64)}, time.Now())
 
 	pl.collectAllStatuses(context.Background())
 
@@ -293,7 +293,7 @@ func TestPushLoopBumblebeeEdgeBackpressurePausesSpoolServicePollingAndRetainsEve
 	}
 	pl := NewPushLoop(server, nil, time.Second, logger.NewTestLogger())
 	pl.SetEdgeDiscoverySpool(refusingEdgeSpool(t))
-	pl.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{bumblebeeGrant(t, 64)}, time.Now())
+	installTestEdgeGrants(t, pl, sysmonEdgeAgentID, []*proto.EdgeOutputGrant{bumblebeeGrant(t, 64)}, time.Now())
 
 	// First poll reads run-1 from BumblebeeSpoolService, builds the edge record,
 	// hits backpressure, and parks the built record in pl.bumblebeeEdge.built.
@@ -347,7 +347,7 @@ func TestPushLoopBumblebeeEdgeCountsInvalidRecordsAndHoldsWithoutGrant(t *testin
 	}
 	pl := NewPushLoop(server, nil, time.Second, logger.NewTestLogger())
 	pl.SetEdgeDiscoverySpool(sp)
-	pl.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{bumblebeeGrant(t, 1)}, time.Now())
+	installTestEdgeGrants(t, pl, sysmonEdgeAgentID, []*proto.EdgeOutputGrant{bumblebeeGrant(t, 1)}, time.Now())
 
 	// Missing run_id is counted as an invalid record once, not on every poll.
 	pl.collectAllStatuses(context.Background())
@@ -373,7 +373,7 @@ func TestPushLoopBumblebeeEdgeCountsInvalidRecordsAndHoldsWithoutGrant(t *testin
 	require.Empty(t, spooledRecords(t, sp))
 
 	// Without a grant the scan service is not polled and no status carries it.
-	pl.edgeOutputGrants.replace(sysmonEdgeAgentID, nil, time.Now())
+	installTestEdgeGrants(t, pl, sysmonEdgeAgentID, nil, time.Now())
 	polled := fakeSvc.calls
 	statuses := pl.collectAllStatuses(context.Background())
 	for _, st := range statuses {

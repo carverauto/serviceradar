@@ -25,7 +25,6 @@ import (
 	gproto "google.golang.org/protobuf/proto"
 
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
-	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
 	netprobepb "github.com/carverauto/serviceradar/proto/agent/netprobe/v1"
@@ -46,7 +45,7 @@ func currentFlowAttributionGrant(t *testing.T) *proto.EdgeOutputGrant {
 
 func spooledEdgeRecordsWithBody[T gproto.Message](
 	t *testing.T,
-	sp *spool.Spool,
+	sp *RecordSpool,
 	validate func(*edgev1.EdgeRecordV1) error,
 	newBody func() T,
 ) ([]*edgev1.EdgeRecordV1, []T) {
@@ -68,7 +67,7 @@ func spooledEdgeRecordsWithBody[T gproto.Message](
 	return records, bodies
 }
 
-func spooledFlowAttributionRecords(t *testing.T, sp *spool.Spool) ([]*edgev1.EdgeRecordV1, []*netprobepb.FlowAttributionEventBatch) {
+func spooledFlowAttributionRecords(t *testing.T, sp *RecordSpool) ([]*edgev1.EdgeRecordV1, []*netprobepb.FlowAttributionEventBatch) {
 	t.Helper()
 	return spooledEdgeRecordsWithBody(t, sp, edgerecord.ValidateFlowAttributionRecord, func() *netprobepb.FlowAttributionEventBatch {
 		return &netprobepb.FlowAttributionEventBatch{}
@@ -93,7 +92,7 @@ func TestFlowAttributionWithGrantSpoolsEdgeRecord(t *testing.T) {
 		flowAttributionDelivery: flowAttributionDeliveryQueue{pending: pending},
 	}
 	loop.SetEdgeMetricsSpool(sp)
-	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentFlowAttributionGrant(t)}, now)
+	installTestEdgeGrants(t, loop, sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentFlowAttributionGrant(t)}, now)
 
 	require.True(t, loop.pushFlowAttribution())
 	require.Nil(t, loop.flowAttributionDelivery.pending)
@@ -134,7 +133,7 @@ func TestFlowAttributionWithoutGrantHoldsBatchUntilGrant(t *testing.T) {
 	require.NoError(t, loop.server.edgeProducerDrops.write(&metrics))
 	require.Contains(t, metrics.String(), `agent_edge_record_grant_holds_total{producer="flow_attribution"} 1`)
 
-	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentFlowAttributionGrant(t)}, now)
+	installTestEdgeGrants(t, loop, sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentFlowAttributionGrant(t)}, now)
 	require.True(t, loop.pushFlowAttribution())
 	require.Nil(t, loop.flowAttributionDelivery.pending)
 	records, batches := spooledFlowAttributionRecords(t, sp)
@@ -159,7 +158,7 @@ func TestFlowAttributionRetryableSpoolRefusalRetainsBuiltEventIDAcrossGrantWithd
 		flowAttributionDelivery: flowAttributionDeliveryQueue{pending: pending},
 	}
 	loop.SetEdgeMetricsSpool(refusingEdgeSpool(t))
-	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentFlowAttributionGrant(t)}, now)
+	installTestEdgeGrants(t, loop, sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentFlowAttributionGrant(t)}, now)
 
 	require.False(t, loop.pushFlowAttribution())
 	require.NotNil(t, loop.flowAttributionDelivery.pending)
@@ -172,12 +171,12 @@ func TestFlowAttributionRetryableSpoolRefusalRetainsBuiltEventIDAcrossGrantWithd
 	// batch; nothing is sent elsewhere.
 	roomy := openTestEdgeSpool(t)
 	loop.SetEdgeMetricsSpool(roomy)
-	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, nil, now)
+	installTestEdgeGrants(t, loop, sysmonEdgeAgentID, nil, now)
 	require.False(t, loop.pushFlowAttribution())
 	require.NotNil(t, loop.flowAttributionDelivery.edgePending)
 	require.NotNil(t, loop.flowAttributionDelivery.pending)
 
-	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentFlowAttributionGrant(t)}, now)
+	installTestEdgeGrants(t, loop, sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentFlowAttributionGrant(t)}, now)
 	require.True(t, loop.pushFlowAttribution())
 	require.Nil(t, loop.flowAttributionDelivery.pending)
 	require.Nil(t, loop.flowAttributionDelivery.edgePending)
@@ -213,7 +212,7 @@ func TestFlowAttributionSingleOversizedEventQuarantinedOnEdgePath(t *testing.T) 
 		flowAttributionDelivery: flowAttributionDeliveryQueue{pending: pending},
 	}
 	loop.SetEdgeMetricsSpool(sp)
-	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentFlowAttributionGrant(t)}, now)
+	installTestEdgeGrants(t, loop, sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentFlowAttributionGrant(t)}, now)
 
 	require.True(t, loop.pushFlowAttribution())
 	require.Equal(t, uint64(1), loop.server.deliveryTelemetry.flowAttributionQuarantined.Load())

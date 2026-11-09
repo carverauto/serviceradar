@@ -27,7 +27,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
-	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/sweeper"
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
@@ -80,7 +79,7 @@ var errSweepLeaseSlotNotRunnable = errors.New("leased sweep slot is no longer ex
 
 // sweepLeaseRunner is the slice of MultiSweepService the executor drives.
 type sweepLeaseRunner interface {
-	RunSweepGroupLease(ctx context.Context, groupID string, lease *edgev1.SweepLeaseV1, slot *edgev1.SweepLeaseSlotV1, sp *spool.Spool, icmpUnavailable bool, claim sweepSlotClaim) error
+	RunSweepGroupLease(ctx context.Context, groupID string, lease *edgev1.SweepLeaseV1, slot *edgev1.SweepLeaseSlotV1, sp *RecordSpool, icmpUnavailable bool, claim sweepSlotClaim) error
 	SetGroupLeaseDriven(groupID string, driven bool)
 	SetGroupLeaseState(groupID string, state string, nextSlotUnixNano int64, slotsRemaining int)
 }
@@ -89,7 +88,7 @@ type sweepLeaseRunner interface {
 // pass through runnerFor because config pushes replace group services while
 // the executor keeps running.
 type sweepLeaseExecutor struct {
-	edgeSpool *spool.Spool
+	edgeSpool *RecordSpool
 	store     *sweepLeaseStore
 	runnerFor func() sweepLeaseRunner
 	logger    logger.Logger

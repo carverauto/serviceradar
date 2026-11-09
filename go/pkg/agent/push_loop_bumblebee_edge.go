@@ -30,9 +30,10 @@ import (
 )
 
 type bumblebeePendingRecord struct {
-	record *edgev1.EdgeRecordV1
-	body   []byte
-	hash   [32]byte
+	prepared edgePreparedRecord
+	record   *edgev1.EdgeRecordV1
+	body     []byte
+	hash     [32]byte
 }
 
 // bumblebeeEdgeRefreshInterval is how long an admitted scan is deduplicated
@@ -70,7 +71,7 @@ func (p *PushLoop) edgeBumblebeeCapability(now time.Time) *edgev1.EdgeSignedCapa
 	if p == nil || p.edgeDiscoverySpool == nil {
 		return nil
 	}
-	return p.edgeOutputGrants.current(edgerecord.BumblebeeScanContractID, now)
+	return p.currentEdgeOutputGrant(edgerecord.BumblebeeScanContractID, now)
 }
 
 func (p *PushLoop) bumblebeeAgentID() string {
@@ -142,11 +143,7 @@ func (p *PushLoop) tryFlushPendingBumblebeeEdgeLocked(now time.Time) bool {
 	if pending == nil {
 		return true
 	}
-	if _, err := p.edgeDiscoverySpool.AppendFlow(
-		edgeAdmissionFlow(pending.record),
-		pending.record.GetEventId(),
-		pending.body,
-	); err != nil {
+	if err := pending.prepared.append(p.edgeDiscoverySpool, pending.record, pending.body); err != nil {
 		if permanentSpoolRefusal(err) {
 			p.dropEdgeMetrics(edgeProducerBumblebee, edgeDropRefused, 1, err)
 			p.bumblebeeEdge.markHandled(pending.hash, time.Time{})
@@ -201,20 +198,18 @@ func (p *PushLoop) emitBumblebeeEdgeLocked(
 		return
 	}
 
-	if _, err := p.edgeDiscoverySpool.AppendFlow(
-		edgeAdmissionFlow(record),
-		record.GetEventId(),
-		body,
-	); err != nil {
+	prepared := edgePreparedRecord{}
+	if err := prepared.append(p.edgeDiscoverySpool, record, body); err != nil {
 		if permanentSpoolRefusal(err) {
 			p.dropEdgeMetrics(edgeProducerBumblebee, edgeDropRefused, 1, err)
 			p.bumblebeeEdge.markHandled(hash, time.Time{})
 			return
 		}
 		p.bumblebeeEdge.built = &bumblebeePendingRecord{
-			record: record,
-			body:   body,
-			hash:   hash,
+			prepared: prepared,
+			record:   record,
+			body:     body,
+			hash:     hash,
 		}
 		p.logger.Warn().
 			Err(err).

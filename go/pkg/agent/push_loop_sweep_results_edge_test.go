@@ -168,17 +168,17 @@ func reachableHost(addr string) models.HostResult {
 
 // unleasedSweepLoop is a push loop with sp as its edge spool, svc as its sweep
 // results provider, and the given standing grants.
-func unleasedSweepLoop(t *testing.T, sp *spool.Spool, svc *scriptedSweepResults, grants ...*proto.EdgeOutputGrant) *PushLoop {
+func unleasedSweepLoop(t *testing.T, sp *RecordSpool, svc *scriptedSweepResults, grants ...*proto.EdgeOutputGrant) *PushLoop {
 	t.Helper()
 	loop, _ := sysmonEdgeLoop(t, sp)
 	loop.server.services = []Service{svc}
-	require.Empty(t, loop.edgeOutputGrants.replace(sysmonEdgeAgentID, grants, time.Now()))
+	require.Empty(t, installTestEdgeGrants(t, loop, sysmonEdgeAgentID, grants, time.Now()))
 	return loop
 }
 
 // spooledUnleasedSweep decodes the spool's unleased results records, each of
 // which must pass the contract validator, and counts its metrics batch records.
-func spooledUnleasedSweep(t *testing.T, sp *spool.Spool) ([]*edgev1.EdgeRecordV1, []*edgev1.UnleasedSweepResultsBatchV1, int) {
+func spooledUnleasedSweep(t *testing.T, sp *RecordSpool) ([]*edgev1.EdgeRecordV1, []*edgev1.UnleasedSweepResultsBatchV1, int) {
 	t.Helper()
 	stored, err := sp.Unresolved()
 	require.NoError(t, err)
@@ -459,7 +459,7 @@ func TestUnleasedSweepResultsAreNotReadWithoutBothGrants(t *testing.T) {
 			require.Empty(t, svc.acked())
 			require.Equal(t, uint64(1), loop.server.edgeProducerDrops.grantHolds[edgeProducerSweepResults].Load())
 
-			require.Empty(t, loop.edgeOutputGrants.replace(sysmonEdgeAgentID,
+			require.Empty(t, installTestEdgeGrants(t, loop, sysmonEdgeAgentID,
 				[]*proto.EdgeOutputGrant{currentMetricsGrant(t), unleasedSweepGrant(t, 10_000)}, time.Now()))
 			require.True(t, loop.pushSweepResults(t.Context()))
 			_, batches, metrics = spooledUnleasedSweep(t, sp)
@@ -545,7 +545,7 @@ func TestARefusedUnleasedSweepAppendResumesWithTheUnsentRecords(t *testing.T) {
 			require.Equal(t, refused, script.ids[admitted+1], "the retry reuses the refused record's event id")
 			require.Equal(t, 1, svc.reads, "no response is read while one is pending")
 
-			require.Empty(t, loop.edgeOutputGrants.replace(sysmonEdgeAgentID, nil, time.Now()))
+			require.Empty(t, installTestEdgeGrants(t, loop, sysmonEdgeAgentID, nil, time.Now()))
 			script.admitAll()
 			require.True(t, loop.pushSweepResults(t.Context()))
 			require.Equal(t, refused, script.ids[0])
@@ -765,7 +765,7 @@ func TestSweepResultsPermanentRefusalAfterAdmissionDropsAndAcks(t *testing.T) {
 // the next response is read while the gateway has resolved none of them.
 func TestUnleasedSweepFinalIsSpooledImmediatelyAndSurvivesRestart(t *testing.T) {
 	dir := t.TempDir()
-	sp, err := spool.Open(dir)
+	sp, err := openTestRecordSpool(t, dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = sp.Close() })
 
@@ -780,7 +780,7 @@ func TestUnleasedSweepFinalIsSpooledImmediatelyAndSurvivesRestart(t *testing.T) 
 	loop := unleasedSweepLoop(t, sp, svc, currentMetricsGrant(t), unleasedSweepGrant(t, 2))
 
 	require.True(t, loop.pushSweepResults(t.Context()))
-	require.Zero(t, sp.Resolved(), "the gateway has resolved nothing")
+	require.Zero(t, soleTestGeneration(t, sp).Resolved(), "the gateway has resolved nothing")
 	require.Equal(t, []string{unleasedTestGroupID + "/5", unleasedTestGroupID + "/6"}, svc.acked())
 
 	_, all, metrics := spooledUnleasedSweep(t, sp)
@@ -807,7 +807,7 @@ func TestUnleasedSweepFinalIsSpooledImmediatelyAndSurvivesRestart(t *testing.T) 
 	require.Greater(t, total, uint32(1))
 
 	require.NoError(t, sp.Close())
-	reopened, err := spool.Open(dir)
+	reopened, err := openTestRecordSpool(t, dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = reopened.Close() })
 	_, after, afterMetrics := spooledUnleasedSweep(t, reopened)
@@ -840,7 +840,7 @@ func TestPermanentSiblingRefusalSpoolsADurableCancelRecord(t *testing.T) {
 		hosts[i] = reachableHost(fmt.Sprintf("192.0.2.%d", 50+i))
 	}
 	dir := t.TempDir()
-	sp, err := spool.Open(dir)
+	sp, err := openTestRecordSpool(t, dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = sp.Close() })
 	svc := &scriptedSweepResults{responses: []*proto.ResultsResponse{
@@ -854,7 +854,7 @@ func TestPermanentSiblingRefusalSpoolsADurableCancelRecord(t *testing.T) {
 	requireCancelRecord(t, sp, []uint32{1, 2})
 
 	require.NoError(t, sp.Close())
-	reopened, err := spool.Open(dir)
+	reopened, err := openTestRecordSpool(t, dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = reopened.Close() })
 	requireCancelRecord(t, reopened, []uint32{1, 2})
@@ -868,7 +868,7 @@ func TestPermanentSiblingRefusalSpoolsADurableCancelRecord(t *testing.T) {
 	require.Positive(t, finalHosts)
 }
 
-func requireCancelRecord(t *testing.T, sp *spool.Spool, emitted []uint32) {
+func requireCancelRecord(t *testing.T, sp *RecordSpool, emitted []uint32) {
 	t.Helper()
 	_, batches, _ := spooledUnleasedSweep(t, sp)
 	var marker *edgev1.UnleasedSweepResultsBatchV1
@@ -920,7 +920,7 @@ func TestCancelledSweepWithNoHostsIsADataChunk(t *testing.T) {
 	require.EqualValues(t, 1, batches[0].GetTotalChunks())
 }
 
-func spooledEventIDs(t *testing.T, sp *spool.Spool) [][]byte {
+func spooledEventIDs(t *testing.T, sp *RecordSpool) [][]byte {
 	t.Helper()
 	stored, err := sp.Unresolved()
 	require.NoError(t, err)

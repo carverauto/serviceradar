@@ -28,7 +28,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/carverauto/serviceradar/go/pkg/agent/syncsources"
-	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	"github.com/carverauto/serviceradar/go/pkg/models"
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 	"github.com/stretchr/testify/require"
@@ -133,7 +132,7 @@ func fakeDriverInt(creds map[string]string, key string, fallback int) int {
 
 // newSyncTestRuntime is a sync runtime on an open edge spool, holding the sync
 // page grant, with the synthetic driver registered.
-func newSyncTestRuntime(t *testing.T) (*SyncRuntime, *PushLoop, *spool.Spool) {
+func newSyncTestRuntime(t *testing.T) (*SyncRuntime, *PushLoop, *RecordSpool) {
 	t.Helper()
 	sp := openTestEdgeSpool(t)
 	loop, runtime := syncTestRuntime(t, sp)
@@ -155,7 +154,7 @@ func newFakeSourceRunner(credentials map[string]string) *syncSourceRunner {
 }
 
 // spooledSyncDevices is every device a run spooled, in spool order.
-func spooledSyncDevices(t *testing.T, sp *spool.Spool) []*edgev1.SyncDeviceRecordV1 {
+func spooledSyncDevices(t *testing.T, sp *RecordSpool) []*edgev1.SyncDeviceRecordV1 {
 	t.Helper()
 	var devices []*edgev1.SyncDeviceRecordV1
 	for _, page := range decodeSyncPages(t, sp) {
@@ -280,7 +279,7 @@ func TestSyncRunDoesNotStartWithoutTheSyncPageGrant(t *testing.T) {
 	runtime.drivers.Register(fakeSyncSourceType, func() syncsources.SourceDriver {
 		return countingSyncDriver{runs: &runs}
 	})
-	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, nil, time.Now())
+	installTestEdgeGrants(t, loop, sysmonEdgeAgentID, nil, time.Now())
 
 	runner := newFakeSourceRunner(nil)
 	runtime.executeRun(context.Background(), runner, "poll")

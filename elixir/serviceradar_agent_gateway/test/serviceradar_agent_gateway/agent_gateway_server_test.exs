@@ -279,7 +279,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
                  error: "",
                  wedged: true,
                  gap_count: 2,
+                 retained_legacy_bytes: 192,
                  gap_sequences: [4, 8],
+                 generation_gaps: [%{spool_generation_id: "0102030405067008800a0b0c0d0e0f10", sequence: 4}],
                  unresolved_count: 9,
                  bytes_used: 4096,
                  budget_bytes: 8192
@@ -881,7 +883,16 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
         health_available: true,
         wedged: true,
         gap_count: 2,
+        retained_legacy_bytes: 192,
         gap_sequences: [4, 8],
+        generation_gaps: [
+          %Monitoring.EdgeRecordSpoolGap{
+            spool_generation_id: <<1, 2, 3, 4, 5, 6, 0x70, 8, 0x80, 10, 11, 12, 13, 14, 15, 16>>,
+            route_profile: :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
+            traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_BULK,
+            sequence: 4
+          }
+        ],
         unresolved_count: 9,
         bytes_used: 4096,
         budget_bytes: 8192

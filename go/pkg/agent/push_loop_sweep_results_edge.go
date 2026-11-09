@@ -108,8 +108,8 @@ func (p *PushLoop) sweepResultsEdgeGrants(now time.Time) (results, metrics *edge
 	if p.edgeMetricsSpool == nil {
 		return nil, nil
 	}
-	results = p.edgeOutputGrants.current(edgerecord.UnleasedSweepResultsContractID, now)
-	metrics = p.edgeOutputGrants.current(edgerecord.MetricsBatchContractID, now)
+	results = p.currentEdgeOutputGrant(edgerecord.UnleasedSweepResultsContractID, now)
+	metrics = p.currentEdgeOutputGrant(edgerecord.MetricsBatchContractID, now)
 	if results == nil || metrics == nil {
 		return nil, nil
 	}
@@ -339,8 +339,12 @@ func (p *PushLoop) abandonSweepResultsEdge(sweepSvc SweepResultsProvider, err er
 // caller does not append later records. After a record was admitted, a permanent
 // refusal drops that record, counts it in state.incomplete, and continues.
 func (p *PushLoop) appendSweepResultsRecords(producer edgeProducer, parts []edgeMetricsBuilt, state *sweepResultsEdgePending, admitted func(i int)) (added int, rest []edgeMetricsBuilt, fallback error) {
-	for i, part := range parts {
-		permanent, err := p.appendOneSweepRecord(part)
+	if err := prepareMetricParts(p.edgeMetricsSpool, parts); err != nil {
+		p.logger.Warn().Err(err).Msg("Record attribution unavailable; retaining sweep results")
+		return 0, parts, nil
+	}
+	for i := range parts {
+		permanent, err := p.appendOneSweepRecord(&parts[i])
 		if err == nil {
 			if admitted != nil {
 				admitted(i)
@@ -366,12 +370,12 @@ func (p *PushLoop) appendSweepResultsRecords(producer edgeProducer, parts []edge
 // appendOneSweepRecord appends one built record. permanent is set when repeating
 // the append cannot succeed: the body will not encode, or the spool refused it
 // for a reason that is not cleared by waiting.
-func (p *PushLoop) appendOneSweepRecord(part edgeMetricsBuilt) (permanent bool, err error) {
+func (p *PushLoop) appendOneSweepRecord(part *edgeMetricsBuilt) (permanent bool, err error) {
 	body, err := edgerecord.CanonicalRecordBytes(part.record)
 	if err != nil {
 		return true, err
 	}
-	if _, err = p.edgeMetricsSpool.AppendFlow(edgeAdmissionFlow(part.record), part.record.GetEventId(), body); err != nil {
+	if err = part.prepared.append(p.edgeMetricsSpool, part.record, body); err != nil {
 		return permanentSpoolRefusal(err) || errors.Is(err, spool.ErrEventIDLength), err
 	}
 	return false, nil

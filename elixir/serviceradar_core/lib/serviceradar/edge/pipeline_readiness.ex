@@ -74,6 +74,7 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
           | :agent_disconnected
           | :agent_upgrade_blocked
           | :spool_unavailable
+          | :unsupported_legacy_storage
           | :spool_wedged
           | :spool_backpressure
           | :spool_health_unavailable
@@ -243,7 +244,12 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
 
   defp spool_status_conditions(spool) do
     if (Map.get(spool, "available") || Map.get(spool, :available)) == true do
-      spool_health_conditions(spool)
+      retained =
+        if (spool_field(spool, :retained_legacy_bytes) || 0) > 0,
+          do: [%{reason: :unsupported_legacy_storage, detail: spool}],
+          else: []
+
+      retained ++ spool_health_conditions(spool)
     else
       error = Map.get(spool, "error") || Map.get(spool, :error)
       [%{reason: :spool_unavailable, detail: %{error: present(error)}}]

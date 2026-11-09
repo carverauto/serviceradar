@@ -29,7 +29,6 @@ import (
 	gproto "google.golang.org/protobuf/proto"
 
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
-	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
@@ -70,7 +69,7 @@ func pluginResultsGrant(t *testing.T, agentID string) *proto.EdgeOutputGrant {
 	}
 }
 
-func pluginResultsLoop(t *testing.T, sp *spool.Spool) *PushLoop {
+func pluginResultsLoop(t *testing.T, sp *RecordSpool) *PushLoop {
 	t.Helper()
 	loop := &PushLoop{
 		server: &Server{config: &ServerConfig{AgentID: sysmonEdgeAgentID, Partition: "default"}},
@@ -82,14 +81,14 @@ func pluginResultsLoop(t *testing.T, sp *spool.Spool) *PushLoop {
 
 func pluginResultsCapability(t *testing.T, loop *PushLoop) *edgev1.EdgeSignedCapabilityV1 {
 	t.Helper()
-	loop.edgeOutputGrants.replace(sysmonEdgeAgentID,
+	installTestEdgeGrants(t, loop, sysmonEdgeAgentID,
 		[]*proto.EdgeOutputGrant{pluginResultsGrant(t, sysmonEdgeAgentID)}, time.Now())
 	capability := loop.edgePluginResultsCapability(time.Now())
 	require.NotNil(t, capability)
 	return capability
 }
 
-func spooledPluginResultBatches(t *testing.T, sp *spool.Spool) []*edgev1.WasmPluginResultBatchV1 {
+func spooledPluginResultBatches(t *testing.T, sp *RecordSpool) []*edgev1.WasmPluginResultBatchV1 {
 	t.Helper()
 	stored, err := sp.Unresolved()
 	require.NoError(t, err)

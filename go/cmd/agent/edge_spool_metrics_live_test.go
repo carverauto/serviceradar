@@ -31,8 +31,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
+	"github.com/carverauto/serviceradar/go/pkg/edge/fairsched"
 	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	"github.com/carverauto/serviceradar/proto"
+	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 	"google.golang.org/grpc"
 )
 
@@ -276,21 +279,39 @@ func scrapeMetricsOnce(ctx context.Context, t *testing.T, url string) (string, b
 	return "", false, fmt.Sprintf("status %d body %s", resp.StatusCode, payload)
 }
 
+// These fixtures exercise transport/header metrics, not producer authorization.
+// Real producer admission is covered by the running sweep and sealed facade tests.
 func commitSpool(t *testing.T, dir string, records []spooledRecord) {
 	t.Helper()
-	sp, err := spool.Open(dir)
-	if err != nil {
-		t.Fatalf("open spool: %v", err)
-	}
-	for _, rec := range records {
-		if _, err := sp.Append(rec.eventID, rec.body); err != nil {
-			_ = sp.Close()
-			t.Fatalf("append: %v", err)
+	lanes, identity, key := testTransportLanes(t, dir)
+	for _, record := range records {
+		if _, err := lanes.Append(key, identity, record.eventID, record.body); err != nil {
+			t.Fatal(err)
 		}
 	}
-	if err := sp.Close(); err != nil {
-		t.Fatalf("close spool: %v", err)
+	if err := lanes.Close(); err != nil {
+		t.Fatal(err)
 	}
+}
+
+func testTransportLanes(t *testing.T, dir string) (*spool.LaneSet, spool.Identity, spool.LaneKey) {
+	t.Helper()
+	id, err := edgerecord.NewUUIDv7()
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := spool.Identity{NetworkScopeID: id, AgentID: []byte("agent-demo")}
+	key := spool.LaneKey{RouteProfile: edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1, TrafficClass: edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_BULK}
+	control := spool.LaneKey{RouteProfile: edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_RECOVERY_CONTROL_V1, TrafficClass: edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_INTERACTIVE}
+	taxonomy, err := fairsched.NewLaneTaxonomy([]fairsched.LanePolicy{{Key: key, WeightBytes: 1}, {Key: control, WeightBytes: 1}}, control)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lanes, err := spool.OpenLanes(filepath.Join(dir, "lanes"), identity, taxonomy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return lanes, identity, key
 }
 
 func edgeSpoolLines(body string) string {

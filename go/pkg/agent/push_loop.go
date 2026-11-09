@@ -33,7 +33,6 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess"
 	agentgateway "github.com/carverauto/serviceradar/go/pkg/agentgateway"
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
-	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/sysmon"
 	"github.com/carverauto/serviceradar/proto"
@@ -141,23 +140,23 @@ type PushLoop struct {
 	configSectionMu       sync.Mutex
 	configSectionFailures map[string]configSectionFailure // persistent config-section apply failure, by section name (drives skip + escalate-once + per-section ack)
 
-	edgeSweepSpool *spool.Spool
-	// edgeMetricsSpool is the sender's one open bulk spool. Metric batches,
+	edgeSweepSpool *RecordSpool
+	// edgeMetricsSpool is the shared bounded bulk lanes. Metric batches,
 	// flow-attribution windows, and OTLP relay frames append here while the
 	// agent holds the matching standing grant. Nil (the spool did not open)
 	// makes each of those producers hold its data as it does without a grant.
 	edgeMetricsSpool edgeMetricsAppender
-	// edgeTelemetrySpool is the same one open spool, connected for plugin and
+	// edgeTelemetrySpool is the same bounded lane owner, connected for plugin and
 	// add-on telemetry; nil when the spool did not open.
 	edgeTelemetrySpool edgeMetricsAppender
 	// Each telemetry producer's bounded retry queue, oldest first.
 	pluginTelemetryEdge telemetryEdgeQueue
 	addonTelemetryEdge  telemetryEdgeQueue
-	// edgePluginResultSpool is the same one open spool, connected for Wasm
+	// edgePluginResultSpool is the same bounded lane owner, connected for Wasm
 	// plugin results; nil when the spool did not open.
 	edgePluginResultSpool edgeMetricsAppender
 	pluginResultsEdge     pluginResultEdgeQueue
-	// edgeDiscoverySpool is the same one open spool, connected for mapper
+	// edgeDiscoverySpool is the same bounded lane owner, connected for mapper
 	// and netprobe discovery, workload identity snapshots, k8s public endpoint
 	// snapshots, endpoint inventory scans and bumblebee scans; nil when the
 	// spool did not open.

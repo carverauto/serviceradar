@@ -584,6 +584,36 @@ defmodule Monitoring.EdgeRecordSpoolStatus do
   field :bytes_used, 12, type: :uint64, json_name: "bytesUsed"
   field :budget_bytes, 13, type: :uint64, json_name: "budgetBytes"
   field :admission_paused, 14, type: :bool, json_name: "admissionPaused"
+
+  field :generation_gaps, 15,
+    repeated: true,
+    type: Monitoring.EdgeRecordSpoolGap,
+    json_name: "generationGaps"
+
+  field :retained_legacy_bytes, 16, type: :uint64, json_name: "retainedLegacyBytes"
+end
+
+defmodule Monitoring.EdgeRecordSpoolGap do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.EdgeRecordSpoolGap",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :spool_generation_id, 1, type: :bytes, json_name: "spoolGenerationId"
+
+  field :route_profile, 2,
+    type: Serviceradar.Edge.V1.EdgeRecordRouteProfile,
+    json_name: "routeProfile",
+    enum: true
+
+  field :traffic_class, 3,
+    type: Serviceradar.Edge.V1.EdgeRecordTrafficClass,
+    json_name: "trafficClass",
+    enum: true
+
+  field :sequence, 4, type: :uint64
 end
 
 defmodule Monitoring.HostInterface do

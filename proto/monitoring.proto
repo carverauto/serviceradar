@@ -352,7 +352,7 @@ message EdgeRecordSpoolStatus {
   bool health_available = 3; // False for older agents or a failed health read
   string health_error = 4;
   bool wedged = 5; // Allocated gaps prevent this lane from resolving
-  repeated uint64 gap_sequences = 6; // First 32 in ascending order; see gap_count
+  repeated uint64 gap_sequences = 6; // Legacy single-generation sample only; see generation_gaps
   uint64 gap_count = 7; // Total; never silently truncate diagnostics
   uint64 unresolved_count = 8; // Includes allocated gaps, not only readable records
   uint64 oldest_unresolved_age_seconds = 9;
@@ -361,6 +361,18 @@ message EdgeRecordSpoolStatus {
   uint64 bytes_used = 12; // Allocator charge including metadata and terminal evidence
   uint64 budget_bytes = 13; // Current runtime budget, including reserved headroom
   bool admission_paused = 14;
+  // At most 32 samples across the complete lane inventory. gap_count includes
+  // every omitted slot; sequence is meaningful only with this generation id.
+  repeated EdgeRecordSpoolGap generation_gaps = 15;
+  // Unsupported flat-storage bytes retained untouched and charged to the shared budget.
+  uint64 retained_legacy_bytes = 16;
+}
+
+message EdgeRecordSpoolGap {
+  bytes spool_generation_id = 1;
+  serviceradar.edge.v1.EdgeRecordRouteProfile route_profile = 2;
+  serviceradar.edge.v1.EdgeRecordTrafficClass traffic_class = 3;
+  uint64 sequence = 4;
 }
 
 // The kind of a local interface, as the agent's operating system describes it.

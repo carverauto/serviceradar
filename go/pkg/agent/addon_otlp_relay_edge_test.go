@@ -27,7 +27,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
-	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	addonpb "github.com/carverauto/serviceradar/proto/agent/addon/v1"
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
@@ -74,7 +73,7 @@ func otlpRelayCapability(t *testing.T, notBefore, expires time.Time, maxRows uin
 	return capability
 }
 
-func spooledOtlpRelayRecords(t *testing.T, sp *spool.Spool) ([]*edgev1.EdgeRecordV1, []*addonpb.OtlpRelayFrame) {
+func spooledOtlpRelayRecords(t *testing.T, sp *RecordSpool) ([]*edgev1.EdgeRecordV1, []*addonpb.OtlpRelayFrame) {
 	t.Helper()
 	return spooledEdgeRecordsWithBody(t, sp, edgerecord.ValidateOtlpRelayRecord, func() *addonpb.OtlpRelayFrame {
 		return &addonpb.OtlpRelayFrame{}
@@ -85,6 +84,7 @@ func TestOtlpRelayPumpWithGrantSpoolsEdgeRecordsAndAcksAfterAppend(t *testing.T)
 	sp := openTestEdgeSpool(t)
 	now := time.Now()
 	cap := otlpRelayCapability(t, now.Add(-time.Hour), now.Add(8*24*time.Hour), 1024)
+	installTestCapability(t, sp, cap)
 
 	pump := &otlpRelayPump{
 		addonID:         "otel-collector",
@@ -134,6 +134,7 @@ func TestOtlpRelayPumpSplitsMultiRecordFrameAndPreservesCountersOnFirstPart(t *t
 	sp := openTestEdgeSpool(t)
 	now := time.Now()
 	cap := otlpRelayCapability(t, now.Add(-time.Hour), now.Add(8*24*time.Hour), 2)
+	installTestCapability(t, sp, cap)
 
 	pump := &otlpRelayPump{
 		addonID:         "otel-collector",
@@ -179,6 +180,7 @@ func TestOtlpRelayPumpRetryableSpoolRefusalRetainsBuiltEventIDBeforeAck(t *testi
 	flaky := &refusingRelayAppender{delegate: sp, refuseFirst: 1}
 	now := time.Now()
 	cap := otlpRelayCapability(t, now.Add(-time.Hour), now.Add(8*24*time.Hour), 1024)
+	installTestCapability(t, sp, cap)
 
 	pump := &otlpRelayPump{
 		addonID:             "otel-collector",
@@ -221,6 +223,7 @@ func TestOtlpRelayPumpCountsAndAcksRecordNoEdgeRecordHolds(t *testing.T) {
 	sp := openTestEdgeSpool(t)
 	now := time.Now()
 	cap := otlpRelayCapability(t, now.Add(-time.Hour), now.Add(8*24*time.Hour), 1024)
+	installTestCapability(t, sp, cap)
 	dropped := 0
 
 	pump := &otlpRelayPump{
@@ -267,6 +270,7 @@ func TestOtlpRelayPumpSpoolsFittingRecordAndCountsOversizedSibling(t *testing.T)
 	sp := openTestEdgeSpool(t)
 	now := time.Now()
 	cap := otlpRelayCapability(t, now.Add(-time.Hour), now.Add(8*24*time.Hour), 1024)
+	installTestCapability(t, sp, cap)
 	dropped := 0
 
 	pump := &otlpRelayPump{

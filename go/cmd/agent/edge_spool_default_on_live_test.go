@@ -252,18 +252,21 @@ func scrapeAfterConfig(t *testing.T, gw *spoolHelloGateway, logs *agentOutput, u
 	return ""
 }
 
-// Core's spool budget applies at admission. One unresolved 3.2 MB record sits in
-// the spool and the gateway cannot ingest it. Under the 1 GiB default the gate
-// is open. A 4 MiB budget from core leaves 1.5 MiB of ordinary room after the
-// 1.5 MiB recovery reserve and 1 MiB min-free, so the same spool is over the
-// budget: admission pauses, and the held record is kept, not evicted.
+// A supported 64 MiB budget leaves less ordinary room than the default. The
+// retained legacy backlog stays present when the new admission gate pauses.
 func TestRunningAgentAppliesTheSpoolBudgetFromConfig(t *testing.T) {
 	const bodyLen = 3_200_000
 	seed := func(t *testing.T) string {
 		t.Helper()
 		dir := filepath.Join(t.TempDir(), "spool")
 		id := rfc9562UUIDv7(uint64(time.Now().Add(-30 * time.Second).UnixMilli()))
-		commitSpool(t, dir, []spooledRecord{{eventID: id, body: bytes.Repeat([]byte("b"), bodyLen)}})
+		var records []spooledRecord
+		for i := 0; i < 12; i++ {
+			eventID := append([]byte(nil), id...)
+			eventID[15] = byte(i)
+			records = append(records, spooledRecord{eventID: eventID, body: bytes.Repeat([]byte("b"), bodyLen)})
+		}
+		commitSpool(t, dir, records)
 		return dir
 	}
 	cases := []struct {
@@ -273,7 +276,7 @@ func TestRunningAgentAppliesTheSpoolBudgetFromConfig(t *testing.T) {
 		wantPaused float64
 	}{
 		{name: "older core sends no budget", budget: 0, wantPaused: 0},
-		{name: "core sends 4 MiB", budget: 4 << 20, logWant: "Applied edge spool budget from config", wantPaused: 1},
+		{name: "core sends 64 MiB", budget: 64 << 20, logWant: "Applied edge spool budget from config", wantPaused: 1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -283,8 +286,8 @@ func TestRunningAgentAppliesTheSpoolBudgetFromConfig(t *testing.T) {
 			if got := promGauge(t, body, "agent_edge_spool_admission_paused"); got != tc.wantPaused {
 				t.Fatalf("admission paused = %g, want %g\n%s\nlog:\n%s", got, tc.wantPaused, edgeSpoolLines(body), logs.snapshot())
 			}
-			if got := promGauge(t, body, "agent_edge_spool_unresolved_bytes"); got != bodyLen {
-				t.Fatalf("unresolved bytes = %g, want the held record %d", got, bodyLen)
+			if got := promGauge(t, body, "agent_edge_spool_unresolved_bytes"); got != 12*bodyLen {
+				t.Fatalf("unresolved bytes = %g, want the held records %d", got, 12*bodyLen)
 			}
 			t.Logf("budget %d: scrape:\n%s", tc.budget, edgeSpoolLines(body))
 		})

@@ -33,6 +33,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/carverauto/serviceradar/go/pkg/agent"
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
 	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	"github.com/carverauto/serviceradar/proto"
@@ -633,7 +634,7 @@ func TestRunningAgentRunsPlanTCPConnectWhileTheGroupTickerStaysOff(t *testing.T)
 	if !installed.GetInstalled() || installed.GetInstalledSlotCount() != 1 || installed.GetError() != "" {
 		t.Fatalf("plan install ack = installed:%t slots:%d err:%q\nlog:\n%s", installed.GetInstalled(), installed.GetInstalledSlotCount(), installed.GetError(), logs.snapshot())
 	}
-	gw.pushConfig(t, logs, icmpGroupConfig(group))
+	gw.pushConfig(t, logs, icmpGroupConfig(t, group, lease))
 	waitForLog(t, logs, "Applied sweep group config from gateway", 15*time.Second)
 	waitForLog(t, logs, "Manual schedule active, skipping initial sweep", 15*time.Second)
 	time.Sleep(3 * time.Second)
@@ -665,7 +666,7 @@ func TestRunningAgentRunsPlanTCPConnectWhileTheGroupTickerStaysOff(t *testing.T)
 	logs = &agentOutput{}
 	cmd = startSweepExecAgent(t, ctx, binary, root, spoolDir, lis.Addr().String(), logs)
 	_ = gw.waitHello(t, logs)
-	gw.pushConfig(t, logs, icmpGroupConfig(group))
+	gw.pushConfig(t, logs, icmpGroupConfig(t, group, lease))
 	waitForLog(t, logs, "Manual schedule active, skipping initial sweep", 15*time.Second)
 	time.Sleep(3 * time.Second)
 	reloaded := string(logs.snapshot())
@@ -765,7 +766,7 @@ func assertUnavailablePlanInstalled(t *testing.T, gw *execLeaseGateway, logs *ag
 	if !installed.GetInstalled() || installed.GetError() != "" {
 		t.Fatalf("install ack = installed:%t err:%q\nlog:\n%s", installed.GetInstalled(), installed.GetError(), logs.snapshot())
 	}
-	gw.pushConfig(t, logs, icmpGroupConfig(group))
+	gw.pushConfig(t, logs, icmpGroupConfig(t, group, lease))
 	waitForLog(t, logs, "Applied sweep group config from gateway", 15*time.Second)
 }
 
@@ -832,21 +833,31 @@ func assertRefusalRetainedForLookback(t *testing.T, root, spoolDir, group string
 
 func assertSpoolHasNoRecords(t *testing.T, spoolDir string) {
 	t.Helper()
-	sp, err := spool.Open(spoolDir)
-	if err != nil {
-		t.Fatalf("open spool: %v", err)
-	}
-	records, err := sp.Unresolved()
-	closeErr := sp.Close()
-	if err != nil {
-		t.Fatalf("spool unresolved: %v", err)
-	}
-	if closeErr != nil {
-		t.Fatalf("close spool: %v", closeErr)
-	}
+	records := readAllSpoolRecords(t, spoolDir)
 	if len(records) != 0 {
 		t.Fatalf("refused slot wrote %d spool records", len(records))
 	}
+}
+
+func readAllSpoolRecords(t *testing.T, spoolDir string) []spool.Record {
+	t.Helper()
+	store, _, _, err := openEdgeRecordSpool(&agent.ServerConfig{EdgeRecordSender: &agent.EdgeRecordSenderConfig{SpoolDir: spoolDir}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := store.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	var records []spool.Record
+	var cursor agent.RecordSpoolCursor
+	for source, ok := store.NextSource(&cursor); ok; source, ok = store.NextSource(&cursor) {
+		if err := source.Source.ScanFrom(0, func(record spool.Record) bool { records = append(records, record); return true }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return records
 }
 
 func assertRefusalResentOnReconnect(t *testing.T, gw *execLeaseGateway, logs *agentOutput, refusal *proto.SweepLeaseSlotRefusal) {
@@ -943,7 +954,7 @@ func startSweepExecAgent(t *testing.T, ctx context.Context, binary, root, spoolD
 	return cmd
 }
 
-func icmpGroupConfig(group string) *proto.AgentConfigResponse {
+func icmpGroupConfig(t *testing.T, group string, lease *edgev1.SweepLeaseV1) *proto.AgentConfigResponse {
 	body := fmt.Sprintf(`{"sweep":{"config_hash":"live-icmp","groups":[{
 		"id": %q,
 		"sweep_group_id": %q,
@@ -953,9 +964,10 @@ func icmpGroupConfig(group string) *proto.AgentConfigResponse {
 		"settings": {"concurrency": 4, "timeout": "2s", "scan_timeout": "15s"}
 	}]}}`, group, group)
 	return &proto.AgentConfigResponse{
-		ConfigVersion:   "live-icmp-" + group,
-		ConfigTimestamp: time.Now().Unix(),
-		ConfigJson:      []byte(body),
+		ConfigVersion:           "live-icmp-" + group,
+		ConfigTimestamp:         time.Now().Unix(),
+		ConfigJson:              []byte(body),
+		EdgeRecordTrustDocument: executableLeaseTrust(t, lease),
 	}
 }
 
@@ -973,19 +985,8 @@ func waitForLog(t *testing.T, logs *agentOutput, needle string, budget time.Dura
 
 func readSweepBatch(t *testing.T, spoolDir string) *edgev1.SweepObservationBatchV1 {
 	t.Helper()
-	sp, err := spool.Open(spoolDir)
-	if err != nil {
-		t.Fatalf("open spool: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := sp.Close(); err != nil {
-			t.Errorf("close spool: %v", err)
-		}
-	})
-	records, err := sp.Unresolved()
-	if err != nil {
-		t.Fatalf("spool unresolved: %v", err)
-	}
+	records := readAllSpoolRecords(t, spoolDir)
+	var err error
 	if len(records) != 1 {
 		t.Fatalf("spool records = %d, want 1", len(records))
 	}
@@ -1063,10 +1064,7 @@ func dashedUUID(raw []byte) string {
 // closed before a scan.
 func executablePlanLease(t *testing.T, group, leaseID, assignment []byte, cidr string, targets uint64, checks []*edgev1.SweepTestV1, slotAt, collection time.Time) *edgev1.SweepLeaseV1 {
 	t.Helper()
-	_, key, err := ed25519.GenerateKey(nil)
-	if err != nil {
-		t.Fatalf("issuer key: %v", err)
-	}
+	key := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x49}, ed25519.SeedSize))
 	checkKey := edgerecord.CheckSetDigest(checks)
 	rangeID, err := edgerecord.NewUUIDv7()
 	if err != nil {
@@ -1422,4 +1420,22 @@ func (g *execLeaseGateway) pushConfig(t *testing.T, logs *agentOutput, cfg *prot
 	case <-time.After(20 * time.Second):
 		t.Fatalf("config push was not sent\nlog:\n%s", logs.snapshot())
 	}
+}
+
+func executableLeaseTrust(t *testing.T, lease *edgev1.SweepLeaseV1) []byte {
+	t.Helper()
+	capability := lease.ProductionCapability
+	claims := capability.GetProduction()
+	key := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x49}, ed25519.SeedSize))
+	raw, err := json.Marshal(map[string]any{
+		"keys": []map[string]any{{"issuer_id": capability.IssuerId, "issuer_key_id": capability.IssuerKeyId,
+			"public_key": []byte(key.Public().(ed25519.PublicKey)), "purposes": []string{"production", "source"}, "status": "valid"}},
+		"scopes": []map[string]any{{"agent_id": string(claims.OriginPrincipalId), "network_scope_ids": [][]byte{claims.NetworkScopeId}}},
+		"fences": []map[string]any{{"network_scope_id": claims.NetworkScopeId, "producer_assignment_id": claims.ProducerAssignmentId,
+			"run_shard": claims.RunShard, "authority_epoch": claims.AuthorityEpoch}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
 }

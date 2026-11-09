@@ -67,6 +67,7 @@ go_test(
         "//go/pkg/agent",
         "//go/pkg/edge/admission",
         "//go/pkg/edge/edgerecord",
+        "//go/pkg/edge/fairsched",
         "//go/pkg/edge/sender",
         "//go/pkg/edge/spool",
         "//go/pkg/logger",

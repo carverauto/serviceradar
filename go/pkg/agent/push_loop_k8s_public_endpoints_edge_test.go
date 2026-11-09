@@ -39,7 +39,7 @@ import (
 	srproto "github.com/carverauto/serviceradar/proto"
 )
 
-func decodeSpooledK8sSnapshot(t *testing.T, sp *spool.Spool) (*edgev1.EdgeRecordV1, *edgev1.K8SPublicEndpointsSnapshotV1) {
+func decodeSpooledK8sSnapshot(t *testing.T, sp *RecordSpool) (*edgev1.EdgeRecordV1, *edgev1.K8SPublicEndpointsSnapshotV1) {
 	t.Helper()
 	records := spooledRecords(t, sp)
 	require.Len(t, records, 1)
@@ -77,22 +77,24 @@ func (s *countingK8sEndpointsService) GetStatus(_ context.Context) (*srproto.Sta
 var errSpoolTemporarilyFull = errors.New("spool temporarily full")
 
 type gatingEdgeAppender struct {
-	allow   bool
-	records []*edgev1.EdgeRecordV1
-	ids     [][]byte
+	delegate *RecordSpool
+	allow    bool
+	records  []*edgev1.EdgeRecordV1
+	ids      [][]byte
 }
 
-func (g *gatingEdgeAppender) AppendFlow(_ string, eventID, body []byte) (uint64, error) {
+func (g *gatingEdgeAppender) AppendPrepared(flow string, prepared *spool.AttributedAppend) (spool.Receipt, error) {
+	eventID, body := prepared.EventID, prepared.Body
 	if !g.allow {
-		return 0, errSpoolTemporarilyFull
+		return spool.Receipt{}, errSpoolTemporarilyFull
 	}
 	var record edgev1.EdgeRecordV1
 	if err := proto.Unmarshal(body, &record); err != nil {
-		return 0, err
+		return spool.Receipt{}, err
 	}
 	g.records = append(g.records, &record)
 	g.ids = append(g.ids, append([]byte(nil), eventID...))
-	return uint64(len(g.records)), nil
+	return g.delegate.AppendPrepared(flow, prepared)
 }
 
 func TestPushLoopK8sPublicEndpointsEdgeUnderGrantAndNoStatus(t *testing.T) {
@@ -188,7 +190,7 @@ func TestPushLoopK8sPublicEndpointsEdgeUnderGrantAndNoStatus(t *testing.T) {
 		},
 	}
 	pl.SetEdgeDiscoverySpool(sp)
-	pl.edgeOutputGrants.replace(sysmonEdgeAgentID, []*srproto.EdgeOutputGrant{
+	installTestEdgeGrants(t, pl, sysmonEdgeAgentID, []*srproto.EdgeOutputGrant{
 		discoveryGrant(t, edgerecord.K8sPublicEndpointsContractID, edgerecord.K8sPublicEndpointsProjectedWriteBytesPerRecord, "serviceradar.agent.k8s_public_endpoints"),
 	}, time.Now())
 
@@ -232,7 +234,7 @@ func TestPushLoopK8sPublicEndpointsEdgeBackpressurePausesGetStatus(t *testing.T)
 		available: true,
 		payload:   payload,
 	}
-	appender := &gatingEdgeAppender{allow: false}
+	appender := &gatingEdgeAppender{allow: false, delegate: openTestEdgeSpool(t)}
 
 	pl := &PushLoop{
 		logger:             logger.NewTestLogger(),
@@ -242,7 +244,7 @@ func TestPushLoopK8sPublicEndpointsEdgeBackpressurePausesGetStatus(t *testing.T)
 			services: []Service{svc},
 		},
 	}
-	pl.edgeOutputGrants.replace(sysmonEdgeAgentID, []*srproto.EdgeOutputGrant{
+	installTestEdgeGrants(t, pl, sysmonEdgeAgentID, []*srproto.EdgeOutputGrant{
 		discoveryGrant(t, edgerecord.K8sPublicEndpointsContractID, edgerecord.K8sPublicEndpointsProjectedWriteBytesPerRecord, "serviceradar.agent.k8s_public_endpoints"),
 	}, time.Now())
 
@@ -300,4 +302,11 @@ func TestPushLoopK8sPublicEndpointsNotPolledWithoutGrant(t *testing.T) {
 	assert.Zero(t, svc.calls.Load(), "the snapshot was polled without a grant")
 	assert.Empty(t, spooledRecords(t, sp))
 	assert.Equal(t, uint64(1), pl.server.edgeProducerDrops.grantHolds[edgeProducerK8sPublicEndpoints].Load())
+}
+
+func (g *gatingEdgeAppender) PrepareRecord(raw []byte) (*spool.AttributedAppend, error) {
+	return g.delegate.PrepareRecord(raw)
+}
+func (g *gatingEdgeAppender) SetTrustProvider(provider func() *edgerecord.TrustSnapshot) {
+	g.delegate.SetTrustProvider(provider)
 }

@@ -30,7 +30,6 @@ import (
 	goproto "google.golang.org/protobuf/proto"
 
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
-	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
 	"github.com/carverauto/serviceradar/go/pkg/scan"
@@ -44,7 +43,7 @@ type drivenRecorder struct {
 	driven map[string]bool
 }
 
-func (*drivenRecorder) RunSweepGroupLease(context.Context, string, *edgev1.SweepLeaseV1, *edgev1.SweepLeaseSlotV1, *spool.Spool, bool, sweepSlotClaim) error {
+func (*drivenRecorder) RunSweepGroupLease(context.Context, string, *edgev1.SweepLeaseV1, *edgev1.SweepLeaseSlotV1, *RecordSpool, bool, sweepSlotClaim) error {
 	return nil
 }
 func (r *drivenRecorder) SetGroupLeaseDriven(groupID string, driven bool) { r.driven[groupID] = driven }
@@ -145,7 +144,7 @@ type refusingLeaseRunner struct {
 	err   error
 }
 
-func (r *refusingLeaseRunner) RunSweepGroupLease(context.Context, string, *edgev1.SweepLeaseV1, *edgev1.SweepLeaseSlotV1, *spool.Spool, bool, sweepSlotClaim) error {
+func (r *refusingLeaseRunner) RunSweepGroupLease(context.Context, string, *edgev1.SweepLeaseV1, *edgev1.SweepLeaseSlotV1, *RecordSpool, bool, sweepSlotClaim) error {
 	r.calls++
 	return r.err
 }
@@ -176,7 +175,7 @@ func TestSweepLeaseExecutorPersistsAndReportsASlotRefusal(t *testing.T) {
 	built := buildExecutableLease(t, testLeaseIssuedAt, testSlotStart, nil)
 	fixture.install(t, built.lease)
 
-	sp, err := spool.Open(t.TempDir())
+	sp, err := openTestRecordSpool(t, t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = sp.Close() })
 

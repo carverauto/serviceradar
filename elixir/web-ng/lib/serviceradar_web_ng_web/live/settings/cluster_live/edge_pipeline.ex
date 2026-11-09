@@ -370,6 +370,10 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.EdgePipeline do
   defp spool_state(%{spool: %{wedged: true}}), do: "Wedged - recovery required"
   defp spool_state(%{spool: %{health_error: error}}) when error != "", do: "Health read failed: #{error}"
   defp spool_state(%{spool: %{health_available: true, admission_paused: true}}), do: "Admission paused"
+
+  defp spool_state(%{spool: %{retained_legacy_bytes: bytes}}) when bytes > 0,
+    do: "Ready; #{bytes} unsupported legacy bytes retained"
+
   defp spool_state(%{spool: %{health_available: true}}), do: "Ready"
   defp spool_state(_row), do: "Health not reported"
 
@@ -379,8 +383,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.EdgePipeline do
   defp unresolved_count(%{health_available: true, unresolved_count: count}), do: count
   defp unresolved_count(_spool), do: "unknown"
 
-  defp gap_summary(%{health_available: true, gap_count: count, gap_sequences: sequences}) do
-    if count == 0, do: "0", else: "#{count} (first: #{Enum.join(sequences, ", ")})"
+  defp gap_summary(%{health_available: true, gap_count: count} = spool) do
+    if count == 0, do: "0", else: "#{count} (#{ServiceRadarWebNGWeb.EdgePipelineComponents.gap_samples(spool)})"
   end
 
   defp gap_summary(_spool), do: "unknown"

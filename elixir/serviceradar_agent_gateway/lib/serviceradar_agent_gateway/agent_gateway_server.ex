@@ -1223,24 +1223,37 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   # Startup availability and live health of the edge-record spool. An agent that predates the default-on
   # sender reports nothing, which core shows as agent_upgrade_pending; a spool that did not
   # open is spool_unavailable (ServiceRadar.Edge.PipelineReadiness).
-  defp edge_record_spool(%{edge_record_spool: %Monitoring.EdgeRecordSpoolStatus{} = spool}),
-    do:
-      Map.take(spool, [
-        :available,
-        :error,
-        :health_available,
-        :health_error,
-        :wedged,
-        :gap_sequences,
-        :gap_count,
-        :unresolved_count,
-        :oldest_unresolved_age_seconds,
-        :oldest_unresolved_age_known,
-        :unresolved_bytes,
-        :bytes_used,
-        :budget_bytes,
-        :admission_paused
-      ])
+  defp edge_record_spool(%{edge_record_spool: %Monitoring.EdgeRecordSpoolStatus{} = spool}) do
+    spool
+    |> Map.take([
+      :available,
+      :error,
+      :health_available,
+      :health_error,
+      :wedged,
+      :gap_sequences,
+      :gap_count,
+      :unresolved_count,
+      :oldest_unresolved_age_seconds,
+      :oldest_unresolved_age_known,
+      :unresolved_bytes,
+      :bytes_used,
+      :budget_bytes,
+      :admission_paused,
+      :retained_legacy_bytes
+    ])
+    |> Map.put(
+      :generation_gaps,
+      Enum.map(spool.generation_gaps, fn gap ->
+        %{
+          spool_generation_id: Base.encode16(gap.spool_generation_id, case: :lower),
+          route_profile: gap.route_profile,
+          traffic_class: gap.traffic_class,
+          sequence: gap.sequence
+        }
+      end)
+    )
+  end
 
   defp edge_record_spool(_request), do: nil
 

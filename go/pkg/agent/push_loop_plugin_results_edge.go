@@ -26,7 +26,6 @@ import (
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
-	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 )
 
 // Wasm plugin results ride one standing-grant contract
@@ -52,9 +51,12 @@ const (
 var errPluginResultTooLarge = errors.New("plugin result exceeds the durable record body bound")
 
 // SetEdgePluginResultSpool connects the plugin-results producer to the
-// sender's one open spool. Call before Start; with a nil spool plugin results
+// shared attributed lane owner. Call before Start; with a nil spool plugin results
 // are held as they are without a grant.
-func (p *PushLoop) SetEdgePluginResultSpool(sp *spool.Spool) {
+func (p *PushLoop) SetEdgePluginResultSpool(sp *RecordSpool) {
+	if sp != nil {
+		sp.SetTrustProvider(p.EdgeRecordTrustSnapshot)
+	}
 	if sp == nil {
 		p.edgePluginResultSpool = nil
 		return
@@ -68,7 +70,7 @@ func (p *PushLoop) edgePluginResultsCapability(now time.Time) *edgev1.EdgeSigned
 	if p == nil || p.edgePluginResultSpool == nil {
 		return nil
 	}
-	return p.edgeOutputGrants.current(edgerecord.PluginResultsContractID, now)
+	return p.currentEdgeOutputGrant(edgerecord.PluginResultsContractID, now)
 }
 
 // pluginResultEdgeItem is one provenance group of drained plugin results
@@ -83,10 +85,11 @@ func (item pluginResultEdgeItem) count() int { return len(item.results) }
 
 // pluginResultBuiltItem is one item expanded into its spooled parts.
 type pluginResultBuiltItem struct {
-	item    pluginResultEdgeItem
-	records []*edgev1.EdgeRecordV1
-	bodies  [][]byte
-	next    int
+	prepared []edgePreparedRecord
+	item     pluginResultEdgeItem
+	records  []*edgev1.EdgeRecordV1
+	bodies   [][]byte
+	next     int
 }
 
 // pluginResultEdgeQueue is the plugin-results bounded retry queue. Only the
@@ -156,9 +159,13 @@ func (p *PushLoop) spoolPluginResults(capability *edgev1.EdgeSignedCapabilityV1,
 // stopping at the first refusal so a retry resumes at the same part under its
 // original event id.
 func (p *PushLoop) appendPluginResultBuilt(built *pluginResultBuiltItem) bool {
+	if err := prepareRecordParts(p.edgePluginResultSpool, built.records, built.bodies, &built.prepared); err != nil {
+		p.logger.Warn().Err(err).Msg("Record attribution unavailable; retaining pending records")
+		return false
+	}
 	for built.next < len(built.records) {
 		record := built.records[built.next]
-		if _, err := p.edgePluginResultSpool.AppendFlow(edgeAdmissionFlow(record), record.GetEventId(), built.bodies[built.next]); err != nil {
+		if err := built.prepared[built.next].append(p.edgePluginResultSpool, record, built.bodies[built.next]); err != nil {
 			p.logger.Warn().Err(err).Msg("Failed to spool plugin result part; will retry")
 			return false
 		}

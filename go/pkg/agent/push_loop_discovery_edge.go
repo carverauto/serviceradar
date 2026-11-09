@@ -24,7 +24,6 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
-	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 )
 
 // Mapper and netprobe discovery ride standing-grant contracts
@@ -45,9 +44,12 @@ var (
 
 // SetEdgeDiscoverySpool connects the mapper and netprobe discovery, workload
 // identity, k8s public endpoints, endpoint inventory and bumblebee scan
-// producers to the sender's one open spool. Call before Start; with a nil
+// producers to the shared attributed lane owner. Call before Start; with a nil
 // spool those producers hold their data as they do without a grant.
-func (p *PushLoop) SetEdgeDiscoverySpool(sp *spool.Spool) {
+func (p *PushLoop) SetEdgeDiscoverySpool(sp *RecordSpool) {
+	if sp != nil {
+		sp.SetTrustProvider(p.EdgeRecordTrustSnapshot)
+	}
 	if sp == nil {
 		p.edgeDiscoverySpool = nil
 		return
@@ -165,14 +167,15 @@ func (p *PushLoop) discoveryCapability(kind discoveryKind, now time.Time) *edgev
 	if p == nil || p.edgeDiscoverySpool == nil {
 		return nil
 	}
-	return p.edgeOutputGrants.current(kind.spec().contractID, now)
+	return p.currentEdgeOutputGrant(kind.spec().contractID, now)
 }
 
 // discoveryBuiltItem is one drain expanded into its spooled parts.
 type discoveryBuiltItem struct {
-	records []*edgev1.EdgeRecordV1
-	bodies  [][]byte
-	next    int
+	prepared []edgePreparedRecord
+	records  []*edgev1.EdgeRecordV1
+	bodies   [][]byte
+	next     int
 }
 
 // discoveryEdgeQueue holds a discovery family's one drain the spool has
@@ -182,9 +185,13 @@ type discoveryEdgeQueue struct {
 }
 
 func (p *PushLoop) appendDiscoveryBuilt(built *discoveryBuiltItem) bool {
+	if err := prepareRecordParts(p.edgeDiscoverySpool, built.records, built.bodies, &built.prepared); err != nil {
+		p.logger.Warn().Err(err).Msg("Record attribution unavailable; retaining pending records")
+		return false
+	}
 	for built.next < len(built.records) {
 		record := built.records[built.next]
-		if _, err := p.edgeDiscoverySpool.AppendFlow(edgeAdmissionFlow(record), record.GetEventId(), built.bodies[built.next]); err != nil {
+		if err := built.prepared[built.next].append(p.edgeDiscoverySpool, record, built.bodies[built.next]); err != nil {
 			p.logger.Warn().Err(err).Msg("Failed to spool discovery part; will retry")
 			return false
 		}

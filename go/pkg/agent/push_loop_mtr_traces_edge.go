@@ -86,7 +86,7 @@ func (p *PushLoop) edgeScheduledMtrCapability(now time.Time) *edgev1.EdgeSignedC
 	if p.edgeMetricsSpool == nil {
 		return nil
 	}
-	return p.edgeOutputGrants.current(edgerecord.ScheduledMtrTraceContractID, now)
+	return p.currentEdgeOutputGrant(edgerecord.ScheduledMtrTraceContractID, now)
 }
 
 func mtrTraceEdgeQueueProducer() edgeMetricsProducer[mtrCheckResult] {

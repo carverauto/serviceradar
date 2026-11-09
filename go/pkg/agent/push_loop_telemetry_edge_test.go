@@ -32,7 +32,6 @@ import (
 	gproto "google.golang.org/protobuf/proto"
 
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
-	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
 	addonpb "github.com/carverauto/serviceradar/proto/agent/addon/v1"
@@ -86,13 +85,13 @@ func telemetryCapabilityMaxRows(t *testing.T, loop *PushLoop, maxRows uint32) *e
 
 func telemetryCapabilityLimits(t *testing.T, loop *PushLoop, maxRows uint32, maxWriteBytes uint64) *edgev1.EdgeSignedCapabilityV1 {
 	t.Helper()
-	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{telemetryGrantLimits(t, sysmonEdgeAgentID, maxRows, maxWriteBytes)}, time.Now())
+	installTestEdgeGrants(t, loop, sysmonEdgeAgentID, []*proto.EdgeOutputGrant{telemetryGrantLimits(t, sysmonEdgeAgentID, maxRows, maxWriteBytes)}, time.Now())
 	capability := loop.edgeTelemetryCapability(time.Now())
 	require.NotNil(t, capability)
 	return capability
 }
 
-func telemetryLoop(t *testing.T, sp *spool.Spool) *PushLoop {
+func telemetryLoop(t *testing.T, sp *RecordSpool) *PushLoop {
 	t.Helper()
 	loop := &PushLoop{
 		server: &Server{
@@ -105,7 +104,7 @@ func telemetryLoop(t *testing.T, sp *spool.Spool) *PushLoop {
 	return loop
 }
 
-func spooledTelemetryBatches(t *testing.T, sp *spool.Spool) []*addonpb.TelemetryBatch {
+func spooledTelemetryBatches(t *testing.T, sp *RecordSpool) []*addonpb.TelemetryBatch {
 	t.Helper()
 	stored, err := sp.Unresolved()
 	require.NoError(t, err)

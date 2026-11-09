@@ -134,6 +134,20 @@ defmodule ServiceRadar.Edge.PipelineReadinessTest do
     assert PipelineReadiness.conditions(agent(), live) == []
   end
 
+  test "unsupported retained storage remains visible alongside bounded lane health" do
+    health = %{available: true, health_available: true, retained_legacy_bytes: 192, wedged: true}
+    live = facts(%{runtime: %{"agent-1" => runtime(%{edge_record_spool: health})}})
+
+    assert [
+             %{reason: :unsupported_legacy_storage, detail: ^health},
+             %{reason: :spool_wedged, detail: ^health}
+           ] = PipelineReadiness.conditions(agent(), live)
+
+    healthy = Map.put(health, :wedged, false)
+    live = facts(%{runtime: %{"agent-1" => runtime(%{edge_record_spool: healthy})}})
+    assert [%{reason: :unsupported_legacy_storage}] = PipelineReadiness.conditions(agent(), live)
+  end
+
   test "a connected agent that reports no spool status runs a build from before the cutover" do
     old = agent(%{metadata: %{}, version: "1.4.0"})
 

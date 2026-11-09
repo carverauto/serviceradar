@@ -269,3 +269,9 @@ func (l *lane) retain(g *Generation) {
 	copy(l.retained[i+1:], l.retained[i:len(l.retained)-1])
 	l.retained[i] = g
 }
+
+func (g *Generation) QuarantineHealth() (QuarantineHealth, error) {
+	var health QuarantineHealth
+	err := g.withOpen(func(s *Spool) error { var err error; health, err = s.QuarantineHealth(); return err })
+	return health, err
+}

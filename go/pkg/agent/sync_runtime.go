@@ -62,7 +62,7 @@ type SyncRuntime struct {
 	// edgeSpool and edgeGrants connect sync pages to the durable
 	// edge-record pipeline; without a spool or a sync page grant no run
 	// starts, and a run whose grant goes away mid-run fails.
-	edgeSpool  edgeMetricsAppender
+	edgeSpool  *RecordSpool
 	edgeGrants *edgeOutputGrants
 }
 

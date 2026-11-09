@@ -31,7 +31,6 @@ import (
 	gproto "google.golang.org/protobuf/proto"
 
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
-	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	"github.com/carverauto/serviceradar/go/pkg/mtr"
 	"github.com/carverauto/serviceradar/proto"
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
@@ -197,7 +196,7 @@ func syntheticMtrCheckResult() mtrCheckResult {
 	}
 }
 
-func spooledMtrAndMetricBatches(t *testing.T, sp *spool.Spool) ([]*edgev1.AgentScheduledMtrTraceBatchV1, []*metricpb.MetricBatch) {
+func spooledMtrAndMetricBatches(t *testing.T, sp *RecordSpool) ([]*edgev1.AgentScheduledMtrTraceBatchV1, []*metricpb.MetricBatch) {
 	t.Helper()
 	stored, err := sp.Unresolved()
 	require.NoError(t, err)
@@ -321,7 +320,7 @@ func TestMtrChecksRunOnlyWithBothGrants(t *testing.T) {
 			if tc.traceGrant {
 				grants = append(grants, currentScheduledMtrGrant(t))
 			}
-			loop.edgeOutputGrants.replace(sysmonEdgeAgentID, grants, time.Now())
+			installTestEdgeGrants(t, loop, sysmonEdgeAgentID, grants, time.Now())
 
 			both := tc.metricsGrant && tc.traceGrant
 			require.Equal(t, both, loop.pushMtrResults(context.Background()))
@@ -361,7 +360,7 @@ func TestScheduledMtrSpoolBackpressurePausesDueChecksAndPreservesEventIDs(t *tes
 		Enabled:  true,
 		Interval: time.Nanosecond,
 	}
-	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{
+	installTestEdgeGrants(t, loop, sysmonEdgeAgentID, []*proto.EdgeOutputGrant{
 		currentMetricsGrant(t),
 		currentScheduledMtrGrant(t),
 	}, time.Now())
@@ -377,7 +376,7 @@ func TestScheduledMtrSpoolBackpressurePausesDueChecksAndPreservesEventIDs(t *tes
 	// While the pending batch is un-admitted, due checks are paused and nothing is
 	// dropped, even if grants lapse.
 	delete(loop.mtrState.lastRun, "mtr-check-01")
-	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, nil, time.Now())
+	installTestEdgeGrants(t, loop, sysmonEdgeAgentID, nil, time.Now())
 	require.False(t, loop.pushMtrResults(context.Background()))
 	require.Equal(t, 1, runs, "collectDueMtrResults must pause while a pending batch is held")
 	require.Zero(t, edgeDrops(loop, edgeProducerMTRTraces, edgeDropRetryBufferFull))
@@ -418,7 +417,7 @@ func TestSweepGroupMtrEmitsScheduledTraceEdgeRecordsWithoutSweepLease(t *testing
 		res.Trace.TargetIP = cfg.Target
 		return res
 	}
-	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{
+	installTestEdgeGrants(t, loop, sysmonEdgeAgentID, []*proto.EdgeOutputGrant{
 		currentMetricsGrant(t),
 		currentScheduledMtrGrant(t),
 	}, time.Now())
@@ -645,7 +644,7 @@ func sweepMtrConfigJSON(groupID, targets, schedule string) []byte {
 	}`)
 }
 
-func recordingSweepMtrLoop(t *testing.T, sp *spool.Spool) (*PushLoop, *[]string) {
+func recordingSweepMtrLoop(t *testing.T, sp *RecordSpool) (*PushLoop, *[]string) {
 	t.Helper()
 	loop, _ := sysmonEdgeLoop(t, sp)
 	loop.mtrState = newMtrCheckerState()
@@ -685,7 +684,7 @@ func TestSweepGroupMtrBoundsTargetsAndPerTickRuns(t *testing.T) {
 	t.Run("each tick runs a bounded batch, least recently run first", func(t *testing.T) {
 		sp := openTestEdgeSpool(t)
 		loop, ran := recordingSweepMtrLoop(t, sp)
-		loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{
+		installTestEdgeGrants(t, loop, sysmonEdgeAgentID, []*proto.EdgeOutputGrant{
 			currentMetricsGrant(t), currentScheduledMtrGrant(t),
 		}, time.Now())
 		loop.applySweepConfig(context.Background(), sweepMtrConfigJSON(groupID, `["198.51.100.0/24"]`, interval5m))

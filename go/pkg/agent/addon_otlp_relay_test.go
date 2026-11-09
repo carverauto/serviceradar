@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
 	"math"
 	"sync"
 	"sync/atomic"
@@ -37,22 +38,23 @@ import (
 // refuseFirst appends as retryable backpressure, recording each event id tried.
 type refusingRelayAppender struct {
 	mu          sync.Mutex
-	delegate    *spool.Spool
+	delegate    *RecordSpool
 	refuseFirst int
 	attempts    int
 	eventIDs    [][]byte
 }
 
-func (f *refusingRelayAppender) AppendFlow(_ string, eventID, body []byte) (uint64, error) {
+func (f *refusingRelayAppender) AppendPrepared(flow string, prepared *spool.AttributedAppend) (spool.Receipt, error) {
+	eventID := prepared.EventID
 	f.mu.Lock()
 	f.attempts++
 	attempt := f.attempts
 	f.eventIDs = append(f.eventIDs, append([]byte(nil), eventID...))
 	f.mu.Unlock()
 	if attempt <= f.refuseFirst {
-		return 0, spool.ErrAdmissionPaused
+		return spool.Receipt{}, spool.ErrAdmissionPaused
 	}
-	return f.delegate.Append(eventID, body)
+	return f.delegate.AppendPrepared(flow, prepared)
 }
 
 func (f *refusingRelayAppender) attemptCount() int {
@@ -67,6 +69,7 @@ func newTestOtlpRelayPump(t *testing.T, app edgeMetricsAppender) *otlpRelayPump 
 	t.Helper()
 	now := time.Now()
 	capability := otlpRelayCapability(t, now.Add(-time.Hour), now.Add(8*24*time.Hour), 1024)
+	installTestCapability(t, app, capability)
 	return &otlpRelayPump{
 		addonID: "otel-collector",
 		edgeTarget: func(time.Time) (edgeMetricsAppender, *edgev1.EdgeSignedCapabilityV1) {
@@ -154,7 +157,7 @@ func requireAckedFramesEventually(t *testing.T, pump *otlpRelayPump, expected ui
 	}, time.Second, time.Millisecond, "acked frame counter should reach expected watermark")
 }
 
-func spooledRelayEventIDs(t *testing.T, sp *spool.Spool) []string {
+func spooledRelayEventIDs(t *testing.T, sp *RecordSpool) []string {
 	t.Helper()
 	_, frames := spooledOtlpRelayRecords(t, sp)
 	ids := make([]string, 0, len(frames))
@@ -315,4 +318,11 @@ func TestOtlpRelayPumpStopsWhenStreamCloses(t *testing.T) {
 		t.Fatal("pump did not stop when the relay stream closed")
 	}
 	require.Empty(t, spooledRelayEventIDs(t, sp))
+}
+
+func (f *refusingRelayAppender) PrepareRecord(raw []byte) (*spool.AttributedAppend, error) {
+	return f.delegate.PrepareRecord(raw)
+}
+func (f *refusingRelayAppender) SetTrustProvider(provider func() *edgerecord.TrustSnapshot) {
+	f.delegate.SetTrustProvider(provider)
 }

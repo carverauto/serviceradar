@@ -17,8 +17,11 @@
 package agent
 
 import (
+	"time"
+
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
 	"github.com/carverauto/serviceradar/proto"
+	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 )
 
 // EdgeRecordTrustSnapshot returns immutable verification policy received through
@@ -52,4 +55,11 @@ func (p *PushLoop) edgeAuthenticatedAgentID() string {
 		return ""
 	}
 	return p.server.config.AgentID
+}
+
+func (p *PushLoop) currentEdgeOutputGrant(contract string, now time.Time) *edgev1.EdgeSignedCapabilityV1 {
+	if p.EdgeRecordTrustSnapshot() == nil {
+		return nil
+	}
+	return p.edgeOutputGrants.current(contract, now)
 }
