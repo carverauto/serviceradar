@@ -54,6 +54,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   alias ServiceRadar.Edge.DirectLeafScope
   alias ServiceRadar.Edge.OutputGrants
   alias ServiceRadar.Edge.PipelineSettings
+  alias ServiceRadar.Edge.RecordTrust
   alias ServiceRadar.Edge.RemoteConsoleTargetResolver
   alias ServiceRadar.Edge.SNMPProtoMapper
   alias ServiceRadar.Infrastructure.Agent
@@ -325,7 +326,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       endpoint_inventory_config: Map.get(config, :endpoint_inventory_config),
       addons: to_proto_addons(Map.get(config, :addons, []), Map.get(config, :agent_id)),
       edge_output_grants: Map.get(config, :edge_output_grants, []),
-      edge_spool_max_bytes: Map.get(config, :edge_spool_max_bytes, 0)
+      edge_spool_max_bytes: Map.get(config, :edge_spool_max_bytes, 0),
+      edge_record_trust_document: Map.get(config, :edge_record_trust_document, <<>>)
     }
   end
 
@@ -387,6 +389,30 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     |> Map.put(:agent_id, agent_id)
     |> put_edge_output_grants(OutputGrants.config_grants(agent_id, partition_id))
     |> put_edge_spool_max_bytes(edge_spool_max_bytes!(agent_id, partition_id))
+    |> put_edge_record_trust(RecordTrust.agent_snapshot(agent_id, partition_id))
+  end
+
+  # The complete map participates in not_modified detection: key status or
+  # authority-fence changes must refresh even when every issued grant is unchanged.
+  # Unavailability withdraws local verification policy without withholding unrelated
+  # agent configuration. The agent retains pending records until policy returns.
+  defp put_edge_record_trust(config, {:ok, document}) do
+    bytes = Jason.encode!(document)
+
+    if byte_size(bytes) <= 4 * 1024 * 1024 do
+      version =
+        "v" <> Compiler.content_hash(%{base: config.config_version, edge_record_trust: document})
+
+      Map.put(%{config | config_version: version}, :edge_record_trust_document, bytes)
+    else
+      put_edge_record_trust(config, {:error, :trust_snapshot_too_large})
+    end
+  end
+
+  defp put_edge_record_trust(config, {:error, reason}) do
+    Logger.warning("Edge record verification policy unavailable: #{inspect(reason)}")
+    version = "v" <> Compiler.content_hash(%{base: config.config_version, edge_record_trust: nil})
+    Map.put(%{config | config_version: version}, :edge_record_trust_document, <<>>)
   end
 
   # The agent's spool budget from the edge pipeline settings. An agent whose partition has no

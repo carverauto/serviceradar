@@ -292,6 +292,33 @@ defmodule ServiceRadar.Edge.OutputGrantsDbTest do
     assert fence["authority_epoch"] == 2
   end
 
+  test "agent trust excludes other agents and partitions while retaining its revoked fence",
+       ctx do
+    {:ok, grant} = OutputGrants.reconcile(ctx.agent, @contract, ctx.partition.id)
+
+    {:ok, _other_agent} =
+      OutputGrants.reconcile("other-#{ctx.agent}", @contract, ctx.partition.id)
+
+    {:ok, _other_scope} =
+      OutputGrants.reconcile(ctx.agent, "synthetic.other.contract", Ash.UUID.generate())
+
+    assert {:ok, document} = RecordTrust.agent_snapshot(ctx.agent, ctx.partition.slug, ctx.key)
+    encoded_grant = grant.id |> Ecto.UUID.dump!() |> Base.encode64()
+
+    assert [%{"producer_assignment_id" => ^encoded_grant, "authority_epoch" => 1}] =
+             document["fences"]
+
+    assert [%{"agent_id" => agent_id}] = document["scopes"]
+    assert agent_id == ctx.agent
+    assert document["keys"] == [IssuerKey.trust_entry(ctx.key)]
+
+    grant |> Ash.Changeset.for_update(:revoke, %{}, actor: ctx.actor) |> Ash.update!()
+    assert {:ok, revoked} = RecordTrust.agent_snapshot(ctx.agent, ctx.partition.slug, ctx.key)
+
+    assert [%{"producer_assignment_id" => ^encoded_grant, "authority_epoch" => 2}] =
+             revoked["fences"]
+  end
+
   defp register_agent!(ctx) do
     Agent
     |> Ash.Changeset.for_create(:register, %{uid: ctx.agent, name: ctx.agent})

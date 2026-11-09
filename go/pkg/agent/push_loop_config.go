@@ -229,6 +229,7 @@ func (p *PushLoop) applyConfigResponseWithSequence(
 	}
 
 	p.applyConfigIntervals(configResp)
+	p.applyEdgeRecordTrust(configResp, sequence)
 	p.applyEdgeOutputGrants(configResp)
 	p.applyEdgeSpoolBudget(configResp)
 

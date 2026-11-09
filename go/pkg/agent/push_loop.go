@@ -32,6 +32,7 @@ import (
 	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
 	"github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess"
 	agentgateway "github.com/carverauto/serviceradar/go/pkg/agentgateway"
+	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
 	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/sysmon"
@@ -169,6 +170,7 @@ type PushLoop struct {
 	k8sPublicEndpointsEdge k8sPublicEndpointsEdgeQueue
 	endpointInventoryEdge  endpointInventoryEdgeQueue
 	bumblebeeEdge          bumblebeeEdgeState
+	edgeRecordTrust        atomic.Pointer[edgerecord.TrustSnapshot]
 	edgeOutputGrants       edgeOutputGrants
 	edgeSpool              edgeSpoolRuntime
 	// Each metric producer's bounded retry queue, oldest first. An entry is either

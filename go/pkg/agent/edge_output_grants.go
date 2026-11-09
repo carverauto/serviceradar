@@ -128,14 +128,7 @@ func validateEdgeOutputGrant(agentID string, entry *proto.EdgeOutputGrant, nowUn
 func (p *PushLoop) applyEdgeOutputGrants(configResp *proto.AgentConfigResponse) {
 	// Without an agent identity no grant can name this agent, so every entry is
 	// refused and any installed grant is withdrawn.
-	var agentID string
-	if p.server != nil {
-		p.server.mu.RLock()
-		if p.server.config != nil {
-			agentID = p.server.config.AgentID
-		}
-		p.server.mu.RUnlock()
-	}
+	agentID := p.edgeAuthenticatedAgentID()
 
 	for _, err := range p.edgeOutputGrants.replace(agentID, configResp.GetEdgeOutputGrants(), time.Now()) {
 		p.logger.Warn().Err(err).Msg("Refused edge output grant")

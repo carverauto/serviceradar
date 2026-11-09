@@ -573,6 +573,11 @@ message AgentConfigResponse {
   // appends until the spool drains below it. Zero means the sender predates the
   // setting, and the agent keeps the budget it runs with.
   uint64 edge_spool_max_bytes = 16;
+
+  // Complete public RecordTrust JSON snapshot for this authenticated agent and
+  // partition. Empty means unavailable; new record attribution must retry. The
+  // config version covers the entire document, including key status and fences.
+  bytes edge_record_trust_document = 17;
 }
 
 // EdgeOutputGrant is one standing output grant. `production_capability` is an

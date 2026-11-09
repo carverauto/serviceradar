@@ -60,6 +60,50 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
   end
 
   describe "generate_config/2" do
+    test "a historical fence refreshes config even when current output grants are unchanged", %{
+      agent_uid: agent
+    } do
+      actor = SystemActor.system(:agent_trust_config_test)
+
+      {:ok, scope} =
+        ServiceRadar.SweepJobs.ProducerAssignments.network_scope_id_for_partition(
+          @default_partition
+        )
+
+      {:ok, historical} =
+        ServiceRadar.Edge.OutputGrants.reconcile(agent, "synthetic.retired.contract", scope)
+
+      assert {:ok, before} = AgentConfigGenerator.generate_config(agent, @default_partition)
+      assert before.edge_record_trust_document != <<>>
+
+      historical |> Ash.Changeset.for_update(:revoke, %{}, actor: actor) |> Ash.update!()
+
+      assert {:ok, after_change} =
+               AgentConfigGenerator.get_config_if_changed(
+                 agent,
+                 @default_partition,
+                 before.config_version
+               )
+
+      assert before.edge_output_grants == after_change.edge_output_grants
+      refute before.config_version == after_change.config_version
+      id = historical.id |> Ecto.UUID.dump!() |> Base.encode64()
+      document = Jason.decode!(after_change.edge_record_trust_document)
+
+      assert %{"authority_epoch" => 2} =
+               Enum.find(document["fences"], &(&1["producer_assignment_id"] == id))
+
+      assert AgentConfigGenerator.to_proto_response(after_change).edge_record_trust_document ==
+               after_change.edge_record_trust_document
+
+      assert :not_modified =
+               AgentConfigGenerator.get_config_if_changed(
+                 agent,
+                 @default_partition,
+                 after_change.config_version
+               )
+    end
+
     test "returns empty config when no checks exist", %{agent_uid: agent_uid} do
       {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
 

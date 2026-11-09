@@ -3833,8 +3833,12 @@ type AgentConfigResponse struct {
 	// appends until the spool drains below it. Zero means the sender predates the
 	// setting, and the agent keeps the budget it runs with.
 	EdgeSpoolMaxBytes uint64 `protobuf:"varint,16,opt,name=edge_spool_max_bytes,json=edgeSpoolMaxBytes,proto3" json:"edge_spool_max_bytes,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Complete public RecordTrust JSON snapshot for this authenticated agent and
+	// partition. Empty means unavailable; new record attribution must retry. The
+	// config version covers the entire document, including key status and fences.
+	EdgeRecordTrustDocument []byte `protobuf:"bytes,17,opt,name=edge_record_trust_document,json=edgeRecordTrustDocument,proto3" json:"edge_record_trust_document,omitempty"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
 }
 
 func (x *AgentConfigResponse) Reset() {
@@ -3977,6 +3981,13 @@ func (x *AgentConfigResponse) GetEdgeSpoolMaxBytes() uint64 {
 		return x.EdgeSpoolMaxBytes
 	}
 	return 0
+}
+
+func (x *AgentConfigResponse) GetEdgeRecordTrustDocument() []byte {
+	if x != nil {
+		return x.EdgeRecordTrustDocument
+	}
+	return nil
 }
 
 // EdgeOutputGrant is one standing output grant. `production_capability` is an
@@ -10483,7 +10494,7 @@ const file_monitoring_proto_rawDesc = "" +
 	"\x0enot_after_unix\x18\x06 \x01(\x03R\fnotAfterUnix\"V\n" +
 	"\x12AgentConfigRequest\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12%\n" +
-	"\x0econfig_version\x18\x02 \x01(\tR\rconfigVersion\"\xb2\a\n" +
+	"\x0econfig_version\x18\x02 \x01(\tR\rconfigVersion\"\xef\a\n" +
 	"\x13AgentConfigResponse\x12!\n" +
 	"\fnot_modified\x18\x01 \x01(\bR\vnotModified\x12%\n" +
 	"\x0econfig_version\x18\x02 \x01(\tR\rconfigVersion\x12)\n" +
@@ -10503,7 +10514,8 @@ const file_monitoring_proto_rawDesc = "" +
 	"\x06addons\x18\r \x03(\v2!.monitoring.AddonAssignmentConfigR\x06addons\x12_\n" +
 	"\x19endpoint_inventory_config\x18\x0e \x01(\v2#.monitoring.EndpointInventoryConfigR\x17endpointInventoryConfig\x12I\n" +
 	"\x12edge_output_grants\x18\x0f \x03(\v2\x1b.monitoring.EdgeOutputGrantR\x10edgeOutputGrants\x12/\n" +
-	"\x14edge_spool_max_bytes\x18\x10 \x01(\x04R\x11edgeSpoolMaxBytes\"\x92\x01\n" +
+	"\x14edge_spool_max_bytes\x18\x10 \x01(\x04R\x11edgeSpoolMaxBytes\x12;\n" +
+	"\x1aedge_record_trust_document\x18\x11 \x01(\fR\x17edgeRecordTrustDocument\"\x92\x01\n" +
 	"\x0fEdgeOutputGrant\x12\x1f\n" +
 	"\vcontract_id\x18\x01 \x01(\tR\n" +
 	"contractId\x12)\n" +

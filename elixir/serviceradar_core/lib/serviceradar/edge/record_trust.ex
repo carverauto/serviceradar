@@ -22,6 +22,7 @@ defmodule ServiceRadar.Edge.RecordTrust do
   alias ServiceRadar.Edge.ContractRegistry
   alias ServiceRadar.Edge.IssuerKey
   alias ServiceRadar.Edge.OutputGrant
+  alias ServiceRadar.SweepJobs.ProducerAssignments
   alias ServiceRadar.SweepJobs.SweepProducerAssignment
 
   require Ash.Query
@@ -55,13 +56,40 @@ defmodule ServiceRadar.Edge.RecordTrust do
   @doc "Reads current assignment authority for the supplied issuer."
   def snapshot(%IssuerKey{} = key) do
     with {:ok, sweeps} <- read_authorities(SweepProducerAssignment),
-         {:ok, grants} <- read_authorities(OutputGrant),
-         {:ok, registry} <- ContractRegistry.trust_member(key) do
-      assignments = Enum.sort_by(sweeps ++ grants, & &1.id)
+         {:ok, grants} <- read_authorities(OutputGrant) do
+      build_snapshot(key, sweeps ++ grants)
+    end
+  end
 
-      if length(assignments) > @max_assignments do
-        {:error, :trust_snapshot_too_large}
-      else
+  @doc "Complete public trust for the authenticated agent's partition, including revoked fences."
+  def agent_snapshot(agent_id, partition_id) do
+    with {:ok, key} <- IssuerKey.configured(), do: agent_snapshot(agent_id, partition_id, key)
+  end
+
+  def agent_snapshot(agent_id, partition_id, %IssuerKey{} = key)
+      when is_binary(agent_id) and is_binary(partition_id) do
+    case ProducerAssignments.network_scope_id_for_partition(partition_id) do
+      {:ok, scope_id} ->
+        with {:ok, sweeps} <- read_agent_authorities(SweepProducerAssignment, agent_id, scope_id),
+             {:ok, grants} <- read_agent_authorities(OutputGrant, agent_id, scope_id) do
+          build_snapshot(key, sweeps ++ grants)
+        end
+
+      {:error, :partition_not_found} ->
+        build_snapshot(key, [])
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp build_snapshot(key, assignments) do
+    if length(assignments) > @max_assignments do
+      {:error, :trust_snapshot_too_large}
+    else
+      with {:ok, registry} <- ContractRegistry.trust_member(key) do
+        assignments = Enum.sort_by(assignments, & &1.id)
+
         {:ok,
          %{
            "clock_tolerance_nano" => @clock_tolerance_nano,
@@ -72,6 +100,12 @@ defmodule ServiceRadar.Edge.RecordTrust do
          }}
       end
     end
+  end
+
+  defp read_agent_authorities(resource, agent, scope) do
+    resource
+    |> Ash.Query.filter(agent_id == ^agent and network_scope_id == ^scope)
+    |> read_authorities()
   end
 
   # Each read stops one past the cap, so an oversized table is detected without reading all of it.
