@@ -556,8 +556,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
     _accepted =
       upsert_agent_availability(
-        results,
-        all_devices,
+        [{results, all_devices}],
         nil,
         reporter_context,
         utc_now_usec()
@@ -587,31 +586,42 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       mapper_failed: 0
     }
 
-    batches
-    |> Enum.reduce_while({:ok, initial_stats}, fn {batch, batch_num}, {:ok, acc_stats} ->
-      batch_start = System.monotonic_time(:millisecond)
+    {outcome, ingested_batches} =
+      Enum.reduce_while(batches, {{:ok, initial_stats}, []}, fn {batch, batch_num},
+                                                                {{:ok, acc_stats}, ingested} ->
+        batch_start = System.monotonic_time(:millisecond)
 
-      case process_batch(batch, execution_id, reporter_context, actor) do
-        {:ok, batch_stats} ->
-          batch_elapsed = System.monotonic_time(:millisecond) - batch_start
+        case process_batch(batch, execution_id, reporter_context, actor) do
+          {:ok, batch_stats, batch_devices} ->
+            batch_elapsed = System.monotonic_time(:millisecond) - batch_start
 
-          Logger.debug(
-            "SweepResultsIngestor: Batch #{batch_num}/#{total_batches} (#{length(batch)} results) completed in #{batch_elapsed}ms"
-          )
+            Logger.debug(
+              "SweepResultsIngestor: Batch #{batch_num}/#{total_batches} (#{length(batch)} results) completed in #{batch_elapsed}ms"
+            )
 
-          merged_stats = merge_stats(acc_stats, batch_stats)
+            merged_stats = merge_stats(acc_stats, batch_stats)
 
-          {:cont, {:ok, merged_stats}}
+            {:cont, {{:ok, merged_stats}, [batch_devices | ingested]}}
 
-        {:error, reason} ->
-          Logger.error(
-            "SweepResultsIngestor: Batch #{batch_num}/#{total_batches} failed: #{inspect(reason)}"
-          )
+          {:error, reason} ->
+            Logger.error(
+              "SweepResultsIngestor: Batch #{batch_num}/#{total_batches} failed: #{inspect(reason)}"
+            )
 
-          {:halt, {:error, reason}}
-      end
-    end)
-    |> case do
+            {:halt, {{:error, reason}, ingested}}
+        end
+      end)
+
+    # Availability for every batch whose host results were written (all of them, unless one
+    # failed), in one pass for the whole ingest: see update_device_availability/4.
+    update_device_availability(
+      Enum.reverse(ingested_batches),
+      execution_id,
+      reporter_context,
+      actor
+    )
+
+    case outcome do
       {:ok, stats} ->
         promotion_stats =
           process_mapper_promotions(
@@ -753,18 +763,10 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         sweep_group_id: reporter_context.resolved_group_id
       )
 
-    # Step 8: Bulk insert host results
+    # Step 8: Bulk insert host results. Device availability is written once all batches
+    # got here (process_batches/5), from the devices resolved for each.
     case bulk_insert_host_results(host_results) do
       :ok ->
-        # Step 9: Update device availability
-        update_device_availability(
-          results,
-          all_devices,
-          execution_id,
-          reporter_context,
-          actor
-        )
-
         final_stats =
           stats
           |> Map.put(:devices_created, map_size(created_device_map))
@@ -772,7 +774,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           |> Map.put(:aliases_confirmed, aliases_confirmed)
           |> Map.put(:seed_uid_collisions, seed_uid_collisions)
 
-        {:ok, final_stats}
+        {:ok, final_stats, {results, all_devices}}
 
       {:error, reason} ->
         {:error, reason}
@@ -1907,19 +1909,36 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   # Default threshold: require 2 consecutive failures before marking unavailable
   @unavailable_threshold 2
 
-  defp update_device_availability(results, device_map, execution_id, reporter_context, actor) do
+  # `batches` are each batch's results with the devices resolved for it.
+  #
+  # Inside a transaction (the edge-record ledger transaction) every row lock below is held until
+  # it commits, and concurrent ingests for one agent share per-agent rows and devices. Each
+  # ingest therefore locks in one order, the same for all of them:
+  #
+  #   1. every per-agent availability row of the ingest, in (device_uid, agent_id) order
+  #      (bulk_upsert_agent_availability/1);
+  #   2. then every device row observed, in uid order (lock_observed_devices/1);
+  #   3. then the status writes and the resolution, which touch only rows already held.
+  #
+  # Taking 1 and 2 per batch of @batch_size results instead had two ingests whose overlapping
+  # hosts fell into different batches each hold rows the other needed next, and deadlock on the
+  # availability unique index.
+  defp update_device_availability([], _execution_id, _reporter_context, _actor), do: :ok
+
+  defp update_device_availability(batches, execution_id, reporter_context, actor) do
     availability_timestamp = utc_now_usec()
     status_timestamp = DateTime.truncate(availability_timestamp, :second)
     availability_policy = availability_policy(reporter_context)
 
     accepted_observations =
       upsert_agent_availability(
-        results,
-        device_map,
+        batches,
         execution_id,
         reporter_context,
         availability_timestamp
       )
+
+    lock_observed_devices(accepted_observations)
 
     available_uids = observation_uids_for_status(accepted_observations, true)
     unavailable_uids = observation_uids_for_status(accepted_observations, false)
@@ -1967,17 +1986,34 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       maybe_add_sweep_source(changed_uids)
     end
 
-    # Merged availability: every device whose per-agent row was accepted is resolved in
-    # its own transaction after the legacy writes above have committed, whatever this
-    # reporter's authorization (an ineligible row still changes the agent counters).
+    # Merged availability: every device whose per-agent row was accepted is resolved,
+    # whatever this reporter's authorization (an ineligible row still changes the agent
+    # counters). Inside a caller's transaction the resolution runs in it, under the device
+    # locks taken above; otherwise in its own transaction, after the legacy writes above
+    # have committed.
     _ = Availability.resolve_devices(Enum.map(accepted_observations, & &1.device_uid))
 
     :ok
   end
 
+  # Step 2 of update_device_availability/4's lock order. Tombstoned rows are locked too: the
+  # restore and the status writes lock them. Outside a transaction the lock would end with
+  # the statement, and each later statement locks its own rows in uid order.
+  defp lock_observed_devices(observations) do
+    device_uids = observations |> Enum.map(& &1.device_uid) |> Enum.uniq()
+
+    if device_uids != [] and Repo.in_transaction?() do
+      Repo.query!(
+        "SELECT uid FROM ocsf_devices WHERE uid = ANY($1) ORDER BY uid FOR NO KEY UPDATE",
+        [device_uids]
+      )
+    end
+
+    :ok
+  end
+
   defp upsert_agent_availability(
-         _results,
-         _device_map,
+         _batches,
          _execution_id,
          %{reporter_agent_id: agent_id},
          _timestamp
@@ -1986,11 +2022,12 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     []
   end
 
-  defp upsert_agent_availability(results, device_map, execution_id, reporter_context, timestamp) do
+  defp upsert_agent_availability(batches, execution_id, reporter_context, timestamp) do
     agent_id = reporter_context.reporter_agent_id
     agent_name = agent_display_name(agent_id)
 
-    records =
+    batches
+    |> Enum.flat_map(fn {results, device_map} ->
       results
       |> Enum.map(
         &build_agent_availability_record(
@@ -2003,8 +2040,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         )
       )
       |> Enum.reject(&is_nil/1)
-
-    bulk_upsert_agent_availability(records)
+    end)
+    |> bulk_upsert_agent_availability()
   end
 
   defp build_agent_availability_record(
@@ -2056,48 +2093,63 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     from(n in fragment("SELECT (now() AT TIME ZONE 'utc') AS ts"), select: n.ts)
   end
 
+  # Rows per availability upsert statement: each binds 13 values, and Postgres allows 65,535
+  # per statement.
+  @availability_upsert_rows 2_000
+
   defp bulk_upsert_agent_availability([]), do: []
 
+  # Step 1 of update_device_availability/4's lock order: one sorted pass over the whole
+  # ingest. A larger ingest is split into consecutive slices of the sorted rows, which
+  # keeps the order.
   defp bulk_upsert_agent_availability(records) do
-    records = dedupe_availability_records(records)
+    on_conflict_query = availability_on_conflict_query()
 
-    # The batches of one execution (an agent's chunks, and this module's own batches) are
-    # one observation per device, as within a batch (dedupe_availability_records/1): once
-    # any address answered, the device is up for that execution, so a failure of another
-    # address in a later batch of the same execution never replaces it, and an answer
+    records
+    |> dedupe_availability_records()
+    |> Enum.chunk_every(@availability_upsert_rows)
+    |> Enum.flat_map(&upsert_availability_rows(&1, on_conflict_query))
+  end
+
+  defp availability_on_conflict_query do
+    # The chunks an agent sends for one execution, each its own ingest, are one observation
+    # per device, as within an ingest (dedupe_availability_records/1): once any address
+    # answered, the device is up for that execution, so a failure of another address in a
+    # later chunk of the same execution never replaces it, and an answer
     # replaces a failure whatever their times. Across executions the newer result wins.
-    on_conflict_query =
-      from(a in DeviceAgentAvailability,
-        where:
-          fragment(
-            """
-            CASE
-              WHEN EXCLUDED.execution_id IS NOT NULL AND EXCLUDED.execution_id = ?
-                THEN EXCLUDED.is_available AND (NOT ? OR EXCLUDED.checked_at >= ?)
-              ELSE EXCLUDED.checked_at >= ?
-            END
-            """,
-            a.execution_id,
-            a.is_available,
-            a.checked_at,
-            a.checked_at
-          ),
-        update: [
-          set: [
-            agent_name: fragment("EXCLUDED.agent_name"),
-            is_available: fragment("EXCLUDED.is_available"),
-            checked_at: fragment("EXCLUDED.checked_at"),
-            response_time_ms: fragment("EXCLUDED.response_time_ms"),
-            open_ports: fragment("EXCLUDED.open_ports"),
-            sweep_modes_results: fragment("EXCLUDED.sweep_modes_results"),
-            sweep_group_id: fragment("EXCLUDED.sweep_group_id"),
-            execution_id: fragment("EXCLUDED.execution_id"),
-            metadata: fragment("EXCLUDED.metadata"),
-            updated_at: fragment("EXCLUDED.updated_at")
-          ]
+    from(a in DeviceAgentAvailability,
+      where:
+        fragment(
+          """
+          CASE
+            WHEN EXCLUDED.execution_id IS NOT NULL AND EXCLUDED.execution_id = ?
+              THEN EXCLUDED.is_available AND (NOT ? OR EXCLUDED.checked_at >= ?)
+            ELSE EXCLUDED.checked_at >= ?
+          END
+          """,
+          a.execution_id,
+          a.is_available,
+          a.checked_at,
+          a.checked_at
+        ),
+      update: [
+        set: [
+          agent_name: fragment("EXCLUDED.agent_name"),
+          is_available: fragment("EXCLUDED.is_available"),
+          checked_at: fragment("EXCLUDED.checked_at"),
+          response_time_ms: fragment("EXCLUDED.response_time_ms"),
+          open_ports: fragment("EXCLUDED.open_ports"),
+          sweep_modes_results: fragment("EXCLUDED.sweep_modes_results"),
+          sweep_group_id: fragment("EXCLUDED.sweep_group_id"),
+          execution_id: fragment("EXCLUDED.execution_id"),
+          metadata: fragment("EXCLUDED.metadata"),
+          updated_at: fragment("EXCLUDED.updated_at")
         ]
-      )
+      ]
+    )
+  end
 
+  defp upsert_availability_rows(records, on_conflict_query) do
     {count, accepted_observations} =
       Repo.insert_all(
         DeviceAgentAvailability,
@@ -2117,7 +2169,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       []
   end
 
-  # One sweep batch can carry several results for the same (device_uid, agent_id): a
+  # One ingest can carry several results for the same (device_uid, agent_id): a
   # device swept at more than one address gets one result per address. They are one
   # observation of the device by that agent, and it is up when any address answered, as
   # the agent's own sweep aggregator decides. The answering address's result (its time,
@@ -2126,9 +2178,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   # results with the same `checked_at` kept whichever came first. Postgres also rejects
   # ON CONFLICT DO UPDATE batches that touch the same row twice (cardinality_violation).
   #
-  # Rows are returned in key order. Concurrent batches from one agent share
+  # Rows are returned in key order. Concurrent ingests from one agent share
   # keys, and inserting them in different orders deadlocks on the unique index;
-  # map iteration order is not key order once a batch exceeds 32 keys.
+  # map iteration order is not key order once an ingest exceeds 32 keys.
   @doc false
   def dedupe_availability_records(records) do
     records
