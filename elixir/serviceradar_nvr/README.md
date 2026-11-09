@@ -91,8 +91,9 @@ bazel test --config=remote //elixir/serviceradar_nvr:release_test
 ```
 
 The release test starts the shipped VM without control-plane services, exercises
-bounded worker admission and retirement, records synthetic H264, restarts the
-release, recovers the journal and compares decoded frames. Core's existing
+bounded worker admission and retirement, spool budget, free-space floor and
+inventory refusal, records synthetic H264, restarts the release, recovers the
+journal and compares decoded frames. Core's existing
 recording integration suite owns the CNPG authorization/publication contract.
 Physical node-loss durability and deployed camera behavior are not established
 by these synthetic tests.

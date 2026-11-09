@@ -161,7 +161,7 @@ case System.fetch_env!("NVR_TEST_MODE") do
     monitor = Process.monitor(worker)
 
     # Lost accounting must retire its dependents before accepting new work.
-    Process.exit(Process.whereis(ServiceRadarNVR.Capacity), :kill)
+    Process.exit(Process.whereis(Capacity), :kill)
 
     receive do
       {:DOWN, ^monitor, :process, ^worker, _} -> :ok
