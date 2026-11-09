@@ -78,6 +78,29 @@ output="$("$test_root/launcher" --flag-ok)"
 [[ "$(readlink "$test_root/var/lib/serviceradar/agent/current")" == "versions/seed-installed" ]]
 test -x "$test_root/var/lib/serviceradar/agent/versions/seed-installed/serviceradar-agent"
 
+# 7.3 first-start spool admission: postinstall provides the agent runtime
+# directory writable by the service account but leaves the edge-records leaf
+# to the agent, which creates it on first start. Prove the service owner can
+# create and write the leaf under the postinstall-provided tree.
+prepare_fixture
+run_agent_postinstall "$service_owner"
+test ! -e "$test_root/var/lib/serviceradar/agent/edge-records"
+cat > "$test_root/spool-probe" <<EOF
+#!/bin/sh
+set -e
+mkdir "$test_root/var/lib/serviceradar/agent/edge-records"
+printf 'probe\n' > "$test_root/var/lib/serviceradar/agent/edge-records/.first-start-probe"
+rm "$test_root/var/lib/serviceradar/agent/edge-records/.first-start-probe"
+EOF
+chmod +x "$test_root/spool-probe"
+if [[ "$(id -u)" == "0" ]]; then
+    su -s /bin/sh nobody -c "\"$test_root/spool-probe\""
+else
+    "$test_root/spool-probe"
+fi
+test -d "$test_root/var/lib/serviceradar/agent/edge-records"
+rmdir "$test_root/var/lib/serviceradar/agent/edge-records"
+
 # 2. Regression test (#6118): when versions/seed-installed is root-owned / not
 #    writable by the service user, the launcher must fail loudly with exit code 77
 #    (RestartPreventExitStatus) and a clear message naming versions/seed-installed,
