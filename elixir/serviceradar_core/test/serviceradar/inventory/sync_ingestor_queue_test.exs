@@ -8,6 +8,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
 
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias ServiceRadar.Ingestion.WorkerBudget
   alias ServiceRadar.Inventory.SyncIngestorQueue
   alias ServiceRadar.Inventory.SyncIngestorQueue.Directory
@@ -337,6 +339,24 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
                 device_count: 0,
                 error_message: "context deadline exceeded"
               }}
+  end
+
+  # Discovery producers stamp a source scope (an agent id) into per-device
+  # metadata; only a run's sync_meta names the IntegrationSource it reports for.
+  test "a batch without sync_meta records no IntegrationSource sync status" do
+    update = %{
+      "device_id" => "dev-discovered",
+      "ip" => "192.0.2.20",
+      "metadata" => %{"sync_service_id" => "agent-synthetic-01"}
+    }
+
+    log =
+      capture_log([level: :warning], fn ->
+        assert :ok = SyncIngestorQueue.ingest_sync_results(Jason.encode!([update]))
+      end)
+
+    assert_received {:ingest_started, [^update]}
+    refute log =~ "IntegrationSource"
   end
 
   # The queue runs on the coordinator only; its producers run on every replica.

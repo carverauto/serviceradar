@@ -618,7 +618,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
   end
 
   defp record_sync_status(updates, actor, ingest_result, sync_meta, control_failure) do
-    sync_service_id = extract_sync_service_id(updates, sync_meta)
+    sync_service_id = sync_service_id(sync_meta)
 
     if should_record_sync_status?(sync_meta, control_failure) do
       device_count =
@@ -647,7 +647,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
   end
 
   defp record_sync_start(updates, actor, sync_meta) do
-    sync_service_id = extract_sync_service_id(updates, sync_meta)
+    sync_service_id = sync_service_id(sync_meta)
 
     if should_record_sync_start?(sync_meta) do
       action_attrs = %{device_count: sync_device_count(updates, sync_meta)}
@@ -751,22 +751,11 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
   defp error_message(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp error_message(reason), do: inspect(reason)
 
-  defp extract_sync_service_id(updates, sync_meta) do
-    meta_id =
-      case sync_meta do
-        %{sync_service_id: id} when is_binary(id) and id != "" -> id
-        _ -> nil
-      end
-
-    meta_id || extract_sync_service_id_from_updates(updates)
-  end
-
-  defp extract_sync_service_id_from_updates([update | _]) when is_map(update) do
-    metadata = update["metadata"] || update[:metadata] || %{}
-    metadata["sync_service_id"] || metadata[:sync_service_id]
-  end
-
-  defp extract_sync_service_id_from_updates(_), do: nil
+  # Only the run's sync_meta names the IntegrationSource. A device's metadata
+  # `sync_service_id` is a source scope that discovery producers also stamp
+  # (the mapper writes its agent id there), so it is not an IntegrationSource id.
+  defp sync_service_id(%{sync_service_id: id}) when is_binary(id) and id != "", do: id
+  defp sync_service_id(_sync_meta), do: nil
 
   defp extract_sync_meta(updates) when is_list(updates) do
     Enum.reduce(updates, %{}, fn update, acc ->
