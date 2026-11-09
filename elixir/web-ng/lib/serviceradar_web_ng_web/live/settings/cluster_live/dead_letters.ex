@@ -403,6 +403,12 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.DeadLetters do
   defp confirm_title(%{action: :purge}), do: "Purge dead letters"
 
   defp inventory_error({:error, :no_coordinator}), do: "no cluster coordinator is reachable"
+
+  defp inventory_error({:error, {:badrpc, :timeout}}),
+    do:
+      "the call to the cluster coordinator timed out. A read it had already started may still be " <>
+        "running; wait before inspecting again."
+
   defp inventory_error({:error, reason}), do: inspect(reason)
 
   defp agents_label(%{agents: [], agent_count: 0}), do: "unknown"
