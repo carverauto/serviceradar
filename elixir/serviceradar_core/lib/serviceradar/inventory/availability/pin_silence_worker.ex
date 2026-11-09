@@ -64,15 +64,27 @@ defmodule ServiceRadar.Inventory.Availability.PinSilenceWorker do
 
   # Expire the pin agent's ledger entries for the matched devices so the
   # resolver sees them as stale on the inline re-resolution below.
+  #
+  # The ledger rows are locked in (device_uid, agent_id) order before any is written, and
+  # before the resolution locks the device rows: the order a sweep ingest locks them in
+  # (`ServiceRadar.SweepJobs.SweepResultsIngestor`). A plain multi-row UPDATE locks them in
+  # whatever order its plan visits them, and could deadlock with an ingest holding some.
   @expire_entries """
   UPDATE platform.device_agent_availability AS a
   SET checked_at = '2000-01-01'::timestamp
-  FROM platform.ocsf_devices AS d
-  WHERE d.uid = a.device_uid
-    AND d.availability_source_agent_id = a.agent_id
-    AND d.availability_state = 'available'
-    AND d.uid = ANY($1::text[])
-    AND a.is_available = true
+  FROM (
+    SELECT locked.id
+    FROM platform.device_agent_availability AS locked
+    JOIN platform.ocsf_devices AS d
+      ON d.uid = locked.device_uid
+      AND d.availability_source_agent_id = locked.agent_id
+      AND d.availability_state = 'available'
+    WHERE locked.device_uid = ANY($1::text[])
+      AND locked.is_available = true
+    ORDER BY locked.device_uid, locked.agent_id
+    FOR NO KEY UPDATE OF locked
+  ) AS expiring
+  WHERE a.id = expiring.id
   """
 
   @impl Oban.Worker
