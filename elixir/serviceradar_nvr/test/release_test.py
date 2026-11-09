@@ -85,8 +85,8 @@ class NVRReleaseTest(unittest.TestCase):
 
     def decode(self, path):
         return subprocess.run([self.ffmpeg, "-nostdin", "-v", "error", "-xerror", "-threads", "1",
-                                   "-i", path, "-map", "0:v:0", "-fps_mode", "passthrough", "-f",
-                                   "rawvideo", "-pix_fmt", "yuv420p", "pipe:1"],
+                               "-i", path, "-map", "0:v:0", "-fps_mode", "passthrough", "-f",
+                               "rawvideo", "-pix_fmt", "yuv420p", "pipe:1"],
                               check=True, capture_output=True, timeout=30).stdout
 
     def test_rotation_preserves_frames_and_stops_before_unreserved_block(self):
