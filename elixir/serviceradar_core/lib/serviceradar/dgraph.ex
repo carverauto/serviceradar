@@ -189,6 +189,29 @@ defmodule ServiceRadar.Dgraph do
     end
   end
 
+  def retire_contained_edge(source, target, observed_at) do
+    with {:ok, url} <- url() do
+      call(
+        :retire_contained_edge,
+        :item,
+        false,
+        &Native.retire_contained_edge(url, source, target, observed_at, &1)
+      )
+    end
+  end
+
+  @spec replace_contained_edge(map()) :: write_result()
+  def replace_contained_edge(edge) when is_map(edge) do
+    with {:ok, url} <- url() do
+      call(
+        :replace_contained_edge,
+        :item,
+        false,
+        &Native.replace_contained_edge(url, edge_map(edge), &1)
+      )
+    end
+  end
+
   @spec upsert_canonical_edge(map()) :: write_result()
   def upsert_canonical_edge(edge) when is_map(edge) do
     with {:ok, url} <- url() do

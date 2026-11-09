@@ -396,6 +396,86 @@ impl TopologyClient {
         Ok(())
     }
 
+    /// Replace this projection owner's CONTAINS edge for a guest atomically.
+    /// The guest (target) owns the projection: a reparented guest drops its
+    /// previous host's edge. Older observations cannot replace a newer parent;
+    /// unrelated ingestors and edge kinds are outside the deletion scope.
+    pub async fn replace_contained_edge(&self, edge: &EdgeWrite) -> Result<(), TopologyError> {
+        edge.validate_contained_replacement()?;
+        let source = dql_string(edge.source());
+        let target = dql_string(edge.target());
+        let owner = dql_string("hypervisor_enrichment_v1");
+        let projection_key = format!(
+            "CONTAINS|{}|projection=hypervisor_enrichment_v1",
+            edge.target()
+        );
+        let key = dql_string(&projection_key);
+        let observed_at = dql_string(edge.last_seen());
+        let query = format!(
+            "{{\n  source(func: eq(device.id, {source})) {{ s as uid }} target(func: eq(device.id, {target})) {{ d as uid ~topo.dst @filter(eq(topo.kind, \"CONTAINS\") AND eq(topo.ingestor, {owner})) {{ owned as uid }} }}\n  current(func: eq(topo.link_key, {key})) {{ c as uid }}\n  same(func: uid(c)) @filter(eq(topo.last_seen, {observed_at}) AND uid_in(topo.src, uid(s))) {{ identical as uid }}\n  superseded(func: uid(owned)) @filter(NOT uid(c)) {{ e as uid }}\n  newer(func: uid(owned)) @filter(gt(topo.last_seen, {observed_at})) {{ n as uid }}\n}}"
+        );
+        let set = json!({
+            "uid": "uid(c)",
+            "dgraph.type": "TopologyEdge",
+            "topo.link_key": projection_key,
+            "topo.src": [{"uid": "uid(s)"}],
+            "topo.dst": [{"uid": "uid(d)"}],
+            "topo.kind": "CONTAINS",
+            "topo.protocol": edge.protocol(),
+            "topo.evidence_class": edge.evidence_class(),
+            "topo.ingestor": edge.ingestor(),
+            "topo.confidence_tier": edge.confidence_tier(),
+            "topo.telemetry_eligible": false,
+            "topo.stale": false,
+            "topo.last_seen": edge.last_seen(),
+        });
+        let delete = json!([
+            {"uid": "uid(e)"},
+            {"uid": "uid(c)", "topo.src": null}
+        ]);
+        let condition =
+            "@if(eq(len(s), 1) AND eq(len(d), 1) AND eq(len(n), 0) AND eq(len(identical), 0))";
+        let response: Value = self.upsert(&query, condition, &set, Some(&delete)).await?;
+        if response
+            .get("source")
+            .and_then(Value::as_array)
+            .map_or(0, Vec::len)
+            != 1
+            || response
+                .get("target")
+                .and_then(Value::as_array)
+                .map_or(0, Vec::len)
+                != 1
+        {
+            return Err(TopologyError::ConditionSkipped(
+                "contained replacement".to_owned(),
+                "source or target identity is missing or ambiguous".to_owned(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Retire only the saved containment projection that was actually
+    /// inspected. A concurrent refresh or reparent changes the
+    /// timestamp/source and wins this race.
+    pub async fn retire_contained_edge(
+        &self,
+        source: &str,
+        target: &str,
+        observed_at: &str,
+    ) -> Result<(), TopologyError> {
+        let source = dql_string(source);
+        let target = dql_string(target);
+        let observed_at = dql_string(observed_at);
+        let query = format!(
+            "{{ target(func: eq(device.id, {target})) {{ d as uid }} source(func: eq(device.id, {source})) {{ ~topo.src @filter(eq(topo.kind, \"CONTAINS\") AND eq(topo.ingestor, \"hypervisor_enrichment_v1\") AND eq(topo.last_seen, {observed_at}) AND uid_in(topo.dst, uid(d))) {{ e as uid }} }} }}"
+        );
+        let _: Value = self
+            .upsert(&query, "", &json!({}), Some(&json!({"uid": "uid(e)"})))
+            .await?;
+        Ok(())
+    }
+
     /// Canonical topology upsert.
     ///
     /// # Errors

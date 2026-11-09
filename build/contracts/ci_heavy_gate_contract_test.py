@@ -102,6 +102,7 @@ RELEASE_IDENTIFIER_CARDINALITY = (
     / "elixir/serviceradar_core/test/release_gates/large_ingestion/identifier_cardinality_release_gate_test.exs"
 )
 FIXED_EXTERNAL_RESOURCE_PATHS = (
+    "test/serviceradar/network_discovery/contained_dgraph_projection_test.exs",
     "test/serviceradar/network_discovery/mapper_dgraph_projection_test.exs",
     "test/serviceradar/observability/mtr_graph_integration_test.exs",
     "test/serviceradar/scans/adhoc_scan_nats_e2e_test.exs",

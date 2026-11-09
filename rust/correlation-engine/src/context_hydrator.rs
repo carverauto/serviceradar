@@ -29,7 +29,7 @@ const DEFAULT_MAX_HYDRATION_ROWS: i64 = 50_000;
 /// endpoints carry the canonical `sr:` `device.id` (`ocsf_devices.uid`); the
 /// DQL wrapper turns each into `{start_id,end_id,label}` inside `{nodes,edges}`
 /// (see `parse_topology_edges`).
-const TOPOLOGY_EDGES_QUERY: &str = r#"in:graph dql:'{ edges(func: type(TopologyEdge)) @filter(NOT eq(topo.stale, true) AND (eq(topo.kind, "CONNECTS_TO") OR eq(topo.kind, "CANONICAL_TOPOLOGY") OR eq(topo.kind, "LOGICAL_PEER") OR eq(topo.kind, "MANAGED_BY"))) { topo.kind topo.src { device.id } topo.dst { device.id } } }'"#;
+const TOPOLOGY_EDGES_QUERY: &str = r#"in:graph dql:'{ edges(func: type(TopologyEdge)) @filter(NOT eq(topo.stale, true) AND (eq(topo.kind, "CONNECTS_TO") OR eq(topo.kind, "CANONICAL_TOPOLOGY") OR eq(topo.kind, "LOGICAL_PEER") OR eq(topo.kind, "MANAGED_BY") OR eq(topo.kind, "CONTAINS") OR eq(topo.kind, "BACKED_BY") OR eq(topo.kind, "DEPENDS_ON"))) { topo.kind topo.src { device.id } topo.dst { device.id } } }'"#;
 
 /// Interface the reasoner uses to read the latest hydrated `Context`.
 #[async_trait]
@@ -293,7 +293,7 @@ fn parse_topology_edges(results: &[serde_json::Value]) -> Vec<TopologyEdge> {
 #[cfg(test)]
 mod tests {
     use super::{
-        edge_kind_from_label, map_device, map_service, parse_topology_edges,
+        TOPOLOGY_EDGES_QUERY, edge_kind_from_label, map_device, map_service, parse_topology_edges,
         reconcile_hydrated_context,
     };
     use crate::domain_model::{
@@ -336,6 +336,16 @@ mod tests {
 
         assert_eq!(service.id, "agent-1:grpc:datasvc");
         assert_eq!(service.available, Some(false));
+    }
+
+    #[test]
+    fn dgraph_query_requests_containment_storage_and_dependency_kinds() {
+        for kind in ["CONTAINS", "BACKED_BY", "DEPENDS_ON"] {
+            assert!(
+                TOPOLOGY_EDGES_QUERY.contains(&format!("\"{kind}\"")),
+                "hydrator DQL must request {kind}"
+            );
+        }
     }
 
     #[test]

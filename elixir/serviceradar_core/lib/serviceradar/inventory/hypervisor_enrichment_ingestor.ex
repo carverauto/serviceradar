@@ -547,7 +547,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
       # A valid owner without an observation can retain last-known evidence,
       # but cannot create or refresh it from a host heartbeat.
       {:ok, %{observed_at: nil}} -> {:cont, :ok}
-      {:ok, link} -> reduce_hosted_result(DgraphPersist.upsert_hosted_link(link))
+      {:ok, link} -> reduce_hosted_result(reconcile_saved_containment(link))
       {:skip, _reason} -> {:cont, :ok}
       {:error, _reason} = error -> {:halt, error}
     end
@@ -570,7 +570,14 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
       if live? and Enum.any?(links, &(&1.guest_device_id == source)) do
         {:cont, :ok}
       else
-        reduce_hosted_result(DgraphPersist.retire_hosted_link(source, target, observed_at))
+        # `source`/`target` are the guest/host of the inspected HOSTED_ON
+        # projection; the CONTAINS twin runs host-to-guest.
+        with :ok <- DgraphPersist.retire_hosted_link(source, target, observed_at),
+             :ok <- DgraphPersist.retire_contained_link(target, source, observed_at) do
+          {:cont, :ok}
+        else
+          {:error, _reason} = error -> {:halt, error}
+        end
       end
     else
       {:error, _reason} = error -> {:halt, error}
@@ -639,6 +646,16 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
 
   defp reduce_hosted_result(:ok), do: {:cont, :ok}
   defp reduce_hosted_result({:error, _reason} = error), do: {:halt, error}
+
+  # The CONTAINS twin of a hosted link carries the same evidence in the
+  # opposite direction (host contains guest). It is projected with the
+  # HOSTED_ON edge so the two cannot diverge by a half-applied page: either
+  # both persist calls succeed or the page halts.
+  defp reconcile_saved_containment(link) do
+    with :ok <- DgraphPersist.upsert_hosted_link(link) do
+      DgraphPersist.upsert_contained_link(link)
+    end
+  end
 
   defp enqueue_world_reconcile do
     case ServiceRadar.NetworkDiscovery.WorldWorker.enqueue_reconcile() do

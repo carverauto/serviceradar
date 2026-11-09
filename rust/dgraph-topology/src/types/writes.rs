@@ -31,6 +31,7 @@ pub enum EdgeKind {
     ConfigDeclared,
     ManagedBy,
     Manages,
+    Contains,
 }
 
 impl EdgeKind {
@@ -49,6 +50,7 @@ impl EdgeKind {
             Self::ConfigDeclared => "CONFIG_DECLARED",
             Self::ManagedBy => "MANAGED_BY",
             Self::Manages => "MANAGES",
+            Self::Contains => "CONTAINS",
         }
     }
 }
@@ -402,6 +404,20 @@ impl EdgeWrite {
             return Err(TopologyError::ConditionSkipped(
                 "hosted replacement".to_owned(),
                 "hosted replacement requires virtualization projection, distinct endpoints, and an observation timestamp".to_owned(),
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn validate_contained_replacement(&self) -> Result<(), TopologyError> {
+        if self.kind() != EdgeKind::Contains
+            || self.ingestor() != "hypervisor_enrichment_v1"
+            || self.source() == self.target()
+            || self.last_seen().is_empty()
+        {
+            return Err(TopologyError::ConditionSkipped(
+                "contained replacement".to_owned(),
+                "contained replacement requires virtualization projection, distinct endpoints, and an observation timestamp".to_owned(),
             ));
         }
         Ok(())
