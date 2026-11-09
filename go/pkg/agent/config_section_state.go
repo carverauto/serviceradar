@@ -94,6 +94,7 @@ func (e *addonConfigApplyError) Unwrap() error { return e.err }
 // to them in the section status and in the AddonStatus read model.
 type addonAssignmentsDeferredError struct {
 	addonIDs []string
+	reasons  map[string]string
 	err      error
 }
 
@@ -102,7 +103,16 @@ func (e *addonAssignmentsDeferredError) Error() string {
 		return e.err.Error()
 	}
 
-	return fmt.Sprintf("%v: %s", e.err, strings.Join(e.addonIDs, ", "))
+	parts := make([]string, 0, len(e.addonIDs))
+	for _, id := range e.addonIDs {
+		if reason := strings.TrimSpace(e.reasons[id]); reason != "" {
+			parts = append(parts, fmt.Sprintf("%s (%s)", id, reason))
+			continue
+		}
+		parts = append(parts, id)
+	}
+
+	return fmt.Sprintf("%v: %s", e.err, strings.Join(parts, ", "))
 }
 
 func (e *addonAssignmentsDeferredError) Unwrap() error { return e.err }
@@ -168,6 +178,54 @@ func marshalAddonAssignmentsForHash(addons []*proto.AddonAssignmentConfig) [][]b
 	return parts
 }
 
+// addonFailurePayloadHash derives a deterministic payload hash scoped to the add-on
+// assignments named in addonIDs. Scoping the add-on section's failure record to the
+// failing add-on assignments prevents periodic config updates to healthy add-ons (such as
+// anomaly baseline refreshes) from resetting the failing add-on's transient escalation
+// timer or de-escalating an already-escalated failure.
+func addonFailurePayloadHash(addons []*proto.AddonAssignmentConfig, addonIDs []string) string {
+	if len(addonIDs) == 0 {
+		return hashConfigSectionPayload(marshalAddonAssignmentsForHash(addons)...)
+	}
+
+	seen := make(map[string]struct{}, len(addonIDs))
+	ids := make([]string, 0, len(addonIDs))
+	for _, raw := range addonIDs {
+		id := strings.TrimSpace(raw)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		return hashConfigSectionPayload(marshalAddonAssignmentsForHash(addons)...)
+	}
+	sort.Strings(ids)
+
+	byID := make(map[string]*proto.AddonAssignmentConfig, len(addons))
+	for _, a := range addons {
+		if a != nil && a.GetAddonId() != "" {
+			byID[a.GetAddonId()] = a
+		}
+	}
+
+	parts := make([][]byte, 0, len(ids)*2)
+	for _, id := range ids {
+		parts = append(parts, []byte(id))
+		if a, ok := byID[id]; ok {
+			parts = append(parts, marshalConfigSectionMessage(a))
+		} else {
+			parts = append(parts, []byte("absent"))
+		}
+	}
+
+	return hashConfigSectionPayload(parts...)
+}
+
 // applyConfigSection runs one deferrable config section through the failure state
 // machine:
 //   - a classified permanent failure of the identical payload is SKIPPED (no
@@ -185,6 +243,14 @@ func (p *PushLoop) applyConfigSection(
 	section, version, payloadHash string,
 	apply func() (addonDeliveryDisposition, error),
 ) addonDeliveryDisposition {
+	return p.applyConfigSectionWithPayloadHash(section, version, payloadHash, nil, apply)
+}
+
+func (p *PushLoop) applyConfigSectionWithPayloadHash(
+	section, version, payloadHash string,
+	resolveFailureHash func(error) string,
+	apply func() (addonDeliveryDisposition, error),
+) addonDeliveryDisposition {
 	if !configSectionReconcilesEveryApply(section) && payloadHash != "" &&
 		p.configSectionPermanentFailureMatches(section, payloadHash) {
 		p.logger.Debug().
@@ -199,13 +265,19 @@ func (p *PushLoop) applyConfigSection(
 	if errors.Is(err, errAddonActivationHeld) {
 		return disposition
 	}
+	failureHash := payloadHash
+	if resolveFailureHash != nil && err != nil {
+		if resolved := resolveFailureHash(err); resolved != "" {
+			failureHash = resolved
+		}
+	}
 	switch disposition {
 	case addonDeliverySucceeded:
 		p.clearConfigSectionFailure(section)
 	case addonDeliveryPermanentFailure:
-		p.recordConfigSectionFailure(section, payloadHash, version, err, disposition)
+		p.recordConfigSectionFailure(section, failureHash, version, err, disposition)
 	case addonDeliveryTransientFailure:
-		disposition = p.recordTransientConfigSectionFailure(section, payloadHash, version, err, time.Now())
+		disposition = p.recordTransientConfigSectionFailure(section, failureHash, version, err, time.Now())
 	}
 
 	return disposition
@@ -593,12 +665,22 @@ func (p *PushLoop) configApplyFailureStatuses(existing []*proto.SidecarStatus) [
 
 	byAddon := make(map[string]addonConfigFailure)
 
-	for _, failure := range failures {
-		if failure.disposition != addonDeliveryPermanentFailure {
+	for section, failure := range failures {
+		if failure.disposition != addonDeliveryPermanentFailure && section != configSectionVisibility {
 			continue
 		}
 		for _, addonID := range failure.addonIDs {
-			byAddon[strings.ToLower(addonID)] = addonConfigFailure{addonID: addonID, reason: failure.reason}
+			key := strings.ToLower(addonID)
+			if prev, ok := byAddon[key]; ok &&
+				prev.disposition == addonDeliveryPermanentFailure &&
+				failure.disposition != addonDeliveryPermanentFailure {
+				continue
+			}
+			byAddon[key] = addonConfigFailure{
+				addonID:     addonID,
+				reason:      failure.reason,
+				disposition: failure.disposition,
+			}
 		}
 	}
 
@@ -651,10 +733,11 @@ func (p *PushLoop) configApplyFailureStatuses(existing []*proto.SidecarStatus) [
 	return agentaddon.ToProtoStatuses(statuses)
 }
 
-// addonConfigFailure is one add-on's share of a permanently failing config section.
+// addonConfigFailure is one add-on's share of a failing config section.
 type addonConfigFailure struct {
-	addonID string
-	reason  string
+	addonID     string
+	reason      string
+	disposition addonDeliveryDisposition
 }
 
 func configApplyFailureReason(failure addonConfigFailure) string {

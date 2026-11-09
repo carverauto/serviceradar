@@ -427,12 +427,31 @@ func (p *PushLoop) applyAddonConfigSection(
 			activationBlocks[netprobe.GetAddonId()] = true
 		}
 	}
-	payloadHash := addonSectionPayloadHash(effectiveAddons)
-	return p.applyConfigSection(configSectionAddons, version, payloadHash, func() (addonDeliveryDisposition, error) {
-		return p.applyEffectiveAddonAssignmentsWithActivationBlocks(
-			ctx, effectiveAddons, activationBlocks, payloadHash, visibilityDisposition,
-		)
-	})
+	payloadHash := p.addonSectionHeldPayloadHash(effectiveAddons)
+	return p.applyConfigSectionWithPayloadHash(
+		configSectionAddons,
+		version,
+		payloadHash,
+		func(err error) string {
+			return addonFailurePayloadHash(effectiveAddons, configSectionFailureAddonIDs(err))
+		},
+		func() (addonDeliveryDisposition, error) {
+			return p.applyEffectiveAddonAssignmentsWithActivationBlocks(
+				ctx, effectiveAddons, activationBlocks, payloadHash, visibilityDisposition,
+			)
+		},
+	)
+}
+
+func (p *PushLoop) addonSectionHeldPayloadHash(effectiveAddons []*proto.AddonAssignmentConfig) string {
+	if recorded, _ := p.configSectionFailureRecord(configSectionAddons); recorded != nil && len(recorded.addonIDs) > 0 {
+		return addonFailurePayloadHash(effectiveAddons, recorded.addonIDs)
+	}
+	if netprobe := netprobeSystemdAssignment(effectiveAddons); netprobe != nil {
+		return addonFailurePayloadHash(effectiveAddons, []string{netprobe.GetAddonId()})
+	}
+
+	return addonSectionPayloadHash(effectiveAddons)
 }
 
 // rememberFullConfig retains the full response of a version that just committed.
@@ -482,12 +501,10 @@ func visibilitySectionPayloadHash(
 	configResp *proto.AgentConfigResponse,
 	effectiveAddons []*proto.AddonAssignmentConfig,
 ) string {
-	parts := append(
-		[][]byte{marshalConfigSectionMessage(configResp.VisibilityConfig)},
-		marshalAddonAssignmentsForHash(effectiveAddons)...,
+	return hashConfigSectionPayload(
+		marshalConfigSectionMessage(configResp.VisibilityConfig),
+		marshalConfigSectionMessage(netprobeSystemdAssignment(effectiveAddons)),
 	)
-
-	return hashConfigSectionPayload(parts...)
 }
 
 func addonSectionPayloadHash(effectiveAddons []*proto.AddonAssignmentConfig) string {
@@ -505,7 +522,7 @@ func (p *PushLoop) retryFailedConfigSections(ctx context.Context, configResp *pr
 	version := configResp.ConfigVersion
 	effectiveAddons := p.effectiveAddonAssignments(configResp.GetAddons())
 	visibilityHash := visibilitySectionPayloadHash(configResp, effectiveAddons)
-	addonsHash := addonSectionPayloadHash(effectiveAddons)
+	addonsHash := p.addonSectionHeldPayloadHash(effectiveAddons)
 
 	if p.configSectionFailureNeedsRetry(configSectionBumblebee, bumblebeeSectionPayloadHash(configResp)) {
 		p.applyBumblebeeConfigSection(ctx, configResp, version)

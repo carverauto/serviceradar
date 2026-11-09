@@ -403,7 +403,7 @@ func (p *PushLoop) buildControlHelloRequest() *proto.ControlStreamRequest {
 // that the agent has no section state, and reporting every section as succeeded would
 // overwrite the failure core recorded from the previous run.
 func (p *PushLoop) helloConfigSectionStatuses() []*proto.ConfigSectionStatus {
-	if p.getLastAttemptedConfigVersion() == "" {
+	if p.getLastAttemptedConfigVersion() == "" && len(p.configSectionFailureSnapshot()) == 0 {
 		return nil
 	}
 
