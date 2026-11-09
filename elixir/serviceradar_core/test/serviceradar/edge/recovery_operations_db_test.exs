@@ -4,6 +4,7 @@ defmodule ServiceRadar.Edge.RecoveryOperationsDbTest do
   alias Monitoring.EdgeRecoveryRegistration
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.HashGrammar
+  alias ServiceRadar.Edge.RecoveryGeneration
   alias ServiceRadar.Edge.RecoveryOperations
   alias ServiceRadar.Edge.RecoveryReceivedPage
   alias Serviceradar.Edge.V1.EdgeClassificationSpanV1
@@ -73,7 +74,12 @@ defmodule ServiceRadar.Edge.RecoveryOperationsDbTest do
     assert {:ok, _} = RecoveryOperations.register(ctx.agent, ctx.plan)
 
     assert {:error, :registration_missing} =
-             RecoveryOperations.receive_control(uuid(), ctx.agent, payload(ctx.plan, :tombstone))
+             RecoveryOperations.consume_control(
+               uuid(),
+               ctx.agent,
+               payload(ctx.plan, :tombstone),
+               cost()
+             )
 
     assert {:ok, %{tombstone_received: true}} = receive(ctx, payload(ctx.plan, :tombstone))
 
@@ -120,6 +126,61 @@ defmodule ServiceRadar.Edge.RecoveryOperationsDbTest do
     assert replay.registration == stored.registration
   end
 
+  test "received later intervals cannot resolve an earlier unknown hole", ctx do
+    first = interval(%{ctx.plan | source_high_water: 4}, 1, 2)
+    later = interval(%{ctx.plan | source_high_water: 4}, 3, 4)
+    assert {:ok, _} = RecoveryOperations.register(ctx.agent, later)
+    assert {:ok, :received} = consume(ctx, later, :manifest_page)
+    assert {:ok, :applied} = consume(ctx, later, :tombstone)
+    assert generation_prefix(ctx) == 0
+
+    assert {:ok, _} = RecoveryOperations.register(ctx.agent, first)
+    assert {:ok, :received} = consume(ctx, first, :tombstone)
+    assert generation_prefix(ctx) == 0
+    assert {:ok, :applied} = consume(ctx, first, :manifest_page)
+    assert generation_prefix(ctx) == 4
+    assert {:ok, :applied} = consume(ctx, later, :manifest_page)
+    assert generation_prefix(ctx) == 4
+  end
+
+  test "underdeclared manifest work cannot commit a receipt or repair effects", ctx do
+    assert {:ok, _} = RecoveryOperations.register(ctx.agent, ctx.plan)
+
+    assert {:error, _} =
+             RecoveryOperations.consume_control(
+               ctx.plan.network_scope_id,
+               ctx.agent,
+               payload(ctx.plan, :manifest_page),
+               %{rows: 1, bytes: 1}
+             )
+
+    assert pages(ctx) == []
+    assert generation_prefix(ctx) == 0
+  end
+
+  defp consume(ctx, plan, kind),
+    do:
+      RecoveryOperations.consume_control(
+        plan.network_scope_id,
+        ctx.agent,
+        payload(plan, kind),
+        cost()
+      )
+
+  defp generation_prefix(ctx) do
+    scope = Ecto.UUID.cast!(ctx.plan.network_scope_id)
+    prior = Ecto.UUID.cast!(ctx.plan.prior_spool_id)
+
+    generation =
+      RecoveryGeneration
+      |> Ash.Query.filter(
+        network_scope_id == ^scope and agent_id == ^ctx.agent and prior_spool_id == ^prior
+      )
+      |> Ash.read_one!(actor: SystemActor.system(:recovery_operations_test))
+
+    Decimal.to_integer(generation.applied_through)
+  end
+
   defp interval(plan, first, last) do
     recovery_id = uuid()
     [raw] = plan.manifest_pages
@@ -141,8 +202,13 @@ defmodule ServiceRadar.Edge.RecoveryOperationsDbTest do
     )
   end
 
-  defp receive(ctx, raw),
-    do: RecoveryOperations.receive_control(ctx.plan.network_scope_id, ctx.agent, raw)
+  defp receive(ctx, raw) do
+    with {:ok, _state} <-
+           RecoveryOperations.consume_control(ctx.plan.network_scope_id, ctx.agent, raw, cost()),
+         do: RecoveryOperations.fetch(ctx.plan.network_scope_id, ctx.agent, ctx.plan.recovery_id)
+  end
+
+  defp cost, do: %{rows: 22, bytes: 1_081_344}
 
   defp pages(ctx) do
     recovery_id = Ecto.UUID.cast!(ctx.plan.recovery_id)

@@ -77,6 +77,7 @@ defmodule ServiceRadar.Repo.Migrations.AddEdgeRecoveryOperations do
       add(:prior_spool_id, :uuid, null: false)
       add(:from_sequence, :decimal, null: false)
       add(:through_sequence, :decimal, null: false)
+      add(:effects_state, :text, null: false, default: "pending")
       add(:blocked_reason, :text)
       add(:tombstone_received, :boolean, null: false, default: false)
 
@@ -102,6 +103,7 @@ defmodule ServiceRadar.Repo.Migrations.AddEdgeRecoveryOperations do
       index(
         :edge_recovery_registrations,
         [:network_scope_id, :agent_id, :prior_spool_id, :interval_registered, :from_sequence],
+        name: "edge_recovery_registration_interval_index",
         prefix: "platform"
       )
     )
@@ -112,6 +114,7 @@ defmodule ServiceRadar.Repo.Migrations.AddEdgeRecoveryOperations do
       index(
         :edge_recovery_registrations,
         [:network_scope_id, :agent_id, :prior_spool_id, :interval_registered, :from_sequence],
+        name: "edge_recovery_registration_interval_index",
         prefix: "platform"
       )
     )

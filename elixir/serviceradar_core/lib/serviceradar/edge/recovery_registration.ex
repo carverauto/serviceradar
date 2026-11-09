@@ -12,7 +12,8 @@ defmodule ServiceRadar.Edge.RecoveryRegistration do
     schema "platform"
 
     custom_indexes do
-      index [:network_scope_id, :agent_id, :prior_spool_id, :interval_registered, :from_sequence]
+      index [:network_scope_id, :agent_id, :prior_spool_id, :interval_registered, :from_sequence],
+        name: "edge_recovery_registration_interval_index"
     end
   end
 
@@ -38,6 +39,10 @@ defmodule ServiceRadar.Edge.RecoveryRegistration do
     update :admit_interval do
       accept []
       change set_attribute(:interval_registered, true)
+    end
+
+    update :apply_effects do
+      accept [:effects_state]
     end
 
     update :block do
@@ -66,6 +71,12 @@ defmodule ServiceRadar.Edge.RecoveryRegistration do
     attribute :prior_spool_id, :uuid, allow_nil?: false
     attribute :from_sequence, :decimal, allow_nil?: false
     attribute :through_sequence, :decimal, allow_nil?: false
+
+    attribute :effects_state, :atom,
+      allow_nil?: false,
+      default: :pending,
+      constraints: [one_of: [:pending, :blocked, :applied]]
+
     attribute :blocked_reason, :string, constraints: [max_length: 128]
     attribute :tombstone_received, :boolean, allow_nil?: false, default: false
     timestamps()

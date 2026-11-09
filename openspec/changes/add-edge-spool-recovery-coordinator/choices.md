@@ -255,3 +255,35 @@
 - Confidence: high; independent destination/sidecar overflow regressions failed
   on baseline and complete reserved relocation succeeds with ordinary admission
   exhausted, using synthetic records with 32 KiB metric values.
+
+## Separate durable receipt from consumer completion
+
+- When: consumer transaction integration, 2026-11-09.
+- Choice: acknowledge an incomplete page only after its exact bytes are durable
+  in receipt storage. The record completing assembly remains deferred if mapping
+  repair is pending or blocked. Neither receipt nor broker ACK releases journals.
+- Gap: withholding every partial receipt fills a finite broker delivery window
+  when operations interleave, preventing the pages needed to complete them from
+  arriving. Raising that window only moves the failure threshold.
+- Reach: the existing EventWriter transaction owns receipts and effects. Complete
+  manifests replay repair; only applied adjacent intervals advance the source
+  prefix. Signed completion remains a separate persisted result.
+- Verdict: sound. This implements the approved distinction between received bytes
+  and consumer completion without weakening unavailable-mapping refusal.
+- Confidence: high in the boundary; guarded DB execution remains required.
+
+## Verify completion as historical evidence
+
+- When: agent completion verifier, 2026-11-09.
+- Choice: verify the original signed recovery ID, root and applied prefix against
+  current retained key policy, independently of production freshness and fences.
+  Compromise-revoked and unavailable keys refuse release. Store detached originals.
+- Gap: a producer validity deadline must not make a completed recovery impossible
+  to collect after an outage; conversely, historical evidence is not a new right
+  to produce or deliver records.
+- Reach: the opaque Go receipt still requires the storage owner to join it to its
+  frozen journal. The issuer retains one timestamp and signature; timestamp alone
+  is intentionally outside the frozen applied-state scope digest.
+- Verdict: sound. Reuses existing signature and trust verification without a new
+  signature ABI or a caller-created deletion permission.
+- Confidence: high; integration with journal release remains the next storage pass.

@@ -559,6 +559,15 @@ SHALL NOT resolve over evidence it could not read or could not reconcile.
 - **WHEN** a lookup is temporarily unavailable
 - **THEN** the recovery SHALL remain pending with no terminal disposition or ACK
 
+#### Scenario: Durable partial receipt does not imply completion
+- **WHEN** an exact page or tombstone is committed to receipt storage but the
+  complete manifest has not arrived
+- **THEN** the consumer MAY acknowledge that durable receipt to free its bounded
+  broker delivery window
+- **AND** it SHALL NOT advance the source prefix or emit `RecoveryResolvedV1`
+- **AND** the record that completes assembly SHALL remain unacknowledged when
+  mapping lookup is unavailable or blocked
+
 #### Scenario: Unreadable evidence blocks resolution
 - **WHEN** a lookup is MISSING, CORRUPT, or CONFLICTING
 - **THEN** `RecoveryResolvedV1` SHALL be blocked

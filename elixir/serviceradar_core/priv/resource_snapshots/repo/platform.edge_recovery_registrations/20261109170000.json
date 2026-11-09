@@ -109,6 +109,18 @@
       "type": "decimal"
     },
     {
+      "allow_nil?": false,
+      "default": "\"pending\"",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "effects_state",
+      "type": "text"
+    },
+    {
       "allow_nil?": true,
       "default": "nil",
       "generated?": false,
@@ -196,7 +208,7 @@
       "include": null,
       "include_base_filter?": true,
       "message": null,
-      "name": null,
+      "name": "edge_recovery_registration_interval_index",
       "nulls_distinct": true,
       "prefix": null,
       "table": null,
@@ -207,7 +219,7 @@
   ],
   "custom_statements": [],
   "has_create_action": true,
-  "hash": "C6E96812726F8404DAB3BDFBBEE99985EA68E8653B7DF7B2B9D565E0AFE34408",
+  "hash": "99B448138F10346C9D4211265DBB40F9A289D07A4BB6D8CD3BBB1CC465E4AA63",
   "identities": [
     {
       "all_tenants?": false,

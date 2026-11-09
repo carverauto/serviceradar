@@ -10,8 +10,10 @@ defmodule ServiceRadar.Edge.RecoveryOperations do
 
   alias Monitoring.EdgeRecoveryRegistration
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Edge.RecoveryEffects
   alias ServiceRadar.Edge.RecoveryGeneration, as: Generation
   alias ServiceRadar.Edge.RecoveryOperation
+  alias ServiceRadar.Edge.RecoveryProjectionCost
   alias ServiceRadar.Edge.RecoveryReceivedPage, as: Page
   alias ServiceRadar.Edge.RecoveryRegistration, as: Registration
   alias ServiceRadar.Edge.RecoveryTransaction
@@ -130,25 +132,90 @@ defmodule ServiceRadar.Edge.RecoveryOperations do
   end
 
   @doc """
-  Record a page or tombstone delivered by the recovery consumer after composed
-  record authorization. An RPC registration never calls this receipt boundary.
-  A conflict is returned as a committed blocked row so callers can quarantine
-  the offending delivery without rolling back the integrity fence.
+  Receives an authenticated JetStream control record and commits its repair effects.
+  An incomplete manifest returns received after storing its exact bytes, allowing
+  the broker window to deliver the remaining pages. Complete manifests with mapping
+  failures return pending/blocked and must be deferred after commit. Only complete,
+  applied manifests return applied. Registration cannot call here.
   """
-  def receive_control(scope, agent_id, raw) do
+  def consume_control(scope, agent_id, raw, declared_cost) do
     with {:ok, payload} <- WireDecode.decode_recovery_control(raw),
          {:ok, {recovery_id, _}} <- RecoveryValidate.control_body(payload),
          {:ok, key} <- key(scope, agent_id, recovery_id),
          :ok <- agent_body(payload) do
       transaction(fn ->
         with {:ok, current} when not is_nil(current) <- locked(key),
-             {:ok, expected} <- decode_registration(current) do
-          receive_body(current, expected, payload, raw)
+             {:ok, expected} <- decode_registration(current),
+             :ok <- RecoveryProjectionCost.validate(expected.pages, declared_cost),
+             {:ok, current} <- receive_body(current, expected, payload, raw),
+             {:ok, generation} <- locked_generation(current),
+             {:ok, state} <- apply_received(current, expected),
+             {:ok, _} <- advance_prefix(generation) do
+          {:ok, state}
         else
           {:ok, nil} -> {:error, :registration_missing}
           error -> error
         end
       end)
+    end
+  end
+
+  defp apply_received(%{blocked_reason: reason}, _) when not is_nil(reason), do: {:ok, :blocked}
+
+  defp apply_received(%{effects_state: :applied}, _), do: {:ok, :applied}
+  defp apply_received(%{tombstone_received: false}, _), do: {:ok, :received}
+
+  defp apply_received(current, expected) do
+    count_query =
+      Page
+      |> Ash.Query.filter(
+        network_scope_id == ^current.network_scope_id and agent_id == ^current.agent_id
+      )
+      |> Ash.Query.filter(recovery_id == ^current.recovery_id)
+
+    with {:ok, count} <- Ash.count(count_query, actor: actor()) do
+      if count == length(expected.pages) do
+        with {:ok, state} <-
+               RecoveryEffects.apply_manifest(
+                 Ecto.UUID.dump!(current.network_scope_id),
+                 current.agent_id,
+                 expected.tombstone,
+                 expected.pages
+               ),
+             {:ok, _} <- update(current, :apply_effects, %{effects_state: state}),
+             do: {:ok, state}
+      else
+        {:ok, :received}
+      end
+    end
+  end
+
+  # A complete union describes only its selected interval. Unknown earlier
+  # intervals stop progress; absence from a later manifest cannot close a hole.
+  # Each transaction visits at most 64 intervals, not the source's whole tail.
+  defp advance_prefix(generation) do
+    query =
+      Registration
+      |> generation_query(generation)
+      |> Ash.Query.filter(
+        interval_registered == true and from_sequence > ^generation.applied_through
+      )
+      |> Ash.Query.sort(from_sequence: :asc)
+      |> Ash.Query.limit(64)
+
+    with {:ok, intervals} <- Ash.read(query, actor: actor()) do
+      prefix =
+        Enum.reduce_while(intervals, Decimal.to_integer(generation.applied_through), fn interval,
+                                                                                        prefix ->
+          if Decimal.to_integer(interval.from_sequence) == prefix + 1 and
+               interval.effects_state == :applied and is_nil(interval.blocked_reason),
+             do: {:cont, Decimal.to_integer(interval.through_sequence)},
+             else: {:halt, prefix}
+        end)
+
+      if Decimal.equal?(generation.applied_through, prefix),
+        do: {:ok, generation},
+        else: update(generation, :advance, %{applied_through: Decimal.new(prefix)})
     end
   end
 
@@ -240,5 +307,10 @@ defmodule ServiceRadar.Edge.RecoveryOperations do
 
   defp actor, do: SystemActor.system(:edge_recovery)
 
-  defp transaction(fun), do: RecoveryTransaction.run([Registration, Page, Generation], fun)
+  defp transaction(fun),
+    do:
+      RecoveryTransaction.run(
+        [Registration, Page, Generation] ++ RecoveryEffects.resources(),
+        fun
+      )
 end

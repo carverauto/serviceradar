@@ -180,6 +180,17 @@ reconciliation. Do not acknowledge consumer completion before these writes commi
 All transport enters JetStream first; the control-plane audit transaction runs in
 EventWriter, never in the agent or a bypassing gateway ingest path.
 
+An incomplete manifest returns `received` only after its exact page or tombstone
+has committed to durable receipt storage. The consumer may ACK that individual
+receipt so a finite broker delivery window can deliver the remaining records,
+including when many operations interleave. This is not completion, does not
+advance the source prefix and does not authorize journal collection. The record
+that completes assembly invokes the full effects transaction; unavailable or
+blocked mapping outcomes remain deferred with no terminal ACK. Replay of any
+page in a complete manifest re-enters that transaction until repair succeeds.
+Raising a finite `max_ack_pending` alone cannot prevent incomplete interleaved
+operations from exhausting it.
+
 Replay choice: a completed immutable recovery has ONE final
 `applied_through_sequence`; a later different value is a conflict, not incremental
 progress. `resolved_at_unix_nano` is the original persisted completion timestamp:

@@ -11,12 +11,13 @@ recovery path. Visibility PR #6447 merged as `d54cbc508a76ba99b673015d3006ce9283
 with all 20 CI checks passing. Its gate records the user-approved remote-test
 exception; live-product validation was not performed.
 
-The current pickup is the consumer transaction and contiguous progress over split
-source-generation intervals. Immutable registration/page storage, historical
-mapping storage and issuance gates, frozen journals, validated acknowledgement
-carriers and restart-safe reserve accounting are integrated. Gateway registration
-and status queries authenticate against installed trust; the recovery protocol
-remains disabled until publication, consumer repair and prefix handling are wired.
+The current pickup is persisted signed completion, recovery source authorization
+and historical copy grants. Consumer receipt/effects now share one transaction,
+with bounded contiguous progress over split source-generation intervals. Partial
+durable receipt is distinct from consumer completion. Immutable registration/page
+storage, historical mapping, frozen journals, acknowledgement and completion
+verifiers, and restart-safe reserve accounting are integrated. The recovery
+protocol remains disabled until publication, repair and prefix handling are wired.
 
 Independent work continues on bound attribution/relocation sidecars, physical
 coverage and reclaim certificates, agent lane migration, and durable consumer
@@ -91,3 +92,9 @@ Update this pickup and the choices ledger after each verified commit checkpoint.
   `c1b5daae-5446-4460-881c-158d258bf0d7`. Guarded DB assertions for overlapping
   intervals and full uint64 coordinates remain pending. OpenSpec strict validation
   and inventory checks passed (66 checks, one skip).
+- Consumer integration, Go completion verification, edge unit contracts and core
+  quality passed four targets in `acccd5b8-e2a9-4e4e-9245-f614c978fb1c`.
+  Removing the signed applied-state digest comparison failed both substituted
+  prefix and root cases in `f2bfdeb2-814a-4b65-97be-8dfee471f06e`; the original
+  source was restored byte-for-byte. Receipt/effects/prefix DB assertions remain
+  pending guarded integration execution.
