@@ -409,3 +409,21 @@ reservation retains its active slot and fails the allocator closed until restart
 inventory. A retained operation cannot acquire a replacement grant merely by
 calling creation again: its complete artifacts and terminal obligations must be
 restored first. No compatibility alias retains the unreserved creation API.
+### Gateway historical rollover and transport bounds
+
+A missing current producer fence never grants primary authority. If lifecycle
+cleanup removed the assignment, an exact currently valid operation-specific
+ROLLOVER capability may drain the retained record to audit only. Core issues it
+only after joining the immutable registered copy and binding with durable original
+FOUND or NOT_SCHEDULED mapping evidence. Ordinary delivery and renewal without a
+fence remain withheld, as does a producer epoch ahead of a known fence. Retained
+valid signing keys, authenticated scope, typed body validation and admission by a
+currently held registry epoch remain required; retired or unknown schemas do not
+receive a bypass.
+
+Before publication, recovery controls must satisfy the shared typed body and scope
+validator. Exact record bytes may exceed the decoded control payload by at most
+16 KiB. The NATS subject and actual serialized headers, including framing, may
+consume at most another 16 KiB per control. The latter check precedes credit
+reservation. These bounds complement the coordinator's aggregate exact-record
+budget and four-page-plus-tombstone limit when sizing reserved recovery capacity.

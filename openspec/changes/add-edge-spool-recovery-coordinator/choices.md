@@ -498,3 +498,38 @@
 - Confidence: high; the physical-byte probe test passes at the exact floor and a
   deliberate acquisition-after-metadata mutation fails because bytes were written
   by an unbacked attempt.
+## Deleted assignment recovery drains only to audit
+
+- When: gateway recovery boundary pass, 2026-11-09.
+- Choice: an original assignment can be deleted while its immutable record and
+  original issuance evidence remain. A current rollover capability for the exact
+  registered event, raw hash and destination permits that record to drain only
+  to the audit stream. Without that capability, or with only an ordinary renewal,
+  the gateway continues to withhold it. An epoch ahead of a known producer fence
+  also remains withheld.
+- Gap: replacement-delivery authority needed a rule for an absent current fence;
+  the existing trust snapshot contains live assignments, not tombstone fences.
+- Reach: core must join immutable registration and original mapping evidence
+  before issuing rollover authority. Retained key validity, authenticated scope,
+  typed payload and held registry admission remain mandatory. Audit delivery
+  cannot run the primary projector or manufacture current execution authority.
+- Verdict: sound. The root implementer approved this narrow interpretation of
+  Decision 3; deleted lifecycle rows do not strand an otherwise valid recovery.
+- Confidence: high.
+
+## Count exact recovery transport overhead before publication
+
+- When: gateway recovery boundary pass, 2026-11-09.
+- Choice: a valid small page can still be wrapped in excessive repeated protobuf
+  fields or oversized gateway headers. The gateway allows at most 16 KiB above
+  the decoded control body in the exact record, and at most 16 KiB for the NATS
+  subject plus serialized headers, including Gnat's framing bytes. Header refusal
+  happens before credit reservation and broker publication.
+- Gap: the bounded coordinator's control-byte budget needed a matching transport
+  envelope bound to show that the reserved recovery stream can accept an attempt.
+- Reach: four pages plus one tombstone remain bounded independently of compressed
+  payload representation and runtime gateway-id configuration. Header failures
+  withhold delivery; they do not invent a terminal broker acknowledgement.
+- Verdict: sound. These bounds complete the approved finite recovery capacity
+  calculation using the actual header serializer rather than a character estimate.
+- Confidence: high.

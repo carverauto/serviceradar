@@ -154,7 +154,7 @@ defmodule ServiceRadarAgentGateway.TestSupport.EdgeRecordFactory do
 
     record = %EdgeRecordV1{
       event_id: uuidv7(div(not_before, 1_000_000) + 1),
-      payload_family: :EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1,
+      payload_family: Keyword.get(opts, :payload_family, :EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1),
       compression: :EDGE_RECORD_COMPRESSION_NONE,
       encoded_size: byte_size(payload),
       uncompressed_size: byte_size(payload),
@@ -173,7 +173,7 @@ defmodule ServiceRadarAgentGateway.TestSupport.EdgeRecordFactory do
         package_id: "serviceradar.test.package",
         package_sha256: digest(5)
       },
-      route_profile: :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
+      route_profile: Keyword.get(opts, :route_profile, :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1),
       traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_BULK,
       network_scope_id: Keyword.get(opts, :network_scope_id, @network_scope_id),
       projected_row_count: 1,
@@ -276,9 +276,9 @@ defmodule ServiceRadarAgentGateway.TestSupport.EdgeRecordFactory do
     p = r.producer_context
     envelope = r.production_capability
     kind = Keyword.get(opts, :kind, :EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_CHECK)
-    context_id = uuidv7()
-    scope_id = uuidv7()
-    scope_sha256 = digest(6)
+    context_id = Keyword.get_lazy(opts, :context_id, &uuidv7/0)
+    scope_id = Keyword.get_lazy(opts, :scope_id, &uuidv7/0)
+    scope_sha256 = Keyword.get(opts, :scope_sha256, digest(6))
 
     claims = %EdgeSourceClaimsV1{
       kind: kind,

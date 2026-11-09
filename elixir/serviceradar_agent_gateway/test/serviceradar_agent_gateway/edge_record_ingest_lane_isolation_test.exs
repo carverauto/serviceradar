@@ -125,6 +125,44 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
     %{supervisor: supervisor, pipeline: start_pipeline(start_pools())}
   end
 
+  test "recovery refuses oversized serialized headers before credits or broker publication" do
+    previous =
+      try do
+        {:ok, Config.get()}
+      rescue
+        ArgumentError -> :missing
+      end
+
+    on_exit(fn -> restore_config(previous) end)
+    Config.setup(gateway_id: String.duplicate("x", 16_384), domain: "example.test")
+    Process.put(:isolation_test_pid, self())
+    pools = start_pools()
+    pool = Map.fetch!(pools, :recovery)
+    before = PublisherPool.capacity(pool)
+    raw = "synthetic verified recovery control"
+
+    publication = %{
+      slot: %{network_scope_id: uuidv7(0x40), authenticated_agent_id: "agent-1", spool_id: uuidv7(0x41), sequence: 1},
+      route_profile: :EDGE_RECORD_ROUTE_PROFILE_RECOVERY_CONTROL_V1,
+      traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_BULK,
+      partition_rule: :network_scope_v1,
+      record_bytes: raw,
+      record_sha256: :crypto.hash(:sha256, raw),
+      semantic_envelope_sha256: :crypto.hash(:sha256, "synthetic semantic identity")
+    }
+
+    assert {:error, {:derivation, :recovery_transport_overhead}} =
+             JetStreamPublisher.publish_record(publication, pools: pools, connection: FakeConn)
+
+    assert PublisherPool.capacity(pool) == before
+    refute_received {:jetstream_request, _, _, _, _}
+
+    Config.setup(gateway_id: "synthetic-gateway", domain: "example.test")
+    assert {:ok, _} = JetStreamPublisher.publish_record(publication, pools: pools, connection: FakeConn)
+    assert_receive {:jetstream_request, _, subject, ^raw, headers}
+    assert byte_size(subject) + 12 + IO.iodata_length(Gnat.Headers.encode(headers)) <= 16_384
+  end
+
   describe "never enters StatusBuffer" do
     setup do
       # StatusBuffer reports its depth tagged with the gateway id, so it needs gateway config.

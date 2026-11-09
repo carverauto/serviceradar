@@ -11,8 +11,8 @@ defmodule ServiceRadarAgentGateway.EdgeRecoveryControl do
   alias Monitoring.EdgeRecoveryRegistration
   alias ServiceRadar.Edge.RecoveryControl
   alias ServiceRadar.Edge.RecoveryOperation
-  alias ServiceRadarAgentGateway.CoreNodeForwarder
   alias ServiceRadarAgentGateway.EdgeRecordTrust
+  alias ServiceRadarAgentGateway.EdgeRecoveryRPC
 
   def register(%EdgeRecoveryRegistration{} = request, identity) do
     with :ok <- registration(request),
@@ -69,9 +69,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecoveryControl do
   defp authenticated_namespace(_, _), do: {:error, :permission_denied, "recovery requires an authenticated agent"}
 
   defp core(function, agent_id, request) do
-    node = CoreNodeForwarder.select_core_node("edge recovery")
-
-    case :rpc.call(node, RecoveryControl, function, [agent_id, request], 10_000) do
+    case EdgeRecoveryRPC.call(RecoveryControl, function, [agent_id, request]) do
       {:ok, result} ->
         {:ok, result}
 

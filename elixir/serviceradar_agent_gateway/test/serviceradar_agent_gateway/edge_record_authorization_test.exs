@@ -1,6 +1,12 @@
 defmodule ServiceRadarAgentGateway.EdgeRecordAuthorizationTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Edge.HashGrammar
+  alias Serviceradar.Edge.V1.EdgeClassificationSpanV1
+  alias Serviceradar.Edge.V1.EdgeDeliveryRolloverV1
+  alias Serviceradar.Edge.V1.EdgeLossManifestPageV1
+  alias Serviceradar.Edge.V1.EdgeRecoveryControlPayloadV1
+  alias Serviceradar.Edge.V1.EdgeUnattributableV1
   alias ServiceRadarAgentGateway.EdgeRecordAuthorization
   alias ServiceRadarAgentGateway.EdgeRecordTrust
   alias ServiceRadarAgentGateway.TestSupport.EdgeRecordFactory, as: Factory
@@ -40,6 +46,67 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorizationTest do
       record = Factory.record(ctx.keys.private, source: [])
       assert {:ok, %{publication: :primary}} = authorize(ctx, record)
     end
+  end
+
+  test "recovery admission validates its typed body and bounds exact record overhead", ctx do
+    page = %EdgeLossManifestPageV1{
+      recovery_id: Factory.uuidv7(),
+      page_count: 1,
+      terminal: true,
+      digest_version: 1,
+      classification_spans: [
+        %EdgeClassificationSpanV1{
+          from_sequence: 1,
+          through_sequence: 1,
+          classification: {:unattributable, %EdgeUnattributableV1{reason: :EDGE_UNATTRIBUTABLE_REASON_TORN_TAIL}}
+        }
+      ]
+    }
+
+    page = %{page | page_sha256: HashGrammar.manifest_page_digest(page)}
+    control = %EdgeRecoveryControlPayloadV1{body: {:manifest_page, page}}
+    payload = control |> EdgeRecoveryControlPayloadV1.encode() |> IO.iodata_to_binary()
+    route = :EDGE_RECORD_ROUTE_PROFILE_RECOVERY_CONTROL_V1
+    lane = %{ctx.lane | route_profile: route}
+
+    record = fn raw, mutate ->
+      Factory.record(ctx.keys.private,
+        payload: raw,
+        payload_family: :EDGE_RECORD_PAYLOAD_FAMILY_RECOVERY_CONTROL_V1,
+        route_profile: route,
+        output_contract: %{Factory.contract_ref() | contract_id: "serviceradar.edge.recovery_control"},
+        source: [
+          kind: :EDGE_SOURCE_AUTHORIZATION_KIND_RECOVERY_CONTROL,
+          context_id: page.recovery_id,
+          scope_id: page.recovery_id,
+          scope_sha256: HashGrammar.manifest_page_scope_digest(page)
+        ],
+        mutate: mutate
+      )
+    end
+
+    assert {:ok, %{publication: :primary}} = authorize(ctx, record.(payload, & &1), lane: lane)
+
+    invalid = [
+      {"synthetic invalid protobuf", :payload_decode},
+      {payload <> <<0xA0, 0x06, 1>>, :unknown_fields}
+    ]
+
+    for {raw, reason} <- invalid do
+      assert {:error, :permanent, {:recovery_control, ^reason}, _} =
+               authorize(ctx, record.(raw, & &1), lane: lane)
+    end
+
+    frame = Factory.frame(record.(payload, & &1), spool_id: ctx.spool_id)
+    # Repeating the known route field preserves its effective value and signatures,
+    # but increases exact wire overhead beyond the admitted recovery envelope.
+    raw = frame.record_bytes <> :binary.copy(<<0x48, 3>>, 8_192)
+    oversized = %{frame | record_bytes: raw, record_sha256: :crypto.hash(:sha256, raw)}
+    trust = snapshot(ctx)
+    identity = EdgeRecordTrust.with_network_scopes(trust, ctx.identity)
+
+    assert {:error, :permanent, {:recovery_control, :record_overhead}, _} =
+             EdgeRecordAuthorization.authorize_frame(oversized, lane, identity, trust, now())
   end
 
   describe "conflicts are rejected locally" do
@@ -196,6 +263,45 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorizationTest do
   end
 
   describe "authority" do
+    test "a missing producer fence drains only a bound current rollover as audit", ctx do
+      record = expired_record(ctx)
+      trust = snapshot(ctx, fences: [])
+      renewal = Factory.delivery_capability(record, ctx.keys.private, spool_id: ctx.spool_id)
+      {:delivery, claims} = renewal.claims
+
+      rollover_claims = %{
+        claims
+        | transition:
+            {:rollover,
+             %EdgeDeliveryRolloverV1{
+               recovery_id: Factory.uuidv7(),
+               prior_spool_id: Factory.uuidv7(),
+               prior_sequence: 1
+             }}
+      }
+
+      rollover = Factory.sign(%{renewal | claims: {:delivery, rollover_claims}}, ctx.keys.private)
+
+      for delivery <- [nil, renewal] do
+        assert {:error, :retryable, :fence_not_ready, _} =
+                 authorize(ctx, record, snapshot: trust, delivery_capability: delivery)
+      end
+
+      assert {:ok, %{publication: :audit, delivery_mode: @mode_late_fenced, grant: :rollover}} =
+               authorize(ctx, record, snapshot: trust, delivery_capability: rollover)
+
+      mismatched =
+        Factory.sign(%{rollover | claims: {:delivery, %{rollover_claims | event_id: Factory.uuidv7()}}}, ctx.keys.private)
+
+      assert {:error, :permanent, {:delivery_capability, :event_id}, _} =
+               authorize(ctx, record, snapshot: trust, delivery_capability: mismatched)
+
+      future = snapshot(ctx, fences: [{record.network_scope_id, record.producer_context.producer_assignment_id, 0, 0}])
+
+      assert {:error, :retryable, :fence_not_ready, _} =
+               authorize(ctx, record, snapshot: future, delivery_capability: rollover)
+    end
+
     test "expired production authority without a delivery grant is withheld", ctx do
       record = expired_record(ctx)
       assert {:error, :retryable, :authority_expired, _} = authorize(ctx, record)

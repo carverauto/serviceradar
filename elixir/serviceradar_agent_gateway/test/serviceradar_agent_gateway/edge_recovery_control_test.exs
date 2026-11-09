@@ -11,10 +11,36 @@ defmodule ServiceRadarAgentGateway.EdgeRecoveryControlTest do
   @foreign_scope <<18::48, 7::4, 0::12, 2::2, 18::62>>
 
   setup do
+    previous_rpc = Application.get_env(:serviceradar_agent_gateway, :edge_recovery_control_rpc)
+
+    on_exit(fn ->
+      if previous_rpc,
+        do: Application.put_env(:serviceradar_agent_gateway, :edge_recovery_control_rpc, previous_rpc),
+        else: Application.delete_env(:serviceradar_agent_gateway, :edge_recovery_control_rpc)
+    end)
+
     keys = Factory.keypair()
     :ok = EdgeRecordTrust.install(Factory.trust_document(keys.public))
     on_exit(&EdgeRecordTrust.clear/0)
     :ok
+  end
+
+  test "authenticated recovery dispatch uses the shared external RPC boundary" do
+    query = %EdgeRecoveryQuery{network_scope_id: Factory.network_scope_id(), recovery_id: @recovery_id}
+    owner = self()
+
+    Application.put_env(:serviceradar_agent_gateway, :edge_recovery_control_rpc, fn module, function, args, timeout ->
+      send(owner, {:recovery_rpc, module, function, args, timeout})
+      {:ok, :synthetic_pending}
+    end)
+
+    assert {:ok, :synthetic_pending} = EdgeRecoveryControl.get(query, %{component_type: :agent, component_id: "agent-1"})
+    assert_receive {:recovery_rpc, ServiceRadar.Edge.RecoveryControl, :get, ["agent-1", ^query], 10_000}
+
+    assert {:error, :permission_denied, _} =
+             EdgeRecoveryControl.get(query, %{component_type: :agent, component_id: "unbound-agent"})
+
+    refute_received {:recovery_rpc, _, _, _, _}
   end
 
   test "query cannot substitute a foreign scope or caller-supplied scope membership" do

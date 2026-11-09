@@ -411,17 +411,32 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
              # separately-supplied value would describe a placement that never happened.
              route_map_version: route.placement_version
            }) do
-      {:ok,
-       [
-         {"Nats-Msg-Id", msg_id},
-         {"Nats-Expected-Stream", route.expected_stream},
-         {"Sr-Edge-Delivery-Id", delivery_id},
-         {"Sr-Edge-Transport-Provenance", provenance}
-       ] ++ gateway_header()}
+      headers =
+        [
+          {"Nats-Msg-Id", msg_id},
+          {"Nats-Expected-Stream", route.expected_stream},
+          {"Sr-Edge-Delivery-Id", delivery_id},
+          {"Sr-Edge-Transport-Provenance", provenance}
+        ] ++ gateway_header()
+
+      recovery_header_bound(headers, route, publication)
     else
       {:error, reason} -> {:error, {:derivation, reason}}
     end
   end
+
+  defp recovery_header_bound(headers, route, %{route_profile: profile})
+       when profile in [:EDGE_RECORD_ROUTE_PROFILE_RECOVERY_CONTROL_V1, 3] do
+    # Gnat adds the 12-byte NATS/1.0 line and separator to its encoded header fields.
+    # This exact wire bound is checked before reserving credits or publishing.
+    bytes = byte_size(route.subject) + 12 + IO.iodata_length(Gnat.Headers.encode(headers))
+
+    if bytes <= 16_384,
+      do: {:ok, headers},
+      else: {:error, {:derivation, :recovery_transport_overhead}}
+  end
+
+  defp recovery_header_bound(headers, _route, _publication), do: {:ok, headers}
 
   defp gateway_header do
     case Config.get(:gateway_id, nil) do
