@@ -747,6 +747,9 @@ func (s *Spool) Unresolved() ([]Record, error) {
 func (s *Spool) Resolve(through uint64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.requireNoRecoveryHold(); err != nil {
+		return err
+	}
 	if err := s.requireCurrentLayout(); err != nil {
 		return err
 	}
@@ -772,6 +775,9 @@ func (s *Spool) Resolve(through uint64) error {
 func (s *Spool) ResolveWithEvidence(through uint64, evidence []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.requireNoRecoveryHold(); err != nil {
+		return err
+	}
 	if err := s.requireCurrentLayout(); err != nil {
 		return err
 	}

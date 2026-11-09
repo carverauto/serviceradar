@@ -273,11 +273,11 @@ not establish that the complete coordinator footprint is configured.
 
 ### Aggregate defaults and recovery-control attempts
 
-The default footprint is 22 MiB per active recovery: 8 MiB destination,
+The default footprint is 32 MiB per active recovery: 8 MiB destination,
 2 MiB attribution/relocation sidecars, 4 MiB for EACH journal copy, 2 MiB control
-publication storage, 1 MiB coverage/mapping evidence, and 1 MiB filesystem
+publication storage, 11 MiB terminal archive and coverage/mapping evidence, and 1 MiB filesystem
 metadata. Together with the existing 1 MiB unborrowable free-space floor, one
-active recovery reserves 23 MiB of the default 1 GiB spool. The existing allocator
+active recovery reserves 33 MiB of the default 1 GiB spool. The existing allocator
 capacity validation rejects a total below its aggregate floor; there is no new
 Helm-only setting. `Footprint.ValidateCoordinator` additionally rejects component
 budgets below the complete coordinator minima.
@@ -308,3 +308,39 @@ the unchanged record under its new spool/sequence while the output grant remains
 active. Repeated failed attempts require enough remaining aggregate capacity;
 exhaustion is a visible capacity refusal retaining evidence, not unbounded retry
 progress. Safe cleanup of superseded attempts remains part of the proof lifecycle.
+
+
+### Paired storage proof checkpoint
+
+Every mutable phase is an immutable two-copy record bound to the complete frozen
+journal digest and its step name. There are at most 64 steps and 1 MiB aggregate
+phase bytes per copy. A single intact copy permits exact repair but never proves
+progress until both barriers exist. Divergent intact copies fail closed.
+
+Opening an operation durably holds the source against resolution/reclaim and its
+empty dedicated destination against resolution. The sender supervisor must close
+or skip the source session while `Generation.RecoverySourceHeld` is true; a
+read error also blocks that session. The destination remains sender-visible.
+Every selected allocated slot is rechecked as either a committed destination with
+exact local binding, old-to-new mapping and high-water evidence, or a complete
+frozen loss classification with authoritative acknowledgements for every page and
+tombstone. Those acknowledgements come only from the strict authenticated sender
+validator. Their exact publication generation, attempt, sequence, event, raw hash
+and binding are saved before ordinary control-lane resolution.
+
+After both coverage certificate copies are durable, the destination hold can be
+removed. Restart can use that certificate even if destination ACKs have since
+advanced. Source terminal acceptance is not a third coverage branch: every
+allocated slot above the physical reclaim base still needs a copy or loss proof,
+including an already accepted or permanently rejected prefix. A private retained
+source witness permits reading that prefix; the public destination witness still
+requires an unresolved sender-visible commit.
+
+The mapping/archive minimum is `DestinationSegment + AttributionSidecar + 1 MiB`:
+the bounded source's retained record/evidence/sidecar bytes plus certificate,
+terminal and archive framing headroom. Defaults therefore reserve 11 MiB here.
+The following reclamation slice must preflight actual archive bytes and preserve
+all terminal evidence without invoking the legacy quarantine eviction policy.
+The proof checkpoint does not yet delete source bytes, release the source charge,
+or collect journals; those actions still require the deletion-intent/archive and
+verified consumer-resolution lifecycle.

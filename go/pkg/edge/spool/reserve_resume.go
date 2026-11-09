@@ -150,10 +150,15 @@ func (g *RecoveryGrant) restoreArtifacts(artifacts []RecoveryArtifact, controlSe
 		if err != nil {
 			return err
 		}
-		if !info.Mode().IsRegular() || info.Size() < 0 {
-			return fmt.Errorf("%w: retained artifact is not a regular file", ErrInvalidAllocatorConfig)
+		if info.Size() < 0 || (!info.Mode().IsRegular() && !(entry.Artifact == ArtifactFilesystemMetadata && info.IsDir())) {
+			return fmt.Errorf("%w: retained artifact is not a regular file or metadata directory", ErrInvalidAllocatorConfig)
 		}
 		n := uint64(info.Size())
+		if info.IsDir() {
+			// The same minimum charged when durable recovery directories are made.
+			// Larger measured directories cannot disappear from physical backing.
+			n = max(n, 4096)
+		}
 		if n > g.alloc.budgets[entry.Artifact]-g.used[entry.Artifact] {
 			return &ReserveExhaustedError{Artifact: entry.Artifact, Requested: n, Remaining: g.alloc.budgets[entry.Artifact] - g.used[entry.Artifact]}
 		}

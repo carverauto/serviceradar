@@ -63,9 +63,9 @@ const (
 
 // DefaultRecoveryFootprint leaves room for a full bounded source generation,
 // both journals and their phase/repair writes, two full control attempts,
-// retained coverage evidence, and filesystem metadata. Total: 22 MiB per grant.
+// retained coverage evidence, and filesystem metadata. Total: 32 MiB per grant.
 func DefaultRecoveryFootprint() Footprint {
-	return Footprint{DestinationSegment: 8 << 20, AttributionSidecar: 2 << 20, JournalCopy: 4 << 20, ManifestPages: 2 << 20, Mapping: 1 << 20, FilesystemMetadata: 1 << 20}
+	return Footprint{DestinationSegment: 8 << 20, AttributionSidecar: 2 << 20, JournalCopy: 4 << 20, ManifestPages: 2 << 20, Mapping: 11 << 20, FilesystemMetadata: 1 << 20}
 }
 
 // ValidateCoordinator refuses configurations that cannot preserve even the
@@ -77,7 +77,7 @@ func (f Footprint) ValidateCoordinator() error {
 		AttributionSidecar: 2 * sidecarSlotSize,
 		JournalCopy:        2 * (MaxRecoveryJournalBytes + MaxRecoveryPhaseBytes),
 		ManifestPages:      2 * recoveryControlAttemptBytes,
-		Mapping:            1 << 20, FilesystemMetadata: 1 << 20,
+		Mapping:            f.DestinationSegment + f.AttributionSidecar + (1 << 20), FilesystemMetadata: 1 << 20,
 	}.budgets()
 	for art, n := range f.budgets() {
 		if n < minima[art] {

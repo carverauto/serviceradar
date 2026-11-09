@@ -162,6 +162,9 @@ func (s *Spool) ReclaimResolved() error {
 }
 
 func (s *Spool) reclaimLocked() error {
+	if err := s.requireNoRecoveryHold(); err != nil {
+		return err
+	}
 	if s.failErr != nil {
 		return s.failErr
 	}
@@ -173,6 +176,14 @@ func (s *Spool) reclaimLocked() error {
 	}
 	if s.alloc != nil && s.alloc.Err() != nil {
 		return s.alloc.Err()
+	}
+	if s.alloc != nil {
+		s.alloc.mu.Lock()
+		held := s.alloc.heldInLaneLocked(s.dir) > 0
+		s.alloc.mu.Unlock()
+		if held {
+			return nil
+		}
 	}
 	// A previous publication may have completed before its cleanup did.
 	if err := s.cleanupReclaimed(); err != nil {

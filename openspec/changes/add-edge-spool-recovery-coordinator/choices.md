@@ -338,3 +338,41 @@
 - Verdict: sound for bounded operations. Legacy partitioning remains explicitly
   unresolved until its representability and identity evidence are established.
 - Confidence: high for the local admission invariant.
+
+## Paired coverage, sender holds and retained source prefixes
+
+- When: storage proof pass, 2026-11-09.
+- Choice: save immutable phase pairs and block destination ACK application until
+  both coverage copies are durable. For example, a copied record can reach the
+  gateway immediately, but its early ACK is retried until the agent has saved
+  proof that every old allocated slot is covered. If the process stops between
+  those writes, exact repair completes the pair; a later phase never substitutes
+  for the missing earlier record. The source gets a separate durable hold so the
+  runtime can close its old session without suppressing destination delivery.
+- Gap: a live sender can resolve copied data before coverage observes it. Merely
+  retaining physical files does not preserve the existing sender-visible witness.
+- Reach: the sender must save validated authoritative publication receipts before
+  applying ordinary resolution, and must respect the source-only hold. Phase
+  records are bounded to 64 steps and 1 MiB per copy; repeated failures retain
+  evidence and surface capacity refusal rather than promising unlimited retries.
+- Verdict: sound; root explicitly approved durable holds and exact frozen replay.
+- Confidence: high.
+
+- When: storage proof pass, 2026-11-09.
+- Choice: cover the retained physical prefix even when the old sender already
+  acknowledged it. A rejected record followed by a torn append still occupies
+  source storage; copying it requires the original complete commit and binding,
+  and its rejection evidence must survive eventual source deletion. Public copy
+  witnesses remain strict for destinations, while the operation alone can read
+  an already resolved source slot. The default archive budget increases from
+  1 MiB to 11 MiB, making the aggregate reserve 32 MiB, to cover the bounded source
+  record/evidence/sidecars plus 1 MiB certificate and archive headroom.
+- Gap: using the resolved watermark as the deletion interval would omit retained
+  records, and the legacy bounded quarantine can evict evidence at its cap.
+- Reach: reclamation must measure/preflight the complete no-drop archive before
+  destructive intent. Oversized legacy sources remain capacity-blocked and intact.
+  This checkpoint retains source data and does not claim reclamation completion.
+- Verdict: sound; root confirmed the physical base interval and approved the
+  derived archive reserve. Actual archive enforcement remains the next slice.
+- Confidence: high on the interval; medium on the framing headroom until the
+  archive implementation and near-full generation proof establish its exact bound.
