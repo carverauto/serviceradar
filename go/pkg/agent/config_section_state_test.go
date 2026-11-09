@@ -23,6 +23,7 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -891,6 +892,45 @@ func TestSupervisorApplyFailureUnionsDeferredAddonIDs(t *testing.T) {
 	}
 	if len(deferred.addonIDs) != 2 || deferred.addonIDs[0] != testPowerDNSAddonID || deferred.addonIDs[1] != testNetprobeAddonID {
 		t.Fatalf("deferred addon IDs = %v, want [%s netprobe]", deferred.addonIDs, testPowerDNSAddonID)
+	}
+}
+
+// Core attributes a deferred add-on section error to an add-on only when the id is
+// followed by end-of-string or one of ',' ';' ':' (AddonRolloutArtifact
+// section_names_addon?), so a per-add-on reason must not break that match.
+func TestDeferredAddonSectionErrorNamesEachAddonForCore(t *testing.T) {
+	err := &addonAssignmentsDeferredError{
+		addonIDs: []string{testPowerDNSAddonID, testNetprobeAddonID},
+		reasons:  map[string]string{testPowerDNSAddonID: "addon artifact gateway download failed: status 503"},
+		err:      errAddonAssignmentsDeferred,
+	}
+
+	text := err.Error()
+	for _, id := range []string{testPowerDNSAddonID, testNetprobeAddonID} {
+		named := regexp.MustCompile(`(?:^|\s)` + regexp.QuoteMeta(id) + `(?:$|[,;:])`)
+		if !named.MatchString(text) {
+			t.Fatalf("section error %q does not name %s in the form core matches", text, id)
+		}
+	}
+	if !strings.Contains(text, "status 503") {
+		t.Fatalf("section error %q omits the per-add-on reason", text)
+	}
+}
+
+// Before this process has attempted a config apply, the hello omits section statuses
+// even when a section failure is already recorded, so it cannot report the sections
+// the first apply has not reached yet as succeeded.
+func TestHelloOmitsSectionStatusesBeforeFirstApplyCompletes(t *testing.T) {
+	pl := newAddonManagerPushLoop(t, &recordingAddonManager{})
+	pl.recordConfigSectionFailure(configSectionBumblebee, "hash", "v1", errTestSectionBoom, addonDeliveryTransientFailure)
+
+	if got := pl.helloConfigSectionStatuses(); got != nil {
+		t.Fatalf("hello section statuses = %v, want none before the first apply attempt completes", got)
+	}
+
+	pl.setLastAttemptedConfigVersion("v1")
+	if got := pl.helloConfigSectionStatuses(); len(got) == 0 {
+		t.Fatal("hello section statuses empty after an attempted apply, want the recorded section state")
 	}
 }
 

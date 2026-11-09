@@ -106,13 +106,13 @@ func (e *addonAssignmentsDeferredError) Error() string {
 	parts := make([]string, 0, len(e.addonIDs))
 	for _, id := range e.addonIDs {
 		if reason := strings.TrimSpace(e.reasons[id]); reason != "" {
-			parts = append(parts, fmt.Sprintf("%s (%s)", id, reason))
+			parts = append(parts, id+": "+reason)
 			continue
 		}
 		parts = append(parts, id)
 	}
 
-	return fmt.Sprintf("%v: %s", e.err, strings.Join(parts, ", "))
+	return fmt.Sprintf("%v: %s", e.err, strings.Join(parts, "; "))
 }
 
 func (e *addonAssignmentsDeferredError) Unwrap() error { return e.err }
