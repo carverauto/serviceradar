@@ -29,7 +29,7 @@ const DEFAULT_MAX_HYDRATION_ROWS: i64 = 50_000;
 /// endpoints carry the canonical `sr:` `device.id` (`ocsf_devices.uid`); the
 /// DQL wrapper turns each into `{start_id,end_id,label}` inside `{nodes,edges}`
 /// (see `parse_topology_edges`).
-const TOPOLOGY_EDGES_QUERY: &str = r#"in:graph dql:'{ edges(func: type(TopologyEdge)) @filter(NOT eq(topo.stale, true) AND (eq(topo.kind, "CONNECTS_TO") OR eq(topo.kind, "CANONICAL_TOPOLOGY") OR eq(topo.kind, "LOGICAL_PEER") OR eq(topo.kind, "MANAGED_BY"))) { topo.kind topo.src { device.id } topo.dst { device.id } } }'"#;
+const TOPOLOGY_EDGES_QUERY: &str = r#"in:graph dql:'{ edges(func: type(TopologyEdge)) @filter(NOT eq(topo.stale, true) AND (eq(topo.kind, "CONNECTS_TO") OR eq(topo.kind, "CANONICAL_TOPOLOGY") OR eq(topo.kind, "LOGICAL_PEER") OR eq(topo.kind, "MANAGED_BY") OR eq(topo.kind, "CONTAINS") OR eq(topo.kind, "BACKED_BY") OR eq(topo.kind, "DEPENDS_ON"))) { topo.kind topo.src { device.id } topo.dst { device.id } } }'"#;
 
 /// Interface the reasoner uses to read the latest hydrated `Context`.
 #[async_trait]
@@ -408,6 +408,16 @@ mod tests {
             "three labels collapsing onto one kind must yield one edge, got {edges:?}"
         );
         assert_eq!(edges[0].kind, EdgeKind::ConnectsTo);
+    }
+
+    #[test]
+    fn hydrated_contains_row_keeps_host_as_source() {
+        let results = vec![graph_edge("sr:host-1", "sr:guest-1", "CONTAINS")];
+        let edges = parse_topology_edges(&results);
+        assert_eq!(edges.len(), 1, "got {edges:?}");
+        assert_eq!(edges[0].src, "sr:host-1");
+        assert_eq!(edges[0].dst, "sr:guest-1");
+        assert_eq!(edges[0].kind, EdgeKind::Contains);
     }
 
     #[test]

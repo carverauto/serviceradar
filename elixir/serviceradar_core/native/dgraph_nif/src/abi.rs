@@ -148,6 +148,7 @@ pub enum NifEdgeKind {
     ConfigDeclared,
     ManagedBy,
     Manages,
+    Contains,
 }
 
 impl From<NifEdgeKind> for EdgeKind {
@@ -164,6 +165,7 @@ impl From<NifEdgeKind> for EdgeKind {
             NifEdgeKind::ConfigDeclared => Self::ConfigDeclared,
             NifEdgeKind::ManagedBy => Self::ManagedBy,
             NifEdgeKind::Manages => Self::Manages,
+            NifEdgeKind::Contains => Self::Contains,
         }
     }
 }

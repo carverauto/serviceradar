@@ -256,6 +256,38 @@ fn retire_hosted_edge(
 }
 
 #[rustler::nif]
+fn replace_contained_edge(
+    env: Env<'_>,
+    url: String,
+    edge: NifEdgeWrite,
+    deadline_ms: u64,
+) -> Term<'_> {
+    let write = edge.into_write();
+    if let Err(err) = write.validate_contained_replacement() {
+        return rejected(env, err.to_string());
+    }
+    write_call(env, url, deadline_ms, move |client| async move {
+        client.replace_contained_edge(&write).await
+    })
+}
+
+#[rustler::nif]
+fn retire_contained_edge(
+    env: Env<'_>,
+    url: String,
+    source: String,
+    target: String,
+    observed_at: String,
+    deadline_ms: u64,
+) -> Term<'_> {
+    write_call(env, url, deadline_ms, move |client| async move {
+        client
+            .retire_contained_edge(&source, &target, &observed_at)
+            .await
+    })
+}
+
+#[rustler::nif]
 fn upsert_canonical_edge(
     env: Env<'_>,
     url: String,

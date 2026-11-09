@@ -11,6 +11,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Pruning do
     "CONNECTS_TO",
     "LOGICAL_PEER",
     "HOSTED_ON",
+    "CONTAINS",
     "INFERRED_TO",
     "ATTACHED_TO",
     "OBSERVED_TO"

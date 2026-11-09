@@ -225,6 +225,33 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist do
     persist(fn -> Dgraph.retire_hosted_edge(source, target, observed_at) end)
   end
 
+  @doc "Project an authoritative virtualization containment relationship to Dgraph."
+  @spec upsert_contained_link(map()) :: :ok | {:error, term()}
+  def upsert_contained_link(%{guest_device_id: guest, host_device_id: host} = payload)
+      when is_binary(guest) and is_binary(host) and guest != host do
+    persist(fn ->
+      with :ok <- Dgraph.upsert_device(%{id: guest}),
+           :ok <- Dgraph.upsert_device(%{id: host}) do
+        Dgraph.replace_contained_edge(%{
+          source: host,
+          target: guest,
+          kind: :contains,
+          protocol: "virtualization_inventory",
+          evidence_class: "hosted-virtual",
+          ingestor: "hypervisor_enrichment_v1",
+          telemetry_eligible: false,
+          last_seen: payload[:observed_at]
+        })
+      end
+    end)
+  end
+
+  def upsert_contained_link(_payload), do: {:error, :invalid_contained_link}
+
+  def retire_contained_link(source, target, observed_at) do
+    persist(fn -> Dgraph.retire_contained_edge(source, target, observed_at) end)
+  end
+
   defp persist(fun) when is_function(fun, 0) do
     if Store.writable?() do
       case fun.() do
@@ -309,6 +336,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist do
   defp edge_kind("CANONICAL_TOPOLOGY"), do: :canonical_topology
   defp edge_kind("LOGICAL_PEER"), do: :logical_peer
   defp edge_kind("HOSTED_ON"), do: :hosted_on
+  defp edge_kind("CONTAINS"), do: :contains
   defp edge_kind("INFERRED_TO"), do: :inferred_to
   defp edge_kind("ATTACHED_TO"), do: :attached_to
   defp edge_kind("OBSERVED_TO"), do: :observed_to

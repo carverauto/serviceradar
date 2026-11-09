@@ -73,6 +73,14 @@ defmodule ServiceRadar.Dgraph.Native do
   @spec replace_hosted_edge(url(), map(), deadline_ms()) :: submission()
   def replace_hosted_edge(_url, _edge, _deadline_ms), do: :erlang.nif_error(:nif_not_loaded)
 
+  @spec retire_contained_edge(url(), String.t(), String.t(), String.t(), deadline_ms()) ::
+          submission()
+  def retire_contained_edge(_url, _source, _target, _observed_at, _deadline_ms),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  @spec replace_contained_edge(url(), map(), deadline_ms()) :: submission()
+  def replace_contained_edge(_url, _edge, _deadline_ms), do: :erlang.nif_error(:nif_not_loaded)
+
   @spec upsert_canonical_edge(url(), map(), deadline_ms()) :: submission()
   def upsert_canonical_edge(_url, _edge, _deadline_ms), do: :erlang.nif_error(:nif_not_loaded)
 

@@ -137,6 +137,7 @@ fn edge_kinds_match_age_relationship_names() {
         "OBSERVED_TO",
         "this plane is labelled OBSERVED_TO and must not be relabelled"
     );
+    assert_eq!(EdgeKind::Contains.as_str(), "CONTAINS");
 }
 
 #[test]
