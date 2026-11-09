@@ -99,7 +99,8 @@ class NVRReleaseTest(unittest.TestCase):
         self.run_probe("rotation")
         receipt = json.loads(Path(self.env["NVR_TEST_RECEIPT"]).read_text())
         self.assertEqual(len(list(self.spool.iterdir())), 4)
-        self.run_probe("recover_rotation")
+        Path(self.env["NVR_TEST_RECEIPT"]).unlink()
+        self.run_probe("discover_rotation")
         decoded = [self.decode(self.env["NVR_TEST_MP4"] + f".{i}") for i in range(3)]
         self.assertEqual([len(x) for x in decoded], [n * 64 * 64 * 3 // 2 for n in [240, 240, 30]])
         self.assertEqual(b"".join(decoded), expected)
@@ -111,8 +112,50 @@ class NVRReleaseTest(unittest.TestCase):
         self.env["SERVICERADAR_NVR_MAX_SPOOL_BYTES"] = str(receipt["block_bytes"])
         self.run_probe("rotation_budget")
         self.assertEqual(len(list(self.spool.iterdir())), 2)
-        self.run_probe("recover_rotation")
+        Path(self.env["NVR_TEST_RECEIPT"]).unlink()
+        self.run_probe("discover_rotation")
         self.assertEqual(self.decode(self.env["NVR_TEST_MP4"] + ".0"), expected[:240 * 64 * 64 * 3 // 2])
+
+    def test_discovery_preserves_unsealed_corrupt_and_uncommitted_blocks(self):
+        self.make_media()
+        self.run_probe("record")
+        block = next(p for p in self.spool.iterdir() if p.is_dir())
+        originals = {p.name: p.read_bytes() for p in block.iterdir()}
+        journal = originals["journal"]
+        offset = 0
+        while offset < len(journal):
+            last = offset
+            size = int.from_bytes(journal[offset:offset + 4], "big")
+            offset += 4 + size + 32
+        self.assertEqual(offset, len(journal))
+        self.assertEqual(json.loads(journal[last + 4:offset - 32])["type"], "seal")
+
+        cases = [
+            ("journal", journal[:last], "unsealed_block"),
+            ("journal", journal[:-1] + bytes([journal[-1] ^ 1]), "invalid_journal_record"),
+            ("journal", b"x" * 50000, "journal_too_large"),
+            ("media.m4s", b"x" + originals["media.m4s"][1:], "media_digest_mismatch"),
+            ("media.m4s", originals["media.m4s"] + b"uncommitted", "uncommitted_block_bytes"),
+            ("init.mp4", originals["init.mp4"] + b"uncommitted", "uncommitted_block_bytes"),
+        ]
+        for name, content, error in cases:
+            with self.subTest(error=error, file=name):
+                for filename, original in originals.items():
+                    (block / filename).write_bytes(original)
+                (block / name).write_bytes(content)
+                before = {p.name: p.read_bytes() for p in block.iterdir()}
+                self.env["NVR_TEST_RECOVERY_ERROR"] = error
+                self.run_probe("discover_unresolved")
+                self.assertEqual({p.name: p.read_bytes() for p in block.iterdir()}, before)
+
+        # A valid journal under a different block ID cannot supply that identity.
+        for name, original in originals.items():
+            (block / name).write_bytes(original)
+        renamed = self.spool / ("f" * 64)
+        block.rename(renamed)
+        self.env["NVR_TEST_RECOVERY_ERROR"] = "block_identity_mismatch"
+        self.run_probe("discover_unresolved")
+        self.assertEqual({p.name: p.read_bytes() for p in renamed.iterdir()}, originals)
 
     def test_deadline_and_producer_loss_release_admission(self):
         self.env["SERVICERADAR_NVR_MAX_DURATION_MS"] = "500"
@@ -152,6 +195,9 @@ class NVRReleaseTest(unittest.TestCase):
             (self.spool / f"{index:064x}").mkdir(mode=0o700)
         self.run_probe("inventory_limit")
         self.assertEqual(len(list(self.spool.iterdir())), 4097)
+        (self.spool / f"{4096:064x}").mkdir(mode=0o700)
+        self.run_probe("discovery_limit")
+        self.assertEqual(len(list(self.spool.iterdir())), 4098)
 
     def test_foreground_release_probes_refuse_uninitialized_storage(self):
         proc = subprocess.Popen([self.binary, "start"], env=self.env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)

@@ -135,6 +135,16 @@ authorize a replacement. Durable recovery, fencing and task 2.5 remain open.
 
 ## 3. Storage modes and recovery
 
+Read-only discovery checkpoint for 3.2/3.3: a restarted standalone NVR can list
+bounded retained block IDs and verify one sealed snapshot without an earlier
+notification or expected-identity receipt. The shared journal reader validates
+media, seal, directory identity and exact file lengths without repairing tails.
+Incomplete and corrupt blocks remain untouched. Synthetic shipped-release tests
+discard receipts before restart, independently decode discovered blocks and
+verify byte preservation on refused inspection. This is local recovery evidence,
+not a durable delivery acknowledgement, catalog, assignment reconciliation or
+publication proof. Tasks 3.2 and 3.3 remain open.
+
 Block rotation checkpoint for 3.2: the finite standalone session seals a full
 block before admitting its successor, keeps its original deadline and media
 packager, and reuses verified initialization data with an incremented block

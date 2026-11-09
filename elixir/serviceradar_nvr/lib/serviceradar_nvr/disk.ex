@@ -15,7 +15,7 @@ defmodule ServiceRadarNVR.Disk do
          true <- length(blocks) <= @max_blocks || {:error, :nvr_inventory_limit},
          {:ok, bytes} <- sum(blocks, &block_bytes(storage.root, &1)),
          :ok <- Storage.verify(storage) do
-      {:ok, %{used_bytes: bytes, blocks: length(blocks), max_blocks: @max_blocks}}
+      {:ok, %{used_bytes: bytes, blocks: length(blocks), max_blocks: @max_blocks, block_ids: blocks}}
     end
   end
 

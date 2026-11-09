@@ -14,6 +14,7 @@ defmodule ServiceRadarNVR.Capacity do
   def next_block(token), do: GenServer.call(__MODULE__, {:next_block, token})
   def check(token), do: GenServer.call(__MODULE__, {:check, token})
   def status, do: GenServer.call(__MODULE__, :status)
+  def recovery_storage, do: GenServer.call(__MODULE__, :recovery_storage)
 
   @impl true
   def init(config) do
@@ -63,6 +64,13 @@ defmodule ServiceRadarNVR.Capacity do
   def handle_call(:status, _from, state) do
     result = with {:ok, storage} <- storage(state), do: measure(storage, state)
     {:reply, result, state}
+  end
+
+  def handle_call(:recovery_storage, _from, state) do
+    case storage(state) do
+      {:ok, storage} -> {:reply, {:ok, storage, @limits}, %{state | storage: storage}}
+      {:error, _} = error -> {:reply, error, state}
+    end
   end
 
   @impl true
