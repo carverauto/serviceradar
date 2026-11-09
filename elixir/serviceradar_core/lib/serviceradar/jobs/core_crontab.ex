@@ -12,6 +12,7 @@ defmodule ServiceRadar.Jobs.CoreCrontab do
   alias ServiceRadar.ColdTier.Pruner, as: ColdTierPruner
   alias ServiceRadar.CompositeChecks.TickWorker
   alias ServiceRadar.Credentials.BrokerRetentionWorker
+  alias ServiceRadar.Edge.EdgeLedgerRetentionWorker
   alias ServiceRadar.Edge.ManagedCertificateReconcileWorker
   alias ServiceRadar.Edge.RemoteAccessRecordingReaperWorker
   alias ServiceRadar.Edge.RemoteAccessVersionRetentionWorker
@@ -86,6 +87,7 @@ defmodule ServiceRadar.Jobs.CoreCrontab do
       {"29 * * * *", SAMLAssertionCleanupWorker, queue: :maintenance},
       {"*/10 * * * *", RemoteAccessRecordingReaperWorker, queue: :maintenance},
       {"31 3 * * *", RemoteAccessVersionRetentionWorker, queue: :maintenance},
+      {"41 * * * *", EdgeLedgerRetentionWorker, queue: :maintenance},
       {"*/2 * * * *", RelaySessionReaperWorker, queue: :maintenance},
       {"*/5 * * * *", ExecutionReaperWorker, queue: :maintenance},
       {"*/5 * * * *", PluginServiceStateReconcileWorker, queue: :maintenance},

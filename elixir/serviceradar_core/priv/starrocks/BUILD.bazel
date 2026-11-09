@@ -47,6 +47,10 @@
 # observation columns, and the trace-summary columns copied from spans, to
 # VARCHAR(1048576), so no value is cut or filtered; it recreates the two span
 # rollups so their columns take the new widths.
+# 0002 sorts timeseries_metrics by metric_type, metric_name, device_id, time. A
+# warehouse whose table predates that sort key is rebuilt onto it by PartitionRebuild,
+# like an unpartitioned one: StarRocks' in-place ORDER BY rewrites the whole table in
+# one job, which a compute node with little headroom cancels.
 # The cnpg_platform JDBC catalog is not here: it is created by
 # helm/serviceradar/templates/starrocks-catalog-job.yaml, and the relations it
 # may expose are owned by ServiceRadar.Analytics.StarRocks.CatalogAllowlist.

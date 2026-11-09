@@ -1,4 +1,5 @@
 """Execute the shipped release with synthetic media and no control-plane services."""
+import hashlib
 import json
 import os
 import signal
@@ -155,6 +156,86 @@ class NVRReleaseTest(unittest.TestCase):
         block.rename(renamed)
         self.env["NVR_TEST_RECOVERY_ERROR"] = "block_identity_mismatch"
         self.run_probe("discover_unresolved")
+        self.assertEqual({p.name: p.read_bytes() for p in renamed.iterdir()}, originals)
+
+    def test_discovery_refuses_invalid_format_even_with_valid_journal_hashes(self):
+        self.make_media()
+        self.run_probe("record")
+        block = next(p for p in self.spool.iterdir() if p.is_dir())
+        journal = (block / "journal").read_bytes()
+        header_size = int.from_bytes(journal[:4], "big")
+        header = json.loads(journal[4:4 + header_size])
+        init = (block / "init.mp4").read_bytes()
+        self.assertEqual(init.count(b"avcC\x01\x42"), 1)
+        unsupported = init.replace(b"avcC\x01\x42", b"avcC\x01\x64")
+        for content in [init[:-1], unsupported, b"synthetic non-MP4 initialization"]:
+            with self.subTest(initialization_bytes=len(content)):
+                # Integrity-valid persisted records must still have a supported format.
+                header["init"] = {"length": len(content), "sha256": hashlib.sha256(content).hexdigest()}
+                encoded = json.dumps(header, separators=(",", ":")).encode()
+                (block / "init.mp4").write_bytes(content)
+                (block / "journal").write_bytes(len(encoded).to_bytes(4, "big") + encoded +
+                                              hashlib.sha256(encoded).digest() + journal[4 + header_size + 32:])
+                before = {p.name: p.read_bytes() for p in block.iterdir()}
+                self.env["NVR_TEST_RECOVERY_ERROR"] = "invalid_initialization"
+                self.run_probe("discover_unresolved")
+                self.assertEqual({p.name: p.read_bytes() for p in block.iterdir()}, before)
+
+    def test_interrupted_recording_recovers_only_committed_frames(self):
+        source = self.make_media()
+        self.run_probe("interrupted")
+        self.assertFalse(Path(self.env["NVR_TEST_RECEIPT"]).exists())
+        block = next(p for p in self.spool.iterdir() if p.is_dir())
+        media = (block / "media.m4s").read_bytes()
+        journal = (block / "journal").read_bytes()
+        # Represent writes interrupted before a complete journal record committed.
+        (block / "media.m4s").write_bytes(media + b"uncommitted synthetic tail")
+        (block / "journal").write_bytes(journal + b"\x00\x00")
+        self.run_probe("recover_interrupted")
+        self.assertEqual((block / "media.m4s").read_bytes(), media)
+        sealed = {p.name: p.read_bytes() for p in block.iterdir()}
+        self.run_probe("discover_rotation")
+        decoded = self.decode(self.env["NVR_TEST_MP4"] + ".0")
+        self.assertEqual(len(decoded), 60 * 64 * 64 * 3 // 2)
+        self.assertEqual(decoded, self.decode(source)[:len(decoded)])
+        self.assertEqual({p.name: p.read_bytes() for p in block.iterdir()}, sealed)
+
+    def test_recovery_preserves_unresolved_blocks_and_pressure(self):
+        self.make_media()
+        self.run_probe("interrupted")
+        block = next(p for p in self.spool.iterdir() if p.is_dir())
+        originals = {p.name: p.read_bytes() for p in block.iterdir()}
+        journal = originals["journal"]
+        header_end = 4 + int.from_bytes(journal[:4], "big") + 32
+        cases = [
+            ("journal", journal[:-1] + bytes([journal[-1] ^ 1]), "invalid_journal_record"),
+            ("media.m4s", b"x" + originals["media.m4s"][1:], "media_digest_mismatch"),
+            ("init.mp4", originals["init.mp4"] + b"uncommitted", "uncommitted_block_bytes"),
+            ("journal", journal[:header_end], "empty_block"),
+        ]
+        for name, content, error in cases:
+            with self.subTest(error=error):
+                for filename, original in originals.items():
+                    (block / filename).write_bytes(original)
+                (block / name).write_bytes(content)
+                before = {p.name: p.read_bytes() for p in block.iterdir()}
+                self.env["NVR_TEST_RECOVERY_ERROR"] = error
+                self.run_probe("recover_unresolved")
+                self.assertEqual({p.name: p.read_bytes() for p in block.iterdir()}, before)
+
+        for name, original in originals.items():
+            (block / name).write_bytes(original)
+        disk = os.statvfs(self.spool)
+        self.env["SERVICERADAR_NVR_RESERVE_BYTES"] = str(disk.f_bavail * disk.f_frsize + 1024**3)
+        self.env["NVR_TEST_RECOVERY_ERROR"] = "nvr_storage_pressure"
+        self.run_probe("recover_unresolved")
+        self.assertEqual({p.name: p.read_bytes() for p in block.iterdir()}, originals)
+
+        del self.env["SERVICERADAR_NVR_RESERVE_BYTES"]
+        renamed = self.spool / ("f" * 64)
+        block.rename(renamed)
+        self.env["NVR_TEST_RECOVERY_ERROR"] = "block_identity_mismatch"
+        self.run_probe("recover_unresolved")
         self.assertEqual({p.name: p.read_bytes() for p in renamed.iterdir()}, originals)
 
     def test_deadline_and_producer_loss_release_admission(self):

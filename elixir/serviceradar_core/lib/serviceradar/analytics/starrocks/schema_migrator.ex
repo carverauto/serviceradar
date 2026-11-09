@@ -23,9 +23,11 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
   repeated needs a guard here before it ships.
 
   One upgrade cannot be written as a statement at all. A table created before
-  daily partitioning has to be rebuilt beside itself and swapped in, which
-  `PartitionRebuild` does ahead of the first migration that needs partitioned
-  tables (0017's rollups). Migrations before that one are not held up by it.
+  daily partitioning, or without the sort key its shipped CREATE now names,
+  has to be rebuilt beside itself and swapped in, which `PartitionRebuild`
+  does on every run, ahead of the first pending migration that needs
+  partitioned tables (0017's rollups). Migrations before that one are not held
+  up by it.
 
   After the versioned DDL, the interactive and background resource groups are
   converged to the limits `Workload` ships, on every start. A failure there is

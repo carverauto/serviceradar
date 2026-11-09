@@ -147,6 +147,9 @@ when it moved.
   slot, or retirement job, so this task stays unchecked.
   Remaining as of the move (2026-11-02): unchanged: the tables are not partitioned,
   and there is no terminal slot, service-ingress slot or retirement job.
+  Interim (#6427): `ServiceRadar.Edge.EdgeLedgerRetentionWorker` prunes expired
+  rows from the four unpartitioned tables by bounded batched `DELETE`. It is
+  not the chronological range-`DROP` retirement job this task requires.
 - [ ] 1.9 (was `unify-sweep-results-proto` 5.3) Implement horizontally partitioned sweep consumers that preserve each
   micro-batch as an independent idempotency unit while adaptively grouping
   compatible messages in bounded aggregate transactions. Perform bounded bulk authoritative

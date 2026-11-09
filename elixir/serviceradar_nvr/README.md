@@ -52,8 +52,14 @@ include incomplete or corrupt blocks and is not an atomic coverage catalog;
 recording may add blocks after enumeration.
 
 `ServiceRadarNVR.sealed_block/1` verifies one listed block and returns an internal
-sealed snapshot. It checks the journal, initialization and fragment digests,
-whole-block seal, identity-derived directory name and exact file lengths under
+sealed snapshot, including `init_format` (SHA-256, timescale and baseline AVC
+codec declaration) reconstructed from verified `init.mp4` bytes. Live packaging
+uses the same parser, so this metadata survives loss of the writer's memory and
+notifications without a new sidecar or journal version. The parser requires one
+AVC track and one sample description; unsupported or malformed initialization
+returns `:invalid_initialization`. Block inspection also checks the journal,
+initialization and fragment digests, whole-block seal, identity-derived directory
+name and exact file lengths under
 the runtime's block limits. Inspection runs in the caller, outside serialized
 capacity admission. It never truncates, seals, repairs or deletes anything.
 Unsealed blocks, uncommitted tails and corrupt evidence return errors and remain
@@ -65,6 +71,41 @@ storage durability, publication receipts or playback authorization. They do not
 acknowledge delivery or drain a durable outbox. No automatic scan or capture
 restart runs at boot; publication, assignment reconciliation and unresolved/gap
 state remain follow-up work.
+
+## Explicit interrupted-block recovery
+
+After retiring the previous writer and establishing exclusive volume attachment,
+a trusted same-VM caller may invoke
+`ServiceRadarNVR.recover_block(block_id, expected_identity)`. The expected identity
+includes the original source, profile, recorder epoch, block sequence and clock
+provenance. A directory name alone is insufficient. This is an explicit operation;
+startup does not repair blocks or resume capture.
+
+Recovery refuses while any local writer holds a reservation. The capacity owner
+serializes the entire bounded repair against new admission, checks the retained
+inventory and physical free-space floor, and verifies the configured storage
+identity. It does not need capacity for a new media block. This local exclusion
+does not fence another process, replica or node; qualified attachment fencing and
+assignment reconciliation remain independent requirements.
+
+The shared journal reader verifies all committed fragments before changing any
+bytes. Recovery discards only media beyond the committed high-water mark and an
+incomplete journal tail, then durably seals the nonempty prefix. It preserves
+the original identity and fragment timing. Complete corrupt records, mismatched
+identities, misplaced directories, empty blocks and changed initialization files
+are refused without repair. It never deletes a block or replaces committed media.
+Filesystem errors during repair can leave partial progress; retry the same
+operation after resolving the error. A timeout is an unknown outcome, not proof
+that nothing changed. Repeating a successful recovery returns the same sealed
+snapshot without adding another seal. The snapshot includes the same byte-derived
+`init_format` as read-only inspection. Format decoding runs after journal recovery;
+an initialization format error can therefore follow a successful repair/seal.
+The retained bytes remain available for reconciliation. A successful integrity
+check alone does not establish a supported media format.
+
+The resulting snapshot is local recovery evidence. Missing buffered frames are
+not recovered or advertised. Durable gap reporting, catalog publication, playback
+authorization and automatic assignment reconciliation remain pending.
 
 ## Resource envelope
 

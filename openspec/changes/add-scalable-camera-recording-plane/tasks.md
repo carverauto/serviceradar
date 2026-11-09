@@ -135,6 +135,29 @@ authorize a replacement. Durable recovery, fencing and task 2.5 remain open.
 
 ## 3. Storage modes and recovery
 
+Explicit interrupted-block recovery checkpoint for 3.2/3.3: the standalone NVR
+can verify, repair uncommitted tails and seal one nonempty retained block using
+its expected identity and original clock provenance. Recovery refuses active
+local reservations and runs serialized against new admission, under inventory,
+storage identity and physical free-space checks. Corrupt, empty and mismatched
+blocks remain unresolved and untouched. Shipped-release tests abruptly halt a
+recording VM, recover only the committed prefix after restart, verify refused
+repairs preserve bytes and independently decode the recovered frames. The caller
+must establish prior writer retirement and exclusive attachment; this operation
+does not supply distributed fencing, automatic reconciliation, durable gap state
+or publication authority. Tasks 3.2 and 3.3 remain open.
+
+Recovered initialization checkpoint for 3.2/3.3: standalone NVR inspection and
+explicit recovery attach the initialization digest, timescale and baseline AVC
+codec declaration derived from retained, verified init bytes. Live packaging uses
+the same parser; no new persisted sidecar or Core dependency is needed. Synthetic
+release restart tests assert format metadata and independently decoded frames;
+malformed/unsupported initialization with valid journal hashes is refused without
+inspection changing files. Format decoding follows explicit repair/seal, so a
+format error does not imply that recovery made no progress. This is local media
+evidence, not a publication receipt or playback authorization. Tasks 3.2 and 3.3
+remain open.
+
 Read-only discovery checkpoint for 3.2/3.3: a restarted standalone NVR can list
 bounded retained block IDs and verify one sealed snapshot without an earlier
 notification or expected-identity receipt. The shared journal reader validates

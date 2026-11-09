@@ -43,6 +43,10 @@ type spoolHelloGateway struct {
 
 	budget uint64
 
+	// productionGrants optionally serves production grants in GetConfig. Nil
+	// keeps the gateway grantless, preserving existing tests' behavior.
+	productionGrants *productionGrantSwitch
+
 	helloMu sync.Mutex
 	hellos  []*proto.AgentHelloRequest
 	configs int
@@ -59,7 +63,11 @@ func (g *spoolHelloGateway) GetConfig(context.Context, *proto.AgentConfigRequest
 	g.helloMu.Lock()
 	g.configs++
 	g.helloMu.Unlock()
-	return &proto.AgentConfigResponse{ConfigVersion: "spool-budget-v1", EdgeSpoolMaxBytes: g.budget}, nil
+	resp := &proto.AgentConfigResponse{ConfigVersion: "spool-budget-v1", EdgeSpoolMaxBytes: g.budget}
+	if g.productionGrants != nil {
+		resp.EdgeOutputGrants = g.productionGrants.get()
+	}
+	return resp, nil
 }
 
 func (g *spoolHelloGateway) lastHello() (*proto.AgentHelloRequest, int) {
@@ -98,11 +106,27 @@ func listenSpoolHelloGateway(t *testing.T, ingest bool, budget uint64) (*spoolHe
 // edge_record_sender JSON object and returns its log and metrics URL.
 func runSpoolAgent(t *testing.T, gatewayAddr, senderBlock string) (*agentOutput, string) {
 	t.Helper()
+	return runSpoolAgentFull(t, gatewayAddr, "edge-spool-default-on", senderBlock, "1h", "")
+}
+
+// runSpoolAgentFull starts the agent binary with an explicit identity, sender
+// block, push interval and optional sysmon collector JSON ("" leaves the
+// default collection), returning its captured output and metrics URL.
+func runSpoolAgentFull(t *testing.T, gatewayAddr, agentID, senderBlock, pushInterval, sysmonJSON string) (*agentOutput, string) {
+	t.Helper()
 	binaryPath := agentTestBinary(t)
 	root := t.TempDir()
 	checkers := filepath.Join(root, "checkers")
 	if err := os.MkdirAll(checkers, 0o755); err != nil {
 		t.Fatalf("checkers dir: %v", err)
+	}
+	if sysmonJSON != "" {
+		// The agent resolves sysmon.json from its config dir, which is the
+		// checkers dir. Checker templates load by assignment name, so the
+		// fixed sysmon.json name cannot collide with one.
+		if err := os.WriteFile(filepath.Join(checkers, "sysmon.json"), []byte(sysmonJSON), 0o600); err != nil {
+			t.Fatalf("write sysmon config: %v", err)
+		}
 	}
 	metricsLis, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
@@ -113,15 +137,15 @@ func runSpoolAgent(t *testing.T, gatewayAddr, senderBlock string) (*agentOutput,
 
 	configPath := filepath.Join(root, "agent.json")
 	config := fmt.Sprintf(`{
-		"agent_id": "edge-spool-default-on",
+		"agent_id": %q,
 		"checkers_dir": %q,
 		"partition": "default",
 		"gateway_addr": %q,
-		"push_interval": "1h",
+		"push_interval": %q,
 		"gateway_security": {"mode": "none"},
 		"logging": {"level": "info", "output": "stdout"},
 		"edge_record_sender": %s
-	}`, checkers, gatewayAddr, senderBlock)
+	}`, agentID, checkers, gatewayAddr, pushInterval, senderBlock)
 	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}

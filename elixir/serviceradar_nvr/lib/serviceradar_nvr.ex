@@ -15,6 +15,8 @@ defmodule ServiceRadarNVR do
   """
 
   alias ServiceRadarNVR.Session
+  alias ServiceRadarRecording.Initialization
+  alias ServiceRadarRecording.Spool
 
   def start_recording(identity, clock) do
     case DynamicSupervisor.start_child(ServiceRadarNVR.Sessions, {Session, {self(), identity, clock}}) do
@@ -39,10 +41,38 @@ defmodule ServiceRadarNVR do
     end
   end
 
-  @doc "Verify one sealed block from disk without changing it or requiring a saved notification."
+  @doc """
+  Verify a sealed block without changing disk or requiring a saved notification.
+
+  Includes `init_format` derived from the verified initialization bytes. This is
+  local media evidence, not a publication receipt or playback authorization.
+  """
   def sealed_block(block_id) do
-    with {:ok, storage, limits} <- ServiceRadarNVR.Capacity.recovery_storage() do
-      ServiceRadarRecording.Spool.inspect_sealed(storage, block_id, limits)
+    with {:ok, storage, limits} <- ServiceRadarNVR.Capacity.recovery_storage(),
+         {:ok, snapshot} <- Spool.inspect_sealed(storage, block_id, limits) do
+      with_format(snapshot)
+    end
+  end
+
+  @doc """
+  Recover and seal one retained block using its expected identity (including clock).
+
+  Refuses while any local recording has a reservation. The provisioned volume
+  must already have exclusive attachment and the previous writer must be retired;
+  this local guard does not fence another replica. No capture or publication starts.
+  Includes `init_format` as in `sealed_block/1`. Format decoding follows repair
+  and sealing; a format error does not mean the files were left unchanged.
+  """
+  def recover_block(block_id, expected_identity) do
+    with {:ok, snapshot} <- ServiceRadarNVR.Capacity.recover_block(block_id, expected_identity) do
+      with_format(snapshot)
+    end
+  end
+
+  defp with_format(snapshot) do
+    with {:ok, init} <- Spool.read_init(snapshot),
+         {:ok, format} <- Initialization.parse(init) do
+      {:ok, Map.put(snapshot, :init_format, format)}
     end
   end
 end

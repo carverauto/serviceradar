@@ -455,7 +455,13 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
     # tell that the identity decision had gone stale.
     resources
     |> Ash.transact(fn ->
-      with :ok <- lock_device_rows([from_device_id, to_device_id], actor),
+      # Lock order (issue #6450): the per-agent availability rows this merge
+      # will reassign go first, in (device_uid, agent_id) order, and the
+      # device rows second, in uid order -- the order a sweep ingest locks
+      # them in. Locking the devices first deadlocks against an ingest
+      # holding the availability rows while it waits for the devices.
+      with :ok <- lock_availability_rows([from_device_id, to_device_id]),
+           :ok <- lock_device_rows([from_device_id, to_device_id], actor),
            {:ok, %Device{} = from_device} <-
              Device.get_by_uid(from_device_id, false, actor: actor),
            {:ok, %Device{} = to_device} <- Device.get_by_uid(to_device_id, false, actor: actor),
@@ -568,7 +574,29 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
     end
   end
 
-  # Both device rows, locked before anything else in the transaction and in uid
+  # Step 1 of the merge's lock order: the availability rows of both devices,
+  # in (device_uid, agent_id) order, before the device rows. The reassignment
+  # below only moves rows these devices already hold, so locking the existing
+  # set is enough; a concurrent ingest takes the same rows in the same order
+  # and waits instead of deadlocking.
+  defp lock_availability_rows(device_ids) do
+    device_ids = device_ids |> Enum.uniq() |> Enum.sort()
+
+    case Repo.query(
+           """
+           SELECT id FROM platform.device_agent_availability
+           WHERE device_uid = ANY($1)
+           ORDER BY device_uid, agent_id
+           FOR NO KEY UPDATE
+           """,
+           [device_ids]
+         ) do
+      {:ok, _result} -> :ok
+      {:error, _} = error -> error
+    end
+  end
+
+  # Both device rows, locked after the availability rows above and in uid
   # order. The fenced ingest write (Identity.Fence.fenced_write/3) locks its batch's
   # device rows the same way before touching their identifiers, so a merge or
   # unmerge and an ingest write on the same devices serialize on the device rows

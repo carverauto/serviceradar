@@ -16,6 +16,9 @@ defmodule ServiceRadarNVR.Capacity do
   def status, do: GenServer.call(__MODULE__, :status)
   def recovery_storage, do: GenServer.call(__MODULE__, :recovery_storage)
 
+  def recover_block(block_id, expected_identity),
+    do: GenServer.call(__MODULE__, {:recover_block, block_id, expected_identity}, 30_000)
+
   @impl true
   def init(config) do
     {:ok, bytes} = Spool.reservation_bytes(@limits)
@@ -70,6 +73,30 @@ defmodule ServiceRadarNVR.Capacity do
     case storage(state) do
       {:ok, storage} -> {:reply, {:ok, storage, @limits}, %{state | storage: storage}}
       {:error, _} = error -> {:reply, error, state}
+    end
+  end
+
+  def handle_call({:recover_block, _block_id, _identity}, _from, %{reservations: reservations} = state)
+      when map_size(reservations) > 0 do
+    {:reply, {:error, :nvr_recordings_active}, state}
+  end
+
+  def handle_call({:recover_block, block_id, identity}, _from, state) do
+    # Keep admission serialized through the repair and seal. There are no local
+    # writers, so verification cannot stall an admitted recording's write guard.
+    case storage(state) do
+      {:ok, storage} ->
+        result =
+          with {:ok, _inventory} <- Disk.inventory(storage),
+               {:ok, free} <- Disk.available_bytes(storage.root),
+               :ok <- writable(free, state.config.reserve_bytes) do
+            Spool.recover_sealed(storage, block_id, identity, @limits)
+          end
+
+        {:reply, result, %{state | storage: storage, probe: nil}}
+
+      {:error, _} = error ->
+        {:reply, error, state}
     end
   end
 
