@@ -12,6 +12,13 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumers do
 
   @sparkline_metrics ~w(ifHCInOctets ifHCOutOctets ifInOctets ifOutOctets)
 
+  # Interface counters are written by the SNMP collector alone, as metric_type
+  # `snmp` (the SRQL interface entities scope on the same predicate). Naming it
+  # is what lets these reads use the table's sort key, which leads with
+  # metric_type (priv/starrocks/0002): without it a recent-window read scans
+  # the whole day partition of every metric.
+  @interface_metric_scope "metric_type = 'snmp'"
+
   @spec metrics_alive?(DateTime.t(), keyword()) :: {:ok, boolean()} | {:error, term()}
   def metrics_alive?(since, opts \\ []) when is_struct(since, DateTime) do
     sql =
@@ -33,7 +40,7 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumers do
       quoted ->
         sql =
           "SELECT 1 FROM #{Env.table("timeseries_metrics")} " <>
-            "WHERE device_id = #{quoted} AND metric_type = 'snmp' " <>
+            "WHERE device_id = #{quoted} AND #{@interface_metric_scope} " <>
             "AND `timestamp` > DATE_ADD(NOW(), INTERVAL -24 HOUR) LIMIT 1"
 
         case query(opts).(sql) do
@@ -125,7 +132,8 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumers do
               LEAD(`timestamp`) OVER #{series} AS previous_timestamp,
               ROW_NUMBER() OVER #{series} AS sample_rank
             FROM #{Env.table("timeseries_metrics")}
-            WHERE #{scope_predicate(devices, ips)}
+            WHERE #{@interface_metric_scope}
+              AND #{scope_predicate(devices, ips)}
               AND if_index IN (#{Enum.join(indexes, ",")})
               AND split_part(metric_name, '::', 1) IN (#{Enum.join(names, ",")})
               AND `timestamp` > '#{iso(since)}'
@@ -176,7 +184,8 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumers do
             "time_slice(`timestamp`, INTERVAL #{bucket_seconds} SECOND) AS bucket, " <>
             "MAX(value) AS value " <>
             "FROM #{Env.table("timeseries_metrics")} " <>
-            "WHERE (#{Enum.join(predicates, " OR ")}) " <>
+            "WHERE #{@interface_metric_scope} " <>
+            "AND (#{Enum.join(predicates, " OR ")}) " <>
             "AND metric_name IN (#{Enum.join(names, ",")}) " <>
             "AND `timestamp` >= '#{iso(cutoff)}' " <>
             "GROUP BY device_id, if_index, metric_name, bucket " <>
@@ -234,7 +243,8 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumers do
             "LEAD(`timestamp`) OVER #{series} AS previous_timestamp, " <>
             "ROW_NUMBER() OVER #{series} AS sample_rank " <>
             "FROM #{Env.table("timeseries_metrics")} " <>
-            "WHERE `timestamp` > DATE_ADD(NOW(), INTERVAL -5 MINUTE) " <>
+            "WHERE #{@interface_metric_scope} " <>
+            "AND `timestamp` > DATE_ADD(NOW(), INTERVAL -5 MINUTE) " <>
             "AND (#{Enum.join(predicates, " OR ")}) " <>
             ") samples WHERE sample_rank = 1 " <>
             "AND `timestamp` > previous_timestamp AND previous_value >= 0 AND value >= 0" <>
