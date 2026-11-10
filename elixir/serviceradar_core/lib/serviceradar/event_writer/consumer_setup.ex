@@ -12,8 +12,11 @@ defmodule ServiceRadar.EventWriter.ConsumerSetup do
 
   alias ServiceRadar.EventWriter.Config
 
+  @default_connection_timeout_ms 15_000
   @retry_base_ms 5_000
   @retry_max_ms 60_000
+  @startup_retry_base_ms 1_000
+  @startup_retry_max_ms 5_000
 
   @doc """
   Opens an unlinked NATS connection and monitors it. The caller handles the
@@ -63,6 +66,33 @@ defmodule ServiceRadar.EventWriter.ConsumerSetup do
   def retry_delay(attempt) when is_integer(attempt) and attempt >= 1 do
     min(@retry_base_ms * Integer.pow(2, min(attempt - 1, 4)), @retry_max_ms)
   end
+
+  @doc """
+  Backoff while waiting for a stream or durable to become ready during startup:
+  1 s doubling to 5 s, capped to the remaining startup wait bound.
+  """
+  @spec startup_retry_delay(pos_integer(), pos_integer()) :: pos_integer()
+  def startup_retry_delay(attempt, remaining_ms)
+      when is_integer(attempt) and attempt >= 1 and is_integer(remaining_ms) do
+    delay =
+      min(@startup_retry_base_ms * Integer.pow(2, min(attempt - 1, 3)), @startup_retry_max_ms)
+
+    max(min(delay, remaining_ms), 1)
+  end
+
+  @doc """
+  Whether `reason` means the stream or durable consumer has not been created or
+  reconciled by `ServiceRadar.EventWriter.ConsumerReconciler` yet.
+  """
+  @spec not_ready_reason?(term()) :: boolean()
+  def not_ready_reason?({:stream_not_ready, _stream}), do: true
+  def not_ready_reason?({:durable_not_ready, _stream}), do: true
+  def not_ready_reason?({:durable_filter_mismatch, _details}), do: true
+
+  def not_ready_reason?({stream_name, reason}) when is_binary(stream_name),
+    do: not_ready_reason?(reason)
+
+  def not_ready_reason?(_reason), do: false
 
   @doc """
   The durable a configured stream consumes from. Drain streams name the
@@ -124,8 +154,14 @@ defmodule ServiceRadar.EventWriter.ConsumerSetup do
   end
 
   defp connection_settings(nats_config) do
-    with {:ok, settings} <-
-           apply_auth_settings(%{host: nats_config.host, port: nats_config.port}, nats_config) do
+    base = %{
+      host: nats_config.host,
+      port: nats_config.port,
+      connection_timeout:
+        Map.get(nats_config, :connection_timeout) || @default_connection_timeout_ms
+    }
+
+    with {:ok, settings} <- apply_auth_settings(base, nats_config) do
       {:ok, add_tls_settings(settings, nats_config.tls)}
     end
   end

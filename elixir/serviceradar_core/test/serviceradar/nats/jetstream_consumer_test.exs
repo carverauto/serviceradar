@@ -827,6 +827,35 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
     end
   end
 
+  describe "bind_durable/2 readiness ordering" do
+    test "reports stream_not_ready before the stream exists and durable_not_ready once it does" do
+      opts = [
+        stream_name: "TELEMETRY_EDGE_RECORD_RECOVERY_V1",
+        consumer_name: "serviceradar-event-writer-edge-record-recovery",
+        filter_subject: "telemetry.edge-record-recovery.v1",
+        allow_stream_fallback: false
+      ]
+
+      missing_stream_conn = start_supervised!({FakeJetStream, %{}}, id: :missing_stream)
+
+      assert JetstreamConsumer.bind_durable(missing_stream_conn, opts) ==
+               {:error, {:stream_not_ready, "TELEMETRY_EDGE_RECORD_RECOVERY_V1"}}
+
+      existing_stream_conn =
+        start_supervised!(
+          {FakeJetStream,
+           %{
+             "TELEMETRY_EDGE_RECORD_RECOVERY_V1" =>
+               stream(["telemetry.edge-record-recovery.v1"], 0)
+           }},
+          id: :existing_stream
+        )
+
+      assert JetstreamConsumer.bind_durable(existing_stream_conn, opts) ==
+               {:error, {:durable_not_ready, "TELEMETRY_EDGE_RECORD_RECOVERY_V1"}}
+    end
+  end
+
   defp start_fake!(legacy) do
     flows = %{"flows" => stream(["flows.attribution.observations"], 0)}
     start_supervised!({FakeJetStream, Map.merge(flows, legacy)})

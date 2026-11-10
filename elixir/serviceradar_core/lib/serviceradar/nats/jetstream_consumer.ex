@@ -61,12 +61,14 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
   server.
 
   A worker sharing a durable with other replicas calls this instead of
-  `ensure_durable/2`: it resolves the stream the same way (`STREAM.NAMES`) and
-  reads the consumer (`CONSUMER.INFO`), and never creates, updates or deletes a
-  stream or consumer. Returns `{:error, {:durable_not_ready, stream}}` when the
-  durable does not exist yet, and `{:error, {:durable_filter_mismatch, ...}}`
-  when it still has another filter subject; the single owner that runs
-  `ensure_durable/2` fixes either, so the caller retries.
+  `ensure_durable/2`: it resolves the stream (`STREAM.NAMES` / `STREAM.INFO`)
+  before reading the consumer (`CONSUMER.INFO`), and never creates, updates or
+  deletes a stream or consumer. Returns `{:error, {:stream_not_ready, stream}}`
+  when the stream does not exist or does not cover `filter_subject` yet,
+  `{:error, {:durable_not_ready, stream}}` when the durable does not exist yet,
+  and `{:error, {:durable_filter_mismatch, ...}}` when it still has another
+  filter subject; the single owner that runs `ensure_durable/2` fixes those in
+  order, so the caller retries.
   """
   @spec bind_durable(connection_ref(), ensure_opts()) ::
           {:ok, %{stream_name: String.t(), consumer_name: String.t()}} | {:error, term()}
@@ -75,18 +77,80 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
 
     with {:ok, subject} <- fetch_required(opts, :filter_subject),
          {:ok, consumer_name} <- fetch_required(opts, :consumer_name),
-         {:ok, stream_name} <- resolve_stream_name(connection_ref, opts, subject),
+         {:ok, stream_name} <- existing_stream(connection_ref, opts, subject, domain),
          {:ok, config} <- existing_durable(connection_ref, stream_name, consumer_name, domain),
          :ok <- matching_filter(config, stream_name, subject) do
       {:ok, %{stream_name: stream_name, consumer_name: consumer_name}}
     end
   end
 
+  defp existing_stream(connection_ref, opts, subject, domain) do
+    requested = Keyword.get(opts, :stream_name)
+    allow_fallback = allow_stream_fallback?(opts)
+
+    case find_streams_by_subject(connection_ref, subject, domain) do
+      {:ok, []} ->
+        with {:ok, stream_name} <- resolve_empty_streams(requested, subject) do
+          verify_stream_ready(connection_ref, stream_name, subject, domain)
+        end
+
+      {:ok, streams} ->
+        with {:ok, stream_name} <-
+               resolve_discovered_streams(requested, subject, streams, allow_fallback) do
+          if stream_name in streams do
+            {:ok, stream_name}
+          else
+            verify_stream_ready(connection_ref, stream_name, subject, domain)
+          end
+        end
+
+      {:error, _reason} = error ->
+        with {:ok, stream_name} <- resolve_discovery_error(requested, subject, error) do
+          verify_stream_ready(connection_ref, stream_name, subject, domain)
+        end
+    end
+  end
+
+  defp verify_stream_ready(connection_ref, stream_name, subject, domain) do
+    request = fn topic, body -> Util.request(connection_ref, topic, body) end
+
+    case stream_info(request, stream_name, domain) do
+      {:ok, config, _stored} ->
+        if stream_covers_subject?(config, subject) do
+          {:ok, stream_name}
+        else
+          {:error, {:stream_not_ready, stream_name}}
+        end
+
+      :absent ->
+        {:error, {:stream_not_ready, stream_name}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp stream_covers_subject?(%{"subjects" => subjects}, subject) when is_list(subjects) do
+    Enum.any?(subjects, fn candidate ->
+      is_binary(candidate) and subject_covers?(candidate, subject)
+    end)
+  end
+
+  defp stream_covers_subject?(_config, _subject), do: true
+
   defp existing_durable(connection_ref, stream_name, consumer_name, domain) do
     case consumer_config(connection_ref, stream_name, consumer_name, domain) do
-      {:ok, config} -> {:ok, config}
-      {:error, %{"code" => 404}} -> {:error, {:durable_not_ready, stream_name}}
-      {:error, reason} -> {:error, reason}
+      {:ok, config} ->
+        {:ok, config}
+
+      {:error, %{"code" => 404, "err_code" => 10_059}} ->
+        {:error, {:stream_not_ready, stream_name}}
+
+      {:error, %{"code" => 404}} ->
+        {:error, {:durable_not_ready, stream_name}}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

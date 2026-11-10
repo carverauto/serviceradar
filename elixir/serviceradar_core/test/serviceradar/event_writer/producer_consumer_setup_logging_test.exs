@@ -326,6 +326,12 @@ defmodule ServiceRadar.EventWriter.ProducerConsumerSetupLoggingTest do
 
     defp respond("$JS.API.STREAM.NAMES", state), do: {%{"streams" => []}, state}
 
+    defp respond("$JS.API.STREAM.INFO.metrics", state),
+      do: {%{"config" => %{"name" => "metrics", "subjects" => ["metrics.>"]}}, state}
+
+    defp respond("$JS.API.STREAM.INFO.mtr_results", state),
+      do: {%{"config" => %{"name" => "mtr_results", "subjects" => ["mtr.results.>"]}}, state}
+
     defp respond("$JS.API.CONSUMER.INFO.metrics." <> durable, state),
       do: {durable_info(durable, "metrics.>"), state}
 
@@ -466,6 +472,262 @@ defmodule ServiceRadar.EventWriter.ProducerConsumerSetupLoggingTest do
       assert state.degraded_streams == %{"MTR_RESULTS" => 2}
       assert Producer.reconnect_delay(error, state.setup_failures) == 10_000
       assert Producer.reconnect_delay(:econnrefused, 50) == 60_000
+    end
+  end
+
+  defmodule StagedReadinessConnection do
+    @moduledoc false
+    # A JetStream server for a single-stream pipeline (`EDGE_RECORD_RECOVERY`)
+    # where the stream appears after `stream_misses` checks and the durable
+    # appears after `durable_misses` checks. Querying `CONSUMER.INFO` before the
+    # stream exists is an error: startup must wait for the stream first and the
+    # durable second.
+
+    use GenServer
+
+    @stream "TELEMETRY_EDGE_RECORD_RECOVERY_V1"
+    @subject "telemetry.edge-record-recovery.v1"
+
+    def child_spec(opts) do
+      %{
+        id: {__MODULE__, System.unique_integer([:positive])},
+        start: {__MODULE__, :start_link, [opts]},
+        restart: :temporary
+      }
+    end
+
+    def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
+
+    @impl true
+    def init(opts) do
+      {:ok,
+       %{
+         test_pid: Keyword.fetch!(opts, :test_pid),
+         stream_misses: Keyword.get(opts, :stream_misses, 0),
+         durable_misses: Keyword.get(opts, :durable_misses, 0),
+         request_count: 0,
+         next_sid: 300
+       }}
+    end
+
+    @impl true
+    def handle_call({:request, request}, _from, state) do
+      {body, state} = respond(request.topic, state)
+      inbox = "_INBOX.staged-ready.#{state.request_count}"
+      send(request.recipient, {:msg, %{topic: inbox, body: Jason.encode!(body)}})
+      send(state.test_pid, {:jetstream_request, request.topic})
+      {:reply, {:ok, inbox}, %{state | request_count: state.request_count + 1}}
+    end
+
+    def handle_call({:unsub, sid, _opts}, _from, state) do
+      send(state.test_pid, {:unsubscribed, sid})
+      {:reply, :ok, state}
+    end
+
+    def handle_call({:sub, _subscriber, topic, _opts}, _from, state) do
+      sid = state.next_sid
+      send(state.test_pid, {:subscribed, sid, topic})
+      {:reply, {:ok, sid}, %{state | next_sid: sid + 1}}
+    end
+
+    defp respond("$JS.API.STREAM.NAMES", state), do: {%{"streams" => []}, state}
+
+    defp respond("$JS.API.STREAM.INFO." <> @stream, %{stream_misses: misses} = state)
+         when misses > 0 do
+      {%{
+         "error" => %{"code" => 404, "err_code" => 10_059, "description" => "stream not found"}
+       }, %{state | stream_misses: misses - 1}}
+    end
+
+    defp respond("$JS.API.STREAM.INFO." <> @stream, state) do
+      {%{"config" => %{"name" => @stream, "subjects" => [@subject]}}, state}
+    end
+
+    defp respond("$JS.API.CONSUMER.INFO." <> _rest, %{stream_misses: misses}) when misses > 0 do
+      raise "CONSUMER.INFO requested while stream was not ready yet"
+    end
+
+    defp respond(
+           "$JS.API.CONSUMER.INFO." <> @stream <> "." <> _durable,
+           %{durable_misses: misses} = state
+         )
+         when misses > 0 do
+      {%{
+         "error" => %{"code" => 404, "err_code" => 10_014, "description" => "consumer not found"}
+       }, %{state | durable_misses: misses - 1}}
+    end
+
+    defp respond("$JS.API.CONSUMER.INFO." <> @stream <> "." <> durable, state) do
+      {%{"config" => %{"durable_name" => durable, "filter_subject" => @subject}}, state}
+    end
+
+    defp respond(topic, _state), do: raise("unexpected JetStream request: #{topic}")
+  end
+
+  describe "startup waiting for stream and durable readiness in order" do
+    test "waits for stream then durable on a single-stream producer without logging an error or closing the connection" do
+      recovery = Config.edge_record_recovery_stream()
+
+      config = %Config{
+        consumer_name: "serviceradar-event-writer",
+        consumer_pull_batch_size: 8,
+        streams: [recovery]
+      }
+
+      conn =
+        start_supervised!(
+          {StagedReadinessConnection, test_pid: self(), stream_misses: 2, durable_misses: 2}
+        )
+
+      {state, log} =
+        with_log([level: :debug], fn ->
+          assert {:ok, context} = Producer.setup_jetstream_consumers(conn, config)
+          assert context.consumers == []
+
+          assert [
+                   {^recovery,
+                    {"EDGE_RECORD_RECOVERY",
+                     {:stream_not_ready, "TELEMETRY_EDGE_RECORD_RECOVERY_V1"}}}
+                 ] = context.failed_streams
+
+          assert Process.alive?(conn)
+
+          state =
+            Producer.track_failed_streams(
+              %Producer{
+                config: config,
+                conn: conn,
+                consumer_context: context,
+                connected: true,
+                pull_subjects: context.pull_subjects,
+                sid_to_pull_subject: context.sid_to_pull_subject,
+                failed_streams: %{},
+                degraded_streams: %{},
+                setup_failures: 0
+              },
+              context.failed_streams
+            )
+
+          {:noreply, [], state} =
+            Producer.handle_info({:retry_consumer, conn, "EDGE_RECORD_RECOVERY"}, state)
+
+          assert %{
+                   "EDGE_RECORD_RECOVERY" => %{
+                     reason:
+                       {"EDGE_RECORD_RECOVERY",
+                        {:stream_not_ready, "TELEMETRY_EDGE_RECORD_RECOVERY_V1"}}
+                   }
+                 } = state.failed_streams
+
+          {:noreply, [], state} =
+            Producer.handle_info({:retry_consumer, conn, "EDGE_RECORD_RECOVERY"}, state)
+
+          assert %{
+                   "EDGE_RECORD_RECOVERY" => %{
+                     reason:
+                       {"EDGE_RECORD_RECOVERY",
+                        {:durable_not_ready, "TELEMETRY_EDGE_RECORD_RECOVERY_V1"}}
+                   }
+                 } = state.failed_streams
+
+          {:noreply, [], state} =
+            Producer.handle_info({:retry_consumer, conn, "EDGE_RECORD_RECOVERY"}, state)
+
+          assert %{
+                   "EDGE_RECORD_RECOVERY" => %{
+                     reason:
+                       {"EDGE_RECORD_RECOVERY",
+                        {:durable_not_ready, "TELEMETRY_EDGE_RECORD_RECOVERY_V1"}}
+                   }
+                 } = state.failed_streams
+
+          {:noreply, [], state} =
+            Producer.handle_info({:retry_consumer, conn, "EDGE_RECORD_RECOVERY"}, state)
+
+          state
+        end)
+
+      assert state.failed_streams == %{}
+      assert state.degraded_streams == %{}
+      assert [%{stream: "TELEMETRY_EDGE_RECORD_RECOVERY_V1"}] = state.consumer_context.consumers
+      assert Process.alive?(conn)
+      refute log =~ "[error]"
+      refute log =~ "EventWriter could not bind durable consumer"
+      assert log =~ "EventWriter consumer bound after retry"
+
+      requests = drain_requests()
+      stream_info = "$JS.API.STREAM.INFO.TELEMETRY_EDGE_RECORD_RECOVERY_V1"
+
+      consumer_info =
+        "$JS.API.CONSUMER.INFO.TELEMETRY_EDGE_RECORD_RECOVERY_V1.serviceradar-event-writer-edge-record-recovery"
+
+      first_consumer_idx = Enum.find_index(requests, &(&1 == consumer_info))
+      stream_indices = requests |> Enum.with_index() |> Enum.filter(&(elem(&1, 0) == stream_info))
+      assert length(stream_indices) >= 3
+      assert first_consumer_idx > elem(Enum.at(stream_indices, 1), 1)
+    end
+
+    test "logs an error only once the startup wait bound is exceeded" do
+      previous = Application.get_env(:serviceradar_core, ServiceRadar.EventWriter)
+
+      Application.put_env(:serviceradar_core, ServiceRadar.EventWriter, startup_wait_bound_ms: 20)
+
+      on_exit(fn ->
+        if previous == nil,
+          do: Application.delete_env(:serviceradar_core, ServiceRadar.EventWriter),
+          else: Application.put_env(:serviceradar_core, ServiceRadar.EventWriter, previous)
+      end)
+
+      recovery = Config.edge_record_recovery_stream()
+
+      config = %Config{
+        consumer_name: "serviceradar-event-writer",
+        consumer_pull_batch_size: 8,
+        streams: [recovery]
+      }
+
+      conn =
+        start_supervised!(
+          {StagedReadinessConnection, test_pid: self(), stream_misses: 0, durable_misses: 5}
+        )
+
+      {state, initial_log} =
+        with_log([level: :debug], fn ->
+          assert {:ok, context} = Producer.setup_jetstream_consumers(conn, config)
+
+          Producer.track_failed_streams(
+            %Producer{
+              config: config,
+              conn: conn,
+              consumer_context: context,
+              connected: true,
+              pull_subjects: context.pull_subjects,
+              sid_to_pull_subject: context.sid_to_pull_subject,
+              failed_streams: %{},
+              degraded_streams: %{},
+              setup_failures: 0
+            },
+            context.failed_streams
+          )
+        end)
+
+      refute initial_log =~ "[error]"
+      refute initial_log =~ "EventWriter could not bind durable consumer"
+
+      Process.sleep(25)
+
+      log =
+        capture_log(fn ->
+          {:noreply, [], _state} =
+            Producer.handle_info({:retry_consumer, conn, "EDGE_RECORD_RECOVERY"}, state)
+        end)
+
+      assert log =~ "[error]"
+      assert log =~ "EventWriter could not bind durable consumer"
+      assert log =~ ~s(name="EDGE_RECORD_RECOVERY")
+      assert log =~ ~s(durable="serviceradar-event-writer-edge-record-recovery")
+      assert log =~ ~s(stream="TELEMETRY_EDGE_RECORD_RECOVERY_V1")
+      assert log =~ ~s(reason={:durable_not_ready, "TELEMETRY_EDGE_RECORD_RECOVERY_V1"})
     end
   end
 
