@@ -1,5 +1,6 @@
 defmodule ServiceRadar.Edge.ManagedComponentCertificateIssuer do
   @moduledoc "Signs host-generated CSRs using only the component's persisted identity binding."
+  alias ServiceRadar.Cluster.ClusterRPC
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Edge.CertificateIssuanceAudit
 
@@ -45,15 +46,16 @@ defmodule ServiceRadar.Edge.ManagedComponentCertificateIssuer do
 
     case Base.decode64(operation.csrs[role]["csr_der"]) do
       {:ok, csr} ->
-        case :rpc.call(
+        case ClusterRPC.call_unwrap(
                gateway,
                ServiceRadarAgentGateway.CertIssuer,
                :issue_from_csr,
                [csr, identity_id, operation.partition_id, identity_type, opts],
-               30_000
+               timeout: 30_000,
+               badrpc_error: :gateway_unavailable
              ) do
           {:ok, bundle} -> {:ok, CertificateIssuanceAudit.publish(bundle)}
-          {:badrpc, _} -> {:error, :gateway_unavailable}
+          {:error, :peer_too_old} -> {:error, :gateway_unavailable}
           {:error, reason} -> {:error, reason}
           _ -> {:error, :invalid_issuer_response}
         end

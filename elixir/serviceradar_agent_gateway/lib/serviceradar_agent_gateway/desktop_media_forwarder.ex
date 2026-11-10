@@ -6,6 +6,7 @@ defmodule ServiceRadarAgentGateway.DesktopMediaForwarder do
   owns the viewer/media ingress boundary that browser delivery attaches to.
   """
 
+  alias ServiceRadar.Cluster.ClusterRPC
   alias ServiceRadarAgentGateway.CoreNodeForwarder
   alias ServiceRadarCoreElx.DesktopMediaIngress
 
@@ -33,11 +34,14 @@ defmodule ServiceRadarAgentGateway.DesktopMediaForwarder do
   end
 
   defp do_forward_frame(frame, session, opts, remaining_attempts) do
+    module = ingress_module(opts)
+    args = [frame, session]
+
     case rpc_module(opts).call(
            core_node(opts),
-           ingress_module(opts),
+           module,
            :forward_frame,
-           [frame, session],
+           args,
            timeout(opts)
          ) do
       {:badrpc, :nodedown} when remaining_attempts > 0 ->
@@ -48,8 +52,11 @@ defmodule ServiceRadarAgentGateway.DesktopMediaForwarder do
         _ = ensure_core_connected(core_node(opts), opts)
         do_forward_frame(frame, session, opts, remaining_attempts - 1)
 
-      {:badrpc, reason} ->
-        Logger.error("Failed to forward desktop media frame to core-elx ingress: #{inspect(reason)}")
+      {:badrpc, reason} = badrpc ->
+        if !ClusterRPC.peer_too_old?(badrpc, module, :forward_frame, args) do
+          Logger.error("Failed to forward desktop media frame to core-elx ingress: #{inspect(reason)}")
+        end
+
         {:error, :core_unavailable}
 
       {:ok, %Desktopmedia.DesktopMediaAck{} = ack} ->
@@ -64,11 +71,14 @@ defmodule ServiceRadarAgentGateway.DesktopMediaForwarder do
   end
 
   defp do_close_session(desktop_session_id, opts, remaining_attempts) do
+    module = ingress_module(opts)
+    args = [desktop_session_id]
+
     case rpc_module(opts).call(
            core_node(opts),
-           ingress_module(opts),
+           module,
            :close_session,
-           [desktop_session_id],
+           args,
            timeout(opts)
          ) do
       {:badrpc, :nodedown} when remaining_attempts > 0 ->
@@ -79,8 +89,11 @@ defmodule ServiceRadarAgentGateway.DesktopMediaForwarder do
         _ = ensure_core_connected(core_node(opts), opts)
         do_close_session(desktop_session_id, opts, remaining_attempts - 1)
 
-      {:badrpc, reason} ->
-        Logger.error("Failed to close desktop media ingress on core-elx: #{inspect(reason)}")
+      {:badrpc, reason} = badrpc ->
+        if !ClusterRPC.peer_too_old?(badrpc, module, :close_session, args) do
+          Logger.error("Failed to close desktop media ingress on core-elx: #{inspect(reason)}")
+        end
+
         {:error, :core_unavailable}
 
       :ok ->

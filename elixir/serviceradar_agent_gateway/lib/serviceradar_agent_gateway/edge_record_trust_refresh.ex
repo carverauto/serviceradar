@@ -65,6 +65,9 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrustRefresh do
          :ok <- EdgeRecordTrust.install(document, expires_at) do
       :ok
     else
+      {:error, :peer_too_old} = error ->
+        error
+
       {:error, reason} = error ->
         Logger.warning("Edge record trust refresh failed: #{inspect(reason)}")
         error
@@ -74,13 +77,6 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrustRefresh do
   defp schedule, do: Process.send_after(self(), :refresh, @interval_ms)
 
   defp fetch(report) do
-    core = CoreNodeForwarder.select_core_node("edge record trust")
-
-    case :rpc.call(core, RecordTrust, :refresh, [report], @rpc_timeout_ms) do
-      {:badrpc, reason} -> {:error, reason}
-      result -> result
-    end
-  rescue
-    ArgumentError -> {:error, :core_unavailable}
+    CoreNodeForwarder.call_unwrap(RecordTrust, :refresh, [report], timeout: @rpc_timeout_ms)
   end
 end

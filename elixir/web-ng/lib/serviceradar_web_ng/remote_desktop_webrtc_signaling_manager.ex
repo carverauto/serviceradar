@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNG.RemoteDesktopWebRTCSignalingManager do
   ERTS client for desktop WebRTC signaling owned by `core-elx`.
   """
 
+  alias ServiceRadar.Cluster.ClusterRPC
+
   @default_rpc_timeout 5_000
 
   def create_session(session_id, opts) when is_binary(session_id) do
@@ -35,20 +37,30 @@ defmodule ServiceRadarWebNG.RemoteDesktopWebRTCSignalingManager do
     module = remote_manager_module()
     timeout = Keyword.get(opts, :rpc_timeout, @default_rpc_timeout)
 
-    case core_elx_node(module, timeout) do
-      nil ->
+    case ClusterRPC.call(
+           fn -> core_elx_nodes(module, timeout) end,
+           module,
+           function,
+           args,
+           timeout: timeout,
+           unavailable_error: :unavailable
+         ) do
+      {:ok, result} ->
+        result
+
+      {:error, :unavailable} ->
         {:error, "desktop webrtc signaling unavailable"}
 
-      node ->
-        case :rpc.call(node, module, function, args, timeout) do
-          {:badrpc, reason} -> {:error, "desktop webrtc signaling unavailable: #{inspect(reason)}"}
-          result -> result
-        end
+      {:error, {:badrpc, reason}} ->
+        {:error, "desktop webrtc signaling unavailable: #{inspect(reason)}"}
+
+      {:error, reason} ->
+        {:error, "desktop webrtc signaling unavailable: #{inspect(reason)}"}
     end
   end
 
-  defp core_elx_node(module, timeout) do
-    Enum.find(rpc_nodes(), fn node ->
+  defp core_elx_nodes(module, timeout) do
+    Enum.filter(rpc_nodes(), fn node ->
       case :rpc.call(node, Process, :whereis, [module], timeout) do
         pid when is_pid(pid) -> true
         _other -> false

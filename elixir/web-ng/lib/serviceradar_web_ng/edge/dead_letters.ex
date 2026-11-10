@@ -17,8 +17,10 @@ defmodule ServiceRadarWebNG.Edge.DeadLetters do
   so (`complete: false`) and the operator runs it again.
   """
 
+  alias ServiceRadar.Cluster.ClusterRPC
   alias ServiceRadar.Cluster.ClusterStatus
   alias ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay
+  alias ServiceRadar.ProcessRegistry
 
   @action_limit 5_000
   @inventory_timeout_ms 60_000
@@ -97,17 +99,24 @@ defmodule ServiceRadarWebNG.Edge.DeadLetters do
   end
 
   defp call(fun, args, timeout) do
-    case ClusterStatus.find_coordinator() do
-      nil ->
-        {:error, :no_coordinator}
+    nodes = fn ->
+      Enum.uniq(List.wrap(ClusterStatus.find_coordinator()) ++ ProcessRegistry.core_nodes())
+    end
 
-      node ->
-        case :rpc.call(node, Replay, fun, args, timeout) do
-          {:ok, _result} = ok -> ok
-          {:error, _reason} = error -> error
-          {:badrpc, reason} -> {:error, {:badrpc, reason}}
-          other -> {:error, {:unexpected_response, other}}
-        end
+    case ClusterRPC.call(
+           nodes,
+           Replay,
+           fun,
+           args,
+           timeout: timeout,
+           unavailable_error: :no_coordinator
+         ) do
+      {:ok, {:ok, _result} = ok} -> ok
+      {:ok, {:error, _reason} = error} -> error
+      {:ok, other} -> {:error, {:unexpected_response, other}}
+      {:error, :no_coordinator} -> {:error, :no_coordinator}
+      {:error, :peer_too_old} -> {:error, :peer_too_old}
+      {:error, {:badrpc, reason}} -> {:error, {:badrpc, reason}}
     end
   end
 end

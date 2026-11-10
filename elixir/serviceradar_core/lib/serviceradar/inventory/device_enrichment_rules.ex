@@ -7,6 +7,8 @@ defmodule ServiceRadar.Inventory.DeviceEnrichmentRules do
   2) Optional filesystem overrides: /var/lib/serviceradar/rules/device-enrichment/*.yaml
   """
 
+  alias ServiceRadar.Cluster.ClusterRPC
+
   require Logger
 
   @persistent_term_key {__MODULE__, :rules}
@@ -111,12 +113,16 @@ defmodule ServiceRadar.Inventory.DeviceEnrichmentRules do
           if node == Node.self() do
             reload()
           else
-            :rpc.call(node, __MODULE__, :reload, [], 5_000)
+            ClusterRPC.call_unwrap(node, __MODULE__, :reload, [],
+              timeout: 5_000,
+              undef_wait_ms: 0
+            )
           end
 
         case result do
           :ok -> {[node | ok_acc], err_acc}
-          {:badrpc, reason} -> {ok_acc, [{node, reason} | err_acc]}
+          {:error, :peer_too_old} -> {ok_acc, err_acc}
+          {:error, reason} -> {ok_acc, [{node, reason} | err_acc]}
           other -> {ok_acc, [{node, other} | err_acc]}
         end
       end)

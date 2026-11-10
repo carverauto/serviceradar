@@ -40,12 +40,12 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   alias ServiceRadarAgentGateway.AgentCertificateRevocation
   alias ServiceRadarAgentGateway.AgentRegistryProxy
   alias ServiceRadarAgentGateway.CertIssuer
-  alias ServiceRadarAgentGateway.ClusterProcessLocator
   alias ServiceRadarAgentGateway.ComponentIdentityResolver
   alias ServiceRadarAgentGateway.Config
   alias ServiceRadarAgentGateway.ConfigChunks
   alias ServiceRadarAgentGateway.ConfigResponse
   alias ServiceRadarAgentGateway.ControlStreamSession
+  alias ServiceRadarAgentGateway.CoreNodeForwarder
   alias ServiceRadarAgentGateway.EdgeDeliveryGrants
   alias ServiceRadarAgentGateway.MediaIdentity
   alias ServiceRadarAgentGateway.RetiredStatusSources
@@ -1417,79 +1417,29 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   defp header_name(key), do: key |> to_string() |> String.downcase()
 
   defp core_call(module, function, args, timeout \\ 5_000) do
-    nodes = core_nodes()
+    case CoreNodeForwarder.call(module, function, args, timeout: timeout) do
+      {:ok, result} ->
+        {:ok, result}
 
-    case nodes do
-      [] ->
+      {:error, :peer_too_old} ->
+        {:error, :core_unavailable}
+
+      {:error, {:badrpc, reason}} ->
+        Logger.warning(
+          "Core RPC call failed: #{inspect(reason)}. " <>
+            "Calling #{inspect(module)}.#{function}"
+        )
+
+        {:error, :core_unavailable}
+
+      {:error, :core_unavailable} ->
         Logger.warning(
           "Core call failed: no core nodes available. Connected nodes: #{inspect(Node.list())}. " <>
             "Calling #{inspect(module)}.#{function}"
         )
 
         {:error, :core_unavailable}
-
-      _ ->
-        rpc_core_nodes(nodes, module, function, args, timeout)
     end
-  end
-
-  defp rpc_core_nodes(nodes, module, function, args, timeout) do
-    Enum.reduce_while(nodes, {:error, :core_unavailable}, fn node, _acc ->
-      case :rpc.call(node, module, function, args, timeout) do
-        {:badrpc, reason} ->
-          Logger.warning(
-            "Core RPC call to #{node} failed: #{inspect(reason)}. " <>
-              "Calling #{inspect(module)}.#{function}"
-          )
-
-          {:cont, {:error, :core_unavailable}}
-
-        result ->
-          {:halt, {:ok, result}}
-      end
-    end)
-  end
-
-  defp core_nodes do
-    # IMPORTANT: Exclude Node.self() - gateway has no database access and must
-    # never execute database-dependent operations locally. All such operations
-    # must be forwarded to core-elx nodes via RPC.
-    remote_nodes = Node.list()
-
-    # Prefer nodes with ClusterHealth (core coordinator process), then fall back
-    # to the configured core node basename. The basename fallback still avoids
-    # selecting gateway/web nodes when the coordinator lock is temporarily absent.
-    coordinators = ClusterProcessLocator.nodes(ServiceRadar.ClusterHealth)
-    core_nodes = if coordinators == [], do: named_core_nodes(remote_nodes), else: coordinators
-
-    if core_nodes == [] and remote_nodes != [] do
-      Logger.warning(
-        "No core-elx nodes found with ClusterHealth. " <>
-          "Config compilation and other DB operations will fail until core is available. " <>
-          "Connected nodes: #{inspect(remote_nodes)}"
-      )
-    end
-
-    core_nodes
-  end
-
-  defp named_core_nodes(nodes) do
-    Enum.filter(nodes, &core_node?/1)
-  end
-
-  defp core_node?(node) when is_atom(node) do
-    String.starts_with?(Atom.to_string(node), "#{core_node_basename()}@")
-  end
-
-  defp core_node?(_node), do: false
-
-  defp core_node_basename do
-    System.get_env("CLUSTER_CORE_NODE_BASENAME") ||
-      Application.get_env(
-        :serviceradar_agent_gateway,
-        :cluster_core_node_basename,
-        "serviceradar_core"
-      )
   end
 
   # Extract component identity from the gRPC stream's mTLS certificate

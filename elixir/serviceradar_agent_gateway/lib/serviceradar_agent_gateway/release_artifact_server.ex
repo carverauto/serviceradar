@@ -7,8 +7,8 @@ defmodule ServiceRadarAgentGateway.ReleaseArtifactServer do
 
   alias ServiceRadar.DataService.Client
   alias ServiceRadar.Plugins.StorageToken
-  alias ServiceRadarAgentGateway.ClusterProcessLocator
   alias ServiceRadarAgentGateway.ComponentIdentityResolver
+  alias ServiceRadarAgentGateway.CoreNodeForwarder
 
   require Logger
 
@@ -239,20 +239,17 @@ defmodule ServiceRadarAgentGateway.ReleaseArtifactServer do
   end
 
   defp core_rpc(function, args) do
-    core_nodes()
-    |> Enum.reduce_while({:error, :core_unavailable}, fn node, _acc ->
-      case :rpc.call(node, ServiceRadar.Edge.AgentGatewaySync, function, args, @download_timeout) do
-        {:badrpc, reason} ->
-          Logger.warning("Core RPC failed for #{function}: #{inspect(reason)}")
-          {:cont, {:error, :core_unavailable}}
-
-        {:error, _reason} = error ->
-          {:halt, error}
-
-        result ->
-          {:halt, {:ok, result}}
-      end
-    end)
+    ServiceRadar.Edge.AgentGatewaySync
+    |> CoreNodeForwarder.call(
+      function,
+      args,
+      timeout: @download_timeout,
+      badrpc_error: :core_unavailable
+    )
+    |> case do
+      {:error, :peer_too_old} -> {:error, :core_unavailable}
+      other -> other
+    end
     |> normalize_core_result()
   end
 
@@ -324,28 +321,6 @@ defmodule ServiceRadarAgentGateway.ReleaseArtifactServer do
           connect_timeout_ms: @download_timeout
         )
     end
-  end
-
-  defp core_nodes do
-    case ClusterProcessLocator.nodes(ServiceRadar.ClusterHealth) do
-      [] -> Enum.filter(Node.list(), &core_node?/1)
-      coordinators -> coordinators
-    end
-  end
-
-  defp core_node?(node) when is_atom(node) do
-    String.starts_with?(Atom.to_string(node), "#{core_node_basename()}@")
-  end
-
-  defp core_node?(_node), do: false
-
-  defp core_node_basename do
-    System.get_env("CLUSTER_CORE_NODE_BASENAME") ||
-      Application.get_env(
-        :serviceradar_agent_gateway,
-        :cluster_core_node_basename,
-        "serviceradar_core"
-      )
   end
 
   defp resolve_identity(conn) do

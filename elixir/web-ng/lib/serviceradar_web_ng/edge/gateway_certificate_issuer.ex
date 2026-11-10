@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNG.Edge.GatewayCertificateIssuer do
   Issues agent mTLS bundles by calling the agent-gateway over ERTS RPC.
   """
 
+  alias ServiceRadar.Cluster.ClusterRPC
   alias ServiceRadar.Edge.CertificateIssuanceAudit
   alias ServiceRadar.Edge.CertificateLifetimePolicy
   alias ServiceRadar.Edge.OutputGrants
@@ -93,21 +94,24 @@ defmodule ServiceRadarWebNG.Edge.GatewayCertificateIssuer do
     rpc_opts = maybe_put(rpc_opts, :audit_actor, Keyword.get(opts, :audit_actor) || Keyword.get(opts, :actor))
     rpc_opts = maybe_put(rpc_opts, :long_ttl_approved_by, Keyword.get(opts, :long_ttl_approved_by))
 
-    case :rpc.call(
+    case ClusterRPC.call(
            node,
            issuer_module,
            :issue_agent_bundle,
            [component_id, partition_id, :agent, rpc_opts],
-           timeout
+           timeout: timeout
          ) do
-      {:ok, bundle} ->
+      {:ok, {:ok, bundle}} ->
         {:ok, CertificateIssuanceAudit.publish(bundle)}
 
-      {:error, reason} ->
+      {:ok, {:error, reason}} ->
         Logger.warning("[GatewayCertificateIssuer] Issue bundle failed: #{inspect(reason)}")
         {:error, reason}
 
-      {:badrpc, reason} ->
+      {:error, :peer_too_old} ->
+        {:error, :gateway_unavailable}
+
+      {:error, {:badrpc, reason}} ->
         Logger.warning("[GatewayCertificateIssuer] Gateway RPC failed: #{inspect(reason)}")
         {:error, :gateway_unavailable}
     end
@@ -118,22 +122,25 @@ defmodule ServiceRadarWebNG.Edge.GatewayCertificateIssuer do
     reason = Keyword.get(opts, :reason)
     revocation_module = Keyword.get(opts, :revocation_module, ServiceRadarAgentGateway.AgentCertificateRevocation)
 
-    case :rpc.call(
+    case ClusterRPC.call(
            node,
            revocation_module,
            :revoke_component_id,
            [component_id, [reason: reason]],
-           timeout
+           timeout: timeout
          ) do
-      :ok ->
+      {:ok, :ok} ->
         :ok
 
-      {:badrpc, reason} ->
-        Logger.warning("[GatewayCertificateIssuer] Gateway revoke RPC failed: #{inspect(reason)}")
+      {:ok, other} ->
+        Logger.warning("[GatewayCertificateIssuer] Unexpected revoke result: #{inspect(other)}")
         {:error, :gateway_unavailable}
 
-      other ->
-        Logger.warning("[GatewayCertificateIssuer] Unexpected revoke result: #{inspect(other)}")
+      {:error, :peer_too_old} ->
+        {:error, :gateway_unavailable}
+
+      {:error, {:badrpc, reason}} ->
+        Logger.warning("[GatewayCertificateIssuer] Gateway revoke RPC failed: #{inspect(reason)}")
         {:error, :gateway_unavailable}
     end
   end
