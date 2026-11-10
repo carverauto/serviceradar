@@ -84,6 +84,15 @@ maximum parallelism, soak duration, health timeout, tolerated failures, lifecycl
 state, and per-target transitions. It SHALL support pause, resume, and cancel without
 advancing new targets while paused or canceled.
 
+Target membership SHALL be fixed when the rollout is created, but a target's
+eligibility SHALL NOT be. Before a rollout activates the candidate on a target -- the
+first batch, each later batch, and the first launch after a resume or an automatic
+canary rotation -- it SHALL re-evaluate that target against the agent's currently
+reported compatibility, using the same compatibility rules that classify targets when
+a rollout is created. A target that is no longer compatible SHALL be excluded with the
+rule's reason code and SHALL NOT receive the candidate desired-state override.
+Re-evaluation SHALL NOT change what an attempted target already recorded.
+
 #### Scenario: Canary advances without changing every profile target
 - **GIVEN** a profile whose target query currently resolves to 100 eligible agents
 - **AND** a rollout configured with one canary and batches of ten
@@ -96,6 +105,28 @@ advancing new targets while paused or canceled.
 - **WHEN** a rollout preview is accepted
 - **THEN** the rollout SHALL snapshot each target and its classification/reason
 - **AND** only compatible eligible targets SHALL enter delivery batches
+
+#### Scenario: Resume re-evaluates queued targets
+- **GIVEN** a paused rollout with two queued targets that were eligible when it was created
+- **AND** one of those agents now reports `addon.systemd.updater.unavailable` for a systemd-supervised candidate
+- **WHEN** an authorized operator resumes the rollout
+- **THEN** that target SHALL be excluded as incompatible with reason `agent_updater_outdated`
+- **AND** it SHALL NOT receive the candidate desired-state override
+- **AND** the other queued target SHALL advance normally
+
+#### Scenario: Rollout with no target able to run the candidate ends with a reason
+- **GIVEN** a running rollout in which no target has passed its gate
+- **AND** every remaining queued target is now incompatible
+- **WHEN** the rollout evaluates its next batch
+- **THEN** the rollout SHALL end `canceled` with blocked reason `no_eligible_targets`
+- **AND** the stable source SHALL remain on the previous package and the candidate SHALL NOT be blocked for that source
+- **AND** a tracking source SHALL start the candidate again once a target is eligible, without operator database changes
+
+#### Scenario: Unproven candidate is never promoted
+- **GIVEN** a rollout whose targets are all terminal and none passed its gate
+- **WHEN** the rollout decides its next step
+- **THEN** the candidate SHALL NOT be promoted
+- **AND** the rollout SHALL end `failed` when a target was rolled back, including one inside the tolerated-failure count, and `canceled` otherwise
 
 #### Scenario: Pause prevents the next batch
 - **GIVEN** a rollout whose current batch has reached a terminal state
@@ -135,6 +166,14 @@ batch.
 - **THEN** the control plane SHALL restore the target's previous desired package and params
 - **AND** SHALL pause the rollout before advancing another batch
 - **AND** SHALL record rollback recovery from fresh status evidence
+
+#### Scenario: Failure on an agent that cannot run the candidate is not a candidate failure
+- **GIVEN** an advanced target whose agent reports a permanent install failure for the candidate
+- **AND** the same compatibility rules that classify new rollout targets now report that agent incompatible, such as `agent_updater_outdated`
+- **WHEN** its health gate evaluates the failure
+- **THEN** the control plane SHALL restore the target's previous desired package and params
+- **AND** SHALL exclude the target with the compatibility reason code and the reported error
+- **AND** SHALL NOT pause the rollout or count the failure against the candidate
 
 #### Scenario: Successful rollout promotes authoritative state
 - **GIVEN** every required rollout target for a profile has passed its gate

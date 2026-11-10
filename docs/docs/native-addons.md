@@ -623,7 +623,19 @@ An add-on install or delivery failure, and a systemd unit stuck in
 `candidate_reported_unhealthy` and record the error on the rollout target,
 instead of waiting for `candidate_health_timeout`. An agent that advertises
 `addon.systemd.updater.unavailable` is marked incompatible
-(`agent_updater_outdated`) for systemd add-ons until its agent release is updated.
+(`agent_updater_outdated`) for systemd add-ons. The privileged updater is
+installed by the agent's OS package, and agent self-update does not replace it,
+so the fix is to upgrade the agent package on that host.
+
+A rollout checks compatibility again each time it is about to start targets:
+when it is created, before every batch, and when a paused rollout is resumed
+or rotated past a failed canary. A queued agent that has become incompatible
+is skipped with its reason and is never sent the candidate. A launched agent
+whose failure coincides with such a report is skipped the same way and does
+not pause the rollout or count against the candidate. If no agent is left that
+can run the candidate and none ran it, the rollout ends `canceled` with
+`no_eligible_targets`; a tracking source starts it again once an agent becomes
+eligible, for example after its package is upgraded.
 
 A paused profile rollout whose canary failed rotates past it automatically: the
 failed agent is excluded and stays on its previous version, and the rollout

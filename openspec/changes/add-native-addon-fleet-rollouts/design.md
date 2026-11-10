@@ -142,6 +142,27 @@ targets may remain pending until their target deadline; they do not pass a gate 
 because their last status was healthy. The operator can exclude unavailable targets
 in the preview or wait for them to reconnect.
 
+Membership is the snapshot; eligibility is not. A rollout can sit paused for weeks,
+and an agent that was compatible when it was created can since have reported that it
+is not (for example `addon.systemd.updater.unavailable`, whose remedy is a host
+package upgrade). Acting on the creation-time classification sent such agents a
+candidate they could only fail, which rolled the canary back and paused the rollout
+again on every resume. The coordinator therefore re-runs the creation-time
+compatibility rules, not a second copy of them, on the targets it is about to launch:
+before every batch, which covers resume and automatic canary rotation. An incompatible
+target is excluded with the rule's reason code and never receives the override. Only
+compatibility is re-evaluated; a disconnected target still launches and is held to
+its deadline as before.
+
+A rollout promotes only when at least one target ran the candidate healthy. When
+every target is terminal and none did, a rolled-back target makes the rollout
+`failed`; otherwise it ends `canceled` with `no_eligible_targets` (or
+`every_target_canceled`). Canceled does not block the candidate for the source, so
+track-latest reconciliation creates the rollout again, with a fresh classification,
+as soon as a target is eligible. A target excluded by one rollout is therefore picked
+up by a later one, or by the profile's stable package after promotion, without
+operator database changes.
+
 Only one active rollout may own an effective (agent, add-on) target at a time. Only one
 track candidate may be active for an authoritative source. A newer approval that
 arrives during a rollout is queued for evaluation after the current rollout reaches a
@@ -182,6 +203,14 @@ rolled back when fresh evidence confirms recovery, pauses before the next batch,
 surfaces the failure. The operator may then rollback the entire rollout, fix and retry,
 or explicitly resume under an amended policy. Track-latest records the failed candidate
 as blocked for that source so the same package cannot immediately retrigger a loop.
+
+A failure counts against the candidate only when the agent could have run it. If the
+compatibility rules report the agent incompatible at the moment its target fails, the
+failure is the host's: the target's override is removed, the target is excluded with
+the compatibility reason and the reported error, and the rollout neither pauses nor
+rolls back. The decision uses the agent's reported compatibility, never the text of
+the error, so a failure from an agent that does not report itself incompatible is
+still a candidate failure.
 
 Failure tolerance applies only to profile rollouts with multiple snapshotted targets.
 After recovery is verified and an operator resumes, a rolled-back target within the

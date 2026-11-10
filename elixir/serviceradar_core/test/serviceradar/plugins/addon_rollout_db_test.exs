@@ -1349,6 +1349,254 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
     end
   end
 
+  test "resuming a rollout skips a queued agent that can no longer install the candidate" do
+    actor = SystemActor.system(:addon_rollout_resume_reclassify_test)
+    fixture = updater_profile_fixture(actor, ["a", "b", "c"])
+    [canary_uid, outdated_uid, peer_uid] = fixture.agent_uids
+
+    assert {:ok, rollout} =
+             AddonRolloutCoordinator.start(fixture.profile, fixture.candidate,
+               actor: actor,
+               now: fixture.started_at,
+               trigger: :manual
+             )
+
+    assert :ok = AddonRolloutCoordinator.pause(rollout.id, actor: actor, now: fixture.started_at)
+
+    # Both queued agents were eligible when the rollout was created. One has
+    # since reported that its updater cannot install a systemd add-on.
+    report_capabilities(fixture, outdated_uid, ["addon.systemd.updater.unavailable"], actor)
+
+    healthy_at = DateTime.shift(fixture.started_at, second: 5)
+
+    report_status(
+      %{addon_id: fixture.addon_id, agent_uid: canary_uid},
+      fixture.candidate.version,
+      "running",
+      true,
+      healthy_at,
+      actor
+    )
+
+    assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: actor, now: healthy_at)
+    assert :ok = AddonRolloutCoordinator.resume(rollout.id, actor: actor, now: healthy_at)
+
+    targets = Map.new(list_rollout_targets(rollout.id, actor), &{&1.agent_uid, &1})
+
+    assert targets[outdated_uid].state == :excluded
+    assert targets[outdated_uid].classification == :incompatible
+    assert targets[outdated_uid].reason_code == "agent_updater_outdated"
+    assert is_nil(targets[outdated_uid].override_applied_at)
+    assert is_nil(updater_member(fixture, outdated_uid, actor).rollout_package_id)
+
+    assert targets[peer_uid].state == :waiting_health
+    assert updater_member(fixture, peer_uid, actor).rollout_package_id == fixture.candidate.id
+
+    assert targets[canary_uid].state == :succeeded
+    assert get_rollout(rollout.id, actor).state == :running
+  end
+
+  test "an install failure on an agent that cannot install the candidate skips the agent instead of pausing" do
+    actor = SystemActor.system(:addon_rollout_host_failure_test)
+    fixture = updater_profile_fixture(actor, ["a", "b"])
+    [canary_uid, peer_uid] = fixture.agent_uids
+
+    assert {:ok, rollout} =
+             AddonRolloutCoordinator.start(fixture.profile, fixture.candidate,
+               actor: actor,
+               now: fixture.started_at,
+               trigger: :manual
+             )
+
+    failed_at = DateTime.shift(fixture.started_at, second: 5)
+    error = report_updater_install_failure(fixture, canary_uid, failed_at, actor)
+
+    assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: actor, now: failed_at)
+
+    running = get_rollout(rollout.id, actor)
+    assert running.state == :running
+    assert is_nil(running.blocked_reason)
+
+    targets = Map.new(list_rollout_targets(rollout.id, actor), &{&1.agent_uid, &1})
+
+    assert targets[canary_uid].state == :excluded
+    assert targets[canary_uid].classification == :incompatible
+    assert targets[canary_uid].reason_code == "agent_updater_outdated"
+    assert targets[canary_uid].error == error
+    assert is_nil(updater_member(fixture, canary_uid, actor).rollout_package_id)
+
+    assert targets[peer_uid].state == :waiting_health
+  end
+
+  test "a rollout no agent can run ends canceled, and a later rollout takes an agent once it is upgraded" do
+    actor = SystemActor.system(:addon_rollout_no_launchable_target_test)
+    fixture = updater_profile_fixture(actor, ["a", "b"])
+    [canary_uid, peer_uid] = fixture.agent_uids
+
+    assert {:ok, rollout} =
+             AddonRolloutCoordinator.start(fixture.profile, fixture.candidate,
+               actor: actor,
+               now: fixture.started_at,
+               trigger: :manual
+             )
+
+    failed_at = DateTime.shift(fixture.started_at, second: 5)
+    report_updater_install_failure(fixture, canary_uid, failed_at, actor)
+    report_capabilities(fixture, peer_uid, ["addon.systemd.updater.unavailable"], actor)
+
+    assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: actor, now: failed_at)
+
+    canceled = get_rollout(rollout.id, actor)
+    assert canceled.state == :canceled
+    assert canceled.blocked_reason == "no_eligible_targets"
+    assert get_profile(fixture.profile.id, actor).addon_package_id == fixture.current.id
+
+    for target <- list_rollout_targets(rollout.id, actor) do
+      assert target.state == :excluded
+      assert target.reason_code == "agent_updater_outdated"
+    end
+
+    for member <- profile_assignments(fixture.profile.id, actor) do
+      assert is_nil(member.rollout_package_id)
+    end
+
+    # The host package is upgraded on one agent, which then reports a usable updater.
+    report_capabilities(fixture, peer_uid, ["addon.systemd.updater"], actor)
+    restarted_at = DateTime.shift(failed_at, second: 30)
+
+    assert {:ok, next} =
+             AddonRolloutCoordinator.start(fixture.profile, fixture.candidate,
+               actor: actor,
+               now: restarted_at,
+               trigger: :manual
+             )
+
+    next_targets = Map.new(list_rollout_targets(next.id, actor), &{&1.agent_uid, &1})
+
+    assert next_targets[peer_uid].classification == :eligible
+    assert next_targets[peer_uid].state == :waiting_health
+    assert next_targets[canary_uid].state == :excluded
+    assert next_targets[canary_uid].reason_code == "agent_updater_outdated"
+  end
+
+  # A profile whose package is systemd-supervised, with one bare-metal agent per
+  # suffix. Agent uids sort in suffix order, so the first is the canary.
+  defp updater_profile_fixture(actor, suffixes) do
+    unique = System.unique_integer([:positive])
+    addon_id = "rollout-updater-#{unique}"
+    current = approved_package(addon_id, "1.0.0", actor, [], %{supervision: :systemd_service})
+    candidate = approved_package(addon_id, "1.1.0", actor, [], %{supervision: :systemd_service})
+
+    {:ok, profile} =
+      AddonProfile
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Rollout updater profile #{unique}",
+          addon_package_id: current.id,
+          target_query: "in:agents",
+          rollout_policy: %{
+            "canary_size" => 1,
+            "batch_size" => 2,
+            "max_parallel" => 2,
+            "soak_seconds" => 0,
+            "health_timeout_seconds" => 60,
+            "tolerated_failures" => 0
+          }
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    agents =
+      Map.new(suffixes, fn suffix ->
+        uid = "rollout-updater-#{suffix}-#{unique}"
+
+        {:ok, agent} =
+          Agent
+          |> Ash.Changeset.for_create(
+            :register_connected,
+            %{
+              uid: uid,
+              name: "Rollout updater test agent #{uid}",
+              version: "1.4.23",
+              capabilities: [],
+              host: "192.0.2.10",
+              port: 50_051,
+              metadata: %{"os" => "linux", "arch" => "amd64"}
+            },
+            actor: actor
+          )
+          |> Ash.create(actor: actor)
+
+        {:ok, _assignment} =
+          AddonAssignment
+          |> Ash.Changeset.for_create(
+            :create,
+            %{
+              agent_uid: uid,
+              addon_package_id: current.id,
+              source: :profile,
+              source_key: "#{profile.id}:#{uid}",
+              addon_profile_id: profile.id
+            },
+            actor: actor
+          )
+          |> Ash.create(actor: actor)
+
+        {uid, agent}
+      end)
+
+    %{
+      addon_id: addon_id,
+      agent_uids: agents |> Map.keys() |> Enum.sort(),
+      agents: agents,
+      profile: profile,
+      current: current,
+      candidate: candidate,
+      started_at: DateTime.utc_now()
+    }
+  end
+
+  defp report_capabilities(fixture, agent_uid, capabilities, actor) do
+    {:ok, _agent} =
+      fixture.agents
+      |> Map.fetch!(agent_uid)
+      |> Ash.Changeset.for_update(:heartbeat, %{capabilities: capabilities}, actor: actor)
+      |> Ash.update(actor: actor)
+  end
+
+  # What an agent with an outdated package-installed updater reports after it is
+  # sent a systemd add-on: the capability, and the install failure on its addons
+  # config section.
+  defp report_updater_install_failure(fixture, agent_uid, failed_at, actor) do
+    error =
+      "one or more add-on assignments failed permanently: #{fixture.addon_id}: " <>
+        "locate agent updater for systemd install: release updater does not support required flag: --addon-version"
+
+    report_capabilities(fixture, agent_uid, ["addon.systemd.updater.unavailable"], actor)
+
+    assert :ok =
+             AgentGatewaySync.record_config_section_statuses(agent_uid, %{
+               section_statuses: [
+                 %{
+                   "section" => "addons",
+                   "disposition" => "permanent_failure",
+                   "error" => error,
+                   "since" => DateTime.to_iso8601(failed_at)
+                 }
+               ]
+             })
+
+    error
+  end
+
+  defp updater_member(fixture, agent_uid, actor) do
+    fixture.profile.id
+    |> profile_assignments(actor)
+    |> Enum.find(&(&1.agent_uid == agent_uid))
+  end
+
   defp profile_rollout_fixture(actor) do
     unique = System.unique_integer([:positive])
     addon_id = "rollout-profile-#{unique}"
@@ -1532,8 +1780,8 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
     status
   end
 
-  defp approved_package(addon_id, version, actor, approved_capabilities \\ []) do
-    package = staged_package(addon_id, version, actor)
+  defp approved_package(addon_id, version, actor, approved_capabilities \\ [], attrs \\ %{}) do
+    package = staged_package(addon_id, version, actor, attrs)
 
     {:ok, package} =
       package
@@ -1550,28 +1798,31 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
     package
   end
 
-  defp staged_package(addon_id, version, actor) do
+  defp staged_package(addon_id, version, actor, attrs \\ %{}) do
     {:ok, package} =
       AddonPackage
       |> Ash.Changeset.for_create(
         :create,
-        %{
-          addon_id: addon_id,
-          version: version,
-          name: "Rollout DB package #{version}",
-          source_type: :first_party,
-          source_oci_ref: "registry.example/#{addon_id}:#{version}",
-          source_oci_digest: "sha256:#{version}",
-          verification_status: "verified",
-          artifacts: %{
-            "linux/amd64" => %{
-              "object_key" => "addons/#{addon_id}/#{version}",
-              "sha256" => "artifact-#{version}"
-            }
+        Map.merge(
+          %{
+            addon_id: addon_id,
+            version: version,
+            name: "Rollout DB package #{version}",
+            source_type: :first_party,
+            source_oci_ref: "registry.example/#{addon_id}:#{version}",
+            source_oci_digest: "sha256:#{version}",
+            verification_status: "verified",
+            artifacts: %{
+              "linux/amd64" => %{
+                "object_key" => "addons/#{addon_id}/#{version}",
+                "sha256" => "artifact-#{version}"
+              }
+            },
+            requires: %{"platforms" => ["linux"]},
+            config_schema: %{"type" => "object"}
           },
-          requires: %{"platforms" => ["linux"]},
-          config_schema: %{"type" => "object"}
-        },
+          attrs
+        ),
         actor: actor
       )
       |> Ash.create(actor: actor)

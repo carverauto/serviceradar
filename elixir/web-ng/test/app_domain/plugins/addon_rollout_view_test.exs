@@ -169,4 +169,48 @@ defmodule ServiceRadarWebNG.Plugins.AddonRolloutViewTest do
     assert view.summary =~ "An operator paused this rollout"
     assert view.scope_label == "Unknown agent"
   end
+
+  test "an agent skipped for an outdated updater tells the operator to upgrade the host package" do
+    view =
+      AddonRolloutView.present(%{
+        id: "rollout-updater",
+        addon_id: "example-addon",
+        source_type: :profile,
+        source_id: "33333333-3333-3333-3333-333333333333",
+        trigger: :track_latest,
+        state: :canceled,
+        blocked_reason: "no_eligible_targets",
+        previous_package: %{name: "Example", version: "1.0.0"},
+        candidate_package: %{name: "Example", version: "1.1.0"},
+        targets: [
+          %{
+            agent_uid: "agent-01",
+            batch_index: 0,
+            classification: :incompatible,
+            state: :excluded,
+            reason_code: "agent_updater_outdated"
+          }
+        ]
+      })
+
+    target = hd(view.targets)
+    assert target.state_label == "Skipped"
+    assert target.reason_label =~ "upgrade the package on the host"
+    assert target.reason_label =~ "self-update does not replace its updater"
+    assert view.summary =~ "No targeted agent can run 1.1.0 right now"
+    assert view.summary =~ "starts again once an agent becomes eligible"
+
+    health =
+      AddonRolloutView.fleet_health(%{
+        category: :action_required,
+        reason_code: "agent_updater_outdated",
+        rollout_id: "rollout-updater",
+        running_version: "1.0.0"
+      })
+
+    assert health.title == "Agent package outdated"
+    assert health.detail =~ "Upgrade the ServiceRadar agent package on this host"
+    assert health.detail =~ "stays on 1.0.0"
+    assert health.action == :review_rollout
+  end
 end
