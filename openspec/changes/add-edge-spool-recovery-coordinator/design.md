@@ -309,6 +309,15 @@ Issuance is committed by itself before the send; the lock is not a database
 transaction around the network call. A refresh whose gateway call timed out may
 still be running in core; its retry waits on the lock instead of overlapping it.
 
+Revocation by a group update does not take this lock, so neither run trusts a
+decision made before it held the lock. A refresh reads the group, profile,
+candidate, eligibility and assignment only once it holds the lock, and renews
+only an assignment that is still active in the agent's scope; it never creates
+or reactivates one. A pass reads the assignment again under the lock and leaves
+an assignment revoked after the pass read its group as revoked. It still
+reactivates an older revocation of an agent that the pass found leased, which is
+the ordinary re-eligibility path.
+
 A refresh succeeds only when every group planned cleanly and every push reached
 the session. Missing lease authority, a planning or delivery error, or an
 undelivered push returns an error. The session owns the refresh: it runs one

@@ -229,6 +229,21 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
     assert Enum.any?(rows, &(&1.agent_id == peer and is_nil(&1.revoked_at)))
   end
 
+  test "a refresh queued behind a send does not revive an agent revoked while it waited",
+       ctx do
+    assert_queued_run_keeps_revocation(ctx, fn _group, delivery ->
+      assert {:ok, %{pushed: 0, errors: 0}} = LeasePass.refresh_agent(ctx.agent, delivery)
+    end)
+  end
+
+  test "a pass queued behind a send does not revive an agent revoked after it read the group",
+       ctx do
+    assert_queued_run_keeps_revocation(ctx, fn group, delivery ->
+      assert %{pushed: 0, errors: 0} =
+               LeasePass.reconcile_group(group, DateTime.utc_now(), delivery)
+    end)
+  end
+
   test "two refreshes of one agent never send its lease at the same time", ctx do
     assert_serialized_sends(ctx, fn _group, delivery, now ->
       [
@@ -1375,6 +1390,81 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
     refute first == second
     assert {:ok, [row]} = LeaseDelivery.list_for_group(group.id)
     assert row.delivered_payload_sha256 == digest(last)
+  end
+
+  # A real send holds the agent's delivery lock while `queued` decides from the group it read
+  # and then waits on that lock. The agent is removed and revoked meanwhile. Once the lock is
+  # released, the queued run must leave the revocation, its epoch and its dropped slots as
+  # they are, mint no issuance and send nothing.
+  defp assert_queued_run_keeps_revocation(ctx, queued) do
+    horizon!(ctx, 3_600)
+    group = leased_group!(ctx)
+    enable!(group)
+    now = DateTime.utc_now()
+    assert %{pushed: 0} = LeasePass.reconcile_group(group, now, nil)
+    test_pid = self()
+
+    holder = fn _agent_id, _group_id, _payload ->
+      send(test_pid, {:holding, self()})
+
+      receive do
+        :release -> :ok
+      end
+    end
+
+    holding =
+      Task.async(fn ->
+        LeasePass.reconcile_group(group, DateTime.utc_now(), %{ctx.delivery | sender: holder})
+      end)
+
+    assert_receive {:holding, holder_pid}, 5_000
+
+    late = fn agent_id, group_id, _payload ->
+      send(test_pid, {:late_push, agent_id, group_id})
+      :ok
+    end
+
+    waiting = Task.async(fn -> queued.(group, %{ctx.delivery | sender: late}) end)
+    await_delivery_lock_wait(waiting.pid)
+
+    ServiceRadar.Repo.query!(
+      "UPDATE platform.sweep_groups SET agent_ids = $1 WHERE id = $2::uuid",
+      [["removed-#{ctx.suffix}"], Ecto.UUID.dump!(group.id)]
+    )
+
+    assert {:ok, 1} = ProducerAssignments.revoke_agents(group.id, [ctx.agent])
+    revoked = assignment!(group, ctx.agent)
+    assert revoked.state == :revoked
+    issuances = issuance_count()
+
+    send(holder_pid, :release)
+    Task.await(holding, 10_000)
+    Task.await(waiting, 10_000)
+
+    refute_receive {:late_push, _, _}, 50
+    current = assignment!(group, ctx.agent)
+    assert current.state == :revoked
+    assert current.authority_epoch == revoked.authority_epoch
+    assert unrun!(current, now) == []
+    assert issuance_count() == issuances
+  end
+
+  defp await_delivery_lock_wait(pid) do
+    {:current_stacktrace, stack} = Process.info(pid, :current_stacktrace)
+
+    if !Enum.any?(stack, &match?({:global, _, _, _}, &1)) do
+      receive do
+      after
+        5 -> await_delivery_lock_wait(pid)
+      end
+    end
+  end
+
+  defp issuance_count do
+    %{rows: [[count]]} =
+      ServiceRadar.Repo.query!("SELECT count(*) FROM platform.edge_recovery_assignment_issuances")
+
+    count
   end
 
   defp next_send_event do
