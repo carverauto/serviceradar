@@ -1,3 +1,133 @@
+# ServiceRadar v1.5.2
+
+This release finishes hardening the durable edge pipeline. Agents now
+recover their edge spool by themselves when a crash leaves it wedged.
+Transient failures are retried, and records that never get written stay
+visible: they are counted, can be inspected, and can be replayed. Core and
+web-ng report the pipeline's status. On the StarRocks side, device pages
+read a fraction of the data they used to, and core keeps each warehouse
+node's memory configuration in line with what ServiceRadar needs. It also
+adds the standalone NVR recording service, disabled by default.
+
+## Upgrade Notes
+
+- **StarRocks rebuilds `timeseries_metrics` once, on the first core
+  start.** The table is now sorted by metric, device and time, so each
+  dashboard panel reads its own series instead of a whole day of every
+  metric. StarRocks cannot change a sort key in place without rewriting
+  the whole table at once, so core copies it into a new table one hour
+  at a time, swaps the two and drops the old one. While it runs, the
+  table takes about twice its normal object storage. Hours that fail for
+  lack of memory are retried after a back-off. Loads continue throughout.
+  The hourly rollup is rebuilt afterwards and catches up one day per
+  refresh; until then rollup reads use the raw table. On the demo
+  warehouse (about 55 days, 12M rows a day) the copy took about an hour
+  (#6461).
+- **Core now sets StarRocks node memory itself.** Every 2 minutes, one
+  core replica sets `datacache_mem_size` (10%) and, on shared-data
+  compute nodes, `lake_metadata_cache_limit` (sized from each node's
+  process limit) through `information_schema.be_configs`. To do this the
+  warehouse user needs `UPDATE` on `be_configs` and `OPERATE` or `NODE`
+  on `SYSTEM`; `root` has both. Without them, core logs the refusal and
+  keeps running. `mem_limit` and `update_memory_limit_percent` cannot be
+  changed at runtime on StarRocks 4.1.7: set them in the node
+  configuration (the `k8s/starrocks` profiles now use 70% and 30%) and
+  restart. Core's health API reports each node's memory reserve and warns
+  below 2.5 GiB (#6474, #6472, #6486).
+- **The `k8s/starrocks` shared-nothing profile lowers backend
+  `mem_limit` from 90% to 70%.** Re-applying it restarts the StarRocks
+  pods (#6474).
+- **New migrations:** `20261108190000` adds apply-failure fields to
+  add-on statuses (#6446). `20261109170000`, `20261109180000` and
+  `20261109190000` add the edge spool recovery operations, assignments
+  and effects tables (#6469). `20261110032550` adds camera local
+  publication intents (#6480).
+- **New JetStream stream:** `TELEMETRY_EDGE_RECORD_RECOVERY_V1`
+  (work-queue retention, no age expiry, one durable consumer) carries
+  edge spool recovery. It is included in every sizing profile's file
+  storage budget (#6469).
+- **Edge-record stream policy is unchanged.** `TELEMETRY_EDGE_RECORD_V1_BULK`
+  and its audit stream stay on DiscardOld with a 24h MaxAge. A store
+  refusal from NATS (max bytes exceeded) is now retried from the agent
+  spool instead of being treated as a systemic failure (#6471, #6490).
+- **Argo CD installs:** the migrations Job is now recreated on every
+  sync, so migrations run on upgrade without manual intervention (#6456).
+- **Stale agent rows are now retired on schedule.** Four cron workers
+  never ran in the `core_elx` release: exposure reconciliation, stale
+  agent pruning, remote-access recording reaping and version retention.
+  They do now. Stale agent rows are marked unavailable, never deleted
+  (#6455).
+- **The device page's event list covers the last 24 hours** and matches
+  device identifiers exactly. It used a wildcard match over the whole
+  event table, which ran the warehouse out of memory (#6485).
+
+## Whats New
+
+**Durable edge pipeline**
+
+- Agents recover a wedged edge spool by themselves through a bounded
+  recovery coordinator. A crash in the middle of an append no longer
+  blocks the agent's only lane for good. Unsupported spool storage is
+  left intact and reported (#6469).
+- Agent health reports edge spool coverage gaps and wedged lanes (#6447).
+- Core health reports the edge pipeline's status: records waiting to
+  roll forward, the active, candidate and draining contract epochs, the
+  components that do not yet hold a candidate, and whether the issuer
+  key is present. Agents whose gateway lacks the active epoch are flagged
+  (#6481).
+- Settings > Cluster lists held dead letters by contract and reason, and
+  can replay or purge a group (#6431).
+- Transient edge-record failures are redelivered, and dead letters are
+  counted by reason (#6417). Unleased sweep results are redelivered after
+  a transient ingest failure (#6423).
+- Agents finish edge-record sessions instead of cancelling them (#6420).
+- Later contract registry epochs activate from the coordinator (#6418).
+- Expired edge ledger and delivery-slot rows are pruned hourly (#6460).
+- Device availability is written in one global lock order during sweep
+  ingest and device merges, which removes a deadlock between the two
+  (#6450, #6463).
+
+**StarRocks**
+
+- The device page's CPU, memory and disk panels read only their own
+  series (#6461), and its events query no longer joins the alias catalog
+  or matches with `LIKE` (#6485).
+- Settings > Cluster shows each StarRocks node's memory reserve, low-reserve
+  warnings and keys that need a restart (#6486).
+- The SRQL parity harnesses apply the warehouse schema through the
+  migrator, so they wait for optimize jobs like a real upgrade does (#6479).
+- Flow details read process attribution from StarRocks (#6408).
+
+**Recording and cameras**
+
+- New standalone `serviceradar-nvr` recording release and StatefulSet,
+  disabled by default (`nvr.enabled: false`). It rotates bounded
+  recording blocks, admits workers against spool budget and free space,
+  recovers and seals interrupted blocks after a restart, serves verified
+  media reads, and publishes sealed blocks to core through immutable
+  publication intents (#6449, #6452, #6457, #6459, #6462, #6467, #6473,
+  #6475, #6477, #6480, #6482, #6484, #6491).
+- Camera relay stop reconciliation API and reconciliation of historical
+  relay open outcomes (#6411, #6419). Relay open retries are deduplicated
+  (#6414).
+
+**Other fixes**
+
+- `helm install --wait` no longer hangs, and CNPG secrets carry Helm
+  ownership (#6407).
+- Armis syncs are bounded by timeouts, and aborted runs are reported as
+  failed syncs (#6405). Sync failures keep the full upstream error (#6410).
+- Plugin and add-on downloads retry after timeouts. Add-on install
+  failures are surfaced, and paused native add-on rollouts recover
+  (#6415, #6446).
+- Agent config section failures are scoped and reported per section
+  (#6451).
+- Sync status takes the IntegrationSource id only from sync metadata
+  (#6448).
+- Topology projects CONTAINS edges from virtualization inventory (#6454).
+- The MTR daily comparison stays aligned just after midnight UTC (#6476).
+- Agent release imports and publishing run in the background (#6409).
+
 # ServiceRadar v1.5.1
 
 This release cuts the load ServiceRadar puts on StarRocks and keeps
