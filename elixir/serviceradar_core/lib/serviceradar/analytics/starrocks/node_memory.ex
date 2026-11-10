@@ -29,8 +29,9 @@ defmodule ServiceRadar.Analytics.StarRocks.NodeMemory do
 
   Runtime values do not survive a node restart, so this runs shortly after
   start and then every two minutes. It is best effort: a warehouse that does
-  not answer, or a user without the `OPERATE` privilege `be_configs` needs, is
-  logged and retried, and never holds up migrations or ingest. It runs under
+  not answer, or a user lacking the privileges this needs (`OPERATE` or `NODE`
+  on `SYSTEM` to list nodes, `UPDATE` on `information_schema.be_configs` to
+  write), is logged and retried, and never holds up migrations or ingest. It runs under
   `ServiceRadar.Cluster.CoordinatorChildren`, so one core replica writes.
 
   ## Process limit and reserve

@@ -609,8 +609,9 @@ ServiceRadar needs are applied by core at runtime on every StarRocks cluster:
 nodes, `lake_metadata_cache_limit`. Core sizes them from each node's process
 limit and re-applies them after a node restarts. Core's cluster health reports
 each node's memory reserve and warns below 2.5 GiB. The warehouse user needs
-the StarRocks `OPERATE` privilege for this; without it core logs a warning and
-the warehouse keeps working on StarRocks' defaults.
+`OPERATE` or `NODE` on `SYSTEM` and `UPDATE` on `information_schema.be_configs`
+(the default `root` user has both); without them core logs a warning and the
+warehouse keeps working on StarRocks' defaults.
 
 ## Deployment Provisioning
 

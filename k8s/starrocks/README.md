@@ -226,8 +226,9 @@ It writes a key only when the node's live value differs, and only when
 `be_configs` reports the key `MUTABLE` on that node. StarRocks 4.1.7 cannot
 change `update_memory_limit_percent` at runtime, so both profiles also set it
 in the node config; core reports a node whose file disagrees. The warehouse
-user needs the `OPERATE` privilege for `be_configs`; without it core logs a
-warning and carries on.
+user needs `OPERATE` or `NODE` on `SYSTEM` (for `SHOW BACKENDS` / `SHOW COMPUTE
+NODES`) and `UPDATE` on `information_schema.be_configs`; the default `root`
+user has both. Without them core logs a warning and carries on.
 
 Core's cluster health (`ServiceRadar.ClusterHealth`, field `starrocks_memory`)
 reports, per node: `mem_limit`, the process limit, the detected memory, the
