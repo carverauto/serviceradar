@@ -23,6 +23,7 @@ WORKDIR /app
 
 # Copy shared library first (dependency)
 COPY elixir/serviceradar_core ./elixir/serviceradar_core
+COPY elixir/serviceradar_recording_metadata ./elixir/serviceradar_recording_metadata
 
 # Copy agent gateway source
 COPY elixir/serviceradar_agent_gateway ./elixir/serviceradar_agent_gateway

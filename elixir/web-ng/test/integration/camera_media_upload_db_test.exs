@@ -16,7 +16,6 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
   alias ServiceRadar.Camera.RecordingBlock
   alias ServiceRadar.Camera.RecordingBlocks
   alias ServiceRadar.Camera.RecordingControl
-  alias ServiceRadar.Camera.RecordingDescriptor
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Identity.RBAC.Cache
   alias ServiceRadar.Test.CameraRelayFixtures, as: Fixtures
@@ -25,6 +24,7 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
   alias ServiceRadarCoreElx.Test.StorageHTTPFixture, as: Provider
   alias ServiceRadarRecording.Spool
   alias ServiceRadarRecording.Storage
+  alias ServiceRadarRecordingMetadata.Descriptor
   alias ServiceRadarWebNG.ArchiveStorageHTTP
   alias ServiceRadarWebNG.AshTestHelpers
   alias ServiceRadarWebNG.Auth.Guardian
@@ -1196,7 +1196,7 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
       end)
 
     {:ok, spool} = Spool.seal(spool)
-    {:ok, descriptor} = RecordingDescriptor.from_snapshot(Spool.snapshot(spool), format)
+    {:ok, descriptor} = Descriptor.from_snapshot(Spool.snapshot(spool), format)
     {:ok, block} = RecordingBlocks.freeze(owner, claim, block, descriptor, context.opts)
     {:ok, :released} = RecorderOwnership.release(owner, claim, context.opts)
     {block, Spool.snapshot(spool).directory}

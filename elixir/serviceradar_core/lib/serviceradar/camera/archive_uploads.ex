@@ -25,9 +25,9 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
   alias ServiceRadar.Camera.RecordingBlock
   alias ServiceRadar.Camera.RecordingBlocks
   alias ServiceRadar.Camera.RecordingControl
-  alias ServiceRadar.Camera.RecordingDescriptor
-  alias ServiceRadar.Camera.RecordingManifest
   alias ServiceRadar.Repo
+  alias ServiceRadarRecordingMetadata.Descriptor
+  alias ServiceRadarRecordingMetadata.Manifest
 
   require Ash.Query
 
@@ -1033,7 +1033,7 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
       descriptor_sha256: block.descriptor_sha256,
       destination_sha256: binding.destination_sha256,
       object_role: role,
-      object_key: RecordingDescriptor.object_key(block.descriptor["identity"], role),
+      object_key: Descriptor.object_key(block.descriptor["identity"], role),
       byte_length: object["length"],
       object_sha256: object["sha256"]
     }
@@ -1081,11 +1081,11 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
     do: {:error, :archive_binding_required}
 
   defp publication_evidence(block, opts) do
-    with {:ok, bytes} <- RecordingDescriptor.encode(block.descriptor),
+    with {:ok, bytes} <- Descriptor.encode(block.descriptor),
          true <-
            (block.state in [:sealed, :uploading] and digest(bytes) == block.descriptor_sha256 and
               block.descriptor["identity"] == RecordingBlock.identity(block) and
-              RecordingDescriptor.block_key(block.descriptor["identity"]) == block.block_key) ||
+              Descriptor.block_key(block.descriptor["identity"]) == block.block_key) ||
              {:error, :recording_block_mismatch},
          {:ok, %ArchiveBinding{} = binding} <-
            Ash.get(ArchiveBinding, block.archive_binding_id, opts),
@@ -1164,7 +1164,7 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
       media: manifest_receipt(:media, media.dispatch)
     }
 
-    with {:ok, bytes} <- RecordingManifest.encode_descriptor(block.descriptor, receipts) do
+    with {:ok, bytes} <- Manifest.encode_descriptor(block.descriptor, receipts) do
       {:ok,
        %{
          recording_block_id: block.id,
@@ -1172,7 +1172,7 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
          descriptor_sha256: block.descriptor_sha256,
          destination_sha256: binding.destination_sha256,
          object_role: :manifest,
-         object_key: RecordingDescriptor.object_key(block.descriptor["identity"], :manifest),
+         object_key: Descriptor.object_key(block.descriptor["identity"], :manifest),
          byte_length: byte_size(bytes),
          object_sha256: digest(bytes),
          init_dispatch_id: init.dispatch.id,

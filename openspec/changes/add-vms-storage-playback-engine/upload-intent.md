@@ -24,8 +24,8 @@ manifest preparation and fenced index publication. The
 adds bounded marker and response observations beside this immutable identity.
 Provider qualification and current credential/policy checks remain separate.
 
-`RecordingDescriptor.object_key/2` owns the key spelling used by both preparation
-and `RecordingManifest`. Existing independently calculated manifest hashes and
+`ServiceRadarRecordingMetadata.Descriptor.object_key/2` owns the key spelling used by both preparation
+and `ServiceRadarRecordingMetadata.Manifest`. Existing independently calculated manifest hashes and
 keys remain unchanged. Init bytes are bounded at 1 MiB and media at 512 MiB by the descriptor;
 the new table also constrains role, size and digest shape. These are format bounds,
 not deployment capacity or admission targets.

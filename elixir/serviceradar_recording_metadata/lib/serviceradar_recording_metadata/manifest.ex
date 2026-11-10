@@ -1,4 +1,4 @@
-defmodule ServiceRadar.Camera.RecordingManifest do
+defmodule ServiceRadarRecordingMetadata.Manifest do
   @moduledoc """
   Versioned recovery metadata for one sealed recording block.
 
@@ -17,13 +17,14 @@ defmodule ServiceRadar.Camera.RecordingManifest do
   deployment admission may be lower. Unknown versions and fields fail closed.
   """
 
-  alias ServiceRadar.Camera.RecordingDescriptor
+  alias ServiceRadarRecordingMetadata.CanonicalJSON
+  alias ServiceRadarRecordingMetadata.Descriptor
 
   @max_json_bytes 2_097_152
 
   @doc "Encode a sealed internal snapshot and actual init descriptor with storage receipts."
   def encode(snapshot, format, receipts) do
-    case RecordingDescriptor.from_snapshot(snapshot, format) do
+    case Descriptor.from_snapshot(snapshot, format) do
       {:ok, descriptor} -> encode_descriptor(descriptor, receipts)
       _ -> {:error, :invalid_manifest}
     end
@@ -35,7 +36,7 @@ defmodule ServiceRadar.Camera.RecordingManifest do
   byte verification, publication fencing and access authorization.
   """
   def encode_descriptor(descriptor, %{init: init_receipt, media: media_receipt}) do
-    case RecordingDescriptor.validate(descriptor) do
+    case Descriptor.validate(descriptor) do
       :ok ->
         manifest =
           descriptor
@@ -44,7 +45,7 @@ defmodule ServiceRadar.Camera.RecordingManifest do
 
         with :ok <- validate(manifest),
              manifest = put_object_keys(manifest),
-             {:ok, bytes} <- Jason.encode(canonical(manifest)),
+             {:ok, bytes} <- CanonicalJSON.encode(manifest),
              true <- byte_size(bytes) <= @max_json_bytes do
           {:ok, bytes}
         else
@@ -59,8 +60,7 @@ defmodule ServiceRadar.Camera.RecordingManifest do
   def encode_descriptor(_, _), do: {:error, :invalid_manifest}
 
   @doc "Decode a bounded manifest and require the caller's exact persisted identity."
-  def decode(bytes, expected_identity)
-      when is_binary(bytes) and byte_size(bytes) <= @max_json_bytes do
+  def decode(bytes, expected_identity) when is_binary(bytes) and byte_size(bytes) <= @max_json_bytes do
     with {:ok, %{"version" => 1} = manifest} <- Jason.decode(bytes),
          true <- manifest["identity"] == expected_identity,
          :ok <- validate(manifest),
@@ -79,7 +79,7 @@ defmodule ServiceRadar.Camera.RecordingManifest do
       manifest
       |> Map.put("init", Map.take(init, ~w(length sha256)))
       |> Map.put("media", Map.take(media, ~w(length sha256)))
-      |> RecordingDescriptor.validate()
+      |> Descriptor.validate()
     else
       {:error, :invalid_manifest}
     end
@@ -99,14 +99,11 @@ defmodule ServiceRadar.Camera.RecordingManifest do
 
   defp put_object_keys(manifest) do
     manifest
-    |> put_in(["init", "key"], RecordingDescriptor.object_key(manifest["identity"], :init))
-    |> put_in(["media", "key"], RecordingDescriptor.object_key(manifest["identity"], :media))
+    |> put_in(["init", "key"], Descriptor.object_key(manifest["identity"], :init))
+    |> put_in(["media", "key"], Descriptor.object_key(manifest["identity"], :media))
   end
 
-  defp valid_object?(
-         %{"key" => key, "length" => _, "sha256" => _, "etag" => etag, "version_id" => version} =
-           object
-       ) do
+  defp valid_object?(%{"key" => key, "length" => _, "sha256" => _, "etag" => etag, "version_id" => version} = object) do
     map_size(object) == 5 and (is_nil(key) or text?(key, 128)) and valid_receipt?(etag, version)
   end
 
@@ -119,22 +116,10 @@ defmodule ServiceRadar.Camera.RecordingManifest do
   end
 
   defp strong_etag?(value),
-    do:
-      is_binary(value) and byte_size(value) <= 258 and
-        Regex.match?(~r/\A"[\x21\x23-\x7e]+"\z/, value)
+    do: is_binary(value) and byte_size(value) <= 258 and Regex.match?(~r/\A"[\x21\x23-\x7e]+"\z/, value)
 
   defp text?(value, max) when is_binary(value),
     do: byte_size(value) in 1..max and String.valid?(value) and String.printable?(value)
 
   defp text?(_, _), do: false
-
-  defp canonical(value) when is_map(value) do
-    value
-    |> Enum.sort()
-    |> Enum.map(fn {key, value} -> {key, canonical(value)} end)
-    |> Jason.OrderedObject.new()
-  end
-
-  defp canonical(value) when is_list(value), do: Enum.map(value, &canonical/1)
-  defp canonical(value), do: value
 end

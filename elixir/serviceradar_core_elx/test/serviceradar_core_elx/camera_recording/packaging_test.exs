@@ -1,11 +1,11 @@
 defmodule ServiceRadarCoreElx.CameraRecording.PackagingTest do
   use ExUnit.Case, async: true
 
-  alias ServiceRadar.Camera.RecordingDescriptor
   alias ServiceRadarCoreElx.TestSupport.SyntheticCameraMedia
   alias ServiceRadarRecording.Packaging
   alias ServiceRadarRecording.Spool
   alias ServiceRadarRecording.Storage
+  alias ServiceRadarRecordingMetadata.Descriptor
 
   @clock %{clock_epoch: "synthetic-clock-1", timebase: 90_000, dts_source: :pts_no_reordering, utc_mapping: :unknown}
   @frame_bytes trunc(64 * 64 * 3 / 2)
@@ -314,8 +314,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.PackagingTest do
     assert {:ok, sealed} = Spool.seal(spool)
     assert {:ok, recovered} = Spool.recover(storage, sealed.directory, identity)
     snapshot = Spool.snapshot(recovered)
-    assert {:ok, descriptor} = RecordingDescriptor.from_snapshot(snapshot, init)
-    assert {:ok, descriptor_bytes} = RecordingDescriptor.encode(descriptor)
+    assert {:ok, descriptor} = Descriptor.from_snapshot(snapshot, init)
+    assert {:ok, descriptor_bytes} = Descriptor.encode(descriptor)
 
     # File sizes measure logical content, not disk allocation or database cost.
     sizes =

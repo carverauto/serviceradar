@@ -221,7 +221,8 @@ case System.fetch_env!("NVR_TEST_MODE") do
           snapshot.init_format
 
         ^sha = snapshot.init["sha256"]
-        snapshot
+        {:ok, descriptor} = ServiceRadarNVR.block_descriptor(block_id)
+        Map.put(snapshot, :descriptor, descriptor)
       end)
 
     for {snapshot, index} <- blocks |> Enum.sort_by(& &1.identity["block_sequence"]) |> Enum.with_index() do
@@ -235,6 +236,7 @@ case System.fetch_env!("NVR_TEST_MODE") do
         end)
 
       File.write!(System.fetch_env!("NVR_TEST_MP4") <> ".#{index}", [init | media])
+      File.write!(System.fetch_env!("NVR_TEST_MP4") <> ".#{index}.json", snapshot.descriptor)
     end
 
   "recover_interrupted" ->
@@ -275,6 +277,10 @@ case System.fetch_env!("NVR_TEST_MODE") do
       if mode == "recover_unresolved",
         do: ServiceRadarNVR.recover_block(block_id, Map.put(identity, :clock, clock)),
         else: ServiceRadarNVR.sealed_block(block_id)
+
+    if mode == "discover_unresolved" do
+      ^result = ServiceRadarNVR.block_descriptor(block_id)
+    end
 
     {:error, reason} = result
     expected = System.fetch_env!("NVR_TEST_RECOVERY_ERROR")

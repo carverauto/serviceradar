@@ -17,14 +17,14 @@ defmodule ServiceRadar.Camera.RecordingBlocks do
   alias ServiceRadar.Camera.ArchiveBinding
   alias ServiceRadar.Camera.RecorderOwnership
   alias ServiceRadar.Camera.RecordingBlock
-  alias ServiceRadar.Camera.RecordingDescriptor
+  alias ServiceRadarRecordingMetadata.Descriptor
 
   require Ash.Query
 
   @max_epoch 9_223_372_036_854_775_807
 
   def freeze(ingest, claim, block, descriptor, opts \\ []) do
-    with {:ok, bytes} <- RecordingDescriptor.encode(descriptor) do
+    with {:ok, bytes} <- Descriptor.encode(descriptor) do
       sha = :sha256 |> :crypto.hash(bytes) |> Base.encode16(case: :lower)
 
       RecorderOwnership.with_current(

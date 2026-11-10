@@ -3,7 +3,8 @@
 `serviceradar-nvr` is the independently deployable recording runtime. Its Elixir
 application is `serviceradar_nvr`; media packaging and journaled block writing
 come from `serviceradar_recording`. Core uses the same writer and retains its
-existing authorization, database leases and publication path.
+existing authorization, database leases and publication path. Both consume the
+metadata-only `serviceradar_recording_metadata` contract.
 
 This checkpoint processes finite recording sessions through a trusted, same-VM API.
 It has no camera source connector, assignment protocol, upload worker or playback
@@ -65,6 +66,13 @@ capacity admission. It never truncates, seals, repairs or deletes anything.
 Unsealed blocks, uncommitted tails and corrupt evidence return errors and remain
 on disk for separate reconciliation. Existing explicit `Spool.recover/4` still
 requires expected identity and exclusive ownership before repairing tails.
+
+`ServiceRadarNVR.block_descriptor/1` performs the same read-only verification
+and returns canonical v1 JSON for the sealed block: identity, clock, native format,
+initialization/media digests and fragment ranges. It uses the same descriptor
+validator as Core's frozen blocks and archive manifests. The bytes contain no
+local paths or storage receipts; the API is trusted same-VM only, with no HTTP
+endpoint. No descriptor sidecar is persisted.
 
 These observations do not establish current assignment authority, physical
 storage durability, publication receipts or playback authorization. They do not

@@ -1,4 +1,4 @@
-defmodule ServiceRadar.Camera.RecordingDescriptor do
+defmodule ServiceRadarRecordingMetadata.Descriptor do
   @moduledoc """
   Receipt-free, bounded semantic description of one sealed camera block.
 
@@ -7,26 +7,18 @@ defmodule ServiceRadar.Camera.RecordingDescriptor do
   ranges; it does not verify media bytes or grant archive availability. The
   recorder supplies a verified Spool snapshot and its actual native init format.
   """
+  alias ServiceRadarRecordingMetadata.CanonicalJSON
+
   @max_json_bytes 2_097_152
   @max_integer 9_223_372_036_854_775_807
   @identity_keys ~w(source_id profile recorder_epoch block_sequence clock)
   @fragment_keys ~w(sequence offset length start_ns duration_ns sha256 tail_duration_source motion)
 
-  def from_snapshot(
-        %{
-          sealed?: true,
-          identity: identity,
-          init: init,
-          entries: entries,
-          high_water: size,
-          sha256: sha
-        },
-        %{
-          sha256: init_sha,
-          timescale: timescale,
-          codecs: codecs
-        }
-      ) do
+  def from_snapshot(%{sealed?: true, identity: identity, init: init, entries: entries, high_water: size, sha256: sha}, %{
+        sha256: init_sha,
+        timescale: timescale,
+        codecs: codecs
+      }) do
     with true <- is_map(init) and init["sha256"] == init_sha,
          {:ok, codec} <- codec(codecs),
          true <- is_list(entries) and length(entries) in 1..4096 do
@@ -49,7 +41,7 @@ defmodule ServiceRadar.Camera.RecordingDescriptor do
 
   def encode(descriptor) do
     with :ok <- validate(descriptor),
-         {:ok, bytes} <- Jason.encode(canonical(descriptor)),
+         {:ok, bytes} <- CanonicalJSON.encode(descriptor),
          true <- byte_size(bytes) <= @max_json_bytes do
       {:ok, bytes}
     else
@@ -112,12 +104,7 @@ defmodule ServiceRadar.Camera.RecordingDescriptor do
   def valid_identity?(_), do: false
 
   defp valid_clock?(
-         %{
-           "clock_epoch" => epoch,
-           "timebase" => timebase,
-           "dts_source" => "pts_no_reordering",
-           "utc_mapping" => mapping
-         } =
+         %{"clock_epoch" => epoch, "timebase" => timebase, "dts_source" => "pts_no_reordering", "utc_mapping" => mapping} =
            clock
        ) do
     map_size(clock) == 4 and text?(epoch, 128) and integer?(timebase, 1, 1_000_000_000) and
@@ -128,11 +115,7 @@ defmodule ServiceRadar.Camera.RecordingDescriptor do
   defp valid_mapping?("unknown", _timebase), do: true
 
   defp valid_mapping?(
-         %{
-           "origin_media_ticks" => media,
-           "origin_utc_usec" => utc,
-           "uncertainty_usec" => uncertainty
-         } = mapping,
+         %{"origin_media_ticks" => media, "origin_utc_usec" => utc, "uncertainty_usec" => uncertainty} = mapping,
          timebase
        ) do
     map_size(mapping) == 3 and integer?(media, 0, @max_integer) and
@@ -143,8 +126,7 @@ defmodule ServiceRadar.Camera.RecordingDescriptor do
   defp valid_mapping?(_, _), do: false
 
   defp codec(%{avc1: %{profile: 66, compatibility: compatibility, level: level} = avc} = codecs)
-       when map_size(codecs) == 1 and map_size(avc) == 3 and compatibility in 0..255 and
-              level in 0..255 do
+       when map_size(codecs) == 1 and map_size(avc) == 3 and compatibility in 0..255 and level in 0..255 do
     hex = Base.encode16(<<66, compatibility, level>>, case: :lower)
     {:ok, "avc1." <> hex}
   end
@@ -159,8 +141,7 @@ defmodule ServiceRadar.Camera.RecordingDescriptor do
 
   defp valid_format?(_), do: false
 
-  defp valid_fragments?(fragments, size)
-       when is_list(fragments) and length(fragments) in 1..4096 do
+  defp valid_fragments?(fragments, size) when is_list(fragments) and length(fragments) in 1..4096 do
     fragments
     |> Enum.reduce_while({0, 0, nil}, fn fragment, position ->
       case next_fragment(fragment, position) do
@@ -212,14 +193,4 @@ defmodule ServiceRadar.Camera.RecordingDescriptor do
     do: byte_size(value) in 1..max and String.valid?(value) and String.printable?(value)
 
   defp text?(_, _), do: false
-
-  defp canonical(value) when is_map(value) do
-    value
-    |> Enum.sort()
-    |> Enum.map(fn {key, value} -> {key, canonical(value)} end)
-    |> Jason.OrderedObject.new()
-  end
-
-  defp canonical(value) when is_list(value), do: Enum.map(value, &canonical/1)
-  defp canonical(value), do: value
 end

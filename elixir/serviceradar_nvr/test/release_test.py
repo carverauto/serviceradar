@@ -102,6 +102,33 @@ class NVRReleaseTest(unittest.TestCase):
         self.assertEqual(len(list(self.spool.iterdir())), 4)
         Path(self.env["NVR_TEST_RECEIPT"]).unlink()
         self.run_probe("discover_rotation")
+        for index in range(3):
+            path = Path(self.env["NVR_TEST_MP4"] + f".{index}")
+            encoded = Path(str(path) + ".json").read_bytes()
+            descriptor = json.loads(encoded)
+            self.assertEqual(encoded, json.dumps(descriptor, sort_keys=True, separators=(",", ":")).encode())
+            self.assertEqual(set(descriptor), {"version", "identity", "format", "init", "media", "fragments"})
+            self.assertEqual(descriptor["version"], 1)
+            self.assertEqual(descriptor["identity"], {
+                "source_id": "synthetic-camera", "profile": "recording", "recorder_epoch": 1,
+                "block_sequence": index, "clock": {
+                    "clock_epoch": "synthetic-clock", "timebase": 90000,
+                    "dts_source": "pts_no_reordering", "utc_mapping": "unknown",
+                },
+            })
+            self.assertEqual(descriptor["format"], {"codec": "avc1.42c00a", "timescale": 30720})
+            data = path.read_bytes()
+            init_size = descriptor["init"]["length"]
+            init, media = data[:init_size], data[init_size:]
+            self.assertEqual(descriptor["init"], {"length": len(init), "sha256": hashlib.sha256(init).hexdigest()})
+            self.assertEqual(descriptor["media"], {"length": len(media), "sha256": hashlib.sha256(media).hexdigest()})
+            offset = 0
+            for fragment in descriptor["fragments"]:
+                self.assertEqual(fragment["offset"], offset)
+                end = offset + fragment["length"]
+                self.assertEqual(fragment["sha256"], hashlib.sha256(media[offset:end]).hexdigest())
+                offset = end
+            self.assertEqual(offset, len(media))
         decoded = [self.decode(self.env["NVR_TEST_MP4"] + f".{i}") for i in range(3)]
         self.assertEqual([len(x) for x in decoded], [n * 64 * 64 * 3 // 2 for n in [240, 240, 30]])
         self.assertEqual(b"".join(decoded), expected)
