@@ -52,8 +52,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaForwarderRollingUpgradeTest do
 
     log =
       capture_log(fn ->
-        assert {:ok, %Camera.OpenRelaySessionResponse{message: "relay-rolling-1", accepted: true},
-                %{host: ^new_node}} =
+        assert {:ok, %Camera.OpenRelaySessionResponse{message: "relay-rolling-1", accepted: true}, %{host: ^new_node}} =
                  CameraMediaForwarder.open_relay_session(request, opts(ctx.old_node))
       end)
 
