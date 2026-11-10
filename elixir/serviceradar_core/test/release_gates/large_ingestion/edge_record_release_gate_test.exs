@@ -201,7 +201,8 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
     :edge_record_ingest_identity_resolver,
     :edge_record_ingest_capability,
     :edge_record_ingest_task_supervisor,
-    :edge_record_ingest_drain_timeout_ms
+    :edge_record_ingest_drain_timeout_ms,
+    :edge_recovery_control_rpc
   ]
 
   def broker_state do
@@ -870,6 +871,14 @@ defmodule ServiceRadar.EdgeRecordLargeIngestionReleaseGateTest do
     put_gateway_env(:edge_record_ingest_capability, Capability)
     put_gateway_env(:edge_record_ingest_task_supervisor, stream_tasks)
     put_gateway_env(:edge_record_ingest_drain_timeout_ms, @publish_timeout_ms)
+
+    # The gateway asks core for recovery coverage before it publishes a source session, and
+    # withholds the session when core cannot be reached. Core runs in this VM, so the lookup is
+    # the real `ServiceRadar.Edge.RecoveryCoverage` against the gate's database, called directly
+    # instead of over distribution.
+    put_gateway_env(:edge_recovery_control_rpc, fn module, function, args, _timeout_ms ->
+      apply(module, function, args)
+    end)
 
     %{pool: pool, pipeline: pipeline}
   end

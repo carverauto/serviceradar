@@ -46,6 +46,11 @@ adds the standalone NVR recording service, disabled by default.
   (work-queue retention, no age expiry, one durable consumer) carries
   edge spool recovery. It is included in every sizing profile's file
   storage budget (#6469).
+- **Gateways need core to accept edge records.** Before it publishes an
+  agent's records, the gateway reads that agent's recovery coverage from
+  core. While core is unreachable the gateway withholds the session with
+  `edge recovery coverage: recovery_coverage_unavailable`, and agents
+  keep the records in their spools and resend them (#6469).
 - **Edge-record stream policy is unchanged.** `TELEMETRY_EDGE_RECORD_V1_BULK`
   and its audit stream stay on DiscardOld with a 24h MaxAge. A store
   refusal from NATS (max bytes exceeded) is now retried from the agent
