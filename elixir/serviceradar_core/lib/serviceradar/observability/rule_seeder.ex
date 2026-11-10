@@ -366,7 +366,7 @@ defmodule ServiceRadar.Observability.RuleSeeder do
         managed: true,
         template_version: 1,
         description:
-          "Open one critical incident per core health check (the anomaly tripwires and the seasonal-baseline producer) when it goes unhealthy, and clear it when the check recovers.",
+          "Open one critical incident per core health check (for example the anomaly tripwires, the seasonal-baseline producer, edge agent spools and edge record dead letters) when it goes unhealthy, and clear it when the check recovers.",
         priority: 30,
         enabled: true,
         signal: :event,
