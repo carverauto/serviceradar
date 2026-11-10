@@ -114,6 +114,11 @@ partial and complete-empty snapshots. Controller locks are acquired in stable
 order before device writes. AWX device batches run on the transaction owner;
 device writes, membership reconciliation, and watermark advancement commit
 together. Stale or conflicting observations and failed reconciliation roll back.
+A result whose every AWX observation is older than the recorded generation is
+acknowledged as superseded, logged and counted, and never applied: the recorded
+generation only advances, so redelivering it cannot succeed. A same-generation
+conflict, or a superseded observation beside one that was not ruled on, still
+fails.
 Device-state events, cache invalidation, and membership notifications are emitted
 only after the outer transaction commits.
 
