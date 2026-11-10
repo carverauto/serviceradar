@@ -77,6 +77,7 @@ config :phoenix, :filter_parameters, ["password", "token", "secret", "values"]
 
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
+config :phoenix_template, :format_encoders, "json-api": Jason
 
 # Phoenix React NG - React rendering for components (GoRules JDM editor)
 # Bun runtime renders React components, LiveView handles the interactivity
@@ -214,7 +215,11 @@ config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,
   url: [host: "localhost"],
   adapter: Bandit.PhoenixAdapter,
   render_errors: [
-    formats: [html: ServiceRadarWebNGWeb.ErrorHTML, json: ServiceRadarWebNGWeb.ErrorJSON],
+    formats: [
+      html: ServiceRadarWebNGWeb.ErrorHTML,
+      json: ServiceRadarWebNGWeb.ErrorJSON,
+      "json-api": ServiceRadarWebNGWeb.ErrorJSON
+    ],
     layout: false
   ],
   pubsub_server: ServiceRadarWebNG.PubSub,

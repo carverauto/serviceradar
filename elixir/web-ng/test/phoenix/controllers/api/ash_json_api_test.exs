@@ -685,6 +685,17 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
   end
 
   describe "POST /api/v2/event-rules" do
+    test "session-authenticated JSON:API request returns a JSON CSRF error" do
+      conn =
+        build_conn()
+        |> log_in_user(viewer_user_fixture())
+        |> put_req_header("accept", "application/vnd.api+json")
+        |> post("/api/v2/event-rules", %{})
+
+      assert conn.status == 403
+      assert Jason.decode!(conn.resp_body)["errors"]["detail"] == "Forbidden"
+    end
+
     @tag :web_ng_shared_fixture_db
     test "operator can create, update, and delete an event rule" do
       conn = log_in_api_user(build_conn(), operator_user_fixture())
