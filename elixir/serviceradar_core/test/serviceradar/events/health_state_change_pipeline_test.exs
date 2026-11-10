@@ -7,6 +7,7 @@ defmodule ServiceRadar.Events.HealthStateChangePipelineTest do
   # its subject, as the JetStream consumer would.
   use ServiceRadar.DataCase, async: false
 
+  alias ServiceRadar.ClusterHealth
   alias ServiceRadar.Events.HealthWriter
   alias ServiceRadar.Infrastructure.HealthEvent
   alias ServiceRadar.Observability.LogPromotion
@@ -54,6 +55,33 @@ defmodule ServiceRadar.Events.HealthStateChangePipelineTest do
     assert :ok = HealthWriter.write(event)
     assert promoted_event_count(entity_id) == 0
     assert open_alert_count(entity_id) == 0
+  end
+
+  test "unhealthy edge spools and held dead letters open default core health alerts" do
+    edge_pipeline = %{
+      spools: %{
+        unhealthy_agents: [
+          %{agent_id: "agent-1", reason: "spool_stuck", detail: %{}}
+        ],
+        error: nil
+      },
+      dead_letters: %{
+        held_messages: 2,
+        by_reason: [
+          %{contract: "serviceradar.metrics.batch/1", reason: "decode_failed", count: 2}
+        ],
+        error: nil
+      }
+    }
+
+    assert :ok = ClusterHealth.record_edge_pipeline_health(edge_pipeline)
+    TestSupport.complete_alert_effects!()
+
+    assert promoted_event_count(ClusterHealth.spool_health_check()) >= 1
+    assert open_alert_count(ClusterHealth.spool_health_check()) == 1
+
+    assert promoted_event_count(ClusterHealth.dead_letter_health_check()) >= 1
+    assert open_alert_count(ClusterHealth.dead_letter_health_check()) == 1
   end
 
   defp transition(entity_id, old_state, new_state) do

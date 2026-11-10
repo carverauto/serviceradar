@@ -60,7 +60,10 @@ defmodule ServiceRadarWebNGWeb.EdgePipelineComponents do
           "(samples: #{sequences}). Recovery coverage is required. " <> spool_health(detail)
 
       "spool_backpressure" ->
-        "Spool admission is paused. " <> spool_health(detail)
+        backpressure_cause(detail) <> " " <> spool_health(detail)
+
+      "spool_stuck" ->
+        "Spool has unresolved records older than 15 minutes. " <> spool_health(detail)
 
       "spool_health_unavailable" ->
         "Spool health could not be read: #{field(detail, :health_error)}"
@@ -93,6 +96,14 @@ defmodule ServiceRadarWebNGWeb.EdgePipelineComponents do
 
     remainder = max((field(detail, :gap_count) || 0) - length(samples), 0)
     Enum.join(samples, ", ") <> if(remainder > 0, do: "; #{remainder} additional", else: "")
+  end
+
+  defp backpressure_cause(detail) do
+    if field(detail, :admission_paused) == true,
+      do: "Spool admission is paused.",
+      else:
+        "Spool is full: unresolved records exceed 1 GiB or charged bytes reached the budget. " <>
+          "#{field(detail, :unresolved_bytes)} unresolved bytes."
   end
 
   defp spool_health(detail) do

@@ -206,6 +206,49 @@ defmodule ServiceRadar.Edge.PipelineReadinessTest do
     healthy = Map.put(health, :wedged, false)
     live = facts(%{runtime: %{"agent-1" => runtime(%{edge_record_spool: healthy})}})
     assert [%{reason: :unsupported_legacy_storage}] = PipelineReadiness.conditions(agent(), live)
+    assert PipelineReadiness.spool_alert_conditions(healthy) == []
+  end
+
+  test "a stuck or full spool reports spool_stuck or spool_backpressure and is alertable" do
+    stuck = %{
+      available: true,
+      health_available: true,
+      wedged: false,
+      admission_paused: false,
+      unresolved_count: 4,
+      oldest_unresolved_age_known: true,
+      oldest_unresolved_age_seconds: 901,
+      unresolved_bytes: 4096,
+      bytes_used: 4096,
+      budget_bytes: 1_073_741_824
+    }
+
+    live_stuck = facts(%{runtime: %{"agent-1" => runtime(%{edge_record_spool: stuck})}})
+
+    assert [%{reason: :spool_stuck, detail: ^stuck}] =
+             PipelineReadiness.conditions(agent(), live_stuck)
+
+    assert [%{reason: :spool_stuck, detail: ^stuck}] =
+             PipelineReadiness.spool_alert_conditions(stuck)
+
+    over_bytes = %{
+      stuck
+      | oldest_unresolved_age_seconds: 60,
+        unresolved_bytes: 1_073_741_825
+    }
+
+    assert [%{reason: :spool_backpressure, detail: ^over_bytes}] =
+             PipelineReadiness.spool_alert_conditions(over_bytes)
+
+    at_budget = %{
+      stuck
+      | oldest_unresolved_age_seconds: 60,
+        bytes_used: 8192,
+        budget_bytes: 8192
+    }
+
+    assert [%{reason: :spool_backpressure, detail: ^at_budget}] =
+             PipelineReadiness.spool_alert_conditions(at_budget)
   end
 
   test "recovery refusal retains measured health without inventing a coverage gap" do

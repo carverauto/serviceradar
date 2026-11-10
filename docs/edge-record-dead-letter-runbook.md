@@ -82,6 +82,12 @@ or was removed by an operator. EventWriter acknowledges the source, logs
 
 ## Alerts and metrics
 
+- Core health check `edge-record-dead-letters` (default install, no Prometheus
+  required): `ServiceRadar.ClusterHealth` records `edge-record-dead-letters` as
+  `unhealthy` whenever `TELEMETRY_EDGE_RECORD_DLQ_V1_BULK` holds messages,
+  opening a critical alert via the seeded `core_health_check_unhealthy`
+  rule, and records it `healthy` once the dead-letter stream is confirmed empty
+  (`held_messages == 0`).
 - `serviceradar_event_writer_edge_record_dead_letter_count{contract, reason_class, result}`:
   `result="stored"` counts records moved to the dead-letter,
   `result="duplicate"` counts redeliveries of a record that was already
