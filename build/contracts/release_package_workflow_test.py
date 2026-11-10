@@ -55,6 +55,11 @@ class ReleasePackageWorkflowTest(unittest.TestCase):
         bazel = bin_dir / "bazel"
         bazel.write_text('#!/bin/bash\nprintf "%s\\n" "$@" > "$BAZEL_RECORD"\n')
         bazel.chmod(0o755)
+        # A non-dry run hands the publisher a checksum signer and requires cosign
+        # on PATH; never let the host's cosign (or its absence) decide the result.
+        cosign = bin_dir / "cosign"
+        cosign.write_text("#!/bin/bash\nexit 99\n")
+        cosign.chmod(0o755)
         self.env = dict(
             self.git_env,
             PATH=f"{bin_dir}:{os.environ['PATH']}",
@@ -98,7 +103,9 @@ class ReleasePackageWorkflowTest(unittest.TestCase):
             "--tag", "v9.8.7", "--commit", self.commit,
             "--macos_pkg", str(self.root / "macos-release/serviceradar-agent_9.8.7_darwin_arm64.pkg"),
             "--macos_provenance", str(self.root / "macos-release/serviceradar-agent_9.8.7_darwin_arm64.provenance.json"),
-            "--windows_dir", str(self.root / "windows-release"), "--draft", "--overwrite_assets=false",
+            "--windows_dir", str(self.root / "windows-release"),
+            "--checksums_signer", str(self.repo.resolve() / "scripts/sign-release-checksums.sh"),
+            "--draft", "--overwrite_assets=false",
         ])
         self.assertEqual(self.git("rev-parse", "HEAD").strip(), self.commit)
 
@@ -248,35 +255,48 @@ class ReleaseAssetWorkflowTest(unittest.TestCase):
         step = next(s for s in self.release["jobs"]["publish"]["steps"]
                     if s.get("id") == "release_assets")
         self.assertEqual(step["env"]["MACOS_RESULT"], "${{ needs.macos.result }}")
+        installables = (
+            "serviceradar-agent_9.8.7_amd64.deb", "serviceradar-agent_9.8.7_arm64.deb",
+            "serviceradar-agent_9.8.7_linux_amd64.tar.gz",
+            "serviceradar-agent_9.8.7_linux_arm64.tar.gz",
+            "serviceradar-agent-9.8.7-1.x86_64.rpm", "serviceradar-agent-9.8.7-1.aarch64.rpm",
+        )
         common = [
             {"name": name, "size": 100} for name in (
-                "serviceradar-agent_9.8.7_amd64.deb", "serviceradar-agent_9.8.7_arm64.deb",
-                "serviceradar-agent_9.8.7_linux_amd64.tar.gz",
-                "serviceradar-agent_9.8.7_linux_arm64.tar.gz",
+                *installables,
                 "serviceradar-agent-release-manifest.json", "serviceradar-agent-release-manifest.sig",
-                "serviceradar-agent-9.8.7-1.x86_64.rpm", "serviceradar-agent-9.8.7-1.aarch64.rpm",
+                "SHA256SUMS", "SHA256SUMS.sigstore.json",
+                *(f"{name}.sha256" for name in installables),
             )
         ]
         installer = {"name": "serviceradar-agent_9.8.7_darwin_arm64.pkg", "size": 100}
+        installer_sum = {"name": "serviceradar-agent_9.8.7_darwin_arm64.pkg.sha256", "size": 100}
         provenance = {"name": "serviceradar-agent_9.8.7_darwin_arm64.provenance.json", "size": 100}
+        missing = "Missing or duplicate required release asset"
+        unchecked = "Release assets published without a .sha256 sidecar"
+        without = lambda name: [a for a in common if a["name"] != name]
         cases = [
-            (status, common, True) for status in ("failure", "cancelled", "skipped")
+            (status, common, None) for status in ("failure", "cancelled", "skipped")
         ] + [
-            ("success", common + [installer, provenance], True),
-            ("success", common + [installer], False),
-            ("success", common + [provenance], False),
-            ("failure", common[1:], False),
-            ("failure", common + [common[0]], False),
+            ("success", common + [installer, installer_sum, provenance], None),
+            ("success", common + [installer, provenance], unchecked),
+            ("success", common + [installer, installer_sum], missing),
+            ("success", common + [provenance], missing),
+            ("failure", common[1:], missing),
+            ("failure", common + [common[0]], missing),
+            ("failure", without("SHA256SUMS"), missing),
+            ("failure", without("SHA256SUMS.sigstore.json"), missing),
+            ("failure", without("serviceradar-agent_9.8.7_amd64.deb.sha256"), unchecked),
         ]
-        for status, assets, accepted in cases:
+        for status, assets, rejection in cases:
             with self.subTest(status=status, assets=[a["name"] for a in assets]):
                 result, output = self.run_asset_verification(status, assets)
-                if accepted:
+                if rejection is None:
                     self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                     self.assertEqual(output, "release_id=123\n")
                 else:
                     self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
-                    self.assertIn("Missing or duplicate required release asset", result.stderr)
+                    self.assertIn(rejection, result.stderr)
                     self.assertEqual(output, "")
 
 

@@ -23,6 +23,7 @@ go_library(
     name = "publish_packages_lib",
     srcs = [
         "agent_test_artifact.go",
+        "checksums.go",
         "platform_artifacts.go",
         "publish_packages.go",
     ],
@@ -83,6 +84,7 @@ go_binary(
 go_test(
     name = "publish_packages_test",
     srcs = [
+        "checksums_test.go",
         "platform_artifacts_test.go",
         "publish_packages_test.go",
     ],

@@ -110,9 +110,31 @@ func prepareReleaseArtifacts(ctx *publishContext) error {
 		ctx.runtimes = append(ctx.runtimes, managedAgentRuntime{arch: platform.arch, path: path})
 	}
 	if !ctx.config.dryRun {
-		_, err = managedAgentReleasePrivateKey()
+		if _, err := managedAgentReleasePrivateKey(); err != nil {
+			return err
+		}
 	}
-	return err
+	return prepareReleaseChecksums(ctx)
+}
+
+// prepareReleaseChecksums runs before the release is created or changed, so a
+// plan with a missing checksum uploads nothing.
+func prepareReleaseChecksums(ctx *publishContext) error {
+	assets := checksummedAssets(ctx)
+	checksums, err := buildReleaseChecksums(assets)
+	if err != nil {
+		return err
+	}
+	if err := signReleaseChecksums(checksums, ctx.config.checksumsSigner, ctx.config.dryRun); err != nil {
+		_ = os.RemoveAll(checksums.dir)
+		return err
+	}
+	if err := requireChecksumCoverage(append(assets, checksums.assets...)); err != nil {
+		_ = os.RemoveAll(checksums.dir)
+		return err
+	}
+	ctx.checksums = checksums
+	return nil
 }
 
 func preparePackageArtifacts(ctx *publishContext) ([]uploadAsset, error) {

@@ -903,6 +903,12 @@ jobs:
           DRAFT: ${{ steps.release.outputs.draft }}
           OVERWRITE_ASSETS: ${{ steps.release.outputs.overwrite_assets }}
           SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY: ${{ secrets.SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY }}
+          # Read by scripts/sign-release-checksums.sh, which the publisher runs once
+          # the packages are built. Same OpenBao role and key as the image signer.
+          OPENBAO_ADDR: https://openbao-active.openbao-system.svc.cluster.local:8200
+          OPENBAO_K8S_ROLE: github-signing-runner
+          OPENBAO_SIGNING_ALLOWED_REFS_REGEX: '^refs/(tags/v.*|heads/(staging|main|master))$'
+          COSIGN_KEY_REF: hashivault://cosign-release
         run: |
           set -euo pipefail
 
@@ -948,6 +954,17 @@ jobs:
           fi
           if [[ "$DRY_RUN" == "true" ]]; then
             args+=("--dry_run")
+          else
+            # The publisher signs the SHA256SUMS it wrote, before it touches the draft.
+            # The signer logs in to OpenBao itself: a login here would expire while
+            # `bazel run` builds the packages. `bazel run` drops GITHUB_PATH entries,
+            # so the signer is told where cosign is.
+            if ! cosign_path="$(command -v cosign)"; then
+              echo "cosign is required to sign the release checksums" >&2
+              exit 1
+            fi
+            export SERVICERADAR_COSIGN_BIN_DIR="${cosign_path%/*}"
+            args+=("--checksums_signer" "${PWD}/scripts/sign-release-checksums.sh")
           fi
           if [[ "$APPEND_NOTES" == "true" ]]; then
             args+=("--append_notes")
@@ -1046,6 +1063,8 @@ jobs:
             "serviceradar-agent_${VERSION}_linux_arm64.tar.gz"
             "serviceradar-agent-release-manifest.json"
             "serviceradar-agent-release-manifest.sig"
+            "SHA256SUMS"
+            "SHA256SUMS.sigstore.json"
           )
           if [[ "${MACOS_RESULT}" == "success" ]]; then
             required_assets+=(
@@ -1069,7 +1088,23 @@ jobs:
               exit 1
             fi
           done
-          echo "Verified required platform packages, runtimes, and signed agent manifest."
+          # The publisher refuses to upload an installable without its checksum and
+          # compares the stored digests itself. This reads the draft once more, so a
+          # sidecar deleted or never stored still stops the release before finalize.
+          # Security bundles are attached by other workflows and are not matched here.
+          unchecked=$(jq -r '
+            [.assets[]? | select(.size > 0) | .name] as $names
+            | $names[]
+            | select(test("^serviceradar-.*\\.(deb|rpm|pkg|msi)$")
+                     or test("^serviceradar-agent_.*_linux_[a-z0-9]+\\.tar\\.gz$"))
+            | select(. as $name | ($names | index($name + ".sha256")) == null)
+          ' <<<"${response}")
+          if [[ -n "${unchecked}" ]]; then
+            echo "Release assets published without a .sha256 sidecar:" >&2
+            echo "${unchecked}" >&2
+            exit 1
+          fi
+          echo "Verified required platform packages, runtimes, checksums, and signed agent manifest."
           printf 'release_id=%s\n' "${release_id}" >> "${GITHUB_OUTPUT}"
 
   image-security-dispatch:
