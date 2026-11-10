@@ -1,6 +1,7 @@
 defmodule ServiceRadarNVR.Disk do
   @moduledoc false
 
+  alias ServiceRadarNVR.Publication
   alias ServiceRadarRecording.Storage
 
   @max_blocks 4096
@@ -13,9 +14,16 @@ defmodule ServiceRadarNVR.Disk do
          {:ok, entries} <- File.ls(storage.root),
          blocks = List.delete(entries, ".storage-id"),
          true <- length(blocks) <= @max_blocks || {:error, :nvr_inventory_limit},
-         {:ok, bytes} <- sum(blocks, &block_bytes(storage.root, &1)),
+         {:ok, bytes, pending} <- sum_blocks(storage.root, blocks),
          :ok <- Storage.verify(storage) do
-      {:ok, %{used_bytes: bytes, blocks: length(blocks), max_blocks: @max_blocks, block_ids: blocks}}
+      {:ok,
+       %{
+         used_bytes: bytes,
+         publication_reserved_bytes: pending,
+         blocks: length(blocks),
+         max_blocks: @max_blocks,
+         block_ids: blocks
+       }}
     end
   end
 
@@ -49,11 +57,21 @@ defmodule ServiceRadarNVR.Disk do
     with true <- Regex.match?(~r/\A[0-9a-f]{64}\z/, key),
          {:ok, %File.Stat{type: :directory}} <- File.lstat(path),
          {:ok, files} <- File.ls(path),
-         true <- Enum.all?(files, &(&1 in @block_files)) do
-      sum(files, &file_bytes(Path.join(path, &1)))
+         true <- Enum.all?(files, &(&1 in @block_files)),
+         {:ok, bytes} <- sum(files, &file_bytes(Path.join(path, &1))) do
+      {:ok, bytes, Publication.pending_bytes(files)}
     else
       _ -> {:error, :nvr_inventory_unavailable}
     end
+  end
+
+  defp sum_blocks(root, blocks) do
+    Enum.reduce_while(blocks, {:ok, 0, 0}, fn block, {:ok, bytes, pending} ->
+      case block_bytes(root, block) do
+        {:ok, block_bytes, block_pending} -> {:cont, {:ok, bytes + block_bytes, pending + block_pending}}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
   end
 
   defp file_bytes(path) do

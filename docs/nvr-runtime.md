@@ -37,7 +37,12 @@ runtime yet. Workload updates use `OnDelete` until coordinated drain/fencing is
 implemented.
 
 The finite-session runtime enforces a per-replica spool budget and a physical
-free-space floor. `nvr.maxSpoolBytes` defaults to 1 GiB and `nvr.reserveBytes` to
+free-space floor. Capture admission also reserves 64 KiB for each missing
+publication intent and 512 bytes for each missing acknowledgement, including
+retained blocks discovered after restart. Publication spends its own allowance
+while preserving the others. These logical byte reservations do not preallocate
+filesystem blocks or replace filesystem/recovery overhead sizing.
+`nvr.maxSpoolBytes` defaults to 1 GiB and `nvr.reserveBytes` to
 64 MiB. These integer byte settings configure admission, not PVC size: choose
 budgets below the actual qualified filesystem capacity with room for metadata,
 control and recovery. A complete block reservation includes media, init and
@@ -53,7 +58,7 @@ Read-only [restart discovery](../elixir/serviceradar_nvr/README.md#read-only-res
 can enumerate retained block IDs and verify sealed snapshots without saved
 notifications. It preserves incomplete or corrupt evidence and grants no
 publication, playback or replacement-writer authority. Automatic reconciliation
-and durable delivery acknowledgement remain pending.
+and authenticated remote delivery remain pending.
 
 The inventory is intentionally limited to 4096 block directories and known spool
 file names. Unrecognized or unreadable entries stop admission for operator
@@ -61,7 +66,8 @@ reconciliation. This is not journal reconciliation, archival, retention or a
 long-running recording capacity qualification. The free-space floor uses GNU
 coreutils probes, refreshed at admission and at most once per second by write
 guards. Admission needs the floor plus all full reservations free; an admitted
-worker then writes into its reservation and stops only below the floor itself.
+worker then writes into its media reservation while preserving the configured
+floor and pending publication headroom.
 It does not preallocate reserved blocks or fence unrelated volume users.
 See the [runtime envelope](../elixir/serviceradar_nvr/README.md#resource-envelope)
 for conservative accounting and process-restart behavior.

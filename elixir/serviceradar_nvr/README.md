@@ -109,10 +109,12 @@ authority nor catalog availability, holds, deletion or playback permission.
 
 Preparation is serialized by capacity accounting and refuses while any recording
 reservation exists. New bytes must fit the spool budget and leave the configured
-physical free-space floor intact; retained intent bytes count toward future
-admission. Exact retries require no additional byte budget. This explicit idle
+physical free-space floor and other blocks' publication allowances intact;
+retained intent bytes count toward future admission. The write spends only its
+own missing record's allowance, releasing the unused portion. Exact retries
+require no additional byte budget. This explicit idle
 operation is a recovery checkpoint, not publication concurrent with continuous
-capture. Separately reserved control capacity, authenticated authority delivery,
+capture. Broader control reserves for holds/disposition, authenticated authority delivery,
 qualified local-copy catalog registration, durable delivery scheduling and
 preservation/disposition state remain open under the
 [local publication contract](../../openspec/changes/add-scalable-camera-recording-plane/local-publication.md).
@@ -144,8 +146,8 @@ Partial, conflicting, aliased or oversized records remain unresolved and intact.
 Acknowledgements are bounded to 512 bytes. The write uses the same idle-writer,
 logical-budget and physical-free-space checks as intent preparation. Existing
 exact retries need no additional byte budget; a timeout leaves an unknown outcome
-that callers resolve by inspecting or retrying the same response. Independently
-reserved control capacity and publication during continuous capture remain open.
+that callers resolve by inspecting or retrying the same response. Publication
+during continuous capture remains open.
 
 `ServiceRadarNVR.publication_acknowledgement(block_id)` reads through the bounded
 read pool and reverifies the original intent and media. It does not sync a
@@ -241,7 +243,7 @@ authorization and automatic assignment reconciliation remain pending.
 | --- | --- | --- |
 | `SERVICERADAR_NVR_MAX_SESSIONS` | 1 | 16; excess admission is refused |
 | `SERVICERADAR_NVR_MAX_DURATION_MS` | 30000 | 300000; no implicit renewal |
-| `SERVICERADAR_NVR_MAX_SPOOL_BYTES` | 1073741824 | 1 TiB; retained bytes plus full active reservations |
+| `SERVICERADAR_NVR_MAX_SPOOL_BYTES` | 1073741824 | 1 TiB; retained bytes, full active reservations and missing publication records |
 | `SERVICERADAR_NVR_RESERVE_BYTES` | 67108864 | 1 PiB; physical free-space floor; admission also needs all reservations free |
 | Inbox | 8 samples / 8 MiB per worker | charged before mailbox admission |
 | Local block | 16 MiB / 8 fragments | rotate at a complete fragment boundary; no eviction or deletion |
@@ -257,14 +259,22 @@ Network endpoints only serve health probes:
 configured private storage root and identity. Neither admits a recording pool.
 
 Before starting a worker, the serialized capacity owner charges one maximum block
-(init, media and journal) against both the spool budget and available disk space.
+(init, media and journal) plus 64 KiB for its intent and 512 bytes for its
+acknowledgement against both the spool budget and available disk space.
 It counts existing sealed, partial and abandoned files without recovering or
-deleting them. Worker exit releases its reservation, not its retained bytes.
+deleting them. Each retained block also reserves the maximum size of each missing
+publication record. Existing records are immutable: even partial/corrupt records
+are charged by their actual size and cannot be repaired or replaced by retry.
+Worker exit releases the media reservation, not retained bytes or missing records.
 At rotation the capacity owner atomically replaces that worker's reservation
 after inventorying the sealed block. There is no release/reacquire gap, and
 other active reservations remain charged.
 `ServiceRadarNVR.capacity/0` returns a read-only observation of usage, full active
-reservations and available space; it is not a promise to a future caller.
+media `reserved_bytes`, `publication_reserved_bytes` (missing retained records
+plus a full allowance per active reservation), `publication_block_bytes` (66,048)
+and available space. It is not a promise to a future caller. Reducing the spool
+budget below retained bytes plus these allowances refuses new capture; it does
+not delete evidence or invalidate exact publication retries.
 
 Inventory accepts at most 4096 block directories with the spool file names and
 the optional `publication.json` and `publication-ack.json`. Unknown entries,
@@ -279,13 +289,18 @@ the Ubuntu image. Available space uses non-root available blocks and fundamental
 block size, with a two-second probe deadline and one-second kill grace. Every
 admission probes afresh; write guards reuse a pressure observation for at most one
 second. Admission requires the floor plus every full reservation, including the
-new block, to be available. After admission a worker may consume its reserved
-space; write guards stop it only when available space falls below the floor
-itself. A failed probe or a breached floor terminates the affected worker on its
+new block and missing publication records, to be available. After admission a
+worker may consume reserved media space; write guards preserve the configured
+floor plus publication headroom. This headroom stays charged when a worker exits,
+then is rebuilt from inventory at the next successful admission/rotation. This
+can temporarily over-reserve, but never releases pending metadata space just
+because a writer stopped. A failed probe or a breached floor terminates the affected worker on its
 next write guard and retains provisional media. Idle workers still have their finite
 deadline. This floor is an admission/stop policy, not a preallocated filesystem
-partition or protection against other applications consuming the volume. Reserve
-filesystem metadata, recovery and control headroom when sizing the dedicated PVC.
+partition or protection against other applications consuming the volume. The
+publication allowances are logical byte bounds, not filesystem allocation or
+node-loss qualification. Reserve filesystem metadata, explicit recovery and
+future hold/disposition headroom when sizing the dedicated PVC.
 
 ## Persistent storage and replicas
 
@@ -309,7 +324,9 @@ inventory refusal, records synthetic H264, restarts the release, recovers the
 journals and compares decoded frames, including across multiple blocks and after
 refusing a successor block. It also prepares, restarts, re-reads and retries
 publication intent and acknowledgement, and refuses conflicting, corrupt,
-aliased or over-budget records.
+aliased or over-budget records. Admission and rotation retain missing-record
+allowances after worker exit and release restart, and unused allowances become
+available to capture only after the immutable records exist.
 Core's existing
 recording integration suite owns the CNPG authorization/publication contract.
 Physical node-loss durability and deployed camera behavior are not established
