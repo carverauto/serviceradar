@@ -15,6 +15,18 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventoryObservationFenceTest do
              Fence.disposition(%{aggregate | source_generation: 9}, current)
   end
 
+  test "a payload is superseded only when every aggregate is older than its recorded generation" do
+    first = {:stale_awx_membership_generation, "11111111-2222-4333-8444-555555555555", 9, 10}
+    second = {:stale_awx_membership_generation, "66666666-7777-4888-8999-aaaaaaaaaaaa", 4, 7}
+
+    assert :ok = Fence.admission([{:ok, :advance}, {:ok, :replay}])
+    assert {:superseded, [^first, ^second]} = Fence.admission([{:error, first}, {:error, second}])
+
+    # Beside an aggregate that would be applied, a superseded one stays a failure:
+    # acknowledging the payload would drop the other aggregate unapplied.
+    assert {:error, ^first} = Fence.admission([{:ok, :advance}, {:error, first}])
+  end
+
   test "same-generation authority, completeness, and provenance conflicts are rejected" do
     aggregate = aggregate()
     current = %{source_generation: 10, observation_digest: Fence.digest(aggregate)}

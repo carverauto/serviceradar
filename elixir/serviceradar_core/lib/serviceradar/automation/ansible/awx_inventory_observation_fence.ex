@@ -13,25 +13,64 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventoryObservationFence do
 
   @table "platform.ansible_awx_inventory_observations"
 
+  @type superseded :: {:stale_awx_membership_generation, String.t(), integer(), integer()}
+
+  @doc """
+  Runs `fun` in one transaction holding every aggregate's observation lock.
+
+  An aggregate older than its controller's recorded generation is superseded:
+  a newer observation already committed, and the generation only advances, so
+  no later delivery of it can be applied. When every aggregate is superseded
+  the transaction commits nothing and returns `{:ok, {:superseded, reasons}}`
+  without running `fun`, so the caller can settle the delivery instead of
+  failing it into redelivery. Any other refusal, and a superseded aggregate
+  beside one that is not, is an error.
+  """
+  @spec with_locks([map()], (-> {:ok, result} | {:error, term()})) ::
+          {:ok, result} | {:ok, {:superseded, [superseded(), ...]}} | {:error, term()}
+        when result: term()
   def with_locks(aggregates, fun) do
     Repo.transaction(
       fn ->
-        aggregates
-        |> Enum.sort_by(& &1.controller_id)
-        |> Enum.each(fn aggregate ->
-          case lock_and_check(aggregate) do
-            {:ok, _disposition} -> :ok
-            {:error, reason} -> Repo.rollback(reason)
-          end
-        end)
-
-        case fun.() do
-          {:ok, result} -> result
+        case lock_and_admit(Enum.sort_by(aggregates, & &1.controller_id)) do
+          :ok -> run_admitted(fun)
+          {:superseded, reasons} -> {:superseded, reasons}
           {:error, reason} -> Repo.rollback(reason)
         end
       end,
       timeout: :infinity
     )
+  end
+
+  defp run_admitted(fun) do
+    case fun.() do
+      {:ok, result} -> result
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp lock_and_admit(aggregates) do
+    aggregates
+    |> Enum.reduce_while([], fn aggregate, checks ->
+      case lock_and_check(aggregate) do
+        {:error, {:stale_awx_membership_generation, _, _, _}} = check -> {:cont, [check | checks]}
+        {:error, _reason} = error -> {:halt, error}
+        {:ok, _disposition} = check -> {:cont, [check | checks]}
+      end
+    end)
+    |> case do
+      {:error, _reason} = error -> error
+      checks -> admission(Enum.reverse(checks))
+    end
+  end
+
+  @doc false
+  def admission(checks) do
+    case for({:error, reason} <- checks, do: reason) do
+      [] -> :ok
+      superseded when length(superseded) == length(checks) -> {:superseded, superseded}
+      [reason | _] -> {:error, reason}
+    end
   end
 
   def check(aggregate) do

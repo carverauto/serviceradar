@@ -102,12 +102,49 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
 
     retire_absent = Keyword.get(opts, :retire_absent, &AwxSourceRetirementWorker.enqueue/1)
 
-    with {:ok, %{notifications: notifications, state_events: state_events}} <-
-           transaction.(aggregates, fn -> ingest_payload(payload, status, opts, true) end) do
-      :ok = emit_state_events.(state_events)
-      queue_awx_source_retirement(aggregates, retire_absent)
-      AwxMembershipReconciler.notify_committed(notifications, opts)
+    case transaction.(aggregates, fn -> ingest_payload(payload, status, opts, true) end) do
+      {:ok, %{notifications: notifications, state_events: state_events}} ->
+        :ok = emit_state_events.(state_events)
+        queue_awx_source_retirement(aggregates, retire_absent)
+        AwxMembershipReconciler.notify_committed(notifications, opts)
+
+      {:ok, {:superseded, superseded}} ->
+        settle_superseded(superseded, payload)
+
+      other ->
+        other
     end
+  end
+
+  # A newer observation of the controller is already recorded and its generation only
+  # advances, so this one can never be applied: redelivering it fails the same way every
+  # time. It is settled here, counted and logged, and the result is acknowledged. A payload
+  # that also carries an envelope the fence did not rule on keeps failing instead, so that
+  # envelope is never acknowledged unapplied.
+  defp settle_superseded([reason | _] = superseded, payload) do
+    if length(discovery_envelopes(payload)) == length(superseded) do
+      Enum.each(superseded, &record_superseded/1)
+    else
+      {:error, reason}
+    end
+  end
+
+  defp record_superseded({:stale_awx_membership_generation, controller_id, generation, current}) do
+    Logger.info(
+      "AWX inventory observation superseded and not applied: controller_id=#{controller_id} " <>
+        "source_generation=#{generation} recorded_generation=#{current}"
+    )
+
+    :telemetry.execute(
+      [:serviceradar, :inventory, :awx_observation, :superseded],
+      %{count: 1},
+      %{
+        source: "awx",
+        source_instance: controller_id,
+        source_generation: generation,
+        recorded_generation: current
+      }
+    )
   end
 
   # Only a complete observation proves a host absent, so only one queues the controller's
