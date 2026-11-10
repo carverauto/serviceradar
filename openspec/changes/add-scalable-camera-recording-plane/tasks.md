@@ -251,6 +251,18 @@ accounting retires publication tasks. Authenticated remote delivery, scheduling,
 catalog completion and storage
 qualification remain open; tasks 3.2 and 3.3 are not complete.
 
+Publication recovery pages checkpoint for 3.2/3.3: trusted same-VM callers can
+walk retained publication evidence after restart in pages of 1..16 entries.
+Storage-bound cursors advance through sorted block IDs without acknowledging
+delivery. Pending intents and matching acknowledgements are reverified against
+media; missing records and unresolved evidence remain explicit. A corrupt entry
+does not hide later work, while unsafe inventory fails the page. The existing
+read slots and task deadline bound the scan; no files are changed or repaired.
+Shipped-release coverage walks mixed states after restart, resumes a retained
+cursor, refuses another storage lifetime and preserves damaged evidence. Pages
+are observations requiring rescans, not a snapshot, scheduler, authenticated
+delivery or completed local-copy catalog. Tasks 3.2 and 3.3 remain open.
+
 Read-only discovery checkpoint for 3.2/3.3: a restarted standalone NVR can list
 bounded retained block IDs and verify one sealed snapshot without an earlier
 notification or expected-identity receipt. The shared journal reader validates

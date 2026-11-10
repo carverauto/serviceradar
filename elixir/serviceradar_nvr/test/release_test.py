@@ -92,6 +92,65 @@ class NVRReleaseTest(unittest.TestCase):
             decoded.append(self.decode(output))
         self.assertEqual(b"".join(decoded), self.decode(source))
 
+    def test_publication_pages_recover_mixed_states_without_mutating_evidence(self):
+        self.make_media(510)
+        self.run_probe("rotation")
+        Path(self.env["NVR_TEST_RECEIPT"]).unlink()
+        self.run_probe("publication_page_setup")
+        blocks = sorted(p for p in self.spool.iterdir() if p.is_dir())
+        pending, accepted, unprepared = blocks
+
+        def scan():
+            before = {str(p): (p.read_bytes(), p.stat().st_ino, p.stat().st_mtime_ns)
+                      for p in self.spool.rglob("*") if p.is_file()}
+            self.run_probe("publication_page")
+            self.assertEqual(before, {
+                str(p): (p.read_bytes(), p.stat().st_ino, p.stat().st_mtime_ns)
+                for p in self.spool.rglob("*") if p.is_file()
+            })
+            entries = json.loads(Path(self.env["NVR_TEST_MP4"] + ".pages.json").read_text())
+            self.assertEqual([entry["block_id"] for entry in entries], [p.name for p in blocks])
+            return entries
+
+        entries = scan()
+        self.assertEqual([entry["state"] for entry in entries], ["pending", "intent_accepted", "unprepared"])
+        self.assertEqual(entries[0], {"block_id": pending.name, "state": "pending",
+                                     "intent": (pending / "publication.json").read_text()})
+        self.assertEqual(entries[1], {"block_id": accepted.name, "state": "intent_accepted",
+                                     "intent": (accepted / "publication.json").read_text(),
+                                     "acknowledgement": (accepted / "publication-ack.json").read_text()})
+        self.assertEqual(entries[2], {"block_id": unprepared.name, "state": "unprepared"})
+        self.run_probe("publication_page_resume")
+
+        # A damaged earlier item must remain visible and must not hide later work.
+        intent = pending / "publication.json"
+        original = intent.read_bytes()
+        intent.write_bytes(original[:17])
+        damaged = scan()
+        self.assertEqual(damaged[0]["state"], "unresolved")
+        self.assertNotIn("intent", damaged[0])
+        self.assertEqual(damaged[1:], entries[1:])
+        intent.write_bytes(original)
+
+        # A valid manifest with missing media is not an absent publication intent.
+        media = pending / "media.m4s"
+        saved = media.read_bytes()
+        media.unlink()
+        self.assertEqual(scan()[0]["state"], "unresolved")
+        media.write_bytes(saved)
+
+        ack = accepted / "publication-ack.json"
+        original_ack = ack.read_bytes()
+        wrong = json.loads(original_ack) | {"intent_sha256": "0" * 64}
+        ack.write_bytes(json.dumps(wrong, sort_keys=True, separators=(",", ":")).encode())
+        damaged = scan()
+        self.assertEqual(damaged[1]["state"], "unresolved")
+        self.assertNotIn("intent", damaged[1])
+        self.assertEqual(damaged[0], entries[0])
+        ack.write_bytes(original_ack)
+        (accepted / "publication.json").unlink()
+        self.assertEqual(scan()[1]["reason"], ":publication_intent_missing")
+
     def test_publication_intent_survives_restart_and_preserves_conflicts(self):
         block = self.record_publication_block()
         descriptor = Path(self.env["NVR_TEST_MP4"] + ".0.json").read_bytes()

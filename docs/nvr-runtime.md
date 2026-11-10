@@ -64,6 +64,15 @@ notifications. It preserves incomplete or corrupt evidence and grants no
 publication, playback or replacement-writer authority. Automatic reconciliation
 and authenticated remote delivery remain pending.
 
+The read-only [publication recovery pages](../elixir/serviceradar_nvr/README.md#recovering-publication-work-after-restart)
+distinguish pending intents, matching retained acknowledgements, absent records
+and unresolved evidence after restart. Begin with a nil cursor, consume the
+storage-bound cursor to the end, and periodically rescan from nil to observe
+concurrent changes. A cursor is progress through an observation scan, not an
+acknowledgement or permission to discard records. Pages share the existing read
+admission/deadline; reduce the page size after a timeout and preserve unresolved
+entries for reconciliation.
+
 The inventory is intentionally limited to 4096 block directories and known spool
 file names. Unrecognized or unreadable entries stop admission for operator
 reconciliation. This is not journal reconciliation, archival, retention or a

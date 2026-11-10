@@ -16,6 +16,7 @@ defmodule ServiceRadarNVR do
 
   alias ServiceRadarNVR.Blocks
   alias ServiceRadarNVR.Publication
+  alias ServiceRadarNVR.PublicationRecovery
   alias ServiceRadarNVR.Reads
   alias ServiceRadarNVR.Session
   alias ServiceRadarRecording.Spool
@@ -138,6 +139,31 @@ defmodule ServiceRadarNVR do
       end
     end)
   end
+
+  @doc """
+  Read a bounded page of retained publication evidence after restart.
+
+  Start with a nil cursor, then pass the returned `next_cursor` unchanged until
+  it is nil. The cursor binds the storage UUID and last block ID. The default
+  page contains one entry; the limit must be 1..16. Pages share the four read
+  slots and ten-second task deadline. A timeout returns no page; retry the same
+  cursor with a smaller limit. Inventory is bounded to 4,096 retained blocks.
+
+  `:pending` includes a verified intent for exact redelivery. `:intent_accepted`
+  includes that intent and its matching retained acknowledgement. `:unprepared`
+  means neither record was observed, not that the block is sealed or publishable.
+  `:unresolved` includes the verification error, without delivery bytes. Unsafe
+  inventory fails the whole page. No operation writes, repairs or syncs files.
+  Confirm a recovered record's durable boundary by retrying its original write
+  operation with the same reference or acknowledgement bytes before delivery.
+
+  Pages are observations, not a snapshot or delivery queue. Concurrent publication
+  may change an earlier entry; new blocks before the cursor appear on the next
+  scan from nil. Retain unresolved work and rescan; cursor progress acknowledges
+  nothing. These trusted same-VM records prove correlation, not authenticated
+  Core origin, catalog availability, playback permission or deletion authority.
+  """
+  def publication_page(cursor \\ nil, limit \\ 1), do: Reads.run(fn -> PublicationRecovery.page(cursor, limit) end)
 
   @doc """
   Recover and seal one retained block using its expected identity (including clock).

@@ -168,6 +168,44 @@ there is no remote acknowledgement listener yet. A retained `intent_accepted`
 response neither proves storage qualification nor advertises a recording, grants
 playback/deletion permission, or permits discarding the original intent.
 
+### Recovering publication work after restart
+
+`ServiceRadarNVR.publication_page(cursor \\ nil, limit \\ 1)` reads retained
+publication evidence without saved notifications. Pass each `next_cursor` back
+unchanged until it is nil. Cursors bind the storage UUID and last block ID;
+another storage lifetime is refused. Each page returns `storage_id`, `entries`
+and `next_cursor`. Entries contain `block_id` and one of these states:
+
+| State | Evidence returned |
+| --- | --- |
+| `pending` | Verified canonical intent bytes for reconciling the original delivery operation |
+| `intent_accepted` | Verified intent and matching retained acknowledgement bytes |
+| `unprepared` | Neither publication record was observed; this does not assert sealed or valid media |
+| `unresolved` | Verification error, without delivery bytes; preserve for reconciliation |
+
+A corrupt earlier record remains visible and does not hide later entries. A
+missing intent with a surviving acknowledgement remains unresolved. Media is
+reverified before returning intent or acknowledgement bytes. Unsafe inventory,
+including aliases or unknown files, fails the entire page instead of skipping
+evidence. Reads never repair, sync or change files, and accepted evidence does
+not authorize compaction or deletion. These observations do not confirm that a
+prior interrupted write reached its sync boundary. Before delivering a recovered
+intent, retry `prepare_publication/2` with its exact original reference to sync
+it. Likewise, retry `acknowledge_publication/2` with the exact response to confirm
+the acknowledgement's durable boundary.
+
+The limit is 1..16 entries (one by default), under the existing four read slots
+and ten-second task deadline. Returned record bytes are bounded to 16 times
+66,048 bytes per page; no media bytes are returned. Inventory still scans at most
+4,096 block directories. A timeout returns no partial page: retry the same cursor
+with a smaller limit. Failure at limit one remains unresolved work.
+
+This is an observation scan, not a stable snapshot or a durable delivery queue.
+Concurrent publication may change previously read entries, and new blocks that
+sort before the cursor appear only on a new scan from nil. Preserve unresolved
+work and rescan; advancing a cursor acknowledges nothing. Scheduling, transport
+authentication and Core catalog completion remain separate work.
+
 ## Descriptor-bound local media reads
 
 `ServiceRadarNVR.read_block(block_id, descriptor_sha256, selector)` returns

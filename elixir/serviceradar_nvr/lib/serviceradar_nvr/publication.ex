@@ -34,8 +34,59 @@ defmodule ServiceRadarNVR.Publication do
 
   def inspect(storage, block_id, :intent, limits) do
     with :ok <- valid_block_id(block_id),
-         {:ok, bytes} <- read(storage, block_id, :intent),
-         {:ok, document} <- LocalPublicationIntent.decode(bytes),
+         {:ok, bytes} <- read(storage, block_id, :intent) do
+      verify_intent(storage, block_id, bytes, limits)
+    end
+  end
+
+  def inspect(storage, block_id, :acknowledgement, limits) do
+    with :ok <- valid_block_id(block_id),
+         {:ok, bytes} <- read(storage, block_id, :acknowledgement) do
+      encode(storage, block_id, :acknowledgement, bytes, limits)
+    end
+  end
+
+  # The recovery reader distinguishes an absent intent from missing media behind
+  # an existing intent. Neither corrupt evidence nor an orphan acknowledgement
+  # can turn into a pending delivery or an unprepared block.
+  def recovery_entry(storage, block_id, limits) do
+    result =
+      case read(storage, block_id, :intent) do
+        {:ok, intent} -> verified_recovery(storage, block_id, intent, limits)
+        {:error, :enoent} -> missing_intent(storage, block_id)
+        {:error, _} = error -> error
+      end
+
+    case result do
+      {:ok, entry} -> Map.put(entry, :block_id, block_id)
+      {:error, reason} -> %{block_id: block_id, state: :unresolved, reason: reason}
+    end
+  end
+
+  defp verified_recovery(storage, block_id, intent, limits) do
+    with {:ok, ^intent} <- verify_intent(storage, block_id, intent, limits) do
+      recovered_acknowledgement(read(storage, block_id, :acknowledgement), intent)
+    end
+  end
+
+  defp recovered_acknowledgement({:ok, acknowledgement}, intent) do
+    with :ok <- LocalPublicationAcknowledgement.validate(acknowledgement, intent) do
+      {:ok, %{state: :intent_accepted, intent: intent, acknowledgement: acknowledgement}}
+    end
+  end
+
+  defp recovered_acknowledgement({:error, :enoent}, intent), do: {:ok, %{state: :pending, intent: intent}}
+  defp recovered_acknowledgement({:error, _} = error, _intent), do: error
+
+  defp missing_intent(storage, block_id) do
+    case read(storage, block_id, :acknowledgement) do
+      {:error, :enoent} -> {:ok, %{state: :unprepared}}
+      _ -> {:error, :publication_intent_missing}
+    end
+  end
+
+  defp verify_intent(storage, block_id, bytes, limits) do
+    with {:ok, document} <- LocalPublicationIntent.decode(bytes),
          reference = %{
            operation_id: document["operation_id"],
            recording_block_id: document["recording_block_id"],
@@ -47,13 +98,6 @@ defmodule ServiceRadarNVR.Publication do
     else
       {:error, _} = error -> error
       _ -> {:error, :invalid_publication_intent}
-    end
-  end
-
-  def inspect(storage, block_id, :acknowledgement, limits) do
-    with :ok <- valid_block_id(block_id),
-         {:ok, bytes} <- read(storage, block_id, :acknowledgement) do
-      encode(storage, block_id, :acknowledgement, bytes, limits)
     end
   end
 
