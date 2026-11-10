@@ -46,6 +46,10 @@ defmodule ServiceRadarWebNGWeb.EdgePipelineComponents do
         "The agent's edge-record spool could not be opened" <>
           if(field(detail, :error), do: ": #{field(detail, :error)}", else: ".")
 
+      "no_live_gateway_on_active_epoch" ->
+        "Live gateway #{inspect(to_string(field(detail, :gateway_id)))} has not installed " <>
+          "epoch #{field(detail, :epoch)}, so the agent's records cannot be admitted under it."
+
       "spool_wedged" ->
         sequences = Enum.join(field(detail, :gap_sequences) || [], ", ")
 
