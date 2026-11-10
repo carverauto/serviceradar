@@ -269,7 +269,9 @@ The release test starts the shipped VM without control-plane services, exercises
 bounded worker admission and retirement, spool budget, free-space floor and
 inventory refusal, records synthetic H264, restarts the release, recovers the
 journals and compares decoded frames, including across multiple blocks and after
-refusing a successor block. Core's existing
+refusing a successor block. It also prepares, restarts, re-reads and retries
+publication intent and refuses conflicting, corrupt or over-budget intent.
+Core's existing
 recording integration suite owns the CNPG authorization/publication contract.
 Physical node-loss durability and deployed camera behavior are not established
 by these synthetic tests.
