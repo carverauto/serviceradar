@@ -22,6 +22,7 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
     Enum.reject(
       [
         cluster_health_child(),
+        starrocks_node_memory_child(),
         state_monitor_child(),
         ingestion_lease_supervisor_child(),
         ingestion_supervisor_child(),
@@ -85,6 +86,14 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
 
   defp cluster_health_child do
     ServiceRadar.ClusterHealth
+  end
+
+  # One writer for warehouse node settings, and its report sits beside
+  # ClusterHealth, which serves it.
+  defp starrocks_node_memory_child do
+    if ServiceRadar.Analytics.StarRocks.Env.config()[:enabled] do
+      ServiceRadar.Analytics.StarRocks.NodeMemory
+    end
   end
 
   # Infrastructure staleness + config-wedge evaluator. Historically referenced as a

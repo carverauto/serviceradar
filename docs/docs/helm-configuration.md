@@ -591,10 +591,26 @@ to its own pods plus namespaces labelled
 `serviceradar.carverauto.dev/starrocks-client: "true"` on ports 9030, 8030 and
 8040. Label the ServiceRadar namespace before applying it.
 
-The chart does not create the warehouse schema. Cluster install, the DDL under
-`elixir/serviceradar_core/priv/starrocks/`, the CNPG JDBC catalog and its reader
-role are documented in `k8s/starrocks/README.md`. Per-key defaults, including
-retention, are commented in the chart's `values.yaml`.
+This chart does not install StarRocks. The supported install is the operator
+and cluster profiles in
+[`k8s/starrocks`](https://github.com/carverauto/serviceradar/blob/staging/k8s/starrocks/README.md):
+a shared-nothing profile (`values-cluster.yaml`) and a shared-data overlay
+(`values-cluster-shared-data.yaml`). The README there documents the install,
+the root password, the CNPG JDBC catalog and its reader role, and how to size
+node memory. Core creates and migrates the warehouse schema itself on start,
+from the DDL under `elixir/serviceradar_core/priv/starrocks/`. Per-key defaults,
+including retention, are commented in the chart's `values.yaml`.
+
+Size each StarRocks backend or compute node's `mem_limit` as its memory limit
+minus a fixed 3 GiB reserve, written as a percentage (70% of a 10Gi limit).
+`mem_limit` is read only from the node's config file. The other memory settings
+ServiceRadar needs are applied by core at runtime on every StarRocks cluster:
+`datacache_mem_size`, `update_memory_limit_percent` and, on shared-data compute
+nodes, `lake_metadata_cache_limit`. Core sizes them from each node's process
+limit and re-applies them after a node restarts. Core's cluster health reports
+each node's memory reserve and warns below 2.5 GiB. The warehouse user needs
+the StarRocks `OPERATE` privilege for this; without it core logs a warning and
+the warehouse keeps working on StarRocks' defaults.
 
 ## Deployment Provisioning
 

@@ -1,20 +1,28 @@
 # StarRocks operator
 
-This directory is the **lab** install: kube contexts `carverauto` and `farm01`.
-Those clusters are self-managed k3s used for ServiceRadar development and test.
-They are not the SaaS control plane.
+This directory is the supported way to install the StarRocks warehouse that
+ServiceRadar's optional analytics (`analytics.starrocks.*` in
+`helm/serviceradar`) connect to. The ServiceRadar chart does not install
+StarRocks; it connects to a cluster you run, and these files are that cluster:
 
-The cloud/SaaS product runs on **Akamai LKE**. Do not copy lab node procedures
-(SSH, `/etc/sysctl.d`, `gitops/VMs/setup-new-VM.sh`) onto LKE workers. Hosted
-StarRocks is the shared-data profile from
-`openspec/changes/add-starrocks-telemetry-analytics` (object storage + CN
-cache); LKE node sysctl still belongs with the SaaS cluster, not here.
+| File | What it installs |
+| --- | --- |
+| `values.yaml` | the StarRocks operator, chart/operator **1.11.7** |
+| `values-cluster.yaml` | a shared-nothing `StarRocksCluster`: 3 frontends (FE) and 3 backends (BE), StarRocks **4.1.7** |
+| `values-cluster-shared-data.yaml` | an overlay on `values-cluster.yaml` for shared-data: compute nodes (CN) with a local cache over an object-storage bucket |
+| `namespace.yaml`, `network-policy.yaml` | the `starrocks` namespace and the ingress policy ServiceRadar needs |
 
-Cluster-scoped operator, pinned to chart/operator **1.11.7**. The default lab
-`StarRocksCluster` is shared-nothing FE+BE (`values-cluster.yaml`), pinned to
-StarRocks **4.1.7**. Carverauto demo uses the shared-data overlay
-`values-cluster-shared-data.yaml` (CN + Linode analytics bucket). Farm01
-stays on the shared-nothing file.
+Pick one profile at first install: `run_mode` is fixed when the first FE
+starts. Both are sized for nodes with a 10Gi memory limit; to resize, follow
+[Memory sizing](#memory-sizing).
+
+ServiceRadar's own development clusters (kube contexts `carverauto` and
+`farm01`) run these same files: `carverauto` the shared-data overlay with a
+Linode bucket, `farm01` shared-nothing. Where this README names those
+contexts, the bucket, or lab node procedures (SSH, `/etc/sysctl.d`,
+`gitops/VMs/setup-new-VM.sh`), substitute your own. The hosted (SaaS)
+warehouse is provisioned by the control plane with the same memory rule; node
+sysctl for it belongs with that cluster, not here.
 
 These pins are for fresh installs and clusters that have completed the upgrade.
 For an existing 3.5 cluster, follow [the staged upgrade runbook](../../docs/starrocks-upgrade.md):
@@ -170,10 +178,70 @@ seccompProfile (pod or container "manager" must set
 
 `values.yaml` sets those two fields. Do not install from the raw GitHub manifest.
 
+## Memory sizing
+
+StarRocks' memory defaults leave a ServiceRadar warehouse short: Stream Loads
+and queries share what is left after the datacache memory tier, the
+primary-key index and the lake metadata cache, and a burst of device-page
+queries or a table rewrite then fails loads with `Memory of process exceed
+limit`.
+
+### The process limit: memory limit minus a fixed reserve
+
+Set `mem_limit` in each BE or CN config to the pod's memory limit minus a
+fixed **3 GiB** reserve, written as a percentage of the limit:
+
+```text
+mem_limit = (pod memory limit - 3 GiB) / pod memory limit
+          = (10 GiB - 3 GiB) / 10 GiB = 70%
+```
+
+StarRocks then caps its process at 90% of what `mem_limit` resolves to (6.3
+GiB here), so the memory left under the pod limit is the 3 GiB plus that 10%,
+3.7 GiB. StarRocks allocates about 1.4 GB outside its memory tracker, and a
+pod whose reserve is smaller than that plus a margin is killed by the kernel
+before StarRocks refuses a query. Do not size `mem_limit` as a flat
+percentage that ignores the limit: 90% of 10Gi leaves 1.9 GiB.
+
+Keep it a percentage. Core derives each node's detected memory from it (see
+[What core does](#what-core-does)); an absolute `mem_limit` leaves the reserve
+unknown. Change the pod limit and `mem_limit` together.
+
+`mem_limit` takes effect only from the config file on a restart, so it is the
+one memory setting core cannot set.
+
+### What core does
+
+Core holds every BE and CN to these values at runtime, through
+`information_schema.be_configs`, shortly after it starts and every two
+minutes after that (a node restart puts runtime values back to the file):
+
+| Key | Value | StarRocks default |
+| --- | --- | --- |
+| `datacache_mem_size` | `10%` of the node's process limit (on a BE it also caps the page cache) | `20%` |
+| `update_memory_limit_percent` | `30` (primary-key index) | `60` |
+| `lake_metadata_cache_limit` | shared-data CNs only: 8% of the node's process limit, rounded down to 64 MiB, between 128 MiB and 2 GiB (512 MiB at a 6.3 GiB process limit) | 2 GiB |
+
+It writes a key only when the node's live value differs, and only when
+`be_configs` reports the key `MUTABLE` on that node. StarRocks 4.1.7 cannot
+change `update_memory_limit_percent` at runtime, so both profiles also set it
+in the node config; core reports a node whose file disagrees. The warehouse
+user needs the `OPERATE` privilege for `be_configs`; without it core logs a
+warning and carries on.
+
+Core's cluster health (`ServiceRadar.ClusterHealth`, field `starrocks_memory`)
+reports, per node: `mem_limit`, the process limit, the detected memory, the
+reserve between them, and the state of each key above. It warns, and logs
+once, when a reserve is below 2.5 GiB, when a key could not be written, or
+when a key needs the config file.
+
 ## Install
 
-Same manifests on both **lab** kube contexts: `carverauto` and `farm01`. Pass
-`--context` / `--kube-context` for each; do not assume the current context.
+Pass `--context` / `--kube-context` explicitly; do not assume the current
+context. The release is named `starrocks-lab`, and the `nameOverride: lab` in
+`values-cluster.yaml` names the pods `lab-fe-*`, `lab-be-*` and `lab-cn-*`; the
+commands below use those names. Keep them on a running cluster: renaming the
+release or the override replaces the StatefulSets and their volumes.
 
 CRDs are cluster-scoped and applied once per cluster, from the same operator
 tag as the chart. The operator chart does not ship them.
@@ -185,16 +253,35 @@ starts. Upgrading a Frontend that still has NO password with it leaves every
 restarted pod unable to rejoin. An existing passwordless installation follows
 [Existing installation](#existing-installation) instead, in that order.
 
-Before the loop, for each cluster: label the ServiceRadar namespace (see
+Before installing, for each cluster: label the ServiceRadar namespace (see
 [Network policy](#network-policy)) and create the root-password Secret in
 `starrocks` and its twin in the ServiceRadar namespace
 ([Fresh install](#fresh-install), steps 1 and 2). The FE, BE and CN pods do not
 start until the Secret exists.
 
 ```bash
+ctx=<your-kube-context>
 helm repo add starrocks https://starrocks.github.io/starrocks-kubernetes-operator
 helm repo update starrocks
 
+kubectl --context "$ctx" apply -f \
+  https://raw.githubusercontent.com/StarRocks/starrocks-kubernetes-operator/v1.11.7/deploy/starrocks.com_starrocksclusters.yaml
+kubectl --context "$ctx" apply -f k8s/starrocks/namespace.yaml
+kubectl --context "$ctx" apply -f k8s/starrocks/network-policy.yaml
+kubectl --context "$ctx" -n starrocks get secret starrocks-root-password >/dev/null
+helm upgrade --install kube-starrocks-operator starrocks/operator \
+  --kube-context "$ctx" --namespace starrocks --version 1.11.7 \
+  -f k8s/starrocks/values.yaml
+# Shared-nothing. For shared-data, add -f k8s/starrocks/values-cluster-shared-data.yaml
+# after its bucket and credentials are set for your object store.
+helm upgrade --install starrocks-lab starrocks/starrocks \
+  --kube-context "$ctx" --namespace starrocks --version 1.11.7 \
+  -f k8s/starrocks/values-cluster.yaml
+```
+
+ServiceRadar's development clusters run the same commands in a loop:
+
+```bash
 for ctx in carverauto farm01; do
   kubectl --context "$ctx" apply -f \
     https://raw.githubusercontent.com/StarRocks/starrocks-kubernetes-operator/v1.11.7/deploy/starrocks.com_starrocksclusters.yaml
