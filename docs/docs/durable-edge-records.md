@@ -542,6 +542,7 @@ condition.
 | `agent_disconnected` | No core node has seen the agent recently. | Check the agent and its connection to the gateway. |
 | `agent_upgrade_blocked` | The release rollout cannot deliver a new agent build. Detail `cause`: `rollout_paused`, `no_published_release` or `no_release_artifact` (with `release` and `platform`). | Resume the rollout or publish a release with an artifact for the platform. |
 | `spool_unavailable` | The agent reports a spool startup or recovery failure. Detail: `error`, plus retained health when available. | Inspect the reported failure and disk state. Preserve the spool and recovery files. |
+| `no_live_gateway_on_active_epoch` | The agent's live gateway has not reported, within the last two minutes, that it installed the active registry epoch, so the agent's records cannot be admitted under it. Detail: `epoch` and `gateway_id`. | Check that gateway's trust refresh to core; it reports a refused registry on its next refresh. |
 | `spool_wedged` | A generation contains unresolved coverage gaps. `gap_count` is the total; `generation_gaps` samples up to 32 generation/lane/sequence coordinates. The sample also carries unresolved count, age (or unknown), and bytes against budget. | Check recovery progress and its refusal reason. Preserve the spool files; deleting them loses records and recovery evidence. |
 | `unsupported_legacy_storage` | `retained_legacy_bytes` reports old flat files kept untouched and charged to the shared budget. | This release does not migrate, recover or deliver those files. New data uses bounded lanes. |
 | `spool_health_unavailable` | The spool opened but the agent could not read its health. Detail: `health_error` and the rest of the sample. | Check the agent log and the spool directory. |
@@ -549,7 +550,7 @@ condition.
 | `agent_upgrade_pending` | The agent runs a build from before the edge-record cutover: its check-in carried no spool status, or the gateway refused durable data from it. Detail: `version`, and `refused_statuses` (count per retired source family) and `last_refused_at` when durable data was refused. | Upgrade the agent. Its refused data is not stored. |
 | `oversized_summary` | The gateway refused status summaries from the agent over its source limit (64 KiB for the agent capability status, 4 KiB otherwise). The agent's edge records are not affected. Detail: `count`, `summaries` (each service's largest refused summary, with `bytes` and `limit`) and `last_refused_at`. | Report the service and size: a summary that large is an agent defect. Its summaries are not stored. |
 
-The spool conditions, `agent_upgrade_pending` and `oversized_summary` come from
+The spool conditions, `no_live_gateway_on_active_epoch`, `agent_upgrade_pending` and `oversized_summary` come from
 the agent's last check-in and its live tracker entry, so they are reported for connected agents only. The agent
 samples spool health on every hello and control-stream heartbeat (about every 60
 seconds), so these conditions do not depend on Prometheus scraping the agent. A
@@ -602,6 +603,16 @@ with the candidate's epoch and each blocker: a core node running another
 catalog, a gateway that has not reported or has not installed the candidate,
 or a node that did not answer. If the coordinator could not evaluate the
 transition, the notice shows the error instead.
+
+Core's health response reports pipeline state in its `edge_pipeline`
+section: the active, candidate and draining epochs (an epoch row that fails
+signature verification is named in `epochs.error`, never listed), the
+transition's outcome and blockers, whether the issuer key is present, and the
+`awaiting_roll_forward` counts summed over every connected node (records
+gateways withheld for any retryable reason, not only roll-forward, and records dead-lettered with reason
+`awaiting_roll_forward`, per contract). A node that did not answer is named in
+`awaiting_roll_forward.error` rather than counted as zero, and `overflow` is
+`null` because no overflow counter exists yet.
 
 ### Settings
 

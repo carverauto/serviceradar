@@ -49,6 +49,10 @@ defmodule ServiceRadarWebNGWeb.EdgePipelineComponents do
       "unsupported_legacy_storage" ->
         "#{field(detail, :retained_legacy_bytes)} bytes of unsupported legacy edge storage are retained untouched. Only bounded lanes are delivered."
 
+      "no_live_gateway_on_active_epoch" ->
+        "Live gateway #{inspect(to_string(field(detail, :gateway_id)))} has not installed " <>
+          "epoch #{field(detail, :epoch)}, so the agent's records cannot be admitted under it."
+
       "spool_wedged" ->
         sequences = gap_samples(detail)
 

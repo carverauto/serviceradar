@@ -156,11 +156,7 @@ defmodule ServiceRadar.Edge.ContractRegistryTransition do
           {ids, bad ++ [to_string(node)]}
       end)
 
-    reports =
-      for report <- ContractRegistry.gateway_reports(),
-          DateTime.diff(now, report.received_at, :second) <= @report_window_seconds,
-          into: %{},
-          do: {report.gateway_id, report}
+    reports = fresh_reports(ContractRegistry.gateway_reports(), now)
 
     gateways =
       (tracked ++ Map.keys(reports))
@@ -171,6 +167,18 @@ defmodule ServiceRadar.Edge.ContractRegistryTransition do
       end)
 
     {gateways, unreachable}
+  end
+
+  @doc """
+  The installation reports, among `reports`, that arrived within the window the transition
+  counts a gateway's report for, keyed by gateway id. An older report counts as no report.
+  """
+  @spec fresh_reports([map()], DateTime.t()) :: %{String.t() => map()}
+  def fresh_reports(reports, now) do
+    for report <- reports,
+        DateTime.diff(now, report.received_at, :second) <= @report_window_seconds,
+        into: %{},
+        do: {report.gateway_id, report}
   end
 
   defp installed(nil), do: nil
