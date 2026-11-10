@@ -123,12 +123,37 @@ Core now exposes the trusted in-process
 validates the shared v1 codec and locks the original frozen block to match its
 storage UUID, block key, descriptor and digest. It durably stores one immutable
 intent acknowledgement per block, using the supplied operation UUID as its ID.
-Exact retries return the original ID and timestamp; conflicting operations are
-refused. Recorder release/replacement does not revoke frozen history or permit
-adoption of an unfrozen block. The acknowledgement is metadata reconciliation
+After the immutable row commits, Core returns canonical acknowledgement JSON
+with `version: 1`, `kind: "intent_accepted"`, the operation UUID and the SHA-256
+of the complete canonical intent. Exact retries return the same bytes;
+conflicting operations are refused. Recorder release/replacement does not revoke
+frozen history or permit adoption of an unfrozen block. The acknowledgement is metadata reconciliation
 only: it neither qualifies storage nor registers an available local copy, and it
-does not set archive publication fields. Authenticated NVR delivery and local
-acknowledgement persistence are not wired yet.
+does not set archive publication fields. Authenticated NVR delivery is not wired yet.
+
+### Retaining an intent acknowledgement
+
+Trusted same-VM code passes Core's canonical response to
+`ServiceRadarNVR.acknowledge_publication(block_id, bytes)`. The NVR verifies the
+sealed media and retained intent, then checks that the response binds that exact
+intent. It syncs the matching intent file and directory before exclusively
+creating and syncing `publication-ack.json` and its directory. Both records are
+retained. An exact retry syncs the same bytes without replacing either file.
+Partial, conflicting, aliased or oversized records remain unresolved and intact.
+
+Acknowledgements are bounded to 512 bytes. The write uses the same idle-writer,
+logical-budget and physical-free-space checks as intent preparation. Existing
+exact retries need no additional byte budget; a timeout leaves an unknown outcome
+that callers resolve by inspecting or retrying the same response. Independently
+reserved control capacity and publication during continuous capture remain open.
+
+`ServiceRadarNVR.publication_acknowledgement(block_id)` reads through the bounded
+read pool and reverifies the original intent and media. It does not sync a
+recovered file; retry the write to confirm that boundary. The codec verifies
+content correlation, not Core identity. The trusted caller owns authentication;
+there is no remote acknowledgement listener yet. A retained `intent_accepted`
+response neither proves storage qualification nor advertises a recording, grants
+playback/deletion permission, or permits discarding the original intent.
 
 ## Descriptor-bound local media reads
 
@@ -242,7 +267,8 @@ other active reservations remain charged.
 reservations and available space; it is not a promise to a future caller.
 
 Inventory accepts at most 4096 block directories with the spool file names and
-the optional `publication.json`. Unknown entries, aliases and unreadable inventory refuse admission and
+the optional `publication.json` and `publication-ack.json`. Unknown entries,
+aliases and unreadable inventory refuse admission and
 remain intact. Admission conservatively counts active bytes both as inventory
 and as full reservations. It can refuse early; it cannot spend that slack on a
 second worker. Losing the capacity owner retires dependent workers before the
@@ -282,7 +308,8 @@ bounded worker admission and retirement, spool budget, free-space floor and
 inventory refusal, records synthetic H264, restarts the release, recovers the
 journals and compares decoded frames, including across multiple blocks and after
 refusing a successor block. It also prepares, restarts, re-reads and retries
-publication intent and refuses conflicting, corrupt or over-budget intent.
+publication intent and acknowledgement, and refuses conflicting, corrupt,
+aliased or over-budget records.
 Core's existing
 recording integration suite owns the CNPG authorization/publication contract.
 Physical node-loss durability and deployed camera behavior are not established

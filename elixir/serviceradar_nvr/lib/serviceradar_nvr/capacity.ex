@@ -3,7 +3,7 @@ defmodule ServiceRadarNVR.Capacity do
   use GenServer
 
   alias ServiceRadarNVR.Disk
-  alias ServiceRadarNVR.PublicationIntent
+  alias ServiceRadarNVR.Publication
   alias ServiceRadarRecording.Spool
   alias ServiceRadarRecording.Storage
 
@@ -18,7 +18,10 @@ defmodule ServiceRadarNVR.Capacity do
   def recovery_storage, do: GenServer.call(__MODULE__, :recovery_storage)
 
   def prepare_publication(block_id, reference),
-    do: GenServer.call(__MODULE__, {:prepare_publication, block_id, reference}, 30_000)
+    do: GenServer.call(__MODULE__, {:publication, block_id, :intent, reference}, 30_000)
+
+  def acknowledge_publication(block_id, bytes),
+    do: GenServer.call(__MODULE__, {:publication, block_id, :acknowledgement, bytes}, 30_000)
 
   def recover_block(block_id, expected_identity),
     do: GenServer.call(__MODULE__, {:recover_block, block_id, expected_identity}, 30_000)
@@ -104,19 +107,19 @@ defmodule ServiceRadarNVR.Capacity do
     end
   end
 
-  def handle_call({:prepare_publication, _block_id, _reference}, _from, %{reservations: reservations} = state)
+  def handle_call({:publication, _block_id, _kind, _payload}, _from, %{reservations: reservations} = state)
       when map_size(reservations) > 0 do
     {:reply, {:error, :nvr_recordings_active}, state}
   end
 
-  def handle_call({:prepare_publication, block_id, reference}, _from, state) do
+  def handle_call({:publication, block_id, kind, payload}, _from, state) do
     case storage(state) do
       {:ok, storage} ->
         result =
           with {:ok, usage} <- measure(storage, state),
-               {:ok, bytes, additional} <- PublicationIntent.prepare(storage, block_id, reference, @limits),
+               {:ok, bytes, additional} <- Publication.prepare(storage, block_id, kind, payload, @limits),
                :ok <- publication_capacity(usage, additional),
-               :ok <- PublicationIntent.persist(storage, block_id, bytes) do
+               :ok <- Publication.persist(storage, block_id, kind, bytes) do
             {:ok, bytes}
           end
 

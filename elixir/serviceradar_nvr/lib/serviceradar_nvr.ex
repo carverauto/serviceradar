@@ -15,7 +15,7 @@ defmodule ServiceRadarNVR do
   """
 
   alias ServiceRadarNVR.Blocks
-  alias ServiceRadarNVR.PublicationIntent
+  alias ServiceRadarNVR.Publication
   alias ServiceRadarNVR.Reads
   alias ServiceRadarNVR.Session
   alias ServiceRadarRecording.Spool
@@ -113,7 +113,26 @@ defmodule ServiceRadarNVR do
   def publication_intent(block_id) do
     Reads.run(fn ->
       with {:ok, storage, limits} <- ServiceRadarNVR.Capacity.recovery_storage() do
-        PublicationIntent.inspect(storage, block_id, limits)
+        Publication.inspect(storage, block_id, :intent, limits)
+      end
+    end)
+  end
+
+  @doc """
+  Retain a trusted Core intent acknowledgement while local writers are idle.
+
+  The canonical response must bind the exact verified local intent. The intent
+  is synced before the acknowledgement; retries sync the same bytes. Both files
+  remain for recovery. A timeout is an unknown outcome. This API validates
+  correlation, not Core identity, and grants no availability or deletion rights.
+  """
+  def acknowledge_publication(block_id, bytes), do: ServiceRadarNVR.Capacity.acknowledge_publication(block_id, bytes)
+
+  @doc "Read a retained acknowledgement after reverifying its intent and media; does not sync it."
+  def publication_acknowledgement(block_id) do
+    Reads.run(fn ->
+      with {:ok, storage, limits} <- ServiceRadarNVR.Capacity.recovery_storage() do
+        Publication.inspect(storage, block_id, :acknowledgement, limits)
       end
     end)
   end

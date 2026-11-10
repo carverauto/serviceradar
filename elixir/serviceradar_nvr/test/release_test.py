@@ -76,14 +76,8 @@ class NVRReleaseTest(unittest.TestCase):
         self.assertEqual(self.decode(self.env["NVR_TEST_MP4"]), expected)
 
     def test_publication_intent_survives_restart_and_preserves_conflicts(self):
-        self.make_media()
-        self.run_probe("record")
-        block = next(p for p in self.spool.iterdir() if p.is_dir())
-        # Existing descriptor export verifies media; Python independently hashes its wire bytes.
-        self.run_probe("discover_rotation")
-        descriptor_path = Path(self.env["NVR_TEST_MP4"] + ".0.json")
-        descriptor = descriptor_path.read_bytes()
-        self.env["NVR_TEST_DESCRIPTOR_SHA256"] = hashlib.sha256(descriptor).hexdigest()
+        block = self.record_publication_block()
+        descriptor = Path(self.env["NVR_TEST_MP4"] + ".0.json").read_bytes()
         self.run_probe("publication_prepare")
         intent = block / "publication.json"
         original = intent.read_bytes()
@@ -125,13 +119,8 @@ class NVRReleaseTest(unittest.TestCase):
         self.assertEqual(intent.read_bytes(), original)
         self.assertEqual(media.read_bytes(), damaged_media)
 
-    def test_publication_intent_requires_space_before_creating_metadata(self):
-        self.make_media()
-        self.run_probe("record")
-        block = next(p for p in self.spool.iterdir() if p.is_dir())
-        self.run_probe("discover_rotation")
-        descriptor = Path(self.env["NVR_TEST_MP4"] + ".0.json").read_bytes()
-        self.env["NVR_TEST_DESCRIPTOR_SHA256"] = hashlib.sha256(descriptor).hexdigest()
+    def test_publication_records_require_space_before_creating_metadata(self):
+        block = self.record_publication_block()
         self.env["SERVICERADAR_NVR_MAX_SPOOL_BYTES"] = str(sum(p.stat().st_size for p in block.iterdir()))
         self.run_probe("publication_budget")
         self.assertFalse((block / "publication.json").exists())
@@ -139,6 +128,94 @@ class NVRReleaseTest(unittest.TestCase):
         self.env["SERVICERADAR_NVR_RESERVE_BYTES"] = "1125899906842624"
         self.run_probe("publication_pressure")
         self.assertFalse((block / "publication.json").exists())
+
+        del self.env["SERVICERADAR_NVR_RESERVE_BYTES"]
+        self.run_probe("publication_prepare")
+        self.acknowledgement_input(block)
+        self.env["SERVICERADAR_NVR_MAX_SPOOL_BYTES"] = str(sum(p.stat().st_size for p in block.iterdir()))
+        self.run_probe("publication_ack_budget")
+        self.assertFalse((block / "publication-ack.json").exists())
+        del self.env["SERVICERADAR_NVR_MAX_SPOOL_BYTES"]
+        self.env["SERVICERADAR_NVR_RESERVE_BYTES"] = "1125899906842624"
+        self.run_probe("publication_ack_pressure")
+        self.assertFalse((block / "publication-ack.json").exists())
+
+    def record_publication_block(self):
+        self.make_media()
+        self.run_probe("record")
+        block = next(p for p in self.spool.iterdir() if p.is_dir())
+        # Existing descriptor export verifies media; Python independently hashes its wire bytes.
+        self.run_probe("discover_rotation")
+        descriptor_path = Path(self.env["NVR_TEST_MP4"] + ".0.json")
+        descriptor = descriptor_path.read_bytes()
+        self.env["NVR_TEST_DESCRIPTOR_SHA256"] = hashlib.sha256(descriptor).hexdigest()
+        return block
+
+    def acknowledgement_input(self, block):
+        # Invented response in the public wire format, supplied independently of
+        # the Elixir codec. Core's DB owner checks emission after committed acceptance.
+        intent = (block / "publication.json").read_bytes()
+        document = {"version": 1, "kind": "intent_accepted",
+                    "operation_id": json.loads(intent)["operation_id"],
+                    "intent_sha256": hashlib.sha256(intent).hexdigest()}
+        raw = json.dumps(document, sort_keys=True, separators=(",", ":")).encode()
+        path = self.root / "ack-input.json"
+        path.write_bytes(raw)
+        self.env["NVR_TEST_ACK"] = str(path)
+        self.env["NVR_TEST_BLOCK_ID"] = block.name
+        return path, raw
+
+    def test_publication_acknowledgement_survives_restart_and_preserves_unresolved_records(self):
+        block = self.record_publication_block()
+        self.run_probe("publication_prepare")
+        supplied, raw = self.acknowledgement_input(block)
+        intent = block / "publication.json"
+        original_intent = intent.read_bytes()
+        ack = block / "publication-ack.json"
+
+        # A response without its original retained intent cannot become local evidence.
+        intent.unlink()
+        self.run_probe("publication_ack_error")
+        self.assertFalse(ack.exists())
+        intent.write_bytes(original_intent)
+        intent.chmod(0o600)
+        self.run_probe("publication_ack_store")
+        self.assertEqual(ack.read_bytes(), raw)
+        self.assertEqual(ack.stat().st_mode & 0o777, 0o600)
+        before = [(p.stat().st_ino, p.stat().st_mtime_ns) for p in (intent, ack)]
+        self.env["SERVICERADAR_NVR_MAX_SPOOL_BYTES"] = str(sum(p.stat().st_size for p in block.iterdir()))
+        self.run_probe("publication_ack_retry")
+        self.assertEqual([(p.stat().st_ino, p.stat().st_mtime_ns) for p in (intent, ack)], before)
+        self.assertEqual(intent.read_bytes(), original_intent)
+        self.assertEqual(ack.read_bytes(), raw)
+
+        document = json.loads(raw)
+        wrong = document | {"intent_sha256": "0" * 64}
+        for bad in [raw + b" ", b"x" * 513,
+                    json.dumps(wrong, sort_keys=True, separators=(",", ":")).encode()]:
+            supplied.write_bytes(bad)
+            self.run_probe("publication_ack_input_error")
+            self.assertEqual(ack.read_bytes(), raw)
+        supplied.write_bytes(raw)
+
+        for damaged in [raw[:17], raw + b" ", b"x" * 513]:
+            ack.write_bytes(damaged)
+            self.run_probe("publication_ack_error")
+            self.assertEqual(ack.read_bytes(), damaged)
+            self.assertEqual(intent.read_bytes(), original_intent)
+        ack.write_bytes(raw)
+        alias = self.root / "ack-alias.json"
+        os.link(ack, alias)
+        self.run_probe("publication_ack_error")
+        self.assertEqual(ack.stat().st_ino, alias.stat().st_ino)
+        alias.unlink()
+        media = block / "media.m4s"
+        damaged_media = bytearray(media.read_bytes())
+        damaged_media[-1] ^= 1
+        media.write_bytes(damaged_media)
+        self.run_probe("publication_ack_error")
+        self.assertEqual(ack.read_bytes(), raw)
+        self.assertEqual(media.read_bytes(), damaged_media)
 
     def make_media(self, frames=75):
         source = self.env["NVR_TEST_H264"]

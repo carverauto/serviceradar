@@ -3,28 +3,35 @@ defmodule ServiceRadar.Camera.LocalPublicationIntents do
   Reconciles a bounded local intent against original frozen recording authority.
 
   A trusted Core caller supplies bytes, never a current recorder lease as a
-  substitute for historical authority. The returned immutable row acknowledges
-  only intent acceptance. Qualified storage and local-copy publication remain
-  separate steps. No network or filesystem I/O occurs inside the transaction.
+  substitute for historical authority. The returned canonical bytes acknowledge
+  only intent acceptance, after the immutable row commits. Qualified storage and
+  local-copy publication remain separate steps. No network or filesystem I/O
+  occurs inside the transaction.
   """
   alias ServiceRadar.Camera.LocalPublicationIntent
   alias ServiceRadar.Camera.RecordingBlocks
+  alias ServiceRadarRecordingMetadata.LocalPublicationAcknowledgement
   alias ServiceRadarRecordingMetadata.LocalPublicationIntent, as: Codec
 
   require Ash.Query
 
   def accept(bytes, opts \\ []) do
-    with {:ok, document} <- Codec.decode(bytes) do
-      RecordingBlocks.with_frozen(
-        document["recording_block_id"],
-        fn block ->
-          with :ok <- matches_block(document, block) do
-            acknowledge(document, digest(bytes), opts)
-          end
-        end,
-        opts
-      )
+    with {:ok, document} <- Codec.decode(bytes),
+         {:ok, _receipt} <- accept_document(document, digest(bytes), opts) do
+      LocalPublicationAcknowledgement.encode(bytes)
     end
+  end
+
+  defp accept_document(document, sha, opts) do
+    RecordingBlocks.with_frozen(
+      document["recording_block_id"],
+      fn block ->
+        with :ok <- matches_block(document, block) do
+          acknowledge(document, sha, opts)
+        end
+      end,
+      opts
+    )
   end
 
   defp matches_block(document, block) do

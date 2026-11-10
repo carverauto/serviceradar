@@ -2,6 +2,7 @@ defmodule ServiceRadarRecordingMetadata.ManifestTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadarRecordingMetadata.Descriptor
+  alias ServiceRadarRecordingMetadata.LocalPublicationAcknowledgement
   alias ServiceRadarRecordingMetadata.LocalPublicationIntent
   alias ServiceRadarRecordingMetadata.Manifest
 
@@ -80,6 +81,22 @@ defmodule ServiceRadarRecordingMetadata.ManifestTest do
     assert document["storage_id"] == storage
     assert document["operation_id"] == reference.operation_id
     assert document["recording_block_id"] == reference.recording_block_id
+
+    assert {:ok, ack} = LocalPublicationAcknowledgement.encode(bytes)
+    sha = Base.encode16(:crypto.hash(:sha256, bytes), case: :lower)
+
+    assert ack ==
+             ~s({"intent_sha256":"#{sha}","kind":"intent_accepted",) <>
+               ~s("operation_id":"#{reference.operation_id}","version":1})
+
+    assert :ok = LocalPublicationAcknowledgement.validate(ack, bytes)
+
+    for invalid <- [ack <> " ", "{}", String.duplicate("x", 513), String.replace(ack, sha, String.duplicate("0", 64))] do
+      assert {:error, :invalid_publication_acknowledgement} = LocalPublicationAcknowledgement.validate(invalid, bytes)
+    end
+
+    {:ok, other_intent} = LocalPublicationIntent.encode(ctx.descriptor, "00000000-0000-4000-8000-000000000054", reference)
+    assert {:error, :invalid_publication_acknowledgement} = LocalPublicationAcknowledgement.validate(ack, other_intent)
 
     for invalid <- [
           Map.put(document, "version", 2),
