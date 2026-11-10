@@ -4,7 +4,7 @@ defmodule ServiceRadarNVR.Disk do
   alias ServiceRadarRecording.Storage
 
   @max_blocks 4096
-  @block_files ~w(init.mp4 media.m4s journal)
+  @block_files ~w(init.mp4 media.m4s journal publication.json)
 
   # Inspect metadata only. Incomplete and sealed blocks are equally charged;
   # this is neither journal recovery nor permission to remove anything.
