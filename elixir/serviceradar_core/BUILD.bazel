@@ -346,6 +346,23 @@ write_source_files(
 )
 
 ash_schema(
+    name = "camera_local_storage_binding_schema",
+    outs = ["generated_camera_local_storage_binding/binding.json", "generated_camera_local_storage_binding/migration.exs"],
+    app = ":erlang_app",
+    generator = "//build:camera_local_storage_binding_schema.exs",
+    tags = ["manual"],
+)
+
+write_source_files(
+    name = "update_camera_local_storage_binding_schema",
+    diff_test = True,
+    files = {
+        "priv/resource_snapshots/repo/platform.camera_local_storage_bindings/20261110233000.json": ":generated_camera_local_storage_binding/binding.json",
+        "priv/repo/migrations/20261110233000_add_camera_local_storage_bindings.exs": ":generated_camera_local_storage_binding/migration.exs",
+    },
+)
+
+ash_schema(
     name = "camera_upload_dispatch_schema",
     outs = [
         "generated_camera_upload_dispatch/dispatch.json",

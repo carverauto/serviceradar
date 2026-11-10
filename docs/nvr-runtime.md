@@ -271,6 +271,38 @@ not qualified large-backlog catch-up throughput. Even without errors, a full
 verification remains unresolved; no background repair or destructive cleanup is
 implied. Publication acceptance is still not playable local-copy availability.
 
+## Local storage binding identity
+
+Core's internal `ServiceRadar.Camera.LocalStorageBinding.register/2` provisioning
+API retains a binding UUID for each `(storage_id, generation)`. Its version-1
+configuration contains exactly `schema_version`, `storage_id`, `generation`,
+`provider_resource_ref` and `profile_sha256`. The profile digest covers the complete
+canonical provider configuration and failure profile. The provisioning adapter
+must validate the opaque provider reference and compute that digest before calling
+this API; the parser does not inspect a provider or interpret the reference as a
+filesystem path or URL.
+
+Identical retries return the same binding UUID, content digest, original
+`provisioned_by` and insertion time, including after an authorized provisioning
+principal rotates. A changed provider reference or profile under the same storage
+UUID and generation conflicts. Retain the old generation and create a new one for
+changed configuration; a newly initialized empty volume needs a new storage UUID,
+even when a PVC or StatefulSet ordinal is reused. Generations are immutable labels,
+not an implicit latest/current selection.
+
+The trusted caller supplies an authenticated system actor with
+`nvr_storage_purpose: :provision` and `nvr_storage_id` matching the exact storage
+UUID. These fields must come from deployment authentication/configuration, never
+from the request body. Generic system actors and recorder identities cannot
+register or retry bindings. Reads are limited to the actor's storage lifetime.
+There is no external provisioning endpoint or automatic registration at startup.
+
+This resource is identity evidence only. It has no update, deletion or activation
+action and grants no qualification, recording, local-copy registration or playback
+permission. Qualification reports, current eligibility, scoped activation and
+withdrawal remain pending. Existing installations stay unqualified; accepted
+publication intents and S3 archive state keep their existing meanings.
+
 ## Qualification before rollout
 
 Use synthetic footage to verify that a committed spool and its journal recover
