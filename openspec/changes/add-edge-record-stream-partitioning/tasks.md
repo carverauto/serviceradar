@@ -30,19 +30,33 @@ when it moved.
   placement from benchmarked per-stream limits, production replication, an encoded-body
   limit of the ABI-frozen `MaxRecordBytes` plus an explicit bounded NATS-header
   allowance,
-  `LimitsPolicy`, `DiscardNew`, capacity from the aggregate admitted arrival
-  envelope over outage plus worst-case catch-up plus margin, and separately
+  `WorkQueue` retention with exactly one owning durable per source stream,
+  `DiscardNew`, no source-stream `MaxAge`, and capacity from the worst
+  outage-plus-catch-up backlog of unwritten records (not total traffic), so a
+  caught-up consumer is never refused and a behind consumer is refused with
+  `{:error, :capacity}` and nothing evicted; and separately
   capacity-reserved, class-separated partitioned DLQ streams large/fast enough
   for full admitted source
-  rate over the poison detection/pause interval plus in-flight overlap. Disable
-  DLQ `MaxAge`; use `MaxBytes` with `DiscardNew`, a poison circuit, and explicit
+  rate over the poison detection/pause interval plus in-flight overlap. Keep DLQ
+  and quarantine streams on `Limits` retention (held for inspection/replay);
+  disable DLQ `MaxAge`; use `MaxBytes` with `DiscardNew`, a poison circuit, and explicit
   catalog-state-aware deletion so unresolved poison never expires silently.
   Add per-shard/aggregate poison circuit breakers, gateway and consumer stable
   rejection IDs, and least-privilege ACLs. Fail readiness for missing/overlapping
   subject authority and define a versioned stop/revoke/seal/new-authority barrier
-  that keeps old consumers draining through final redelivery/repair. Size every
-  physical shard for its worst-case assigned arrival envelope/hash skew and
-  place leaders/replicas across intended failure domains.
+  that keeps old consumers draining through final redelivery/repair, operated
+  per physical stream with sole durables so overlapping consumers never share
+  one stream. Size every
+  physical shard for its worst-case assigned backlog/hash skew and
+  place leaders/replicas across intended failure domains. Upgrade existing
+  installs through a drain-barrier cutover to new `WorkQueue` streams (the
+  broker refuses retention changes in place): seal the old authority so
+  gateways publish only to the new stream, drain the old sole durable to
+  empty, then delete the old stream — no dual-write, no loss. Converge the new
+  shape through a periodic edge-shape reconcile, re-derive the ledger retention
+  horizon without the stream-`MaxAge` component, and alert on backlog pressure
+  before refusal. See `design.md` (Edge-record source streams keep only
+  unwritten records) for the decisions and reasons.
   Remaining as of the move (2026-11-02): follow-up; replication of the edge stream is
   `move-agent-telemetry-to-edge-records` task 1.4.
 - [ ] 1.4 (was `unify-sweep-results-proto` 4.3) Define the authoritative durability domain for hub and NATS-leaf

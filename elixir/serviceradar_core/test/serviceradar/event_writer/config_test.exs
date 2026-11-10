@@ -89,6 +89,61 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
     assert_raise ArgumentError, ~r/one shared durable/, fn -> Config.load() end
   end
 
+  test "source startup follows the recovery model and rejects unsafe stream overrides" do
+    original = Application.get_env(:serviceradar_core, ServiceRadar.EventWriter)
+
+    on_exit(fn ->
+      if original,
+        do: Application.put_env(:serviceradar_core, ServiceRadar.EventWriter, original),
+        else: Application.delete_env(:serviceradar_core, ServiceRadar.EventWriter)
+    end)
+
+    bulk = Config.edge_record_stream()
+    audit = Config.edge_record_audit_stream()
+
+    configure = fn streams, bytes ->
+      Application.put_env(:serviceradar_core, ServiceRadar.EventWriter,
+        streams: streams,
+        jetstream_sizes: %{
+          max_bytes: %{
+            bulk.stream_name => bytes,
+            audit.stream_name => bytes
+          },
+          fallbacks: %{}
+        }
+      )
+    end
+
+    configure.([bulk, audit], 67_108_864)
+    assert [loaded_bulk, loaded_audit] = Config.load().streams
+    assert loaded_bulk.stream_retention == "workqueue"
+    assert loaded_bulk.stream_discard == "new"
+    assert loaded_bulk.stream_max_age == 0
+    assert loaded_audit.stream_retention == "workqueue"
+    assert loaded_audit.stream_max_age == 0
+
+    for changes <- [
+          %{stream_retention: "limits"},
+          %{stream_discard: "old"},
+          %{consumer_max_deliver: 5},
+          %{dead_letter_after_deliveries: nil},
+          %{stream_max_age: 86_400_000_000_000},
+          %{allow_stream_fallback: true},
+          %{consumer_deliver_policy: :new}
+        ] do
+      configure.([Map.merge(bulk, changes), audit], 67_108_864)
+
+      assert_raise ArgumentError, ~r/unsafe EDGE_RECORD stream/, fn ->
+        Config.load()
+      end
+    end
+
+    configure.([bulk, audit], 4_194_303)
+    assert_raise ArgumentError, ~r/at least 4 MiB/, fn -> Config.load() end
+    configure.([bulk, %{bulk | name: "EDGE_RECORD_OVERLAP"}, audit], 67_108_864)
+    assert_raise ArgumentError, ~r/one shared durable/, fn -> Config.load() end
+  end
+
   describe "default_streams/0" do
     test "returns list of default stream configurations" do
       streams = Config.default_streams()
@@ -747,14 +802,15 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       refute String.starts_with?(scan.subject, "metrics.")
     end
 
-    test "routes edge records through an R3 stream with DiscardOld and 24h MaxAge" do
+    test "routes edge records through a WorkQueue R3 stream with DiscardNew and no MaxAge" do
       edge = Config.edge_record_stream()
 
       assert edge.stream_name == "TELEMETRY_EDGE_RECORD_V1_BULK"
       assert edge.subject == "telemetry.edge-record.v1.bulk.>"
       assert edge.stream_replicas == 3
-      assert edge.stream_discard == "old"
-      assert edge.stream_max_age == 86_400_000_000_000
+      assert edge.stream_retention == "workqueue"
+      assert edge.stream_discard == "new"
+      assert edge.stream_max_age == 0
     end
 
     test "routes audited edge records through their own R3 stream" do
@@ -763,8 +819,9 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       assert audit.stream_name == "TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK"
       assert audit.subject == "telemetry.edge-record-audit.v1.bulk.>"
       assert audit.stream_replicas == 3
-      assert audit.stream_discard == "old"
-      assert audit.stream_max_age == 86_400_000_000_000
+      assert audit.stream_retention == "workqueue"
+      assert audit.stream_discard == "new"
+      assert audit.stream_max_age == 0
     end
 
     # A dead-letter stream that aged or evicted records would delete the only copy of a resolved
@@ -783,11 +840,10 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
         assert stream.stream_max_age == 0
       end
 
+      # The window is an explicit 72h constant now that the source stream has
+      # no MaxAge to derive it from.
       assert Config.edge_record_dead_letter_stream().stream_duplicate_window ==
-               Config.edge_record_stream().stream_max_age
-
-      assert Config.edge_record_dead_letter_stream().stream_duplicate_window ==
-               86_400_000_000_000
+               259_200_000_000_000
     end
 
     test "routes MTR trace results to the Mtr processor from a dedicated stream" do

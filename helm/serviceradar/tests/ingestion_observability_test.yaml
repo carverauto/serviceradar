@@ -52,6 +52,24 @@ tests:
               summary: "ServiceRadar edge records are held in security quarantine"
               description: "The edge-record security-quarantine stream holds records signed by a compromise-revoked key in namespace sr-test. The EventWriter log line 'Edge record held in security quarantine' names each record's stream sequence; see docs/edge-record-quarantine-runbook.md."
 
+  - it: pages when an edge-record source stream nears its backlog cap
+    template: templates/serviceradar-prometheus-rules.yaml
+    set:
+      observability.enabled: true
+      observability.prometheus.rules.enabled: true
+    asserts:
+      - contains:
+          path: spec.groups[0].rules
+          content:
+            alert: ServiceRadarEdgeRecordBacklogPressure
+            expr: max by (subject_class) (serviceradar_event_writer_consumer_stream_byte_utilization_ratio{namespace="sr-test", subject_class=~"edge_record|edge_record_audit"}) > 0.8
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "ServiceRadar edge-record backlog is nearly full"
+              description: "The {{ $labels.subject_class }} edge-record source stream is above 80% of its MaxBytes in namespace sr-test. The streams hold only unwritten records, so the owning durable is stuck; DiscardNew refuses new records when full, which leaves those agent spool sequences unresolved. Fix the consumer before the backlog fills."
+
   - it: alerts on dead-lettered edge records and pages when a dead-letter cannot be stored
     template: templates/serviceradar-prometheus-rules.yaml
     set:
@@ -79,7 +97,7 @@ tests:
               severity: critical
             annotations:
               summary: "ServiceRadar cannot dead-letter failing edge records"
-              description: "EventWriter could not store a failing edge record in its dead-letter stream in namespace sr-test. The record stays on the edge-record stream and keeps retrying until its 24h MaxAge evicts it; check the dead-letter stream exists and has room."
+              description: "EventWriter could not store a failing edge record in its dead-letter stream in namespace sr-test. The record stays on the edge-record stream and keeps retrying (source streams have no MaxAge); check the dead-letter stream exists and has room."
 
   - it: ships the ingestion edge dashboard configmap when grafana dashboards are enabled
     template: templates/grafana-dashboards.yaml

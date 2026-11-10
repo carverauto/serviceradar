@@ -475,8 +475,9 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
              ensure_edge_record_consumer(conn)
 
     streams = FakeJetStream.streams(conn)
-    assert streams["TELEMETRY_EDGE_RECORD_V1_BULK"]["discard"] == "old"
-    assert streams["TELEMETRY_EDGE_RECORD_V1_BULK"]["max_age"] == 86_400_000_000_000
+    assert streams["TELEMETRY_EDGE_RECORD_V1_BULK"]["discard"] == "new"
+    assert streams["TELEMETRY_EDGE_RECORD_V1_BULK"]["retention"] == "workqueue"
+    assert streams["TELEMETRY_EDGE_RECORD_V1_BULK"]["max_age"] == 0
     assert streams["TELEMETRY_EDGE_RECORD_V1_BULK"]["messages"] == 14
   end
 

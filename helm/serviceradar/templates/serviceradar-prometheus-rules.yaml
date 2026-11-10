@@ -76,6 +76,14 @@ spec:
           annotations:
             summary: "ServiceRadar EDGE_RECORD consumer lag"
             description: "The EventWriter EDGE_RECORD durable has pending or unacked messages in namespace {{ .Release.Namespace }}."
+        - alert: ServiceRadarEdgeRecordBacklogPressure
+          expr: max by (subject_class) (serviceradar_event_writer_consumer_stream_byte_utilization_ratio{namespace="{{ .Release.Namespace }}", subject_class=~"edge_record|edge_record_audit"}) > 0.8
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "ServiceRadar edge-record backlog is nearly full"
+            description: "The {{`{{ $labels.subject_class }}`}} edge-record source stream is above 80% of its MaxBytes in namespace {{ .Release.Namespace }}. The streams hold only unwritten records, so the owning durable is stuck; DiscardNew refuses new records when full, which leaves those agent spool sequences unresolved. Fix the consumer before the backlog fills."
         - alert: ServiceRadarEventWriterMessagesExpiredBeforeDelivery
           expr: max by (stream, durable) (serviceradar_event_writer_consumer_expired_before_delivery_value{namespace="{{ .Release.Namespace }}"}) > 0
           for: 5m
@@ -115,7 +123,7 @@ spec:
             severity: critical
           annotations:
             summary: "ServiceRadar cannot dead-letter failing edge records"
-            description: "EventWriter could not store a failing edge record in its dead-letter stream in namespace {{ .Release.Namespace }}. The record stays on the edge-record stream and keeps retrying until its 24h MaxAge evicts it; check the dead-letter stream exists and has room."
+            description: "EventWriter could not store a failing edge record in its dead-letter stream in namespace {{ .Release.Namespace }}. The record stays on the edge-record stream and keeps retrying (source streams have no MaxAge); check the dead-letter stream exists and has room."
         - alert: ServiceRadarEdgeRecordDeadLetterFull
           expr: max(serviceradar_event_writer_consumer_stream_byte_utilization_ratio{namespace="{{ .Release.Namespace }}", subject_class="edge_record_dlq"}) > 0.8
           for: 5m

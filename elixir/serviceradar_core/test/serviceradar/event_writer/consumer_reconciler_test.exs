@@ -175,6 +175,23 @@ defmodule ServiceRadar.EventWriter.ConsumerReconcilerTest do
     assert topics() == []
   end
 
+  test "the edge-retention tick reschedules itself while disconnected without touching NATS",
+       %{config: config} do
+    config = %{
+      config
+      | streams: [Config.edge_record_stream(), Config.edge_record_audit_stream()],
+        ownership_reconcile_interval_ms: 20
+    }
+
+    state = %ConsumerReconciler{config: config, connected: false}
+
+    assert {:noreply, ^state} =
+             ConsumerReconciler.handle_info(:edge_retention_reconcile, state)
+
+    assert_receive :edge_retention_reconcile, 1_000
+    assert topics() == []
+  end
+
   # One health event per transition for the whole deployment, however many
   # reconnects it takes: the reconciler is the only reporter.
   test "a stream degraded across a reconnect is reported degraded once and recovered once",

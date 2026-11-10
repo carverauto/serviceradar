@@ -30,6 +30,7 @@ defmodule ServiceRadar.EventWriter.ConsumerReconciler do
   alias Gnat.Jetstream.API.Util
   alias ServiceRadar.EventWriter.Config
   alias ServiceRadar.EventWriter.ConsumerSetup
+  alias ServiceRadar.EventWriter.EdgeRecordStreamCutover
   alias ServiceRadar.EventWriter.StreamOwnership
   alias ServiceRadar.NATS.JetstreamConsumer
 
@@ -93,6 +94,7 @@ defmodule ServiceRadar.EventWriter.ConsumerReconciler do
 
     send(self(), :connect)
     schedule_ownership_reconcile(state)
+    schedule_edge_retention_reconcile(state)
     {:ok, state}
   end
 
@@ -185,6 +187,15 @@ defmodule ServiceRadar.EventWriter.ConsumerReconciler do
     {:noreply, state}
   end
 
+  # The edge-retention tick, on its own timer but the same interval: edge source
+  # streams are not multi-owner watches, so without this their shape would
+  # converge only at (re)connect. Skipped while disconnected.
+  def handle_info(:edge_retention_reconcile, state) do
+    state = reconcile_edge_retention(state)
+    schedule_edge_retention_reconcile(state)
+    {:noreply, state}
+  end
+
   def handle_info(_message, state), do: {:noreply, state}
 
   @impl true
@@ -199,6 +210,123 @@ defmodule ServiceRadar.EventWriter.ConsumerReconciler do
   end
 
   def reconcile_stream_ownership(state), do: state
+
+  # The edge-retention tick: edge source streams are not multi-owner watches, so
+  # without this their shape would converge only at (re)connect. Absent streams
+  # are created, converted streams are diff-reconciled, and limits streams cut
+  # over to WorkQueue behind the drain barrier. The cutover is single-flighted
+  # cluster-wide by stream name: when another core holds it, this tick skips
+  # and retries next pass.
+  def reconcile_edge_retention(%{connected: true, conn: conn, config: config} = state)
+      when is_pid(conn) do
+    request = fn topic, payload -> Util.request(conn, topic, payload) end
+
+    Enum.each(edge_source_streams(config), fn stream ->
+      converge_edge_stream(request, conn, config, stream)
+    end)
+
+    state
+  end
+
+  def reconcile_edge_retention(state), do: state
+
+  defp edge_source_streams(config) do
+    Enum.filter(config.streams, fn stream ->
+      Map.get(stream, :name) in ["EDGE_RECORD", "EDGE_RECORD_AUDIT"] and
+        Map.get(stream, :ensure_stream, true) != false
+    end)
+  end
+
+  defp converge_edge_stream(request, conn, config, stream) do
+    stream_name = Config.jetstream_stream_name(stream)
+
+    case JetstreamConsumer.stream_info(request, stream_name, nil) do
+      :absent ->
+        ensure_edge_stream(conn, config, stream)
+
+      {:ok, %{"retention" => "limits"}, _stored} ->
+        attempt_cutover(request, conn, config, stream)
+
+      {:ok, _current, _stored} ->
+        ensure_edge_stream(conn, config, stream)
+
+      {:error, reason} ->
+        Logger.warning("Edge-record stream shape check failed; retrying next tick",
+          stream: stream_name,
+          reason: inspect(reason)
+        )
+    end
+  end
+
+  defp attempt_cutover(request, conn, config, stream) do
+    stream_name = Config.jetstream_stream_name(stream)
+    lock = {EdgeRecordStreamCutover, stream_name}
+
+    case :global.register_name(lock, self()) do
+      :yes ->
+        try do
+          run_cutover(request, conn, config, stream)
+        after
+          :global.unregister_name(lock)
+        end
+
+      :no ->
+        Logger.info(
+          "Edge-record stream cutover already running on another core; retrying next tick",
+          stream: stream_name
+        )
+    end
+  end
+
+  defp run_cutover(request, conn, config, stream) do
+    stream_name = Config.jetstream_stream_name(stream)
+
+    case EdgeRecordStreamCutover.run(request, config, stream) do
+      :cut_over ->
+        ensure_edge_stream(conn, config, stream)
+        verify_converted(request, stream_name)
+
+      :already_converted ->
+        ensure_edge_stream(conn, config, stream)
+
+      :no_stream ->
+        ensure_edge_stream(conn, config, stream)
+
+      {:error, reason} ->
+        Logger.error("Edge-record stream cutover failed; retrying next tick",
+          stream: stream_name,
+          reason: inspect(reason)
+        )
+    end
+  end
+
+  defp verify_converted(request, stream_name) do
+    case JetstreamConsumer.stream_info(request, stream_name, nil) do
+      {:ok, %{"retention" => "workqueue"}, _stored} ->
+        Logger.info("Edge-record stream converted to WorkQueue retention", stream: stream_name)
+
+      other ->
+        Logger.error("Edge-record stream cut over but not converted; retrying next tick",
+          stream: stream_name,
+          observed: inspect(other)
+        )
+    end
+  end
+
+  defp ensure_edge_stream(conn, config, stream) do
+    case ensure_stream(conn, config, stream) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Edge-record stream reconcile failed; retrying next tick",
+          stream: Config.jetstream_stream_name(stream),
+          reason: inspect(reason)
+        )
+
+        {:error, reason}
+    end
+  end
 
   @doc """
   Creates or reconciles the stream and durable of one configured stream.
@@ -395,5 +523,18 @@ defmodule ServiceRadar.EventWriter.ConsumerReconciler do
       config.ownership_reconcile_interval_ms || Config.default_ownership_reconcile_interval_ms()
 
     Process.send_after(self(), :ownership_reconcile, interval)
+  end
+
+  defp schedule_edge_retention_reconcile(%{config: config} = state) do
+    if edge_source_streams(config) == [] do
+      :ok
+    else
+      interval =
+        config.ownership_reconcile_interval_ms || Config.default_ownership_reconcile_interval_ms()
+
+      Process.send_after(self(), :edge_retention_reconcile, interval)
+    end
+
+    state
   end
 end
