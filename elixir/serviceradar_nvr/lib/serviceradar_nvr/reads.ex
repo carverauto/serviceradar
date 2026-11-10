@@ -27,7 +27,7 @@ defmodule ServiceRadarNVR.Reads do
 
   defp execute(reply, operation) do
     # A caller-owned receive timeout cannot retire work after that caller dies.
-    {:ok, timer} = :timer.exit_after(@timeout, :nvr_read_timeout)
+    {:ok, timer} = :timer.exit_after(@timeout, {:shutdown, :nvr_read_timeout})
 
     try do
       send(reply, {reply, operation.()})
@@ -41,16 +41,32 @@ defmodule ServiceRadarNVR.Reads do
 
     try do
       receive do
-        {^reply, result} -> result
-        {:DOWN, ^monitor, :process, ^pid, :nvr_read_timeout} -> {:error, :nvr_read_timeout}
-        {:DOWN, ^monitor, :process, ^pid, _reason} -> {:error, :nvr_read_unavailable}
-      after
-        @timeout + 1_000 ->
-          Process.exit(pid, :kill)
+        {^reply, result} ->
+          result
+
+        {:DOWN, ^monitor, :process, ^pid, {:shutdown, :nvr_read_timeout}} ->
           {:error, :nvr_read_timeout}
+
+        {:DOWN, ^monitor, :process, ^pid, _reason} ->
+          {:error, :nvr_read_unavailable}
+      after
+        @timeout + 1_000 -> expire(pid, reply)
       end
     after
       Process.demonitor(monitor, [:flush])
     end
+  end
+
+  defp expire(pid, reply) do
+    :erlang.unalias(reply)
+    Process.exit(pid, :kill)
+
+    receive do
+      {^reply, _late} -> :ok
+    after
+      0 -> :ok
+    end
+
+    {:error, :nvr_read_timeout}
   end
 end

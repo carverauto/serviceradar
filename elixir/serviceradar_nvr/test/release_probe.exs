@@ -485,7 +485,7 @@ case System.fetch_env!("NVR_TEST_MODE") do
     :ok = await_result.(:deadline, {:error, :nvr_read_timeout})
 
     receive do
-      {:DOWN, ^orphan_monitor, :process, ^orphan_task, :nvr_read_timeout} -> :ok
+      {:DOWN, ^orphan_monitor, :process, ^orphan_task, {:shutdown, :nvr_read_timeout}} -> :ok
     after
       3_000 -> raise "caller loss left read work alive beyond its deadline"
     end
