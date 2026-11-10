@@ -14,6 +14,7 @@ defmodule ServiceRadarNVR do
   notifications are not a durable outbox; retained journals are recovery evidence.
   """
 
+  alias ServiceRadarNVR.Reads
   alias ServiceRadarNVR.Session
   alias ServiceRadarRecording.Initialization
   alias ServiceRadarRecording.Spool
@@ -35,7 +36,9 @@ defmodule ServiceRadarNVR do
   def capacity, do: ServiceRadarNVR.Capacity.status()
 
   @doc "List at most 4,096 retained block IDs, including incomplete blocks; not a coverage catalog."
-  def list_blocks do
+  def list_blocks, do: Reads.run(&inspect_inventory/0)
+
+  defp inspect_inventory do
     with {:ok, storage, _limits} <- ServiceRadarNVR.Capacity.recovery_storage(),
          {:ok, inventory} <- ServiceRadarNVR.Disk.inventory(storage) do
       {:ok, Enum.sort(inventory.block_ids)}
@@ -48,7 +51,9 @@ defmodule ServiceRadarNVR do
   Includes `init_format` derived from the verified initialization bytes. This is
   local media evidence, not a publication receipt or playback authorization.
   """
-  def sealed_block(block_id) do
+  def sealed_block(block_id), do: Reads.run(fn -> inspect_block(block_id) end)
+
+  defp inspect_block(block_id) do
     with {:ok, storage, limits} <- ServiceRadarNVR.Capacity.recovery_storage(),
          {:ok, snapshot} <- Spool.inspect_sealed(storage, block_id, limits) do
       with_format(snapshot)
@@ -58,14 +63,16 @@ defmodule ServiceRadarNVR do
   @doc """
   Return canonical v1 descriptor JSON for a verified sealed local block.
 
-  This trusted same-VM API verifies media through `sealed_block/1` first. The
+  This trusted same-VM API uses the same verification as `sealed_block/1`. The
   portable bytes contain no local paths or storage receipts and grant neither
   publication authority nor playback access. Inspection does not mutate disk.
   """
   def block_descriptor(block_id) do
-    with {:ok, snapshot} <- sealed_block(block_id) do
-      encode_descriptor(snapshot)
-    end
+    Reads.run(fn ->
+      with {:ok, snapshot} <- inspect_block(block_id) do
+        encode_descriptor(snapshot)
+      end
+    end)
   end
 
   @doc """
@@ -77,8 +84,9 @@ defmodule ServiceRadarNVR do
   descriptor digest, then rechecks the selected bytes. The runtime bounds output
   to 1 MiB for initialization or 4 MiB for a fragment.
 
-  This trusted same-VM API runs I/O in the caller. It supplies neither playback
-  authorization nor aggregate reader admission, cancellation or remote transport.
+  This trusted same-VM API shares four read slots and a ten-second admitted-task
+  deadline with discovery and inspection. It supplies neither playback
+  authorization nor remote transport or downstream buffering budgets.
   """
   def read_block(block_id, descriptor_sha256, :init) do
     read_verified(block_id, descriptor_sha256, &Spool.read_init/1)
@@ -108,18 +116,22 @@ defmodule ServiceRadarNVR do
   defp read_verified(block_id, expected_digest, read)
        when is_binary(expected_digest) and byte_size(expected_digest) == 64 do
     if Regex.match?(~r/\A[0-9a-f]{64}\z/, expected_digest) do
-      with {:ok, snapshot} <- sealed_block(block_id),
-           {:ok, descriptor} <- encode_descriptor(snapshot),
-           digest = Base.encode16(:crypto.hash(:sha256, descriptor), case: :lower),
-           true <- digest == expected_digest || {:error, :descriptor_digest_mismatch} do
-        read.(snapshot)
-      end
+      Reads.run(fn -> read_selected(block_id, expected_digest, read) end)
     else
       {:error, :invalid_descriptor_digest}
     end
   end
 
   defp read_verified(_block_id, _expected_digest, _read), do: {:error, :invalid_descriptor_digest}
+
+  defp read_selected(block_id, expected_digest, read) do
+    with {:ok, snapshot} <- inspect_block(block_id),
+         {:ok, descriptor} <- encode_descriptor(snapshot),
+         digest = Base.encode16(:crypto.hash(:sha256, descriptor), case: :lower),
+         true <- digest == expected_digest || {:error, :descriptor_digest_mismatch} do
+      read.(snapshot)
+    end
+  end
 
   defp encode_descriptor(snapshot) do
     with {:ok, descriptor} <- Descriptor.from_snapshot(snapshot, snapshot.init_format) do

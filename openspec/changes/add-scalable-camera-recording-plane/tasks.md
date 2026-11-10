@@ -147,15 +147,24 @@ must establish prior writer retirement and exclusive attachment; this operation
 does not supply distributed fencing, automatic reconciliation, durable gap state
 or publication authority. Tasks 3.2 and 3.3 remain open.
 
+Aggregate local read checkpoint for 3.7: inventory, inspection, descriptor and
+media reads share four independently supervised read slots with ten-second
+admitted-task deadlines. Saturation refuses work without using recording slots;
+worker expiry bounds orphan lifetime after caller loss. Shipped-release tests
+exercise saturation, worker failure/expiry, caller loss and read-supervisor
+restart while a recording reservation survives. This bounds active local read
+work, not downstream buffers, kernel I/O latency, per-viewer fairness or remote
+playback authorization/cancellation. Task 3.7 remains open.
+
 Descriptor-bound local read checkpoint for 3.3/3.7: the trusted same-VM
 `ServiceRadarNVR.read_block/3` API accepts a block ID, canonical descriptor SHA-256
 and an initialization/fragment selector. It verifies the sealed retained block,
 compares the descriptor digest and rechecks the selected bytes under existing
 runtime bounds. The shipped-release restart/recovery tests reconstruct and decode
 media through this API and refuse mismatched digests, invalid selectors and
-unsealed/corrupt evidence without repair. This is not authenticated remote
-playback, catalog publication or aggregate reader admission. Tasks 3.3 and 3.7
-remain open.
+unsealed/corrupt evidence without repair. The descriptor binding does not supply
+authenticated remote playback or catalog publication; active read work is bounded
+by the separate admission checkpoint above. Tasks 3.3 and 3.7 remain open.
 
 Portable metadata checkpoint for 2.1/3.3: `serviceradar_recording_metadata`
 owns the unchanged canonical v1 descriptor and archive-manifest contract shared

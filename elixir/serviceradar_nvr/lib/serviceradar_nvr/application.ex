@@ -15,6 +15,7 @@ defmodule ServiceRadarNVR.Application do
          strategy: :one_for_one,
          max_children: config.max_sessions,
          extra_arguments: [config]},
+        {Task.Supervisor, name: ServiceRadarNVR.ReadTasks, max_children: 4},
         {Bandit, plug: {ServiceRadarNVR.Health, config}, port: config.health_port}
       ]
 
