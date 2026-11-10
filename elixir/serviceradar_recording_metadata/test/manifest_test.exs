@@ -2,6 +2,7 @@ defmodule ServiceRadarRecordingMetadata.ManifestTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadarRecordingMetadata.Descriptor
+  alias ServiceRadarRecordingMetadata.LocalPublicationIntent
   alias ServiceRadarRecordingMetadata.Manifest
 
   @identity %{
@@ -61,6 +62,42 @@ defmodule ServiceRadarRecordingMetadata.ManifestTest do
     persisted = descriptor |> Jason.encode!() |> Jason.decode!()
 
     %{open: open, snapshot: snapshot, format: format, descriptor: persisted}
+  end
+
+  test "local intent decoding requires bounded canonical content and matching descriptor correlation", ctx do
+    {:ok, descriptor_bytes} = Descriptor.encode(ctx.descriptor)
+
+    reference = %{
+      operation_id: "00000000-0000-4000-8000-000000000051",
+      recording_block_id: "00000000-0000-4000-8000-000000000052",
+      descriptor_sha256: Base.encode16(:crypto.hash(:sha256, descriptor_bytes), case: :lower)
+    }
+
+    storage = "00000000-0000-4000-8000-000000000053"
+    assert {:ok, bytes} = LocalPublicationIntent.encode(ctx.descriptor, storage, reference)
+    assert {:ok, document} = LocalPublicationIntent.decode(bytes)
+    assert document["block_id"] == @block_key
+    assert document["storage_id"] == storage
+    assert document["operation_id"] == reference.operation_id
+    assert document["recording_block_id"] == reference.recording_block_id
+
+    for invalid <- [
+          Map.put(document, "version", 2),
+          Map.put(document, "block_id", String.duplicate("0", 64)),
+          Map.put(document, "descriptor_sha256", String.duplicate("0", 64)),
+          Map.put(document, "available", true),
+          Map.delete(document, "storage_id")
+        ] do
+      {:ok, invalid_bytes} = ServiceRadarRecordingMetadata.CanonicalJSON.encode(invalid)
+      assert {:error, :invalid_publication_intent} = LocalPublicationIntent.decode(invalid_bytes)
+    end
+
+    for invalid <- [bytes <> " ", "null", "{", String.duplicate(" ", 65_537)] do
+      assert {:error, :invalid_publication_intent} = LocalPublicationIntent.decode(invalid)
+    end
+
+    assert {:error, :invalid_publication_reference} =
+             LocalPublicationIntent.encode(ctx.descriptor, storage, %{reference | operation_id: "unbound"})
   end
 
   test "sealed snapshot metadata produces a portable deterministic recovery manifest", ctx do

@@ -2,6 +2,8 @@ defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
   use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Camera.ArchiveBinding
+  alias ServiceRadar.Camera.LocalPublicationIntent
+  alias ServiceRadar.Camera.LocalPublicationIntents
   alias ServiceRadar.Camera.RecorderOwnership
   alias ServiceRadar.Camera.RecordingBlock
   alias ServiceRadar.Camera.RecordingBlocks
@@ -37,6 +39,107 @@ defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
 
     {:ok, block} = RecorderOwnership.reserve_block(owner, claim, @clock, ctx.opts)
     Map.merge(ctx, %{owner: owner, claim: claim, block: block, relay: relay})
+  end
+
+  test "local intent acknowledgement binds frozen history without granting availability", ctx do
+    operation = Ecto.UUID.generate()
+    bytes = local_intent(ctx.block, operation)
+    assert {:error, :recording_block_unfrozen} = LocalPublicationIntents.accept(bytes, ctx.opts)
+    assert {:ok, frozen} = freeze(ctx, descriptor(ctx.block))
+    assert {:error, _} = LocalPublicationIntents.accept(bytes, actor: %{role: :viewer})
+
+    for altered <- [
+          %{ctx.block | storage_id: Ecto.UUID.generate()},
+          %{ctx.block | clock: Map.put(@clock, "clock_epoch", "substituted-clock")}
+        ] do
+      assert {:error, :local_publication_authority_mismatch} =
+               LocalPublicationIntents.accept(local_intent(altered, operation), ctx.opts)
+    end
+
+    assert {:ok, :released} = RecorderOwnership.release(ctx.owner, ctx.claim, ctx.opts)
+
+    assert {:ok, replacement} =
+             RecorderOwnership.acquire(
+               ctx.owner,
+               Ecto.UUID.generate(),
+               ctx.relay.media_ingest_id,
+               Ecto.UUID.generate(),
+               30_000,
+               ctx.opts
+             )
+
+    assert replacement.recorder_epoch > ctx.claim.recorder_epoch
+
+    assert {:ok, ack} = LocalPublicationIntents.accept(bytes, ctx.opts)
+    assert ack.id == operation
+    assert ack.recording_block_id == frozen.id
+    assert ack.storage_id == ctx.claim.storage_id
+    assert ack.intent_sha256 == digest(bytes)
+    assert ack.descriptor_sha256 == frozen.descriptor_sha256
+    assert {:ok, persisted} = Ash.get(LocalPublicationIntent, operation, ctx.opts)
+    assert persisted.inserted_at == ack.inserted_at
+    assert {:ok, retry} = LocalPublicationIntents.accept(bytes, ctx.opts)
+    assert retry.id == ack.id and retry.inserted_at == ack.inserted_at
+    assert {:error, _} = LocalPublicationIntents.accept(bytes, actor: %{role: :viewer})
+
+    assert {:error, :local_publication_intent_conflict} =
+             LocalPublicationIntents.accept(
+               local_intent(ctx.block, Ecto.UUID.generate()),
+               ctx.opts
+             )
+
+    assert {:ok, original} = Ash.get(RecordingBlock, frozen.id, ctx.opts)
+    assert original.state == :sealed
+    assert is_nil(original.archive_binding_id)
+    assert is_nil(original.archive_published_at)
+    assert is_nil(original.upload_token)
+
+    assert {:ok, other} =
+             RecorderOwnership.reserve_block(ctx.owner, replacement, @clock, ctx.opts)
+
+    assert {:ok, other} =
+             RecordingBlocks.freeze(ctx.owner, replacement, other, descriptor(other), ctx.opts)
+
+    assert {:error, :local_publication_intent_conflict} =
+             LocalPublicationIntents.accept(local_intent(other, operation), ctx.opts)
+
+    assert {:ok, unchanged} = Ash.get(LocalPublicationIntent, operation, ctx.opts)
+    assert unchanged.recording_block_id == frozen.id
+  end
+
+  test "competing local operations retain one acknowledgement and exact concurrent retries converge",
+       ctx do
+    assert {:ok, _} = freeze(ctx, descriptor(ctx.block))
+    bytes = for _ <- 1..2, do: local_intent(ctx.block, Ecto.UUID.generate())
+    parent = self()
+
+    tasks =
+      for intent <- bytes do
+        Task.async(fn ->
+          send(parent, :ready)
+          receive do: (:go -> LocalPublicationIntents.accept(intent, ctx.opts))
+        end)
+      end
+
+    for _ <- tasks, do: assert_receive(:ready, 5_000)
+    Enum.each(tasks, &send(&1.pid, :go))
+    results = Enum.map(tasks, &Task.await(&1, 10_000))
+    assert [{:ok, winner}] = Enum.filter(results, &match?({:ok, _}, &1))
+
+    assert [{:error, :local_publication_intent_conflict}] =
+             Enum.filter(results, &match?({:error, _}, &1))
+
+    winning_bytes = Enum.find(bytes, &(Jason.decode!(&1)["operation_id"] == winner.id))
+
+    retries =
+      for _ <- 1..2,
+          do: Task.async(fn -> LocalPublicationIntents.accept(winning_bytes, ctx.opts) end)
+
+    for task <- retries do
+      assert {:ok, receipt} = Task.await(task, 10_000)
+      assert receipt.id == winner.id
+      assert receipt.inserted_at == winner.inserted_at
+    end
   end
 
   test "freeze is immutable, identity-bound and survives recorder replacement", ctx do
@@ -291,6 +394,20 @@ defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
     assert {:ok, persisted} = Ash.get(RecordingBlock, lease.id, ctx.opts)
     assert persisted.archive_binding_id == winner.archive_binding_id
     assert persisted.descriptor_sha256 == lease.descriptor_sha256
+  end
+
+  defp local_intent(block, operation) do
+    descriptor = descriptor(block)
+    {:ok, encoded} = ServiceRadarRecordingMetadata.Descriptor.encode(descriptor)
+
+    {:ok, bytes} =
+      ServiceRadarRecordingMetadata.LocalPublicationIntent.encode(descriptor, block.storage_id, %{
+        operation_id: operation,
+        recording_block_id: block.id,
+        descriptor_sha256: digest(encoded)
+      })
+
+    bytes
   end
 
   defp bind(ctx, lease, binding),

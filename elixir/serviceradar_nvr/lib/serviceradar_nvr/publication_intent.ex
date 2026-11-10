@@ -11,7 +11,7 @@ defmodule ServiceRadarNVR.PublicationIntent do
 
   alias ServiceRadarNVR.Blocks
   alias ServiceRadarRecording.Storage
-  alias ServiceRadarRecordingMetadata.CanonicalJSON
+  alias ServiceRadarRecordingMetadata.LocalPublicationIntent
 
   @filename "publication.json"
   @max_bytes 65_536
@@ -26,7 +26,7 @@ defmodule ServiceRadarNVR.PublicationIntent do
   def inspect(storage, block_id, limits) do
     with :ok <- valid_block_id(block_id),
          {:ok, bytes} <- read(storage, block_id),
-         {:ok, document} when is_map(document) <- Jason.decode(bytes),
+         {:ok, document} <- LocalPublicationIntent.decode(bytes),
          reference = %{
            operation_id: document["operation_id"],
            recording_block_id: document["recording_block_id"],
@@ -64,35 +64,12 @@ defmodule ServiceRadarNVR.PublicationIntent do
   end
 
   defp encode(storage, block_id, reference, limits) do
-    with :ok <- valid_reference(reference),
-         {:ok, snapshot} <- Blocks.inspect(storage, block_id, limits),
+    with {:ok, snapshot} <- Blocks.inspect(storage, block_id, limits),
          {:ok, descriptor} <- Blocks.descriptor(snapshot),
-         true <- digest(descriptor) == reference.descriptor_sha256 || {:error, :descriptor_digest_mismatch},
-         {:ok, document} <- Jason.decode(descriptor),
-         {:ok, bytes} <-
-           CanonicalJSON.encode(%{
-             "version" => 1,
-             "storage_id" => storage.id,
-             "block_id" => block_id,
-             "operation_id" => reference.operation_id,
-             "recording_block_id" => reference.recording_block_id,
-             "descriptor_sha256" => reference.descriptor_sha256,
-             "descriptor" => document
-           }),
-         true <- byte_size(bytes) <= @max_bytes || {:error, :publication_intent_too_large} do
-      {:ok, bytes}
+         {:ok, document} <- Jason.decode(descriptor) do
+      LocalPublicationIntent.encode(document, storage.id, reference)
     end
   end
-
-  defp valid_reference(%{operation_id: operation, recording_block_id: block, descriptor_sha256: sha} = reference)
-       when map_size(reference) == 3 and is_binary(sha) and byte_size(sha) == 64 do
-    if Ecto.UUID.cast(operation) == {:ok, operation} and Ecto.UUID.cast(block) == {:ok, block} and
-         Regex.match?(~r/\A[0-9a-f]{64}\z/, sha),
-       do: :ok,
-       else: {:error, :invalid_publication_reference}
-  end
-
-  defp valid_reference(_), do: {:error, :invalid_publication_reference}
 
   defp valid_block_id(id) when is_binary(id) do
     if Regex.match?(~r/\A[0-9a-f]{64}\z/, id), do: :ok, else: {:error, :invalid_block_id}
@@ -142,7 +119,6 @@ defmodule ServiceRadarNVR.PublicationIntent do
   end
 
   defp path(storage, block_id), do: Path.join([storage.root, block_id, @filename])
-  defp digest(bytes), do: Base.encode16(:crypto.hash(:sha256, bytes), case: :lower)
 
   defp with_file(path, modes, fun) do
     case :file.open(String.to_charlist(path), [:raw, :binary | modes]) do

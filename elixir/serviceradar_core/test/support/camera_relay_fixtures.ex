@@ -169,6 +169,19 @@ defmodule ServiceRadar.Test.CameraRelayFixtures do
   defp cleanup(source_id) do
     id = Ecto.UUID.dump!(source_id)
 
+    Repo.query!(
+      "DELETE FROM platform.camera_local_publication_intents WHERE recording_block_id IN " <>
+        "(SELECT id FROM platform.camera_recording_blocks WHERE camera_source_id = $1)",
+      [id]
+    )
+
+    assert %{rows: [[0]]} =
+             Repo.query!(
+               "SELECT count(*) FROM platform.camera_local_publication_intents WHERE recording_block_id IN " <>
+                 "(SELECT id FROM platform.camera_recording_blocks WHERE camera_source_id = $1)",
+               [id]
+             )
+
     Repo.query!("DELETE FROM platform.camera_recording_blocks WHERE camera_source_id = $1", [id])
 
     Repo.query!(

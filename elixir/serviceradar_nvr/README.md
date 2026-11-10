@@ -113,10 +113,22 @@ physical free-space floor intact; retained intent bytes count toward future
 admission. Exact retries require no additional byte budget. This explicit idle
 operation is a recovery checkpoint, not publication concurrent with continuous
 capture. Separately reserved control capacity, authenticated authority delivery,
-Core catalog registration/acknowledgement, durable delivery scheduling and
+qualified local-copy catalog registration, durable delivery scheduling and
 preservation/disposition state remain open under the
 [local publication contract](../../openspec/changes/add-scalable-camera-recording-plane/local-publication.md).
 No recording is advertised or media deleted by either API.
+
+Core now exposes the trusted in-process
+`ServiceRadar.Camera.LocalPublicationIntents.accept(bytes, opts)` boundary. It
+validates the shared v1 codec and locks the original frozen block to match its
+storage UUID, block key, descriptor and digest. It durably stores one immutable
+intent acknowledgement per block, using the supplied operation UUID as its ID.
+Exact retries return the original ID and timestamp; conflicting operations are
+refused. Recorder release/replacement does not revoke frozen history or permit
+adoption of an unfrozen block. The acknowledgement is metadata reconciliation
+only: it neither qualifies storage nor registers an available local copy, and it
+does not set archive publication fields. Authenticated NVR delivery and local
+acknowledgement persistence are not wired yet.
 
 ## Descriptor-bound local media reads
 
