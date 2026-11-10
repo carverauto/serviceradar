@@ -1,6 +1,6 @@
 defmodule ServiceRadarNVR.Delivery do
   @moduledoc """
-  Explicit delivery of one retained intent. One task, three attempts, thirty seconds.
+  Delivery of one retained intent or one recovery-page entry. One task, three attempts, thirty seconds.
 
   The worker owns its deadline even after caller loss. Acceptance is an unknown
   outcome after a timeout; retry the retained operation, never mint a replacement.
@@ -15,30 +15,71 @@ defmodule ServiceRadarNVR.Delivery do
   @timeout 30_000
 
   def run(block_id) do
-    reply = :erlang.alias([:reply])
-
-    try do
-      case Task.Supervisor.start_child(ServiceRadarNVR.DeliveryTasks, fn -> execute(reply, block_id) end) do
-        {:ok, pid} -> await(pid, reply)
-        {:error, :max_children} -> {:error, :nvr_delivery_capacity}
-        {:error, _} -> {:error, :nvr_delivery_unavailable}
+    with {:ok, pid, reply} <- start(fn -> deliver(block_id) end) do
+      try do
+        await(pid, reply)
+      after
+        :erlang.unalias(reply)
       end
-    catch
-      :exit, _ -> {:error, :nvr_delivery_unavailable}
-    after
-      :erlang.unalias(reply)
     end
   end
 
-  defp execute(reply, block_id) do
+  @doc false
+  def start_pending(cursor), do: start(fn -> pending(cursor) end)
+
+  defp start(operation) do
+    reply = :erlang.alias([:reply])
+
+    result =
+      try do
+        Task.Supervisor.start_child(ServiceRadarNVR.DeliveryTasks, fn -> execute(reply, operation) end)
+      catch
+        :exit, _ -> {:error, :unavailable}
+      end
+
+    case result do
+      {:ok, pid} ->
+        {:ok, pid, reply}
+
+      {:error, reason} ->
+        :erlang.unalias(reply)
+        error = if reason == :max_children, do: :nvr_delivery_capacity, else: :nvr_delivery_unavailable
+        {:error, error}
+    end
+  end
+
+  defp execute(reply, operation) do
     {:ok, timer} = :timer.exit_after(@timeout, {:shutdown, :nvr_delivery_timeout})
 
     try do
-      send(reply, {reply, deliver(block_id)})
+      send(reply, {reply, operation.()})
     after
       :timer.cancel(timer)
     end
   end
+
+  defp pending(cursor) do
+    with {:ok, page} <- ServiceRadarNVR.publication_page(cursor, 1) do
+      {block_id, outcome} = visit(page.entries)
+      {:ok, %{next_cursor: page.next_cursor, block_id: block_id, outcome: outcome}}
+    end
+  end
+
+  defp visit([]), do: {nil, :empty}
+
+  defp visit([%{state: :pending, block_id: block_id}]) do
+    outcome =
+      case deliver(block_id) do
+        {:ok, _ack} -> :delivered
+        {:error, _} = error -> error
+      end
+
+    {block_id, outcome}
+  end
+
+  defp visit([%{state: :unresolved, block_id: block_id, reason: reason}]), do: {block_id, {:unresolved, reason}}
+
+  defp visit([%{state: state, block_id: block_id}]), do: {block_id, state}
 
   defp deliver(block_id) do
     with {:ok, config} <- Capacity.delivery_config(),

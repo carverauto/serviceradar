@@ -273,6 +273,17 @@ restart, caller loss, socket retirement and concurrent capture. Automatic pendin
 intent scheduling, local-copy catalog publication and physical storage
 qualification remain open. Tasks 3.2 and 3.3 are not complete.
 
+Pending-intent scheduling checkpoint for 3.2/3.3: an opt-in standalone NVR
+coordinator walks one verified recovery entry per step using the existing single
+delivery slot and worker deadline. Failed deliveries advance to later work and
+retry the original intent on subsequent scans; unresolved and unprepared evidence
+is preserved. Cursors and bounded status reset after restart, and admission/scan/
+delivery errors receive capped jittered backoff. Release tests cover fairness,
+retained acknowledgement skips, coordinator loss, VM loss and retry backoff.
+Large-backlog catch-up throughput, automatic authority creation, local-copy
+catalog completion and physical storage qualification remain open. Tasks 3.2 and
+3.3 are not complete.
+
 Authenticated receiver checkpoint for 3.2/3.3: an opt-in private web-ng HTTPS
 listener binds installed client certificate fingerprints to original storage
 lifetimes, checks a dedicated bearer token and derives its own system actor.

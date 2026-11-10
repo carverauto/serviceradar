@@ -78,7 +78,7 @@ class NVRReleaseTest(unittest.TestCase):
                 body = self.rfile.read(int(self.headers["content-length"]))
                 requests.append((self.path, self.headers.get("authorization"), body,
                                  hashlib.sha256(self.connection.getpeercert(binary_form=True)).digest()))
-                action = actions.pop(0) if actions else 200
+                action = actions(body) if callable(actions) else actions.pop(0) if actions else 200
                 if action == "drop":
                     self.close_connection = True
                     return
@@ -144,6 +144,115 @@ class NVRReleaseTest(unittest.TestCase):
         self.run_probe("publication_prepare")
         self.env["NVR_TEST_BLOCK_ID"] = block.name
         return block
+
+    def start_scheduler(self):
+        self.env["SERVICERADAR_NVR_PUBLICATION_AUTO_DELIVERY"] = "true"
+        status = self.root / "scheduler-status.json"
+        status.unlink(missing_ok=True)
+        log = open(self.root / "scheduler.log", "ab")
+        self.addCleanup(log.close)
+        proc = subprocess.Popen([self.binary, "eval", f'Code.require_file("{self.probe}")'],
+                                env=self.env | {"NVR_TEST_MODE": "scheduler_watch"},
+                                stdout=log, stderr=subprocess.STDOUT)
+
+        def stop():
+            if proc.poll() is None:
+                proc.terminate()
+            proc.wait(timeout=15)
+        self.addCleanup(stop)
+        return proc
+
+    def wait_scheduler(self, proc, condition, timeout=20):
+        deadline = time.monotonic() + timeout
+        status = None
+        while time.monotonic() < deadline:
+            if proc.poll() is not None:
+                self.fail((self.root / "scheduler.log").read_text())
+            path = self.root / "scheduler-status.json"
+            if path.exists():
+                status = json.loads(path.read_text())
+                if condition(status):
+                    return status
+            time.sleep(0.05)
+        self.fail(f"scheduler condition timed out; last status: {status}")
+
+    def test_scheduler_advances_past_failed_intents_and_preserves_other_states(self):
+        self.make_media(510)
+        self.run_probe("rotation")
+        self.run_probe("publication_page_setup")
+        first, second, damaged = sorted(p for p in self.spool.iterdir() if p.is_dir())
+        (second / "publication-ack.json").unlink()
+        (damaged / "publication.json").write_bytes(b"partial")
+        unprepared = self.spool / ("f" * 64)
+        unprepared.mkdir(mode=0o700)
+        evidence = {p: p.read_bytes() for p in self.spool.rglob("*") if p.is_file()}
+
+        # The first intent is refused until a later block is acknowledged. A
+        # coordinator that pins its cursor on error can never satisfy this.
+        def response(body):
+            if body == (first / "publication.json").read_bytes() and not (second / "publication-ack.json").exists():
+                return 409
+            return 200
+
+        requests, _, _, _ = self.publication_server(response)
+        proc = self.start_scheduler()
+        self.wait_scheduler(proc, lambda s: s["delivered"] == 2 and s["steps"] >= 8)
+        self.assertEqual([r[2] for r in requests], [(first / "publication.json").read_bytes(),
+                                                  (second / "publication.json").read_bytes(),
+                                                  (first / "publication.json").read_bytes()])
+        for block in [first, second]:
+            intent = (block / "publication.json").read_bytes()
+            self.assertEqual(json.loads((block / "publication-ack.json").read_bytes()), {
+                "version": 1, "kind": "intent_accepted", "operation_id": json.loads(intent)["operation_id"],
+                "intent_sha256": hashlib.sha256(intent).hexdigest()})
+        self.assertEqual({p: p.read_bytes() for p in evidence}, evidence)
+        self.assertEqual(list(unprepared.iterdir()), [])
+        self.assertFalse((damaged / "publication-ack.json").exists())
+        proc.terminate()
+        proc.wait(timeout=15)
+        restarted = self.start_scheduler()
+        self.wait_scheduler(restarted, lambda s: s["steps"] >= 4)
+        self.assertEqual(len(requests), 3, "restart redelivered an accepted or unresolved item")
+
+    def test_scheduler_restart_keeps_one_admitted_worker(self):
+        block = self.delivery_block()
+
+        def response(_body):
+            (self.root / "request-started").touch()
+            deadline = time.monotonic() + 4
+            while time.monotonic() < deadline:
+                if (self.root / "scheduler-restarted").exists():
+                    return 200
+                time.sleep(0.02)
+            return 503
+
+        requests, _, _, _ = self.publication_server(response)
+        self.env["SERVICERADAR_NVR_PUBLICATION_AUTO_DELIVERY"] = "true"
+        self.run_probe("scheduler_restart")
+        self.assertTrue((self.root / "scheduler-restarted").exists())
+        self.assertTrue((block / "publication-ack.json").exists())
+        self.assertEqual(len(requests), 1, "coordinator loss duplicated an admitted delivery")
+
+    def test_scheduler_backs_off_and_recovers_retained_intent_after_vm_loss(self):
+        block = self.delivery_block()
+        intent = (block / "publication.json").read_bytes()
+        actions = [409, 409, "stall"]
+        requests, _, _, closed = self.publication_server(actions)
+        proc = self.start_scheduler()
+        status = self.wait_scheduler(proc, lambda s: s["failures"] == 2)
+        self.assertGreaterEqual(status["delay_ms"], 4000)
+        self.assertLess(status["delay_ms"], 5000)
+        self.assertEqual(len(requests), 2)
+        self.wait_scheduler(proc, lambda s: (self.root / "request-started").exists())
+        self.assertFalse((block / "publication-ack.json").exists())
+        proc.kill()
+        proc.wait(timeout=15)
+        self.assertTrue(closed.wait(2), "VM loss retained a TLS connection")
+        restarted = self.start_scheduler()
+        self.wait_scheduler(restarted, lambda s: s["delivered"] == 1 and s["steps"] >= 2)
+        self.assertEqual([r[2] for r in requests], [intent] * 4)
+        self.assertEqual((block / "publication.json").read_bytes(), intent)
+        self.assertTrue((block / "publication-ack.json").exists())
 
     def test_delivery_retries_identical_intent_over_mtls_and_retains_ack_after_restart(self):
         block = self.delivery_block()
@@ -752,6 +861,8 @@ class NVRReleaseTest(unittest.TestCase):
         settings += [({"SERVICERADAR_NVR_PUBLICATION_CONFIG_FILE": str(malformed)}, b"invalid_nvr_delivery_config"),
                      ({"SERVICERADAR_NVR_PUBLICATION_CONFIG_FILE": str(malformed),
                        "SERVICERADAR_NVR_PUBLICATION_TOKEN_FILE": str(malformed)}, b"invalid_nvr_delivery_config")]
+        settings += [({"SERVICERADAR_NVR_PUBLICATION_AUTO_DELIVERY": value}, b"invalid_nvr_auto_delivery_config")
+                     for value in ["true", "yes"]]
         for setting, error in settings:
             with self.subTest(setting=setting):
                 env = self.env | setting

@@ -42,7 +42,60 @@ case System.fetch_env!("NVR_TEST_MODE") do
       )
     end
 
+  "scheduler_watch" ->
+    path = Path.join(System.fetch_env!("TMPDIR"), "scheduler-status.json")
+
+    fn ->
+      {:ok, status} = ServiceRadarNVR.publication_delivery_status()
+      status = Map.update!(status, :last_result, &inspect/1)
+      File.write!(path <> ".tmp", Jason.encode!(status))
+      File.rename!(path <> ".tmp", path)
+      Process.sleep(100)
+    end
+    |> Stream.repeatedly()
+    |> Stream.run()
+
+  "scheduler_restart" ->
+    directory = System.fetch_env!("TMPDIR")
+
+    wait = fn condition ->
+      true =
+        Enum.reduce_while(1..200, false, fn _, _ ->
+          if condition.(),
+            do: {:halt, true},
+            else:
+              (
+                Process.sleep(50)
+                {:cont, false}
+              )
+        end)
+    end
+
+    wait.(fn -> File.exists?(Path.join(directory, "request-started")) end)
+    coordinator = Process.whereis(ServiceRadarNVR.PublicationScheduler)
+    capacity = Process.whereis(Capacity)
+    Process.exit(coordinator, :kill)
+
+    wait.(fn ->
+      case ServiceRadarNVR.publication_delivery_status() do
+        {:ok, %{last_result: {:error, :nvr_delivery_capacity}, active?: false}} -> true
+        _ -> false
+      end
+    end)
+
+    ^capacity = Process.whereis(Capacity)
+    true = Process.whereis(ServiceRadarNVR.PublicationScheduler) != coordinator
+    File.write!(Path.join(directory, "scheduler-restarted"), "ready")
+    block_id = System.fetch_env!("NVR_TEST_BLOCK_ID")
+    wait.(fn -> File.exists?(Path.join([root, block_id, "publication-ack.json"])) end)
+
+    wait.(fn ->
+      {:ok, status} = ServiceRadarNVR.publication_delivery_status()
+      status.steps >= 2 and status.failures == 0
+    end)
+
   "delivery" ->
+    {:error, :nvr_scheduler_unavailable} = ServiceRadarNVR.publication_delivery_status()
     result = ServiceRadarNVR.deliver_publication(System.fetch_env!("NVR_TEST_BLOCK_ID"))
 
     bytes =
