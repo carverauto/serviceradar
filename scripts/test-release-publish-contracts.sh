@@ -1123,4 +1123,43 @@ fi
   [[ "$(cosign_retry_delay_seconds 5 3)" == "20" ]]
 )
 
+# 6. Rekor 409 on blob signing fails instead of producing an unlogged signature.
+blob_test_dir="${tmp_dir}/sign-blob-conflict"
+mkdir -p "${blob_test_dir}/bin"
+cat > "${blob_test_dir}/bin/cosign" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-}" in
+  sign-blob)
+    if [[ "$*" == *"--tlog-upload=false"* || "$*" == *"--signing-config"* ]]; then
+      touch "${FAKE_COSIGN_STATE_DIR}/unlogged-sign-blob-called"
+      exit 0
+    fi
+    echo 'Error: signing blob: [POST /api/v1/log/entries][409] createLogEntryConflict {"code":409,"message":"an equivalent entry already exists in the transparency log"}' >&2
+    exit 1
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+EOF
+chmod +x "${blob_test_dir}/bin/cosign"
+printf 'payload\n' > "${blob_test_dir}/payload"
+if PATH="${blob_test_dir}/bin:${PATH}" \
+  FAKE_COSIGN_STATE_DIR="${blob_test_dir}" \
+  COSIGN_SIGN_MAX_ATTEMPTS=3 \
+  COSIGN_SIGN_RETRY_DELAY_SECONDS=0 \
+  bash -c '
+    source "$1/scripts/cosign_common.sh"
+    COSIGN_SIGN_ARGS=()
+    cosign_sign_blob_to_files "$2/payload" "$2/bundle" "$2/sig" "$2/stdout" true
+  ' _ "${repo_root}" "${blob_test_dir}" >"${blob_test_dir}/out" 2>&1; then
+  echo "cosign_sign_blob_to_files reported success after a Rekor 409" >&2
+  exit 1
+fi
+if [[ -f "${blob_test_dir}/unlogged-sign-blob-called" ]]; then
+  echo "cosign_sign_blob_to_files fell back to an unlogged blob signature after a Rekor 409" >&2
+  exit 1
+fi
+
 echo "release publish contracts verified"

@@ -483,21 +483,10 @@ cosign_verify_existing_signature() {
     return 1
   fi
 
-  if cosign verify \
+  cosign verify \
     --experimental-oci11 \
     "${COSIGN_VERIFY_ARGS[@]}" \
-    "${ref}" >/dev/null; then
-    return 0
-  fi
-
-  if [[ "${COSIGN_ALLOW_LEGACY_VERIFY:-true}" == "true" ]]; then
-    cosign verify \
-      "${COSIGN_VERIFY_ARGS[@]}" \
-      "${ref}" >/dev/null
-    return $?
-  fi
-
-  return 1
+    "${ref}" >/dev/null
 }
 
 cosign_sign_ref() {
@@ -549,28 +538,6 @@ cosign_sign_blob_to_files() {
     else
       status=$?
       cat "${stderr_file}" >&2
-    fi
-
-    if [[ "${requested_tlog_upload}" != "false" ]] && cosign_log_has_tlog_conflict "${stderr_file}"; then
-      echo "warning: transparency log already contains an equivalent blob entry; retrying without transparency log upload" >&2
-      : >"${stderr_file}"
-      : >"${signature_file}"
-      : >"${bundle_file}"
-      : >"${stdout_file}"
-      cosign_init_tlog_args false
-      if cosign sign-blob \
-        --yes \
-        "${COSIGN_TLOG_ARGS[@]}" \
-        "${COSIGN_SIGN_ARGS[@]}" \
-        --bundle "${bundle_file}" \
-        --output-signature "${signature_file}" \
-        "${payload_file}" >"${stdout_file}" 2>"${stderr_file}"; then
-        cat "${stderr_file}" >&2
-        return 0
-      else
-        status=$?
-        cat "${stderr_file}" >&2
-      fi
     fi
 
     if ((attempt < max_attempts)) && cosign_log_has_transient_tlog_error "${stderr_file}"; then
