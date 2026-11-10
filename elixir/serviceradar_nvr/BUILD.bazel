@@ -41,6 +41,7 @@ NVR_DEPS = [
     "@hexpm//:plug",
     "@hexpm//:ecto",
     "@hexpm//:jason",
+    "@hexpm//:mint",
     "@rules_elixir//elixir",
 ]
 
@@ -69,6 +70,8 @@ elixir_release(
 py_test(
     name = "release_test",
     size = "medium",
+    # Fresh release VMs and real deadline tests exceed the five-minute default.
+    timeout = "long",
     srcs = ["test/release_test.py"],
     data = [
         "test/release_probe.exs",

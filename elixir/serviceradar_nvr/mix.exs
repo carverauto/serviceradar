@@ -25,6 +25,7 @@ defmodule ServiceRadarNVR.MixProject do
       {:serviceradar_recording, path: "../serviceradar_recording"},
       {:ecto, "~> 3.14"},
       {:bandit, "~> 1.8"},
+      {:mint, "~> 1.11"},
       {:plug, "~> 1.18"},
       {:credo, "~> 1.7", runtime: false},
       {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},
