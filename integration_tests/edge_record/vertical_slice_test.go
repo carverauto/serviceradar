@@ -269,6 +269,10 @@ type harness struct {
 
 	groupAFixture *FixtureRecord
 	groupAReceipt spool.Receipt
+	// groupAStoredBytes is the body JetStream stored for Group A's record,
+	// read while EventWriter held that delivery committed but unacknowledged
+	// (the WorkQueue source stream removes it once acknowledged).
+	groupAStoredBytes []byte
 	// Set only after the outage proves this exact generation/slot remains readable.
 	withheldFixture *FixtureRecord
 	withheldReceipt spool.Receipt
@@ -644,6 +648,11 @@ func (h *harness) testGroupA(t *testing.T) {
 		t.Fatalf("event_ledger row already present before send (count=%d) -- fixture ids not fresh", n)
 	}
 
+	// Hold the delivery after its transaction commits and before EventWriter
+	// acknowledges it, so Group B can compare the stored body: the WorkQueue
+	// source stream removes the message once acknowledged.
+	h.armIngestProbe(t, fx.EventID, probeTransactionResult, 1, probeHold)
+
 	receipt := h.appendAgentSpool(t, fx)
 	seq := receipt.Sequence
 	h.groupAReceipt = receipt
@@ -669,6 +678,10 @@ func (h *harness) testGroupA(t *testing.T) {
 			pollTimeout, lastCount,
 			h.preservedLogName(h.agent.stderrPath), h.preservedLogName(h.gwProc.stderrPath), h.preservedLogName(h.coreProc.stderrPath))
 	}
+
+	h.waitIngestObservation(t, fx.EventID, probeTransactionResult, 1)
+	h.groupAStoredBytes = h.onlyStoredMessage(t)
+	h.releaseIngestProbe(t, fx.EventID, probeTransactionResult, 1)
 
 	h.assertCommittedFixtureValues(t, fx, h.spoolID, seq)
 
@@ -839,8 +852,9 @@ func (h *harness) testMismatchedIdentityControl(t *testing.T, fx *FixtureRecord)
 // Group B: exact bytes.
 //
 // Proves: the exact bytes Group A handed to RecordSpool.AppendPrepared equal the exact
-// bytes fetched independently through the JetStream consumer for the SAME
-// committed record. The agent's sender read the record back through the
+// bytes JetStream stored for the SAME committed record, read independently
+// over a fresh NATS connection while EventWriter held that delivery
+// committed but unacknowledged (see testGroupA). The agent's sender read the record back through the
 // spool's public read path to send it, and the sender reclaims a record
 // once its acceptance is persisted, so the JetStream copy is what that read
 // returned: a verbatim match proves the spool stored and read it unchanged.
@@ -851,42 +865,11 @@ func (h *harness) testGroupB(t *testing.T) {
 		t.Skip("Group A fixture unavailable")
 	}
 
-	// The JetStream consumer, independently, over a fresh NATS
-	// client connection using the same real .creds file the gateway/core
-	// releases authenticate with.
-	nc, err := nats.Connect(h.nats.URL, nats.UserCredentials(h.nats.CredsPath))
-	if err != nil {
-		t.Fatalf("connect to nats for group B read: %v", err)
+	if h.groupAStoredBytes == nil {
+		t.Fatal("Group A did not read its stored JetStream message")
 	}
-	defer nc.Close()
-
-	js, err := jetstream.New(nc)
-	if err != nil {
-		t.Fatalf("jetstream context: %v", err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout)
-	defer cancel()
-
-	stream, err := js.Stream(ctx, edgeRecordStreamName)
-	if err != nil {
-		t.Fatalf("open stream %s: %v (has the gateway published anything yet?)", edgeRecordStreamName, err)
-	}
-	info, err := stream.Info(ctx)
-	if err != nil {
-		t.Fatalf("stream info: %v", err)
-	}
-	if info.State.Msgs == 0 {
-		t.Fatalf("stream %s has zero messages; Group A's publish did not land", edgeRecordStreamName)
-	}
-
-	raw, err := stream.GetMsg(ctx, info.State.FirstSeq)
-	if err != nil {
-		t.Fatalf("get first stored message (seq %d): %v", info.State.FirstSeq, err)
-	}
-
-	if !bytes.Equal(fx.RecordBytes, raw.Data) {
-		t.Errorf("appended bytes and JetStream-read bytes differ: appended=%d bytes, jetstream=%d bytes", len(fx.RecordBytes), len(raw.Data))
+	if !bytes.Equal(fx.RecordBytes, h.groupAStoredBytes) {
+		t.Errorf("appended bytes and JetStream-read bytes differ: appended=%d bytes, jetstream=%d bytes", len(fx.RecordBytes), len(h.groupAStoredBytes))
 	}
 }
 
@@ -904,9 +887,10 @@ func (h *harness) testGroupB(t *testing.T) {
 //     production pipeline NAKs the message, and JetStream redelivers the SAME
 //     stored message to the SAME durable consumer. That second entry into the
 //     ledger path must report :replay and leave the snapshot unchanged. The
-//     stream holds exactly one message carrying the fixture's bytes before
-//     and after, so the second entry is a consumer redelivery, not a
-//     publish-time duplicate.
+//     stream holds exactly one message carrying the fixture's bytes while
+//     the first delivery is held, and after the replay is acknowledged the
+//     WorkQueue stream has removed it with no later sequence stored, so the
+//     second entry is a consumer redelivery, not a publish-time duplicate.
 //  2. Conflict. A second valid frame reusing the agent's (spool_id, sequence)
 //     delivery slot with different record content is sent over a new real
 //     gRPC session. The gateway accepts it: its PubAck is durable, and
@@ -963,7 +947,7 @@ func (h *harness) testGroupC(t *testing.T) {
 			t.Fatalf("first-commit snapshot = %+v, want %+v", firstCommit, want)
 		}
 		h.assertCommittedFixtureValues(t, fxC, spoolID, 1)
-		h.requireOneStoredMessage(t, fxC.RecordBytes)
+		storedSeq := h.requireOneStoredMessage(t, fxC.RecordBytes)
 
 		h.releaseIngestProbe(t, fxC.EventID, probeTransactionResult, 1)
 
@@ -977,7 +961,7 @@ func (h *harness) testGroupC(t *testing.T) {
 			t.Errorf("second-delivery snapshot = %+v, want the first-commit snapshot %+v", secondDelivery, firstCommit)
 		}
 		h.assertCommittedFixtureValues(t, fxC, spoolID, 1)
-		h.requireOneStoredMessage(t, fxC.RecordBytes)
+		h.requireConsumedWithoutRepublish(t, storedSeq)
 	})
 
 	t.Run("Conflict", func(t *testing.T) {
@@ -1178,7 +1162,9 @@ func (h *harness) storedMessagesCarrying(t *testing.T, recordBytes []byte) []uin
 }
 
 // requireOneStoredMessage fails t unless exactly one stored message carries
-// recordBytes, and returns its stream sequence.
+// recordBytes, and returns its stream sequence. The source stream is a
+// WorkQueue, so call it only while EventWriter has not acknowledged that
+// record (an ingest probe hold, or a delivery that failed before its ack).
 func (h *harness) requireOneStoredMessage(t *testing.T, recordBytes []byte) uint64 {
 	t.Helper()
 	seqs := h.storedMessagesCarrying(t, recordBytes)
@@ -1187,6 +1173,87 @@ func (h *harness) requireOneStoredMessage(t *testing.T, recordBytes []byte) uint
 			edgeRecordStreamName, len(seqs), seqs)
 	}
 	return seqs[0]
+}
+
+// onlyStoredMessage fails t unless the edge-record stream stores exactly one
+// message, and returns that message's body as JetStream stored it.
+func (h *harness) onlyStoredMessage(t *testing.T) []byte {
+	t.Helper()
+	stream, err := h.edgeRecordStream(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout)
+	defer cancel()
+
+	info, err := stream.Info(ctx)
+	if err != nil {
+		t.Fatalf("stream info: %v", err)
+	}
+	if info.State.Msgs != 1 {
+		t.Fatalf("stream %s stores %d messages, want exactly the held record", edgeRecordStreamName, info.State.Msgs)
+	}
+	raw, err := stream.GetMsg(ctx, info.State.FirstSeq)
+	if err != nil {
+		t.Fatalf("get stored message (seq %d): %v", info.State.FirstSeq, err)
+	}
+	return raw.Data
+}
+
+// edgeRecordLastSeq returns the edge-record stream's last assigned sequence.
+// It counts every stored publication, including ones the WorkQueue retention
+// already removed after EventWriter acknowledged them.
+func (h *harness) edgeRecordLastSeq(t *testing.T) uint64 {
+	t.Helper()
+	stream, err := h.edgeRecordStream(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout)
+	defer cancel()
+
+	info, err := stream.Info(ctx)
+	if err != nil {
+		t.Fatalf("stream info: %v", err)
+	}
+	return info.State.LastSeq
+}
+
+// requireConsumedWithoutRepublish waits until EventWriter's durable has
+// acknowledged storedSeq and the WorkQueue stream has removed it, then fails t
+// if any publication was stored after it: a later sequence would be a
+// replacement publication rather than a redelivery of the stored one.
+func (h *harness) requireConsumedWithoutRepublish(t *testing.T, storedSeq uint64) {
+	t.Helper()
+	stream, err := h.edgeRecordStream(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(pollTimeout)
+	for {
+		floor := h.edgeRecordAckFloor(t)
+		ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout)
+		_, getErr := stream.GetMsg(ctx, storedSeq)
+		cancel()
+		if getErr != nil && !errors.Is(getErr, jetstream.ErrMsgNotFound) {
+			t.Fatalf("get stored message %d: %v", storedSeq, getErr)
+		}
+		removed := errors.Is(getErr, jetstream.ErrMsgNotFound)
+		if floor >= storedSeq && removed {
+			break
+		}
+		if !time.Now().Before(deadline) {
+			t.Fatalf("stream sequence %d was not acknowledged and removed within %s (durable ack floor %d, still stored %t)",
+				storedSeq, pollTimeout, floor, !removed)
+		}
+		time.Sleep(pollInterval)
+	}
+
+	if last := h.edgeRecordLastSeq(t); last != storedSeq {
+		t.Errorf("stream %s last sequence is %d, want %d: a publication was stored after the redelivered record",
+			edgeRecordStreamName, last, storedSeq)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -1648,19 +1715,7 @@ func (h *harness) testGroupD(t *testing.T) {
 			t.Fatalf("fixture was not redelivered/processed after core restarted (count=%d)", n)
 		}
 		h.assertSweepDomain(t, fx4)
-		if seq := h.requireOneStoredMessage(t, fx4.RecordBytes); seq != storedSeq {
-			t.Errorf("fixture is stored at sequence %d after the restart, want the original %d: a replacement publication committed instead of the redelivery", seq, storedSeq)
-		}
-
-		deadline := time.Now().Add(pollTimeout)
-		floor := h.edgeRecordAckFloor(t)
-		for floor < storedSeq && time.Now().Before(deadline) {
-			time.Sleep(pollInterval)
-			floor = h.edgeRecordAckFloor(t)
-		}
-		if floor < storedSeq {
-			t.Errorf("durable ack floor %d never reached stream sequence %d within %s after the redelivery committed", floor, storedSeq, pollTimeout)
-		}
+		h.requireConsumedWithoutRepublish(t, storedSeq)
 	})
 
 	t.Run("PositiveAckResolvesAndReclaimsSpool", func(t *testing.T) {
@@ -1725,7 +1780,9 @@ func (h *harness) testGroupD(t *testing.T) {
 // agent's own check of the spool-ID/session-nonce binding and the cumulative
 // watermark window. Each ack must resolve exactly through its frame's
 // sequence as ACCEPTED_AUTHORITATIVE, and the record must already be stored
-// in JetStream when the ack arrives.
+// in JetStream when the ack arrives. EventWriter's first delivery of each
+// record is held before commit, so the WorkQueue stream cannot have removed
+// it yet when the check runs.
 func (h *harness) assertCumulativeDeliveryAck(t *testing.T) {
 	t.Helper()
 
@@ -1800,6 +1857,7 @@ func (h *harness) assertCumulativeDeliveryAck(t *testing.T) {
 	h.prepareFixture(t, second)
 	for i, fxN := range []*FixtureRecord{first, second} {
 		seq := uint64(i + 1)
+		h.armIngestProbe(t, fxN.EventID, probeBeforeCommit, 1, probeHold)
 		frame := &edgev1.EdgeDeliveryFrameV1{
 			SpoolId:      spoolID,
 			Sequence:     seq,
@@ -1823,7 +1881,9 @@ func (h *harness) assertCumulativeDeliveryAck(t *testing.T) {
 		requireAcceptedAck(t, msg, spoolID, seq)
 		sess.ResolvedThrough = msg.GetAck().GetResolvedThroughSequence()
 
+		h.waitIngestObservation(t, fxN.EventID, probeBeforeCommit, 1)
 		h.requireOneStoredMessage(t, fxN.RecordBytes)
+		h.releaseIngestProbe(t, fxN.EventID, probeBeforeCommit, 1)
 	}
 	_ = stream.CloseSend()
 }

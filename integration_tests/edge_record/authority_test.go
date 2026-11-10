@@ -253,10 +253,9 @@ func (h *harness) testLiveAuthorityRevocation(t *testing.T) {
 		t.Fatal("current producer did not commit before revocation")
 	}
 	h.assertSweepDomain(t, fx)
-	beforeMessages := len(h.storedMessagesCarrying(t, fx.RecordBytes))
-	if beforeMessages != 1 {
-		t.Fatalf("expected one accepted publication, got %d", beforeMessages)
-	}
+	// The WorkQueue source stream removes a record once EventWriter
+	// acknowledges it, so publications are counted by stream sequence.
+	beforeSeq := h.edgeRecordLastSeq(t)
 	expr := fmt.Sprintf(`{:ok, 1} = ServiceRadar.SweepJobs.ProducerAssignments.revoke_agents(%q, [%q])`,
 		uuidText(fx.Batch.SweepGroupId), h.certSet.AgentComponentID)
 	if _, err := h.coreProc.RPC(expr, rpcTimeout); err != nil {
@@ -278,7 +277,7 @@ func (h *harness) testLiveAuthorityRevocation(t *testing.T) {
 	if string(disposition.GetEventId()) != string(fx.EventID) {
 		t.Fatal("revocation disposition names the wrong event")
 	}
-	if len(h.storedMessagesCarrying(t, fx.RecordBytes)) != beforeMessages || h.rpcQueryCount(t, eventLedgerExistsSQL(fx.NetworkScopeID, fx.EventID)) != 1 {
+	if h.edgeRecordLastSeq(t) != beforeSeq || h.rpcQueryCount(t, eventLedgerExistsSQL(fx.NetworkScopeID, fx.EventID)) != 1 {
 		t.Fatal("revoked producer record changed the publication or committed event count")
 	}
 	if got := h.rpcQueryRow(t, deliverySlotSQL(fx.NetworkScopeID, []byte(h.certSet.AgentComponentID), spoolID, 1)); got != "NONE" {
