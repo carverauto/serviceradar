@@ -62,6 +62,9 @@ defmodule ServiceRadarWebNGWeb.EdgePipelineComponents do
       "spool_backpressure" ->
         "Spool admission is paused. " <> spool_health(detail)
 
+      "spool_stuck" ->
+        "Spool has unresolved records older than 15 minutes. " <> spool_health(detail)
+
       "spool_health_unavailable" ->
         "Spool health could not be read: #{field(detail, :health_error)}"
 

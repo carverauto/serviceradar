@@ -208,4 +208,142 @@ defmodule ServiceRadar.ClusterHealthEdgePipelineTest do
     assert epochs.error =~ "1000002"
     assert epochs.error =~ "registry_epoch_signature_invalid"
   end
+
+  test "stuck or full agent spools and held dead letters record unhealthy core checks and clear on recovery" do
+    stuck_spool = %{
+      available: true,
+      health_available: true,
+      wedged: false,
+      admission_paused: false,
+      unresolved_count: 5,
+      oldest_unresolved_age_known: true,
+      oldest_unresolved_age_seconds: 901,
+      unresolved_bytes: 4096,
+      bytes_used: 4096,
+      budget_bytes: 1_073_741_824
+    }
+
+    full_spool = %{
+      available: true,
+      health_available: true,
+      wedged: false,
+      admission_paused: true,
+      unresolved_count: 100,
+      oldest_unresolved_age_known: true,
+      oldest_unresolved_age_seconds: 120,
+      unresolved_bytes: 858_993_460,
+      bytes_used: 858_993_460,
+      budget_bytes: 1_073_741_824
+    }
+
+    dlq_consumer = %{
+      subject_class: "edge_record_dlq",
+      stream: "TELEMETRY_EDGE_RECORD_DLQ_V1_BULK",
+      durable: "serviceradar-event-writer-edge-record-dlq",
+      pending: 0,
+      ack_pending: 0,
+      redelivered: 0,
+      stream_messages: 3,
+      sampled_at_ms: 1_000
+    }
+
+    runtime_agents =
+      {:ok,
+       %{
+         "agent-1" => %{active: true, edge_record_spool: stuck_spool},
+         "agent-2" => %{active: true, edge_record_spool: full_spool},
+         "agent-offline" => %{active: false, edge_record_spool: stuck_spool}
+       }}
+
+    section =
+      ClusterHealth.edge_pipeline_status(
+        snapshot(%{consumers: [dlq_consumer]}),
+        nil,
+        epochs(),
+        {:ok, %{}},
+        runtime_agents
+      )
+
+    assert section.dead_letters.held_messages == 3
+    assert section.dead_letters.error == nil
+
+    assert Enum.map(section.spools.unhealthy_agents, &{&1.agent_id, &1.reason}) == [
+             {"agent-1", "spool_stuck"},
+             {"agent-2", "spool_backpressure"}
+           ]
+
+    recorded =
+      record_checks(section)
+
+    assert recorded[ClusterHealth.spool_health_check()] ==
+             {false,
+              %{
+                "unhealthy_agents" => [
+                  %{"agent_id" => "agent-1", "reason" => "spool_stuck"},
+                  %{"agent_id" => "agent-2", "reason" => "spool_backpressure"}
+                ]
+              }}
+
+    assert {false, %{"held_messages" => 3, "by_reason" => [_ | _]}} =
+             recorded[ClusterHealth.dead_letter_health_check()]
+
+    # Replaying/purging the DLQ brings stream_messages to 0 even though cumulative
+    # dead_letter_reasons stay non-zero, and draining the spools clears the spool check.
+    healthy_spool = %{
+      stuck_spool
+      | unresolved_count: 0,
+        oldest_unresolved_age_seconds: 0,
+        unresolved_bytes: 0,
+        bytes_used: 0
+    }
+
+    cleared_section =
+      ClusterHealth.edge_pipeline_status(
+        snapshot(%{consumers: [%{dlq_consumer | stream_messages: 0, sampled_at_ms: 2_000}]}),
+        nil,
+        epochs(),
+        {:ok, %{}},
+        {:ok, %{"agent-1" => %{active: true, edge_record_spool: healthy_spool}}}
+      )
+
+    cleared = record_checks(cleared_section)
+
+    assert cleared[ClusterHealth.spool_health_check()] == {true, %{"unhealthy_agents" => []}}
+    assert {true, %{"held_messages" => 0}} = cleared[ClusterHealth.dead_letter_health_check()]
+  end
+
+  test "unknown tracker state or unsampled DLQ depth never clears an open alert" do
+    unsampled =
+      ClusterHealth.edge_pipeline_status(
+        snapshot(%{dead_letter_reasons: [], consumers: []}),
+        nil,
+        epochs(),
+        {:ok, %{}},
+        {:error, :agent_tracker_unavailable}
+      )
+
+    assert unsampled.spools.error =~ "agent_tracker_unavailable"
+    assert unsampled.dead_letters.held_messages == nil
+    assert record_checks(unsampled) == %{}
+  end
+
+  defp record_checks(section) do
+    parent = self()
+
+    ClusterHealth.record_edge_pipeline_health(section, fn check, healthy?, metadata, _opts ->
+      send(parent, {:recorded, check, healthy?, metadata})
+      :ok
+    end)
+
+    collect_recorded(%{})
+  end
+
+  defp collect_recorded(acc) do
+    receive do
+      {:recorded, check, healthy?, metadata} ->
+        collect_recorded(Map.put(acc, check, {healthy?, metadata}))
+    after
+      0 -> acc
+    end
+  end
 end

@@ -62,4 +62,19 @@ defmodule ServiceRadarWebNGWeb.EdgePipelineComponentsTest do
     assert explanation =~ "192 bytes of unsupported legacy edge storage are retained untouched"
     assert explanation =~ "Only bounded lanes are delivered"
   end
+
+  test "a stuck spool explains the unresolved age and byte budget" do
+    detail = %{
+      unresolved_count: 5,
+      oldest_unresolved_age_known: true,
+      oldest_unresolved_age_seconds: 905,
+      bytes_used: 4096,
+      budget_bytes: 8192
+    }
+
+    explanation = EdgePipelineComponents.explanation(%{reason: :spool_stuck, detail: detail})
+
+    assert explanation =~ "15 minutes"
+    assert explanation =~ "5 unresolved slots; oldest age 905s; 4096 / 8192 bytes charged."
+  end
 end

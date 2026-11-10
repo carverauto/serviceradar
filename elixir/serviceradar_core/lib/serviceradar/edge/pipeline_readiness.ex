@@ -36,7 +36,9 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
       epoch number, and `gateway_id`, the agent's live gateway.
     * `:spool_wedged` - allocated coverage gaps block durable delivery. Detail includes
       the bounded gap sequence sample, total gaps, unresolved count/age and byte budget.
-    * `:spool_backpressure` - the runtime admission gate paused bulk producers.
+    * `:spool_backpressure` - the runtime admission gate paused bulk producers, or the spool
+      reached its byte budget or holds more than 1 GiB of unresolved records.
+    * `:spool_stuck` - the spool holds unresolved records older than 15 minutes.
     * `:spool_health_unavailable` - the spool opened but its live health read failed.
     * `:agent_upgrade_pending` - the agent runs a build from before the edge-record cutover:
       its last check-in carried no spool status, or it still sends durable data on the retired
@@ -77,6 +79,8 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
   # The gateway's refusal family for a summary over its size limit.
   @oversized_family "oversized_summary"
   @rpc_timeout_ms 5_000
+  @max_unresolved_age_seconds 900
+  @max_unresolved_bytes 1_073_741_824
 
   @type reason ::
           :partition_not_found
@@ -87,6 +91,7 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
           | :no_live_gateway_on_active_epoch
           | :spool_wedged
           | :spool_backpressure
+          | :spool_stuck
           | :spool_health_unavailable
           | :agent_upgrade_pending
           | :oversized_summary
@@ -325,6 +330,16 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
 
   defp recorded_spool(_agent), do: nil
 
+  @doc """
+  Returns the spool conditions that represent an unhealthy bounded spool on a live agent.
+  Unsupported retained flat storage is excluded so it remains visible in the readiness report
+  without holding an open spool alert forever.
+  """
+  @spec spool_alert_conditions(map()) :: [condition()]
+  def spool_alert_conditions(%{} = spool) do
+    Enum.reject(spool_status_conditions(spool), &(&1.reason == :unsupported_legacy_storage))
+  end
+
   defp spool_status_conditions(spool) do
     if (Map.get(spool, "available") || Map.get(spool, :available)) == true do
       retained =
@@ -354,12 +369,33 @@ defmodule ServiceRadar.Edge.PipelineReadiness do
       present(spool_field(spool, :health_error)) ->
         [%{reason: :spool_health_unavailable, detail: spool}]
 
-      spool_field(spool, :admission_paused) == true ->
+      spool_backpressured?(spool) ->
         [%{reason: :spool_backpressure, detail: spool}]
+
+      spool_stuck?(spool) ->
+        [%{reason: :spool_stuck, detail: spool}]
 
       true ->
         []
     end
+  end
+
+  defp spool_backpressured?(spool) do
+    unresolved_bytes = spool_field(spool, :unresolved_bytes)
+    bytes_used = spool_field(spool, :bytes_used)
+    budget_bytes = spool_field(spool, :budget_bytes)
+
+    spool_field(spool, :admission_paused) == true or
+      (is_integer(unresolved_bytes) and unresolved_bytes > @max_unresolved_bytes) or
+      (is_integer(bytes_used) and is_integer(budget_bytes) and budget_bytes > 0 and
+         bytes_used >= budget_bytes)
+  end
+
+  defp spool_stuck?(spool) do
+    age = spool_field(spool, :oldest_unresolved_age_seconds)
+
+    spool_field(spool, :oldest_unresolved_age_known) == true and
+      is_integer(age) and age > @max_unresolved_age_seconds
   end
 
   defp spool_field(spool, key), do: Map.get(spool, Atom.to_string(key), Map.get(spool, key))

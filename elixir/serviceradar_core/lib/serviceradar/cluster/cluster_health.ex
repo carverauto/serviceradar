@@ -32,11 +32,14 @@ defmodule ServiceRadar.ClusterHealth do
 
   use GenServer
 
+  alias ServiceRadar.AgentRuntimeMetadata
   alias ServiceRadar.Analytics.StarRocks.NodeMemory
   alias ServiceRadar.Edge.ContractRegistry
   alias ServiceRadar.Edge.ContractRegistryTransition
   alias ServiceRadar.Edge.IssuerKey
+  alias ServiceRadar.Edge.PipelineReadiness
   alias ServiceRadar.Edge.PipelineStats
+  alias ServiceRadar.Observability.TripwireHealth
 
   require Logger
 
@@ -45,6 +48,9 @@ defmodule ServiceRadar.ClusterHealth do
   # The dead-letter reason EventWriter files unprojectable bulk-stream records
   # under while they await roll-forward (Decision 5); 1.4 produces it.
   @awaiting_roll_forward_reason "awaiting_roll_forward"
+  @spool_health_check "edge-agent-spool"
+  @dead_letter_health_check "edge-record-dead-letters"
+  @dlq_subject_class "edge_record_dlq"
 
   defstruct [
     :last_check,
@@ -188,6 +194,31 @@ defmodule ServiceRadar.ClusterHealth do
     |> Map.put(:starrocks_memory, health.starrocks_memory)
   end
 
+  @doc "Core health check entity id for agent edge-record spool health."
+  @spec spool_health_check() :: String.t()
+  def spool_health_check, do: @spool_health_check
+
+  @doc "Core health check entity id for held edge-record dead letters."
+  @spec dead_letter_health_check() :: String.t()
+  def dead_letter_health_check, do: @dead_letter_health_check
+
+  @doc """
+  Records core health check state transitions for agent edge spools and held
+  edge-record dead letters so the default-seeded `core_health_check_unhealthy`
+  stateful alert rule opens and resolves alerts without Prometheus/Alertmanager.
+  """
+  @spec record_edge_pipeline_health(map(), (String.t(), boolean(), map(), keyword() -> :ok)) ::
+          :ok
+  def record_edge_pipeline_health(edge_pipeline, recorder \\ &TripwireHealth.record/4)
+
+  def record_edge_pipeline_health(%{} = edge_pipeline, recorder) when is_function(recorder, 4) do
+    record_spool_health(Map.get(edge_pipeline, :spools), recorder)
+    record_dead_letter_health(Map.get(edge_pipeline, :dead_letters), recorder)
+    :ok
+  end
+
+  def record_edge_pipeline_health(_edge_pipeline, _recorder), do: :ok
+
   defp put_event_writer(response, nil), do: response
 
   defp put_event_writer(response, event_writer),
@@ -203,6 +234,7 @@ defmodule ServiceRadar.ClusterHealth do
     agent_count = safe_count(ServiceRadar.AgentRegistry)
     event_writer = get_event_writer_status()
     edge_pipeline = get_edge_pipeline_status()
+    record_edge_pipeline_health(edge_pipeline)
 
     status = determine_status(connected_nodes, event_writer)
 
@@ -278,7 +310,8 @@ defmodule ServiceRadar.ClusterHealth do
       pipeline_snapshots(),
       ContractRegistryTransition.status(),
       ContractRegistry.view(),
-      IssuerKey.configured()
+      IssuerKey.configured(),
+      AgentRuntimeMetadata.runtime_agents()
     )
   rescue
     reason -> %{error: "edge_pipeline_status_failed: #{inspect(reason)}"}
@@ -291,8 +324,9 @@ defmodule ServiceRadar.ClusterHealth do
   cores count dead letters), `transition` is this node's
   `ContractRegistryTransition.status/0`, `epochs` the verified
   `ContractRegistry.view/0` (a refused row is named in `epochs.error`, never
-  listed as active, candidate or draining), and `key` the
-  `IssuerKey.configured/0` result.
+  listed as active, candidate or draining), `key` the
+  `IssuerKey.configured/0` result, and `runtime_agents` the live agent
+  tracker entries from `AgentRuntimeMetadata.runtime_agents/0`.
 
   `awaiting_roll_forward.overflow` is nil, unknown: no overflow counter
   exists yet, and an unknown loss must not read as zero.
@@ -301,15 +335,24 @@ defmodule ServiceRadar.ClusterHealth do
           [{node(), term()}],
           map() | nil,
           {:ok, ContractRegistry.view()} | {:error, term()},
-          {:ok, map()} | {:error, term()}
+          {:ok, map()} | {:error, term()},
+          {:ok, %{String.t() => map()}} | {:error, term()}
         ) :: map()
-  def edge_pipeline_status(snapshots, transition_status, epochs_result, key_result) do
+  def edge_pipeline_status(
+        snapshots,
+        transition_status,
+        epochs_result,
+        key_result,
+        runtime_agents \\ {:ok, %{}}
+      ) do
     %{
       node: to_string(node()),
       issuer_key_present: match?({:ok, _}, key_result),
       epochs: pipeline_epochs(epochs_result),
       transition: transition_summary(transition_status),
-      awaiting_roll_forward: roll_forward_counts(snapshots)
+      awaiting_roll_forward: roll_forward_counts(snapshots),
+      dead_letters: dead_letter_counts(snapshots),
+      spools: spool_summary(runtime_agents)
     }
   end
 
@@ -383,13 +426,7 @@ defmodule ServiceRadar.ClusterHealth do
   # A node that runs no stats table (or predates it) counts nothing; a node
   # that did not answer leaves the sums incomplete, which `error` says.
   defp roll_forward_counts(results) do
-    {snapshots, unreachable} =
-      Enum.reduce(results, {[], []}, fn
-        {_node, {:ok, {:ok, snapshot}}}, {ok, bad} -> {[snapshot | ok], bad}
-        {_node, {:ok, {:error, :unavailable}}}, acc -> acc
-        {_node, {:error, {:exception, :undef, [{PipelineStats, _, _, _} | _]}}}, acc -> acc
-        {node, _error}, {ok, bad} -> {ok, [to_string(node) | bad]}
-      end)
+    {snapshots, unreachable} = collect_snapshots(results)
 
     %{
       withheld_by_contract: withheld_by_contract(snapshots),
@@ -399,6 +436,156 @@ defmodule ServiceRadar.ClusterHealth do
       error: snapshot_error(snapshots, Enum.sort(unreachable))
     }
   end
+
+  defp dead_letter_counts(results) do
+    {snapshots, unreachable} = collect_snapshots(results)
+
+    %{
+      held_messages: dlq_held_messages(snapshots),
+      by_reason: dead_letters_by_reason(snapshots),
+      error: snapshot_error(snapshots, Enum.sort(unreachable))
+    }
+  end
+
+  defp collect_snapshots(results) do
+    Enum.reduce(results, {[], []}, fn
+      {_node, {:ok, {:ok, snapshot}}}, {ok, bad} -> {[snapshot | ok], bad}
+      {_node, {:ok, {:error, :unavailable}}}, acc -> acc
+      {_node, {:error, {:exception, :undef, [{PipelineStats, _, _, _} | _]}}}, acc -> acc
+      {node, _error}, {ok, bad} -> {ok, [to_string(node) | bad]}
+    end)
+  end
+
+  defp dlq_held_messages(snapshots) do
+    samples_by_stream =
+      snapshots
+      |> Enum.flat_map(&Map.get(&1, :consumers, []))
+      |> Enum.filter(&(Map.get(&1, :subject_class) == @dlq_subject_class))
+      |> Enum.group_by(&Map.get(&1, :stream))
+
+    if map_size(samples_by_stream) == 0 do
+      nil
+    else
+      samples_by_stream
+      |> Map.values()
+      |> Enum.reduce_while(0, fn samples, sum ->
+        latest = Enum.max_by(samples, &Map.get(&1, :sampled_at_ms, 0))
+        count = Map.get(latest, :stream_messages)
+
+        if Map.get(latest, :poll_failed) != true and is_integer(count) do
+          {:cont, sum + count}
+        else
+          {:halt, nil}
+        end
+      end)
+    end
+  end
+
+  defp dead_letters_by_reason(snapshots) do
+    snapshots
+    |> Enum.flat_map(&Map.get(&1, :dead_letter_reasons, []))
+    |> Enum.group_by(&{&1.contract, &1.reason}, & &1.count)
+    |> Enum.map(fn {{contract, reason}, counts} ->
+      %{contract: contract, reason: reason, count: Enum.sum(counts)}
+    end)
+    |> Enum.filter(&(&1.count > 0))
+    |> Enum.sort_by(&{-&1.count, &1.contract, &1.reason})
+  end
+
+  defp spool_summary({:ok, agents}) when is_map(agents) do
+    unhealthy_agents =
+      agents
+      |> Enum.flat_map(fn
+        {agent_id, %{active: true, edge_record_spool: %{} = spool}} ->
+          spool
+          |> PipelineReadiness.spool_alert_conditions()
+          |> Enum.map(fn %{reason: reason, detail: detail} ->
+            %{
+              agent_id: to_string(agent_id),
+              reason: Atom.to_string(reason),
+              detail: detail
+            }
+          end)
+
+        _inactive_or_unreported ->
+          []
+      end)
+      |> Enum.sort_by(&{&1.agent_id, &1.reason})
+
+    %{unhealthy_agents: unhealthy_agents, error: nil}
+  end
+
+  defp spool_summary({:error, reason}), do: %{unhealthy_agents: [], error: inspect(reason)}
+
+  defp spool_summary(_other), do: %{unhealthy_agents: [], error: "agent_runtime_unavailable"}
+
+  defp record_spool_health(%{unhealthy_agents: [_ | _] = agents}, recorder) do
+    summary =
+      Enum.map(agents, fn agent ->
+        %{"agent_id" => agent.agent_id, "reason" => agent.reason}
+      end)
+
+    reasons = agents |> Enum.map(& &1.reason) |> Enum.uniq() |> Enum.join(", ")
+
+    recorder.(
+      @spool_health_check,
+      false,
+      %{"unhealthy_agents" => summary},
+      reason: "edge agent spool unhealthy (#{reasons})"
+    )
+  end
+
+  defp record_spool_health(%{unhealthy_agents: [], error: nil}, recorder) do
+    recorder.(
+      @spool_health_check,
+      true,
+      %{"unhealthy_agents" => []},
+      reason: "all connected agent spools healthy"
+    )
+  end
+
+  defp record_spool_health(_unknown_or_unavailable, _recorder), do: :ok
+
+  defp record_dead_letter_health(
+         %{held_messages: held_messages, by_reason: by_reason} = dead_letters,
+         recorder
+       ) do
+    metadata = %{
+      "held_messages" => held_messages,
+      "by_reason" => by_reason
+    }
+
+    cond do
+      is_integer(held_messages) and held_messages > 0 ->
+        recorder.(
+          @dead_letter_health_check,
+          false,
+          metadata,
+          reason: "edge-record dead-letter stream holds #{held_messages} message(s)"
+        )
+
+      is_nil(held_messages) and is_list(by_reason) and by_reason != [] ->
+        recorder.(
+          @dead_letter_health_check,
+          false,
+          metadata,
+          reason: "edge records dead-lettered"
+        )
+
+      held_messages == 0 and is_nil(Map.get(dead_letters, :error)) ->
+        recorder.(
+          @dead_letter_health_check,
+          true,
+          metadata,
+          reason: "edge-record dead-letter stream empty"
+        )
+
+      true ->
+        :ok
+    end
+  end
+
+  defp record_dead_letter_health(_unknown, _recorder), do: :ok
 
   defp withheld_by_contract(snapshots) do
     snapshots

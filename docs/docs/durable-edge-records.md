@@ -557,7 +557,8 @@ condition.
 | `spool_wedged` | A generation contains unresolved coverage gaps. `gap_count` is the total; `generation_gaps` samples up to 32 generation/lane/sequence coordinates. The sample also carries unresolved count, age (or unknown), and bytes against budget. | Check recovery progress and its refusal reason. Preserve the spool files; deleting them loses records and recovery evidence. |
 | `unsupported_legacy_storage` | `retained_legacy_bytes` reports old flat files kept untouched and charged to the shared budget. | This release does not migrate, recover or deliver those files. New data uses bounded lanes. |
 | `spool_health_unavailable` | The spool opened but the agent could not read its health. Detail: `health_error` and the rest of the sample. | Check the agent log and the spool directory. |
-| `spool_backpressure` | Producer admission is paused by the high-water mark or a refused runtime budget. Detail: the spool sample. | See [The agent spool keeps growing](#the-agent-spool-keeps-growing). |
+| `spool_backpressure` | Producer admission is paused by the high-water mark or a refused runtime budget, or the spool reached its byte budget or holds more than 1 GiB of unresolved records. Detail: the spool sample. | See [The agent spool keeps growing](#the-agent-spool-keeps-growing). |
+| `spool_stuck` | The spool holds unresolved records older than 15 minutes. Detail: the spool sample. | See [The agent spool keeps growing](#the-agent-spool-keeps-growing). |
 | `agent_upgrade_pending` | The agent runs a build from before the edge-record cutover: its check-in carried no spool status, or the gateway refused durable data from it. Detail: `version`, and `refused_statuses` (count per retired source family) and `last_refused_at` when durable data was refused. | Upgrade the agent. Its refused data is not stored. |
 | `oversized_summary` | The gateway refused status summaries from the agent over its source limit (64 KiB for the agent capability status, 4 KiB otherwise). The agent's edge records are not affected. Detail: `count`, `summaries` (each service's largest refused summary, with `bytes` and `limit`) and `last_refused_at`. | Report the service and size: a summary that large is an agent defect. Its summaries are not stored. |
 
@@ -569,7 +570,7 @@ live sample takes precedence over the one persisted with the agent record, and t
 next healthy sample clears the condition. Unsupported retained storage is
 reported independently. An agent reports at most one active spool-health
 condition, in the order `spool_wedged`, `spool_health_unavailable`,
-`spool_backpressure`. Agents that run from a
+`spool_backpressure`, `spool_stuck`. Agents that run from a
 container image are upgraded with the image and are never reported as
 `agent_upgrade_blocked`.
 
@@ -618,11 +619,14 @@ transition, the notice shows the error instead.
 Core's health response reports pipeline state in its `edge_pipeline`
 section: the active, candidate and draining epochs (an epoch row that fails
 signature verification is named in `epochs.error`, never listed), the
-transition's outcome and blockers, whether the issuer key is present, and the
+transition's outcome and blockers, whether the issuer key is present, the
 `awaiting_roll_forward` counts summed over every connected node (records
 gateways withheld for any retryable reason, not only roll-forward, and records dead-lettered with reason
-`awaiting_roll_forward`, per contract). A node that did not answer is named in
-`awaiting_roll_forward.error` rather than counted as zero, and `overflow` is
+`awaiting_roll_forward`, per contract), the `dead_letters` summary (`held_messages`
+from the latest `TELEMETRY_EDGE_RECORD_DLQ_V1_BULK` stream sample and `by_reason`
+counts across nodes), and the `spools` summary (`unhealthy_agents` with active
+spool conditions). A node that did not answer is named in
+`awaiting_roll_forward.error` and `dead_letters.error` rather than counted as zero, and `overflow` is
 `null` because no overflow counter exists yet.
 
 ### Settings
@@ -644,6 +648,20 @@ controls are the JetStream stream byte limits described under
 [JetStream holds the record](#3-jetstream-holds-the-record).
 
 ### Metrics and alerts
+
+Default-install core health checks (evaluated by the seeded
+`core_health_check_unhealthy` stateful alert rule without Prometheus or
+Alertmanager):
+
+- `edge-agent-spool`: transitions to `unhealthy` when any connected agent
+  reports `spool_unavailable`, `spool_wedged`, `spool_health_unavailable`,
+  `spool_backpressure` or `spool_stuck` on its hello/heartbeat spool sample,
+  and returns to `healthy` once all connected agent spools clear.
+- `edge-record-dead-letters`: transitions to `unhealthy` when
+  `TELEMETRY_EDGE_RECORD_DLQ_V1_BULK` holds any dead-lettered messages (or when
+  EventWriter records dead-lettered messages before the stream depth is
+  sampled), and returns to `healthy` once a complete sample confirms the
+  dead-letter stream is empty (`held_messages == 0`).
 
 Agent (Prometheus exporter):
 
