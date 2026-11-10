@@ -501,9 +501,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
                   <span class="text-sm font-semibold">Device Events</span>
                 </div>
                 <.link
-                  navigate={
-                    ObservabilityPaths.path("events", q: "in:events device_uid:#{@device_uid}")
-                  }
+                  :if={@device_events_query}
+                  navigate={ObservabilityPaths.path("events", q: @device_events_query)}
                   class="text-xs text-sr-brand hover:underline"
                 >
                   View all in Observability →

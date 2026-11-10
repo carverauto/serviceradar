@@ -175,6 +175,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceMountAssigns do
     |> assign(:last_camera_relay_session, nil)
     |> assign(:active_tab, "details")
     |> assign(:device_events, [])
+    |> assign(:device_events_query, nil)
     |> assign(:events_loading, false)
     |> assign(:events_error, nil)
     |> assign(:events_request_ref, nil)
