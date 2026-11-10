@@ -79,7 +79,7 @@ tests:
               severity: critical
             annotations:
               summary: "ServiceRadar cannot dead-letter failing edge records"
-              description: "EventWriter could not store a failing edge record in its dead-letter stream in namespace sr-test. The record stays on the edge-record stream and keeps retrying until its 72h MaxAge evicts it; check the dead-letter stream exists and has room."
+              description: "EventWriter could not store a failing edge record in its dead-letter stream in namespace sr-test. The record stays on the edge-record stream and keeps retrying until its 24h MaxAge evicts it; check the dead-letter stream exists and has room."
 
   - it: ships the ingestion edge dashboard configmap when grafana dashboards are enabled
     template: templates/grafana-dashboards.yaml
