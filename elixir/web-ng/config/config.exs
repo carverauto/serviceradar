@@ -77,7 +77,6 @@ config :phoenix, :filter_parameters, ["password", "token", "secret", "values"]
 
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
-config :phoenix_template, :format_encoders, "json-api": Jason
 
 # Phoenix React NG - React rendering for components (GoRules JDM editor)
 # Bun runtime renders React components, LiveView handles the interactivity
@@ -86,6 +85,8 @@ config :phoenix_react_ng, Phoenix.ReactServer,
   component_base: Path.expand("../assets/component/src", __DIR__),
   render_timeout: 5_000,
   cache_ttl: 60
+
+config :phoenix_template, :format_encoders, "json-api": Jason
 
 # Pin Rustler temp dir to an explicitly writable path when provided by the build system
 config :rustler, :tmp_dir, System.get_env("RUSTLER_TMPDIR") || System.tmp_dir!()
