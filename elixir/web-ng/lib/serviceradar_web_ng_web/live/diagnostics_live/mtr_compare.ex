@@ -110,7 +110,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
   end
 
   defp load_window_mode(socket, params) do
-    state = window_state_from_params(params)
+    state = window_state_from_params(params, DateTime.utc_now())
 
     case MtrData.compare_windows(
            window_a: state.window_a,
@@ -1045,12 +1045,13 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
   end
 
   defp default_window_state do
-    window_state_from_params(%{})
+    window_state_from_params(%{}, DateTime.utc_now())
   end
 
-  defp window_state_from_params(params) do
+  @doc false
+  def window_state_from_params(params, %DateTime{} = now) do
     preset = normalize_preset(Map.get(params, "preset"))
-    now = DateTime.truncate(DateTime.utc_now(), :second)
+    now = DateTime.truncate(now, :second)
     {window_a, window_b} = preset_windows(preset, params, now)
 
     %{
@@ -1066,10 +1067,11 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
 
   defp preset_windows(@preset_today_vs_yesterday, _params, now) do
     today_start = start_of_utc_day(now)
+    elapsed = max(DateTime.diff(now, today_start, :second), 60)
     yesterday_start = DateTime.shift(today_start, day: -1)
 
     {
-      %{label: "Today so far", start: today_start, end: now},
+      %{label: "Today so far", start: today_start, end: DateTime.shift(today_start, second: elapsed)},
       %{label: "Yesterday full day", start: yesterday_start, end: today_start}
     }
   end
@@ -1080,7 +1082,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
     yesterday_start = DateTime.shift(today_start, day: -1)
 
     {
-      %{label: "Today so far", start: today_start, end: now},
+      %{label: "Today so far", start: today_start, end: DateTime.shift(today_start, second: elapsed)},
       %{label: "Yesterday same hours", start: yesterday_start, end: DateTime.shift(yesterday_start, second: elapsed)}
     }
   end
