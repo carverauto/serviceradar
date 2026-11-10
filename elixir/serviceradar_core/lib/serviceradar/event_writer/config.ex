@@ -183,7 +183,6 @@ defmodule ServiceRadar.EventWriter.Config do
     :ownership_reconcile_interval_ms,
     :ownership_grace_period_ms,
     :startup_wait_bound_ms,
-    :startup_retry_delay_ms,
     workers: 1,
     retired_consumers: []
   ]
@@ -206,7 +205,6 @@ defmodule ServiceRadar.EventWriter.Config do
           ownership_reconcile_interval_ms: pos_integer() | nil,
           ownership_grace_period_ms: non_neg_integer() | nil,
           startup_wait_bound_ms: non_neg_integer() | nil,
-          startup_retry_delay_ms: pos_integer() | nil,
           workers: pos_integer(),
           retired_consumers: [%{stream_name: String.t(), consumer_name: String.t()}]
         }
@@ -299,7 +297,6 @@ defmodule ServiceRadar.EventWriter.Config do
       ownership_reconcile_interval_ms: load_ownership_reconcile_interval_ms(config),
       ownership_grace_period_ms: load_ownership_grace_period_ms(config),
       startup_wait_bound_ms: load_startup_wait_bound_ms(config),
-      startup_retry_delay_ms: load_startup_retry_delay_ms(config),
       workers: worker_count(),
       retired_consumers: @retired_consumers
     }
@@ -898,17 +895,6 @@ defmodule ServiceRadar.EventWriter.Config do
     |> load_startup_wait_bound_ms()
   end
 
-  @doc "Optional override for the startup readiness retry interval, in milliseconds."
-  @spec startup_retry_delay_ms(t() | nil) :: pos_integer() | nil
-  def startup_retry_delay_ms(%__MODULE__{startup_retry_delay_ms: delay})
-      when is_integer(delay) and delay > 0, do: delay
-
-  def startup_retry_delay_ms(_config) do
-    :serviceradar_core
-    |> Application.get_env(ServiceRadar.EventWriter, [])
-    |> load_startup_retry_delay_ms()
-  end
-
   defp load_startup_wait_bound_ms(config) when is_list(config) do
     case Keyword.get(config, :startup_wait_bound_ms) do
       bound when is_integer(bound) and bound >= 0 -> bound
@@ -917,15 +903,6 @@ defmodule ServiceRadar.EventWriter.Config do
   end
 
   defp load_startup_wait_bound_ms(_config), do: @default_startup_wait_bound_ms
-
-  defp load_startup_retry_delay_ms(config) when is_list(config) do
-    case Keyword.get(config, :startup_retry_delay_ms) do
-      delay when is_integer(delay) and delay > 0 -> delay
-      _ -> nil
-    end
-  end
-
-  defp load_startup_retry_delay_ms(_config), do: nil
 
   @doc """
   Checks if the EventWriter is enabled.

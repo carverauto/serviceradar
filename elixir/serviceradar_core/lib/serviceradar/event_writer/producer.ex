@@ -763,13 +763,7 @@ defmodule ServiceRadar.EventWriter.Producer do
     remaining_ms = bound_ms - max(now_ms - waiting_since_ms, 0)
 
     if ConsumerSetup.not_ready_reason?(Map.get(entry, :reason)) and remaining_ms > 0 do
-      case Config.startup_retry_delay_ms(config) do
-        override when is_integer(override) and override > 0 ->
-          max(min(override, remaining_ms), 1)
-
-        _ ->
-          ConsumerSetup.startup_retry_delay(attempt, remaining_ms)
-      end
+      ConsumerSetup.startup_retry_delay(attempt, remaining_ms)
     else
       ConsumerSetup.retry_delay(attempt)
     end

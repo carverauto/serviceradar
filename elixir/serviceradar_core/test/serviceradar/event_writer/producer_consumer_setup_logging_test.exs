@@ -670,10 +670,7 @@ defmodule ServiceRadar.EventWriter.ProducerConsumerSetupLoggingTest do
     test "logs an error only once the startup wait bound is exceeded" do
       previous = Application.get_env(:serviceradar_core, ServiceRadar.EventWriter)
 
-      Application.put_env(:serviceradar_core, ServiceRadar.EventWriter,
-        startup_wait_bound_ms: 20,
-        startup_retry_delay_ms: 5
-      )
+      Application.put_env(:serviceradar_core, ServiceRadar.EventWriter, startup_wait_bound_ms: 20)
 
       on_exit(fn ->
         if previous == nil,
