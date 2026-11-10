@@ -1,8 +1,64 @@
 # Recovery verification evidence
 
-## Current verification status
+## Final implementation verification
 
-- Newest CI checkpoint: published head
+[PR #6469](https://github.com/carverauto/serviceradar/pull/6469) merged as
+`161843f1ca2a4017437f36041674354db9491cd0` on 2026-11-10 at 08:17:16 UTC.
+All 21 checks passed at published head `7c46cbc8a7bb16a2fa647838355f26acf86a5141`.
+CI separately merged base `9a55afdb0d0cedabab6b690b7afe7a7f8f419fb7`; the
+workflow-specific tested revisions below are not the published or product merge.
+
+| Workflow | Tested merge | Result |
+| --- | --- | --- |
+| [Main](https://carverauto.buildbuddy.io/invocation/bb21f5fe-282e-4c28-bb32-e6693afb09df) | `2de7ed99d46e0208f212eb73da14b00636a5d77f` | 508 unit passes, two Swift skips; 17 benchmark passes; 89 race passes; no failed/flaky results |
+| [Core Integration](https://carverauto.buildbuddy.io/invocation/5574faaa-bf97-48ea-b739-dad754edd957) | `90afbacf9ff848fc020f24b8bdcbd3a579685761` | All 13 targets passed |
+| [Web-NG DB](https://carverauto.buildbuddy.io/invocation/53ce7cb5-7790-4721-b96d-dc988fa13a9b) | `3a352b7e3ecfb6db64205af1de0d9578127799db` | All seven targets freshly executed and passed; suite and cleanup exited 0 |
+
+Main child results distinguish execution from cache: [unit](https://carverauto.buildbuddy.io/invocation/58332d83-a222-4df2-97b1-0bdd57d0dff4)
+executed 46 targets; [benchmarks](https://carverauto.buildbuddy.io/invocation/e694d404-999c-46a9-8558-4f29dc3c5cfb)
+were all cached; [race](https://carverauto.buildbuddy.io/invocation/72a7be9f-9003-4159-835e-b65814cad492)
+executed one target. The unit skips were `build/arrow_swift:ios_compile_test` and
+`build/arrow_swift:swift_regression_test`. [Web-NG assertions](https://carverauto.buildbuddy.io/invocation/2fbcc379-0498-40f6-827c-605654773150)
+and [exact-head quality](https://carverauto.buildbuddy.io/invocation/d32b41cd-f6ab-44d6-b229-9470abb2d695)
+also passed. Strict OpenSpec validation passed.
+
+The [Core assertion wave](https://carverauto.buildbuddy.io/invocation/2587a0e9-6242-4af1-850f-0725939f4854)
+ran guarded tests freshly on attempt one: async 1,508 tests/zero failures/one
+unrelated skip/nine excluded; serial 1 337/zero failures/13 excluded; serial 2
+424/zero failures/one skip. The earlier serial-2 startup checkout failure did not
+reproduce; its cause remains unproven. All eight required modules were routed to
+executed lanes without skip tags: `RecoveryAssignmentsDbTest`,
+`RecoveryAuthorizationDbTest`, `RecoveryCopyGrantsDbTest`,
+`RecoveryOperationsDbTest`, `RecoveryEffectsDbTest`, `EdgeRecordRecoveryDbTest`,
+`LeaseDeliveryDbTest` and `LeasePassDbTest`. Unit loading was not substituted for
+these database assertions.
+
+The real process `vertical_slice_test` passed A-H and all nested cases with no
+skips in 304.09 seconds. It did not inject damaged spool data. Synthetic storage
+and composed coordinator tests separately establish damaged-generation recovery,
+interrupted receipt persistence, restart accounting and post-cleanup delivery.
+The 2,049-record/nine-generation near-full proof is a storage test, not a near-full
+process or live-deployment test.
+
+Final review carried forward the prior whole-change review and added a fresh Grok
+delta review tracing the changed test and critical paths, with zero findings and
+an overall medium risk assessment. A secondary fresh review ended incomplete; it is not counted as a full
+new review of the unchanged paths. NativeTest used offline replay/adversarial
+checks of actual CI logs under the existing authorized remote-test exception.
+No live-product validation or new database negative control was run. The lease
+concurrency tests have no pre-fix failing execution; fixture/diagnostic failures
+are not product fail-before evidence. Earlier deliberate controls remain below.
+
+Tasks 1.1-1.10 and 2.1 are complete from the independent contract audits, synthetic
+storage/driver evidence and final executed database/process checks. Deployment is
+not authorized or verified; OpenSpec archival remains deferred until deployment.
+
+## Historical checkpoints
+
+The entries below describe evidence and limitations at their recorded checkpoints.
+Their pending statements are historical; the current status above is authoritative.
+
+- Pre-closeout CI checkpoint: published head
   `6380288bc4c2a9780e105718e1de1fcb7d47822a` (tested merge
   `f6021b328b77466194f95234edcd1dfa35104be6`). Nineteen checks passed. BazelCI
   Core Integration (`34dded9e-8496-45ac-b099-3011761c8059`, assertion wave
@@ -13,20 +69,11 @@
   `edge_record_recovery_db_test.exs` (a nonexistent `operation.applied` field
   and a `nil` delivery proof on a late-fenced frame). Lint failed on one `err113`
   site in `go/pkg/edge/spool/lanes_test.go`. Main unit passed 508 with 2 skips,
-  browser 17, Go race 89, Proto ABI and Web-NG DB passed. Both failures were
-  repaired in test code only; the repaired revision has not yet run in CI.
+  benchmarks 17, Go race 89, Proto ABI and Web-NG DB passed. Both failures were
+  repaired in test code only; subsequent final execution is recorded above.
 - Earlier checkpoint: full `make test` at
   `87b5a849e1aef445ff9749f6c9d9b6ddab72b9b5` passed 525 targets with two named
   Swift platform skips (BuildBuddy `87ec63b1-b4b4-48b5-9f87-124a97c91767`).
-- The lease-delivery concurrency tests have no pre-fix failing execution; the two
-  fixture failures above are not fail-before evidence for a product regression.
-- Pending: the repaired guarded `edge_record_recovery_db` test and final-head CI
-  on the repaired published revision. Final CI is not green until both exist.
-
-## Historical checkpoints
-
-The entries below describe evidence and limitations at their recorded checkpoints.
-Their pending statements are historical; the current status above is authoritative.
 
 
 - Lane option regressions failed against the old opener in BuildBuddy

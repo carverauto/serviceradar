@@ -1,6 +1,6 @@
 # Tasks: Add the agent spool recovery coordinator
 
-## Current implementation status (2026-11-09)
+## Implementation complete (2026-11-10)
 
 The historical "Remaining as of the move" notes below describe the starting
 point. The current branch integrates bounded attributed production lanes, the
@@ -16,9 +16,12 @@ Independent review found the specified storage vectors in the owning suites:
 all four journal-derived coarsening cases, allocated 9 / markerless 10, wrong-body
 coverage, uncommitted destination, missing ACK, copy crash barriers and physical
 reserve progress. The near-full proof is a storage test; it is not a claim of
-near-full process-level recovery. The driver and whole unit suite have passed.
-Guarded database assertions and the final integrated landing gate must finish
-before checking complete tasks below.
+near-full process-level recovery. The required unit, guarded database and real
+process-integration checks passed
+for the recorded published head and tested merges. The real vertical passed A-H
+without damaged-spool injection. Earlier independent audits and the final executed
+contracts complete tasks 1.1-1.10 and 2.1; see [verification.md](verification.md).
+PR #6469 is merged. Deployment and archival remain separate, pending steps.
 
 ## 1. Moved from `unify-sweep-results-proto`
 
@@ -26,7 +29,7 @@ Tasks retain their moved numbers. Notes explicitly dated 2026-11-02 describe
 the starting point; the approved bounded-generation scope below supersedes
 requirements to recover or split unsupported existing storage.
 
-- [ ] 1.1 (was `unify-sweep-results-proto` 2.4) Implement an fsynced segmented agent spool that persists encoded bytes,
+- [x] 1.1 (was `unify-sweep-results-proto` 2.4) Implement an fsynced segmented agent spool that persists encoded bytes,
   event IDs, sequence state, checksums, retry/quarantine state, and survives
   restart without overwriting unacknowledged data; cover record/tail checksums,
   directory fsync, private permissions, never-reused sequence high-water,
@@ -64,7 +67,7 @@ requirements to recover or split unsupported existing storage.
   Remaining as of the move (2026-11-02): plus prepaid terminal evidence (#6198) and
   the permanent-rejection quarantine (#6208). Segmented recovery, rollover and
   the single allocator remain (with 2.27, 2.28); follow-up.
-- [ ] 1.2 (was `unify-sweep-results-proto` 2.17) **Correct `admission`: free bytes on durable terminal outcome only.**
+- [x] 1.2 (was `unify-sweep-results-proto` 2.17) **Correct `admission`: free bytes on durable terminal outcome only.**
   It releases reserved bytes when the gateway resolves, which reclaims evidence
   before the agent can prove the outcome survived its own restart. Release MUST
   follow the durable terminal record and the coverage proof. Test that a crash
@@ -82,9 +85,9 @@ requirements to recover or split unsupported existing storage.
   generation lifecycle, restart classification, reserve capacity, or coverage.
   Current evidence: composed sender/coordinator tests exercise the interrupted
   receipt barrier, restart accounting and storage-owned charge transfer. The
-  complete task remains unchecked until the final integration gate executes
-  its required contracts; unit or library evidence does not substitute for them.
-- [ ] 1.3 (was `unify-sweep-results-proto` 2.20a) **OWN the assignment mapping's tagged VALUE shape.** The ABI change froze
+  final integration gate executed its required contracts, recorded in
+  verification.md; unit/library evidence was not substituted for them.
+- [x] 1.3 (was `unify-sweep-results-proto` 2.20a) **OWN the assignment mapping's tagged VALUE shape.** The ABI change froze
   the KEY only; it explicitly does NOT freeze the value, because no message there
   represents a POSITIVE / EXPLICIT_NEGATIVE body or a durable negative reason. Define
   the tagged body here -- POSITIVE (execution/plan/range identities and digests, shard,
@@ -92,7 +95,7 @@ requirements to recover or split unsupported existing storage.
   evidence and reason, no positive-only fields). A single untagged schema cannot
   express both, because a durable negative means there is no execution.
   Remaining as of the move (2026-11-02): follow-up (recovery coordinator prerequisite).
-- [ ] 1.4 (was `unify-sweep-results-proto` 2.20) **Implement the durable assignment mapping (runtime half of the split
+- [x] 1.4 (was `unify-sweep-results-proto` 2.20) **Implement the durable assignment mapping (runtime half of the split
   1.3).** The `freeze-edge-record-v1-abi` change freezes the KEY ONLY --
   `(trust_namespace, span_identity)`. It does NOT freeze the tagged POSITIVE /
   EXPLICIT-NEGATIVE value shape: no message there represents one, so the earlier
@@ -114,7 +117,7 @@ requirements to recover or split unsupported existing storage.
   implementer: the ABI change's 1.3 covers only schema and correlation, and 2.22
   CONSUMES the join rather than implementing the mapping.
   Remaining as of the move (2026-11-02): follow-up (recovery coordinator prerequisite).
-- [ ] 1.5 (was `unify-sweep-results-proto` 2.21) **Scope generations to lanes and freeze one identity per lane.** Bind
+- [x] 1.5 (was `unify-sweep-results-proto` 2.21) **Scope generations to lanes and freeze one identity per lane.** Bind
   each generation to ONE (route profile, traffic class) lane drawn from the finite
   platform taxonomy, with its own open generation, sequence space, and reclamation
   state, so bulk, interactive, and recovery run CONCURRENTLY — not one open
@@ -131,7 +134,7 @@ requirements to recover or split unsupported existing storage.
   `go/pkg/edge/spool/lanes.go` implements per-lane generations and the retryable
   `ROTATION_REQUIRED`, with tests; the agent still opens one spool. Wiring is
   follow-up.
-- [ ] 1.6 (was `unify-sweep-results-proto` 2.22) **Bind attribution to the accepted record in the spool
+- [x] 1.6 (was `unify-sweep-results-proto` 2.22) **Bind attribution to the accepted record in the spool
   (`usp2-05b-spool-attribution`; needs companion ABI task 1.3, plus local 2.10, 2.20 and 2.21).** It CONSUMES the durable assignment mapping that local task 2.20
   implements; without that dependency 2.22 could be checked against a mapping that
   does not exist. INVOKE the validators task 1.3 implements rather than restating their
@@ -174,13 +177,13 @@ requirements to recover or split unsupported existing storage.
   nothing stored; and LATER CORRUPTION of a binding that verified at append time,
   which MUST degrade the span to unattributable rather than to a wrong authority.
   Remaining as of the move (2026-11-02): follow-up (needs 2.20, 2.21 wiring).
-- [ ] 1.7 (was `unify-sweep-results-proto` 2.25) **Preserve attribution across relocation.** Carry the bound relation
+- [x] 1.7 (was `unify-sweep-results-proto` 2.25) **Preserve attribution across relocation.** Carry the bound relation
   through rollover, compaction, and scratch copies; re-verify the binding and
   re-checksum at the destination BEFORE the source becomes eligible for release;
   degrade a span that cannot be verified to unattributable rather than dropping or
   blindly copying it.
   Remaining as of the move (2026-11-02): follow-up (needs 2.27).
-- [ ] 1.8 (was `unify-sweep-results-proto` 2.27) **Implement the agent-owned recovery coordinator from the frozen classification-
+- [x] 1.8 (was `unify-sweep-results-proto` 2.27) **Implement the agent-owned recovery coordinator from the frozen classification-
   span and hash contracts (needs companion ABI task 1.6a plus local 2.10 and 2.21-2.26).** The historical rescue
   object could not be recovered; the implementation is reconstructed from those contracts. The coordinator freezes,
   pages, hashes and journals; it never signs and is not the sender. It emits `classification_spans`, not the retired
@@ -206,7 +209,7 @@ requirements to recover or split unsupported existing storage.
   with DIFFERENT `reason` values stay SEPARATE.
   Remaining as of the move (2026-11-02): follow-up; until it lands, an ambiguous sequence
   gap wedges the lane (package `sender` doc).
-- [ ] 1.9 (was `unify-sweep-results-proto` 2.28) **Integrate post-coordinator reclamation behind the coverage proof
+- [x] 1.9 (was `unify-sweep-results-proto` 2.28) **Integrate post-coordinator reclamation behind the coverage proof
   (needs 2.26 and 2.27).** A source segment is deleted only when a durable
   coverage proof accounts for EVERY UNRECLAIMED ALLOCATED SEQUENCE in
   `(durable_local_reclaim_watermark, sequence_high_water]` — not merely every
@@ -236,7 +239,7 @@ requirements to recover or split unsupported existing storage.
   authorize deletion, and sequence 10 MUST appear in the coverage proof rather
   than disappearing with no manifest entry.
   Remaining as of the move (2026-11-02): follow-up (needs 2.27).
-- [ ] 1.10 (was `unify-sweep-results-proto` 5.6) Implement the idempotent recovery consumer with DURABLE KEYS that contain
+- [x] 1.10 (was `unify-sweep-results-proto` 5.6) Implement the idempotent recovery consumer with DURABLE KEYS that contain
   IDENTITY ONLY, never comparison values: the page key is
   (`network_scope_id`, `agent_id`, `recovery_id`, `page_index`) and it COMPARES one
   fixed page digest; the recovery key is (`network_scope_id`, `agent_id`,
@@ -285,5 +288,5 @@ requirements to recover or split unsupported existing storage.
 
 ## 2. Validate
 
-- [ ] 2.1 Run the Go, Elixir and Bazel suites for every touched target and
+- [x] 2.1 Run the Go, Elixir and Bazel suites for every touched target and
   `openspec validate add-edge-spool-recovery-coordinator --strict`.
