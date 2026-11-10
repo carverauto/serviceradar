@@ -5,8 +5,8 @@
        workloads are all disabled. */ -}}
 {{- $_ := include "serviceradar.starrocksFePasswordSecretName" . -}}
 # Connection settings for EventWriter's StarRocks destination. This chart does
-# not install a StarRocksCluster; the supported install is k8s/starrocks/.
-# Hosted shared-data still requires object storage.
+# not install a StarRocksCluster into demo/serviceradar; lab clusters use
+# k8s/starrocks/. Hosted shared-data still requires object storage.
 apiVersion: v1
 kind: ConfigMap
 metadata:
