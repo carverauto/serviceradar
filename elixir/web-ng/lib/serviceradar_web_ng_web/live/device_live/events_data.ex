@@ -11,6 +11,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EventsData do
 
   def load_events(srql_module, device_uid, scope, opts \\ []) do
     query = device_events_query(device_uid, opts)
+    {query, run_events_query(srql_module, query, device_uid, scope)}
+  end
+
+  defp run_events_query(srql_module, query, device_uid, scope) do
     query_opts = %{scope: scope, limit: @limit}
 
     case srql_module.query(query, query_opts) do
@@ -53,15 +57,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EventsData do
   def device_scope_token(device_uid, _opts), do: device_uid_token(device_uid)
 
   defp resolve_device_identifiers(device_uid, opts) do
-    cond do
-      is_list(opts[:identifiers]) ->
-        {:ok, opts[:identifiers]}
-
-      is_function(opts[:identifier_resolver], 1) ->
-        opts[:identifier_resolver].(device_uid)
-
-      true ->
-        query_device_inventory_aliases(device_uid)
+    case opts[:identifiers] do
+      identifiers when is_list(identifiers) -> {:ok, identifiers}
+      _ -> query_device_inventory_aliases(device_uid)
     end
   end
 

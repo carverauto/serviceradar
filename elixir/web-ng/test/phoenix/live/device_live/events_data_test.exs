@@ -17,18 +17,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EventsDataTest do
   test "load_events resolves device identifiers once and bounds the scan by time and limit" do
     Process.put(:events_data_test_pid, self())
 
-    resolver = fn "sr:device-0001" ->
-      {:ok, ["sr:device-0001", "host01.example.com", "192.0.2.10", "host01.example.com", ""]}
-    end
+    identifiers = ["sr:device-0001", "host01.example.com", "192.0.2.10", "host01.example.com", ""]
 
-    assert {:ok, [%{"id" => "evt-1"}]} =
-             EventsData.load_events(RecordingSRQL, "sr:device-0001", :scope, identifier_resolver: resolver)
+    assert {returned_query, {:ok, [%{"id" => "evt-1"}]}} =
+             EventsData.load_events(RecordingSRQL, "sr:device-0001", :scope, identifiers: identifiers)
 
     assert_receive {:events_query, query, opts}
 
     assert query ==
              ~s|in:events device_uid:["sr:device-0001","host01.example.com","192.0.2.10"] time:last_24h sort:time:desc limit:50|
 
+    assert returned_query == query
     assert opts == %{scope: :scope, limit: 50}
   end
 

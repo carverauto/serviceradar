@@ -975,7 +975,9 @@ fn event_source_filter_sql(filter: &Filter) -> Result<String> {
 /// `device_id:` / `device_uid:` / `uid:` / `source_device_uid:` on events uses an
 /// exact-key lookup over the passed-in identifier values (pre-resolved on CNPG
 /// when the caller knows the device's inventory aliases), never a cross-catalog
-/// JDBC join or a `LIKE` scan across the 1 MiB JSON document columns.
+/// JDBC join or a `LIKE` scan across the 1 MiB JSON document columns. The
+/// canonical uid paths compare exactly; the alias keys compare case-insensitively,
+/// as hostnames do.
 ///
 /// Under negation the canonical equality arm stays three-valued (NULL when an
 /// event carries neither canonical path) while the optional alias keys are
@@ -984,11 +986,22 @@ fn event_source_filter_sql(filter: &Filter) -> Result<String> {
 fn event_device_identity_filter_sql(filter: &Filter) -> Result<String> {
     let (values, negate) = exact_values(filter, &filter.field)?;
     let canonical = event_paths_match_values(EVENT_CANONICAL_DEVICE_PATHS, &values)?;
-    let alias_keys = format!(
-        "COALESCE({} OR {}, FALSE)",
-        event_expr_matches_values("src_endpoint_ip", &values),
-        event_paths_match_values(EVENT_DEVICE_ALIAS_PATHS, &values)?
-    );
+    let lowered = values
+        .iter()
+        .map(|value| value.to_lowercase())
+        .collect::<Vec<_>>();
+    let lowered = lowered.iter().map(String::as_str).collect::<Vec<_>>();
+    let mut alias_arms = vec![event_expr_matches_values(
+        "LOWER(src_endpoint_ip)",
+        &lowered,
+    )];
+    for (document, path) in EVENT_DEVICE_ALIAS_PATHS {
+        alias_arms.push(event_expr_matches_values(
+            &format!("LOWER({})", event_json_text(document, path)?),
+            &lowered,
+        ));
+    }
+    let alias_keys = format!("COALESCE({}, FALSE)", alias_arms.join(" OR "));
     Ok(any_of(vec![canonical, alias_keys], negate))
 }
 
@@ -6309,14 +6322,14 @@ AND milliseconds_diff({home}, start_time) > 0)"
             .expect("scalar device filter");
             assert!(
                 compiled.sql.contains(
-                    "((get_json_string(metadata, '$.\"service_radar\".\"device_uid\"') = 'sr:device-0001' OR get_json_string(device, '$.\"uid\"') = 'sr:device-0001') OR (COALESCE(src_endpoint_ip = 'sr:device-0001' OR get_json_string(metadata, '$.\"device_uid\"') = 'sr:device-0001'"
+                    "((get_json_string(metadata, '$.\"service_radar\".\"device_uid\"') = 'sr:device-0001' OR get_json_string(device, '$.\"uid\"') = 'sr:device-0001') OR (COALESCE(LOWER(src_endpoint_ip) = 'sr:device-0001' OR LOWER(get_json_string(metadata, '$.\"device_uid\"')) = 'sr:device-0001'"
                 ),
                 "{}",
                 compiled.sql
             );
             assert!(
                 compiled.sql.contains(
-                    "OR get_json_string(device, '$.\"hostname\"') = 'sr:device-0001' OR get_json_string(device, '$.\"ip\"') = 'sr:device-0001', FALSE)))"
+                    "OR LOWER(get_json_string(device, '$.\"hostname\"')) = 'sr:device-0001' OR LOWER(get_json_string(device, '$.\"ip\"')) = 'sr:device-0001', FALSE)))"
                 ),
                 "{}",
                 compiled.sql
@@ -6355,13 +6368,13 @@ AND milliseconds_diff({home}, start_time) > 0)"
             assert!(sql.contains(scope), "{entity}: {sql}");
             assert!(
                 sql.contains(
-                    "((get_json_string(metadata, '$.\"service_radar\".\"device_uid\"') IN ('sr:device-0001', 'host01.example.com', '192.0.2.10') OR get_json_string(device, '$.\"uid\"') IN ('sr:device-0001', 'host01.example.com', '192.0.2.10')) OR (COALESCE(src_endpoint_ip IN ('sr:device-0001', 'host01.example.com', '192.0.2.10') OR get_json_string(metadata, '$.\"device_uid\"') IN ('sr:device-0001', 'host01.example.com', '192.0.2.10')"
+                    "((get_json_string(metadata, '$.\"service_radar\".\"device_uid\"') IN ('sr:device-0001', 'host01.example.com', '192.0.2.10') OR get_json_string(device, '$.\"uid\"') IN ('sr:device-0001', 'host01.example.com', '192.0.2.10')) OR (COALESCE(LOWER(src_endpoint_ip) IN ('sr:device-0001', 'host01.example.com', '192.0.2.10') OR LOWER(get_json_string(metadata, '$.\"device_uid\"')) IN ('sr:device-0001', 'host01.example.com', '192.0.2.10')"
                 ),
                 "{entity}: {sql}"
             );
             assert!(
                 sql.contains(
-                    "OR get_json_string(device, '$.\"ip\"') IN ('sr:device-0001', 'host01.example.com', '192.0.2.10'), FALSE))) ORDER BY time DESC LIMIT 50 OFFSET 0"
+                    "OR LOWER(get_json_string(device, '$.\"ip\"')) IN ('sr:device-0001', 'host01.example.com', '192.0.2.10'), FALSE))) ORDER BY time DESC LIMIT 50 OFFSET 0"
                 ),
                 "{entity}: {sql}"
             );
@@ -6373,6 +6386,28 @@ AND milliseconds_diff({home}, start_time) > 0)"
             assert!(!sql.contains("unnest"), "{entity}: {sql}");
             assert!(!sql.contains("LIKE"), "{entity}: {sql}");
         }
+    }
+
+    #[test]
+    fn an_event_device_filter_matches_alias_keys_case_insensitively_and_canonical_uids_exactly() {
+        let compiled = translate(
+            &plan("in:events device_uid:\"Host01.example.com\" time:last_1h"),
+            "serviceradar",
+        )
+        .expect("mixed-case alias");
+        let sql = &compiled.sql;
+        assert!(
+            sql.contains("get_json_string(device, '$.\"uid\"') = 'Host01.example.com'"),
+            "{sql}"
+        );
+        assert!(
+            sql.contains("LOWER(src_endpoint_ip) = 'host01.example.com'"),
+            "{sql}"
+        );
+        assert!(
+            sql.contains("LOWER(get_json_string(device, '$.\"hostname\"')) = 'host01.example.com'"),
+            "{sql}"
+        );
     }
 
     #[test]

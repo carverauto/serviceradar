@@ -500,7 +500,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
-  def handle_async({:device_events, device_uid, request_ref}, {:ok, result}, socket) do
+  def handle_async({:device_events, device_uid, request_ref}, {:ok, {query, result}}, socket) do
     if device_uid == socket.assigns.device_uid and
          request_ref == socket.assigns.events_request_ref do
       {events, error} =
@@ -512,6 +512,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       {:noreply,
        socket
        |> assign(:device_events, events)
+       |> assign(:device_events_query, query)
        |> assign(:events_error, error)
        |> assign(:events_loading, false)
        |> assign(:events_request_ref, nil)}
@@ -1261,6 +1262,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> assign(:bumblebee_error, nil)
     |> assign(:has_bumblebee_exposure, false)
     |> assign(:device_events, [])
+    |> assign(:device_events_query, nil)
     |> assign(:events_loading, false)
     |> assign(:events_error, nil)
     |> assign(:events_request_ref, nil)
@@ -1311,7 +1313,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     srql = srql_module()
 
     if Application.get_env(:serviceradar_web_ng, :env) == :test do
-      result = EventsData.load_events(srql, uid, scope)
+      {query, result} = EventsData.load_events(srql, uid, scope)
 
       {events, error} =
         case result do
@@ -1321,6 +1323,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
       socket
       |> assign(:device_events, events)
+      |> assign(:device_events_query, query)
       |> assign(:events_error, error)
       |> assign(:events_loading, false)
       |> assign(:events_request_ref, nil)

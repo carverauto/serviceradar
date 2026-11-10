@@ -38,7 +38,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Table, as: TablePlugin
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceStateData
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime
-  alias ServiceRadarWebNGWeb.DeviceLive.EventsData
   alias ServiceRadarWebNGWeb.DeviceLive.MetadataData
   alias ServiceRadarWebNGWeb.DeviceLive.QueryData
   alias ServiceRadarWebNGWeb.DeviceLive.RemoteAccessData
@@ -502,12 +501,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
                   <span class="text-sm font-semibold">Device Events</span>
                 </div>
                 <.link
-                  navigate={
-                    ObservabilityPaths.path(
-                      "events",
-                      q: EventsData.device_events_query(@device_uid, identifiers: [])
-                    )
-                  }
+                  :if={@device_events_query}
+                  navigate={ObservabilityPaths.path("events", q: @device_events_query)}
                   class="text-xs text-sr-brand hover:underline"
                 >
                   View all in Observability →
