@@ -242,6 +242,77 @@ case System.fetch_env!("NVR_TEST_MODE") do
         false = File.exists?(path)
     end
 
+  "publication_page_setup" ->
+    {:ok, [pending, accepted, _unprepared]} = ServiceRadarNVR.list_blocks()
+
+    for {block_id, index} <- Enum.with_index([pending, accepted], 1) do
+      {:ok, descriptor} = ServiceRadarNVR.block_descriptor(block_id)
+
+      reference = %{
+        operation_id: "00000000-0000-4000-8000-00000000003#{index}",
+        recording_block_id: "00000000-0000-4000-8000-00000000004#{index}",
+        descriptor_sha256: Base.encode16(:crypto.hash(:sha256, descriptor), case: :lower)
+      }
+
+      {:ok, intent} = ServiceRadarNVR.prepare_publication(block_id, reference)
+
+      if block_id == accepted do
+        {:ok, ack} = ServiceRadarRecordingMetadata.LocalPublicationAcknowledgement.encode(intent)
+        {:ok, ^ack} = ServiceRadarNVR.acknowledge_publication(block_id, ack)
+      end
+    end
+
+  "publication_page" ->
+    {:ok, block_ids} = ServiceRadarNVR.list_blocks()
+    [first | _] = block_ids
+
+    {:ok, %{storage_id: ^id, entries: [%{block_id: ^first}], next_cursor: cursor}} =
+      ServiceRadarNVR.publication_page()
+
+    %{storage_id: ^id, after_block_id: ^first} = cursor
+    File.write!(System.fetch_env!("NVR_TEST_RECEIPT"), Jason.encode!(cursor))
+
+    for limit <- [0, -1, 17, "1", nil] do
+      {:error, :invalid_publication_page_limit} = ServiceRadarNVR.publication_page(nil, limit)
+    end
+
+    for invalid <- ["../outside", %{}, %{cursor | after_block_id: "../outside"}] do
+      {:error, :invalid_publication_cursor} = ServiceRadarNVR.publication_page(invalid)
+    end
+
+    {:error, :publication_cursor_storage_mismatch} =
+      ServiceRadarNVR.publication_page(%{cursor | storage_id: "00000000-0000-4000-8000-000000000099"})
+
+    walk = fn walk, cursor, entries ->
+      {:ok, %{storage_id: ^id, entries: [entry], next_cursor: next}} = ServiceRadarNVR.publication_page(cursor)
+      if next, do: walk.(walk, next, [entry | entries]), else: Enum.reverse([entry | entries])
+    end
+
+    entries = walk.(walk, nil, [])
+    ^block_ids = Enum.map(entries, & &1.block_id)
+    {:ok, %{entries: ^entries, next_cursor: nil}} = ServiceRadarNVR.publication_page(nil, 16)
+    end_cursor = %{storage_id: id, after_block_id: List.last(block_ids)}
+    {:ok, %{entries: [], next_cursor: nil}} = ServiceRadarNVR.publication_page(end_cursor)
+
+    output =
+      Enum.map(entries, fn
+        %{reason: reason} = entry -> %{entry | reason: inspect(reason)}
+        entry -> entry
+      end)
+
+    File.write!(System.fetch_env!("NVR_TEST_MP4") <> ".pages.json", Jason.encode!(output))
+
+  "publication_page_resume" ->
+    %{"storage_id" => storage_id, "after_block_id" => after_id} =
+      Jason.decode!(File.read!(System.fetch_env!("NVR_TEST_RECEIPT")))
+
+    {:ok, [_first | remaining]} = ServiceRadarNVR.list_blocks()
+
+    {:ok, %{entries: entries, next_cursor: nil}} =
+      ServiceRadarNVR.publication_page(%{storage_id: storage_id, after_block_id: after_id}, 16)
+
+    ^remaining = Enum.map(entries, & &1.block_id)
+
   "publication_concurrent" ->
     block_id = System.fetch_env!("NVR_TEST_BLOCK_ID")
 
@@ -782,6 +853,7 @@ case System.fetch_env!("NVR_TEST_MODE") do
     held = for tag <- 1..4, do: {tag, start_read.(tag)}
     digest = String.duplicate("0", 64)
     {:error, :nvr_read_capacity} = ServiceRadarNVR.list_blocks()
+    {:error, :nvr_read_capacity} = ServiceRadarNVR.publication_page()
     {:error, :nvr_read_capacity} = ServiceRadarNVR.sealed_block(digest)
     {:error, :nvr_read_capacity} = ServiceRadarNVR.block_descriptor(digest)
     {:error, :nvr_read_capacity} = ServiceRadarNVR.read_block(digest, digest, :init)
