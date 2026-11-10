@@ -438,7 +438,11 @@ ships compiled JS + sourcemaps in `dist/`. The bins under `bin/` are
 `npm run typecheck` runs `tsc --noEmit` against `src/**/*.ts`.
 `npm run build` compiles `src/` to `dist/` via `tsconfig.build.json`
 (`outDir: dist`, `sourceMap: true`). `npm test` rebuilds first so
-tests always exercise the shipped code path. `npm run ci` runs
+tests always exercise the shipped code path. It also runs
+`npm run build:managed-host`, which bundles `src/edge/managed.ts` into the
+gitignored `managed-host.mjs` that `tests/managed-host.test.mjs` imports;
+the Bazel target `//js/cli:managed_host_bundle` builds the same module.
+`npm run ci` runs
 typecheck → build → test → pack dry-run, mirroring CI.
 
 ## Development

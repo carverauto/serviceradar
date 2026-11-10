@@ -6,11 +6,8 @@ use mysql_async::{
     Conn,
     prelude::{FromRow, FromValue, Queryable},
 };
-use std::path::Path;
 
-use crate::schema;
-
-pub(crate) async fn verify(conn: &mut Conn, database: &str, ddl_dir: &Path) -> Result<()> {
+pub(crate) async fn verify(conn: &mut Conn, database: &str) -> Result<()> {
     conn.query_drop(format!(
         "INSERT INTO {database}.exposure_facts \
          (device_ord, cve_ord, pkg_ord, pkgver_ord, state, updated_at, transition_seq, transition_xid) \
@@ -72,11 +69,11 @@ pub(crate) async fn verify(conn: &mut Conn, database: &str, ddl_dir: &Path) -> R
     .await?;
 
     // Execute the real migration again with data present: startup replay must preserve it.
-    let sql = std::fs::read_to_string(ddl_dir.join("0032_exposure_facts.sql"))?;
-    for statement in schema::starrocks_statements(&sql) {
-        conn.query_drop(schema::starrocks_retarget(&statement, database, 1))
-            .await?;
-    }
+    conn.query_drop(format!(
+        "DELETE FROM {database}.schema_migrations WHERE version = 32"
+    ))
+    .await?;
+    crate::runner::sr_migrate(database).await?;
 
     let facts: Vec<StoredFact> = conn
         .query(format!(

@@ -46,6 +46,16 @@ defmodule ServiceRadar.Camera.RecordingBlocks do
     end
   end
 
+  @doc "Run metadata reconciliation under the original frozen block lock, without external I/O."
+  def with_frozen(block_id, fun, opts \\ []) do
+    transaction(fn ->
+      with {:ok, block} <- lock(block_id, opts),
+           :ok <- uploadable(block) do
+        fun.(block)
+      end
+    end)
+  end
+
   def acquire_upload(block_id, token, ttl_ms, opts \\ []) do
     with {:ok, token} <- Ecto.UUID.cast(token), :ok <- ttl(ttl_ms) do
       transaction(fn ->

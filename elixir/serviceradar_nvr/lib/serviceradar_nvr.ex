@@ -14,11 +14,11 @@ defmodule ServiceRadarNVR do
   notifications are not a durable outbox; retained journals are recovery evidence.
   """
 
+  alias ServiceRadarNVR.Blocks
+  alias ServiceRadarNVR.PublicationIntent
   alias ServiceRadarNVR.Reads
   alias ServiceRadarNVR.Session
-  alias ServiceRadarRecording.Initialization
   alias ServiceRadarRecording.Spool
-  alias ServiceRadarRecordingMetadata.Descriptor
 
   def start_recording(identity, clock) do
     case DynamicSupervisor.start_child(ServiceRadarNVR.Sessions, {Session, {self(), identity, clock}}) do
@@ -54,9 +54,8 @@ defmodule ServiceRadarNVR do
   def sealed_block(block_id), do: Reads.run(fn -> inspect_block(block_id) end)
 
   defp inspect_block(block_id) do
-    with {:ok, storage, limits} <- ServiceRadarNVR.Capacity.recovery_storage(),
-         {:ok, snapshot} <- Spool.inspect_sealed(storage, block_id, limits) do
-      with_format(snapshot)
+    with {:ok, storage, limits} <- ServiceRadarNVR.Capacity.recovery_storage() do
+      Blocks.inspect(storage, block_id, limits)
     end
   end
 
@@ -70,7 +69,7 @@ defmodule ServiceRadarNVR do
   def block_descriptor(block_id) do
     Reads.run(fn ->
       with {:ok, snapshot} <- inspect_block(block_id) do
-        encode_descriptor(snapshot)
+        Blocks.descriptor(snapshot)
       end
     end)
   end
@@ -99,6 +98,27 @@ defmodule ServiceRadarNVR do
   def read_block(_block_id, _descriptor_sha256, _selector), do: {:error, :invalid_media_selector}
 
   @doc """
+  Persist one immutable local publication intent while recording workers are idle.
+
+  The reference contains canonical UUIDs `:operation_id` and `:recording_block_id`
+  plus `:descriptor_sha256` from Core's frozen descriptor. The trusted caller
+  must establish that original authority first; these identifiers are correlation,
+  not locally verifiable authority or catalog acknowledgement. Exact retries sync
+  the same record, while conflicts and incomplete files remain untouched.
+  A timeout is an unknown outcome: inspect or retry the same operation.
+  """
+  def prepare_publication(block_id, reference), do: ServiceRadarNVR.Capacity.prepare_publication(block_id, reference)
+
+  @doc "Read and reverify a retained intent; does not publish, acknowledge or authorize playback."
+  def publication_intent(block_id) do
+    Reads.run(fn ->
+      with {:ok, storage, limits} <- ServiceRadarNVR.Capacity.recovery_storage() do
+        PublicationIntent.inspect(storage, block_id, limits)
+      end
+    end)
+  end
+
+  @doc """
   Recover and seal one retained block using its expected identity (including clock).
 
   Refuses while any local recording has a reservation. The provisioned volume
@@ -109,7 +129,7 @@ defmodule ServiceRadarNVR do
   """
   def recover_block(block_id, expected_identity) do
     with {:ok, snapshot} <- ServiceRadarNVR.Capacity.recover_block(block_id, expected_identity) do
-      with_format(snapshot)
+      Blocks.with_format(snapshot)
     end
   end
 
@@ -126,23 +146,10 @@ defmodule ServiceRadarNVR do
 
   defp read_selected(block_id, expected_digest, read) do
     with {:ok, snapshot} <- inspect_block(block_id),
-         {:ok, descriptor} <- encode_descriptor(snapshot),
+         {:ok, descriptor} <- Blocks.descriptor(snapshot),
          digest = Base.encode16(:crypto.hash(:sha256, descriptor), case: :lower),
          true <- digest == expected_digest || {:error, :descriptor_digest_mismatch} do
       read.(snapshot)
-    end
-  end
-
-  defp encode_descriptor(snapshot) do
-    with {:ok, descriptor} <- Descriptor.from_snapshot(snapshot, snapshot.init_format) do
-      Descriptor.encode(descriptor)
-    end
-  end
-
-  defp with_format(snapshot) do
-    with {:ok, init} <- Spool.read_init(snapshot),
-         {:ok, format} <- Initialization.parse(init) do
-      {:ok, Map.put(snapshot, :init_format, format)}
     end
   end
 end

@@ -328,6 +328,24 @@ write_source_files(
 )
 
 ash_schema(
+    name = "camera_local_intent_schema",
+    outs = ["generated_camera_local_intent/intent.json", "generated_camera_local_intent/migration.exs"],
+    app = ":erlang_app",
+    generator = "//build:camera_local_intent_schema.exs",
+    tags = ["manual"],
+)
+
+write_source_files(
+    name = "update_camera_local_intent_schema",
+    diff_test = False,
+    files = {
+        "priv/resource_snapshots/repo/platform.camera_local_publication_intents/20261110032550.json": ":generated_camera_local_intent/intent.json",
+        "priv/repo/migrations/20261110032550_add_camera_local_publication_intents.exs": ":generated_camera_local_intent/migration.exs",
+    },
+    tags = ["manual"],
+)
+
+ash_schema(
     name = "camera_upload_dispatch_schema",
     outs = [
         "generated_camera_upload_dispatch/dispatch.json",
@@ -1431,6 +1449,19 @@ ex_unit_test(
     ],
     target_compatible_with = requires_shared_fixture(),
     deps = INTEGRATION_TEST_DEPS,
+)
+
+# Launched by //integration_tests/srql_parity:parity_test to apply StarRocks
+# migrations through ServiceRadar.Analytics.StarRocks.SchemaMigrator.
+ex_unit_test(
+    name = "starrocks_parity_schema_runner",
+    size = "medium",
+    srcs = ["test/db/starrocks_parity_schema_runner.exs"],
+    tags = [
+        "external",
+        "manual",
+    ],
+    deps = [":erlang_app"],
 )
 
 # Kept so the workflow, and anyone with the old target in muscle memory, can still say

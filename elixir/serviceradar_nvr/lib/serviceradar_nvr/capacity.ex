@@ -3,6 +3,7 @@ defmodule ServiceRadarNVR.Capacity do
   use GenServer
 
   alias ServiceRadarNVR.Disk
+  alias ServiceRadarNVR.PublicationIntent
   alias ServiceRadarRecording.Spool
   alias ServiceRadarRecording.Storage
 
@@ -15,6 +16,9 @@ defmodule ServiceRadarNVR.Capacity do
   def check(token), do: GenServer.call(__MODULE__, {:check, token})
   def status, do: GenServer.call(__MODULE__, :status)
   def recovery_storage, do: GenServer.call(__MODULE__, :recovery_storage)
+
+  def prepare_publication(block_id, reference),
+    do: GenServer.call(__MODULE__, {:prepare_publication, block_id, reference}, 30_000)
 
   def recover_block(block_id, expected_identity),
     do: GenServer.call(__MODULE__, {:recover_block, block_id, expected_identity}, 30_000)
@@ -100,6 +104,29 @@ defmodule ServiceRadarNVR.Capacity do
     end
   end
 
+  def handle_call({:prepare_publication, _block_id, _reference}, _from, %{reservations: reservations} = state)
+      when map_size(reservations) > 0 do
+    {:reply, {:error, :nvr_recordings_active}, state}
+  end
+
+  def handle_call({:prepare_publication, block_id, reference}, _from, state) do
+    case storage(state) do
+      {:ok, storage} ->
+        result =
+          with {:ok, usage} <- measure(storage, state),
+               {:ok, bytes, additional} <- PublicationIntent.prepare(storage, block_id, reference, @limits),
+               :ok <- publication_capacity(usage, additional),
+               :ok <- PublicationIntent.persist(storage, block_id, bytes) do
+            {:ok, bytes}
+          end
+
+        {:reply, result, %{state | storage: storage, probe: nil}}
+
+      {:error, _} = error ->
+        {:reply, error, state}
+    end
+  end
+
   @impl true
   def handle_info({:DOWN, token, :process, owner, _}, state) do
     reservations =
@@ -130,6 +157,19 @@ defmodule ServiceRadarNVR.Capacity do
          reserve_bytes: state.config.reserve_bytes,
          block_bytes: state.block_bytes
        }}
+    end
+  end
+
+  # Existing exact retries only sync retained evidence and need no new budget.
+  # No writer is admitted during this operation, so it cannot spend a recording
+  # reservation or race a new reservation while committing the metadata.
+  defp publication_capacity(_usage, 0), do: :ok
+
+  defp publication_capacity(usage, bytes) do
+    cond do
+      usage.used_bytes + bytes > usage.max_spool_bytes -> {:error, :nvr_spool_budget_exhausted}
+      usage.available_bytes < usage.reserve_bytes + bytes -> {:error, :nvr_storage_pressure}
+      true -> :ok
     end
   end
 

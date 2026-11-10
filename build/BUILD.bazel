@@ -108,6 +108,7 @@ exports_files([
     "camera_recording_block_schema.exs",
     "camera_archive_binding_schema.exs",
     "camera_upload_intent_schema.exs",
+    "camera_local_intent_schema.exs",
     "component_certificate_schema.exs",
     "managed_certificate_lifecycle_schema.exs",
     "managed_component_permissions_schema.exs",

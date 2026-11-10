@@ -56,6 +56,7 @@ exports_files([
 PARITY_DATA = [
     "inventory.json",
     "//elixir/serviceradar_core:schema_template_baseline_sql",
+    "//elixir/serviceradar_core:starrocks_parity_schema_runner",
     "//elixir/serviceradar_core/priv/starrocks:schema_sql",
 ]
 

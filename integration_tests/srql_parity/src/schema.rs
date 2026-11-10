@@ -1,10 +1,11 @@
 //! DDL for the two throwaway databases. Nothing here is a second copy of the product schema.
 //!
-//! StarRocks: every file under `elixir/serviceradar_core/priv/starrocks/`, split and retargeted
-//! the way `ServiceRadar.Analytics.StarRocks.Schema` does it (`statements/1`, `retarget/3`)
-//! and applied in version order the way `SchemaMigrator` applies them (an `ADD COLUMN` whose
-//! column exists is skipped). That module is Elixir and this harness is Rust, so the two small
-//! functions are restated here; `tests` pins them against the behaviours its moduledoc promises.
+//! StarRocks: not built here. `runner::sr_migrate` applies `elixir/serviceradar_core/priv/starrocks/`
+//! through the product's `SchemaMigrator` (via `test/db/starrocks_parity_schema_runner.exs`), so
+//! the harness waits for optimize and column-change jobs exactly as core does. The
+//! `starrocks_*` helpers below restate `ServiceRadar.Analytics.StarRocks.Schema`
+//! (`statements/1`, `retarget/3`) and are no longer on the harness's migration path; `tests`
+//! still pins them against the behaviours that moduledoc promises.
 //!
 //! CNPG: the table and function definitions come from the committed schema baseline
 //! (`priv/repo/baseline/platform_schema.sql`, a `pg_dump --schema-only` of a migrated

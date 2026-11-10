@@ -55,8 +55,11 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.Analytics.StarRocks
+  alias ServiceRadar.Analytics.StarRocks.Env
   alias ServiceRadar.Analytics.StarRocks.MySQL
+  alias ServiceRadar.Analytics.StarRocks.Retention
   alias ServiceRadar.Analytics.StarRocks.Schema
+  alias ServiceRadar.Analytics.StarRocks.SchemaMigrator
   alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrData
   alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrWarehouse
 
@@ -595,44 +598,21 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
   # Schema application
   # ---------------------------------------------------------------------------
 
-  # The StarRocks half applies the shipped migrations through the product's
-  # own splitter and retargeter (`Schema`), skipping the CREATE DATABASE the
-  # fixed database's user has no privilege for and ADD COLUMNs that already
-  # ran -- the same guards the Rust harness states in `schema.rs`.
+  # The StarRocks half drives the shipped migrations through the production
+  # `SchemaMigrator`, pinning `replication_num: 1` and `create_database: false`
+  # for the database-scoped parity user so optimize and column-change jobs are
+  # polled to FINISHED the same way core does at startup.
   defp apply_starrocks_schema!(conn, database) do
-    for migration <- Schema.migrations() do
-      for statement <- migration.statements do
-        statement = Schema.retarget(statement, database, 1)
-
-        if !(String.upcase(statement) =~ ~r/^CREATE DATABASE/) do
-          starrocks_exec!(conn, statement, database)
-        end
-      end
-    end
-  end
-
-  defp starrocks_exec!(conn, statement, database) do
-    case Schema.add_column(statement) do
-      {:ok, {table, column}} ->
-        if !column_exists?(conn, database, table, column) do
-          sr!(MySQL.query(statement, conn: conn, timeout: 60_000))
-        end
-
-      :error ->
-        sr!(MySQL.query(statement, conn: conn, timeout: 60_000))
-    end
-  end
-
-  defp column_exists?(conn, database, table, column) do
-    sql = """
-    SELECT 1 FROM information_schema.columns
-    WHERE table_schema = '#{database}' AND table_name = '#{table}' AND column_name = '#{column}'
-    """
-
-    case MySQL.query(sql, conn: conn, timeout: 60_000) do
-      {:ok, %{rows: rows}} -> rows != []
-      {:error, _reason} -> false
-    end
+    assert {:ok, _versions} =
+             SchemaMigrator.migrate(
+               query: &MySQL.query(&1, conn: conn, timeout: 60_000),
+               database: database,
+               replication_num: 1,
+               create_database: false,
+               retention_days: Retention.days_by_table(retention_days: Env.default_retention_days()),
+               try_lock: fn fun -> fun.(fn -> :ok end) end,
+               workload_groups: fn _query -> :ok end
+             )
   end
 
   # The synchronous refresh can return before task_runs publishes its final
@@ -1175,7 +1155,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
   end
 
   defp declared_warehouse_objects(database) do
-    for migration <- Schema.migrations(), statement <- migration.statements, reduce: MapSet.new() do
+    initial = MapSet.new([SchemaMigrator.ledger_table()])
+
+    for migration <- Schema.migrations(), statement <- migration.statements, reduce: initial do
       objects ->
         statement = Schema.retarget(statement, database, 1)
 

@@ -72,13 +72,63 @@ and returns canonical v1 JSON for the sealed block: identity, clock, native form
 initialization/media digests and fragment ranges. It uses the same descriptor
 validator as Core's frozen blocks and archive manifests. The bytes contain no
 local paths or storage receipts; the API is trusted same-VM only, with no HTTP
-endpoint. No descriptor sidecar is persisted.
+endpoint. Descriptor inspection itself does not persist a sidecar.
 
 These observations do not establish current assignment authority, physical
 storage durability, publication receipts or playback authorization. They do not
 acknowledge delivery or drain a durable outbox. No automatic scan or capture
 restart runs at boot; publication, assignment reconciliation and unresolved/gap
 state remain follow-up work.
+
+## Durable local publication intent
+
+After establishing the original frozen recording authority in Core, trusted
+same-VM code may call `ServiceRadarNVR.prepare_publication(block_id, reference)`.
+The reference has canonical UUIDs `:operation_id` and `:recording_block_id`, plus
+`:descriptor_sha256` from that frozen descriptor. These values correlate the
+future catalog operation; accepting their syntax does not verify Core authority.
+There is no network endpoint or automatic publisher.
+
+Preparation verifies the complete sealed media and reconstructs its canonical
+descriptor before comparing the expected digest. It exclusively creates a private
+`publication.json` within that block directory, then syncs the file and directory
+before returning `{:ok, canonical_json}`. The version-1 record contains storage
+UUID, local block ID, operation UUID, Core block UUID, descriptor digest and the
+complete descriptor. It has a 64 KiB ceiling, no paths or S3 receipts, and one
+immutable intent per block. Exact retries compare and sync the same bytes without
+rewriting; a different operation, Core block reference or content is refused.
+An interrupted partial file remains unresolved evidence and is never repaired or
+overwritten by a retry. A timeout is an unknown outcome, not proof of no write.
+
+`ServiceRadarNVR.publication_intent(block_id)` reads through the bounded read pool,
+re-verifies media and reconstructs the entire expected record. Corrupt, oversized,
+noncanonical, misbound or aliased intent files are refused. This read does not
+sync a recovered file; retry preparation to obtain a durable-write acknowledgement
+after a previously unknown outcome. Inspection grants neither historical
+authority nor catalog availability, holds, deletion or playback permission.
+
+Preparation is serialized by capacity accounting and refuses while any recording
+reservation exists. New bytes must fit the spool budget and leave the configured
+physical free-space floor intact; retained intent bytes count toward future
+admission. Exact retries require no additional byte budget. This explicit idle
+operation is a recovery checkpoint, not publication concurrent with continuous
+capture. Separately reserved control capacity, authenticated authority delivery,
+qualified local-copy catalog registration, durable delivery scheduling and
+preservation/disposition state remain open under the
+[local publication contract](../../openspec/changes/add-scalable-camera-recording-plane/local-publication.md).
+No recording is advertised or media deleted by either API.
+
+Core now exposes the trusted in-process
+`ServiceRadar.Camera.LocalPublicationIntents.accept(bytes, opts)` boundary. It
+validates the shared v1 codec and locks the original frozen block to match its
+storage UUID, block key, descriptor and digest. It durably stores one immutable
+intent acknowledgement per block, using the supplied operation UUID as its ID.
+Exact retries return the original ID and timestamp; conflicting operations are
+refused. Recorder release/replacement does not revoke frozen history or permit
+adoption of an unfrozen block. The acknowledgement is metadata reconciliation
+only: it neither qualifies storage nor registers an available local copy, and it
+does not set archive publication fields. Authenticated NVR delivery and local
+acknowledgement persistence are not wired yet.
 
 ## Descriptor-bound local media reads
 
@@ -105,7 +155,7 @@ is created by these reads.
 
 ## Read admission and lifetime
 
-Inventory, sealed-block inspection, descriptor generation and media reads share
+Inventory, sealed-block inspection, descriptor generation, intent inspection and media reads share
 four supervised task slots per replica. A full pool returns
 `:nvr_read_capacity`; media work is not queued. An unavailable/restarting pool or
 failed task returns `:nvr_read_unavailable`. Invalid media selectors and descriptor
@@ -191,8 +241,8 @@ other active reservations remain charged.
 `ServiceRadarNVR.capacity/0` returns a read-only observation of usage, full active
 reservations and available space; it is not a promise to a future caller.
 
-Inventory accepts at most 4096 block directories with the existing spool file
-names. Unknown entries, aliases and unreadable inventory refuse admission and
+Inventory accepts at most 4096 block directories with the spool file names and
+the optional `publication.json`. Unknown entries, aliases and unreadable inventory refuse admission and
 remain intact. Admission conservatively counts active bytes both as inventory
 and as full reservations. It can refuse early; it cannot spend that slack on a
 second worker. Losing the capacity owner retires dependent workers before the
@@ -231,7 +281,9 @@ The release test starts the shipped VM without control-plane services, exercises
 bounded worker admission and retirement, spool budget, free-space floor and
 inventory refusal, records synthetic H264, restarts the release, recovers the
 journals and compares decoded frames, including across multiple blocks and after
-refusing a successor block. Core's existing
+refusing a successor block. It also prepares, restarts, re-reads and retries
+publication intent and refuses conflicting, corrupt or over-budget intent.
+Core's existing
 recording integration suite owns the CNPG authorization/publication contract.
 Physical node-loss durability and deployed camera behavior are not established
 by these synthetic tests.

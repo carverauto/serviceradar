@@ -187,6 +187,29 @@ format error does not imply that recovery made no progress. This is local media
 evidence, not a publication receipt or playback authorization. Tasks 3.2 and 3.3
 remain open.
 
+Durable intent checkpoint for 3.2/3.3: trusted same-VM callers can explicitly
+persist one bounded immutable `publication.json` for a verified sealed block.
+The record binds the storage lifetime, descriptor and stable operation/Core block
+references, survives restart, and is reverified before reading or exact retry.
+Preparation is serialized while local writers are idle, charges new bytes before
+writing and syncs the file/directory. Conflicting or partial records remain
+untouched. Release tests exercise persistence, retry, corruption and admission.
+This records authority correlation, not authority proof or catalog availability.
+Authenticated Core acknowledgement, continuous-capture publication, separate
+control reserves, scheduling and holds/disposition remain open; tasks 3.2 and 3.3
+are not complete.
+
+Core intent reconciliation checkpoint for 3.2/3.3: the shared v1 codec preserves
+NVR intent bytes, and a trusted Core caller can durably acknowledge an intent
+against the locked original frozen block. One immutable operation per block
+binds storage UUID, block key and descriptor/content hashes. Exact retries return
+the original acknowledgement; conflicting operations and authority substitutions
+are refused, including after recorder replacement. The serial CNPG integration
+owner exercises persistence, authorization, competing operations and retries.
+This is intent acceptance only, not qualified local-copy registration or playback
+availability. Authenticated delivery, local acknowledgement persistence, storage
+qualification and the remaining publication/disposition lifecycle are still open.
+
 Read-only discovery checkpoint for 3.2/3.3: a restarted standalone NVR can list
 bounded retained block IDs and verify one sealed snapshot without an earlier
 notification or expected-identity receipt. The shared journal reader validates

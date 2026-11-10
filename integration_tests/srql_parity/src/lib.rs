@@ -6,7 +6,8 @@
 //!   query has no inventory entry. `shape` is the normalization; `shape_examples.json` pins it
 //!   for the Elixir port that checks the product's query builders the same way.
 //! * `fixture`: the one synthetic row generator both backends are seeded from.
-//! * `schema`: the DDL each throwaway database is built from.
+//! * `schema`: the CNPG DDL the throwaway database is built from (StarRocks goes through
+//!   `SchemaMigrator`, see `runner::sr_migrate`).
 //! * `compare`: result normalisation and the diff.
 //! * `exposure`: storage checks for exposure migrations 0032 through 0034 in the runner's disposable warehouse.
 //! * `runner`: seeds CNPG and StarRocks, runs every entry through both dialects, then the

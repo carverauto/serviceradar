@@ -67,6 +67,9 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
   defp answer(state, "SHOW ALTER TABLE COLUMN" <> _),
     do: {result(["State"], [["FINISHED"]]), state}
 
+  defp answer(state, "SHOW ALTER TABLE OPTIMIZE" <> _),
+    do: {result(["State"], [["FINISHED"]]), state}
+
   defp answer(state, "INSERT INTO " <> _ = sql) do
     [_, version] = Regex.run(~r/VALUES \((\d+),/, sql)
     {result([], []), %{state | ledger: state.ledger ++ [String.to_integer(version)]}}
@@ -394,6 +397,7 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
           lifecycle: ["RUNNING", "FINISHED"],
           columns: %{},
           running: nil,
+          optimize: %{},
           last_state: %{},
           ledger: [],
           sent: [],
@@ -418,6 +422,10 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
         [_, table] = match
         poll(state, table)
 
+      match = Regex.run(~r/^SHOW ALTER TABLE OPTIMIZE .* TableName = '(\w+)'/, sql) ->
+        [_, table] = match
+        poll_optimize(state, table)
+
       match =
           Regex.run(
             ~r/^SELECT (1|COLUMN_TYPE) FROM .* table_name = '(\w+)' AND column_name = '(\w+)'/,
@@ -441,13 +449,39 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
     end
   end
 
-  defp start_alter(%{running: nil} = state, key, type) do
-    {result([], []), %{state | running: {key, type, state.lifecycle}, sent: state.sent ++ [key]}}
+  defp start_alter(%{running: nil} = state, {table, _column} = key, type) do
+    if optimize_running?(state, table) do
+      message = "(1064) Table #{table} is currently in state OPTIMIZE"
+      {{:error, {:starrocks_mysql, message}}, %{state | refused: state.refused ++ [key]}}
+    else
+      {result([], []),
+       %{state | running: {key, type, state.lifecycle}, sent: state.sent ++ [key]}}
+    end
   end
 
   defp start_alter(state, {table, _column} = key, _type) do
     message = "(1064) A schema change operation is in progress on the table #{table}."
     {{:error, {:starrocks_mysql, message}}, %{state | refused: state.refused ++ [key]}}
+  end
+
+  defp optimize_running?(state, table) do
+    match?(
+      [stage | _] when stage not in ["FINISHED", "CANCELLED"],
+      Map.get(state.optimize, table)
+    )
+  end
+
+  defp poll_optimize(state, table) do
+    case Map.get(state.optimize, table) do
+      nil ->
+        {result(["State"], []), state}
+
+      [stage] ->
+        {result(["State"], [[stage]]), state}
+
+      [stage | rest] ->
+        {result(["State"], [[stage]]), %{state | optimize: Map.put(state.optimize, table, rest)}}
+    end
   end
 
   defp poll(%{running: {{table, _} = key, type, [stage | stages]}} = state, table) do
@@ -1008,5 +1042,62 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
     # rebuilds all of them with one bucket per day; 41 recreates the two span
     # rollups after widening the span columns.
     assert waiting == [17, 22, 25, 28, 40, 41]
+  end
+
+  test "a column change waits for a running optimize job on the table before altering" do
+    migration = shipped(41)
+
+    columns =
+      for statement <- migration.statements,
+          [_, table, column, type] <-
+            [Regex.run(~r/ALTER TABLE \S+?\.(\w+) MODIFY COLUMN (\w+) (\S+)/, statement)],
+          into: %{},
+          do: {{table, column}, String.downcase(type)}
+
+    columns = Map.put(columns, {"otel_traces", "name"}, "varchar(65533)")
+
+    agent =
+      start_alter_warehouse(%{
+        columns: columns,
+        optimize: %{"otel_traces" => ["RUNNING", "RUNNING", "FINISHED"]}
+      })
+
+    assert migrate(agent, query: alter_query(agent), migrations: [migration]) == {:ok, [41]}
+
+    result = state(agent)
+    assert result.refused == []
+    assert result.sent == [{"otel_traces", "name"}]
+    assert result.optimize["otel_traces"] == ["FINISHED"]
+  end
+
+  test "pre-created fixture databases can pin replication_num and skip CREATE DATABASE" do
+    migrations =
+      Schema.build([
+        {"0001_tables.sql",
+         """
+         CREATE DATABASE IF NOT EXISTS serviceradar;
+         CREATE TABLE IF NOT EXISTS serviceradar.flows (id INT) PROPERTIES ("replication_num" = "3");
+         """}
+      ])
+
+    # A database-scoped parity user holds neither SYSTEM privileges (SHOW BACKENDS)
+    # nor CREATE DATABASE.
+    agent = start_warehouse(%{backends: 0, compute_nodes: 0, fail_on: ~r/CREATE DATABASE/i})
+
+    assert migrate(agent,
+             database: "srql_parity_ci",
+             migrations: migrations,
+             replication_num: 1,
+             create_database: false
+           ) == {:ok, [1]}
+
+    ddl = state(agent).ddl
+    refute Enum.any?(ddl, &(&1 =~ "CREATE DATABASE"))
+    assert Enum.any?(ddl, &(&1 =~ "srql_parity_ci.schema_migrations"))
+
+    assert Enum.any?(
+             ddl,
+             &(&1 =~ ~s|srql_parity_ci.flows (id INT) PROPERTIES ("replication_num" = "1")|)
+           )
   end
 end

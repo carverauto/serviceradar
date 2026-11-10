@@ -105,6 +105,104 @@ case System.fetch_env!("NVR_TEST_MODE") do
     {:error, :nvr_storage_pressure} = Capacity.writable(floor - 1, floor)
     {:error, :nvr_storage_pressure} = Capacity.writable(0, floor)
 
+  mode
+  when mode in [
+         "publication_prepare",
+         "publication_retry",
+         "publication_budget",
+         "publication_pressure",
+         "publication_error"
+       ] ->
+    {:ok, [block_id]} = ServiceRadarNVR.list_blocks()
+
+    reference = %{
+      operation_id: "00000000-0000-4000-8000-000000000021",
+      recording_block_id: "00000000-0000-4000-8000-000000000022",
+      descriptor_sha256: System.fetch_env!("NVR_TEST_DESCRIPTOR_SHA256")
+    }
+
+    path = Path.join([root, block_id, "publication.json"])
+
+    case mode do
+      "publication_prepare" ->
+        {:ok, %{used_bytes: before_bytes}} = ServiceRadarNVR.capacity()
+        {:error, :enoent} = ServiceRadarNVR.publication_intent(block_id)
+        {:error, :invalid_publication_reference} = ServiceRadarNVR.prepare_publication(block_id, %{})
+
+        {:error, :descriptor_digest_mismatch} =
+          ServiceRadarNVR.prepare_publication(block_id, %{reference | descriptor_sha256: String.duplicate("0", 64)})
+
+        false = File.exists?(path)
+
+        # A real writer reservation prevents a mutation from blocking capture.
+        {:ok, worker, _} = ServiceRadarNVR.start_recording(%{identity | block_sequence: 1}, clock)
+        {:error, :nvr_recordings_active} = ServiceRadarNVR.prepare_publication(block_id, reference)
+        monitor = Process.monitor(worker)
+        :ok = ServiceRadarNVR.stop(worker)
+
+        receive do
+          {:DOWN, ^monitor, :process, ^worker, :normal} -> :ok
+        after
+          5_000 -> raise "writer did not stop"
+        end
+
+        {:ok, bytes} = ServiceRadarNVR.prepare_publication(block_id, reference)
+        {:ok, ^bytes} = ServiceRadarNVR.prepare_publication(block_id, reference)
+        {:ok, ^bytes} = ServiceRadarNVR.publication_intent(block_id)
+        ^bytes = File.read!(path)
+        {:ok, %{used_bytes: after_bytes}} = ServiceRadarNVR.capacity()
+        true = after_bytes == before_bytes + byte_size(bytes)
+
+        for key <- [:operation_id, :recording_block_id] do
+          {:error, :publication_intent_conflict} =
+            ServiceRadarNVR.prepare_publication(
+              block_id,
+              Map.put(reference, key, "00000000-0000-4000-8000-000000000023")
+            )
+
+          ^bytes = File.read!(path)
+        end
+
+      "publication_retry" ->
+        bytes = File.read!(path)
+        {:ok, ^bytes} = ServiceRadarNVR.publication_intent(block_id)
+        {:ok, ^bytes} = ServiceRadarNVR.prepare_publication(block_id, reference)
+        {:ok, descriptor} = ServiceRadarNVR.block_descriptor(block_id)
+        %{"descriptor" => document} = Jason.decode!(bytes)
+        ^document = Jason.decode!(descriptor)
+
+      "publication_budget" ->
+        {:error, :nvr_spool_budget_exhausted} = ServiceRadarNVR.prepare_publication(block_id, reference)
+        false = File.exists?(path)
+
+      "publication_pressure" ->
+        {:error, :nvr_storage_pressure} = ServiceRadarNVR.prepare_publication(block_id, reference)
+        false = File.exists?(path)
+
+      "publication_error" ->
+        {:error, _} = ServiceRadarNVR.publication_intent(block_id)
+        {:error, _} = ServiceRadarNVR.prepare_publication(block_id, reference)
+    end
+
+  "publication_storage_binding" ->
+    # Preparation is the first API call in this VM: it must retain the opened
+    # handle even on an exact retry, rather than silently reopening replacement.
+    block_id = System.fetch_env!("NVR_TEST_BLOCK_ID")
+
+    reference = %{
+      operation_id: "00000000-0000-4000-8000-000000000021",
+      recording_block_id: "00000000-0000-4000-8000-000000000022",
+      descriptor_sha256: System.fetch_env!("NVR_TEST_DESCRIPTOR_SHA256")
+    }
+
+    {:ok, _} = ServiceRadarNVR.prepare_publication(block_id, reference)
+    marker = Path.join(root, ".storage-id")
+    replacement = marker <> ".replacement"
+    File.write!(replacement, File.read!(marker))
+    File.chmod!(replacement, 0o600)
+    File.rename!(replacement, marker)
+    {:error, :storage_changed} = ServiceRadarNVR.prepare_publication(block_id, reference)
+
   "recover" ->
     %{"directory" => directory, "identity" => retained_identity} =
       Jason.decode!(File.read!(System.fetch_env!("NVR_TEST_RECEIPT")))
