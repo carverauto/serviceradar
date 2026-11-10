@@ -164,8 +164,11 @@ func newEdgeRecordSenders(
 	return senders, closeAll, nil
 }
 
-// edgeLaneSender visits at most 64 generations of its lane per tick. Independent
-// lane workers keep a stalled bulk stream from holding recovery delivery.
+// edgeLaneSender visits at most 64 generations of its lane per tick, resuming
+// after the generation it last visited and wrapping to the lane's first
+// generation once per tick, so a lane with one live generation is sent every
+// tick. Independent lane workers keep a stalled bulk stream from holding
+// recovery delivery.
 type edgeLaneSender struct {
 	coordinator *agent.RecoveryCoordinator
 	sessions    *edgeSourceSessions
@@ -180,11 +183,16 @@ func (s *edgeLaneSender) RunOnce(ctx context.Context) (edgesender.Result, error)
 	if s.coordinator != nil && !s.coordinator.Ready() {
 		return edgesender.Result{}, agent.ErrRecoveryPending
 	}
+	wrapped := false
 	for visited := 0; visited < spool.MaxGenerationPage; visited++ {
 		source, ok := s.store.NextLaneSource(s.lane, &s.ordinal)
 		if !ok {
-			s.ordinal = 0
-			return edgesender.Result{}, edgesender.ErrNoUnresolvedRecords
+			if wrapped || s.ordinal == 0 {
+				s.ordinal = 0
+				return edgesender.Result{}, edgesender.ErrNoUnresolvedRecords
+			}
+			s.ordinal, wrapped = 0, true
+			continue
 		}
 		result, err := s.runSource(ctx, source)
 		if errors.Is(err, edgesender.ErrNoUnresolvedRecords) {

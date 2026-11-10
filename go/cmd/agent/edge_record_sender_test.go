@@ -472,6 +472,64 @@ func TestRecoveryLaneDeliveryProgressesWhileBulkSessionStalls(t *testing.T) {
 	}
 }
 
+// A lane whose only generation still holds unresolved records is sent on the
+// next poll: after a poll leaves the cursor on that generation without
+// resolving it, the following poll wraps back to it rather than ending at the
+// cursor. A drained lane still ends the poll with nothing unresolved.
+func TestLaneSenderRevisitsItsOnlyGenerationOnConsecutivePolls(t *testing.T) {
+	dir := t.TempDir()
+	lanes, identity, bulk := testTransportLanes(t, dir)
+	record := spooledEdgeRecord(t, time.Now().Add(time.Hour))
+	if _, err := lanes.Append(bulk, identity, record.eventID, record.body); err != nil {
+		t.Fatal(err)
+	}
+	if err := lanes.Close(); err != nil {
+		t.Fatal(err)
+	}
+	gateway, address := listenGrantGateway(t, false)
+	cfg := &agent.ServerConfig{EdgeRecordSender: &agent.EdgeRecordSenderConfig{SpoolDir: dir}}
+	store, _, _, err := openEdgeRecordSpool(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	senders, closeAll, err := newEdgeRecordSenders(ctx, address, &models.SecurityConfig{Mode: models.SecurityModeNone}, store, logger.NewTestLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeAll()
+	var laneSender *edgeLaneSender
+	for _, candidate := range senders {
+		if candidate.lane == bulk {
+			laneSender = candidate
+		}
+	}
+	if laneSender == nil {
+		t.Fatal("no sender for the bulk lane")
+	}
+
+	interrupted, interrupt := context.WithCancel(ctx)
+	interrupt()
+	if _, err := laneSender.RunOnce(interrupted); err == nil || errors.Is(err, sender.ErrNoUnresolvedRecords) {
+		t.Fatalf("interrupted poll = %v, want a delivery error that leaves the record unresolved", err)
+	}
+	if _, frames := gateway.snapshot(); len(frames) != 0 {
+		t.Fatalf("interrupted poll delivered %d frames", len(frames))
+	}
+
+	if _, err := laneSender.RunOnce(ctx); err != nil {
+		t.Fatalf("next poll: %v", err)
+	}
+	if _, frames := gateway.snapshot(); len(frames) != 1 || !bytes.Equal(frames[0].RecordBytes, record.body) {
+		t.Fatalf("next poll delivered %d frames, want the unresolved record", len(frames))
+	}
+	if _, err := laneSender.RunOnce(ctx); !errors.Is(err, sender.ErrNoUnresolvedRecords) {
+		t.Fatalf("drained poll = %v, want no unresolved records", err)
+	}
+}
+
 func TestUnsupportedLegacyStorageIsRetainedAccountedAndNeverDelivered(t *testing.T) {
 	dir := t.TempDir()
 	old := []byte("synthetic unsupported legacy bytes")
