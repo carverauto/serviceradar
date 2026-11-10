@@ -580,30 +580,22 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
                       }}
     end
 
-    test "a failed lease refresh is retried until core succeeds, and a later registration does not repeat it" do
+    test "a lease refresh is retried until core reports success, and a later registration does not repeat it" do
       ensure_process_registry!()
 
       agent_id = "agent-lease-refresh-#{System.unique_integer([:positive])}"
-      test_pid = self()
-      {:ok, outcomes} = Agent.start_link(fn -> [{:error, :core_unavailable}] end)
 
-      config_sync_rpc = fn
-        :refresh_sweep_leases, args ->
-          send(test_pid, {:lease_refresh, args})
+      # The start call fails, then core runs a refresh that fails, then one that succeeds.
+      pid =
+        start_lease_refresh_session!(agent_id, [
+          {:error, :core_unavailable},
+          {:report, {:error, {:lease_refresh_incomplete, 1}}},
+          {:report, :ok}
+        ])
 
-          Agent.get_and_update(outcomes, fn
-            [] -> {:ok, []}
-            [next | rest] -> {next, rest}
-          end)
-
-        _function, _args ->
-          :ok
-      end
-
-      pid = start_push_session!(agent_id, ["sweep_lease_v1"], config_sync_rpc: config_sync_rpc)
-
-      assert_receive {:lease_refresh, [^agent_id, ^pid]}
-      assert_receive {:lease_refresh, [^agent_id, ^pid]}, 2_000
+      assert_receive {:lease_refresh, [^agent_id, ^pid, 0], _refresh}
+      assert_receive {:lease_refresh, [^agent_id, ^pid, 1], _refresh}, 2_000
+      assert_receive {:lease_refresh, [^agent_id, ^pid, 2], _refresh}, 3_000
 
       assert :ok =
                ControlStreamSession.register(
@@ -615,29 +607,52 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
                  nil
                )
 
-      refute_receive {:lease_refresh, _args}, 1_500
+      refute_receive {:lease_refresh, _args, _refresh}, 500
+    end
+
+    # A refresh reissues every unrun slot of the agent's leases, which takes minutes on a long
+    # horizon. The session must wait for core's result however long that is: asking again
+    # while core is still working makes core redo the whole window for every repeat.
+    test "a lease refresh core is still running is not asked for again, and core's result ends it" do
+      ensure_process_registry!()
+
+      agent_id = "agent-lease-refresh-slow-#{System.unique_integer([:positive])}"
+      pid = start_lease_refresh_session!(agent_id, [:hold])
+
+      assert_receive {:lease_refresh, [^agent_id, ^pid, 0], refresh}
+      # Longer than the first two retry delays (500 ms and 1 s) together.
+      refute_receive {:lease_refresh, _args, _refresh}, 1_800
+
+      send(refresh, {:report, :ok})
+      refute_receive {:lease_refresh, _args, _refresh}, 800
+    end
+
+    test "a lease refresh that ends on core without a result is retried" do
+      ensure_process_registry!()
+
+      agent_id = "agent-lease-refresh-lost-#{System.unique_integer([:positive])}"
+      pid = start_lease_refresh_session!(agent_id, [:hold, {:report, :ok}])
+
+      assert_receive {:lease_refresh, [^agent_id, ^pid, 0], refresh}
+      Process.exit(refresh, :kill)
+
+      assert_receive {:lease_refresh, [^agent_id, ^pid, 1], _refresh}, 2_000
     end
 
     test "a lease refresh still failing when the session closes is not retried" do
       ensure_process_registry!()
 
       agent_id = "agent-lease-refresh-closed-#{System.unique_integer([:positive])}"
-      test_pid = self()
 
-      config_sync_rpc = fn
-        :refresh_sweep_leases, args ->
-          send(test_pid, {:lease_refresh, args})
+      pid =
+        start_lease_refresh_session!(agent_id, [
+          {:error, :core_unavailable},
           {:error, :core_unavailable}
+        ])
 
-        _function, _args ->
-          :ok
-      end
-
-      pid = start_push_session!(agent_id, ["sweep_lease_v1"], config_sync_rpc: config_sync_rpc)
-
-      assert_receive {:lease_refresh, [^agent_id, ^pid]}
+      assert_receive {:lease_refresh, [^agent_id, ^pid, 0], _refresh}
       :ok = stop_supervised!(ControlStreamSession)
-      refute_receive {:lease_refresh, _args}, 1_500
+      refute_receive {:lease_refresh, _args, _refresh}, 1_500
     end
 
     test "an agent without sweep leases is not refreshed" do
@@ -647,9 +662,9 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
       test_pid = self()
 
       config_sync_rpc = fn
-        :refresh_sweep_leases, args ->
-          send(test_pid, {:lease_refresh, args})
-          :ok
+        :start_sweep_lease_refresh, args ->
+          send(test_pid, {:lease_refresh, args, nil})
+          {:error, :unexpected_refresh}
 
         _function, _args ->
           :ok
@@ -657,7 +672,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
 
       start_push_session!(agent_id, [], config_sync_rpc: config_sync_rpc)
 
-      refute_receive {:lease_refresh, _args}, 100
+      refute_receive {:lease_refresh, _args, _refresh}, 100
     end
 
     test "an agent already running the current config is not sent it again" do
@@ -1561,6 +1576,50 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
 
   # A registered session whose stream replies and config-sync writes are
   # captured, for exercising config push delivery.
+  defp default_config_sync_rpc(:start_sweep_lease_refresh, [_agent_id, session, attempt]),
+    do: lease_refresh_answer({:report, :ok}, session, attempt)
+
+  defp default_config_sync_rpc(_function, _args), do: :ok
+
+  # Starts a sweep_lease_v1 session whose core answers each refresh start with the next of
+  # `outcomes`, and reports every start to the test as `{:lease_refresh, args, refresh}`:
+  #
+  #   * `{:error, reason}`: the start call fails;
+  #   * `{:report, result}`: core runs the refresh, which reports `result` to the session;
+  #   * `:hold`: core runs the refresh, which reports only once the test sends it
+  #     `{:report, result}`.
+  defp start_lease_refresh_session!(agent_id, outcomes) do
+    test_pid = self()
+    {:ok, remaining} = Agent.start_link(fn -> outcomes end)
+
+    config_sync_rpc = fn
+      :start_sweep_lease_refresh, [_agent_id, session, attempt] = args ->
+        outcome = Agent.get_and_update(remaining, fn [next | rest] -> {next, rest} end)
+        answer = lease_refresh_answer(outcome, session, attempt)
+        send(test_pid, {:lease_refresh, args, with({:ok, refresh} <- answer, do: refresh)})
+        answer
+
+      _function, _args ->
+        :ok
+    end
+
+    start_push_session!(agent_id, ["sweep_lease_v1"], config_sync_rpc: config_sync_rpc)
+  end
+
+  defp lease_refresh_answer({:error, _reason} = error, _session, _attempt), do: error
+
+  defp lease_refresh_answer({:report, result}, session, attempt),
+    do: {:ok, spawn(fn -> send(session, {:sweep_lease_refresh_result, attempt, result}) end)}
+
+  defp lease_refresh_answer(:hold, session, attempt) do
+    {:ok,
+     spawn(fn ->
+       receive do
+         {:report, result} -> send(session, {:sweep_lease_refresh_result, attempt, result})
+       end
+     end)}
+  end
+
   defp start_push_session!(agent_id, capabilities, opts \\ []) do
     test_pid = self()
 
@@ -1572,7 +1631,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
     Application.put_env(
       :serviceradar_agent_gateway,
       :config_sync_rpc,
-      Keyword.get(opts, :config_sync_rpc, fn _function, _args -> :ok end)
+      Keyword.get(opts, :config_sync_rpc, &default_config_sync_rpc/2)
     )
 
     on_exit(fn ->

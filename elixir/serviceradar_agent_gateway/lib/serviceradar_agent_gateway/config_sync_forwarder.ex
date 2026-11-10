@@ -145,23 +145,33 @@ defmodule ServiceRadarAgentGateway.ConfigSyncForwarder do
     ])
   end
 
-  @doc "Asks core to push a newly registered control session fresh sweep leases."
-  @spec refresh_sweep_leases(String.t(), pid()) :: :ok | {:error, term()}
-  def refresh_sweep_leases(agent_id, session) when is_binary(agent_id) and is_pid(session) do
-    case rpc(:refresh_sweep_leases, [agent_id, session], @config_rpc_timeout) do
-      :ok ->
-        :ok
+  @doc """
+  Asks core to start pushing a newly registered control session fresh sweep leases, and
+  returns the core process doing it.
+
+  Only the start is a call. The refresh reissues every unrun slot of the agent's leases, which
+  takes as long as the lease horizon needs, so core reports its outcome to `session` as
+  `{:sweep_lease_refresh_result, attempt, result}` (see
+  `ServiceRadar.SweepJobs.LeaseRefresh`).
+  """
+  @spec start_sweep_lease_refresh(String.t(), pid(), non_neg_integer()) ::
+          {:ok, pid()} | {:error, term()}
+  def start_sweep_lease_refresh(agent_id, session, attempt)
+      when is_binary(agent_id) and is_pid(session) and is_integer(attempt) and attempt >= 0 do
+    case rpc(:start_sweep_lease_refresh, [agent_id, session, attempt], @rpc_timeout) do
+      {:ok, refresh} when is_pid(refresh) ->
+        {:ok, refresh}
 
       {:error, :peer_too_old} = error ->
         error
 
       {:error, reason} ->
-        Logger.warning("Failed to refresh sweep leases from core: agent_id=#{agent_id} #{inspect(reason)}")
+        Logger.warning("Failed to start sweep lease refresh on core: agent_id=#{agent_id} #{inspect(reason)}")
 
         {:error, reason}
 
       other ->
-        Logger.warning("Unexpected sweep lease refresh result: agent_id=#{agent_id} #{inspect(other)}")
+        Logger.warning("Unexpected sweep lease refresh start result: agent_id=#{agent_id} #{inspect(other)}")
 
         {:error, {:unexpected_result, other}}
     end

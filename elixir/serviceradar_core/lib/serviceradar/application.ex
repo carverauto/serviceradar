@@ -80,6 +80,9 @@ defmodule ServiceRadar.Application do
         dependency_dispatcher_task_supervisor_child(),
         reload_task_supervisor_child(),
 
+        # Sweep lease refreshes outlive the gateway call that starts them.
+        ServiceRadar.SweepJobs.LeaseRefresh.task_supervisor_child(),
+
         # Startup migrations (core-elx only, after repo)
         startup_migrations_child(),
 

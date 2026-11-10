@@ -122,7 +122,7 @@ defmodule ServiceRadarAgentGateway.ConfigSyncForwarderTest do
     unready_log =
       capture_log(fn ->
         assert {:error, _reason} =
-                 ConfigSyncForwarder.refresh_sweep_leases("agent-rolling-old-only", self())
+                 ConfigSyncForwarder.start_sweep_lease_refresh("agent-rolling-old-only", self(), 0)
       end)
 
     assert unready_log == ""
@@ -135,9 +135,9 @@ defmodule ServiceRadarAgentGateway.ConfigSyncForwarderTest do
 
       start_core_peer_unsupervised(basename, test_pid, """
       defmodule ServiceRadar.Edge.AgentGatewaySync do
-        def refresh_sweep_leases(agent_id, session) do
+        def start_sweep_lease_refresh(agent_id, session, _attempt) do
           send(:persistent_term.get(:rolling_rpc_test_owner), {:refreshed_sweep_leases, node(), agent_id, session})
-          :ok
+          {:ok, self()}
         end
       end
       """)
@@ -158,7 +158,10 @@ defmodule ServiceRadarAgentGateway.ConfigSyncForwarderTest do
 
     capable_log =
       capture_log(fn ->
-        assert :ok = ConfigSyncForwarder.refresh_sweep_leases("agent-rolling-upgraded", self())
+        assert {:ok, refresh} =
+                 ConfigSyncForwarder.start_sweep_lease_refresh("agent-rolling-upgraded", self(), 0)
+
+        assert is_pid(refresh)
       end)
 
     assert capable_log == ""
