@@ -144,9 +144,9 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   `delivery`'s authority and sender. Only this agent is evaluated, planned and delivered: no
   other agent's assignment, slots or delivery is touched and nothing is withdrawn, so
   `delivery`'s sender may be the agent's own control session. An agent the group no longer
-  leases to is left for the next pass to revoke. A new control session calls this: the agent cannot run authority
-  it cached before core recorded issuance evidence, so an acknowledged delivery must not leave
-  it waiting for the next tail.
+  leases to is left for the next pass to revoke. A new control session calls this: the agent
+  cannot run authority it cached before core recorded issuance evidence, so an acknowledged
+  delivery must not leave it waiting for the next tail.
 
   The refresh succeeds only when every group planned cleanly and every push reached the session.
   Without lease authority (`nil`), or when any group or push failed, it returns an error so the
