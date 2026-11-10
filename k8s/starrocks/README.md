@@ -237,7 +237,8 @@ Core's cluster health (`ServiceRadar.ClusterHealth`, field `starrocks_memory`)
 reports, per node: `mem_limit`, the process limit, the detected memory, the
 reserve between them, and the state of each key above. It warns, and logs
 once, when a reserve is below 2.5 GiB, when a key could not be written, or
-when a key needs the config file.
+when a key needs the config file. The web UI shows the same per-node report
+in the StarRocks Memory Headroom panel under Settings > Cluster Status.
 
 ## Install
 
