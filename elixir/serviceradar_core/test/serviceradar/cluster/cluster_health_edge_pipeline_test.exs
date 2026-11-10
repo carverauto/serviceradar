@@ -327,6 +327,32 @@ defmodule ServiceRadar.ClusterHealthEdgePipelineTest do
     assert record_checks(unsampled) == %{}
   end
 
+  test "a failed DLQ depth poll after a replay does not reopen the dead-letter check" do
+    failed_poll = %{
+      subject_class: "edge_record_dlq",
+      stream: "TELEMETRY_EDGE_RECORD_DLQ_V1_BULK",
+      durable: "serviceradar-event-writer-edge-record-dlq",
+      pending: 0,
+      ack_pending: 0,
+      redelivered: 0,
+      stream_messages: nil,
+      sampled_at_ms: 3_000
+    }
+
+    section =
+      ClusterHealth.edge_pipeline_status(
+        snapshot(%{consumers: [failed_poll]}),
+        nil,
+        epochs(),
+        {:ok, %{}},
+        {:ok, %{}}
+      )
+
+    assert section.dead_letters.held_messages == nil
+    assert [_ | _] = section.dead_letters.by_reason
+    refute Map.has_key?(record_checks(section), ClusterHealth.dead_letter_health_check())
+  end
+
   defp record_checks(section) do
     parent = self()
 

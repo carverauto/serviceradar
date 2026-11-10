@@ -658,9 +658,8 @@ Alertmanager):
   `spool_backpressure` or `spool_stuck` on its hello/heartbeat spool sample,
   and returns to `healthy` once all connected agent spools clear.
 - `edge-record-dead-letters`: transitions to `unhealthy` when
-  `TELEMETRY_EDGE_RECORD_DLQ_V1_BULK` holds any dead-lettered messages (or when
-  EventWriter records dead-lettered messages before the stream depth is
-  sampled), and returns to `healthy` once a complete sample confirms the
+  `TELEMETRY_EDGE_RECORD_DLQ_V1_BULK` holds any dead-lettered messages, and
+  returns to `healthy` once a complete sample confirms the
   dead-letter stream is empty (`held_messages == 0`).
 
 Agent (Prometheus exporter):

@@ -564,14 +564,6 @@ defmodule ServiceRadar.ClusterHealth do
           reason: "edge-record dead-letter stream holds #{held_messages} message(s)"
         )
 
-      is_nil(held_messages) and is_list(by_reason) and by_reason != [] ->
-        recorder.(
-          @dead_letter_health_check,
-          false,
-          metadata,
-          reason: "edge records dead-lettered"
-        )
-
       held_messages == 0 and is_nil(Map.get(dead_letters, :error)) ->
         recorder.(
           @dead_letter_health_check,

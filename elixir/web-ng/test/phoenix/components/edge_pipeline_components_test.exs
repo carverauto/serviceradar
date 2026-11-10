@@ -77,4 +77,30 @@ defmodule ServiceRadarWebNGWeb.EdgePipelineComponentsTest do
     assert explanation =~ "15 minutes"
     assert explanation =~ "5 unresolved slots; oldest age 905s; 4096 / 8192 bytes charged."
   end
+
+  test "backpressure names a paused gate only when admission is actually paused" do
+    detail = %{
+      admission_paused: false,
+      unresolved_bytes: 1_073_741_825,
+      unresolved_count: 9,
+      oldest_unresolved_age_known: true,
+      oldest_unresolved_age_seconds: 30,
+      bytes_used: 1_100_000_000,
+      budget_bytes: 2_147_483_648
+    }
+
+    full = EdgePipelineComponents.explanation(%{reason: :spool_backpressure, detail: detail})
+
+    refute full =~ "paused"
+    assert full =~ "exceed 1 GiB"
+    assert full =~ "1073741825 unresolved bytes"
+
+    paused =
+      EdgePipelineComponents.explanation(%{
+        reason: :spool_backpressure,
+        detail: %{detail | admission_paused: true}
+      })
+
+    assert paused =~ "Spool admission is paused."
+  end
 end
