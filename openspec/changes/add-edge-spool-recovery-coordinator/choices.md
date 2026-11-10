@@ -82,10 +82,13 @@ serialize one agent's lease of one group on a cluster-wide `:global.trans` lock
 across connected nodes, not a node-local one, because core runs on several nodes.
 The lock covers the fresh delivery read, the separately committed issuance,
 `record_push` and the send; it does not wrap them in a database transaction.
-Group-update revocation does not share that lock, so a run waiting on it must not
-act on what it read before: a refresh decides only after locking and never creates
-or reactivates an assignment, and a pass never reactivates an assignment revoked
-after it read the group.
+Group-update revocation does not share that lock; it holds the group row. So the
+pass's selection and revocation, and each agent's assignment and slot planning,
+run in short transactions that lock that row and re-read the group, profile,
+candidates and settings. A removal then commits either before the decision or
+after the planned epoch, never in between. A refresh never creates or reactivates
+an assignment. The delivery lock is taken before the row, and nothing is sent
+inside a transaction.
 
 ### One owner accounts for every retained byte
 

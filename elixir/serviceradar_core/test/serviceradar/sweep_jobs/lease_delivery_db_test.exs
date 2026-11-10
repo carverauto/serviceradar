@@ -1392,16 +1392,18 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
     assert row.delivered_payload_sha256 == digest(last)
   end
 
-  # A real send holds the agent's delivery lock while `queued` decides from the group it read
-  # and then waits on that lock. The agent is removed and revoked meanwhile. Once the lock is
-  # released, the queued run must leave the revocation, its epoch and its dropped slots as
-  # they are, mint no issuance and send nothing.
+  # A real send holds the agent's delivery lock while `queued` reads the group and then waits
+  # on that lock. A group update removes the agent meanwhile, revoking it in the update's own
+  # transaction. Once the lock is released, the queued run must leave the revocation, its epoch
+  # and its dropped slots as they are, mint no issuance for the agent and send nothing.
   defp assert_queued_run_keeps_revocation(ctx, queued) do
     horizon!(ctx, 3_600)
+    peer = agent_with_device!(ctx.admin, "peer-#{ctx.suffix}", ctx.partition.slug, "192.0.2.12")
     group = leased_group!(ctx)
     enable!(group)
     now = DateTime.utc_now()
     assert %{pushed: 0} = LeasePass.reconcile_group(group, now, nil)
+    assignment = assignment!(group, ctx.agent)
     test_pid = self()
 
     holder = fn _agent_id, _group_id, _payload ->
@@ -1419,50 +1421,66 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
 
     assert_receive {:holding, holder_pid}, 5_000
 
-    late = fn agent_id, group_id, _payload ->
-      send(test_pid, {:late_push, agent_id, group_id})
-      :ok
+    try do
+      late = fn agent_id, group_id, _payload ->
+        send(test_pid, {:late_push, agent_id, group_id})
+        :ok
+      end
+
+      waiting = Task.async(fn -> queued.(group, %{ctx.delivery | sender: late}) end)
+      await_delivery_lock_wait(waiting.pid, System.monotonic_time(:millisecond) + 5_000)
+
+      assert {:ok, _updated} =
+               group
+               |> Ash.Changeset.for_update(:update, %{agent_ids: [peer]}, actor: ctx.admin)
+               |> Ash.update()
+
+      revoked = assignment!(group, ctx.agent)
+      assert revoked.state == :revoked
+      issuances = issuance_count(assignment)
+
+      send(holder_pid, :release)
+      Task.await(holding, 10_000)
+      Task.await(waiting, 10_000)
+
+      refute_receive {:late_push, _, _}, 50
+      current = assignment!(group, ctx.agent)
+      assert current.state == :revoked
+      assert current.authority_epoch == revoked.authority_epoch
+      assert unrun!(current, now) == []
+      assert issuance_count(assignment) == issuances
+    after
+      send(holder_pid, :release)
     end
-
-    waiting = Task.async(fn -> queued.(group, %{ctx.delivery | sender: late}) end)
-    await_delivery_lock_wait(waiting.pid)
-
-    ServiceRadar.Repo.query!(
-      "UPDATE platform.sweep_groups SET agent_ids = $1 WHERE id = $2::uuid",
-      [["removed-#{ctx.suffix}"], Ecto.UUID.dump!(group.id)]
-    )
-
-    assert {:ok, 1} = ProducerAssignments.revoke_agents(group.id, [ctx.agent])
-    revoked = assignment!(group, ctx.agent)
-    assert revoked.state == :revoked
-    issuances = issuance_count()
-
-    send(holder_pid, :release)
-    Task.await(holding, 10_000)
-    Task.await(waiting, 10_000)
-
-    refute_receive {:late_push, _, _}, 50
-    current = assignment!(group, ctx.agent)
-    assert current.state == :revoked
-    assert current.authority_epoch == revoked.authority_epoch
-    assert unrun!(current, now) == []
-    assert issuance_count() == issuances
   end
 
-  defp await_delivery_lock_wait(pid) do
+  defp await_delivery_lock_wait(pid, deadline) do
     {:current_stacktrace, stack} = Process.info(pid, :current_stacktrace)
 
-    if !Enum.any?(stack, &match?({:global, _, _, _}, &1)) do
-      receive do
-      after
-        5 -> await_delivery_lock_wait(pid)
-      end
+    cond do
+      Enum.any?(stack, &match?({:global, _, _, _}, &1)) ->
+        :ok
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        flunk("the queued run never waited on the agent's delivery lock")
+
+      true ->
+        receive do
+        after
+          5 -> await_delivery_lock_wait(pid, deadline)
+        end
     end
   end
 
-  defp issuance_count do
+  # Issuance recorded for any slot the fixture assignment has had, across all of its epochs.
+  defp issuance_count(assignment) do
     %{rows: [[count]]} =
-      ServiceRadar.Repo.query!("SELECT count(*) FROM platform.edge_recovery_assignment_issuances")
+      ServiceRadar.Repo.query!(
+        "SELECT count(*) FROM platform.edge_recovery_assignment_issuances WHERE " <>
+          "mapping_value->>'execution_id' IN (SELECT replace(id::text, '-', '') FROM " <>
+          "platform.sweep_execution_slots WHERE producer_assignment_id = $1::uuid)",
+        [Ecto.UUID.dump!(assignment.id)]
+      )
 
     count
   end

@@ -309,14 +309,21 @@ Issuance is committed by itself before the send; the lock is not a database
 transaction around the network call. A refresh whose gateway call timed out may
 still be running in core; its retry waits on the lock instead of overlapping it.
 
-Revocation by a group update does not take this lock, so neither run trusts a
-decision made before it held the lock. A refresh reads the group, profile,
-candidate, eligibility and assignment only once it holds the lock, and renews
-only an assignment that is still active in the agent's scope; it never creates
-or reactivates one. A pass reads the assignment again under the lock and leaves
-an assignment revoked after the pass read its group as revoked. It still
-reactivates an older revocation of an agent that the pass found leased, which is
-the ordinary re-eligibility path.
+Revocation by a group update does not take the delivery lock; it runs inside
+the update's own transaction on the `sweep_groups` row. Lease decisions
+therefore hold that row too. A pass selects its leased agents and revokes the
+rest in one short transaction that locks the group row `FOR UPDATE` and reads
+the current group, profile, candidates and settings. Each agent is then planned
+under its delivery lock, in a second short transaction that locks the row
+again, re-reads that state and only then assigns the agent and plans its slots.
+A refresh takes the same path but only renews an assignment that is still active
+in the agent's scope; it never creates or reactivates one. A group update that
+removes the agent therefore either commits before the decision, which then skips
+the agent, or after it, which fences the epoch just planned. A pass still
+reactivates an agent the current group selects again. Locks are taken in the
+order delivery lock, group row, assignment and slots. No run waits on a delivery
+lock while holding the row, and issuance and the send happen after the
+transaction commits.
 
 A refresh succeeds only when every group planned cleanly and every push reached
 the session. Missing lease authority, a planning or delivery error, or an
