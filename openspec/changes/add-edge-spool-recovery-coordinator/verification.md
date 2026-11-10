@@ -2,14 +2,26 @@
 
 ## Current verification status
 
-- Newest completed checkpoint: full `make test` at
+- Newest CI checkpoint: published head
+  `6380288bc4c2a9780e105718e1de1fcb7d47822a` (tested merge
+  `f6021b328b77466194f95234edcd1dfa35104be6`). Nineteen checks passed. BazelCI
+  Core Integration (`34dded9e-8496-45ac-b099-3011761c8059`, assertion wave
+  `08a581fd-c16b-492b-8b07-14a6af5215c3`) passed 12 of 13 targets: guarded
+  serial_1 ran 337 tests with 0 failures, and the real process
+  `vertical_slice_test` passed every A-H subcase with 0 skips (336.128s). The
+  async lane ran 1505 tests with exactly two failures, both fixture defects in
+  `edge_record_recovery_db_test.exs` (a nonexistent `operation.applied` field
+  and a `nil` delivery proof on a late-fenced frame). Lint failed on one `err113`
+  site in `go/pkg/edge/spool/lanes_test.go`. Main unit passed 508 with 2 skips,
+  browser 17, Go race 89, Proto ABI and Web-NG DB passed. Both failures were
+  repaired in test code only; the repaired revision has not yet run in CI.
+- Earlier checkpoint: full `make test` at
   `87b5a849e1aef445ff9749f6c9d9b6ddab72b9b5` passed 525 targets with two named
-  Swift platform skips (BuildBuddy `87ec63b1-b4b4-48b5-9f87-124a97c91767`). It
-  predates the lease-delivery lock and the narrowed refresh.
-- Pending: guarded database execution (recovery assignments, authorization, copy
-  grants, operations, effects, EventWriter `edge_record_recovery_db` and
-  `lease_delivery_db`), the real process `vertical_slice_test`, and final-head CI.
-  They stay pending until those results exist on the final published head.
+  Swift platform skips (BuildBuddy `87ec63b1-b4b4-48b5-9f87-124a97c91767`).
+- The lease-delivery concurrency tests have no pre-fix failing execution; the two
+  fixture failures above are not fail-before evidence for a product regression.
+- Pending: the repaired guarded `edge_record_recovery_db` test and final-head CI
+  on the repaired published revision. Final CI is not green until both exist.
 
 ## Historical checkpoints
 
