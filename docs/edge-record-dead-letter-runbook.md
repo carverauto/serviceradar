@@ -4,8 +4,9 @@ The agent gateway acknowledges an edge record to its agent once JetStream
 stores it, so the agent no longer holds a copy. When EventWriter's projection
 of a record keeps failing (any contract: sweep observations, metric batches,
 unleased sweep results, and every contract added later), EventWriter moves
-it to a dead-letter stream instead of retrying until the edge-record stream's
-24-hour `MaxAge` evicts it.
+it to a dead-letter stream instead of retrying forever: the edge-record source
+streams have no `MaxAge`, so a stuck record would otherwise sit unacknowledged
+with no signal.
 
 This is not the security-quarantine route. Records signed by a revoked key
 are covered by `docs/edge-record-quarantine-runbook.md`. The dead-letter only
@@ -69,7 +70,8 @@ same bytes can decode once the schema is deployed or the fault is fixed.
 | `Sr-Edge-Dlq-First-Failed-At`, `-Last-Failed-At` | the first failure the dead-lettering node saw, and the last failure |
 
 The copy's own `Nats-Msg-Id` is `edge-dlq:<source stream>:<source sequence>`.
-The stream's duplicate window is 24 hours, the source stream's `MaxAge`, so a
+The stream's duplicate window is an explicit 72 hours (no longer derived from
+the source stream's `MaxAge`, which is disabled), so a
 delivery redelivered after a lost source ACK is stored once for as long as the
 source can still redeliver it. JetStream reports a duplicate only for an id it
 already stored, so a duplicate PubAck means the delivery was dead-lettered
@@ -88,10 +90,16 @@ or was removed by an operator. EventWriter acknowledges the source, logs
 - `ServiceRadarEdgeRecordDeadLettered` (warning): records were dead-lettered in
   the last 15 minutes, by contract and reason.
 - `ServiceRadarEdgeRecordDeadLetterPublishFailed` (critical): a copy failed.
-  The record stays on the edge-record stream, which evicts it after 24 hours.
-  Check that the dead-letter stream exists and has room.
+  The record stays on the edge-record stream and keeps retrying (source streams
+  have no `MaxAge`). Check that the dead-letter stream exists and has room.
 - `ServiceRadarEdgeRecordDeadLetterFull` (critical): the dead-letter stream is
   above 80% of `MaxBytes`. When full it refuses new copies.
+- `ServiceRadarEdgeRecordBacklogPressure` (critical): the named
+  (`subject_class`) edge-record source stream is above 80% of its `MaxBytes`.
+  Source streams hold only unwritten records under `WorkQueue` retention, so a
+  full backlog means the owning EventWriter durable is stuck; `DiscardNew`
+  refuses new records while full, leaving agent spool sequences unresolved.
+  Fix the consumer before the backlog fills.
 
 For every record EventWriter logs one line naming both stream sequences, at
 error level (at warning for a refused record, and at debug for a denied
@@ -211,6 +219,26 @@ deletes objects referenced by edge records must treat this stream as a reference
 source. No contract in `ServiceRadar.Edge.ContractCatalog` carries an
 out-of-line reference today, and no such pass exists yet. The change that adds
 the first one must add that check.
+
+## Source-stream retention and the upgrade cutover
+
+The source streams (`TELEMETRY_EDGE_RECORD_V1_BULK` and
+`TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK`) use `WorkQueue` retention with exactly
+one owning EventWriter durable and no `MaxAge`: an acknowledged record leaves
+the stream, and `DiscardNew` refuses new publishes only when the unwritten
+backlog fills `MaxBytes`. A stream that predates this shape (limits retention)
+is cut over automatically, with no records lost and no dual-write: the
+reconciler seals the old stream (publishes are refused with a retryable error
+and stay on the agent spool), waits for the owning durable to drain every
+stored record, deletes the stream, and recreates it under the same name and
+subject. The cutover is single-flighted cluster-wide and every step is
+idempotent, so a retried cutover converges; anything that aborts unseals the
+stream first and logs `Edge-record stream cutover aborted; stream left in
+place`. A finished cutover logs `Cut over edge-record stream to WorkQueue
+retention` followed by `Edge-record stream converted to WorkQueue retention`.
+While a cutover is draining, the backlog alert above may fire; it clears as
+the drain completes. Dead-letter, quarantine and recovery streams are not
+source streams and are never cut over.
 
 ## Not covered yet
 

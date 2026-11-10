@@ -30,6 +30,7 @@ defmodule ServiceRadar.EventWriter.ConsumerReconciler do
   alias Gnat.Jetstream.API.Util
   alias ServiceRadar.EventWriter.Config
   alias ServiceRadar.EventWriter.ConsumerSetup
+  alias ServiceRadar.EventWriter.EdgeRecordStreamCutover
   alias ServiceRadar.EventWriter.StreamOwnership
   alias ServiceRadar.NATS.JetstreamConsumer
 
@@ -45,8 +46,11 @@ defmodule ServiceRadar.EventWriter.ConsumerReconciler do
     connected: false,
     connect_failures: 0,
     failed: %{},
-    degraded: %{}
+    degraded: %{},
+    edge_cutovers: %{}
   ]
+
+  @edge_cutover_poll_ms 1_000
 
   @doc """
   Starts the reconciler. `config` is the EventWriter config whose streams it
@@ -93,6 +97,7 @@ defmodule ServiceRadar.EventWriter.ConsumerReconciler do
 
     send(self(), :connect)
     schedule_ownership_reconcile(state)
+    schedule_edge_retention_reconcile(state)
     {:ok, state}
   end
 
@@ -124,7 +129,7 @@ defmodule ServiceRadar.EventWriter.ConsumerReconciler do
             failed: %{}
         }
 
-        {:noreply, ensure_all(state)}
+        {:noreply, state |> abort_edge_cutovers() |> ensure_all()}
 
       {:error, reason} ->
         failures = state.connect_failures + 1
@@ -150,6 +155,18 @@ defmodule ServiceRadar.EventWriter.ConsumerReconciler do
   end
 
   def handle_info({:retry_stream, _stale_conn, _name}, state), do: {:noreply, state}
+
+  # One drain check per message, so the mailbox (NATS :DOWN, status calls) is
+  # served while a sealed edge stream drains. A poll scheduled for an earlier
+  # connection is dropped: the reconnect unsealed that cutover.
+  def handle_info({:edge_cutover_poll, conn, stream_name}, %{conn: conn, connected: true} = state) do
+    case Map.fetch(state.edge_cutovers, stream_name) do
+      {:ok, entry} -> {:noreply, poll_edge_cutover(state, stream_name, entry)}
+      :error -> {:noreply, state}
+    end
+  end
+
+  def handle_info({:edge_cutover_poll, _stale_conn, _stream_name}, state), do: {:noreply, state}
 
   def handle_info({:DOWN, monitor, :process, _pid, reason}, %{monitor: monitor} = state) do
     failures = state.connect_failures + 1
@@ -185,6 +202,15 @@ defmodule ServiceRadar.EventWriter.ConsumerReconciler do
     {:noreply, state}
   end
 
+  # The edge-retention tick, on its own timer but the same interval: edge source
+  # streams are not multi-owner watches, so without this their shape would
+  # converge only at (re)connect. Skipped while disconnected.
+  def handle_info(:edge_retention_reconcile, state) do
+    state = reconcile_edge_retention(state)
+    schedule_edge_retention_reconcile(state)
+    {:noreply, state}
+  end
+
   def handle_info(_message, state), do: {:noreply, state}
 
   @impl true
@@ -194,11 +220,180 @@ defmodule ServiceRadar.EventWriter.ConsumerReconciler do
   def reconcile_stream_ownership(%{owned_streams: owned} = state) when owned == %{}, do: state
 
   def reconcile_stream_ownership(%{connected: true, conn: conn} = state) when is_pid(conn) do
-    request = fn topic, payload -> Util.request(conn, topic, payload) end
+    request = request_fun(conn)
     %{state | ownership: StreamOwnership.reconcile(state.ownership, request, state.owned_streams)}
   end
 
   def reconcile_stream_ownership(state), do: state
+
+  # The edge-retention tick: edge source streams are not multi-owner watches, so
+  # without this their shape would converge only at (re)connect. Absent streams
+  # are created, converted streams are diff-reconciled, and limits streams cut
+  # over to WorkQueue behind the drain barrier. The cutover is single-flighted
+  # cluster-wide by stream name: when another core holds it, this tick skips
+  # and retries next pass.
+  def reconcile_edge_retention(%{connected: true, conn: conn, config: config} = state)
+      when is_pid(conn) do
+    request = request_fun(conn)
+
+    config
+    |> edge_source_streams()
+    |> Enum.reject(&Map.has_key?(state.edge_cutovers, Config.jetstream_stream_name(&1)))
+    |> Enum.reduce(state, fn stream, state -> converge_edge_stream(state, request, stream) end)
+  end
+
+  def reconcile_edge_retention(state), do: state
+
+  defp edge_source_streams(config) do
+    Enum.filter(config.streams, fn stream ->
+      Map.get(stream, :name) in ["EDGE_RECORD", "EDGE_RECORD_AUDIT"] and
+        Map.get(stream, :ensure_stream, true) != false
+    end)
+  end
+
+  defp converge_edge_stream(%{conn: conn, config: config} = state, request, stream) do
+    stream_name = Config.jetstream_stream_name(stream)
+
+    case JetstreamConsumer.stream_info(request, stream_name, nil) do
+      :absent ->
+        ensure_edge_stream(conn, config, stream)
+        state
+
+      {:ok, %{"retention" => "limits"}, _stored} ->
+        start_edge_cutover(state, request, stream)
+
+      {:ok, _current, _stored} ->
+        ensure_edge_stream(conn, config, stream)
+        state
+
+      {:error, reason} ->
+        Logger.warning("Edge-record stream shape check failed; retrying next tick",
+          stream: stream_name,
+          reason: inspect(reason)
+        )
+
+        state
+    end
+  end
+
+  # The cluster-wide lock is held for the whole drain and released when the
+  # cutover finishes or is abandoned; when another core holds it, this tick
+  # skips and retries next pass.
+  defp start_edge_cutover(%{conn: conn, config: config} = state, request, stream) do
+    stream_name = Config.jetstream_stream_name(stream)
+
+    case :global.register_name(edge_cutover_lock(stream_name), self()) do
+      :yes ->
+        case EdgeRecordStreamCutover.start(request, config, stream) do
+          {:draining, cutover} ->
+            schedule_edge_cutover_poll(conn, stream_name)
+            entry = %{stream: stream, cutover: cutover}
+            %{state | edge_cutovers: Map.put(state.edge_cutovers, stream_name, entry)}
+
+          result ->
+            :global.unregister_name(edge_cutover_lock(stream_name))
+            finish_edge_cutover(result, request, conn, config, stream)
+            state
+        end
+
+      :no ->
+        Logger.info(
+          "Edge-record stream cutover already running on another core; retrying next tick",
+          stream: stream_name
+        )
+
+        state
+    end
+  end
+
+  defp poll_edge_cutover(%{conn: conn, config: config} = state, stream_name, entry) do
+    request = request_fun(conn)
+
+    case EdgeRecordStreamCutover.poll(request, entry.cutover) do
+      {:draining, cutover} ->
+        schedule_edge_cutover_poll(conn, stream_name)
+        entry = %{entry | cutover: cutover}
+        %{state | edge_cutovers: Map.put(state.edge_cutovers, stream_name, entry)}
+
+      result ->
+        :global.unregister_name(edge_cutover_lock(stream_name))
+        finish_edge_cutover(result, request, conn, config, entry.stream)
+        %{state | edge_cutovers: Map.delete(state.edge_cutovers, stream_name)}
+    end
+  end
+
+  # A cutover whose connection dropped mid-drain is unsealed on the new
+  # connection before anything else; the next tick starts it again.
+  defp abort_edge_cutovers(%{edge_cutovers: cutovers} = state) when cutovers == %{}, do: state
+
+  defp abort_edge_cutovers(%{conn: conn, edge_cutovers: cutovers} = state) do
+    request = request_fun(conn)
+
+    Enum.each(cutovers, fn {stream_name, entry} ->
+      EdgeRecordStreamCutover.abort(request, entry.cutover, {:error, :nats_reconnected})
+      :global.unregister_name(edge_cutover_lock(stream_name))
+    end)
+
+    %{state | edge_cutovers: %{}}
+  end
+
+  defp finish_edge_cutover(result, request, conn, config, stream) do
+    stream_name = Config.jetstream_stream_name(stream)
+
+    case result do
+      :cut_over ->
+        ensure_edge_stream(conn, config, stream)
+        verify_converted(request, stream_name)
+
+      :already_converted ->
+        ensure_edge_stream(conn, config, stream)
+
+      :no_stream ->
+        ensure_edge_stream(conn, config, stream)
+
+      {:error, reason} ->
+        Logger.error("Edge-record stream cutover failed; retrying next tick",
+          stream: stream_name,
+          reason: inspect(reason)
+        )
+    end
+  end
+
+  defp edge_cutover_lock(stream_name), do: {EdgeRecordStreamCutover, stream_name}
+
+  defp schedule_edge_cutover_poll(conn, stream_name) do
+    Process.send_after(self(), {:edge_cutover_poll, conn, stream_name}, @edge_cutover_poll_ms)
+  end
+
+  defp request_fun(conn), do: fn topic, payload -> Util.request(conn, topic, payload) end
+
+  defp verify_converted(request, stream_name) do
+    case JetstreamConsumer.stream_info(request, stream_name, nil) do
+      {:ok, %{"retention" => "workqueue"}, _stored} ->
+        Logger.info("Edge-record stream converted to WorkQueue retention", stream: stream_name)
+
+      other ->
+        Logger.error("Edge-record stream cut over but not converted; retrying next tick",
+          stream: stream_name,
+          observed: inspect(other)
+        )
+    end
+  end
+
+  defp ensure_edge_stream(conn, config, stream) do
+    case ensure_stream(conn, config, stream) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Edge-record stream reconcile failed; retrying next tick",
+          stream: Config.jetstream_stream_name(stream),
+          reason: inspect(reason)
+        )
+
+        {:error, reason}
+    end
+  end
 
   @doc """
   Creates or reconciles the stream and durable of one configured stream.
@@ -395,5 +590,18 @@ defmodule ServiceRadar.EventWriter.ConsumerReconciler do
       config.ownership_reconcile_interval_ms || Config.default_ownership_reconcile_interval_ms()
 
     Process.send_after(self(), :ownership_reconcile, interval)
+  end
+
+  defp schedule_edge_retention_reconcile(%{config: config} = state) do
+    if edge_source_streams(config) == [] do
+      :ok
+    else
+      interval =
+        config.ownership_reconcile_interval_ms || Config.default_ownership_reconcile_interval_ms()
+
+      Process.send_after(self(), :edge_retention_reconcile, interval)
+    end
+
+    state
   end
 end

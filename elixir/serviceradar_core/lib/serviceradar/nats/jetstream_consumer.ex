@@ -297,8 +297,10 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
   defp concrete_raw_flow_subject?(_subject), do: false
 
   defp release_streams(connection_ref, owners, requested, subject, domain) do
+    request = fn topic, payload -> Util.request(connection_ref, topic, payload) end
+
     Enum.reduce_while(owners, :ok, fn owner, :ok ->
-      case delete_stream(connection_ref, owner, domain) do
+      case delete_stream(request, owner, domain) do
         :ok ->
           Logger.warning(
             "Released empty legacy flow stream so the dedicated stream can own its subjects",
@@ -313,18 +315,6 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
           {:halt, error}
       end
     end)
-  end
-
-  # Another node may have released it first; a missing stream is released.
-  defp delete_stream(connection_ref, stream_name, domain) do
-    case Util.request(connection_ref, "#{js_api(domain)}.STREAM.DELETE.#{stream_name}", "") do
-      {:ok, %{"success" => true}} -> :ok
-      {:ok, %{"error" => %{"code" => 404}}} -> :ok
-      {:ok, %{"error" => error}} -> {:error, error}
-      {:ok, other} -> {:error, {:unexpected_stream_delete_response, other}}
-      {:error, %{"code" => 404}} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
   end
 
   # Explicit stream targets (e.g. dedicated `flows`) must not fall back onto a
@@ -991,6 +981,53 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
     case delete_consumer(connection_ref, stream_name, consumer_name, domain) do
       :ok -> {:ok, :deleted}
       {:error, %{"code" => 404}} -> {:ok, :absent}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
+  Reads the full `CONSUMER.INFO` body for `consumer_name` on `stream_name`.
+  Returns `:absent` when the consumer or its stream does not exist, so a
+  cutover can tell "nothing owed" from "durable missing with backlog".
+  """
+  @spec consumer_info(
+          (String.t(), binary() -> {:ok, map()} | {:error, term()}),
+          String.t(),
+          String.t(),
+          String.t() | nil
+        ) :: {:ok, map()} | :absent | {:error, term()}
+  def consumer_info(request, stream_name, consumer_name, domain \\ nil)
+      when is_function(request, 2) and is_binary(stream_name) and is_binary(consumer_name) do
+    case request.("#{js_api(domain)}.CONSUMER.INFO.#{stream_name}.#{consumer_name}", "") do
+      {:ok, %{"num_pending" => _} = info} -> {:ok, info}
+      {:ok, %{"error" => %{"code" => 404}}} -> :absent
+      {:ok, %{"error" => error}} -> {:error, error}
+      {:ok, other} -> {:error, {:unexpected_consumer_info_response, other}}
+      {:error, %{"code" => 404}} -> :absent
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
+  Deletes `stream_name` with all of its messages and durables. Returns `:ok`
+  when the stream is already gone: another node may have released it first, so
+  a retried cutover or release is idempotent. Only call this after the owning
+  durable has drained: deletion does not wait for pending or in-flight
+  deliveries.
+  """
+  @spec delete_stream(
+          (String.t(), binary() -> {:ok, map()} | {:error, term()}),
+          String.t(),
+          String.t() | nil
+        ) :: :ok | {:error, term()}
+  def delete_stream(request, stream_name, domain \\ nil)
+      when is_function(request, 2) and is_binary(stream_name) do
+    case request.("#{js_api(domain)}.STREAM.DELETE.#{stream_name}", "") do
+      {:ok, %{"success" => true}} -> :ok
+      {:ok, %{"error" => %{"code" => 404}}} -> :ok
+      {:ok, %{"error" => error}} -> {:error, error}
+      {:ok, other} -> {:error, {:unexpected_stream_delete_response, other}}
+      {:error, %{"code" => 404}} -> :ok
       {:error, reason} -> {:error, reason}
     end
   end

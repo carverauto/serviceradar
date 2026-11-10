@@ -101,12 +101,13 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetterNatsTest do
       assert :ok = ConsumerReconciler.ensure_stream(conn, config, dead_letter)
 
       # The copy the reconciler just created keeps the production dead-letter shape:
-      # MaxAge off, DiscardNew, and the source stream's 24h duplicate window.
+      # MaxAge off, DiscardNew, and the explicit 72h duplicate window (no longer
+      # derived from the source stream's MaxAge, which is disabled).
       dlq_info = api(conn, "STREAM.INFO.#{@dlq_stream}", "")
       assert dlq_info["config"]["max_age"] == 0
       assert dlq_info["config"]["discard"] == "new"
       assert dlq_info["config"]["duplicate_window"] == dead_letter.stream_duplicate_window
-      assert dlq_info["config"]["duplicate_window"] == 86_400_000_000_000
+      assert dlq_info["config"]["duplicate_window"] == 259_200_000_000_000
 
       # The redelivery is copied, and only then acknowledged.
       assert_receive {:delivered, 1, 2, @record}, 30_000
@@ -353,50 +354,98 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetterNatsTest do
     end)
   end
 
-  test "ConsumerReconciler reconciles an existing DiscardNew/72h edge-record stream back to DiscardOld/24h",
+  test "a full primary edge-record stream refuses a publish under DiscardNew without evicting stored records, and stores the redelivered record once space frees up",
        ctx do
     ExposureBroker.with_broker(ctx.tmp_dir, fn conn, port ->
       config = config(port)
       source = %{Config.edge_record_stream() | stream_replicas: 1, stream_max_bytes: 512}
-      audit = %{Config.edge_record_audit_stream() | stream_replicas: 1, stream_max_bytes: 512}
 
-      # Simulate an existing deployment whose primary and audit streams were created with
-      # DiscardNew and 72h MaxAge, then prove ConsumerReconciler.ensure_stream reconciles
-      # both in place back to DiscardOld and 24h MaxAge while preserving stored messages.
-      for {stream, subject} <- [
-            {source, @source_subject},
-            {audit, "telemetry.edge-record-audit.v1.bulk.p44"}
-          ] do
-        discard_new_72h = %{stream | stream_discard: "new", stream_max_age: 259_200_000_000_000}
-        assert :ok = ConsumerReconciler.ensure_stream(conn, config, discard_new_72h)
+      # Simulate an existing deployment whose primary stream was created with DiscardOld and 24h MaxAge,
+      # then prove ConsumerReconciler.ensure_stream upgrades it in place to DiscardNew and no MaxAge.
+      legacy = %{source | stream_discard: "old", stream_max_age: 86_400_000_000_000}
+      assert :ok = ConsumerReconciler.ensure_stream(conn, config, legacy)
 
-        assert %{"config" => %{"discard" => "new", "max_age" => 259_200_000_000_000}} =
-                 api(conn, "STREAM.INFO.#{stream.stream_name}", "")
+      assert %{"config" => %{"discard" => "old", "max_age" => 86_400_000_000_000}} =
+               api(conn, "STREAM.INFO.TELEMETRY_EDGE_RECORD_V1_BULK", "")
 
-        {:ok, %{body: body}} =
-          Gnat.request(conn, subject, String.duplicate("a", 64),
-            headers: [{"Nats-Msg-Id", "synthetic-pub-0001"}],
-            receive_timeout: 5_000
-          )
+      assert :ok = ConsumerReconciler.ensure_stream(conn, config, source)
 
-        assert %{"stream" => stream.stream_name, "seq" => 1} ==
-                 Map.take(Jason.decode!(body), ["stream", "seq"])
+      assert %{
+               "config" => %{
+                 "discard" => "new",
+                 "max_bytes" => 512,
+                 "max_age" => 0
+               }
+             } = api(conn, "STREAM.INFO.TELEMETRY_EDGE_RECORD_V1_BULK", "")
 
-        assert :ok = ConsumerReconciler.ensure_stream(conn, config, stream)
+      first_payload = String.duplicate("a", 128)
+      second_payload = String.duplicate("b", 128)
+      third_payload = String.duplicate("c", 128)
 
-        assert %{
-                 "config" => %{
-                   "discard" => "old",
-                   "max_bytes" => 512,
-                   "max_age" => 86_400_000_000_000
-                 },
-                 "state" => %{
-                   "messages" => 1,
-                   "first_seq" => 1,
-                   "last_seq" => 1
-                 }
-               } = api(conn, "STREAM.INFO.#{stream.stream_name}", "")
-      end
+      {:ok, %{body: body1}} =
+        Gnat.request(conn, @source_subject, first_payload,
+          headers: [{"Nats-Msg-Id", "synthetic-pub-0001"}],
+          receive_timeout: 5_000
+        )
+
+      assert %{"stream" => "TELEMETRY_EDGE_RECORD_V1_BULK", "seq" => 1} = Jason.decode!(body1)
+
+      {:ok, %{body: body2}} =
+        Gnat.request(conn, @source_subject, second_payload,
+          headers: [{"Nats-Msg-Id", "synthetic-pub-0002"}],
+          receive_timeout: 5_000
+        )
+
+      assert %{"stream" => "TELEMETRY_EDGE_RECORD_V1_BULK", "seq" => 2} = Jason.decode!(body2)
+
+      # Stream is now near its 512-byte cap; publishing the third record must be refused with
+      # err_code 10077 (maximum bytes exceeded), never evicting seq 1 or seq 2.
+      {:ok, %{body: refused_body}} =
+        Gnat.request(conn, @source_subject, third_payload,
+          headers: [{"Nats-Msg-Id", "synthetic-pub-0003"}],
+          receive_timeout: 5_000
+        )
+
+      assert %{
+               "error" => %{
+                 "err_code" => 10_077,
+                 "description" => "maximum bytes exceeded"
+               }
+             } = Jason.decode!(refused_body)
+
+      assert %{
+               "state" => %{
+                 "messages" => 2,
+                 "first_seq" => 1,
+                 "last_seq" => 2
+               }
+             } = api(conn, "STREAM.INFO.TELEMETRY_EDGE_RECORD_V1_BULK", "")
+
+      # Once EventWriter drains or space frees up (delete seq 1), the redelivered third record is stored.
+      reply =
+        api(
+          conn,
+          "STREAM.MSG.DELETE.TELEMETRY_EDGE_RECORD_V1_BULK",
+          Jason.encode!(%{seq: 1})
+        )
+
+      assert reply["success"] == true
+
+      {:ok, %{body: body3}} =
+        Gnat.request(conn, @source_subject, third_payload,
+          headers: [{"Nats-Msg-Id", "synthetic-pub-0003"}],
+          receive_timeout: 5_000
+        )
+
+      assert %{"stream" => "TELEMETRY_EDGE_RECORD_V1_BULK", "seq" => 3} = Jason.decode!(body3)
+
+      assert %{
+               "state" => %{
+                 "messages" => 2,
+                 "first_seq" => 2,
+                 "last_seq" => 3
+               }
+             } = api(conn, "STREAM.INFO.TELEMETRY_EDGE_RECORD_V1_BULK", "")
     end)
   end
 

@@ -5,9 +5,9 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter do
   The gateway acknowledged every edge record to its agent once JetStream stored it, so the
   agent no longer holds a copy. When a projector keeps failing on a record (any contract: sweep
   observations, metric batches, unleased sweep results, and every contract added later), the
-  EventWriter consumer redelivers it with backoff. Without a dead-letter it would retry until
-  the edge-record stream's `MaxAge` evicted it, and the record would be gone with nothing to
-  inspect or replay.
+  EventWriter consumer redelivers it with backoff. Without a dead-letter it would retry forever:
+  the edge-record stream has no `MaxAge`, so the stuck record would hold its backlog with
+  nothing to inspect or replay.
 
   ## When a record is dead-lettered
 
@@ -35,7 +35,7 @@ defmodule ServiceRadar.EventWriter.EdgeRecordDeadLetter do
   edge-record stream, so the next delivery tries again.
 
   The dead-letter's `Nats-Msg-Id` is `edge-dlq:<source stream>:<source sequence>`, and the
-  stream keeps that id for the source stream's 24-hour `MaxAge`. A delivery redelivered after a
+  stream keeps that id for its explicit 72-hour duplicate window. A delivery redelivered after a
   lost source ACK is stored once. The same record dead-lettered again after a replay (a new
   source sequence) is stored again rather than deduplicated against a copy the replay already
   deleted. JetStream reports a duplicate only for an id it already stored, so a duplicate

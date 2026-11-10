@@ -273,6 +273,7 @@ defmodule ServiceRadar.EventWriter.Config do
     # canonicalization (long EVENT_WRITER_CONSUMER_NAME prefixes included).
     assert_no_canonical_consumer_collisions!(streams, consumer_name)
     assert_recovery_stream!(streams)
+    assert_edge_record_stream!(streams)
 
     %__MODULE__{
       enabled: enabled?(),
@@ -342,6 +343,64 @@ defmodule ServiceRadar.EventWriter.Config do
       is_integer(stream[:stream_max_bytes]) and stream.stream_max_bytes >= 4_194_304 and
       stream[:stream_max_age] === 0 and
       is_nil(stream[:dead_letter_after_deliveries]) and
+      stream[:ensure_stream] != false and stream[:reconcile_stream_shape] != false and
+      stream[:consumer_deliver_policy] in [nil, :all]
+  end
+
+  # The bulk and audit streams follow the recovery model: WorkQueue permits only
+  # one durable whose filter covers a subject, so every worker binds the same
+  # owning durable and a second configured source consumer is a startup error.
+  # No age expiry (a stuck record alerts, it never expires), and the same 4 MiB
+  # floor. Unlike recovery, the dead-letter threshold is required: without it a
+  # poison record would retry forever instead of dead-lettering after 20.
+  defp assert_edge_record_stream!(streams) do
+    for name <- ["EDGE_RECORD", "EDGE_RECORD_AUDIT"] do
+      prod = if name == "EDGE_RECORD", do: edge_record_stream(), else: edge_record_audit_stream()
+
+      matching =
+        Enum.filter(streams, fn stream ->
+          stream.name == name or jetstream_stream_name(stream) == jetstream_stream_name(prod)
+        end)
+
+      case matching do
+        [] ->
+          :ok
+
+        [stream] ->
+          if !edge_record_stream_safe?(stream, prod),
+            do:
+              raise(
+                ArgumentError,
+                "unsafe #{name} stream: require WorkQueue, no age expiry, ordered drain, " <>
+                  "a dead-letter threshold of 20, and at least 4 MiB"
+              )
+
+        _ ->
+          raise ArgumentError, "#{name} requires one shared durable consumer"
+      end
+    end
+
+    :ok
+  end
+
+  defp edge_record_stream_safe?(stream, prod) do
+    fixed = [
+      :name,
+      :stream_name,
+      :subject,
+      :processor,
+      :allow_stream_fallback,
+      :batch_size,
+      :stream_retention,
+      :stream_storage,
+      :stream_discard,
+      :consumer_max_deliver
+    ]
+
+    Map.take(stream, fixed) == Map.take(prod, fixed) and
+      is_integer(stream[:stream_max_bytes]) and stream.stream_max_bytes >= 4_194_304 and
+      stream[:stream_max_age] === 0 and
+      stream[:dead_letter_after_deliveries] == 20 and
       stream[:ensure_stream] != false and stream[:reconcile_stream_shape] != false and
       stream[:consumer_deliver_policy] in [nil, :all]
   end
@@ -899,14 +958,24 @@ defmodule ServiceRadar.EventWriter.Config do
   `ServiceRadar.EventWriter.Processors.EdgeRecord` runs one real,
   all-or-nothing CNPG transaction per record -- a redelivered message must
   never be folded into another record's batch outcome. The gateway has already
-  acknowledged a stored record to its agent, so a failed projection is retried
+  acknowledged a stored record to its agent, so the stream uses `DiscardNew`:
+  when `MaxBytes` is reached, NATS refuses new publishes (`err_code` 10077)
+  rather than evicting records the gateway already acknowledged, and the gateway
+  withholds `EdgeDeliveryAckV1` so the agent spool keeps the record and retries.
+  A failed projection is retried
   without a delivery limit (`consumer_max_deliver: -1`), with backoff, until its
   `dead_letter_after_deliveries`-th delivery fails too. That delivery copies the
   record to the dead-letter stream (`edge_record_dead_letter_stream/0`) and is
   acknowledged only once the copy is stored; see
-  `ServiceRadar.EventWriter.EdgeRecordDeadLetter`. With the redelivery backoff
-  capped at 80 seconds, 20 deliveries keep retrying a record for about 25
-  minutes, well inside the stream's 24-hour `MaxAge`.
+  `ServiceRadar.EventWriter.EdgeRecordDeadLetter`. The stream uses `WorkQueue`
+  retention with exactly one owning durable, so an acknowledged record leaves
+  the stream and `DiscardNew` refuses new publishes only when the unwritten
+  backlog fills `MaxBytes`. `MaxAge` is disabled: a record that is never
+  acknowledged comes from a stuck consumer and raises the backlog alert, it
+  does not expire silently. `MaxBytes` is sized from the worst
+  outage-plus-catch-up backlog (6h EventWriter outage at burst rate on the
+  small profile), not from total traffic. 20 deliveries with the 80-second
+  backoff cap keep retrying a record for about 25 minutes.
   """
   @spec edge_record_stream() :: stream_config()
   def edge_record_stream do
@@ -918,12 +987,12 @@ defmodule ServiceRadar.EventWriter.Config do
       processor: EdgeRecord,
       batch_size: 1,
       batch_timeout: 1_000,
-      stream_retention: "limits",
+      stream_retention: "workqueue",
       stream_storage: "file",
-      stream_discard: "old",
+      stream_discard: "new",
       stream_replicas: 3,
       stream_max_bytes: 1_073_741_824,
-      stream_max_age: 86_400_000_000_000,
+      stream_max_age: 0,
       consumer_max_deliver: -1,
       dead_letter_after_deliveries: 20
     }
@@ -1026,14 +1095,22 @@ defmodule ServiceRadar.EventWriter.Config do
   source delivery unacknowledged, so the record keeps retrying on the edge-record
   stream instead of being lost. Only a replay
   (`ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay`) or an operator deletes
-  a message. The duplicate window is the source stream's 24-hour `MaxAge`: the
-  dead-letter id `edge-dlq:<source stream>:<source sequence>` then stores one copy
-  of a redelivered source for as long as that source can still be redelivered.
-  `MaxAge` here is disabled, which is what lets the window be that long. The
-  `EdgeRecordDeadLetter` processor binds this stream's durable and writes nothing;
-  an acknowledgement does not remove a message under limits retention. The DLQ
-  catalog, retention and redrive are `add-edge-record-stream-partitioning`.
+  a message. The duplicate window is an explicit 72 hours: the dead-letter id
+  `edge-dlq:<source stream>:<source sequence>` then stores one copy of a
+  redelivered source for as long as that source can still be redelivered (20
+  deliveries under capped backoff span about 25 minutes; 72h keeps the previous
+  horizon unchanged now that the source stream has no `MaxAge` to derive it
+  from). `MaxAge` here is disabled, which is what lets the window be that long.
+  The `EdgeRecordDeadLetter` processor binds this stream's durable and writes
+  nothing; an acknowledgement does not remove a message under limits retention.
+  The DLQ catalog, retention and redrive are `add-edge-record-stream-partitioning`.
   """
+  # 72h in nanoseconds: covers the longest possible source redelivery span (20
+  # deliveries under capped backoff) with the previous horizon unchanged. It is
+  # a constant rather than the source stream's MaxAge because the source stream
+  # no longer has one.
+  @edge_record_dlq_duplicate_window_ns 259_200_000_000_000
+
   @spec edge_record_dead_letter_stream() :: stream_config()
   def edge_record_dead_letter_stream do
     # Map.merge, not the | update: the quarantine map has no duplicate window,
@@ -1043,7 +1120,7 @@ defmodule ServiceRadar.EventWriter.Config do
       stream_name: "TELEMETRY_EDGE_RECORD_DLQ_V1_BULK",
       subject: "telemetry.edge-record-dlq.v1.bulk.>",
       processor: ServiceRadar.EventWriter.Processors.EdgeRecordDeadLetter,
-      stream_duplicate_window: edge_record_stream().stream_max_age
+      stream_duplicate_window: @edge_record_dlq_duplicate_window_ns
     })
   end
 

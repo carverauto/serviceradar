@@ -11,13 +11,12 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorker do
   ## Retention Horizon
 
   The retention horizon (`retention_horizon_seconds/1`) is derived from the
-  maximum of four protocol and broker limits rather than a guessed constant:
+  maximum of three protocol and broker limits rather than a guessed constant
+  (the edge-record source streams have no `MaxAge`, so they add no component):
 
-    1. The edge-record stream `MaxAge` (`EventWriter.Config.edge_record_stream/0`
-       and `EventWriter.Config.edge_record_audit_stream/0`).
-    2. The dead-letter stream's retention (`EventWriter.Config.edge_record_dead_letter_stream/0`).
-    3. Standing output grant validity (`OutputGrants.max_lifetime_seconds/0`).
-    4. The agent spool's retry horizon: the longer of standing-grant validity
+    1. The dead-letter stream's retention (`EventWriter.Config.edge_record_dead_letter_stream/0`).
+    2. Standing output grant validity (`OutputGrants.max_lifetime_seconds/0`).
+    3. The agent spool's retry horizon: the longer of standing-grant validity
        or the sweep lease horizon ceiling (`PipelineSettings.default_max_horizon_seconds/0`
        or any higher ceiling configured in `platform.edge_pipeline_settings`)
        plus `ContractRegistry`'s 3600s lease margin and `DeliveryGrants.ttl_seconds/0`.
@@ -164,7 +163,6 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorker do
   def draining_epoch_lease_margin_seconds, do: @draining_epoch_lease_margin_seconds
 
   @spec retention_components(pos_integer()) :: %{
-          edge_record_stream_max_age_seconds: pos_integer(),
           dead_letter_retention_seconds: pos_integer(),
           output_grant_max_lifetime_seconds: pos_integer(),
           spool_retry_horizon_seconds: pos_integer()
@@ -173,20 +171,11 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorker do
         max_sweep_horizon_seconds \\ PipelineSettings.default_max_horizon_seconds()
       )
       when is_integer(max_sweep_horizon_seconds) and max_sweep_horizon_seconds > 0 do
-    primary = EventWriter.Config.edge_record_stream()
-    audit = EventWriter.Config.edge_record_audit_stream()
+    # The source streams have no MaxAge: records leave on acknowledgement, so
+    # there is no stream-expiry component. A ledger row must outlive every path
+    # that can still need it: the dead-letter redelivery window, the
+    # output-grant lifetime, and the agent spool retry horizon.
     dead_letter = EventWriter.Config.edge_record_dead_letter_stream()
-
-    edge_record_stream_max_age_seconds =
-      div(
-        Enum.max([
-          primary.stream_max_age,
-          Map.get(primary, :stream_duplicate_window, 0),
-          audit.stream_max_age,
-          Map.get(audit, :stream_duplicate_window, 0)
-        ]),
-        @ns_per_second
-      )
 
     dead_letter_retention_seconds =
       div(
@@ -203,7 +192,6 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorker do
       ) + DeliveryGrants.ttl_seconds()
 
     %{
-      edge_record_stream_max_age_seconds: edge_record_stream_max_age_seconds,
       dead_letter_retention_seconds: dead_letter_retention_seconds,
       output_grant_max_lifetime_seconds: output_grant_max_lifetime_seconds,
       spool_retry_horizon_seconds: spool_retry_horizon_seconds

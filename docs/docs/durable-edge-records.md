@@ -39,9 +39,9 @@ is republished to, which ingestor stores it) are in
   record between them is acknowledged only after the next stage holds it (the
   exception is the OTel log and OCSF republish described under
   [EventWriter projects the record](#4-eventwriter-projects-the-record)). An agent, gateway, NATS or core
-  restart therefore leads to a redelivery, not a gap, as long as EventWriter
-  drains the primary stream within its retention (see
-  [Messages expired before delivery](#messages-expired-before-delivery)).
+  restart therefore leads to a redelivery, not a gap. The primary stream keeps
+  a record until EventWriter acknowledges it; when its backlog fills, new
+  records wait in the agent spool.
 - **Loss is counted, never silent.** Where data cannot be carried (a producer
   queue overflowing while it waits for a grant, a record the gateway rejects
   permanently, a projection that keeps failing) it is counted, quarantined or
@@ -203,15 +203,26 @@ version 1 dead-letters under
 `telemetry.edge-record-dlq.v1.bulk.pNN.serviceradar_metrics_batch.v1`.
 
 All five streams are file-backed and use three replicas (capped to
-`nats.replicas`). The primary and audit streams keep records for 24 hours
-(`MaxAge`) and discard the oldest when they reach their byte limit, so
-EventWriter must keep up with them. The gateway has already acknowledged those
-records to the agent, so a record that ages or is discarded out of either
-stream before EventWriter reads it is never projected or recorded in the
-ledger, and the agent no longer holds a copy. The security-quarantine,
-dead-letter and recovery streams have no `MaxAge` (`0`) and refuse new messages
-when full (`DiscardNew`), so nothing ages out of them; a refused quarantine or
-recovery publish leaves the sequence unresolved and the agent keeps the bytes.
+`nats.replicas`). The primary and audit streams use `WorkQueue` retention
+with one owning EventWriter durable each, so a record leaves the stream once
+EventWriter acknowledges it and the stream holds only the unwritten backlog.
+They have no `MaxAge` (`0`) and refuse new messages when the backlog reaches
+their byte limit (`DiscardNew`); the gateway then withholds the delivery
+acknowledgement and the agent spool keeps the bytes and retries. A record that
+is never acknowledged does not expire: it raises
+`ServiceRadarEdgeRecordBacklogPressure` once the stream passes 80% of its byte
+limit. The security-quarantine, dead-letter and recovery streams also have no
+`MaxAge` and refuse new messages when full (`DiscardNew`), so nothing ages out
+of them; a refused quarantine or recovery publish leaves the sequence
+unresolved and the agent keeps the bytes.
+
+An install created with the earlier `Limits` primary or audit stream is
+converted on upgrade: NATS cannot change a stream's retention in place, so
+EventWriter's periodic edge-retention check seals the stream (publishes are
+refused and stay in the agent spool), waits for its durable to drain it,
+deletes it and recreates it as `WorkQueue` under the same name. If the drain
+does not finish in time the stream is unsealed and the cutover retries on a
+later check.
 
 EventWriter's compiled defaults are 1 GiB for the primary stream and 64 MiB
 for each of the other three ordinary streams and the recovery stream. On a Helm
@@ -518,10 +529,11 @@ retains while messages are pending for it, the stream has discarded messages
 the consumer never received. EventWriter reports this as
 `serviceradar_event_writer_consumer_expired_before_delivery_value` and logs it
 once when it starts and once when it stops, and
-`ServiceRadarEventWriterMessagesExpiredBeforeDelivery` fires. For the primary
-edge-record stream this means records older than its 24-hour `MaxAge`, or pushed
-out by its byte limit, were never projected. Check the EventWriter consumer and
-the stream size.
+`ServiceRadarEventWriterMessagesExpiredBeforeDelivery` fires. The primary and
+audit edge-record streams have no `MaxAge` and refuse new messages when full,
+so this should not happen on them; if it does, a message was removed by hand
+or the stream still uses the pre-upgrade `Limits` shape. Check the EventWriter
+consumer and the stream configuration.
 
 ## Operating the pipeline
 
@@ -662,6 +674,7 @@ Alerts in the chart's Prometheus rules:
 | `ServiceRadarAgentEdgeSpoolBytes` | an agent spool holds more than 1 GiB of unresolved records |
 | `ServiceRadarAgentGatewayPubAckErrors` | the gateway's edge publisher received PubAck errors |
 | `ServiceRadarEdgeRecordConsumerLag` | the `EDGE_RECORD`, audit or recovery consumer has pending messages for 10 minutes |
+| `ServiceRadarEdgeRecordBacklogPressure` | the primary or audit stream is above 80% of its size for 5 minutes (its owning durable is stuck) |
 | `ServiceRadarEventWriterMessagesExpiredBeforeDelivery` | a stream discarded messages its EventWriter consumer never received |
 | `ServiceRadarEdgeRecordDeadLettered` | records were dead-lettered in the last 15 minutes |
 | `ServiceRadarEdgeRecordDeadLetterPublishFailed` | a dead-letter copy could not be stored |

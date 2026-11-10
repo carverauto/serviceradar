@@ -174,15 +174,17 @@ SHALL use the same persisted map version and authority history.
 
 ### Requirement: Record stream capacity is installation-admitted
 
-The installation SHALL have aggregate and per-site/agent/producer-assignment/
-run-or-execution/traffic-class
-admission envelopes covering synchronized scheduled bursts, live traffic,
-spool replay overlap, supported outage, worst-case catch-up, headers, replication,
-and safety margin. Physical stream, account, disk, consumer, connection, and
-PubAck limits SHALL cover the sum of admitted envelopes and worst-case hash skew.
-Source-stream `MaxAge` and `MaxBytes` SHALL retain every acknowledged event
-through the declared outage plus catch-up horizon; `DiscardNew` SHALL propagate
-pressure before acknowledged data can expire or be evicted.
+The installation SHALL size every edge-record source stream's `MaxBytes` from
+the worst outage-plus-catch-up backlog of unwritten records, not from total
+traffic. The installation SHALL keep aggregate and per-site/agent/
+producer-assignment/run-or-execution/traffic-class admission envelopes covering
+synchronized scheduled bursts, live traffic, spool replay overlap, supported
+outage, worst-case catch-up, headers, replication, and safety margin. Physical
+stream, account, disk, consumer, connection, and PubAck limits SHALL cover the
+sum of admitted envelopes and worst-case hash skew. Source streams SHALL use
+`WorkQueue` retention with exactly one owning durable and `DiscardNew`, with no
+`MaxAge`; `DiscardNew` SHALL refuse new publishes only when the unwritten
+backlog fills `MaxBytes`, and SHALL never evict an unwritten record.
 
 #### Scenario: New work exceeds the installation envelope
 
@@ -192,12 +194,26 @@ pressure before acknowledged data can expire or be evicted.
   or publication
 - **AND** it SHALL expose the exact deployment-local capacity reason
 
-#### Scenario: Source retention cannot cover recovery
+#### Scenario: Source backlog capacity cannot cover recovery
 
-- **WHEN** a source stream's `MaxAge` is less than supported outage plus
-  worst-case catch-up and safety margin
+- **WHEN** a source stream's `MaxBytes` is less than the worst outage-plus-
+  catch-up backlog plus safety margin
 - **THEN** provisioning SHALL fail the v1 readiness gate
 - **AND** the gateway SHALL NOT advertise the installation result path as ready
+
+#### Scenario: A caught-up consumer is never refused
+
+- **GIVEN** the owning durable is caught up (pending 0, ack floor at last sequence)
+- **WHEN** gateways publish more than one cap's worth of total traffic
+- **THEN** every PubAck SHALL succeed
+- **AND** no unwritten record SHALL be evicted
+
+#### Scenario: A stopped consumer is refused with a capacity error
+
+- **GIVEN** the owning durable is stopped with an empty backlog
+- **WHEN** published backlog reaches `MaxBytes`
+- **THEN** further publishes SHALL fail with `{:error, :capacity}`
+- **AND** no stored record SHALL be evicted
 
 ### Requirement: Persistence consumers acknowledge deliveries explicitly
 
@@ -272,6 +288,96 @@ publication obtains PubAck.
 - **THEN** the authorized deleter MAY remove that exact physical stream sequence
 - **AND** time alone, stream pressure, or an absent catalog entry SHALL NOT delete
   it
+
+### Requirement: Edge-record source streams hold only unwritten records
+
+Every edge-record source stream SHALL hold only records its owning durable has
+not yet acknowledged. Each source stream (`TELEMETRY_EDGE_RECORD_V1_BULK`,
+`TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK`) SHALL use `WorkQueue` retention with
+exactly one owning durable, explicit per-message ACK, `DiscardNew`, and no
+`MaxAge`. A record SHALL leave the stream only when its owning durable ACKs it
+after the containing transaction commits. At install, records published before
+the durable exists SHALL be retained until the durable is created and
+acknowledges them. A second overlapping durable on a source stream SHALL NOT be
+created. The DLQ and security-quarantine streams SHALL keep `Limits` retention
+with `DiscardNew` and no `MaxAge`, because their processors ACK without
+removing and operators inspect, replay, and waive held records from the stream
+itself.
+
+#### Scenario: Record published before the consumer exists
+
+- **GIVEN** a fresh install whose owning durable is not yet created
+- **WHEN** gateways publish edge records
+- **THEN** every PubAck SHALL succeed
+- **AND** the records SHALL remain stored until the durable consumes and ACKs them
+
+#### Scenario: Acknowledged record releases broker space
+
+- **GIVEN** a `WorkQueue` source stream with a caught-up durable
+- **WHEN** the durable ACKs a delivery after its transaction commits
+- **THEN** that record SHALL leave the stream
+- **AND** stream bytes SHALL NOT grow with total traffic while the durable
+  stays caught up
+
+#### Scenario: Stuck record never expires silently
+
+- **GIVEN** a record its durable never ACKs
+- **WHEN** any amount of time passes
+- **THEN** the record SHALL remain stored
+- **AND** the backlog-pressure alert SHALL fire instead of the record expiring
+
+### Requirement: Edge-record stream retention upgrades through a drain-barrier cutover
+
+The upgrade SHALL cut existing installs over to `WorkQueue` retention behind a
+drain barrier, with no dual-write and no lost records. Because the broker
+refuses `Limits` to `WorkQueue` retention changes in place, the barrier SHALL
+seal the existing stream in place (publishes are refused with a retryable
+error and stay in agent spool), keep its sole owning durable draining to
+empty, delete the drained stream, and recreate it under the same name and
+subjects with the production `WorkQueue` shape. No second stream SHALL exist
+at any point. The recreated stream SHALL carry the same `MaxBytes`, replicas,
+and `DiscardNew` refusal. The cutover SHALL NOT delete the stream while any
+delivery is pending or in flight, and any abort after sealing SHALL unseal the
+stream.
+
+#### Scenario: Cutover on a caught-up stream loses no records
+
+- **GIVEN** a `Limits` source stream whose durable is caught up
+- **WHEN** the cutover runs
+- **THEN** every record written before the cutover SHALL already be in the database
+- **AND** the stream SHALL be deleted only after it drains to empty
+- **AND** the recreated stream SHALL report `WorkQueue` retention, no `MaxAge`,
+  and not sealed
+
+#### Scenario: Cutover waits for a behind consumer
+
+- **GIVEN** a source stream whose durable has pending deliveries
+- **WHEN** the cutover runs and the durable does not drain before the deadline
+- **THEN** it SHALL NOT delete the stream
+- **AND** it SHALL unseal the stream, log the abort, and retry on the next
+  reconcile pass
+
+#### Scenario: Cutover error after sealing
+
+- **GIVEN** a sealed source stream mid-cutover
+- **WHEN** a stream or consumer info request fails
+- **THEN** the cutover SHALL keep polling until the drain deadline
+- **AND** any abort, including a failed delete, SHALL unseal the stream
+
+### Requirement: Backlog pressure alerts before refusal
+
+The installation SHALL report edge-record backlog pressure (stream bytes
+against `MaxBytes` and oldest unacknowledged age per owning durable) and SHALL
+raise a managed alert before `DiscardNew` refuses new publishes, so a stuck
+consumer pages instead of silently filling the backlog cap.
+
+#### Scenario: Backlog nears capacity
+
+- **GIVEN** an owning durable that stopped acknowledging
+- **WHEN** backlog bytes cross the pressure threshold below `MaxBytes`
+- **THEN** the pressure alert SHALL fire with the stream, durable, backlog
+  bytes, and oldest unacknowledged age
+- **AND** it SHALL fire before any publish is refused
 
 ## MODIFIED Requirements
 
@@ -548,3 +654,4 @@ installation-local contracts and SHALL NOT map unprefixed data to a synthetic
   only fixed installation-local contracts
 - **AND** non-prefixed messages SHALL NOT be associated with a synthetic
   "default" tenant
+
