@@ -16,7 +16,6 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
 
   alias ServiceRadar.Analytics.StarRocks.NodeMemory
   alias ServiceRadar.Cluster.ClusterStatus
-  alias ServiceRadar.ClusterHealth
   alias ServiceRadar.Ingestion.RuntimeMetrics, as: IngestionRuntimeMetrics
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Dashboards.SystemReports
@@ -1576,36 +1575,15 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
   defp load_starrocks_memory do
     [Node.self() | Node.list()]
     |> Enum.uniq()
-    |> Enum.flat_map(&fetch_starrocks_memory_candidates/1)
-    |> Enum.max_by(&starrocks_memory_rank/1, fn -> unavailable_starrocks_memory() end)
-  end
-
-  defp fetch_starrocks_memory_candidates(node) do
-    Enum.filter(
-      [fetch_node_memory_health(node), fetch_cluster_health_starrocks_memory(node)],
-      &match?(%{status: status} when status != :not_running, &1)
-    )
+    |> Enum.find_value(unavailable_starrocks_memory(), &fetch_node_memory_health/1)
   end
 
   defp fetch_node_memory_health(node) do
     case :rpc.call(node, NodeMemory, :health, [], 1_500) do
-      %{status: _} = memory -> memory
+      %{status: status} = memory when status != :not_running -> memory
       _ -> nil
     end
   end
-
-  defp fetch_cluster_health_starrocks_memory(node) do
-    case :rpc.call(node, ClusterHealth, :get_health, [], 1_500) do
-      %{starrocks_memory: %{status: _} = memory} -> memory
-      _ -> nil
-    end
-  end
-
-  defp starrocks_memory_rank(%{status: :warning}), do: 4
-  defp starrocks_memory_rank(%{status: :error}), do: 3
-  defp starrocks_memory_rank(%{status: :ok}), do: 2
-  defp starrocks_memory_rank(%{status: :pending}), do: 1
-  defp starrocks_memory_rank(_), do: 0
 
   defp starrocks_memory_badge_variant(:ok), do: "success"
   defp starrocks_memory_badge_variant(:warning), do: "warning"
