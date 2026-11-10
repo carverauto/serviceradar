@@ -48,13 +48,13 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
   alias ServiceRadar.Camera.RecorderOwnership
   alias ServiceRadar.Camera.RecordingBlock
   alias ServiceRadar.Camera.RecordingBlocks
-  alias ServiceRadar.Camera.RecordingDescriptor
   alias ServiceRadar.Camera.RelaySessionManager
   alias ServiceRadarCoreElx.CameraRelay.PipelineManager
   alias ServiceRadarRecording.Inbox
   alias ServiceRadarRecording.Packaging
   alias ServiceRadarRecording.Storage
   alias ServiceRadarRecording.Writer
+  alias ServiceRadarRecordingMetadata.Descriptor
 
   @lease_ms 30_000
 
@@ -266,7 +266,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
   defp seal(state) do
     with :ok <- usable(state),
          {:ok, writer} <- Writer.seal(state.writer, fn -> usable(state) end),
-         {:ok, descriptor} <- RecordingDescriptor.from_snapshot(Writer.snapshot(writer), writer.init_format),
+         {:ok, descriptor} <- Descriptor.from_snapshot(Writer.snapshot(writer), writer.init_format),
          {:ok, block} <- RecordingBlocks.freeze(state.owner, state.claim, state.block, descriptor, actor: state.actor) do
       {:ok, %{state | writer: writer, block: block, frozen_receipt: true}}
     end

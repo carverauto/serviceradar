@@ -91,6 +91,14 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
       assert {:error, :capacity} = JetStreamPublisher.parse_ack(body)
     end
 
+    test "classifies DiscardNew store refusal err_codes (10076 and 10077) as retryable capacity without relying on description prose" do
+      for err_code <- [10_076, 10_077] do
+        body = ~s({"error":{"code":400,"err_code":#{err_code},"description":"stream full"}})
+        assert {:error, :capacity} = JetStreamPublisher.parse_ack(body)
+        assert JetStreamPublisher.retryable?(:capacity)
+      end
+    end
+
     test "the REAL expected-stream refusal (err_code 10060) is RETRYABLE, never terminal" do
       # NATS answers a mismatched Nats-Expected-Stream with error 10060 (JSStreamNotMatchErr),
       # NOT with a successful ack naming another stream. This is the path that actually fires,

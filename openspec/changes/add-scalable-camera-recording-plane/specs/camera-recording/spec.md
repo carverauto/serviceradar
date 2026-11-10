@@ -96,12 +96,36 @@ The system SHALL write recording payloads to qualified bounded filesystem storag
 - **AND** SHALL not grow storage silently, overwrite pending footage or consume telemetry reservations
 
 ### Requirement: Durable local archive publication
-A local-only recorder SHALL publish availability only after verifying sealed media, initialization dependencies and a durable recoverable manifest/catalog on its qualified storage lifetime. The system SHALL disclose the selected local failure tolerance without treating process-crash durability as proof of disk-loss survival.
+A local-only recorder SHALL publish availability only after verifying sealed media, initialization dependencies, original historical publication authority and a durable recoverable manifest/catalog on its qualified storage lifetime, and committing the corresponding Core catalog registration. Local-copy proofs SHALL remain distinct from S3 archive proofs. The system SHALL disclose the selected local failure tolerance without treating process-crash durability as proof of disk-loss survival.
 
 #### Scenario: Restart between sealing and catalog publication
 - **WHEN** a local recorder restarts after sealing a segment but before catalog publication
-- **THEN** reconciliation SHALL verify complete media and dependencies and idempotently recover publication
+- **THEN** reconciliation SHALL verify complete media, dependencies and original historical authority and idempotently recover the same publication operation
 - **AND** partial or corrupt segments SHALL remain unavailable with an explicit affected interval
+- **AND** missing authority SHALL leave bytes preserved and publication unresolved rather than authorize adoption by a later recorder
+
+#### Scenario: Catalog acknowledgement is lost
+- **WHEN** Core commits local-copy publication but its acknowledgement is lost
+- **THEN** retrying the same operation and immutable copy identity SHALL return the existing registration
+- **AND** changed content under the same operation identity SHALL be refused without overwriting retained evidence
+
+#### Scenario: Restore history is incomplete
+- **WHEN** a retained volume or Core catalog is restored without consistent publication authority, hold and deletion history for the recovery horizon
+- **THEN** the system SHALL preserve surviving bytes and report unresolved recovery
+- **AND** SHALL refuse publication and destructive operations until that history is reconciled
+- **AND** SHALL not interpret an empty catalog as absence of holds or resurrect deleted recordings from an older manifest
+
+#### Scenario: Hold races an in-flight local deletion
+- **WHEN** an authorized hold and an already dispatched retention operation target the same local copy
+- **THEN** the local disposition coordinator SHALL serialize the durable pin and deletion commitment
+- **AND** a pin committed first SHALL prevent deletion, while a deletion committed first SHALL report affected hold coverage unavailable rather than accepted
+- **AND** Core SHALL report the hold accepted only after durable acknowledgement of every required pin
+
+#### Scenario: Local preservation survives restart or disconnection
+- **WHEN** a recorder restarts or loses control connectivity with pending or accepted preservation
+- **THEN** local retention SHALL preserve protected bytes and dependencies until authenticated explicit release is durably acknowledged
+- **AND** stale deletion operations SHALL be refused after preservation state changes
+- **AND** authorized retention of unprotected local recordings SHALL remain possible without S3 or a second copy
 
 #### Scenario: Local owner or volume is lost
 - **WHEN** a requested recording's only verified copy is unavailable

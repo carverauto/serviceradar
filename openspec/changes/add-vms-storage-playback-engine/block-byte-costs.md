@@ -19,7 +19,7 @@ must match the original elementary-stream GOP decoded independently and repeated
 conservation all gate the reported measurements. The existing random-access and
 timing assertions remain in their original keeper.
 
-Each group also goes through the pure receipt-free `RecordingDescriptor` encoder.
+Each group also goes through the pure receipt-free `ServiceRadarRecordingMetadata.Descriptor` encoder.
 Its encoded size is separate from the spool directory's regular-file sizes;
 the experiment neither writes descriptors to CNPG nor freezes a database block.
 The measurement covers 37 blocks and 96 appends across the three groupings, with

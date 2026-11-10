@@ -22,8 +22,8 @@ reservation ServiceRadar creates and checks them at render time:
 | `medium` | 100G (93.13 GiB) | 100Gi |
 | `large` | 500G (465.66 GiB) | 500Gi |
 
-`TELEMETRY_EDGE_RECORD_V1_BULK` is reserved in every profile (R3, 1 GiB except
-960 MiB on `small` and 28 MiB on `tenant-2g`), and so are its audit and security-quarantine streams
+`TELEMETRY_EDGE_RECORD_V1_BULK` is reserved in every profile (R3, 960 MiB on
+`small`, 3 GiB on `medium`, 8 GiB on `large` and 124 MiB on `tenant-2g`), and so are its audit and security-quarantine streams
 `TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK` and
 `TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK` (R3, 64 MiB each except
 8 MiB each on `tenant-2g`), and EventWriter's dead-letter stream
@@ -235,7 +235,7 @@ serviceradar-control repository):
 `tenant-2g` is sized for three NATS servers and the replica counts
 `values-tenant.yaml` sets (KV, objects, `events`, plugins, `ARANCINI_CAUSAL`,
 `metrics`, `scan_results`, `NOTIFICATIONS`, `TELEMETRY_EDGE_RECORD_V1_BULK` at
-28 MiB, its audit and security-quarantine streams at 8 MiB each, its
+124 MiB, its audit and security-quarantine streams at 8 MiB each, its
 dead-letter stream at 4 MiB, the separate recovery stream at 4 MiB, and the fixed 64 MiB `EXPOSURE_RECOVERY`
 reservation at R3; `flows` and the remaining EventWriter and exposure streams
 at R1). Full reservations are 1172 MiB, spread is 576 MiB, and the most loaded

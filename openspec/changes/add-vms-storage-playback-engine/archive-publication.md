@@ -46,7 +46,7 @@ does prevent new provider sends. Neither path resets recording control.
 
 ## Immutable proofs and the index
 
-`ServiceRadar.Camera.RecordingManifest` owns the existing canonical version-one
+`ServiceRadarRecordingMetadata.Manifest` owns the existing canonical version-one
 wire format and golden bytes. Core constructs its inputs from the retained
 descriptor and independent remote-byte verification. Request bodies cannot
 provide an object URL, checksum, provider receipt or replacement descriptor.

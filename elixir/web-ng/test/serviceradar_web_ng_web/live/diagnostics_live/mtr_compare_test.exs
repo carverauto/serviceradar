@@ -4,6 +4,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompareTest do
   import Phoenix.LiveViewTest
 
   alias ServiceRadarWebNG.AshTestHelpers
+  alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare
+  alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrData
 
   @moduletag :web_ng_shared_fixture_db
 
@@ -52,6 +54,48 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompareTest do
     assert html =~ "Yesterday same hours"
     assert html =~ "Elapsed-aligned comparison"
     assert html =~ "deltas are normalized by elapsed time"
+    refute html =~ "Compare same hours"
+  end
+
+  test "same-hours preset stays elapsed-aligned just after midnight UTC", %{user: user} do
+    state =
+      MtrCompare.window_state_from_params(
+        %{"preset" => "today_vs_yesterday_elapsed"},
+        ~U[2026-05-07 00:00:11Z]
+      )
+
+    assert {:ok, comparison} =
+             MtrData.compare_windows(
+               window_a: state.window_a,
+               window_b: state.window_b,
+               target_filter: state.target_filter,
+               agent_filter: state.agent_filter,
+               protocol: state.protocol,
+               reached: state.reached
+             )
+
+    assert comparison.elapsed_aligned?
+
+    html =
+      render_component(&MtrCompare.render/1,
+        flash: %{},
+        current_scope: %{user: user},
+        page_path: "/diagnostics/mtr/compare",
+        mode: "window",
+        recent_traces: [],
+        trace_a: nil,
+        trace_b: nil,
+        diff: [],
+        error: nil,
+        window_state: state,
+        window_comparison: comparison
+      )
+
+    assert html =~ "Today so far"
+    assert html =~ "Yesterday same hours"
+    assert html =~ "Elapsed-aligned comparison"
+    assert html =~ "deltas are normalized by elapsed time"
+    refute html =~ "Full-day baseline"
     refute html =~ "Compare same hours"
   end
 

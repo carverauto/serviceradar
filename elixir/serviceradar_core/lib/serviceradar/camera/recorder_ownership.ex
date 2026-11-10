@@ -22,8 +22,8 @@ defmodule ServiceRadar.Camera.RecorderOwnership do
   alias ServiceRadar.Camera.RecorderClaim
   alias ServiceRadar.Camera.RecordingBlock
   alias ServiceRadar.Camera.RecordingControl
-  alias ServiceRadar.Camera.RecordingDescriptor
   alias ServiceRadar.Camera.RelaySession
+  alias ServiceRadarRecordingMetadata.Descriptor
 
   require Ash.Query
 
@@ -125,14 +125,14 @@ defmodule ServiceRadar.Camera.RecorderOwnership do
               identity = RecordingBlock.identity(attrs)
 
               with true <-
-                     RecordingDescriptor.valid_identity?(identity) ||
+                     Descriptor.valid_identity?(identity) ||
                        {:error, :invalid_recording_identity},
                    {:ok, _updated} <-
                      transition(current, %{next_block_sequence: sequence + 1}, opts) do
                 RecordingBlock
                 |> Ash.Changeset.for_create(
                   :reserve,
-                  Map.put(attrs, :block_key, RecordingDescriptor.block_key(identity))
+                  Map.put(attrs, :block_key, Descriptor.block_key(identity))
                 )
                 |> Ash.create(opts)
               end

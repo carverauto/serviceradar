@@ -8,7 +8,7 @@ not a shipped camera-count guarantee.
 - [x] 1.1 Review/approve the three supported modes, independent recorder tier and no-JetStream-media decision.
 - [x] 1.2 Specify source routing/consumer lifecycle and assignment/handoff transitions, including all crash and partition boundaries. [Source lifecycle](source-lifecycle.md) defines the three lifetimes, consumer ordering, transition evidence and failure matrix; implementation and offline-grant qualification remain open.
 - [ ] 1.3 Specify finite offline grants, conservative expiry/reboot behavior and provenance-checked historical reconciliation without weakening stale-owner fences.
-- [ ] 1.4 Define local durable publication/restore/hold guarantees separately from provisional spool and S3 archive proofs.
+- [x] 1.4 Define local durable publication/restore/hold guarantees separately from provisional spool and S3 archive proofs. [Local publication](local-publication.md) defines durable ordering, authoritative recovery and preservation/deletion outcomes; implementation and storage qualification remain open.
 - [ ] 1.5 Select measurable per-mode coverage, latency, outage, recovery, retention and cost SLOs; record supported codec/hardware profiles.
 - [ ] 1.6 Reconcile the core-attached persistence rollout with recorder-pool packaging before a production controller conversion.
 - [ ] 1.7 Specify outbound live attach and historical range/cancel/reconnect protocols over agent-established connectivity, with no inbound customer dependency.
@@ -146,6 +146,35 @@ repairs preserve bytes and independently decode the recovered frames. The caller
 must establish prior writer retirement and exclusive attachment; this operation
 does not supply distributed fencing, automatic reconciliation, durable gap state
 or publication authority. Tasks 3.2 and 3.3 remain open.
+
+Aggregate local read checkpoint for 3.7: inventory, inspection, descriptor and
+media reads share four independently supervised read slots with ten-second
+admitted-task deadlines. Saturation refuses work without using recording slots;
+worker expiry bounds orphan lifetime after caller loss. Shipped-release tests
+exercise saturation, worker failure/expiry, caller loss and read-supervisor
+restart while a recording reservation survives. This bounds active local read
+work, not downstream buffers, kernel I/O latency, per-viewer fairness or remote
+playback authorization/cancellation. Task 3.7 remains open.
+
+Descriptor-bound local read checkpoint for 3.3/3.7: the trusted same-VM
+`ServiceRadarNVR.read_block/3` API accepts a block ID, canonical descriptor SHA-256
+and an initialization/fragment selector. It verifies the sealed retained block,
+compares the descriptor digest and rechecks the selected bytes under existing
+runtime bounds. The shipped-release restart/recovery tests reconstruct and decode
+media through this API and refuse mismatched digests, invalid selectors and
+unsealed/corrupt evidence without repair. The descriptor binding does not supply
+authenticated remote playback or catalog publication; active read work is bounded
+by the separate admission checkpoint above. Tasks 3.3 and 3.7 remain open.
+
+Portable metadata checkpoint for 2.1/3.3: `serviceradar_recording_metadata`
+owns the unchanged canonical v1 descriptor and archive-manifest contract shared
+by Core and NVR, without Core, database or media-pipeline dependencies. The
+trusted same-VM NVR `block_descriptor/1` API verifies a sealed retained block and
+returns portable descriptor JSON after restart. Pure metadata tests preserve the
+pinned v1 wire digest; the shipped-release test independently verifies descriptor
+bytes and fragment digests alongside decoded synthetic frames. This adds no
+publication, assignment protocol, catalog, receipt or playback authority. Tasks
+2.1, 3.2 and 3.3 remain open.
 
 Recovered initialization checkpoint for 3.2/3.3: standalone NVR inspection and
 explicit recovery attach the initialization digest, timescale and baseline AVC

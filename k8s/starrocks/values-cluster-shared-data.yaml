@@ -1,9 +1,10 @@
-# Overlay on values-cluster.yaml for carverauto only.
-# Farm01 stays shared-nothing (no Linode analytics bucket).
+# Shared-data overlay on values-cluster.yaml: compute nodes (CN) with a local
+# cache over an object-storage bucket. See README.md. Always layer both files.
 #
-# Object table data lives in the DuckDB analytics bucket
-# (serviceradar-demo-analytics on us-ord-10.linodeobjects.com), prefix
-# starrocks/. That is not the CNPG Barman destination.
+# As committed it points at ServiceRadar's carverauto development bucket
+# (serviceradar-demo-analytics on us-ord-10.linodeobjects.com, prefix
+# starrocks/); point the storage volume at your own bucket. Never use the
+# CNPG Barman destination.
 #
 # Credentials stay in Kubernetes Secret serviceradar-analytics-object-store
 # (keys access_key_id / secret_access_key). The FE config does not embed
@@ -146,7 +147,22 @@ starrocksCnSpec:
             labelSelector:
               matchLabels:
                 app.starrocks.io/component: cn
-  # mem_limit is 60% of the 10Gi limit, matching the live carverauto CNs.
+  # Memory: the 10Gi limit minus a fixed 3 GiB reserve (README.md, "Memory
+  # sizing"), written as the percentage 70% so core can derive the reserve
+  # it reports. The CN detects its 10 GiB cgroup limit and caps its process
+  # at 90% of mem_limit: 6.3 GiB, leaving 3.7 GiB under the pod limit for
+  # the ~1.4 GB StarRocks allocates outside its memory tracker. At 60% only
+  # ~1 GB was left for queries and loads once caches were resident, so a
+  # device page burst or a table rebuild pushed Stream Loads into "Memory of
+  # process exceed limit". Change the pod limit and mem_limit together.
+  # Core converges the three settings below at runtime on every warehouse
+  # (README.md, "What core does"); they are set here too so a restarted CN
+  # starts with them, and because StarRocks 4.1.7 cannot change
+  # update_memory_limit_percent at runtime.
+  # datacache_mem_size 10%: the memory tier sat at its full 20% cap while
+  # reads are served by the disk datacache; halving it returns ~0.55 GB.
+  # update_memory_limit_percent 30: primary-key index memory peaked at
+  # ~0.77 GB, and the 60% default let it grow into query headroom.
   # lake_metadata_cache_limit: the "unattributed" CN memory was the lake
   # metadata cache, an LRU that only evicts under pressure and is not
   # reported by mem_tracker. At its 2 GiB default it held each CN at ~75% of
@@ -160,6 +176,8 @@ starrocksCnSpec:
     webserver_port = 8040
     heartbeat_service_port = 9050
     brpc_port = 8060
-    mem_limit = 60%
+    mem_limit = 70%
     lake_metadata_cache_limit = 536870912
+    datacache_mem_size = 10%
+    update_memory_limit_percent = 30
     storage_root_path = /opt/starrocks/cn/storage

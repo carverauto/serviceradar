@@ -9,10 +9,10 @@ Later recorder acquisition does not replace these historical values.
 
 The recording worker retains the native init hash, codec and timescale alongside
 its spool state. After a local seal, it creates a receipt-free
-`Camera.RecordingDescriptor` from the exact committed snapshot and freezes it
+`ServiceRadarRecordingMetadata.Descriptor` from the exact committed snapshot and freezes it
 through `Camera.RecordingBlocks.freeze/5` before releasing the recorder claim.
 The descriptor owns the same finite format limits as the archive manifest;
-`Camera.RecordingManifest` adds object receipts to that shared semantic format.
+`ServiceRadarRecordingMetadata.Manifest` adds object receipts to that shared semantic format.
 Neither description verifies remote bytes or grants playback access.
 
 Freeze locks ingest owner, recorder claim and then block. It compares descriptor

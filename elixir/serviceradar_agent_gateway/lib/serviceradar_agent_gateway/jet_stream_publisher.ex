@@ -566,6 +566,11 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
 
     case err["err_code"] do
       10_060 -> :misrouted
+      # DiscardNew store refusals: JSMaximumMessagesExceededErr (10076) and
+      # JSMaximumBytesExceededErr (10077). Classified as retryable :capacity so the
+      # gateway withholds EdgeDeliveryAckV1 and the agent spool retains the record.
+      10_076 -> :capacity
+      10_077 -> :capacity
       # 10054 is NOT proof of poison. NATS emits it when headers plus payload exceed EITHER the
       # server's MaxPayload OR the target stream's configured MaxMsgSize, so a stale stream
       # configuration terminalizes a record that is perfectly valid under the frozen ABI bounds.

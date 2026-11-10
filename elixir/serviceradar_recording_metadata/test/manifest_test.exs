@@ -1,10 +1,8 @@
-defmodule ServiceRadarCoreElx.CameraRecording.ManifestTest do
+defmodule ServiceRadarRecordingMetadata.ManifestTest do
   use ExUnit.Case, async: true
 
-  alias ServiceRadar.Camera.RecordingDescriptor
-  alias ServiceRadar.Camera.RecordingManifest, as: Manifest
-  alias ServiceRadarRecording.Spool
-  alias ServiceRadarRecording.Storage
+  alias ServiceRadarRecordingMetadata.Descriptor
+  alias ServiceRadarRecordingMetadata.Manifest
 
   @identity %{
     source_id: "00000000-0000-4000-8000-000000000037",
@@ -20,27 +18,38 @@ defmodule ServiceRadarCoreElx.CameraRecording.ManifestTest do
   @block_key "a5a5a38bcfbd45c06b6e518631ba078562e446bd32ecff9f6918b00aacc6012c"
 
   setup do
-    root = Path.join(System.tmp_dir!(), "recording-manifest-#{System.unique_integer([:positive, :monotonic])}")
-    File.mkdir!(root)
-    File.chmod!(root, 0o700)
-    on_exit(fn -> File.rm_rf!(root) end)
+    # Invented metadata only; native packaging/recovery suites own actual media bytes.
+    sha256 = fn bytes -> Base.encode16(:crypto.hash(:sha256, bytes), case: :lower) end
 
-    # Invented storage bytes; the media and browser suites own decodability.
-    {:ok, storage} = Storage.initialize(root, Ecto.UUID.generate())
-    {:ok, spool} = Spool.create(storage, @identity, "invented-init")
-    {:ok, spool, _} = Spool.append(spool, "abc", %{start_ns: 0, duration_ns: 2_000_000_000})
+    snapshot = %{
+      sealed?: true,
+      directory: "/invented/spool/block",
+      identity: @identity |> Jason.encode!() |> Jason.decode!(),
+      init: %{"length" => 13, "sha256" => sha256.("invented-init")},
+      high_water: 8,
+      sha256: sha256.("abcdefgh"),
+      entries: [
+        %{
+          "sequence" => 0,
+          "offset" => 0,
+          "length" => 3,
+          "start_ns" => 0,
+          "duration_ns" => 2_000_000_000,
+          "sha256" => sha256.("abc")
+        },
+        %{
+          "sequence" => 1,
+          "offset" => 3,
+          "length" => 5,
+          "start_ns" => 2_000_000_000,
+          "duration_ns" => 1_000_000_000,
+          "sha256" => sha256.("defgh"),
+          "tail_duration_source" => "previous_sample"
+        }
+      ]
+    }
 
-    {:ok, spool, _} =
-      Spool.append(spool, "defgh", %{
-        start_ns: 2_000_000_000,
-        duration_ns: 1_000_000_000,
-        tail_duration_source: :previous_sample
-      })
-
-    open = Spool.snapshot(spool)
-    {:ok, spool} = Spool.seal(spool)
-    {:ok, recovered} = Spool.recover(storage, Spool.snapshot(spool).directory, @identity)
-    snapshot = Spool.snapshot(recovered)
+    open = %{snapshot | sealed?: false}
 
     format = %{
       sha256: snapshot.init["sha256"],
@@ -48,13 +57,13 @@ defmodule ServiceRadarCoreElx.CameraRecording.ManifestTest do
       codecs: %{avc1: %{profile: 66, compatibility: 192, level: 10}}
     }
 
-    {:ok, descriptor} = RecordingDescriptor.from_snapshot(snapshot, format)
+    {:ok, descriptor} = Descriptor.from_snapshot(snapshot, format)
     persisted = descriptor |> Jason.encode!() |> Jason.decode!()
 
     %{open: open, snapshot: snapshot, format: format, descriptor: persisted}
   end
 
-  test "recovered committed ranges produce a portable deterministic recovery manifest", ctx do
+  test "sealed snapshot metadata produces a portable deterministic recovery manifest", ctx do
     assert {:ok, bytes} = Manifest.encode(ctx.snapshot, ctx.format, @receipts)
     assert {:ok, manifest} = Manifest.decode(bytes, ctx.snapshot.identity)
     assert manifest["format"] == %{"codec" => "avc1.42c00a", "timescale" => 90_000}

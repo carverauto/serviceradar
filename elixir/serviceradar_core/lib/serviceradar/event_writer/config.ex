@@ -899,14 +899,19 @@ defmodule ServiceRadar.EventWriter.Config do
   `ServiceRadar.EventWriter.Processors.EdgeRecord` runs one real,
   all-or-nothing CNPG transaction per record -- a redelivered message must
   never be folded into another record's batch outcome. The gateway has already
-  acknowledged a stored record to its agent, so a failed projection is retried
+  acknowledged a stored record to its agent, so the stream uses `DiscardNew`:
+  when `MaxBytes` is reached, NATS refuses new publishes (`err_code` 10077)
+  rather than evicting records the gateway already acknowledged, and the gateway
+  withholds `EdgeDeliveryAckV1` so the agent spool keeps the record and retries.
+  A failed projection is retried
   without a delivery limit (`consumer_max_deliver: -1`), with backoff, until its
   `dead_letter_after_deliveries`-th delivery fails too. That delivery copies the
   record to the dead-letter stream (`edge_record_dead_letter_stream/0`) and is
   acknowledged only once the copy is stored; see
-  `ServiceRadar.EventWriter.EdgeRecordDeadLetter`. With the redelivery backoff
-  capped at 80 seconds, 20 deliveries keep retrying a record for about 25
-  minutes, well inside the stream's 24-hour `MaxAge`.
+  `ServiceRadar.EventWriter.EdgeRecordDeadLetter`. With `DiscardNew`, `MaxAge`
+  is set to 72 hours (24h supported outage + 24h catch-up + 24h safety margin);
+  20 deliveries with the 80-second backoff cap keep retrying a record for about
+  25 minutes, well inside the stream's 72-hour `MaxAge`.
   """
   @spec edge_record_stream() :: stream_config()
   def edge_record_stream do
@@ -920,10 +925,10 @@ defmodule ServiceRadar.EventWriter.Config do
       batch_timeout: 1_000,
       stream_retention: "limits",
       stream_storage: "file",
-      stream_discard: "old",
+      stream_discard: "new",
       stream_replicas: 3,
       stream_max_bytes: 1_073_741_824,
-      stream_max_age: 86_400_000_000_000,
+      stream_max_age: 259_200_000_000_000,
       consumer_max_deliver: -1,
       dead_letter_after_deliveries: 20
     }
@@ -1026,7 +1031,7 @@ defmodule ServiceRadar.EventWriter.Config do
   source delivery unacknowledged, so the record keeps retrying on the edge-record
   stream instead of being lost. Only a replay
   (`ServiceRadar.EventWriter.EdgeRecordDeadLetter.Replay`) or an operator deletes
-  a message. The duplicate window is the source stream's 24-hour `MaxAge`: the
+  a message. The duplicate window is the source stream's 72-hour `MaxAge`: the
   dead-letter id `edge-dlq:<source stream>:<source sequence>` then stores one copy
   of a redelivered source for as long as that source can still be redelivered.
   `MaxAge` here is disabled, which is what lets the window be that long. The

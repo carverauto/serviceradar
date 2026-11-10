@@ -82,6 +82,7 @@ defmodule ServiceRadarCore.MixProject do
 
   defp deps do
     [
+      {:serviceradar_recording_metadata, path: "../serviceradar_recording_metadata"},
       # SRQL shared library for query parsing and execution
       {:serviceradar_srql, path: "../serviceradar_srql"},
 

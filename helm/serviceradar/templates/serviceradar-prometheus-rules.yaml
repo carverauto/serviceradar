@@ -115,7 +115,7 @@ spec:
             severity: critical
           annotations:
             summary: "ServiceRadar cannot dead-letter failing edge records"
-            description: "EventWriter could not store a failing edge record in its dead-letter stream in namespace {{ .Release.Namespace }}. The record stays on the edge-record stream and keeps retrying until its 24h MaxAge evicts it; check the dead-letter stream exists and has room."
+            description: "EventWriter could not store a failing edge record in its dead-letter stream in namespace {{ .Release.Namespace }}. The record stays on the edge-record stream and keeps retrying until its 72h MaxAge evicts it; check the dead-letter stream exists and has room."
         - alert: ServiceRadarEdgeRecordDeadLetterFull
           expr: max(serviceradar_event_writer_consumer_stream_byte_utilization_ratio{namespace="{{ .Release.Namespace }}", subject_class="edge_record_dlq"}) > 0.8
           for: 5m

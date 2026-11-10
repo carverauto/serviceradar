@@ -5,7 +5,7 @@ stores it, so the agent no longer holds a copy. When EventWriter's projection
 of a record keeps failing (any contract: sweep observations, metric batches,
 unleased sweep results, and every contract added later), EventWriter moves
 it to a dead-letter stream instead of retrying until the edge-record stream's
-24-hour `MaxAge` evicts it.
+72-hour `MaxAge` evicts it.
 
 This is not the security-quarantine route. Records signed by a revoked key
 are covered by `docs/edge-record-quarantine-runbook.md`. The dead-letter only
@@ -69,7 +69,7 @@ same bytes can decode once the schema is deployed or the fault is fixed.
 | `Sr-Edge-Dlq-First-Failed-At`, `-Last-Failed-At` | the first failure the dead-lettering node saw, and the last failure |
 
 The copy's own `Nats-Msg-Id` is `edge-dlq:<source stream>:<source sequence>`.
-The stream's duplicate window is 24 hours, the source stream's `MaxAge`, so a
+The stream's duplicate window is 72 hours, the source stream's `MaxAge`, so a
 delivery redelivered after a lost source ACK is stored once for as long as the
 source can still redeliver it. JetStream reports a duplicate only for an id it
 already stored, so a duplicate PubAck means the delivery was dead-lettered

@@ -143,6 +143,19 @@ tests:
           path: spec.template.spec.containers[0].env
           content: {name: SERVICERADAR_JS_TELEMETRY_EDGE_RECORD_V1_BULK_REPLICAS, value: "3"}
 
+  - it: scales TELEMETRY_EDGE_RECORD_V1_BULK max_bytes across tenant-2g, medium and large profiles
+    set:
+      nats.jetstream.profile: medium
+      nats.persistence.size: 100Gi
+    template: templates/core.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_TELEMETRY_EDGE_RECORD_V1_BULK_MAX_BYTES, value: "3221225472"}
+
   - it: renders the edge-record audit and security-quarantine reservations into core at R3
     template: templates/core.yaml
     documentSelector:
