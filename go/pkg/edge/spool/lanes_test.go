@@ -879,28 +879,37 @@ func TestClosedGenerationsHoldNoSegmentDescriptor(t *testing.T) {
 // A failure after a generation is published must leave it closed, so the retry's
 // successor is the lane's only open generation and recovery still succeeds.
 func TestFailureAfterPublishingGenerationClosesIt(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("directory permissions do not constrain root")
-	}
 	root := t.TempDir()
-	ls, err := OpenLanes(root, sessionA, deploymentTaxonomy(t))
+	errFactory := errors.New("synthetic generation factory failure")
+	published := false
+	factory := WithGenerationOptions(func(id GenerationIdentity, dir string) ([]Option, error) {
+		if id.Lane != bulkLane || id.Ordinal != 2 || published {
+			return nil, nil
+		}
+		raw, err := os.ReadFile(filepath.Join(dir, identityFile))
+		if err != nil {
+			t.Errorf("factory saw an unpublished generation: %v", err)
+			return nil, err
+		}
+		got, err := decodeIdentity(raw)
+		if err != nil || got.Ordinal != id.Ordinal || !bytes.Equal(got.SpoolID, id.SpoolID) ||
+			filepath.Base(dir) != generationDirName(id.Ordinal, id.SpoolID) {
+			t.Errorf("factory identity %+v at %s does not match the published generation", id, dir)
+		}
+		published = true
+		return nil, errFactory
+	})
+	ls, err := OpenLanes(root, sessionA, deploymentTaxonomy(t), factory)
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
 	mustLaneAppend(t, ls, bulkLane, sessionA, 1, "bulk-1")
 
-	// Write and search without read: a generation can still be published into the
-	// lane directory, but the directory cannot be opened to fsync the publish.
-	laneDir := filepath.Join(root, laneDirName(bulkLane))
-	if err := os.Chmod(laneDir, 0o300); err != nil {
-		t.Fatalf("chmod: %v", err)
+	if _, err := ls.Rotate(bulkLane); !errors.Is(err, errFactory) {
+		t.Fatalf("Rotate = %v, want the published generation's open failure", err)
 	}
-	t.Cleanup(func() { _ = os.Chmod(laneDir, 0o700) })
-	if _, err := ls.Rotate(bulkLane); err == nil {
-		t.Fatal("Rotate succeeded although the lane directory could not be fsynced")
-	}
-	if err := os.Chmod(laneDir, 0o700); err != nil {
-		t.Fatalf("chmod: %v", err)
+	if !published {
+		t.Fatal("rotation failed before publishing ordinal 2")
 	}
 
 	if r := mustLaneAppend(t, ls, bulkLane, sessionA, 2, "bulk-2"); r.Generation.Ordinal != 3 || r.Sequence != 1 {

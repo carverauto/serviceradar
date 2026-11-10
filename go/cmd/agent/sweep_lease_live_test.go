@@ -126,7 +126,7 @@ func assertStartupKeepsOnlySlotlessLease(t *testing.T, gw *planLeaseGateway, log
 	requireCapabilities(t, hello, "sweep_lease_v1", "sweep_lease_plan_checks:v1")
 	t.Logf("control hello carries sweep_lease_v1 and sweep_lease_plan_checks:v1")
 
-	if _, statErr := os.Stat(filepath.Join(leaseDir, staleGroup+".pb")); !os.IsNotExist(statErr) {
+	if _, statErr := os.Stat(filepath.Join(leaseDir, staleGroup+".issued.pb")); !os.IsNotExist(statErr) {
 		t.Fatalf("pre-plan slot lease still on disk after startup: %v", statErr)
 	}
 	if _, statErr := os.Stat(filepath.Join(leaseDir, staleGroup+".executed.json")); !os.IsNotExist(statErr) {
@@ -523,14 +523,14 @@ func writeLeaseFile(t *testing.T, dir, group string, lease *edgev1.SweepLeaseV1)
 	if err != nil {
 		t.Fatalf("marshal %s: %v", group, err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, group+".pb"), data, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, group+".issued.pb"), data, 0o600); err != nil {
 		t.Fatalf("write %s: %v", group, err)
 	}
 }
 
 func readLeaseFile(t *testing.T, dir, group string) *edgev1.SweepLeaseV1 {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(dir, group+".pb"))
+	data, err := os.ReadFile(filepath.Join(dir, group+".issued.pb"))
 	if err != nil {
 		t.Fatalf("read %s: %v", group, err)
 	}

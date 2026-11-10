@@ -276,6 +276,21 @@ gateway prefix application, source deletion versus journal-GC gates, immutable
 completion replay, and gateway/core-first capability rollout. The implementation
 checklist remains open until each complete contract is demonstrated.
 
+### Admission boundary for pre-evidence lease authority
+
+Recovery can attribute a copied record only through issuance evidence that core
+recorded before sending its authority. Core records sweep-lease slot evidence in
+`LeaseDelivery` before each push, but a lease the agent persisted before that
+existed carries no evidence, and core's acknowledged delivery path does not push
+it again. The agent therefore never resumes such a lease. The lease store
+persists installed leases as `<group>.issued.pb`; on load it removes a
+`<group>.pb` file from before this boundary, keeping that group's executed and
+refusal records, so the group runs on its local ticker until core's next push.
+Each push from a core that records evidence installs a normal lease. No issuance
+row is backfilled, and no spooled record or retained byte is touched. Because a
+lease file written by the new agent is trusted as evidence-backed, core must
+upgrade before agents, which the rollout order already requires.
+
 
 ### Physical generation bound
 

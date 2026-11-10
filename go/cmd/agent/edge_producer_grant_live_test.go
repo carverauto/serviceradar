@@ -243,9 +243,14 @@ const scopedSysmonJSON = `{"enabled": true, "sample_interval": "2s",
 // zero is a held producer, not a dead agent). Its granted twin below proves
 // the same setup delivers, so the hold is meaningful rather than vacuous.
 func TestRunningAgentHoldsProducerRecordsWithoutAGrant(t *testing.T) {
+	const agentID = "producer-grant-live"
+	grants := &productionGrantSwitch{}
 	gw, addr := listenSpoolHelloGateway(t, true, 0)
+	gw.productionGrants = grants
+	_, trust := mintMetricsProductionGrant(t, agentID)
+	grants.set(nil, trust)
 
-	logs, _ := runSpoolAgentFull(t, addr, "producer-grant-live",
+	logs, url := runSpoolAgentFull(t, addr, agentID,
 		fmt.Sprintf(`{"spool_dir": %q, "poll_interval": "1s"}`, filepath.Join(t.TempDir(), "spool")),
 		"3s", scopedSysmonJSON)
 
@@ -256,6 +261,27 @@ func TestRunningAgentHoldsProducerRecordsWithoutAGrant(t *testing.T) {
 	_, frames := gw.snapshot()
 	require.Empty(t, metricsFrames(t, frames),
 		"grantless producer must not deliver metrics frames\nlog:\n%s", logs.snapshot())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	body, ok, failure := scrapeMetricsOnce(ctx, t, url)
+	require.True(t, ok, "scrape agent metrics: %s", failure)
+	require.NotZero(t, sysmonGrantHolds(t, body),
+		"the sysmon producer must be held by the missing grant, not by trust\nlog:\n%s", logs.snapshot())
+}
+
+func sysmonGrantHolds(t *testing.T, body string) uint64 {
+	t.Helper()
+	const prefix = `agent_edge_record_grant_holds_total{producer="sysmon"} `
+	for _, line := range strings.Split(body, "\n") {
+		if value, found := strings.CutPrefix(line, prefix); found {
+			holds, err := strconv.ParseUint(strings.TrimSpace(value), 10, 64)
+			require.NoError(t, err)
+			return holds
+		}
+	}
+	t.Fatalf("metrics expose no sysmon grant hold counter:\n%s", body)
+	return 0
 }
 
 // The granted twin of the hold test: the first config carries a metrics

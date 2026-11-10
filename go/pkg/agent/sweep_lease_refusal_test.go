@@ -116,7 +116,7 @@ func TestSweepLeaseStoreDiscardsPrePlanSlotLeasesOnLoad(t *testing.T) {
 	for group, lease := range map[string]*edgev1.SweepLeaseV1{staleGroup: stale, heldGroup: held} {
 		data, err := goproto.Marshal(lease)
 		require.NoError(t, err)
-		require.NoError(t, os.WriteFile(filepath.Join(dir, group+".pb"), data, 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, group+sweepLeaseFileSuffix), data, 0o600))
 	}
 	require.NoError(t, os.WriteFile(filepath.Join(dir, staleGroup+sweepLeaseExecutedSuffix), []byte(`{}`), 0o600))
 
@@ -124,7 +124,7 @@ func TestSweepLeaseStoreDiscardsPrePlanSlotLeasesOnLoad(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, store.Get(staleGroup))
 	require.NotNil(t, store.Get(heldGroup))
-	for _, name := range []string{staleGroup + ".pb", staleGroup + sweepLeaseExecutedSuffix} {
+	for _, name := range []string{staleGroup + sweepLeaseFileSuffix, staleGroup + sweepLeaseExecutedSuffix} {
 		_, statErr := os.Stat(filepath.Join(dir, name))
 		require.ErrorIs(t, statErr, os.ErrNotExist, "%s must be removed with the discarded lease", name)
 	}

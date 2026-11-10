@@ -28,7 +28,13 @@ Remaining work, in dependency order:
    Require `BazelCI Core Integration` to execute the boxed database contracts and
    the process vertical slice; unit loading is not database execution.
 2. Land through no-mistakes with reviewer Grok, verify exact-head CI, and record
-   the PR and merge commit. No gate owns this branch yet.
+   the PR and merge commit. The active gate publishes PR #6469; guarded database
+   contracts and the vertical slice must still pass `BazelCI Core Integration`
+   on its final published head.
+
+Pre-evidence sweep leases persisted before core recorded issuance evidence are
+never resumed into bounded storage; see the admission boundary in
+[design.md](design.md#admission-boundary-for-pre-evidence-lease-authority).
 
 The storage near-full proof covers 2,049 synthetic records across nine damaged
 generations. It is separate from the composed driver tests; no near-full live

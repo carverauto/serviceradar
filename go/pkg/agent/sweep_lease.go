@@ -167,7 +167,16 @@ type sweepLeaseStore struct {
 	refusals map[string]map[string]sweepLeaseRefusalRecord
 }
 
-const sweepLeaseExecutedSuffix = ".executed.json"
+const (
+	sweepLeaseExecutedSuffix = ".executed.json"
+	// sweepLeaseFileSuffix names a lease installed by this agent version, whose
+	// pushes come from a core that records issuance evidence before sending
+	// (core and gateway roll out first). A lease file with only the older
+	// sweepLeasePreEvidenceSuffix was installed without that evidence, so its
+	// slots cannot be attributed by recovery and are never resumed.
+	sweepLeaseFileSuffix        = ".issued.pb"
+	sweepLeasePreEvidenceSuffix = ".pb"
+)
 
 func defaultSweepLeaseDir() string {
 	runtimeRoot := os.Getenv("SERVICERADAR_AGENT_RUNTIME_ROOT")
@@ -181,7 +190,9 @@ func defaultSweepLeaseDir() string {
 // newSweepLeaseStore opens dir and reloads every installed lease in it. A
 // file that no longer decodes is skipped (core re-pushes the group's full
 // window once the agent's report stops covering it); the first such failure
-// is returned alongside the usable store.
+// is returned alongside the usable store. A pre-evidence lease file is removed
+// without touching its executed or refusal records, so its group runs on its
+// local ticker until core's next evidence-backed push installs a lease.
 func newSweepLeaseStore(dir string) (*sweepLeaseStore, error) {
 	if err := durablefs.MkdirAll(dir, sweepLeaseDirMode); err != nil {
 		return nil, fmt.Errorf("create sweep lease dir: %w", err)
@@ -200,7 +211,7 @@ func newSweepLeaseStore(dir string) (*sweepLeaseStore, error) {
 	}
 
 	var firstErr error
-	var discarded []string
+	var discarded, preEvidence []string
 
 	for _, entry := range entries {
 		name := entry.Name()
@@ -249,11 +260,15 @@ func newSweepLeaseStore(dir string) (*sweepLeaseStore, error) {
 			continue
 		}
 
-		if !strings.HasSuffix(name, ".pb") {
+		if !strings.HasSuffix(name, sweepLeaseFileSuffix) {
+			if strings.HasSuffix(name, sweepLeasePreEvidenceSuffix) {
+				preEvidence = append(preEvidence, name)
+			}
+
 			continue
 		}
 
-		groupID := strings.TrimSuffix(name, ".pb")
+		groupID := strings.TrimSuffix(name, sweepLeaseFileSuffix)
 
 		data, readErr := os.ReadFile(filepath.Join(dir, name))
 		if readErr != nil {
@@ -297,7 +312,13 @@ func newSweepLeaseStore(dir string) (*sweepLeaseStore, error) {
 		}
 	}
 
-	if len(discarded) > 0 {
+	for _, name := range preEvidence {
+		if removeErr := os.Remove(filepath.Join(dir, name)); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) && firstErr == nil {
+			firstErr = fmt.Errorf("discard pre-evidence sweep lease %s: %w", name, removeErr)
+		}
+	}
+
+	if len(discarded)+len(preEvidence) > 0 {
 		if syncErr := durablefs.Sync(dir); syncErr != nil && firstErr == nil {
 			firstErr = fmt.Errorf("sync discarded sweep leases: %w", syncErr)
 		}
@@ -468,7 +489,7 @@ func (s *sweepLeaseStore) Install(push *edgev1.SweepLeaseV1, wantGroup string) (
 }
 
 func (s *sweepLeaseStore) path(groupID string) string {
-	return filepath.Join(s.dir, groupID+".pb")
+	return filepath.Join(s.dir, groupID+sweepLeaseFileSuffix)
 }
 
 // validateSweepLease is the install gate: the structural contract of
