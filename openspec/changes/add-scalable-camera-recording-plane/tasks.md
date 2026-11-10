@@ -263,6 +263,17 @@ cursor, refuses another storage lifetime and preserves damaged evidence. Pages
 are observations requiring rescans, not a snapshot, scheduler, authenticated
 delivery or completed local-copy catalog. Tasks 3.2 and 3.3 remain open.
 
+Authenticated receiver checkpoint for 3.2/3.3: an opt-in private web-ng HTTPS
+listener binds installed client certificate fingerprints to original storage
+lifetimes, checks a dedicated bearer token and derives its own system actor.
+Raw canonical intent bytes reach the existing frozen-authority transaction;
+canonical acknowledgement follows commit. The bounded listener does not expose
+media, accept a request-supplied actor or grant playback/deletion authority.
+Transport coverage exercises mTLS, storage substitution, lost replies/restart
+and a database-blocked request deadline. Outbound NVR delivery, retry scheduling,
+local-copy catalog publication and physical storage qualification remain open.
+Tasks 3.2 and 3.3 are not complete.
+
 Read-only discovery checkpoint for 3.2/3.3: a restarted standalone NVR can list
 bounded retained block IDs and verify one sealed snapshot without an earlier
 notification or expected-identity receipt. The shared journal reader validates

@@ -39,6 +39,7 @@ defmodule ServiceRadarWebNG.Application do
       |> Kernel.++(web_runtime().web_children())
       |> maybe_add_control_plane_runtime_listener()
       |> maybe_add_archive_storage_listener()
+      |> maybe_add_nvr_publication_listener()
       |> maybe_add_metrics_listener()
       |> maybe_add_grpc_supervisor()
       |> maybe_add_first_party_plugin_sync_scheduler()
@@ -158,6 +159,14 @@ defmodule ServiceRadarWebNG.Application do
 
     if Keyword.get(config, :enabled, false),
       do: children ++ [ServiceRadarWebNG.ArchiveStorageListener.child_spec(config)],
+      else: children
+  end
+
+  defp maybe_add_nvr_publication_listener(children) do
+    config = Application.get_env(:serviceradar_web_ng, :nvr_publication_listener, [])
+
+    if Keyword.get(config, :enabled, false),
+      do: children ++ [ServiceRadarWebNG.NVRPublicationListener.child_spec(config)],
       else: children
   end
 

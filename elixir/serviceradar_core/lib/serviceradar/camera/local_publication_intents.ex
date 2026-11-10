@@ -16,8 +16,22 @@ defmodule ServiceRadar.Camera.LocalPublicationIntents do
   require Ash.Query
 
   def accept(bytes, opts \\ []) do
+    with {:ok, document} <- Codec.decode(bytes) do
+      accept_bytes(document, bytes, opts)
+    end
+  end
+
+  @doc "Accept only the storage lifetime bound to an authenticated workload by the caller."
+  def accept_from_storage(bytes, storage_id, opts \\ []) do
     with {:ok, document} <- Codec.decode(bytes),
-         {:ok, _receipt} <- accept_document(document, digest(bytes), opts) do
+         true <-
+           document["storage_id"] == storage_id || {:error, :local_publication_storage_mismatch} do
+      accept_bytes(document, bytes, opts)
+    end
+  end
+
+  defp accept_bytes(document, bytes, opts) do
+    with {:ok, _receipt} <- accept_document(document, digest(bytes), opts) do
       LocalPublicationAcknowledgement.encode(bytes)
     end
   end

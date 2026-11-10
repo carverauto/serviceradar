@@ -156,6 +156,12 @@ config :serviceradar_web_ng, :control_plane_runtime,
     generation: System.get_env("SERVICERADAR_CONTROL_PLANE_MEDIA_GENERATION")
   ]
 
+config :serviceradar_web_ng, :nvr_publication_listener,
+  enabled: System.get_env("SERVICERADAR_NVR_PUBLICATION_ENABLED", "false") == "true",
+  port: parse_int_env.("SERVICERADAR_NVR_PUBLICATION_PORT", 4003),
+  config_file: System.get_env("SERVICERADAR_NVR_PUBLICATION_CONFIG_FILE"),
+  token_file: System.get_env("SERVICERADAR_NVR_PUBLICATION_TOKEN_FILE")
+
 if otel_endpoint do
   ssl_opts = ServiceRadar.Telemetry.OtelSetup.ssl_options()
   otel_rpc_timeout_ms = parse_int_env.("OTEL_EXPORTER_OTLP_TIMEOUT_MS", 30_000)
