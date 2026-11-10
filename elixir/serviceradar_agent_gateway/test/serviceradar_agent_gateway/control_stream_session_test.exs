@@ -580,6 +580,47 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
                       }}
     end
 
+    test "a sweep lease agent asks core once for fresh leases addressed to this session" do
+      ensure_process_registry!()
+
+      agent_id = "agent-lease-refresh-#{System.unique_integer([:positive])}"
+      test_pid = self()
+
+      config_sync_rpc = fn
+        :refresh_sweep_leases, args ->
+          send(test_pid, {:lease_refresh, args})
+          :ok
+
+        _function, _args ->
+          :ok
+      end
+
+      pid = start_push_session!(agent_id, ["sweep_lease_v1"], config_sync_rpc: config_sync_rpc)
+
+      assert_receive {:lease_refresh, [^agent_id, ^pid]}
+      refute_receive {:lease_refresh, _args}, 100
+    end
+
+    test "an agent without sweep leases is not refreshed" do
+      ensure_process_registry!()
+
+      agent_id = "agent-no-lease-refresh-#{System.unique_integer([:positive])}"
+      test_pid = self()
+
+      config_sync_rpc = fn
+        :refresh_sweep_leases, args ->
+          send(test_pid, {:lease_refresh, args})
+          :ok
+
+        _function, _args ->
+          :ok
+      end
+
+      start_push_session!(agent_id, [], config_sync_rpc: config_sync_rpc)
+
+      refute_receive {:lease_refresh, _args}, 100
+    end
+
     test "an agent already running the current config is not sent it again" do
       ensure_process_registry!()
 

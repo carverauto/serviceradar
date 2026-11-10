@@ -17,6 +17,7 @@
 package agent
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -325,9 +326,9 @@ func TestSweepLeaseStoreNewLeaseReplacesAndPersistsAcrossRestart(t *testing.T) {
 }
 
 // A slot lease persisted before core recorded issuance evidence is never
-// resumed: recovery could not attribute the records it would spool. Its
-// executed record stays, so a later push of the same execution is not re-run,
-// and the next push installs and persists normally.
+// resumed: recovery could not attribute the records it would spool. Its bytes
+// and executed record stay, so a later push of the same execution is not
+// re-run, and the next push installs and persists normally.
 func TestSweepLeaseStoreNeverResumesPreEvidenceLease(t *testing.T) {
 	dir := t.TempDir()
 	group := testLeaseGroup.String()
@@ -356,11 +357,16 @@ func TestSweepLeaseStoreNeverResumesPreEvidenceLease(t *testing.T) {
 	if held := store.Get(group); held != nil || len(store.Groups()) != 0 {
 		t.Fatalf("pre-evidence lease resumed: %v groups %v", held, store.Groups())
 	}
-	if _, statErr := os.Stat(filepath.Join(dir, group+".pb")); !errors.Is(statErr, os.ErrNotExist) {
-		t.Fatalf("pre-evidence lease file remains: %v", statErr)
+	assertPreEvidenceLeaseBytes := func() {
+		t.Helper()
+		kept, readErr := os.ReadFile(filepath.Join(dir, group+".pb"))
+		if readErr != nil || !bytes.Equal(kept, data) {
+			t.Fatalf("pre-evidence lease bytes changed: %v", readErr)
+		}
 	}
+	assertPreEvidenceLeaseBytes()
 	if !store.Executed(group, executionID.String()) {
-		t.Fatal("executed record of the discarded lease was lost")
+		t.Fatal("executed record of the unsupported lease was lost")
 	}
 
 	if _, err := store.Install(testLeasePush(200, 400, testLeaseSlot(200)), group); err != nil {
@@ -373,6 +379,7 @@ func TestSweepLeaseStoreNeverResumesPreEvidenceLease(t *testing.T) {
 	if held := reopened.Get(group); held == nil || !equalStarts(heldStarts(held), 200) {
 		t.Fatalf("installed lease after restart = %v, want [200]", held)
 	}
+	assertPreEvidenceLeaseBytes()
 }
 
 func TestSweepLeaseInstallRefusals(t *testing.T) {

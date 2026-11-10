@@ -283,13 +283,24 @@ recorded before sending its authority. Core records sweep-lease slot evidence in
 `LeaseDelivery` before each push, but a lease the agent persisted before that
 existed carries no evidence, and core's acknowledged delivery path does not push
 it again. The agent therefore never resumes such a lease. The lease store
-persists installed leases as `<group>.issued.pb`; on load it removes a
-`<group>.pb` file from before this boundary, keeping that group's executed and
-refusal records, so the group runs on its local ticker until core's next push.
-Each push from a core that records evidence installs a normal lease. No issuance
-row is backfilled, and no spooled record or retained byte is touched. Because a
-lease file written by the new agent is trusted as evidence-backed, core must
-upgrade before agents, which the rollout order already requires.
+persists installed leases as `<group>.issued.pb` and never loads a `<group>.pb`
+file from before this boundary; that file, and the group's executed and refusal
+records, stay on disk unchanged. The group runs on its local ticker until a push
+installs a lease.
+
+That push does not wait for the next tail. When an agent advertising
+`sweep_lease_v1` registers a new control session, the gateway asks core
+asynchronously (`AgentGatewaySync.refresh_sweep_leases/2`) to refresh it.
+`LeasePass.refresh_agent/3` plans each group the agent holds an active
+assignment in exactly as a lease pass does, then delivers only that agent's
+lease through the full-window path, even when core holds a matching acknowledgement.
+It sends to the registering session's pid, because the cluster registry can lag
+the registration, and withdraws nothing. The window holds only future scheduled
+slots, and each push records its issuance evidence before it is sent. No
+issuance row is backfilled, no old authority is replayed, and no spooled record
+or retained byte is touched. Because a lease file written by the new agent is
+trusted as evidence-backed, core must upgrade before agents, which the rollout
+order already requires.
 
 
 ### Physical generation bound

@@ -33,7 +33,8 @@ Remaining work, in dependency order:
    on its final published head.
 
 Pre-evidence sweep leases persisted before core recorded issuance evidence are
-never resumed into bounded storage; see the admission boundary in
+never resumed into bounded storage and stay on disk unchanged. Each new control
+session receives a fresh full lease from core; see the admission boundary in
 [design.md](design.md#admission-boundary-for-pre-evidence-lease-authority).
 
 The storage near-full proof covers 2,049 synthetic records across nine damaged

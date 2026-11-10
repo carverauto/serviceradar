@@ -121,6 +121,74 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
     refute_receive {:pushed, _, _, _, _}, 50
   end
 
+  test "a new control session gets the full window even when core holds a matching ack", ctx do
+    horizon!(ctx, 3_600)
+    group = leased_group!(ctx)
+
+    ServiceRadar.Repo.query!(
+      "UPDATE platform.sweep_groups SET enabled = true WHERE id = $1::uuid",
+      [
+        Ecto.UUID.dump!(group.id)
+      ]
+    )
+
+    now = DateTime.utc_now()
+    assert %{pushed: 1} = LeasePass.reconcile_group(group, now, ctx.delivery)
+    assert_receive {:pushed, _, _, first, _}
+    assert {:ok, [row]} = LeaseDelivery.list_for_group(group.id)
+
+    assert :ok =
+             LeaseDelivery.record_ack(ctx.agent, %{
+               sweep_group_id: group.id,
+               payload_sha256: row.delivered_payload_sha256,
+               installed: true
+             })
+
+    assert %{pushed: 0} = LeasePass.reconcile_group(group, now, ctx.delivery)
+    refute_receive {:pushed, _, _, _, _}, 50
+
+    test_pid = self()
+
+    session = fn agent_id, group_id, payload ->
+      lease = SweepLeaseV1.decode(payload)
+
+      mapped? =
+        Enum.all?(lease.slots, fn slot ->
+          {:ok, entries} =
+            RecoveryAssignmentEvidence.sweep(lease.production_capability, slot, @key.public_key)
+
+          Enum.all?(entries, fn entry ->
+            %{rows: [[count]]} =
+              ServiceRadar.Repo.query!(
+                "SELECT count(*) FROM platform.edge_recovery_assignment_issuances WHERE mapping_key = $1::jsonb AND mapping_value = $2::jsonb",
+                [entry.key, entry.value]
+              )
+
+            count == 1
+          end)
+        end)
+
+      send(test_pid, {:session_push, agent_id, group_id, lease, mapped?})
+      :ok
+    end
+
+    later = DateTime.shift(now, second: 1)
+
+    assert {:ok, %{pushed: 1, errors: 0}} =
+             LeasePass.refresh_agent(ctx.agent, %{ctx.delivery | sender: session}, later)
+
+    assert_receive {:session_push, agent_id, group_id, lease, true}
+    assert {agent_id, group_id} == {ctx.agent, group.id}
+    refute_receive {:pushed, _, _, _, _}, 50
+
+    assert lease.window_start_unix_nano == DateTime.to_unix(later, :nanosecond)
+    assert lease.lease_id == first.lease_id
+    assert lease.slots != []
+
+    assert MapSet.new(lease.slots, & &1.execution_id) ==
+             MapSet.new(unrun!(assignment!(group, ctx.agent), later), &Ecto.UUID.dump!(&1.id))
+  end
+
   test "shrinking the horizon and growing it back delivers the re-minted slots as a tail",
        ctx do
     horizon!(ctx, 7_200)

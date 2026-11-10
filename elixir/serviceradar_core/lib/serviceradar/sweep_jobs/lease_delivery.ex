@@ -111,20 +111,24 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
   @doc """
   Pushes the assignment's lease if the agent is missing any of it. `checks` is the agent's
   check set for the group (`LeaseEligibility.agent_checks/3`), which the push carries.
+  `fresh: true` pushes the full window even when the agent acknowledged the delivered
+  one, so authority installed before this push is replaced rather than relied on.
   """
   @spec deliver(
           SweepProducerAssignment.t(),
           authority(),
           DateTime.t(),
           sender(),
-          [SweepPlan.check()]
+          [SweepPlan.check()],
+          keyword()
         ) :: {:ok, outcome()} | {:error, term()}
   def deliver(
         %SweepProducerAssignment{} = assignment,
         authority,
         %DateTime{} = now,
         sender,
-        checks
+        checks,
+        opts \\ []
       )
       when is_list(checks) do
     lease_id = LeasePass.lease_id(assignment)
@@ -134,7 +138,9 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
          {:ok, unrun} <- ExecutionSlots.list_unrun(assignment.id, now),
          unrun = Enum.filter(unrun, &(&1.check_set_sha256 == check_set.check_set_sha256)),
          {:ok, dropped?} <- dropped_since?(assignment, state, now) do
-      case plan(state, lease_id, dropped? or undelivered_behind?(state, unrun), unrun, now) do
+      replace? = Keyword.get(opts, :fresh, false) or dropped? or undelivered_behind?(state, unrun)
+
+      case plan(state, lease_id, replace?, unrun, now) do
         :up_to_date ->
           {:ok, :up_to_date}
 

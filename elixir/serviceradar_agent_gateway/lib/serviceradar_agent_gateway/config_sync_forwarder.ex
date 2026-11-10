@@ -142,6 +142,25 @@ defmodule ServiceRadarAgentGateway.ConfigSyncForwarder do
     ])
   end
 
+  @doc "Asks core to push a newly registered control session fresh sweep leases."
+  @spec refresh_sweep_leases(String.t(), pid()) :: :ok | {:error, term()}
+  def refresh_sweep_leases(agent_id, session) when is_binary(agent_id) and is_pid(session) do
+    case rpc(:refresh_sweep_leases, [agent_id, session], @config_rpc_timeout) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Failed to refresh sweep leases from core: agent_id=#{agent_id} #{inspect(reason)}")
+
+        {:error, reason}
+
+      other ->
+        Logger.warning("Unexpected sweep lease refresh result: agent_id=#{agent_id} #{inspect(other)}")
+
+        {:error, {:unexpected_result, other}}
+    end
+  end
+
   @doc "Persists an agent's refusal to run one leased sweep slot on core."
   @spec record_sweep_lease_slot_refusal(String.t(), Monitoring.SweepLeaseSlotRefusal.t()) ::
           :ok | {:error, term()}

@@ -81,7 +81,11 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
           errors: non_neg_integer()
         }
 
-  @type delivery :: %{authority: LeaseDelivery.authority(), sender: LeaseDelivery.sender()}
+  @type delivery :: %{
+          required(:authority) => LeaseDelivery.authority(),
+          required(:sender) => LeaseDelivery.sender(),
+          optional(:refresh) => String.t()
+        }
 
   @doc "The most slots one pass mints for one assignment."
   @spec max_new_slots_per_assignment() :: pos_integer()
@@ -134,6 +138,31 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
 
   defp mark_failed(summary, group),
     do: %{summary | failed_groups: MapSet.put(summary.failed_groups, group.id)}
+
+  @doc """
+  Pushes `agent_id` a fresh full window of every group it holds an active assignment in, using
+  `delivery`'s authority and sender. Each group is planned exactly as a pass plans it, but only
+  this agent's lease is delivered and nothing is withdrawn, so `delivery`'s sender may be the
+  agent's own control session. A new control session calls this: the agent cannot run authority
+  it cached before core recorded issuance evidence, so an acknowledged delivery must not leave
+  it waiting for the next tail.
+  """
+  @spec refresh_agent(String.t(), delivery(), DateTime.t()) :: {:ok, summary()} | {:error, term()}
+  def refresh_agent(agent_id, %{authority: _, sender: _} = delivery, now \\ DateTime.utc_now())
+      when is_binary(agent_id) do
+    delivery = Map.put(delivery, :refresh, agent_id)
+
+    with {:ok, assignments} <-
+           SweepProducerAssignment
+           |> Ash.Query.for_read(:active_for_agent, %{agent_id: agent_id}, actor: actor())
+           |> Ash.read(actor: actor()),
+         group_ids = Enum.map(assignments, & &1.sweep_group_id),
+         {:ok, groups} <-
+           SweepGroup |> Ash.Query.filter(id in ^group_ids) |> Ash.read(actor: actor()) do
+      summary = Enum.reduce(groups, empty(), &add(&2, plan_group(&1, now, delivery)))
+      {:ok, Map.delete(summary, :failed_groups)}
+    end
+  end
 
   @doc """
   The delivery context of a pass: the issuer authority (`LeaseDelivery.authority/0`) and the
@@ -345,8 +374,15 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
 
   defp deliver(_assignment, _checks, _now, nil), do: empty()
 
-  defp deliver(assignment, checks, now, %{authority: authority, sender: sender}) do
-    case LeaseDelivery.deliver(assignment, authority, now, sender, checks) do
+  defp deliver(%{agent_id: agent_id} = assignment, checks, now, %{refresh: agent_id} = delivery),
+    do: push(assignment, checks, now, delivery, fresh: true)
+
+  defp deliver(_assignment, _checks, _now, %{refresh: _}), do: empty()
+
+  defp deliver(assignment, checks, now, delivery), do: push(assignment, checks, now, delivery, [])
+
+  defp push(assignment, checks, now, %{authority: authority, sender: sender}, opts) do
+    case LeaseDelivery.deliver(assignment, authority, now, sender, checks, opts) do
       {:ok, :pushed} ->
         %{empty() | pushed: 1}
 
@@ -363,6 +399,8 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   end
 
   defp withdraw(_group, _keep, _now, nil), do: empty()
+
+  defp withdraw(_group, _keep, _now, %{refresh: _}), do: empty()
 
   defp withdraw(group, keep, now, %{sender: sender}) do
     case LeaseDelivery.withdraw_except(group.id, keep, now, sender) do

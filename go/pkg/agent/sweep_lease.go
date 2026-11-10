@@ -171,11 +171,11 @@ const (
 	sweepLeaseExecutedSuffix = ".executed.json"
 	// sweepLeaseFileSuffix names a lease installed by this agent version, whose
 	// pushes come from a core that records issuance evidence before sending
-	// (core and gateway roll out first). A lease file with only the older
-	// sweepLeasePreEvidenceSuffix was installed without that evidence, so its
-	// slots cannot be attributed by recovery and are never resumed.
-	sweepLeaseFileSuffix        = ".issued.pb"
-	sweepLeasePreEvidenceSuffix = ".pb"
+	// (core and gateway roll out first). A lease file with only the older ".pb"
+	// suffix was installed without that evidence, so its slots cannot be
+	// attributed by recovery. It is never loaded or run, and its bytes stay on
+	// disk untouched.
+	sweepLeaseFileSuffix = ".issued.pb"
 )
 
 func defaultSweepLeaseDir() string {
@@ -188,11 +188,11 @@ func defaultSweepLeaseDir() string {
 }
 
 // newSweepLeaseStore opens dir and reloads every installed lease in it. A
-// file that no longer decodes is skipped (core re-pushes the group's full
-// window once the agent's report stops covering it); the first such failure
-// is returned alongside the usable store. A pre-evidence lease file is removed
-// without touching its executed or refusal records, so its group runs on its
-// local ticker until core's next evidence-backed push installs a lease.
+// file that no longer decodes is skipped; the first such failure is returned
+// alongside the usable store. A pre-evidence lease file is left in place and
+// not loaded, so its group runs on its local ticker until core's next push
+// installs a lease. Core pushes each group's full window to every new control
+// session, so that push does not wait for the next tail.
 func newSweepLeaseStore(dir string) (*sweepLeaseStore, error) {
 	if err := durablefs.MkdirAll(dir, sweepLeaseDirMode); err != nil {
 		return nil, fmt.Errorf("create sweep lease dir: %w", err)
@@ -211,7 +211,7 @@ func newSweepLeaseStore(dir string) (*sweepLeaseStore, error) {
 	}
 
 	var firstErr error
-	var discarded, preEvidence []string
+	var discarded []string
 
 	for _, entry := range entries {
 		name := entry.Name()
@@ -261,10 +261,6 @@ func newSweepLeaseStore(dir string) (*sweepLeaseStore, error) {
 		}
 
 		if !strings.HasSuffix(name, sweepLeaseFileSuffix) {
-			if strings.HasSuffix(name, sweepLeasePreEvidenceSuffix) {
-				preEvidence = append(preEvidence, name)
-			}
-
 			continue
 		}
 
@@ -312,13 +308,7 @@ func newSweepLeaseStore(dir string) (*sweepLeaseStore, error) {
 		}
 	}
 
-	for _, name := range preEvidence {
-		if removeErr := os.Remove(filepath.Join(dir, name)); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) && firstErr == nil {
-			firstErr = fmt.Errorf("discard pre-evidence sweep lease %s: %w", name, removeErr)
-		}
-	}
-
-	if len(discarded)+len(preEvidence) > 0 {
+	if len(discarded) > 0 {
 		if syncErr := durablefs.Sync(dir); syncErr != nil && firstErr == nil {
 			firstErr = fmt.Errorf("sync discarded sweep leases: %w", syncErr)
 		}

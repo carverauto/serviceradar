@@ -308,6 +308,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
       %{agent_id: agent_id, partition_id: partition_id, config_version: config_version} = state
 
       Task.start(fn -> push_current_config(session, agent_id, partition_id, config_version) end)
+      refresh_sweep_leases(state.capabilities, agent_id, session)
     end
 
     {:noreply, state}
@@ -1265,6 +1266,11 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
       :not_modified -> :ok
       {:error, _reason} -> :ok
     end
+  end
+
+  defp refresh_sweep_leases(capabilities, agent_id, session) do
+    if @sweep_lease_capability in capabilities,
+      do: Task.start(fn -> ConfigSyncForwarder.refresh_sweep_leases(agent_id, session) end)
   end
 
   defp deliver_config_push(session, agent_id, config) do
