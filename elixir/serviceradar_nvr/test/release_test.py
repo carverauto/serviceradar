@@ -1,12 +1,15 @@
 """Execute the shipped release with synthetic media and no control-plane services."""
 import hashlib
+import http.server
 import json
 import os
 import signal
 import socket
+import ssl
 import subprocess
 import tarfile
 import tempfile
+import threading
 import time
 import unittest
 import urllib.error
@@ -57,6 +60,166 @@ class NVRReleaseTest(unittest.TestCase):
                                 env=env, capture_output=True, timeout=45)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn(b"NVR_RELEASE_PROBE_OK", result.stdout)
+
+    def publication_server(self, actions, present_ca=False):
+        self.run_probe("delivery_certificates")
+        requests = []
+        root = self.root
+        token = "synthetic-nvr-publication-delivery-token"
+        client_der = ssl.PEM_cert_to_DER_cert((root / "client.pem").read_text())
+        expected_peer = hashlib.sha256(client_der).digest()
+        closed = threading.Event()
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *_args):
+                pass
+
+            def do_POST(self):
+                body = self.rfile.read(int(self.headers["content-length"]))
+                requests.append((self.path, self.headers.get("authorization"), body,
+                                 hashlib.sha256(self.connection.getpeercert(binary_form=True)).digest()))
+                action = actions.pop(0) if actions else 200
+                if action == "drop":
+                    self.close_connection = True
+                    return
+                if action == "stall":
+                    (root / "request-started").touch()
+                    self.connection.settimeout(35)
+                    try:
+                        if self.connection.recv(1) == b"":
+                            closed.set()
+                    except (OSError, TimeoutError):
+                        pass
+                    return
+                ack = json.dumps({"version": 1, "kind": "intent_accepted",
+                                  "operation_id": json.loads(body)["operation_id"],
+                                  "intent_sha256": hashlib.sha256(body).hexdigest()},
+                                 sort_keys=True, separators=(",", ":")).encode()
+                status = action if isinstance(action, int) else 200
+                if action == "wrong_ack":
+                    other = json.loads(ack)
+                    other["intent_sha256"] = "0" * 64
+                    ack = json.dumps(other, sort_keys=True, separators=(",", ":")).encode()
+                if action == "oversized":
+                    ack = b"x" * 513
+                if action == "oversized_503":
+                    status, ack = 503, b"x" * 4096
+                self.send_response(status)
+                self.send_header("content-length", str(len(ack)))
+                if status == 302:
+                    self.send_header("location", "/must-not-follow")
+                self.end_headers()
+                self.wfile.write(ack)
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        chain = root / "server.pem"
+        if present_ca:
+            chain = root / "server-chain.pem"
+            chain.write_text((root / "server.pem").read_text() + (root / "client-ca.pem").read_text())
+        context.load_cert_chain(chain, root / "server-key.pem")
+        context.load_verify_locations(root / "server-ca.pem")
+        context.verify_mode = ssl.CERT_REQUIRED
+        server.socket = context.wrap_socket(server.socket, server_side=True)
+        thread = threading.Thread(target=server.serve_forever)
+        thread.start()
+
+        def stop():
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+        self.addCleanup(stop)
+        document = {"host": "localhost", "port": server.server_port,
+                    "ca_file": str(root / "client-ca.pem"), "cert_file": str(root / "client.pem"),
+                    "key_file": str(root / "client-key.pem")}
+        config = root / "delivery.json"
+        config.write_text(json.dumps(document))
+        (root / "delivery-token").write_text(token)
+        self.env["SERVICERADAR_NVR_PUBLICATION_CONFIG_FILE"] = str(config)
+        self.env["SERVICERADAR_NVR_PUBLICATION_TOKEN_FILE"] = str(root / "delivery-token")
+        return requests, document, expected_peer, closed
+
+    def delivery_block(self):
+        block = self.record_publication_block()
+        self.run_probe("publication_prepare")
+        self.env["NVR_TEST_BLOCK_ID"] = block.name
+        return block
+
+    def test_delivery_retries_identical_intent_over_mtls_and_retains_ack_after_restart(self):
+        block = self.delivery_block()
+        intent = (block / "publication.json").read_bytes()
+        requests, _, peer, _ = self.publication_server(["drop", "oversized_503", 200])
+        self.run_probe("delivery")
+        ack = block / "publication-ack.json"
+        expected = json.dumps({"version": 1, "kind": "intent_accepted",
+                               "operation_id": json.loads(intent)["operation_id"],
+                               "intent_sha256": hashlib.sha256(intent).hexdigest()},
+                              sort_keys=True, separators=(",", ":")).encode()
+        self.assertEqual(ack.read_bytes(), expected)
+        inode = ack.stat().st_ino
+        self.assertEqual(len(requests), 3)
+        self.run_probe("delivery")
+        self.assertEqual(len(requests), 4)  # Retained correlation alone is not authenticated origin.
+        self.assertEqual(ack.read_bytes(), expected)
+        self.assertEqual(ack.stat().st_ino, inode)
+        self.assertEqual(requests, [("/v1/local-publication-intents",
+                                    "Bearer synthetic-nvr-publication-delivery-token", intent, peer)] * 4)
+
+    def test_delivery_refuses_permanent_or_uncorrelated_responses_and_bounds_retries(self):
+        block = self.delivery_block()
+        self.run_probe("delivery")
+        self.assertEqual(Path(self.env["NVR_TEST_MP4"] + ".delivery").read_text(), ":nvr_delivery_not_configured")
+        actions = []
+        requests, document, _, _ = self.publication_server(actions)
+        evidence = {p.name: p.read_bytes() for p in block.iterdir()}
+        for action, count, expected in [
+                (401, 1, ":nvr_delivery_status, 401"), (409, 1, ":nvr_delivery_status, 409"),
+                (302, 1, ":nvr_delivery_status, 302"),
+                ("wrong_ack", 1, ":invalid_publication_acknowledgement"),
+                ("oversized", 1, ":invalid_publication_acknowledgement"),
+                (503, 3, ":nvr_delivery_status, 503"), (429, 3, ":nvr_delivery_status, 429")]:
+            with self.subTest(action=action):
+                actions[:] = [action] * count
+                before = len(requests)
+                self.run_probe("delivery")
+                self.assertEqual(len(requests) - before, count)
+                self.assertIn(expected, Path(self.env["NVR_TEST_MP4"] + ".delivery").read_text())
+                self.assertEqual({p.name: p.read_bytes() for p in block.iterdir()}, evidence)
+        # A valid chain for the wrong hostname must not receive bearer or intent bytes.
+        document["host"] = "127.0.0.1"
+        Path(self.env["SERVICERADAR_NVR_PUBLICATION_CONFIG_FILE"]).write_text(json.dumps(document))
+        before = len(requests)
+        self.run_probe("delivery")
+        self.assertEqual(len(requests), before)
+        self.assertEqual(Path(self.env["NVR_TEST_MP4"] + ".delivery").read_text(), ":nvr_delivery_transport")
+        self.assertFalse((block / "publication-ack.json").exists())
+
+    def test_delivery_rejects_receiver_signed_by_replaced_ca_in_same_vm(self):
+        block = self.delivery_block()
+        intent = (block / "publication.json").read_bytes()
+        for present_ca in [False, True]:
+            with self.subTest(present_ca=present_ca):
+                requests, _, _, _ = self.publication_server([], present_ca)
+                self.run_probe("delivery_ca_replacement")
+                self.assertEqual(Path(self.env["NVR_TEST_MP4"] + ".delivery").read_text(),
+                                 "ok :nvr_delivery_transport")
+                self.assertEqual([body for _, _, body, _ in requests], [intent])
+
+    def test_delivery_deadline_survives_caller_loss_without_blocking_capture(self):
+        block = self.delivery_block()
+        source = self.decode(self.env["NVR_TEST_H264"])
+        requests, _, _, closed = self.publication_server(["stall", 200])
+        started = time.monotonic()
+        self.run_probe("delivery_caller_loss")
+        self.assertLess(time.monotonic() - started, 40)
+        self.assertTrue(closed.wait(2), "expired worker retained its TLS socket")
+        self.assertEqual(len(requests), 2)
+        self.assertTrue((block / "publication-ack.json").exists())
+        captured = Path(self.env["NVR_TEST_RECEIPT"]).read_text()
+        output = self.root / "delivery-capture.mp4"
+        output.write_bytes((Path(captured) / "init.mp4").read_bytes() +
+                           (Path(captured) / "media.m4s").read_bytes())
+        self.assertEqual(self.decode(output), source)
 
     def test_media_survives_release_restart_and_decodes_identically(self):
         # Exercise the same member-to-volume selection used by the StatefulSet.
@@ -581,14 +744,21 @@ class NVRReleaseTest(unittest.TestCase):
         self.assertIn(b"invalid_nvr_storage_member", result.stdout + result.stderr)
         self.assertEqual(list(self.spool.iterdir()), [])
 
-    def test_invalid_limits_fail_boot(self):
-        for setting in ["MAX_SESSIONS", "MAX_SPOOL_BYTES", "RESERVE_BYTES"]:
+    def test_invalid_boot_configuration_fails_closed(self):
+        malformed = self.root / "delivery.json"
+        malformed.write_text("{}")
+        settings = [({"SERVICERADAR_NVR_" + key: "0"}, b"invalid_nvr_limit")
+                    for key in ["MAX_SESSIONS", "MAX_SPOOL_BYTES", "RESERVE_BYTES"]]
+        settings += [({"SERVICERADAR_NVR_PUBLICATION_CONFIG_FILE": str(malformed)}, b"invalid_nvr_delivery_config"),
+                     ({"SERVICERADAR_NVR_PUBLICATION_CONFIG_FILE": str(malformed),
+                       "SERVICERADAR_NVR_PUBLICATION_TOKEN_FILE": str(malformed)}, b"invalid_nvr_delivery_config")]
+        for setting, error in settings:
             with self.subTest(setting=setting):
-                env = self.env | {"SERVICERADAR_NVR_" + setting: "0"}
+                env = self.env | setting
                 result = subprocess.run([self.binary, "eval", "{:ok, _} = Application.ensure_all_started(:serviceradar_nvr)"],
                                         env=env, capture_output=True, timeout=20)
                 self.assertNotEqual(result.returncode, 0)
-                self.assertIn(b"invalid_nvr_limit", result.stdout + result.stderr)
+                self.assertIn(error, result.stdout + result.stderr)
                 self.assertEqual(list(self.spool.iterdir()), [])
 
 

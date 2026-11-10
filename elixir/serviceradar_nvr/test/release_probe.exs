@@ -15,6 +15,120 @@ clock = %{clock_epoch: "synthetic-clock", timebase: 90_000, dts_source: :pts_no_
 identity = %{source_id: "synthetic-camera", profile: "recording", recorder_epoch: 1, block_sequence: 0}
 
 case System.fetch_env!("NVR_TEST_MODE") do
+  "delivery_certificates" ->
+    algorithm = [digest: :sha256, key: {:namedCurve, :secp256r1}]
+    san = {:Extension, {2, 5, 29, 17}, false, [dNSName: ~c"localhost"]}
+
+    certificates =
+      :public_key.pkix_test_data(%{
+        server_chain: %{root: algorithm, intermediates: [], peer: algorithm ++ [extensions: [san]]},
+        client_chain: %{root: algorithm, intermediates: [], peer: algorithm}
+      })
+
+    for {name, tls} <- [{"server", certificates.server_config}, {"client", certificates.client_config}] do
+      {type, key} = tls[:key]
+      directory = System.fetch_env!("TMPDIR")
+
+      File.write!(
+        Path.join(directory, name <> ".pem"),
+        :public_key.pem_encode([{:Certificate, tls[:cert], :not_encrypted}])
+      )
+
+      File.write!(Path.join(directory, name <> "-key.pem"), :public_key.pem_encode([{type, key, :not_encrypted}]))
+
+      File.write!(
+        Path.join(directory, name <> "-ca.pem"),
+        :public_key.pem_encode(Enum.map(tls[:cacerts], &{:Certificate, &1, :not_encrypted}))
+      )
+    end
+
+  "delivery" ->
+    result = ServiceRadarNVR.deliver_publication(System.fetch_env!("NVR_TEST_BLOCK_ID"))
+
+    bytes =
+      case result do
+        {:ok, bytes} -> bytes
+        {:error, reason} -> inspect(reason)
+      end
+
+    File.write!(System.fetch_env!("NVR_TEST_MP4") <> ".delivery", bytes)
+
+  "delivery_ca_replacement" ->
+    block_id = System.fetch_env!("NVR_TEST_BLOCK_ID")
+    {:ok, _} = ServiceRadarNVR.deliver_publication(block_id)
+    config = "SERVICERADAR_NVR_PUBLICATION_CONFIG_FILE" |> System.fetch_env!() |> File.read!() |> Jason.decode!()
+
+    %{cert: replacement} =
+      :public_key.pkix_test_root_cert(~c"Synthetic Replacement CA", digest: :sha256, key: {:namedCurve, :secp256r1})
+
+    File.write!(config["ca_file"], :public_key.pem_encode([{:Certificate, replacement, :not_encrypted}]))
+    {:error, reason} = ServiceRadarNVR.deliver_publication(block_id)
+    File.write!(System.fetch_env!("NVR_TEST_MP4") <> ".delivery", "ok " <> inspect(reason))
+
+  "delivery_caller_loss" ->
+    block_id = System.fetch_env!("NVR_TEST_BLOCK_ID")
+    caller = spawn(fn -> ServiceRadarNVR.deliver_publication(block_id) end)
+    marker = Path.join(System.fetch_env!("TMPDIR"), "request-started")
+
+    true =
+      Enum.reduce_while(1..500, false, fn _, _ ->
+        if File.exists?(marker),
+          do: {:halt, true},
+          else:
+            (
+              Process.sleep(10)
+              {:cont, false}
+            )
+      end)
+
+    [task] = Task.Supervisor.children(ServiceRadarNVR.DeliveryTasks)
+    monitor = Process.monitor(task)
+    # Suspend the actual socket owner to distinguish its absolute lifetime from
+    # a receive timeout or its caller's lifetime. No production clock seam.
+    true = :erlang.suspend_process(task)
+    Process.exit(caller, :kill)
+    {:error, :nvr_delivery_capacity} = ServiceRadarNVR.deliver_publication(block_id)
+    {:ok, _} = ServiceRadarNVR.publication_intent(block_id)
+    {:ok, worker, inbox} = ServiceRadarNVR.start_recording(%{identity | source_id: "synthetic-delivery"}, clock)
+    aud = <<0, 0, 0, 1, 9>>
+    [<<>> | units] = :binary.split(File.read!(System.fetch_env!("NVR_TEST_H264")), aud, [:global])
+
+    for {payload, index} <- Enum.with_index(units) do
+      sequence = index + 1
+
+      :ok =
+        Inbox.offer(inbox, %{
+          payload: aud <> payload,
+          pts: 90_000 + index * 6_000,
+          dts: 90_000 + index * 6_000,
+          sequence: sequence,
+          codec: "h264",
+          payload_format: "annexb",
+          media_ingest_id: inbox.media_ingest_id
+        })
+
+      %{last_sequence: ^sequence} = ServiceRadarNVR.status(worker)
+    end
+
+    :ok = Inbox.finish(inbox)
+
+    receive do
+      {:nvr_recording, ^worker, {:ok, %{snapshot: snapshot}}} ->
+        true = snapshot.sealed?
+        File.write!(System.fetch_env!("NVR_TEST_RECEIPT"), snapshot.directory)
+    after
+      5_000 -> raise "recording stalled behind delivery"
+    end
+
+    receive do
+      {:DOWN, ^monitor, :process, ^task, {:shutdown, :nvr_delivery_timeout}} -> :ok
+    after
+      31_000 -> raise "delivery survived its own deadline"
+    end
+
+    # Admission is released, and retrying the original intent remains safe.
+    {:ok, _} = ServiceRadarNVR.deliver_publication(block_id)
+
   mode when mode in ["record", "interrupted"] ->
     # Admission must not initialize an unprovisioned volume.
     {:error, :storage_identity_missing} = ServiceRadarNVR.start_recording(identity, clock)

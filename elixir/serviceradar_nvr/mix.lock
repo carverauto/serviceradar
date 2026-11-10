@@ -1,4 +1,5 @@
 %{
+  "mint": {:hex, :mint, "1.11.0", "a713551624815c0435237b93d90ea8b9b14254690c66f732d0ef8930f76ff1d9", [:mix], [{:castore, "~> 0.1.0 or ~> 1.0", [hex: :castore, repo: "hexpm", optional: true]}, {:hpax, "~> 1.1", [hex: :hpax, repo: "hexpm", optional: false]}], "hexpm", "c6279ba2d6aa3a383a1d4cfbe7b59f42e6efd400f58d8e2acfeac48a438693ab"},
   "hpax": {:hex, :hpax, "1.1.0", "782931867cc23217c68fb5f68fe1a11f5e7544c7fda82c8a7019a5df5a4a1cdf", [:mix], [], "hexpm", "0b8d0f05832f55571d65ac720f79bf8994138ffbb133209dc4685eae0ad456a8"},
   "thousand_island": {:hex, :thousand_island, "1.6.0", "d6ad7c2220c96a270cc8ca1586ec4d8bde648a4a3a53f003ce093f41beec0288", [:mix], [{:telemetry, "~> 0.4 or ~> 1.0", [hex: :telemetry, repo: "hexpm", optional: false]}], "hexpm", "4d4720470f091fc21a1311777c2ac66916c43621bffc068590c9f9bb3cd057a3"},
   "mime": {:hex, :mime, "2.0.7", "b8d739037be7cd402aee1ba0306edfdef982687ee7e9859bee6198c1e7e2f128", [:mix], [], "hexpm", "6171188e399ee16023ffc5b76ce445eb6d9672e2e241d2df6050f3c771e80ccd"},

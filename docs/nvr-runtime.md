@@ -61,8 +61,8 @@ block notifications and their publication/recovery limits.
 Read-only [restart discovery](../elixir/serviceradar_nvr/README.md#read-only-restart-discovery)
 can enumerate retained block IDs and verify sealed snapshots without saved
 notifications. It preserves incomplete or corrupt evidence and grants no
-publication, playback or replacement-writer authority. Automatic reconciliation
-and authenticated remote delivery remain pending.
+publication, playback or replacement-writer authority. Explicit authenticated
+delivery is available below; automatic reconciliation remains pending.
 
 The read-only [publication recovery pages](../elixir/serviceradar_nvr/README.md#recovering-publication-work-after-restart)
 distinguish pending intents, matching retained acknowledgements, absent records
@@ -123,8 +123,8 @@ camera or provider credentials. Health probes listen on port 8095 by default.
 
 Web-ng can receive canonical local-publication intents on a separate private
 HTTPS listener. It is disabled by default and is outside the public API and
-browser router. This checkpoint supplies only the receiving half; NVR outbound
-delivery, retry scheduling and automated reconciliation remain pending.
+browser router. The explicit NVR sender is described below; automatic retry
+scheduling and reconciliation remain pending.
 
 Set `SERVICERADAR_NVR_PUBLICATION_ENABLED=true`,
 `SERVICERADAR_NVR_PUBLICATION_CONFIG_FILE` and
@@ -165,8 +165,67 @@ connection, and no HTTP/2. Body reads have a five-second read timeout. Once the
 request reaches the plug, an absolute ten-second deadline terminates its handler,
 including blocked database work. TLS handshakes and header parsing precede this
 deadline and retain the server's transport timeouts. Saturated connections can be
-refused; the future sender must use bounded retries. No background acceptance
+refused; the sender uses bounded retries. No background acceptance
 worker survives a timed-out handler.
+
+## Explicit NVR publication delivery
+
+`ServiceRadarNVR.deliver_publication(block_id)` sends one retained intent to the
+installed private receiver. It re-verifies local media and syncs the original
+intent before sending the exact canonical bytes. It authenticates the receiver
+with its CA and hostname, presents its client certificate and dedicated bearer
+token, and persists only the matching canonical acknowledgement. An existing
+local acknowledgement does not bypass authenticated delivery. Exact retries
+preserve both records, including after restart or a lost response.
+
+Delivery is disabled by default. Opt in with both
+`SERVICERADAR_NVR_PUBLICATION_CONFIG_FILE` and
+`SERVICERADAR_NVR_PUBLICATION_TOKEN_FILE`. The boot-time JSON file has exactly
+these keys (paths below are invented installation examples):
+
+```json
+{
+  "host": "core-publication.example.test",
+  "port": 4003,
+  "ca_file": "/etc/serviceradar/nvr/core-ca.pem",
+  "cert_file": "/etc/serviceradar/nvr/client.pem",
+  "key_file": "/etc/serviceradar/nvr/client-key.pem"
+}
+```
+
+The host is a DNS name or IPv4 address matching the receiver certificate. HTTPS
+and `/v1/local-publication-intents` are fixed; redirects are refused. Certificate
+paths must be absolute. The token file contains 32-512 printable non-space ASCII
+bytes (surrounding whitespace is trimmed within the 512-byte file limit). These
+are infrastructure credentials for ServiceRadar talking to itself. The receiver
+must trust the client CA, pin the client certificate to this storage UUID and
+have the same bearer token installed. Restart to reload configuration and token;
+certificate files are opened for each TLS connection, and the CA file (at most
+64 KiB of PEM certificates) is decoded afresh, so a replaced CA stops being
+trusted by the next connection. Partial or malformed
+configuration fails startup rather than silently disabling delivery.
+
+One supervised delivery task is admitted per replica, without a waiting queue.
+Saturation returns `:nvr_delivery_capacity`. Its thirty-second absolute lifetime
+includes local verification, sync, retries and acknowledgement persistence, even
+if its caller exits. Recording admission and read slots remain independent.
+Each connection/send has a five-second timeout; response reads share the
+remaining five-second attempt budget. Responses have an 8 KiB header limit and a
+512-byte acknowledgement limit; non-200 bodies are not read, so their size does
+not affect retry. Transport failures, 408, 429 and 5xx responses
+allow at most three attempts with 100/200 ms delays. Other statuses and invalid
+acknowledgements are returned without retry. Errors never erase retained media
+or replace a conflicting/partial record.
+
+A timeout or lost response can hide successful acceptance or local persistence.
+Inspect or retry the same retained operation; do not create a new operation ID.
+An inner local read/publication task may finish under its own existing deadline
+after the delivery task expires. No network task survives the delivery deadline.
+The receipt proves intent acceptance only, not playable availability, qualified
+storage, a second media copy or deletion permission. This API does not yet scan
+pending intents, schedule retries, receive assignments or publish a local-copy
+catalog. Synthetic release tests exercise the sender over real TLS against a
+protocol fixture; the receiver's own database tests cover Core commit semantics.
 
 ## Qualification before rollout
 

@@ -143,7 +143,22 @@ of the complete canonical intent. Exact retries return the same bytes;
 conflicting operations are refused. Recorder release/replacement does not revoke
 frozen history or permit adoption of an unfrozen block. The acknowledgement is metadata reconciliation
 only: it neither qualifies storage nor registers an available local copy, and it
-does not set archive publication fields. Authenticated NVR delivery is not wired yet.
+does not set archive publication fields.
+
+### Delivering a retained intent
+
+`ServiceRadarNVR.deliver_publication(block_id)` verifies and syncs an existing
+intent, sends its exact bytes to the installed private receiver over verified
+mutual TLS, then durably retains the correlated acknowledgement. One delivery
+slot per replica, a thirty-second worker deadline and at most three attempts
+bound the operation independently of recording and read admission. Timeout is an
+unknown outcome: retry the original operation. Existing acknowledgements do not
+bypass authenticated delivery; conflicts and partial records remain untouched.
+
+Delivery is disabled unless both installed configuration and token files are
+supplied. See [configuration, retry policy and limitations](../../docs/nvr-runtime.md#explicit-nvr-publication-delivery).
+This is an explicit trusted same-VM call, not a pending-work scheduler or a
+local-copy catalog. It neither advertises availability nor authorizes deletion.
 
 ### Retaining an intent acknowledgement
 
@@ -203,8 +218,9 @@ with a smaller limit. Failure at limit one remains unresolved work.
 This is an observation scan, not a stable snapshot or a durable delivery queue.
 Concurrent publication may change previously read entries, and new blocks that
 sort before the cursor appear only on a new scan from nil. Preserve unresolved
-work and rescan; advancing a cursor acknowledges nothing. Scheduling, transport
-authentication and Core catalog completion remain separate work.
+work and rescan; advancing a cursor acknowledges nothing. A trusted coordinator
+may explicitly deliver a pending intent with `deliver_publication/1`. Automatic
+scheduling and Core catalog completion remain separate work.
 
 ## Descriptor-bound local media reads
 

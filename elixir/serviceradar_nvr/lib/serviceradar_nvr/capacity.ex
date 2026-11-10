@@ -16,6 +16,7 @@ defmodule ServiceRadarNVR.Capacity do
   def next_block(token), do: GenServer.call(__MODULE__, {:next_block, token})
   def check(token), do: GenServer.call(__MODULE__, {:check, token})
   def status, do: GenServer.call(__MODULE__, :status)
+  def delivery_config, do: GenServer.call(__MODULE__, :delivery_config)
   def recovery_storage, do: GenServer.call(__MODULE__, :recovery_storage)
 
   def prepare_publication(block_id, reference),
@@ -90,6 +91,11 @@ defmodule ServiceRadarNVR.Capacity do
     else
       {:error, _} = error -> {:reply, error, %{state | probe: nil}}
     end
+  end
+
+  def handle_call(:delivery_config, _from, state) do
+    result = if state.config.delivery, do: {:ok, state.config.delivery}, else: {:error, :nvr_delivery_not_configured}
+    {:reply, result, state}
   end
 
   def handle_call(:status, _from, state) do
