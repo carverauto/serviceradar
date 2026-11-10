@@ -837,4 +837,290 @@ if forbidden & set(names):
 print(f"RELEASE_PACKAGES ok: {', '.join(names)}")
 PY2
 
+sign_test_dir="${tmp_dir}/sign-oci-contract"
+mkdir -p "${sign_test_dir}/bin" "${sign_test_dir}/docker/images" "${sign_test_dir}/bazel-bin/docker/images"
+
+cat > "${sign_test_dir}/docker/images/image_inventory.bzl" <<'EOF'
+PUBLISHABLE_IMAGES = [
+    {"image": "first_img", "repository": "registry.example/serviceradar/first"},
+    {"image": "second_img", "repository": "registry.example/serviceradar/second"},
+    {"image": "third_img", "repository": "registry.example/serviceradar/third"},
+]
+
+EOF
+
+printf 'sha256:%064d\n' 1 > "${sign_test_dir}/bazel-bin/docker/images/first_img.json.sha256"
+printf 'sha256:%064d\n' 2 > "${sign_test_dir}/bazel-bin/docker/images/second_img.json.sha256"
+printf 'sha256:%064d\n' 3 > "${sign_test_dir}/bazel-bin/docker/images/third_img.json.sha256"
+printf 'test-public-key\n' > "${sign_test_dir}/cosign.pub"
+
+cat > "${sign_test_dir}/bin/curl" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$*" == *"/service/token?"* ]]; then
+  printf '{"token":"fake-token"}\n'
+  exit 0
+fi
+if [[ "$*" == *"-w %{http_code}"* ]]; then
+  printf '200'
+  exit 0
+fi
+exit 0
+EOF
+chmod +x "${sign_test_dir}/bin/curl"
+
+cat > "${sign_test_dir}/bin/jq" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'fake-token\n'
+EOF
+chmod +x "${sign_test_dir}/bin/jq"
+
+cat > "${sign_test_dir}/bin/cosign" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+log_file="${FAKE_COSIGN_LOG:?}"
+state_dir="${FAKE_COSIGN_STATE_DIR:?}"
+printf '%s\n' "$*" >> "${log_file}"
+
+cmd="${1:-}"
+shift || true
+
+case "${cmd}" in
+  public-key)
+    printf 'test-public-key\n'
+    exit 0
+    ;;
+  triangulate)
+    ref="${1:?}"
+    repo="${ref%@*}"
+    digest="${ref##*@}"
+    printf '%s:%s.sig\n' "${repo}" "${digest/:/-}"
+    exit 0
+    ;;
+  generate)
+    printf '{"critical":{"type":"cosign container image signature"}}\n'
+    exit 0
+    ;;
+  sign-blob)
+    bundle_file=""
+    sig_file=""
+    while (($# > 0)); do
+      case "$1" in
+        --bundle)
+          bundle_file="$2"
+          shift 2
+          ;;
+        --output-signature)
+          sig_file="$2"
+          shift 2
+          ;;
+        *)
+          shift
+          ;;
+      esac
+    done
+    [[ -n "${sig_file}" ]] && printf 'ZmFrZS1zaWc=\n' > "${sig_file}"
+    [[ -n "${bundle_file}" ]] && printf '{"base64Signature":"ZmFrZS1zaWc="}\n' > "${bundle_file}"
+    exit 0
+    ;;
+  verify)
+    has_key="false"
+    ref="${!#}"
+    while (($# > 0)); do
+      case "$1" in
+        --key)
+          if [[ -n "${2:-}" && -f "${2}" ]]; then
+            has_key="true"
+          fi
+          shift 2
+          ;;
+        --key=*)
+          key_path="${1#--key=}"
+          if [[ -n "${key_path}" && -f "${key_path}" ]]; then
+            has_key="true"
+          fi
+          shift
+          ;;
+        *)
+          shift
+          ;;
+      esac
+    done
+    if [[ "${has_key}" != "true" ]]; then
+      echo "Error: cosign verify called without --key" >&2
+      exit 1
+    fi
+    case "${FAKE_COSIGN_MODE:-}" in
+      conflict_verified)
+        exit 0
+        ;;
+      conflict_unverified_then_signed)
+        if [[ -f "${state_dir}/signed-with-tlog" ]]; then
+          exit 0
+        fi
+        echo "Error: no signatures found" >&2
+        exit 1
+        ;;
+      conflict_never_verified)
+        echo "Error: no signatures found" >&2
+        exit 1
+        ;;
+      *)
+        exit 0
+        ;;
+    esac
+    ;;
+  sign)
+    if [[ "$*" == *"--tlog-upload=false"* || "$*" == *"--signing-config"* ]]; then
+      echo "Error: unexpected unlogged cosign sign fallback: $*" >&2
+      touch "${state_dir}/unlogged-sign-called"
+      exit 1
+    fi
+    ref="${!#}"
+    key="$(printf '%s' "${ref}" | tr '/:@' '___')"
+    count_file="${state_dir}/count-${key}"
+    count=0
+    if [[ -f "${count_file}" ]]; then
+      count="$(<"${count_file}")"
+    fi
+    count=$((count + 1))
+    printf '%s\n' "${count}" > "${count_file}"
+
+    case "${FAKE_COSIGN_MODE:-}" in
+      conflict_verified)
+        if [[ "${ref}" == *"/first@"* ]]; then
+          echo "Error: signing [${ref}]: Rekor [POST /api/v1/log/entries][409] (entry already exists)" >&2
+          exit 1
+        fi
+        exit 0
+        ;;
+      conflict_unverified_then_signed)
+        if [[ "${ref}" == *"/first@"* && "${count}" -eq 1 ]]; then
+          echo 'Error: signing ['"${ref}"']: [POST /api/v1/log/entries][409] createLogEntryConflict {"code":409,"message":"an equivalent entry already exists in the transparency log"}' >&2
+          exit 1
+        fi
+        touch "${state_dir}/signed-with-tlog"
+        exit 0
+        ;;
+      conflict_never_verified)
+        echo "Error: signing [${ref}]: Rekor [POST /api/v1/log/entries][409] (entry already exists)" >&2
+        exit 1
+        ;;
+      partial_failure_and_transient_retry)
+        if [[ "${ref}" == *"/first@"* ]]; then
+          echo "Error: signing [${ref}]: POST https://registry.example/v2/serviceradar/first/manifests: UNAUTHORIZED: authentication required" >&2
+          exit 1
+        fi
+        if [[ "${ref}" == *"/second@"* && "${count}" -eq 1 ]]; then
+          echo "Error: signing [${ref}]: Post \"https://rekor.example/api/v1/log/entries\": 503 Service Unavailable" >&2
+          exit 1
+        fi
+        if [[ "${ref}" == *"/third@"* ]]; then
+          echo "Error: signing [${ref}]: Post \"https://rekor.example/api/v1/log/entries\": 503 Service Unavailable" >&2
+          exit 1
+        fi
+        exit 0
+        ;;
+      *)
+        exit 0
+        ;;
+    esac
+    ;;
+  *)
+    echo "unexpected fake cosign command: ${cmd}" >&2
+    exit 2
+    ;;
+esac
+EOF
+chmod +x "${sign_test_dir}/bin/cosign"
+
+run_fake_sign_oci() {
+  local mode="$1"
+  local log_file="$2"
+  local state_dir="$3"
+  mkdir -p "${state_dir}"
+  : > "${log_file}"
+  PATH="${sign_test_dir}/bin:${PATH}" \
+    FAKE_COSIGN_MODE="${mode}" \
+    FAKE_COSIGN_LOG="${log_file}" \
+    FAKE_COSIGN_STATE_DIR="${state_dir}" \
+    SERVICERADAR_REPO_ROOT="${sign_test_dir}" \
+    BAZEL_BIN="${sign_test_dir}/bazel-bin" \
+    OCI_REGISTRY="registry.example" \
+    OCI_PROJECT="serviceradar" \
+    COSIGN_KEY_REF="hashivault://cosign-release" \
+    COSIGN_PUBLIC_KEY_FILE="${sign_test_dir}/cosign.pub" \
+    COSIGN_SIGN_MAX_ATTEMPTS=3 \
+    COSIGN_SIGN_RETRY_DELAY_SECONDS=0 \
+    "${sign_oci_publish}"
+}
+
+# 1. Rekor 409 with valid existing signature verifies via cosign verify --key and succeeds without retrying sign.
+run_fake_sign_oci "conflict_verified" "${sign_test_dir}/conflict-verified.log" "${sign_test_dir}/state-1"
+if ! grep -q "^verify .*--key " "${sign_test_dir}/conflict-verified.log"; then
+  echo "sign-oci-publish did not verify existing signature with cosign verify --key on Rekor 409" >&2
+  exit 1
+fi
+if [[ "$(<"${sign_test_dir}/state-1/count-registry.example_serviceradar_first_sha256_0000000000000000000000000000000000000000000000000000000000000001")" -ne 1 ]]; then
+  echo "sign-oci-publish retried cosign sign after cosign verify --key already succeeded" >&2
+  exit 1
+fi
+
+# 2. Rekor 409 when registry has no signature yet retries full tlog signing instead of pushing an unlogged bundle.
+run_fake_sign_oci "conflict_unverified_then_signed" "${sign_test_dir}/conflict-retry.log" "${sign_test_dir}/state-2"
+if [[ -f "${sign_test_dir}/state-2/unlogged-sign-called" ]]; then
+  echo "sign-oci-publish attempted an unlogged cosign sign after Rekor 409" >&2
+  exit 1
+fi
+if [[ "$(<"${sign_test_dir}/state-2/count-registry.example_serviceradar_first_sha256_0000000000000000000000000000000000000000000000000000000000000001")" -ne 2 ]]; then
+  echo "sign-oci-publish did not retry full signing when existing signature verification failed after Rekor 409" >&2
+  exit 1
+fi
+
+# 3. Rekor 409 when cosign verify --key never succeeds must fail (never ignore the error).
+if run_fake_sign_oci "conflict_never_verified" "${sign_test_dir}/conflict-unverified.log" "${sign_test_dir}/state-3" \
+  >"${sign_test_dir}/conflict-unverified.out" 2>&1; then
+  echo "sign-oci-publish ignored a Rekor 409 when cosign verify --key failed" >&2
+  exit 1
+fi
+
+# 4. When one image fails, sign-oci-publish still signs remaining images, retries only transient errors, and lists all failed images at the end.
+if run_fake_sign_oci "partial_failure_and_transient_retry" "${sign_test_dir}/partial.log" "${sign_test_dir}/state-4" \
+  >"${sign_test_dir}/partial.out" 2>&1; then
+  echo "sign-oci-publish succeeded despite image signing failures" >&2
+  exit 1
+fi
+if [[ "$(<"${sign_test_dir}/state-4/count-registry.example_serviceradar_first_sha256_0000000000000000000000000000000000000000000000000000000000000001")" -ne 1 ]]; then
+  echo "sign-oci-publish retried a permanent authentication failure" >&2
+  exit 1
+fi
+if [[ "$(<"${sign_test_dir}/state-4/count-registry.example_serviceradar_second_sha256_0000000000000000000000000000000000000000000000000000000000000002")" -ne 2 ]]; then
+  echo "sign-oci-publish did not retry a transient 503 failure on second image" >&2
+  exit 1
+fi
+if [[ "$(<"${sign_test_dir}/state-4/count-registry.example_serviceradar_third_sha256_0000000000000000000000000000000000000000000000000000000000000003")" -ne 3 ]]; then
+  echo "sign-oci-publish did not attempt third image after first image failed" >&2
+  exit 1
+fi
+if ! grep -q "registry.example/serviceradar/first@sha256:" "${sign_test_dir}/partial.out" \
+  || ! grep -q "registry.example/serviceradar/third@sha256:" "${sign_test_dir}/partial.out"; then
+  echo "sign-oci-publish did not list every failed image at the end" >&2
+  cat "${sign_test_dir}/partial.out" >&2
+  exit 1
+fi
+if grep -q "  - registry.example/serviceradar/second@sha256:" "${sign_test_dir}/partial.out"; then
+  echo "sign-oci-publish listed a recovered image as failed" >&2
+  exit 1
+fi
+
+# 5. Exponential backoff schedule scales by 2^(attempt-1).
+(
+  source "${repo_root}/scripts/cosign_common.sh"
+  [[ "$(cosign_retry_delay_seconds 5 1)" == "5" ]]
+  [[ "$(cosign_retry_delay_seconds 5 2)" == "10" ]]
+  [[ "$(cosign_retry_delay_seconds 5 3)" == "20" ]]
+)
+
 echo "release publish contracts verified"

@@ -177,11 +177,14 @@ upload_blob() {
 
   local patch_headers
   patch_headers="$(mktemp)"
-  curl -fsS -D "${patch_headers}" -X PATCH \
+  if ! curl -fsS -D "${patch_headers}" -X PATCH \
     -H "Authorization: Bearer ${token}" \
     -H 'Content-Type: application/octet-stream' \
     --data-binary @"${file_path}" \
-    "${upload_url}" >/dev/null
+    "${upload_url}" >/dev/null; then
+    rm -f "${patch_headers}"
+    return 1
+  fi
   upload_url="$(awk 'tolower($1)=="location:" {print $2}' "${patch_headers}" | tr -d '\r')"
   rm -f "${patch_headers}"
   [[ -n "${upload_url}" ]] || {
@@ -201,7 +204,7 @@ upload_blob() {
 
   curl -fsS -X PUT \
     -H "Authorization: Bearer ${token}" \
-    "${upload_url}" >/dev/null
+    "${upload_url}" >/dev/null || return 1
   printf '%s\n' "${digest}"
 }
 
@@ -220,7 +223,7 @@ put_manifest_tag() {
     -H "Authorization: Bearer ${token}" \
     -H 'Content-Type: application/vnd.oci.image.manifest.v1+json' \
     --data-binary @"${manifest_file}" \
-    "https://${REGISTRY_HOST}/v2/${repo_path}/manifests/${tag}" >/dev/null
+    "https://${REGISTRY_HOST}/v2/${repo_path}/manifests/${tag}" >/dev/null || return 1
 }
 
 # Returns 0 when a manifest already exists at repo_path:tag. Used to make the
@@ -293,7 +296,7 @@ attach_legacy_signature() {
   local manifest_file
   local payload_digest payload_size config_digest config_size
 
-  signature_ref="$(cosign triangulate "${ref}")"
+  signature_ref="$(cosign triangulate "${ref}")" || return 1
   signature_tag="${signature_ref##*:}"
 
   # The modern OCI signature accessory (cosign_sign_ref_idempotent) above is
@@ -313,23 +316,30 @@ attach_legacy_signature() {
   extracted_signature_file="$(mktemp)"
   config_file="$(mktemp)"
   manifest_file="$(mktemp)"
+  cosign_register_temp_file "${payload_file}"
+  cosign_register_temp_file "${signature_file}"
+  cosign_register_temp_file "${bundle_file}"
+  cosign_register_temp_file "${stdout_file}"
+  cosign_register_temp_file "${extracted_signature_file}"
+  cosign_register_temp_file "${config_file}"
+  cosign_register_temp_file "${manifest_file}"
 
   # Publish a classic cosign signature tag alongside the OCI bundle accessory
   # using a local sign-blob bundle, which works even when cosign does not
   # reliably populate the detached signature file or stdout on this version.
-  cosign generate "${ref}" >"${payload_file}"
+  cosign generate "${ref}" >"${payload_file}" || return 1
   cosign_sign_blob_to_files \
     "${payload_file}" \
     "${bundle_file}" \
     "${signature_file}" \
     "${stdout_file}" \
-    "${COSIGN_TLOG_UPLOAD}"
+    "${COSIGN_TLOG_UPLOAD}" || return 1
 
   if ! extract_detached_signature "${signature_file}" "${stdout_file}" "${bundle_file}" >"${extracted_signature_file}"; then
     echo "error: detached cosign signature was empty for ${ref}" >&2
-    exit 1
+    return 1
   fi
-  cp "${extracted_signature_file}" "${signature_file}"
+  cp "${extracted_signature_file}" "${signature_file}" || return 1
 
   payload_digest="sha256:$(shasum -a 256 "${payload_file}" | awk '{print $1}')"
   payload_size="$(wc -c < "${payload_file}" | tr -d ' ')"
@@ -340,15 +350,23 @@ EOF
   config_digest="sha256:$(shasum -a 256 "${config_file}" | awk '{print $1}')"
   config_size="$(wc -c < "${config_file}" | tr -d ' ')"
 
-  upload_blob "${repo_path}" "${config_file}" >/dev/null
-  upload_blob "${repo_path}" "${payload_file}" >/dev/null
+  upload_blob "${repo_path}" "${config_file}" >/dev/null || return 1
+  upload_blob "${repo_path}" "${payload_file}" >/dev/null || return 1
 
   cat >"${manifest_file}" <<EOF
 {"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","config":{"mediaType":"application/vnd.oci.image.config.v1+json","size":${config_size},"digest":"${config_digest}"},"layers":[{"mediaType":"application/vnd.dev.cosign.simplesigning.v1+json","size":${payload_size},"digest":"${payload_digest}","annotations":{"dev.cosignproject.cosign/signature":"$(cat "${signature_file}")"}}]}
 EOF
 
-  put_manifest_tag "${repo_path}" "${signature_tag}" "${manifest_file}"
+  put_manifest_tag "${repo_path}" "${signature_tag}" "${manifest_file}" || return 1
   rm -f "${payload_file}" "${signature_file}" "${bundle_file}" "${stdout_file}" "${extracted_signature_file}" "${config_file}" "${manifest_file}"
+}
+
+sign_image_ref() {
+  local ref="$1"
+
+  echo "signing ${ref}"
+  cosign_sign_ref_idempotent "${ref}" || return 1
+  attach_legacy_signature "${ref}" || return 1
 }
 
 mapfile -t image_rows < <(
@@ -383,12 +401,15 @@ if [[ ${#image_rows[@]} -eq 0 ]]; then
   exit 1
 fi
 
+failed_images=()
+
 for row in "${image_rows[@]}"; do
   IFS='|' read -r repository digest_target <<<"${row}"
   if [[ -n "${SIGN_REGISTRY_TAG}" ]]; then
     if ! digest="$(oci_registry_digest "${repository}:${SIGN_REGISTRY_TAG}")"; then
       echo "error: failed to resolve published OCI digest for ${repository}:${SIGN_REGISTRY_TAG}" >&2
-      exit 1
+      failed_images+=("${repository}:${SIGN_REGISTRY_TAG}")
+      continue
     fi
     digest="$(tr -d '[:space:]' <<<"${digest}")"
     digest_source="published registry tag ${repository}:${SIGN_REGISTRY_TAG}"
@@ -396,7 +417,8 @@ for row in "${image_rows[@]}"; do
     digest_file="${IMAGE_METADATA_DIR}/${digest_target}.json.sha256"
     if [[ ! -f "${digest_file}" ]]; then
       echo "error: missing Bazel OCI digest metadata for ${repository}: ${digest_file}" >&2
-      exit 1
+      failed_images+=("${repository}")
+      continue
     fi
     digest="$(tr -d '[:space:]' < "${digest_file}")"
     digest_source="Bazel OCI digest metadata ${digest_file}"
@@ -404,13 +426,24 @@ for row in "${image_rows[@]}"; do
 
   if [[ ! "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
     echo "error: invalid digest from ${digest_source}: ${digest}" >&2
-    exit 1
+    failed_images+=("${repository}")
+    continue
   fi
 
   ref="${repository}@${digest}"
-  echo "signing ${ref}"
-  cosign_sign_ref_idempotent "${ref}"
-  attach_legacy_signature "${ref}"
+  if ! sign_image_ref "${ref}"; then
+    echo "error: failed to sign ${ref}" >&2
+    failed_images+=("${ref}")
+    continue
+  fi
 done
+
+if (( ${#failed_images[@]} > 0 )); then
+  echo "error: failed to sign ${#failed_images[@]} of ${#image_rows[@]} OCI image(s):" >&2
+  for failed_image in "${failed_images[@]}"; do
+    echo "  - ${failed_image}" >&2
+  done
+  exit 1
+fi
 
 echo "signed OCI images via cosign"

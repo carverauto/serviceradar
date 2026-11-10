@@ -349,10 +349,12 @@ cosign_init_verify_args() {
   key_ref="$(cosign_resolve_key_ref)"
   if [[ -n "${key_ref}" ]]; then
     pubkey="$(mktemp)"
-    cosign public-key --key "${key_ref}" >"${pubkey}"
-    cosign_register_temp_file "${pubkey}"
-    COSIGN_VERIFY_ARGS+=(--key "${pubkey}")
-    return 0
+    if cosign public-key --key "${key_ref}" >"${pubkey}" 2>/dev/null && [[ -s "${pubkey}" ]]; then
+      cosign_register_temp_file "${pubkey}"
+      COSIGN_VERIFY_ARGS+=(--key "${pubkey}")
+      return 0
+    fi
+    rm -f "${pubkey}"
   fi
 
   if [[ -n "${COSIGN_KEY_FILE:-}" && -f "${COSIGN_KEY_FILE}" ]]; then
@@ -417,8 +419,10 @@ cosign_init_verify_args() {
 cosign_log_has_tlog_conflict() {
   local log_file="$1"
 
-  grep -q 'createLogEntryConflict' "${log_file}" \
-    && grep -qi 'equivalent entry already exists' "${log_file}"
+  (
+    grep -q 'createLogEntryConflict' "${log_file}" \
+      || grep -Eq '\[POST /api/v1/log/entries\]\[409\]' "${log_file}"
+  ) && grep -qi 'entry already exists' "${log_file}"
 }
 
 cosign_log_has_transient_tlog_error() {
@@ -429,6 +433,14 @@ cosign_log_has_transient_tlog_error() {
 
   grep -Eqi "rekor.*${retryable_pattern}" "${log_file}" \
     || grep -Eqi "api/v1/log/entries.*${retryable_pattern}" "${log_file}"
+}
+
+cosign_retry_delay_seconds() {
+  local base_delay="$1"
+  local attempt="$2"
+  local multiplier=$((1 << (attempt - 1)))
+
+  printf '%s\n' "$((base_delay * multiplier))"
 }
 
 cosign_supports_signing_config() {
@@ -471,10 +483,21 @@ cosign_verify_existing_signature() {
     return 1
   fi
 
-  cosign verify \
+  if cosign verify \
     --experimental-oci11 \
     "${COSIGN_VERIFY_ARGS[@]}" \
-    "${ref}" >/dev/null
+    "${ref}" >/dev/null; then
+    return 0
+  fi
+
+  if [[ "${COSIGN_ALLOW_LEGACY_VERIFY:-true}" == "true" ]]; then
+    cosign verify \
+      "${COSIGN_VERIFY_ARGS[@]}" \
+      "${ref}" >/dev/null
+    return $?
+  fi
+
+  return 1
 }
 
 cosign_sign_ref() {
@@ -501,7 +524,8 @@ cosign_sign_blob_to_files() {
   local status=1
   local attempt=1
   local max_attempts="${COSIGN_SIGN_MAX_ATTEMPTS:-4}"
-  local retry_delay="${COSIGN_SIGN_RETRY_DELAY_SECONDS:-10}"
+  local retry_delay="${COSIGN_SIGN_RETRY_DELAY_SECONDS:-5}"
+  local backoff_delay
 
   stderr_file="$(mktemp)"
   cosign_register_temp_file "${stderr_file}"
@@ -519,10 +543,12 @@ cosign_sign_blob_to_files() {
       "${COSIGN_SIGN_ARGS[@]}" \
       --bundle "${bundle_file}" \
       --output-signature "${signature_file}" \
-      "${payload_file}" >"${stdout_file}" 2> >(tee "${stderr_file}" >&2); then
+      "${payload_file}" >"${stdout_file}" 2>"${stderr_file}"; then
+      cat "${stderr_file}" >&2
       return 0
     else
       status=$?
+      cat "${stderr_file}" >&2
     fi
 
     if [[ "${requested_tlog_upload}" != "false" ]] && cosign_log_has_tlog_conflict "${stderr_file}"; then
@@ -538,16 +564,19 @@ cosign_sign_blob_to_files() {
         "${COSIGN_SIGN_ARGS[@]}" \
         --bundle "${bundle_file}" \
         --output-signature "${signature_file}" \
-        "${payload_file}" >"${stdout_file}" 2> >(tee "${stderr_file}" >&2); then
+        "${payload_file}" >"${stdout_file}" 2>"${stderr_file}"; then
+        cat "${stderr_file}" >&2
         return 0
       else
         status=$?
+        cat "${stderr_file}" >&2
       fi
     fi
 
     if ((attempt < max_attempts)) && cosign_log_has_transient_tlog_error "${stderr_file}"; then
-      echo "warning: transient transparency-log blob signing failure; retrying attempt $((attempt + 1))/${max_attempts} after ${retry_delay}s" >&2
-      sleep "${retry_delay}"
+      backoff_delay="$(cosign_retry_delay_seconds "${retry_delay}" "${attempt}")"
+      echo "warning: transient transparency-log blob signing failure; retrying attempt $((attempt + 1))/${max_attempts} after ${backoff_delay}s" >&2
+      sleep "${backoff_delay}"
       attempt=$((attempt + 1))
       continue
     fi
@@ -564,7 +593,8 @@ cosign_sign_ref_idempotent() {
   local status=1
   local attempt=1
   local max_attempts="${COSIGN_SIGN_MAX_ATTEMPTS:-4}"
-  local retry_delay="${COSIGN_SIGN_RETRY_DELAY_SECONDS:-10}"
+  local retry_delay="${COSIGN_SIGN_RETRY_DELAY_SECONDS:-5}"
+  local backoff_delay
 
   stderr_file="$(mktemp)"
   cosign_register_temp_file "${stderr_file}"
@@ -572,27 +602,37 @@ cosign_sign_ref_idempotent() {
   while ((attempt <= max_attempts)); do
     : >"${stderr_file}"
 
-    if cosign_sign_ref "${ref}" "${COSIGN_TLOG_UPLOAD:-true}" 2> >(tee "${stderr_file}" >&2); then
+    if cosign_sign_ref "${ref}" "${COSIGN_TLOG_UPLOAD:-true}" 2>"${stderr_file}"; then
+      cat "${stderr_file}" >&2
       return 0
     else
       status=$?
+      cat "${stderr_file}" >&2
     fi
 
     if cosign_log_has_tlog_conflict "${stderr_file}"; then
       echo "warning: transparency log already contains an equivalent entry for ${ref}; verifying existing signature" >&2
       if cosign_verify_existing_signature "${ref}"; then
+        echo "verified existing cosign signature for ${ref}" >&2
         return 0
       fi
 
-      echo "warning: existing registry signature was not valid for ${ref}; retrying without transparency log upload" >&2
-      if cosign_sign_ref "${ref}" false && cosign_verify_existing_signature "${ref}"; then
-        return 0
+      echo "warning: existing registry signature verification failed for ${ref} after transparency-log conflict" >&2
+      if ((attempt < max_attempts)); then
+        backoff_delay="$(cosign_retry_delay_seconds "${retry_delay}" "${attempt}")"
+        echo "warning: retrying full signing for ${ref} (attempt $((attempt + 1))/${max_attempts}) after ${backoff_delay}s" >&2
+        sleep "${backoff_delay}"
+        attempt=$((attempt + 1))
+        continue
       fi
+
+      return "${status}"
     fi
 
     if ((attempt < max_attempts)) && cosign_log_has_transient_tlog_error "${stderr_file}"; then
-      echo "warning: transient transparency-log signing failure for ${ref}; retrying attempt $((attempt + 1))/${max_attempts} after ${retry_delay}s" >&2
-      sleep "${retry_delay}"
+      backoff_delay="$(cosign_retry_delay_seconds "${retry_delay}" "${attempt}")"
+      echo "warning: transient transparency-log signing failure for ${ref}; retrying attempt $((attempt + 1))/${max_attempts} after ${backoff_delay}s" >&2
+      sleep "${backoff_delay}"
       attempt=$((attempt + 1))
       continue
     fi
