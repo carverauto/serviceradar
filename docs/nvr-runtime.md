@@ -200,7 +200,9 @@ bytes (surrounding whitespace is trimmed within the 512-byte file limit). These
 are infrastructure credentials for ServiceRadar talking to itself. The receiver
 must trust the client CA, pin the client certificate to this storage UUID and
 have the same bearer token installed. Restart to reload configuration and token;
-certificate files are opened for each TLS connection. Partial or malformed
+certificate files are opened for each TLS connection, and the CA file (at most
+64 KiB of PEM certificates) is decoded afresh, so a replaced CA stops being
+trusted by the next connection. Partial or malformed
 configuration fails startup rather than silently disabling delivery.
 
 One supervised delivery task is admitted per replica, without a waiting queue.
@@ -209,7 +211,8 @@ includes local verification, sync, retries and acknowledgement persistence, even
 if its caller exits. Recording admission and read slots remain independent.
 Each connection/send has a five-second timeout; response reads share the
 remaining five-second attempt budget. Responses have an 8 KiB header limit and a
-512-byte acknowledgement limit. Transport failures, 408, 429 and 5xx responses
+512-byte acknowledgement limit; non-200 bodies are not read, so their size does
+not affect retry. Transport failures, 408, 429 and 5xx responses
 allow at most three attempts with 100/200 ms delays. Other statuses and invalid
 acknowledgements are returned without retry. Errors never erase retained media
 or replace a conflicting/partial record.

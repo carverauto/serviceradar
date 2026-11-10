@@ -53,6 +53,18 @@ case System.fetch_env!("NVR_TEST_MODE") do
 
     File.write!(System.fetch_env!("NVR_TEST_MP4") <> ".delivery", bytes)
 
+  "delivery_ca_replacement" ->
+    block_id = System.fetch_env!("NVR_TEST_BLOCK_ID")
+    {:ok, _} = ServiceRadarNVR.deliver_publication(block_id)
+    config = "SERVICERADAR_NVR_PUBLICATION_CONFIG_FILE" |> System.fetch_env!() |> File.read!() |> Jason.decode!()
+
+    %{cert: replacement} =
+      :public_key.pkix_test_root_cert(~c"Synthetic Replacement CA", digest: :sha256, key: {:namedCurve, :secp256r1})
+
+    File.write!(config["ca_file"], :public_key.pem_encode([{:Certificate, replacement, :not_encrypted}]))
+    {:error, reason} = ServiceRadarNVR.deliver_publication(block_id)
+    File.write!(System.fetch_env!("NVR_TEST_MP4") <> ".delivery", "ok " <> inspect(reason))
+
   "delivery_caller_loss" ->
     block_id = System.fetch_env!("NVR_TEST_BLOCK_ID")
     caller = spawn(fn -> ServiceRadarNVR.deliver_publication(block_id) end)

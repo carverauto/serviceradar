@@ -1,16 +1,36 @@
 defmodule ServiceRadarNVR.DeliveryHTTP do
   @moduledoc false
 
+  alias ServiceRadarNVR.DeliveryConfig
+
   @attempt_timeout 5_000
   @max_ack_bytes 512
 
   def post(config, bytes) do
+    case cacerts(config.ca) do
+      {:ok, cacerts} -> connect(config, cacerts, bytes)
+      error -> error
+    end
+  end
+
+  defp cacerts(path) do
+    with {:ok, pem} <- DeliveryConfig.bounded_read(path, 65_536),
+         [_ | _] = cacerts <- for({:Certificate, der, :not_encrypted} <- :public_key.pem_decode(pem), do: der) do
+      {:ok, cacerts}
+    else
+      _ -> {:error, :invalid_nvr_delivery_config}
+    end
+  rescue
+    _ -> {:error, :invalid_nvr_delivery_config}
+  end
+
+  defp connect(config, cacerts, bytes) do
     options = [
       mode: :passive,
       max_header_list_size: 8_192,
       transport_opts: [
         verify: :verify_peer,
-        cacertfile: String.to_charlist(config.ca),
+        cacerts: cacerts,
         certfile: String.to_charlist(config.cert),
         keyfile: String.to_charlist(config.key),
         timeout: @attempt_timeout,
@@ -57,8 +77,11 @@ defmodule ServiceRadarNVR.DeliveryHTTP do
   defp accumulate(events, ref, response) do
     Enum.reduce_while(events, {:ok, response}, fn event, {:ok, acc} ->
       case event do
-        {:status, ^ref, status} ->
+        {:status, ^ref, status} when status < 200 or status == 200 ->
           {:cont, {:ok, %{acc | status: status}}}
+
+        {:status, ^ref, status} ->
+          {:halt, {:error, {:nvr_delivery_status, status}}}
 
         {:headers, ^ref, _} ->
           {:cont, {:ok, acc}}

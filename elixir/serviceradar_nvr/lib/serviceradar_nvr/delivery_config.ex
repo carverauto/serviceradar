@@ -28,7 +28,8 @@ defmodule ServiceRadarNVR.DeliveryConfig do
     end
   end
 
-  defp bounded_read(path, limit) do
+  @doc false
+  def bounded_read(path, limit) do
     case File.open(path, [:read, :binary], &IO.binread(&1, limit + 1)) do
       {:ok, bytes} when is_binary(bytes) and byte_size(bytes) <= limit -> {:ok, bytes}
       _ -> {:error, :invalid_nvr_delivery_config}

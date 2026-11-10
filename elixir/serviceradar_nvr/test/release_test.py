@@ -61,7 +61,7 @@ class NVRReleaseTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn(b"NVR_RELEASE_PROBE_OK", result.stdout)
 
-    def publication_server(self, actions):
+    def publication_server(self, actions, present_ca=False):
         self.run_probe("delivery_certificates")
         requests = []
         root = self.root
@@ -102,6 +102,8 @@ class NVRReleaseTest(unittest.TestCase):
                     ack = json.dumps(other, sort_keys=True, separators=(",", ":")).encode()
                 if action == "oversized":
                     ack = b"x" * 513
+                if action == "oversized_503":
+                    status, ack = 503, b"x" * 4096
                 self.send_response(status)
                 self.send_header("content-length", str(len(ack)))
                 if status == 302:
@@ -111,7 +113,11 @@ class NVRReleaseTest(unittest.TestCase):
 
         server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        context.load_cert_chain(root / "server.pem", root / "server-key.pem")
+        chain = root / "server.pem"
+        if present_ca:
+            chain = root / "server-chain.pem"
+            chain.write_text((root / "server.pem").read_text() + (root / "client-ca.pem").read_text())
+        context.load_cert_chain(chain, root / "server-key.pem")
         context.load_verify_locations(root / "server-ca.pem")
         context.verify_mode = ssl.CERT_REQUIRED
         server.socket = context.wrap_socket(server.socket, server_side=True)
@@ -142,7 +148,7 @@ class NVRReleaseTest(unittest.TestCase):
     def test_delivery_retries_identical_intent_over_mtls_and_retains_ack_after_restart(self):
         block = self.delivery_block()
         intent = (block / "publication.json").read_bytes()
-        requests, _, peer, _ = self.publication_server(["drop", 503, 200])
+        requests, _, peer, _ = self.publication_server(["drop", "oversized_503", 200])
         self.run_probe("delivery")
         ack = block / "publication-ack.json"
         expected = json.dumps({"version": 1, "kind": "intent_accepted",
@@ -187,6 +193,17 @@ class NVRReleaseTest(unittest.TestCase):
         self.assertEqual(len(requests), before)
         self.assertEqual(Path(self.env["NVR_TEST_MP4"] + ".delivery").read_text(), ":nvr_delivery_transport")
         self.assertFalse((block / "publication-ack.json").exists())
+
+    def test_delivery_rejects_receiver_signed_by_replaced_ca_in_same_vm(self):
+        block = self.delivery_block()
+        intent = (block / "publication.json").read_bytes()
+        for present_ca in [False, True]:
+            with self.subTest(present_ca=present_ca):
+                requests, _, _, _ = self.publication_server([], present_ca)
+                self.run_probe("delivery_ca_replacement")
+                self.assertEqual(Path(self.env["NVR_TEST_MP4"] + ".delivery").read_text(),
+                                 "ok :nvr_delivery_transport")
+                self.assertEqual([body for _, _, body, _ in requests], [intent])
 
     def test_delivery_deadline_survives_caller_loss_without_blocking_capture(self):
         block = self.delivery_block()
