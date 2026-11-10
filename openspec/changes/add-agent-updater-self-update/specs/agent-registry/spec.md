@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Per-agent updater status read model
-The control plane SHALL persist, for each agent, the privileged updater status the agent reports: version, state, reason, supported operations, version floor, whether a restart is pending and the time of observation. The state SHALL be one of `current`, `outdated`, `bootstrap_required`, `unavailable`, `replacement_failed` or `not_applicable`, and SHALL be queryable alongside the agent's other attributes.
+The control plane SHALL persist, for each agent, the privileged updater status the agent reports: version, state, reason, supported operations, version floor, whether a restart is pending and the time of observation. The state SHALL be one of `current`, `outdated`, `bootstrap_required`, `unavailable`, `replacement_failed`, `not_applicable` or `unknown`, and SHALL be queryable alongside the agent's other attributes.
 
 #### Scenario: Agent reports updater status
 - **GIVEN** an agent that reports its updater status in its capability status
@@ -11,7 +11,7 @@ The control plane SHALL persist, for each agent, the privileged updater status t
 #### Scenario: Agent predates updater status reporting
 - **GIVEN** an agent release that reports no updater status
 - **WHEN** the control plane ingests its capability status
-- **THEN** the updater state SHALL be recorded as unknown rather than as a healthy state
+- **THEN** the updater state SHALL be recorded as `unknown` rather than as a healthy state
 - **AND** the legacy updater capability string SHALL continue to drive add-on eligibility for that agent
 
 #### Scenario: Platform without a privileged updater

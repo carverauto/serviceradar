@@ -1,10 +1,10 @@
 ## ADDED Requirements
 
 ### Requirement: Target readiness names the reason and the remedy
-ServiceRadar SHALL report, for a device and a controller, whether the device is launchable, and when it is not SHALL report one specific reason derived from the same predicates launch enforces, together with the action that resolves it.
+ServiceRadar SHALL report, for a device and a controller, whether the device is launchable, and when it is not SHALL report one specific reason derived from the same predicates launch enforces, together with the action that resolves it. When more than one reason applies, readiness SHALL report the first that applies in this order: not in AWX inventory or skipped by synchronization, ambiguous, host disabled or not current, missing address, quarantined, membership review needed, held, no approved binding. A missing address therefore precedes quarantine and membership review, because approval of a membership without an address is refused.
 
 #### Scenario: Membership awaits review
-- **GIVEN** a device whose only membership on the controller is `proposed`
+- **GIVEN** a device whose only membership on the controller is `proposed` and whose AWX host has a usable address
 - **WHEN** readiness is requested
 - **THEN** the reason SHALL be that membership review is needed
 - **AND** the response SHALL reference the membership to review
@@ -14,6 +14,11 @@ ServiceRadar SHALL report, for a device and a controller, whether the device is 
 - **WHEN** readiness is requested
 - **THEN** the reason SHALL be the missing address
 - **AND** the device SHALL NOT be reported launchable
+
+#### Scenario: Proposed membership without an address
+- **GIVEN** a device whose only membership on the controller is `proposed` and whose AWX host has no usable address
+- **WHEN** readiness is requested
+- **THEN** the reason SHALL be the missing address and not membership review
 
 #### Scenario: Device is in no synced inventory
 - **WHEN** no AWX host in any synchronized inventory of the controller links to the device

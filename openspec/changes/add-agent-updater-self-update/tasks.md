@@ -1,6 +1,6 @@
 ## 1. Decisions and contracts
 
-- [ ] 1.1 Owner resolves the Open Decisions in `design.md` (mechanism, key, A/B slots, package layout, kill-switch default, pause rule, drop-in scope, upgrade window, floor reset, bootstrap enforcement).
+- [ ] 1.1 Owner resolves the Open Decisions in `design.md` (mechanism, key, A/B slots, package layout, kill-switch default, pause rule, drop-in scope, upgrade window, lowering the floor, bootstrap enforcement).
 - [ ] 1.2 Specify the descriptor schema, the signed-message context string and the result/reason codes as a versioned contract shared by the publisher, the agent and the updater.
 - [ ] 1.3 Confirm with a test that `ServiceRadar.Edge.ReleaseManifestValidator` and released agents accept a manifest carrying a top-level `updater` list; if either rejects it, publish the updater references outside the manifest instead.
 - [ ] 1.4 Record the supported upgrade window that bounds updater flag and operation removal in `go/pkg/agent/updaterflags`.
@@ -8,12 +8,12 @@
 ## 2. Updater
 
 - [ ] 2.1 Add `--describe`: JSON version, platform, operations, floor and state, with no privileged side effect.
-- [ ] 2.2 Add the dedicated updater public key file, embedded at build time, with a release-time assertion that it matches the signing secret. The privileged path never reads a key from the environment.
-- [ ] 2.3 Add `--updater-install`: no-follow bounded reads, signature over the domain-separated message, kind/platform/digest checks, rollback checks.
+- [ ] 2.2 Add the dedicated updater public key file, embedded at build time as the updater's list of trusted keys (Decision 2), with a release-time assertion that the current key matches the signing secret. The privileged path never reads a key from the environment.
+- [ ] 2.3 Add `--updater-install`: no-follow bounded reads, signature verified over the domain-separated message and the exact descriptor bytes before parsing, rejection of undefined or missing descriptor fields (the signed operation set is required), kind/platform/digest checks, rollback checks.
 - [ ] 2.4 Add the root-owned state directory, the floor file, the exclusive lock and stale temporary-file cleanup.
 - [ ] 2.5 Implement the replacement sequence: root-only temporary file in the destination directory, self-test, ownership then mode, label check, rename, directory sync, floor update.
 - [ ] 2.6 Add `--updater-self-test`, including a signature test vector and a scratch replacement.
-- [ ] 2.7 Add `--updater-install-from-package` for package install scripts, with the documented force flag.
+- [ ] 2.7 Add `--updater-install-from-package` for package install scripts, with the documented force flag; neither path lowers the floor.
 - [ ] 2.8 Reconcile the updater-owned systemd drop-in and report `restart_pending` when it changed.
 - [ ] 2.9 Emit stable reason codes for every refusal and failure.
 
@@ -30,14 +30,14 @@
 - [ ] 4.2 Add the updater signing secret to the release job only, and the derived-public-key assertion.
 - [ ] 4.3 Add the successor gate: previous release's updater installs the candidate; the candidate installs a synthetic successor; both as a non-root caller in a container.
 - [ ] 4.4 Ship the updater as a package-owned non-setuid payload on deb and rpm; install scripts call `--updater-install-from-package`; the active path becomes unpackaged (`%ghost` on rpm) and is removed on package removal.
-- [ ] 4.5 Extend the package tests for payload mode, ghost entry, upgrade from a pre-change package, reinstall of an older package over a newer active updater, and clean `rpm -V` / `dpkg --verify` after a self-replacement.
+- [ ] 4.5 Extend the package tests for payload mode, ghost entry, upgrade from a pre-change package, reinstall of an older package over a newer active updater, forced install of an older package leaving the floor unchanged, and clean `rpm -V` / `dpkg --verify` after a self-replacement.
 
 ## 5. Core
 
 - [ ] 5.1 Persist per-agent updater status from the capability status; expose it through the agent read actions and SRQL.
-- [ ] 5.2 Add the runtime settings (`updater_replacement_enabled`, `updater_replacement_pause_on_candidate_failure`) with code defaults; no Helm value.
-- [ ] 5.3 Deliver the updater descriptor with `agent.update_release`; add `agent.update_updater` and reconcile `outdated` agents on the rollout cohort schedule.
-- [ ] 5.4 Record updater outcome per rollout target; apply the pause rule by reason class.
+- [ ] 5.2 Add the runtime setting `updater_replacement_enabled` with a code default; no Helm value.
+- [ ] 5.3 Deliver the updater descriptor with `agent.update_release`; sequence a descriptor's `min_installed_version` stepping stone for key rotation (Decision 2); add `agent.update_updater` and reconcile `outdated` agents on the rollout cohort schedule.
+- [ ] 5.4 Record updater outcome per rollout target; apply the fixed pause rule chosen in Open Decision 6.
 - [ ] 5.5 Move add-on eligibility from the capability string to required operations; make an `outdated` updater a remediable state and keep `bootstrap_required` ineligible with its reason.
 - [ ] 5.6 Emit audit events for dispatch, outcome, pause and kill-switch changes.
 
@@ -47,15 +47,15 @@
 - [ ] 6.2 Agents list: updater state column, filter and counts; Edge Ops banner while any agent is `bootstrap_required` or `unavailable`.
 - [ ] 6.3 Remedy panel for `bootstrap_required` and `unavailable`: package-family command with target version, onboarding reinstall, and the Ansible automation link when available.
 - [ ] 6.4 Release and add-on rollout views show updater outcome and name the host and reason for skipped targets.
-- [ ] 6.5 Settings: kill switch and pause rule with their effective values.
+- [ ] 6.5 Settings: kill switch with its effective value.
 
 ## 7. Tests
 
 - [ ] 7.1 Updater unit tests: valid install; add-on signature and manifest signature rejected as updater signatures; tampered binary; wrong kind; wrong platform; equal and lower versions; below floor; oversized input; symlinked input; environment key ignored.
 - [ ] 7.2 Setuid integration tests as a non-root caller: destination, owner and mode are fixed; interrupted replacement before rename leaves the old updater working; stale temporary file is removed; floor heals.
 - [ ] 7.3 Self-test failure prevents the rename.
-- [ ] 7.4 Agent tests: state classification for each of the six states; replacement only on command; feature gating by operation.
-- [ ] 7.5 Core tests: read model, settings defaults and overrides, cohort dispatch, pause by reason class, add-on eligibility transitions.
+- [ ] 7.4 Agent tests: state classification for each of the six states the agent reports; replacement only on command; feature gating by operation.
+- [ ] 7.5 Core tests: read model, including `unknown` recorded for an agent that reports no updater status and never counted as healthy; setting default and override; cohort dispatch, pause by reason class, add-on eligibility transitions.
 - [ ] 7.6 LiveView tests for the remedy panel, filters and rollout rows.
 - [ ] 7.7 Enforcing-SELinux host verification of label preservation and of a privileged operation after replacement; record the result against the specific host and replacement time.
 

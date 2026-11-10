@@ -38,24 +38,27 @@ specified here.
 ## What Changes
 
 - **Automations.** A new ServiceRadar resource describes one launchable playbook: the
-  registered repository, an immutable commit, the playbook path and its content digest, a
+  registered repository, an immutable commit, a playbook path per variant and the content digest, a
   typed non-secret input schema, and references to the AWX inventory, execution
   environment and machine credential it uses. Each revision is immutable.
 - **Repositories resolve to commits.** Repository sync records the resolved commit and a
   digest per playbook file, and parses first-party catalog files
   (`serviceradar.automation.catalog/v1`, the schema the public repository already uses).
 - **Typed provisioning of the AWX project and job template.** For an automation revision
-  ServiceRadar creates one AWX project pinned to the commit with update-on-launch off, and
-  one job template whose prompt flags and survey are exactly what the hardened launch
-  contract requires: the two dispatch-marker fields plus the automation's typed inputs.
+  ServiceRadar uses one AWX project per repository and commit, pinned with
+  update-on-launch off, and creates one job template per variant and offered run mode
+  whose prompt flags and survey are exactly what the hardened launch contract requires:
+  the two dispatch-marker fields plus the automation's typed inputs.
   This uses the typed, brokered provisioning contract of
   `add-declarative-ansible-provisioning` and does not restate it.
-- **Immutable generations instead of in-place edits.** A new revision provisions a new
-  project and template. A template under a reviewed binding is never edited. Drift is
+- **Immutable generations instead of in-place edits.** A new revision provisions new job
+  templates and references the project for its commit, creating one only for a new
+  commit. An owned project or template is never edited. Drift is
   detected and reported; ServiceRadar never repairs a bound object and never absorbs live
   values.
 - **Owned versus referenced, stated per object type.** Owned: projects, job templates,
-  their surveys, and the two role grants the execution principal needs on them.
+  their surveys, and the two kinds of role grant the execution principal needs on them:
+  Execute on every owned template and Read on each owned project.
   Referenced only: organizations, inventories, hosts, execution environments, machine and
   SCM credentials, instance groups.
 - **A provisioning principal that cannot launch and an execution principal that cannot

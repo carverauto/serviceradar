@@ -16,7 +16,7 @@ The privileged agent updater SHALL report its version, platform, supported opera
 - **AND** SHALL still be able to use the operations that updater has
 
 ### Requirement: Signed updater release descriptor
-Every published agent release SHALL include, for each supported Linux architecture, an updater binary and a descriptor that names the component kind, version, operating system, architecture and SHA-256 digest of that binary, signed with a dedicated updater signing key over a message that begins with a fixed updater-specific context string.
+Every published agent release SHALL include, for each supported Linux architecture, an updater binary and a descriptor that names the component kind, version, operating system, architecture, SHA-256 digest and operation set of that binary, signed with a dedicated updater signing key over a message that begins with a fixed updater-specific context string. The installed updater SHALL verify the signature over the exact descriptor bytes before parsing them, and SHALL reject a descriptor that carries a field its schema does not define or omits a required one.
 
 #### Scenario: Release publishes an updater
 - **WHEN** an agent release is published
@@ -28,7 +28,7 @@ Every published agent release SHALL include, for each supported Linux architectu
 - **THEN** the release SHALL fail before publishing
 
 ### Requirement: Root-side verification of an updater replacement
-The installed updater MUST itself verify a replacement, while running with root privilege, using only the updater public key compiled into the running binary, and MUST treat every input supplied by its caller as untrusted. The destination path, owner and mode SHALL be fixed by the updater and SHALL NOT be selectable by the caller.
+The installed updater MUST itself verify a replacement, while running with root privilege, using only the updater public keys compiled into the running binary, and MUST treat every input supplied by its caller as untrusted. The destination path, owner and mode SHALL be fixed by the updater and SHALL NOT be selectable by the caller.
 
 #### Scenario: Valid replacement
 - **GIVEN** a candidate binary and a descriptor whose signature verifies with the compiled-in key
@@ -40,6 +40,11 @@ The installed updater MUST itself verify a replacement, while running with root 
 - **GIVEN** bytes carrying a valid add-on artifact signature or a valid agent release manifest signature
 - **WHEN** they are presented as an updater replacement
 - **THEN** the updater SHALL reject them
+- **AND** the installed updater SHALL be unchanged
+
+#### Scenario: Descriptor carries an undefined field or omits the operation set
+- **WHEN** a descriptor whose signature verifies carries a field the descriptor schema does not define, or has no operation set
+- **THEN** the updater SHALL reject the replacement
 - **AND** the installed updater SHALL be unchanged
 
 #### Scenario: Candidate does not match its descriptor
@@ -57,7 +62,7 @@ The installed updater MUST itself verify a replacement, while running with root 
 - **THEN** it SHALL install exactly the bytes it verified or reject the replacement
 
 ### Requirement: Updater rollback protection
-The updater MUST accept only a replacement whose version is strictly greater than its own and not lower than a root-owned record of the highest updater version installed on the host. Installing an older updater SHALL be possible only through the operating system package manager acting as root.
+The updater MUST accept only a replacement whose version is strictly greater than its own and not lower than a root-owned record of the highest updater version installed on the host. Installing an older updater SHALL be possible only through the operating system package manager acting as root, and no updater operation or package install, forced or not, SHALL lower that record.
 
 #### Scenario: Older or equal updater is presented
 - **WHEN** a validly signed updater with a version lower than or equal to the installed updater is presented
@@ -117,6 +122,7 @@ The agent package SHALL deliver its updater as a package-owned payload and SHALL
 #### Scenario: Root operator forces the package's updater
 - **WHEN** a root operator runs the documented forced install of the package's updater
 - **THEN** the package's updater SHALL become active
+- **AND** the recorded version floor SHALL be unchanged
 
 #### Scenario: Fresh install
 - **WHEN** the package is installed on a host with no updater

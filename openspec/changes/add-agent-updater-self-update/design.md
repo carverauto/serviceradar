@@ -83,8 +83,11 @@ Who does what:
    - opens the candidate and descriptor with `O_NOFOLLOW`, refuses non-regular files, and
      reads each once into memory under a fixed size bound; everything after operates on
      those bytes, so the caller cannot swap a file between check and use;
-   - verifies the descriptor signature with the public key **compiled into the running
-     updater**. No environment variable, file or flag can supply or override the key;
+   - verifies the descriptor signature over the exact descriptor bytes, before parsing
+     them, with the trusted public keys **compiled into the running updater**. No
+     environment variable, file or flag can supply or override a key;
+   - parses the descriptor against its fixed schema, rejecting an undefined field or a
+     missing required one, including the operation set;
    - requires `kind` to be exactly the updater kind, `os` and `arch` to equal the running
      updater's, and the SHA-256 of the candidate bytes to equal the descriptor's;
    - applies rollback protection (Decision 3);
@@ -170,10 +173,17 @@ the floor, a compromised agent could then walk the host forward to a chosen, kno
 intermediate version. With it, the only accepted candidates are at or above the highest
 version the host has run.
 
-Downgrade is a package-manager action by a root operator. An updater running below the
-floor still works and reports `below_floor`; core treats it as outdated and offers the
-normal forward replacement. A root operator who truly wants to pin an old updater deletes
-the floor file; that is documented, deliberate and visible in the reported state.
+Downgrade is a package-manager action by a root operator. A package install, including a
+forced one, may replace the active binary and leaves the floor unchanged; nothing in this
+design lowers the floor. An updater running below the floor still works and reports
+`below_floor`; core treats it as outdated and offers the normal forward replacement, so a
+forced package downgrade does not pin a host.
+
+Lowering the floor is a high-water downgrade: it re-enables every validly signed updater
+between the new floor and the old one, which is exactly the walk to a known-bad
+intermediate version the floor exists to stop. Deleting the floor file has the same effect
+and is not a supported procedure. Whether any floor-lowering mechanism should exist is
+Open Decision 9.
 
 ### Decision 4: replacement is one rename in the destination directory
 
@@ -257,7 +267,8 @@ updater is older than the self-updated one silently regresses the host.
   package's removal script on both families). Package verification stays clean and package
   operations cannot regress the updater.
 - A root operator can force the package's version with a documented flag on the same
-  command. That is the supported downgrade.
+  command. That is the supported downgrade. It replaces the active binary and leaves the
+  floor unchanged.
 
 New installs get a self-replacing updater from the first package built after this change,
 so they never enter the bootstrap state.
@@ -292,9 +303,9 @@ unit-file drift stays a package concern.
 - Runtime settings, global with code defaults, following the resolved-settings pattern of
   `ServiceRadar.Edge.PipelineSettings`
   (`elixir/serviceradar_core/lib/serviceradar/edge/pipeline_settings.ex:1`):
-  `updater_replacement_enabled` (default `true`) is the kill switch;
-  `updater_replacement_pause_on_candidate_failure` (default `true`). Turning the switch
-  off stops new dispatches immediately and leaves installed updaters as they are.
+  `updater_replacement_enabled` (default `true`) is the kill switch and the only setting.
+  Turning it off stops new dispatches immediately and leaves installed updaters as they
+  are. The pause rule above is fixed in code; which rule it is is Open Decision 6.
 
 ### Decision 10: version skew rules
 
@@ -321,6 +332,7 @@ unit-file drift stays a package concern.
 | `unavailable` | Missing, not root-owned, writable by others, or not setuid. | No: reinstall the package. |
 | `replacement_failed` | The last attempt failed; carries a reason code. | Depends on the reason. |
 | `not_applicable` | Platform or install layout has no privileged helper. | Not a defect. |
+| `unknown` | Recorded by core when the agent reports no updater status (an agent release older than this change). Never treated as healthy. | No: upgrade the agent; the legacy capability string still drives add-on eligibility. |
 
 Reported alongside: updater version, platform, operations, floor, `below_floor`,
 `restart_pending`, and the time of observation. The capability string
@@ -446,9 +458,12 @@ new operations are simply not invoked.
 7. **Unit property drop-in (Decision 8).** In scope (recommended) or deferred.
 8. **Supported upgrade window** that bounds flag and operation removal. Recommended:
    twelve months of agent releases; the owner sets the number.
-9. **Floor reset.** Root deletes the file, documented (recommended), or a signed
-   "floor reset" descriptor, which is not recommended because it is a remote downgrade
-   primitive.
+9. **Lowering the floor.** No mechanism is proposed and none is recommended; the floor
+   only rises. Risk of any mechanism: lowering it re-enables every validly signed updater
+   between the new floor and the old one, so any caller able to execute the helper could
+   then walk the host to a known-bad intermediate version. Options the owner may weigh: no
+   mechanism (a host's highest installed version is permanent), a local root-only action,
+   or a signed reset descriptor, which would be a remote downgrade primitive.
 10. **Bootstrap enforcement.** Report and offer remedies (recommended), or additionally
     block agent release rollouts to `bootstrap_required` hosts until they are upgraded.
 

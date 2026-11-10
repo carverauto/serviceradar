@@ -58,8 +58,9 @@ Non-goals and first-version limits are listed at the end.
 
 New resource `Automation` with immutable `AutomationRevision` rows. A revision holds:
 
-- repository id, resolved commit (40 hex), playbook path, SHA-256 of that file, and a
-  digest over every file under the repository at that commit that the playbook can load
+- repository id, resolved commit (40 hex), and one or more variants, each a playbook path
+  with the SHA-256 of that file (an automation without variants has exactly one), and a
+  digest over every file under the repository at that commit that those playbooks can load
   (the content digest);
 - the typed input schema (Decision 4);
 - references, by controller-scoped AWX id, to one inventory, one execution environment,
@@ -80,10 +81,10 @@ object references, and makes "what changed since the last review" unanswerable.
 
 | AWX object | Relationship | Why |
 | --- | --- | --- |
-| Project | **Owned.** One per repository and commit. | It is a pure function of data ServiceRadar holds. |
-| Job template | **Owned.** One per automation revision and run mode. | Same; and its exact shape is dictated by the launch contract. |
-| Survey of an owned template | **Owned.** | Derived from the input schema plus the dispatch markers. |
-| Role grants on owned objects | **Owned**, exactly two kinds: Execute on the template and Read on the project, to the execution principal. | The minimum the execution principal needs (`docs/docs/ansible.md:172`). |
+| Project | **Owned.** One per repository and commit, shared by every generation at that commit and never edited. | It is a pure function of data ServiceRadar holds. |
+| Job template | **Owned.** One per generation, variant and offered run mode. | Same; and its exact shape is dictated by the launch contract. |
+| Survey of an owned template | **Owned.** One per owned template. | Derived from the input schema plus the dispatch markers. |
+| Role grants on owned objects | **Owned**, exactly two kinds, to the execution principal: Execute on every owned template, and Read on each owned project. | The minimum the execution principal needs (`docs/docs/ansible.md:172`). |
 | Organization | Referenced. | Creating organizations is tenancy administration. |
 | Inventory and hosts | Referenced. | An approved requirement says ServiceRadar does not push devices into AWX inventory. |
 | Execution environment | Referenced, and must be pinned by image digest. | Its registry credential and pull policy belong to AWX administration. |
@@ -95,15 +96,22 @@ object, and never deletes anything it did not create.
 
 Ownership is recorded per managed object as the open change requires (controller, type,
 upstream id, last observed configuration). In addition each owned object's name is
-deterministic and unique: a fixed prefix, the automation slug, and the first characters of
-the revision digest. AWX enforces name uniqueness within an organization for projects and
-job templates, so after a lost create response the exact name answers "did it succeed"
-without a second create.
+deterministic and unique. A project's name is a fixed prefix, the repository slug, the
+first characters of the commit, and a project ordinal for that commit that starts at 1 and
+increases only when a drifted or missing project is superseded. A template's name is
+a fixed prefix, the automation slug, the first characters of the revision digest, the
+generation number, the variant and the run mode. Each ordinal is recorded before the create
+is sent. AWX enforces name uniqueness within an organization for projects and job
+templates, so after a lost create response the exact name answers "did it succeed" without
+a second create.
 
 ### Decision 3: generations are immutable; nothing bound is ever edited
 
-A revision produces one generation of objects. Changing anything (commit, playbook, input
-schema, references) creates a new revision and a new generation with new AWX objects. The
+A revision produces one generation of objects: its job templates, their surveys and their
+Execute grants, plus a reference to the project for its repository and commit. Changing
+anything (commit, playbook, input schema, references) creates a new revision and a new
+generation with new job templates. A new revision at an unchanged commit references the
+existing project for that commit and does not edit it; a new commit gets a new project. The
 previous generation keeps serving its approved binding until that binding is revoked,
 expires, or is superseded by an approved binding on the new generation; then it is retired.
 
@@ -152,7 +160,7 @@ stored through a restrictive foreign key and listed in credential usage.
 | Sync | Read inventories, hosts, groups, projects, templates. | Mutate anything. |
 | Execution | Read reviewed objects, launch approved templates, cancel its jobs. | Edit or administer any object. |
 | Callback | Manage ephemeral callback credentials in its dedicated organization. | Anything else. |
-| **Provisioning (new)** | Create projects and job templates in one organization; start and read a project update; set a survey; attach a referenced credential to an owned template; grant the two roles on owned objects; delete owned objects. | Launch or relaunch any job; read or create credentials' secrets; create or edit inventories, hosts, organizations, users, teams, execution environments; grant any role on an object ServiceRadar does not own. |
+| **Provisioning (new)** | Create projects and job templates in one organization; start and read a project update; set a survey; attach a referenced credential to an owned template; grant the two role kinds on owned objects; delete owned objects. | Launch or relaunch any job; read or create credentials' secrets; create or edit inventories, hosts, organizations, users, teams, execution environments; grant any role on an object ServiceRadar does not own. |
 
 Two layers enforce the right-hand column. In ServiceRadar, provisioning verbs map only to
 the provisioning purpose, each with an exact method and path, a one-mutation grant and a
@@ -177,13 +185,18 @@ provisioning credential that lied about what it created would be caught.
 
 For one revision, in order:
 
-1. Find or create the project (pinned commit, update-on-launch off, override off).
-2. Start one project update and wait until the project reports the pinned commit as its
-   synced revision; fail if it reports anything else.
-3. Find or create the job template per run mode with the exact contract flags.
-4. Set the survey.
-5. Attach the machine credential.
-6. Grant Execute on the template and Read on the project to the execution principal.
+1. Find the current project for the repository and commit, or create it (pinned commit,
+   update-on-launch off, override off). An existing project is used as found and is not
+   edited; one that is drifted or missing is not reused, and the commit's next project
+   ordinal is created instead (Decision 8).
+2. When the project has not yet reported the pinned commit as its synced revision, start
+   one project update and wait until it does; fail if it reports anything else. Grant Read
+   on the project to the execution principal when that grant does not already exist.
+3. Find or create one job template per variant and offered run mode with the exact
+   contract flags.
+4. Set the survey on each template.
+5. Attach the machine credential to each template.
+6. Grant Execute on each template to the execution principal.
 7. Read everything back with the execution principal and compute the projection digest.
 
 Each step is one typed agent command under the open change's contract. Each is idempotent
@@ -194,8 +207,9 @@ harmless (no binding, so not launchable) and are either completed by a retry or 
 
 ### Decision 7: the result enters the existing review as a prepared, unapproved binding
 
-After step 7 ServiceRadar calls the existing binding review "prepare" with the template,
-project, inventory, credential and execution-environment identifiers, and with the content
+After step 7 ServiceRadar calls the existing binding review "prepare" once per owned
+template, with the template, project, inventory, credential and execution-environment
+identifiers, and with the content
 digest and input schema from the revision. The automation shows "awaiting review".
 
 - Approval is the existing action, by a human principal, with the existing permission and
@@ -223,7 +237,7 @@ reconciliation makes it visible before someone tries to launch.
 | Observation | State | What ServiceRadar does | What the operator can do |
 | --- | --- | --- | --- |
 | Matches | `in_sync` | Nothing. | Nothing. |
-| Differs | `drifted` | Reports the changed fields. Launch is already blocked by preflight. | **Replace**: provision a fresh generation from the same revision, then review. Or **Release**: give up ownership; the binding is revoked and the object is left as found. |
+| Differs | `drifted` | Reports the changed fields. Launch is already blocked by preflight. | **Replace**: provision a fresh generation from the same revision, then review; when the project is the drifted or missing object, Replace creates the commit's next project ordinal, which later generations at that commit reference. Or **Release**: give up ownership; the binding is revoked and the object is left as found. |
 | Gone | `missing` | Reports it. | Replace or Release. |
 | Unknown after an uncertain write | `unresolved` | Keeps reading; never repeats the write blindly. | Wait, or Release. |
 
@@ -233,8 +247,9 @@ an automation is a new revision.
 
 ### Decision 9: retirement and deletion
 
-- Retiring a generation revokes its binding (existing action), removes the two role
-  grants, and deletes the template and, when no other owned template uses it, the project.
+- Retiring a generation revokes its bindings (existing action), removes the Execute grant
+  on each of its templates and deletes them, and, when no other owned template uses the
+  project, removes the project's Read grant and deletes the project.
 - Deletion is refused while an operation that references the generation is not terminal.
 - AWX job records outlive their template; ServiceRadar's own operation history does not
   depend on the template existing.
@@ -247,20 +262,23 @@ an automation is a new revision.
 ### Decision 10: target readiness is one computed answer
 
 For a device and a controller (optionally an automation), readiness is computed from the
-same predicates launch uses, so it cannot disagree with launch:
+same predicates launch uses, so it cannot disagree with launch. When several reasons apply,
+the first row in table order is reported. `no_address` precedes `quarantined` and
+`needs_membership_review` because approval of a membership without an address is refused,
+so the review remedy cannot succeed until the address is fixed:
 
 | Reason | Meaning | Operator action |
 | --- | --- | --- |
-| `launchable` | An approved, current, enabled membership with an address exists in an inventory the binding allows. | None. |
-| `needs_membership_review` | A `proposed` membership exists. | Approve it on the membership page. |
-| `quarantined` | The membership was quarantined; the evidence says why. | Review the evidence and release it to `proposed`, then approve. |
-| `no_address` | The AWX host has no usable `ansible_host`. | Set it in AWX; the next sync picks it up. |
-| `host_disabled` or `not_current` | Disabled in AWX, or absent from the last complete sync. | Fix in AWX. |
-| `ambiguous` | More than one membership or more than one device matches. | Choose the membership, or fix the duplicate. |
 | `not_in_inventory` | No AWX host in any synced inventory of this controller links to the device. | Add the host to an AWX inventory. |
 | `skipped_by_sync` | AWX has a host of that name but sync skipped it for lack of an anchor. | Give the host an address or MAC in AWX. |
+| `ambiguous` | More than one membership or more than one device matches. | Choose the membership, or fix the duplicate. |
+| `host_disabled` or `not_current` | Disabled in AWX, or absent from the last complete sync. | Fix in AWX. |
+| `no_address` | The AWX host has no usable `ansible_host`. | Set it in AWX; the next sync picks it up. |
+| `quarantined` | The membership was quarantined; the evidence says why. | Review the evidence and release it to `proposed`, then approve. |
+| `needs_membership_review` | A `proposed` membership exists. | Approve it on the membership page. |
 | `held` | An active target hold exists. | Clear the hold through its own gate. |
 | `no_approved_binding` | The automation has no current approved binding. | Review the binding. |
+| `launchable` | An approved, current, enabled membership with an address exists in an inventory the binding allows. | None. |
 
 Two additions make the table reachable:
 
@@ -315,10 +333,13 @@ End to end:
 2. They open the entry, choose the controller, the inventory that holds the target hosts,
    a digest-pinned execution environment and a machine credential with privilege
    escalation, all picked from what the controller already has. They create the automation.
-3. ServiceRadar shows the plan (one project, two templates, the survey, two role grants)
-   and, on confirmation, provisions it.
-4. A reviewer opens the prepared binding for each variant, sees the commit, digests,
-   inputs and live readback, and approves.
+3. ServiceRadar shows the plan and, on confirmation, provisions it. With two package
+   families and both `run` and `check` offered, the plan is one project (or the existing
+   one at that commit), four job templates (one per package family and run mode), a survey
+   on each, an Execute grant on each of the four templates, and one Read grant on the
+   project.
+4. A reviewer opens the prepared binding for each of the four templates, sees the commit,
+   digests, inputs and live readback, and approves.
 5. An operator selects devices and the automation. Readiness explains any device that is
    not launchable. The planner sends each device to the variant for its package family
    when the device's operating system is known and asks otherwise.
@@ -410,8 +431,9 @@ launch inputs; no moving refs.
 
 1. Repository commit and digest recording; catalog parsing; automation resources. No
    upstream effect.
-2. Target readiness, the membership page and the quarantine exit, with the defects in
-   `defects.md`. Useful on their own, and they unblock review.
+2. Target readiness, the membership page, address-on-approval and the quarantine exit.
+   Useful on their own, and they unblock review. The entries of `defects.md` are filed and
+   fixed separately and are not part of this plan.
 3. Provisioning purpose, verbs and orchestration behind the provisioning permission.
 4. Review hand-off, drift reconciliation, retirement.
 5. Terraform resources and the worked example, verified on a synthetic controller and

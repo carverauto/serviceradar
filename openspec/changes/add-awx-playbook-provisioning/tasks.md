@@ -4,7 +4,7 @@
 - [ ] 1.2 Land or absorb tasks 2.1 to 2.4 of `add-declarative-ansible-provisioning` (managed-object ownership, provisioning permission and credential purpose, typed agent commands, exact request-body custody).
 - [ ] 1.3 Amend the sentence "The settings UI SHALL expose controller and repository management only" where it lives when this lands (the open `remove-legacy-ansible-ui` delta or the archived `build-web-ui` spec), and search `openspec/` for other copies first.
 - [ ] 1.4 Verify on a synthetic controller, for each supported AWX version: project pinned to a commit hash with update-on-launch off; the synced revision as reported back; the role set of Decision 5; the survey shape the marker contract requires.
-- [ ] 1.5 File the entries of `defects.md` as issues; fix 1 to 9 with or before section 4.
+- [ ] 1.5 File the entries of `defects.md` as separate issues. They are not part of this change; section 4 delivers only the readiness, quarantine release, address-on-approval and membership listing this change specifies. Defect 2 needs an owner decision (whether a host that reappears after expiry requires re-approval) before it can be fixed.
 
 ## 2. Repositories, catalog and automations
 
@@ -26,7 +26,7 @@
 
 ## 4. Readiness and memberships
 
-- [ ] 4.1 Compute target readiness from the launch predicates, with the reason table of Decision 10, including the address requirement.
+- [ ] 4.1 Compute target readiness from the launch predicates, reporting the first applicable reason in the order of Decision 10, including the address requirement.
 - [ ] 4.2 Record hosts the collector skipped for lack of an anchor so readiness can report them.
 - [ ] 4.3 Add the reviewed quarantine release to `proposed`, with actor and reason, never to `approved`.
 - [ ] 4.4 Refuse approval of a membership that has no address, with a specific error.

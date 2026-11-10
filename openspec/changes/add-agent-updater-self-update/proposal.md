@@ -65,8 +65,9 @@ path to fix it.
 - **Per-agent updater state in core and web-ng**: version, state, reason and supported
   operations; fleet filters; the exact one-time remedy for hosts whose helper predates
   self-replacement; updater outcome on release and add-on rollouts.
-- **Rollout control as runtime settings** with code defaults: a kill switch and a pause
-  rule, stored in the database and not in Helm values.
+- **Rollout control as a runtime setting** with a code default: a kill switch stored in
+  the database and not in Helm values. Rollouts pause on a fixed rule (an owner
+  decision).
 - **The bootstrap is stated, not hidden.** Helpers already in the field cannot replace
   themselves. Those hosts need one package upgrade. The product names each such host, says
   why, and gives the remedy.

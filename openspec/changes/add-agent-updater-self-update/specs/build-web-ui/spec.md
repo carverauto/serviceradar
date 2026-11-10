@@ -31,7 +31,7 @@ The release and add-on rollout views SHALL show the updater outcome for each tar
 - **THEN** the row SHALL name the agent and state that one package upgrade is required
 
 ### Requirement: Updater replacement settings
-The settings UI SHALL expose the updater replacement kill switch and pause rule with their effective values, and SHALL require the release-management permission to change them.
+The settings UI SHALL expose the updater replacement kill switch with its effective value, and SHALL require the release-management permission to change them.
 
 #### Scenario: Operator turns replacement off
 - **WHEN** an authorized operator turns updater replacement off
