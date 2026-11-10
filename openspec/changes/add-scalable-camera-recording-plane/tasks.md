@@ -332,7 +332,7 @@ qualification. Tasks 2.1 and 3.2 remain open.
 
 - [ ] 3.1 Install qualified exclusive per-recorder filesystem volumes with explicit identities/initialization for Kubernetes and supported customer hosts.
 - [ ] 3.2 Implement continuous bounded sealing, durable journal/outbox and capacity/pressure admission with reserved control space.
-- [ ] 3.3 Implement local-only durable catalog/manifest publication, owner-aware authorized playback, retention/holds and restore without S3 or SaaS calls.
+- [ ] 3.3 Implement local-only durable catalog/manifest publication, owner-aware authorized playback, retention/holds and restore without S3 or SaaS calls. The concrete qualification/registration authority contract is pending review in [define-nvr-local-copy-registration](../define-nvr-local-copy-registration/proposal.md); intent acceptance is not copy registration.
 - [ ] 3.4 Complete qualified S3 upload/multipart reconciliation, recoverable manifests and receipt-based reclamation; preserve every existing provider/security check.
 - [ ] 3.5 Enforce outage/catch-up budgets and independent archive/index availability; test `U <= R`, full disk, restart and lost responses.
 - [ ] 3.6 Implement explicit mode/data-residency transitions without retargeting or deleting historical media.
