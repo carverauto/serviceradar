@@ -13,6 +13,7 @@ defmodule ServiceRadar.EventWriter.EdgeRecordRetentionNatsTest do
 
   alias ServiceRadar.EventWriter.Config
   alias ServiceRadar.EventWriter.ConsumerReconciler
+  alias ServiceRadar.EventWriter.EdgeRecordStreamCutover
   alias ServiceRadar.EventWriter.Pipeline
   alias ServiceRadar.EventWriter.Producer
   alias ServiceRadar.NATS.JetstreamConsumer
@@ -263,8 +264,8 @@ defmodule ServiceRadar.EventWriter.EdgeRecordRetentionNatsTest do
 
       # Seal, drain, delete: every pre-cutover record is already written, and
       # publishers refused during the cutover keep their bytes in agent spool.
-      assert :cut_over =
-               ServiceRadar.EventWriter.EdgeRecordStreamCutover.run(request, config, target)
+      assert {:draining, cutover} = EdgeRecordStreamCutover.start(request, config, target)
+      assert :cut_over = EdgeRecordStreamCutover.poll(request, cutover)
 
       assert :absent = JetstreamConsumer.stream_info(request, @stream, nil)
 

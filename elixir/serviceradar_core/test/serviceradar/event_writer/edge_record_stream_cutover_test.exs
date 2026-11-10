@@ -74,24 +74,44 @@ defmodule ServiceRadar.EventWriter.EdgeRecordStreamCutoverTest do
     %{stream: stream, stream_name: Config.jetstream_stream_name(stream)}
   end
 
-  test "a transient consumer info error after sealing is retried until the stream drains",
+  test "a poll that finds the durable behind returns at once and keeps the stream sealed",
        %{stream: stream, stream_name: stream_name} do
-    {request, calls} = fake_request(stream_name, [{:error, :timeout}, @drained], [@deleted])
+    behind = {:ok, %{"num_pending" => 5, "num_ack_pending" => 1}}
+    {request, calls} = fake_request(stream_name, [behind, @drained], [@deleted])
+
+    assert {:draining, cutover} = EdgeRecordStreamCutover.start(request, config(), stream)
+    assert {:draining, cutover} = EdgeRecordStreamCutover.poll(request, cutover)
 
     capture_log(fn ->
-      assert :cut_over = EdgeRecordStreamCutover.run(request, config(), stream)
+      assert :cut_over = EdgeRecordStreamCutover.poll(request, cutover)
     end)
 
     assert sealed_updates(calls.(), stream_name) == [true]
   end
 
-  test "consumer info that keeps failing times out and unseals the stream",
+  test "a transient consumer info error after sealing is retried until the stream drains",
+       %{stream: stream, stream_name: stream_name} do
+    {request, calls} = fake_request(stream_name, [{:error, :timeout}, @drained], [@deleted])
+
+    assert {:draining, cutover} = EdgeRecordStreamCutover.start(request, config(), stream)
+    assert {:draining, cutover} = EdgeRecordStreamCutover.poll(request, cutover)
+
+    capture_log(fn ->
+      assert :cut_over = EdgeRecordStreamCutover.poll(request, cutover)
+    end)
+
+    assert sealed_updates(calls.(), stream_name) == [true]
+  end
+
+  test "consumer info that keeps failing past the deadline unseals the stream",
        %{stream: stream, stream_name: stream_name} do
     {request, calls} = fake_request(stream_name, [{:error, :timeout}], [@deleted])
 
+    assert {:draining, cutover} =
+             EdgeRecordStreamCutover.start(request, config(), stream, drain_timeout_ms: 0)
+
     capture_log(fn ->
-      assert {:error, :drain_timeout} =
-               EdgeRecordStreamCutover.run(request, config(), stream, drain_timeout_ms: 100)
+      assert {:error, :drain_timeout} = EdgeRecordStreamCutover.poll(request, cutover)
     end)
 
     assert sealed_updates(calls.(), stream_name) == [true, false]
@@ -106,10 +126,30 @@ defmodule ServiceRadar.EventWriter.EdgeRecordStreamCutoverTest do
     refused = {:ok, %{"error" => %{"code" => 500, "description" => "synthetic failure"}}}
     {request, calls} = fake_request(stream_name, [@drained], [refused])
 
+    assert {:draining, cutover} = EdgeRecordStreamCutover.start(request, config(), stream)
+
     capture_log(fn ->
-      assert {:error, %{"code" => 500}} = EdgeRecordStreamCutover.run(request, config(), stream)
+      assert {:error, %{"code" => 500}} = EdgeRecordStreamCutover.poll(request, cutover)
     end)
 
     assert sealed_updates(calls.(), stream_name) == [true, false]
+  end
+
+  test "abandoning a cutover unseals the stream without deleting it",
+       %{stream: stream, stream_name: stream_name} do
+    {request, calls} = fake_request(stream_name, [@drained], [@deleted])
+
+    assert {:draining, cutover} = EdgeRecordStreamCutover.start(request, config(), stream)
+
+    capture_log(fn ->
+      assert {:error, :nats_reconnected} =
+               EdgeRecordStreamCutover.abort(request, cutover, {:error, :nats_reconnected})
+    end)
+
+    assert sealed_updates(calls.(), stream_name) == [true, false]
+
+    refute Enum.any?(calls.(), fn {topic, _} ->
+             topic == "$JS.API.STREAM.DELETE.#{stream_name}"
+           end)
   end
 end

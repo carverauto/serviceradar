@@ -12,9 +12,9 @@ defmodule ServiceRadar.EventWriter.EdgeRecordStreamCutover do
 
   Every step is idempotent, so a retried cutover converges: sealing an already
   sealed stream and deleting an already deleted stream both succeed, and a
-  drained check that finds a converted stream reports `:already_converted`.
-  Anything that aborts the cutover unseals the stream first, so publishers are
-  never left paused by a failed attempt.
+  start on a converted stream reports `:already_converted`. Anything that
+  aborts the cutover unseals the stream, so publishers are never left paused by
+  a failed attempt.
   """
 
   alias ServiceRadar.EventWriter.Config
@@ -23,22 +23,30 @@ defmodule ServiceRadar.EventWriter.EdgeRecordStreamCutover do
 
   require Logger
 
-  @drain_poll_ms 1_000
   @drain_timeout_ms 300_000
 
   @type request_fun ::
           (String.t(), binary() -> {:ok, map()} | {:error, term()})
 
+  @typedoc "A sealed stream waiting for its owning durable to drain."
+  @type t :: %{
+          stream_name: String.t(),
+          durable: String.t(),
+          sealed: map(),
+          stored: non_neg_integer(),
+          deadline: integer()
+        }
+
   @doc """
-  Cuts `stream` over to `WorkQueue` retention. Returns `:cut_over` once the old
-  stream is deleted (the caller recreates it through the reconcile path),
-  `:already_converted` when the stream already uses `WorkQueue`, `:no_stream`
-  when there is nothing to convert, or `{:error, reason}` with the stream
-  unsealed.
+  Starts cutting `stream` over to `WorkQueue` retention by sealing it. Returns
+  `{:draining, cutover}` for the caller to `poll/2` (one step per call, so the
+  caller stays responsive while the durable drains), `:already_converted` when
+  the stream already uses `WorkQueue`, `:no_stream` when there is nothing to
+  convert, or `{:error, reason}` with the stream left unsealed.
   """
-  @spec run(request_fun(), Config.t(), map(), keyword()) ::
-          :already_converted | :no_stream | :cut_over | {:error, term()}
-  def run(request, %Config{} = config, stream, opts \\ []) do
+  @spec start(request_fun(), Config.t(), map(), keyword()) ::
+          {:draining, t()} | :already_converted | :no_stream | {:error, term()}
+  def start(request, %Config{} = config, stream, opts \\ []) do
     stream_name = Config.jetstream_stream_name(stream)
     durable = ConsumerSetup.durable_name(config, stream)
     timeout = Keyword.get(opts, :drain_timeout_ms, @drain_timeout_ms)
@@ -56,7 +64,7 @@ defmodule ServiceRadar.EventWriter.EdgeRecordStreamCutover do
             :already_converted
 
           "limits" ->
-            seal_drain_delete(request, stream_name, durable, current, stored, timeout)
+            seal(request, stream_name, durable, current, stored, timeout)
 
           retention ->
             {:error, {:unexpected_retention, retention}}
@@ -64,7 +72,44 @@ defmodule ServiceRadar.EventWriter.EdgeRecordStreamCutover do
     end
   end
 
-  defp seal_drain_delete(request, stream_name, durable, current, stored, timeout) do
+  @doc """
+  Checks the drain once. Returns `{:draining, cutover}` while the durable still
+  owes records and the deadline has not passed, `:cut_over` once the drained
+  stream is deleted (the caller recreates it through the reconcile path), or
+  `{:error, reason}` with the stream unsealed.
+  """
+  @spec poll(request_fun(), t()) :: {:draining, t()} | :cut_over | {:error, term()}
+  def poll(request, cutover) do
+    with :drained <- check_drained(request, cutover),
+         :ok <- JetstreamConsumer.delete_stream(request, cutover.stream_name, nil) do
+      Logger.info("Cut over edge-record stream to WorkQueue retention",
+        stream: cutover.stream_name,
+        durable: cutover.durable
+      )
+
+      :cut_over
+    else
+      :waiting ->
+        if System.monotonic_time(:millisecond) >= cutover.deadline do
+          abort(request, cutover, {:error, :drain_timeout})
+        else
+          {:draining, cutover}
+        end
+
+      {:error, _reason} = error ->
+        abort(request, cutover, error)
+    end
+  end
+
+  @doc "Abandons a cutover in progress and unseals its stream."
+  @spec abort(request_fun(), t(), {:error, term()}) :: {:error, term()}
+  def abort(request, cutover, {:error, _reason} = error) do
+    unseal(request, cutover.stream_name, cutover.sealed, cutover.stored)
+    log_abort(cutover.stream_name, cutover.durable, error)
+    error
+  end
+
+  defp seal(request, stream_name, durable, current, stored, timeout) do
     sealed = Map.put(current, "sealed", true)
 
     case JetstreamConsumer.update_stream_if_changed(
@@ -76,26 +121,16 @@ defmodule ServiceRadar.EventWriter.EdgeRecordStreamCutover do
            nil
          ) do
       :ok ->
-        drain_delete(request, stream_name, durable, sealed, stored, timeout)
+        {:draining,
+         %{
+           stream_name: stream_name,
+           durable: durable,
+           sealed: sealed,
+           stored: stored,
+           deadline: System.monotonic_time(:millisecond) + timeout
+         }}
 
       {:error, _reason} = error ->
-        log_abort(stream_name, durable, error)
-        error
-    end
-  end
-
-  defp drain_delete(request, stream_name, durable, sealed, stored, timeout) do
-    with :drained <- await_drained(request, stream_name, durable, timeout),
-         :ok <- JetstreamConsumer.delete_stream(request, stream_name, nil) do
-      Logger.info("Cut over edge-record stream to WorkQueue retention",
-        stream: stream_name,
-        durable: durable
-      )
-
-      :cut_over
-    else
-      {:error, _reason} = error ->
-        unseal(request, stream_name, sealed, stored)
         log_abort(stream_name, durable, error)
         error
     end
@@ -133,18 +168,13 @@ defmodule ServiceRadar.EventWriter.EdgeRecordStreamCutover do
     end
   end
 
-  defp await_drained(request, stream_name, durable, timeout) do
-    deadline = System.monotonic_time(:millisecond) + timeout
-    poll_drained(request, stream_name, durable, deadline)
-  end
-
-  defp poll_drained(request, stream_name, durable, deadline) do
+  defp check_drained(request, %{stream_name: stream_name, durable: durable}) do
     case JetstreamConsumer.consumer_info(request, stream_name, durable, nil) do
       {:ok, %{"num_pending" => 0, "num_ack_pending" => 0}} ->
         :drained
 
       {:ok, _info} ->
-        retry_drained(request, stream_name, durable, deadline)
+        :waiting
 
       :absent ->
         # No durable yet: only safe when nothing is stored. Anything stored
@@ -153,20 +183,11 @@ defmodule ServiceRadar.EventWriter.EdgeRecordStreamCutover do
           {:ok, _config, 0} -> :drained
           {:ok, _, _} -> {:error, :drain_waiting_for_consumer}
           :absent -> {:error, :stream_vanished}
-          {:error, _reason} -> retry_drained(request, stream_name, durable, deadline)
+          {:error, _reason} -> :waiting
         end
 
       {:error, _reason} ->
-        retry_drained(request, stream_name, durable, deadline)
-    end
-  end
-
-  defp retry_drained(request, stream_name, durable, deadline) do
-    if System.monotonic_time(:millisecond) + @drain_poll_ms >= deadline do
-      {:error, :drain_timeout}
-    else
-      Process.sleep(@drain_poll_ms)
-      poll_drained(request, stream_name, durable, deadline)
+        :waiting
     end
   end
 end
