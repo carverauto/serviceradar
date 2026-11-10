@@ -733,6 +733,8 @@ core:
       scan_results: {}
       trivy_reports: {}
       notifications: {}
+      # Reserved recovery WorkQueue; profile default 64Mi (tenant-2g: 4Mi minimum).
+      telemetry_edge_record_recovery_v1: {}
       exposure_transitions: {}
       exposure_dimensions: {}
       flows: {}
@@ -962,7 +964,7 @@ core:
     #
     # Set to "" to fall back to the old existence-only check (for operators
     # running the chart against a deliberately pinned schema).
-    expectedVersion: "20261108190000"
+    expectedVersion: "20261110032550"
   # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
   reaper:
     # How often to run the reaper job
@@ -3139,7 +3141,8 @@ sweep:
 # flowCollector.enabled refuses to render without it. Each dataset is written
 # only to the store it is read from: nothing is shadowed into CNPG.
 # For flow routing and delivery, see docs/docs/netflow.md#flow-cutover-and-delivery.
-# Lab clusters use the shared-nothing profile in k8s/starrocks/.
+# k8s/starrocks/README.md is the supported StarRocks operator install, with
+# shared-nothing (values-cluster.yaml) and shared-data (values-cluster-shared-data.yaml) profiles.
 analytics:
   starrocks:
     enabled: false

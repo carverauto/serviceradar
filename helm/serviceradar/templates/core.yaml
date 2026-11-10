@@ -536,7 +536,7 @@ spec:
         - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" $js.stream "suffix" "REPLICAS") }}
           value: {{ $js.replicas | quote }}
         {{- end }}
-        {{- range $id := list "telemetry_edge_record_v1_bulk" "telemetry_edge_record_audit_v1_bulk" "telemetry_edge_record_security_quarantine_v1_bulk" "telemetry_edge_record_dlq_v1_bulk" }}
+        {{- range $id := list "telemetry_edge_record_v1_bulk" "telemetry_edge_record_audit_v1_bulk" "telemetry_edge_record_security_quarantine_v1_bulk" "telemetry_edge_record_dlq_v1_bulk" "telemetry_edge_record_recovery_v1" }}
         {{- $js := index $coreJs $id }}
         - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" $js.stream "suffix" "MAX_BYTES") }}
           value: {{ $js.maxBytes | quote }}
