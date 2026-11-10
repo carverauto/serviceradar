@@ -457,8 +457,15 @@ async fn sr_refuse_busy(conn: &mut mysql_async::Conn, database: &str) -> Result<
 pub(crate) async fn sr_migrate(database: &str) -> Result<()> {
     assert!(fixed_database_allowed(database) || run_database_created(database).is_some());
     let mut command = if let Some(executable) = locate_starrocks_schema_runner() {
+        // The rules_elixir launcher resolves its toolchain relative to `$PWD`, so it must
+        // start where Bazel starts a test: `$TEST_SRCDIR/$TEST_WORKSPACE`.
         let mut cmd = tokio::process::Command::new(executable);
-        cmd.current_dir(crate::repo_root());
+        if let (Some(srcdir), Some(workspace)) = (
+            std::env::var_os("TEST_SRCDIR"),
+            std::env::var_os("TEST_WORKSPACE"),
+        ) {
+            cmd.current_dir(std::path::Path::new(&srcdir).join(workspace));
+        }
         cmd
     } else {
         let mut mix = tokio::process::Command::new("mix");
