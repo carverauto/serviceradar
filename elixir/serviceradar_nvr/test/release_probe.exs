@@ -214,30 +214,43 @@ case System.fetch_env!("NVR_TEST_MODE") do
 
     blocks =
       Enum.map(block_ids, fn block_id ->
-        {:ok, snapshot} = ServiceRadarNVR.sealed_block(block_id)
-
-        # The pinned muxer's 30,720 Hz track clock is distinct from the 90 kHz input clock.
-        %{timescale: 30_720, codecs: %{avc1: %{profile: 66, compatibility: 192, level: 10}}, sha256: sha} =
-          snapshot.init_format
-
-        ^sha = snapshot.init["sha256"]
         {:ok, descriptor} = ServiceRadarNVR.block_descriptor(block_id)
-        Map.put(snapshot, :descriptor, descriptor)
+        digest = Base.encode16(:crypto.hash(:sha256, descriptor), case: :lower)
+        %{id: block_id, descriptor: descriptor, metadata: Jason.decode!(descriptor), digest: digest}
       end)
 
-    for {snapshot, index} <- blocks |> Enum.sort_by(& &1.identity["block_sequence"]) |> Enum.with_index() do
-      true = snapshot.sealed?
-      {:ok, init} = Spool.read_init(snapshot)
+    for {block, index} <- blocks |> Enum.sort_by(& &1.metadata["identity"]["block_sequence"]) |> Enum.with_index() do
+      {:ok, init} = ServiceRadarNVR.read_block(block.id, block.digest, :init)
 
       media =
-        Enum.map(snapshot.entries, fn entry ->
-          {:ok, bytes} = Spool.read_fragment(snapshot, entry["sequence"])
+        Enum.map(block.metadata["fragments"], fn entry ->
+          {:ok, bytes} = ServiceRadarNVR.read_block(block.id, block.digest, {:fragment, entry["sequence"]})
           bytes
         end)
 
       File.write!(System.fetch_env!("NVR_TEST_MP4") <> ".#{index}", [init | media])
-      File.write!(System.fetch_env!("NVR_TEST_MP4") <> ".#{index}.json", snapshot.descriptor)
+      File.write!(System.fetch_env!("NVR_TEST_MP4") <> ".#{index}.json", block.descriptor)
     end
+
+    [block | _] = blocks
+    wrong_digest = String.duplicate("0", 64)
+
+    for selector <- [:init, {:fragment, 0}] do
+      {:error, :descriptor_digest_mismatch} = ServiceRadarNVR.read_block(block.id, wrong_digest, selector)
+
+      for invalid <- [nil, <<0::256>>, String.duplicate("0", 63), String.duplicate("A", 64), block.digest <> "\n"] do
+        {:error, :invalid_descriptor_digest} = ServiceRadarNVR.read_block(block.id, invalid, selector)
+      end
+    end
+
+    for selector <- [:media, {:fragment, -1}, {:fragment, "0"}, {:range, 0, 1}, "../outside"] do
+      {:error, :invalid_media_selector} = ServiceRadarNVR.read_block(block.id, block.digest, selector)
+    end
+
+    {:error, :not_readable} =
+      ServiceRadarNVR.read_block(block.id, block.digest, {:fragment, length(block.metadata["fragments"])})
+
+    {:error, :invalid_block_id} = ServiceRadarNVR.read_block("../outside", block.digest, :init)
 
   "recover_interrupted" ->
     {:ok, [block_id]} = ServiceRadarNVR.list_blocks()
@@ -280,6 +293,10 @@ case System.fetch_env!("NVR_TEST_MODE") do
 
     if mode == "discover_unresolved" do
       ^result = ServiceRadarNVR.block_descriptor(block_id)
+
+      for selector <- [:init, {:fragment, 0}] do
+        ^result = ServiceRadarNVR.read_block(block_id, String.duplicate("0", 64), selector)
+      end
     end
 
     {:error, reason} = result
