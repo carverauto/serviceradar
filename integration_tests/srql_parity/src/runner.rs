@@ -451,59 +451,68 @@ async fn sr_refuse_busy(conn: &mut mysql_async::Conn, database: &str) -> Result<
     Ok(())
 }
 
+/// Runs `ServiceRadar.Analytics.StarRocks.SchemaMigrator.migrate/1` against `database` via the
+/// declared Elixir schema runner so the parity harness and core share a single migration path
+/// (including optimize and column-change job polling).
+pub(crate) async fn sr_migrate(database: &str) -> Result<()> {
+    assert!(fixed_database_allowed(database) || run_database_created(database).is_some());
+    let mut command = if let Some(executable) = locate_starrocks_schema_runner() {
+        let mut cmd = tokio::process::Command::new(executable);
+        cmd.current_dir(crate::repo_root());
+        cmd
+    } else {
+        let mut mix = tokio::process::Command::new("mix");
+        mix.args([
+            "run",
+            "--no-start",
+            "test/db/starrocks_parity_schema_runner.exs",
+        ])
+        .current_dir(crate::repo_root().join("elixir/serviceradar_core"));
+        mix
+    };
+    let status = command
+        .env("SRQL_PARITY_STARROCKS_TARGET_DATABASE", database)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .kill_on_drop(true)
+        .status()
+        .await
+        .context("spawning StarRocks parity schema runner")?;
+    if !status.success() {
+        bail!("StarRocks parity schema runner failed on {database}: {status}");
+    }
+    Ok(())
+}
+
+fn locate_starrocks_schema_runner() -> Option<std::path::PathBuf> {
+    const REL: &str = "elixir/serviceradar_core/starrocks_parity_schema_runner";
+    let runfiles = runfiles::Runfiles::create().ok()?;
+    for repo in ["_main", "serviceradar"] {
+        if let Some(path) = runfiles.rlocation(format!("{repo}/{REL}"))
+            && path.exists()
+        {
+            return Some(path);
+        }
+    }
+    if let Some(path) = runfiles.rlocation_from(format!("serviceradar/{REL}"), "")
+        && path.exists()
+    {
+        return Some(path);
+    }
+    None
+}
+
 /// Creates the StarRocks schema in `database`: a new run database, or (`fixed`) an existing
 /// database the harness's user may not recreate, whose own CREATE DATABASE is then skipped.
-async fn sr_create(
-    conn: &mut mysql_async::Conn,
-    database: &str,
-    ddl_dir: &Path,
-    fixed: bool,
-) -> Result<()> {
+async fn sr_create(conn: &mut mysql_async::Conn, database: &str, fixed: bool) -> Result<()> {
     if fixed {
         assert!(fixed_database_allowed(database));
     } else {
         assert!(run_database_created(database).is_some());
         sr_exec(conn, &format!("CREATE DATABASE {database}")).await?;
     }
-    let mut files: Vec<_> = std::fs::read_dir(ddl_dir)
-        .with_context(|| format!("reading {}", ddl_dir.display()))?
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|x| x == "sql"))
-        .collect();
-    files.sort();
-    if files.is_empty() {
-        bail!("no StarRocks DDL under {}", ddl_dir.display());
-    }
-    for file in files {
-        let sql = std::fs::read_to_string(&file)?;
-        for statement in schema::starrocks_statements(&sql) {
-            let statement = schema::starrocks_retarget(&statement, database, 1);
-            if fixed
-                && statement
-                    .trim_start()
-                    .to_ascii_uppercase()
-                    .starts_with("CREATE DATABASE")
-            {
-                continue;
-            }
-            if let Some((table, column)) = schema::starrocks_add_column(&statement) {
-                let exists: Option<i64> = conn
-                    .query_first(format!(
-                        "SELECT 1 FROM information_schema.columns WHERE table_schema = '{database}' \
-                         AND table_name = '{table}' AND column_name = '{column}'"
-                    ))
-                    .await?;
-                if exists.is_some() {
-                    continue;
-                }
-            }
-            sr_exec(conn, &statement)
-                .await
-                .with_context(|| format!("applying {}", file.display()))?;
-        }
-    }
-    Ok(())
+    sr_migrate(database).await
 }
 
 // ---------------------------------------------------------------------------------------
@@ -943,7 +952,6 @@ pub async fn run() -> Result<Vec<(String, Outcome)>> {
         root.join("elixir/serviceradar_core/priv/repo/baseline/platform_schema.sql"),
     )
     .context("reading the CNPG baseline")?;
-    let ddl_dir = root.join("elixir/serviceradar_core/priv/starrocks");
 
     let now = Utc::now();
     let anchor = Anchor::for_run(now);
@@ -982,7 +990,7 @@ pub async fn run() -> Result<Vec<(String, Outcome)>> {
         if fixed {
             sr_clear(&mut sr, &sr_database).await?;
         }
-        sr_create(&mut sr, &sr_database, &ddl_dir, fixed).await?;
+        sr_create(&mut sr, &sr_database, fixed).await?;
         let client = cnpg.create(&database, &baseline).await?;
         let zone: String = client.query_one("SHOW TimeZone", &[]).await?.get(0);
         println!("srql-parity: CNPG session TimeZone {zone}");
@@ -1013,7 +1021,7 @@ pub async fn run() -> Result<Vec<(String, Outcome)>> {
         if outcomes.is_empty() {
             bail!("no inventory entry ran");
         }
-        let storage = match crate::exposure::verify(&mut sr, &sr_database, &ddl_dir).await {
+        let storage = match crate::exposure::verify(&mut sr, &sr_database).await {
             Ok(()) => Outcome::Pass("exposure storage and migration replay".into()),
             Err(error) => Outcome::Fail(format!("exposure storage: {error:#}")),
         };
