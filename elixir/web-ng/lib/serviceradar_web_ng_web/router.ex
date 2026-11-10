@@ -521,7 +521,10 @@ defmodule ServiceRadarWebNGWeb.Router do
 
   # JSON:API pipeline for Ash resources (v2 API)
   pipeline :ash_json_api do
-    plug(:accepts, ["json"])
+    # `application/vnd.api+json` is the JSON:API media type, and MIME maps it to the
+    # "json-api" format rather than "json". Accepting only "json" turned away, with 406,
+    # every client that asks for the media type the JSON:API spec tells it to use.
+    plug(:accepts, ["json", "json-api"])
     plug(SecurityHeaders)
     plug(:fetch_session)
     plug(:skip_csrf_protection_for_bearer_auth)

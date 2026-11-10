@@ -86,6 +86,8 @@ config :phoenix_react_ng, Phoenix.ReactServer,
   render_timeout: 5_000,
   cache_ttl: 60
 
+config :phoenix_template, :format_encoders, "json-api": Jason
+
 # Pin Rustler temp dir to an explicitly writable path when provided by the build system
 config :rustler, :tmp_dir, System.get_env("RUSTLER_TMPDIR") || System.tmp_dir!()
 
@@ -214,7 +216,11 @@ config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,
   url: [host: "localhost"],
   adapter: Bandit.PhoenixAdapter,
   render_errors: [
-    formats: [html: ServiceRadarWebNGWeb.ErrorHTML, json: ServiceRadarWebNGWeb.ErrorJSON],
+    formats: [
+      html: ServiceRadarWebNGWeb.ErrorHTML,
+      json: ServiceRadarWebNGWeb.ErrorJSON,
+      "json-api": ServiceRadarWebNGWeb.ErrorJSON
+    ],
     layout: false
   ],
   pubsub_server: ServiceRadarWebNG.PubSub,
