@@ -689,11 +689,20 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
       conn =
         build_conn()
         |> log_in_user(viewer_user_fixture())
+        |> then(fn conn ->
+          %{conn | private: Map.delete(conn.private, :plug_skip_csrf_protection)}
+        end)
         |> put_req_header("accept", "application/vnd.api+json")
-        |> post("/api/v2/event-rules", %{})
 
-      assert conn.status == 403
-      assert Jason.decode!(conn.resp_body)["errors"]["detail"] == "Forbidden"
+      {403, headers, body} =
+        assert_error_sent(403, fn ->
+          post(conn, "/api/v2/event-rules", %{})
+        end)
+
+      assert {"content-type", content_type} = List.keyfind(headers, "content-type", 0)
+      assert {:ok, "application", subtype, _params} = Plug.Conn.Utils.content_type(content_type)
+      assert subtype in ["vnd.api+json", "json"]
+      assert Jason.decode!(body)["errors"]["detail"] == "Forbidden"
     end
 
     @tag :web_ng_shared_fixture_db
