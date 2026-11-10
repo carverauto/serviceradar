@@ -10,7 +10,7 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorkerTest do
     test "derives the horizon from the published stream, output-grant and spool limits" do
       components = EdgeLedgerRetentionWorker.retention_components()
 
-      assert components.edge_record_stream_max_age_seconds == @day
+      assert components.edge_record_stream_max_age_seconds == 3 * @day
       assert components.output_grant_max_lifetime_seconds == 8 * @day + 300
       assert components.spool_retry_horizon_seconds == 30 * @day + 3_600 + 900
 
